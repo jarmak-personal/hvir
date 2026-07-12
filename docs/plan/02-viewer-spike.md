@@ -66,6 +66,15 @@ ends with an explicit go/no-go decision recorded in design.md.
       than stalling anything.
       → Files over 1 MiB bypass the highlighter; binary and >64 MiB files are guarded.
 
+### Layout controls
+- [x] Draggable dividers for the existing pane boundaries: resize the left file-tree
+      width and the viewer/terminal height, with sensible minimums, keyboard nudging,
+      and double-click reset. Keep sizes in memory for the spike; Phase 7 persists pane
+      layout per workspace, while Phase 8 owns creating multiple viewer/terminal splits.
+      → Pointer-captured dividers update CSS grid tracks without re-rendering pane
+      contents on every pixel. Arrow keys nudge by 16 px; drag sizes are clamped; reset
+      restores responsive defaults. The Electron smoke verifies both boundaries move.
+
 ### Spike evaluation
 - [ ] Measure and record in this doc: terminal input latency (feel test vs a native
       terminal), sustained-output rendering (e.g. `yes` / large build log), open a

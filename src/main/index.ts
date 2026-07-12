@@ -251,6 +251,39 @@ async function runSmoke(): Promise<number> {
       'tree/viewer/worker did not become ready',
     )) as string
     console.log(`[smoke] ProjectHost tree + CodeMirror/Shiki worker OK (${viewerStatus})`)
+
+    const resizeStatus = (await withTimeout(
+      win.webContents.executeJavaScript(`
+        new Promise((resolve, reject) => {
+          const tree = document.querySelector('.tree-panel');
+          const terminal = document.querySelector('.terminal-panel');
+          const treeDivider = document.querySelector('.tree-resizer');
+          const terminalDivider = document.querySelector('.terminal-resizer');
+          if (!tree || !terminal || !treeDivider || !terminalDivider) {
+            return reject(new Error('pane dividers missing'));
+          }
+          const treeBefore = tree.getBoundingClientRect().width;
+          const terminalBefore = terminal.getBoundingClientRect().height;
+          treeDivider.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+          terminalDivider.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true }));
+          requestAnimationFrame(() => requestAnimationFrame(() => {
+            const treeAfter = tree.getBoundingClientRect().width;
+            const terminalAfter = terminal.getBoundingClientRect().height;
+            if (treeAfter <= treeBefore || terminalAfter <= terminalBefore) {
+              return reject(new Error('pane keyboard resize did not change tracks'));
+            }
+            treeDivider.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+            terminalDivider.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+            resolve(
+              Math.round(treeBefore) + '→' + Math.round(treeAfter) + 'px tree; ' +
+              Math.round(terminalBefore) + '→' + Math.round(terminalAfter) + 'px terminal'
+            );
+          }));
+        })
+      `),
+      'pane resize controls did not respond',
+    )) as string
+    console.log(`[smoke] pane dividers OK (${resizeStatus})`)
     win.destroy()
 
     console.log('HVIR_SMOKE_OK')

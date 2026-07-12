@@ -30,9 +30,12 @@ button {
 }
 
 .workbench {
+  --tree-track: 238px;
+  --terminal-track: minmax(220px, 2fr);
+
   display: grid;
-  grid-template-columns: 238px minmax(0, 1fr);
-  grid-template-rows: minmax(260px, 3fr) minmax(220px, 2fr);
+  grid-template-columns: var(--tree-track) 5px minmax(0, 1fr);
+  grid-template-rows: minmax(260px, 3fr) 5px var(--terminal-track);
   width: 100%;
   height: 100%;
   background: #0f1115;
@@ -50,7 +53,6 @@ button {
 
 .terminal-panel {
   border-right: 0;
-  border-top: 1px solid #282d36;
 }
 
 .tree-panel {
@@ -59,14 +61,72 @@ button {
 }
 
 .viewer-panel {
-  grid-column: 2;
+  grid-column: 3;
   grid-row: 1;
   border-right: 0;
 }
 
 .terminal-panel {
+  grid-column: 3;
+  grid-row: 3;
+}
+
+.pane-resizer {
+  position: relative;
+  z-index: 5;
+  padding: 0;
+  border: 0;
+  outline: none;
+  background: #282d36;
+  touch-action: none;
+}
+
+.pane-resizer::after {
+  content: '';
+  position: absolute;
+  z-index: 1;
+  background: transparent;
+  transition: background 100ms ease;
+}
+
+.pane-resizer:hover::after,
+.pane-resizer:focus-visible::after,
+.pane-resizer.dragging::after {
+  background: #4d8fd8;
+}
+
+.tree-resizer {
   grid-column: 2;
+  grid-row: 1 / -1;
+  cursor: col-resize;
+}
+
+.tree-resizer::after {
+  inset: 0 -2px;
+}
+
+.terminal-resizer {
+  grid-column: 3;
   grid-row: 2;
+  cursor: row-resize;
+}
+
+.terminal-resizer::after {
+  inset: -2px 0;
+}
+
+body.pane-resizing {
+  user-select: none;
+}
+
+body.pane-resizing-column,
+body.pane-resizing-column * {
+  cursor: col-resize !important;
+}
+
+body.pane-resizing-row,
+body.pane-resizing-row * {
+  cursor: row-resize !important;
 }
 
 .panel-header {
@@ -209,6 +269,6 @@ button {
 
 @media (max-width: 1000px) {
   .workbench {
-    grid-template-columns: 210px minmax(280px, 1fr);
+    --tree-track: 210px;
   }
 }
