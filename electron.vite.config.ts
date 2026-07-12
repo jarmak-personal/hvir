@@ -31,6 +31,11 @@ export default defineConfig({
   },
   renderer: {
     root: 'src/renderer',
+    worker: {
+      // Shiki's fine-grained language imports are split into worker chunks;
+      // Rollup cannot represent that graph in the default IIFE worker format.
+      format: 'es',
+    },
     build: {
       rollupOptions: {
         input: {

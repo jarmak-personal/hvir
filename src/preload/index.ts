@@ -8,11 +8,17 @@
 import { contextBridge, ipcRenderer } from 'electron'
 
 import {
+  EVENT_CHANNELS,
   INVOKE_CHANNELS,
+  SEND_CHANNELS,
   type HvirApi,
+  type IpcEventChannel,
+  type IpcEventPayload,
   type IpcInvokeChannel,
   type IpcRequest,
   type IpcResponse,
+  type IpcSendChannel,
+  type IpcSendPayload,
 } from '../shared'
 
 const api: HvirApi = {
@@ -26,6 +32,27 @@ const api: HvirApi = {
       )
     }
     return ipcRenderer.invoke(channel, request) as Promise<IpcResponse<C>>
+  },
+  send<C extends IpcSendChannel>(channel: C, payload: IpcSendPayload<C>): void {
+    if (!SEND_CHANNELS.includes(channel)) {
+      throw new Error(`hvir: blocked non-contract IPC channel '${channel}'`)
+    }
+    ipcRenderer.send(channel, payload)
+  },
+  on<E extends IpcEventChannel>(
+    channel: E,
+    callback: (payload: IpcEventPayload<E>) => void,
+  ) {
+    if (!EVENT_CHANNELS.includes(channel)) {
+      throw new Error(`hvir: blocked non-contract IPC channel '${channel}'`)
+    }
+    const listener = (_event: Electron.IpcRendererEvent, payload: unknown): void => {
+      callback(payload as IpcEventPayload<E>)
+    }
+    ipcRenderer.on(channel, listener)
+    return () => {
+      ipcRenderer.off(channel, listener)
+    }
   },
 }
 
