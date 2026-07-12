@@ -6,8 +6,9 @@ A lightweight, view-first workbench for agentic development: a beautiful code + 
 explorer wrapped around the terminals where agents (Claude Code, Codex, …) do their
 work.
 
-> **Status: foundation only, not usable yet.** Phase 1 is implemented: the Electron
-> shell and core architecture seams run, but the viewer and terminal UI have not landed.
+> **Status: early prototype.** Phases 1–2 are complete: the Electron shell and core
+> seams run, with a lazy file tree, CodeMirror/Shiki viewer, and ghostty-web terminal.
+> Tabs, rendered view modes, SSH, git exploration, and multi-terminal UX come next.
 
 ## What / why
 
@@ -65,6 +66,10 @@ npm ci
 npm run verify
 npm run dev
 ```
+
+`npm ci` also downloads Electron's platform binary and rebuilds native dependencies
+for Electron's ABI. This explicit bootstrap is required by Electron 42+; if an existing
+checkout is missing the binary, repair it with `npm run install:runtime`.
 
 `npm run smoke` exercises the built Electron window, typed renderer IPC, utility process,
 and local host. On a headless Linux machine, run it as

@@ -6,7 +6,8 @@
  * native libghostty) lands in Phase 2. Because ghostty-web is xterm.js-API
  * compatible, this shape stays close to that mental model.
  *
- * Phase 1 ships the interface only — see the spike in `docs/plan/02-…`.
+ * Concrete engines implement this interface; the Phase 2 spike uses
+ * ghostty-web in `ghostty-terminal-pane.ts`.
  */
 
 import type { Disposer } from '../../../shared'
@@ -45,12 +46,4 @@ export interface TerminalPane {
   resize(cols: number, rows: number): void
   focus(): void
   readonly events: TerminalPaneEvents
-}
-
-/**
- * Placeholder until Phase 2. Throws on use so nothing silently depends on a
- * non-existent terminal engine.
- */
-export function createStubTerminalPane(): TerminalPane {
-  throw new Error('TerminalPane implementation lands in Phase 2 (ghostty-web spike)')
 }

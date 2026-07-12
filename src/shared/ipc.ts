@@ -8,6 +8,10 @@
  * adding an entry here first.
  */
 
+import type { Disposer } from './disposer'
+import type { DirEntry, WatchEvent } from './fs-types'
+import type { HostPath } from './host-path'
+
 /** Basic app/runtime info — the trivial round-trip that proves the contract. */
 export interface AppInfo {
   readonly appVersion: string
@@ -26,6 +30,38 @@ export interface EchoResponse {
   readonly workerPid: number
 }
 
+export interface ProjectRootResponse {
+  readonly root: HostPath
+}
+
+export interface ReadDirectoryRequest {
+  readonly path: HostPath
+}
+
+export interface ReadFileRequest {
+  readonly path: HostPath
+}
+
+export interface ReadFileResponse {
+  readonly path: HostPath
+  readonly content: string
+  readonly size: number
+  readonly mtimeMs: number
+  readonly binary: boolean
+}
+
+export interface StartPtyRequest {
+  readonly sessionId: string
+  readonly cwd: HostPath
+  readonly cols: number
+  readonly rows: number
+}
+
+export interface StartPtyResponse {
+  readonly id: string
+  readonly pid: number
+}
+
 /**
  * Request/response channels (renderer invokes, main handles). Add a channel by
  * adding a key here; `IpcInvokeChannel` and the preload bridge follow from it.
@@ -34,20 +70,36 @@ export interface IpcInvokeMap {
   'app:info': { request: void; response: AppInfo }
   /** Round-trips text through the echo utility process (renderer→main→worker). */
   'demo:echo': { request: EchoRequest; response: EchoResponse }
+  'project:root': { request: void; response: ProjectRootResponse }
+  'fs:readdir': { request: ReadDirectoryRequest; response: readonly DirEntry[] }
+  'fs:read': { request: ReadFileRequest; response: ReadFileResponse }
+  'pty:start': { request: StartPtyRequest; response: StartPtyResponse }
 }
 
 /**
- * Fire-and-forget push channels (main emits, renderer listens). Empty for
- * Phase 1 — notification dots, watch events, and PTY streams land here later.
+ * Fire-and-forget renderer -> main channels. PTY input uses this path so a
+ * round trip is never inserted into the typing hot path.
  */
-// eslint-disable-next-line @typescript-eslint/no-empty-object-type
-export interface IpcEventMap {}
+export interface IpcSendMap {
+  'pty:write': { readonly id: string; readonly data: string }
+  'pty:resize': { readonly id: string; readonly cols: number; readonly rows: number }
+  'pty:kill': { readonly id: string }
+}
+
+/** Main -> renderer push channels. */
+export interface IpcEventMap {
+  'project:watch': WatchEvent
+  'pty:data': { readonly id: string; readonly data: string }
+  'pty:exit': { readonly id: string; readonly exitCode: number; readonly signal?: number }
+}
 
 export type IpcInvokeChannel = keyof IpcInvokeMap
+export type IpcSendChannel = keyof IpcSendMap
 export type IpcEventChannel = keyof IpcEventMap
 
 export type IpcRequest<C extends IpcInvokeChannel> = IpcInvokeMap[C]['request']
 export type IpcResponse<C extends IpcInvokeChannel> = IpcInvokeMap[C]['response']
+export type IpcSendPayload<C extends IpcSendChannel> = IpcSendMap[C]
 export type IpcEventPayload<E extends IpcEventChannel> = IpcEventMap[E]
 
 /**
@@ -60,6 +112,11 @@ export interface HvirApi {
     channel: C,
     request: IpcRequest<C>,
   ): Promise<IpcResponse<C>>
+  send<C extends IpcSendChannel>(channel: C, payload: IpcSendPayload<C>): void
+  on<E extends IpcEventChannel>(
+    channel: E,
+    callback: (payload: IpcEventPayload<E>) => void,
+  ): Disposer
 }
 
 /**
@@ -69,7 +126,23 @@ export interface HvirApi {
 export const INVOKE_CHANNELS = [
   'app:info',
   'demo:echo',
+  'project:root',
+  'fs:readdir',
+  'fs:read',
+  'pty:start',
 ] as const satisfies readonly IpcInvokeChannel[]
+
+export const SEND_CHANNELS = [
+  'pty:write',
+  'pty:resize',
+  'pty:kill',
+] as const satisfies readonly IpcSendChannel[]
+
+export const EVENT_CHANNELS = [
+  'project:watch',
+  'pty:data',
+  'pty:exit',
+] as const satisfies readonly IpcEventChannel[]
 
 // Compile-time proof that INVOKE_CHANNELS stays in sync with IpcInvokeMap.
 type _AssertChannelsCover = IpcInvokeChannel extends (typeof INVOKE_CHANNELS)[number]
@@ -77,3 +150,15 @@ type _AssertChannelsCover = IpcInvokeChannel extends (typeof INVOKE_CHANNELS)[nu
   : ['INVOKE_CHANNELS is missing a channel declared in IpcInvokeMap']
 const _channelsCover: _AssertChannelsCover = true
 void _channelsCover
+
+type _AssertSendChannelsCover = IpcSendChannel extends (typeof SEND_CHANNELS)[number]
+  ? true
+  : ['SEND_CHANNELS is missing a channel declared in IpcSendMap']
+const _sendChannelsCover: _AssertSendChannelsCover = true
+void _sendChannelsCover
+
+type _AssertEventChannelsCover = IpcEventChannel extends (typeof EVENT_CHANNELS)[number]
+  ? true
+  : ['EVENT_CHANNELS is missing a channel declared in IpcEventMap']
+const _eventChannelsCover: _AssertEventChannelsCover = true
+void _eventChannelsCover

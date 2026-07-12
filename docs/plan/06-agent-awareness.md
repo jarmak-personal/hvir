@@ -30,6 +30,13 @@ you which agent wants you.
 - [ ] "New terminal" UX: plain shell by default; one-action launch of a harness
       (adapter list) in a chosen workspace.
 
+### Terminal lifecycle hardening
+- [ ] Make initial PTY output lossless: retain a small bounded replay buffer between
+      supervisor spawn and the renderer's first attach, then drain it in order. This
+      closes the Phase 2 attach-after-spawn microtask gap without unbounded scrollback.
+- [ ] Replace Phase 2's single-renderer `disposeAll` reload cleanup with explicit
+      webContents/window ownership per terminal before multiple terminals land.
+
 ### Auto-titles (§7)
 - [ ] Parse OSC 0/2 from the PTY stream (via `TerminalPane` events from Phase 2);
       right-rail terminal list shows live titles. Fallback title: adapter name + cwd.

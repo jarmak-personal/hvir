@@ -7,6 +7,8 @@
   "private": true,
   "main": "./out/main/index.js",
   "scripts": {
+    "postinstall": "npm run install:runtime",
+    "install:runtime": "install-electron --no && electron-builder install-app-deps",
     "dev": "electron-vite dev",
     "build": "npm run typecheck && electron-vite build",
     "build:dir": "npm run build && electron-builder --dir",
@@ -24,8 +26,12 @@
     "smoke": "electron-vite build && cross-env HVIR_SMOKE=1 electron . --no-sandbox"
   },
   "dependencies": {
+    "@codemirror/state": "^6.7.1",
+    "@codemirror/view": "^6.43.6",
     "chokidar": "^5.0.0",
-    "node-pty": "^1.1.0"
+    "ghostty-web": "^0.4.0",
+    "node-pty": "^1.1.0",
+    "shiki": "^4.3.1"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.0",

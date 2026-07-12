@@ -27,6 +27,10 @@ remote projects is the normal case, not a mode.
       failed) exposed as events; renderer shows it on the project.
 
 ### Behavior on top
+- [ ] Enforce registered-root confinement after canonicalization for every remote
+      filesystem operation and PTY cwd. Resolve symlinks (including parent components)
+      before authorization so a project-internal link cannot escape the root; define
+      and test the equivalent local behavior at the same trust boundary.
 - [ ] Remote PTYs through the supervisor: `spawnPty` runs the command in an exec
       channel with a PTY; resize propagates; `HarnessAdapter` commands compose (the
       supervisor runs `claude ...` on the host — the adapter doesn't know it's remote).

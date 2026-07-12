@@ -122,4 +122,28 @@ describe('LocalHost', () => {
     expect(added?.path.path.endsWith('watched.txt')).toBe(true)
     expect(added?.path.hostId).toBe(host.hostId)
   })
+
+  it(
+    'prunes excluded directory names from recursive watches',
+    { timeout: 10000 },
+    async () => {
+      const ignored = join(dir, 'node_modules')
+      const visible = join(dir, 'src')
+      await mkdir(ignored)
+      await mkdir(visible)
+      const events: WatchEvent[] = []
+      const stop = host.watch(localPath(dir), (event) => events.push(event), {
+        excludeDirectoryNames: ['node_modules'],
+      })
+      await delay(400)
+
+      await writeFile(join(ignored, 'ignored.js'), 'ignored')
+      await writeFile(join(visible, 'visible.js'), 'visible')
+      await waitFor(() => events.some((event) => event.path.path.endsWith('visible.js')))
+      await delay(200)
+      await stop()
+
+      expect(events.some((event) => event.path.path.includes('node_modules'))).toBe(false)
+    },
+  )
 })
