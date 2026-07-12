@@ -1,0 +1,15 @@
+import type { DiffBase, HostPath, ReadFileResponse, ViewMode } from '../../../shared'
+
+export interface ViewerTab {
+  readonly id: string
+  readonly path: HostPath
+  readonly pinned: boolean
+  readonly mode: ViewMode
+  readonly diffBase: DiffBase
+  readonly scrollTop: number
+  readonly file?: ReadFileResponse
+  readonly loading: boolean
+  readonly error?: string
+  readonly dirty: boolean
+  readonly conflict: boolean
+}

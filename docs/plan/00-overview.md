@@ -23,7 +23,7 @@ conflict, the design doc wins; if you must deviate, record why (see Ground rules
 |---|-------|-----|--------|
 | 1 | Scaffold & core seams | [01-scaffold-and-seams.md](01-scaffold-and-seams.md) | done |
 | 2 | Viewer spike (the risk) | [02-viewer-spike.md](02-viewer-spike.md) | done |
-| 3 | Tabs & view modes | [03-tabs-and-view-modes.md](03-tabs-and-view-modes.md) | not started |
+| 3 | Tabs & view modes | [03-tabs-and-view-modes.md](03-tabs-and-view-modes.md) | done |
 | 4 | SSH hosts | [04-ssh-hosts.md](04-ssh-hosts.md) | not started |
 | 5 | Git explorer | [05-git-explorer.md](05-git-explorer.md) | not started |
 | 6 | Agent awareness | [06-agent-awareness.md](06-agent-awareness.md) | not started |

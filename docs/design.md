@@ -166,6 +166,34 @@ the system must never feel smarter than the user.
 **Rejected:** separate preview commands/panes (VSCode's `Ctrl+Shift+V` friction); fully
 automatic mode switching with no visible, overridable control.
 
+#### Phase 3 addendum — 2026-07-12: preview security and diff semantics
+
+**HTML previews use a dedicated `hvir-preview:` protocol.** The protocol returns each
+document with a restrictive CSP response header, and the iframe has `sandbox="allow-scripts"`
+without `allow-same-origin`, navigation, popup, or form capabilities. The workbench CSP
+only permits the scheme as a frame source; it does not share a script nonce or relax its
+own `script-src`. Preview creation/release is typed IPC restricted to the workbench's main
+frame, and protocol documents are random-id, bounded, in-memory responses.
+
+**Why:** `srcdoc` inherits the embedding document's CSP. Letting arbitrary preview scripts
+run there required either weakening the workbench CSP or coupling both documents through a
+nonce; a static nonce provides no XSS defense, while meta-CSP injection can occur after
+attacker-controlled leading markup. A response header applies before any document bytes are
+parsed and keeps preview policy independent from workbench policy.
+
+**Rejected:** a static shared nonce (guessable, weakens workbench defense-in-depth); a
+runtime parent/child nonce (cross-document policy coupling and window lifecycle complexity);
+`file:` URLs (excess filesystem privilege and bypasses `ProjectHost`); meta-only CSP
+(ordering depends on hostile document markup).
+
+**Working-tree diff semantics:** the selector's working-tree view compares the git index
+(`git show :path`) on the left with the live working file on the right. The UI labels the
+left side **Index**. Comparing the working file with itself was rejected because it is a
+no-op; index → working tree is the useful unstaged-change interpretation of this selector.
+
+**Mode keybinding:** `Ctrl/Cmd+Shift+M` cycles modes. Events originating in the terminal
+pane are ignored so Linux terminal paste (`Ctrl+Shift+V`) and terminal input remain intact.
+
 ### ADR-008 — Workspaces: project → worktree tiers
 **Decision:** A two-tier model. The **project** (the main repo) is the *registration*
 unit — the thing you add to hvir. **Worktrees** are *discovered* children

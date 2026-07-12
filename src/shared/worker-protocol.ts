@@ -6,6 +6,9 @@
  * worker declares its own request/response map (see `EchoProtocol`).
  */
 
+import type { HostPath } from './host-path'
+import type { GitDiffRequest, GitDiffResponse } from './viewer-types'
+
 export interface WorkerRequest<T = unknown> {
   readonly id: number
   readonly type: string
@@ -39,4 +42,17 @@ export interface EchoResult {
 /** Compile-time contract spoken by the Phase 1 echo worker. */
 export interface EchoWorkerProtocol {
   readonly [ECHO_REQUEST_TYPE]: WorkerOperation<EchoPayload, EchoResult>
+}
+
+// --- Git worker (ADR-005/010) --------------------------------------------
+
+export const GIT_DIFF_INPUTS_TYPE = 'git:diff-inputs' as const
+
+export interface GitWorkerPayload extends GitDiffRequest {
+  /** Project confinement boundary, independently revalidated by the worker. */
+  readonly root: HostPath
+}
+
+export interface GitWorkerProtocol {
+  readonly [GIT_DIFF_INPUTS_TYPE]: WorkerOperation<GitWorkerPayload, GitDiffResponse>
 }

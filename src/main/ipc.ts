@@ -12,6 +12,8 @@ import {
   hostPath,
   type AppInfo,
   type EchoWorkerProtocol,
+  GIT_DIFF_INPUTS_TYPE,
+  type GitWorkerProtocol,
   type HostPath,
   type IpcEventChannel,
   type IpcEventPayload,
@@ -23,6 +25,7 @@ import {
 } from '../shared'
 import { plainShellAdapter } from './harness/harness-adapter'
 import type { ProjectHost } from './project-host'
+import type { HtmlPreviewProtocol } from './html-preview-protocol'
 import type { PtySupervisor } from './pty/pty-supervisor'
 import type { WorkerClient } from './worker-host'
 
@@ -31,13 +34,19 @@ type Handler<C extends IpcInvokeChannel> = (
 ) => IpcResponse<C> | Promise<IpcResponse<C>>
 
 function handle<C extends IpcInvokeChannel>(channel: C, handler: Handler<C>): void {
-  ipcMain.handle(channel, (_event, req: IpcRequest<C>) => handler(req))
+  ipcMain.handle(channel, (event, req: IpcRequest<C>) => {
+    assertMainFrame(event)
+    return handler(req)
+  })
 }
 
 type SendHandler<C extends IpcSendChannel> = (payload: IpcSendPayload<C>) => void
 
 function handleSend<C extends IpcSendChannel>(channel: C, handler: SendHandler<C>): void {
-  ipcMain.on(channel, (_event, payload: IpcSendPayload<C>) => handler(payload))
+  ipcMain.on(channel, (event, payload: IpcSendPayload<C>) => {
+    assertMainFrame(event)
+    handler(payload)
+  })
 }
 
 export type EmitRendererEvent = <E extends IpcEventChannel>(
@@ -47,9 +56,11 @@ export type EmitRendererEvent = <E extends IpcEventChannel>(
 
 export interface IpcDeps {
   readonly echoWorker: WorkerClient<EchoWorkerProtocol>
+  readonly gitWorker: WorkerClient<GitWorkerProtocol>
   readonly host: ProjectHost
   readonly root: HostPath
   readonly ptySupervisor: PtySupervisor
+  readonly htmlPreviews: HtmlPreviewProtocol
   readonly emit: EmitRendererEvent
 }
 
@@ -95,6 +106,27 @@ export function registerIpcHandlers(deps: IpcDeps): void {
     }
   })
 
+  handle('fs:write', async (req) => {
+    const path = projectPath(req.path, deps.root)
+    if (typeof req.content !== 'string') throw new Error('File content must be text')
+    const stat = await deps.host.stat(path)
+    if (stat.type !== 'file') throw new Error(`Not a regular file: ${path.path}`)
+    await deps.host.writeFile(path, req.content)
+    const written = await deps.host.stat(path)
+    return { path, size: written.size, mtimeMs: written.mtimeMs }
+  })
+
+  handle('git:diff-inputs', async (req) => {
+    const path = projectPath(req.path, deps.root)
+    return deps.gitWorker.request(GIT_DIFF_INPUTS_TYPE, {
+      path,
+      base: req.base,
+      root: deps.root,
+    })
+  })
+
+  handle('html-preview:create', (req) => deps.htmlPreviews.create(req.content))
+
   handle('pty:start', async (req) => {
     if (!/^[a-zA-Z0-9-]{1,80}$/.test(req.sessionId)) {
       throw new Error('Invalid PTY session id')
@@ -124,6 +156,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
   handleSend('pty:write', ({ id, data }) => {
     if (deps.ptySupervisor.get(id)) deps.ptySupervisor.write(id, data)
   })
+  handleSend('html-preview:release', ({ id }) => deps.htmlPreviews.release(id))
   handleSend('pty:resize', ({ id, cols, rows }) => {
     if (deps.ptySupervisor.get(id)) {
       deps.ptySupervisor.resize(id, terminalDimension(cols), terminalDimension(rows))
@@ -132,6 +165,14 @@ export function registerIpcHandlers(deps: IpcDeps): void {
   handleSend('pty:kill', ({ id }) => {
     if (deps.ptySupervisor.get(id)) deps.ptySupervisor.kill(id)
   })
+}
+
+function assertMainFrame(
+  event: Electron.IpcMainInvokeEvent | Electron.IpcMainEvent,
+): void {
+  if (!event.senderFrame || event.senderFrame !== event.sender.mainFrame) {
+    throw new Error('IPC is available only to the workbench main frame')
+  }
 }
 
 /** Rebuild the opaque path at the IPC trust boundary and keep it in-project. */

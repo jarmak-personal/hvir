@@ -11,14 +11,14 @@ interface FileTreeProps {
   readonly root: HostPath
   readonly refreshVersion: number
   readonly selected?: HostPath
-  readonly onSelect: (path: HostPath) => void
+  readonly onOpen: (path: HostPath, pinned: boolean) => void
 }
 
 export function FileTree({
   root,
   refreshVersion,
   selected,
-  onSelect,
+  onOpen,
 }: FileTreeProps): ReactElement {
   return (
     <section className="tree-panel" aria-label="Files">
@@ -34,7 +34,7 @@ export function FileTree({
           initiallyOpen
           refreshVersion={refreshVersion}
           selected={selected}
-          onSelect={onSelect}
+          onOpen={onOpen}
         />
       </div>
     </section>
@@ -48,7 +48,7 @@ interface DirectoryProps {
   readonly initiallyOpen?: boolean
   readonly refreshVersion: number
   readonly selected?: HostPath
-  readonly onSelect: (path: HostPath) => void
+  readonly onOpen: (path: HostPath, pinned: boolean) => void
 }
 
 function Directory({
@@ -58,7 +58,7 @@ function Directory({
   initiallyOpen = false,
   refreshVersion,
   selected,
-  onSelect,
+  onOpen,
 }: DirectoryProps): ReactElement {
   const [open, setOpen] = useState(initiallyOpen)
   const [entries, setEntries] = useState<readonly DirEntry[]>([])
@@ -123,7 +123,7 @@ function Directory({
                   depth={depth + 1}
                   refreshVersion={refreshVersion}
                   selected={selected}
-                  onSelect={onSelect}
+                  onOpen={onOpen}
                 />
               )
             }
@@ -134,7 +134,8 @@ function Directory({
                 key={`${child.hostId}:${child.path}`}
                 className={`tree-row file-row${isSelected ? ' selected' : ''}`}
                 style={{ paddingLeft: 24 + (depth + 1) * 14 }}
-                onClick={() => entry.type === 'file' && onSelect(child)}
+                onClick={() => entry.type === 'file' && onOpen(child, false)}
+                onDoubleClick={() => entry.type === 'file' && onOpen(child, true)}
                 disabled={entry.type !== 'file'}
                 title={child.path}
               >

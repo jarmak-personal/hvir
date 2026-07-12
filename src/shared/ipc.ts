@@ -11,6 +11,17 @@
 import type { Disposer } from './disposer'
 import type { DirEntry, WatchEvent } from './fs-types'
 import type { HostPath } from './host-path'
+import type {
+  CreateHtmlPreviewRequest,
+  CreateHtmlPreviewResponse,
+  ReleaseHtmlPreviewRequest,
+} from './html-preview'
+import type {
+  GitDiffRequest,
+  GitDiffResponse,
+  WriteFileRequest,
+  WriteFileResponse,
+} from './viewer-types'
 
 /** Basic app/runtime info — the trivial round-trip that proves the contract. */
 export interface AppInfo {
@@ -73,6 +84,12 @@ export interface IpcInvokeMap {
   'project:root': { request: void; response: ProjectRootResponse }
   'fs:readdir': { request: ReadDirectoryRequest; response: readonly DirEntry[] }
   'fs:read': { request: ReadFileRequest; response: ReadFileResponse }
+  'fs:write': { request: WriteFileRequest; response: WriteFileResponse }
+  'git:diff-inputs': { request: GitDiffRequest; response: GitDiffResponse }
+  'html-preview:create': {
+    request: CreateHtmlPreviewRequest
+    response: CreateHtmlPreviewResponse
+  }
   'pty:start': { request: StartPtyRequest; response: StartPtyResponse }
 }
 
@@ -81,6 +98,7 @@ export interface IpcInvokeMap {
  * round trip is never inserted into the typing hot path.
  */
 export interface IpcSendMap {
+  'html-preview:release': ReleaseHtmlPreviewRequest
   'pty:write': { readonly id: string; readonly data: string }
   'pty:resize': { readonly id: string; readonly cols: number; readonly rows: number }
   'pty:kill': { readonly id: string }
@@ -129,10 +147,14 @@ export const INVOKE_CHANNELS = [
   'project:root',
   'fs:readdir',
   'fs:read',
+  'fs:write',
+  'git:diff-inputs',
+  'html-preview:create',
   'pty:start',
 ] as const satisfies readonly IpcInvokeChannel[]
 
 export const SEND_CHANNELS = [
+  'html-preview:release',
   'pty:write',
   'pty:resize',
   'pty:kill',

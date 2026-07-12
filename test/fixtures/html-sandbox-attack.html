@@ -1,0 +1,30 @@
+<!doctype html>
+<script>
+  globalThis.preHeadRan = 'yes'
+</script>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>hvir HTML sandbox probe</title>
+  </head>
+  <body>
+    <h1>HTML sandbox probe</h1>
+    <script>
+      document.body.dataset.ran = 'yes'
+      document.body.dataset.node = typeof require === 'undefined' ? 'blocked' : 'leaked'
+      try {
+        top.location.href = 'https://example.com/hvir-top-navigation-escape'
+        document.body.dataset.navigation = 'leaked'
+      } catch {
+        document.body.dataset.navigation = 'blocked'
+      }
+      try {
+        document.body.dataset.popup = window.open('https://example.com/hvir-popup-escape')
+          ? 'leaked'
+          : 'blocked'
+      } catch {
+        document.body.dataset.popup = 'blocked'
+      }
+    </script>
+  </body>
+</html>
