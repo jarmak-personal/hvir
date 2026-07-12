@@ -66,6 +66,10 @@ npm run verify
 npm run dev
 ```
 
+`npm ci` also downloads Electron's platform binary and rebuilds native dependencies
+for Electron's ABI. This explicit bootstrap is required by Electron 42+; if an existing
+checkout is missing the binary, repair it with `npm run install:runtime`.
+
 `npm run smoke` exercises the built Electron window, typed renderer IPC, utility process,
 and local host. On a headless Linux machine, run it as
 `xvfb-run -a npm run smoke`.
