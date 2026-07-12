@@ -41,6 +41,10 @@ export interface ExecStreamHandle {
 
 export interface WatchOptions {
   readonly recursive?: boolean
+  /** Directory basenames to prune entirely from a recursive watch. */
+  readonly excludeDirectoryNames?: readonly string[]
+  /** Watch backends report asynchronous failures here instead of throwing. */
+  readonly onError?: (error: Error) => void
 }
 
 export interface SpawnPtyOptions {

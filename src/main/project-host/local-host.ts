@@ -13,6 +13,7 @@
 
 import { spawn } from 'node:child_process'
 import { promises as fsp } from 'node:fs'
+import { relative, sep } from 'node:path'
 import chokidar from 'chokidar'
 
 import { hostPath, LOCAL_HOST_ID } from '../../shared'
@@ -253,9 +254,17 @@ export class LocalHost implements ProjectHost {
     opts: WatchOptions = {},
   ): Disposer {
     const root = this.resolve(path)
+    const excludedNames = new Set(opts.excludeDirectoryNames ?? [])
     const watcher = chokidar.watch(root, {
       ignoreInitial: true,
       depth: opts.recursive === false ? 0 : undefined,
+      ignored:
+        excludedNames.size === 0
+          ? undefined
+          : (candidate) =>
+              relative(root, candidate)
+                .split(sep)
+                .some((part) => excludedNames.has(part)),
     })
 
     const emit =
@@ -269,6 +278,9 @@ export class LocalHost implements ProjectHost {
       .on('unlink', emit('unlink'))
       .on('addDir', emit('addDir'))
       .on('unlinkDir', emit('unlinkDir'))
+      .on('error', (error) =>
+        opts.onError?.(error instanceof Error ? error : new Error(String(error))),
+      )
 
     this.watchers.add(watcher)
     return async () => {

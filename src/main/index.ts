@@ -53,9 +53,13 @@ function createWindow(): BrowserWindow {
   // packaged build we load the built HTML from disk.
   const rendererUrl = process.env['ELECTRON_RENDERER_URL']
   if (rendererUrl) {
-    void win.loadURL(rendererUrl)
+    void win
+      .loadURL(rendererUrl)
+      .catch((error) => console.error('[window] failed to load renderer URL', error))
   } else {
-    void win.loadFile(join(__dirname, '../renderer/index.html'))
+    void win
+      .loadFile(join(__dirname, '../renderer/index.html'))
+      .catch((error) => console.error('[window] failed to load renderer file', error))
   }
 
   return win
@@ -102,7 +106,11 @@ async function startup(): Promise<void> {
         pendingWatchEvent = undefined
       }, 100)
     },
-    { recursive: true },
+    {
+      recursive: true,
+      excludeDirectoryNames: ['.git', 'node_modules', 'out', 'dist'],
+      onError: (error) => console.error('[watch] project watcher failed', error),
+    },
   )
   disposeWatch = () => {
     if (watchTimer) clearTimeout(watchTimer)
@@ -275,14 +283,20 @@ async function withTimeout<T>(
   }
 }
 
-void app.whenReady().then(async () => {
-  if (process.env['HVIR_SMOKE']) {
-    const code = await runSmoke()
-    app.exit(code)
-    return
-  }
-  await startup()
-})
+void app
+  .whenReady()
+  .then(async () => {
+    if (process.env['HVIR_SMOKE']) {
+      const code = await runSmoke()
+      app.exit(code)
+      return
+    }
+    await startup()
+  })
+  .catch((error: unknown) => {
+    console.error('HVIR_STARTUP_FAIL', error)
+    app.exit(1)
+  })
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit()
