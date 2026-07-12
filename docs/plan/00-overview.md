@@ -21,7 +21,7 @@ conflict, the design doc wins; if you must deviate, record why (see Ground rules
 
 | # | Phase | Doc | Status |
 |---|-------|-----|--------|
-| 1 | Scaffold & core seams | [01-scaffold-and-seams.md](01-scaffold-and-seams.md) | not started |
+| 1 | Scaffold & core seams | [01-scaffold-and-seams.md](01-scaffold-and-seams.md) | done |
 | 2 | Viewer spike (the risk) | [02-viewer-spike.md](02-viewer-spike.md) | not started |
 | 3 | Tabs & view modes | [03-tabs-and-view-modes.md](03-tabs-and-view-modes.md) | not started |
 | 4 | SSH hosts | [04-ssh-hosts.md](04-ssh-hosts.md) | not started |

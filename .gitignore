@@ -1,0 +1,19 @@
+# dependencies
+node_modules
+
+# build output
+out
+dist
+
+# logs
+*.log
+npm-debug.log*
+
+# editor / OS
+.DS_Store
+.vscode/*
+!.vscode/extensions.json
+*.local
+
+# vitest / coverage
+coverage

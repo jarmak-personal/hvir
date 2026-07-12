@@ -1,0 +1,87 @@
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+
+import { LocalHost } from '../src/main/project-host/local-host'
+import { asHostId, hostPath, localPath, type WatchEvent } from '../src/shared'
+
+const delay = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms))
+
+async function waitFor(pred: () => boolean, timeoutMs = 4000): Promise<void> {
+  const start = Date.now()
+  while (!pred()) {
+    if (Date.now() - start > timeoutMs) throw new Error('waitFor timed out')
+    await delay(50)
+  }
+}
+
+describe('LocalHost', () => {
+  let dir: string
+  let host: LocalHost
+
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), 'hvir-test-'))
+    host = new LocalHost()
+    await host.connect()
+  })
+
+  afterEach(async () => {
+    await host.dispose()
+    await rm(dir, { recursive: true, force: true })
+  })
+
+  it('writes then reads a file, host-qualified', async () => {
+    const p = localPath(join(dir, 'hello.txt'))
+    await host.writeFile(p, 'hi there')
+    expect(await host.readTextFile(p)).toBe('hi there')
+    expect((await host.readFile(p)).toString('utf8')).toBe('hi there')
+  })
+
+  it('lists directory entries with types', async () => {
+    await writeFile(join(dir, 'a.txt'), 'a')
+    await mkdir(join(dir, 'sub'))
+    const entries = await host.readdir(localPath(dir))
+    const byName = Object.fromEntries(entries.map((e) => [e.name, e.type]))
+    expect(byName['a.txt']).toBe('file')
+    expect(byName['sub']).toBe('dir')
+  })
+
+  it('stats a file', async () => {
+    const p = localPath(join(dir, 's.txt'))
+    await host.writeFile(p, 'abc')
+    const s = await host.stat(p)
+    expect(s.type).toBe('file')
+    expect(s.size).toBe(3)
+    expect(typeof s.mtimeMs).toBe('number')
+  })
+
+  it('execs a command and captures stdout', async () => {
+    const r = await host.exec('/bin/echo', ['hello'])
+    expect(r.code).toBe(0)
+    expect(r.stdout.trim()).toBe('hello')
+    expect(r.stderr).toBe('')
+  })
+
+  it('feeds stdin to an exec', async () => {
+    const r = await host.exec('cat', [], { input: 'piped-input' })
+    expect(r.stdout).toBe('piped-input')
+  })
+
+  it('rejects a path belonging to a foreign host', async () => {
+    const foreign = hostPath(asHostId('remote'), '/x')
+    await expect(host.stat(foreign)).rejects.toThrow(/host 'remote'/)
+  })
+
+  it('emits watch events on file creation', { timeout: 10000 }, async () => {
+    const events: WatchEvent[] = []
+    const stop = host.watch(localPath(dir), (e) => events.push(e))
+    await delay(400) // let chokidar finish its initial scan
+    await writeFile(join(dir, 'watched.txt'), 'v1')
+    await waitFor(() => events.some((e) => e.type === 'add'))
+    await stop()
+    const added = events.find((e) => e.type === 'add')
+    expect(added?.path.path.endsWith('watched.txt')).toBe(true)
+    expect(added?.path.hostId).toBe(host.hostId)
+  })
+})
