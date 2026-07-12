@@ -304,6 +304,10 @@ worktree = a place an agent is working, with notification rollups at each tier.
 
 ## 8. MVP path
 
+> **Plan of Record:** this path is broken into executable phases with task checklists in
+> [`docs/plan/`](plan/00-overview.md). The plan implements this document; this document
+> stays authoritative.
+
 1. **Spike (the risk):** Electron + React shell → one file tree + one CodeMirror/Shiki
    viewer + **one ghostty-web terminal pane.** Acceptance = terminal feels good, renders
    fast, UI never stalls.

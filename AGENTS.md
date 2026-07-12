@@ -19,6 +19,10 @@ between them.
 philosophy, the ADRs (with rejected alternatives), the architecture, and the one real
 technical risk (Ghostty embedding).
 
+**Implementation work follows the Plan of Record in [`docs/plan/`](docs/plan/00-overview.md)**
+— start at `00-overview.md`, pick the first unfinished phase, and check off tasks as you
+complete them.
+
 ## Hard constraints (do not violate without explicit sign-off)
 
 - **No real editing.** "Minor edit + save" only. No LSP, debugger, refactors, extension
