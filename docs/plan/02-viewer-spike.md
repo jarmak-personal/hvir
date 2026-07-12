@@ -76,6 +76,17 @@ ends with an explicit go/no-go decision recorded in design.md.
       restores responsive defaults. The Electron smoke verifies both boundaries move.
 
 ### Spike evaluation
+
+**Exploratory macOS pass (2026-07-12, MacBook Air):** terminal typing latency felt
+good in normal Codex use; repeated file switching and fresh opens did not reproduce one
+earlier JSON-open hitch (the machine was mildly low on battery when it occurred).
+Divider dragging stayed responsive and the Codex TUI resized, but once its input row
+disappeared visually after a resize while remaining interactive; pressing Enter caused
+it to redraw. Keep this as an unresolved Ghostty/PTY/TUI resize observation and try to
+reproduce it with Codex plus another full-screen TUI. A Codex-created directory and ten
+new files appeared in the tree immediately with no visible watcher hitch. Dark-theme
+visual tuning was noted and intentionally deferred to Phase 8 polish.
+
 - [ ] Measure and record in this doc: terminal input latency (feel test vs a native
       terminal), sustained-output rendering (e.g. `yes` / large build log), open a
       ~5 MB file, interact with the terminal while the tree watches a churning repo.
