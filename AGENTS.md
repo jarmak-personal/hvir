@@ -30,13 +30,29 @@ technical risk (Ghostty embedding).
   count — Electron's RAM cost is accepted deliberately).
 - **The terminal is a swappable pane, not the foundation.** Keep it behind the
   `TerminalPane` interface. Never bet the project on an unstable libghostty API.
+- **Respect the seams.** All PTY spawning goes through the **PTY supervisor**; all
+  harness-specific behavior (launch flags, resume commands, title conventions) stays
+  behind **`HarnessAdapter`**; the terminal stays behind **`TerminalPane`**; every
+  filesystem/git/PTY/watch operation goes through **`ProjectHost`**
+  (`LocalHost`/`SshHost`). Harness quirks never leak past their adapter.
+  (ADR-003, ADR-006, ADR-010)
+- **Every path is host-qualified.** Paths are `(host, path)` pairs everywhere — no bare
+  string paths, even in local-only code. Projects live on hosts; local is just the
+  default host. (ADR-010)
+- **Smart defaults, exposed controls.** View modes (rendered/source/diff per tab) and
+  notifications (focus clears, parents aggregate) follow fixed, visible rules — no
+  hidden magic, no special-casing. (ADR-007, ADR-009)
 
 ## Stack (see ADRs in design.md)
 
 - **Shell:** Electron + electron-vite
 - **Render layer:** React
 - **Code viewer:** CodeMirror 6 + Shiki (Monaco fallback)
+- **Git engine:** system `git` binary, off-thread (ADR-005)
 - **Terminals:** ghostty-web → libghostty (swappable)
+- **Session recovery:** harness resume with pre-assigned session ids, no daemon (ADR-006)
+- **Workspaces:** project (registered) → worktrees (discovered) (ADR-008)
+- **Remote projects:** SSH via `ssh2` behind `ProjectHost`; no remote server (ADR-010)
 - **Targets:** Linux (primary), modern macOS (primary). Windows only if incidental.
 
 ## Conventions

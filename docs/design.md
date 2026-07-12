@@ -99,6 +99,107 @@ CodeMirror 6 is lighter than Monaco and its read-first posture fits us. Monaco r
 fallback if we want VSCode's exact editor feel.
 **Revisit if:** we need Monaco's exact behaviors for the "minor edit" path.
 
+### ADR-005 — Git engine: shell out to system git
+**Decision:** Use the system `git` binary (via `simple-git` or thin wrappers) as the only
+git engine, run in a utility process.
+**Why:** Anyone using this tool has git installed by definition. It's what VSCode does,
+it's always correct — including worktrees, which are our workspace unit (ADR-008) — and
+we buy performance back through the off-thread boundary, not the engine.
+**Rejected:** isomorphic-git (weak worktree support and slow on large repos — a landmine
+given ADR-008); libgit2 bindings (native build complexity for marginal gain).
+**Revisit if:** history browsing measurably lags on big repos.
+
+### ADR-006 — Session recovery: harness resume, not a daemon
+**Decision:** Recover agent sessions through the harness's own persistence
+(`claude --resume`, `codex resume`), not by keeping PTYs alive in a daemon. hvir
+generates a session UUID at launch and passes it in (`claude --session-id <uuid>`), so
+resume is deterministic — no scraping or guessing. Two seams keep this evolvable:
+1. All PTY spawning goes through one narrow **PTY supervisor** module, so a daemon could
+   replace it out-of-process later without touching the UI.
+2. Harness-specific behavior (launch flags, resume commands, title conventions) lives
+   behind a **`HarnessAdapter`** interface, mirroring `TerminalPane`. Harness quirks
+   never leak past it.
+
+**Why:** The thing worth preserving isn't the PTY — it's the conversation state, and the
+harnesses already persist that on disk for free. What resume loses vs a daemon
+(scrollback, plain non-harness shells, mid-turn work) is acceptable for the rare
+"hvir restarted" event.
+**Rejected:** a PTY daemon (real complexity for a rare event; *deferred, not foreclosed* —
+the supervisor seam keeps the door open); tmux control mode (we'd be rendering tmux's
+view of the terminal, fighting the entire Ghostty investment).
+
+### ADR-007 — Per-tab view mode: rendered / source / diff
+**Decision:** Every viewer tab has a single three-state **view mode** — *rendered /
+source / diff* — with a visible segmented control and one keybinding that cycles it.
+The **default** is inferred: markdown, mermaid, and HTML open rendered ("this is an md,
+render it" — never a "preview" verb, never leaving hvir); a file opened from the git
+panel opens in diff mode; from the file tree, source (or rendered). But the mode is
+always one keystroke away, always visible, and sticky per tab. Diff mode gets its own
+small **base selector**: working tree vs HEAD vs branch-point — branch-point being the
+"what did the agent do on this worktree" view.
+**Why:** This is what "renders beautifully" actually means: *the right renderer,
+automatically, with zero friction* — not visual noise. And it unifies rendering with
+file⇄diff swapping into one model. Defaults are smart; controls are always exposed —
+the system must never feel smarter than the user.
+**Rejected:** separate preview commands/panes (VSCode's `Ctrl+Shift+V` friction); fully
+automatic mode switching with no visible, overridable control.
+
+### ADR-008 — Workspaces: project → worktree tiers
+**Decision:** A two-tier model. The **project** (the main repo) is the *registration*
+unit — the thing you add to hvir. **Worktrees** are *discovered* children
+(`git worktree list`), each one a workspace. The tier collapses when trivial — a project
+with only its main checkout shows no worktree layer — and a plain non-git directory is a
+degenerate single-workspace project, so the model has no special cases.
+**Why:** The project boundary is the one harnesses care about (CLAUDE.md, config, trust
+are project-scoped). It gives notifications a natural rollup path (terminal → worktree →
+project). And because worktrees are *discovered, never managed*, hvir stays out of
+worktree lifecycle entirely — protecting the "not an orchestrator" non-goal (§2). New
+agent workspaces simply appear.
+**Rejected:** flat workspace-per-directory (loses the project boundary); hvir-managed
+worktree creation/cleanup (one step from branch naming and merge-back — orchestration
+creep).
+
+### ADR-009 — Notifications: focus clears, parents aggregate
+**Decision:** One rule, no special cases: **a dot is cleared by focusing the thing that
+raised it; parents only aggregate their children's unseen dots.** No dot on the terminal
+you're currently focused in (focused = seen). The active project tab *can* still show a
+dot when a non-focused terminal inside it raises one — that's signal, not noise (you're
+reading a diff in workspace A while terminal 3 finishes).
+**Signals, in order of value:**
+1. **Idle-after-burst** — no PTY output for N seconds following a burst: "the agent
+   stopped and is waiting for me." The signal the user actually wants.
+2. **Bell** (OSC 9 / BEL) — explicit, but depends on the user's harness settings; never
+   the only channel.
+3. **New output since last focus** — ambient; near-permanently lit for streaming agents,
+   so lowest visual priority.
+
+**Rejected:** suppressing rollups on the active parent ("you're already here") —
+special-casing is exactly where the system starts feeling smarter than the user.
+
+### ADR-010 — Remote projects: `ProjectHost` seam, host-qualified paths, no remote server
+**Decision:** Every project (ADR-008) is registered *on a host*. All filesystem, git,
+PTY, and watch operations go through a **`ProjectHost`** interface — `exec`, `spawnPty`,
+`read`/`write`/`list`, `watch` — with two implementations: **`LocalHost`** (the default;
+local projects are just the degenerate case) and **`SshHost`** (`ssh2`: exec channels +
+SFTP). From day one, every path in the codebase is a **`(host, path)` pair** — no bare
+string paths anywhere, even while only `LocalHost` exists. A mixed projects bar (local,
+sshmachine1, sshmachine2) is the normal case, not a mode.
+**Why:** hvir has no extension host, LSP, or debugger — the things that force VSCode to
+install `vscode-server` — so remote support is *transport, not a server*. ADR-005 and
+ADR-006 already made the expensive parts transport-agnostic: system git becomes
+`ssh host git -C <path> ...`, the PTY supervisor spawns `ssh -t`, and `HarnessAdapter`
+resume works unchanged. Rendering/tokenizing run locally on fetched bytes, so per §3.2
+remote latency degrades *freshness*, never *responsiveness*. The one thing that cannot
+be retrofitted cheaply is path handling — hence host-qualified paths now, SSH
+implementation as an early milestone (§8), not a v2 wish.
+**Watching:** polling first (open tabs + git status only — hvir's watch needs are
+modest); optionally stream `inotifywait -rm` over an exec channel where the host has it.
+Never a persistent installed remote agent.
+**Rejected:** a vscode-server-style remote daemon (heavy machinery hvir doesn't need);
+SSHFS/FUSE mounts (system dependency, poor watch semantics, and they hide remoteness
+from git and PTYs); local-only v1 with bare string paths (the retrofit touches
+everything).
+
 ---
 
 ## 5. Architecture
@@ -124,6 +225,10 @@ fallback if we want VSCode's exact editor feel.
 
 The rule from §3.2: if it can stall, it does not live in the renderer.
 
+The `ProjectHost` boundary (ADR-010) lives in the utility layer: the git engine, file
+watcher, and PTY supervisor all talk to a `LocalHost` or `SshHost`, never to the
+filesystem directly.
+
 ### Component map
 | Area | Choice | Notes |
 |---|---|---|
@@ -131,12 +236,15 @@ The rule from §3.2: if it can stall, it does not live in the renderer.
 | Render layer | React | ADR-002 |
 | Code viewer | CodeMirror 6 | read-first; Monaco fallback |
 | Syntax highlight | Shiki | the "beautiful" payoff |
-| Markdown render | markdown-it + Shiki | auto-render on open |
-| HTML render | webview / iframe (sandboxed) | auto-render on open |
-| File tree | custom tree + chokidar watcher | watcher off-thread |
-| Git explorer | isomorphic-git or simple-git / libgit2 | history, diff, blame |
+| View modes | rendered / source / diff per tab | ADR-007 |
+| Markdown render | markdown-it + Shiki | rendered by default (ADR-007) |
+| HTML render | webview / iframe (sandboxed) | **security req:** no node integration, strict CSP, block navigation |
+| File tree | custom tree + chokidar watcher | watcher off-thread; open tabs live-reload on external change |
+| Git engine | system `git` binary (simple-git / thin wrapper) | ADR-005; off-thread |
 | Terminals | ghostty-web → libghostty | ADR-003, swappable |
-| PTY | node-pty (or ghostty-web's own) | spawned off-renderer |
+| PTY | node-pty behind the **PTY supervisor** | spawned off-renderer; ADR-006 |
+| Session recovery | harness resume via **`HarnessAdapter`** | ADR-006 |
+| Remote projects | **`ProjectHost`**: `LocalHost` / `SshHost` (`ssh2`) | ADR-010; every path is `(host, path)` |
 
 ---
 
@@ -169,18 +277,28 @@ everything else is assembly of known parts.
 
 ### Auto-titled terminals
 Terminals already emit OSC 0/2 title sequences, and CC/Codex set them. We read those and
-label the right-rail terminal list automatically — no manual naming.
+label the right-rail terminal list automatically — no manual naming. (Title conventions
+live in `HarnessAdapter` — ADR-006.)
 
 ### Notification dots
-Raise a color dot on a terminal when it wants attention:
-- **Bell** (OSC 9 / BEL) — the explicit "I need you" signal.
-- **New output since last focus** — the ambient "something happened here."
-Roll dots up per-workspace into the top "Workspaces" bar.
+Raise a color dot on a terminal when it wants attention. Signals and the
+focus-clears/parents-aggregate rule are ADR-009; the headline signal is
+**idle-after-burst** — "the agent stopped and is waiting for me" — with bell and
+new-output as secondary channels. Dots roll up terminal → worktree → project (ADR-008).
+
+### Session recovery
+Close hvir mid-run and nothing is lost: sessions resume deterministically through the
+harness's own persistence (`--session-id` at launch → `--resume` on restart). ADR-006.
+
+### The "what did the agent change" view
+History/blame is table stakes; the killer view is the **working-tree and branch-point
+diff** — what changed since I last looked, per worktree, one keystroke from the file
+view (ADR-007). Changed-file counts roll up alongside notification dots.
 
 ### Workspaces
-First-class multiple directories, without VSCode's multi-root heaviness. **Git worktrees
-are the natural unit** — a workspace = a worktree = a place an agent is working — with
-per-workspace notification rollups.
+First-class multiple directories, without VSCode's multi-root heaviness. Two tiers:
+**project** (registered) → **worktrees** (discovered), per ADR-008 — a workspace = a
+worktree = a place an agent is working, with notification rollups at each tier.
 
 ---
 
@@ -189,11 +307,16 @@ per-workspace notification rollups.
 1. **Spike (the risk):** Electron + React shell → one file tree + one CodeMirror/Shiki
    viewer + **one ghostty-web terminal pane.** Acceptance = terminal feels good, renders
    fast, UI never stalls.
-2. **Tabs** — VSCode-style tabbed viewer.
-3. **Git explorer** — history, diff, blame (off-thread engine).
-4. **Notification + auto-title system** — §7.
-5. **Workspaces** — multi-dir / worktree model + rollups.
-6. **Polish** — markdown/HTML auto-render, themes, side-by-side panes.
+2. **Tabs + view modes** — VSCode-style tabbed viewer with the rendered/source/diff
+   mode control (ADR-007); open tabs live-reload when agents edit files underneath.
+3. **SSH hosts** — remote terminals, browse/read/save, remote git, all through
+   `ProjectHost` (ADR-010). Polling watcher to start; reconnect + auth UX.
+4. **Git explorer** — working-tree and branch-point diffs first (the "what did the
+   agent change" view), then history/blame. System git, off-thread (ADR-005).
+5. **Notification + auto-title system** — §7, ADR-009; `HarnessAdapter` +
+   session recovery (ADR-006).
+6. **Workspaces** — project → worktree model + rollups (ADR-008).
+7. **Polish** — themes, side-by-side panes, mermaid/JSON renderers.
 
 *(v2 parking lot: harness viewer side tab — tokens, usage, skills, MCPs.)*
 
@@ -202,11 +325,19 @@ per-workspace notification rollups.
 ## 9. Open questions
 
 - Native libghostty vs ghostty-web for v1 — decide after the spike.
-- Git engine: JS (isomorphic-git, portable) vs native libgit2 binding (faster on big
-  repos)? Lean native behind the off-thread boundary if history browsing feels slow.
 - How much of the "minor edit" path do we actually need in v1 — save-in-place only, or
   also basic multi-file find/replace? Keep minimal.
 - macOS vs Linux terminal-embed parity — track the embedded apprt Linux work.
+- Idle-after-burst threshold (ADR-009) — fixed N seconds, or tuned per harness via
+  `HarnessAdapter`?
+- Session-id flags per harness (`claude --session-id` etc.) — verify exact CLI surface
+  for each supported harness when building `HarnessAdapter`.
+- Remote terminal survivability across SSH drops (drops are common; hvir restarts are
+  rare) — optional `dtach`/`abduco` wrapper on the remote end? Unlike tmux they're
+  transparent proxies with no rendering layer, so Ghostty still renders the harness
+  directly. Interacts with ADR-006 resume.
+- Remote watch strategy per host — polling vs `inotifywait` stream; capability-detect
+  at connect time?
 
 ---
 
