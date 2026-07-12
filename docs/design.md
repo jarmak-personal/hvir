@@ -87,10 +87,32 @@ hand-rolling; the paint-never-blocks discipline matters more than the framework'
 reactivity cost).
 
 ### ADR-003 — Terminal is a swappable pane, not the foundation
-**Decision:** Define a `TerminalPane` interface. Ship on `ghostty-web` (Ghostty's VT
-engine, xterm.js-compatible API) or `electron-libghostty`. Swap to the full native
-libghostty widget as it stabilizes on Linux.
+**Decision:** Define a `TerminalPane` interface. Ship v1 on `ghostty-web` (Ghostty's VT
+engine behind an xterm.js-shaped API), retaining plain xterm.js as the compatible
+fallback. Revisit the full native libghostty widget as its versioned embedding API
+stabilizes on Linux.
 **Why:** Ghostty embedding is real but still moving — see §6.
+
+#### Phase 2 addendum — 2026-07-12: GO on ghostty-web for v1
+
+The viewer spike retires the immediate embedding risk: `ghostty-web@0.4.0` loads under
+Electron's production CSP, renders a real `node-pty` shell, propagates input and resize,
+and surfaces title/bell/OSC events behind `TerminalPane`. The production Electron smoke
+passes on Linux and covers the real WASM engine, PTY, lazy tree, worker-highlighted
+CodeMirror viewer, pane resizing, and PTY cleanup. A manual macOS pass on a MacBook Air
+found normal Codex use responsive, divider dragging smooth, and watcher updates for a
+new directory plus ten files immediate. One JSON-open hitch did not reproduce across
+repeated fresh opens.
+
+One Codex resize briefly hid its input row until Enter forced a redraw. PTY resize is
+now trailing-debounced by 75 ms; keep the observation open for cross-TUI testing, but it
+does not block v1. The scripted all-at-once sustained-output/5 MiB/watcher matrix was not
+run; the product owner explicitly accepted the phase on the exploratory evidence above.
+
+**Outcome:** ship v1 with `ghostty-web` behind `TerminalPane`. Do not take a native
+libghostty dependency yet; `electron-libghostty@0.0.0` contains no usable implementation,
+and upstream libghostty remains unversioned. Fall back to `@xterm/xterm` if later load
+testing exposes a blocker, without changing code above the pane seam.
 
 ### ADR-004 — Code viewer: CodeMirror 6 + Shiki
 **Decision:** CodeMirror 6 for the view surface, Shiki for highlighting.
@@ -264,19 +286,19 @@ filesystem directly.
 
 ---
 
-## 6. The terminal risk (most important open item)
+## 6. The terminal risk (resolved for v1)
 
-Embedding *Ghostty specifically* is the one load-bearing unknown.
+Embedding *Ghostty specifically* was the founding design's one load-bearing unknown.
+Phase 2 resolved the v1 delivery path; native embedding remains a future upgrade:
 
-- **Officially**, `libghostty` today is `libghostty-vt` — the VT parser/state engine only.
-  The full "give us a surface, we render + handle input" widget is roadmapped but not the
-  stable tagged API yet.
-- **In practice**, full-terminal embeds exist and work: `electron-libghostty` (our target
-  pattern), `ghostty-web` (Ghostty's VT engine, xterm.js-compatible API, in a webview),
-  plus Avalonia/.NET, JavaFX, Godot embeds.
-- **Caveat:** the embedded app-runtime started macOS-first; **Linux support is still
-  landing** — and Linux is our primary target. Do not assume the full native embed is
-  turnkey on Linux yet.
+- **Native libghostty** is usable but remains unversioned, with API signatures and the
+  embedding surface still moving; taking it directly would add native renderer and
+  packaging work on both primary platforms.
+- **`electron-libghostty`** is not a viable package today: its `0.0.0` tarball contains
+  only package metadata and no implementation.
+- **`ghostty-web`** is maintained, carries Ghostty's VT engine as WASM, and provides the
+  xterm-shaped browser surface the Electron renderer needs. Phase 2 verified it on
+  Linux and macOS.
 
 **Mitigation (ADR-003):** the terminal is behind a `TerminalPane` interface. Because
 `ghostty-web` is xterm.js-API-compatible, we inherit the entire mature xterm.js ecosystem
@@ -284,8 +306,8 @@ Embedding *Ghostty specifically* is the one load-bearing unknown.
 the full native libghostty widget when Linux embedding matures. The project never bets on
 an unstable API.
 
-**Spike acceptance test:** one `ghostty-web` pane that feels good and renders fast. If yes,
-everything else is assembly of known parts.
+**Spike result:** accepted 2026-07-12; `ghostty-web` is the v1 engine. See the ADR-003
+Phase 2 addendum for evidence and retained caveats.
 
 ---
 
@@ -344,7 +366,6 @@ worktree = a place an agent is working, with notification rollups at each tier.
 
 ## 9. Open questions
 
-- Native libghostty vs ghostty-web for v1 — decide after the spike.
 - How much of the "minor edit" path do we actually need in v1 — save-in-place only, or
   also basic multi-file find/replace? Keep minimal.
 - macOS vs Linux terminal-embed parity — track the embedded apprt Linux work.

@@ -87,20 +87,30 @@ reproduce it with Codex plus another full-screen TUI. A Codex-created directory 
 new files appeared in the tree immediately with no visible watcher hitch. Dark-theme
 visual tuning was noted and intentionally deferred to Phase 8 polish.
 
-- [ ] Measure and record in this doc: terminal input latency (feel test vs a native
+- [x] Measure and record in this doc: terminal input latency (feel test vs a native
       terminal), sustained-output rendering (e.g. `yes` / large build log), open a
       ~5 MB file, interact with the terminal while the tree watches a churning repo.
-- [ ] **Go/no-go**: record the engine decision and evidence as an addendum to ADR-003
+      → **Accepted by explicit product-owner sign-off on 2026-07-12.** The scripted
+      combined-load matrix was not run; the exploratory macOS evidence above plus the
+      Linux production smoke were accepted in its place. This is a transparent waiver,
+      not a claim that the omitted matrix ran.
+- [x] **Go/no-go**: record the engine decision and evidence as an addendum to ADR-003
       in design.md (resolves the "native libghostty vs ghostty-web" open question, §9).
+      → **GO:** ship `ghostty-web` for v1 behind `TerminalPane`; retain xterm.js as the
+      compatible fallback and defer native libghostty until its embedding API matures.
 
 ## Acceptance criteria
-- [ ] Terminal passes the feel test: typing latency indistinguishable from a native
+- [x] Terminal passes the feel test: typing latency indistinguishable from a native
       terminal in normal use; no dropped rendering during sustained output.
-- [ ] Renderer never blocks: UI interactions stay instant during large-file open,
+      → Manually accepted after responsive real Codex use on macOS; the scripted
+      sustained-output portion was waived as recorded above.
+- [x] Renderer never blocks: UI interactions stay instant during large-file open,
       heavy terminal output, and watcher churn — all three at once.
+      → Manually accepted from responsive file switching, divider interaction, and
+      instant discovery of agent-created files; the formal simultaneous run was waived.
 - [x] Tree, viewer, and terminal all speak only to `ProjectHost` / PTY supervisor /
       `TerminalPane` — verified by the Phase 1 lint rules still passing.
-- [ ] ADR-003 addendum committed; status table updated.
+- [x] ADR-003 addendum committed; status table updated.
 
 ## Non-goals
 Tabs, view modes, editing, markdown rendering (Phase 3). Multiple terminals, titles UI,
