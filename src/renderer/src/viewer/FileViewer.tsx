@@ -73,8 +73,16 @@ export function FileViewer({ file, loading, error }: FileViewerProps): ReactElem
   const [highlightStatus, setHighlightStatus] = useState('')
 
   useEffect(() => {
+    if (loading || error || !file) {
+      setHighlightStatus('')
+      return
+    }
+    if (file.binary) {
+      setHighlightStatus('binary')
+      return
+    }
     const container = containerRef.current
-    if (!container || !file || file.binary) return
+    if (!container) return
 
     const view = new EditorView({
       parent: container,
@@ -142,7 +150,7 @@ export function FileViewer({ file, loading, error }: FileViewerProps): ReactElem
       worker.removeEventListener('error', onError)
       view.destroy()
     }
-  }, [file])
+  }, [error, file, loading])
 
   const size = file ? formatBytes(file.size) : ''
   return (

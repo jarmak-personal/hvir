@@ -27,7 +27,9 @@ let localHost: LocalHost | null = null
 let ptySupervisor: PtySupervisor | null = null
 let disposeWatch: Disposer | null = null
 
-function createWindow(): BrowserWindow {
+function createWindow(
+  discardRendererPtys: () => void = () => ptySupervisor?.disposeAll(),
+): BrowserWindow {
   const win = new BrowserWindow({
     width: 1280,
     height: 800,
@@ -42,6 +44,13 @@ function createWindow(): BrowserWindow {
   })
 
   win.on('ready-to-show', () => win.show())
+  // Phase 2 has one renderer-owned terminal set. A renderer reload/crash cannot
+  // run React cleanup, so main must end those PTYs rather than orphan shells.
+  win.webContents.on('did-start-navigation', (_event, _url, _isInPlace, isMainFrame) => {
+    if (isMainFrame) discardRendererPtys()
+  })
+  win.webContents.on('render-process-gone', discardRendererPtys)
+  win.on('closed', discardRendererPtys)
 
   // Open external links in the OS browser, never in-app (security posture).
   win.webContents.setWindowOpenHandler(({ url }) => {
@@ -175,7 +184,7 @@ async function runSmoke(): Promise<number> {
     await host.stat(localPath(process.cwd()))
     console.log('[smoke] LocalHost.stat OK')
 
-    const win = createWindow()
+    const win = createWindow(() => supervisor.disposeAll())
     smokeWindow = win
     await withTimeout(
       new Promise<void>((resolve) => win.once('ready-to-show', resolve)),
@@ -285,6 +294,10 @@ async function runSmoke(): Promise<number> {
     )) as string
     console.log(`[smoke] pane dividers OK (${resizeStatus})`)
     win.destroy()
+    if (supervisor.list().length !== 0) {
+      throw new Error('window close left an orphaned PTY')
+    }
+    console.log('[smoke] window close PTY cleanup OK')
 
     console.log('HVIR_SMOKE_OK')
     return 0

@@ -9,6 +9,7 @@ interface TerminalViewProps {
 
 const OUTPUT_FLUSH_MS = 16
 const MAX_BUFFERED_OUTPUT = 256 * 1024
+const PTY_RESIZE_DEBOUNCE_MS = 75
 
 export function TerminalView({ cwd }: TerminalViewProps): ReactElement {
   const containerRef = useRef<HTMLDivElement>(null)
@@ -20,6 +21,8 @@ export function TerminalView({ cwd }: TerminalViewProps): ReactElement {
     if (!container) return
     let cancelled = false
     let ptyStarted = false
+    let pendingInput = ''
+    let resizeTimer: number | undefined
     let disposePane: (() => void) | undefined
     let terminalSize = { cols: 80, rows: 24 }
     let bufferedOutput = ''
@@ -79,12 +82,17 @@ export function TerminalView({ cwd }: TerminalViewProps): ReactElement {
 
         const disposers = [
           pane.events.onData((data) => {
-            window.hvir.send('pty:write', { id: sessionId, data })
+            if (ptyStarted) window.hvir.send('pty:write', { id: sessionId, data })
+            else pendingInput += data
           }),
           pane.events.onResize(({ cols, rows }) => {
             terminalSize = { cols, rows }
             if (ptyStarted) {
-              window.hvir.send('pty:resize', { id: sessionId, cols, rows })
+              if (resizeTimer !== undefined) window.clearTimeout(resizeTimer)
+              resizeTimer = window.setTimeout(() => {
+                resizeTimer = undefined
+                window.hvir.send('pty:resize', { id: sessionId, ...terminalSize })
+              }, PTY_RESIZE_DEBOUNCE_MS)
             }
           }),
           pane.events.onTitle((nextTitle) => {
@@ -105,10 +113,14 @@ export function TerminalView({ cwd }: TerminalViewProps): ReactElement {
           cols: terminalSize.cols,
           rows: terminalSize.rows,
         })
-        ptyStarted = true
         if (cancelled) {
           window.hvir.send('pty:kill', { id: sessionId })
           return
+        }
+        ptyStarted = true
+        if (pendingInput) {
+          window.hvir.send('pty:write', { id: sessionId, data: pendingInput })
+          pendingInput = ''
         }
         setStatus(`pid ${result.pid}`)
         pane.focus()
@@ -124,7 +136,9 @@ export function TerminalView({ cwd }: TerminalViewProps): ReactElement {
       void stopData()
       void stopExit()
       clearOutputSchedule()
+      if (resizeTimer !== undefined) window.clearTimeout(resizeTimer)
       bufferedOutput = ''
+      pendingInput = ''
       disposePane?.()
       if (ptyStarted) window.hvir.send('pty:kill', { id: sessionId })
     }

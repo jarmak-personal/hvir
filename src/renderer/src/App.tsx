@@ -15,6 +15,7 @@ const DIVIDER_SIZE = 5
 
 export function App(): ReactElement {
   const workbenchRef = useRef<HTMLElement>(null)
+  const fileRequestId = useRef(0)
   const [root, setRoot] = useState<HostPath>()
   const [rootError, setRootError] = useState<string>()
   const [watchVersion, setWatchVersion] = useState(0)
@@ -52,17 +53,23 @@ export function App(): ReactElement {
   }, [])
 
   const openFile = (path: HostPath): void => {
+    const requestId = ++fileRequestId.current
     setSelected(path)
     setFileLoading(true)
     setFileError(undefined)
     void window.hvir
       .invoke('fs:read', { path })
-      .then((nextFile) => setFile(nextFile))
+      .then((nextFile) => {
+        if (fileRequestId.current === requestId) setFile(nextFile)
+      })
       .catch((error: unknown) => {
+        if (fileRequestId.current !== requestId) return
         setFile(undefined)
         setFileError(error instanceof Error ? error.message : String(error))
       })
-      .finally(() => setFileLoading(false))
+      .finally(() => {
+        if (fileRequestId.current === requestId) setFileLoading(false)
+      })
   }
 
   const setTreeWidth = (width: number): void => {
