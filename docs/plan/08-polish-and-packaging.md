@@ -25,7 +25,7 @@ builds for Linux and macOS.
 
 ### Layout
 - [ ] Side-by-side panes: split the viewer area (like VSCode), tabs draggable between
-      panes; terminal area supports splits too (per the mockup).
+      panes; terminal area supports splits too (per the §5 layout).
 - [ ] Keybinding surface: the handful of core actions (cycle view mode, focus terminal
       / viewer / tree, workspace switch) documented and rebindable via a simple JSON
       config. No keymap engine.

@@ -6,7 +6,7 @@ guardrail), ADR-009/010 (rollups, hosts).
 
 ## Goal
 
-The top of the mockup: a projects bar with worktree workspaces beneath, notification and
+The top of the UI layout (design.md §5): a projects bar with worktree workspaces beneath, notification and
 changed-file rollups at each tier, and per-workspace layout that survives restarts.
 This is where the single-directory viewer becomes the multi-agent workbench.
 
@@ -23,7 +23,7 @@ This is where the single-directory viewer becomes the multi-agent workbench.
       tree root, git state, open tabs, and terminals.
 
 ### UI
-- [ ] Top projects bar (per the mockup): one tab per project, host badge for non-local
+- [ ] Top projects bar (per the §5 layout): one tab per project, host badge for non-local
       hosts, connection state (Phase 4) surfaced here.
 - [ ] Worktree tier inside a project: workspace switcher — **collapsed entirely when
       the project has only its main checkout** (ADR-008).

@@ -246,6 +246,22 @@ filesystem directly.
 | Session recovery | harness resume via **`HarnessAdapter`** | ADR-006 |
 | Remote projects | **`ProjectHost`**: `LocalHost` / `SshHost` (`ssh2`) | ADR-010; every path is `(host, path)` |
 
+### UI layout
+```
+┌────────────────────────────────────────────────────────────────────┐
+│ Projects bar — project tabs (host badge, dots/changed-count        │
+│ rollups); worktree workspace tier beneath, collapsed when trivial  │
+├──────────┬────────────────────────────────────────┬────────────────┤
+│ Left     │ Viewer — tabs w/ view mode             │                │
+│ rail     │ (rendered / source / diff),            │  Right rail    │
+│          │ side-by-side splits                    │  open          │
+│ file     ├────────────────────────────────────────┤  terminals,    │
+│ tree /   │ Terminals (Ghostty panes,              │  auto-titled,  │
+│ git      │ splits like VSCode)                    │  notification  │
+│ explorer │                                        │  dots          │
+└──────────┴────────────────────────────────────────┴────────────────┘
+```
+
 ---
 
 ## 6. The terminal risk (most important open item)
