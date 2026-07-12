@@ -11,7 +11,14 @@
 import { join } from 'node:path'
 import { utilityProcess, type UtilityProcess } from 'electron'
 
-import type { WorkerOperation, WorkerRequest, WorkerResponse } from '../shared'
+import type {
+  ExecResult,
+  WorkerHostCall,
+  WorkerHostResult,
+  WorkerOperation,
+  WorkerRequest,
+  WorkerResponse,
+} from '../shared'
 
 type ProtocolShape<P> = { readonly [K in keyof P]: WorkerOperation }
 
@@ -39,6 +46,7 @@ export function workerPath(entryFile: string): string {
 export function createWorkerClient<P extends ProtocolShape<P>>(
   entryPath: string,
   serviceName?: string,
+  onHostCall?: (call: WorkerHostCall) => Promise<ExecResult | string>,
 ): WorkerClient<P> {
   const proc: UtilityProcess = utilityProcess.fork(entryPath, [], {
     serviceName: serviceName ?? 'hvir-worker',
@@ -59,7 +67,36 @@ export function createWorkerClient<P extends ProtocolShape<P>>(
 
   proc.once('spawn', markReady)
 
-  proc.on('message', (msg: WorkerResponse) => {
+  proc.on('message', (msg: WorkerResponse | WorkerHostCall) => {
+    if (isWorkerHostCall(msg)) {
+      if (!onHostCall) {
+        const response: WorkerHostResult = {
+          kind: 'host-result',
+          callId: msg.callId,
+          ok: false,
+          error: 'worker host calls are disabled',
+        }
+        proc.postMessage(response)
+        return
+      }
+      void onHostCall(msg).then(
+        (result) =>
+          proc.postMessage({
+            kind: 'host-result',
+            callId: msg.callId,
+            ok: true,
+            result,
+          } satisfies WorkerHostResult),
+        (error: unknown) =>
+          proc.postMessage({
+            kind: 'host-result',
+            callId: msg.callId,
+            ok: false,
+            error: error instanceof Error ? error.message : String(error),
+          } satisfies WorkerHostResult),
+      )
+      return
+    }
     const p = pending.get(msg.id)
     if (!p) return
     pending.delete(msg.id)
@@ -113,4 +150,10 @@ export function createWorkerClient<P extends ProtocolShape<P>>(
       proc.kill()
     },
   }
+}
+
+function isWorkerHostCall(
+  value: WorkerResponse | WorkerHostCall,
+): value is WorkerHostCall {
+  return 'kind' in value && value.kind === 'host-call'
 }

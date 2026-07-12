@@ -22,6 +22,17 @@ import type {
   WriteFileRequest,
   WriteFileResponse,
 } from './viewer-types'
+import type {
+  GitBlameLine,
+  GitBlameRequest,
+  GitChanges,
+  GitChangesRequest,
+  GitCommitDetail,
+  GitCommitDetailRequest,
+  GitHistoryPage,
+  GitHistoryRequest,
+} from './git-types'
+import type { HostConnectionState, HostWatchTier } from './fs-types'
 
 /** Basic app/runtime info — the trivial round-trip that proves the contract. */
 export interface AppInfo {
@@ -43,6 +54,37 @@ export interface EchoResponse {
 
 export interface ProjectRootResponse {
   readonly root: HostPath
+}
+
+export interface ProjectHostOption {
+  readonly hostId: string
+  readonly label: string
+  readonly kind: 'local' | 'ssh'
+  readonly connectionState: HostConnectionState
+  readonly watchTier: HostWatchTier
+}
+
+export interface ProjectState extends ProjectRootResponse {
+  readonly connectionState: HostConnectionState
+  readonly watchTier: HostWatchTier
+}
+
+export interface OpenProjectRequest {
+  readonly hostId: string
+  readonly path: string
+}
+
+export interface SshPromptRequest {
+  readonly id: number
+  readonly kind: 'password' | 'passphrase' | 'keyboard-interactive' | 'host-key'
+  readonly title: string
+  readonly instructions?: string
+  readonly prompts: readonly { readonly text: string; readonly echo: boolean }[]
+}
+
+export interface SshPromptResponse {
+  readonly id: number
+  readonly answers?: readonly string[]
 }
 
 export interface ReadDirectoryRequest {
@@ -82,10 +124,17 @@ export interface IpcInvokeMap {
   /** Round-trips text through the echo utility process (renderer→main→worker). */
   'demo:echo': { request: EchoRequest; response: EchoResponse }
   'project:root': { request: void; response: ProjectRootResponse }
+  'project:hosts': { request: void; response: readonly ProjectHostOption[] }
+  'project:open': { request: OpenProjectRequest; response: ProjectState }
+  'ssh:prompt-response': { request: SshPromptResponse; response: void }
   'fs:readdir': { request: ReadDirectoryRequest; response: readonly DirEntry[] }
   'fs:read': { request: ReadFileRequest; response: ReadFileResponse }
   'fs:write': { request: WriteFileRequest; response: WriteFileResponse }
   'git:diff-inputs': { request: GitDiffRequest; response: GitDiffResponse }
+  'git:changes': { request: GitChangesRequest; response: GitChanges }
+  'git:history': { request: GitHistoryRequest; response: GitHistoryPage }
+  'git:commit-detail': { request: GitCommitDetailRequest; response: GitCommitDetail }
+  'git:blame': { request: GitBlameRequest; response: readonly GitBlameLine[] }
   'html-preview:create': {
     request: CreateHtmlPreviewRequest
     response: CreateHtmlPreviewResponse
@@ -107,6 +156,8 @@ export interface IpcSendMap {
 /** Main -> renderer push channels. */
 export interface IpcEventMap {
   'project:watch': WatchEvent
+  'project:state': ProjectState
+  'ssh:prompt': SshPromptRequest
   'pty:data': { readonly id: string; readonly data: string }
   'pty:exit': { readonly id: string; readonly exitCode: number; readonly signal?: number }
 }
@@ -145,10 +196,17 @@ export const INVOKE_CHANNELS = [
   'app:info',
   'demo:echo',
   'project:root',
+  'project:hosts',
+  'project:open',
+  'ssh:prompt-response',
   'fs:readdir',
   'fs:read',
   'fs:write',
   'git:diff-inputs',
+  'git:changes',
+  'git:history',
+  'git:commit-detail',
+  'git:blame',
   'html-preview:create',
   'pty:start',
 ] as const satisfies readonly IpcInvokeChannel[]
@@ -162,6 +220,8 @@ export const SEND_CHANNELS = [
 
 export const EVENT_CHANNELS = [
   'project:watch',
+  'project:state',
+  'ssh:prompt',
   'pty:data',
   'pty:exit',
 ] as const satisfies readonly IpcEventChannel[]

@@ -1,7 +1,9 @@
-import { EditorState, StateEffect, StateField } from '@codemirror/state'
+import { Compartment, EditorState, StateEffect, StateField } from '@codemirror/state'
 import {
   Decoration,
   EditorView,
+  GutterMarker,
+  gutter,
   keymap,
   lineNumbers,
   type DecorationSet,
@@ -13,6 +15,7 @@ import {
   canRender,
   type DiffBase,
   type ViewMode,
+  type GitBlameLine,
 } from '../../../shared'
 import { DiffView } from './DiffView'
 import type {
@@ -91,6 +94,37 @@ export function FileViewer({
   onReload,
   onScroll,
 }: FileViewerProps): ReactElement {
+  const [showBlame, setShowBlame] = useState(false)
+  const [blame, setBlame] = useState<readonly GitBlameLine[]>([])
+  const [blameStatus, setBlameStatus] = useState('')
+  const currentPath = tab?.path
+  const blameMode = tab?.mode
+
+  useEffect(() => {
+    if (!showBlame || !currentPath || blameMode !== 'source') return
+    let cancelled = false
+    setBlameStatus('blame loading…')
+    void window.hvir.invoke('git:blame', { path: currentPath }).then(
+      (lines) => {
+        if (!cancelled) {
+          setBlame(lines)
+          setBlameStatus(`${lines.length} blamed lines`)
+        }
+      },
+      (reason: unknown) => {
+        if (!cancelled) {
+          setBlame([])
+          setBlameStatus(
+            `blame unavailable: ${reason instanceof Error ? reason.message : String(reason)}`,
+          )
+        }
+      },
+    )
+    return () => {
+      cancelled = true
+    }
+  }, [blameMode, currentPath, showBlame])
+
   return (
     <>
       <header className="viewer-toolbar">
@@ -115,6 +149,16 @@ export function FileViewer({
                 <option value="head">HEAD</option>
                 <option value="branch-point">Branch point</option>
               </select>
+            ) : null}
+            {tab.mode === 'source' ? (
+              <button
+                type="button"
+                className={`blame-toggle${showBlame ? ' active' : ''}`}
+                aria-pressed={showBlame}
+                onClick={() => setShowBlame((shown) => !shown)}
+              >
+                Blame
+              </button>
             ) : null}
             <div className="mode-control" aria-label="View mode">
               {(['rendered', 'source', 'diff'] as const).map((mode) => (
@@ -151,6 +195,8 @@ export function FileViewer({
             onContent={onContent}
             onSave={onSave}
             onScroll={onScroll}
+            blame={showBlame ? blame : []}
+            blameStatus={showBlame ? blameStatus : ''}
           />
         ) : null}
       </div>
@@ -164,12 +210,16 @@ function ActiveView({
   onContent,
   onSave,
   onScroll,
+  blame,
+  blameStatus,
 }: {
   readonly tab: ViewerTab
   readonly file: NonNullable<ViewerTab['file']>
   readonly onContent: (content: string) => void
   readonly onSave: () => void
   readonly onScroll: (scrollTop: number) => void
+  readonly blame: readonly GitBlameLine[]
+  readonly blameStatus: string
 }): ReactElement {
   if (tab.mode === 'rendered') {
     return (
@@ -188,6 +238,7 @@ function ActiveView({
         base={tab.diffBase}
         currentContent={file.content}
         dirty={tab.dirty}
+        revision={tab.diffRevision}
       />
     )
   }
@@ -200,6 +251,8 @@ function ActiveView({
       onContent={onContent}
       onSave={onSave}
       onScroll={onScroll}
+      blame={blame}
+      blameStatus={blameStatus}
     />
   )
 }
@@ -212,6 +265,8 @@ function SourceView({
   onContent,
   onSave,
   onScroll,
+  blame,
+  blameStatus,
 }: {
   readonly pathKey: string
   readonly content: string
@@ -220,6 +275,8 @@ function SourceView({
   readonly onContent: (content: string) => void
   readonly onSave: () => void
   readonly onScroll: (scrollTop: number) => void
+  readonly blame: readonly GitBlameLine[]
+  readonly blameStatus: string
 }): ReactElement {
   const container = useRef<HTMLDivElement>(null)
   const view = useRef<EditorView | undefined>(undefined)
@@ -227,6 +284,7 @@ function SourceView({
   const lastUserContent = useRef<string | undefined>(undefined)
   const callbacks = useRef({ onContent, onSave, onScroll })
   const [highlightStatus, setHighlightStatus] = useState('')
+  const blameCompartment = useRef(new Compartment())
   callbacks.current = { onContent, onSave, onScroll }
 
   useEffect(() => {
@@ -238,6 +296,7 @@ function SourceView({
         doc: content,
         extensions: [
           lineNumbers(),
+          blameCompartment.current.of(blameGutter(blame)),
           tokenDecorations,
           keymap.of([
             {
@@ -279,6 +338,12 @@ function SourceView({
   }, [pathKey])
 
   useEffect(() => {
+    view.current?.dispatch({
+      effects: blameCompartment.current.reconfigure(blameGutter(blame)),
+    })
+  }, [blame])
+
+  useEffect(() => {
     const editor = view.current
     if (!editor) return
     const current = editor.state.doc.toString()
@@ -300,10 +365,35 @@ function SourceView({
       <div className="source-meta">
         <span>{formatBytes(size)}</span>
         <span>{highlightStatus}</span>
+        <span>{blameStatus}</span>
       </div>
       <div ref={container} className="codemirror-host" />
     </div>
   )
+}
+
+class BlameMarker extends GutterMarker {
+  constructor(private readonly line: GitBlameLine) {
+    super()
+  }
+  override toDOM(): HTMLElement {
+    const element = document.createElement('span')
+    element.className = 'cm-blame-marker'
+    element.textContent = `${this.line.hash.slice(0, 7)} ${this.line.author}`
+    element.title = `${this.line.author} · ${this.line.summary}`
+    return element
+  }
+}
+
+function blameGutter(lines: readonly GitBlameLine[]) {
+  const byLine = new Map(lines.map((line) => [line.line, line]))
+  return gutter({
+    class: 'cm-blame-gutter',
+    lineMarker(view, block) {
+      const line = byLine.get(view.state.doc.lineAt(block.from).number)
+      return line ? new BlameMarker(line) : null
+    },
+  })
 }
 
 function highlight(

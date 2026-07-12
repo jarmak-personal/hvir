@@ -10,6 +10,7 @@ interface DiffViewProps {
   readonly base: DiffBase
   readonly currentContent: string
   readonly dirty: boolean
+  readonly revision?: string
 }
 
 export function DiffView({
@@ -17,6 +18,7 @@ export function DiffView({
   base,
   currentContent,
   dirty,
+  revision,
 }: DiffViewProps): ReactElement {
   const host = useRef<HTMLDivElement>(null)
   const [inputs, setInputs] = useState<GitDiffResponse>()
@@ -26,7 +28,7 @@ export function DiffView({
     let cancelled = false
     setInputs(undefined)
     setError(undefined)
-    void window.hvir.invoke('git:diff-inputs', { path, base }).then(
+    void window.hvir.invoke('git:diff-inputs', { path, base, revision }).then(
       (result) => {
         if (!cancelled) setInputs(result)
       },
@@ -38,7 +40,7 @@ export function DiffView({
     return () => {
       cancelled = true
     }
-  }, [base, path])
+  }, [base, path, revision])
 
   useEffect(() => {
     const parent = host.current

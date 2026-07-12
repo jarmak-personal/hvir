@@ -18,11 +18,14 @@ export interface WriteFileResponse {
 export interface GitDiffRequest {
   readonly path: HostPath
   readonly base: DiffBase
+  /** Commit whose parent/current blobs form a historical diff. */
+  readonly revision?: string
 }
 
 export interface GitDiffResponse {
   readonly path: HostPath
   readonly base: DiffBase
+  readonly revision?: string
   readonly baseLabel: string
   readonly currentLabel: string
   readonly baseContent: string

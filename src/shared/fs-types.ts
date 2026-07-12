@@ -37,3 +37,7 @@ export interface ExecResult {
   readonly stdout: string
   readonly stderr: string
 }
+
+export type HostConnectionState = 'connected' | 'connecting' | 'reconnecting' | 'failed'
+
+export type HostWatchTier = 'native' | 'inotify' | 'polling'

@@ -6,13 +6,19 @@ import {
   hostPath,
   hostPathEquals,
   type DiffBase,
+  type FileOpenContext,
   type HostPath,
+  type HostConnectionState,
+  type HostWatchTier,
+  type ProjectHostOption,
+  type SshPromptRequest,
   type ViewMode,
   type WatchEvent,
 } from '../../shared'
 import { PaneResizer } from './layout/PaneResizer'
 import { TerminalView } from './terminal/TerminalView'
 import { FileTree } from './tree/FileTree'
+import { GitPanel } from './git/GitPanel'
 import { FileViewer } from './viewer/FileViewer'
 import { TabStrip } from './viewer/TabStrip'
 import type { ViewerTab } from './viewer/tab-state'
@@ -48,6 +54,14 @@ export function App(): ReactElement {
   const [tabs, setTabs] = useState<readonly ViewerTab[]>([])
   const [activeId, setActiveId] = useState<string>()
   const [restored, setRestored] = useState(false)
+  const [railMode, setRailMode] = useState<'files' | 'git'>('files')
+  const [changedCount, setChangedCount] = useState(0)
+  const [connectionState, setConnectionState] = useState<HostConnectionState>('connected')
+  const [watchTier, setWatchTier] = useState<HostWatchTier>('native')
+  const [hosts, setHosts] = useState<readonly ProjectHostOption[]>([])
+  const [showAddProject, setShowAddProject] = useState(false)
+  const [addProjectError, setAddProjectError] = useState<string>()
+  const [sshPrompt, setSshPrompt] = useState<SshPromptRequest>()
   tabsRef.current = tabs
   activeIdRef.current = activeId
 
@@ -78,7 +92,22 @@ export function App(): ReactElement {
         const error = reason instanceof Error ? reason.message : String(reason)
         setTabs((current) =>
           current.map((tab) =>
-            tab.id === id ? { ...tab, file: undefined, loading: false, error } : tab,
+            tab.id === id
+              ? tab.diffRevision
+                ? {
+                    ...tab,
+                    file: {
+                      path: tab.path,
+                      content: '',
+                      size: 0,
+                      mtimeMs: 0,
+                      binary: false,
+                    },
+                    loading: false,
+                    error: undefined,
+                  }
+                : { ...tab, file: undefined, loading: false, error }
+              : tab,
           ),
         )
       },
@@ -106,10 +135,18 @@ export function App(): ReactElement {
       }
       watchHandler.current(event)
     })
+    const stopState = window.hvir.on('project:state', (state) => {
+      setConnectionState(state.connectionState)
+      setWatchTier(state.watchTier)
+    })
+    const stopPrompt = window.hvir.on('ssh:prompt', setSshPrompt)
+    void window.hvir.invoke('project:hosts', undefined).then(setHosts)
     return () => {
       cancelled = true
       if (watchRefreshTimer !== undefined) window.clearTimeout(watchRefreshTimer)
       void stopWatch()
+      void stopState()
+      void stopPrompt()
     }
   }, [])
 
@@ -185,21 +222,36 @@ export function App(): ReactElement {
     }
   }
 
-  const openFile = (path: HostPath, pinned: boolean): void => {
+  const openFile = (
+    path: HostPath,
+    pinned: boolean,
+    context: FileOpenContext = 'file-tree',
+    diffBase: DiffBase = 'head',
+    diffRevision?: string,
+  ): void => {
     const id = tabId(path)
     setTabs((current) => {
       const existing = current.find((tab) => tab.id === id)
       if (existing) {
-        return pinned
-          ? current.map((tab) => (tab.id === id ? { ...tab, pinned: true } : tab))
-          : current
+        return current.map((tab) =>
+          tab.id === id
+            ? {
+                ...tab,
+                pinned: pinned || tab.pinned,
+                mode: context === 'git' ? 'diff' : tab.mode,
+                diffBase: context === 'git' ? diffBase : tab.diffBase,
+                diffRevision: context === 'git' ? diffRevision : tab.diffRevision,
+              }
+            : tab,
+        )
       }
       const created: ViewerTab = {
         id,
         path,
         pinned,
-        mode: defaultViewMode(path),
-        diffBase: 'head',
+        mode: defaultViewMode(path, context),
+        diffBase,
+        diffRevision,
         scrollTop: 0,
         loading: true,
         dirty: false,
@@ -312,95 +364,259 @@ export function App(): ReactElement {
   if (!root) return <div className="startup-loading">Starting hvir…</div>
 
   return (
-    <main className="workbench" ref={workbenchRef}>
-      <FileTree
-        root={root}
-        refreshVersion={watchVersion}
-        selected={activeTab?.path}
-        onOpen={openFile}
-      />
-      <PaneResizer
-        orientation="vertical"
-        className="tree-resizer"
-        label="Resize file tree"
-        onDrag={(clientX) => {
-          const left = workbenchRef.current?.getBoundingClientRect().left ?? 0
-          setTreeWidth(clientX - left)
-        }}
-        onNudge={(delta) => {
-          const current = workbenchRef.current?.querySelector<HTMLElement>('.tree-panel')
-          if (current) setTreeWidth(current.getBoundingClientRect().width + delta)
-        }}
-        onReset={() => workbenchRef.current?.style.removeProperty('--tree-track')}
-      />
-      <section className="viewer-panel" aria-label="File viewer">
-        <TabStrip
-          tabs={tabs}
-          activeId={activeId}
-          onActivate={setActiveId}
-          onClose={closeTab}
-          onPin={(id) =>
-            setTabs((current) =>
-              current.map((tab) => (tab.id === id ? { ...tab, pinned: true } : tab)),
+    <>
+      <main
+        className={`workbench${connectionState === 'connected' ? '' : ' project-stale'}`}
+        ref={workbenchRef}
+      >
+        {railMode === 'files' ? (
+          <FileTree
+            root={root}
+            refreshVersion={watchVersion}
+            selected={activeTab?.path}
+            onOpen={openFile}
+            onShowGit={() => setRailMode('git')}
+            changedCount={changedCount}
+            connectionState={connectionState}
+            watchTier={watchTier}
+            onAddProject={() => setShowAddProject(true)}
+          />
+        ) : (
+          <GitPanel
+            root={root}
+            refreshVersion={watchVersion}
+            onShowFiles={() => setRailMode('files')}
+            onChangedCount={setChangedCount}
+            onOpen={(path, base, revision) => openFile(path, true, 'git', base, revision)}
+            connectionState={connectionState}
+            onAddProject={() => setShowAddProject(true)}
+          />
+        )}
+        <PaneResizer
+          orientation="vertical"
+          className="tree-resizer"
+          label="Resize file tree"
+          onDrag={(clientX) => {
+            const left = workbenchRef.current?.getBoundingClientRect().left ?? 0
+            setTreeWidth(clientX - left)
+          }}
+          onNudge={(delta) => {
+            const current =
+              workbenchRef.current?.querySelector<HTMLElement>('.tree-panel')
+            if (current) setTreeWidth(current.getBoundingClientRect().width + delta)
+          }}
+          onReset={() => workbenchRef.current?.style.removeProperty('--tree-track')}
+        />
+        <section className="viewer-panel" aria-label="File viewer">
+          <TabStrip
+            tabs={tabs}
+            activeId={activeId}
+            onActivate={setActiveId}
+            onClose={closeTab}
+            onPin={(id) =>
+              setTabs((current) =>
+                current.map((tab) => (tab.id === id ? { ...tab, pinned: true } : tab)),
+              )
+            }
+            onReorder={(draggedId, targetId) => {
+              setTabs((current) => reorderTabs(current, draggedId, targetId))
+            }}
+          />
+          <FileViewer
+            key={activeTab?.id ?? 'empty'}
+            tab={activeTab}
+            onMode={(mode) => updateActive((tab) => ({ ...tab, mode }))}
+            onDiffBase={(diffBase) => updateActive((tab) => ({ ...tab, diffBase }))}
+            onContent={(content) =>
+              updateActive((tab) =>
+                tab.file
+                  ? {
+                      ...tab,
+                      pinned: true,
+                      dirty: true,
+                      file: {
+                        ...tab.file,
+                        content,
+                        size: new TextEncoder().encode(content).byteLength,
+                      },
+                    }
+                  : tab,
+              )
+            }
+            onSave={saveActive}
+            onReload={() => {
+              if (!activeTab) return
+              updateTab(activeTab.id, (tab) => ({
+                ...tab,
+                dirty: false,
+                conflict: false,
+              }))
+              loadFile(activeTab.path)
+            }}
+            onScroll={(scrollTop) =>
+              activeTab && scheduleScrollPersistence(activeTab.id, scrollTop)
+            }
+          />
+        </section>
+        <PaneResizer
+          orientation="horizontal"
+          className="terminal-resizer"
+          label="Resize terminal"
+          onDrag={(clientY) => {
+            const bottom = workbenchRef.current?.getBoundingClientRect().bottom ?? 0
+            setTerminalHeight(bottom - clientY)
+          }}
+          onNudge={(delta) => {
+            const current =
+              workbenchRef.current?.querySelector<HTMLElement>('.terminal-panel')
+            if (current) setTerminalHeight(current.getBoundingClientRect().height + delta)
+          }}
+          onReset={() => workbenchRef.current?.style.removeProperty('--terminal-track')}
+        />
+        <TerminalView cwd={root} />
+      </main>
+      {showAddProject ? (
+        <AddProjectDialog
+          hosts={hosts}
+          error={addProjectError}
+          onCancel={() => {
+            setShowAddProject(false)
+            setAddProjectError(undefined)
+          }}
+          onOpen={(hostId, path) => {
+            void window.hvir.invoke('project:open', { hostId, path }).then(
+              (state) => {
+                setRoot(state.root)
+                setConnectionState(state.connectionState)
+                setWatchTier(state.watchTier)
+                setTabs([])
+                setActiveId(undefined)
+                setChangedCount(0)
+                setShowAddProject(false)
+                setAddProjectError(undefined)
+              },
+              (reason: unknown) =>
+                setAddProjectError(
+                  reason instanceof Error ? reason.message : String(reason),
+                ),
             )
-          }
-          onReorder={(draggedId, targetId) => {
-            setTabs((current) => reorderTabs(current, draggedId, targetId))
           }}
         />
-        <FileViewer
-          key={activeTab?.id ?? 'empty'}
-          tab={activeTab}
-          onMode={(mode) => updateActive((tab) => ({ ...tab, mode }))}
-          onDiffBase={(diffBase) => updateActive((tab) => ({ ...tab, diffBase }))}
-          onContent={(content) =>
-            updateActive((tab) =>
-              tab.file
-                ? {
-                    ...tab,
-                    pinned: true,
-                    dirty: true,
-                    file: {
-                      ...tab.file,
-                      content,
-                      size: new TextEncoder().encode(content).byteLength,
-                    },
-                  }
-                : tab,
-            )
-          }
-          onSave={saveActive}
-          onReload={() => {
-            if (!activeTab) return
-            updateTab(activeTab.id, (tab) => ({
-              ...tab,
-              dirty: false,
-              conflict: false,
-            }))
-            loadFile(activeTab.path)
+      ) : null}
+      {sshPrompt ? (
+        <SshPromptDialog
+          prompt={sshPrompt}
+          onAnswer={(answers) => {
+            void window.hvir.invoke('ssh:prompt-response', {
+              id: sshPrompt.id,
+              answers,
+            })
+            setSshPrompt(undefined)
           }}
-          onScroll={(scrollTop) =>
-            activeTab && scheduleScrollPersistence(activeTab.id, scrollTop)
-          }
         />
-      </section>
-      <PaneResizer
-        orientation="horizontal"
-        className="terminal-resizer"
-        label="Resize terminal"
-        onDrag={(clientY) => {
-          const bottom = workbenchRef.current?.getBoundingClientRect().bottom ?? 0
-          setTerminalHeight(bottom - clientY)
+      ) : null}
+    </>
+  )
+}
+
+function AddProjectDialog({
+  hosts,
+  onCancel,
+  onOpen,
+  error,
+}: {
+  readonly hosts: readonly ProjectHostOption[]
+  readonly onCancel: () => void
+  readonly onOpen: (hostId: string, path: string) => void
+  readonly error?: string
+}): ReactElement {
+  const [hostId, setHostId] = useState(hosts[0]?.hostId ?? 'local')
+  const [path, setPath] = useState('')
+  return (
+    <div className="modal-backdrop">
+      <form
+        className="project-dialog"
+        onSubmit={(event) => {
+          event.preventDefault()
+          if (path.trim()) onOpen(hostId, path.trim())
         }}
-        onNudge={(delta) => {
-          const current =
-            workbenchRef.current?.querySelector<HTMLElement>('.terminal-panel')
-          if (current) setTerminalHeight(current.getBoundingClientRect().height + delta)
+      >
+        <h2>Add project</h2>
+        {error ? <p className="dialog-error">{error}</p> : null}
+        <label>
+          Host
+          <select value={hostId} onChange={(event) => setHostId(event.target.value)}>
+            {hosts.map((host) => (
+              <option key={host.hostId} value={host.hostId}>
+                {host.label} ({host.kind})
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          Path
+          <input
+            autoFocus
+            value={path}
+            onChange={(event) => setPath(event.target.value)}
+            placeholder={hostId === 'local' ? '/home/me/project' : '/srv/project'}
+          />
+        </label>
+        <div className="dialog-actions">
+          <button type="button" onClick={onCancel}>
+            Cancel
+          </button>
+          <button type="submit">Open</button>
+        </div>
+      </form>
+    </div>
+  )
+}
+
+function SshPromptDialog({
+  prompt,
+  onAnswer,
+}: {
+  readonly prompt: SshPromptRequest
+  readonly onAnswer: (answers?: readonly string[]) => void
+}): ReactElement {
+  const [answers, setAnswers] = useState(() => prompt.prompts.map(() => ''))
+  return (
+    <div className="modal-backdrop">
+      <form
+        className="project-dialog"
+        onSubmit={(event) => {
+          event.preventDefault()
+          onAnswer(answers)
         }}
-        onReset={() => workbenchRef.current?.style.removeProperty('--terminal-track')}
-      />
-      <TerminalView cwd={root} />
-    </main>
+      >
+        <h2>{prompt.title}</h2>
+        {prompt.instructions ? <p>{prompt.instructions}</p> : null}
+        {prompt.prompts.map((item, index) => (
+          <label key={`${item.text}:${index}`}>
+            {item.text}
+            <input
+              autoFocus={index === 0}
+              type={item.echo ? 'text' : 'password'}
+              value={answers[index]}
+              onChange={(event) =>
+                setAnswers((current) =>
+                  current.map((answer, at) =>
+                    at === index ? event.target.value : answer,
+                  ),
+                )
+              }
+            />
+          </label>
+        ))}
+        <div className="dialog-actions">
+          <button type="button" onClick={() => onAnswer(undefined)}>
+            Cancel
+          </button>
+          <button type="submit">Continue</button>
+        </div>
+      </form>
+    </div>
   )
 }
 
@@ -413,6 +629,7 @@ interface StoredTabs {
     readonly pinned: boolean
     readonly mode: ViewMode
     readonly diffBase: DiffBase
+    readonly diffRevision?: string
     readonly scrollTop: number
   }[]
 }
@@ -442,6 +659,8 @@ function restoreTabs(root: HostPath): { tabs: readonly ViewerTab[]; activeId?: s
           pinned: Boolean(item.pinned),
           mode: item.mode,
           diffBase: item.diffBase,
+          diffRevision:
+            typeof item.diffRevision === 'string' ? item.diffRevision : undefined,
           scrollTop: Number.isFinite(item.scrollTop) ? item.scrollTop : 0,
           loading: true,
           dirty: false,
@@ -472,6 +691,7 @@ function persistTabs(
       pinned: tab.pinned,
       mode: tab.mode,
       diffBase: tab.diffBase,
+      diffRevision: tab.diffRevision,
       scrollTop: tab.scrollTop,
     })),
   }

@@ -13,6 +13,10 @@ import {
   type AppInfo,
   type EchoWorkerProtocol,
   GIT_DIFF_INPUTS_TYPE,
+  GIT_BLAME_TYPE,
+  GIT_CHANGES_TYPE,
+  GIT_HISTORY_TYPE,
+  GIT_COMMIT_DETAIL_TYPE,
   type GitWorkerProtocol,
   type HostPath,
   type IpcEventChannel,
@@ -22,6 +26,8 @@ import {
   type IpcResponse,
   type IpcSendChannel,
   type IpcSendPayload,
+  type ProjectHostOption,
+  type ProjectState,
 } from '../shared'
 import { plainShellAdapter } from './harness/harness-adapter'
 import type { ProjectHost } from './project-host'
@@ -42,6 +48,8 @@ function handle<C extends IpcInvokeChannel>(channel: C, handler: Handler<C>): vo
 
 type SendHandler<C extends IpcSendChannel> = (payload: IpcSendPayload<C>) => void
 
+const canonicalRoots = new WeakMap<ProjectHost, Map<string, Promise<HostPath>>>()
+
 function handleSend<C extends IpcSendChannel>(channel: C, handler: SendHandler<C>): void {
   ipcMain.on(channel, (event, payload: IpcSendPayload<C>) => {
     assertMainFrame(event)
@@ -57,8 +65,10 @@ export type EmitRendererEvent = <E extends IpcEventChannel>(
 export interface IpcDeps {
   readonly echoWorker: WorkerClient<EchoWorkerProtocol>
   readonly gitWorker: WorkerClient<GitWorkerProtocol>
-  readonly host: ProjectHost
-  readonly root: HostPath
+  readonly getProject: () => { readonly host: ProjectHost; readonly root: HostPath }
+  readonly listHosts: () => readonly ProjectHostOption[]
+  readonly openProject: (hostId: string, path: string) => Promise<ProjectState>
+  readonly respondSshPrompt: (id: number, answers?: readonly string[]) => void
   readonly ptySupervisor: PtySupervisor
   readonly htmlPreviews: HtmlPreviewProtocol
   readonly emit: EmitRendererEvent
@@ -80,21 +90,28 @@ export function registerIpcHandlers(deps: IpcDeps): void {
     return { text: result.text, workerPid: result.workerPid }
   })
 
-  handle('project:root', () => ({ root: deps.root }))
+  handle('project:root', () => ({ root: deps.getProject().root }))
+  handle('project:hosts', () => deps.listHosts())
+  handle('project:open', (req) => deps.openProject(req.hostId, req.path))
+  handle('ssh:prompt-response', (req) => {
+    deps.respondSshPrompt(req.id, req.answers)
+  })
 
   handle('fs:readdir', async (req) => {
-    const path = projectPath(req.path, deps.root)
-    return deps.host.readdir(path)
+    const { root, host } = deps.getProject()
+    const path = await projectPath(req.path, root, host)
+    return host.readdir(path)
   })
 
   handle('fs:read', async (req) => {
-    const path = projectPath(req.path, deps.root)
-    const stat = await deps.host.stat(path)
+    const { root, host } = deps.getProject()
+    const path = await projectPath(req.path, root, host)
+    const stat = await host.stat(path)
     if (stat.type !== 'file') throw new Error(`Not a regular file: ${path.path}`)
     if (stat.size > 64 * 1024 * 1024) {
       throw new Error('Files larger than 64 MiB are not opened by the viewer spike')
     }
-    const data = await deps.host.readFile(path)
+    const data = await host.readFile(path)
     const sample = data.subarray(0, Math.min(data.length, 8192))
     const binary = sample.includes(0)
     return {
@@ -107,22 +124,60 @@ export function registerIpcHandlers(deps: IpcDeps): void {
   })
 
   handle('fs:write', async (req) => {
-    const path = projectPath(req.path, deps.root)
+    const { root, host } = deps.getProject()
+    const path = await projectPath(req.path, root, host)
     if (typeof req.content !== 'string') throw new Error('File content must be text')
-    const stat = await deps.host.stat(path)
+    const stat = await host.stat(path)
     if (stat.type !== 'file') throw new Error(`Not a regular file: ${path.path}`)
-    await deps.host.writeFile(path, req.content)
-    const written = await deps.host.stat(path)
+    await host.writeFile(path, req.content)
+    const written = await host.stat(path)
     return { path, size: written.size, mtimeMs: written.mtimeMs }
   })
 
   handle('git:diff-inputs', async (req) => {
-    const path = projectPath(req.path, deps.root)
+    const { root, host } = deps.getProject()
+    const path = await projectPath(req.path, root, host)
     return deps.gitWorker.request(GIT_DIFF_INPUTS_TYPE, {
       path,
       base: req.base,
-      root: deps.root,
+      revision: req.revision,
+      root,
     })
+  })
+
+  handle('git:changes', async (req) => {
+    const project = deps.getProject()
+    const root = await projectPath(req.root, project.root, project.host)
+    return deps.gitWorker.request(GIT_CHANGES_TYPE, { root })
+  })
+
+  handle('git:history', async (req) => {
+    const project = deps.getProject()
+    const root = await projectPath(req.root, project.root, project.host)
+    const path = req.path
+      ? await projectPath(req.path, project.root, project.host)
+      : undefined
+    return deps.gitWorker.request(GIT_HISTORY_TYPE, {
+      root,
+      path,
+      skip: req.skip,
+      limit: req.limit,
+    })
+  })
+
+  handle('git:commit-detail', async (req) => {
+    const project = deps.getProject()
+    const root = await projectPath(req.root, project.root, project.host)
+    return deps.gitWorker.request(GIT_COMMIT_DETAIL_TYPE, {
+      root,
+      hash: req.hash,
+    })
+  })
+
+  handle('git:blame', async (req) => {
+    const { root, host } = deps.getProject()
+    const path = await projectPath(req.path, root, host)
+    return deps.gitWorker.request(GIT_BLAME_TYPE, { root, path })
   })
 
   handle('html-preview:create', (req) => deps.htmlPreviews.create(req.content))
@@ -131,11 +186,12 @@ export function registerIpcHandlers(deps: IpcDeps): void {
     if (!/^[a-zA-Z0-9-]{1,80}$/.test(req.sessionId)) {
       throw new Error('Invalid PTY session id')
     }
-    const cwd = projectPath(req.cwd, deps.root)
+    const { root, host } = deps.getProject()
+    const cwd = await projectPath(req.cwd, root, host)
     const cols = terminalDimension(req.cols)
     const rows = terminalDimension(req.rows)
     const managed = await deps.ptySupervisor.spawn({
-      host: deps.host,
+      host,
       adapter: plainShellAdapter,
       cwd,
       sessionId: req.sessionId,
@@ -176,7 +232,11 @@ function assertMainFrame(
 }
 
 /** Rebuild the opaque path at the IPC trust boundary and keep it in-project. */
-function projectPath(candidate: HostPath, root: HostPath): HostPath {
+async function projectPath(
+  candidate: HostPath,
+  root: HostPath,
+  host: ProjectHost,
+): Promise<HostPath> {
   if (
     !candidate ||
     typeof candidate.path !== 'string' ||
@@ -189,6 +249,29 @@ function projectPath(candidate: HostPath, root: HostPath): HostPath {
   const prefix = root.path === '/' ? '/' : `${root.path}/`
   if (decoded.path !== root.path && !decoded.path.startsWith(prefix)) {
     throw new Error('Path escapes the project root')
+  }
+  let roots = canonicalRoots.get(host)
+  if (!roots) {
+    roots = new Map()
+    canonicalRoots.set(host, roots)
+  }
+  const rootKey = `${root.hostId}:${root.path}`
+  let canonicalRootPromise = roots.get(rootKey)
+  if (!canonicalRootPromise) {
+    canonicalRootPromise = host.realpath(root)
+    roots.set(rootKey, canonicalRootPromise)
+    void canonicalRootPromise.catch(() => roots?.delete(rootKey))
+  }
+  const [canonicalRoot, canonicalPath] = await Promise.all([
+    canonicalRootPromise,
+    host.realpath(decoded),
+  ])
+  const canonicalPrefix = canonicalRoot.path === '/' ? '/' : `${canonicalRoot.path}/`
+  if (
+    canonicalPath.path !== canonicalRoot.path &&
+    !canonicalPath.path.startsWith(canonicalPrefix)
+  ) {
+    throw new Error('Path escapes the project root through a symlink')
   }
   return decoded
 }

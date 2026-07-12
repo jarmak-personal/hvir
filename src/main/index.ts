@@ -12,7 +12,8 @@ import { app, BrowserWindow, protocol, shell } from 'electron'
 import { registerIpcHandlers } from './ipc'
 import { HtmlPreviewProtocol } from './html-preview-protocol'
 import { createWorkerClient, workerPath, type WorkerClient } from './worker-host'
-import { LocalHost } from './project-host'
+import { LocalHost, type ProjectHost } from './project-host'
+import { ProjectRegistry, RendererSshPrompter } from './project-registry'
 import { PtySupervisor } from './pty/pty-supervisor'
 import {
   ECHO_REQUEST_TYPE,
@@ -20,9 +21,12 @@ import {
   localPath,
   type Disposer,
   type EchoWorkerProtocol,
+  type ExecResult,
   type GitWorkerProtocol,
+  type HostPath,
   type IpcEventChannel,
   type IpcEventPayload,
+  type WorkerHostCall,
   HTML_PREVIEW_SCHEME,
 } from '../shared'
 
@@ -37,7 +41,8 @@ const htmlPreviews = new HtmlPreviewProtocol()
 
 let echoWorker: WorkerClient<EchoWorkerProtocol> | null = null
 let gitWorker: WorkerClient<GitWorkerProtocol> | null = null
-let localHost: LocalHost | null = null
+let projectRegistry: ProjectRegistry | null = null
+let sshPrompter: RendererSshPrompter | null = null
 let ptySupervisor: PtySupervisor | null = null
 let disposeWatch: Disposer | null = null
 
@@ -92,19 +97,6 @@ function createWindow(
 }
 
 async function startup(): Promise<void> {
-  echoWorker = createWorkerClient<EchoWorkerProtocol>(
-    workerPath('echo-worker.js'),
-    'hvir-echo',
-  )
-  gitWorker = createWorkerClient<GitWorkerProtocol>(
-    workerPath('git-worker.js'),
-    'hvir-git',
-  )
-  localHost = new LocalHost()
-  ptySupervisor = new PtySupervisor()
-  await localHost.connect()
-
-  const root = localPath(projectRootArgument())
   const emit = <E extends IpcEventChannel>(
     channel: E,
     payload: IpcEventPayload<E>,
@@ -113,20 +105,62 @@ async function startup(): Promise<void> {
       if (!window.isDestroyed()) window.webContents.send(channel, payload)
     }
   }
+  sshPrompter = new RendererSshPrompter((prompt) => emit('ssh:prompt', prompt))
+  projectRegistry = await ProjectRegistry.create(
+    localPath(projectRootArgument()),
+    sshPrompter,
+    join(app.getPath('userData'), 'known-hosts.json'),
+    (state) => emit('project:state', state),
+  )
+  echoWorker = createWorkerClient<EchoWorkerProtocol>(
+    workerPath('echo-worker.js'),
+    'hvir-echo',
+  )
+  gitWorker = createWorkerClient<GitWorkerProtocol>(
+    workerPath('git-worker.js'),
+    'hvir-git',
+    (call) =>
+      dispatchWorkerHostCall(call, projectRegistry?.hostById(call.hostId) ?? null),
+  )
+  ptySupervisor = new PtySupervisor()
 
   registerIpcHandlers({
     echoWorker,
     gitWorker,
-    host: localHost,
-    root,
+    getProject: () => {
+      if (!projectRegistry) throw new Error('Project registry is unavailable')
+      return projectRegistry.active
+    },
+    listHosts: () => projectRegistry?.listHosts() ?? [],
+    openProject: async (hostId, path) => {
+      if (!projectRegistry) throw new Error('Project registry is unavailable')
+      const state = await projectRegistry.open(hostId, path)
+      startProjectWatch(projectRegistry.active, emit)
+      return state
+    },
+    respondSshPrompt: (id, answers) => sshPrompter?.respond(id, answers),
     ptySupervisor,
     htmlPreviews,
     emit,
   })
+  startProjectWatch(projectRegistry.active, emit)
+  createWindow()
+
+  app.on('activate', () => {
+    // macOS: re-open a window when the dock icon is clicked and none are open.
+    if (BrowserWindow.getAllWindows().length === 0) createWindow()
+  })
+}
+
+function startProjectWatch(
+  project: { readonly host: ProjectHost; readonly root: HostPath },
+  emit: <E extends IpcEventChannel>(channel: E, payload: IpcEventPayload<E>) => void,
+): void {
+  void disposeWatch?.()
   const pendingWatchEvents = new Map<string, IpcEventPayload<'project:watch'>>()
   let watchTimer: ReturnType<typeof setTimeout> | undefined
-  const stopHostWatch = localHost.watch(
-    root,
+  const stopHostWatch = project.host.watch(
+    project.root,
     (event) => {
       pendingWatchEvents.set(`${event.path.hostId}:${event.path.path}`, event)
       if (watchTimer) return
@@ -150,12 +184,6 @@ async function startup(): Promise<void> {
     if (watchTimer) clearTimeout(watchTimer)
     return stopHostWatch()
   }
-  createWindow()
-
-  app.on('activate', () => {
-    // macOS: re-open a window when the dock icon is clicked and none are open.
-    if (BrowserWindow.getAllWindows().length === 0) createWindow()
-  })
 }
 
 function projectRootArgument(): string {
@@ -181,6 +209,7 @@ async function runSmoke(): Promise<number> {
   const git = createWorkerClient<GitWorkerProtocol>(
     workerPath('git-worker.js'),
     'hvir-git-smoke',
+    (call) => dispatchWorkerHostCall(call, host),
   )
   const host = new LocalHost()
   const supervisor = new PtySupervisor()
@@ -217,8 +246,23 @@ async function runSmoke(): Promise<number> {
     registerIpcHandlers({
       echoWorker: worker,
       gitWorker: git,
-      host,
-      root: smokeRoot,
+      getProject: () => ({ host, root: smokeRoot }),
+      listHosts: () => [
+        {
+          hostId: host.hostId,
+          label: 'Local',
+          kind: 'local',
+          connectionState: host.connectionState,
+          watchTier: host.watchTier,
+        },
+      ],
+      openProject: () =>
+        Promise.resolve({
+          root: smokeRoot,
+          connectionState: host.connectionState,
+          watchTier: host.watchTier,
+        }),
+      respondSshPrompt: () => undefined,
       ptySupervisor: supervisor,
       htmlPreviews,
       emit,
@@ -676,6 +720,121 @@ async function runSmoke(): Promise<number> {
     )) as string
     console.log(`[smoke] CodeMirror git diff bases OK (${diffBases})`)
 
+    const gitPanelStatus = (await withTimeout(
+      win.webContents.executeJavaScript(`
+        new Promise((resolve, reject) => {
+          const deadline = Date.now() + 15000;
+          const button = (text) => [...document.querySelectorAll('button')]
+            .find((node) => node.textContent?.trim().startsWith(text));
+          button('Git')?.click();
+          const waitForChanges = () => {
+            const changed = document.querySelector('.git-file');
+            if (!changed) {
+              if (Date.now() > deadline) return reject(new Error('Git changes did not load'));
+              return setTimeout(waitForChanges, 50);
+            }
+            changed.click();
+            const waitForDiff = () => {
+              if (!document.querySelector('.diff-host')) {
+                if (Date.now() > deadline) return reject(new Error('Git file did not open a diff tab'));
+                return setTimeout(waitForDiff, 50);
+              }
+              button('History')?.click();
+              const waitForHistory = () => {
+                const commit = document.querySelector('.git-commit');
+                if (!commit) {
+                  if (Date.now() > deadline) return reject(new Error('Git history did not page'));
+                  return setTimeout(waitForHistory, 50);
+                }
+                commit.click();
+                const waitForDetail = () => {
+                  if (document.querySelector('.git-commit-detail')) {
+                    return resolve('changes→diff · paged history→detail');
+                  }
+                  if (Date.now() > deadline) return reject(new Error('Commit detail did not load'));
+                  setTimeout(waitForDetail, 50);
+                };
+                waitForDetail();
+              };
+              waitForHistory();
+            };
+            waitForDiff();
+          };
+          waitForChanges();
+        })
+      `),
+      'Git panel integration timed out',
+      20000,
+    )) as string
+    console.log(`[smoke] mounted Git panel OK (${gitPanelStatus})`)
+
+    const blameStatus = (await withTimeout(
+      win.webContents.executeJavaScript(`
+        new Promise((resolve, reject) => {
+          const deadline = Date.now() + 15000;
+          const button = (text) => [...document.querySelectorAll('button')]
+            .find((node) => node.textContent?.trim() === text);
+          button('Files')?.click();
+          const waitForSource = () => {
+            const blameButton = document.querySelector('.blame-toggle');
+            if (!blameButton || !document.querySelector('.source-shell .cm-editor')) {
+              if (Date.now() > deadline) return reject(new Error('source view missing for blame'));
+              return setTimeout(waitForSource, 50);
+            }
+            blameButton.click();
+            const waitForBlame = () => {
+              const marker = document.querySelector('.cm-blame-marker');
+              if (marker) return resolve(marker.textContent || 'blame marker');
+              const status = document.querySelector('.source-meta')?.textContent || '';
+              if (status.includes('blame unavailable')) return reject(new Error(status));
+              if (Date.now() > deadline) return reject(new Error('blame gutter did not load: ' + status));
+              setTimeout(waitForBlame, 50);
+            };
+            waitForBlame();
+          };
+          const openTracked = () => {
+            const tracked = [...document.querySelectorAll('.file-row')]
+              .find((node) => node.textContent?.trim() === 'package-lock.json');
+            if (!tracked) {
+              if (Date.now() > deadline) return reject(new Error('tracked blame fixture missing'));
+              return setTimeout(openTracked, 50);
+            }
+            tracked.click();
+            const activateTracked = () => {
+              const title = document.querySelector('.viewer-title')?.textContent || '';
+              if (!title.includes('package-lock.json')) {
+                if (Date.now() > deadline) return reject(new Error('large blame fixture did not activate'));
+                return setTimeout(activateTracked, 50);
+              }
+              button('source')?.click();
+              waitForSource();
+            };
+            activateTracked();
+          };
+          openTracked();
+        })
+      `),
+      'Blame integration timed out',
+      20000,
+    )) as string
+    console.log(`[smoke] lazy blame gutter OK (${blameStatus})`)
+
+    const addProjectStatus = (await win.webContents.executeJavaScript(`
+      new Promise((resolve, reject) => {
+        const add = [...document.querySelectorAll('button')]
+          .find((node) => node.textContent?.trim() === 'Add');
+        add?.click();
+        requestAnimationFrame(() => {
+          const option = document.querySelector('.project-dialog select option')?.textContent || '';
+          const cancel = [...document.querySelectorAll('.project-dialog button')]
+            .find((node) => node.textContent?.trim() === 'Cancel');
+          cancel?.click();
+          option.includes('Local') ? resolve(option) : reject(new Error('local host option missing'));
+        });
+      })
+    `)) as string
+    console.log(`[smoke] add-project host picker OK (${addProjectStatus})`)
+
     const resizeStatus = (await withTimeout(
       win.webContents.executeJavaScript(`
         new Promise((resolve, reject) => {
@@ -735,6 +894,22 @@ type EmitSmokeEvent = <E extends IpcEventChannel>(
   payload: IpcEventPayload<E>,
 ) => void
 
+async function dispatchWorkerHostCall(
+  call: WorkerHostCall,
+  host: ProjectHost | null,
+): Promise<ExecResult | string> {
+  if (!host || call.hostId !== host.hostId)
+    throw new Error('git worker requested an inactive host')
+  if (call.operation === 'readTextFile') {
+    return host.readTextFile(call.path)
+  }
+  return host.exec(call.command, call.args, {
+    cwd: call.cwd,
+    input: call.input,
+    maxBuffer: call.maxBuffer,
+  })
+}
+
 async function withTimeout<T>(
   promise: Promise<T>,
   message: string,
@@ -778,8 +953,10 @@ app.on('before-quit', () => {
   disposeWatch = null
   ptySupervisor?.disposeAll()
   ptySupervisor = null
-  void localHost?.dispose()
-  localHost = null
+  sshPrompter?.cancelAll()
+  sshPrompter = null
+  void projectRegistry?.dispose()
+  projectRegistry = null
   echoWorker?.dispose()
   echoWorker = null
   gitWorker?.dispose()

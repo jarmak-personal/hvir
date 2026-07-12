@@ -66,7 +66,83 @@ describe('GitEngine', () => {
     expect(result.currentContent).toBe('through link\n')
     await host.dispose()
   })
+
+  it('keeps uncommitted work out of the branch-point group', async () => {
+    const root = await repository()
+    const filename = join(root, 'file.txt')
+    git(root, ['checkout', '-b', 'feature'])
+    await writeFile(filename, 'committed on feature\n')
+    git(root, ['add', 'file.txt'])
+    git(root, ['commit', '-m', 'feature'])
+    await writeFile(filename, 'uncommitted line one\nuncommitted line two\n')
+
+    const host = new LocalHost()
+    const changes = await new GitEngine(host).changes(localPath(root))
+
+    expect(changes.workingTree).toEqual([
+      expect.objectContaining({ additions: 2, deletions: 1 }),
+    ])
+    expect(changes.branchPoint).toEqual([
+      expect.objectContaining({ additions: 1, deletions: 1 }),
+    ])
+    await host.dispose()
+  })
+
+  it('parses rename records and unquoted unicode paths from NUL output', async () => {
+    const root = await repository()
+    git(root, ['mv', 'file.txt', '? renamed ünicode.txt'])
+
+    const host = new LocalHost()
+    const changes = await new GitEngine(host).changes(localPath(root))
+
+    expect(changes.workingTree).toHaveLength(1)
+    expect(changes.workingTree[0]?.path.path).toBe(join(root, '? renamed ünicode.txt'))
+    expect(changes.workingTree[0]?.staged).toBe(true)
+    await host.dispose()
+  })
+
+  it('pages history and opens commit detail as a historical file diff', async () => {
+    const root = await repository()
+    await writeFile(join(root, 'file.txt'), 'second\n')
+    git(root, ['add', 'file.txt'])
+    git(root, ['commit', '-m', 'second subject\n\nbody line'])
+
+    const host = new LocalHost()
+    const engine = new GitEngine(host)
+    const history = await engine.history(localPath(root), 0, 1)
+    expect(history.commits).toHaveLength(1)
+    expect(history.hasMore).toBe(true)
+
+    const commit = history.commits[0]
+    expect(commit).toBeDefined()
+    const detail = await engine.commitDetail(localPath(root), commit!.hash)
+    expect(detail.message).toContain('body line')
+    expect(detail.files).toEqual([
+      expect.objectContaining({ additions: 1, deletions: 1 }),
+    ])
+
+    const diff = await engine.diffInputs(
+      localPath(join(root, 'file.txt')),
+      'head',
+      commit!.hash,
+    )
+    expect(diff.baseContent).toBe('base\n')
+    expect(diff.currentContent).toBe('second\n')
+    await host.dispose()
+  })
 })
+
+async function repository(): Promise<string> {
+  const root = await mkdtemp(join(tmpdir(), 'hvir-git-changes-'))
+  cleanups.push(root)
+  git(root, ['init', '-b', 'main'])
+  git(root, ['config', 'user.email', 'hvir@example.test'])
+  git(root, ['config', 'user.name', 'hvir test'])
+  await writeFile(join(root, 'file.txt'), 'base\n')
+  git(root, ['add', 'file.txt'])
+  git(root, ['commit', '-m', 'base'])
+  return root
+}
 
 function git(cwd: string, args: readonly string[]): void {
   execFileSync('git', ['-C', cwd, ...args], { stdio: 'ignore' })

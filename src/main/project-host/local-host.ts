@@ -22,6 +22,8 @@ import type {
   ExecResult,
   FileType,
   HostId,
+  HostConnectionState,
+  HostWatchTier,
   HostPath,
   Stat,
   WatchEvent,
@@ -42,12 +44,19 @@ const DEFAULT_MAX_BUFFER = 10 * 1024 * 1024 // 10 MiB
 
 export class LocalHost implements ProjectHost {
   readonly hostId: HostId = LOCAL_HOST_ID
+  readonly connectionState: HostConnectionState = 'connected'
+  readonly watchTier: HostWatchTier = 'native'
 
   /** Live watchers, closed on dispose(). */
   private readonly watchers = new Set<import('chokidar').FSWatcher>()
 
   connect(): Promise<void> {
     return Promise.resolve()
+  }
+
+  onConnectionState(cb: (state: HostConnectionState) => void): Disposer {
+    cb(this.connectionState)
+    return () => undefined
   }
 
   async dispose(): Promise<void> {
@@ -246,6 +255,10 @@ export class LocalHost implements ProjectHost {
     else if (s.isFile()) type = 'file'
     else if (s.isSymbolicLink()) type = 'symlink'
     return { type, size: s.size, mtimeMs: s.mtimeMs, mode: s.mode }
+  }
+
+  async realpath(path: HostPath): Promise<HostPath> {
+    return this.wrap(await fsp.realpath(this.resolve(path)))
   }
 
   watch(

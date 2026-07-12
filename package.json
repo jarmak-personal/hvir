@@ -34,7 +34,9 @@
     "markdown-it": "^14.3.0",
     "mermaid": "^11.16.0",
     "node-pty": "^1.1.0",
-    "shiki": "^4.3.1"
+    "shiki": "^4.3.1",
+    "ssh-config": "^5.2.0",
+    "ssh2": "^1.17.0"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.0",
@@ -42,6 +44,7 @@
     "@types/node": "^24.0.0",
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
+    "@types/ssh2": "^1.15.5",
     "@vitejs/plugin-react": "^5.2.0",
     "cross-env": "^10.0.0",
     "electron": "^43.1.0",

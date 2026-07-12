@@ -221,6 +221,35 @@ button {
   border-right: 0;
 }
 
+.blame-toggle {
+  padding: 3px 8px;
+  border: 1px solid #343a44;
+  border-radius: 4px;
+  background: #15181e;
+  color: #8e97a5;
+  font-size: 10px;
+}
+
+.blame-toggle.active {
+  border-color: #4d8fd8;
+  color: #e3e7ec;
+}
+
+.cm-blame-gutter {
+  min-width: 165px;
+}
+
+.cm-blame-marker {
+  display: block;
+  max-width: 165px;
+  overflow: hidden;
+  padding: 0 8px;
+  color: #697383;
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .mode-control button:hover,
 .mode-control button.active {
   background: #29384a;
@@ -324,6 +353,210 @@ body.pane-resizing-row * {
   font-size: 11px;
   font-weight: 400;
   text-overflow: ellipsis;
+}
+
+.rail-switch,
+.git-tabs button,
+.git-file,
+.git-load-more,
+.project-dialog button,
+.project-dialog select,
+.project-dialog input {
+  border: 1px solid #343a45;
+  border-radius: 4px;
+  background: #15181e;
+  color: #aeb5c0;
+}
+
+.rail-switch {
+  padding: 2px 6px;
+  font-size: 10px;
+}
+
+.connection-state {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 7px;
+  border-radius: 50%;
+  background: #5aa66a;
+}
+
+.connection-state.connecting,
+.connection-state.reconnecting {
+  background: #d4a85f;
+}
+
+.connection-state.failed {
+  background: #d76d76;
+}
+
+.project-stale .viewer-body::after {
+  content: 'Disconnected · cached content may be stale';
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  padding: 5px 8px;
+  border: 1px solid #6e4e2e;
+  border-radius: 4px;
+  background: #211b15;
+  color: #d4a85f;
+  font-size: 10px;
+  pointer-events: none;
+}
+
+.git-tabs {
+  display: flex;
+  gap: 5px;
+  padding: 7px 8px;
+  border-bottom: 1px solid #282d36;
+  background: #13161b;
+}
+
+.git-tabs button {
+  flex: 1;
+  padding: 4px;
+  font-size: 10px;
+}
+
+.git-tabs button.active {
+  border-color: #4d8fd8;
+  color: #e5e8ed;
+}
+
+.git-group h3 {
+  display: flex;
+  justify-content: space-between;
+  margin: 10px 10px 4px;
+  color: #7f8898;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.git-file {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 5px 10px;
+  border: 0;
+  border-radius: 0;
+  text-align: left;
+}
+
+.git-file:hover,
+.git-commit:hover {
+  background: #20242c;
+}
+
+.git-file > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.git-file small {
+  flex: 0 0 auto;
+  color: #87909d;
+}
+
+.git-file b {
+  color: #67ae77;
+}
+.git-file i {
+  color: #d76d76;
+  font-style: normal;
+}
+
+.git-commit {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 7px 10px;
+  font-size: 11px;
+  cursor: pointer;
+  border: 0;
+  background: transparent;
+  color: #b9c0ca;
+  text-align: left;
+}
+
+.git-commit-detail {
+  margin: 0 8px 7px;
+  border-left: 2px solid #343a45;
+  background: #101318;
+}
+
+.git-commit-detail p {
+  margin: 0;
+  padding: 8px 10px;
+  color: #9ca5b2;
+  font-size: 11px;
+  white-space: pre-wrap;
+}
+
+.git-commit span {
+  color: #727c8a;
+  font-size: 10px;
+}
+
+.git-load-more {
+  margin: 8px 10px;
+  padding: 5px 8px;
+}
+
+.modal-backdrop {
+  position: fixed;
+  z-index: 1000;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: rgb(5 7 10 / 72%);
+}
+
+.project-dialog {
+  width: min(430px, calc(100vw - 32px));
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 20px;
+  border: 1px solid #343a45;
+  border-radius: 7px;
+  background: #181b21;
+  box-shadow: 0 18px 60px #000a;
+}
+
+.project-dialog h2,
+.project-dialog p {
+  margin: 0;
+}
+
+.project-dialog .dialog-error {
+  color: #dc7b82;
+}
+.project-dialog p {
+  color: #949dab;
+  font-size: 12px;
+}
+.project-dialog label {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-size: 11px;
+}
+.project-dialog input,
+.project-dialog select {
+  width: 100%;
+  padding: 7px 8px;
+}
+.dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 7px;
+}
+.dialog-actions button {
+  padding: 5px 10px;
 }
 
 .tree-scroll {

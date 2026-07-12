@@ -6,6 +6,7 @@ export interface ViewerTab {
   readonly pinned: boolean
   readonly mode: ViewMode
   readonly diffBase: DiffBase
+  readonly diffRevision?: string
   readonly scrollTop: number
   readonly file?: ReadFileResponse
   readonly loading: boolean

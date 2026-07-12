@@ -111,6 +111,19 @@ describe('LocalHost', () => {
     expect((await host.stat(localPath(join(dir, 'link.txt')))).type).toBe('symlink')
   })
 
+  it('canonicalizes symlinked paths for confinement checks', async () => {
+    const outside = await mkdtemp(join(tmpdir(), 'hvir-outside-'))
+    await writeFile(join(outside, 'secret.txt'), 'secret')
+    await symlink(outside, join(dir, 'escape'), 'dir')
+    try {
+      expect(
+        (await host.realpath(localPath(join(dir, 'escape', 'secret.txt')))).path,
+      ).toBe(join(outside, 'secret.txt'))
+    } finally {
+      await rm(outside, { recursive: true })
+    }
+  })
+
   it('emits watch events on file creation', { timeout: 10000 }, async () => {
     const events: WatchEvent[] = []
     const stop = host.watch(localPath(dir), (e) => events.push(e))

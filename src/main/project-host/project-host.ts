@@ -15,6 +15,8 @@ import type {
   Stat,
   WatchEvent,
   ExecResult,
+  HostConnectionState,
+  HostWatchTier,
   Disposer,
 } from '../../shared'
 
@@ -75,11 +77,14 @@ export interface PtyProcess {
 
 export interface ProjectHost {
   readonly hostId: HostId
+  readonly connectionState: HostConnectionState
+  readonly watchTier: HostWatchTier
 
   /** Establish the connection (a no-op for LocalHost). */
   connect(): Promise<void>
   /** Tear down the connection and all resources it owns. */
   dispose(): Promise<void>
+  onConnectionState(cb: (state: HostConnectionState) => void): Disposer
 
   /** Buffered command execution. */
   exec(command: string, args: readonly string[], opts?: ExecOptions): Promise<ExecResult>
@@ -106,6 +111,8 @@ export interface ProjectHost {
   writeFile(path: HostPath, data: Uint8Array | string): Promise<void>
   readdir(path: HostPath): Promise<DirEntry[]>
   stat(path: HostPath): Promise<Stat>
+  /** Canonicalize through symlinks on the project host. */
+  realpath(path: HostPath): Promise<HostPath>
 
   /** Watch a path; returns a disposer that stops watching. */
   watch(path: HostPath, onEvent: (e: WatchEvent) => void, opts?: WatchOptions): Disposer

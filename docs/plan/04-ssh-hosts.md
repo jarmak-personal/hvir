@@ -11,41 +11,47 @@ diff, and run terminals exactly like local ones. If Phase 1's seams held, **no r
 code changes in this phase** — it's all behind the interface. A mixed set of local and
 remote projects is the normal case, not a mode.
 
+**Current status:** the transport, registry, auth UI, project picker, reconnect state,
+watch tiers, cache, PTY path, and remote-Git broker are implemented. Automated tests
+cover config merging, modern encrypted-key prompting, host-key reuse, and the shared
+local confinement behavior. The acceptance checklist remains open until it is exercised
+against a real configured SSH host, including a network drop and interactive TUI.
+
 ## Tasks
 
 ### Connection layer
-- [ ] `SshHost` on the `ssh2` npm package: one multiplexed client per host config,
+- [x] `SshHost` on the `ssh2` npm package: one multiplexed client per host config,
       exec channels for `exec`/`spawnPty` (pty: true), SFTP for
       `readFile`/`writeFile`/`readdir`/`stat`.
-- [ ] Host config: parse `~/.ssh/config` for Host aliases, hostname, user, port,
+- [x] Host config: parse `~/.ssh/config` for Host aliases, hostname, user, port,
       IdentityFile (verify a maintained parser package vs hand-rolling the subset).
       A host in hvir is referenced by its alias.
-- [ ] Auth ladder: ssh-agent first, then identity files, then interactive prompts
+- [x] Auth ladder: ssh-agent first, then identity files, then interactive prompts
       (passphrase / password / keyboard-interactive for 2FA) surfaced through a proper
       renderer dialog — never silently hang.
-- [ ] Keepalives + reconnect with backoff. Connection state (connected / reconnecting /
+- [x] Keepalives + reconnect with backoff. Connection state (connected / reconnecting /
       failed) exposed as events; renderer shows it on the project.
 
 ### Behavior on top
-- [ ] Enforce registered-root confinement after canonicalization for every remote
+- [x] Enforce registered-root confinement after canonicalization for every remote
       filesystem operation and PTY cwd. Resolve symlinks (including parent components)
       before authorization so a project-internal link cannot escape the root; define
       and test the equivalent local behavior at the same trust boundary.
-- [ ] Remote PTYs through the supervisor: `spawnPty` runs the command in an exec
+- [x] Remote PTYs through the supervisor: `spawnPty` runs the command in an exec
       channel with a PTY; resize propagates; `HarnessAdapter` commands compose (the
       supervisor runs `claude ...` on the host — the adapter doesn't know it's remote).
 - [ ] Remote git: confirm the Phase 3 git slice works unchanged through
       `SshHost.exec` (it should — fix seam leaks if not).
-- [ ] `watch` implementation, tiered (ADR-010): **polling** of open-tab files and git
+- [x] `watch` implementation, tiered (ADR-010): **polling** of open-tab files and git
       status as the baseline; capability-detect `inotifywait` at connect time and
       stream `inotifywait -rm` over an exec channel where available. Record which tier
       a host got.
-- [ ] Read caching for tree listings and file reads with watch/poll invalidation, so
+- [x] Read caching for tree listings and file reads with watch/poll invalidation, so
       latency degrades freshness, never responsiveness (§3.2).
 
 ### UX
-- [ ] "Add project" flow: pick host (local or an ssh alias) + path.
-- [ ] Disconnected project state: tabs show cached content marked stale; terminals show
+- [x] "Add project" flow: pick host (local or an ssh alias) + path.
+- [x] Disconnected project state: tabs show cached content marked stale; terminals show
       exited; reconnect restores and (Phase 6+) offers session resume.
 - [ ] Investigate remote-session survivability across SSH drops: prototype wrapping
       remote harness PTYs in `dtach` or `abduco` (transparent, no rendering layer —
@@ -62,7 +68,7 @@ remote projects is the normal case, not a mode.
       and succeed.
 - [ ] Editing a remote file externally is reflected in an open tab within the polling
       interval.
-- [ ] Status table updated.
+- [x] Status table updated.
 
 ## Non-goals
 Remote worktree discovery UI (Phase 7 — but it must work through `ProjectHost`, which

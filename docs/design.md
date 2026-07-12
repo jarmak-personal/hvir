@@ -131,6 +131,26 @@ we buy performance back through the off-thread boundary, not the engine.
 given ADR-008); libgit2 bindings (native build complexity for marginal gain).
 **Revisit if:** history browsing measurably lags on big repos.
 
+#### Phase 5 addendum — 2026-07-12: remote Git worker routing
+
+**Git parsing stays in the utility process; `ProjectHost` operations are brokered by
+main.** The Git worker owns command construction and parsing, but its injected host is a
+small proxy. `exec` and file reads travel over the worker port to main, where the host
+registry dispatches them by host ID to the existing `LocalHost` or multiplexed
+`SshHost`. Results return to the worker for parsing. The renderer continues to use the
+same typed Git IPC on every host.
+
+**Why:** SSH clients and auth/reconnect state are main-process resources. A second SSH
+client in the Git worker would duplicate connections, prompts, trust state, caches, and
+failure recovery; moving Git parsing into main would violate “nothing blocks the paint”
+and ADR-005. The broker keeps both seams: expensive Git work is off-thread, while every
+transport operation still crosses the owning `ProjectHost`.
+
+**Rejected:** constructing `LocalHost` inside the worker (remote paths silently execute
+locally and break ADR-010); creating a second `SshHost` per worker (duplicate transport
+and auth lifecycle); running the whole Git engine in main (large log/diff parsing can
+delay IPC and window lifecycle work); installing a remote helper (rejected by ADR-010).
+
 ### ADR-006 — Session recovery: harness resume, not a daemon
 **Decision:** Recover agent sessions through the harness's own persistence
 (`claude --resume`, `codex resume`), not by keeping PTYs alive in a daemon. hvir
@@ -404,7 +424,11 @@ worktree = a place an agent is working, with notification rollups at each tier.
 - Remote terminal survivability across SSH drops (drops are common; hvir restarts are
   rare) — optional `dtach`/`abduco` wrapper on the remote end? Unlike tmux they're
   transparent proxies with no rendering layer, so Ghostty still renders the harness
-  directly. Interacts with ADR-006 resume.
+  directly. Interacts with ADR-006 resume. **Phase 4 probe (2026-07-12):** neither tool
+  is installed on the development host, and requiring either would add a remote package
+  dependency to the otherwise agentless design. Do not install or silently require one;
+  defer an opt-in prototype until a real SSH drop test can compare it with harness
+  resume.
 - Remote watch strategy per host — polling vs `inotifywait` stream; capability-detect
   at connect time?
 
