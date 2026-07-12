@@ -28,6 +28,11 @@ const HOST_PRIMITIVE_BANS = [
     'src/main/project-host/local-host.ts. Go through the ProjectHost seam (ADR-010).',
 }))
 
+const DYNAMIC_HOST_IMPORT_BANS = HOST_PRIMITIVE_BANS.map(({ name, message }) => ({
+  selector: `ImportExpression[source.value='${name}']`,
+  message,
+}))
+
 /** `ipcRenderer` — confined to the preload bridge. */
 const IPC_RENDERER_BAN = {
   name: 'electron',
@@ -38,10 +43,12 @@ const IPC_RENDERER_BAN = {
 }
 
 const SPAWN_PTY_BAN = {
-  selector: "CallExpression[callee.property.name='spawnPty']",
+  selector:
+    "MemberExpression[property.name='spawnPty'], " +
+    "MemberExpression[computed=true][property.value='spawnPty']",
   message:
-    'Every PTY must be spawned through the PTY supervisor (ADR-006). Do not call ' +
-    'host.spawnPty() directly outside src/main/pty/pty-supervisor.ts.',
+    'Every PTY must be spawned through the PTY supervisor (ADR-006). Do not access ' +
+    'host.spawnPty outside src/main/pty/pty-supervisor.ts.',
 }
 
 export default tseslint.config(
@@ -64,7 +71,7 @@ export default tseslint.config(
         'error',
         { paths: [...HOST_PRIMITIVE_BANS, IPC_RENDERER_BAN] },
       ],
-      'no-restricted-syntax': ['error', SPAWN_PTY_BAN],
+      'no-restricted-syntax': ['error', SPAWN_PTY_BAN, ...DYNAMIC_HOST_IMPORT_BANS],
       'no-unused-vars': 'off',
       '@typescript-eslint/no-unused-vars': [
         'error',
@@ -89,6 +96,7 @@ export default tseslint.config(
     files: ['src/main/project-host/local-host.ts'],
     rules: {
       'no-restricted-imports': ['error', { paths: [IPC_RENDERER_BAN] }],
+      'no-restricted-syntax': ['error', SPAWN_PTY_BAN],
     },
   },
 
@@ -104,7 +112,7 @@ export default tseslint.config(
   {
     files: ['src/main/pty/pty-supervisor.ts'],
     rules: {
-      'no-restricted-syntax': 'off',
+      'no-restricted-syntax': ['error', ...DYNAMIC_HOST_IMPORT_BANS],
     },
   },
 
@@ -114,6 +122,7 @@ export default tseslint.config(
     files: ['test/**/*.ts'],
     rules: {
       'no-restricted-imports': 'off',
+      'no-restricted-syntax': ['error', SPAWN_PTY_BAN],
     },
   },
 

@@ -6,8 +6,8 @@ A lightweight, view-first workbench for agentic development: a beautiful code + 
 explorer wrapped around the terminals where agents (Claude Code, Codex, …) do their
 work.
 
-> **Status: not usable yet.** This repo currently contains design and planning documents
-> only — no application code. Do not try to install or run anything.
+> **Status: foundation only, not usable yet.** Phase 1 is implemented: the Electron
+> shell and core architecture seams run, but the viewer and terminal UI have not landed.
 
 ## What / why
 
@@ -57,3 +57,15 @@ system git. Targets Linux and modern macOS.
 Read `docs/design.md` first, then work the first unfinished phase in
 `docs/plan/00-overview.md`. Architectural decisions are recorded as ADRs with rejected
 alternatives — nothing is decided silently.
+
+## Development
+
+```sh
+npm ci
+npm run verify
+npm run dev
+```
+
+`npm run smoke` exercises the built Electron window, typed renderer IPC, utility process,
+and local host. On a headless Linux machine, run it as
+`xvfb-run -a npm run smoke`.

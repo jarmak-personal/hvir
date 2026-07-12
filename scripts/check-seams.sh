@@ -27,7 +27,7 @@ hits=$(grep -rnw 'ipcRenderer' "$SRC" --include='*.ts' --include='*.tsx' \
 report "ipcRenderer used only in src/preload/" "$hits"
 
 # 2. Host primitives (fs / child_process / chokidar / node-pty) only in LocalHost.
-hits=$(grep -rnE "from '(node:)?(fs|fs/promises|child_process)'|from 'chokidar'|from 'node-pty'|import\('node-pty'\)" \
+hits=$(grep -rnE "from ['\"](node:)?(fs|fs/promises|child_process)['\"]|from ['\"](chokidar|node-pty)['\"]|import\(['\"]((node:)?(fs|fs/promises|child_process)|chokidar|node-pty)['\"]\)" \
   "$SRC" --include='*.ts' --include='*.tsx' \
   | grep -v '^src/main/project-host/local-host.ts' || true)
 report "host primitives imported only in local-host.ts" "$hits"

@@ -27,7 +27,11 @@ if (!port) {
 
 port.on('message', ({ data: req }) => {
   if (req.type === ECHO_REQUEST_TYPE) {
-    const payload = req.payload as EchoPayload
+    if (!isEchoPayload(req.payload)) {
+      port.postMessage({ id: req.id, ok: false, error: 'invalid echo payload' })
+      return
+    }
+    const payload: EchoPayload = req.payload
     const result: EchoResult = { text: payload.text, workerPid: process.pid }
     port.postMessage({ id: req.id, ok: true, result })
   } else {
@@ -38,3 +42,11 @@ port.on('message', ({ data: req }) => {
     })
   }
 })
+
+function isEchoPayload(value: unknown): value is EchoPayload {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    typeof (value as { text?: unknown }).text === 'string'
+  )
+}

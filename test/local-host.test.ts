@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -68,9 +68,47 @@ describe('LocalHost', () => {
     expect(r.stdout).toBe('piped-input')
   })
 
+  it('closes stdin when buffered exec has no input', async () => {
+    const r = await host.exec('cat', [])
+    expect(r.code).toBe(0)
+    expect(r.stdout).toBe('')
+  })
+
+  it('streams output and closes stdin when no input is supplied', async () => {
+    const stream = host.execStream('cat', [])
+    let stdout = ''
+    stream.onStdout((chunk) => {
+      stdout += chunk
+    })
+
+    const result = await new Promise<{ code: number | null; signal: string | null }>(
+      (resolve, reject) => {
+        stream.onError(reject)
+        stream.onExit(resolve)
+      },
+    )
+
+    expect(result).toEqual({ code: 0, signal: null })
+    expect(stdout).toBe('')
+    stream.dispose()
+  })
+
+  it('reports streaming spawn errors instead of emitting an unhandled error', async () => {
+    const stream = host.execStream('/definitely/not/a/real/hvir-command', [])
+    const error = await new Promise<Error>((resolve) => stream.onError(resolve))
+    expect(error.message).toMatch(/ENOENT/)
+    stream.dispose()
+  })
+
   it('rejects a path belonging to a foreign host', async () => {
     const foreign = hostPath(asHostId('remote'), '/x')
     await expect(host.stat(foreign)).rejects.toThrow(/host 'remote'/)
+  })
+
+  it('stats a symlink without following it', async () => {
+    await writeFile(join(dir, 'target.txt'), 'target')
+    await symlink('target.txt', join(dir, 'link.txt'))
+    expect((await host.stat(localPath(join(dir, 'link.txt')))).type).toBe('symlink')
   })
 
   it('emits watch events on file creation', { timeout: 10000 }, async () => {

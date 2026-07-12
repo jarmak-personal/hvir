@@ -102,9 +102,9 @@ export class LocalHost implements ProjectHost {
         resolve({ code, signal: signal ?? null, stdout, stderr })
       })
 
-      if (opts.input !== undefined) {
-        child.stdin.end(opts.input)
-      }
+      // Buffered exec has no writable stdin handle, so always close it. Leaving
+      // it open makes commands that read until EOF (for example `cat`) hang.
+      child.stdin.end(opts.input)
     })
   }
 
@@ -118,7 +118,17 @@ export class LocalHost implements ProjectHost {
       env: opts.env ? { ...process.env, ...opts.env } : process.env,
       signal: opts.signal,
     })
-    if (opts.input !== undefined) child.stdin.end(opts.input)
+    const errorListeners = new Set<(error: Error) => void>()
+    const onError = (error: Error): void => {
+      for (const cb of errorListeners) cb(error)
+    }
+    // Install immediately: a failed spawn emits `error` before a caller has a
+    // chance to subscribe, and an unhandled child-process error crashes Node.
+    child.on('error', onError)
+
+    // There is no streaming stdin writer in this Phase 1 seam, so EOF is the
+    // only useful default when no fixed input was supplied.
+    child.stdin.end(opts.input)
 
     return {
       onStdout(cb) {
@@ -135,6 +145,12 @@ export class LocalHost implements ProjectHost {
           child.stderr.off('data', h)
         }
       },
+      onError(cb) {
+        errorListeners.add(cb)
+        return () => {
+          errorListeners.delete(cb)
+        }
+      },
       onExit(cb) {
         const h = (code: number | null, signal: NodeJS.Signals | null): void =>
           cb({ code, signal: signal ?? null })
@@ -147,6 +163,9 @@ export class LocalHost implements ProjectHost {
         child.kill(signal as NodeJS.Signals | undefined)
       },
       dispose() {
+        errorListeners.clear()
+        child.stdout.removeAllListeners()
+        child.stderr.removeAllListeners()
         child.removeAllListeners()
         if (child.exitCode === null) child.kill()
       },
@@ -218,7 +237,9 @@ export class LocalHost implements ProjectHost {
   }
 
   async stat(path: HostPath): Promise<Stat> {
-    const s = await fsp.stat(this.resolve(path))
+    // lstat preserves the distinction promised by Stat.type; stat() follows a
+    // symlink and makes the `symlink` branch unreachable.
+    const s = await fsp.lstat(this.resolve(path))
     let type: FileType = 'other'
     if (s.isDirectory()) type = 'dir'
     else if (s.isFile()) type = 'file'

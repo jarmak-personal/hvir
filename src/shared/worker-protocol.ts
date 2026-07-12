@@ -20,6 +20,12 @@ export type WorkerResponse<T = unknown> =
 
 export const ECHO_REQUEST_TYPE = 'echo' as const
 
+/** One request/response operation in a worker protocol map. */
+export interface WorkerOperation<Request = unknown, Response = unknown> {
+  readonly request: Request
+  readonly response: Response
+}
+
 export interface EchoPayload {
   readonly text: string
 }
@@ -28,4 +34,9 @@ export interface EchoResult {
   readonly text: string
   /** PID of the utility process that handled it — proves it ran off-main. */
   readonly workerPid: number
+}
+
+/** Compile-time contract spoken by the Phase 1 echo worker. */
+export interface EchoWorkerProtocol {
+  readonly [ECHO_REQUEST_TYPE]: WorkerOperation<EchoPayload, EchoResult>
 }

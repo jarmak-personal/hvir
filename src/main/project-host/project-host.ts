@@ -33,6 +33,7 @@ export interface ExecOptions {
 export interface ExecStreamHandle {
   onStdout(cb: (chunk: string) => void): Disposer
   onStderr(cb: (chunk: string) => void): Disposer
+  onError(cb: (error: Error) => void): Disposer
   onExit(cb: (result: { code: number | null; signal: string | null }) => void): Disposer
   kill(signal?: string): void
   dispose(): void

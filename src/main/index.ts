@@ -12,9 +12,9 @@ import { app, BrowserWindow, shell } from 'electron'
 import { registerIpcHandlers } from './ipc'
 import { createWorkerClient, workerPath, type WorkerClient } from './worker-host'
 import { LocalHost } from './project-host'
-import { ECHO_REQUEST_TYPE, localPath, type EchoResult } from '../shared'
+import { ECHO_REQUEST_TYPE, localPath, type EchoWorkerProtocol } from '../shared'
 
-let echoWorker: WorkerClient | null = null
+let echoWorker: WorkerClient<EchoWorkerProtocol> | null = null
 
 function createWindow(): BrowserWindow {
   const win = new BrowserWindow({
@@ -51,7 +51,10 @@ function createWindow(): BrowserWindow {
 }
 
 function startup(): void {
-  echoWorker = createWorkerClient(workerPath('echo-worker.js'), 'hvir-echo')
+  echoWorker = createWorkerClient<EchoWorkerProtocol>(
+    workerPath('echo-worker.js'),
+    'hvir-echo',
+  )
   registerIpcHandlers({ echoWorker })
   createWindow()
 
@@ -68,10 +71,14 @@ function startup(): void {
  * then exits. Run under a display (or `xvfb-run`) so the window can paint.
  */
 async function runSmoke(): Promise<number> {
-  const worker = createWorkerClient(workerPath('echo-worker.js'), 'hvir-echo-smoke')
+  const worker = createWorkerClient<EchoWorkerProtocol>(
+    workerPath('echo-worker.js'),
+    'hvir-echo-smoke',
+  )
   try {
-    const echo = await worker.request<EchoResult>(ECHO_REQUEST_TYPE, { text: 'ping' })
+    const echo = await worker.request(ECHO_REQUEST_TYPE, { text: 'ping' })
     if (echo.text !== 'ping') throw new Error(`echo mismatch: ${echo.text}`)
+    if (echo.workerPid === process.pid) throw new Error('echo ran in the main process')
     console.log(`[smoke] echo worker OK (pid ${echo.workerPid})`)
 
     // Register the real IPC handlers so the renderer's app:info resolves — this
@@ -79,27 +86,49 @@ async function runSmoke(): Promise<number> {
     registerIpcHandlers({ echoWorker: worker })
 
     const host = new LocalHost()
-    const result = await host.exec('/bin/echo', ['hvir'])
-    if (result.stdout.trim() !== 'hvir')
-      throw new Error(`exec mismatch: ${result.stdout}`)
-    console.log('[smoke] LocalHost.exec OK')
-    // prove host-qualified read works too
-    await host.stat(localPath(process.cwd()))
-    console.log('[smoke] LocalHost.stat OK')
-    await host.dispose()
+    await host.connect()
+    try {
+      const result = await host.exec('/bin/echo', ['hvir'])
+      if (result.stdout.trim() !== 'hvir')
+        throw new Error(`exec mismatch: ${result.stdout}`)
+      console.log('[smoke] LocalHost.exec OK')
+      // prove host-qualified read works too
+      await host.stat(localPath(process.cwd()))
+      console.log('[smoke] LocalHost.stat OK')
+    } finally {
+      await host.dispose()
+    }
 
     const win = createWindow()
-    await new Promise<void>((resolve, reject) => {
-      const timer = setTimeout(
-        () => reject(new Error('window never became ready')),
-        15000,
-      )
-      win.once('ready-to-show', () => {
-        clearTimeout(timer)
-        resolve()
-      })
-    })
+    await withTimeout(
+      new Promise<void>((resolve) => win.once('ready-to-show', resolve)),
+      'window never became ready',
+    )
     console.log('[smoke] window ready-to-show OK')
+
+    // Execute through the isolated renderer's real preload bridge. Waiting for
+    // these results proves the IPC calls completed; ready-to-show alone only
+    // proves paint, not the round-trip claimed by this smoke check.
+    const rendererResult = (await withTimeout(
+      win.webContents.executeJavaScript(`
+        Promise.all([
+          window.hvir.invoke('app:info', undefined),
+          window.hvir.invoke('demo:echo', { text: 'renderer-ping' })
+        ]).then(([info, echoed]) => ({ info, echoed }))
+      `),
+      'renderer IPC round-trip timed out',
+    )) as {
+      info: { electronVersion: string }
+      echoed: { text: string; workerPid: number }
+    }
+    if (!rendererResult.info.electronVersion) throw new Error('app:info was empty')
+    if (rendererResult.echoed.text !== 'renderer-ping') {
+      throw new Error(`renderer echo mismatch: ${rendererResult.echoed.text}`)
+    }
+    if (rendererResult.echoed.workerPid === process.pid) {
+      throw new Error('renderer echo ran in the main process')
+    }
+    console.log('[smoke] renderer IPC + echo worker round-trip OK')
     win.destroy()
 
     console.log('HVIR_SMOKE_OK')
@@ -109,6 +138,24 @@ async function runSmoke(): Promise<number> {
     return 1
   } finally {
     worker.dispose()
+  }
+}
+
+async function withTimeout<T>(
+  promise: Promise<T>,
+  message: string,
+  timeoutMs = 15000,
+): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(() => reject(new Error(message)), timeoutMs)
+      }),
+    ])
+  } finally {
+    if (timer) clearTimeout(timer)
   }
 }
 

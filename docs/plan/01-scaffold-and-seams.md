@@ -45,11 +45,14 @@ into them. No visible features ship in this phase beyond an empty window.
 - [x] **`LocalHost`** implementing `ProjectHost` with node:fs, child_process, chokidar,
       node-pty. Unit-test read/write/list/exec/watch against a temp dir. → node-pty is
       lazily imported inside `spawnPty` so dev/tests need no Electron-ABI rebuild yet.
-      12 unit tests pass, incl. watch + foreign-host rejection.
+      11 `LocalHost` unit tests pass, incl. buffered/streaming exec, EOF handling,
+      symlink stat, watch, and foreign-host rejection.
 - [x] **PTY supervisor** (ADR-006): the single module through which every PTY is
       spawned (delegating to a `ProjectHost.spawnPty`). Owns the PTY registry,
       attach/detach of renderer streams, and exit events. Nothing else may spawn a PTY.
       → `src/main/pty/pty-supervisor.ts`; sole caller of `.spawnPty` (lint-enforced).
+      Supervisor tests cover stream attachment, active/pending duplicate-session
+      rejection, exit cleanup, and deterministic resume.
 - [x] **`HarnessAdapter`** interface (ADR-006): launch command + args (including
       pre-assigned session id), resume command, title conventions. Stub only — real
       adapters land in Phase 6. Include a `plainShell` adapter (no session semantics).
@@ -67,6 +70,8 @@ into them. No visible features ship in this phase beyond an empty window.
 - [x] Utility-process harness: a helper to launch a `src/workers/` module as an Electron
       utility process with the typed IPC contract. Prove it with a trivial echo worker.
       → `src/main/worker-host.ts` + `src/workers/echo-worker.ts`.
+      The worker client is generic over a request/response protocol map, so arbitrary
+      message names, payloads, and result casts are compile-time errors.
 
 ## Acceptance criteria
 - [x] `npm run dev` opens an empty window; `npm run build` produces a runnable app on Linux.
@@ -75,11 +80,14 @@ into them. No visible features ship in this phase beyond an empty window.
       round-tripping `app:info` back through the real IPC handler. (This box's machine is
       headless with no GPU, so verification runs under Xvfb; on a real desktop
       `npm run dev` opens the window directly.)
-- [x] `LocalHost` unit tests pass, including watch events on a temp dir. → 12 tests green.
+- [x] `LocalHost` unit tests pass, including watch events on a temp dir. → 11
+      `LocalHost` tests green; 20 tests across the Phase 1 suite.
 - [x] A demo utility process round-trips a typed IPC message. → verified in the real
-      Electron runtime via `HVIR_SMOKE=1` (echo worker OK, off-main PID confirmed).
-- [x] Grep test: no `ipcRenderer` usage outside the IPC contract module; no `node:fs`
-      import outside `LocalHost`; lint enforces both. → `scripts/check-seams.sh` + lint.
+      Electron runtime via `HVIR_SMOKE=1` (renderer → preload → main → echo worker →
+      renderer, with the off-main PID confirmed).
+- [x] Grep test: no `ipcRenderer` usage outside the preload bridge; no `node:fs`
+      import outside `LocalHost`; lint enforces both. → `scripts/check-seams.sh` + lint,
+      including dynamic-import and aliased `spawnPty` access protection.
 - [x] Status table in `00-overview.md` updated.
 
 ## Non-goals

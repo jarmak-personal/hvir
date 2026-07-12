@@ -66,7 +66,10 @@ export interface HvirApi {
  * Runtime allow-list of invokable channels. The preload bridge validates
  * against this so the renderer can never reach an un-declared channel.
  */
-export const INVOKE_CHANNELS = ['app:info', 'demo:echo'] as const
+export const INVOKE_CHANNELS = [
+  'app:info',
+  'demo:echo',
+] as const satisfies readonly IpcInvokeChannel[]
 
 // Compile-time proof that INVOKE_CHANNELS stays in sync with IpcInvokeMap.
 type _AssertChannelsCover = IpcInvokeChannel extends (typeof INVOKE_CHANNELS)[number]

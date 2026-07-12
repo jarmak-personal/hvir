@@ -9,7 +9,7 @@ import { app, ipcMain } from 'electron'
 import {
   ECHO_REQUEST_TYPE,
   type AppInfo,
-  type EchoResult,
+  type EchoWorkerProtocol,
   type IpcInvokeChannel,
   type IpcRequest,
   type IpcResponse,
@@ -25,7 +25,7 @@ function handle<C extends IpcInvokeChannel>(channel: C, handler: Handler<C>): vo
 }
 
 export interface IpcDeps {
-  readonly echoWorker: WorkerClient
+  readonly echoWorker: WorkerClient<EchoWorkerProtocol>
 }
 
 export function registerIpcHandlers(deps: IpcDeps): void {
@@ -38,7 +38,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
   }))
 
   handle('demo:echo', async (req) => {
-    const result = await deps.echoWorker.request<EchoResult>(ECHO_REQUEST_TYPE, {
+    const result = await deps.echoWorker.request(ECHO_REQUEST_TYPE, {
       text: req.text,
     })
     return { text: result.text, workerPid: result.workerPid }

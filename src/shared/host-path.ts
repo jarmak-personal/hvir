@@ -15,7 +15,7 @@ export type HostId = string & { readonly __hostId: 'HostId' }
 
 export interface HostPath {
   readonly hostId: HostId
-  /** Absolute, POSIX-normalized path on that host. */
+  /** POSIX-normalized path on that host. */
   readonly path: string
   /** Phantom brand — exists only in the type, never at runtime. */
   readonly [brand]: never

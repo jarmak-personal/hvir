@@ -52,23 +52,35 @@ interface Entry {
 
 export class PtySupervisor {
   private readonly entries = new Map<string, Entry>()
-  private readonly globalExitListeners = new Set<(info: ManagedPty) => void>()
+  private readonly pendingIds = new Set<string>()
+  private readonly globalExitListeners = new Set<
+    (info: ManagedPty, exit: PtyExit) => void
+  >()
 
   /** Spawn a PTY. The one and only site that calls `host.spawnPty`. */
   async spawn(req: PtySpawnRequest): Promise<ManagedPty> {
     const sessionId = req.sessionId ?? randomUUID()
+    if (this.entries.has(sessionId) || this.pendingIds.has(sessionId)) {
+      throw new Error(`PTY session '${sessionId}' is already active`)
+    }
+    this.pendingIds.add(sessionId)
+
     const ctx = { sessionId, cwd: req.cwd, cols: req.cols, rows: req.rows }
     const resumed = req.resume === true && req.adapter.supportsResume
-    const spec = resumed ? req.adapter.resume(ctx) : req.adapter.launch(ctx)
-
-    const pty = await req.host.spawnPty({
-      file: spec.file,
-      args: spec.args,
-      cwd: req.cwd,
-      env: spec.env,
-      cols: req.cols,
-      rows: req.rows,
-    })
+    let pty: PtyProcess
+    try {
+      const spec = resumed ? req.adapter.resume(ctx) : req.adapter.launch(ctx)
+      pty = await req.host.spawnPty({
+        file: spec.file,
+        args: spec.args,
+        cwd: req.cwd,
+        env: spec.env,
+        cols: req.cols,
+        rows: req.rows,
+      })
+    } finally {
+      this.pendingIds.delete(sessionId)
+    }
 
     const info: ManagedPty = {
       id: sessionId,
@@ -88,6 +100,10 @@ export class PtySupervisor {
       exited: false,
     }
 
+    // Publish before subscribing so even a host implementation that reports an
+    // already-finished PTY synchronously can remove the right registry entry.
+    this.entries.set(sessionId, entry)
+
     entry.disposers.push(
       pty.onData((data) => {
         for (const cb of entry.dataListeners) cb(data)
@@ -96,12 +112,20 @@ export class PtySupervisor {
     entry.disposers.push(
       pty.onExit((exit) => {
         entry.exited = true
-        for (const cb of entry.exitListeners) cb(exit)
-        for (const cb of this.globalExitListeners) cb(info)
+        try {
+          for (const cb of entry.exitListeners) cb(exit)
+          for (const cb of this.globalExitListeners) cb(info, exit)
+        } finally {
+          for (const dispose of entry.disposers) void dispose()
+          entry.dataListeners.clear()
+          entry.exitListeners.clear()
+          // The registry represents live sessions. Removing an exited entry
+          // also permits a later deterministic resume with the same id.
+          if (this.entries.get(sessionId) === entry) this.entries.delete(sessionId)
+        }
       }),
     )
 
-    this.entries.set(sessionId, entry)
     return info
   }
 
@@ -137,7 +161,7 @@ export class PtySupervisor {
   }
 
   /** Subscribe to exits across all sessions. Returns an unsubscribe fn. */
-  onExit(cb: (info: ManagedPty) => void): Disposer {
+  onExit(cb: (info: ManagedPty, exit: PtyExit) => void): Disposer {
     this.globalExitListeners.add(cb)
     return () => {
       this.globalExitListeners.delete(cb)

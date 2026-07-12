@@ -11,11 +11,16 @@
 import { join } from 'node:path'
 import { utilityProcess, type UtilityProcess } from 'electron'
 
-import type { WorkerRequest, WorkerResponse } from '../shared'
+import type { WorkerOperation, WorkerRequest, WorkerResponse } from '../shared'
 
-export interface WorkerClient {
-  /** Send a typed request; resolves with the worker's typed result. */
-  request<Res>(type: string, payload: unknown): Promise<Res>
+type ProtocolShape<P> = { readonly [K in keyof P]: WorkerOperation }
+
+export interface WorkerClient<P extends ProtocolShape<P>> {
+  /** Send a request declared by this worker's protocol map. */
+  request<K extends keyof P & string>(
+    type: K,
+    payload: P[K]['request'],
+  ): Promise<P[K]['response']>
   /** PID of the utility process, once spawned. */
   readonly pid: number | undefined
   dispose(): void
@@ -31,10 +36,10 @@ export function workerPath(entryFile: string): string {
   return join(__dirname, entryFile)
 }
 
-export function createWorkerClient(
+export function createWorkerClient<P extends ProtocolShape<P>>(
   entryPath: string,
   serviceName?: string,
-): WorkerClient {
+): WorkerClient<P> {
   const proc: UtilityProcess = utilityProcess.fork(entryPath, [], {
     serviceName: serviceName ?? 'hvir-worker',
     stdio: 'inherit',
@@ -43,11 +48,16 @@ export function createWorkerClient(
   const pending = new Map<number, Pending>()
   let nextId = 1
   let disposed = false
+  let spawnFailure: Error | undefined
 
-  // Gate sends until the child has actually spawned, so no message is dropped.
+  // Gate sends until the child has spawned or failed. Resolving on failure
+  // avoids an unhandled rejected promise when a worker dies before any request.
+  let markReady: () => void = () => undefined
   const ready = new Promise<void>((resolve) => {
-    proc.once('spawn', () => resolve())
+    markReady = resolve
   })
+
+  proc.once('spawn', markReady)
 
   proc.on('message', (msg: WorkerResponse) => {
     const p = pending.get(msg.id)
@@ -57,8 +67,18 @@ export function createWorkerClient(
     else p.reject(new Error(msg.error))
   })
 
+  proc.on('error', (type, location, report) => {
+    const cause = new Error(`worker ${type} at ${location}${report ? `: ${report}` : ''}`)
+    spawnFailure = cause
+    markReady()
+    for (const p of pending.values()) p.reject(cause)
+    pending.clear()
+  })
+
   proc.on('exit', (code) => {
     const err = new Error(`worker exited (code ${code})`)
+    spawnFailure ??= err
+    markReady()
     for (const p of pending.values()) p.reject(err)
     pending.clear()
   })
@@ -67,18 +87,27 @@ export function createWorkerClient(
     get pid() {
       return proc.pid
     },
-    async request<Res>(type: string, payload: unknown): Promise<Res> {
+    async request<K extends keyof P & string>(
+      type: K,
+      payload: P[K]['request'],
+    ): Promise<P[K]['response']> {
       if (disposed) throw new Error('worker client disposed')
       await ready
+      if (disposed) throw new Error('worker client disposed')
+      if (spawnFailure) throw spawnFailure
       const id = nextId++
-      return new Promise<Res>((resolve, reject) => {
-        pending.set(id, { resolve: (value) => resolve(value as Res), reject })
+      return new Promise<P[K]['response']>((resolve, reject) => {
+        pending.set(id, {
+          resolve: (value) => resolve(value),
+          reject,
+        })
         const req: WorkerRequest = { id, type, payload }
         proc.postMessage(req)
       })
     },
     dispose() {
       disposed = true
+      markReady()
       for (const p of pending.values()) p.reject(new Error('worker client disposed'))
       pending.clear()
       proc.kill()
