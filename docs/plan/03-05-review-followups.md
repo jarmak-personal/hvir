@@ -44,6 +44,15 @@ dependency-reload fixes.
 
 ## P1 — viewer polish
 
+- [x] **First-class agent task lists.** Render GFM `- [ ]` / `- [x]` items, including
+      nesting, as polished disabled checkboxes, plus GitLab's `- [~]` inapplicable state.
+      Rendered mode remains read-only; changing a task belongs in source mode so the UI
+      never implies an unpersisted edit.
+- [ ] **GitHub/GitLab alerts.** Render blockquote alerts using the shared
+      `> [!NOTE|TIP|IMPORTANT|WARNING|CAUTION]` syntax with accessible labels and restrained
+      theme colors. Accept case-insensitive GitLab input and its optional custom title;
+      ordinary blockquotes remain ordinary. Prefer a focused markdown-it extension, but a
+      small token rule is acceptable if maintained plugins cannot preserve both dialects.
 - [x] **Do not reserve the blame gutter while blame is off.** The current empty
       `.cm-blame-gutter` has `min-width: 165px`, which looks like an enormous line-number
       margin. Mount that gutter only when blame is enabled; keep CodeMirror's normal compact

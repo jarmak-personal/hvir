@@ -39,6 +39,7 @@ export default defineConfig({
     optimizeDeps: {
       include: [
         'markdown-it',
+        'markdown-it-task-lists',
         'mermaid',
         'yaml',
         'shiki/core',

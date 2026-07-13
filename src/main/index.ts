@@ -460,12 +460,19 @@ async function runSmoke(): Promise<number> {
             openWhenReady('/test/fixtures', () =>
               openWhenReady('/test/fixtures/rendered.md', () => {
                 const waitForRendered = () => {
-                  if (document.querySelector('.mermaid-diagram svg') && document.querySelector('.markdown-body .shiki')) {
+                  const tasks = document.querySelectorAll('.task-list-item-checkbox');
+                  if (document.querySelector('.mermaid-diagram svg') &&
+                      document.querySelector('.markdown-body .shiki') &&
+                      tasks.length === 4 &&
+                      document.querySelectorAll('.task-list-item-checkbox:checked').length === 1) {
+                    if (document.querySelectorAll('.task-list-item-checkbox.inapplicable').length !== 1) {
+                      return reject(new Error('GitLab inapplicable task did not render'));
+                    }
                     const body = document.querySelector('.markdown-body');
                     body?.dispatchEvent(new Event('scroll', { bubbles: true }));
                     return setTimeout(() => {
                       if (document.querySelector('.mermaid-diagram svg')) {
-                        resolve('Shiki + Mermaid + stable scroll');
+                        resolve('Shiki + Mermaid + task lists + stable scroll');
                       } else {
                         reject(new Error('scroll destroyed Mermaid diagram'));
                       }

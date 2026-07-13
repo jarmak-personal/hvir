@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest'
 import { localPath, resolveRenderedLink } from '../src/shared'
 import { isSafeExternalUrl, isWorkbenchDocument } from '../src/main/navigation-policy'
 import { MARKDOWN_OPTIONS } from '../src/renderer/src/viewer/render-protocol'
+import { enableTaskLists } from '../src/renderer/src/viewer/markdown-extensions'
 
 describe('rendered document links', () => {
   const document = localPath('/repo/docs/plan/00-overview.md')
@@ -42,6 +43,20 @@ describe('rendered document links', () => {
     const markdown = new MarkdownIt(MARKDOWN_OPTIONS)
     expect(markdown.render('Read design.md first.')).not.toContain('<a ')
     expect(markdown.render('[design](design.md)')).toContain('href="design.md"')
+  })
+
+  it('renders nested task lists as disabled checked and unchecked controls', () => {
+    const markdown = enableTaskLists(new MarkdownIt(MARKDOWN_OPTIONS))
+    const html = markdown.render(
+      '- [ ] open\n- [x] done\n  - [ ] nested\n- [~] skipped\n',
+    )
+    expect(html).toContain('class="contains-task-list"')
+    expect(html).toContain('class="task-list-item-checkbox" disabled=""')
+    expect(html).toContain('checked="" disabled=""')
+    expect(html).toContain('class="task-list-item-checkbox inapplicable"')
+    expect(html).toContain('aria-checked="mixed"')
+    expect(html.match(/task-list-item-checkbox/g)).toHaveLength(4)
+    expect(markdown.render('[~] plain prose')).toContain('[~] plain prose')
   })
 })
 

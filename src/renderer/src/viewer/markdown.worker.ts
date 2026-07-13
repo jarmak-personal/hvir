@@ -7,6 +7,7 @@ import {
   type MarkdownRenderRequest,
   type MarkdownRenderResponse,
 } from './render-protocol'
+import { enableTaskLists } from './markdown-extensions'
 
 const highlighterPromise = createHighlighterCore({
   themes: [import('@shikijs/themes/dark-plus')],
@@ -37,7 +38,7 @@ async function render(request: MarkdownRenderRequest): Promise<void> {
     // Bare repository filenames such as `design.md` are not web hosts. The
     // linkifier turns them into http://design.md and can navigate Electron's
     // main frame; authored Markdown links still render normally.
-    const markdown = new MarkdownIt(MARKDOWN_OPTIONS)
+    const markdown = enableTaskLists(new MarkdownIt(MARKDOWN_OPTIONS))
     markdown.renderer.rules.fence = (tokens, index) => {
       const token = tokens[index]
       if (!token) return ''
