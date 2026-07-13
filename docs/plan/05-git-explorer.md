@@ -19,6 +19,10 @@ file diffs, badge, and lazy blame gutter. Git transport calls are brokered by ho
 recorded in the ADR-005 addendum. The phase remains in progress until the same UI is
 accepted on a real SSH project.
 
+**Hands-on evidence (2026-07-13):** the real-host Git panel, blame, and a 400+ commit
+history loaded cleanly. Keep the broad SSH acceptance item open until live Changes/diffs
+and the terminal-driven refresh path are retested after the remote watch fix.
+
 **Scope amendment (2026-07-12):** hands-on review established that branch/merge topology
 is core to the Git reading workflow. A read-only commit graph is now in scope; it does not
 relax the prohibition on stage/commit/push/branch/stash operations. The implementation

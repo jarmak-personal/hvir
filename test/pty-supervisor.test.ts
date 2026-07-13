@@ -80,7 +80,15 @@ describe('PtySupervisor', () => {
 
     expect(defaultShell).toHaveBeenCalledOnce()
     expect(spawnPty).toHaveBeenCalledWith(
-      expect.objectContaining({ file: '/remote/bin/bash', args: [] }),
+      expect.objectContaining({
+        file: '/remote/bin/bash',
+        args: [],
+        env: {
+          TERM: 'xterm-256color',
+          COLORTERM: 'truecolor',
+          TERM_PROGRAM: 'hvir',
+        },
+      }),
     )
   })
 

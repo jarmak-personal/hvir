@@ -8,42 +8,26 @@ import {
   type GitCommitDetail,
   type HostPath,
   type HostConnectionState,
-  type HostWatchTier,
 } from '../../../shared'
-import { SessionBar } from '../tree/FileTree'
 
 interface GitPanelProps {
   readonly root: HostPath
   readonly refreshVersion: number
   readonly historyRefreshVersion: number
-  readonly onShowFiles: () => void
   readonly onOpen: (path: HostPath, base: DiffBase, revision?: string) => void
   readonly onChangedCount: (count: number) => void
   readonly connectionState?: HostConnectionState
-  readonly watchTier?: HostWatchTier
-  readonly sessionLabel: string
-  readonly onChangeSession: () => void
-  readonly onDisconnectSession: () => void
-  readonly onReconnectSession: () => void
-  readonly sessionBusy?: boolean
-  readonly sessionError?: string
+  readonly hidden?: boolean
 }
 
 export function GitPanel({
   root,
   refreshVersion,
   historyRefreshVersion,
-  onShowFiles,
   onOpen,
   onChangedCount,
   connectionState = 'connected',
-  watchTier = 'native',
-  sessionLabel,
-  onChangeSession,
-  onDisconnectSession,
-  onReconnectSession,
-  sessionBusy = false,
-  sessionError,
+  hidden = false,
 }: GitPanelProps): ReactElement {
   const [view, setView] = useState<'changes' | 'history'>('changes')
   const [changes, setChanges] = useState<GitChanges>()
@@ -145,24 +129,9 @@ export function GitPanel({
   }, [commits.length, connectionState, hasMore, view])
 
   return (
-    <section className="tree-panel git-panel" aria-label="Git">
-      <SessionBar
-        label={sessionLabel}
-        remote={root.hostId !== 'local'}
-        connectionState={connectionState}
-        watchTier={watchTier}
-        onChange={onChangeSession}
-        onDisconnect={onDisconnectSession}
-        onReconnect={onReconnectSession}
-        busy={sessionBusy}
-        error={sessionError}
-      />
+    <section className="rail-section git-panel" aria-label="Git" hidden={hidden}>
       <header className="panel-header">
-        <span>Git</span>
         <span className="panel-meta">{basenameHostPath(root)}</span>
-        <button className="rail-switch" onClick={onShowFiles}>
-          Files
-        </button>
       </header>
       <div className="git-tabs">
         <button

@@ -60,6 +60,67 @@ button {
   grid-row: 1 / -1;
 }
 
+.rail-nav {
+  z-index: 1;
+  flex: 0 0 34px;
+  display: flex;
+  align-items: end;
+  padding: 4px 6px 0;
+  border-bottom: 1px solid #343a45;
+  background: #111419;
+}
+
+.rail-nav button {
+  height: 30px;
+  flex: 1 1 0;
+  margin-bottom: -1px;
+  padding: 0 5px;
+  overflow: hidden;
+  border: 1px solid transparent;
+  border-bottom-color: #343a45;
+  border-radius: 5px 5px 0 0;
+  background: transparent;
+  color: #77808e;
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rail-nav button:hover:not(:disabled) {
+  color: #c6ccd5;
+  background: #171b21;
+}
+
+.rail-nav button.active {
+  border-color: #343a45;
+  border-bottom-color: #15181e;
+  background: #15181e;
+  color: #e1e5eb;
+}
+
+.rail-nav button:disabled {
+  color: #505865;
+}
+
+.rail-content,
+.rail-section {
+  min-height: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  background: #15181e;
+}
+
+.rail-section[hidden] {
+  display: none;
+}
+
+.rail-section .panel-header {
+  height: 28px;
+  flex-basis: 28px;
+  background: #15181e;
+}
+
 .viewer-panel {
   grid-column: 3;
   grid-row: 1;
@@ -421,7 +482,6 @@ body.pane-resizing-row * {
   text-overflow: ellipsis;
 }
 
-.rail-switch,
 .git-tabs button,
 .git-file,
 .git-load-more,
@@ -432,11 +492,6 @@ body.pane-resizing-row * {
   border-radius: 4px;
   background: #15181e;
   color: #aeb5c0;
-}
-
-.rail-switch {
-  padding: 2px 6px;
-  font-size: 10px;
 }
 
 .connection-state {
@@ -907,6 +962,18 @@ body.pane-resizing-row * {
 
 .diff-host .cm-mergeView {
   overflow: auto;
+}
+
+.diff-host .cm-collapsedLines,
+.diff-host .cm-editor.cm-light .cm-collapsedLines,
+.diff-host .cm-editor.cm-dark .cm-collapsedLines {
+  margin: 2px 0;
+  padding: 4px 10px;
+  border-block: 1px solid #2a3039;
+  background: #171b21;
+  color: #778190;
+  font-size: 10px;
+  font-weight: 400;
 }
 
 .rendered-scroll {

@@ -3,8 +3,8 @@ import type { ReactElement } from 'react'
 import {
   basenameHostPath,
   unwrapOperation,
-  type HostPath,
   type HostConnectionState,
+  type HostPath,
   type HostWatchTier,
 } from '../../../shared'
 import { DirectoryTree } from './DirectoryTree'
@@ -14,16 +14,8 @@ interface FileTreeProps {
   readonly refreshVersion: number
   readonly selected?: HostPath
   readonly onOpen: (path: HostPath, pinned: boolean) => void
-  readonly onShowGit?: () => void
-  readonly changedCount?: number
-  readonly connectionState?: HostConnectionState
-  readonly watchTier?: HostWatchTier
-  readonly sessionLabel: string
-  readonly onChangeSession: () => void
-  readonly onDisconnectSession: () => void
-  readonly onReconnectSession: () => void
-  readonly sessionBusy?: boolean
-  readonly sessionError?: string
+  readonly connected?: boolean
+  readonly hidden?: boolean
 }
 
 export function FileTree({
@@ -31,41 +23,16 @@ export function FileTree({
   refreshVersion,
   selected,
   onOpen,
-  onShowGit,
-  changedCount = 0,
-  connectionState = 'connected',
-  watchTier = 'native',
-  sessionLabel,
-  onChangeSession,
-  onDisconnectSession,
-  onReconnectSession,
-  sessionBusy = false,
-  sessionError,
+  connected = true,
+  hidden = false,
 }: FileTreeProps): ReactElement {
   return (
-    <section className="tree-panel" aria-label="Files">
-      <SessionBar
-        label={sessionLabel}
-        remote={root.hostId !== 'local'}
-        connectionState={connectionState}
-        watchTier={watchTier}
-        onChange={onChangeSession}
-        onDisconnect={onDisconnectSession}
-        onReconnect={onReconnectSession}
-        busy={sessionBusy}
-        error={sessionError}
-      />
+    <section className="rail-section" aria-label="Files" hidden={hidden}>
       <header className="panel-header">
-        <span>Files</span>
         <span className="panel-meta">{basenameHostPath(root)}</span>
-        {onShowGit ? (
-          <button className="rail-switch" type="button" onClick={onShowGit}>
-            Git{changedCount > 0 ? ` ${changedCount}` : ''}
-          </button>
-        ) : null}
       </header>
       <div className="tree-scroll">
-        {connectionState === 'connected' ? (
+        {connected ? (
           <DirectoryTree
             root={root}
             rootLabel={basenameHostPath(root) || root.path}

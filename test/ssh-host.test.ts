@@ -121,6 +121,28 @@ describe('SshHost authentication', () => {
 })
 
 describe('SshHost remote behavior', () => {
+  it('invalidates cached parent listings when watched children change', () => {
+    const host = new SshHost({
+      config: aliasConfig(),
+      prompter: { prompt: () => Promise.resolve(undefined) },
+    })
+    const cache = new Map<string, unknown>([
+      ['d:/project', []],
+      ['d:/project/new-dir', []],
+      ['f:/project/new-dir/file.txt', Buffer.from('old')],
+      ['d:/unrelated', []],
+    ])
+    const internals = host as unknown as {
+      cache: Map<string, unknown>
+      invalidate(path: string): void
+    }
+    internals.cache = cache
+
+    internals.invalidate('/project/new-dir/file.txt')
+
+    expect([...cache.keys()]).toEqual(['d:/unrelated'])
+  })
+
   it('cancels a connecting transport even when ssh2 emits no close event', async () => {
     vi.useFakeTimers()
     try {

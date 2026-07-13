@@ -81,7 +81,12 @@ export class PtySupervisor {
         file: spec.file,
         args: spec.args,
         cwd: req.cwd,
-        env: spec.env,
+        env: {
+          TERM: 'xterm-256color',
+          COLORTERM: 'truecolor',
+          TERM_PROGRAM: 'hvir',
+          ...spec.env,
+        },
         cols: req.cols,
         rows: req.rows,
       })

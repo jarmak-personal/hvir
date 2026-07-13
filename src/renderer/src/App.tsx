@@ -21,7 +21,7 @@ import {
 } from '../../shared'
 import { PaneResizer } from './layout/PaneResizer'
 import { TerminalView } from './terminal/TerminalView'
-import { FileTree } from './tree/FileTree'
+import { FileTree, SessionBar } from './tree/FileTree'
 import { DirectoryTree } from './tree/DirectoryTree'
 import { GitPanel } from './git/GitPanel'
 import { FileViewer } from './viewer/FileViewer'
@@ -194,20 +194,6 @@ export function App(): ReactElement {
       cancelled = true
     }
   }, [showAddProject])
-
-  useEffect(() => {
-    if (!root || railMode !== 'files' || connectionState !== 'connected') return
-    let cancelled = false
-    void window.hvir.invoke('git:changes', { root }).then(
-      (changes) => {
-        if (!cancelled) setChangedCount(changes.workingTree.length)
-      },
-      () => undefined,
-    )
-    return () => {
-      cancelled = true
-    }
-  }, [connectionState, railMode, root, watchVersion])
 
   useEffect(() => {
     if (!root) return
@@ -487,41 +473,61 @@ export function App(): ReactElement {
         className={`workbench${connectionState === 'connected' ? '' : ' project-stale'}`}
         ref={workbenchRef}
       >
-        {railMode === 'files' ? (
-          <FileTree
-            root={root}
-            refreshVersion={watchVersion}
-            selected={activeTab?.path}
-            onOpen={openFile}
-            onShowGit={() => setRailMode('git')}
-            changedCount={changedCount}
+        <aside className="tree-panel" aria-label="Project rail">
+          <SessionBar
+            label={root.hostId === 'local' ? 'Local' : `ssh:${root.hostId}`}
+            remote={root.hostId !== 'local'}
             connectionState={connectionState}
             watchTier={watchTier}
-            sessionLabel={root.hostId === 'local' ? 'Local' : `ssh:${root.hostId}`}
-            onChangeSession={changeSession}
-            onDisconnectSession={() => void disconnectSession()}
-            onReconnectSession={() => void reconnectSession()}
-            sessionBusy={sessionBusy}
-            sessionError={sessionError}
+            onChange={changeSession}
+            onDisconnect={() => void disconnectSession()}
+            onReconnect={() => void reconnectSession()}
+            busy={sessionBusy}
+            error={sessionError}
           />
-        ) : (
-          <GitPanel
-            root={root}
-            refreshVersion={watchVersion}
-            historyRefreshVersion={gitVersion}
-            onShowFiles={() => setRailMode('files')}
-            onChangedCount={setChangedCount}
-            onOpen={(path, base, revision) => openFile(path, true, 'git', base, revision)}
-            connectionState={connectionState}
-            watchTier={watchTier}
-            sessionLabel={root.hostId === 'local' ? 'Local' : `ssh:${root.hostId}`}
-            onChangeSession={changeSession}
-            onDisconnectSession={() => void disconnectSession()}
-            onReconnectSession={() => void reconnectSession()}
-            sessionBusy={sessionBusy}
-            sessionError={sessionError}
-          />
-        )}
+          <nav className="rail-nav" aria-label="Project views">
+            <button
+              type="button"
+              className={railMode === 'files' ? 'active' : ''}
+              aria-current={railMode === 'files' ? 'page' : undefined}
+              onClick={() => setRailMode('files')}
+            >
+              Files
+            </button>
+            <button
+              type="button"
+              className={railMode === 'git' ? 'active' : ''}
+              aria-current={railMode === 'git' ? 'page' : undefined}
+              onClick={() => setRailMode('git')}
+            >
+              Git{changedCount > 0 ? ` ${changedCount}` : ''}
+            </button>
+            <button type="button" disabled title="Harness view lands in Phase 6">
+              Harness
+            </button>
+          </nav>
+          <div className="rail-content">
+            <FileTree
+              root={root}
+              refreshVersion={watchVersion}
+              selected={activeTab?.path}
+              onOpen={openFile}
+              connected={connectionState === 'connected'}
+              hidden={railMode !== 'files'}
+            />
+            <GitPanel
+              root={root}
+              refreshVersion={watchVersion}
+              historyRefreshVersion={gitVersion}
+              onChangedCount={setChangedCount}
+              onOpen={(path, base, revision) =>
+                openFile(path, true, 'git', base, revision)
+              }
+              connectionState={connectionState}
+              hidden={railMode !== 'git'}
+            />
+          </div>
+        </aside>
         <PaneResizer
           orientation="vertical"
           className="tree-resizer"

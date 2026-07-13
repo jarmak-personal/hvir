@@ -19,6 +19,14 @@ boundaries, SFTP reuse, broker confinement, and the shared local confinement beh
 acceptance checklist remains open until it is exercised
 against a real configured SSH host, including a network drop and interactive TUI.
 
+**Hands-on evidence (2026-07-13):** password authentication, remote browsing, terminal
+commands, Git status/blame, and a 400+ commit history loaded cleanly on a real Linux host.
+The same pass found two remaining acceptance blockers: a top-level directory plus 50 files
+created by Codex did not invalidate the Files tree, and Codex's remote TUI flashed partial
+working frames while ordinary typed input became visually hidden. Parent-listing cache
+invalidation is now fixed; the terminal capability/frame fix still needs a real-host retest.
+Network-drop, passphrase-key, and keyboard-interactive/2FA scenarios were not exercised.
+
 **UX amendment (2026-07-12):** remote work is a session flow, not a host/path form. The
 user first chooses and connects to an SSH alias, then opens a folder on that connected
 host; afterward hvir behaves exactly like a local session while continuously showing a
@@ -49,7 +57,7 @@ acceptance.
 - [x] Remote PTYs through the supervisor: `spawnPty` runs the command in an exec
       channel with a PTY; resize propagates; `HarnessAdapter` commands compose (the
       supervisor runs `claude ...` on the host — the adapter doesn't know it's remote).
-- [ ] Remote git: confirm the Phase 3 git slice works unchanged through
+- [x] Remote git: confirm the Phase 3 git slice works unchanged through
       `SshHost.exec` (it should — fix seam leaks if not).
 - [x] `watch` implementation, tiered (ADR-010): **polling** of open-tab files and git
       status as the baseline; capability-detect `inotifywait` at connect time and

@@ -1111,6 +1111,44 @@ async function runSmoke(): Promise<number> {
     )) as string
     console.log(`[smoke] lazy blame gutter OK (${blameStatus})`)
 
+    const railNavigationStatus = (await withTimeout(
+      win.webContents.executeJavaScript(`
+        new Promise((resolve, reject) => {
+          const files = document.querySelector('.rail-nav button:nth-child(1)');
+          const git = document.querySelector('.rail-nav button:nth-child(2)');
+          const harness = document.querySelector('.rail-nav button:nth-child(3)');
+          const directory = [...document.querySelectorAll('[aria-label="Files"] .tree-directory')]
+            .find((node) => node.querySelector(':scope > .directory-row')
+              ?.getAttribute('title')?.endsWith('/src'));
+          if (!files || !git || !harness || !directory) {
+            return reject(new Error('stable rail navigation controls missing'));
+          }
+          if (directory.getAttribute('aria-expanded') !== 'true') {
+            directory.querySelector(':scope > .directory-row')?.click();
+          }
+          const tabsBefore = document.querySelectorAll('.viewer-tab').length;
+          git.click();
+          files.click();
+          git.click();
+          files.click();
+          requestAnimationFrame(() => {
+            if (!directory.isConnected || directory.getAttribute('aria-expanded') !== 'true') {
+              return reject(new Error('Files state was lost while switching rail views'));
+            }
+            if (document.querySelectorAll('.viewer-tab').length !== tabsBefore) {
+              return reject(new Error('rail switching remounted viewer tabs'));
+            }
+            if (!files.classList.contains('active') || !harness.disabled) {
+              return reject(new Error('rail active/reserved states are incorrect'));
+            }
+            resolve('stable tabs · Files state preserved · Harness reserved');
+          });
+        })
+      `),
+      'rail navigation did not preserve section state',
+    )) as string
+    console.log(`[smoke] rail navigation OK (${railNavigationStatus})`)
+
     const sessionFlowStatus = (await withTimeout(
       win.webContents.executeJavaScript(`
       new Promise((resolve, reject) => {

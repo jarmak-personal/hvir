@@ -11,6 +11,9 @@ interface TerminalViewProps {
 const OUTPUT_FLUSH_MS = 16
 const MAX_BUFFERED_OUTPUT = 256 * 1024
 const PTY_RESIZE_DEBOUNCE_MS = 75
+const SYNC_OUTPUT_BEGIN = '\u001b[?2026h'
+const SYNC_OUTPUT_END = '\u001b[?2026l'
+const SYNC_OUTPUT_MAX_MS = 100
 
 export function TerminalView({ cwd, connectionState }: TerminalViewProps): ReactElement {
   const containerRef = useRef<HTMLDivElement>(null)
@@ -35,6 +38,7 @@ export function TerminalView({ cwd, connectionState }: TerminalViewProps): React
     let bufferedOutput = ''
     let outputFrame: number | undefined
     let outputTimer: number | undefined
+    let synchronizedOutput = false
     const sessionId = crypto.randomUUID()
 
     const clearOutputSchedule = (): void => {
@@ -49,10 +53,19 @@ export function TerminalView({ cwd, connectionState }: TerminalViewProps): React
       if (!bufferedOutput) return
       const output = bufferedOutput
       bufferedOutput = ''
+      synchronizedOutput = false
       paneRef?.write(output)
     }
 
-    const scheduleOutputFlush = (): void => {
+    const scheduleOutputFlush = (synchronized = false): void => {
+      if (synchronized) {
+        if (outputFrame !== undefined) cancelAnimationFrame(outputFrame)
+        if (outputTimer !== undefined) window.clearTimeout(outputTimer)
+        outputFrame = undefined
+        outputTimer = window.setTimeout(flushOutput, SYNC_OUTPUT_MAX_MS)
+        return
+      }
+      if (outputFrame !== undefined || outputTimer !== undefined) return
       outputFrame = requestAnimationFrame(flushOutput)
       // rAF is paused for hidden/occluded windows. The timer keeps PTY output
       // moving there; the size cap below also bounds timer throttling.
@@ -61,15 +74,15 @@ export function TerminalView({ cwd, connectionState }: TerminalViewProps): React
 
     const stopData = window.hvir.on('pty:data', ({ id, data }) => {
       if (id !== sessionId || !paneRef) return
-      if (outputFrame === undefined && outputTimer === undefined) {
-        // Preserve prompt/typing latency for the first chunk, then coalesce a
-        // sustained burst to at most one Ghostty write per frame/timer window.
-        paneRef.write(data)
-        scheduleOutputFlush()
-      } else {
-        bufferedOutput += data
-        if (bufferedOutput.length >= MAX_BUFFERED_OUTPUT) flushOutput()
+      bufferedOutput += data
+      if (bufferedOutput.includes(SYNC_OUTPUT_BEGIN)) synchronizedOutput = true
+      if (synchronizedOutput) {
+        if (bufferedOutput.includes(SYNC_OUTPUT_END)) flushOutput()
+        else scheduleOutputFlush(true)
+        return
       }
+      if (bufferedOutput.length >= MAX_BUFFERED_OUTPUT) flushOutput()
+      else scheduleOutputFlush()
     })
     const stopExit = window.hvir.on('pty:exit', ({ id, exitCode }) => {
       if (id === sessionId) setStatus(`Exited (${exitCode})`)

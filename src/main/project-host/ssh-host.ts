@@ -812,8 +812,27 @@ export class SshHost implements ProjectHost {
     return v.value as T
   }
   private invalidate(path: string): void {
-    for (const key of this.cache.keys())
-      if (key.endsWith(path) || key.includes(`${path}/`)) this.cache.delete(key)
+    const normalized = path.length > 1 ? path.replace(/\/+$/, '') : path
+    for (const key of this.cache.keys()) {
+      if (
+        key === `f:${normalized}` ||
+        key === `d:${normalized}` ||
+        key.startsWith(`f:${normalized}/`) ||
+        key.startsWith(`d:${normalized}/`)
+      ) {
+        this.cache.delete(key)
+      }
+    }
+    // A create/delete/rename changes every cached directory listing between
+    // the entry and the watched root. Without parent invalidation an inotify
+    // burst can trigger a refresh inside the listing TTL, re-read stale cache,
+    // and then remain stale forever because no later event arrives.
+    let parent = remoteParent(normalized)
+    for (;;) {
+      this.cache.delete(`d:${parent}`)
+      if (parent === '/') break
+      parent = remoteParent(parent)
+    }
   }
   private assertPath(path: HostPath): void {
     if (path.hostId !== this.hostId)
@@ -838,6 +857,10 @@ function quote(value: string): string {
 }
 function escapeRegex(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+function remoteParent(path: string): string {
+  const at = path.lastIndexOf('/')
+  return at <= 0 ? '/' : path.slice(0, at)
 }
 function subscribe<T>(set: Set<(v: T) => void>, cb: (v: T) => void): Disposer {
   set.add(cb)

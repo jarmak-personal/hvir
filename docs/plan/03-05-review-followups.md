@@ -90,6 +90,8 @@ dependency-reload fixes.
       `.cm-blame-gutter` has `min-width: 165px`, which looks like an enormous line-number
       margin. Mount that gutter only when blame is enabled; keep CodeMirror's normal compact
       line-number gutter otherwise. Verify source and both diff editors on Linux and macOS.
+- [x] Restyle CodeMirror's collapsed “unchanged lines” diff widget: remove its large white
+      gradient and use the same compact, quiet surface/borders as the rest of hvir's diff UI.
 - [x] **Rendered YAML.** Treat `.yaml`/`.yml` as renderable structured data. Parse in a
       worker with the maintained `yaml` package and reuse the lazy/collapsible JSON tree
       presentation. Surface multi-document YAML and parse errors clearly; never parse large
@@ -97,17 +99,24 @@ dependency-reload fixes.
 
 ## P1 — left-rail information architecture
 
-- [ ] Replace the small child-owned Files/Git switches with one full-width rail navigation
+- [x] Replace the small child-owned Files/Git switches with one full-width rail navigation
       strip owned by the rail container: `Files | Git | Harness`. Files and Git are active;
       Harness reserves the Phase 6 location without leaking harness-specific behavior into
       either panel. Keep the changed-file badge on Git and connection state/project controls
       consistently above or beside the strip.
-- [ ] Preserve each section's local state when switching: expanded directories and scroll,
+- [x] Preserve each section's local state when switching: expanded directories and scroll,
       Git subview/history position, and eventually Harness selection.
-- [ ] Runtime-smoke repeated Files ↔ Git switching so navigation never remounts unrelated
+- [x] Runtime-smoke repeated Files ↔ Git switching so navigation never remounts unrelated
       viewer tabs or collapses the tree.
 
 ## P1 — SSH session workflow
+
+- [x] Invalidate cached parent/ancestor directory listings for remote create/delete/rename
+      events. An inotify burst inside the listing TTL must not refresh from stale cache and
+      leave a newly created top-level directory invisible forever.
+- [ ] Retest Codex on a real SSH host after normalizing `TERM`/true-color metadata and
+      coalescing DEC synchronized-output frames. Ordinary input must remain visible and the
+      working animation must redraw without flashing partial frames.
 
 - [x] Keep expected session failures contained: invalid/case-mismatched folder paths and
       cancelled SFTP watches surface as concise picker/session state, not rejected Electron
