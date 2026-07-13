@@ -561,8 +561,36 @@ async function runSmoke(): Promise<number> {
 
     const reconnectTerminalStatus = await withTimeout(
       (async () => {
+        const firstTerminal = supervisor.list()[0]
+        if (!firstTerminal) throw new Error('initial terminal disappeared before reconnect')
+        supervisor.write(
+          firstTerminal.id,
+          "printf '\\033[41m\\033[2J\\033[H\\033[0m'\n",
+        )
+        await win.webContents.executeJavaScript(`
+          new Promise((resolve, reject) => {
+            const deadline = Date.now() + 5000;
+            const poll = () => {
+              const canvas = document.querySelector('.terminal-container canvas');
+              const context = canvas?.getContext('2d');
+              if (canvas && context) {
+                const pixel = context.getImageData(
+                  Math.floor(canvas.width / 2),
+                  Math.floor(canvas.height / 2),
+                  1,
+                  1
+                ).data;
+                if (pixel[0] > 120 && pixel[1] < 140) return resolve(true);
+              }
+              if (Date.now() > deadline) return reject(new Error('terminal fixture did not paint'));
+              setTimeout(poll, 25);
+            };
+            poll();
+          })
+        `)
         await win.webContents.executeJavaScript(`
           window.__hvirSmokeTerminalCanvas = document.querySelector('.terminal-container canvas');
+          window.__hvirSmokeTerminalHost = document.querySelector('.terminal-container');
         `)
         emit('project:state', {
           root: smokeRoot,
@@ -590,13 +618,37 @@ async function runSmoke(): Promise<number> {
         const status: unknown = await win.webContents.executeJavaScript(`
           new Promise((resolve, reject) => {
             const deadline = Date.now() + 5000;
+            let lastState = 'not mounted';
             const poll = () => {
               const canvas = document.querySelector('.terminal-container canvas');
+              const host = document.querySelector('.terminal-container');
               const status = document.querySelector('.terminal-panel .panel-meta')?.textContent || '';
-              if (canvas && canvas !== window.__hvirSmokeTerminalCanvas && status.startsWith('New shell · pid ')) {
-                return resolve(status);
+              if (
+                canvas &&
+                host &&
+                canvas !== window.__hvirSmokeTerminalCanvas &&
+                host !== window.__hvirSmokeTerminalHost &&
+                !window.__hvirSmokeTerminalHost?.isConnected &&
+                status.startsWith('New shell · pid ')
+              ) {
+                const context = canvas.getContext('2d');
+                const pixel = context?.getImageData(
+                  Math.floor(canvas.width / 2),
+                  Math.floor(canvas.height / 2),
+                  1,
+                  1
+                ).data;
+                lastState = 'status=' + status +
+                  ' hostChanged=' + (host !== window.__hvirSmokeTerminalHost) +
+                  ' oldDetached=' + (!window.__hvirSmokeTerminalHost?.isConnected) +
+                  ' pixel=' + (pixel ? [...pixel].join(',') : 'missing');
+                if (pixel && pixel[0] < 50 && pixel[1] < 50 && pixel[2] < 60) {
+                  return resolve(status);
+                }
               }
-              if (Date.now() > deadline) return reject(new Error('terminal did not remount cleanly'));
+              if (Date.now() > deadline) {
+                return reject(new Error('terminal did not remount cleanly: ' + lastState));
+              }
               setTimeout(poll, 25);
             };
             poll();

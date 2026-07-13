@@ -91,9 +91,17 @@ class GhosttyTerminalPane implements TerminalPane {
       this.terminal.onTitleChange((title) => this.emitTitle(title)),
     )
     this.terminal.open(container)
+    const canvas = this.terminal.renderer?.getCanvas()
+    if (canvas) canvas.style.visibility = 'hidden'
     this.fit.fit()
+    // A fresh pane must begin from an explicitly reset VT buffer. Depending on
+    // WASM allocator reuse, construction can expose cells and rendition from
+    // the terminal just freed during reconnect. Reset only after the initial
+    // fit: resizing the temporary 80x24 buffer can copy recycled cells back in.
+    this.terminal.write('\u001bc')
     this.fit.observeResize()
     this.redraw()
+    if (canvas) canvas.style.visibility = ''
     requestAnimationFrame(() => {
       if (!this.disposed) {
         this.fit.fit()
@@ -130,6 +138,10 @@ class GhosttyTerminalPane implements TerminalPane {
     this.disposed = true
     for (const disposer of this.engineDisposers) disposer.dispose()
     this.engineDisposers.length = 0
+    const renderer = this.terminal.renderer
+    const canvas = renderer?.getCanvas()
+    renderer?.clear()
+    if (canvas) canvas.style.visibility = 'hidden'
     this.terminal.dispose()
     this.dataListeners.clear()
     this.titleListeners.clear()

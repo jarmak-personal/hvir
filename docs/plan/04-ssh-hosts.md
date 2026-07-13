@@ -37,8 +37,13 @@ were attached after the initial fit, so PTYs always started at the 80x24 fallbac
 resize. Listeners now precede mount, the default terminal is slightly taller, and a reconnect
 fully replaces and repaints its canvas. Because harness recovery belongs to Phase 6, reconnect
 starts a clearly labeled clean shell instead of presenting stale pixels as apparent scrollback.
-The Codex TUI fix still needs a real-host retest. Network-drop, passphrase-key, and
-keyboard-interactive/2FA scenarios were not exercised.
+The Codex TUI geometry fix is now hands-on verified. A subsequent reconnect retest exposed
+recycled Ghostty WASM cells: clearing the temporary 80x24 buffer before FitAddon resized it let
+the real-sized grid copy the old cells back in. Replacement panes now use a new host element,
+stay hidden through initialization, and hard-reset the final-sized VT buffer after its initial
+fit. The production smoke seeds the old screen with a colored fixture and verifies the
+replacement is blank. This reconnect fix still needs a real-host retest. Network-drop,
+passphrase-key, and keyboard-interactive/2FA scenarios were not exercised.
 
 **UX amendment (2026-07-12):** remote work is a session flow, not a host/path form. The
 user first chooses and connects to an SSH alias, then opens a folder on that connected

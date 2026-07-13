@@ -135,7 +135,11 @@ export function TerminalView({ cwd, connectionState }: TerminalViewProps): React
         <span>{title}</span>
         <span className="panel-meta">{status}</span>
       </header>
-      <div className="terminal-container" ref={containerRef} />
+      <div
+        key={`${cwd.hostId}:${cwd.path}:${connectionState}`}
+        className="terminal-container"
+        ref={containerRef}
+      />
     </section>
   )
 }
