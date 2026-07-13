@@ -127,6 +127,9 @@ function validateGitInvocation(args: readonly string[]): void {
       if (sameArgs(rest, ['--porcelain=v2', '-z', '--untracked-files=all', '--', '.']))
         return
       break
+    case 'check-ignore':
+      if (sameArgs(rest, ['-z', '--stdin'])) return
+      break
     case 'diff':
       if (isAllowedNumstatDiff(rest)) return
       break
@@ -238,6 +241,16 @@ function isAllowedLog(args: readonly string[]): boolean {
 }
 
 function isAllowedGitInput(args: readonly string[], input: string | undefined): boolean {
+  if (args[2] === 'check-ignore') {
+    if (!input || input.length > 128 * 1024 || !input.endsWith('\0')) return false
+    const paths = input.slice(0, -1).split('\0')
+    return (
+      paths.length > 0 &&
+      paths.length <= 512 &&
+      paths.every(isRepositoryPath) &&
+      new Set(paths).size === paths.length
+    )
+  }
   const isHistory = args[2] === 'log'
   if (!isHistory) return input === undefined
   if (!input || input.length > 128 * 1024 || !input.endsWith('\n')) return false

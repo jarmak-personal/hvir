@@ -153,22 +153,25 @@ delay IPC and window lifecycle work); installing a remote helper (rejected by AD
 
 #### Phase 5 addendum — 2026-07-13: repository topology is a viewer
 
-**The commit graph is a project-scoped viewer tab, not another 238px rail widget.** Rail
-History stays a fast, virtualized launcher. Opening the graph gives topology a full viewer
-surface: fixed-height virtual commit rows with deterministic SVG lanes, decorated branch/
-remote/tag refs, keyboard selection, and a persistent right-side commit inspector. The
-inspector presents changed files as a collapsible directory tree; selecting a file uses
-the existing historical-diff tab path. History begins at all refs for this surface and
-continues with the existing opaque frontier cursor, so unmerged branches are visible
-without walking the repository up front. Git discovery and parsing remain off-thread.
+**The all-ref commit graph is a project-scoped viewer tab; Rail History is its compact
+current-branch navigator.** The rail uses the same deterministic SVG lane model at a
+tighter scale. A commit click inserts fixed-height summary and changed-file tree rows;
+selecting a file uses the existing historical-diff tab path. An explicit row action,
+double-click, or Ctrl/Cmd+Enter opens the full graph anchored to that commit, while the
+standing Open full graph action enters without a selection. The full surface keeps
+fixed-height virtual commit rows, decorated branch/remote/tag refs, keyboard selection,
+and a persistent right-side commit inspector. It begins at all refs and continues with
+the existing opaque frontier cursor, so unmerged branches are visible without walking
+the repository up front. Git discovery and parsing remain off-thread.
 
 **Why:** VS Code's Source Control Graph proves the compact lane/table interaction and
-opens selected changes in the editor, but its rail placement is cramped for hvir's
-view-first use. Warp's Git dialog has a good chevron-to-files disclosure pattern, but it
-is deliberately bounded to the commits included in a push. Zed's current graph is the
-closest spatial precedent: a dedicated workspace item with a virtualized graph table and
-a right-hand detail split whose changed files can be a tree. hvir adopts that division of
-space without importing editor/write operations or Zed's implementation.
+opens selected changes in the editor. The rail is enough for quick topology and file
+drill-down but still too cramped to be the only graph. Warp's Git dialog has a good
+chevron-to-files disclosure pattern, but it is deliberately bounded to the commits
+included in a push. Zed's current graph is the closest spatial precedent: a dedicated
+workspace item with a virtualized graph table and a right-hand detail split whose changed
+files can be a tree. hvir combines the compact navigator with that full workspace without
+importing editor/write operations or either implementation.
 
 The planned `commit-graph@2.4.0` spike passed MIT licensing, React 19 compatibility via
 its `react >=18` peer range, dark-color customization, parent-based lanes, and infinite
@@ -179,10 +182,30 @@ native and more composable, but its Canvas renderer is explicitly incomplete and
 paging is not row virtualization. A small local lane model and SVG painter therefore has
 less policy and rendering surface while preserving the off-thread system-Git engine.
 
+In the full viewer, commit selection changes the information architecture rather than
+adding a narrow third column to the unchanged table. The metadata columns collapse, the
+graph/subject list remains as the navigation context, and a visually joined detail surface
+uses the released width for author/date/hash, the complete commit message, and changed
+files. Commit bodies always pass through the existing off-thread, sanitized Markdown
+renderer: plain text is already valid Markdown, so no format-sniffing heuristic is needed;
+raw HTML remains disabled. The rail graph stays visible even while the full viewer is open
+because it preserves project-level navigation when the user switches away from Git.
+
+The Files tree decorates ignored entries lazily rather than folding Git work into
+`readdir`. Each expanded directory paints from `ProjectHost.readdir` first, then sends its
+immediate basenames through bounded, off-thread `git check-ignore` batches. Direct ignore
+roots receive an explicit status label; their descendants inherit the muted treatment
+without repeating it. Non-repositories and decoration failures leave normal filesystem
+browsing intact.
+
 **Rejected:** making the narrow rail the only graph (topology loses the width needed for
-merges and refs); inline variable-height commit expansion (breaks row/lane alignment and
-cheap virtualization); a generic force-directed graph (Git is an ordered DAG, not an
-exploration network); adopting either component despite the spike gaps; adding Git write
+merges and refs); variable-height commit bodies (inserted fixed-height virtual tree rows
+preserve row/lane alignment); a generic force-directed graph (Git is an ordered DAG, not
+an exploration network); keeping author/date/hash columns beside an open detail surface
+(duplicates data while starving the detail); guessing whether a commit body is Markdown
+(plain text already degrades correctly); scanning every ignored path repository-wide
+(unbounded and unnecessary for a lazy tree); spawning Git once per visible row (remote
+round-trip pressure); adopting either component despite the spike gaps; adding Git write
 actions to the inspector (still outside the view-first v1 scope).
 
 ### ADR-006 — Session recovery: harness resume, not a daemon
@@ -209,9 +232,10 @@ view of the terminal, fighting the entire Ghostty investment).
 source / diff* — with a visible segmented control and one keybinding that cycles it.
 The **default** is inferred: markdown, mermaid, and HTML open rendered ("this is an md,
 render it" — never a "preview" verb, never leaving hvir); a file opened from the git
-panel opens in diff mode; from the file tree, source (or rendered). But the mode is
-always one keystroke away, always visible, and sticky per tab. Diff mode gets its own
-small **base selector**: working tree vs HEAD vs branch-point — branch-point being the
+panel opens in diff mode, except an untracked file with no meaningful base opens rendered
+or source by the normal file-type rule; from the file tree, source (or rendered). But the
+mode is always one keystroke away, always visible, and sticky per tab. Diff mode gets its
+own small **base selector**: working tree vs HEAD vs branch-point — branch-point being the
 "what did the agent do on this worktree" view.
 **Why:** This is what "renders beautifully" actually means: *the right renderer,
 automatically, with zero friction* — not visual noise. And it unifies rendering with

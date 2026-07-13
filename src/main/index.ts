@@ -1122,20 +1122,46 @@ async function runSmoke(): Promise<number> {
               if (Date.now() > deadline) return reject(new Error('Git changes did not load'));
               return setTimeout(waitForChanges, 50);
             }
+            const untracked = changed.querySelector('small')?.textContent?.trim().startsWith('?');
             changed.click();
-            const waitForDiff = () => {
-              if (!document.querySelector('.diff-host')) {
-                if (Date.now() > deadline) return reject(new Error('Git file did not open a diff tab'));
-                return setTimeout(waitForDiff, 50);
+            const waitForView = () => {
+              const activeMode = [...document.querySelectorAll('.mode-control button')]
+                .find((node) => node.getAttribute('aria-pressed') === 'true')
+                ?.textContent?.trim();
+              if (!activeMode) {
+                if (Date.now() > deadline) return reject(new Error('Git file did not open'));
+                return setTimeout(waitForView, 50);
+              }
+              if (untracked ? activeMode === 'diff' : activeMode !== 'diff') {
+                return reject(new Error(
+                  'Git file opened in unexpected mode: ' + activeMode +
+                    (untracked ? ' for untracked file' : ' for tracked file')
+                ));
               }
               button('History')?.click();
               const waitForHistory = () => {
-                const commit = document.querySelector('.git-commit');
+                const commit = document.querySelector('.git-rail-commit');
                 if (!commit) {
                   if (Date.now() > deadline) return reject(new Error('Git history did not page'));
                   return setTimeout(waitForHistory, 50);
                 }
                 commit.click();
+                const waitForRailDetail = () => {
+                  const openFull = commit.closest('.git-rail-history-row')
+                    ?.querySelector('.git-rail-open-full');
+                  if (
+                    document.querySelector('.git-rail-history-summary') &&
+                    document.querySelector('.git-rail-history-tree.file') &&
+                    openFull
+                  ) {
+                    openFull.click();
+                    return waitForDetail();
+                  }
+                  if (Date.now() > deadline) {
+                    return reject(new Error('Commit did not expand in rail history'));
+                  }
+                  setTimeout(waitForRailDetail, 50);
+                };
                 const waitForDetail = () => {
                   if (
                     document.querySelector('.git-graph-row.active') &&
@@ -1145,16 +1171,19 @@ async function runSmoke(): Promise<number> {
                     if (document.querySelectorAll('.viewer-tab.active').length !== 1) {
                       return reject(new Error('Graph activation left two active tabs'));
                     }
-                    return resolve('changes→diff · paged history→graph→file tree');
+                    return resolve(
+                      'changes→' + activeMode +
+                        ' · paged history→rail tree→graph detail'
+                    );
                   }
                   if (Date.now() > deadline) return reject(new Error('Commit graph detail did not load'));
                   setTimeout(waitForDetail, 50);
                 };
-                waitForDetail();
+                waitForRailDetail();
               };
               waitForHistory();
             };
-            waitForDiff();
+            waitForView();
           };
           waitForChanges();
         })

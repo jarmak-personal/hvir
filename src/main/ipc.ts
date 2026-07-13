@@ -17,6 +17,7 @@ import {
   GIT_BLAME_TYPE,
   GIT_CHANGES_TYPE,
   GIT_HISTORY_TYPE,
+  GIT_IGNORED_ENTRIES_TYPE,
   GIT_COMMIT_DETAIL_TYPE,
   repositoryImageMimeType,
   type GitWorkerProtocol,
@@ -287,6 +288,19 @@ export function registerIpcHandlers(deps: IpcDeps): void {
       limit: req.limit,
       cursor: req.cursor,
       allRefs: req.allRefs,
+    })
+  })
+
+  handle('git:ignored-entries', async (req) => {
+    const project = deps.getProject()
+    const [root, directory] = await Promise.all([
+      projectPath(req.root, project.root, project.host),
+      projectPath(req.directory, project.root, project.host),
+    ])
+    return deps.gitWorker.request(GIT_IGNORED_ENTRIES_TYPE, {
+      root,
+      directory,
+      names: req.names,
     })
   })
 

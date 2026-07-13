@@ -17,7 +17,8 @@ describe('renderer diff policy', () => {
 })
 
 describe('renderer filesystem contract', () => {
-  it('exposes only the typed target-resolution operation for link discovery', () => {
+  it('exposes typed target-resolution and Git-decoration operations', () => {
     expect(INVOKE_CHANNELS).toContain('fs:resolve-entry')
+    expect(INVOKE_CHANNELS).toContain('git:ignored-entries')
   })
 })

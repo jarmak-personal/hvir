@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type MouseEvent, type ReactElement } from 'react'
+import { useEffect, useRef, useState, type ReactElement } from 'react'
 
 import {
   HTML_SANDBOX,
@@ -8,26 +8,19 @@ import {
   type CreateHtmlPreviewResponse,
   type HostPath,
 } from '../../../shared'
-import type { MarkdownRenderResponse } from './render-protocol'
+import { renderMarkdown, resetMarkdownRenderer } from './markdown-client'
+import { handleRenderedLinkClick } from './rendered-link-handler'
 import type {
   JsonNodeDescriptor,
   JsonWorkerRequestInput,
   JsonWorkerResponse,
 } from './json-protocol'
 
-let markdownWorker: Worker | undefined
 let jsonWorker: Worker | undefined
-let renderRequestId = 0
 let jsonRequestId = 0
 let jsonDocumentId = 0
+let mermaidRequestId = 0
 let mermaidPromise: Promise<typeof import('mermaid').default> | undefined
-
-function getMarkdownWorker(): Worker {
-  markdownWorker ??= new Worker(new URL('./markdown.worker.ts', import.meta.url), {
-    type: 'module',
-  })
-  return markdownWorker
-}
 
 function getJsonWorker(): Worker {
   jsonWorker ??= new Worker(new URL('./json.worker.ts', import.meta.url), {
@@ -38,8 +31,6 @@ function getJsonWorker(): Worker {
 
 if (import.meta.hot) {
   import.meta.hot.dispose(() => {
-    markdownWorker?.terminate()
-    markdownWorker = undefined
     jsonWorker?.terminate()
     jsonWorker = undefined
   })
@@ -165,23 +156,24 @@ function MarkdownView({
   scrollTopRef.current = scrollTop
 
   useEffect(() => {
-    const worker = getMarkdownWorker()
-    const id = ++renderRequestId
+    let cancelled = false
     setHtml('')
     setError(undefined)
-    const onMessage = (event: MessageEvent<MarkdownRenderResponse>): void => {
-      if (event.data.id !== id) return
-      if (event.data.ok) {
-        setHtml(event.data.html)
+    void renderMarkdown(content).then(
+      (rendered) => {
+        if (cancelled) return
+        setHtml(rendered)
         setError(undefined)
-      } else {
+      },
+      (reason: unknown) => {
+        if (cancelled) return
         setHtml('')
-        setError(event.data.error)
-      }
+        setError(reason instanceof Error ? reason.message : String(reason))
+      },
+    )
+    return () => {
+      cancelled = true
     }
-    worker.addEventListener('message', onMessage)
-    worker.postMessage({ id, markdown: content })
-    return () => worker.removeEventListener('message', onMessage)
   }, [content, renderGeneration])
 
   useEffect(() => {
@@ -212,31 +204,12 @@ function MarkdownView({
 
   if (error) return <div className="viewer-empty error">{error}</div>
   if (!html) return <div className="viewer-empty">Rendering markdown…</div>
-  const followLink = (event: MouseEvent<HTMLDivElement>): void => {
-    if (!(event.target instanceof Element)) return
-    const anchor = event.target.closest<HTMLAnchorElement>('a[href]')
-    if (!anchor || !event.currentTarget.contains(anchor)) return
-    const href = anchor.getAttribute('href')
-    if (!href) return
-    const target = resolveRenderedLink(path, href)
-    event.preventDefault()
-    if (target.kind === 'file') {
-      onOpenPath(target.path)
-    } else if (target.kind === 'external') {
-      window.open(target.url, '_blank', 'noopener,noreferrer')
-    } else if (target.kind === 'anchor') {
-      const destination = [
-        ...event.currentTarget.querySelectorAll<HTMLElement>('[id]'),
-      ].find((element) => element.id === target.fragment)
-      destination?.scrollIntoView({ block: 'start' })
-    }
-  }
   return (
     <div
       className="rendered-scroll markdown-body"
       ref={container}
       onScroll={(event) => onScroll(event.currentTarget.scrollTop)}
-      onClick={followLink}
+      onClick={(event) => handleRenderedLinkClick(event, path, onOpenPath)}
     />
   )
 }
@@ -289,7 +262,7 @@ function StandaloneMermaid({
     if (!root) return
     let cancelled = false
     root.textContent = 'Rendering diagram…'
-    void renderMermaid(content, `mermaid-${++renderRequestId}`).then(
+    void renderMermaid(content, `mermaid-${++mermaidRequestId}`).then(
       (svg) => {
         if (!cancelled) root.innerHTML = svg
       },
@@ -315,7 +288,7 @@ async function renderMermaidNodes(
     const source = node.querySelector('pre')?.textContent
     if (source === undefined) continue
     try {
-      node.innerHTML = await renderMermaid(source, `mermaid-${++renderRequestId}`)
+      node.innerHTML = await renderMermaid(source, `mermaid-${++mermaidRequestId}`)
     } catch (error) {
       node.textContent = error instanceof Error ? error.message : String(error)
       node.classList.add('render-error')
@@ -415,8 +388,7 @@ function useDevRendererGeneration(): number {
     const hot = import.meta.hot
     if (!hot) return
     const refresh = (): void => {
-      markdownWorker?.terminate()
-      markdownWorker = undefined
+      resetMarkdownRenderer()
       jsonWorker?.terminate()
       jsonWorker = undefined
       mermaidPromise = undefined

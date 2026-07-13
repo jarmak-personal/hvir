@@ -31,6 +31,8 @@ import type {
   GitCommitDetailRequest,
   GitHistoryPage,
   GitHistoryRequest,
+  GitIgnoredEntriesRequest,
+  GitIgnoredEntriesResponse,
 } from './git-types'
 import type { HostConnectionState, HostWatchTier } from './fs-types'
 
@@ -209,6 +211,10 @@ export interface IpcInvokeMap {
   'git:diff-inputs': { request: GitDiffRequest; response: GitDiffResponse }
   'git:changes': { request: GitChangesRequest; response: GitChanges }
   'git:history': { request: GitHistoryRequest; response: GitHistoryPage }
+  'git:ignored-entries': {
+    request: GitIgnoredEntriesRequest
+    response: GitIgnoredEntriesResponse
+  }
   'git:commit-detail': { request: GitCommitDetailRequest; response: GitCommitDetail }
   'git:blame': { request: GitBlameRequest; response: readonly GitBlameRun[] }
   'html-preview:create': {
@@ -287,6 +293,7 @@ export const INVOKE_CHANNELS = [
   'git:diff-inputs',
   'git:changes',
   'git:history',
+  'git:ignored-entries',
   'git:commit-detail',
   'git:blame',
   'html-preview:create',

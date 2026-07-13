@@ -104,9 +104,11 @@ describe('Git worker host broker', () => {
     git(rootPath, ['config', 'user.email', 'hvir@example.test'])
     git(rootPath, ['config', 'user.name', 'hvir test'])
     await writeFile(join(rootPath, 'file.txt'), 'base\n')
-    git(rootPath, ['add', 'file.txt'])
+    await writeFile(join(rootPath, '.gitignore'), 'ignored.txt\n')
+    git(rootPath, ['add', 'file.txt', '.gitignore'])
     git(rootPath, ['commit', '-m', 'base'])
     await writeFile(join(rootPath, 'file.txt'), 'changed\n')
+    await writeFile(join(rootPath, 'ignored.txt'), 'ignored\n')
 
     const actual = new LocalHost()
     const project = { host: actual, root: localPath(rootPath) }
@@ -154,6 +156,9 @@ describe('Git worker host broker', () => {
     expect(commit).toBeDefined()
     expect(graphHistory.commits).toHaveLength(1)
     await expect(
+      engine.ignoredEntries(localPath(rootPath), localPath(rootPath), ['ignored.txt']),
+    ).resolves.toEqual({ ignoredNames: ['ignored.txt'] })
+    await expect(
       engine.commitDetail(localPath(rootPath), commit!.hash),
     ).resolves.toBeDefined()
     await expect(
@@ -163,6 +168,24 @@ describe('Git worker host broker', () => {
       engine.blame(localPath(join(rootPath, 'file.txt'))),
     ).resolves.toHaveLength(1)
     await actual.dispose()
+  })
+
+  it('rejects unsafe check-ignore input paths', async () => {
+    const rootPath = await mkdtemp(join(tmpdir(), 'hvir-broker-'))
+    cleanups.push(rootPath)
+    const host = new LocalHost()
+    const project = { host, root: localPath(rootPath) }
+
+    await expect(
+      dispatchWorkerHostCall(
+        {
+          ...hostCall(rootPath),
+          args: ['-C', rootPath, 'check-ignore', '-z', '--stdin'],
+          input: '../outside\0',
+        },
+        project,
+      ),
+    ).rejects.toThrow('unsupported execution options')
   })
 
   it('accepts only object-id frontiers on log stdin', async () => {

@@ -3,6 +3,7 @@ import {
   GIT_BLAME_TYPE,
   GIT_CHANGES_TYPE,
   GIT_HISTORY_TYPE,
+  GIT_IGNORED_ENTRIES_TYPE,
   GIT_COMMIT_DETAIL_TYPE,
   asHostId,
   hostPath,
@@ -69,6 +70,18 @@ async function handle(request: WorkerRequest): Promise<void> {
       )
     } else if (request.type === GIT_CHANGES_TYPE) {
       result = await engine.changes(root)
+    } else if (
+      request.type === GIT_IGNORED_ENTRIES_TYPE &&
+      isRawPath(raw['directory']) &&
+      Array.isArray(raw['names'])
+    ) {
+      const directory = decodePath(raw['directory'])
+      assertProjectPath(directory, root)
+      result = await engine.ignoredEntries(
+        root,
+        directory,
+        raw['names'] as readonly string[],
+      )
     } else if (request.type === GIT_HISTORY_TYPE) {
       const path = isRawPath(raw['path']) ? decodePath(raw['path']) : undefined
       if (path) assertProjectPath(path, root)

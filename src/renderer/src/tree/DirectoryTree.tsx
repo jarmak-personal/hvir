@@ -14,13 +14,20 @@ import {
   type FileType,
   type HostPath,
 } from '../../../shared'
+import { splitFileName } from './file-name'
+import { directoryEntriesEqual } from './git-ignore-refresh'
 
 export interface DirectoryTreeProps {
   readonly root: HostPath
   readonly rootLabel?: string
   readonly loadEntries: (path: HostPath) => Promise<readonly DirEntry[]>
+  readonly loadIgnoredEntries?: (
+    directory: HostPath,
+    names: readonly string[],
+  ) => Promise<ReadonlySet<string>>
   readonly resolveEntry?: (path: HostPath) => Promise<FileType>
   readonly refreshVersion?: number
+  readonly ignoredRefreshVersion?: number
   readonly selected?: HostPath
   readonly expandedPath?: HostPath
   readonly showFiles?: boolean
@@ -37,8 +44,10 @@ export function DirectoryTree({
   root,
   rootLabel = root.path,
   loadEntries,
+  loadIgnoredEntries,
   resolveEntry,
   refreshVersion = 0,
+  ignoredRefreshVersion = 0,
   selected,
   expandedPath,
   showFiles = true,
@@ -53,8 +62,10 @@ export function DirectoryTree({
         depth={0}
         initiallyOpen
         loadEntries={loadEntries}
+        loadIgnoredEntries={loadIgnoredEntries}
         resolveEntry={resolveEntry}
         refreshVersion={refreshVersion}
+        ignoredRefreshVersion={ignoredRefreshVersion}
         selected={selected}
         expandedPath={expandedPath}
         showFiles={showFiles}
@@ -71,7 +82,10 @@ interface DirectoryNodeProps extends Omit<DirectoryTreeProps, 'root' | 'rootLabe
   readonly depth: number
   readonly initiallyOpen?: boolean
   readonly linked?: boolean
+  readonly gitIgnored?: boolean
+  readonly gitIgnoredRoot?: boolean
   readonly refreshVersion: number
+  readonly ignoredRefreshVersion: number
   readonly showFiles: boolean
 }
 
@@ -81,9 +95,13 @@ function DirectoryNode({
   depth,
   initiallyOpen = false,
   linked = false,
+  gitIgnored = false,
+  gitIgnoredRoot = false,
   loadEntries,
+  loadIgnoredEntries,
   resolveEntry,
   refreshVersion,
+  ignoredRefreshVersion,
   selected,
   expandedPath,
   showFiles,
@@ -97,9 +115,11 @@ function DirectoryNode({
   const shouldReveal = Boolean(expandedPath && containsPath(stablePath, expandedPath))
   const [open, setOpen] = useState(initiallyOpen || shouldReveal)
   const [entries, setEntries] = useState<readonly DirEntry[]>([])
+  const [ignoredNames, setIgnoredNames] = useState<ReadonlySet<string>>(new Set())
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string>()
   const isSelected = Boolean(selected && hostPathEquals(selected, stablePath))
+  const entryNames = useMemo(() => entries.map((entry) => entry.name), [entries])
 
   useEffect(() => {
     if (shouldReveal) setOpen(true)
@@ -112,13 +132,14 @@ function DirectoryNode({
     void loadEntries(stablePath)
       .then((nextEntries) => {
         if (cancelled) return
-        setEntries(
-          [...nextEntries].sort(
-            (left, right) =>
-              Number(right.type === 'dir' || right.type === 'symlink') -
-                Number(left.type === 'dir' || left.type === 'symlink') ||
-              left.name.localeCompare(right.name),
-          ),
+        const sortedEntries = [...nextEntries].sort(
+          (left, right) =>
+            Number(right.type === 'dir' || right.type === 'symlink') -
+              Number(left.type === 'dir' || left.type === 'symlink') ||
+            left.name.localeCompare(right.name),
+        )
+        setEntries((current) =>
+          directoryEntriesEqual(current, sortedEntries) ? current : sortedEntries,
         )
         setError(undefined)
       })
@@ -134,6 +155,33 @@ function DirectoryNode({
     }
   }, [loadEntries, open, refreshVersion, stablePath])
 
+  useEffect(() => {
+    if (!open) return
+    if (!loadIgnoredEntries || gitIgnored || entryNames.length === 0) {
+      setIgnoredNames((current) => (current.size === 0 ? current : new Set()))
+      return
+    }
+    let cancelled = false
+    void loadIgnoredEntries(stablePath, entryNames).then(
+      (nextIgnored) => {
+        if (!cancelled) setIgnoredNames(nextIgnored)
+      },
+      () => {
+        if (!cancelled) setIgnoredNames(new Set())
+      },
+    )
+    return () => {
+      cancelled = true
+    }
+  }, [
+    entryNames,
+    gitIgnored,
+    ignoredRefreshVersion,
+    loadIgnoredEntries,
+    open,
+    stablePath,
+  ])
+
   return (
     <div className="tree-directory" role="none">
       <button
@@ -141,8 +189,8 @@ function DirectoryNode({
         role="treeitem"
         aria-expanded={open}
         aria-selected={isSelected}
-        className={`tree-row directory-row${isSelected ? ' selected' : ''}${linked ? ' symlink-row' : ''}`}
-        style={{ paddingLeft: 10 + depth * 14 }}
+        className={`tree-row directory-row${isSelected ? ' selected' : ''}${linked ? ' symlink-row' : ''}${gitIgnored ? ' gitignored' : ''}`}
+        style={{ paddingLeft: 10 + depth * 14, zIndex: depth + 1 }}
         onClick={() => {
           if (onSelectDirectory) {
             onSelectDirectory(stablePath)
@@ -164,12 +212,13 @@ function DirectoryNode({
             moveTreeFocus(event)
           }
         }}
-        title={
+        title={`${
           linked
             ? `${stablePath.path} · symbolic link to directory (target confined to project)`
             : stablePath.path
-        }
+        }${gitIgnored ? ' · Git ignored' : ''}`}
       >
+        <TreeDepthGuides depth={depth} />
         <span className="tree-chevron">{open ? '⌄' : '›'}</span>
         {linked ? (
           <span className="tree-symlink" aria-hidden="true">
@@ -177,6 +226,7 @@ function DirectoryNode({
           </span>
         ) : null}
         <span className="tree-name">{label}</span>
+        {gitIgnoredRoot ? <span className="tree-gitignored">ignored</span> : null}
         {loading ? <span className="tree-loading">…</span> : null}
       </button>
       {open && error ? (
@@ -188,6 +238,9 @@ function DirectoryNode({
         <div role="group">
           {entries.flatMap((entry) => {
             const child = joinHostPath(stablePath, entry.name)
+            const directlyIgnored = ignoredNames.has(entry.name)
+            const childGitIgnored = gitIgnored || directlyIgnored
+            const childGitIgnoredRoot = !gitIgnored && directlyIgnored
             if (entry.type === 'dir') {
               return [
                 <DirectoryNode
@@ -195,9 +248,13 @@ function DirectoryNode({
                   path={child}
                   label={entry.name}
                   depth={depth + 1}
+                  gitIgnored={childGitIgnored}
+                  gitIgnoredRoot={childGitIgnoredRoot}
                   loadEntries={loadEntries}
+                  loadIgnoredEntries={loadIgnoredEntries}
                   resolveEntry={resolveEntry}
                   refreshVersion={refreshVersion}
+                  ignoredRefreshVersion={ignoredRefreshVersion}
                   selected={selected}
                   expandedPath={expandedPath}
                   showFiles={showFiles}
@@ -213,9 +270,13 @@ function DirectoryNode({
                   path={child}
                   label={entry.name}
                   depth={depth + 1}
+                  gitIgnored={childGitIgnored}
+                  gitIgnoredRoot={childGitIgnoredRoot}
                   loadEntries={loadEntries}
+                  loadIgnoredEntries={loadIgnoredEntries}
                   resolveEntry={resolveEntry}
                   refreshVersion={refreshVersion}
+                  ignoredRefreshVersion={ignoredRefreshVersion}
                   selected={selected}
                   expandedPath={expandedPath}
                   showFiles={showFiles}
@@ -233,15 +294,19 @@ function DirectoryNode({
                 role="treeitem"
                 aria-selected={fileSelected}
                 key={`${child.hostId}:${child.path}`}
-                className={`tree-row file-row${fileSelected ? ' selected' : ''}`}
+                className={`tree-row file-row${fileSelected ? ' selected' : ''}${childGitIgnored ? ' gitignored' : ''}`}
                 style={{ paddingLeft: 24 + (depth + 1) * 14 }}
                 onClick={() => openable && onOpenFile?.(child, false)}
                 onDoubleClick={() => openable && onOpenFile?.(child, true)}
                 onKeyDown={(event) => handleLeafTreeKey(event)}
                 disabled={!openable}
-                title={child.path}
+                title={`${child.path}${childGitIgnored ? ' · Git ignored' : ''}`}
               >
-                <span className="tree-name">{entry.name}</span>
+                <TreeDepthGuides depth={depth + 1} />
+                <FileTreeName name={entry.name} />
+                {childGitIgnoredRoot ? (
+                  <span className="tree-gitignored">ignored</span>
+                ) : null}
               </button>,
             ]
           })}
@@ -255,9 +320,13 @@ function SymlinkNode({
   path,
   label,
   depth,
+  gitIgnored = false,
+  gitIgnoredRoot = false,
   loadEntries,
+  loadIgnoredEntries,
   resolveEntry,
   refreshVersion,
+  ignoredRefreshVersion,
   selected,
   expandedPath,
   showFiles,
@@ -299,10 +368,14 @@ function SymlinkNode({
         path={stablePath}
         label={label}
         depth={depth}
+        gitIgnored={gitIgnored}
+        gitIgnoredRoot={gitIgnoredRoot}
         linked
         loadEntries={loadEntries}
+        loadIgnoredEntries={loadIgnoredEntries}
         resolveEntry={resolveEntry}
         refreshVersion={refreshVersion}
+        ignoredRefreshVersion={ignoredRefreshVersion}
         selected={selected}
         expandedPath={expandedPath}
         showFiles={showFiles}
@@ -319,17 +392,19 @@ function SymlinkNode({
         type="button"
         role="treeitem"
         aria-selected={fileSelected}
-        className={`tree-row file-row symlink-row${fileSelected ? ' selected' : ''}`}
+        className={`tree-row file-row symlink-row${fileSelected ? ' selected' : ''}${gitIgnored ? ' gitignored' : ''}`}
         style={{ paddingLeft: 24 + depth * 14 }}
         onClick={() => onOpenFile?.(stablePath, false)}
         onDoubleClick={() => onOpenFile?.(stablePath, true)}
         onKeyDown={(event) => handleLeafTreeKey(event)}
-        title={`${stablePath.path} · symbolic link to file (target confined to project)`}
+        title={`${stablePath.path} · symbolic link to file (target confined to project)${gitIgnored ? ' · Git ignored' : ''}`}
       >
+        <TreeDepthGuides depth={depth} />
         <span className="tree-symlink" aria-hidden="true">
           ↗
         </span>
-        <span className="tree-name">{label}</span>
+        <FileTreeName name={label} />
+        {gitIgnoredRoot ? <span className="tree-gitignored">ignored</span> : null}
       </button>
     )
   }
@@ -338,23 +413,46 @@ function SymlinkNode({
     <button
       type="button"
       role="treeitem"
-      className="tree-row file-row symlink-row"
+      className={`tree-row file-row symlink-row${gitIgnored ? ' gitignored' : ''}`}
       style={{ paddingLeft: 24 + depth * 14 }}
       disabled
       title={
         error
-          ? `${stablePath.path} · ${error}`
+          ? `${stablePath.path} · ${error}${gitIgnored ? ' · Git ignored' : ''}`
           : targetType
-            ? `${stablePath.path} · unsupported symbolic link target`
-            : `${stablePath.path} · resolving link…`
+            ? `${stablePath.path} · unsupported symbolic link target${gitIgnored ? ' · Git ignored' : ''}`
+            : `${stablePath.path} · resolving link…${gitIgnored ? ' · Git ignored' : ''}`
       }
     >
+      <TreeDepthGuides depth={depth} />
       <span className="tree-symlink" aria-hidden="true">
         ↗
       </span>
-      <span className="tree-name">{label}</span>
+      <FileTreeName name={label} />
+      {gitIgnoredRoot ? <span className="tree-gitignored">ignored</span> : null}
       {!error && !targetType ? <span className="tree-loading">…</span> : null}
     </button>
+  )
+}
+
+function TreeDepthGuides({ depth }: { readonly depth: number }): ReactElement | null {
+  if (depth <= 0) return null
+  return (
+    <span className="tree-depth-guides" aria-hidden="true">
+      {Array.from({ length: depth }, (_, index) => (
+        <span className="tree-depth-guide" key={index} />
+      ))}
+    </span>
+  )
+}
+
+function FileTreeName({ name }: { readonly name: string }): ReactElement {
+  const { stem, extension } = splitFileName(name)
+  return (
+    <span className="tree-name tree-file-name">
+      <span className="tree-file-stem">{stem}</span>
+      {extension ? <span className="tree-file-extension">{extension}</span> : null}
+    </span>
   )
 }
 

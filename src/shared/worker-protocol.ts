@@ -16,6 +16,8 @@ import type {
   GitChangesRequest,
   GitHistoryPage,
   GitHistoryRequest,
+  GitIgnoredEntriesRequest,
+  GitIgnoredEntriesResponse,
   GitCommitDetail,
   GitCommitDetailRequest,
 } from './git-types'
@@ -95,6 +97,7 @@ export interface EchoWorkerProtocol {
 export const GIT_DIFF_INPUTS_TYPE = 'git:diff-inputs' as const
 export const GIT_CHANGES_TYPE = 'git:changes' as const
 export const GIT_HISTORY_TYPE = 'git:history' as const
+export const GIT_IGNORED_ENTRIES_TYPE = 'git:ignored-entries' as const
 export const GIT_BLAME_TYPE = 'git:blame' as const
 export const GIT_COMMIT_DETAIL_TYPE = 'git:commit-detail' as const
 
@@ -110,6 +113,10 @@ export interface GitWorkerProtocol {
     GitChanges
   >
   readonly [GIT_HISTORY_TYPE]: WorkerOperation<GitHistoryRequest, GitHistoryPage>
+  readonly [GIT_IGNORED_ENTRIES_TYPE]: WorkerOperation<
+    GitIgnoredEntriesRequest,
+    GitIgnoredEntriesResponse
+  >
   readonly [GIT_COMMIT_DETAIL_TYPE]: WorkerOperation<
     GitCommitDetailRequest,
     GitCommitDetail

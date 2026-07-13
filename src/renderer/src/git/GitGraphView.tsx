@@ -10,16 +10,26 @@ import {
 
 import {
   basenameHostPath,
+  joinHostPath,
   type DiffBase,
   type GitCommitDetail,
-  type GitCommitFile,
   type GitCommitSummary,
   type GitRepositoryState,
   type HostConnectionState,
   type HostPath,
 } from '../../../shared'
-import { buildGitGraphLayout, type GitGraphRow } from './git-graph-layout'
-import { virtualRange } from './virtual-range'
+import { buildGitGraphLayout } from './git-graph-layout'
+import { FULL_GRAPH_LANE_METRICS, gitGraphWidth } from './git-graph-lane-metrics'
+import { GitGraphCell } from './GitGraphLanes'
+import {
+  commitTreeEntryHeight,
+  flattenCommitFiles,
+  sumCommitFileChanges,
+} from './commit-file-tree'
+import { loadCommitDetail } from './commit-detail-client'
+import { commitMessageBody } from './commit-message'
+import { measureVariableRows, variableVirtualRange, virtualRange } from './virtual-range'
+import { MarkdownFragment } from '../viewer/MarkdownFragment'
 
 interface GitGraphViewProps {
   readonly root: HostPath
@@ -32,17 +42,6 @@ interface GitGraphViewProps {
 
 const GRAPH_ROW_HEIGHT = 40
 const GRAPH_OVERSCAN = 10
-const GRAPH_LANE_WIDTH = 18
-const GRAPH_LANE_PADDING = 9
-const FILE_ROW_HEIGHT = 28
-const GRAPH_COLORS = [
-  '#69a7ff',
-  '#dc8cff',
-  '#5ed6a0',
-  '#ffb45d',
-  '#f2779f',
-  '#6fd4e8',
-] as const
 
 export function GitGraphView({
   root,
@@ -68,7 +67,6 @@ export function GitGraphView({
   const viewport = useRef<HTMLDivElement>(null)
   const loadingMore = useRef(false)
   const generation = useRef(0)
-  const detailGeneration = useRef(0)
   const commitsValue = useRef<readonly GitCommitSummary[]>([])
   const refreshControl = useRef({ running: false, queued: false })
   const refreshContext = useRef({ root, connectionState })
@@ -223,25 +221,23 @@ export function GitGraphView({
 
   useEffect(() => {
     if (!selectedHash || !inspectorOpen) {
-      detailGeneration.current += 1
       setDetail(undefined)
       setDetailLoading(false)
       setDetailError(undefined)
       return
     }
     let cancelled = false
-    const requestGeneration = ++detailGeneration.current
     setDetail(undefined)
     setDetailLoading(true)
     setDetailError(undefined)
-    void window.hvir.invoke('git:commit-detail', { root, hash: selectedHash }).then(
+    void loadCommitDetail(root, selectedHash).then(
       (result) => {
-        if (cancelled || requestGeneration !== detailGeneration.current) return
+        if (cancelled) return
         setDetail(result)
         setDetailLoading(false)
       },
       (reason: unknown) => {
-        if (cancelled || requestGeneration !== detailGeneration.current) return
+        if (cancelled) return
         setDetailError(reason instanceof Error ? reason.message : String(reason))
         setDetailLoading(false)
       },
@@ -252,8 +248,7 @@ export function GitGraphView({
   }, [inspectorOpen, root, selectedHash])
 
   const layout = useMemo(() => buildGitGraphLayout(commits), [commits])
-  const graphWidth =
-    Math.max(2, layout.laneCount) * GRAPH_LANE_WIDTH + GRAPH_LANE_PADDING * 2
+  const graphWidth = gitGraphWidth(layout.laneCount, FULL_GRAPH_LANE_METRICS)
   const { start, end } = virtualRange(
     layout.rows.length,
     GRAPH_ROW_HEIGHT,
@@ -262,6 +257,7 @@ export function GitGraphView({
     GRAPH_OVERSCAN,
   )
   const selectedIndex = commits.findIndex((commit) => commit.hash === selectedHash)
+  const selectedCommit = selectedIndex < 0 ? undefined : commits[selectedIndex]
 
   const selectCommit = (hash: string, open = true): void => {
     setSelectedHash(hash)
@@ -327,11 +323,18 @@ export function GitGraphView({
       ) : (
         <div className={`git-graph-workspace${inspectorOpen ? ' inspector-open' : ''}`}>
           <div className="git-graph-table-shell">
-            <div className="git-graph-columns" style={{ paddingLeft: graphWidth }}>
+            <div
+              className={`git-graph-columns${inspectorOpen ? ' details-open' : ''}`}
+              style={{ paddingLeft: graphWidth }}
+            >
               <span>Commit</span>
-              <span>Author</span>
-              <span>Date</span>
-              <span>Hash</span>
+              {!inspectorOpen ? (
+                <>
+                  <span>Author</span>
+                  <span>Date</span>
+                  <span>Hash</span>
+                </>
+              ) : null}
             </div>
             {error ? (
               <div className="git-graph-banner">Refresh failed: {error}</div>
@@ -377,14 +380,21 @@ export function GitGraphView({
                       style={{
                         height: GRAPH_ROW_HEIGHT,
                         transform: `translateY(${index * GRAPH_ROW_HEIGHT}px)`,
-                        gridTemplateColumns: `${graphWidth}px minmax(180px, 1fr) minmax(100px, 0.28fr) 92px 70px`,
+                        gridTemplateColumns: inspectorOpen
+                          ? `${graphWidth}px minmax(180px, 1fr)`
+                          : `${graphWidth}px minmax(180px, 1fr) minmax(100px, 0.28fr) 92px 70px`,
                       }}
                       onClick={() => {
                         selectCommit(row.commit.hash)
                         viewport.current?.focus()
                       }}
                     >
-                      <GraphCell row={row} width={graphWidth} />
+                      <GitGraphCell
+                        row={row}
+                        width={graphWidth}
+                        height={GRAPH_ROW_HEIGHT}
+                        metrics={FULL_GRAPH_LANE_METRICS}
+                      />
                       <span className="git-graph-subject">
                         <i className="git-graph-disclosure" aria-hidden="true">
                           {selected && inspectorOpen ? '▾' : '▸'}
@@ -392,11 +402,15 @@ export function GitGraphView({
                         <span>{row.commit.subject || '(no subject)'}</span>
                         <RefLabels refs={row.commit.refs} />
                       </span>
-                      <span className="git-graph-author">{row.commit.author}</span>
-                      <time title={row.commit.authoredAt}>
-                        {formatCommitDate(row.commit.authoredAt)}
-                      </time>
-                      <code>{row.commit.shortHash}</code>
+                      {!inspectorOpen ? (
+                        <>
+                          <span className="git-graph-author">{row.commit.author}</span>
+                          <time title={row.commit.authoredAt}>
+                            {formatCommitDate(row.commit.authoredAt)}
+                          </time>
+                          <code>{row.commit.shortHash}</code>
+                        </>
+                      ) : null}
                     </button>
                   )
                 })}
@@ -411,6 +425,7 @@ export function GitGraphView({
           {inspectorOpen ? (
             <CommitInspector
               detail={detail}
+              refs={selectedCommit?.refs}
               loading={detailLoading}
               error={detailError}
               root={root}
@@ -421,55 +436,6 @@ export function GitGraphView({
         </div>
       )}
     </section>
-  )
-}
-
-function GraphCell({ row, width }: { row: GitGraphRow; width: number }): ReactElement {
-  const centerY = GRAPH_ROW_HEIGHT / 2
-  const laneX = (lane: number): number =>
-    GRAPH_LANE_PADDING + lane * GRAPH_LANE_WIDTH + GRAPH_LANE_WIDTH / 2
-  const curve = (fromLane: number, toLane: number, incoming: boolean): string => {
-    const fromX = laneX(fromLane)
-    const toX = laneX(toLane)
-    if (incoming) {
-      return `M ${fromX} 0 C ${fromX} ${centerY * 0.55}, ${toX} ${centerY * 0.55}, ${toX} ${centerY}`
-    }
-    return `M ${fromX} ${centerY} C ${fromX} ${centerY * 1.45}, ${toX} ${centerY * 1.45}, ${toX} ${GRAPH_ROW_HEIGHT}`
-  }
-  return (
-    <svg
-      className="git-graph-lanes"
-      width={width}
-      height={GRAPH_ROW_HEIGHT}
-      viewBox={`0 0 ${width} ${GRAPH_ROW_HEIGHT}`}
-      aria-hidden="true"
-    >
-      {row.passthrough.map((line) => (
-        <line
-          key={`pass-${line.lane}`}
-          x1={laneX(line.lane)}
-          x2={laneX(line.lane)}
-          y1={0}
-          y2={GRAPH_ROW_HEIGHT}
-          stroke={graphColor(line.color)}
-        />
-      ))}
-      {row.segments.map((segment, index) => (
-        <path
-          key={`${segment.incoming ? 'in' : 'out'}-${segment.fromLane}-${segment.toLane}-${index}`}
-          d={curve(segment.fromLane, segment.toLane, segment.incoming)}
-          stroke={graphColor(segment.color)}
-        />
-      ))}
-      <circle
-        cx={laneX(row.lane)}
-        cy={centerY}
-        r={4}
-        fill="#15181e"
-        stroke={graphColor(row.color)}
-        strokeWidth={2.5}
-      />
-    </svg>
   )
 }
 
@@ -492,6 +458,7 @@ function RefLabels({ refs }: { readonly refs: readonly string[] }): ReactElement
 
 function CommitInspector({
   detail,
+  refs,
   loading,
   error,
   root,
@@ -499,12 +466,14 @@ function CommitInspector({
   onOpen,
 }: {
   readonly detail?: GitCommitDetail
+  readonly refs?: readonly string[]
   readonly loading: boolean
   readonly error?: string
   readonly root: HostPath
   readonly onClose: () => void
   readonly onOpen: (path: HostPath, base: DiffBase, revision?: string) => void
 }): ReactElement {
+  const messageBody = detail ? commitMessageBody(detail) : ''
   return (
     <aside className="git-commit-inspector" aria-label="Commit details">
       <header>
@@ -517,9 +486,9 @@ function CommitInspector({
       {error ? <GraphEmpty text={`Commit unavailable: ${error}`} error /> : null}
       {detail ? (
         <>
-          <div className="git-inspector-summary">
+          <div className={`git-inspector-summary${messageBody ? ' has-message' : ''}`}>
             <h2>{detail.subject || '(no subject)'}</h2>
-            <RefLabels refs={detail.refs} />
+            <RefLabels refs={refs ?? detail.refs} />
             <dl>
               <div>
                 <dt>Author</dt>
@@ -534,8 +503,14 @@ function CommitInspector({
                 <dd title={detail.hash}>{detail.shortHash}</dd>
               </div>
             </dl>
-            {detail.message !== detail.subject ? <pre>{detail.message}</pre> : null}
           </div>
+          {messageBody ? (
+            <CommitMessage
+              path={joinHostPath(root, '.hvir-commit-message.md')}
+              content={messageBody}
+              onOpenPath={(path) => onOpen(path, 'head', detail.hash)}
+            />
+          ) : null}
           <CommitFileTree detail={detail} root={root} onOpen={onOpen} />
         </>
       ) : null}
@@ -543,24 +518,62 @@ function CommitInspector({
   )
 }
 
-type CommitTreeEntry =
-  | {
-      readonly kind: 'directory'
-      readonly path: string
-      readonly name: string
-      readonly depth: number
-      readonly expanded: boolean
-    }
-  | {
-      readonly kind: 'file'
-      readonly file: GitCommitFile
-      readonly name: string
-      readonly depth: number
-    }
+function CommitMessage({
+  path,
+  content,
+  onOpenPath,
+}: {
+  readonly path: HostPath
+  readonly content: string
+  readonly onOpenPath: (path: HostPath) => void
+}): ReactElement {
+  const viewport = useRef<HTMLDivElement>(null)
+  const body = useRef<HTMLDivElement>(null)
+  const [hasMore, setHasMore] = useState(false)
+  const updateOverflow = useCallback((): void => {
+    const element = viewport.current
+    if (!element) return
+    const more = element.scrollHeight - element.scrollTop - element.clientHeight > 1
+    setHasMore((current) => (current === more ? current : more))
+  }, [])
 
-interface CommitTreeNode {
-  readonly directories: Map<string, CommitTreeNode>
-  readonly files: GitCommitFile[]
+  useEffect(() => {
+    const element = viewport.current
+    const contentElement = body.current
+    if (!element || !contentElement) return
+    updateOverflow()
+    const observer = new ResizeObserver(updateOverflow)
+    observer.observe(element)
+    observer.observe(contentElement)
+    return () => observer.disconnect()
+  }, [content, updateOverflow])
+
+  return (
+    <div className={`git-commit-message-region${hasMore ? ' has-more' : ''}`}>
+      <div
+        ref={viewport}
+        className="git-commit-message-scroll"
+        role="region"
+        aria-label="Commit message"
+        tabIndex={0}
+        onScroll={updateOverflow}
+      >
+        <div ref={body}>
+          <MarkdownFragment
+            path={path}
+            content={content}
+            className="git-commit-message"
+            onOpenPath={onOpenPath}
+          />
+        </div>
+      </div>
+      {hasMore ? (
+        <span className="git-commit-message-more" title="More commit message below">
+          ↓
+        </span>
+      ) : null}
+    </div>
+  )
 }
 
 function CommitFileTree({
@@ -596,20 +609,12 @@ function CommitFileTree({
     () => flattenCommitFiles(detail.files, root, collapsed),
     [collapsed, detail.files, root],
   )
-  const { start, end } = virtualRange(
-    entries.length,
-    FILE_ROW_HEIGHT,
-    scrollTop,
-    height,
-    5,
+  const measurements = useMemo(
+    () => measureVariableRows(entries.map(commitTreeEntryHeight)),
+    [entries],
   )
-  const totals = detail.files.reduce(
-    (sum, file) => ({
-      additions: sum.additions + file.additions,
-      deletions: sum.deletions + file.deletions,
-    }),
-    { additions: 0, deletions: 0 },
-  )
+  const { start, end } = variableVirtualRange(measurements, scrollTop, height, 5)
+  const totals = useMemo(() => sumCommitFileChanges(detail.files), [detail.files])
 
   return (
     <section className="git-inspector-files">
@@ -628,9 +633,11 @@ function CommitFileTree({
         aria-label="Files changed in commit"
         onScroll={(event) => setScrollTop(event.currentTarget.scrollTop)}
       >
-        <div style={{ height: entries.length * FILE_ROW_HEIGHT }}>
+        <div style={{ height: measurements.totalHeight }}>
           {entries.slice(start, end).map((entry, offset) => {
             const index = start + offset
+            const rowHeight = commitTreeEntryHeight(entry)
+            const top = measurements.offsets[index] ?? 0
             if (entry.kind === 'directory') {
               return (
                 <button
@@ -640,9 +647,9 @@ function CommitFileTree({
                   className="git-commit-tree-row directory"
                   key={`directory:${entry.path}`}
                   style={{
-                    height: FILE_ROW_HEIGHT,
+                    height: rowHeight,
                     paddingLeft: 10 + entry.depth * 16,
-                    transform: `translateY(${index * FILE_ROW_HEIGHT}px)`,
+                    transform: `translateY(${top}px)`,
                   }}
                   onClick={() =>
                     setCollapsed((current) => {
@@ -666,9 +673,9 @@ function CommitFileTree({
                 key={`file:${entry.file.path.hostId}:${entry.file.path.path}`}
                 title={entry.file.path.path}
                 style={{
-                  height: FILE_ROW_HEIGHT,
+                  height: rowHeight,
                   paddingLeft: 24 + entry.depth * 16,
-                  transform: `translateY(${index * FILE_ROW_HEIGHT}px)`,
+                  transform: `translateY(${top}px)`,
                 }}
                 onClick={() => onOpen(entry.file.path, 'head', detail.hash)}
               >
@@ -685,53 +692,6 @@ function CommitFileTree({
   )
 }
 
-function flattenCommitFiles(
-  files: readonly GitCommitFile[],
-  root: HostPath,
-  collapsed: ReadonlySet<string>,
-): readonly CommitTreeEntry[] {
-  const tree: CommitTreeNode = { directories: new Map(), files: [] }
-  for (const file of files) {
-    const path = displayGitPath(file.path, root)
-    const parts = path.split('/').filter(Boolean)
-    let node = tree
-    for (const directory of parts.slice(0, -1)) {
-      let child = node.directories.get(directory)
-      if (!child) {
-        child = { directories: new Map(), files: [] }
-        node.directories.set(directory, child)
-      }
-      node = child
-    }
-    node.files.push(file)
-  }
-
-  const entries: CommitTreeEntry[] = []
-  const walk = (node: CommitTreeNode, depth: number, parentPath: string): void => {
-    const directories = [...node.directories.entries()].sort(([a], [b]) =>
-      a.localeCompare(b),
-    )
-    for (const [name, child] of directories) {
-      const path = parentPath ? `${parentPath}/${name}` : name
-      const expanded = !collapsed.has(path)
-      entries.push({ kind: 'directory', path, name, depth, expanded })
-      if (expanded) walk(child, depth + 1, path)
-    }
-    for (const file of [...node.files].sort((a, b) =>
-      a.path.path.localeCompare(b.path.path),
-    )) {
-      entries.push({
-        kind: 'file',
-        file,
-        name: displayGitPath(file.path, root).split('/').at(-1) ?? file.path.path,
-        depth,
-      })
-    }
-  }
-  walk(tree, 0, '')
-  return entries
-}
-
 function GraphEmpty({
   text,
   error = false,
@@ -740,16 +700,6 @@ function GraphEmpty({
   error?: boolean
 }): ReactElement {
   return <div className={`git-graph-empty${error ? ' error' : ''}`}>{text}</div>
-}
-
-function displayGitPath(path: HostPath, root: HostPath): string {
-  if (path.hostId !== root.hostId) return path.path
-  const prefix = root.path === '/' ? '/' : `${root.path}/`
-  return path.path.startsWith(prefix) ? path.path.slice(prefix.length) : path.path
-}
-
-function graphColor(index: number): string {
-  return GRAPH_COLORS[index % GRAPH_COLORS.length] ?? GRAPH_COLORS[0]
 }
 
 function formatCommitDate(value: string, long = false): string {

@@ -19,10 +19,10 @@ import {
   type HostPath,
 } from '../../../shared'
 import { DiffView } from './DiffView'
-import type {
-  HighlightLanguage,
-  HighlightResponse,
-  HighlightToken,
+import {
+  languageForPath,
+  type HighlightResponse,
+  type HighlightToken,
 } from './highlight-protocol'
 import { RenderedView } from './RenderedView'
 import type { ViewerTab } from './tab-state'
@@ -495,7 +495,7 @@ function highlight(
     setStatus('large file · highlighting off')
     return () => undefined
   }
-  const language = languageFor(path)
+  const language = languageForPath(path)
   if (!language) {
     setStatus('plain text')
     return () => undefined
@@ -534,29 +534,6 @@ function EmptyViewer({
   readonly error?: boolean
 }): ReactElement {
   return <div className={`viewer-empty${error ? ' error' : ''}`}>{text}</div>
-}
-
-function languageFor(path: string): HighlightLanguage | undefined {
-  const name = path.toLowerCase()
-  const extension = name.includes('.') ? name.slice(name.lastIndexOf('.') + 1) : ''
-  const byExtension: Record<string, HighlightLanguage> = {
-    bash: 'bash',
-    css: 'css',
-    go: 'go',
-    htm: 'html',
-    html: 'html',
-    js: 'javascript',
-    jsx: 'jsx',
-    json: 'json',
-    md: 'markdown',
-    mdx: 'markdown',
-    py: 'python',
-    rs: 'rust',
-    sh: 'bash',
-    ts: 'typescript',
-    tsx: 'tsx',
-  }
-  return byExtension[extension]
 }
 
 function tokenStyle(token: HighlightToken): string {

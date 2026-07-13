@@ -1,21 +1,43 @@
-import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type ReactElement,
+} from 'react'
 
 import {
   basenameHostPath,
   type DiffBase,
   type GitChanges,
+  type GitCommitDetail,
   type GitCommitSummary,
   type GitRepositoryState,
   type HostPath,
   type HostConnectionState,
 } from '../../../shared'
-import { virtualRange } from './virtual-range'
+import {
+  commitTreeEntryHeight,
+  displayGitParentPath,
+  flattenCommitFiles,
+  sumCommitFileChanges,
+  type CommitChangeTotals,
+  type CommitTreeEntry,
+} from './commit-file-tree'
+import { loadCommitDetail } from './commit-detail-client'
+import { buildGitGraphLayout, type GitGraphRow } from './git-graph-layout'
+import { gitGraphWidth, RAIL_GRAPH_LANE_METRICS } from './git-graph-lane-metrics'
+import { GitGraphCell, GitGraphContinuation } from './GitGraphLanes'
+import { measureVariableRows, variableVirtualRange, virtualRange } from './virtual-range'
 
 interface GitPanelProps {
   readonly root: HostPath
   readonly refreshVersion: number
   readonly historyRefreshVersion: number
-  readonly onOpen: (path: HostPath, base: DiffBase, revision?: string) => void
+  readonly onOpenChange: (path: HostPath, base: DiffBase, untracked?: boolean) => void
+  readonly onOpenHistory: (path: HostPath, revision: string) => void
   readonly onOpenGraph: (hash?: string) => void
   readonly onChangedCount: (count: number) => void
   readonly connectionState?: HostConnectionState
@@ -27,7 +49,8 @@ export function GitPanel({
   root,
   refreshVersion,
   historyRefreshVersion,
-  onOpen,
+  onOpenChange,
+  onOpenHistory,
   onOpenGraph,
   onChangedCount,
   connectionState = 'connected',
@@ -251,17 +274,17 @@ export function GitPanel({
                 <ChangeGroup
                   title="Working tree"
                   files={changes?.workingTree ?? []}
-                  base="head"
                   root={root}
-                  onOpen={onOpen}
+                  base="head"
+                  onOpen={onOpenChange}
                 />
                 {changes?.branchPointAvailable ? (
                   <ChangeGroup
                     title="Branch point"
                     files={changes.branchPoint}
-                    base="branch-point"
                     root={root}
-                    onOpen={onOpen}
+                    base="branch-point"
+                    onOpen={onOpenChange}
                   />
                 ) : changes ? (
                   <div
@@ -299,7 +322,9 @@ export function GitPanel({
               <HistoryCommitList
                 commits={commits}
                 hasMore={hasMore}
-                onSelect={(commit) => onOpenGraph(commit.hash)}
+                root={root}
+                onOpenGraph={onOpenGraph}
+                onOpenFile={onOpenHistory}
                 onLoadMore={loadHistory}
               />
             ) : null}
@@ -310,24 +335,144 @@ export function GitPanel({
   )
 }
 
-const HISTORY_ROW_HEIGHT = 48
+const HISTORY_COMMIT_ROW_HEIGHT = 40
+const HISTORY_CHILD_ROW_HEIGHT = 22
 const HISTORY_OVERSCAN = 8
 const DETAIL_ROW_HEIGHT = 28
+
+type RailHistoryItem =
+  | {
+      readonly kind: 'commit'
+      readonly key: string
+      readonly height: number
+      readonly graphRow: GitGraphRow
+      readonly position: number
+    }
+  | {
+      readonly kind: 'summary'
+      readonly key: string
+      readonly height: number
+      readonly graphRow: GitGraphRow
+      readonly detail: GitCommitDetail
+      readonly totals: CommitChangeTotals
+    }
+  | {
+      readonly kind: 'state'
+      readonly key: string
+      readonly height: number
+      readonly graphRow: GitGraphRow
+      readonly text: string
+      readonly title?: string
+      readonly error: boolean
+    }
+  | {
+      readonly kind: 'tree'
+      readonly key: string
+      readonly height: number
+      readonly graphRow: GitGraphRow
+      readonly commitHash: string
+      readonly entry: CommitTreeEntry
+    }
+
+type RailCommitDetailState =
+  | { readonly status: 'loading' }
+  | { readonly status: 'ready'; readonly detail: GitCommitDetail }
+  | { readonly status: 'error'; readonly error: string }
 
 function HistoryCommitList({
   commits,
   hasMore,
-  onSelect,
+  root,
+  onOpenGraph,
+  onOpenFile,
   onLoadMore,
 }: {
   readonly commits: readonly GitCommitSummary[]
   readonly hasMore: boolean
-  readonly onSelect: (commit: GitCommitSummary) => void
+  readonly root: HostPath
+  readonly onOpenGraph: (hash?: string) => void
+  readonly onOpenFile: (path: HostPath, revision: string) => void
   readonly onLoadMore: () => void
 }): ReactElement {
   const viewport = useRef<HTMLDivElement>(null)
   const [scrollTop, setScrollTop] = useState(0)
   const [viewportHeight, setViewportHeight] = useState(320)
+  const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set())
+  const [detailStates, setDetailStates] = useState<
+    ReadonlyMap<string, RailCommitDetailState>
+  >(new Map())
+  const [collapsedDirectories, setCollapsedDirectories] = useState<
+    ReadonlyMap<string, ReadonlySet<string>>
+  >(new Map())
+  const rootKey = `${root.hostId}\0${root.path}`
+  const activeRootKey = useRef(rootKey)
+  const commitClickTimers = useRef(new Map<string, number>())
+  activeRootKey.current = rootKey
+
+  useEffect(() => {
+    setExpanded(new Set())
+    setDetailStates(new Map())
+    setCollapsedDirectories(new Map())
+    setScrollTop(0)
+  }, [rootKey])
+
+  useEffect(
+    () => () => {
+      for (const timer of commitClickTimers.current.values()) window.clearTimeout(timer)
+      commitClickTimers.current.clear()
+    },
+    [],
+  )
+
+  const requestDetail = useCallback(
+    (hash: string): void => {
+      const currentState = detailStates.get(hash)
+      if (currentState?.status === 'loading' || currentState?.status === 'ready') return
+      const requestRootKey = rootKey
+      setDetailStates((current) => new Map(current).set(hash, { status: 'loading' }))
+      void loadCommitDetail(root, hash).then(
+        (detail) => {
+          if (activeRootKey.current !== requestRootKey) return
+          setDetailStates((current) =>
+            new Map(current).set(hash, { status: 'ready', detail }),
+          )
+        },
+        (reason: unknown) => {
+          if (activeRootKey.current !== requestRootKey) return
+          setDetailStates((current) =>
+            new Map(current).set(hash, {
+              status: 'error',
+              error: reason instanceof Error ? reason.message : String(reason),
+            }),
+          )
+        },
+      )
+    },
+    [detailStates, root, rootKey],
+  )
+
+  const toggleCommit = (hash: string, nextExpanded?: boolean): void => {
+    const shouldExpand = nextExpanded ?? !expanded.has(hash)
+    if (shouldExpand === expanded.has(hash)) return
+    setExpanded((current) => {
+      const next = new Set(current)
+      if (shouldExpand) next.add(hash)
+      else next.delete(hash)
+      return next
+    })
+    if (shouldExpand && detailStates.get(hash)?.status !== 'ready') requestDetail(hash)
+  }
+
+  const toggleDirectory = (hash: string, path: string): void => {
+    setCollapsedDirectories((current) => {
+      const next = new Map(current)
+      const paths = new Set(next.get(hash) ?? [])
+      if (paths.has(path)) paths.delete(path)
+      else paths.add(path)
+      next.set(hash, paths)
+      return next
+    })
+  }
 
   useEffect(() => {
     const element = viewport.current
@@ -342,24 +487,106 @@ function HistoryCommitList({
   useEffect(() => {
     const element = viewport.current
     if (!element || !hasMore) return
-    if (element.scrollHeight <= element.clientHeight + HISTORY_ROW_HEIGHT) {
+    if (element.scrollHeight <= element.clientHeight + HISTORY_COMMIT_ROW_HEIGHT) {
       onLoadMore()
     }
-  }, [commits.length, hasMore, onLoadMore])
+  }, [commits.length, expanded, hasMore, onLoadMore])
 
-  const { start, end } = virtualRange(
-    commits.length,
-    HISTORY_ROW_HEIGHT,
+  const layout = useMemo(() => buildGitGraphLayout(commits), [commits])
+  const graphWidth = gitGraphWidth(layout.laneCount, RAIL_GRAPH_LANE_METRICS)
+  const items = useMemo<readonly RailHistoryItem[]>(() => {
+    const next: RailHistoryItem[] = []
+    for (const [position, graphRow] of layout.rows.entries()) {
+      const hash = graphRow.commit.hash
+      next.push({
+        kind: 'commit',
+        key: `commit:${hash}`,
+        height: HISTORY_COMMIT_ROW_HEIGHT,
+        graphRow,
+        position,
+      })
+      if (!expanded.has(hash)) continue
+      const detailState = detailStates.get(hash)
+      if (detailState?.status === 'error') {
+        next.push({
+          kind: 'state',
+          key: `error:${hash}`,
+          height: HISTORY_CHILD_ROW_HEIGHT,
+          graphRow,
+          text: 'Details unavailable',
+          title: detailState.error,
+          error: true,
+        })
+        continue
+      }
+      if (detailState?.status !== 'ready') {
+        next.push({
+          kind: 'state',
+          key: `loading:${hash}`,
+          height: HISTORY_CHILD_ROW_HEIGHT,
+          graphRow,
+          text: 'Loading changed files…',
+          error: false,
+        })
+        continue
+      }
+      const detail = detailState.detail
+      next.push({
+        kind: 'summary',
+        key: `summary:${hash}`,
+        height: HISTORY_CHILD_ROW_HEIGHT,
+        graphRow,
+        detail,
+        totals: sumCommitFileChanges(detail.files),
+      })
+      const collapsed = collapsedDirectories.get(hash) ?? new Set<string>()
+      for (const entry of flattenCommitFiles(detail.files, root, collapsed)) {
+        next.push({
+          kind: 'tree',
+          key:
+            entry.kind === 'directory'
+              ? `directory:${hash}:${entry.path}`
+              : `file:${hash}:${entry.file.path.hostId}:${entry.file.path.path}`,
+          height: commitTreeEntryHeight(entry),
+          graphRow,
+          commitHash: hash,
+          entry,
+        })
+      }
+    }
+    return next
+  }, [collapsedDirectories, detailStates, expanded, layout, root])
+  const measurements = useMemo(
+    () => measureVariableRows(items.map((item) => item.height)),
+    [items],
+  )
+  const { start, end } = variableVirtualRange(
+    measurements,
     scrollTop,
     viewportHeight,
     HISTORY_OVERSCAN,
   )
 
+  const handleCommitKey = (
+    event: ReactKeyboardEvent<HTMLButtonElement>,
+    hash: string,
+  ): void => {
+    if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
+      event.preventDefault()
+      onOpenGraph(hash)
+    } else if (event.key === 'ArrowRight') {
+      event.preventDefault()
+      toggleCommit(hash, true)
+    } else if (event.key === 'ArrowLeft') {
+      event.preventDefault()
+      toggleCommit(hash, false)
+    }
+  }
+
   return (
     <div
       ref={viewport}
       className="git-history-viewport"
-      role="list"
       aria-label="Commit history"
       onScroll={(event) => {
         const element = event.currentTarget
@@ -367,7 +594,7 @@ function HistoryCommitList({
         if (
           hasMore &&
           element.scrollHeight - element.scrollTop - element.clientHeight <
-            HISTORY_ROW_HEIGHT * 4
+            HISTORY_COMMIT_ROW_HEIGHT * 4
         ) {
           onLoadMore()
         }
@@ -375,33 +602,93 @@ function HistoryCommitList({
     >
       <div
         className="git-history-window"
-        style={{ height: commits.length * HISTORY_ROW_HEIGHT }}
+        role="list"
+        aria-label="Commit history"
+        style={{ height: measurements.totalHeight }}
       >
-        {commits.slice(start, end).map((commit, offset) => {
+        {items.slice(start, end).map((item, offset) => {
           const index = start + offset
+          const top = measurements.offsets[index] ?? 0
+          if (item.kind === 'commit') {
+            const commit = item.graphRow.commit
+            const isExpanded = expanded.has(commit.hash)
+            return (
+              <div
+                className="git-rail-history-row commit"
+                key={item.key}
+                role="listitem"
+                aria-posinset={item.position + 1}
+                aria-setsize={layout.rows.length}
+                style={{ height: item.height, transform: `translateY(${top}px)` }}
+              >
+                <button
+                  type="button"
+                  className="git-rail-commit"
+                  aria-expanded={isExpanded}
+                  title={commit.subject || '(no subject)'}
+                  style={{ gridTemplateColumns: `${graphWidth}px minmax(0, 1fr)` }}
+                  onClick={() => {
+                    if (commitClickTimers.current.has(commit.hash)) return
+                    const timer = window.setTimeout(() => {
+                      commitClickTimers.current.delete(commit.hash)
+                      toggleCommit(commit.hash)
+                    }, 300)
+                    commitClickTimers.current.set(commit.hash, timer)
+                  }}
+                  onDoubleClick={() => {
+                    const timer = commitClickTimers.current.get(commit.hash)
+                    if (timer !== undefined) window.clearTimeout(timer)
+                    commitClickTimers.current.delete(commit.hash)
+                    onOpenGraph(commit.hash)
+                  }}
+                  onKeyDown={(event) => handleCommitKey(event, commit.hash)}
+                >
+                  <GitGraphCell
+                    row={item.graphRow}
+                    width={graphWidth}
+                    height={item.height}
+                    metrics={RAIL_GRAPH_LANE_METRICS}
+                  />
+                  <span className="git-rail-commit-copy">
+                    <strong>
+                      <i aria-hidden="true">{isExpanded ? '▾' : '▸'}</i>
+                      <span>{commit.subject || '(no subject)'}</span>
+                    </strong>
+                    <small>
+                      {commit.shortHash} · {commit.author}
+                    </small>
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  className="git-rail-open-full"
+                  aria-label={`Open ${commit.shortHash} in full history`}
+                  title="Open in full history"
+                  onClick={() => onOpenGraph(commit.hash)}
+                >
+                  ↗
+                </button>
+              </div>
+            )
+          }
           return (
             <div
-              className="git-commit-entry"
-              key={commit.hash}
-              role="listitem"
-              aria-posinset={index + 1}
-              aria-setsize={hasMore ? -1 : commits.length}
-              style={{
-                height: HISTORY_ROW_HEIGHT,
-                transform: `translateY(${index * HISTORY_ROW_HEIGHT}px)`,
-              }}
+              className={`git-rail-history-row child${item.kind === 'state' && item.error ? ' error' : ''}`}
+              key={item.key}
+              role="presentation"
+              style={{ height: item.height, transform: `translateY(${top}px)` }}
             >
-              <button
-                type="button"
-                className="git-commit"
-                title="Open in full history graph"
-                onClick={() => onSelect(commit)}
-              >
-                <strong>{commit.subject || '(no subject)'}</strong>
-                <span>
-                  {commit.shortHash} · {commit.author}
-                </span>
-              </button>
+              <GitGraphContinuation
+                row={item.graphRow}
+                width={graphWidth}
+                height={item.height}
+                metrics={RAIL_GRAPH_LANE_METRICS}
+              />
+              <RailHistoryChild
+                item={item}
+                onToggleDirectory={toggleDirectory}
+                onOpenFile={onOpenFile}
+              />
             </div>
           )
         })}
@@ -415,18 +702,77 @@ function HistoryCommitList({
   )
 }
 
+function RailHistoryChild({
+  item,
+  onToggleDirectory,
+  onOpenFile,
+}: {
+  readonly item: Exclude<RailHistoryItem, { readonly kind: 'commit' }>
+  readonly onToggleDirectory: (hash: string, path: string) => void
+  readonly onOpenFile: (path: HostPath, revision: string) => void
+}): ReactElement {
+  if (item.kind === 'state') {
+    return (
+      <span className="git-rail-history-state" title={item.title}>
+        {item.text}
+      </span>
+    )
+  }
+  if (item.kind === 'summary') {
+    return (
+      <span className="git-rail-history-summary">
+        <strong>
+          {item.detail.files.length} file{item.detail.files.length === 1 ? '' : 's'}
+        </strong>
+        <small>
+          <b>+{item.totals.additions}</b> <i>−{item.totals.deletions}</i>
+        </small>
+      </span>
+    )
+  }
+  const entry = item.entry
+  if (entry.kind === 'directory') {
+    return (
+      <button
+        type="button"
+        className="git-rail-history-tree directory"
+        aria-expanded={entry.expanded}
+        style={{ paddingLeft: 4 + entry.depth * 12 }}
+        onClick={() => onToggleDirectory(item.commitHash, entry.path)}
+      >
+        <i aria-hidden="true">{entry.expanded ? '▾' : '▸'}</i>
+        <strong>{entry.name}</strong>
+      </button>
+    )
+  }
+  return (
+    <button
+      type="button"
+      className="git-rail-history-tree file"
+      title={entry.file.path.path}
+      style={{ paddingLeft: 16 + entry.depth * 12 }}
+      onClick={() => onOpenFile(entry.file.path, item.commitHash)}
+    >
+      <span>{entry.name}</span>
+      <small>
+        <b>+{entry.file.additions}</b> <i>−{entry.file.deletions}</i>
+      </small>
+    </button>
+  )
+}
+
 function ChangeGroup({
   title,
   files,
-  base,
   root,
+  base,
   onOpen,
 }: {
   readonly title: string
   readonly files: GitChanges['workingTree']
-  readonly base: DiffBase
   readonly root: HostPath
-  readonly onOpen: (path: HostPath, base: DiffBase, revision?: string) => void
+  readonly base: DiffBase
+  readonly onOpen: (path: HostPath, base: DiffBase, untracked?: boolean) => void
 }): ReactElement {
   return (
     <div className="git-group">
@@ -434,21 +780,21 @@ function ChangeGroup({
         {title}
         <span>{files.length}</span>
       </h3>
-      <VirtualChangeFiles files={files} base={base} root={root} onOpen={onOpen} />
+      <VirtualChangeFiles files={files} root={root} base={base} onOpen={onOpen} />
     </div>
   )
 }
 
 function VirtualChangeFiles({
   files,
-  base,
   root,
+  base,
   onOpen,
 }: {
   readonly files: GitChanges['workingTree']
-  readonly base: DiffBase
   readonly root: HostPath
-  readonly onOpen: (path: HostPath, base: DiffBase, revision?: string) => void
+  readonly base: DiffBase
+  readonly onOpen: (path: HostPath, base: DiffBase, untracked?: boolean) => void
 }): ReactElement {
   const [scrollTop, setScrollTop] = useState(0)
   const height = Math.min(280, files.length * DETAIL_ROW_HEIGHT)
@@ -471,6 +817,7 @@ function VirtualChangeFiles({
       >
         {files.slice(start, end).map((file, offset) => {
           const index = start + offset
+          const directory = displayGitParentPath(file.path, root)
           return (
             <button
               type="button"
@@ -480,10 +827,15 @@ function VirtualChangeFiles({
                 height: DETAIL_ROW_HEIGHT,
                 transform: `translateY(${index * DETAIL_ROW_HEIGHT}px)`,
               }}
-              onClick={() => onOpen(file.path, base)}
+              onClick={() => onOpen(file.path, base, file.untracked)}
               title={file.path.path}
             >
-              <span>{displayGitPath(file.path, root)}</span>
+              <span className="git-file-copy">
+                <span className="git-file-name">{basenameHostPath(file.path)}</span>
+                {directory ? (
+                  <span className="git-file-directory">{directory}</span>
+                ) : null}
+              </span>
               <small>
                 {file.conflicted
                   ? '!'
@@ -510,10 +862,4 @@ function VirtualChangeFiles({
       </div>
     </div>
   )
-}
-
-function displayGitPath(path: HostPath, root: HostPath): string {
-  if (path.hostId !== root.hostId) return path.path
-  const prefix = root.path === '/' ? '/' : `${root.path}/`
-  return path.path.startsWith(prefix) ? path.path.slice(prefix.length) : path.path
 }

@@ -15,8 +15,10 @@ free).
 **Current status:** the local vertical slice is mounted and runtime-smoked: live changes
 (including terminal-only `.git` updates and unborn repositories),
 branch-point isolation, diff tabs, topology-safe cursor/infinite history with bounded DOM,
-commit detail with historical file diffs, badge, compact lazy blame gutter, and a dedicated
-all-ref topology viewer with virtual rows and a tree-shaped commit inspector. Git transport
+commit detail with historical file diffs, badge, compact lazy blame gutter, a current-branch
+rail graph with expandable changed-file trees, and a dedicated all-ref topology viewer with
+virtual rows and a tree-shaped commit inspector. The Files tree also marks ignored entries
+through lazy per-directory Git batches without delaying filesystem paint. Git transport
 calls are brokered by host ID as recorded in the ADR-005 addenda. The phase remains in
 progress until the same UI is accepted on a real SSH project and the new graph receives a
 merge-heavy hands-on pass.
@@ -60,11 +62,14 @@ spike and acceptance are tracked in
       branch-point; click opens the file in a diff-mode tab with the right base
       (ADR-007 — this wires the "opened from git context → diff mode" default).
 - [x] Changed-file count badge per project/workspace (feeds Phase 7 rollups).
-- [x] History view: commit list (infinite scroll off the paged log), commit detail with
-      per-file diffs opening in tabs.
+- [x] History view: compact graph/commit list (infinite scroll off the paged log),
+      fixed-row changed-file tree expansion, and per-file historical diffs opening in tabs.
 - [x] Blame layered onto source-mode tabs (gutter or hover), toggleable.
 - [x] Read-only commit topology graph with branch/merge lanes, paged history, and commit
       detail/diff integration (see the active review queue).
+- [x] Files-tree ignore decoration: paint lazy directory listings immediately, classify
+      their basenames through bounded off-thread `git check-ignore` batches, and visibly
+      distinguish direct ignored roots plus their inherited descendants.
 
 ## Acceptance criteria
 - [x] In a repo where an agent has uncommitted work: Changes view shows it live,

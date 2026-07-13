@@ -39,7 +39,7 @@ export interface GitDiffResponse {
  * deterministic and visible rather than scattering file-type exceptions
  * through UI components.
  */
-export type FileOpenContext = 'file-tree' | 'git'
+export type FileOpenContext = 'file-tree' | 'git' | 'git-untracked'
 
 export function defaultViewMode(
   path: HostPath,

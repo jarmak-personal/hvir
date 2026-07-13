@@ -83,3 +83,14 @@ export interface GitBlameRequest {
 export interface GitChangesRequest {
   readonly root: HostPath
 }
+
+export interface GitIgnoredEntriesRequest {
+  readonly root: HostPath
+  readonly directory: HostPath
+  /** Immediate directory-entry names, never paths. */
+  readonly names: readonly string[]
+}
+
+export interface GitIgnoredEntriesResponse {
+  readonly ignoredNames: readonly string[]
+}

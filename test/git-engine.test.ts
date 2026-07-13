@@ -89,6 +89,43 @@ describe('GitEngine', () => {
     await host.dispose()
   })
 
+  it('classifies ignored directory entries without marking tracked matches', async () => {
+    const root = await repository()
+    await writeFile(
+      join(root, '.gitignore'),
+      'generated/\n*.log\nsrc/cache/\nsrc/*.tmp\n',
+    )
+    await mkdir(join(root, 'generated'))
+    await mkdir(join(root, 'src', 'cache'), { recursive: true })
+    await writeFile(join(root, 'src', 'scratch.tmp'), 'ignored\n')
+    await writeFile(join(root, 'debug.log'), 'ignored\n')
+    await writeFile(join(root, 'tracked.log'), 'tracked\n')
+    git(root, ['add', '-f', 'tracked.log'])
+    git(root, ['commit', '-m', 'track matching file'])
+    const host = new LocalHost()
+    const engine = new GitEngine(host, localPath(root))
+
+    const result = await engine.ignoredEntries(localPath(root), localPath(root), [
+      '.gitignore',
+      'debug.log',
+      'file.txt',
+      'generated',
+      'tracked.log',
+    ])
+
+    expect(result.ignoredNames).toEqual(['debug.log', 'generated'])
+    await expect(
+      engine.ignoredEntries(localPath(root), localPath(join(root, 'src')), [
+        'cache',
+        'scratch.tmp',
+      ]),
+    ).resolves.toEqual({ ignoredNames: ['cache', 'scratch.tmp'] })
+    await expect(
+      engine.ignoredEntries(localPath(root), localPath(root), ['../outside']),
+    ).rejects.toThrow('Invalid Git ignore entry name')
+    await host.dispose()
+  })
+
   it('keeps background Git inspection from refreshing the index', async () => {
     const root = await repository()
     const host = new LocalHost()

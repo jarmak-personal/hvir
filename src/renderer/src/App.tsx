@@ -31,6 +31,7 @@ import { PaneResizer } from './layout/PaneResizer'
 import { TerminalView } from './terminal/TerminalView'
 import { FileTree, SessionBar } from './tree/FileTree'
 import { DirectoryTree } from './tree/DirectoryTree'
+import { isGitIgnoreRulePath } from './tree/git-ignore-refresh'
 import { GitPanel } from './git/GitPanel'
 import { GitGraphView } from './git/GitGraphView'
 import { FileViewer } from './viewer/FileViewer'
@@ -69,6 +70,7 @@ export function App(): ReactElement {
   const [root, setRoot] = useState<HostPath>()
   const [rootError, setRootError] = useState<string>()
   const [watchVersion, setWatchVersion] = useState(0)
+  const [ignoredRefreshVersion, setIgnoredRefreshVersion] = useState(0)
   const [contentVersion, setContentVersion] = useState(0)
   const [gitVersion, setGitVersion] = useState(0)
   const [tabs, setTabs] = useState<readonly ViewerTab[]>([])
@@ -156,6 +158,7 @@ export function App(): ReactElement {
   useEffect(() => {
     let cancelled = false
     let watchRefreshTimer: number | undefined
+    let ignoredRefreshTimer: number | undefined
     let contentRefreshTimer: number | undefined
     let gitRefreshTimer: number | undefined
     void window.hvir.invoke('project:root', undefined).then(
@@ -174,10 +177,18 @@ export function App(): ReactElement {
     const stopWatch = window.hvir.on('project:watch', (event) => {
       const gitMetadataEvent =
         event.synthetic !== 'refresh' && /(^|\/)\.git(?:\/|$)/.test(event.path.path)
+      const ignoreRulesEvent =
+        event.synthetic !== 'refresh' && isGitIgnoreRulePath(event.path.path)
       if (gitMetadataEvent && gitRefreshTimer === undefined) {
         gitRefreshTimer = window.setTimeout(() => {
           gitRefreshTimer = undefined
           setGitVersion((version) => version + 1)
+        }, 250)
+      }
+      if (ignoreRulesEvent && ignoredRefreshTimer === undefined) {
+        ignoredRefreshTimer = window.setTimeout(() => {
+          ignoredRefreshTimer = undefined
+          setIgnoredRefreshVersion((version) => version + 1)
         }, 250)
       }
       if (watchRefreshTimer === undefined) {
@@ -217,6 +228,7 @@ export function App(): ReactElement {
     return () => {
       cancelled = true
       if (watchRefreshTimer !== undefined) window.clearTimeout(watchRefreshTimer)
+      if (ignoredRefreshTimer !== undefined) window.clearTimeout(ignoredRefreshTimer)
       if (contentRefreshTimer !== undefined) window.clearTimeout(contentRefreshTimer)
       if (gitRefreshTimer !== undefined) window.clearTimeout(gitRefreshTimer)
       void stopWatch()
@@ -610,6 +622,7 @@ export function App(): ReactElement {
               key={`files:${root.hostId}:${root.path}`}
               root={root}
               refreshVersion={watchVersion}
+              ignoredRefreshVersion={ignoredRefreshVersion}
               selected={activeTab?.path}
               onOpen={openFile}
               connected={connectionState === 'connected'}
@@ -621,8 +634,11 @@ export function App(): ReactElement {
               refreshVersion={contentVersion}
               historyRefreshVersion={gitVersion}
               onChangedCount={setChangedCount}
-              onOpen={(path, base, revision) =>
-                openFile(path, true, 'git', base, revision)
+              onOpenChange={(path, base, untracked) =>
+                openFile(path, true, untracked ? 'git-untracked' : 'git', base)
+              }
+              onOpenHistory={(path, revision) =>
+                openFile(path, true, 'git', 'head', revision)
               }
               onOpenGraph={openGitGraph}
               connectionState={connectionState}

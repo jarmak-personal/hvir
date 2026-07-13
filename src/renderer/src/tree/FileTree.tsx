@@ -1,4 +1,4 @@
-import type { ReactElement } from 'react'
+import { useCallback, type ReactElement } from 'react'
 
 import {
   basenameHostPath,
@@ -12,6 +12,7 @@ import { DirectoryTree } from './DirectoryTree'
 interface FileTreeProps {
   readonly root: HostPath
   readonly refreshVersion: number
+  readonly ignoredRefreshVersion: number
   readonly selected?: HostPath
   readonly onOpen: (path: HostPath, pinned: boolean) => void
   readonly connected?: boolean
@@ -21,11 +22,35 @@ interface FileTreeProps {
 export function FileTree({
   root,
   refreshVersion,
+  ignoredRefreshVersion,
   selected,
   onOpen,
   connected = true,
   hidden = false,
 }: FileTreeProps): ReactElement {
+  const loadIgnoredEntries = useCallback(
+    async (
+      directory: HostPath,
+      names: readonly string[],
+    ): Promise<ReadonlySet<string>> => {
+      const ignored = new Set<string>()
+      try {
+        for (let index = 0; index < names.length; index += 512) {
+          const result = await window.hvir.invoke('git:ignored-entries', {
+            root,
+            directory,
+            names: names.slice(index, index + 512),
+          })
+          for (const name of result.ignoredNames) ignored.add(name)
+        }
+      } catch {
+        // Git decoration is optional; filesystem browsing remains available.
+      }
+      return ignored
+    },
+    [root],
+  )
+
   return (
     <section className="rail-section" aria-label="Files" hidden={hidden}>
       <header className="panel-header">
@@ -37,8 +62,10 @@ export function FileTree({
             root={root}
             rootLabel={basenameHostPath(root) || root.path}
             loadEntries={loadProjectEntries}
+            loadIgnoredEntries={loadIgnoredEntries}
             resolveEntry={resolveProjectEntry}
             refreshVersion={refreshVersion}
+            ignoredRefreshVersion={ignoredRefreshVersion}
             selected={selected}
             onOpenFile={onOpen}
           />

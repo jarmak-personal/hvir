@@ -23,4 +23,11 @@ describe('view mode inference', () => {
   it('opens files from a git context directly in diff mode', () => {
     expect(defaultViewMode(localPath('/project/App.tsx'), 'git')).toBe('diff')
   })
+
+  it('opens untracked git files with the normal rendered or source default', () => {
+    expect(defaultViewMode(localPath('/project/notes.md'), 'git-untracked')).toBe(
+      'rendered',
+    )
+    expect(defaultViewMode(localPath('/project/App.tsx'), 'git-untracked')).toBe('source')
+  })
 })

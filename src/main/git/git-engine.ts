@@ -209,6 +209,80 @@ export class GitEngine {
     }
   }
 
+  async ignoredEntries(
+    projectRoot: HostPath,
+    directory: HostPath,
+    names: readonly string[],
+  ): Promise<{ readonly ignoredNames: readonly string[] }> {
+    this.assertHost(projectRoot)
+    this.assertHost(directory)
+    if (names.length === 0) return { ignoredNames: [] }
+    if (names.length > 512) throw new Error('Too many Git ignore entries')
+    if (
+      new Set(names).size !== names.length ||
+      names.some(
+        (name) =>
+          typeof name !== 'string' ||
+          name.length === 0 ||
+          name.length > 4_096 ||
+          name === '.' ||
+          name === '..' ||
+          name.includes('/') ||
+          name.includes('\0'),
+      )
+    ) {
+      throw new Error('Invalid Git ignore entry name')
+    }
+    const prefix = projectRoot.path === '/' ? '/' : `${projectRoot.path}/`
+    if (directory.path !== projectRoot.path && !directory.path.startsWith(prefix)) {
+      throw new Error('Git ignore directory escapes the active project')
+    }
+    const relativeDirectory =
+      directory.path === projectRoot.path ? '' : directory.path.slice(prefix.length)
+    const paths = names.map((name) =>
+      relativeDirectory ? `${relativeDirectory}/${name}` : name,
+    )
+    const namesByPath = new Map(paths.map((path, index) => [path, names[index] ?? '']))
+    const batches: string[][] = []
+    let batch: string[] = []
+    let batchLength = 0
+    for (const path of paths) {
+      const length = path.length + 1
+      if (batch.length > 0 && batchLength + length > 120 * 1024) {
+        batches.push(batch)
+        batch = []
+        batchLength = 0
+      }
+      batch.push(path)
+      batchLength += length
+    }
+    if (batch.length > 0) batches.push(batch)
+    const ignoredNames: string[] = []
+    for (const batch of batches) {
+      const result = await execReadOnlyGit(
+        this.host,
+        projectRoot,
+        ['check-ignore', '-z', '--stdin'],
+        { input: `${batch.join('\0')}\0` },
+      )
+      if (result.code === 1) continue
+      if (/not a git repository/i.test(result.stderr)) return { ignoredNames: [] }
+      if (result.code !== 0) {
+        throw gitError(['check-ignore', '-z', '--stdin'], result.stderr, result.code)
+      }
+      ignoredNames.push(
+        ...result.stdout
+          .split('\0')
+          .filter(Boolean)
+          .map((path) => namesByPath.get(path.replace(/^\.\//, '')))
+          .filter((name): name is string => Boolean(name)),
+      )
+    }
+    return {
+      ignoredNames,
+    }
+  }
+
   async history(
     projectRoot: HostPath,
     limit: number,

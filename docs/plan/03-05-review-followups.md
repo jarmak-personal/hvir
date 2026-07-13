@@ -101,6 +101,8 @@ dependency-reload fixes.
       worker with the maintained `yaml` package and reuse the lazy/collapsible JSON tree
       presentation. Surface multi-document YAML and parse errors clearly; never parse large
       YAML on the renderer thread.
+- [x] Classify explicit Node module extensions in source mode: `.mjs`/`.cjs` use the
+      JavaScript highlighter and `.mts`/`.cts` use the TypeScript highlighter.
 
 ## P1 — left-rail information architecture
 
@@ -113,6 +115,13 @@ dependency-reload fixes.
       Git subview/history position, and eventually Harness selection.
 - [x] Runtime-smoke repeated Files ↔ Git switching so navigation never remounts unrelated
       viewer tabs or collapses the tree.
+- [ ] Add restrained file-category icons for code, documentation, configuration, data,
+      and images after the filename hierarchy pass settles. Keep the default palette quiet;
+      playful or seasonal color modes belong in an optional theme and must not replace
+      semantic ignored, selection, or error states.
+- [x] Keep Git-ignore decoration off the ordinary watch-event hot path: preserve unchanged
+      directory listings and re-run classification only when names/types change or an
+      observed `.gitignore`/`.git/info/exclude` rule changes.
 
 ## P1 — SSH session workflow
 
@@ -196,6 +205,27 @@ dependency-reload fixes.
       viewer.
 - [x] Commit selection opens the existing commit detail; file selection opens historical
       diff tabs. Graph loading remains paged/off-thread and refreshes from host watch events.
+- [x] Add the compact topology strip to rail History. Single-click expands a fixed-row
+      changed-file tree; an explicit row action, double-click, or Ctrl/Cmd+Enter opens the
+      all-ref viewer anchored to that commit without making the rail the only graph.
+- [x] Rebalance the full graph around commit inspection. While details are open, retain the
+      topology/subject list as context, replace its duplicative author/date/hash columns
+      with a joined detail surface, and render the non-subject commit body as sanitized
+      Markdown through the existing worker.
+- [x] Close the graph UX review: share bounded hash-addressed commit-detail requests between rail
+      and full views, collapse rail detail state to one status map, distinguish single- from
+      double-click, restore virtual-list position semantics, bound inspector summary growth,
+      normalize CRLF messages, reuse rendered-link dispatch and change totals, and retain a
+      dimmed parent path beside basename-first working-tree rows.
+- [ ] Add repository-wide history search through the off-thread system-Git route; do not
+      client-filter only the loaded graph page. Start with message, SHA, and author plus
+      next/previous result navigation and visible result markers. Follow with path/change
+      search only when its Git query and paging behavior are explicit.
+- [ ] Add a visible ref scope control for current branch, local branches, and all refs so
+      search and graph results never rely on a hidden reachability rule.
+- [ ] Explore an inline read-only patch for the selected changed file inside the detail
+      surface. Keep opening the historical diff tab as the complete inspection path and
+      do not introduce staging or other Git write operations.
 
 ## Acceptance
 
