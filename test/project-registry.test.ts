@@ -33,6 +33,9 @@ describe('ProjectRegistry session flow', () => {
 
     const listing = await registry.browseHost('local', root)
     expect(listing.directories.map((entry) => entry.name)).toEqual(['alpha', 'zeta'])
+    await expect(registry.browseHost('local', join(root, 'ALPHA'))).rejects.toThrow(
+      `Folder not found: ${join(root, 'ALPHA')}`,
+    )
 
     const opened = await registry.open('local', join(root, 'alpha'))
     expect(opened.root.path).toBe(join(root, 'alpha'))

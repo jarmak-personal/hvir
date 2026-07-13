@@ -6,6 +6,7 @@ import {
   defaultViewMode,
   hostPath,
   hostPathEquals,
+  unwrapOperation,
   type DiffBase,
   type FileOpenContext,
   type HostPath,
@@ -77,46 +78,49 @@ export function App(): ReactElement {
         tab.id === id ? { ...tab, loading: !tab.file, error: undefined } : tab,
       ),
     )
-    void window.hvir.invoke('fs:read', { path }).then(
-      (file) => {
-        setTabs((current) =>
-          current.map((tab) =>
-            tab.id === id
-              ? {
-                  ...tab,
-                  file,
-                  loading: false,
-                  error: undefined,
-                  conflict: false,
-                }
-              : tab,
-          ),
-        )
-      },
-      (reason: unknown) => {
-        const error = reason instanceof Error ? reason.message : String(reason)
-        setTabs((current) =>
-          current.map((tab) =>
-            tab.id === id
-              ? tab.diffRevision
+    void window.hvir
+      .invoke('fs:read', { path })
+      .then(unwrapOperation)
+      .then(
+        (file) => {
+          setTabs((current) =>
+            current.map((tab) =>
+              tab.id === id
                 ? {
                     ...tab,
-                    file: {
-                      path: tab.path,
-                      content: '',
-                      size: 0,
-                      mtimeMs: 0,
-                      binary: false,
-                    },
+                    file,
                     loading: false,
                     error: undefined,
+                    conflict: false,
                   }
-                : { ...tab, file: undefined, loading: false, error }
-              : tab,
-          ),
-        )
-      },
-    )
+                : tab,
+            ),
+          )
+        },
+        (reason: unknown) => {
+          const error = reason instanceof Error ? reason.message : String(reason)
+          setTabs((current) =>
+            current.map((tab) =>
+              tab.id === id
+                ? tab.diffRevision
+                  ? {
+                      ...tab,
+                      file: {
+                        path: tab.path,
+                        content: '',
+                        size: 0,
+                        mtimeMs: 0,
+                        binary: false,
+                      },
+                      loading: false,
+                      error: undefined,
+                    }
+                  : { ...tab, file: undefined, loading: false, error }
+                : tab,
+            ),
+          )
+        },
+      )
   }, [])
 
   useEffect(() => {
@@ -327,34 +331,37 @@ export function App(): ReactElement {
     const tab = tabsRef.current.find((candidate) => candidate.id === activeIdRef.current)
     if (!tab?.file || tab.file.binary || tab.conflict) return
     const savedContent = tab.file.content
-    void window.hvir.invoke('fs:write', { path: tab.path, content: savedContent }).then(
-      (written) => {
-        setTabs((current) =>
-          current.map((candidate) => {
-            if (candidate.id !== tab.id || !candidate.file) return candidate
-            const unchangedSinceSave = candidate.file.content === savedContent
-            return {
-              ...candidate,
-              dirty: unchangedSinceSave ? false : candidate.dirty,
-              conflict: unchangedSinceSave ? false : candidate.conflict,
-              file: {
-                ...candidate.file,
-                size: unchangedSinceSave ? written.size : candidate.file.size,
-                mtimeMs: written.mtimeMs,
-              },
-            }
-          }),
-        )
-      },
-      (reason: unknown) => {
-        const error = reason instanceof Error ? reason.message : String(reason)
-        setTabs((current) =>
-          current.map((candidate) =>
-            candidate.id === tab.id ? { ...candidate, error } : candidate,
-          ),
-        )
-      },
-    )
+    void window.hvir
+      .invoke('fs:write', { path: tab.path, content: savedContent })
+      .then(unwrapOperation)
+      .then(
+        (written) => {
+          setTabs((current) =>
+            current.map((candidate) => {
+              if (candidate.id !== tab.id || !candidate.file) return candidate
+              const unchangedSinceSave = candidate.file.content === savedContent
+              return {
+                ...candidate,
+                dirty: unchangedSinceSave ? false : candidate.dirty,
+                conflict: unchangedSinceSave ? false : candidate.conflict,
+                file: {
+                  ...candidate.file,
+                  size: unchangedSinceSave ? written.size : candidate.file.size,
+                  mtimeMs: written.mtimeMs,
+                },
+              }
+            }),
+          )
+        },
+        (reason: unknown) => {
+          const error = reason instanceof Error ? reason.message : String(reason)
+          setTabs((current) =>
+            current.map((candidate) =>
+              candidate.id === tab.id ? { ...candidate, error } : candidate,
+            ),
+          )
+        },
+      )
   }
 
   const activeTab = tabs.find((tab) => tab.id === activeId)
@@ -364,9 +371,11 @@ export function App(): ReactElement {
     setSessionBusy(true)
     setSessionError(undefined)
     try {
-      const host = await window.hvir.invoke('project:disconnect-host', {
-        hostId: root.hostId,
-      })
+      const host = unwrapOperation(
+        await window.hvir.invoke('project:disconnect-host', {
+          hostId: root.hostId,
+        }),
+      )
       setConnectionState(host.connectionState)
     } catch (reason) {
       setSessionError(reason instanceof Error ? reason.message : String(reason))
@@ -380,9 +389,11 @@ export function App(): ReactElement {
     setSessionBusy(true)
     setSessionError(undefined)
     try {
-      const connected = await window.hvir.invoke('project:connect-host', {
-        hostId: root.hostId,
-      })
+      const connected = unwrapOperation(
+        await window.hvir.invoke('project:connect-host', {
+          hostId: root.hostId,
+        }),
+      )
       setConnectionState(connected.host.connectionState)
       setWatchTier(connected.host.watchTier)
       for (const tab of tabsRef.current) {
@@ -555,14 +566,22 @@ export function App(): ReactElement {
           hosts={hosts}
           currentRoot={root}
           onCancel={() => setShowAddProject(false)}
-          onConnect={(hostId) => window.hvir.invoke('project:connect-host', { hostId })}
+          onConnect={(hostId) =>
+            window.hvir.invoke('project:connect-host', { hostId }).then(unwrapOperation)
+          }
           onBrowse={(hostId, path) =>
-            window.hvir.invoke('project:browse-host', { hostId, path })
+            window.hvir
+              .invoke('project:browse-host', { hostId, path })
+              .then(unwrapOperation)
           }
           onDisconnect={(hostId) =>
-            window.hvir.invoke('project:disconnect-host', { hostId })
+            window.hvir
+              .invoke('project:disconnect-host', { hostId })
+              .then(unwrapOperation)
           }
-          onOpen={(hostId, path) => window.hvir.invoke('project:open', { hostId, path })}
+          onOpen={(hostId, path) =>
+            window.hvir.invoke('project:open', { hostId, path }).then(unwrapOperation)
+          }
           onOpened={(state) => {
             persistTabs(root, tabsRef.current, activeIdRef.current)
             setRestored(false)

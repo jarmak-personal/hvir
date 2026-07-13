@@ -28,6 +28,7 @@ import {
   type IpcSendPayload,
   type ProjectHostOption,
   type ProjectState,
+  type OperationResult,
   type ConnectedHost,
   type BrowseHostResponse,
 } from '../shared'
@@ -104,50 +105,64 @@ export function registerIpcHandlers(deps: IpcDeps): void {
     }
   })
   handle('project:hosts', () => deps.listHosts())
-  handle('project:connect-host', (req) => deps.connectHost(req.hostId))
-  handle('project:disconnect-host', (req) => deps.disconnectHost(req.hostId))
-  handle('project:browse-host', (req) => deps.browseHost(req.hostId, req.path))
-  handle('project:open', (req) => deps.openProject(req.hostId, req.path))
+  handle('project:connect-host', (req) =>
+    operationResult(() => deps.connectHost(req.hostId)),
+  )
+  handle('project:disconnect-host', (req) =>
+    operationResult(() => deps.disconnectHost(req.hostId)),
+  )
+  handle('project:browse-host', (req) =>
+    operationResult(() => deps.browseHost(req.hostId, req.path)),
+  )
+  handle('project:open', (req) =>
+    operationResult(() => deps.openProject(req.hostId, req.path)),
+  )
   handle('ssh:prompt-response', (req) => {
     deps.respondSshPrompt(req.id, req.answers)
   })
 
-  handle('fs:readdir', async (req) => {
-    const { root, host } = deps.getProject()
-    const path = await projectPath(req.path, root, host)
-    return host.readdir(path)
-  })
+  handle('fs:readdir', (req) =>
+    operationResult(async () => {
+      const { root, host } = deps.getProject()
+      const path = await projectPath(req.path, root, host)
+      return host.readdir(path)
+    }),
+  )
 
-  handle('fs:read', async (req) => {
-    const { root, host } = deps.getProject()
-    const path = await projectPath(req.path, root, host)
-    const stat = await host.stat(path)
-    if (stat.type !== 'file') throw new Error(`Not a regular file: ${path.path}`)
-    if (stat.size > 64 * 1024 * 1024) {
-      throw new Error('Files larger than 64 MiB are not opened by the viewer spike')
-    }
-    const data = await host.readFile(path)
-    const sample = data.subarray(0, Math.min(data.length, 8192))
-    const binary = sample.includes(0)
-    return {
-      path,
-      content: binary ? '' : data.toString('utf8'),
-      size: stat.size,
-      mtimeMs: stat.mtimeMs,
-      binary,
-    }
-  })
+  handle('fs:read', (req) =>
+    operationResult(async () => {
+      const { root, host } = deps.getProject()
+      const path = await projectPath(req.path, root, host)
+      const stat = await host.stat(path)
+      if (stat.type !== 'file') throw new Error(`Not a regular file: ${path.path}`)
+      if (stat.size > 64 * 1024 * 1024) {
+        throw new Error('Files larger than 64 MiB are not opened by the viewer spike')
+      }
+      const data = await host.readFile(path)
+      const sample = data.subarray(0, Math.min(data.length, 8192))
+      const binary = sample.includes(0)
+      return {
+        path,
+        content: binary ? '' : data.toString('utf8'),
+        size: stat.size,
+        mtimeMs: stat.mtimeMs,
+        binary,
+      }
+    }),
+  )
 
-  handle('fs:write', async (req) => {
-    const { root, host } = deps.getProject()
-    const path = await projectPath(req.path, root, host)
-    if (typeof req.content !== 'string') throw new Error('File content must be text')
-    const stat = await host.stat(path)
-    if (stat.type !== 'file') throw new Error(`Not a regular file: ${path.path}`)
-    await host.writeFile(path, req.content)
-    const written = await host.stat(path)
-    return { path, size: written.size, mtimeMs: written.mtimeMs }
-  })
+  handle('fs:write', (req) =>
+    operationResult(async () => {
+      const { root, host } = deps.getProject()
+      const path = await projectPath(req.path, root, host)
+      if (typeof req.content !== 'string') throw new Error('File content must be text')
+      const stat = await host.stat(path)
+      if (stat.type !== 'file') throw new Error(`Not a regular file: ${path.path}`)
+      await host.writeFile(path, req.content)
+      const written = await host.stat(path)
+      return { path, size: written.size, mtimeMs: written.mtimeMs }
+    }),
+  )
 
   handle('git:diff-inputs', async (req) => {
     const { root, host } = deps.getProject()
@@ -236,6 +251,16 @@ export function registerIpcHandlers(deps: IpcDeps): void {
   handleSend('pty:kill', ({ id }) => {
     if (deps.ptySupervisor.get(id)) deps.ptySupervisor.kill(id)
   })
+}
+
+async function operationResult<T>(
+  operation: () => Promise<T>,
+): Promise<OperationResult<T>> {
+  try {
+    return { ok: true, value: await operation() }
+  } catch (reason) {
+    return { ok: false, error: reason instanceof Error ? reason.message : String(reason) }
+  }
 }
 
 function assertMainFrame(

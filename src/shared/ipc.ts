@@ -97,6 +97,15 @@ export interface BrowseHostResponse {
   readonly directories: readonly DirEntry[]
 }
 
+export type OperationResult<T> =
+  | { readonly ok: true; readonly value: T }
+  | { readonly ok: false; readonly error: string }
+
+export function unwrapOperation<T>(result: OperationResult<T>): T {
+  if (!result.ok) throw new Error(result.error)
+  return result.value
+}
+
 export interface SshPromptRequest {
   readonly id: number
   readonly kind: 'password' | 'passphrase' | 'keyboard-interactive' | 'host-key'
@@ -149,17 +158,29 @@ export interface IpcInvokeMap {
   'demo:echo': { request: EchoRequest; response: EchoResponse }
   'project:root': { request: void; response: ProjectState }
   'project:hosts': { request: void; response: readonly ProjectHostOption[] }
-  'project:connect-host': { request: ConnectHostRequest; response: ConnectedHost }
+  'project:connect-host': {
+    request: ConnectHostRequest
+    response: OperationResult<ConnectedHost>
+  }
   'project:disconnect-host': {
     request: DisconnectHostRequest
-    response: ProjectHostOption
+    response: OperationResult<ProjectHostOption>
   }
-  'project:browse-host': { request: BrowseHostRequest; response: BrowseHostResponse }
-  'project:open': { request: OpenProjectRequest; response: ProjectState }
+  'project:browse-host': {
+    request: BrowseHostRequest
+    response: OperationResult<BrowseHostResponse>
+  }
+  'project:open': {
+    request: OpenProjectRequest
+    response: OperationResult<ProjectState>
+  }
   'ssh:prompt-response': { request: SshPromptResponse; response: void }
-  'fs:readdir': { request: ReadDirectoryRequest; response: readonly DirEntry[] }
-  'fs:read': { request: ReadFileRequest; response: ReadFileResponse }
-  'fs:write': { request: WriteFileRequest; response: WriteFileResponse }
+  'fs:readdir': {
+    request: ReadDirectoryRequest
+    response: OperationResult<readonly DirEntry[]>
+  }
+  'fs:read': { request: ReadFileRequest; response: OperationResult<ReadFileResponse> }
+  'fs:write': { request: WriteFileRequest; response: OperationResult<WriteFileResponse> }
   'git:diff-inputs': { request: GitDiffRequest; response: GitDiffResponse }
   'git:changes': { request: GitChangesRequest; response: GitChanges }
   'git:history': { request: GitHistoryRequest; response: GitHistoryPage }

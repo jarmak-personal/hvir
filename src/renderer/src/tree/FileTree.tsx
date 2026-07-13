@@ -3,6 +3,7 @@ import { useEffect, useState, type ReactElement } from 'react'
 import {
   basenameHostPath,
   joinHostPath,
+  unwrapOperation,
   type DirEntry,
   type HostPath,
   type HostConnectionState,
@@ -163,6 +164,7 @@ function Directory({
     setLoading(true)
     void window.hvir
       .invoke('fs:readdir', { path })
+      .then(unwrapOperation)
       .then((nextEntries) => {
         if (cancelled) return
         setEntries(

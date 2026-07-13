@@ -131,13 +131,21 @@ export class ProjectRegistry {
       throw new Error(`Connect to ${hostId} before browsing folders`)
     }
     if (!rawPath.startsWith('/')) throw new Error('Folder path must be absolute')
-    const path = await host.realpath(hostPath(asHostId(hostId), rawPath))
-    const stat = await host.stat(path)
-    if (stat.type !== 'dir') throw new Error(`Not a directory: ${rawPath}`)
-    const directories = (await host.readdir(path))
-      .filter((entry) => entry.type === 'dir')
-      .sort((left, right) => left.name.localeCompare(right.name))
-    return { path, directories }
+    try {
+      const path = await host.realpath(hostPath(asHostId(hostId), rawPath))
+      const stat = await host.stat(path)
+      if (stat.type !== 'dir') throw new Error(`Not a directory: ${rawPath}`)
+      const directories = (await host.readdir(path))
+        .filter((entry) => entry.type === 'dir')
+        .sort((left, right) => left.name.localeCompare(right.name))
+      return { path, directories }
+    } catch (reason) {
+      const code = (reason as { code?: unknown } | undefined)?.code
+      if (code === 2 || code === 'ENOENT') throw new Error(`Folder not found: ${rawPath}`)
+      if (code === 3 || code === 'EACCES')
+        throw new Error(`Cannot access folder: ${rawPath}`)
+      throw reason
+    }
   }
 
   async open(hostId: string, path: string): Promise<ProjectState> {

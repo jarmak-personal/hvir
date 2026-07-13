@@ -558,6 +558,7 @@ export class SshHost implements ProjectHost {
     onEvent: (e: WatchEvent) => void,
     opts: WatchOptions,
   ): Disposer {
+    let stopped = false
     const args = ['-m', '-e', 'modify,create,delete,move', '--format', '%e|%w%f']
     if (opts.recursive !== false) args.push('-r')
     args.push(path.path)
@@ -581,8 +582,13 @@ export class SshHost implements ProjectHost {
         onEvent({ type, path: hostPath(this.hostId, changed) })
       }
     })
-    handle.onError((e) => opts.onError?.(e))
-    return () => handle.dispose()
+    handle.onError((e) => {
+      if (!stopped) opts.onError?.(e)
+    })
+    return () => {
+      stopped = true
+      handle.dispose()
+    }
   }
   private watchPolling(
     path: HostPath,
@@ -619,6 +625,7 @@ export class SshHost implements ProjectHost {
         retryMs = intervalMs
         lastError = undefined
       } catch (e) {
+        if (stopped) return
         const error = asError(e)
         if (error.message !== lastError) opts.onError?.(error)
         lastError = error.message

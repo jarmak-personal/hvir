@@ -394,7 +394,9 @@ async function runSmoke(): Promise<number> {
           watchTier: host.watchTier,
         }),
       browseHost: (_hostId, path) =>
-        Promise.resolve({ path: localPath(path), directories: [] }),
+        path.endsWith('.missing')
+          ? Promise.reject(new Error(`Folder not found: ${path}`))
+          : Promise.resolve({ path: localPath(path), directories: [] }),
       openProject: () =>
         Promise.resolve({
           root: smokeRoot,
@@ -452,6 +454,19 @@ async function runSmoke(): Promise<number> {
       throw new Error('renderer echo ran in the main process')
     }
     console.log('[smoke] renderer IPC + echo worker round-trip OK')
+
+    const containedSessionError = (await win.webContents.executeJavaScript(`
+      window.hvir.invoke('project:browse-host', {
+        hostId: 'local',
+        path: '/tmp/hvir-smoke.missing'
+      }).then((result) => !result.ok && result.error)
+    `)) as string
+    if (!containedSessionError.includes('Folder not found')) {
+      throw new Error(
+        `session error escaped its result envelope: ${containedSessionError}`,
+      )
+    }
+    console.log('[smoke] expected session errors stay contained')
 
     emit('ssh:prompt', {
       id: 9001,

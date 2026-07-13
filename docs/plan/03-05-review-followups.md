@@ -80,6 +80,9 @@ dependency-reload fixes.
 
 ## P1 — SSH session workflow
 
+- [x] Keep expected session failures contained: invalid/case-mismatched folder paths and
+      cancelled SFTP watches surface as concise picker/session state, not rejected Electron
+      handler stacks or close-time watcher errors in the launching terminal.
 - [x] Make disconnect a complete session lifecycle: explicit Disconnect/Reconnect actions,
       no implicit reconnect from filesystem operations, cleanup of unopened picker hosts,
       automatic disposal when switching machines, last-window cleanup on macOS, and an

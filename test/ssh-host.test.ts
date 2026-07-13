@@ -187,6 +187,41 @@ describe('SshHost remote behavior', () => {
       vi.useRealTimers()
     }
   })
+
+  it('suppresses an in-flight polling error after the watcher stops', async () => {
+    const host = new SshHost({
+      config: aliasConfig(),
+      prompter: { prompt: () => Promise.resolve(undefined) },
+    })
+    let failSnapshot: ((error: Error) => void) | undefined
+    const snapshot = vi.fn(
+      () =>
+        new Promise<Map<string, string>>((_resolve, reject) => {
+          failSnapshot = reject
+        }),
+    )
+    const internals = host as unknown as {
+      pollSnapshot(path: HostPath, opts: WatchOptions): Promise<Map<string, string>>
+      watchPolling(
+        path: HostPath,
+        onEvent: (event: WatchEvent) => void,
+        opts: WatchOptions,
+      ): Disposer
+    }
+    internals.pollSnapshot = snapshot
+    const onError = vi.fn()
+    const stop = internals.watchPolling(
+      hostPath(asHostId('example'), '/project'),
+      () => undefined,
+      { onError },
+    )
+
+    await stop()
+    failSnapshot?.(new Error('No response from server'))
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(onError).not.toHaveBeenCalled()
+  })
 })
 
 function aliasConfig() {
