@@ -15,9 +15,11 @@ free).
 **Current status:** the local vertical slice is mounted and runtime-smoked: live changes
 (including terminal-only `.git` updates and unborn repositories),
 branch-point isolation, diff tabs, topology-safe cursor/infinite history with bounded DOM,
-commit detail with historical file diffs, badge, and compact lazy blame gutter. Git transport
-calls are brokered by host ID as recorded in the ADR-005 addendum. The phase remains in
-progress until the same UI is accepted on a real SSH project.
+commit detail with historical file diffs, badge, compact lazy blame gutter, and a dedicated
+all-ref topology viewer with virtual rows and a tree-shaped commit inspector. Git transport
+calls are brokered by host ID as recorded in the ADR-005 addenda. The phase remains in
+progress until the same UI is accepted on a real SSH project and the new graph receives a
+merge-heavy hands-on pass.
 
 **Hands-on evidence (2026-07-13):** the real-host Git panel, blame, and a 400+ commit
 history loaded cleanly. Keep the broad SSH acceptance item open until live Changes/diffs
@@ -56,7 +58,7 @@ spike and acceptance are tracked in
 - [x] History view: commit list (infinite scroll off the paged log), commit detail with
       per-file diffs opening in tabs.
 - [x] Blame layered onto source-mode tabs (gutter or hover), toggleable.
-- [ ] Read-only commit topology graph with branch/merge lanes, paged history, and commit
+- [x] Read-only commit topology graph with branch/merge lanes, paged history, and commit
       detail/diff integration (see the active review queue).
 
 ## Acceptance criteria

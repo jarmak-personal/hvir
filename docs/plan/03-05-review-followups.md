@@ -173,21 +173,21 @@ dependency-reload fixes.
 
 ## P1 — Git topology graph (Phase 5 scope amendment)
 
-- [ ] Extend paged history data with parent hashes and decorated refs/branch heads from
+- [x] Extend paged history data with parent hashes and decorated refs/branch heads from
       system Git through the existing worker/`ProjectHost` route.
-- [ ] Spike the maintained `commit-graph` React component against real hvir history:
+- [x] Spike the maintained `commit-graph` React component against real hvir history:
       dark-theme fit, merge/lane correctness, React 19 compatibility, incremental loading,
       keyboard/selection behavior, license metadata, and large-repository responsiveness.
       It natively accepts commits with parents and branch heads and supports infinite scroll.
-- [ ] Decide placement from the spike: a dedicated full viewer graph is preferred for the
+- [x] Decide placement from the spike: a dedicated full viewer graph is preferred for the
       primary workflow, with an optional compact lane strip in rail History. Do not squeeze
       the only graph into the 238px rail.
-- [ ] If the spike fails, retain its commit-lane model but implement the narrow SVG lane
+- [x] If the spike fails, retain its commit-lane model but implement the narrow SVG lane
       renderer locally; do not adopt an editor extension or generic force-directed graph.
       `@gitgraph/js` is rejected as the default candidate because its repository is archived
       and describes itself as an illustration/presentation API rather than a repository-log
       viewer.
-- [ ] Commit selection opens the existing commit detail; file selection opens historical
+- [x] Commit selection opens the existing commit detail; file selection opens historical
       diff tabs. Graph loading remains paged/off-thread and refreshes from host watch events.
 
 ## Acceptance

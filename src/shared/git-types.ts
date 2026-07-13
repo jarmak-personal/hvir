@@ -28,6 +28,8 @@ export interface GitCommitSummary {
   readonly shortHash: string
   /** Direct parents, ordered as recorded by the commit object. */
   readonly parents: readonly string[]
+  /** Branches, remote branches, tags, and HEAD decorations pointing here. */
+  readonly refs: readonly string[]
   readonly author: string
   readonly authoredAt: string
   readonly subject: string
@@ -39,6 +41,8 @@ export interface GitHistoryRequest {
   /** Opaque continuation frontier returned by the preceding page. */
   readonly cursor?: string
   readonly path?: HostPath
+  /** Start at every ref rather than only HEAD, for the repository graph. */
+  readonly allRefs?: boolean
 }
 
 export interface GitHistoryPage {

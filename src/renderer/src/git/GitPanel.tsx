@@ -5,7 +5,6 @@ import {
   type DiffBase,
   type GitChanges,
   type GitCommitSummary,
-  type GitCommitDetail,
   type GitRepositoryState,
   type HostPath,
   type HostConnectionState,
@@ -17,6 +16,7 @@ interface GitPanelProps {
   readonly refreshVersion: number
   readonly historyRefreshVersion: number
   readonly onOpen: (path: HostPath, base: DiffBase, revision?: string) => void
+  readonly onOpenGraph: (hash?: string) => void
   readonly onChangedCount: (count: number) => void
   readonly connectionState?: HostConnectionState
   readonly hidden?: boolean
@@ -27,6 +27,7 @@ export function GitPanel({
   refreshVersion,
   historyRefreshVersion,
   onOpen,
+  onOpenGraph,
   onChangedCount,
   connectionState = 'connected',
   hidden = false,
@@ -38,36 +39,25 @@ export function GitPanel({
   const [historyCursor, setHistoryCursor] = useState<string>()
   const [changesError, setChangesError] = useState<string>()
   const [historyError, setHistoryError] = useState<string>()
-  const [detailError, setDetailError] = useState<{
-    readonly hash: string
-    readonly message: string
-  }>()
-  const [detail, setDetail] = useState<GitCommitDetail>()
   const [changesLoading, setChangesLoading] = useState(false)
   const [historyInitialLoading, setHistoryInitialLoading] = useState(false)
   const [historyRepositoryState, setHistoryRepositoryState] =
     useState<GitRepositoryState>()
-  const [detailLoadingHash, setDetailLoadingHash] = useState<string>()
   const historyLoading = useRef(false)
   const historyGeneration = useRef(0)
-  const detailGeneration = useRef(0)
 
   useEffect(() => {
     setChanges(undefined)
     setCommits([])
     setHasMore(false)
     setHistoryCursor(undefined)
-    setDetail(undefined)
-    setDetailLoadingHash(undefined)
     setChangesLoading(false)
     setHistoryInitialLoading(false)
     setHistoryRepositoryState(undefined)
     setChangesError(undefined)
     setHistoryError(undefined)
-    setDetailError(undefined)
     onChangedCount(0)
     historyGeneration.current += 1
-    detailGeneration.current += 1
   }, [connectionState, onChangedCount, root.hostId, root.path])
 
   useEffect(() => {
@@ -142,17 +132,13 @@ export function GitPanel({
     if (view !== 'history' || connectionState !== 'connected') return
     let cancelled = false
     const generation = ++historyGeneration.current
-    detailGeneration.current += 1
     historyLoading.current = false
     setCommits([])
     setHasMore(false)
     setHistoryCursor(undefined)
     setHistoryRepositoryState(undefined)
-    setDetail(undefined)
-    setDetailLoadingHash(undefined)
     setHistoryInitialLoading(true)
     setHistoryError(undefined)
-    setDetailError(undefined)
     void window.hvir.invoke('git:history', { root, limit: 50 }).then(
       (page) => {
         if (!cancelled && generation === historyGeneration.current) {
@@ -177,34 +163,6 @@ export function GitPanel({
       cancelled = true
     }
   }, [connectionState, historyRefreshVersion, root, view])
-
-  const toggleCommitDetail = (commit: GitCommitSummary): void => {
-    const generation = ++detailGeneration.current
-    if (detail?.hash === commit.hash || detailLoadingHash === commit.hash) {
-      setDetail(undefined)
-      setDetailLoadingHash(undefined)
-      return
-    }
-    setDetail(undefined)
-    setDetailLoadingHash(commit.hash)
-    setDetailError(undefined)
-    void window.hvir.invoke('git:commit-detail', { root, hash: commit.hash }).then(
-      (result) => {
-        if (generation !== detailGeneration.current) return
-        setDetail(result)
-        setDetailLoadingHash(undefined)
-        setDetailError(undefined)
-      },
-      (reason: unknown) => {
-        if (generation !== detailGeneration.current) return
-        setDetailLoadingHash(undefined)
-        setDetailError({
-          hash: commit.hash,
-          message: reason instanceof Error ? reason.message : String(reason),
-        })
-      },
-    )
-  }
 
   return (
     <section className="rail-section git-panel" aria-label="Git" hidden={hidden}>
@@ -280,6 +238,13 @@ export function GitPanel({
           </>
         ) : (
           <div className="git-history">
+            <button
+              type="button"
+              className="git-open-graph"
+              onClick={() => onOpenGraph()}
+            >
+              Open full graph <span aria-hidden="true">→</span>
+            </button>
             {historyError ? (
               <div className="tree-error">History unavailable: {historyError}</div>
             ) : null}
@@ -292,24 +257,11 @@ export function GitPanel({
                 {historyRepositoryState === 'unborn' ? 'No commits yet' : 'No history'}
               </div>
             ) : null}
-            {detailLoadingHash ? (
-              <div className="git-detail-loading">Loading commit…</div>
-            ) : null}
-            {detailError ? (
-              <div className="tree-error git-detail-error">
-                Commit unavailable: {detailError.message}
-              </div>
-            ) : null}
-            {detail ? (
-              <CommitDetailPanel detail={detail} root={root} onOpen={onOpen} />
-            ) : null}
             {commits.length > 0 ? (
               <HistoryCommitList
                 commits={commits}
-                selectedHash={detail?.hash ?? detailLoadingHash ?? detailError?.hash}
-                expandedHash={detail?.hash}
                 hasMore={hasMore}
-                onSelect={toggleCommitDetail}
+                onSelect={(commit) => onOpenGraph(commit.hash)}
                 onLoadMore={loadHistory}
               />
             ) : null}
@@ -326,15 +278,11 @@ const DETAIL_ROW_HEIGHT = 28
 
 function HistoryCommitList({
   commits,
-  selectedHash,
-  expandedHash,
   hasMore,
   onSelect,
   onLoadMore,
 }: {
   readonly commits: readonly GitCommitSummary[]
-  readonly selectedHash?: string
-  readonly expandedHash?: string
   readonly hasMore: boolean
   readonly onSelect: (commit: GitCommitSummary) => void
   readonly onLoadMore: () => void
@@ -393,7 +341,6 @@ function HistoryCommitList({
       >
         {commits.slice(start, end).map((commit, offset) => {
           const index = start + offset
-          const selected = selectedHash === commit.hash
           return (
             <div
               className="git-commit-entry"
@@ -408,14 +355,8 @@ function HistoryCommitList({
             >
               <button
                 type="button"
-                className={`git-commit${selected ? ' active' : ''}`}
-                aria-current={selected || undefined}
-                aria-expanded={selected ? expandedHash === commit.hash : undefined}
-                aria-controls={
-                  expandedHash === commit.hash
-                    ? `git-commit-detail-${commit.hash}`
-                    : undefined
-                }
+                className="git-commit"
+                title="Open in full history graph"
                 onClick={() => onSelect(commit)}
               >
                 <strong>{commit.subject || '(no subject)'}</strong>
@@ -432,76 +373,6 @@ function HistoryCommitList({
           Load more
         </button>
       ) : null}
-    </div>
-  )
-}
-
-function CommitDetailPanel({
-  detail,
-  root,
-  onOpen,
-}: {
-  readonly detail: GitCommitDetail
-  readonly root: HostPath
-  readonly onOpen: (path: HostPath, base: DiffBase, revision?: string) => void
-}): ReactElement {
-  return (
-    <div className="git-commit-detail" id={`git-commit-detail-${detail.hash}`}>
-      <p>{detail.message}</p>
-      <VirtualCommitFiles detail={detail} root={root} onOpen={onOpen} />
-    </div>
-  )
-}
-
-function VirtualCommitFiles({
-  detail,
-  root,
-  onOpen,
-}: {
-  readonly detail: GitCommitDetail
-  readonly root: HostPath
-  readonly onOpen: (path: HostPath, base: DiffBase, revision?: string) => void
-}): ReactElement {
-  const [scrollTop, setScrollTop] = useState(0)
-  const height = Math.min(196, Math.max(DETAIL_ROW_HEIGHT, detail.files.length * 28))
-  const { start, end } = virtualRange(
-    detail.files.length,
-    DETAIL_ROW_HEIGHT,
-    scrollTop,
-    height,
-    3,
-  )
-  return (
-    <div
-      className="git-detail-files"
-      style={{ height }}
-      onScroll={(event) => setScrollTop(event.currentTarget.scrollTop)}
-    >
-      <div
-        className="git-detail-files-window"
-        style={{ height: detail.files.length * DETAIL_ROW_HEIGHT }}
-      >
-        {detail.files.slice(start, end).map((file, offset) => {
-          const index = start + offset
-          return (
-            <button
-              type="button"
-              className="git-file"
-              key={`${file.path.hostId}:${file.path.path}`}
-              style={{
-                height: DETAIL_ROW_HEIGHT,
-                transform: `translateY(${index * DETAIL_ROW_HEIGHT}px)`,
-              }}
-              onClick={() => onOpen(file.path, 'head', detail.hash)}
-            >
-              <span>{displayGitPath(file.path, root)}</span>
-              <small>
-                <b>+{file.additions}</b> <i>-{file.deletions}</i>
-              </small>
-            </button>
-          )
-        })}
-      </div>
     </div>
   )
 }

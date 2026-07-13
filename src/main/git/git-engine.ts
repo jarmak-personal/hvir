@@ -213,6 +213,7 @@ export class GitEngine {
     limit: number,
     cursor?: string,
     path?: HostPath,
+    allRefs = false,
   ): Promise<GitHistoryPage> {
     const context = await this.projectContext(projectRoot)
     if (!context) return { repositoryState: 'not-git', commits: [], hasMore: false }
@@ -222,7 +223,11 @@ export class GitEngine {
       return { repositoryState: 'unborn', commits: [], hasMore: false }
     }
     const count = finiteInteger(limit, 50, 1, 200)
-    const frontier = cursor ? decodeHistoryCursor(cursor) : [head.trim()]
+    const frontier = cursor
+      ? decodeHistoryCursor(cursor)
+      : allRefs
+        ? await this.allRefTips(commandRoot, head.trim())
+        : [head.trim()]
     const relativePath = path ? (await this.repoContext(path)).relativePath : '.'
     const candidates = path
       ? await this.pathHistoryCandidates(commandRoot, frontier, relativePath)
@@ -243,6 +248,30 @@ export class GitEngine {
       hasMore,
       ...(hasMore ? { nextCursor: encodeHistoryCursor([...nextFrontier]) } : {}),
     }
+  }
+
+  private async allRefTips(
+    commandRoot: HostPath,
+    head: string,
+  ): Promise<readonly string[]> {
+    const output = await this.run(commandRoot, [
+      'for-each-ref',
+      '--format=%(objectname)%00%(objecttype)%00%(*objectname)%00%(*objecttype)',
+    ])
+    const tips = [head]
+    for (const record of output.split(/\r?\n/)) {
+      const [objectName = '', objectType = '', peeledName = '', peeledType = ''] =
+        record.split('\0')
+      if (objectType === 'commit') tips.push(objectName)
+      else if (peeledType === 'commit') tips.push(peeledName)
+    }
+    const unique = [...new Set(tips)]
+    if (unique.length > MAX_HISTORY_FRONTIER) {
+      throw new Error(
+        `Repository graph has too many refs (${unique.length}; maximum ${MAX_HISTORY_FRONTIER})`,
+      )
+    }
+    return unique
   }
 
   private async pathHistoryCandidates(
@@ -277,7 +306,7 @@ export class GitEngine {
       '--parents',
       '--boundary',
       `-n${count}`,
-      '--format=%m%x1f%H%x1f%h%x1f%P%x1f%an%x1f%aI%x1f%s%x1e',
+      '--format=%m%x1f%H%x1f%h%x1f%P%x1f%an%x1f%aI%x1f%s%x1f%D%x1e',
       '--stdin',
       '--',
       relativePath,
@@ -352,7 +381,8 @@ export class GitEngine {
       '--no-renames',
       '--no-ext-diff',
       '--no-textconv',
-      '--format=%H%x1f%h%x1f%P%x1f%an%x1f%aI%x1f%B%x1e',
+      '--diff-merges=first-parent',
+      '--format=%H%x1f%h%x1f%P%x1f%an%x1f%aI%x1f%D%x1f%B%x1e',
       '--numstat',
       '-z',
       hash,
@@ -367,6 +397,7 @@ export class GitEngine {
       parentList = '',
       author = '',
       authoredAt = '',
+      decorations = '',
       ...message
     ] = output.slice(0, separator).split('\x1f')
     const stats = parseNumstat(output.slice(separator + 1).replace(/^\r?\n/, ''))
@@ -374,6 +405,7 @@ export class GitEngine {
       hash: fullHash,
       shortHash,
       parents: parentList.split(' ').filter(Boolean),
+      refs: parseDecorations(decorations),
       author,
       authoredAt,
       subject: message.join('\x1f').trim().split('\n')[0] ?? '',
@@ -673,16 +705,24 @@ function parseHistoryRecord(record: string): ParsedHistoryRecord {
     author = '',
     authoredAt = '',
     subject = '',
+    decorations = '',
   ] = record.split('\x1f')
   return {
     boundary: marker === '-',
     hash,
     shortHash,
     parents: parentList.split(' ').filter(Boolean),
+    refs: parseDecorations(decorations),
     author,
     authoredAt,
     subject,
   }
+}
+
+function parseDecorations(value: string): readonly string[] {
+  // Git ref names cannot contain spaces, so `%D`'s ", " separator remains
+  // unambiguous even though commas themselves are legal in a ref name.
+  return value.split(', ').filter(Boolean)
 }
 
 const MAX_HISTORY_CURSOR_LENGTH = 128 * 1024

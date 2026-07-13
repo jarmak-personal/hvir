@@ -359,6 +359,42 @@ describe('GitEngine', () => {
     await host.dispose()
   })
 
+  it('graphs every ref and preserves branch and tag decorations', async () => {
+    const root = await repository()
+    git(root, ['tag', '-a', 'v1', '-m', 'release v1'])
+    const blob = gitOutput(root, ['hash-object', '-w', 'file.txt']).trim()
+    git(root, ['update-ref', 'refs/tags/blob-only', blob])
+    git(root, ['checkout', '-b', 'unmerged'])
+    await writeFile(join(root, 'branch.txt'), 'branch only\n')
+    git(root, ['add', 'branch.txt'])
+    git(root, ['commit', '-m', 'unmerged branch'])
+    const branchHash = gitOutput(root, ['rev-parse', 'HEAD']).trim()
+    git(root, ['checkout', 'main'])
+
+    const host = new LocalHost()
+    const engine = new GitEngine(host, localPath(root))
+    const headHistory = await engine.history(localPath(root), 50)
+    const graphHistory = await engine.history(
+      localPath(root),
+      50,
+      undefined,
+      undefined,
+      true,
+    )
+
+    expect(headHistory.commits.some((commit) => commit.hash === branchHash)).toBe(false)
+    expect(graphHistory.commits.some((commit) => commit.hash === branchHash)).toBe(true)
+    expect(graphHistory.commits.flatMap((commit) => commit.refs)).toEqual(
+      expect.arrayContaining(['HEAD -> main', 'tag: v1', 'unmerged']),
+    )
+    const detail = await engine.commitDetail(
+      localPath(root),
+      graphHistory.commits.find((commit) => commit.refs.includes('tag: v1'))!.hash,
+    )
+    expect(detail.refs).toContain('tag: v1')
+    await host.dispose()
+  })
+
   it('continues across every merge parent without skip rescans', async () => {
     const root = await repository()
     git(root, ['checkout', '-b', 'side'])
@@ -383,6 +419,13 @@ describe('GitEngine', () => {
     const first = await engine.history(localPath(root), 1)
     expect(first.commits[0]?.parents).toHaveLength(2)
     expect(first.nextCursor).toBeDefined()
+    await expect(
+      engine.commitDetail(localPath(root), first.commits[0]!.hash),
+    ).resolves.toEqual(
+      expect.objectContaining({
+        files: [expect.objectContaining({ path: localPath(join(root, 'side.txt')) })],
+      }),
+    )
 
     // A new HEAD after page one must not perturb the opaque continuation.
     await writeFile(join(root, 'later.txt'), 'later\n')

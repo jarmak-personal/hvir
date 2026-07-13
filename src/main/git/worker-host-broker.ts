@@ -96,6 +96,14 @@ function validateGitInvocation(args: readonly string[]): void {
       )
         return
       break
+    case 'for-each-ref':
+      if (
+        sameArgs(rest, [
+          '--format=%(objectname)%00%(objecttype)%00%(*objectname)%00%(*objecttype)',
+        ])
+      )
+        return
+      break
     case 'symbolic-ref':
       if (sameArgs(rest, ['--quiet', '--short', 'refs/remotes/origin/HEAD'])) return
       break
@@ -198,16 +206,17 @@ function isAllowedBlobShow(args: readonly string[]): boolean {
 
 function isAllowedCommitDetail(args: readonly string[]): boolean {
   return (
-    args.length === 9 &&
+    args.length === 10 &&
     args[0] === '--no-renames' &&
     args[1] === '--no-ext-diff' &&
     args[2] === '--no-textconv' &&
-    args[3] === '--format=%H%x1f%h%x1f%P%x1f%an%x1f%aI%x1f%B%x1e' &&
-    args[4] === '--numstat' &&
-    args[5] === '-z' &&
-    isObjectId(args[6] ?? '') &&
-    args[7] === '--' &&
-    args[8] === '.'
+    args[3] === '--diff-merges=first-parent' &&
+    args[4] === '--format=%H%x1f%h%x1f%P%x1f%an%x1f%aI%x1f%D%x1f%B%x1e' &&
+    args[5] === '--numstat' &&
+    args[6] === '-z' &&
+    isObjectId(args[7] ?? '') &&
+    args[8] === '--' &&
+    args[9] === '.'
   )
 }
 
@@ -218,7 +227,7 @@ function isAllowedLog(args: readonly string[]): boolean {
     args[1] === '--parents' &&
     args[2] === '--boundary' &&
     /^-n(?:[1-9]\d{0,2})$/.test(args[3] ?? '') &&
-    args[4] === '--format=%m%x1f%H%x1f%h%x1f%P%x1f%an%x1f%aI%x1f%s%x1e' &&
+    args[4] === '--format=%m%x1f%H%x1f%h%x1f%P%x1f%an%x1f%aI%x1f%s%x1f%D%x1e' &&
     args[5] === '--stdin' &&
     args[6] === '--' &&
     isRepositoryPath(args[7] ?? '')

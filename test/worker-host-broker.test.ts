@@ -141,9 +141,17 @@ describe('Git worker host broker', () => {
 
     const changes = await engine.changes(localPath(rootPath))
     const history = await engine.history(localPath(rootPath), 1)
+    const graphHistory = await engine.history(
+      localPath(rootPath),
+      1,
+      undefined,
+      undefined,
+      true,
+    )
     const commit = history.commits[0]
     expect(changes.workingTree).toHaveLength(1)
     expect(commit).toBeDefined()
+    expect(graphHistory.commits).toHaveLength(1)
     await expect(
       engine.commitDetail(localPath(rootPath), commit!.hash),
     ).resolves.toBeDefined()
@@ -171,7 +179,7 @@ describe('Git worker host broker', () => {
         '--parents',
         '--boundary',
         '-n50',
-        '--format=%m%x1f%H%x1f%h%x1f%P%x1f%an%x1f%aI%x1f%s%x1e',
+        '--format=%m%x1f%H%x1f%h%x1f%P%x1f%an%x1f%aI%x1f%s%x1f%D%x1e',
         '--stdin',
         '--',
         '.',

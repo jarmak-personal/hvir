@@ -151,6 +151,40 @@ locally and break ADR-010); creating a second `SshHost` per worker (duplicate tr
 and auth lifecycle); running the whole Git engine in main (large log/diff parsing can
 delay IPC and window lifecycle work); installing a remote helper (rejected by ADR-010).
 
+#### Phase 5 addendum — 2026-07-13: repository topology is a viewer
+
+**The commit graph is a project-scoped viewer tab, not another 238px rail widget.** Rail
+History stays a fast, virtualized launcher. Opening the graph gives topology a full viewer
+surface: fixed-height virtual commit rows with deterministic SVG lanes, decorated branch/
+remote/tag refs, keyboard selection, and a persistent right-side commit inspector. The
+inspector presents changed files as a collapsible directory tree; selecting a file uses
+the existing historical-diff tab path. History begins at all refs for this surface and
+continues with the existing opaque frontier cursor, so unmerged branches are visible
+without walking the repository up front. Git discovery and parsing remain off-thread.
+
+**Why:** VS Code's Source Control Graph proves the compact lane/table interaction and
+opens selected changes in the editor, but its rail placement is cramped for hvir's
+view-first use. Warp's Git dialog has a good chevron-to-files disclosure pattern, but it
+is deliberately bounded to the commits included in a push. Zed's current graph is the
+closest spatial precedent: a dedicated workspace item with a virtualized graph table and
+a right-hand detail split whose changed files can be a tree. hvir adopts that division of
+space without importing editor/write operations or Zed's implementation.
+
+The planned `commit-graph@2.4.0` spike passed MIT licensing, React 19 compatibility via
+its `react >=18` peer range, dark-color customization, parent-based lanes, and infinite
+loading. It failed the product fit: its built-in commit/detail DOM is not viewport-
+virtualized, has no repository-browser keyboard model, and brings its own popup, tooltip,
+icon, and infinite-scroll UI dependencies. `@tomplum/react-git-log@3.5.1` is React-19-
+native and more composable, but its Canvas renderer is explicitly incomplete and its
+paging is not row virtualization. A small local lane model and SVG painter therefore has
+less policy and rendering surface while preserving the off-thread system-Git engine.
+
+**Rejected:** making the narrow rail the only graph (topology loses the width needed for
+merges and refs); inline variable-height commit expansion (breaks row/lane alignment and
+cheap virtualization); a generic force-directed graph (Git is an ordered DAG, not an
+exploration network); adopting either component despite the spike gaps; adding Git write
+actions to the inspector (still outside the view-first v1 scope).
+
 ### ADR-006 — Session recovery: harness resume, not a daemon
 **Decision:** Recover agent sessions through the harness's own persistence
 (`claude --resume`, `codex resume`), not by keeping PTYs alive in a daemon. hvir

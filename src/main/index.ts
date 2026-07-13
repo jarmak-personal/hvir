@@ -1137,10 +1137,17 @@ async function runSmoke(): Promise<number> {
                 }
                 commit.click();
                 const waitForDetail = () => {
-                  if (document.querySelector('.git-commit-detail')) {
-                    return resolve('changes→diff · paged history→detail');
+                  if (
+                    document.querySelector('.git-graph-row.active') &&
+                    document.querySelector('.git-commit-inspector') &&
+                    document.querySelector('.git-commit-tree-row.file')
+                  ) {
+                    if (document.querySelectorAll('.viewer-tab.active').length !== 1) {
+                      return reject(new Error('Graph activation left two active tabs'));
+                    }
+                    return resolve('changes→diff · paged history→graph→file tree');
                   }
-                  if (Date.now() > deadline) return reject(new Error('Commit detail did not load'));
+                  if (Date.now() > deadline) return reject(new Error('Commit graph detail did not load'));
                   setTimeout(waitForDetail, 50);
                 };
                 waitForDetail();

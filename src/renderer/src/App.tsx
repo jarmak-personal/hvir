@@ -32,6 +32,7 @@ import { TerminalView } from './terminal/TerminalView'
 import { FileTree, SessionBar } from './tree/FileTree'
 import { DirectoryTree } from './tree/DirectoryTree'
 import { GitPanel } from './git/GitPanel'
+import { GitGraphView } from './git/GitGraphView'
 import { FileViewer } from './viewer/FileViewer'
 import { TabStrip } from './viewer/TabStrip'
 import type { ViewerTab } from './viewer/tab-state'
@@ -49,6 +50,7 @@ export function App(): ReactElement {
   const workbenchRef = useRef<HTMLElement>(null)
   const tabsRef = useRef<readonly ViewerTab[]>([])
   const activeIdRef = useRef<string | undefined>(undefined)
+  const gitGraphActiveRef = useRef(false)
   const fileReadGenerations = useRef(new Map<string, number>())
   const discardDirtyOnUnload = useRef(false)
   const watchHandler = useRef<(event: WatchEvent) => void>(() => undefined)
@@ -71,6 +73,12 @@ export function App(): ReactElement {
   const [gitVersion, setGitVersion] = useState(0)
   const [tabs, setTabs] = useState<readonly ViewerTab[]>([])
   const [activeId, setActiveId] = useState<string>()
+  const [gitGraphOpen, setGitGraphOpen] = useState(false)
+  const [gitGraphActive, setGitGraphActive] = useState(false)
+  const [gitGraphRequest, setGitGraphRequest] = useState<{
+    readonly serial: number
+    readonly hash?: string
+  }>({ serial: 0 })
   const [restored, setRestored] = useState(false)
   const [railMode, setRailMode] = useState<'files' | 'git'>('files')
   const [changedCount, setChangedCount] = useState(0)
@@ -83,6 +91,7 @@ export function App(): ReactElement {
   const [sshPrompts, setSshPrompts] = useState<readonly SshPromptRequest[]>([])
   tabsRef.current = tabs
   activeIdRef.current = activeId
+  gitGraphActiveRef.current = gitGraphActive
 
   const loadFile = useCallback((path: HostPath): void => {
     const id = tabId(path)
@@ -287,6 +296,7 @@ export function App(): ReactElement {
       if (event.target instanceof Element && event.target.closest('.terminal-panel')) {
         return
       }
+      if (gitGraphActiveRef.current) return
       const id = activeIdRef.current
       if (!id) return
       event.preventDefault()
@@ -323,6 +333,7 @@ export function App(): ReactElement {
     diffBase: DiffBase = 'head',
     diffRevision?: string,
   ): void => {
+    setGitGraphActive(false)
     const id = tabId(path)
     const existing = tabsRef.current.find((tab) => tab.id === id)
     setTabs((current) => {
@@ -456,6 +467,15 @@ export function App(): ReactElement {
   }
 
   const activeTab = tabs.find((tab) => tab.id === activeId)
+
+  const openGitGraph = (hash?: string): void => {
+    setGitGraphOpen(true)
+    setGitGraphActive(true)
+    setGitGraphRequest((current) => ({
+      serial: current.serial + 1,
+      ...(hash ? { hash } : {}),
+    }))
+  }
 
   const changeSession = (): void => {
     const dirtyCount = tabsRef.current.filter((tab) => tab.dirty).length
@@ -597,6 +617,7 @@ export function App(): ReactElement {
               onOpen={(path, base, revision) =>
                 openFile(path, true, 'git', base, revision)
               }
+              onOpenGraph={openGitGraph}
               connectionState={connectionState}
               hidden={railMode !== 'git'}
             />
@@ -620,8 +641,11 @@ export function App(): ReactElement {
         <section className="viewer-panel" aria-label="File viewer">
           <TabStrip
             tabs={tabs}
-            activeId={activeId}
-            onActivate={setActiveId}
+            activeId={gitGraphActive ? undefined : activeId}
+            onActivate={(id) => {
+              setActiveId(id)
+              setGitGraphActive(false)
+            }}
             onClose={closeTab}
             onPin={(id) =>
               setTabs((current) =>
@@ -631,49 +655,72 @@ export function App(): ReactElement {
             onReorder={(draggedId, targetId) => {
               setTabs((current) => reorderTabs(current, draggedId, targetId))
             }}
-          />
-          <FileViewer
-            key={activeTab?.id ?? 'empty'}
-            tab={activeTab}
-            onMode={(mode) => updateActive((tab) => ({ ...tab, mode }))}
-            onDiffBase={(diffBase) => updateActive((tab) => ({ ...tab, diffBase }))}
-            onContent={(content) =>
-              updateActive((tab) =>
-                tab.file
-                  ? {
-                      ...tab,
-                      pinned: true,
-                      dirty: true,
-                      file: {
-                        ...tab.file,
-                        content,
-                        size: new TextEncoder().encode(content).byteLength,
-                      },
-                    }
-                  : tab,
-              )
-            }
-            onSave={saveActive}
-            onReload={() => {
-              if (!activeTab) return
-              updateTab(activeTab.id, (tab) => ({
-                ...tab,
-                dirty: false,
-                conflict: false,
-              }))
-              loadFile(activeTab.path)
+            graphOpen={gitGraphOpen}
+            graphActive={gitGraphActive}
+            onActivateGraph={() => setGitGraphActive(true)}
+            onCloseGraph={() => {
+              setGitGraphOpen(false)
+              setGitGraphActive(false)
             }}
-            onScroll={(scrollTop) =>
-              activeTab && scheduleScrollPersistence(activeTab.id, scrollTop)
-            }
-            onOpenPath={(path) => {
-              if (activeTab) {
-                updateTab(activeTab.id, (tab) => ({ ...tab, pinned: true }))
+          />
+          {gitGraphOpen ? (
+            <div className="workspace-view" hidden={!gitGraphActive}>
+              <GitGraphView
+                root={root}
+                refreshVersion={gitVersion}
+                connectionState={connectionState}
+                requestedHash={gitGraphRequest.hash}
+                requestSerial={gitGraphRequest.serial}
+                onOpen={(path, base, revision) =>
+                  openFile(path, true, 'git', base, revision)
+                }
+              />
+            </div>
+          ) : null}
+          <div className="workspace-view" hidden={gitGraphActive}>
+            <FileViewer
+              key={activeTab?.id ?? 'empty'}
+              tab={activeTab}
+              onMode={(mode) => updateActive((tab) => ({ ...tab, mode }))}
+              onDiffBase={(diffBase) => updateActive((tab) => ({ ...tab, diffBase }))}
+              onContent={(content) =>
+                updateActive((tab) =>
+                  tab.file
+                    ? {
+                        ...tab,
+                        pinned: true,
+                        dirty: true,
+                        file: {
+                          ...tab.file,
+                          content,
+                          size: new TextEncoder().encode(content).byteLength,
+                        },
+                      }
+                    : tab,
+                )
               }
-              openFile(path, true)
-            }}
-            refreshVersion={contentVersion}
-          />
+              onSave={saveActive}
+              onReload={() => {
+                if (!activeTab) return
+                updateTab(activeTab.id, (tab) => ({
+                  ...tab,
+                  dirty: false,
+                  conflict: false,
+                }))
+                loadFile(activeTab.path)
+              }}
+              onScroll={(scrollTop) =>
+                activeTab && scheduleScrollPersistence(activeTab.id, scrollTop)
+              }
+              onOpenPath={(path) => {
+                if (activeTab) {
+                  updateTab(activeTab.id, (tab) => ({ ...tab, pinned: true }))
+                }
+                openFile(path, true)
+              }}
+              refreshVersion={contentVersion}
+            />
+          </div>
         </section>
         <PaneResizer
           orientation="horizontal"
@@ -710,6 +757,8 @@ export function App(): ReactElement {
             setWatchTier(state.watchTier)
             setTabs([])
             setActiveId(undefined)
+            setGitGraphOpen(false)
+            setGitGraphActive(false)
             setChangedCount(0)
             setSessionError(undefined)
             setShowAddProject(false)

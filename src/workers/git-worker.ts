@@ -73,7 +73,13 @@ async function handle(request: WorkerRequest): Promise<void> {
       const path = isRawPath(raw['path']) ? decodePath(raw['path']) : undefined
       if (path) assertProjectPath(path, root)
       const cursor = typeof raw['cursor'] === 'string' ? raw['cursor'] : undefined
-      result = await engine.history(root, Number(raw['limit']), cursor, path)
+      result = await engine.history(
+        root,
+        Number(raw['limit']),
+        cursor,
+        path,
+        raw['allRefs'] === true,
+      )
     } else if (request.type === GIT_BLAME_TYPE && isRawPath(raw['path'])) {
       const path = decodePath(raw['path'])
       assertProjectPath(path, root)

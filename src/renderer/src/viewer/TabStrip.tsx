@@ -10,6 +10,10 @@ interface TabStripProps {
   readonly onClose: (id: string) => void
   readonly onPin: (id: string) => void
   readonly onReorder: (draggedId: string, targetId: string) => void
+  readonly graphOpen: boolean
+  readonly graphActive: boolean
+  readonly onActivateGraph: () => void
+  readonly onCloseGraph: () => void
 }
 
 export function TabStrip({
@@ -19,10 +23,14 @@ export function TabStrip({
   onClose,
   onPin,
   onReorder,
+  graphOpen,
+  graphActive,
+  onActivateGraph,
+  onCloseGraph,
 }: TabStripProps): ReactElement {
   const [dragged, setDragged] = useState<string>()
   return (
-    <div className="tab-strip" role="tablist" aria-label="Open files">
+    <div className="tab-strip" role="tablist" aria-label="Open views">
       {tabs.map((tab) => (
         <div
           className={`viewer-tab${tab.id === activeId ? ' active' : ''}${tab.pinned ? '' : ' preview'}`}
@@ -67,7 +75,36 @@ export function TabStrip({
           </button>
         </div>
       ))}
-      {tabs.length === 0 ? <span className="tab-strip-empty">Viewer</span> : null}
+      {graphOpen ? (
+        <div
+          className={`viewer-tab git-graph-tab${graphActive ? ' active' : ''}`}
+          role="tab"
+          aria-selected={graphActive}
+        >
+          <button
+            className="tab-main"
+            type="button"
+            onClick={onActivateGraph}
+            title="Repository history graph"
+          >
+            <span className="tab-status" aria-hidden="true">
+              ⎇
+            </span>
+            <span className="tab-name">Git history</span>
+          </button>
+          <button
+            className="tab-close"
+            type="button"
+            aria-label="Close Git history"
+            onClick={onCloseGraph}
+          >
+            ×
+          </button>
+        </div>
+      ) : null}
+      {tabs.length === 0 && !graphOpen ? (
+        <span className="tab-strip-empty">Viewer</span>
+      ) : null}
     </div>
   )
 }
