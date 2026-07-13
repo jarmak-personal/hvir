@@ -10,6 +10,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   SshHost,
   type Disposer,
+  type ExecStreamHandle,
   type SshPrompt,
   type WatchOptions,
 } from '../src/main/project-host'
@@ -431,6 +432,71 @@ describe('SshHost remote behavior', () => {
       await Promise.resolve()
       await vi.advanceTimersByTimeAsync(10)
       expect(snapshot).toHaveBeenCalledTimes(2)
+      await stop()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('uses a polling watchdog when inotify stays silent', async () => {
+    vi.useFakeTimers()
+    try {
+      const host = new SshHost({
+        config: aliasConfig(),
+        watchdogIntervalMs: 10,
+        prompter: { prompt: () => Promise.resolve(undefined) },
+      })
+      const root = hostPath(asHostId('example'), '/project')
+      const added = '/project/generated'
+      const snapshot = vi
+        .fn<() => Promise<Map<string, string>>>()
+        .mockResolvedValueOnce(new Map())
+        .mockResolvedValueOnce(new Map([[added, 'dir:1:0:16877']]))
+        .mockResolvedValueOnce(new Map())
+      const silentInotify: ExecStreamHandle = {
+        onStdout: () => () => undefined,
+        onStderr: () => () => undefined,
+        onError: () => () => undefined,
+        onExit: () => () => undefined,
+        kill: () => undefined,
+        dispose: vi.fn(),
+      }
+      const internals = host as unknown as {
+        cache: Map<string, unknown>
+        execStream(): ExecStreamHandle
+        pollSnapshot(path: HostPath, opts: WatchOptions): Promise<Map<string, string>>
+        watchInotify(
+          path: HostPath,
+          onEvent: (event: WatchEvent) => void,
+          opts: WatchOptions,
+        ): Disposer
+      }
+      internals.execStream = () => silentInotify
+      internals.pollSnapshot = snapshot
+      const events: WatchEvent[] = []
+      const stop = internals.watchInotify(root, (event) => events.push(event), {})
+
+      await Promise.resolve()
+      await Promise.resolve()
+      expect(snapshot).toHaveBeenCalledOnce()
+      internals.cache.set('d:/project', {})
+      await vi.advanceTimersByTimeAsync(10)
+      expect(snapshot).toHaveBeenCalledTimes(2)
+      expect(events).toContainEqual({
+        type: 'addDir',
+        path: hostPath(root.hostId, added),
+      })
+      expect(internals.cache.has('d:/project')).toBe(false)
+
+      internals.cache.set('d:/project', {})
+      await vi.advanceTimersByTimeAsync(10)
+      expect(snapshot).toHaveBeenCalledTimes(3)
+      expect(events).toContainEqual({
+        type: 'unlinkDir',
+        path: hostPath(root.hostId, added),
+      })
+      expect(internals.cache.has('d:/project')).toBe(false)
+
       await stop()
     } finally {
       vi.useRealTimers()

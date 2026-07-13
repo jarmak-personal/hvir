@@ -57,6 +57,8 @@ export interface SshHostOptions {
   readonly agentSocket?: string
   readonly prompter: SshAuthPrompter
   readonly pollIntervalMs?: number
+  /** Slower snapshot safety net when inotify stays alive but emits no usable events. */
+  readonly watchdogIntervalMs?: number
   readonly trustedHostKey?: () => string | undefined
   readonly rememberHostKey?: (fingerprint: string) => Promise<void>
   /** Test seam for transport lifecycle races; production always constructs ssh2.Client. */
@@ -693,12 +695,21 @@ export class SshHost implements ProjectHost {
       }
     })
     let pollingStop: Disposer | undefined
+    let watchdogStop: Disposer | undefined = this.watchPolling(
+      path,
+      onEvent,
+      opts,
+      this.options.watchdogIntervalMs ??
+        Math.max(10_000, this.options.pollIntervalMs ?? 2_000),
+    )
     let fallingBack = false
     const fallback = (error?: Error): void => {
       if (stopped || pollingStop || fallingBack) return
       fallingBack = true
       if (error) opts.onError?.(error)
       handle.dispose()
+      void watchdogStop?.()
+      watchdogStop = undefined
       this.tier = 'polling'
       pollingStop = this.watchPolling(path, onEvent, opts)
       this.notifyState()
@@ -711,6 +722,7 @@ export class SshHost implements ProjectHost {
     return () => {
       stopped = true
       handle.dispose()
+      void watchdogStop?.()
       void pollingStop?.()
     }
   }
@@ -718,14 +730,15 @@ export class SshHost implements ProjectHost {
     path: HostPath,
     onEvent: (e: WatchEvent) => void,
     opts: WatchOptions,
+    requestedIntervalMs?: number,
   ): Disposer {
     let stopped = false,
       initialized = false,
       previous = new Map<string, string>(),
       timer: ReturnType<typeof setTimeout> | undefined,
-      retryMs = this.options.pollIntervalMs ?? 2_000,
+      retryMs = requestedIntervalMs ?? this.options.pollIntervalMs ?? 2_000,
       lastError: string | undefined
-    const intervalMs = this.options.pollIntervalMs ?? 2_000
+    const intervalMs = requestedIntervalMs ?? this.options.pollIntervalMs ?? 2_000
     const schedule = (delay: number): void => {
       if (stopped) return
       timer = setTimeout(() => void poll(), delay)
@@ -733,17 +746,31 @@ export class SshHost implements ProjectHost {
     const poll = async (): Promise<void> => {
       try {
         const current = await this.pollSnapshot(path, opts)
+        if (stopped) return
+        if (!initialized) {
+          this.invalidate(path.path)
+          onEvent({ type: 'change', path })
+        }
         for (const [file, stamp] of current)
           if (initialized && previous.get(file) !== stamp) {
             this.invalidate(file)
             onEvent({
-              type: previous.has(file) ? 'change' : 'add',
+              type: previous.has(file)
+                ? 'change'
+                : stamp.startsWith('dir:')
+                  ? 'addDir'
+                  : 'add',
               path: hostPath(this.hostId, file),
             })
           }
-        for (const file of previous.keys())
-          if (!current.has(file))
-            onEvent({ type: 'unlink', path: hostPath(this.hostId, file) })
+        for (const [file, stamp] of previous)
+          if (!current.has(file)) {
+            this.invalidate(file)
+            onEvent({
+              type: stamp.startsWith('dir:') ? 'unlinkDir' : 'unlink',
+              path: hostPath(this.hostId, file),
+            })
+          }
         previous = current
         initialized = true
         retryMs = intervalMs

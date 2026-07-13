@@ -114,9 +114,16 @@ dependency-reload fixes.
 - [x] Invalidate cached parent/ancestor directory listings for remote create/delete/rename
       events. An inotify burst inside the listing TTL must not refresh from stale cache and
       leave a newly created top-level directory invisible forever.
+- [x] Treat inotify as the low-latency path rather than the only path: keep a slower,
+      single-flight SFTP snapshot watchdog running so an alive-but-silent `inotifywait`
+      cannot leave the tree stale forever. Emit directory-specific add/remove events,
+      invalidate removed entries' parents, and refresh once after the initial snapshot to
+      close the watcher-start race.
 - [ ] Retest Codex on a real SSH host after normalizing `TERM`/true-color metadata and
-      coalescing DEC synchronized-output frames. Ordinary input must remain visible and the
-      working animation must redraw without flashing partial frames.
+      replacing the partial-frame timer with a persistent DEC synchronized-output buffer.
+      Markers may span arbitrary SSH chunks; complete frames render atomically, while the
+      timeout/size escape hatch must explicitly close the mode. Ordinary input must remain
+      visible and the working animation must redraw without flashing partial frames.
 
 - [x] Keep expected session failures contained: invalid/case-mismatched folder paths and
       cancelled SFTP watches surface as concise picker/session state, not rejected Electron

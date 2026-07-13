@@ -24,8 +24,12 @@ commands, Git status/blame, and a 400+ commit history loaded cleanly on a real L
 The same pass found two remaining acceptance blockers: a top-level directory plus 50 files
 created by Codex did not invalidate the Files tree, and Codex's remote TUI flashed partial
 working frames while ordinary typed input became visually hidden. Parent-listing cache
-invalidation is now fixed; the terminal capability/frame fix still needs a real-host retest.
-Network-drop, passphrase-key, and keyboard-interactive/2FA scenarios were not exercised.
+invalidation alone did not fix the tree on retest, so inotify now has an independent SFTP
+snapshot watchdog and polling removals invalidate their parent listing. The first terminal
+frame timer increased the flashing rate; it has been replaced with a chunk-boundary-safe DEC
+synchronized-output buffer based on the mature Warp implementation. Both fixes still need a
+real-host retest. Network-drop, passphrase-key, and keyboard-interactive/2FA scenarios were not
+exercised.
 
 **UX amendment (2026-07-12):** remote work is a session flow, not a host/path form. The
 user first chooses and connects to an SSH alias, then opens a folder on that connected
