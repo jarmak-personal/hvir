@@ -15,7 +15,7 @@ import {
   canRender,
   type DiffBase,
   type ViewMode,
-  type GitBlameLine,
+  type GitBlameRun,
   type HostPath,
 } from '../../../shared'
 import { DiffView } from './DiffView'
@@ -28,6 +28,8 @@ import { RenderedView } from './RenderedView'
 import type { ViewerTab } from './tab-state'
 
 export const HIGHLIGHT_SIZE_LIMIT = 1024 * 1024
+export const CODEMIRROR_SIZE_LIMIT = 5 * 1024 * 1024
+const LARGE_FILE_PREVIEW_LIMIT = 512 * 1024
 
 let sharedHighlightWorker: Worker | undefined
 let nextHighlightRequestId = 0
@@ -85,6 +87,7 @@ interface FileViewerProps {
   readonly onReload: () => void
   readonly onScroll: (scrollTop: number) => void
   readonly onOpenPath: (path: HostPath) => void
+  readonly refreshVersion: number
 }
 
 export function FileViewer({
@@ -96,9 +99,10 @@ export function FileViewer({
   onReload,
   onScroll,
   onOpenPath,
+  refreshVersion,
 }: FileViewerProps): ReactElement {
   const [showBlame, setShowBlame] = useState(false)
-  const [blame, setBlame] = useState<readonly GitBlameLine[]>([])
+  const [blame, setBlame] = useState<readonly GitBlameRun[]>([])
   const [blameStatus, setBlameStatus] = useState('')
   const currentPath = tab?.path
   const blameMode = tab?.mode
@@ -106,12 +110,15 @@ export function FileViewer({
   useEffect(() => {
     if (!showBlame || !currentPath || blameMode !== 'source') return
     let cancelled = false
+    setBlame([])
     setBlameStatus('blame loading…')
     void window.hvir.invoke('git:blame', { path: currentPath }).then(
-      (lines) => {
+      (runs) => {
         if (!cancelled) {
-          setBlame(lines)
-          setBlameStatus(`${lines.length} blamed lines`)
+          setBlame(runs)
+          setBlameStatus(
+            `${runs.reduce((total, run) => total + run.lineCount, 0)} blamed lines · ${runs.length} runs`,
+          )
         }
       },
       (reason: unknown) => {
@@ -126,7 +133,7 @@ export function FileViewer({
     return () => {
       cancelled = true
     }
-  }, [blameMode, currentPath, showBlame])
+  }, [blameMode, currentPath, refreshVersion, showBlame])
 
   return (
     <>
@@ -138,10 +145,15 @@ export function FileViewer({
               Changed on disk · reload
             </button>
           ) : null}
+          {tab?.error && tab.file ? (
+            <span className="viewer-operation-error" role="status" title={tab.error}>
+              Save failed
+            </span>
+          ) : null}
         </div>
         {tab ? (
           <div className="view-controls">
-            {tab.mode === 'diff' ? (
+            {tab.mode === 'diff' && !tab.diffRevision ? (
               <select
                 className="diff-base-select"
                 aria-label="Diff base"
@@ -187,11 +199,11 @@ export function FileViewer({
       <div className="viewer-body">
         {!tab ? <EmptyViewer text="Choose a file from the tree" /> : null}
         {tab?.loading ? <EmptyViewer text="Opening…" /> : null}
-        {tab?.error ? <EmptyViewer text={tab.error} error /> : null}
-        {tab && !tab.loading && !tab.error && tab.file?.binary ? (
+        {tab?.error && !tab.file ? <EmptyViewer text={tab.error} error /> : null}
+        {tab && !tab.loading && tab.file?.binary ? (
           <EmptyViewer text="Binary files are not rendered" />
         ) : null}
-        {tab && !tab.loading && !tab.error && tab.file && !tab.file.binary ? (
+        {tab && !tab.loading && tab.file && !tab.file.binary ? (
           <ActiveView
             tab={tab}
             file={tab.file}
@@ -201,6 +213,7 @@ export function FileViewer({
             blame={showBlame ? blame : []}
             blameStatus={showBlame ? blameStatus : ''}
             onOpenPath={onOpenPath}
+            refreshVersion={refreshVersion}
           />
         ) : null}
       </div>
@@ -217,15 +230,17 @@ function ActiveView({
   blame,
   blameStatus,
   onOpenPath,
+  refreshVersion,
 }: {
   readonly tab: ViewerTab
   readonly file: NonNullable<ViewerTab['file']>
   readonly onContent: (content: string) => void
   readonly onSave: () => void
   readonly onScroll: (scrollTop: number) => void
-  readonly blame: readonly GitBlameLine[]
+  readonly blame: readonly GitBlameRun[]
   readonly blameStatus: string
   readonly onOpenPath: (path: HostPath) => void
+  readonly refreshVersion: number
 }): ReactElement {
   if (tab.mode === 'rendered') {
     return (
@@ -235,6 +250,17 @@ function ActiveView({
         scrollTop={tab.scrollTop}
         onScroll={onScroll}
         onOpenPath={onOpenPath}
+        refreshVersion={refreshVersion}
+      />
+    )
+  }
+  if (file.size > CODEMIRROR_SIZE_LIMIT) {
+    return (
+      <LargeFileView
+        content={file.content}
+        size={file.size}
+        scrollTop={tab.scrollTop}
+        onScroll={onScroll}
       />
     )
   }
@@ -246,6 +272,9 @@ function ActiveView({
         currentContent={file.content}
         dirty={tab.dirty}
         revision={tab.diffRevision}
+        refreshVersion={refreshVersion}
+        scrollTop={tab.scrollTop}
+        onScroll={onScroll}
       />
     )
   }
@@ -261,6 +290,40 @@ function ActiveView({
       blame={blame}
       blameStatus={blameStatus}
     />
+  )
+}
+
+function LargeFileView({
+  content,
+  size,
+  scrollTop,
+  onScroll,
+}: {
+  readonly content: string
+  readonly size: number
+  readonly scrollTop: number
+  readonly onScroll: (scrollTop: number) => void
+}): ReactElement {
+  const container = useRef<HTMLPreElement>(null)
+  const initialScrollTop = useRef(scrollTop)
+  const preview = content.slice(0, LARGE_FILE_PREVIEW_LIMIT)
+  useEffect(() => {
+    if (container.current) container.current.scrollTop = initialScrollTop.current
+  }, [])
+  return (
+    <div className="large-file-shell">
+      <div className="source-meta">
+        <span>{formatBytes(size)}</span>
+        <span>read-only preview · first {formatBytes(preview.length)}</span>
+      </div>
+      <pre
+        ref={container}
+        className="large-file-preview"
+        onScroll={(event) => onScroll(event.currentTarget.scrollTop)}
+      >
+        {preview}
+      </pre>
+    </div>
   )
 }
 
@@ -282,7 +345,7 @@ function SourceView({
   readonly onContent: (content: string) => void
   readonly onSave: () => void
   readonly onScroll: (scrollTop: number) => void
-  readonly blame: readonly GitBlameLine[]
+  readonly blame: readonly GitBlameRun[]
   readonly blameStatus: string
 }): ReactElement {
   const container = useRef<HTMLDivElement>(null)
@@ -380,28 +443,44 @@ function SourceView({
 }
 
 class BlameMarker extends GutterMarker {
-  constructor(private readonly line: GitBlameLine) {
+  constructor(private readonly run: GitBlameRun) {
     super()
   }
   override toDOM(): HTMLElement {
     const element = document.createElement('span')
     element.className = 'cm-blame-marker'
-    element.textContent = `${this.line.hash.slice(0, 7)} ${this.line.author}`
-    element.title = `${this.line.author} · ${this.line.summary}`
+    element.textContent = `${this.run.hash.slice(0, 7)} ${this.run.author}`
+    element.title = `${this.run.author} · ${this.run.summary}`
     return element
   }
 }
 
-function blameGutter(lines: readonly GitBlameLine[]) {
-  if (lines.length === 0) return []
-  const byLine = new Map(lines.map((line) => [line.line, line]))
+function blameGutter(runs: readonly GitBlameRun[]) {
+  if (runs.length === 0) return []
   return gutter({
     class: 'cm-blame-gutter',
     lineMarker(view, block) {
-      const line = byLine.get(view.state.doc.lineAt(block.from).number)
-      return line ? new BlameMarker(line) : null
+      const run = findBlameRun(runs, view.state.doc.lineAt(block.from).number)
+      return run ? new BlameMarker(run) : null
     },
   })
+}
+
+function findBlameRun(
+  runs: readonly GitBlameRun[],
+  line: number,
+): GitBlameRun | undefined {
+  let low = 0
+  let high = runs.length - 1
+  while (low <= high) {
+    const middle = (low + high) >> 1
+    const run = runs[middle]
+    if (!run) return undefined
+    if (line < run.startLine) high = middle - 1
+    else if (line >= run.startLine + run.lineCount) low = middle + 1
+    else return run
+  }
+  return undefined
 }
 
 function highlight(

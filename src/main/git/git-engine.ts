@@ -4,9 +4,10 @@ import {
   hostPath,
   type DiffBase,
   type GitDiffResponse,
-  type GitBlameLine,
+  type GitBlameRun,
   type GitChangedFile,
   type GitChanges,
+  type GitCommitSummary,
   type GitHistoryPage,
   type GitCommitDetail,
   type HostPath,
@@ -19,7 +20,14 @@ import type { ProjectHost } from '../project-host'
  * in Phase 4.
  */
 export class GitEngine {
-  constructor(private readonly host: ProjectHost) {}
+  constructor(
+    private readonly host: ProjectHost,
+    /**
+     * Main's active project boundary. The repository itself may be above this
+     * directory, but commands must never move the broker's `-C` outside it.
+     */
+    private readonly projectRoot?: HostPath,
+  ) {}
 
   async diffInputs(
     path: HostPath,
@@ -27,7 +35,7 @@ export class GitEngine {
     revision?: string,
   ): Promise<GitDiffResponse> {
     this.assertHost(path)
-    const { repoRoot, relativePath } = await this.repoContext(path)
+    const { commandRoot, relativePath } = await this.repoContext(path)
     if (revision) {
       assertRevision(revision)
       return {
@@ -36,27 +44,34 @@ export class GitEngine {
         revision,
         baseLabel: `${revision.slice(0, 8)}^`,
         currentLabel: revision.slice(0, 8),
-        baseContent: await this.showOrEmpty(repoRoot, `${revision}^:${relativePath}`),
-        currentContent: await this.showOrEmpty(repoRoot, `${revision}:${relativePath}`),
+        baseContent: await this.showOrEmpty(commandRoot, `${revision}^:${relativePath}`),
+        currentContent: await this.showOrEmpty(
+          commandRoot,
+          `${revision}:${relativePath}`,
+        ),
       }
     }
-    const currentContent = await this.host.readTextFile(path)
+    const currentContent = await this.readWorkingTreeOrEmpty(
+      path,
+      commandRoot,
+      relativePath,
+    )
 
     let baseContent: string
     let baseLabel: string
     if (base === 'working-tree') {
-      baseContent = await this.showOrEmpty(repoRoot, `:${relativePath}`)
+      baseContent = await this.showOrEmpty(commandRoot, `:${relativePath}`)
       baseLabel = 'Index'
     } else if (base === 'head') {
-      baseContent = await this.showOrEmpty(repoRoot, `HEAD:${relativePath}`)
+      baseContent = await this.showOrEmpty(commandRoot, `HEAD:${relativePath}`)
       baseLabel = 'HEAD'
     } else {
-      const defaultBranch = await this.defaultBranch(repoRoot)
-      const mergeBase = await this.run(repoRoot, ['merge-base', 'HEAD', defaultBranch])
+      const defaultBranch = await this.defaultBranch(commandRoot)
+      const mergeBase = await this.run(commandRoot, ['merge-base', 'HEAD', defaultBranch])
       const commit = mergeBase.trim()
       if (!commit)
         throw new Error(`git merge-base returned no commit for ${defaultBranch}`)
-      baseContent = await this.showOrEmpty(repoRoot, `${commit}:${relativePath}`)
+      baseContent = await this.showOrEmpty(commandRoot, `${commit}:${relativePath}`)
       baseLabel = `Branch point (${shortRef(defaultBranch)})`
       return {
         path,
@@ -64,7 +79,7 @@ export class GitEngine {
         baseLabel,
         currentLabel: 'HEAD',
         baseContent,
-        currentContent: await this.showOrEmpty(repoRoot, `HEAD:${relativePath}`),
+        currentContent: await this.showOrEmpty(commandRoot, `HEAD:${relativePath}`),
       }
     }
 
@@ -79,98 +94,217 @@ export class GitEngine {
   }
 
   async repoRoot(path: HostPath): Promise<HostPath> {
-    return (await this.repoContext(path)).repoRoot
+    return (await this.repoContext(path)).repositoryRoot
   }
 
   async changes(projectRoot: HostPath): Promise<GitChanges> {
-    const repoRoot = await this.discoverRoot(projectRoot)
-    const status = await this.run(repoRoot, ['status', '--porcelain=v2', '-z'])
-    const headDiff = await this.tryRun(repoRoot, [
+    const context = await this.projectContext(projectRoot)
+    if (!context) return emptyChanges('not-git', 'Not a Git repository')
+    const { commandRoot, repositoryPrefix } = context
+    const hasHead = Boolean(
+      await this.tryRun(commandRoot, ['rev-parse', '--verify', 'HEAD']),
+    )
+    const status = await this.run(commandRoot, [
+      'status',
+      '--porcelain=v2',
+      '-z',
+      '--untracked-files=all',
+      '--',
+      '.',
+    ])
+    const parsedStatus = parseStatus(status).filter((file) =>
+      isInsideProject(file.path, repositoryPrefix),
+    )
+    const headDiff = await this.tryRun(commandRoot, [
       'diff',
+      '--no-ext-diff',
+      '--no-textconv',
       '--numstat',
       '-z',
       'HEAD',
       '--',
+      '.',
     ])
     const stats = headDiff
       ? parseNumstat(headDiff)
       : mergeStats(
           parseNumstat(
-            await this.run(repoRoot, ['diff', '--numstat', '-z', '--cached', '--']),
+            await this.run(commandRoot, [
+              'diff',
+              '--no-ext-diff',
+              '--no-textconv',
+              '--numstat',
+              '-z',
+              '--cached',
+              '--',
+              '.',
+            ]),
           ),
-          parseNumstat(await this.run(repoRoot, ['diff', '--numstat', '-z', '--'])),
+          parseNumstat(
+            await this.run(commandRoot, [
+              'diff',
+              '--no-ext-diff',
+              '--no-textconv',
+              '--numstat',
+              '-z',
+              '--',
+              '.',
+            ]),
+          ),
         )
-    const workingTree = parseStatus(status).map((file) =>
-      changedFile(repoRoot, file, stats),
+    await addUntrackedStats(commandRoot, repositoryPrefix, parsedStatus, stats, this.host)
+    const workingTree = parsedStatus.map((file) =>
+      changedFile(commandRoot, repositoryPrefix, file, stats),
     )
     let branchStats = new Map<string, { additions: number; deletions: number }>()
+    let branchPointAvailable = false
+    let branchPointUnavailableReason: string | undefined
     try {
-      const defaultBranch = await this.defaultBranch(repoRoot)
+      if (!hasHead) throw new Error('Repository has no commits yet')
+      const defaultBranch = await this.defaultBranch(commandRoot)
       const mergeBase = (
-        await this.run(repoRoot, ['merge-base', 'HEAD', defaultBranch])
+        await this.run(commandRoot, ['merge-base', 'HEAD', defaultBranch])
       ).trim()
       if (mergeBase) {
         branchStats = parseNumstat(
-          await this.run(repoRoot, ['diff', '--numstat', '-z', mergeBase, 'HEAD', '--']),
+          await this.run(commandRoot, [
+            'diff',
+            '--no-ext-diff',
+            '--no-textconv',
+            '--numstat',
+            '-z',
+            mergeBase,
+            'HEAD',
+            '--',
+            '.',
+          ]),
         )
+        branchPointAvailable = true
+      } else {
+        branchPointUnavailableReason = `No merge base with ${shortRef(defaultBranch)}`
       }
-    } catch {
+    } catch (reason) {
       // Unborn repositories and repos without a conventional default branch
       // still have a useful working-tree Changes view.
+      branchPointUnavailableReason = errorMessage(reason)
     }
-    const branchPoint = [...branchStats.entries()].map(([path, counts]) => ({
-      path: hostPath(repoRoot.hostId, `${repoRoot.path}/${path}`),
-      staged: false,
-      unstaged: false,
-      untracked: false,
-      conflicted: false,
-      additions: counts.additions,
-      deletions: counts.deletions,
-    }))
-    return { workingTree, branchPoint }
+    const branchPoint = [...branchStats.entries()]
+      .filter(([path]) => isInsideProject(path, repositoryPrefix))
+      .map(([path, counts]) => ({
+        path: projectFilePath(commandRoot, repositoryPrefix, path),
+        staged: false,
+        unstaged: false,
+        untracked: false,
+        conflicted: false,
+        additions: counts.additions,
+        deletions: counts.deletions,
+      }))
+    return {
+      repositoryState: hasHead ? 'ready' : 'unborn',
+      workingTree,
+      branchPoint,
+      branchPointAvailable,
+      ...(branchPointUnavailableReason ? { branchPointUnavailableReason } : {}),
+    }
   }
 
   async history(
     projectRoot: HostPath,
-    skip: number,
     limit: number,
+    cursor?: string,
     path?: HostPath,
   ): Promise<GitHistoryPage> {
-    const repoRoot = await this.discoverRoot(projectRoot)
+    const context = await this.projectContext(projectRoot)
+    if (!context) return { repositoryState: 'not-git', commits: [], hasMore: false }
+    const { commandRoot } = context
+    const head = await this.tryRun(commandRoot, ['rev-parse', '--verify', 'HEAD'])
+    if (!head?.trim()) {
+      return { repositoryState: 'unborn', commits: [], hasMore: false }
+    }
     const count = finiteInteger(limit, 50, 1, 200)
-    const args = [
-      'log',
-      `--skip=${finiteInteger(skip, 0, 0, Number.MAX_SAFE_INTEGER)}`,
-      `-n${count + 1}`,
-      '--format=%H%x1f%h%x1f%an%x1f%aI%x1f%s%x1e',
-    ]
-    if (path) args.push('--', (await this.repoContext(path)).relativePath)
-    const records = (await this.run(repoRoot, args))
-      .split('\x1e')
-      .map((record) => record.trim())
-      .filter(Boolean)
+    const frontier = cursor ? decodeHistoryCursor(cursor) : [head.trim()]
+    const relativePath = path ? (await this.repoContext(path)).relativePath : '.'
+    const candidates = path
+      ? await this.pathHistoryCandidates(commandRoot, frontier, relativePath)
+      : frontier
+    const records = await this.historyRecords(commandRoot, frontier, count, relativePath)
+    const commits = records.filter((record) => !record.boundary)
+    const emitted = new Set(commits.map((commit) => commit.hash))
+    const nextFrontier = new Set(
+      records.filter((record) => record.boundary).map((record) => record.hash),
+    )
+    for (const candidate of candidates) {
+      if (!emitted.has(candidate)) nextFrontier.add(candidate)
+    }
+    const hasMore = nextFrontier.size > 0
     return {
-      commits: records.slice(0, count).map((record) => {
-        const [hash = '', shortHash = '', author = '', authoredAt = '', subject = ''] =
-          record.split('\x1f')
-        return { hash, shortHash, author, authoredAt, subject }
-      }),
-      hasMore: records.length > count,
+      repositoryState: 'ready',
+      commits,
+      hasMore,
+      ...(hasMore ? { nextCursor: encodeHistoryCursor([...nextFrontier]) } : {}),
     }
   }
 
-  async blame(path: HostPath): Promise<readonly GitBlameLine[]> {
-    const { repoRoot, relativePath } = await this.repoContext(path)
+  private async pathHistoryCandidates(
+    commandRoot: HostPath,
+    frontier: readonly string[],
+    relativePath: string,
+  ): Promise<readonly string[]> {
+    const candidates: string[] = []
+    for (let index = 0; index < frontier.length; index += 8) {
+      const batch = await Promise.all(
+        frontier.slice(index, index + 8).map(async (tip) => {
+          const records = await this.historyRecords(commandRoot, [tip], 1, relativePath)
+          return records.find((record) => !record.boundary)?.hash
+        }),
+      )
+      for (const candidate of batch) {
+        if (candidate) candidates.push(candidate)
+      }
+    }
+    return [...new Set(candidates)]
+  }
+
+  private async historyRecords(
+    commandRoot: HostPath,
+    frontier: readonly string[],
+    count: number,
+    relativePath: string,
+  ): Promise<readonly ParsedHistoryRecord[]> {
+    const args = [
+      'log',
+      '--topo-order',
+      '--parents',
+      '--boundary',
+      `-n${count}`,
+      '--format=%m%x1f%H%x1f%h%x1f%P%x1f%an%x1f%aI%x1f%s%x1e',
+      '--stdin',
+      '--',
+      relativePath,
+    ]
+    const result = await this.host.exec('git', ['-C', commandRoot.path, ...args], {
+      input: `${frontier.join('\n')}\n`,
+    })
+    if (result.code !== 0) throw gitError(args, result.stderr, result.code)
+    return result.stdout
+      .split('\x1e')
+      .map((record) => record.replace(/^\r?\n/, '').replace(/\r?\n$/, ''))
+      .filter(Boolean)
+      .map(parseHistoryRecord)
+  }
+
+  async blame(path: HostPath): Promise<readonly GitBlameRun[]> {
+    const { commandRoot, relativePath } = await this.repoContext(path)
     const output = await this.run(
-      repoRoot,
+      commandRoot,
       ['blame', '--line-porcelain', '--', relativePath],
       64 * 1024 * 1024,
     )
-    const lines: GitBlameLine[] = []
+    const runs: GitBlameRun[] = []
     let current:
       { hash: string; line: number; author: string; summary: string } | undefined
     for (const line of output.split('\n')) {
-      const header = /^([0-9a-f^]{40}) \d+ (\d+)/.exec(line)
+      const header = /^([0-9a-f^]{40,64}) \d+ (\d+)/.exec(line)
       if (header) {
         current = {
           hash: header[1] ?? '',
@@ -181,56 +315,97 @@ export class GitEngine {
       } else if (current && line.startsWith('author ')) current.author = line.slice(7)
       else if (current && line.startsWith('summary ')) current.summary = line.slice(8)
       else if (current && line.startsWith('\t')) {
-        lines.push(current)
+        const previous = runs.at(-1)
+        if (
+          previous &&
+          previous.startLine + previous.lineCount === current.line &&
+          previous.hash === current.hash &&
+          previous.author === current.author &&
+          previous.summary === current.summary
+        ) {
+          runs[runs.length - 1] = {
+            ...previous,
+            lineCount: previous.lineCount + 1,
+          }
+        } else {
+          runs.push({
+            startLine: current.line,
+            lineCount: 1,
+            hash: current.hash,
+            author: current.author,
+            summary: current.summary,
+          })
+        }
         current = undefined
       }
     }
-    return lines
+    return runs
   }
 
   async commitDetail(projectRoot: HostPath, hash: string): Promise<GitCommitDetail> {
     assertRevision(hash)
-    const repoRoot = await this.discoverRoot(projectRoot)
-    const output = await this.run(repoRoot, [
+    const context = await this.projectContext(projectRoot)
+    if (!context) throw new Error('Not a Git repository')
+    const { commandRoot, repositoryPrefix } = context
+    const output = await this.run(commandRoot, [
       'show',
       '--no-renames',
-      '--format=%H%x1f%h%x1f%an%x1f%aI%x1f%B%x1e',
+      '--no-ext-diff',
+      '--no-textconv',
+      '--format=%H%x1f%h%x1f%P%x1f%an%x1f%aI%x1f%B%x1e',
       '--numstat',
       '-z',
       hash,
       '--',
+      '.',
     ])
     const separator = output.indexOf('\x1e')
     if (separator < 0) throw new Error('git show returned malformed commit detail')
-    const [fullHash = '', shortHash = '', author = '', authoredAt = '', ...message] =
-      output.slice(0, separator).split('\x1f')
+    const [
+      fullHash = '',
+      shortHash = '',
+      parentList = '',
+      author = '',
+      authoredAt = '',
+      ...message
+    ] = output.slice(0, separator).split('\x1f')
     const stats = parseNumstat(output.slice(separator + 1).replace(/^\r?\n/, ''))
     return {
       hash: fullHash,
       shortHash,
+      parents: parentList.split(' ').filter(Boolean),
       author,
       authoredAt,
       subject: message.join('\x1f').trim().split('\n')[0] ?? '',
       message: message.join('\x1f').trim(),
-      files: [...stats.entries()].map(([path, counts]) => ({
-        path: hostPath(repoRoot.hostId, `${repoRoot.path}/${path}`),
-        ...counts,
-      })),
+      files: [...stats.entries()]
+        .filter(([path]) => isInsideProject(path, repositoryPrefix))
+        .map(([path, counts]) => ({
+          path: projectFilePath(commandRoot, repositoryPrefix, path),
+          ...counts,
+        })),
     }
   }
 
-  private async discoverRoot(path: HostPath): Promise<HostPath> {
-    this.assertHost(path)
-    const root = (await this.run(path, ['rev-parse', '--show-toplevel'])).trim()
-    if (!root) throw new Error('git did not report a repository root')
-    return hostPath(path.hostId, root)
-  }
-
   private async repoContext(path: HostPath): Promise<{
-    readonly repoRoot: HostPath
+    readonly repositoryRoot: HostPath
+    readonly commandRoot: HostPath
     readonly relativePath: string
   }> {
     this.assertHost(path)
+    if (this.projectRoot) {
+      const prefix = this.projectRoot.path === '/' ? '/' : `${this.projectRoot.path}/`
+      if (!path.path.startsWith(prefix)) {
+        throw new Error('Git path escapes the active project')
+      }
+      const context = await this.projectContext(this.projectRoot)
+      if (!context) throw new Error('Not a Git repository')
+      return {
+        repositoryRoot: context.repositoryRoot,
+        commandRoot: context.commandRoot,
+        relativePath: `${context.repositoryPrefix}${path.path.slice(prefix.length)}`,
+      }
+    }
     const directory = dirnameHostPath(path)
     const root = (await this.run(directory, ['rev-parse', '--show-toplevel'])).trim()
     if (!root) throw new Error('git did not report a repository root')
@@ -240,8 +415,44 @@ export class GitEngine {
       throw new Error('git reported an invalid repository-relative prefix')
     }
     return {
-      repoRoot: hostPath(path.hostId, root),
+      repositoryRoot: hostPath(path.hostId, root),
+      commandRoot: this.projectRoot ?? hostPath(path.hostId, root),
       relativePath: `${normalizedPrefix}${basenameHostPath(path)}`,
+    }
+  }
+
+  private async projectContext(projectRoot: HostPath): Promise<
+    | {
+        readonly repositoryRoot: HostPath
+        readonly commandRoot: HostPath
+        readonly repositoryPrefix: string
+      }
+    | undefined
+  > {
+    this.assertHost(projectRoot)
+    const rootResult = await this.host.exec('git', [
+      '-C',
+      projectRoot.path,
+      'rev-parse',
+      '--show-toplevel',
+    ])
+    if (rootResult.code !== 0) {
+      if (/not a git repository/i.test(rootResult.stderr)) return undefined
+      throw gitError(['rev-parse', '--show-toplevel'], rootResult.stderr, rootResult.code)
+    }
+    const root = rootResult.stdout.trim()
+    if (!root) throw new Error('git did not report a repository root')
+    const prefix = (await this.run(projectRoot, ['rev-parse', '--show-prefix'])).replace(
+      /\r?\n$/,
+      '',
+    )
+    if (prefix.startsWith('/') || prefix.split('/').includes('..')) {
+      throw new Error('git reported an invalid repository-relative prefix')
+    }
+    return {
+      repositoryRoot: hostPath(projectRoot.hostId, root),
+      commandRoot: projectRoot,
+      repositoryPrefix: prefix,
     }
   }
 
@@ -271,13 +482,6 @@ export class GitEngine {
       if (exists.code === 0) return candidate
     }
 
-    const upstream = await this.tryRun(repoRoot, [
-      'rev-parse',
-      '--abbrev-ref',
-      '--symbolic-full-name',
-      '@{upstream}',
-    ])
-    if (upstream?.trim()) return upstream.trim()
     throw new Error(
       'Cannot determine the default branch (no origin/HEAD, main, or master)',
     )
@@ -290,6 +494,28 @@ export class GitEngine {
     // fatal error (new and untracked files are common in agent worktrees).
     if (result.code === 128) return ''
     throw gitError(['show', revision], result.stderr, result.code)
+  }
+
+  private async readWorkingTreeOrEmpty(
+    path: HostPath,
+    commandRoot: HostPath,
+    relativePath: string,
+  ): Promise<string> {
+    try {
+      return await this.host.readTextFile(path)
+    } catch (reason) {
+      const trackedDeletion = await this.host.exec('git', [
+        '-C',
+        commandRoot.path,
+        'ls-files',
+        '--deleted',
+        '--error-unmatch',
+        '--',
+        relativePath,
+      ])
+      if (trackedDeletion.code === 0 && trackedDeletion.stdout.trim()) return ''
+      throw reason
+    }
   }
 
   private async run(
@@ -329,7 +555,7 @@ function shortRef(ref: string): string {
 }
 
 function assertRevision(revision: string): void {
-  if (!/^[0-9a-f]{7,40}$/i.test(revision)) throw new Error('Invalid git revision')
+  if (!/^[0-9a-f]{7,64}$/i.test(revision)) throw new Error('Invalid git revision')
 }
 
 interface ParsedStatus {
@@ -392,7 +618,12 @@ function parseNumstat(
   for (let index = 0; index < records.length; index += 1) {
     const record = records[index] ?? ''
     if (!record) continue
-    const [added, deleted, inlinePath = ''] = record.split('\t')
+    const firstTab = record.indexOf('\t')
+    const secondTab = firstTab < 0 ? -1 : record.indexOf('\t', firstTab + 1)
+    if (firstTab < 0 || secondTab < 0) continue
+    const added = record.slice(0, firstTab)
+    const deleted = record.slice(firstTab + 1, secondTab)
+    const inlinePath = record.slice(secondTab + 1)
     const path = inlinePath || records[index + 2]
     if (!path) continue
     if (!inlinePath) index += 2
@@ -431,16 +662,170 @@ function finiteInteger(
     : fallback
 }
 
+type ParsedHistoryRecord = GitCommitSummary & { readonly boundary: boolean }
+
+function parseHistoryRecord(record: string): ParsedHistoryRecord {
+  const [
+    marker = '',
+    hash = '',
+    shortHash = '',
+    parentList = '',
+    author = '',
+    authoredAt = '',
+    subject = '',
+  ] = record.split('\x1f')
+  return {
+    boundary: marker === '-',
+    hash,
+    shortHash,
+    parents: parentList.split(' ').filter(Boolean),
+    author,
+    authoredAt,
+    subject,
+  }
+}
+
+const MAX_HISTORY_CURSOR_LENGTH = 128 * 1024
+const MAX_HISTORY_FRONTIER = 2_048
+
+function encodeHistoryCursor(frontier: readonly string[]): string {
+  if (frontier.length === 0 || frontier.length > MAX_HISTORY_FRONTIER) {
+    throw new Error('Git history continuation frontier is invalid')
+  }
+  return Buffer.from(JSON.stringify({ version: 1, frontier }), 'utf8').toString(
+    'base64url',
+  )
+}
+
+function decodeHistoryCursor(cursor: string): readonly string[] {
+  if (!cursor || cursor.length > MAX_HISTORY_CURSOR_LENGTH) {
+    throw new Error('Invalid Git history cursor')
+  }
+  try {
+    const parsed = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8')) as {
+      version?: unknown
+      frontier?: unknown
+    }
+    if (parsed.version !== 1 || !isHistoryFrontier(parsed.frontier)) {
+      throw new Error('invalid payload')
+    }
+    return parsed.frontier
+  } catch {
+    throw new Error('Invalid Git history cursor')
+  }
+}
+
+function isHistoryFrontier(value: unknown): value is string[] {
+  return (
+    Array.isArray(value) &&
+    value.length > 0 &&
+    value.length <= MAX_HISTORY_FRONTIER &&
+    value.every(
+      (hash: unknown): hash is string =>
+        typeof hash === 'string' && /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i.test(hash),
+    ) &&
+    new Set(value).size === value.length
+  )
+}
+
 function changedFile(
   root: HostPath,
+  repositoryPrefix: string,
   file: ParsedStatus,
   stats: ReadonlyMap<string, { additions: number; deletions: number }>,
 ): GitChangedFile {
   const counts = stats.get(file.path) ?? { additions: 0, deletions: 0 }
-  return {
+  const base = {
     ...file,
-    path: hostPath(root.hostId, `${root.path}/${file.path}`),
-    additions: counts.additions,
-    deletions: counts.deletions,
+    path: projectFilePath(root, repositoryPrefix, file.path),
+  }
+  if (!stats.has(file.path) && file.untracked) return base
+  return { ...base, additions: counts.additions, deletions: counts.deletions }
+}
+
+function emptyChanges(
+  repositoryState: 'unborn' | 'not-git',
+  branchPointUnavailableReason: string,
+): GitChanges {
+  return {
+    repositoryState,
+    workingTree: [],
+    branchPoint: [],
+    branchPointAvailable: false,
+    branchPointUnavailableReason,
+  }
+}
+
+function errorMessage(reason: unknown): string {
+  return reason instanceof Error ? reason.message : String(reason)
+}
+
+function isInsideProject(repositoryPath: string, repositoryPrefix: string): boolean {
+  return !repositoryPrefix || repositoryPath.startsWith(repositoryPrefix)
+}
+
+function projectFilePath(
+  projectRoot: HostPath,
+  repositoryPrefix: string,
+  repositoryPath: string,
+): HostPath {
+  if (!isInsideProject(repositoryPath, repositoryPrefix)) {
+    throw new Error('Git returned a path outside the active project')
+  }
+  const relativePath = repositoryPrefix
+    ? repositoryPath.slice(repositoryPrefix.length)
+    : repositoryPath
+  return hostPath(
+    projectRoot.hostId,
+    projectRoot.path === '/' ? `/${relativePath}` : `${projectRoot.path}/${relativePath}`,
+  )
+}
+
+async function addUntrackedStats(
+  projectRoot: HostPath,
+  repositoryPrefix: string,
+  files: readonly ParsedStatus[],
+  stats: Map<string, { additions: number; deletions: number }>,
+  host: ProjectHost,
+): Promise<void> {
+  const untracked = files.filter((file) => file.untracked && !stats.has(file.path))
+  // Keep remote SFTP pressure bounded while still avoiding one-round-trip-at-a-time
+  // latency for the common many-new-files agent workflow.
+  for (let index = 0; index < untracked.length; index += 8) {
+    await Promise.all(
+      untracked.slice(index, index + 8).map(async (file) => {
+        const relativePath = repositoryPrefix
+          ? file.path.slice(repositoryPrefix.length)
+          : file.path
+        const result = await host.exec('git', [
+          '-C',
+          projectRoot.path,
+          'diff',
+          '--no-ext-diff',
+          '--no-textconv',
+          '--no-index',
+          '--numstat',
+          '-z',
+          '--',
+          '/dev/null',
+          relativePath,
+        ])
+        if (result.code !== 0 && result.code !== 1) return
+        if (!result.stdout) {
+          stats.set(file.path, { additions: 0, deletions: 0 })
+          return
+        }
+        const firstTab = result.stdout.indexOf('\t')
+        const secondTab = result.stdout.indexOf('\t', firstTab + 1)
+        if (firstTab < 0 || secondTab < 0) return
+        const added = result.stdout.slice(0, firstTab)
+        const deleted = result.stdout.slice(firstTab + 1, secondTab)
+        if (added === '-' || deleted === '-') return
+        stats.set(file.path, {
+          additions: Number(added),
+          deletions: Number(deleted),
+        })
+      }),
+    )
   }
 }

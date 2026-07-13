@@ -52,7 +52,8 @@ interface Entry {
 
 export class PtySupervisor {
   private readonly entries = new Map<string, Entry>()
-  private readonly pendingIds = new Set<string>()
+  private readonly pendingIds = new Map<string, symbol>()
+  private generation = 0
   private readonly globalExitListeners = new Set<
     (info: ManagedPty, exit: PtyExit) => void
   >()
@@ -63,7 +64,9 @@ export class PtySupervisor {
     if (this.entries.has(sessionId) || this.pendingIds.has(sessionId)) {
       throw new Error(`PTY session '${sessionId}' is already active`)
     }
-    this.pendingIds.add(sessionId)
+    const pendingToken = Symbol(sessionId)
+    const generation = this.generation
+    this.pendingIds.set(sessionId, pendingToken)
 
     const resumed = req.resume === true && req.adapter.supportsResume
     let pty: PtyProcess
@@ -91,7 +94,14 @@ export class PtySupervisor {
         rows: req.rows,
       })
     } finally {
-      this.pendingIds.delete(sessionId)
+      if (this.pendingIds.get(sessionId) === pendingToken) {
+        this.pendingIds.delete(sessionId)
+      }
+    }
+
+    if (this.generation !== generation) {
+      pty.kill()
+      throw new Error(`PTY session '${sessionId}' was cancelled before it started`)
     }
 
     const info: ManagedPty = {
@@ -123,6 +133,7 @@ export class PtySupervisor {
     )
     entry.disposers.push(
       pty.onExit((exit) => {
+        if (entry.exited) return
         entry.exited = true
         try {
           for (const cb of entry.exitListeners) cb(exit)
@@ -182,6 +193,8 @@ export class PtySupervisor {
 
   /** Kill every session and release listeners. */
   disposeAll(): void {
+    this.generation++
+    this.pendingIds.clear()
     for (const entry of this.entries.values()) {
       for (const dispose of entry.disposers) void dispose()
       if (!entry.exited) entry.pty.kill()

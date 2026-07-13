@@ -6,18 +6,28 @@ export interface GitChangedFile {
   readonly unstaged: boolean
   readonly untracked: boolean
   readonly conflicted: boolean
-  readonly additions: number
-  readonly deletions: number
+  /** Omitted when Git reports a binary/otherwise uncountable change. */
+  readonly additions?: number
+  readonly deletions?: number
 }
 
 export interface GitChanges {
+  /** Distinguishes an empty repository/view from a clean working tree. */
+  readonly repositoryState: GitRepositoryState
   readonly workingTree: readonly GitChangedFile[]
   readonly branchPoint: readonly GitChangedFile[]
+  /** False when no meaningful merge base can be established. */
+  readonly branchPointAvailable: boolean
+  readonly branchPointUnavailableReason?: string
 }
+
+export type GitRepositoryState = 'ready' | 'unborn' | 'not-git'
 
 export interface GitCommitSummary {
   readonly hash: string
   readonly shortHash: string
+  /** Direct parents, ordered as recorded by the commit object. */
+  readonly parents: readonly string[]
   readonly author: string
   readonly authoredAt: string
   readonly subject: string
@@ -25,14 +35,17 @@ export interface GitCommitSummary {
 
 export interface GitHistoryRequest {
   readonly root: HostPath
-  readonly skip: number
   readonly limit: number
+  /** Opaque continuation frontier returned by the preceding page. */
+  readonly cursor?: string
   readonly path?: HostPath
 }
 
 export interface GitHistoryPage {
+  readonly repositoryState: GitRepositoryState
   readonly commits: readonly GitCommitSummary[]
   readonly hasMore: boolean
+  readonly nextCursor?: string
 }
 
 export interface GitCommitFile {
@@ -51,8 +64,10 @@ export interface GitCommitDetailRequest {
   readonly hash: string
 }
 
-export interface GitBlameLine {
-  readonly line: number
+/** Consecutive lines sharing commit metadata, compact across IPC and state. */
+export interface GitBlameRun {
+  readonly startLine: number
+  readonly lineCount: number
   readonly hash: string
   readonly author: string
   readonly summary: string

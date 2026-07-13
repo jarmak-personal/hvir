@@ -56,6 +56,7 @@ let shutdownComplete = false
 function createWindow(
   discardRendererResources: () => void = () => {
     ptySupervisor?.disposeAll()
+    sshPrompter?.cancelAll()
     htmlPreviews.clear()
   },
 ): BrowserWindow {
@@ -562,11 +563,9 @@ async function runSmoke(): Promise<number> {
     const reconnectTerminalStatus = await withTimeout(
       (async () => {
         const firstTerminal = supervisor.list()[0]
-        if (!firstTerminal) throw new Error('initial terminal disappeared before reconnect')
-        supervisor.write(
-          firstTerminal.id,
-          "printf '\\033[41m\\033[2J\\033[H\\033[0m'\n",
-        )
+        if (!firstTerminal)
+          throw new Error('initial terminal disappeared before reconnect')
+        supervisor.write(firstTerminal.id, "printf '\\033[41m\\033[2J\\033[H\\033[0m'\n")
         await win.webContents.executeJavaScript(`
           new Promise((resolve, reject) => {
             const deadline = Date.now() + 5000;
@@ -654,7 +653,8 @@ async function runSmoke(): Promise<number> {
             poll();
           })
         `)
-        if (typeof status !== 'string') throw new Error('terminal reconnect returned no status')
+        if (typeof status !== 'string')
+          throw new Error('terminal reconnect returned no status')
         return status
       })(),
       'terminal reconnect lifecycle timed out',
@@ -733,8 +733,11 @@ async function runSmoke(): Promise<number> {
               openWhenReady('/test/fixtures/rendered.md', () => {
                 const waitForRendered = () => {
                   const tasks = document.querySelectorAll('.task-list-item-checkbox');
+                  const image = document.querySelector('img[alt="Repository image fixture"]');
                   if (document.querySelector('.mermaid-diagram svg') &&
                       document.querySelector('.markdown-body .shiki') &&
+                      image?.getAttribute('src')?.startsWith('blob:') &&
+                      image.complete && image.naturalWidth > 0 &&
                       tasks.length === 4 &&
                       document.querySelectorAll('.task-list-item-checkbox:checked').length === 1) {
                     if (document.querySelectorAll('.task-list-item-checkbox.inapplicable').length !== 1) {
@@ -744,7 +747,7 @@ async function runSmoke(): Promise<number> {
                     body?.dispatchEvent(new Event('scroll', { bubbles: true }));
                     return setTimeout(() => {
                       if (document.querySelector('.mermaid-diagram svg')) {
-                        resolve('Shiki + Mermaid + task lists + stable scroll');
+                        resolve('Shiki + Mermaid + ProjectHost image + task lists + stable scroll');
                       } else {
                         reject(new Error('scroll destroyed Mermaid diagram'));
                       }
@@ -1225,16 +1228,15 @@ async function runSmoke(): Promise<number> {
           if (!files || !git || !harness || !directory) {
             return reject(new Error('stable rail navigation controls missing'));
           }
-          if (directory.getAttribute('aria-expanded') !== 'true') {
-            directory.querySelector(':scope > .directory-row')?.click();
-          }
+          const directoryRow = directory.querySelector(':scope > .directory-row');
+          if (directoryRow?.getAttribute('aria-expanded') !== 'true') directoryRow?.click();
           const tabsBefore = document.querySelectorAll('.viewer-tab').length;
           git.click();
           files.click();
           git.click();
           files.click();
           requestAnimationFrame(() => {
-            if (!directory.isConnected || directory.getAttribute('aria-expanded') !== 'true') {
+            if (!directory.isConnected || directoryRow?.getAttribute('aria-expanded') !== 'true') {
               return reject(new Error('Files state was lost while switching rail views'));
             }
             if (document.querySelectorAll('.viewer-tab').length !== tabsBefore) {

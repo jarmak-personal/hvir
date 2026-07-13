@@ -261,6 +261,15 @@ button {
   cursor: pointer;
 }
 
+.viewer-operation-error {
+  max-width: 180px;
+  overflow: hidden;
+  color: #dc7b82;
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .mode-control {
   display: flex;
   overflow: hidden;
@@ -548,6 +557,22 @@ body.pane-resizing-row * {
   color: #e5e8ed;
 }
 
+.git-tabs button:disabled {
+  opacity: 0.5;
+}
+
+.git-empty,
+.git-detail-loading {
+  padding: 14px 10px;
+  color: #747e8d;
+  font-size: 11px;
+}
+
+.git-detail-loading {
+  padding: 6px 10px 9px;
+  background: #101318;
+}
+
 .git-group h3 {
   display: flex;
   justify-content: space-between;
@@ -607,18 +632,76 @@ body.pane-resizing-row * {
   text-align: left;
 }
 
+.git-commit-entry {
+  position: absolute;
+  right: 0;
+  left: 0;
+}
+
+.git-scroll.history-active {
+  overflow: hidden;
+  padding-bottom: 0;
+}
+
+.git-history {
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.git-history-viewport {
+  min-height: 80px;
+  flex: 1;
+  overflow: auto;
+}
+
+.git-history-window,
+.git-detail-files-window,
+.git-change-files-window {
+  position: relative;
+}
+
+.git-history-window .git-commit,
+.git-detail-files-window .git-file,
+.git-change-files-window .git-file {
+  height: 100%;
+}
+
+.git-commit.active {
+  background: #20242c;
+  box-shadow: inset 2px 0 #4d8fd8;
+}
+
 .git-commit-detail {
+  max-height: 280px;
+  flex: 0 0 auto;
   margin: 0 8px 7px;
   border-left: 2px solid #343a45;
   background: #101318;
 }
 
 .git-commit-detail p {
+  max-height: 84px;
   margin: 0;
   padding: 8px 10px;
+  overflow: auto;
   color: #9ca5b2;
   font-size: 11px;
   white-space: pre-wrap;
+}
+
+.git-detail-files,
+.git-change-files {
+  position: relative;
+  overflow: auto;
+}
+
+.git-detail-files .git-file,
+.git-change-files .git-file {
+  position: absolute;
+  right: 0;
+  left: 0;
 }
 
 .git-commit span {
@@ -899,6 +982,13 @@ body.pane-resizing-row * {
   color: #737d8c;
 }
 
+.tree-symlink {
+  width: 9px;
+  flex: 0 0 9px;
+  color: #778b9f;
+  font-size: 10px;
+}
+
 .tree-error {
   padding-top: 3px;
   padding-bottom: 6px;
@@ -925,12 +1015,27 @@ body.pane-resizing-row * {
 }
 
 .source-shell,
-.diff-shell {
+.diff-shell,
+.large-file-shell {
   width: 100%;
   height: 100%;
   min-height: 0;
   display: flex;
   flex-direction: column;
+}
+
+.large-file-preview {
+  flex: 1;
+  min-height: 0;
+  margin: 0;
+  overflow: auto;
+  padding: 12px 14px 48px;
+  background: #15181e;
+  color: #c9ced7;
+  font-family: 'JetBrains Mono', 'SFMono-Regular', Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.55;
+  white-space: pre;
 }
 
 .source-meta,
@@ -1009,6 +1114,25 @@ body.pane-resizing-row * {
 
 .markdown-body a {
   color: #70a9e8;
+}
+
+.markdown-body img {
+  max-width: 100%;
+  height: auto;
+}
+
+.markdown-image-loading {
+  visibility: hidden;
+}
+
+.markdown-image-unavailable {
+  display: inline-block;
+  padding: 3px 7px;
+  border: 1px solid #343a45;
+  border-radius: 4px;
+  color: #8c96a5;
+  background: #111419;
+  font-size: 11px;
 }
 
 .markdown-body code {
@@ -1210,6 +1334,27 @@ body.pane-resizing-row * {
 
 .terminal-container canvas {
   display: block;
+}
+
+.terminal-status {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.terminal-restart {
+  padding: 2px 6px;
+  border: 1px solid #3b4654;
+  border-radius: 3px;
+  background: #191e25;
+  color: #aeb7c3;
+  font-size: 9px;
+}
+
+.terminal-restart:hover {
+  border-color: #4d8fd8;
+  color: #edf0f5;
 }
 
 @media (max-width: 1000px) {

@@ -10,7 +10,7 @@ import type { HostPath } from './host-path'
 import type { ExecResult } from './fs-types'
 import type { GitDiffRequest, GitDiffResponse } from './viewer-types'
 import type {
-  GitBlameLine,
+  GitBlameRun,
   GitBlameRequest,
   GitChanges,
   GitChangesRequest,
@@ -116,6 +116,6 @@ export interface GitWorkerProtocol {
   >
   readonly [GIT_BLAME_TYPE]: WorkerOperation<
     GitBlameRequest & { readonly root: HostPath },
-    readonly GitBlameLine[]
+    readonly GitBlameRun[]
   >
 }

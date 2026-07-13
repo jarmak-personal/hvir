@@ -37,6 +37,7 @@ export function FileTree({
             root={root}
             rootLabel={basenameHostPath(root) || root.path}
             loadEntries={loadProjectEntries}
+            resolveEntry={resolveProjectEntry}
             refreshVersion={refreshVersion}
             selected={selected}
             onOpenFile={onOpen}
@@ -101,4 +102,11 @@ export function SessionBar({
 
 function loadProjectEntries(path: HostPath) {
   return window.hvir.invoke('fs:readdir', { path }).then(unwrapOperation)
+}
+
+function resolveProjectEntry(path: HostPath) {
+  return window.hvir
+    .invoke('fs:resolve-entry', { path })
+    .then(unwrapOperation)
+    .then((result) => result.type)
 }

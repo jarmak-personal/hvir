@@ -4,6 +4,7 @@ import {
   HTML_SANDBOX,
   resolveRenderedLink,
   renderedFileType,
+  unwrapOperation,
   type CreateHtmlPreviewResponse,
   type HostPath,
 } from '../../../shared'
@@ -50,6 +51,7 @@ interface RenderedViewProps {
   readonly scrollTop: number
   readonly onScroll: (scrollTop: number) => void
   readonly onOpenPath: (path: HostPath) => void
+  readonly refreshVersion: number
 }
 
 export function RenderedView({
@@ -58,6 +60,7 @@ export function RenderedView({
   scrollTop,
   onScroll,
   onOpenPath,
+  refreshVersion,
 }: RenderedViewProps): ReactElement {
   const renderGeneration = useDevRendererGeneration()
   const type = renderedFileType(path)
@@ -72,6 +75,8 @@ export function RenderedView({
         content={content}
         format={type}
         renderGeneration={renderGeneration}
+        scrollTop={scrollTop}
+        onScroll={onScroll}
       />
     )
   }
@@ -87,6 +92,7 @@ export function RenderedView({
         onScroll={onScroll}
         onOpenPath={onOpenPath}
         renderGeneration={renderGeneration}
+        refreshVersion={refreshVersion}
       />
     )
   }
@@ -150,6 +156,7 @@ function MarkdownView({
   onScroll,
   onOpenPath,
   renderGeneration,
+  refreshVersion,
 }: RenderedViewProps & { readonly renderGeneration: number }): ReactElement {
   const container = useRef<HTMLDivElement>(null)
   const scrollTopRef = useRef(scrollTop)
@@ -160,12 +167,15 @@ function MarkdownView({
   useEffect(() => {
     const worker = getMarkdownWorker()
     const id = ++renderRequestId
+    setHtml('')
+    setError(undefined)
     const onMessage = (event: MessageEvent<MarkdownRenderResponse>): void => {
       if (event.data.id !== id) return
       if (event.data.ok) {
         setHtml(event.data.html)
         setError(undefined)
       } else {
+        setHtml('')
         setError(event.data.error)
       }
     }
@@ -179,17 +189,26 @@ function MarkdownView({
     if (!root || !html) return
     root.innerHTML = html
     root.scrollTop = scrollTopRef.current
-  }, [html])
+  }, [html, refreshVersion])
 
   useEffect(() => {
     const root = container.current
     if (!root || !html) return
     let cancelled = false
+    const objectUrls: string[] = []
+    for (const image of root.querySelectorAll<HTMLImageElement>('img[src]')) {
+      void hydrateRepositoryImage(path, image, () => cancelled).then((objectUrl) => {
+        if (!objectUrl) return
+        if (cancelled) URL.revokeObjectURL(objectUrl)
+        else objectUrls.push(objectUrl)
+      })
+    }
     void renderMermaidNodes(root, () => cancelled)
     return () => {
       cancelled = true
+      for (const objectUrl of objectUrls) URL.revokeObjectURL(objectUrl)
     }
-  }, [html])
+  }, [html, path, refreshVersion])
 
   if (error) return <div className="viewer-empty error">{error}</div>
   if (!html) return <div className="viewer-empty">Rendering markdown…</div>
@@ -220,6 +239,41 @@ function MarkdownView({
       onClick={followLink}
     />
   )
+}
+
+async function hydrateRepositoryImage(
+  documentPath: HostPath,
+  image: HTMLImageElement,
+  cancelled: () => boolean,
+): Promise<string | undefined> {
+  const source = image.getAttribute('src')
+  if (!source) return undefined
+  const target = resolveRenderedLink(documentPath, source)
+  if (target.kind !== 'file') return undefined
+  image.removeAttribute('src')
+  image.classList.add('markdown-image-loading')
+  try {
+    const asset = unwrapOperation(
+      await window.hvir.invoke('fs:read-asset', { path: target.path }),
+    )
+    if (cancelled()) return undefined
+    const objectUrl = URL.createObjectURL(
+      new Blob([new Uint8Array(asset.data)], { type: asset.mimeType }),
+    )
+    image.src = objectUrl
+    image.classList.remove('markdown-image-loading')
+    return objectUrl
+  } catch (reason) {
+    if (cancelled()) return undefined
+    const unavailable = document.createElement('span')
+    unavailable.className = 'markdown-image-unavailable'
+    unavailable.textContent = image.alt
+      ? `[Image unavailable: ${image.alt}]`
+      : '[Repository image unavailable]'
+    unavailable.title = reason instanceof Error ? reason.message : String(reason)
+    image.replaceWith(unavailable)
+    return undefined
+  }
 }
 
 function StandaloneMermaid({
@@ -289,16 +343,23 @@ function StructuredDataView({
   content,
   format,
   renderGeneration,
+  scrollTop,
+  onScroll,
 }: {
   readonly content: string
   readonly format: 'json' | 'yaml'
   readonly renderGeneration: number
+  readonly scrollTop: number
+  readonly onScroll: (scrollTop: number) => void
 }): ReactElement {
+  const container = useRef<HTMLDivElement>(null)
+  const scrollTopRef = useRef(scrollTop)
   const [document, setDocument] = useState<{
     readonly id: number
     readonly root: JsonNodeDescriptor
   }>()
   const [error, setError] = useState<string>()
+  scrollTopRef.current = scrollTop
 
   useEffect(() => {
     const documentId = ++jsonDocumentId
@@ -322,6 +383,12 @@ function StructuredDataView({
     }
   }, [content, format, renderGeneration])
 
+  useEffect(() => {
+    if (document && container.current) {
+      container.current.scrollTop = scrollTopRef.current
+    }
+  }, [document])
+
   if (error)
     return (
       <div className="viewer-empty error">
@@ -331,7 +398,11 @@ function StructuredDataView({
   if (!document)
     return <div className="viewer-empty">Parsing {format.toUpperCase()}…</div>
   return (
-    <div className="rendered-scroll json-tree">
+    <div
+      className="rendered-scroll json-tree"
+      ref={container}
+      onScroll={(event) => onScroll(event.currentTarget.scrollTop)}
+    >
       <JsonNode node={document.root} documentId={document.id} initiallyOpen />
     </div>
   )

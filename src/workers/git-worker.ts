@@ -57,7 +57,7 @@ async function handle(request: WorkerRequest): Promise<void> {
     const raw = request.payload as Record<string, unknown>
     if (!isRawPath(raw['root'])) throw new Error('invalid git root')
     const root = decodePath(raw['root'])
-    const engine = new GitEngine(new ProxyGitHost(root.hostId))
+    const engine = new GitEngine(new ProxyGitHost(root.hostId), root)
     let result: unknown
     if (request.type === GIT_DIFF_INPUTS_TYPE && isPayload(request.payload)) {
       const path = decodePath(request.payload.path)
@@ -72,7 +72,8 @@ async function handle(request: WorkerRequest): Promise<void> {
     } else if (request.type === GIT_HISTORY_TYPE) {
       const path = isRawPath(raw['path']) ? decodePath(raw['path']) : undefined
       if (path) assertProjectPath(path, root)
-      result = await engine.history(root, Number(raw['skip']), Number(raw['limit']), path)
+      const cursor = typeof raw['cursor'] === 'string' ? raw['cursor'] : undefined
+      result = await engine.history(root, Number(raw['limit']), cursor, path)
     } else if (request.type === GIT_BLAME_TYPE && isRawPath(raw['path'])) {
       const path = decodePath(raw['path'])
       assertProjectPath(path, root)

@@ -6,6 +6,24 @@ export type RenderedLinkTarget =
   | { readonly kind: 'external'; readonly url: string }
   | { readonly kind: 'blocked' }
 
+const REPOSITORY_IMAGE_MIME_TYPES: Readonly<Record<string, string>> = {
+  avif: 'image/avif',
+  bmp: 'image/bmp',
+  gif: 'image/gif',
+  ico: 'image/x-icon',
+  jpeg: 'image/jpeg',
+  jpg: 'image/jpeg',
+  png: 'image/png',
+  svg: 'image/svg+xml',
+  webp: 'image/webp',
+}
+
+/** MIME allow-list for image assets that may cross the ProjectHost IPC seam. */
+export function repositoryImageMimeType(path: string): string | undefined {
+  const extension = /\.([^./]+)$/.exec(path)?.[1]?.toLowerCase()
+  return extension ? REPOSITORY_IMAGE_MIME_TYPES[extension] : undefined
+}
+
 /** Resolve an untrusted rendered-document href without involving browser navigation. */
 export function resolveRenderedLink(
   documentPath: HostPath,

@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { StringDecoder } from 'node:string_decoder'
 
 import {
@@ -29,8 +29,10 @@ import type {
   ExecStreamHandle,
   ProjectHost,
   PtyProcess,
+  ReadFileOptions,
   SpawnPtyOptions,
   WatchOptions,
+  WriteFileOptions,
 } from './project-host'
 import type { SshAliasConfig } from './ssh-config'
 
@@ -61,6 +63,14 @@ export interface SshHostOptions {
   readonly watchdogIntervalMs?: number
   /** Lightweight cache/tree refresh cadence, independent of recursive snapshots. */
   readonly refreshPulseIntervalMs?: number
+  /** Idle delay between bounded recursive safety-scan cycles. */
+  readonly slowScanIntervalMs?: number
+  /** Maximum adaptive idle delay between unchanged safety-scan cycles. */
+  readonly maxSlowScanIntervalMs?: number
+  /** Maximum directories enumerated in one polling tick. */
+  readonly pollDirectoryBatchSize?: number
+  /** Local window for catching multiple writes hidden by SFTP's second-level mtime. */
+  readonly fingerprintObservationWindowMs?: number
   readonly trustedHostKey?: () => string | undefined
   readonly rememberHostKey?: (fingerprint: string) => Promise<void>
   /** Test seam for transport lifecycle races; production always constructs ssh2.Client. */
@@ -68,12 +78,14 @@ export interface SshHostOptions {
 }
 
 let nextRemotePid = -1
+const GIT_PRIORITY_FILES = new Set(['HEAD', 'index', 'packed-refs'])
 
 export class SshHost implements ProjectHost {
   readonly hostId: HostId
   private state: HostConnectionState = 'disconnected'
   private tier: HostWatchTier = 'polling'
   private client?: Client
+  private clientGeneration = 0
   private connecting?: Promise<void>
   private cancelConnecting?: (error: Error) => void
   private disposed = false
@@ -88,6 +100,14 @@ export class SshHost implements ProjectHost {
   private readonly cache = new Map<
     string,
     { expires: number; value: Buffer | DirEntry[] }
+  >()
+  /** Files fetched by the viewer and worth content-fingerprinting while polling. */
+  private readonly pollingFiles = new Set<string>()
+  /** Last content actually delivered to a reader, for optimistic remote saves. */
+  private readonly readDigests = new Map<string, string>()
+  private readonly fingerprintObservations = new Map<
+    string,
+    { metadata: string; digest: string; observeUntil: number }
   >()
 
   constructor(private readonly options: SshHostOptions) {
@@ -127,6 +147,7 @@ export class SshHost implements ProjectHost {
   }
   async dispose(): Promise<void> {
     this.disposed = true
+    this.clientGeneration++
     this.cancelConnecting?.(new Error('SSH connection cancelled'))
     this.cancelConnecting = undefined
     if (this.reconnectTimer) {
@@ -141,6 +162,9 @@ export class SshHost implements ProjectHost {
     const sftp = this.sftpSession
     this.sftpSession = undefined
     this.cache.clear()
+    this.pollingFiles.clear()
+    this.readDigests.clear()
+    this.fingerprintObservations.clear()
     this.resolvedShell = undefined
     this.setState('disconnected')
     void sftp?.then(
@@ -157,7 +181,13 @@ export class SshHost implements ProjectHost {
         client.removeListener('close', finish)
         resolve()
       }
-      const timer = setTimeout(finish, 1_000)
+      const timer = setTimeout(() => {
+        try {
+          client.destroy()
+        } finally {
+          finish()
+        }
+      }, 1_000)
       client.once('close', finish)
       try {
         client.end()
@@ -325,17 +355,26 @@ export class SshHost implements ProjectHost {
     const data = new Set<(v: string) => void>(),
       exits = new Set<(v: { exitCode: number; signal: number | undefined }) => void>()
     const decoder = new StringDecoder('utf8')
+    let exited = false
+    const reportExit = (exitCode: number): void => {
+      if (exited) return
+      exited = true
+      for (const cb of exits) cb({ exitCode, signal: undefined })
+    }
     channel.on('data', (b: Buffer) => {
       const value = decoder.write(b)
       if (value) for (const cb of data) cb(value)
     })
     channel.on('exit', (code: number | null) => {
-      for (const cb of exits) cb({ exitCode: code ?? 0, signal: undefined })
+      reportExit(code ?? 0)
     })
     channel.on('close', () => {
       this.channels.delete(channel)
       const final = decoder.end()
       if (final) for (const cb of data) cb(final)
+      // Some SSH servers close a PTY channel without sending exit-status.
+      // The supervisor still needs one terminal lifecycle event, exactly once.
+      reportExit(255)
     })
     return {
       pid: nextRemotePid--,
@@ -347,22 +386,80 @@ export class SshHost implements ProjectHost {
     }
   }
 
-  async readFile(path: HostPath): Promise<Buffer> {
+  async readFile(path: HostPath, opts: ReadFileOptions = {}): Promise<Buffer> {
     this.assertPath(path)
+    if (opts.pollingInterest) this.pollingFiles.add(path.path)
     const key = `f:${path.path}`,
       cached = this.cached<Buffer>(key)
-    if (cached) return Buffer.from(cached)
+    if (cached) {
+      if (opts.pollingInterest) this.readDigests.set(path.path, contentDigest(cached))
+      return Buffer.from(cached)
+    }
     const value = await this.sftp<Buffer>((s, done) => s.readFile(path.path, done))
     this.cache.set(key, { expires: Date.now() + 2_000, value })
+    if (opts.pollingInterest) this.readDigests.set(path.path, contentDigest(value))
     return Buffer.from(value)
   }
-  async readTextFile(path: HostPath, encoding: BufferEncoding = 'utf8'): Promise<string> {
-    return (await this.readFile(path)).toString(encoding)
+  async readTextFile(
+    path: HostPath,
+    encoding: BufferEncoding = 'utf8',
+    opts: ReadFileOptions = {},
+  ): Promise<string> {
+    return (await this.readFile(path, opts)).toString(encoding)
   }
-  async writeFile(path: HostPath, value: Uint8Array | string): Promise<void> {
+  async writeFile(
+    path: HostPath,
+    value: Uint8Array | string,
+    opts: WriteFileOptions = {},
+  ): Promise<void> {
     this.assertPath(path)
-    const data = typeof value === 'string' ? value : Buffer.from(value)
-    await this.sftp<void>((s, done) => s.writeFile(path.path, data, done))
+    const data = Buffer.from(value)
+    const parent = remoteParent(path.path)
+    const basename = path.path.slice(parent === '/' ? 1 : parent.length + 1)
+    const temporary = `${parent === '/' ? '' : parent}/.${basename}.hvir-${randomUUID()}.tmp`
+    let mode: number | undefined
+    try {
+      const attrs = await this.sftp<import('ssh2').Stats>((s, done) =>
+        s.lstat(path.path, done),
+      )
+      mode = attrs.mode & 0o777
+    } catch (reason) {
+      if (!isNoSuchFile(reason)) throw reason
+    }
+    const expectedDigest = this.readDigests.get(path.path)
+    try {
+      await this.sftp<void>((s, done) =>
+        s.writeFile(temporary, data, mode === undefined ? {} : { mode }, done),
+      )
+      // Revalidate after uploading the sibling temporary so an external edit
+      // during a slow transfer cannot be silently replaced by the rename.
+      if (opts.expectedMtimeMs !== undefined) {
+        const currentAttrs = await this.sftp<import('ssh2').Stats>((s, done) =>
+          s.lstat(path.path, done),
+        )
+        if (currentAttrs.mtime * 1_000 !== opts.expectedMtimeMs) {
+          throw fileChangedError(true)
+        }
+      }
+      if (expectedDigest !== undefined) {
+        const current = await this.sftp<Buffer>((s, done) => s.readFile(path.path, done))
+        if (contentDigest(current) !== expectedDigest) throw fileChangedError(true)
+      }
+      try {
+        // OpenSSH's extension has POSIX replacement semantics. Standard SFTP
+        // rename is retained as a fallback for non-OpenSSH servers.
+        await this.sftp<void>((s, done) =>
+          s.ext_openssh_rename(temporary, path.path, done),
+        )
+      } catch {
+        await this.sftp<void>((s, done) => s.rename(temporary, path.path, done))
+      }
+    } catch (reason) {
+      await this.sftp<void>((s, done) => s.unlink(temporary, done)).catch(() => undefined)
+      throw reason
+    }
+    this.readDigests.set(path.path, contentDigest(data))
+    this.fingerprintObservations.delete(path.path)
     this.invalidate(path.path)
   }
   async readdir(path: HostPath): Promise<DirEntry[]> {
@@ -412,7 +509,7 @@ export class SshHost implements ProjectHost {
       const pulse = (): void => {
         if (stopped || this.state !== 'connected') return
         this.invalidate(path.path)
-        onEvent({ type: 'change', path })
+        onEvent({ type: 'change', path, synthetic: 'refresh' })
         pulseTimer = setTimeout(pulse, pulseIntervalMs)
       }
       pulseTimer = setTimeout(pulse, pulseIntervalMs)
@@ -439,7 +536,18 @@ export class SshHost implements ProjectHost {
   private async open(): Promise<void> {
     this.promptedDuringConnect = false
     const client = this.options.clientFactory?.() ?? new Client()
+    const generation = ++this.clientGeneration
+    const previousClient = this.client
     this.client = client
+    this.sftpSession = undefined
+    if (previousClient && previousClient !== client) {
+      try {
+        previousClient.destroy()
+      } catch {
+        // A failed/stale transport is best-effort cleanup; its generation is
+        // already unable to affect the replacement.
+      }
+    }
     const config = this.connectConfig()
     await new Promise<void>((resolve, reject) => {
       let ready = false
@@ -455,9 +563,17 @@ export class SshHost implements ProjectHost {
         ready = true
         finish()
       })
-      client.once('error', (error) => finish(error))
+      // ssh2 reports agent socket/signing failures through Client's `error`
+      // event and then intentionally continues the auth ladder. Keep a
+      // persistent listener so those errors neither reject open() nor consume
+      // the only listener before a later fatal error.
+      client.on('error', (error) => {
+        if (!ready && isRecoverableAuthenticationError(error)) return
+        if (!ready) finish(error)
+      })
       client.on('close', () => {
-        if (this.client === client) {
+        const current = this.client === client && this.clientGeneration === generation
+        if (current) {
           this.client = undefined
           this.sftpSession = undefined
         }
@@ -465,29 +581,55 @@ export class SshHost implements ProjectHost {
           finish(new Error('SSH connection closed before authentication completed'))
           return
         }
-        if (ready && !this.disposed) this.scheduleReconnect()
+        if (current && !this.disposed) this.scheduleReconnect()
       })
-      client.connect(config)
+      try {
+        client.connect(config)
+      } catch (reason) {
+        finish(asError(reason))
+      }
     }).finally(() => {
       this.cancelConnecting = undefined
     })
+    if (this.client !== client || this.clientGeneration !== generation) {
+      throw new Error('SSH connection was replaced before it became ready')
+    }
     this.reconnectAttempt = 0
     this.setState('connected')
-    this.tier =
-      (await this.exec('sh', ['-lc', 'command -v inotifywait >/dev/null'])).code === 0
-        ? 'inotify'
-        : 'polling'
-    this.notifyState()
+    const probe = new AbortController()
+    const probeTimer = setTimeout(() => probe.abort(), 5_000)
+    try {
+      this.tier =
+        (
+          await this.exec('sh', ['-lc', 'command -v inotifywait >/dev/null'], {
+            signal: probe.signal,
+            maxBuffer: 64 * 1024,
+          })
+        ).code === 0
+          ? 'inotify'
+          : 'polling'
+    } catch {
+      // Capability detection is an optimization. A healthy authenticated
+      // transport remains usable with the portable polling backend.
+      this.tier = 'polling'
+    } finally {
+      clearTimeout(probeTimer)
+    }
+    if (this.client === client && this.clientGeneration === generation) this.notifyState()
   }
 
   private connectConfig(): ConnectConfig {
     const { config, agentSocket, identities = [], prompter } = this.options
     const attempted = new Set<string>()
     let password: string | undefined
+    let authenticationCancelled = false
     const prompt = async (request: SshPrompt): Promise<readonly string[] | undefined> => {
       this.promptedDuringConnect = true
       const answers = await prompter.prompt(request)
-      if (!answers) this.reconnectSuppressed = true
+      if (!answers) {
+        authenticationCancelled = true
+        this.reconnectSuppressed = true
+      }
       return answers
     }
     return {
@@ -536,6 +678,7 @@ export class SshHost implements ProjectHost {
           value: import('ssh2').AnyAuthMethod | false,
         ) => void
         void (async (): Promise<import('ssh2').AnyAuthMethod | false> => {
+          if (authenticationCancelled) return false
           // `ssh2` passes null before the first authentication attempt. That
           // means the server's methods are not known yet, not that none are
           // available. Start our configured ladder and narrow it after the
@@ -561,6 +704,7 @@ export class SshHost implements ProjectHost {
                   prompts: [{ text: 'Passphrase', echo: false }],
                 })
               )?.[0]
+            if (authenticationCancelled) return false
             return {
               type: 'publickey',
               username: config.user,
@@ -701,11 +845,7 @@ export class SshHost implements ProjectHost {
         if (at < 0) continue
         const flags = line.slice(0, at),
           changed = line.slice(at + 1)
-        const type: WatchEventType = flags.includes('DELETE')
-          ? 'unlink'
-          : flags.includes('CREATE') || flags.includes('MOVED_TO')
-            ? 'add'
-            : 'change'
+        const type = inotifyEventType(flags)
         this.invalidate(changed)
         onEvent({ type, path: hostPath(this.hostId, changed) })
       }
@@ -749,48 +889,124 @@ export class SshHost implements ProjectHost {
     requestedIntervalMs?: number,
   ): Disposer {
     let stopped = false,
-      initialized = false,
-      previous = new Map<string, string>(),
+      priorityInitialized = false,
+      previousPriority = new Map<string, string>(),
+      slowInitialized = false,
+      previousSlow = new Map<string, string>(),
       timer: ReturnType<typeof setTimeout> | undefined,
       retryMs = requestedIntervalMs ?? this.options.pollIntervalMs ?? 2_000,
       lastError: string | undefined
     const intervalMs = requestedIntervalMs ?? this.options.pollIntervalMs ?? 2_000
+    const slowBaseMs = this.options.slowScanIntervalMs ?? Math.max(30_000, intervalMs * 5)
+    const slowMaxMs =
+      this.options.maxSlowScanIntervalMs ?? Math.max(5 * 60_000, slowBaseMs)
+    const directoryBatchSize = Math.max(
+      1,
+      Math.min(64, this.options.pollDirectoryBatchSize ?? 4),
+    )
+    let slowDelayMs = slowBaseMs
+    let nextSlowCycleAt = 0
+    let slowCycleActive = false
+    let slowQueue: string[] = []
+    let slowVisited = new Set<string>()
+    let slowSnapshot = new Map<string, string>()
+    let slowError: string | undefined
     const schedule = (delay: number): void => {
       if (stopped) return
       timer = setTimeout(() => void poll(), delay)
     }
+    const emitChanges = (
+      previous: Map<string, string>,
+      current: Map<string, string>,
+      initialized: boolean,
+    ): boolean => {
+      if (!initialized) return false
+      let changed = false
+      for (const [file, stamp] of current) {
+        if (previous.get(file) === stamp) continue
+        changed = true
+        this.invalidate(file)
+        onEvent({
+          type: previous.has(file)
+            ? 'change'
+            : stamp.startsWith('dir:')
+              ? 'addDir'
+              : 'add',
+          path: hostPath(this.hostId, file),
+        })
+      }
+      for (const [file, stamp] of previous) {
+        if (current.has(file)) continue
+        changed = true
+        this.fingerprintObservations.delete(file)
+        this.invalidate(file)
+        onEvent({
+          type: stamp.startsWith('dir:') ? 'unlinkDir' : 'unlink',
+          path: hostPath(this.hostId, file),
+        })
+      }
+      return changed
+    }
     const poll = async (): Promise<void> => {
       try {
-        const current = await this.pollSnapshot(path, opts)
+        const current = await this.pollPrioritySnapshot(path, opts)
         if (stopped) return
-        if (!initialized) {
+        if (!priorityInitialized) {
           this.invalidate(path.path)
-          onEvent({ type: 'change', path })
+          onEvent({ type: 'change', path, synthetic: 'refresh' })
         }
-        for (const [file, stamp] of current)
-          if (initialized && previous.get(file) !== stamp) {
-            this.invalidate(file)
-            onEvent({
-              type: previous.has(file)
-                ? 'change'
-                : stamp.startsWith('dir:')
-                  ? 'addDir'
-                  : 'add',
-              path: hostPath(this.hostId, file),
-            })
-          }
-        for (const [file, stamp] of previous)
-          if (!current.has(file)) {
-            this.invalidate(file)
-            onEvent({
-              type: stamp.startsWith('dir:') ? 'unlinkDir' : 'unlink',
-              path: hostPath(this.hostId, file),
-            })
-          }
-        previous = current
-        initialized = true
+        emitChanges(previousPriority, current, priorityInitialized)
+        previousPriority = current
+        priorityInitialized = true
         retryMs = intervalMs
         lastError = undefined
+
+        // Recursive safety coverage advances in small directory batches. The
+        // fast path above keeps fetched/open files and the root responsive;
+        // this cycle is only a backstop for silent/missed deep-tree events.
+        if (
+          opts.recursive !== false &&
+          (slowCycleActive || Date.now() >= nextSlowCycleAt)
+        ) {
+          if (!slowCycleActive) {
+            slowCycleActive = true
+            slowQueue = [path.path]
+            slowVisited = new Set([path.path])
+            slowSnapshot = new Map()
+          }
+          try {
+            await this.pollDirectoryBatch(
+              slowQueue,
+              slowVisited,
+              slowSnapshot,
+              opts,
+              directoryBatchSize,
+            )
+            if (!slowQueue.length) {
+              // Root entries and fetched files already belong to the priority
+              // map, so omit them from the slow diff to avoid duplicate events.
+              for (const file of current.keys()) slowSnapshot.delete(file)
+              for (const file of this.pollingFiles) {
+                slowSnapshot.delete(file)
+                previousSlow.delete(file)
+              }
+              const changed = emitChanges(previousSlow, slowSnapshot, slowInitialized)
+              previousSlow = slowSnapshot
+              slowInitialized = true
+              slowCycleActive = false
+              slowDelayMs = changed ? slowBaseMs : Math.min(slowMaxMs, slowDelayMs * 2)
+              nextSlowCycleAt = Date.now() + slowDelayMs
+              slowError = undefined
+            }
+          } catch (reason) {
+            const error = asError(reason)
+            if (error.message !== slowError) opts.onError?.(error)
+            slowError = error.message
+            slowCycleActive = false
+            slowDelayMs = Math.min(slowMaxMs, Math.max(slowBaseMs, slowDelayMs * 2))
+            nextSlowCycleAt = Date.now() + slowDelayMs
+          }
+        }
       } catch (e) {
         if (stopped) return
         const error = asError(e)
@@ -807,44 +1023,105 @@ export class SshHost implements ProjectHost {
       if (timer) clearTimeout(timer)
     }
   }
-  private async pollSnapshot(
+  private async pollPrioritySnapshot(
     root: HostPath,
     opts: WatchOptions,
   ): Promise<Map<string, string>> {
     const sftp = await this.getSftp()
     const result = new Map<string, string>()
-    const excluded = new Set(opts.excludeDirectoryNames ?? [])
-    const visit = async (directory: string): Promise<void> => {
-      const entries = await new Promise<import('ssh2').FileEntry[]>((resolve, reject) =>
-        sftp.readdir(directory, (error, value) =>
-          error ? reject(error) : resolve(value),
-        ),
-      )
-      for (const entry of entries) {
-        if (entry.filename === '.' || entry.filename === '..') continue
-        const child = `${directory.replace(/\/$/, '')}/${entry.filename}`
-        const type = fileType(entry.attrs.mode)
-        result.set(
-          child,
-          `${type}:${entry.attrs.mtime}:${entry.attrs.size}:${entry.attrs.mode}`,
-        )
-        if (type === 'dir' && opts.recursive !== false && !excluded.has(entry.filename)) {
-          await visit(child)
-        }
-      }
-    }
-    const rootStat = await new Promise<import('ssh2').Stats>((resolve, reject) =>
-      sftp.lstat(root.path, (error, value) => (error ? reject(error) : resolve(value))),
-    )
-    if (fileType(rootStat.mode) !== 'dir') {
+    const rootAttrs = await sftpLstat(sftp, root.path)
+    if (fileType(rootAttrs.mode) !== 'dir') {
       result.set(
         root.path,
-        `${fileType(rootStat.mode)}:${rootStat.mtime}:${rootStat.size}:${rootStat.mode}`,
+        await this.pollStamp(
+          sftp,
+          root.path,
+          rootAttrs,
+          this.pollingFiles.has(root.path),
+        ),
       )
       return result
     }
-    await visit(root.path)
+
+    const entries = await sftpReaddir(sftp, root.path)
+    const entryNames = new Set(entries.map((entry) => entry.filename))
+    const gitMetadataDirectory =
+      opts.recursive === false &&
+      entryNames.has('HEAD') &&
+      (entryNames.has('index') ||
+        entryNames.has('objects') ||
+        entryNames.has('commondir'))
+    for (const entry of entries) {
+      if (entry.filename === '.' || entry.filename === '..') continue
+      const child = remoteChild(root.path, entry.filename)
+      const fingerprint =
+        this.pollingFiles.has(child) ||
+        (gitMetadataDirectory && GIT_PRIORITY_FILES.has(entry.filename))
+      result.set(child, await this.pollStamp(sftp, child, entry.attrs, fingerprint))
+    }
+
+    if (opts.recursive !== false) {
+      const prefix = root.path === '/' ? '/' : `${root.path}/`
+      for (const file of this.pollingFiles) {
+        if (!file.startsWith(prefix) || result.has(file)) continue
+        try {
+          const attrs = await sftpLstat(sftp, file)
+          result.set(file, await this.pollStamp(sftp, file, attrs, true))
+        } catch (reason) {
+          if (!isNoSuchFile(reason)) throw reason
+          // Omission is the deletion signal against the previous priority map.
+        }
+      }
+    }
     return result
+  }
+  private async pollDirectoryBatch(
+    queue: string[],
+    visited: Set<string>,
+    result: Map<string, string>,
+    opts: WatchOptions,
+    limit: number,
+  ): Promise<void> {
+    const sftp = await this.getSftp()
+    const excluded = new Set(opts.excludeDirectoryNames ?? [])
+    for (let count = 0; count < limit && queue.length; count++) {
+      const directory = queue.shift()
+      if (!directory) break
+      const entries = await sftpReaddir(sftp, directory)
+      for (const entry of entries) {
+        if (entry.filename === '.' || entry.filename === '..') continue
+        const child = remoteChild(directory, entry.filename)
+        const type = fileType(entry.attrs.mode)
+        result.set(child, metadataStamp(entry.attrs))
+        if (type === 'dir' && !excluded.has(entry.filename) && !visited.has(child)) {
+          visited.add(child)
+          queue.push(child)
+        }
+      }
+    }
+  }
+  private async pollStamp(
+    sftp: SFTPWrapper,
+    path: string,
+    attrs: import('ssh2').Attributes,
+    fingerprint: boolean,
+  ): Promise<string> {
+    const metadata = metadataStamp(attrs)
+    if (fileType(attrs.mode) !== 'file' || !fingerprint) return metadata
+
+    const now = Date.now()
+    const previous = this.fingerprintObservations.get(path)
+    const metadataChanged = previous?.metadata !== metadata
+    if (!previous || metadataChanged || now <= previous.observeUntil) {
+      const digest = contentDigest(await sftpReadFile(sftp, path))
+      const observeUntil =
+        !previous || metadataChanged
+          ? now + (this.options.fingerprintObservationWindowMs ?? 5_000)
+          : previous.observeUntil
+      this.fingerprintObservations.set(path, { metadata, digest, observeUntil })
+      return `${metadata}:${digest}`
+    }
+    return `${metadata}:${previous.digest}`
   }
   private cached<T extends Buffer | DirEntry[]>(key: string): T | undefined {
     const v = this.cache.get(key)
@@ -856,12 +1133,13 @@ export class SshHost implements ProjectHost {
   }
   private invalidate(path: string): void {
     const normalized = path.length > 1 ? path.replace(/\/+$/, '') : path
+    const descendantPrefix = normalized === '/' ? '/' : `${normalized}/`
     for (const key of this.cache.keys()) {
       if (
         key === `f:${normalized}` ||
         key === `d:${normalized}` ||
-        key.startsWith(`f:${normalized}/`) ||
-        key.startsWith(`d:${normalized}/`)
+        key.startsWith(`f:${descendantPrefix}`) ||
+        key.startsWith(`d:${descendantPrefix}`)
       ) {
         this.cache.delete(key)
       }
@@ -904,6 +1182,59 @@ function escapeRegex(value: string): string {
 function remoteParent(path: string): string {
   const at = path.lastIndexOf('/')
   return at <= 0 ? '/' : path.slice(0, at)
+}
+function remoteChild(parent: string, name: string): string {
+  return parent === '/' ? `/${name}` : `${parent.replace(/\/$/, '')}/${name}`
+}
+function metadataStamp(attrs: import('ssh2').Attributes): string {
+  return `${fileType(attrs.mode)}:${attrs.mtime}:${attrs.size}:${attrs.mode}`
+}
+function sftpLstat(sftp: SFTPWrapper, path: string): Promise<import('ssh2').Stats> {
+  return new Promise((resolve, reject) =>
+    sftp.lstat(path, (error, value) => (error ? reject(error) : resolve(value))),
+  )
+}
+function sftpReaddir(
+  sftp: SFTPWrapper,
+  path: string,
+): Promise<import('ssh2').FileEntry[]> {
+  return new Promise((resolve, reject) =>
+    sftp.readdir(path, (error, value) => (error ? reject(error) : resolve(value))),
+  )
+}
+function sftpReadFile(sftp: SFTPWrapper, path: string): Promise<Buffer> {
+  return new Promise((resolve, reject) =>
+    sftp.readFile(path, (error, value) => (error ? reject(error) : resolve(value))),
+  )
+}
+function inotifyEventType(flags: string): WatchEventType {
+  const directory = flags.includes('ISDIR')
+  if (flags.includes('DELETE') || flags.includes('MOVED_FROM')) {
+    return directory ? 'unlinkDir' : 'unlink'
+  }
+  if (flags.includes('CREATE') || flags.includes('MOVED_TO')) {
+    return directory ? 'addDir' : 'add'
+  }
+  return 'change'
+}
+function isRecoverableAuthenticationError(error: Error): boolean {
+  const level = (error as Error & { level?: string }).level
+  return (
+    level === 'agent' ||
+    (level === 'client-authentication' && /\bsign(?:ing|ature)?\b/i.test(error.message))
+  )
+}
+function isNoSuchFile(reason: unknown): boolean {
+  const code = (reason as { code?: unknown } | undefined)?.code
+  return code === 2 || code === 'ENOENT'
+}
+function contentDigest(value: Buffer): string {
+  return createHash('sha256').update(value).digest('base64')
+}
+function fileChangedError(remote: boolean): Error {
+  return new Error(
+    `File changed${remote ? ' on the remote host' : ''} since it was opened; reload before saving`,
+  )
 }
 function subscribe<T>(set: Set<(v: T) => void>, cb: (v: T) => void): Disposer {
   set.add(cb)

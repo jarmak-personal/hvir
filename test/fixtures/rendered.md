@@ -13,6 +13,8 @@ const mode: 'rendered' | 'source' | 'diff' = 'rendered'
 [Open the YAML fixture](rendered.yml)
 [Missing target](missing.md)
 
+![Repository image fixture](rendered-image.svg)
+
 Bare filenames such as design.md are prose, not internet hosts.
 
 - [ ] Follow-up remains visible

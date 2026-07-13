@@ -49,6 +49,16 @@ export interface WatchOptions {
   readonly onError?: (error: Error) => void
 }
 
+export interface WriteFileOptions {
+  /** Reject if the live file no longer has the version originally read. */
+  readonly expectedMtimeMs?: number
+}
+
+export interface ReadFileOptions {
+  /** Keep this user-visible file on the SSH polling fast path. */
+  readonly pollingInterest?: boolean
+}
+
 export interface SpawnPtyOptions {
   readonly file: string
   readonly args?: readonly string[]
@@ -109,9 +119,17 @@ export interface ProjectHost {
    */
   spawnPty(opts: SpawnPtyOptions): Promise<PtyProcess>
 
-  readFile(path: HostPath): Promise<Buffer>
-  readTextFile(path: HostPath, encoding?: BufferEncoding): Promise<string>
-  writeFile(path: HostPath, data: Uint8Array | string): Promise<void>
+  readFile(path: HostPath, opts?: ReadFileOptions): Promise<Buffer>
+  readTextFile(
+    path: HostPath,
+    encoding?: BufferEncoding,
+    opts?: ReadFileOptions,
+  ): Promise<string>
+  writeFile(
+    path: HostPath,
+    data: Uint8Array | string,
+    opts?: WriteFileOptions,
+  ): Promise<void>
   readdir(path: HostPath): Promise<DirEntry[]>
   stat(path: HostPath): Promise<Stat>
   /** Canonicalize through symlinks on the project host. */

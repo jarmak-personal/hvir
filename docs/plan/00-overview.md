@@ -41,8 +41,8 @@ on 5 and 6. 8 is last.
   Resolve P0 before further milestone acceptance work.
 - [Phase 4–5 deep-audit follow-ups](04-05-deep-audit-followups.md) — dirty-buffer safety,
   SSH lifecycle/auth reliability, Git broker and missing-path correctness, polling load,
-  diff truthfulness, request races, scale, and integrated UX. Resolve P0 before Phase 4/5
-  acceptance.
+  diff truthfulness, request races, scale, and integrated UX. Engineering work is complete;
+  the real-host acceptance matrix remains open.
 
 ## Ground rules (apply to every phase)
 

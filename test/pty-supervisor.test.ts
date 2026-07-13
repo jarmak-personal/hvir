@@ -1,3 +1,6 @@
+import { EventEmitter } from 'node:events'
+
+import type { Client } from 'ssh2'
 import { describe, expect, it, vi } from 'vitest'
 
 import {
@@ -11,7 +14,8 @@ import type {
   SpawnPtyOptions,
 } from '../src/main/project-host'
 import { PtySupervisor } from '../src/main/pty/pty-supervisor'
-import { LOCAL_HOST_ID, localPath } from '../src/shared'
+import { SshHost } from '../src/main/project-host'
+import { LOCAL_HOST_ID, hostPath, localPath } from '../src/shared'
 
 class FakePty implements PtyProcess {
   readonly pid = 4242
@@ -167,6 +171,83 @@ describe('PtySupervisor', () => {
     expect(spawnPty).toHaveBeenCalledTimes(1)
   })
 
+  it('kills a pending host spawn that completes after all sessions are disposed', async () => {
+    const { supervisor, pty, host, adapter, spawnPty } = fixture()
+    let finishSpawn: (() => void) | undefined
+    spawnPty.mockImplementationOnce(
+      () =>
+        new Promise<PtyProcess>((resolve) => {
+          finishSpawn = () => resolve(pty)
+        }),
+    )
+    const spawning = supervisor.spawn({
+      host,
+      adapter,
+      cwd: localPath('/tmp/project'),
+      sessionId: 'stale-pending',
+    })
+    await Promise.resolve()
+
+    supervisor.disposeAll()
+    finishSpawn?.()
+
+    await expect(spawning).rejects.toThrow('cancelled before it started')
+    expect(pty.kill).toHaveBeenCalledOnce()
+    expect(supervisor.list()).toEqual([])
+  })
+
+  it('reports one exit when an SSH PTY closes without exit-status', async () => {
+    const channel = Object.assign(new EventEmitter(), {
+      close: vi.fn(() => channel.emit('close')),
+      setWindow: vi.fn(),
+      write: vi.fn(),
+    })
+    const client = Object.assign(new EventEmitter(), {
+      exec: vi.fn(
+        (
+          _command: string,
+          _options: unknown,
+          callback: (error: Error | undefined, value: unknown) => void,
+        ) => callback(undefined, channel),
+      ),
+      end: vi.fn(() => client.emit('close')),
+      destroy: vi.fn(() => client.emit('close')),
+    })
+    const host = new SshHost({
+      config: {
+        alias: 'remote',
+        hostname: 'remote.test',
+        user: 'picard',
+        port: 22,
+        identityFiles: [],
+      },
+      prompter: { prompt: () => Promise.resolve(undefined) },
+    })
+    vi.spyOn(host, 'defaultShell').mockResolvedValue('/bin/sh')
+    const internals = host as unknown as { state: 'connected'; client: Client }
+    internals.state = 'connected'
+    internals.client = client as unknown as Client
+    const supervisor = new PtySupervisor()
+    const onExit = vi.fn()
+    supervisor.onExit(onExit)
+
+    await supervisor.spawn({
+      host,
+      adapter: plainShellAdapter,
+      cwd: hostPath(host.hostId, '/project'),
+      sessionId: 'remote-close',
+    })
+    channel.emit('close')
+    channel.emit('exit', 7)
+
+    expect(onExit).toHaveBeenCalledOnce()
+    expect(onExit).toHaveBeenCalledWith(expect.objectContaining({ id: 'remote-close' }), {
+      exitCode: 255,
+      signal: undefined,
+    })
+    await host.dispose()
+  })
+
   it('publishes the exit result, cleans up, and permits deterministic resume', async () => {
     const { supervisor, pty, host, adapter, spawnPty } = fixture()
     const exitListener = vi.fn<(info: { id: string }, exit: PtyExit) => void>()
@@ -181,7 +262,9 @@ describe('PtySupervisor', () => {
 
     const exit = { exitCode: 7, signal: 15 }
     pty.emitExit(exit)
+    pty.emitExit(exit)
 
+    expect(exitListener).toHaveBeenCalledOnce()
     expect(exitListener).toHaveBeenCalledWith(
       expect.objectContaining({ id: 'resumable' }),
       exit,

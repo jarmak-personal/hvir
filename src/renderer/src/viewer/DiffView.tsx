@@ -4,6 +4,7 @@ import { MergeView } from '@codemirror/merge'
 import { useEffect, useRef, useState, type ReactElement } from 'react'
 
 import type { DiffBase, GitDiffResponse, HostPath } from '../../../shared'
+import { usesUnsavedContent } from './diff-policy'
 
 interface DiffViewProps {
   readonly path: HostPath
@@ -11,6 +12,9 @@ interface DiffViewProps {
   readonly currentContent: string
   readonly dirty: boolean
   readonly revision?: string
+  readonly refreshVersion: number
+  readonly scrollTop: number
+  readonly onScroll: (scrollTop: number) => void
 }
 
 export function DiffView({
@@ -19,10 +23,17 @@ export function DiffView({
   currentContent,
   dirty,
   revision,
+  refreshVersion,
+  scrollTop,
+  onScroll,
 }: DiffViewProps): ReactElement {
   const host = useRef<HTMLDivElement>(null)
+  const scrollTopRef = useRef(scrollTop)
+  const onScrollRef = useRef(onScroll)
   const [inputs, setInputs] = useState<GitDiffResponse>()
   const [error, setError] = useState<string>()
+  scrollTopRef.current = scrollTop
+  onScrollRef.current = onScroll
 
   useEffect(() => {
     let cancelled = false
@@ -40,11 +51,12 @@ export function DiffView({
     return () => {
       cancelled = true
     }
-  }, [base, path, revision])
+  }, [base, path, refreshVersion, revision])
 
   useEffect(() => {
     const parent = host.current
     if (!parent || !inputs) return
+    const showUnsaved = usesUnsavedContent(dirty, base, revision)
     const extensions = [
       EditorState.readOnly.of(true),
       EditorView.editable.of(false),
@@ -55,15 +67,25 @@ export function DiffView({
       parent,
       a: { doc: inputs.baseContent, extensions },
       b: {
-        doc: dirty ? currentContent : inputs.currentContent,
+        doc: showUnsaved ? currentContent : inputs.currentContent,
         extensions,
       },
       collapseUnchanged: { margin: 3, minSize: 8 },
       highlightChanges: true,
       gutter: true,
     })
-    return () => merge.destroy()
-  }, [currentContent, dirty, inputs])
+    const handleScroll = (): void => onScrollRef.current(merge.dom.scrollTop)
+    merge.dom.addEventListener('scroll', handleScroll, { passive: true })
+    const restoreFrame = requestAnimationFrame(() => {
+      merge.dom.scrollTop = scrollTopRef.current
+    })
+    return () => {
+      cancelAnimationFrame(restoreFrame)
+      onScrollRef.current(merge.dom.scrollTop)
+      merge.dom.removeEventListener('scroll', handleScroll)
+      merge.destroy()
+    }
+  }, [base, currentContent, dirty, inputs, revision])
 
   if (error) return <div className="viewer-empty error">{error}</div>
   if (!inputs) return <div className="viewer-empty">Preparing diff…</div>
@@ -73,7 +95,7 @@ export function DiffView({
         <span>{inputs.baseLabel}</span>
         <span>
           {inputs.currentLabel}
-          {dirty ? ' (unsaved)' : ''}
+          {usesUnsavedContent(dirty, base, revision) ? ' (unsaved)' : ''}
         </span>
       </div>
       <div className="diff-host" ref={host} />

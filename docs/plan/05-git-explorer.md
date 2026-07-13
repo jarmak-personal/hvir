@@ -14,10 +14,10 @@ free).
 
 **Current status:** the local vertical slice is mounted and runtime-smoked: live changes
 (including terminal-only `.git` updates and unborn repositories),
-branch-point isolation, diff tabs, paged/infinite history, commit detail with historical
-file diffs, badge, and lazy blame gutter. Git transport calls are brokered by host ID as
-recorded in the ADR-005 addendum. The phase remains in progress until the same UI is
-accepted on a real SSH project.
+branch-point isolation, diff tabs, topology-safe cursor/infinite history with bounded DOM,
+commit detail with historical file diffs, badge, and compact lazy blame gutter. Git transport
+calls are brokered by host ID as recorded in the ADR-005 addendum. The phase remains in
+progress until the same UI is accepted on a real SSH project.
 
 **Hands-on evidence (2026-07-13):** the real-host Git panel, blame, and a 400+ commit
 history loaded cleanly. Keep the broad SSH acceptance item open until live Changes/diffs

@@ -9,6 +9,7 @@ import { app, ipcMain } from 'electron'
 import {
   ECHO_REQUEST_TYPE,
   asHostId,
+  dirnameHostPath,
   hostPath,
   type AppInfo,
   type EchoWorkerProtocol,
@@ -17,6 +18,7 @@ import {
   GIT_CHANGES_TYPE,
   GIT_HISTORY_TYPE,
   GIT_COMMIT_DETAIL_TYPE,
+  repositoryImageMimeType,
   type GitWorkerProtocol,
   type HostPath,
   type IpcEventChannel,
@@ -145,21 +147,40 @@ export function registerIpcHandlers(deps: IpcDeps): void {
   handle('fs:readdir', (req) =>
     operationResult(async () => {
       const { root, host } = deps.getProject()
-      const path = await projectPath(req.path, root, host)
-      return host.readdir(path)
+      const canonical = await projectPath(req.path, root, host, {
+        returnCanonical: true,
+      })
+      return host.readdir(canonical)
+    }),
+  )
+
+  handle('fs:resolve-entry', (req) =>
+    operationResult(async () => {
+      const { root, host } = deps.getProject()
+      const canonical = await projectPath(req.path, root, host, {
+        returnCanonical: true,
+      })
+      const stat = await host.stat(canonical)
+      return {
+        path: hostPath(canonical.hostId, req.path.path),
+        type: stat.type,
+      }
     }),
   )
 
   handle('fs:read', (req) =>
     operationResult(async () => {
       const { root, host } = deps.getProject()
-      const path = await projectPath(req.path, root, host)
-      const stat = await host.stat(path)
+      const canonical = await projectPath(req.path, root, host, {
+        returnCanonical: true,
+      })
+      const path = hostPath(canonical.hostId, req.path.path)
+      const stat = await host.stat(canonical)
       if (stat.type !== 'file') throw new Error(`Not a regular file: ${path.path}`)
       if (stat.size > 64 * 1024 * 1024) {
         throw new Error('Files larger than 64 MiB are not opened by the viewer spike')
       }
-      const data = await host.readFile(path)
+      const data = await host.readFile(canonical, { pollingInterest: true })
       const sample = data.subarray(0, Math.min(data.length, 8192))
       const binary = sample.includes(0)
       return {
@@ -172,22 +193,74 @@ export function registerIpcHandlers(deps: IpcDeps): void {
     }),
   )
 
+  handle('fs:read-asset', (req) =>
+    operationResult(async () => {
+      const { root, host } = deps.getProject()
+      const canonical = await projectPath(req.path, root, host, {
+        returnCanonical: true,
+      })
+      const path = hostPath(canonical.hostId, req.path.path)
+      const mimeType = repositoryImageMimeType(path.path)
+      if (!mimeType) throw new Error('Only repository image assets can be previewed')
+      const stat = await host.stat(canonical)
+      if (stat.type !== 'file') throw new Error(`Not a regular file: ${path.path}`)
+      if (stat.size > 16 * 1024 * 1024) {
+        throw new Error('Repository images larger than 16 MiB are not previewed')
+      }
+      const data = await host.readFile(canonical, { pollingInterest: true })
+      if (data.byteLength > 16 * 1024 * 1024) {
+        throw new Error('Repository images larger than 16 MiB are not previewed')
+      }
+      return {
+        path,
+        data: new Uint8Array(data),
+        size: data.byteLength,
+        mimeType,
+      }
+    }),
+  )
+
   handle('fs:write', (req) =>
     operationResult(async () => {
       const { root, host } = deps.getProject()
-      const path = await projectPath(req.path, root, host)
       if (typeof req.content !== 'string') throw new Error('File content must be text')
-      const stat = await host.stat(path)
+      if (
+        req.expectedMtimeMs !== undefined &&
+        (!Number.isFinite(req.expectedMtimeMs) || req.expectedMtimeMs < 0)
+      ) {
+        throw new Error('Invalid expected file modification time')
+      }
+      const canonical = await projectPath(req.path, root, host, {
+        returnCanonical: true,
+      })
+      const path = hostPath(canonical.hostId, req.path.path)
+      const stat = await host.stat(canonical)
       if (stat.type !== 'file') throw new Error(`Not a regular file: ${path.path}`)
-      await host.writeFile(path, req.content)
-      const written = await host.stat(path)
+      const expectedMtimeMs =
+        req.expectedMtimeMs !== undefined && req.expectedMtimeMs > 0
+          ? req.expectedMtimeMs
+          : undefined
+      if (expectedMtimeMs !== undefined && stat.mtimeMs !== expectedMtimeMs) {
+        throw new Error('File changed since it was opened; reload before saving')
+      }
+      await host.writeFile(
+        canonical,
+        req.content,
+        expectedMtimeMs === undefined ? {} : { expectedMtimeMs },
+      )
+      const written = await host.stat(canonical)
       return { path, size: written.size, mtimeMs: written.mtimeMs }
     }),
   )
 
   handle('git:diff-inputs', async (req) => {
     const { root, host } = deps.getProject()
-    const path = await projectPath(req.path, root, host)
+    // Historical/deleted Git entries legitimately have no live leaf. Their
+    // existing parent is still canonicalized before the worker may inspect
+    // repository blobs, so this does not turn into a lexical-only bypass.
+    const path = await projectPath(req.path, root, host, {
+      allowMissingLeaf: true,
+    })
     return deps.gitWorker.request(GIT_DIFF_INPUTS_TYPE, {
       path,
       base: req.base,
@@ -211,8 +284,8 @@ export function registerIpcHandlers(deps: IpcDeps): void {
     return deps.gitWorker.request(GIT_HISTORY_TYPE, {
       root,
       path,
-      skip: req.skip,
       limit: req.limit,
+      cursor: req.cursor,
     })
   })
 
@@ -297,6 +370,10 @@ async function projectPath(
   candidate: HostPath,
   root: HostPath,
   host: ProjectHost,
+  options: {
+    readonly allowMissingLeaf?: boolean
+    readonly returnCanonical?: boolean
+  } = {},
 ): Promise<HostPath> {
   if (
     !candidate ||
@@ -323,10 +400,29 @@ async function projectPath(
     roots.set(rootKey, canonicalRootPromise)
     void canonicalRootPromise.catch(() => roots?.delete(rootKey))
   }
-  const [canonicalRoot, canonicalPath] = await Promise.all([
-    canonicalRootPromise,
-    host.realpath(decoded),
-  ])
+  const canonicalRoot = await canonicalRootPromise
+  let canonicalPath: HostPath
+  try {
+    canonicalPath = await host.realpath(decoded)
+  } catch (reason) {
+    if (!options.allowMissingLeaf || !isMissingPathError(reason)) throw reason
+    let ancestor = dirnameHostPath(decoded)
+    for (;;) {
+      try {
+        canonicalPath = await host.realpath(ancestor)
+        break
+      } catch (ancestorReason) {
+        if (!isMissingPathError(ancestorReason) || ancestor.path === root.path) {
+          throw ancestorReason
+        }
+        const parent = dirnameHostPath(ancestor)
+        if (parent.path === ancestor.path || !isLexicallyInside(parent, root)) {
+          throw reason
+        }
+        ancestor = parent
+      }
+    }
+  }
   const canonicalPrefix = canonicalRoot.path === '/' ? '/' : `${canonicalRoot.path}/`
   if (
     canonicalPath.path !== canonicalRoot.path &&
@@ -334,7 +430,19 @@ async function projectPath(
   ) {
     throw new Error('Path escapes the project root through a symlink')
   }
-  return decoded
+  return options.returnCanonical ? canonicalPath : decoded
+}
+
+function isLexicallyInside(candidate: HostPath, root: HostPath): boolean {
+  const prefix = root.path === '/' ? '/' : `${root.path}/`
+  return candidate.path === root.path || candidate.path.startsWith(prefix)
+}
+
+function isMissingPathError(reason: unknown): boolean {
+  if (!reason || typeof reason !== 'object') return false
+  const code = (reason as { code?: unknown }).code
+  const message = reason instanceof Error ? reason.message : ''
+  return code === 'ENOENT' || code === 2 || /no such file|not found/i.test(message)
 }
 
 function terminalDimension(value: number): number {

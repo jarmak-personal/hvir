@@ -7,6 +7,8 @@ export type DiffBase = 'working-tree' | 'head' | 'branch-point'
 export interface WriteFileRequest {
   readonly path: HostPath
   readonly content: string
+  /** Omitted for recovered drafts that have no trustworthy disk version. */
+  readonly expectedMtimeMs?: number
 }
 
 export interface WriteFileResponse {

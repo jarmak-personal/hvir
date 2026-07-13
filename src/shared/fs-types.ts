@@ -27,6 +27,8 @@ export type WatchEventType = 'add' | 'change' | 'unlink' | 'addDir' | 'unlinkDir
 export interface WatchEvent {
   readonly type: WatchEventType
   readonly path: HostPath
+  /** Backend liveness refresh, not evidence that repository/file content changed. */
+  readonly synthetic?: 'refresh'
 }
 
 export interface ExecResult {

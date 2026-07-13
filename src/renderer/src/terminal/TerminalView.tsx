@@ -14,8 +14,11 @@ const PTY_RESIZE_DEBOUNCE_MS = 75
 export function TerminalView({ cwd, connectionState }: TerminalViewProps): ReactElement {
   const containerRef = useRef<HTMLDivElement>(null)
   const disconnectedRef = useRef(false)
+  const restartRequestedRef = useRef(false)
   const [title, setTitle] = useState('Shell')
   const [status, setStatus] = useState('Starting…')
+  const [exited, setExited] = useState(false)
+  const [restartGeneration, setRestartGeneration] = useState(0)
 
   useEffect(() => {
     const container = containerRef.current
@@ -25,10 +28,15 @@ export function TerminalView({ cwd, connectionState }: TerminalViewProps): React
       container.replaceChildren()
       setTitle('Shell')
       setStatus(connectionState)
+      setExited(false)
       return
     }
     const isReconnect = disconnectedRef.current
+    const isManualRestart = restartRequestedRef.current
     disconnectedRef.current = false
+    restartRequestedRef.current = false
+    setExited(false)
+    if (isManualRestart) setTitle('Shell')
     // A newly connected host always gets a new PTY. Remove the old render
     // surface before Ghostty initializes so a GPU-backed canvas cannot remain
     // visible as fake scrollback from the ended session.
@@ -46,7 +54,10 @@ export function TerminalView({ cwd, connectionState }: TerminalViewProps): React
       if (id === sessionId) outputWriter?.write(data)
     })
     const stopExit = window.hvir.on('pty:exit', ({ id, exitCode }) => {
-      if (id === sessionId) setStatus(`Exited (${exitCode})`)
+      if (id === sessionId) {
+        setStatus(`Exited (${exitCode})`)
+        setExited(true)
+      }
     })
     void (async () => {
       try {
@@ -106,11 +117,18 @@ export function TerminalView({ cwd, connectionState }: TerminalViewProps): React
           window.hvir.send('pty:write', { id: sessionId, data: pendingInput })
           pendingInput = ''
         }
-        setStatus(isReconnect ? `New shell · pid ${result.pid}` : `pid ${result.pid}`)
+        setStatus(
+          isManualRestart
+            ? `Restarted · pid ${result.pid}`
+            : isReconnect
+              ? `New shell · pid ${result.pid}`
+              : `pid ${result.pid}`,
+        )
         pane.focus()
       } catch (error) {
         if (!cancelled) {
           setStatus(error instanceof Error ? error.message : String(error))
+          setExited(true)
         }
       }
     })()
@@ -127,13 +145,27 @@ export function TerminalView({ cwd, connectionState }: TerminalViewProps): React
       container.replaceChildren()
       if (ptyStarted) window.hvir.send('pty:kill', { id: sessionId })
     }
-  }, [connectionState, cwd])
+  }, [connectionState, cwd, restartGeneration])
 
   return (
     <section className="terminal-panel" aria-label="Terminal">
       <header className="panel-header">
         <span>{title}</span>
-        <span className="panel-meta">{status}</span>
+        <span className="terminal-status">
+          <span className="panel-meta">{status}</span>
+          {connectionState === 'connected' && exited ? (
+            <button
+              type="button"
+              className="terminal-restart"
+              onClick={() => {
+                restartRequestedRef.current = true
+                setRestartGeneration((generation) => generation + 1)
+              }}
+            >
+              Restart
+            </button>
+          ) : null}
+        </span>
       </header>
       <div
         key={`${cwd.hostId}:${cwd.path}:${connectionState}`}

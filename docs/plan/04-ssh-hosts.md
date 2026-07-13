@@ -16,7 +16,7 @@ bounded reconnect lifecycle, shared SFTP channel, portable watch fallback, cache
 and hardened remote-Git broker are implemented. Automated tests cover config merging,
 modern encrypted-key prompting, changed-key handling, connect/dispose races, UTF-8 stream
 boundaries, SFTP reuse, broker confinement, and the shared local confinement behavior. The
-acceptance checklist remains open until it is exercised
+acceptance checklist remains open until it is fully exercised
 against a real configured SSH host, including a network drop and interactive TUI.
 
 **Hands-on evidence (2026-07-13):** password authentication, remote browsing, terminal
@@ -42,7 +42,8 @@ recycled Ghostty WASM cells: clearing the temporary 80x24 buffer before FitAddon
 the real-sized grid copy the old cells back in. Replacement panes now use a new host element,
 stay hidden through initialization, and hard-reset the final-sized VT buffer after its initial
 fit. The production smoke seeds the old screen with a colored fixture and verifies the
-replacement is blank. This reconnect fix still needs a real-host retest. Network-drop,
+replacement is blank. The reconnect/TUI repaint fix was subsequently hands-on verified.
+Network-drop,
 passphrase-key, and keyboard-interactive/2FA scenarios were not exercised.
 
 **UX amendment (2026-07-12):** remote work is a session flow, not a host/path form. The
@@ -102,7 +103,7 @@ acceptance.
 ## Acceptance criteria
 - [ ] A project on a remote host: tree browses, files open in all view modes, save
       works, diff vs HEAD works — through unchanged renderer code.
-- [ ] `claude` (or any TUI) runs in a remote terminal pane and feels responsive.
+- [x] `claude` (or any TUI) runs in a remote terminal pane and feels responsive.
 - [ ] Kill the network mid-session: UI stays responsive, project shows disconnected,
       reconnect recovers browsing and terminals without an app restart.
 - [ ] Auth: key-with-passphrase and 2FA-style keyboard-interactive both prompt in-app

@@ -175,7 +175,7 @@ export class ProjectRegistry {
     const config = this.aliases.find((candidate) => candidate.alias === hostId)
     if (!config) throw new Error(`Unknown SSH host alias: ${hostId}`)
     const identities = await Promise.all(
-      config.identityFiles.map(async (path) => {
+      identityFileCandidates(config).map(async (path) => {
         try {
           return { path, privateKey: await this.local.readFile(localPath(path)) }
         } catch {
@@ -199,6 +199,25 @@ export class ProjectRegistry {
     this.hosts.set(hostId, host)
     return host
   }
+}
+
+const DEFAULT_IDENTITY_NAMES = [
+  'id_rsa',
+  'id_ecdsa',
+  'id_ecdsa_sk',
+  'id_ed25519',
+  'id_ed25519_sk',
+  'id_xmss',
+  'id_dsa',
+] as const
+
+/** OpenSSH's conventional identity set applies when no IdentityFile is configured. */
+export function identityFileCandidates(
+  config: SshAliasConfig,
+  home = homedir(),
+): readonly string[] {
+  if (config.identityFiles.length) return [...new Set(config.identityFiles)]
+  return DEFAULT_IDENTITY_NAMES.map((name) => join(home, '.ssh', name))
 }
 
 export class RendererSshPrompter implements SshAuthPrompter {

@@ -119,6 +119,53 @@ describe('SshHost authentication', () => {
     })
     expect(remember).toHaveBeenCalledOnce()
   })
+
+  it('stops the entire auth ladder when an identity prompt is cancelled', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'hvir-ssh-key-'))
+    cleanups.push(root)
+    const keyPath = join(root, 'id_ed25519')
+    execFileSync('ssh-keygen', ['-q', '-t', 'ed25519', '-N', 'secret', '-f', keyPath])
+    const prompt = vi.fn(() => Promise.resolve(undefined))
+    const host = new SshHost({
+      config: aliasConfig(),
+      identities: [{ path: keyPath, privateKey: await readFile(keyPath) }],
+      prompter: { prompt },
+    })
+    const config = connectConfig(host)
+
+    await expect(nextAuth(config, null)).resolves.toBe(false)
+    await expect(nextAuth(config, ['keyboard-interactive', 'password'])).resolves.toBe(
+      false,
+    )
+    expect(prompt).toHaveBeenCalledOnce()
+  })
+
+  it('does not fall through to password after keyboard-interactive is cancelled', async () => {
+    const prompt = vi.fn(() => Promise.resolve(undefined))
+    const host = new SshHost({
+      config: aliasConfig(),
+      prompter: { prompt },
+    })
+    const config = connectConfig(host)
+    const keyboard = await nextAuth(config, null)
+    expect(keyboard).toMatchObject({ type: 'keyboard-interactive' })
+    if (keyboard === false || keyboard.type !== 'keyboard-interactive') {
+      throw new Error('Expected keyboard-interactive authentication')
+    }
+    const answers = await new Promise<readonly string[]>((resolve) => {
+      keyboard.prompt(
+        'Second factor',
+        'Enter the code',
+        '',
+        [{ prompt: 'Code', echo: false }],
+        resolve,
+      )
+    })
+
+    expect(answers).toEqual([])
+    await expect(nextAuth(config, ['password'])).resolves.toBe(false)
+    expect(prompt).toHaveBeenCalledOnce()
+  })
 })
 
 describe('SshHost remote behavior', () => {
@@ -142,6 +189,77 @@ describe('SshHost remote behavior', () => {
     internals.invalidate('/project/new-dir/file.txt')
 
     expect([...cache.keys()]).toEqual(['d:/unrelated'])
+  })
+
+  it('invalidates every cached descendant when the watched root is slash', () => {
+    const host = new SshHost({
+      config: aliasConfig(),
+      prompter: { prompt: () => Promise.resolve(undefined) },
+    })
+    const cache = new Map<string, unknown>([
+      ['d:/', []],
+      ['d:/home', []],
+      ['f:/home/picard/file.txt', Buffer.from('old')],
+    ])
+    const internals = host as unknown as {
+      cache: Map<string, unknown>
+      invalidate(path: string): void
+    }
+    internals.cache = cache
+
+    internals.invalidate('/')
+
+    expect(cache.size).toBe(0)
+  })
+
+  it.each([
+    ['agent socket', 'agent', 'connect ENOENT'],
+    ['key signing', 'client-authentication', 'Error signing data with key: denied'],
+  ])('continues after a recoverable %s error', async (_label, level, message) => {
+    const client = fakeClient(() => {
+      queueMicrotask(() => {
+        client.emit('error', Object.assign(new Error(message), { level }))
+        client.emit('ready')
+      })
+    })
+    const host = new SshHost({
+      config: aliasConfig(),
+      prompter: { prompt: () => Promise.resolve(undefined) },
+      clientFactory: () => client as unknown as Client,
+    })
+    vi.spyOn(host, 'exec').mockResolvedValue({
+      code: 1,
+      signal: null,
+      stdout: '',
+      stderr: '',
+    })
+
+    await expect(host.connect()).resolves.toBeUndefined()
+    expect(host.connectionState).toBe('connected')
+    await host.dispose()
+  })
+
+  it('still rejects a fatal error after a recoverable auth error', async () => {
+    const client = fakeClient(() => {
+      queueMicrotask(() => {
+        client.emit(
+          'error',
+          Object.assign(new Error('agent unavailable'), { level: 'agent' }),
+        )
+        client.emit(
+          'error',
+          Object.assign(new Error('socket failed'), { level: 'client-socket' }),
+        )
+      })
+    })
+    const host = new SshHost({
+      config: aliasConfig(),
+      prompter: { prompt: () => Promise.resolve(undefined) },
+      clientFactory: () => client as unknown as Client,
+    })
+
+    await expect(host.connect()).rejects.toThrow('socket failed')
+    await host.dispose()
   })
 
   it('cancels a connecting transport even when ssh2 emits no close event', async () => {
@@ -216,6 +334,22 @@ describe('SshHost remote behavior', () => {
     oldClient.emit('close')
 
     expect(internals.client).toBe(newClient)
+    expect(host.connectionState).toBe('connected')
+    await host.dispose()
+  })
+
+  it('keeps an authenticated transport when capability detection fails', async () => {
+    const client = fakeClient(() => queueMicrotask(() => client.emit('ready')))
+    const host = new SshHost({
+      config: aliasConfig(),
+      prompter: { prompt: () => Promise.resolve(undefined) },
+      clientFactory: () => client as unknown as Client,
+    })
+    vi.spyOn(host, 'exec').mockRejectedValue(new Error('probe unavailable'))
+
+    await expect(host.connect()).resolves.toBeUndefined()
+    expect(host.connectionState).toBe('connected')
+    expect(host.watchTier).toBe('polling')
     await host.dispose()
   })
 
@@ -241,6 +375,29 @@ describe('SshHost remote behavior', () => {
       await disposing
       expect(finished).toBe(true)
       expect(client.end).toHaveBeenCalledOnce()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('force-destroys a transport that does not close during disposal', async () => {
+    vi.useFakeTimers()
+    try {
+      const client = fakeClient(() => undefined)
+      client.end.mockImplementation(() => undefined)
+      client.destroy.mockImplementation(() => undefined)
+      const host = new SshHost({
+        config: aliasConfig(),
+        prompter: { prompt: () => Promise.resolve(undefined) },
+      })
+      ;(host as unknown as { client: Client }).client = client as unknown as Client
+
+      const disposing = host.dispose()
+      await vi.advanceTimersByTimeAsync(1_000)
+      await disposing
+
+      expect(client.destroy).toHaveBeenCalledOnce()
+      expect(host.connectionState).toBe('disconnected')
     } finally {
       vi.useRealTimers()
     }
@@ -341,6 +498,175 @@ describe('SshHost remote behavior', () => {
     expect(session.end).toHaveBeenCalledOnce()
   })
 
+  it('resolves and browses an in-project remote directory symlink', async () => {
+    const session = {
+      realpath: vi.fn(
+        (_path: string, callback: (error: Error | undefined, value: string) => void) =>
+          callback(undefined, '/project/target'),
+      ),
+      lstat: vi.fn(
+        (_path: string, callback: (error: Error | undefined, value: unknown) => void) =>
+          callback(undefined, {
+            mode: 0o040755,
+            size: 0,
+            mtime: 100,
+          }),
+      ),
+      readdir: vi.fn(
+        (_path: string, callback: (error: Error | undefined, value: unknown[]) => void) =>
+          callback(undefined, [
+            {
+              filename: 'inside.txt',
+              attrs: { mode: 0o100644, size: 7, mtime: 100 },
+            },
+          ]),
+      ),
+    }
+    const host = new SshHost({
+      config: aliasConfig(),
+      prompter: { prompt: () => Promise.resolve(undefined) },
+    })
+    ;(host as unknown as { getSftp(): Promise<unknown> }).getSftp = () =>
+      Promise.resolve(session)
+    const link = hostPath(host.hostId, '/project/linked')
+
+    expect((await host.realpath(link)).path).toBe('/project/target')
+    expect((await host.stat(hostPath(host.hostId, '/project/target'))).type).toBe('dir')
+    expect((await host.readdir(link)).map((entry) => entry.name)).toEqual(['inside.txt'])
+  })
+
+  it('saves through a same-directory temporary file and atomic rename', async () => {
+    const operations: string[] = []
+    const session = {
+      lstat: vi.fn(
+        (
+          path: string,
+          callback: (error: Error | undefined, attrs: { mode: number }) => void,
+        ) => {
+          operations.push(`stat:${path}`)
+          callback(undefined, { mode: 0o100640 })
+        },
+      ),
+      writeFile: vi.fn(
+        (
+          path: string,
+          _data: Buffer,
+          options: { mode?: number },
+          callback: (error?: Error) => void,
+        ) => {
+          operations.push(`write:${path}:${String(options.mode)}`)
+          callback()
+        },
+      ),
+      ext_openssh_rename: vi.fn(
+        (source: string, target: string, callback: (error?: Error) => void) => {
+          operations.push(`rename:${source}:${target}`)
+          callback()
+        },
+      ),
+      rename: vi.fn(),
+      unlink: vi.fn(),
+    }
+    const host = new SshHost({
+      config: aliasConfig(),
+      prompter: { prompt: () => Promise.resolve(undefined) },
+    })
+    ;(host as unknown as { getSftp(): Promise<unknown> }).getSftp = () =>
+      Promise.resolve(session)
+
+    await host.writeFile(hostPath(host.hostId, '/project/file.txt'), 'replacement')
+
+    expect(operations).toHaveLength(3)
+    expect(operations[0]).toBe('stat:/project/file.txt')
+    expect(operations[1]).toMatch(
+      /^write:\/project\/\.file\.txt\.hvir-[0-9a-f-]+\.tmp:416$/,
+    )
+    expect(operations[2]).toMatch(
+      /^rename:\/project\/\.file\.txt\.hvir-[0-9a-f-]+\.tmp:\/project\/file\.txt$/,
+    )
+    expect(session.rename).not.toHaveBeenCalled()
+    expect(session.unlink).not.toHaveBeenCalled()
+  })
+
+  it('does not rename over a same-second external edit after a slow upload', async () => {
+    let live = Buffer.from('first')
+    const attrs = { mode: 0o100640, mtime: 100, size: 5, atime: 100 }
+    const session = {
+      lstat: vi.fn(
+        (_path: string, callback: (error: Error | undefined, value: unknown) => void) =>
+          callback(undefined, attrs),
+      ),
+      readFile: vi.fn(
+        (_path: string, callback: (error: Error | undefined, value: Buffer) => void) =>
+          callback(undefined, live),
+      ),
+      writeFile: vi.fn(
+        (
+          _path: string,
+          _data: Buffer,
+          _options: unknown,
+          callback: (error?: Error) => void,
+        ) => {
+          live = Buffer.from('other')
+          callback()
+        },
+      ),
+      ext_openssh_rename: vi.fn(),
+      rename: vi.fn(),
+      unlink: vi.fn((_path: string, callback: (error?: Error) => void) => callback()),
+    }
+    const host = new SshHost({
+      config: aliasConfig(),
+      prompter: { prompt: () => Promise.resolve(undefined) },
+    })
+    ;(host as unknown as { getSftp(): Promise<unknown> }).getSftp = () =>
+      Promise.resolve(session)
+    const path = hostPath(host.hostId, '/project/file.txt')
+    await host.readFile(path, { pollingInterest: true })
+
+    await expect(
+      host.writeFile(path, 'mine!', { expectedMtimeMs: 100_000 }),
+    ).rejects.toThrow('changed on the remote host')
+
+    expect(session.ext_openssh_rename).not.toHaveBeenCalled()
+    expect(session.rename).not.toHaveBeenCalled()
+    expect(session.unlink).toHaveBeenCalledOnce()
+  })
+
+  it('cleans up a partial temporary when an atomic remote write fails', async () => {
+    const session = {
+      lstat: vi.fn(
+        (_path: string, callback: (error: Error | undefined, value: unknown) => void) =>
+          callback(undefined, { mode: 0o100640, mtime: 100, size: 5 }),
+      ),
+      writeFile: vi.fn(
+        (
+          _path: string,
+          _data: Buffer,
+          _options: unknown,
+          callback: (error: Error) => void,
+        ) => callback(new Error('network dropped')),
+      ),
+      ext_openssh_rename: vi.fn(),
+      rename: vi.fn(),
+      unlink: vi.fn((_path: string, callback: (error?: Error) => void) => callback()),
+    }
+    const host = new SshHost({
+      config: aliasConfig(),
+      prompter: { prompt: () => Promise.resolve(undefined) },
+    })
+    ;(host as unknown as { getSftp(): Promise<unknown> }).getSftp = () =>
+      Promise.resolve(session)
+
+    await expect(
+      host.writeFile(hostPath(host.hostId, '/project/file.txt'), 'replacement'),
+    ).rejects.toThrow('network dropped')
+
+    expect(session.ext_openssh_rename).not.toHaveBeenCalled()
+    expect(session.rename).not.toHaveBeenCalled()
+    expect(session.unlink).toHaveBeenCalledOnce()
+  })
+
   it('decodes remote exec output across UTF-8 chunk boundaries', async () => {
     const stderr = new EventEmitter()
     const channel = Object.assign(new EventEmitter(), {
@@ -395,6 +721,186 @@ describe('SshHost remote behavior', () => {
     expect(exec).toHaveBeenCalledOnce()
   })
 
+  it('content-fingerprints only viewer-fetched files during polling', async () => {
+    let contents = Buffer.from('first')
+    const attrs = { mode: 0o100644, mtime: 100, size: 5, atime: 100 }
+    const session = {
+      lstat: vi.fn(
+        (_path: string, callback: (error: Error | undefined, value: unknown) => void) =>
+          callback(undefined, { ...attrs, mode: 0o040755, size: 0 }),
+      ),
+      readdir: vi.fn(
+        (_path: string, callback: (error: Error | undefined, value: unknown[]) => void) =>
+          callback(undefined, [
+            { filename: 'open.txt', attrs },
+            { filename: 'closed.txt', attrs },
+          ]),
+      ),
+      readFile: vi.fn(
+        (_path: string, callback: (error: Error | undefined, value: Buffer) => void) =>
+          callback(undefined, contents),
+      ),
+    }
+    const host = new SshHost({
+      config: aliasConfig(),
+      prompter: { prompt: () => Promise.resolve(undefined) },
+    })
+    const internals = host as unknown as {
+      pollingFiles: Set<string>
+      getSftp(): Promise<unknown>
+      pollPrioritySnapshot(
+        path: HostPath,
+        opts: WatchOptions,
+      ): Promise<Map<string, string>>
+    }
+    internals.pollingFiles.add('/project/open.txt')
+    internals.getSftp = () => Promise.resolve(session)
+
+    const before = await internals.pollPrioritySnapshot(
+      hostPath(host.hostId, '/project'),
+      { recursive: false },
+    )
+    contents = Buffer.from('later')
+    const after = await internals.pollPrioritySnapshot(
+      hostPath(host.hostId, '/project'),
+      { recursive: false },
+    )
+
+    expect(before.get('/project/open.txt')).not.toBe(after.get('/project/open.txt'))
+    expect(before.get('/project/closed.txt')).toBe(after.get('/project/closed.txt'))
+    expect(session.readFile).toHaveBeenCalledTimes(2)
+    expect(session.readFile).toHaveBeenCalledWith(
+      '/project/open.txt',
+      expect.any(Function),
+    )
+  })
+
+  it('retains the digest of a stable old file without downloading it again', async () => {
+    vi.useFakeTimers()
+    try {
+      const attrs = { mode: 0o100644, mtime: 100, size: 6, atime: 100 }
+      const session = {
+        lstat: vi.fn(
+          (_path: string, callback: (error: Error | undefined, value: unknown) => void) =>
+            callback(undefined, { ...attrs, mode: 0o040755, size: 0 }),
+        ),
+        readdir: vi.fn(
+          (
+            _path: string,
+            callback: (error: Error | undefined, value: unknown[]) => void,
+          ) => callback(undefined, [{ filename: 'open.txt', attrs }]),
+        ),
+        readFile: vi.fn(
+          (_path: string, callback: (error: Error | undefined, value: Buffer) => void) =>
+            callback(undefined, Buffer.from('stable')),
+        ),
+      }
+      const host = new SshHost({
+        config: aliasConfig(),
+        fingerprintObservationWindowMs: 10,
+        prompter: { prompt: () => Promise.resolve(undefined) },
+      })
+      const internals = host as unknown as {
+        pollingFiles: Set<string>
+        getSftp(): Promise<unknown>
+        pollPrioritySnapshot(
+          path: HostPath,
+          opts: WatchOptions,
+        ): Promise<Map<string, string>>
+      }
+      internals.pollingFiles.add('/project/open.txt')
+      internals.getSftp = () => Promise.resolve(session)
+      const root = hostPath(host.hostId, '/project')
+
+      const first = await internals.pollPrioritySnapshot(root, { recursive: false })
+      await vi.advanceTimersByTimeAsync(11)
+      const second = await internals.pollPrioritySnapshot(root, { recursive: false })
+      const third = await internals.pollPrioritySnapshot(root, { recursive: false })
+
+      expect(second).toEqual(first)
+      expect(third).toEqual(first)
+      expect(session.readFile).toHaveBeenCalledOnce()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('does not put internal bulk reads on the polling fast path', async () => {
+    const session = {
+      readFile: vi.fn(
+        (_path: string, callback: (error: Error | undefined, value: Buffer) => void) =>
+          callback(undefined, Buffer.from('contents')),
+      ),
+    }
+    const host = new SshHost({
+      config: aliasConfig(),
+      prompter: { prompt: () => Promise.resolve(undefined) },
+    })
+    const internals = host as unknown as {
+      pollingFiles: Set<string>
+      readDigests: Map<string, string>
+      getSftp(): Promise<unknown>
+    }
+    internals.getSftp = () => Promise.resolve(session)
+    const internal = hostPath(host.hostId, '/project/untracked.txt')
+    const visible = hostPath(host.hostId, '/project/open.txt')
+
+    await host.readTextFile(internal)
+    await host.readFile(visible, { pollingInterest: true })
+
+    expect(internals.pollingFiles).toEqual(new Set(['/project/open.txt']))
+    expect(internals.readDigests.has('/project/untracked.txt')).toBe(false)
+    expect(internals.readDigests.has('/project/open.txt')).toBe(true)
+  })
+
+  it('content-fingerprints Git metadata on a nonrecursive watch', async () => {
+    const attrs = { mode: 0o100644, mtime: 100, size: 5, atime: 100 }
+    const session = {
+      lstat: vi.fn(
+        (_path: string, callback: (error: Error | undefined, value: unknown) => void) =>
+          callback(undefined, { ...attrs, mode: 0o040755 }),
+      ),
+      readdir: vi.fn(
+        (_path: string, callback: (error: Error | undefined, value: unknown[]) => void) =>
+          callback(undefined, [
+            { filename: 'HEAD', attrs },
+            { filename: 'index', attrs },
+            { filename: 'config', attrs },
+          ]),
+      ),
+      readFile: vi.fn(
+        (path: string, callback: (error: Error | undefined, value: Buffer) => void) =>
+          callback(undefined, Buffer.from(path)),
+      ),
+    }
+    const host = new SshHost({
+      config: aliasConfig(),
+      prompter: { prompt: () => Promise.resolve(undefined) },
+    })
+    const internals = host as unknown as {
+      getSftp(): Promise<unknown>
+      pollPrioritySnapshot(
+        path: HostPath,
+        opts: WatchOptions,
+      ): Promise<Map<string, string>>
+    }
+    internals.getSftp = () => Promise.resolve(session)
+
+    await internals.pollPrioritySnapshot(hostPath(host.hostId, '/project/.git'), {
+      recursive: false,
+    })
+
+    expect(session.readFile).toHaveBeenCalledTimes(2)
+    expect(session.readFile).toHaveBeenCalledWith(
+      '/project/.git/HEAD',
+      expect.any(Function),
+    )
+    expect(session.readFile).toHaveBeenCalledWith(
+      '/project/.git/index',
+      expect.any(Function),
+    )
+  })
+
   it('never overlaps remote polling snapshots', async () => {
     vi.useFakeTimers()
     try {
@@ -412,14 +918,22 @@ describe('SshHost remote behavior', () => {
         .mockReturnValueOnce(first)
         .mockResolvedValue(new Map())
       const internals = host as unknown as {
-        pollSnapshot(path: HostPath, opts: WatchOptions): Promise<Map<string, string>>
+        pollPrioritySnapshot(
+          path: HostPath,
+          opts: WatchOptions,
+        ): Promise<Map<string, string>>
+        pollDirectoryBatch(queue: string[]): Promise<void>
         watchPolling(
           path: HostPath,
           onEvent: (event: WatchEvent) => void,
           opts: WatchOptions,
         ): Disposer
       }
-      internals.pollSnapshot = snapshot
+      internals.pollPrioritySnapshot = snapshot
+      internals.pollDirectoryBatch = (queue) => {
+        queue.length = 0
+        return Promise.resolve()
+      }
       const stop = internals.watchPolling(
         hostPath(asHostId('example'), '/project'),
         () => undefined,
@@ -438,12 +952,121 @@ describe('SshHost remote behavior', () => {
     }
   })
 
+  it('bounds recursive safety work and adaptively backs off idle cycles', async () => {
+    vi.useFakeTimers()
+    try {
+      const host = new SshHost({
+        config: aliasConfig(),
+        pollIntervalMs: 10,
+        slowScanIntervalMs: 20,
+        maxSlowScanIntervalMs: 80,
+        pollDirectoryBatchSize: 2,
+        prompter: { prompt: () => Promise.resolve(undefined) },
+      })
+      const priority = vi.fn(() => Promise.resolve(new Map<string, string>()))
+      const batch = vi.fn(
+        (
+          queue: string[],
+          _visited: Set<string>,
+          _snapshot: Map<string, string>,
+          _opts: WatchOptions,
+          limit: number,
+        ) => {
+          expect(limit).toBe(2)
+          queue.length = 0
+          return Promise.resolve()
+        },
+      )
+      const internals = host as unknown as {
+        pollPrioritySnapshot(): Promise<Map<string, string>>
+        pollDirectoryBatch(
+          queue: string[],
+          visited: Set<string>,
+          snapshot: Map<string, string>,
+          opts: WatchOptions,
+          limit: number,
+        ): Promise<void>
+        watchPolling(
+          path: HostPath,
+          onEvent: (event: WatchEvent) => void,
+          opts: WatchOptions,
+        ): Disposer
+      }
+      internals.pollPrioritySnapshot = priority
+      internals.pollDirectoryBatch = batch
+      const stop = internals.watchPolling(
+        hostPath(host.hostId, '/project'),
+        () => undefined,
+        { recursive: true },
+      )
+
+      await vi.advanceTimersByTimeAsync(0)
+      expect(batch).toHaveBeenCalledOnce()
+      await vi.advanceTimersByTimeAsync(39)
+      expect(priority).toHaveBeenCalledTimes(4)
+      expect(batch).toHaveBeenCalledOnce()
+      await vi.advanceTimersByTimeAsync(1)
+      expect(batch).toHaveBeenCalledTimes(2)
+      await vi.advanceTimersByTimeAsync(79)
+      expect(batch).toHaveBeenCalledTimes(2)
+      await vi.advanceTimersByTimeAsync(1)
+      expect(batch).toHaveBeenCalledTimes(3)
+
+      await stop()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('enumerates only the configured number of directories per safety tick', async () => {
+    const directoryAttrs = { mode: 0o040755, mtime: 100, size: 0, atime: 100 }
+    const session = {
+      readdir: vi.fn(
+        (path: string, callback: (error: Error | undefined, value: unknown[]) => void) =>
+          callback(
+            undefined,
+            path === '/project'
+              ? ['a', 'b', 'c'].map((filename) => ({
+                  filename,
+                  attrs: directoryAttrs,
+                }))
+              : [],
+          ),
+      ),
+    }
+    const host = new SshHost({
+      config: aliasConfig(),
+      prompter: { prompt: () => Promise.resolve(undefined) },
+    })
+    const internals = host as unknown as {
+      getSftp(): Promise<unknown>
+      pollDirectoryBatch(
+        queue: string[],
+        visited: Set<string>,
+        snapshot: Map<string, string>,
+        opts: WatchOptions,
+        limit: number,
+      ): Promise<void>
+    }
+    internals.getSftp = () => Promise.resolve(session)
+    const queue = ['/project']
+    const visited = new Set(queue)
+    const snapshot = new Map<string, string>()
+
+    await internals.pollDirectoryBatch(queue, visited, snapshot, {}, 1)
+
+    expect(session.readdir).toHaveBeenCalledOnce()
+    expect(queue).toEqual(['/project/a', '/project/b', '/project/c'])
+    expect(snapshot.size).toBe(3)
+  })
+
   it('uses a polling watchdog when inotify stays silent', async () => {
     vi.useFakeTimers()
     try {
       const host = new SshHost({
         config: aliasConfig(),
         watchdogIntervalMs: 10,
+        slowScanIntervalMs: 10,
         prompter: { prompt: () => Promise.resolve(undefined) },
       })
       const root = hostPath(asHostId('example'), '/project')
@@ -464,7 +1087,11 @@ describe('SshHost remote behavior', () => {
       const internals = host as unknown as {
         cache: Map<string, unknown>
         execStream(): ExecStreamHandle
-        pollSnapshot(path: HostPath, opts: WatchOptions): Promise<Map<string, string>>
+        pollPrioritySnapshot(
+          path: HostPath,
+          opts: WatchOptions,
+        ): Promise<Map<string, string>>
+        pollDirectoryBatch(queue: string[]): Promise<void>
         watchInotify(
           path: HostPath,
           onEvent: (event: WatchEvent) => void,
@@ -472,7 +1099,11 @@ describe('SshHost remote behavior', () => {
         ): Disposer
       }
       internals.execStream = () => silentInotify
-      internals.pollSnapshot = snapshot
+      internals.pollPrioritySnapshot = snapshot
+      internals.pollDirectoryBatch = (queue) => {
+        queue.length = 0
+        return Promise.resolve()
+      }
       const events: WatchEvent[] = []
       const stop = internals.watchInotify(root, (event) => events.push(event), {})
 
@@ -503,6 +1134,56 @@ describe('SshHost remote behavior', () => {
     }
   })
 
+  it('classifies both sides of an inotify directory rename', async () => {
+    let emitStdout: ((value: string) => void) | undefined
+    const inotify: ExecStreamHandle = {
+      onStdout: (callback) => {
+        emitStdout = callback
+        return () => undefined
+      },
+      onStderr: () => () => undefined,
+      onError: () => () => undefined,
+      onExit: () => () => undefined,
+      kill: () => undefined,
+      dispose: vi.fn(),
+    }
+    const host = new SshHost({
+      config: aliasConfig(),
+      watchdogIntervalMs: 60_000,
+      prompter: { prompt: () => Promise.resolve(undefined) },
+    })
+    const internals = host as unknown as {
+      execStream(): ExecStreamHandle
+      pollPrioritySnapshot(
+        path: HostPath,
+        opts: WatchOptions,
+      ): Promise<Map<string, string>>
+      pollDirectoryBatch(queue: string[]): Promise<void>
+      watchInotify(
+        path: HostPath,
+        onEvent: (event: WatchEvent) => void,
+        opts: WatchOptions,
+      ): Disposer
+    }
+    internals.execStream = () => inotify
+    internals.pollPrioritySnapshot = () => Promise.resolve(new Map<string, string>())
+    internals.pollDirectoryBatch = (queue) => {
+      queue.length = 0
+      return Promise.resolve()
+    }
+    const events: WatchEvent[] = []
+    const root = hostPath(host.hostId, '/project')
+    const stop = internals.watchInotify(root, (event) => events.push(event), {})
+
+    emitStdout?.('MOVED_FROM,ISDIR|/project/old\nMOVED_TO,ISDIR|/project/new\n')
+
+    expect(events).toEqual([
+      { type: 'unlinkDir', path: hostPath(host.hostId, '/project/old') },
+      { type: 'addDir', path: hostPath(host.hostId, '/project/new') },
+    ])
+    await stop()
+  })
+
   it('emits a bounded tree refresh pulse even when the watch backend stalls', async () => {
     vi.useFakeTimers()
     try {
@@ -531,7 +1212,7 @@ describe('SshHost remote behavior', () => {
       await vi.advanceTimersByTimeAsync(9)
       expect(events).toEqual([])
       await vi.advanceTimersByTimeAsync(1)
-      expect(events).toEqual([{ type: 'change', path: root }])
+      expect(events).toEqual([{ type: 'change', path: root, synthetic: 'refresh' }])
 
       await stop()
       await vi.advanceTimersByTimeAsync(20)
@@ -555,14 +1236,17 @@ describe('SshHost remote behavior', () => {
         }),
     )
     const internals = host as unknown as {
-      pollSnapshot(path: HostPath, opts: WatchOptions): Promise<Map<string, string>>
+      pollPrioritySnapshot(
+        path: HostPath,
+        opts: WatchOptions,
+      ): Promise<Map<string, string>>
       watchPolling(
         path: HostPath,
         onEvent: (event: WatchEvent) => void,
         opts: WatchOptions,
       ): Disposer
     }
-    internals.pollSnapshot = snapshot
+    internals.pollPrioritySnapshot = snapshot
     const onError = vi.fn()
     const stop = internals.watchPolling(
       hostPath(asHostId('example'), '/project'),
@@ -581,10 +1265,12 @@ describe('SshHost remote behavior', () => {
 function fakeClient(connect: () => void): EventEmitter & {
   connect: ReturnType<typeof vi.fn>
   end: ReturnType<typeof vi.fn>
+  destroy: ReturnType<typeof vi.fn>
 } {
   const client = Object.assign(new EventEmitter(), {
     connect: vi.fn(connect),
     end: vi.fn(() => client.emit('close')),
+    destroy: vi.fn(() => client.emit('close')),
   })
   return client
 }

@@ -3,7 +3,11 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 
-import { ProjectRegistry, RendererSshPrompter } from '../src/main/project-registry'
+import {
+  ProjectRegistry,
+  RendererSshPrompter,
+  identityFileCandidates,
+} from '../src/main/project-registry'
 import { localPath } from '../src/shared'
 
 const cleanups: string[] = []
@@ -13,6 +17,44 @@ afterEach(async () => {
 })
 
 describe('ProjectRegistry session flow', () => {
+  it('uses configured identities without adding OpenSSH defaults', () => {
+    expect(
+      identityFileCandidates(
+        {
+          alias: 'example',
+          hostname: 'example.test',
+          user: 'picard',
+          port: 22,
+          identityFiles: ['/home/test/custom', '/home/test/custom'],
+        },
+        '/home/test',
+      ),
+    ).toEqual(['/home/test/custom'])
+  })
+
+  it('loads conventional OpenSSH identities when none are configured', () => {
+    expect(
+      identityFileCandidates(
+        {
+          alias: 'example',
+          hostname: 'example.test',
+          user: 'picard',
+          port: 22,
+          identityFiles: [],
+        },
+        '/home/test',
+      ),
+    ).toEqual([
+      '/home/test/.ssh/id_rsa',
+      '/home/test/.ssh/id_ecdsa',
+      '/home/test/.ssh/id_ecdsa_sk',
+      '/home/test/.ssh/id_ed25519',
+      '/home/test/.ssh/id_ed25519_sk',
+      '/home/test/.ssh/id_xmss',
+      '/home/test/.ssh/id_dsa',
+    ])
+  })
+
   it('connects before browsing and opens a selected local folder', async () => {
     const root = await mkdtemp(join(tmpdir(), 'hvir-registry-'))
     cleanups.push(root)

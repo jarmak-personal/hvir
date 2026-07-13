@@ -1,7 +1,7 @@
 import MarkdownIt from 'markdown-it'
 import { describe, expect, it } from 'vitest'
 
-import { localPath, resolveRenderedLink } from '../src/shared'
+import { localPath, repositoryImageMimeType, resolveRenderedLink } from '../src/shared'
 import { isSafeExternalUrl, isWorkbenchDocument } from '../src/main/navigation-policy'
 import { MARKDOWN_OPTIONS } from '../src/renderer/src/viewer/render-protocol'
 import { enableTaskLists } from '../src/renderer/src/viewer/markdown-extensions'
@@ -37,6 +37,13 @@ describe('rendered document links', () => {
       kind: 'blocked',
     })
     expect(resolveRenderedLink(document, '%E0%A4%A')).toEqual({ kind: 'blocked' })
+  })
+
+  it('allows only known repository image formats across the asset seam', () => {
+    expect(repositoryImageMimeType('/repo/docs/shot.PNG')).toBe('image/png')
+    expect(repositoryImageMimeType('/repo/docs/diagram.svg')).toBe('image/svg+xml')
+    expect(repositoryImageMimeType('/repo/docs/report.html')).toBeUndefined()
+    expect(repositoryImageMimeType('/repo/docs/image.png.exe')).toBeUndefined()
   })
 
   it('does not turn bare repository filenames into web hosts', () => {

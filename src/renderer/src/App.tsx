@@ -1,7 +1,15 @@
-import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ReactElement,
+  type RefObject,
+} from 'react'
 
 import {
   asHostId,
+  basenameHostPath,
   defaultViewMode,
   hostPath,
   hostPathEquals,
@@ -35,11 +43,14 @@ const VIEWER_MIN_HEIGHT = 180
 const TERMINAL_MIN_HEIGHT = 160
 const DIVIDER_SIZE = 5
 const TAB_STORAGE_VERSION = 1
+const DRAFT_STORAGE_CHARACTER_LIMIT = 2 * 1024 * 1024
 
 export function App(): ReactElement {
   const workbenchRef = useRef<HTMLElement>(null)
   const tabsRef = useRef<readonly ViewerTab[]>([])
   const activeIdRef = useRef<string | undefined>(undefined)
+  const fileReadGenerations = useRef(new Map<string, number>())
+  const discardDirtyOnUnload = useRef(false)
   const watchHandler = useRef<(event: WatchEvent) => void>(() => undefined)
   const pendingScroll = useRef<
     { readonly id: string; readonly scrollTop: number } | undefined
@@ -56,6 +67,7 @@ export function App(): ReactElement {
   const [root, setRoot] = useState<HostPath>()
   const [rootError, setRootError] = useState<string>()
   const [watchVersion, setWatchVersion] = useState(0)
+  const [contentVersion, setContentVersion] = useState(0)
   const [gitVersion, setGitVersion] = useState(0)
   const [tabs, setTabs] = useState<readonly ViewerTab[]>([])
   const [activeId, setActiveId] = useState<string>()
@@ -74,6 +86,8 @@ export function App(): ReactElement {
 
   const loadFile = useCallback((path: HostPath): void => {
     const id = tabId(path)
+    const generation = (fileReadGenerations.current.get(id) ?? 0) + 1
+    fileReadGenerations.current.set(id, generation)
     setTabs((current) =>
       current.map((tab) =>
         tab.id === id ? { ...tab, loading: !tab.file, error: undefined } : tab,
@@ -84,39 +98,45 @@ export function App(): ReactElement {
       .then(unwrapOperation)
       .then(
         (file) => {
+          if (fileReadGenerations.current.get(id) !== generation) return
           setTabs((current) =>
             current.map((tab) =>
               tab.id === id
-                ? {
-                    ...tab,
-                    file,
-                    loading: false,
-                    error: undefined,
-                    conflict: false,
-                  }
+                ? tab.dirty
+                  ? tab
+                  : {
+                      ...tab,
+                      file,
+                      loading: false,
+                      error: undefined,
+                      conflict: false,
+                    }
                 : tab,
             ),
           )
         },
         (reason: unknown) => {
+          if (fileReadGenerations.current.get(id) !== generation) return
           const error = reason instanceof Error ? reason.message : String(reason)
           setTabs((current) =>
             current.map((tab) =>
               tab.id === id
-                ? tab.diffRevision
-                  ? {
-                      ...tab,
-                      file: {
-                        path: tab.path,
-                        content: '',
-                        size: 0,
-                        mtimeMs: 0,
-                        binary: false,
-                      },
-                      loading: false,
-                      error: undefined,
-                    }
-                  : { ...tab, file: undefined, loading: false, error }
+                ? tab.dirty
+                  ? tab
+                  : tab.diffRevision
+                    ? {
+                        ...tab,
+                        file: {
+                          path: tab.path,
+                          content: '',
+                          size: 0,
+                          mtimeMs: 0,
+                          binary: false,
+                        },
+                        loading: false,
+                        error: undefined,
+                      }
+                    : { ...tab, file: undefined, loading: false, error }
                 : tab,
             ),
           )
@@ -127,6 +147,7 @@ export function App(): ReactElement {
   useEffect(() => {
     let cancelled = false
     let watchRefreshTimer: number | undefined
+    let contentRefreshTimer: number | undefined
     void window.hvir.invoke('project:root', undefined).then(
       ({ root: projectRoot, connectionState: state, watchTier: tier }) => {
         if (!cancelled) {
@@ -148,6 +169,12 @@ export function App(): ReactElement {
         watchRefreshTimer = window.setTimeout(() => {
           watchRefreshTimer = undefined
           setWatchVersion((version) => version + 1)
+        }, 250)
+      }
+      if (event.synthetic !== 'refresh' && contentRefreshTimer === undefined) {
+        contentRefreshTimer = window.setTimeout(() => {
+          contentRefreshTimer = undefined
+          setContentVersion((version) => version + 1)
         }, 250)
       }
       watchHandler.current(event)
@@ -175,6 +202,7 @@ export function App(): ReactElement {
     return () => {
       cancelled = true
       if (watchRefreshTimer !== undefined) window.clearTimeout(watchRefreshTimer)
+      if (contentRefreshTimer !== undefined) window.clearTimeout(contentRefreshTimer)
       void stopWatch()
       void stopState()
       void stopPrompt()
@@ -214,11 +242,32 @@ export function App(): ReactElement {
   useEffect(() => {
     const flushPersistence = (): void => {
       const state = persistedState.current
-      if (state) persistTabs(state.root, state.tabs, state.activeId)
+      if (state) {
+        persistTabs(state.root, state.tabs, state.activeId, !discardDirtyOnUnload.current)
+      }
+    }
+    const protectDirtyBuffers = (event: BeforeUnloadEvent): void => {
+      const dirtyCount = tabsRef.current.filter((tab) => tab.dirty).length
+      if (
+        dirtyCount === 0 ||
+        window.confirm(
+          `${dirtyCount} tab${dirtyCount === 1 ? ' has' : 's have'} unsaved changes. Close hvir and discard them?`,
+        )
+      ) {
+        discardDirtyOnUnload.current = dirtyCount > 0
+        return
+      }
+      discardDirtyOnUnload.current = false
+      event.preventDefault()
+      // Electron silently cancels a close when beforeunload sets returnValue;
+      // the explicit confirmation above supplies the UI it does not provide.
+      event.returnValue = 'Unsaved changes'
     }
     window.addEventListener('pagehide', flushPersistence)
+    window.addEventListener('beforeunload', protectDirtyBuffers)
     return () => {
       window.removeEventListener('pagehide', flushPersistence)
+      window.removeEventListener('beforeunload', protectDirtyBuffers)
       if (scrollFrame.current !== undefined) {
         window.cancelAnimationFrame(scrollFrame.current)
       }
@@ -275,6 +324,7 @@ export function App(): ReactElement {
     diffRevision?: string,
   ): void => {
     const id = tabId(path)
+    const existing = tabsRef.current.find((tab) => tab.id === id)
     setTabs((current) => {
       const existing = current.find((tab) => tab.id === id)
       if (existing) {
@@ -285,7 +335,7 @@ export function App(): ReactElement {
                 pinned: pinned || tab.pinned,
                 mode: context === 'git' ? 'diff' : tab.mode,
                 diffBase: context === 'git' ? diffBase : tab.diffBase,
-                diffRevision: context === 'git' ? diffRevision : tab.diffRevision,
+                diffRevision: context === 'git' ? diffRevision : undefined,
               }
             : tab,
         )
@@ -309,10 +359,20 @@ export function App(): ReactElement {
       return next
     })
     setActiveId(id)
-    loadFile(path)
+    // Reopening a dirty tab is navigation, not a reload. Its in-memory buffer
+    // is authoritative until the user saves or explicitly chooses reload.
+    if (!existing?.dirty) loadFile(path)
   }
 
   const closeTab = (id: string): void => {
+    const closing = tabsRef.current.find((tab) => tab.id === id)
+    if (
+      closing?.dirty &&
+      !window.confirm(`Close ${basenameHostPath(closing.path)} without saving?`)
+    ) {
+      return
+    }
+    fileReadGenerations.current.set(id, (fileReadGenerations.current.get(id) ?? 0) + 1)
     setTabs((current) => {
       const index = current.findIndex((tab) => tab.id === id)
       if (index < 0) return current
@@ -350,8 +410,13 @@ export function App(): ReactElement {
     const tab = tabsRef.current.find((candidate) => candidate.id === activeIdRef.current)
     if (!tab?.file || tab.file.binary || tab.conflict) return
     const savedContent = tab.file.content
+    updateTab(tab.id, (candidate) => ({ ...candidate, error: undefined }))
     void window.hvir
-      .invoke('fs:write', { path: tab.path, content: savedContent })
+      .invoke('fs:write', {
+        path: tab.path,
+        content: savedContent,
+        ...(tab.file.mtimeMs > 0 ? { expectedMtimeMs: tab.file.mtimeMs } : {}),
+      })
       .then(unwrapOperation)
       .then(
         (written) => {
@@ -361,6 +426,7 @@ export function App(): ReactElement {
               const unchangedSinceSave = candidate.file.content === savedContent
               return {
                 ...candidate,
+                error: undefined,
                 dirty: unchangedSinceSave ? false : candidate.dirty,
                 conflict: unchangedSinceSave ? false : candidate.conflict,
                 file: {
@@ -376,7 +442,13 @@ export function App(): ReactElement {
           const error = reason instanceof Error ? reason.message : String(reason)
           setTabs((current) =>
             current.map((candidate) =>
-              candidate.id === tab.id ? { ...candidate, error } : candidate,
+              candidate.id === tab.id
+                ? {
+                    ...candidate,
+                    error,
+                    conflict: candidate.conflict || /file changed/i.test(error),
+                  }
+                : candidate,
             ),
           )
         },
@@ -508,6 +580,7 @@ export function App(): ReactElement {
           </nav>
           <div className="rail-content">
             <FileTree
+              key={`files:${root.hostId}:${root.path}`}
               root={root}
               refreshVersion={watchVersion}
               selected={activeTab?.path}
@@ -516,8 +589,9 @@ export function App(): ReactElement {
               hidden={railMode !== 'files'}
             />
             <GitPanel
+              key={`git:${root.hostId}:${root.path}`}
               root={root}
-              refreshVersion={watchVersion}
+              refreshVersion={contentVersion}
               historyRefreshVersion={gitVersion}
               onChangedCount={setChangedCount}
               onOpen={(path, base, revision) =>
@@ -598,6 +672,7 @@ export function App(): ReactElement {
               }
               openFile(path, true)
             }}
+            refreshVersion={contentVersion}
           />
         </section>
         <PaneResizer
@@ -621,13 +696,14 @@ export function App(): ReactElement {
         <SessionDialog
           hosts={hosts}
           currentRoot={root}
+          suspended={sshPrompts.length > 0}
           onCancel={() => setShowAddProject(false)}
           onConnect={connectProjectHost}
           onBrowse={browseProjectHost}
           onDisconnect={disconnectProjectHost}
           onOpen={openProjectHost}
           onOpened={(state) => {
-            persistTabs(root, tabsRef.current, activeIdRef.current)
+            persistTabs(root, tabsRef.current, activeIdRef.current, false)
             setRestored(false)
             setRoot(state.root)
             setConnectionState(state.connectionState)
@@ -664,6 +740,7 @@ export function App(): ReactElement {
 function SessionDialog({
   hosts,
   currentRoot,
+  suspended,
   onCancel,
   onConnect,
   onBrowse,
@@ -673,6 +750,7 @@ function SessionDialog({
 }: {
   readonly hosts: readonly ProjectHostOption[]
   readonly currentRoot: HostPath
+  readonly suspended: boolean
   readonly onCancel: () => void
   readonly onConnect: (hostId: string) => Promise<ConnectedHost>
   readonly onBrowse: (hostId: string, path: string) => Promise<BrowseHostResponse>
@@ -680,6 +758,7 @@ function SessionDialog({
   readonly onOpen: (hostId: string, path: string) => Promise<ProjectState>
   readonly onOpened: (state: ProjectState) => void
 }): ReactElement {
+  const dialogRef = useRef<HTMLElement>(null)
   const [stage, setStage] = useState<'host' | 'folder'>('host')
   const [hostId, setHostId] = useState(
     hosts.some((host) => host.hostId === currentRoot.hostId)
@@ -783,10 +862,21 @@ function SessionDialog({
     [connectedHostId, onBrowse],
   )
 
+  useModalKeyboard(dialogRef, () => void cancel(), !busy, !suspended)
+
   return (
     <div className="modal-backdrop">
-      <section className="project-dialog session-dialog" aria-label="Change session">
-        <h2>
+      <section
+        className="project-dialog session-dialog"
+        ref={dialogRef}
+        role="dialog"
+        aria-modal={suspended ? undefined : true}
+        aria-hidden={suspended || undefined}
+        inert={suspended || undefined}
+        aria-labelledby="session-dialog-title"
+        tabIndex={-1}
+      >
+        <h2 id="session-dialog-title">
           {stage === 'host'
             ? 'Connect to a host'
             : `Open folder on ${connected?.host.label ?? hostId}`}
@@ -915,19 +1005,26 @@ function SshPromptDialog({
   readonly prompt: SshPromptRequest
   readonly onAnswer: (answers?: readonly string[]) => void
 }): ReactElement {
+  const dialogRef = useRef<HTMLFormElement>(null)
   const [answers, setAnswers] = useState(() => prompt.prompts.map(() => ''))
   const [verifiedChangedKey, setVerifiedChangedKey] = useState(false)
   const changedKey = prompt.kind === 'host-key-changed'
+  useModalKeyboard(dialogRef, () => onAnswer(undefined))
   return (
     <div className="modal-backdrop">
       <form
         className="project-dialog"
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="ssh-prompt-title"
+        tabIndex={-1}
         onSubmit={(event) => {
           event.preventDefault()
           onAnswer(prompt.kind === 'host-key' || changedKey ? ['yes'] : answers)
         }}
       >
-        <h2>{prompt.title}</h2>
+        <h2 id="ssh-prompt-title">{prompt.title}</h2>
         {prompt.instructions ? <p>{prompt.instructions}</p> : null}
         {(prompt.kind === 'host-key' || changedKey) && prompt.fingerprint ? (
           <div className={changedKey ? 'ssh-host-key-changed' : undefined}>
@@ -992,6 +1089,69 @@ function SshPromptDialog({
   )
 }
 
+function useModalKeyboard(
+  dialogRef: RefObject<HTMLElement | null>,
+  onDismiss: () => void,
+  dismissEnabled = true,
+  active = true,
+): void {
+  const dismissRef = useRef(onDismiss)
+  const enabledRef = useRef(dismissEnabled)
+  const activeRef = useRef(active)
+  dismissRef.current = onDismiss
+  enabledRef.current = dismissEnabled
+  activeRef.current = active
+
+  useEffect(() => {
+    const dialog = dialogRef.current
+    if (!dialog) return
+    const previousFocus = document.activeElement
+    const focusableSelector =
+      'button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])'
+    const focusFirst = window.requestAnimationFrame(() => {
+      if (!activeRef.current) return
+      const preferred = dialog.querySelector<HTMLElement>('[autofocus]')
+      const first = dialog.querySelector<HTMLElement>(focusableSelector)
+      ;(preferred ?? first ?? dialog).focus()
+    })
+    const handleKeyDown = (event: KeyboardEvent): void => {
+      if (!activeRef.current) return
+      if (event.key === 'Escape' && enabledRef.current) {
+        event.preventDefault()
+        dismissRef.current()
+        return
+      }
+      if (event.key !== 'Tab') return
+      const focusable = [
+        ...dialog.querySelectorAll<HTMLElement>(focusableSelector),
+      ].filter((element) => element.offsetParent !== null)
+      if (focusable.length === 0) {
+        event.preventDefault()
+        dialog.focus()
+        return
+      }
+      const current = focusable.indexOf(document.activeElement as HTMLElement)
+      const next = event.shiftKey
+        ? current <= 0
+          ? focusable.at(-1)
+          : focusable[current - 1]
+        : current < 0 || current === focusable.length - 1
+          ? focusable[0]
+          : focusable[current + 1]
+      event.preventDefault()
+      next?.focus()
+    }
+    document.addEventListener('keydown', handleKeyDown, true)
+    return () => {
+      window.cancelAnimationFrame(focusFirst)
+      document.removeEventListener('keydown', handleKeyDown, true)
+      if (previousFocus instanceof HTMLElement && previousFocus.isConnected) {
+        previousFocus.focus()
+      }
+    }
+  }, [dialogRef])
+}
+
 function connectProjectHost(hostId: string): Promise<ConnectedHost> {
   return window.hvir.invoke('project:connect-host', { hostId }).then(unwrapOperation)
 }
@@ -1040,6 +1200,8 @@ interface StoredTabs {
     readonly diffBase: DiffBase
     readonly diffRevision?: string
     readonly scrollTop: number
+    readonly draft?: string
+    readonly mtimeMs?: number
   }[]
 }
 
@@ -1061,6 +1223,11 @@ function restoreTabs(root: HostPath): { tabs: readonly ViewerTab[]; activeId?: s
         return []
       }
       const path = hostPath(asHostId(item.hostId), item.path)
+      const draft =
+        typeof item.draft === 'string' &&
+        item.draft.length <= DRAFT_STORAGE_CHARACTER_LIMIT
+          ? item.draft
+          : undefined
       return [
         {
           id: tabId(path),
@@ -1071,8 +1238,23 @@ function restoreTabs(root: HostPath): { tabs: readonly ViewerTab[]; activeId?: s
           diffRevision:
             typeof item.diffRevision === 'string' ? item.diffRevision : undefined,
           scrollTop: Number.isFinite(item.scrollTop) ? item.scrollTop : 0,
-          loading: true,
-          dirty: false,
+          file:
+            draft === undefined
+              ? undefined
+              : {
+                  path,
+                  content: draft,
+                  size: new TextEncoder().encode(draft).byteLength,
+                  mtimeMs:
+                    typeof item.mtimeMs === 'number' &&
+                    Number.isFinite(item.mtimeMs) &&
+                    item.mtimeMs > 0
+                      ? item.mtimeMs
+                      : 0,
+                  binary: false,
+                },
+          loading: draft === undefined,
+          dirty: draft !== undefined,
           conflict: false,
         },
       ]
@@ -1090,21 +1272,35 @@ function persistTabs(
   root: HostPath,
   tabs: readonly ViewerTab[],
   activeId?: string,
+  includeDrafts = true,
 ): void {
+  let remainingDraftCharacters = includeDrafts ? DRAFT_STORAGE_CHARACTER_LIMIT : 0
   const stored: StoredTabs = {
     version: TAB_STORAGE_VERSION,
     activeId,
-    tabs: tabs.map((tab) => ({
-      hostId: tab.path.hostId,
-      path: tab.path.path,
-      pinned: tab.pinned,
-      mode: tab.mode,
-      diffBase: tab.diffBase,
-      diffRevision: tab.diffRevision,
-      scrollTop: tab.scrollTop,
-    })),
+    tabs: tabs.map((tab) => {
+      const draft = tab.dirty ? tab.file?.content : undefined
+      const draftCharacters = draft?.length ?? 0
+      const storedDraft = draftCharacters <= remainingDraftCharacters ? draft : undefined
+      remainingDraftCharacters -= storedDraft === undefined ? 0 : draftCharacters
+      return {
+        hostId: tab.path.hostId,
+        path: tab.path.path,
+        pinned: tab.pinned,
+        mode: tab.mode,
+        diffBase: tab.diffBase,
+        diffRevision: tab.diffRevision,
+        scrollTop: tab.scrollTop,
+        draft: storedDraft,
+        mtimeMs: storedDraft === undefined ? undefined : tab.file?.mtimeMs,
+      }
+    }),
   }
-  localStorage.setItem(storageKey(root), JSON.stringify(stored))
+  try {
+    localStorage.setItem(storageKey(root), JSON.stringify(stored))
+  } catch {
+    // Storage is a recovery aid, never a reason to make the live viewer fail.
+  }
 }
 
 function storageKey(root: HostPath): string {

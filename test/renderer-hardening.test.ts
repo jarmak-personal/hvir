@@ -1,0 +1,23 @@
+import { describe, expect, it } from 'vitest'
+
+import { usesUnsavedContent } from '../src/renderer/src/viewer/diff-policy'
+import { INVOKE_CHANNELS } from '../src/shared'
+
+describe('renderer diff policy', () => {
+  it('uses a dirty buffer only for live-file comparisons', () => {
+    expect(usesUnsavedContent(true, 'working-tree')).toBe(true)
+    expect(usesUnsavedContent(true, 'head')).toBe(true)
+    expect(usesUnsavedContent(false, 'head')).toBe(false)
+  })
+
+  it('keeps branch-point and historical diffs immutable', () => {
+    expect(usesUnsavedContent(true, 'branch-point')).toBe(false)
+    expect(usesUnsavedContent(true, 'head', 'deadbeef')).toBe(false)
+  })
+})
+
+describe('renderer filesystem contract', () => {
+  it('exposes only the typed target-resolution operation for link discovery', () => {
+    expect(INVOKE_CHANNELS).toContain('fs:resolve-entry')
+  })
+})

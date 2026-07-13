@@ -9,7 +9,7 @@
  */
 
 import type { Disposer } from './disposer'
-import type { DirEntry, WatchEvent } from './fs-types'
+import type { DirEntry, FileType, WatchEvent } from './fs-types'
 import type { HostPath } from './host-path'
 import type {
   CreateHtmlPreviewRequest,
@@ -23,7 +23,7 @@ import type {
   WriteFileResponse,
 } from './viewer-types'
 import type {
-  GitBlameLine,
+  GitBlameRun,
   GitBlameRequest,
   GitChanges,
   GitChangesRequest,
@@ -131,12 +131,26 @@ export interface ReadFileRequest {
   readonly path: HostPath
 }
 
+export interface ResolveEntryResponse {
+  /** The renderer-facing link path, not the canonical target path. */
+  readonly path: HostPath
+  /** Target kind after canonical confinement and symlink resolution. */
+  readonly type: FileType
+}
+
 export interface ReadFileResponse {
   readonly path: HostPath
   readonly content: string
   readonly size: number
   readonly mtimeMs: number
   readonly binary: boolean
+}
+
+export interface ReadAssetResponse {
+  readonly path: HostPath
+  readonly data: Uint8Array
+  readonly size: number
+  readonly mimeType: string
 }
 
 export interface StartPtyRequest {
@@ -182,13 +196,21 @@ export interface IpcInvokeMap {
     request: ReadDirectoryRequest
     response: OperationResult<readonly DirEntry[]>
   }
+  'fs:resolve-entry': {
+    request: ReadFileRequest
+    response: OperationResult<ResolveEntryResponse>
+  }
   'fs:read': { request: ReadFileRequest; response: OperationResult<ReadFileResponse> }
+  'fs:read-asset': {
+    request: ReadFileRequest
+    response: OperationResult<ReadAssetResponse>
+  }
   'fs:write': { request: WriteFileRequest; response: OperationResult<WriteFileResponse> }
   'git:diff-inputs': { request: GitDiffRequest; response: GitDiffResponse }
   'git:changes': { request: GitChangesRequest; response: GitChanges }
   'git:history': { request: GitHistoryRequest; response: GitHistoryPage }
   'git:commit-detail': { request: GitCommitDetailRequest; response: GitCommitDetail }
-  'git:blame': { request: GitBlameRequest; response: readonly GitBlameLine[] }
+  'git:blame': { request: GitBlameRequest; response: readonly GitBlameRun[] }
   'html-preview:create': {
     request: CreateHtmlPreviewRequest
     response: CreateHtmlPreviewResponse
@@ -258,7 +280,9 @@ export const INVOKE_CHANNELS = [
   'project:open',
   'ssh:prompt-response',
   'fs:readdir',
+  'fs:resolve-entry',
   'fs:read',
+  'fs:read-asset',
   'fs:write',
   'git:diff-inputs',
   'git:changes',

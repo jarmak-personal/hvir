@@ -5,8 +5,10 @@ export type {
   ProjectHost,
   PtyExit,
   PtyProcess,
+  ReadFileOptions,
   SpawnPtyOptions,
   WatchOptions,
+  WriteFileOptions,
 } from './project-host'
 export { LocalHost } from './local-host'
 export { SshHost } from './ssh-host'

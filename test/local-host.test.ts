@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, symlink, utimes, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -36,6 +36,20 @@ describe('LocalHost', () => {
     await host.writeFile(p, 'hi there')
     expect(await host.readTextFile(p)).toBe('hi there')
     expect((await host.readFile(p)).toString('utf8')).toBe('hi there')
+  })
+
+  it('preserves an externally changed file when an atomic save is stale', async () => {
+    const p = localPath(join(dir, 'conflict.txt'))
+    await host.writeFile(p, 'original')
+    const opened = await host.stat(p)
+    await writeFile(p.path, 'external')
+    const changedTime = new Date(opened.mtimeMs + 10_000)
+    await utimes(p.path, changedTime, changedTime)
+
+    await expect(
+      host.writeFile(p, 'mine', { expectedMtimeMs: opened.mtimeMs }),
+    ).rejects.toThrow('changed since it was opened')
+    expect(await host.readTextFile(p)).toBe('external')
   })
 
   it('lists directory entries with types', async () => {
@@ -139,6 +153,29 @@ describe('LocalHost', () => {
     await writeFile(join(dir, 'target.txt'), 'target')
     await symlink('target.txt', join(dir, 'link.txt'))
     expect((await host.stat(localPath(join(dir, 'link.txt')))).type).toBe('symlink')
+  })
+
+  it('browses a symlinked directory after resolving its in-project target', async () => {
+    await mkdir(join(dir, 'target'))
+    await writeFile(join(dir, 'target', 'inside.txt'), 'visible')
+    await symlink('target', join(dir, 'linked'), 'dir')
+    const link = localPath(join(dir, 'linked'))
+
+    expect((await host.stat(link)).type).toBe('symlink')
+    expect((await host.stat(await host.realpath(link))).type).toBe('dir')
+    expect((await host.readdir(link)).map((entry) => entry.name)).toEqual(['inside.txt'])
+  })
+
+  it('writes a resolved file target without replacing its symlink', async () => {
+    await writeFile(join(dir, 'target.txt'), 'before')
+    await symlink('target.txt', join(dir, 'linked.txt'))
+    const link = localPath(join(dir, 'linked.txt'))
+    const target = await host.realpath(link)
+
+    await host.writeFile(target, 'after')
+
+    expect((await host.stat(link)).type).toBe('symlink')
+    expect((await host.readFile(link)).toString('utf8')).toBe('after')
   })
 
   it('canonicalizes symlinked paths for confinement checks', async () => {

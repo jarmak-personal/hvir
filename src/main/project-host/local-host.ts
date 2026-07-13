@@ -12,8 +12,9 @@
  */
 
 import { spawn } from 'node:child_process'
+import { randomUUID } from 'node:crypto'
 import { promises as fsp } from 'node:fs'
-import { relative, sep } from 'node:path'
+import { basename, dirname, join, relative, sep } from 'node:path'
 import { StringDecoder } from 'node:string_decoder'
 import chokidar from 'chokidar'
 
@@ -37,8 +38,10 @@ import type {
   ProjectHost,
   PtyExit,
   PtyProcess,
+  ReadFileOptions,
   SpawnPtyOptions,
   WatchOptions,
+  WriteFileOptions,
 } from './project-host'
 
 const DEFAULT_MAX_BUFFER = 10 * 1024 * 1024 // 10 MiB
@@ -250,16 +253,46 @@ export class LocalHost implements ProjectHost {
     }
   }
 
-  async readFile(path: HostPath): Promise<Buffer> {
+  async readFile(path: HostPath, _opts: ReadFileOptions = {}): Promise<Buffer> {
     return fsp.readFile(this.resolve(path))
   }
 
-  async readTextFile(path: HostPath, encoding: BufferEncoding = 'utf8'): Promise<string> {
+  async readTextFile(
+    path: HostPath,
+    encoding: BufferEncoding = 'utf8',
+    _opts: ReadFileOptions = {},
+  ): Promise<string> {
     return fsp.readFile(this.resolve(path), encoding)
   }
 
-  async writeFile(path: HostPath, data: Uint8Array | string): Promise<void> {
-    await fsp.writeFile(this.resolve(path), data)
+  async writeFile(
+    path: HostPath,
+    data: Uint8Array | string,
+    opts: WriteFileOptions = {},
+  ): Promise<void> {
+    const destination = this.resolve(path)
+    let mode: number | undefined
+    try {
+      mode = (await fsp.lstat(destination)).mode & 0o777
+    } catch (reason) {
+      if ((reason as NodeJS.ErrnoException).code !== 'ENOENT') throw reason
+      if (opts.expectedMtimeMs !== undefined) throw fileChangedError()
+    }
+    const temporary = join(
+      dirname(destination),
+      `.${basename(destination)}.hvir-${randomUUID()}.tmp`,
+    )
+    try {
+      await fsp.writeFile(temporary, data, mode === undefined ? {} : { mode })
+      if (opts.expectedMtimeMs !== undefined) {
+        const current = await fsp.lstat(destination)
+        if (current.mtimeMs !== opts.expectedMtimeMs) throw fileChangedError()
+      }
+      await fsp.rename(temporary, destination)
+    } catch (reason) {
+      await fsp.unlink(temporary).catch(() => undefined)
+      throw reason
+    }
   }
 
   async readdir(path: HostPath): Promise<DirEntry[]> {
@@ -346,4 +379,8 @@ export class LocalHost implements ProjectHost {
   private wrap(rawPath: string): HostPath {
     return hostPath(this.hostId, rawPath)
   }
+}
+
+function fileChangedError(): Error {
+  return new Error('File changed since it was opened; reload before saving')
 }
