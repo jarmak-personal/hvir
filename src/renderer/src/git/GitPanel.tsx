@@ -15,6 +15,7 @@ import { SessionBar } from '../tree/FileTree'
 interface GitPanelProps {
   readonly root: HostPath
   readonly refreshVersion: number
+  readonly historyRefreshVersion: number
   readonly onShowFiles: () => void
   readonly onOpen: (path: HostPath, base: DiffBase, revision?: string) => void
   readonly onChangedCount: (count: number) => void
@@ -31,6 +32,7 @@ interface GitPanelProps {
 export function GitPanel({
   root,
   refreshVersion,
+  historyRefreshVersion,
   onShowFiles,
   onOpen,
   onChangedCount,
@@ -51,6 +53,7 @@ export function GitPanel({
   const [detail, setDetail] = useState<GitCommitDetail>()
   const historyEnd = useRef<HTMLDivElement>(null)
   const historyLoading = useRef(false)
+  const historyGeneration = useRef(0)
 
   useEffect(() => {
     if (connectionState !== 'connected') return
@@ -59,6 +62,7 @@ export function GitPanel({
       (result) => {
         if (!cancelled) {
           setChanges(result)
+          setError(undefined)
           onChangedCount(result.workingTree.length)
         }
       },
@@ -75,29 +79,44 @@ export function GitPanel({
   const loadHistory = (): void => {
     if (connectionState !== 'connected' || historyLoading.current || !hasMore) return
     historyLoading.current = true
+    const generation = historyGeneration.current
+    const skip = commits.length
     void window.hvir
-      .invoke('git:history', { root, skip: commits.length, limit: 50 })
+      .invoke('git:history', { root, skip, limit: 50 })
       .then(
         (page) => {
-          setCommits((current) => [...current, ...page.commits])
+          if (generation !== historyGeneration.current) return
+          setCommits((current) => {
+            if (current.length !== skip) return current
+            const seen = new Set(current.map((commit) => commit.hash))
+            return [
+              ...current,
+              ...page.commits.filter((commit) => !seen.has(commit.hash)),
+            ]
+          })
           setHasMore(page.hasMore)
+          setError(undefined)
         },
         (reason: unknown) =>
           setError(reason instanceof Error ? reason.message : String(reason)),
       )
       .finally(() => {
-        historyLoading.current = false
+        if (generation === historyGeneration.current) historyLoading.current = false
       })
   }
 
   useEffect(() => {
     if (view !== 'history' || connectionState !== 'connected') return
     let cancelled = false
+    const generation = ++historyGeneration.current
+    historyLoading.current = false
+    setCommits([])
     void window.hvir.invoke('git:history', { root, skip: 0, limit: 50 }).then(
       (page) => {
-        if (!cancelled) {
+        if (!cancelled && generation === historyGeneration.current) {
           setCommits(page.commits)
           setHasMore(page.hasMore)
+          setError(undefined)
         }
       },
       (reason: unknown) => {
@@ -108,7 +127,7 @@ export function GitPanel({
     return () => {
       cancelled = true
     }
-  }, [connectionState, root, view])
+  }, [connectionState, historyRefreshVersion, root, view])
 
   useEffect(() => {
     const target = historyEnd.current

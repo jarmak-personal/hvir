@@ -622,6 +622,31 @@ body.pane-resizing-row * {
   word-break: break-all;
 }
 
+.ssh-host-key-changed {
+  border: 1px solid #c35a5a;
+  border-radius: 6px;
+  background: rgb(195 90 90 / 10%);
+  padding: 12px;
+}
+
+.ssh-host-key-changed label {
+  display: grid;
+  gap: 5px;
+  margin-bottom: 10px;
+}
+
+.ssh-host-key-confirm {
+  grid-template-columns: auto 1fr !important;
+  align-items: center;
+  color: #f1c4c4;
+}
+
+.ssh-host-key-confirm input {
+  width: auto;
+  margin: 0;
+  padding: 0;
+}
+
 .session-dialog {
   max-height: min(680px, calc(100vh - 32px));
 }

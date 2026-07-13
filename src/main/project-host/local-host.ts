@@ -14,6 +14,7 @@
 import { spawn } from 'node:child_process'
 import { promises as fsp } from 'node:fs'
 import { relative, sep } from 'node:path'
+import { StringDecoder } from 'node:string_decoder'
 import chokidar from 'chokidar'
 
 import { hostPath, LOCAL_HOST_ID } from '../../shared'
@@ -88,6 +89,8 @@ export class LocalHost implements ProjectHost {
       let stderr = ''
       let bytes = 0
       let settled = false
+      const stdoutDecoder = new StringDecoder('utf8')
+      const stderrDecoder = new StringDecoder('utf8')
 
       const overflow = (): boolean => {
         if (bytes <= maxBuffer) return false
@@ -99,12 +102,12 @@ export class LocalHost implements ProjectHost {
 
       child.stdout.on('data', (d: Buffer) => {
         bytes += d.length
-        stdout += d.toString('utf8')
+        stdout += stdoutDecoder.write(d)
         overflow()
       })
       child.stderr.on('data', (d: Buffer) => {
         bytes += d.length
-        stderr += d.toString('utf8')
+        stderr += stderrDecoder.write(d)
         overflow()
       })
       child.on('error', (err) => {
@@ -116,6 +119,8 @@ export class LocalHost implements ProjectHost {
       child.on('close', (code, signal) => {
         if (settled) return
         settled = true
+        stdout += stdoutDecoder.end()
+        stderr += stderrDecoder.end()
         resolve({ code, signal: signal ?? null, stdout, stderr })
       })
 
@@ -136,12 +141,30 @@ export class LocalHost implements ProjectHost {
       signal: opts.signal,
     })
     const errorListeners = new Set<(error: Error) => void>()
+    const stdoutListeners = new Set<(value: string) => void>()
+    const stderrListeners = new Set<(value: string) => void>()
+    const stdoutDecoder = new StringDecoder('utf8')
+    const stderrDecoder = new StringDecoder('utf8')
     const onError = (error: Error): void => {
       for (const cb of errorListeners) cb(error)
     }
     // Install immediately: a failed spawn emits `error` before a caller has a
     // chance to subscribe, and an unhandled child-process error crashes Node.
     child.on('error', onError)
+    child.stdout.on('data', (chunk: Buffer) => {
+      const value = stdoutDecoder.write(chunk)
+      if (value) for (const cb of stdoutListeners) cb(value)
+    })
+    child.stderr.on('data', (chunk: Buffer) => {
+      const value = stderrDecoder.write(chunk)
+      if (value) for (const cb of stderrListeners) cb(value)
+    })
+    child.on('close', () => {
+      const stdout = stdoutDecoder.end()
+      const stderr = stderrDecoder.end()
+      if (stdout) for (const cb of stdoutListeners) cb(stdout)
+      if (stderr) for (const cb of stderrListeners) cb(stderr)
+    })
 
     // There is no streaming stdin writer in this Phase 1 seam, so EOF is the
     // only useful default when no fixed input was supplied.
@@ -149,17 +172,15 @@ export class LocalHost implements ProjectHost {
 
     return {
       onStdout(cb) {
-        const h = (d: Buffer): void => cb(d.toString('utf8'))
-        child.stdout.on('data', h)
+        stdoutListeners.add(cb)
         return () => {
-          child.stdout.off('data', h)
+          stdoutListeners.delete(cb)
         }
       },
       onStderr(cb) {
-        const h = (d: Buffer): void => cb(d.toString('utf8'))
-        child.stderr.on('data', h)
+        stderrListeners.add(cb)
         return () => {
-          child.stderr.off('data', h)
+          stderrListeners.delete(cb)
         }
       },
       onError(cb) {
@@ -181,6 +202,8 @@ export class LocalHost implements ProjectHost {
       },
       dispose() {
         errorListeners.clear()
+        stdoutListeners.clear()
+        stderrListeners.clear()
         child.stdout.removeAllListeners()
         child.stderr.removeAllListeners()
         child.removeAllListeners()

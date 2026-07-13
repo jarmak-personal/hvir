@@ -68,6 +68,36 @@ describe('LocalHost', () => {
     expect(r.stdout).toBe('piped-input')
   })
 
+  it('decodes multibyte output split across process chunks', async () => {
+    const script = [
+      'process.stdout.write(Buffer.from([0xe2]))',
+      'setTimeout(() => process.stdout.write(Buffer.from([0x82, 0xac])), 20)',
+    ].join(';')
+    const result = await host.exec(process.execPath, ['-e', script])
+
+    expect(result.stdout).toBe('€')
+    expect(result.stdout).not.toContain('�')
+  })
+
+  it('decodes multibyte streaming output split across chunks', async () => {
+    const script = [
+      'process.stdout.write(Buffer.from([0xf0, 0x9f]))',
+      'setTimeout(() => process.stdout.write(Buffer.from([0x98, 0x80])), 20)',
+    ].join(';')
+    const stream = host.execStream(process.execPath, ['-e', script])
+    let stdout = ''
+    stream.onStdout((chunk) => {
+      stdout += chunk
+    })
+    await new Promise<void>((resolve, reject) => {
+      stream.onError(reject)
+      stream.onExit(() => resolve())
+    })
+
+    expect(stdout).toBe('😀')
+    stream.dispose()
+  })
+
   it('closes stdin when buffered exec has no input', async () => {
     const r = await host.exec('cat', [])
     expect(r.code).toBe(0)

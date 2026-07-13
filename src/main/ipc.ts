@@ -55,8 +55,16 @@ const canonicalRoots = new WeakMap<ProjectHost, Map<string, Promise<HostPath>>>(
 
 function handleSend<C extends IpcSendChannel>(channel: C, handler: SendHandler<C>): void {
   ipcMain.on(channel, (event, payload: IpcSendPayload<C>) => {
-    assertMainFrame(event)
-    handler(payload)
+    try {
+      assertMainFrame(event)
+      handler(payload)
+    } catch (reason) {
+      // `ipcMain.on` has no response promise. Throwing here would become an
+      // uncaught main-process exception during renderer reload/teardown.
+      console.warn(
+        `[ipc] ignored invalid ${channel} message: ${reason instanceof Error ? reason.message : String(reason)}`,
+      )
+    }
   })
 }
 
@@ -118,6 +126,19 @@ export function registerIpcHandlers(deps: IpcDeps): void {
     operationResult(() => deps.openProject(req.hostId, req.path)),
   )
   handle('ssh:prompt-response', (req) => {
+    if (!Number.isSafeInteger(req?.id) || req.id <= 0) {
+      throw new Error('Invalid SSH prompt id')
+    }
+    if (
+      req.answers !== undefined &&
+      (!Array.isArray(req.answers) ||
+        req.answers.length > 16 ||
+        req.answers.some(
+          (answer) => typeof answer !== 'string' || answer.length > 16_384,
+        ))
+    ) {
+      throw new Error('Invalid SSH prompt answers')
+    }
     deps.respondSshPrompt(req.id, req.answers)
   })
 

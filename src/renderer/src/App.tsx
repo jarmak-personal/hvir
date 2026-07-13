@@ -56,6 +56,7 @@ export function App(): ReactElement {
   const [root, setRoot] = useState<HostPath>()
   const [rootError, setRootError] = useState<string>()
   const [watchVersion, setWatchVersion] = useState(0)
+  const [gitVersion, setGitVersion] = useState(0)
   const [tabs, setTabs] = useState<readonly ViewerTab[]>([])
   const [activeId, setActiveId] = useState<string>()
   const [restored, setRestored] = useState(false)
@@ -67,7 +68,7 @@ export function App(): ReactElement {
   const [showAddProject, setShowAddProject] = useState(false)
   const [sessionBusy, setSessionBusy] = useState(false)
   const [sessionError, setSessionError] = useState<string>()
-  const [sshPrompt, setSshPrompt] = useState<SshPromptRequest>()
+  const [sshPrompts, setSshPrompts] = useState<readonly SshPromptRequest[]>([])
   tabsRef.current = tabs
   activeIdRef.current = activeId
 
@@ -140,6 +141,9 @@ export function App(): ReactElement {
       },
     )
     const stopWatch = window.hvir.on('project:watch', (event) => {
+      if (event.path.path.includes('/.git/')) {
+        setGitVersion((version) => version + 1)
+      }
       if (watchRefreshTimer === undefined) {
         watchRefreshTimer = window.setTimeout(() => {
           watchRefreshTimer = undefined
@@ -152,14 +156,29 @@ export function App(): ReactElement {
       setConnectionState(state.connectionState)
       setWatchTier(state.watchTier)
       if (state.connectionState === 'connected') setSessionError(undefined)
+      if (state.connectionState === 'disconnected') {
+        setSshPrompts((current) =>
+          current.filter((prompt) => prompt.hostId !== state.root.hostId),
+        )
+      }
     })
-    const stopPrompt = window.hvir.on('ssh:prompt', setSshPrompt)
+    const stopPrompt = window.hvir.on('ssh:prompt', (prompt) => {
+      setSshPrompts((current) =>
+        current.some((candidate) => candidate.id === prompt.id)
+          ? current
+          : [...current, prompt],
+      )
+    })
+    const stopPromptCancel = window.hvir.on('ssh:prompt-cancel', ({ hostId }) => {
+      setSshPrompts((current) => current.filter((prompt) => prompt.hostId !== hostId))
+    })
     return () => {
       cancelled = true
       if (watchRefreshTimer !== undefined) window.clearTimeout(watchRefreshTimer)
       void stopWatch()
       void stopState()
       void stopPrompt()
+      void stopPromptCancel()
     }
   }, [])
 
@@ -175,6 +194,20 @@ export function App(): ReactElement {
       cancelled = true
     }
   }, [showAddProject])
+
+  useEffect(() => {
+    if (!root || railMode !== 'files' || connectionState !== 'connected') return
+    let cancelled = false
+    void window.hvir.invoke('git:changes', { root }).then(
+      (changes) => {
+        if (!cancelled) setChangedCount(changes.workingTree.length)
+      },
+      () => undefined,
+    )
+    return () => {
+      cancelled = true
+    }
+  }, [connectionState, railMode, root, watchVersion])
 
   useEffect(() => {
     if (!root) return
@@ -366,6 +399,19 @@ export function App(): ReactElement {
 
   const activeTab = tabs.find((tab) => tab.id === activeId)
 
+  const changeSession = (): void => {
+    const dirtyCount = tabsRef.current.filter((tab) => tab.dirty).length
+    if (
+      dirtyCount > 0 &&
+      !window.confirm(
+        `${dirtyCount} tab${dirtyCount === 1 ? ' has' : 's have'} unsaved changes. Switching sessions will discard them. Continue?`,
+      )
+    ) {
+      return
+    }
+    setShowAddProject(true)
+  }
+
   const disconnectSession = async (): Promise<void> => {
     if (!root || root.hostId === 'local') return
     setSessionBusy(true)
@@ -375,6 +421,9 @@ export function App(): ReactElement {
         await window.hvir.invoke('project:disconnect-host', {
           hostId: root.hostId,
         }),
+      )
+      setSshPrompts((current) =>
+        current.filter((prompt) => prompt.hostId !== root.hostId),
       )
       setConnectionState(host.connectionState)
     } catch (reason) {
@@ -449,7 +498,7 @@ export function App(): ReactElement {
             connectionState={connectionState}
             watchTier={watchTier}
             sessionLabel={root.hostId === 'local' ? 'Local' : `ssh:${root.hostId}`}
-            onChangeSession={() => setShowAddProject(true)}
+            onChangeSession={changeSession}
             onDisconnectSession={() => void disconnectSession()}
             onReconnectSession={() => void reconnectSession()}
             sessionBusy={sessionBusy}
@@ -459,13 +508,14 @@ export function App(): ReactElement {
           <GitPanel
             root={root}
             refreshVersion={watchVersion}
+            historyRefreshVersion={gitVersion}
             onShowFiles={() => setRailMode('files')}
             onChangedCount={setChangedCount}
             onOpen={(path, base, revision) => openFile(path, true, 'git', base, revision)}
             connectionState={connectionState}
             watchTier={watchTier}
             sessionLabel={root.hostId === 'local' ? 'Local' : `ssh:${root.hostId}`}
-            onChangeSession={() => setShowAddProject(true)}
+            onChangeSession={changeSession}
             onDisconnectSession={() => void disconnectSession()}
             onReconnectSession={() => void reconnectSession()}
             sessionBusy={sessionBusy}
@@ -584,16 +634,20 @@ export function App(): ReactElement {
           }}
         />
       ) : null}
-      {sshPrompt ? (
+      {sshPrompts[0] ? (
         <SshPromptDialog
-          key={sshPrompt.id}
-          prompt={sshPrompt}
+          key={sshPrompts[0].id}
+          prompt={sshPrompts[0]}
           onAnswer={(answers) => {
+            const answered = sshPrompts[0]
+            if (!answered) return
             void window.hvir.invoke('ssh:prompt-response', {
-              id: sshPrompt.id,
+              id: answered.id,
               answers,
             })
-            setSshPrompt(undefined)
+            setSshPrompts((current) =>
+              current.filter((candidate) => candidate.id !== answered.id),
+            )
           }}
         />
       ) : null}
@@ -856,19 +910,42 @@ function SshPromptDialog({
   readonly onAnswer: (answers?: readonly string[]) => void
 }): ReactElement {
   const [answers, setAnswers] = useState(() => prompt.prompts.map(() => ''))
+  const [verifiedChangedKey, setVerifiedChangedKey] = useState(false)
+  const changedKey = prompt.kind === 'host-key-changed'
   return (
     <div className="modal-backdrop">
       <form
         className="project-dialog"
         onSubmit={(event) => {
           event.preventDefault()
-          onAnswer(prompt.kind === 'host-key' ? ['yes'] : answers)
+          onAnswer(prompt.kind === 'host-key' || changedKey ? ['yes'] : answers)
         }}
       >
         <h2>{prompt.title}</h2>
         {prompt.instructions ? <p>{prompt.instructions}</p> : null}
-        {prompt.kind === 'host-key' && prompt.fingerprint ? (
-          <code className="ssh-host-fingerprint">{prompt.fingerprint}</code>
+        {(prompt.kind === 'host-key' || changedKey) && prompt.fingerprint ? (
+          <div className={changedKey ? 'ssh-host-key-changed' : undefined}>
+            {changedKey && prompt.previousFingerprint ? (
+              <label>
+                Saved fingerprint
+                <code className="ssh-host-fingerprint">{prompt.previousFingerprint}</code>
+              </label>
+            ) : null}
+            <label>
+              {changedKey ? 'Presented fingerprint' : 'Fingerprint'}
+              <code className="ssh-host-fingerprint">{prompt.fingerprint}</code>
+            </label>
+            {changedKey ? (
+              <label className="ssh-host-key-confirm">
+                <input
+                  type="checkbox"
+                  checked={verifiedChangedKey}
+                  onChange={(event) => setVerifiedChangedKey(event.target.checked)}
+                />
+                I verified this host key through a trusted channel.
+              </label>
+            ) : null}
+          </div>
         ) : (
           prompt.prompts.map((item, index) => (
             <label key={`${item.text}:${index}`}>
@@ -892,8 +969,16 @@ function SshPromptDialog({
           <button type="button" onClick={() => onAnswer(undefined)}>
             Cancel
           </button>
-          <button type="submit" autoFocus={prompt.kind === 'host-key'}>
-            {prompt.kind === 'host-key' ? 'Trust Host' : 'Continue'}
+          <button
+            type="submit"
+            autoFocus={prompt.kind === 'host-key'}
+            disabled={changedKey && !verifiedChangedKey}
+          >
+            {changedKey
+              ? 'Replace Saved Key'
+              : prompt.kind === 'host-key'
+                ? 'Trust Host'
+                : 'Continue'}
           </button>
         </div>
       </form>

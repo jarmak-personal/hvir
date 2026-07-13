@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto'
+import { StringDecoder } from 'node:string_decoder'
 
 import {
   Client,
@@ -38,10 +39,13 @@ export interface SshIdentity {
   readonly privateKey: Buffer | string
 }
 export interface SshPrompt {
-  readonly kind: 'password' | 'passphrase' | 'keyboard-interactive' | 'host-key'
+  readonly hostId: string
+  readonly kind:
+    'password' | 'passphrase' | 'keyboard-interactive' | 'host-key' | 'host-key-changed'
   readonly title: string
   readonly instructions?: string
   readonly fingerprint?: string
+  readonly previousFingerprint?: string
   readonly prompts: readonly { readonly text: string; readonly echo: boolean }[]
 }
 export interface SshAuthPrompter {
@@ -53,8 +57,10 @@ export interface SshHostOptions {
   readonly agentSocket?: string
   readonly prompter: SshAuthPrompter
   readonly pollIntervalMs?: number
-  readonly isHostKeyTrusted?: (fingerprint: string) => boolean
+  readonly trustedHostKey?: () => string | undefined
   readonly rememberHostKey?: (fingerprint: string) => Promise<void>
+  /** Test seam for transport lifecycle races; production always constructs ssh2.Client. */
+  readonly clientFactory?: () => Client
 }
 
 let nextRemotePid = -1
@@ -65,10 +71,14 @@ export class SshHost implements ProjectHost {
   private tier: HostWatchTier = 'polling'
   private client?: Client
   private connecting?: Promise<void>
+  private cancelConnecting?: (error: Error) => void
   private disposed = false
   private reconnectAttempt = 0
   private reconnectTimer?: ReturnType<typeof setTimeout>
+  private reconnectSuppressed = false
+  private promptedDuringConnect = false
   private resolvedShell?: string
+  private sftpSession?: Promise<SFTPWrapper>
   private readonly listeners = new Set<(state: HostConnectionState) => void>()
   private readonly channels = new Set<ClientChannel>()
   private readonly cache = new Map<
@@ -93,6 +103,10 @@ export class SshHost implements ProjectHost {
     }
   }
   async connect(): Promise<void> {
+    this.reconnectSuppressed = false
+    return this.beginConnect()
+  }
+  private async beginConnect(): Promise<void> {
     if (this.state === 'connected') return
     if (this.connecting) return this.connecting
     this.disposed = false
@@ -109,6 +123,8 @@ export class SshHost implements ProjectHost {
   }
   async dispose(): Promise<void> {
     this.disposed = true
+    this.cancelConnecting?.(new Error('SSH connection cancelled'))
+    this.cancelConnecting = undefined
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer)
       this.reconnectTimer = undefined
@@ -118,9 +134,15 @@ export class SshHost implements ProjectHost {
     this.channels.clear()
     const client = this.client
     this.client = undefined
+    const sftp = this.sftpSession
+    this.sftpSession = undefined
     this.cache.clear()
     this.resolvedShell = undefined
     this.setState('disconnected')
+    void sftp?.then(
+      (session) => session.end(),
+      () => undefined,
+    )
     if (!client) return
     await new Promise<void>((resolve) => {
       let settled = false
@@ -170,6 +192,8 @@ export class SshHost implements ProjectHost {
           code: number | null = null,
           signal: string | null = null
         let settled = false
+        const stdoutDecoder = new StringDecoder('utf8')
+        const stderrDecoder = new StringDecoder('utf8')
         const append = (kind: 'out' | 'err', chunk: Buffer): void => {
           bytes += chunk.length
           if (bytes > (opts.maxBuffer ?? 10 * 1024 * 1024)) {
@@ -177,8 +201,8 @@ export class SshHost implements ProjectHost {
             settled = true
             return stream.close()
           }
-          if (kind === 'out') stdout += chunk.toString('utf8')
-          else stderr += chunk.toString('utf8')
+          if (kind === 'out') stdout += stdoutDecoder.write(chunk)
+          else stderr += stderrDecoder.write(chunk)
         }
         stream.on('data', (chunk: Buffer) => append('out', chunk))
         stream.stderr.on('data', (chunk: Buffer) => append('err', chunk))
@@ -192,7 +216,11 @@ export class SshHost implements ProjectHost {
         })
         stream.on('close', () => {
           this.channels.delete(stream)
-          if (!settled) resolve({ code, signal, stdout, stderr })
+          if (!settled) {
+            stdout += stdoutDecoder.end()
+            stderr += stderrDecoder.end()
+            resolve({ code, signal, stdout, stderr })
+          }
           settled = true
         })
         if (opts.signal) {
@@ -220,6 +248,8 @@ export class SshHost implements ProjectHost {
     const exits = new Set<(v: { code: number | null; signal: string | null }) => void>()
     let stream: ClientChannel | undefined,
       disposed = false
+    const stdoutDecoder = new StringDecoder('utf8')
+    const stderrDecoder = new StringDecoder('utf8')
     void this.connected().then(
       (client) =>
         client.exec(remoteCommand(command, args, opts), (error, channel) => {
@@ -232,10 +262,12 @@ export class SshHost implements ProjectHost {
           this.channels.add(channel)
           let result = { code: null as number | null, signal: null as string | null }
           channel.on('data', (b: Buffer) => {
-            for (const cb of out) cb(b.toString('utf8'))
+            const value = stdoutDecoder.write(b)
+            if (value) for (const cb of out) cb(value)
           })
           channel.stderr.on('data', (b: Buffer) => {
-            for (const cb of err) cb(b.toString('utf8'))
+            const value = stderrDecoder.write(b)
+            if (value) for (const cb of err) cb(value)
           })
           channel.on('exit', (code: number | null, signal?: string) => {
             result = { code, signal: signal ?? null }
@@ -245,6 +277,10 @@ export class SshHost implements ProjectHost {
           })
           channel.on('close', () => {
             this.channels.delete(channel)
+            const finalOut = stdoutDecoder.end()
+            const finalErr = stderrDecoder.end()
+            if (finalOut) for (const cb of out) cb(finalOut)
+            if (finalErr) for (const cb of err) cb(finalErr)
             for (const cb of exits) cb(result)
           })
           channel.end(opts.input)
@@ -284,13 +320,19 @@ export class SshHost implements ProjectHost {
     this.channels.add(channel)
     const data = new Set<(v: string) => void>(),
       exits = new Set<(v: { exitCode: number; signal: number | undefined }) => void>()
+    const decoder = new StringDecoder('utf8')
     channel.on('data', (b: Buffer) => {
-      for (const cb of data) cb(b.toString('utf8'))
+      const value = decoder.write(b)
+      if (value) for (const cb of data) cb(value)
     })
     channel.on('exit', (code: number | null) => {
       for (const cb of exits) cb({ exitCode: code ?? 0, signal: undefined })
     })
-    channel.on('close', () => this.channels.delete(channel))
+    channel.on('close', () => {
+      this.channels.delete(channel)
+      const final = decoder.end()
+      if (final) for (const cb of data) cb(final)
+    })
     return {
       pid: nextRemotePid--,
       onData: (cb) => subscribe(data, cb),
@@ -377,21 +419,39 @@ export class SshHost implements ProjectHost {
   }
 
   private async open(): Promise<void> {
-    const client = new Client()
+    this.promptedDuringConnect = false
+    const client = this.options.clientFactory?.() ?? new Client()
     this.client = client
     const config = this.connectConfig()
     await new Promise<void>((resolve, reject) => {
       let ready = false
+      let settled = false
+      const finish = (error?: Error): void => {
+        if (settled) return
+        settled = true
+        if (error) reject(error)
+        else resolve()
+      }
+      this.cancelConnecting = (error) => finish(error)
       client.once('ready', () => {
         ready = true
-        resolve()
+        finish()
       })
-      client.once('error', reject)
+      client.once('error', (error) => finish(error))
       client.on('close', () => {
-        this.client = undefined
+        if (this.client === client) {
+          this.client = undefined
+          this.sftpSession = undefined
+        }
+        if (!ready) {
+          finish(new Error('SSH connection closed before authentication completed'))
+          return
+        }
         if (ready && !this.disposed) this.scheduleReconnect()
       })
       client.connect(config)
+    }).finally(() => {
+      this.cancelConnecting = undefined
     })
     this.reconnectAttempt = 0
     this.setState('connected')
@@ -399,12 +459,19 @@ export class SshHost implements ProjectHost {
       (await this.exec('sh', ['-lc', 'command -v inotifywait >/dev/null'])).code === 0
         ? 'inotify'
         : 'polling'
+    this.notifyState()
   }
 
   private connectConfig(): ConnectConfig {
     const { config, agentSocket, identities = [], prompter } = this.options
     const attempted = new Set<string>()
     let password: string | undefined
+    const prompt = async (request: SshPrompt): Promise<readonly string[] | undefined> => {
+      this.promptedDuringConnect = true
+      const answers = await prompter.prompt(request)
+      if (!answers) this.reconnectSuppressed = true
+      return answers
+    }
     return {
       host: config.hostname,
       port: config.port,
@@ -419,18 +486,24 @@ export class SshHost implements ProjectHost {
           .update(key)
           .digest('base64')
           .replace(/=+$/, '')}`
-        if (this.options.isHostKeyTrusted?.(fingerprint)) {
+        const trustedFingerprint = this.options.trustedHostKey?.()
+        if (trustedFingerprint === fingerprint) {
           verify(true)
           return
         }
-        void prompter
-          .prompt({
-            kind: 'host-key',
-            title: `Trust ${config.alias}?`,
-            instructions: 'Verify the SHA-256 fingerprint before trusting this host.',
-            fingerprint,
-            prompts: [],
-          })
+        void prompt({
+          hostId: this.hostId,
+          kind: trustedFingerprint ? 'host-key-changed' : 'host-key',
+          title: trustedFingerprint
+            ? `Host key changed for ${config.alias}`
+            : `Trust ${config.alias}?`,
+          instructions: trustedFingerprint
+            ? 'The saved host key does not match. This can indicate a machine rebuild or a man-in-the-middle attack. Verify both fingerprints before replacing it.'
+            : 'Verify the SHA-256 fingerprint before trusting this host.',
+          fingerprint,
+          previousFingerprint: trustedFingerprint,
+          prompts: [],
+        })
           .then(async (a) => {
             const trusted = a?.[0]?.toLowerCase() === 'yes'
             if (trusted) await this.options.rememberHostKey?.(fingerprint)
@@ -463,7 +536,8 @@ export class SshHost implements ProjectHost {
             const parsed = utils.parseKey(identity.privateKey)
             if (parsed instanceof Error && /encrypted|passphrase/i.test(parsed.message))
               passphrase = (
-                await prompter.prompt({
+                await prompt({
+                  hostId: this.hostId,
                   kind: 'passphrase',
                   title: `Unlock ${identity.path}`,
                   prompts: [{ text: 'Passphrase', echo: false }],
@@ -482,24 +556,26 @@ export class SshHost implements ProjectHost {
               type: 'keyboard-interactive',
               username: config.user,
               prompt: (name, instructions, _lang, prompts, finish) => {
-                void prompter
-                  .prompt({
-                    kind: 'keyboard-interactive',
-                    title: name || `Authenticate to ${config.alias}`,
-                    instructions,
-                    prompts: prompts.map((p) => ({
-                      text: p.prompt,
-                      echo: Boolean(p.echo),
-                    })),
-                  })
+                void prompt({
+                  hostId: this.hostId,
+                  kind: 'keyboard-interactive',
+                  title: name || `Authenticate to ${config.alias}`,
+                  instructions,
+                  prompts: prompts.map((p) => ({
+                    text: p.prompt,
+                    echo: Boolean(p.echo),
+                  })),
+                })
                   .then((a) => finish([...(a ?? [])]))
+                  .catch(() => finish([]))
               },
             }
           }
           if (available.has('password') && !attempted.has('password')) {
             attempted.add('password')
             password ??= (
-              await prompter.prompt({
+              await prompt({
+                hostId: this.hostId,
                 kind: 'password',
                 title: `Authenticate to ${config.alias}`,
                 prompts: [{ text: `Password for ${config.user}`, echo: false }],
@@ -522,35 +598,65 @@ export class SshHost implements ProjectHost {
     return this.client
   }
   private scheduleReconnect(): void {
+    if (this.disposed || this.reconnectSuppressed || this.reconnectTimer) return
+    if (this.reconnectAttempt >= 5) {
+      this.setState('failed')
+      return
+    }
     this.reconnectAttempt++
     this.setState('reconnecting')
     const delay = Math.min(30_000, 500 * 2 ** (this.reconnectAttempt - 1))
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = undefined
-      void this.connect().catch(() => this.scheduleReconnect())
+      if (this.disposed || this.reconnectSuppressed) return
+      void this.beginConnect().catch(() => {
+        if (this.promptedDuringConnect) this.reconnectSuppressed = true
+        this.scheduleReconnect()
+      })
     }, delay)
   }
   private setState(state: HostConnectionState): void {
     if (state === this.state) return
     this.state = state
-    for (const cb of this.listeners) cb(state)
+    this.notifyState()
+  }
+  private notifyState(): void {
+    for (const cb of this.listeners) cb(this.state)
   }
   private sftp<T>(
     op: (s: SFTPWrapper, done: (e: Error | null | undefined, value: T) => void) => void,
   ): Promise<T> {
-    return this.connected().then(
-      (client) =>
+    return this.getSftp().then(
+      (s) =>
         new Promise<T>((resolve, reject) =>
-          client.sftp((error, s) => {
-            if (error) return reject(error)
-            op(s, (reason, value) => {
-              s.end()
-              if (reason) reject(reason)
-              else resolve(value)
-            })
+          op(s, (reason, value) => {
+            if (reason) reject(reason)
+            else resolve(value)
           }),
         ),
     )
+  }
+
+  private getSftp(): Promise<SFTPWrapper> {
+    if (this.sftpSession) return this.sftpSession
+    const pending = this.connected().then(
+      (client) =>
+        new Promise<SFTPWrapper>((resolve, reject) =>
+          client.sftp((error, session) => (error ? reject(error) : resolve(session))),
+        ),
+    )
+    this.sftpSession = pending
+    void pending.then(
+      (session) => {
+        session.once('close', () => {
+          if (this.sftpSession === pending) this.sftpSession = undefined
+        })
+      },
+      () => {
+        if (this.sftpSession === pending) this.sftpSession = undefined
+      },
+    )
+    return pending
   }
 
   private watchInotify(
@@ -561,6 +667,10 @@ export class SshHost implements ProjectHost {
     let stopped = false
     const args = ['-m', '-e', 'modify,create,delete,move', '--format', '%e|%w%f']
     if (opts.recursive !== false) args.push('-r')
+    if (opts.excludeDirectoryNames?.length) {
+      const names = opts.excludeDirectoryNames.map(escapeRegex).join('|')
+      args.push('--exclude', `(^|/)(${names})(/|$)`)
+    }
     args.push(path.path)
     const handle = this.execStream('inotifywait', args)
     let pending = ''
@@ -582,12 +692,26 @@ export class SshHost implements ProjectHost {
         onEvent({ type, path: hostPath(this.hostId, changed) })
       }
     })
-    handle.onError((e) => {
-      if (!stopped) opts.onError?.(e)
+    let pollingStop: Disposer | undefined
+    let fallingBack = false
+    const fallback = (error?: Error): void => {
+      if (stopped || pollingStop || fallingBack) return
+      fallingBack = true
+      if (error) opts.onError?.(error)
+      handle.dispose()
+      this.tier = 'polling'
+      pollingStop = this.watchPolling(path, onEvent, opts)
+      this.notifyState()
+      fallingBack = false
+    }
+    handle.onError((e) => fallback(e))
+    handle.onExit(({ code }) => {
+      if (!stopped) fallback(new Error(`inotifywait exited (${String(code)})`))
     })
     return () => {
       stopped = true
       handle.dispose()
+      void pollingStop?.()
     }
   }
   private watchPolling(
@@ -644,13 +768,7 @@ export class SshHost implements ProjectHost {
     root: HostPath,
     opts: WatchOptions,
   ): Promise<Map<string, string>> {
-    const sftp = await new Promise<SFTPWrapper>((resolve, reject) => {
-      void this.connected().then(
-        (client) =>
-          client.sftp((error, value) => (error ? reject(error) : resolve(value))),
-        reject,
-      )
-    })
+    const sftp = await this.getSftp()
     const result = new Map<string, string>()
     const excluded = new Set(opts.excludeDirectoryNames ?? [])
     const visit = async (directory: string): Promise<void> => {
@@ -672,12 +790,18 @@ export class SshHost implements ProjectHost {
         }
       }
     }
-    try {
-      await visit(root.path)
+    const rootStat = await new Promise<import('ssh2').Stats>((resolve, reject) =>
+      sftp.lstat(root.path, (error, value) => (error ? reject(error) : resolve(value))),
+    )
+    if (fileType(rootStat.mode) !== 'dir') {
+      result.set(
+        root.path,
+        `${fileType(rootStat.mode)}:${rootStat.mtime}:${rootStat.size}:${rootStat.mode}`,
+      )
       return result
-    } finally {
-      sftp.end()
     }
+    await visit(root.path)
+    return result
   }
   private cached<T extends Buffer | DirEntry[]>(key: string): T | undefined {
     const v = this.cache.get(key)
@@ -711,6 +835,9 @@ function remoteCommand(
 }
 function quote(value: string): string {
   return `'${value.replaceAll("'", `'"'"'`)}'`
+}
+function escapeRegex(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 function subscribe<T>(set: Set<(v: T) => void>, cb: (v: T) => void): Disposer {
   set.add(cb)

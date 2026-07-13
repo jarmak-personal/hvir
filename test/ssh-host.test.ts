@@ -1,9 +1,10 @@
 import { execFileSync } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import { EventEmitter } from 'node:events'
 import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { AnyAuthMethod, ConnectConfig } from 'ssh2'
+import type { AnyAuthMethod, Client, ConnectConfig } from 'ssh2'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import {
@@ -56,7 +57,7 @@ describe('SshHost authentication', () => {
     const host = new SshHost({
       config: aliasConfig(),
       prompter: { prompt },
-      isHostKeyTrusted: () => true,
+      trustedHostKey: () => fingerprint(Buffer.from('trusted-host-key')),
     })
     const verifier = connectConfig(host).hostVerifier as unknown as (
       key: Buffer,
@@ -74,7 +75,7 @@ describe('SshHost authentication', () => {
     const host = new SshHost({
       config: aliasConfig(),
       prompter: { prompt: () => Promise.resolve(['yes']) },
-      isHostKeyTrusted: () => false,
+      trustedHostKey: () => undefined,
       rememberHostKey: remember,
     })
     const verifier = connectConfig(host).hostVerifier as unknown as (
@@ -87,9 +88,114 @@ describe('SshHost authentication', () => {
     await vi.waitFor(() => expect(verify).toHaveBeenCalledWith(true))
     expect(remember).toHaveBeenCalledWith(expect.stringMatching(/^SHA256:/))
   })
+
+  it('presents a saved-key mismatch as a distinct high-risk prompt', async () => {
+    const prompts: SshPrompt[] = []
+    const remember = vi.fn<() => Promise<void>>(() => Promise.resolve())
+    const host = new SshHost({
+      config: aliasConfig(),
+      prompter: {
+        prompt: (request) => {
+          prompts.push(request)
+          return Promise.resolve(['yes'])
+        },
+      },
+      trustedHostKey: () => 'SHA256:oldSavedFingerprint0123456789',
+      rememberHostKey: remember,
+    })
+    const verifier = connectConfig(host).hostVerifier as unknown as (
+      key: Buffer,
+      verify: (valid: boolean) => void,
+    ) => void
+    const verify = vi.fn()
+
+    verifier(Buffer.from('replacement-host-key'), verify)
+    await vi.waitFor(() => expect(verify).toHaveBeenCalledWith(true))
+    expect(prompts[0]).toMatchObject({
+      hostId: 'example',
+      kind: 'host-key-changed',
+      previousFingerprint: 'SHA256:oldSavedFingerprint0123456789',
+    })
+    expect(remember).toHaveBeenCalledOnce()
+  })
 })
 
 describe('SshHost remote behavior', () => {
+  it('cancels a connecting transport even when ssh2 emits no close event', async () => {
+    vi.useFakeTimers()
+    try {
+      const silent = fakeClient(() => undefined)
+      silent.end.mockImplementation(() => undefined)
+      const host = new SshHost({
+        config: aliasConfig(),
+        prompter: { prompt: () => Promise.resolve(undefined) },
+        clientFactory: () => silent as unknown as Client,
+      })
+      const connecting = host.connect()
+      const rejected = expect(connecting).rejects.toThrow('SSH connection cancelled')
+      const disposing = host.dispose()
+      await vi.advanceTimersByTimeAsync(1_000)
+      await disposing
+
+      await rejected
+      expect(host.connectionState).toBe('disconnected')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('rejects a pre-ready close and allows a later explicit reconnect', async () => {
+    const closing = fakeClient(() => queueMicrotask(() => closing.emit('close')))
+    const ready = fakeClient(() => queueMicrotask(() => ready.emit('ready')))
+    const clients = [closing, ready]
+    const host = new SshHost({
+      config: aliasConfig(),
+      prompter: { prompt: () => Promise.resolve(undefined) },
+      clientFactory: () => clients.shift() as unknown as Client,
+    })
+    vi.spyOn(host, 'exec').mockResolvedValue({
+      code: 1,
+      signal: null,
+      stdout: '',
+      stderr: '',
+    })
+
+    await expect(host.connect()).rejects.toThrow(
+      'SSH connection closed before authentication completed',
+    )
+    await expect(host.connect()).resolves.toBeUndefined()
+    expect(host.connectionState).toBe('connected')
+    await host.dispose()
+  })
+
+  it('does not let a late close from an old client clobber a new client', async () => {
+    const oldClient = fakeClient(() => queueMicrotask(() => oldClient.emit('ready')))
+    const newClient = fakeClient(() => queueMicrotask(() => newClient.emit('ready')))
+    const clients = [oldClient, newClient]
+    const host = new SshHost({
+      config: aliasConfig(),
+      prompter: { prompt: () => Promise.resolve(undefined) },
+      clientFactory: () => clients.shift() as unknown as Client,
+    })
+    vi.spyOn(host, 'exec').mockResolvedValue({
+      code: 1,
+      signal: null,
+      stdout: '',
+      stderr: '',
+    })
+    const internals = host as unknown as {
+      open(): Promise<void>
+      client?: Client
+    }
+
+    await internals.open()
+    await internals.open()
+    oldClient.emit('close')
+
+    expect(internals.client).toBe(newClient)
+    await host.dispose()
+  })
+
   it('waits briefly for the SSH transport to close during disposal', async () => {
     vi.useFakeTimers()
     try {
@@ -129,6 +235,127 @@ describe('SshHost remote behavior', () => {
       'SSH host is disconnected; reconnect explicitly before retrying',
     )
     expect(connect).not.toHaveBeenCalled()
+  })
+
+  it('cancels a scheduled reconnect on explicit disconnect', async () => {
+    vi.useFakeTimers()
+    try {
+      const factory = vi.fn<() => Client>()
+      const host = new SshHost({
+        config: aliasConfig(),
+        prompter: { prompt: () => Promise.resolve(undefined) },
+        clientFactory: factory,
+      })
+      ;(host as unknown as { scheduleReconnect(): void }).scheduleReconnect()
+
+      await host.dispose()
+      await vi.advanceTimersByTimeAsync(60_000)
+
+      expect(factory).not.toHaveBeenCalled()
+      expect(host.connectionState).toBe('disconnected')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('does not loop modal authentication after one automatic reconnect failure', async () => {
+    vi.useFakeTimers()
+    try {
+      const host = new SshHost({
+        config: aliasConfig(),
+        prompter: { prompt: () => Promise.resolve(['wrong']) },
+      })
+      const internals = host as unknown as {
+        promptedDuringConnect: boolean
+        beginConnect(): Promise<void>
+        scheduleReconnect(): void
+      }
+      internals.promptedDuringConnect = true
+      const reconnect = vi
+        .spyOn(internals, 'beginConnect')
+        .mockRejectedValue(new Error('authentication failed'))
+
+      internals.scheduleReconnect()
+      await vi.advanceTimersByTimeAsync(60_000)
+
+      expect(reconnect).toHaveBeenCalledOnce()
+      await vi.advanceTimersByTimeAsync(60_000)
+      expect(reconnect).toHaveBeenCalledOnce()
+      await host.dispose()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('reuses one multiplexed SFTP session for concurrent operations', async () => {
+    const session = Object.assign(new EventEmitter(), { end: vi.fn() })
+    const client = Object.assign(
+      fakeClient(() => undefined),
+      {
+        sftp: vi.fn((callback: (error: Error | undefined, value: unknown) => void) =>
+          callback(undefined, session),
+        ),
+      },
+    )
+    const host = new SshHost({
+      config: aliasConfig(),
+      prompter: { prompt: () => Promise.resolve(undefined) },
+    })
+    const internals = host as unknown as {
+      state: 'connected'
+      client: Client
+      getSftp(): Promise<unknown>
+    }
+    internals.state = 'connected'
+    internals.client = client as unknown as Client
+
+    const [first, second] = await Promise.all([internals.getSftp(), internals.getSftp()])
+
+    expect(first).toBe(session)
+    expect(second).toBe(session)
+    expect(client.sftp).toHaveBeenCalledOnce()
+    await host.dispose()
+    expect(session.end).toHaveBeenCalledOnce()
+  })
+
+  it('decodes remote exec output across UTF-8 chunk boundaries', async () => {
+    const stderr = new EventEmitter()
+    const channel = Object.assign(new EventEmitter(), {
+      stderr,
+      close: vi.fn(() => channel.emit('close')),
+      end: vi.fn(() => {
+        channel.emit('data', Buffer.from([0xe2]))
+        queueMicrotask(() => {
+          channel.emit('data', Buffer.from([0x82, 0xac]))
+          channel.emit('exit', 0)
+          channel.emit('close')
+        })
+      }),
+    })
+    const client = Object.assign(
+      fakeClient(() => undefined),
+      {
+        exec: vi.fn(
+          (
+            _command: string,
+            callback: (error: Error | undefined, value: unknown) => void,
+          ) => callback(undefined, channel),
+        ),
+      },
+    )
+    const host = new SshHost({
+      config: aliasConfig(),
+      prompter: { prompt: () => Promise.resolve(undefined) },
+    })
+    const internals = host as unknown as { state: 'connected'; client: Client }
+    internals.state = 'connected'
+    internals.client = client as unknown as Client
+
+    const result = await host.exec('printf', [])
+
+    expect(result.stdout).toBe('€')
+    expect(result.stdout).not.toContain('�')
+    await host.dispose()
   })
 
   it('resolves and caches the remote host shell', async () => {
@@ -223,6 +450,21 @@ describe('SshHost remote behavior', () => {
     expect(onError).not.toHaveBeenCalled()
   })
 })
+
+function fakeClient(connect: () => void): EventEmitter & {
+  connect: ReturnType<typeof vi.fn>
+  end: ReturnType<typeof vi.fn>
+} {
+  const client = Object.assign(new EventEmitter(), {
+    connect: vi.fn(connect),
+    end: vi.fn(() => client.emit('close')),
+  })
+  return client
+}
+
+function fingerprint(key: Buffer): string {
+  return `SHA256:${createHash('sha256').update(key).digest('base64').replace(/=+$/, '')}`
+}
 
 function aliasConfig() {
   return {

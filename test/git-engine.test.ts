@@ -41,7 +41,8 @@ describe('GitEngine', () => {
     expect(index.baseContent).toBe('feature\n')
     expect(head.baseContent).toBe('feature\n')
     expect(branchPoint.baseContent).toBe('base\n')
-    expect(branchPoint.currentContent).toBe('dirty\n')
+    expect(branchPoint.currentContent).toBe('feature\n')
+    expect(branchPoint.currentLabel).toBe('HEAD')
     await host.dispose()
   })
 
@@ -98,6 +99,23 @@ describe('GitEngine', () => {
     expect(changes.workingTree).toHaveLength(1)
     expect(changes.workingTree[0]?.path.path).toBe(join(root, '? renamed ünicode.txt'))
     expect(changes.workingTree[0]?.staged).toBe(true)
+    await host.dispose()
+  })
+
+  it('keeps Changes useful in an unborn repository with no default branch', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'hvir-git-unborn-'))
+    cleanups.push(root)
+    git(root, ['init'])
+    await writeFile(join(root, 'first.txt'), 'first\n')
+    git(root, ['add', 'first.txt'])
+
+    const host = new LocalHost()
+    const changes = await new GitEngine(host).changes(localPath(root))
+
+    expect(changes.workingTree).toEqual([
+      expect.objectContaining({ additions: 1, deletions: 0, staged: true }),
+    ])
+    expect(changes.branchPoint).toEqual([])
     await host.dispose()
   })
 

@@ -214,6 +214,11 @@ no-op; index → working tree is the useful unstaged-change interpretation of th
 **Mode keybinding:** `Ctrl/Cmd+Shift+M` cycles modes. Events originating in the terminal
 pane are ignored so Linux terminal paste (`Ctrl+Shift+V`) and terminal input remain intact.
 
+**Branch-point diff semantics:** the branch-point Changes group and the diff it opens both
+compare merge-base to `HEAD`. Uncommitted work remains in the working-tree group and in the
+HEAD/Index selectors; it is intentionally excluded from the branch-point diff so its badge
+and opened content answer the same “what was committed on this branch?” question.
+
 ### ADR-008 — Workspaces: project → worktree tiers
 **Decision:** A two-tier model. The **project** (the main repo) is the *registration*
 unit — the thing you add to hvir. **Worktrees** are *discovered* children
@@ -269,6 +274,34 @@ Never a persistent installed remote agent.
 SSHFS/FUSE mounts (system dependency, poor watch semantics, and they hide remoteness
 from git and PTYs); local-only v1 with bare string paths (the retrofit touches
 everything).
+
+#### Phase 4/5 addendum — 2026-07-12: project authority and the Git broker
+
+**Opening a folder establishes a new authority boundary; it is not itself a renderer
+security boundary.** The renderer drives the explicit host/folder picker and main verifies
+that the requested host exists and the selected path is an absolute, accessible directory.
+Once opened, that canonical directory becomes the registered root and every subsequent
+filesystem, PTY, watch, and Git request is confined beneath it. A compromised renderer
+could ask to open another readable directory on an already configured host; root
+confinement protects against accidental and content-driven escapes, not against that
+deliberate re-registration.
+
+**Why:** local and remote selection share one `ProjectHost` flow, and remote roots cannot
+use an OS directory capability. Treating the picker gesture as a durable security token
+would require a separate main-owned chooser/authorization protocol for both local and SSH
+hosts. That is not part of the current Electron threat model, which already trusts the
+workbench renderer to request reads and minor saves. Revisit if untrusted renderer content
+ever gains same-origin execution; the preview protocol deliberately prevents that today.
+
+**The Git utility process is untrusted at its main-side broker.** Main independently pins
+host calls to the active project's host and canonical root, permits only `git -C` execution
+and confined text reads, bounds arguments/output, and times out calls. Worker-side checks
+remain useful validation but are not the enforcement boundary.
+
+**Rejected:** accepting arbitrary worker commands/cwds because the worker already validates
+them (puts the trust check on the hostile-repository parsing side); treating any host ID in
+the registry as active authority (lets a stale worker reach replaced sessions); claiming
+the renderer-selected root is a capability without a main-owned gesture token.
 
 ---
 

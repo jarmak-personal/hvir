@@ -11,6 +11,7 @@ import { pathToFileURL } from 'node:url'
 import { app, BrowserWindow, dialog, protocol, shell } from 'electron'
 
 import { registerIpcHandlers } from './ipc'
+import { dispatchWorkerHostCall } from './git/worker-host-broker'
 import { HtmlPreviewProtocol } from './html-preview-protocol'
 import { createWorkerClient, workerPath, type WorkerClient } from './worker-host'
 import { LocalHost, type ProjectHost } from './project-host'
@@ -19,17 +20,16 @@ import { PtySupervisor } from './pty/pty-supervisor'
 import { isSafeExternalUrl, isWorkbenchDocument } from './navigation-policy'
 import {
   ECHO_REQUEST_TYPE,
+  hostPath,
   joinHostPath,
   localPath,
   LOCAL_HOST_ID,
   type Disposer,
   type EchoWorkerProtocol,
-  type ExecResult,
   type GitWorkerProtocol,
   type HostPath,
   type IpcEventChannel,
   type IpcEventPayload,
-  type WorkerHostCall,
   HTML_PREVIEW_SCHEME,
 } from '../shared'
 
@@ -48,6 +48,7 @@ let projectRegistry: ProjectRegistry | null = null
 let sshPrompter: RendererSshPrompter | null = null
 let ptySupervisor: PtySupervisor | null = null
 let disposeWatch: Disposer | null = null
+let sessionOperation: Promise<void> = Promise.resolve()
 let suspendSessions: Promise<void> = Promise.resolve()
 let shutdownStarted = false
 let shutdownComplete = false
@@ -177,7 +178,10 @@ async function startup(): Promise<void> {
       if (!window.isDestroyed()) window.webContents.send(channel, payload)
     }
   }
-  sshPrompter = new RendererSshPrompter((prompt) => emit('ssh:prompt', prompt))
+  sshPrompter = new RendererSshPrompter(
+    (prompt) => emit('ssh:prompt', prompt),
+    (hostId) => emit('ssh:prompt-cancel', { hostId }),
+  )
   projectRegistry = await ProjectRegistry.create(
     localPath(projectRootArgument()),
     sshPrompter,
@@ -191,8 +195,7 @@ async function startup(): Promise<void> {
   gitWorker = createWorkerClient<GitWorkerProtocol>(
     workerPath('git-worker.js'),
     'hvir-git',
-    (call) =>
-      dispatchWorkerHostCall(call, projectRegistry?.hostById(call.hostId) ?? null),
+    (call) => dispatchWorkerHostCall(call, projectRegistry?.active ?? null),
   )
   ptySupervisor = new PtySupervisor()
 
@@ -204,41 +207,44 @@ async function startup(): Promise<void> {
       return projectRegistry.active
     },
     listHosts: () => projectRegistry?.listHosts() ?? [],
-    connectHost: async (hostId) => {
-      if (!projectRegistry) throw new Error('Project registry is unavailable')
-      const connected = await projectRegistry.connectHost(hostId)
-      if (projectRegistry.active.host.hostId === hostId) {
-        await stopProjectWatch()
-        startProjectWatch(projectRegistry.active, emit)
-      }
-      return connected
-    },
-    disconnectHost: async (hostId) => {
-      if (!projectRegistry) throw new Error('Project registry is unavailable')
-      if (projectRegistry.active.host.hostId === hostId) {
-        await stopProjectWatch()
-        ptySupervisor?.disposeAll()
-        htmlPreviews.clear()
-      }
-      return projectRegistry.disconnectHost(hostId)
-    },
+    connectHost: (hostId) =>
+      serializeSession(async () => {
+        if (!projectRegistry) throw new Error('Project registry is unavailable')
+        const connected = await projectRegistry.connectHost(hostId)
+        if (projectRegistry.active.host.hostId === hostId) {
+          await stopProjectWatch()
+          startProjectWatch(projectRegistry.active, emit)
+        }
+        return connected
+      }),
+    disconnectHost: (hostId) =>
+      serializeSession(async () => {
+        if (!projectRegistry) throw new Error('Project registry is unavailable')
+        if (projectRegistry.active.host.hostId === hostId) {
+          await stopProjectWatch()
+          ptySupervisor?.disposeAll()
+          htmlPreviews.clear()
+        }
+        return projectRegistry.disconnectHost(hostId)
+      }),
     browseHost: async (hostId, path) => {
       if (!projectRegistry) throw new Error('Project registry is unavailable')
       return projectRegistry.browseHost(hostId, path)
     },
-    openProject: async (hostId, path) => {
-      if (!projectRegistry) throw new Error('Project registry is unavailable')
-      const previousHostId = projectRegistry.active.host.hostId
-      const state = await projectRegistry.open(hostId, path)
-      await stopProjectWatch()
-      ptySupervisor?.disposeAll()
-      htmlPreviews.clear()
-      if (previousHostId !== hostId && previousHostId !== LOCAL_HOST_ID) {
-        await projectRegistry.disconnectHost(previousHostId)
-      }
-      startProjectWatch(projectRegistry.active, emit)
-      return state
-    },
+    openProject: (hostId, path) =>
+      serializeSession(async () => {
+        if (!projectRegistry) throw new Error('Project registry is unavailable')
+        const previousHostId = projectRegistry.active.host.hostId
+        const state = await projectRegistry.open(hostId, path)
+        await stopProjectWatch()
+        ptySupervisor?.disposeAll()
+        htmlPreviews.clear()
+        if (previousHostId !== hostId && previousHostId !== LOCAL_HOST_ID) {
+          await projectRegistry.disconnectHost(previousHostId)
+        }
+        startProjectWatch(projectRegistry.active, emit)
+        return state
+      }),
     respondSshPrompt: (id, answers) => sshPrompter?.respond(id, answers),
     ptySupervisor,
     htmlPreviews,
@@ -277,31 +283,59 @@ function startProjectWatch(
 ): void {
   const pendingWatchEvents = new Map<string, IpcEventPayload<'project:watch'>>()
   let watchTimer: ReturnType<typeof setTimeout> | undefined
-  const stopHostWatch = project.host.watch(
-    project.root,
-    (event) => {
-      pendingWatchEvents.set(`${event.path.hostId}:${event.path.path}`, event)
-      if (watchTimer) return
-      // Watcher churn must not become thousands of renderer IPC paints. The
-      // tree only needs an invalidation signal during this spike.
-      watchTimer = setTimeout(() => {
-        watchTimer = undefined
-        for (const pending of pendingWatchEvents.values()) {
-          emit('project:watch', pending)
-        }
-        pendingWatchEvents.clear()
-      }, 100)
-    },
-    {
+  let stopped = false
+  const stops: Disposer[] = []
+  const receive = (event: IpcEventPayload<'project:watch'>): void => {
+    if (stopped) return
+    pendingWatchEvents.set(`${event.path.hostId}:${event.path.path}`, event)
+    if (watchTimer) return
+    // Watcher churn must not become thousands of renderer IPC paints. The
+    // tree only needs an invalidation signal during this spike.
+    watchTimer = setTimeout(() => {
+      watchTimer = undefined
+      for (const pending of pendingWatchEvents.values()) {
+        emit('project:watch', pending)
+      }
+      pendingWatchEvents.clear()
+    }, 100)
+  }
+  stops.push(
+    project.host.watch(project.root, receive, {
       recursive: true,
       excludeDirectoryNames: ['.git', 'node_modules', 'out', 'dist'],
       onError: (error) => console.error('[watch] project watcher failed', error),
-    },
+    }),
   )
-  disposeWatch = () => {
+  // Root watches deliberately prune `.git`, whose object database is noisy.
+  // Watch only the repository metadata directory at depth zero so terminal
+  // commit/add/checkout operations refresh Changes and History immediately.
+  void project.host
+    .exec('git', ['-C', project.root.path, 'rev-parse', '--absolute-git-dir'])
+    .then((result) => {
+      const gitDirectory = result.code === 0 ? result.stdout.trim() : ''
+      if (stopped || !gitDirectory.startsWith('/')) return
+      stops.push(
+        project.host.watch(hostPath(project.root.hostId, gitDirectory), receive, {
+          recursive: false,
+          onError: (error) => console.error('[watch] git metadata watcher failed', error),
+        }),
+      )
+    })
+    .catch((error) => console.error('[watch] git metadata discovery failed', error))
+  disposeWatch = async () => {
+    stopped = true
     if (watchTimer) clearTimeout(watchTimer)
-    return stopHostWatch()
+    await Promise.all(stops.map(async (stop) => stop()))
   }
+}
+
+function serializeSession<T>(operation: () => Promise<T>): Promise<T> {
+  const result = sessionOperation.then(operation, operation)
+  sessionOperation = result.then(
+    () => undefined,
+    () => undefined,
+  )
+  return result
 }
 
 function projectRootArgument(): string {
@@ -327,7 +361,7 @@ async function runSmoke(): Promise<number> {
   const git = createWorkerClient<GitWorkerProtocol>(
     workerPath('git-worker.js'),
     'hvir-git-smoke',
-    (call) => dispatchWorkerHostCall(call, host),
+    (call) => dispatchWorkerHostCall(call, { host, root: localPath(process.cwd()) }),
   )
   const host = new LocalHost()
   const supervisor = new PtySupervisor()
@@ -474,6 +508,7 @@ async function runSmoke(): Promise<number> {
 
     emit('ssh:prompt', {
       id: 9001,
+      hostId: 'smoke-host',
       kind: 'host-key',
       title: 'Trust smoke-host?',
       instructions: 'Verify the SHA-256 fingerprint before trusting this host.',
@@ -1197,22 +1232,6 @@ type EmitSmokeEvent = <E extends IpcEventChannel>(
   channel: E,
   payload: IpcEventPayload<E>,
 ) => void
-
-async function dispatchWorkerHostCall(
-  call: WorkerHostCall,
-  host: ProjectHost | null,
-): Promise<ExecResult | string> {
-  if (!host || call.hostId !== host.hostId)
-    throw new Error('git worker requested an inactive host')
-  if (call.operation === 'readTextFile') {
-    return host.readTextFile(call.path)
-  }
-  return host.exec(call.command, call.args, {
-    cwd: call.cwd,
-    input: call.input,
-    maxBuffer: call.maxBuffer,
-  })
-}
 
 async function withTimeout<T>(
   promise: Promise<T>,

@@ -58,6 +58,14 @@ export class GitEngine {
         throw new Error(`git merge-base returned no commit for ${defaultBranch}`)
       baseContent = await this.showOrEmpty(repoRoot, `${commit}:${relativePath}`)
       baseLabel = `Branch point (${shortRef(defaultBranch)})`
+      return {
+        path,
+        base,
+        baseLabel,
+        currentLabel: 'HEAD',
+        baseContent,
+        currentContent: await this.showOrEmpty(repoRoot, `HEAD:${relativePath}`),
+      }
     }
 
     return {
@@ -77,19 +85,39 @@ export class GitEngine {
   async changes(projectRoot: HostPath): Promise<GitChanges> {
     const repoRoot = await this.discoverRoot(projectRoot)
     const status = await this.run(repoRoot, ['status', '--porcelain=v2', '-z'])
-    const stats = parseNumstat(
-      await this.run(repoRoot, ['diff', '--numstat', '-z', 'HEAD', '--']),
-    )
+    const headDiff = await this.tryRun(repoRoot, [
+      'diff',
+      '--numstat',
+      '-z',
+      'HEAD',
+      '--',
+    ])
+    const stats = headDiff
+      ? parseNumstat(headDiff)
+      : mergeStats(
+          parseNumstat(
+            await this.run(repoRoot, ['diff', '--numstat', '-z', '--cached', '--']),
+          ),
+          parseNumstat(await this.run(repoRoot, ['diff', '--numstat', '-z', '--'])),
+        )
     const workingTree = parseStatus(status).map((file) =>
       changedFile(repoRoot, file, stats),
     )
-    const defaultBranch = await this.defaultBranch(repoRoot)
-    const mergeBase = (
-      await this.run(repoRoot, ['merge-base', 'HEAD', defaultBranch])
-    ).trim()
-    const branchStats = parseNumstat(
-      await this.run(repoRoot, ['diff', '--numstat', '-z', mergeBase, 'HEAD', '--']),
-    )
+    let branchStats = new Map<string, { additions: number; deletions: number }>()
+    try {
+      const defaultBranch = await this.defaultBranch(repoRoot)
+      const mergeBase = (
+        await this.run(repoRoot, ['merge-base', 'HEAD', defaultBranch])
+      ).trim()
+      if (mergeBase) {
+        branchStats = parseNumstat(
+          await this.run(repoRoot, ['diff', '--numstat', '-z', mergeBase, 'HEAD', '--']),
+        )
+      }
+    } catch {
+      // Unborn repositories and repos without a conventional default branch
+      // still have a useful working-tree Changes view.
+    }
     const branchPoint = [...branchStats.entries()].map(([path, counts]) => ({
       path: hostPath(repoRoot.hostId, `${repoRoot.path}/${path}`),
       staged: false,
@@ -109,10 +137,10 @@ export class GitEngine {
     path?: HostPath,
   ): Promise<GitHistoryPage> {
     const repoRoot = await this.discoverRoot(projectRoot)
-    const count = Math.max(1, Math.min(200, Math.floor(limit)))
+    const count = finiteInteger(limit, 50, 1, 200)
     const args = [
       'log',
-      `--skip=${Math.max(0, Math.floor(skip))}`,
+      `--skip=${finiteInteger(skip, 0, 0, Number.MAX_SAFE_INTEGER)}`,
       `-n${count + 1}`,
       '--format=%H%x1f%h%x1f%an%x1f%aI%x1f%s%x1e',
     ]
@@ -133,12 +161,11 @@ export class GitEngine {
 
   async blame(path: HostPath): Promise<readonly GitBlameLine[]> {
     const { repoRoot, relativePath } = await this.repoContext(path)
-    const output = await this.run(repoRoot, [
-      'blame',
-      '--line-porcelain',
-      '--',
-      relativePath,
-    ])
+    const output = await this.run(
+      repoRoot,
+      ['blame', '--line-porcelain', '--', relativePath],
+      64 * 1024 * 1024,
+    )
     const lines: GitBlameLine[] = []
     let current:
       { hash: string; line: number; author: string; summary: string } | undefined
@@ -265,8 +292,14 @@ export class GitEngine {
     throw gitError(['show', revision], result.stderr, result.code)
   }
 
-  private async run(repoRoot: HostPath, args: readonly string[]): Promise<string> {
-    const result = await this.host.exec('git', ['-C', repoRoot.path, ...args])
+  private async run(
+    repoRoot: HostPath,
+    args: readonly string[],
+    maxBuffer?: number,
+  ): Promise<string> {
+    const result = await this.host.exec('git', ['-C', repoRoot.path, ...args], {
+      maxBuffer,
+    })
     if (result.code !== 0) throw gitError(args, result.stderr, result.code)
     return result.stdout
   }
@@ -369,6 +402,33 @@ function parseNumstat(
     })
   }
   return result
+}
+
+function mergeStats(
+  ...sources: readonly Map<string, { additions: number; deletions: number }>[]
+): Map<string, { additions: number; deletions: number }> {
+  const merged = new Map<string, { additions: number; deletions: number }>()
+  for (const source of sources) {
+    for (const [path, counts] of source) {
+      const previous = merged.get(path)
+      merged.set(path, {
+        additions: (previous?.additions ?? 0) + counts.additions,
+        deletions: (previous?.deletions ?? 0) + counts.deletions,
+      })
+    }
+  }
+  return merged
+}
+
+function finiteInteger(
+  value: number,
+  fallback: number,
+  minimum: number,
+  maximum: number,
+): number {
+  return Number.isFinite(value)
+    ? Math.max(minimum, Math.min(maximum, Math.floor(value)))
+    : fallback
 }
 
 function changedFile(

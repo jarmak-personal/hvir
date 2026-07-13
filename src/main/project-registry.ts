@@ -113,6 +113,11 @@ export class ProjectRegistry {
     if (hostId === this.local.hostId) throw new Error('The local host cannot disconnect')
     const host = this.hosts.get(hostId)
     if (!host) throw new Error(`SSH host is not connected: ${hostId}`)
+    if ('cancelHost' in this.prompter) {
+      ;(this.prompter as SshAuthPrompter & { cancelHost(id: string): void }).cancelHost(
+        hostId,
+      )
+    }
     await host.dispose()
     return hostOption(host, hostId, 'ssh')
   }
@@ -183,7 +188,7 @@ export class ProjectRegistry {
       identities: identities.filter((identity) => identity !== undefined),
       agentSocket: process.env['SSH_AUTH_SOCK'],
       prompter: this.prompter,
-      isHostKeyTrusted: (fingerprint) => this.trust.matches(config.alias, fingerprint),
+      trustedHostKey: () => this.trust.fingerprint(config.alias),
       rememberHostKey: (fingerprint) => this.trust.remember(config.alias, fingerprint),
     })
     host.onConnectionState(() => {
@@ -200,29 +205,48 @@ export class RendererSshPrompter implements SshAuthPrompter {
   private nextId = 0
   private readonly pending = new Map<
     number,
-    (answers: readonly string[] | undefined) => void
+    {
+      readonly hostId: string
+      readonly resolve: (answers: readonly string[] | undefined) => void
+    }
   >()
 
-  constructor(private readonly emit: (prompt: SshPromptRequest) => void) {}
+  constructor(
+    private readonly emit: (prompt: SshPromptRequest) => void,
+    private readonly emitCancel: (hostId: string) => void = () => undefined,
+  ) {}
 
   prompt(request: SshPrompt): Promise<readonly string[] | undefined> {
     const id = ++this.nextId
     return new Promise((resolve) => {
-      this.pending.set(id, resolve)
+      this.pending.set(id, { hostId: request.hostId, resolve })
       this.emit({ id, ...request })
     })
   }
 
   respond(id: number, answers?: readonly string[]): void {
-    const resolve = this.pending.get(id)
-    if (!resolve) return
+    const pending = this.pending.get(id)
+    if (!pending) return
     this.pending.delete(id)
-    resolve(answers)
+    pending.resolve(answers)
   }
 
   cancelAll(): void {
-    for (const resolve of this.pending.values()) resolve(undefined)
+    const hosts = new Set([...this.pending.values()].map((pending) => pending.hostId))
+    for (const pending of this.pending.values()) pending.resolve(undefined)
     this.pending.clear()
+    for (const hostId of hosts) this.emitCancel(hostId)
+  }
+
+  cancelHost(hostId: string): void {
+    let cancelled = false
+    for (const [id, pending] of this.pending) {
+      if (pending.hostId !== hostId) continue
+      cancelled = true
+      pending.resolve(undefined)
+      this.pending.delete(id)
+    }
+    if (cancelled) this.emitCancel(hostId)
   }
 }
 
@@ -236,21 +260,32 @@ class HostTrustStore {
   static async load(host: LocalHost, file: HostPath): Promise<HostTrustStore> {
     try {
       const parsed: unknown = JSON.parse(await host.readTextFile(file))
-      return new HostTrustStore(
-        host,
-        file,
-        parsed && typeof parsed === 'object' ? (parsed as Record<string, string>) : {},
-      )
+      const fingerprints: Record<string, string> = {}
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        for (const [alias, fingerprint] of Object.entries(parsed)) {
+          if (
+            /^[^\s]{1,255}$/.test(alias) &&
+            typeof fingerprint === 'string' &&
+            /^SHA256:[A-Za-z0-9+/]{20,}$/.test(fingerprint)
+          ) {
+            fingerprints[alias] = fingerprint
+          }
+        }
+      }
+      return new HostTrustStore(host, file, fingerprints)
     } catch {
       return new HostTrustStore(host, file, {})
     }
   }
 
-  matches(alias: string, fingerprint: string): boolean {
-    return this.fingerprints[alias] === fingerprint
+  fingerprint(alias: string): string | undefined {
+    return this.fingerprints[alias]
   }
 
   async remember(alias: string, fingerprint: string): Promise<void> {
+    if (!/^SHA256:[A-Za-z0-9+/]{20,}$/.test(fingerprint)) {
+      throw new Error('Invalid SSH host-key fingerprint')
+    }
     this.fingerprints[alias] = fingerprint
     await this.host.writeFile(this.file, JSON.stringify(this.fingerprints, null, 2))
   }

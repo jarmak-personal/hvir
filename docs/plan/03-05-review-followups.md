@@ -42,6 +42,35 @@ The `task_policy_set` messages in the review log are Chromium/macOS process-poli
 track them only if they correlate with an observable hvir failure after the navigation and
 dependency-reload fixes.
 
+## P0 — SSH/Git stabilization review
+
+- [x] Make connect/dispose race-safe: cancel a pre-ready connection even when `ssh2` emits
+      no close event, ignore late closes from replaced clients, bound automatic reconnects,
+      and ensure explicit disconnect cancels every reconnect path.
+- [x] Queue renderer auth prompts by ID instead of replacing a single modal. Validate prompt
+      responses at IPC, contain keyboard-interactive failures, cancel host prompts on
+      disconnect, and stop modal reconnect prompting after cancellation/bounded retries.
+- [x] Distinguish a changed saved host key from first contact. Show old and presented
+      fingerprints in a high-risk dialog and require explicit out-of-band verification
+      before replacing the trust-store entry.
+- [x] Enforce the Git worker broker in main: active host/root only, canonical confinement,
+      `git` only, bounded inputs/output, and a timeout. Record renderer-selected root
+      authority and rejected alternatives in ADR-010.
+- [x] Confirm before switching sessions when any source tab is dirty so the minor-edit
+      feature cannot silently discard buffers.
+- [x] Decode buffered exec, streaming exec, and remote PTY bytes with incremental UTF-8
+      decoders so multibyte characters cannot corrupt at transport chunk boundaries.
+- [x] Keep Git live after terminal operations: watch the resolved Git metadata directory
+      without recursively watching objects, refresh History as well as Changes, suppress
+      stale pagination appends, and degrade unborn/no-default-branch repos to a useful
+      working-tree-only view.
+- [x] Bound remote channel and lifecycle pressure: share one SFTP subsystem, prune inotify
+      exclusions and fall back on watcher exit, serialize session lifecycle mutations,
+      and contain invalid fire-and-forget IPC during renderer teardown.
+- [ ] Cleanup tail: generate Markdown heading IDs for in-document anchors, clear blame data
+      after saves, add `ssh_config Include` support, filter negated-only aliases, and decide
+      whether reconnect should suggest the last project root rather than remote `$HOME`.
+
 ## P1 — viewer polish
 
 - [x] **First-class agent task lists.** Render GFM `- [ ]` / `- [x]` items, including

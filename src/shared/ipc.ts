@@ -108,10 +108,13 @@ export function unwrapOperation<T>(result: OperationResult<T>): T {
 
 export interface SshPromptRequest {
   readonly id: number
-  readonly kind: 'password' | 'passphrase' | 'keyboard-interactive' | 'host-key'
+  readonly hostId: string
+  readonly kind:
+    'password' | 'passphrase' | 'keyboard-interactive' | 'host-key' | 'host-key-changed'
   readonly title: string
   readonly instructions?: string
   readonly fingerprint?: string
+  readonly previousFingerprint?: string
   readonly prompts: readonly { readonly text: string; readonly echo: boolean }[]
 }
 
@@ -209,6 +212,7 @@ export interface IpcEventMap {
   'project:watch': WatchEvent
   'project:state': ProjectState
   'ssh:prompt': SshPromptRequest
+  'ssh:prompt-cancel': { readonly hostId: string }
   'pty:data': { readonly id: string; readonly data: string }
   'pty:exit': { readonly id: string; readonly exitCode: number; readonly signal?: number }
 }
@@ -276,6 +280,7 @@ export const EVENT_CHANNELS = [
   'project:watch',
   'project:state',
   'ssh:prompt',
+  'ssh:prompt-cancel',
   'pty:data',
   'pty:exit',
 ] as const satisfies readonly IpcEventChannel[]

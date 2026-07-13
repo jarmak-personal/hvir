@@ -11,10 +11,12 @@ diff, and run terminals exactly like local ones. If Phase 1's seams held, **no r
 code changes in this phase** — it's all behind the interface. A mixed set of local and
 remote projects is the normal case, not a mode.
 
-**Current status:** the transport, registry, auth UI, project picker, reconnect state,
-watch tiers, cache, PTY path, and remote-Git broker are implemented. Automated tests
-cover config merging, modern encrypted-key prompting, host-key reuse, and the shared
-local confinement behavior. The acceptance checklist remains open until it is exercised
+**Current status:** the transport, registry, queued auth UI, project picker, race-safe
+bounded reconnect lifecycle, shared SFTP channel, portable watch fallback, cache, PTY path,
+and hardened remote-Git broker are implemented. Automated tests cover config merging,
+modern encrypted-key prompting, changed-key handling, connect/dispose races, UTF-8 stream
+boundaries, SFTP reuse, broker confinement, and the shared local confinement behavior. The
+acceptance checklist remains open until it is exercised
 against a real configured SSH host, including a network drop and interactive TUI.
 
 **UX amendment (2026-07-12):** remote work is a session flow, not a host/path form. The

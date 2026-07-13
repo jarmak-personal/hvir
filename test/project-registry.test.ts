@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 
-import { ProjectRegistry } from '../src/main/project-registry'
+import { ProjectRegistry, RendererSshPrompter } from '../src/main/project-registry'
 import { localPath } from '../src/shared'
 
 const cleanups: string[] = []
@@ -73,5 +73,38 @@ describe('ProjectRegistry session flow', () => {
       'The local host cannot disconnect',
     )
     await registry.dispose()
+  })
+})
+
+describe('RendererSshPrompter', () => {
+  it('keeps concurrent prompts independently addressable and cancels by host', async () => {
+    const emitted: { id: number; hostId: string }[] = []
+    const cancelled: string[] = []
+    const prompter = new RendererSshPrompter(
+      (prompt) => emitted.push(prompt),
+      (hostId) => cancelled.push(hostId),
+    )
+    const first = prompter.prompt({
+      hostId: 'alpha',
+      kind: 'password',
+      title: 'Alpha',
+      prompts: [],
+    })
+    const second = prompter.prompt({
+      hostId: 'beta',
+      kind: 'password',
+      title: 'Beta',
+      prompts: [],
+    })
+
+    expect(emitted).toEqual([
+      expect.objectContaining({ id: 1, hostId: 'alpha' }),
+      expect.objectContaining({ id: 2, hostId: 'beta' }),
+    ])
+    prompter.cancelHost('alpha')
+    prompter.respond(2, ['secret'])
+    await expect(first).resolves.toBeUndefined()
+    await expect(second).resolves.toEqual(['secret'])
+    expect(cancelled).toEqual(['alpha'])
   })
 })

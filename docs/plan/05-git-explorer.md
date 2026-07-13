@@ -12,7 +12,8 @@ looked" — then history and blame as table stakes. Everything runs off-thread t
 Phase 3 git module (system git via `ProjectHost.exec`, so it works on SSH hosts for
 free).
 
-**Current status:** the local vertical slice is mounted and runtime-smoked: live changes,
+**Current status:** the local vertical slice is mounted and runtime-smoked: live changes
+(including terminal-only `.git` updates and unborn repositories),
 branch-point isolation, diff tabs, paged/infinite history, commit detail with historical
 file diffs, badge, and lazy blame gutter. Git transport calls are brokered by host ID as
 recorded in the ADR-005 addendum. The phase remains in progress until the same UI is
@@ -34,6 +35,8 @@ spike and acceptance are tracked in
       reads.
       The MergeView path carries the two revision blobs rather than serializing a patch;
       it preserves the same diff source while keeping rendering local.
+      Branch-point list counts and opened diffs both use merge-base → HEAD; uncommitted
+      content is intentionally confined to working-tree/HEAD views.
 - [x] History: incremental `git log` walk (paged — never walk a whole large repo up
       front), per-file history, commit detail (message, stat, patches).
 - [x] Blame: `git blame --porcelain`, lazy per file.
