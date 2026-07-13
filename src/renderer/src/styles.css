@@ -346,6 +346,63 @@ body.pane-resizing-row * {
   white-space: nowrap;
 }
 
+.session-bar {
+  width: 100%;
+  flex: 0 0 43px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 9px;
+  border: 0;
+  border-bottom: 1px solid #282d36;
+  background: #101318;
+  color: #cbd0d8;
+  text-align: left;
+}
+
+.session-bar:hover {
+  background: #1a1e25;
+}
+
+.session-copy {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.session-copy strong,
+.session-copy small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.session-copy strong {
+  font-size: 11px;
+}
+
+.session-copy small {
+  color: #707a88;
+  font-size: 9px;
+}
+
+.session-meta {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 1px;
+  color: #788494;
+  font-size: 9px;
+}
+
+.session-meta small {
+  color: #969fad;
+  font-size: 8px;
+}
+
 .panel-meta {
   min-width: 0;
   overflow: hidden;
@@ -388,6 +445,10 @@ body.pane-resizing-row * {
 
 .connection-state.failed {
   background: #d76d76;
+}
+
+.connection-state.disconnected {
+  background: #687180;
 }
 
 .project-stale .viewer-body::after {
@@ -534,6 +595,106 @@ body.pane-resizing-row * {
 
 .project-dialog .dialog-error {
   color: #dc7b82;
+}
+
+.session-dialog {
+  max-height: min(680px, calc(100vh - 32px));
+}
+
+.session-hosts,
+.folder-browser {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  overflow: auto;
+}
+
+.session-hosts {
+  max-height: 360px;
+}
+
+.session-host-option,
+.folder-row {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 8px 9px;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  background: #12151a;
+  color: #b8bec8;
+  text-align: left;
+}
+
+.session-host-option:hover,
+.folder-row:hover {
+  background: #20242c;
+}
+
+.session-host-option.selected {
+  border-color: #4d8fd8;
+  background: #1b2632;
+}
+
+.session-host-option > span:not(.connection-state) {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.session-host-option small,
+.folder-row small {
+  color: #747e8d;
+  font-size: 10px;
+}
+
+.folder-path-form {
+  display: flex;
+  gap: 6px;
+}
+
+.folder-path-form input {
+  flex: 1;
+}
+
+.folder-path-form button {
+  padding: 5px 10px;
+}
+
+.recent-folders {
+  display: flex;
+  gap: 5px;
+  overflow-x: auto;
+}
+
+.recent-folders button {
+  max-width: 180px;
+  flex: 0 0 auto;
+  overflow: hidden;
+  padding: 3px 7px;
+  border: 1px solid #343a45;
+  border-radius: 10px;
+  background: #14181e;
+  color: #8c96a4;
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.folder-browser {
+  min-height: 140px;
+  padding: 5px;
+  border: 1px solid #2b3039;
+  border-radius: 5px;
+  background: #101318;
+}
+
+.folder-browser p {
+  margin: 8px;
+  color: #727c8a;
+  font-size: 10px;
 }
 .project-dialog p {
   color: #949dab;

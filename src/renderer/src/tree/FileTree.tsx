@@ -18,7 +18,8 @@ interface FileTreeProps {
   readonly changedCount?: number
   readonly connectionState?: HostConnectionState
   readonly watchTier?: HostWatchTier
-  readonly onAddProject?: () => void
+  readonly sessionLabel: string
+  readonly onChangeSession: () => void
 }
 
 export function FileTree({
@@ -30,25 +31,24 @@ export function FileTree({
   changedCount = 0,
   connectionState = 'connected',
   watchTier = 'native',
-  onAddProject,
+  sessionLabel,
+  onChangeSession,
 }: FileTreeProps): ReactElement {
   return (
     <section className="tree-panel" aria-label="Files">
+      <SessionBar
+        label={sessionLabel}
+        root={root}
+        connectionState={connectionState}
+        watchTier={watchTier}
+        onChange={onChangeSession}
+      />
       <header className="panel-header">
         <span>Files</span>
-        <span
-          className={`connection-state ${connectionState}`}
-          title={`${connectionState} · ${watchTier}`}
-        />
         <span className="panel-meta">{basenameHostPath(root)}</span>
         {onShowGit ? (
           <button className="rail-switch" type="button" onClick={onShowGit}>
             Git{changedCount > 0 ? ` ${changedCount}` : ''}
-          </button>
-        ) : null}
-        {onAddProject ? (
-          <button className="rail-switch" type="button" onClick={onAddProject}>
-            Add
           </button>
         ) : null}
       </header>
@@ -64,6 +64,39 @@ export function FileTree({
         />
       </div>
     </section>
+  )
+}
+
+export function SessionBar({
+  label,
+  root,
+  connectionState,
+  watchTier,
+  onChange,
+}: {
+  readonly label: string
+  readonly root: HostPath
+  readonly connectionState: HostConnectionState
+  readonly watchTier: HostWatchTier
+  readonly onChange: () => void
+}): ReactElement {
+  return (
+    <button
+      type="button"
+      className="session-bar"
+      onClick={onChange}
+      title={`${label} · ${root.path} · ${connectionState} · ${watchTier}`}
+    >
+      <span className={`connection-state ${connectionState}`} />
+      <span className="session-copy">
+        <strong>{label}</strong>
+        <small>{root.path}</small>
+      </span>
+      <span className="session-meta">
+        <small>{connectionState}</small>
+        <span>Change</span>
+      </span>
+    </button>
   )
 }
 

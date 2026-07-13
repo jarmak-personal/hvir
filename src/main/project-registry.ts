@@ -6,6 +6,8 @@ import {
   hostPath,
   localPath,
   type HostPath,
+  type BrowseHostResponse,
+  type ConnectedHost,
   type ProjectHostOption,
   type ProjectState,
   type SshPromptRequest,
@@ -70,7 +72,7 @@ export class ProjectRegistry {
               hostId: config.alias,
               label: config.alias,
               kind: 'ssh' as const,
-              connectionState: 'failed' as const,
+              connectionState: 'disconnected' as const,
               watchTier: 'polling' as const,
             }
       }),
@@ -79,6 +81,47 @@ export class ProjectRegistry {
 
   hostById(hostId: string): ProjectHost | undefined {
     return this.hosts.get(hostId)
+  }
+
+  async connectHost(hostId: string): Promise<ConnectedHost> {
+    const host = await this.host(hostId)
+    await host.connect()
+    let suggestedPath =
+      this.activeProject.host.hostId === host.hostId ? this.activeProject.root.path : '/'
+    if (host.hostId === this.local.hostId) {
+      suggestedPath =
+        this.activeProject.host.hostId === host.hostId
+          ? this.activeProject.root.path
+          : homedir()
+    } else {
+      const pwd = await host.exec('pwd', [])
+      if (pwd.code === 0 && pwd.stdout.trim().startsWith('/')) {
+        suggestedPath = pwd.stdout.trim()
+      }
+    }
+    return {
+      host: hostOption(
+        host,
+        hostId === this.local.hostId ? 'Local' : hostId,
+        hostId === this.local.hostId ? 'local' : 'ssh',
+      ),
+      suggestedPath,
+    }
+  }
+
+  async browseHost(hostId: string, rawPath: string): Promise<BrowseHostResponse> {
+    const host = this.hosts.get(hostId)
+    if (!host || host.connectionState !== 'connected') {
+      throw new Error(`Connect to ${hostId} before browsing folders`)
+    }
+    if (!rawPath.startsWith('/')) throw new Error('Folder path must be absolute')
+    const path = await host.realpath(hostPath(asHostId(hostId), rawPath))
+    const stat = await host.stat(path)
+    if (stat.type !== 'dir') throw new Error(`Not a directory: ${rawPath}`)
+    const directories = (await host.readdir(path))
+      .filter((entry) => entry.type === 'dir')
+      .sort((left, right) => left.name.localeCompare(right.name))
+    return { path, directories }
   }
 
   async open(hostId: string, path: string): Promise<ProjectState> {

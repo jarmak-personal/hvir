@@ -57,7 +57,8 @@ acceptance.
       latency degrades freshness, never responsiveness (§3.2).
 
 ### UX
-- [x] "Add project" flow: pick host (local or an ssh alias) + path.
+- [x] Session flow: choose a local/SSH host, connect and authenticate first, then browse or
+      enter a folder on that host. Keep the active host/root and connection state visible.
 - [x] Disconnected project state: tabs show cached content marked stale; terminals show
       exited; reconnect restores and (Phase 6+) offers session resume.
 - [ ] Investigate remote-session survivability across SSH drops: prototype wrapping

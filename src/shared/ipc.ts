@@ -74,6 +74,25 @@ export interface OpenProjectRequest {
   readonly path: string
 }
 
+export interface ConnectHostRequest {
+  readonly hostId: string
+}
+
+export interface ConnectedHost {
+  readonly host: ProjectHostOption
+  readonly suggestedPath: string
+}
+
+export interface BrowseHostRequest {
+  readonly hostId: string
+  readonly path: string
+}
+
+export interface BrowseHostResponse {
+  readonly path: HostPath
+  readonly directories: readonly DirEntry[]
+}
+
 export interface SshPromptRequest {
   readonly id: number
   readonly kind: 'password' | 'passphrase' | 'keyboard-interactive' | 'host-key'
@@ -125,6 +144,8 @@ export interface IpcInvokeMap {
   'demo:echo': { request: EchoRequest; response: EchoResponse }
   'project:root': { request: void; response: ProjectRootResponse }
   'project:hosts': { request: void; response: readonly ProjectHostOption[] }
+  'project:connect-host': { request: ConnectHostRequest; response: ConnectedHost }
+  'project:browse-host': { request: BrowseHostRequest; response: BrowseHostResponse }
   'project:open': { request: OpenProjectRequest; response: ProjectState }
   'ssh:prompt-response': { request: SshPromptResponse; response: void }
   'fs:readdir': { request: ReadDirectoryRequest; response: readonly DirEntry[] }
@@ -197,6 +218,8 @@ export const INVOKE_CHANNELS = [
   'demo:echo',
   'project:root',
   'project:hosts',
+  'project:connect-host',
+  'project:browse-host',
   'project:open',
   'ssh:prompt-response',
   'fs:readdir',

@@ -28,6 +28,8 @@ import {
   type IpcSendPayload,
   type ProjectHostOption,
   type ProjectState,
+  type ConnectedHost,
+  type BrowseHostResponse,
 } from '../shared'
 import { plainShellAdapter } from './harness/harness-adapter'
 import type { ProjectHost } from './project-host'
@@ -67,6 +69,8 @@ export interface IpcDeps {
   readonly gitWorker: WorkerClient<GitWorkerProtocol>
   readonly getProject: () => { readonly host: ProjectHost; readonly root: HostPath }
   readonly listHosts: () => readonly ProjectHostOption[]
+  readonly connectHost: (hostId: string) => Promise<ConnectedHost>
+  readonly browseHost: (hostId: string, path: string) => Promise<BrowseHostResponse>
   readonly openProject: (hostId: string, path: string) => Promise<ProjectState>
   readonly respondSshPrompt: (id: number, answers?: readonly string[]) => void
   readonly ptySupervisor: PtySupervisor
@@ -92,6 +96,8 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 
   handle('project:root', () => ({ root: deps.getProject().root }))
   handle('project:hosts', () => deps.listHosts())
+  handle('project:connect-host', (req) => deps.connectHost(req.hostId))
+  handle('project:browse-host', (req) => deps.browseHost(req.hostId, req.path))
   handle('project:open', (req) => deps.openProject(req.hostId, req.path))
   handle('ssh:prompt-response', (req) => {
     deps.respondSshPrompt(req.id, req.answers)

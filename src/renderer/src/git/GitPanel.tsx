@@ -8,7 +8,9 @@ import {
   type GitCommitDetail,
   type HostPath,
   type HostConnectionState,
+  type HostWatchTier,
 } from '../../../shared'
+import { SessionBar } from '../tree/FileTree'
 
 interface GitPanelProps {
   readonly root: HostPath
@@ -17,7 +19,9 @@ interface GitPanelProps {
   readonly onOpen: (path: HostPath, base: DiffBase, revision?: string) => void
   readonly onChangedCount: (count: number) => void
   readonly connectionState?: HostConnectionState
-  readonly onAddProject?: () => void
+  readonly watchTier?: HostWatchTier
+  readonly sessionLabel: string
+  readonly onChangeSession: () => void
 }
 
 export function GitPanel({
@@ -27,7 +31,9 @@ export function GitPanel({
   onOpen,
   onChangedCount,
   connectionState = 'connected',
-  onAddProject,
+  watchTier = 'native',
+  sessionLabel,
+  onChangeSession,
 }: GitPanelProps): ReactElement {
   const [view, setView] = useState<'changes' | 'history'>('changes')
   const [changes, setChanges] = useState<GitChanges>()
@@ -112,17 +118,18 @@ export function GitPanel({
 
   return (
     <section className="tree-panel git-panel" aria-label="Git">
+      <SessionBar
+        label={sessionLabel}
+        root={root}
+        connectionState={connectionState}
+        watchTier={watchTier}
+        onChange={onChangeSession}
+      />
       <header className="panel-header">
         <span>Git</span>
-        <span className={`connection-state ${connectionState}`} title={connectionState} />
         <button className="rail-switch" onClick={onShowFiles}>
           Files
         </button>
-        {onAddProject ? (
-          <button className="rail-switch" onClick={onAddProject}>
-            Add
-          </button>
-        ) : null}
       </header>
       <div className="git-tabs">
         <button

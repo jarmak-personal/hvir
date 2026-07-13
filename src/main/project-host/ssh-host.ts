@@ -58,7 +58,7 @@ let nextRemotePid = -1
 
 export class SshHost implements ProjectHost {
   readonly hostId: HostId
-  private state: HostConnectionState = 'failed'
+  private state: HostConnectionState = 'disconnected'
   private tier: HostWatchTier = 'polling'
   private client?: Client
   private connecting?: Promise<void>
@@ -111,7 +111,7 @@ export class SshHost implements ProjectHost {
     this.client?.end()
     this.client = undefined
     this.cache.clear()
-    this.setState('failed')
+    this.setState('disconnected')
     return Promise.resolve()
   }
 

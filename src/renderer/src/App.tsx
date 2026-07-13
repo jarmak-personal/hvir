@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState, type ReactElement } from 'rea
 
 import {
   asHostId,
+  dirnameHostPath,
   defaultViewMode,
   hostPath,
   hostPathEquals,
@@ -11,6 +12,9 @@ import {
   type HostConnectionState,
   type HostWatchTier,
   type ProjectHostOption,
+  type ConnectedHost,
+  type BrowseHostResponse,
+  type ProjectState,
   type SshPromptRequest,
   type ViewMode,
   type WatchEvent,
@@ -60,7 +64,6 @@ export function App(): ReactElement {
   const [watchTier, setWatchTier] = useState<HostWatchTier>('native')
   const [hosts, setHosts] = useState<readonly ProjectHostOption[]>([])
   const [showAddProject, setShowAddProject] = useState(false)
-  const [addProjectError, setAddProjectError] = useState<string>()
   const [sshPrompt, setSshPrompt] = useState<SshPromptRequest>()
   tabsRef.current = tabs
   activeIdRef.current = activeId
@@ -140,7 +143,6 @@ export function App(): ReactElement {
       setWatchTier(state.watchTier)
     })
     const stopPrompt = window.hvir.on('ssh:prompt', setSshPrompt)
-    void window.hvir.invoke('project:hosts', undefined).then(setHosts)
     return () => {
       cancelled = true
       if (watchRefreshTimer !== undefined) window.clearTimeout(watchRefreshTimer)
@@ -149,6 +151,19 @@ export function App(): ReactElement {
       void stopPrompt()
     }
   }, [])
+
+  useEffect(() => {
+    let cancelled = false
+    void window.hvir.invoke('project:hosts', undefined).then(
+      (nextHosts) => {
+        if (!cancelled) setHosts(nextHosts)
+      },
+      () => undefined,
+    )
+    return () => {
+      cancelled = true
+    }
+  }, [showAddProject])
 
   useEffect(() => {
     if (!root) return
@@ -379,7 +394,8 @@ export function App(): ReactElement {
             changedCount={changedCount}
             connectionState={connectionState}
             watchTier={watchTier}
-            onAddProject={() => setShowAddProject(true)}
+            sessionLabel={root.hostId === 'local' ? 'Local' : `ssh:${root.hostId}`}
+            onChangeSession={() => setShowAddProject(true)}
           />
         ) : (
           <GitPanel
@@ -389,7 +405,9 @@ export function App(): ReactElement {
             onChangedCount={setChangedCount}
             onOpen={(path, base, revision) => openFile(path, true, 'git', base, revision)}
             connectionState={connectionState}
-            onAddProject={() => setShowAddProject(true)}
+            watchTier={watchTier}
+            sessionLabel={root.hostId === 'local' ? 'Local' : `ssh:${root.hostId}`}
+            onChangeSession={() => setShowAddProject(true)}
           />
         )}
         <PaneResizer
@@ -482,30 +500,25 @@ export function App(): ReactElement {
         <TerminalView cwd={root} />
       </main>
       {showAddProject ? (
-        <AddProjectDialog
+        <SessionDialog
           hosts={hosts}
-          error={addProjectError}
-          onCancel={() => {
+          currentRoot={root}
+          onCancel={() => setShowAddProject(false)}
+          onConnect={(hostId) => window.hvir.invoke('project:connect-host', { hostId })}
+          onBrowse={(hostId, path) =>
+            window.hvir.invoke('project:browse-host', { hostId, path })
+          }
+          onOpen={(hostId, path) => window.hvir.invoke('project:open', { hostId, path })}
+          onOpened={(state) => {
+            persistTabs(root, tabsRef.current, activeIdRef.current)
+            setRestored(false)
+            setRoot(state.root)
+            setConnectionState(state.connectionState)
+            setWatchTier(state.watchTier)
+            setTabs([])
+            setActiveId(undefined)
+            setChangedCount(0)
             setShowAddProject(false)
-            setAddProjectError(undefined)
-          }}
-          onOpen={(hostId, path) => {
-            void window.hvir.invoke('project:open', { hostId, path }).then(
-              (state) => {
-                setRoot(state.root)
-                setConnectionState(state.connectionState)
-                setWatchTier(state.watchTier)
-                setTabs([])
-                setActiveId(undefined)
-                setChangedCount(0)
-                setShowAddProject(false)
-                setAddProjectError(undefined)
-              },
-              (reason: unknown) =>
-                setAddProjectError(
-                  reason instanceof Error ? reason.message : String(reason),
-                ),
-            )
           }}
         />
       ) : null}
@@ -525,56 +538,208 @@ export function App(): ReactElement {
   )
 }
 
-function AddProjectDialog({
+function SessionDialog({
   hosts,
+  currentRoot,
   onCancel,
+  onConnect,
+  onBrowse,
   onOpen,
-  error,
+  onOpened,
 }: {
   readonly hosts: readonly ProjectHostOption[]
+  readonly currentRoot: HostPath
   readonly onCancel: () => void
-  readonly onOpen: (hostId: string, path: string) => void
-  readonly error?: string
+  readonly onConnect: (hostId: string) => Promise<ConnectedHost>
+  readonly onBrowse: (hostId: string, path: string) => Promise<BrowseHostResponse>
+  readonly onOpen: (hostId: string, path: string) => Promise<ProjectState>
+  readonly onOpened: (state: ProjectState) => void
 }): ReactElement {
-  const [hostId, setHostId] = useState(hosts[0]?.hostId ?? 'local')
+  const [stage, setStage] = useState<'host' | 'folder'>('host')
+  const [hostId, setHostId] = useState(
+    hosts.some((host) => host.hostId === currentRoot.hostId)
+      ? currentRoot.hostId
+      : (hosts[0]?.hostId ?? 'local'),
+  )
+  const [connected, setConnected] = useState<ConnectedHost>()
   const [path, setPath] = useState('')
+  const [directories, setDirectories] = useState<BrowseHostResponse['directories']>([])
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string>()
+  const selectedHost = hosts.find((host) => host.hostId === hostId)
+
+  const browse = async (targetPath: string): Promise<void> => {
+    if (!connected) return
+    setBusy(true)
+    setError(undefined)
+    try {
+      const result = await onBrowse(connected.host.hostId, targetPath)
+      setPath(result.path.path)
+      setDirectories(result.directories)
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const connect = async (): Promise<void> => {
+    setBusy(true)
+    setError(undefined)
+    try {
+      const result = await onConnect(hostId)
+      setConnected(result)
+      setPath(result.suggestedPath)
+      setStage('folder')
+      const listing = await onBrowse(result.host.hostId, result.suggestedPath)
+      setPath(listing.path.path)
+      setDirectories(listing.directories)
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const open = async (): Promise<void> => {
+    if (!connected || !path.trim()) return
+    setBusy(true)
+    setError(undefined)
+    try {
+      const state = await onOpen(connected.host.hostId, path.trim())
+      rememberFolder(connected.host.hostId, state.root.path)
+      onOpened(state)
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason))
+      setBusy(false)
+    }
+  }
+
   return (
     <div className="modal-backdrop">
-      <form
-        className="project-dialog"
-        onSubmit={(event) => {
-          event.preventDefault()
-          if (path.trim()) onOpen(hostId, path.trim())
-        }}
-      >
-        <h2>Add project</h2>
+      <section className="project-dialog session-dialog" aria-label="Change session">
+        <h2>
+          {stage === 'host'
+            ? 'Connect to a host'
+            : `Open folder on ${connected?.host.label ?? hostId}`}
+        </h2>
         {error ? <p className="dialog-error">{error}</p> : null}
-        <label>
-          Host
-          <select value={hostId} onChange={(event) => setHostId(event.target.value)}>
+        {stage === 'host' ? (
+          <div className="session-hosts" role="listbox" aria-label="Hosts">
             {hosts.map((host) => (
-              <option key={host.hostId} value={host.hostId}>
-                {host.label} ({host.kind})
-              </option>
+              <button
+                type="button"
+                role="option"
+                aria-selected={hostId === host.hostId}
+                className={`session-host-option${hostId === host.hostId ? ' selected' : ''}`}
+                key={host.hostId}
+                onClick={() => setHostId(host.hostId)}
+              >
+                <span className={`connection-state ${host.connectionState}`} />
+                <span>
+                  <strong>{host.kind === 'ssh' ? `ssh:${host.label}` : 'Local'}</strong>
+                  <small>
+                    {host.kind === 'ssh' ? host.connectionState : 'this machine'}
+                  </small>
+                </span>
+              </button>
             ))}
-          </select>
-        </label>
-        <label>
-          Path
-          <input
-            autoFocus
-            value={path}
-            onChange={(event) => setPath(event.target.value)}
-            placeholder={hostId === 'local' ? '/home/me/project' : '/srv/project'}
-          />
-        </label>
+          </div>
+        ) : (
+          <>
+            <form
+              className="folder-path-form"
+              onSubmit={(event) => {
+                event.preventDefault()
+                void browse(path)
+              }}
+            >
+              <input
+                aria-label="Folder path"
+                autoFocus
+                value={path}
+                onChange={(event) => setPath(event.target.value)}
+              />
+              <button type="submit" disabled={busy}>
+                Go
+              </button>
+            </form>
+            {connected ? (
+              <div className="recent-folders">
+                {recentFolders(connected.host.hostId).map((folder) => (
+                  <button type="button" key={folder} onClick={() => void browse(folder)}>
+                    {folder}
+                  </button>
+                ))}
+              </div>
+            ) : null}
+            <div className="folder-browser" aria-label="Folders">
+              <button
+                type="button"
+                className="folder-row"
+                disabled={path === '/' || busy}
+                onClick={() =>
+                  connected &&
+                  void browse(
+                    dirnameHostPath(hostPath(asHostId(connected.host.hostId), path)).path,
+                  )
+                }
+              >
+                <span>..</span>
+                <small>Parent folder</small>
+              </button>
+              {directories.map((directory) => (
+                <button
+                  type="button"
+                  className="folder-row"
+                  key={directory.name}
+                  disabled={busy}
+                  onClick={() =>
+                    void browse(`${path.replace(/\/$/, '')}/${directory.name}`)
+                  }
+                >
+                  <span>{directory.name}</span>
+                  <small>Folder</small>
+                </button>
+              ))}
+              {directories.length === 0 && !busy ? <p>No subfolders</p> : null}
+              {busy ? <p>Loading…</p> : null}
+            </div>
+          </>
+        )}
         <div className="dialog-actions">
+          {stage === 'folder' ? (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => {
+                setStage('host')
+                setConnected(undefined)
+                setError(undefined)
+              }}
+            >
+              Back
+            </button>
+          ) : null}
           <button type="button" onClick={onCancel}>
             Cancel
           </button>
-          <button type="submit">Open</button>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => void (stage === 'host' ? connect() : open())}
+          >
+            {busy
+              ? 'Working…'
+              : stage === 'host'
+                ? selectedHost?.kind === 'local' ||
+                  selectedHost?.connectionState === 'connected'
+                  ? 'Choose folder'
+                  : 'Connect'
+                : 'Open this folder'}
+          </button>
         </div>
-      </form>
+      </section>
     </div>
   )
 }
@@ -624,6 +789,27 @@ function SshPromptDialog({
       </form>
     </div>
   )
+}
+
+function recentFolders(hostId: string): readonly string[] {
+  try {
+    const value: unknown = JSON.parse(
+      localStorage.getItem(`hvir:recent-folders:${hostId}`) ?? '[]',
+    )
+    return Array.isArray(value)
+      ? value.filter((item): item is string => typeof item === 'string').slice(0, 5)
+      : []
+  } catch {
+    return []
+  }
+}
+
+function rememberFolder(hostId: string, path: string): void {
+  const next = [path, ...recentFolders(hostId).filter((folder) => folder !== path)].slice(
+    0,
+    5,
+  )
+  localStorage.setItem(`hvir:recent-folders:${hostId}`, JSON.stringify(next))
 }
 
 interface StoredTabs {

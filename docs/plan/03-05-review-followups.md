@@ -80,21 +80,21 @@ dependency-reload fixes.
 
 ## P1 — SSH session workflow
 
-- [ ] Replace the combined host/path form with a staged remote-session flow:
+- [x] Replace the combined host/path form with a staged remote-session flow:
       **Connect to Host…** → select an SSH alias → connect/authenticate → select or enter a
       folder on that host → open the workbench. Local gets the parallel **Open Local
       Folder…** path. Do not ask for a remote path before the connection succeeds.
-- [ ] Add a narrowly scoped remote-folder picker backed by `ProjectHost.readdir` (directory
+- [x] Add a narrowly scoped remote-folder picker backed by `ProjectHost.readdir` (directory
       selection only, not an SFTP file manager), plus recent folders per host and direct path
       entry for experienced users.
-- [ ] Once connected, remote hvir behaves like local hvir: the same Files/Git/Harness rail,
+- [x] Once connected, remote hvir behaves like local hvir: the same Files/Git/Harness rail,
       viewer modes, terminal, shortcuts, and project controls. Renderer features must not
       branch on local vs SSH.
-- [ ] Keep remote context continuously visible without copying VS Code chrome: a quiet
+- [x] Keep remote context continuously visible without copying VS Code chrome: a quiet
       `ssh:<alias>` session indicator with connected/reconnecting/failed state, current root,
       and actions to reconnect, change host, or return local. Local mode may use a low-noise
       `Local` label rather than hiding the session model.
-- [ ] Switching hosts/projects cleanly replaces the active session: preserve cached stale
+- [x] Switching hosts/projects cleanly replaces the active session: preserve cached stale
       tabs for recovery, stop the old watch, end its terminals through the PTY supervisor,
       start the new host watch, and restore that host/root's tab state.
 - [ ] Validate the flow first against a disposable localhost SSH server, then on a real host

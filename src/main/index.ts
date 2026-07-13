@@ -189,9 +189,19 @@ async function startup(): Promise<void> {
       return projectRegistry.active
     },
     listHosts: () => projectRegistry?.listHosts() ?? [],
+    connectHost: async (hostId) => {
+      if (!projectRegistry) throw new Error('Project registry is unavailable')
+      return projectRegistry.connectHost(hostId)
+    },
+    browseHost: async (hostId, path) => {
+      if (!projectRegistry) throw new Error('Project registry is unavailable')
+      return projectRegistry.browseHost(hostId, path)
+    },
     openProject: async (hostId, path) => {
       if (!projectRegistry) throw new Error('Project registry is unavailable')
       const state = await projectRegistry.open(hostId, path)
+      ptySupervisor?.disposeAll()
+      htmlPreviews.clear()
       startProjectWatch(projectRegistry.active, emit)
       return state
     },
@@ -313,6 +323,19 @@ async function runSmoke(): Promise<number> {
           watchTier: host.watchTier,
         },
       ],
+      connectHost: () =>
+        Promise.resolve({
+          host: {
+            hostId: host.hostId,
+            label: 'Local',
+            kind: 'local',
+            connectionState: host.connectionState,
+            watchTier: host.watchTier,
+          },
+          suggestedPath: smokeRoot.path,
+        }),
+      browseHost: (_hostId, path) =>
+        Promise.resolve({ path: localPath(path), directories: [] }),
       openProject: () =>
         Promise.resolve({
           root: smokeRoot,
@@ -941,21 +964,43 @@ async function runSmoke(): Promise<number> {
     )) as string
     console.log(`[smoke] lazy blame gutter OK (${blameStatus})`)
 
-    const addProjectStatus = (await win.webContents.executeJavaScript(`
+    const sessionFlowStatus = (await withTimeout(
+      win.webContents.executeJavaScript(`
       new Promise((resolve, reject) => {
-        const add = [...document.querySelectorAll('button')]
-          .find((node) => node.textContent?.trim() === 'Add');
-        add?.click();
-        requestAnimationFrame(() => {
-          const option = document.querySelector('.project-dialog select option')?.textContent || '';
-          const cancel = [...document.querySelectorAll('.project-dialog button')]
-            .find((node) => node.textContent?.trim() === 'Cancel');
-          cancel?.click();
-          option.includes('Local') ? resolve(option) : reject(new Error('local host option missing'));
-        });
+        const deadline = Date.now() + 10000;
+        document.querySelector('.session-bar')?.click();
+        const waitForHost = () => {
+          const local = [...document.querySelectorAll('.session-host-option')]
+            .find((node) => node.textContent?.includes('Local'));
+          const choose = [...document.querySelectorAll('.project-dialog button')]
+            .find((node) => node.textContent?.trim() === 'Choose folder');
+          if (!local || !choose) {
+            if (Date.now() > deadline) return reject(new Error('session host step missing'));
+            return setTimeout(waitForHost, 50);
+          }
+          local.click();
+          choose.click();
+          const waitForFolder = () => {
+            const path = document.querySelector('.folder-path-form input')?.value || '';
+            const open = [...document.querySelectorAll('.project-dialog button')]
+              .find((node) => node.textContent?.trim() === 'Open this folder');
+            if (path && open) {
+              const cancel = [...document.querySelectorAll('.project-dialog button')]
+                .find((node) => node.textContent?.trim() === 'Cancel');
+              cancel?.click();
+              return resolve('Local→connected→folder ' + path);
+            }
+            if (Date.now() > deadline) return reject(new Error('session folder step missing'));
+            setTimeout(waitForFolder, 50);
+          };
+          waitForFolder();
+        };
+        waitForHost();
       })
-    `)) as string
-    console.log(`[smoke] add-project host picker OK (${addProjectStatus})`)
+    `),
+      'session flow timed out',
+    )) as string
+    console.log(`[smoke] staged session flow OK (${sessionFlowStatus})`)
 
     const resizeStatus = (await withTimeout(
       win.webContents.executeJavaScript(`
