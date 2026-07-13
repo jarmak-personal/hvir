@@ -78,6 +78,10 @@ export interface ConnectHostRequest {
   readonly hostId: string
 }
 
+export interface DisconnectHostRequest {
+  readonly hostId: string
+}
+
 export interface ConnectedHost {
   readonly host: ProjectHostOption
   readonly suggestedPath: string
@@ -143,9 +147,13 @@ export interface IpcInvokeMap {
   'app:info': { request: void; response: AppInfo }
   /** Round-trips text through the echo utility process (renderer→main→worker). */
   'demo:echo': { request: EchoRequest; response: EchoResponse }
-  'project:root': { request: void; response: ProjectRootResponse }
+  'project:root': { request: void; response: ProjectState }
   'project:hosts': { request: void; response: readonly ProjectHostOption[] }
   'project:connect-host': { request: ConnectHostRequest; response: ConnectedHost }
+  'project:disconnect-host': {
+    request: DisconnectHostRequest
+    response: ProjectHostOption
+  }
   'project:browse-host': { request: BrowseHostRequest; response: BrowseHostResponse }
   'project:open': { request: OpenProjectRequest; response: ProjectState }
   'ssh:prompt-response': { request: SshPromptResponse; response: void }
@@ -220,6 +228,7 @@ export const INVOKE_CHANNELS = [
   'project:root',
   'project:hosts',
   'project:connect-host',
+  'project:disconnect-host',
   'project:browse-host',
   'project:open',
   'ssh:prompt-response',

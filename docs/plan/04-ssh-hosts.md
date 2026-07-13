@@ -59,6 +59,9 @@ acceptance.
 ### UX
 - [x] Session flow: choose a local/SSH host, connect and authenticate first, then browse or
       enter a folder on that host. Keep the active host/root and connection state visible.
+- [x] Explicit disconnect/reconnect lifecycle: stop watches and PTYs, close the transport,
+      retain stale tabs, disconnect the replaced host on session switches, and gracefully
+      close every SSH client before app quit.
 - [x] Disconnected project state: tabs show cached content marked stale; terminals show
       exited; reconnect restores and (Phase 6+) offers session resume.
 - [ ] Investigate remote-session survivability across SSH drops: prototype wrapping

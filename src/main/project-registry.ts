@@ -109,6 +109,22 @@ export class ProjectRegistry {
     }
   }
 
+  async disconnectHost(hostId: string): Promise<ProjectHostOption> {
+    if (hostId === this.local.hostId) throw new Error('The local host cannot disconnect')
+    const host = this.hosts.get(hostId)
+    if (!host) throw new Error(`SSH host is not connected: ${hostId}`)
+    await host.dispose()
+    return hostOption(host, hostId, 'ssh')
+  }
+
+  async disconnectSshHosts(): Promise<void> {
+    await Promise.all(
+      [...this.hosts.values()]
+        .filter((host) => host.hostId !== this.local.hostId)
+        .map((host) => host.dispose()),
+    )
+  }
+
   async browseHost(hostId: string, rawPath: string): Promise<BrowseHostResponse> {
     const host = this.hosts.get(hostId)
     if (!host || host.connectionState !== 'connected') {

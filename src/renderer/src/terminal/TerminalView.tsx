@@ -1,17 +1,18 @@
 import { useEffect, useRef, useState, type ReactElement } from 'react'
 
-import type { HostPath } from '../../../shared'
+import type { HostConnectionState, HostPath } from '../../../shared'
 import { createGhosttyTerminalPane } from './ghostty-terminal-pane'
 
 interface TerminalViewProps {
   readonly cwd: HostPath
+  readonly connectionState: HostConnectionState
 }
 
 const OUTPUT_FLUSH_MS = 16
 const MAX_BUFFERED_OUTPUT = 256 * 1024
 const PTY_RESIZE_DEBOUNCE_MS = 75
 
-export function TerminalView({ cwd }: TerminalViewProps): ReactElement {
+export function TerminalView({ cwd, connectionState }: TerminalViewProps): ReactElement {
   const containerRef = useRef<HTMLDivElement>(null)
   const [title, setTitle] = useState('Shell')
   const [status, setStatus] = useState('Starting…')
@@ -19,6 +20,12 @@ export function TerminalView({ cwd }: TerminalViewProps): ReactElement {
   useEffect(() => {
     const container = containerRef.current
     if (!container) return
+    if (connectionState !== 'connected') {
+      container.replaceChildren()
+      setTitle('Shell')
+      setStatus(connectionState)
+      return
+    }
     let cancelled = false
     let ptyStarted = false
     let pendingInput = ''
@@ -142,7 +149,7 @@ export function TerminalView({ cwd }: TerminalViewProps): ReactElement {
       disposePane?.()
       if (ptyStarted) window.hvir.send('pty:kill', { id: sessionId })
     }
-  }, [cwd])
+  }, [connectionState, cwd])
 
   return (
     <section className="terminal-panel" aria-label="Terminal">

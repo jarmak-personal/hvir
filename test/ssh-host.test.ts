@@ -1,4 +1,5 @@
 import { execFileSync } from 'node:child_process'
+import { EventEmitter } from 'node:events'
 import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -89,6 +90,47 @@ describe('SshHost authentication', () => {
 })
 
 describe('SshHost remote behavior', () => {
+  it('waits briefly for the SSH transport to close during disposal', async () => {
+    vi.useFakeTimers()
+    try {
+      const host = new SshHost({
+        config: aliasConfig(),
+        prompter: { prompt: () => Promise.resolve(undefined) },
+      })
+      const client = Object.assign(new EventEmitter(), {
+        end: vi.fn(() => setTimeout(() => client.emit('close'), 25)),
+      })
+      ;(host as unknown as { client: typeof client }).client = client
+      let finished = false
+      const disposing = host.dispose().then(() => {
+        finished = true
+      })
+
+      await vi.advanceTimersByTimeAsync(24)
+      expect(finished).toBe(false)
+      await vi.advanceTimersByTimeAsync(1)
+      await disposing
+      expect(finished).toBe(true)
+      expect(client.end).toHaveBeenCalledOnce()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('does not implicitly reconnect after an explicit disconnect', async () => {
+    const host = new SshHost({
+      config: aliasConfig(),
+      prompter: { prompt: () => Promise.resolve(undefined) },
+    })
+    await host.dispose()
+    const connect = vi.spyOn(host, 'connect')
+
+    await expect(host.exec('true', [])).rejects.toThrow(
+      'SSH host is disconnected; reconnect explicitly before retrying',
+    )
+    expect(connect).not.toHaveBeenCalled()
+  })
+
   it('resolves and caches the remote host shell', async () => {
     const host = new SshHost({
       config: aliasConfig(),

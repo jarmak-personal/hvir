@@ -22,6 +22,10 @@ interface GitPanelProps {
   readonly watchTier?: HostWatchTier
   readonly sessionLabel: string
   readonly onChangeSession: () => void
+  readonly onDisconnectSession: () => void
+  readonly onReconnectSession: () => void
+  readonly sessionBusy?: boolean
+  readonly sessionError?: string
 }
 
 export function GitPanel({
@@ -34,6 +38,10 @@ export function GitPanel({
   watchTier = 'native',
   sessionLabel,
   onChangeSession,
+  onDisconnectSession,
+  onReconnectSession,
+  sessionBusy = false,
+  sessionError,
 }: GitPanelProps): ReactElement {
   const [view, setView] = useState<'changes' | 'history'>('changes')
   const [changes, setChanges] = useState<GitChanges>()
@@ -45,6 +53,7 @@ export function GitPanel({
   const historyLoading = useRef(false)
 
   useEffect(() => {
+    if (connectionState !== 'connected') return
     let cancelled = false
     void window.hvir.invoke('git:changes', { root }).then(
       (result) => {
@@ -61,10 +70,10 @@ export function GitPanel({
     return () => {
       cancelled = true
     }
-  }, [onChangedCount, refreshVersion, root])
+  }, [connectionState, onChangedCount, refreshVersion, root])
 
   const loadHistory = (): void => {
-    if (historyLoading.current || !hasMore) return
+    if (connectionState !== 'connected' || historyLoading.current || !hasMore) return
     historyLoading.current = true
     void window.hvir
       .invoke('git:history', { root, skip: commits.length, limit: 50 })
@@ -82,7 +91,7 @@ export function GitPanel({
   }
 
   useEffect(() => {
-    if (view !== 'history') return
+    if (view !== 'history' || connectionState !== 'connected') return
     let cancelled = false
     void window.hvir.invoke('git:history', { root, skip: 0, limit: 50 }).then(
       (page) => {
@@ -99,7 +108,7 @@ export function GitPanel({
     return () => {
       cancelled = true
     }
-  }, [root, view])
+  }, [connectionState, root, view])
 
   useEffect(() => {
     const target = historyEnd.current
@@ -114,19 +123,24 @@ export function GitPanel({
     return () => observer.disconnect()
     // Pagination state intentionally re-arms the sentinel for the next page.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [commits.length, hasMore, view])
+  }, [commits.length, connectionState, hasMore, view])
 
   return (
     <section className="tree-panel git-panel" aria-label="Git">
       <SessionBar
         label={sessionLabel}
-        root={root}
+        remote={root.hostId !== 'local'}
         connectionState={connectionState}
         watchTier={watchTier}
         onChange={onChangeSession}
+        onDisconnect={onDisconnectSession}
+        onReconnect={onReconnectSession}
+        busy={sessionBusy}
+        error={sessionError}
       />
       <header className="panel-header">
         <span>Git</span>
+        <span className="panel-meta">{basenameHostPath(root)}</span>
         <button className="rail-switch" onClick={onShowFiles}>
           Files
         </button>

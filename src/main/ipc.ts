@@ -70,6 +70,7 @@ export interface IpcDeps {
   readonly getProject: () => { readonly host: ProjectHost; readonly root: HostPath }
   readonly listHosts: () => readonly ProjectHostOption[]
   readonly connectHost: (hostId: string) => Promise<ConnectedHost>
+  readonly disconnectHost: (hostId: string) => Promise<ProjectHostOption>
   readonly browseHost: (hostId: string, path: string) => Promise<BrowseHostResponse>
   readonly openProject: (hostId: string, path: string) => Promise<ProjectState>
   readonly respondSshPrompt: (id: number, answers?: readonly string[]) => void
@@ -94,9 +95,17 @@ export function registerIpcHandlers(deps: IpcDeps): void {
     return { text: result.text, workerPid: result.workerPid }
   })
 
-  handle('project:root', () => ({ root: deps.getProject().root }))
+  handle('project:root', () => {
+    const { root, host } = deps.getProject()
+    return {
+      root,
+      connectionState: host.connectionState,
+      watchTier: host.watchTier,
+    }
+  })
   handle('project:hosts', () => deps.listHosts())
   handle('project:connect-host', (req) => deps.connectHost(req.hostId))
+  handle('project:disconnect-host', (req) => deps.disconnectHost(req.hostId))
   handle('project:browse-host', (req) => deps.browseHost(req.hostId, req.path))
   handle('project:open', (req) => deps.openProject(req.hostId, req.path))
   handle('ssh:prompt-response', (req) => {

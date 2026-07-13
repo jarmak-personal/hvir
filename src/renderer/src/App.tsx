@@ -64,6 +64,8 @@ export function App(): ReactElement {
   const [watchTier, setWatchTier] = useState<HostWatchTier>('native')
   const [hosts, setHosts] = useState<readonly ProjectHostOption[]>([])
   const [showAddProject, setShowAddProject] = useState(false)
+  const [sessionBusy, setSessionBusy] = useState(false)
+  const [sessionError, setSessionError] = useState<string>()
   const [sshPrompt, setSshPrompt] = useState<SshPromptRequest>()
   tabsRef.current = tabs
   activeIdRef.current = activeId
@@ -121,8 +123,12 @@ export function App(): ReactElement {
     let cancelled = false
     let watchRefreshTimer: number | undefined
     void window.hvir.invoke('project:root', undefined).then(
-      ({ root: projectRoot }) => {
-        if (!cancelled) setRoot(projectRoot)
+      ({ root: projectRoot, connectionState: state, watchTier: tier }) => {
+        if (!cancelled) {
+          setRoot(projectRoot)
+          setConnectionState(state)
+          setWatchTier(tier)
+        }
       },
       (error: unknown) => {
         if (!cancelled)
@@ -141,6 +147,7 @@ export function App(): ReactElement {
     const stopState = window.hvir.on('project:state', (state) => {
       setConnectionState(state.connectionState)
       setWatchTier(state.watchTier)
+      if (state.connectionState === 'connected') setSessionError(undefined)
     })
     const stopPrompt = window.hvir.on('ssh:prompt', setSshPrompt)
     return () => {
@@ -352,6 +359,42 @@ export function App(): ReactElement {
 
   const activeTab = tabs.find((tab) => tab.id === activeId)
 
+  const disconnectSession = async (): Promise<void> => {
+    if (!root || root.hostId === 'local') return
+    setSessionBusy(true)
+    setSessionError(undefined)
+    try {
+      const host = await window.hvir.invoke('project:disconnect-host', {
+        hostId: root.hostId,
+      })
+      setConnectionState(host.connectionState)
+    } catch (reason) {
+      setSessionError(reason instanceof Error ? reason.message : String(reason))
+    } finally {
+      setSessionBusy(false)
+    }
+  }
+
+  const reconnectSession = async (): Promise<void> => {
+    if (!root || root.hostId === 'local') return
+    setSessionBusy(true)
+    setSessionError(undefined)
+    try {
+      const connected = await window.hvir.invoke('project:connect-host', {
+        hostId: root.hostId,
+      })
+      setConnectionState(connected.host.connectionState)
+      setWatchTier(connected.host.watchTier)
+      for (const tab of tabsRef.current) {
+        if (!tab.dirty) loadFile(tab.path)
+      }
+    } catch (reason) {
+      setSessionError(reason instanceof Error ? reason.message : String(reason))
+    } finally {
+      setSessionBusy(false)
+    }
+  }
+
   const setTreeWidth = (width: number): void => {
     const workbench = workbenchRef.current
     if (!workbench) return
@@ -396,6 +439,10 @@ export function App(): ReactElement {
             watchTier={watchTier}
             sessionLabel={root.hostId === 'local' ? 'Local' : `ssh:${root.hostId}`}
             onChangeSession={() => setShowAddProject(true)}
+            onDisconnectSession={() => void disconnectSession()}
+            onReconnectSession={() => void reconnectSession()}
+            sessionBusy={sessionBusy}
+            sessionError={sessionError}
           />
         ) : (
           <GitPanel
@@ -408,6 +455,10 @@ export function App(): ReactElement {
             watchTier={watchTier}
             sessionLabel={root.hostId === 'local' ? 'Local' : `ssh:${root.hostId}`}
             onChangeSession={() => setShowAddProject(true)}
+            onDisconnectSession={() => void disconnectSession()}
+            onReconnectSession={() => void reconnectSession()}
+            sessionBusy={sessionBusy}
+            sessionError={sessionError}
           />
         )}
         <PaneResizer
@@ -497,7 +548,7 @@ export function App(): ReactElement {
           }}
           onReset={() => workbenchRef.current?.style.removeProperty('--terminal-track')}
         />
-        <TerminalView cwd={root} />
+        <TerminalView cwd={root} connectionState={connectionState} />
       </main>
       {showAddProject ? (
         <SessionDialog
@@ -507,6 +558,9 @@ export function App(): ReactElement {
           onConnect={(hostId) => window.hvir.invoke('project:connect-host', { hostId })}
           onBrowse={(hostId, path) =>
             window.hvir.invoke('project:browse-host', { hostId, path })
+          }
+          onDisconnect={(hostId) =>
+            window.hvir.invoke('project:disconnect-host', { hostId })
           }
           onOpen={(hostId, path) => window.hvir.invoke('project:open', { hostId, path })}
           onOpened={(state) => {
@@ -518,6 +572,7 @@ export function App(): ReactElement {
             setTabs([])
             setActiveId(undefined)
             setChangedCount(0)
+            setSessionError(undefined)
             setShowAddProject(false)
           }}
         />
@@ -545,6 +600,7 @@ function SessionDialog({
   onCancel,
   onConnect,
   onBrowse,
+  onDisconnect,
   onOpen,
   onOpened,
 }: {
@@ -553,6 +609,7 @@ function SessionDialog({
   readonly onCancel: () => void
   readonly onConnect: (hostId: string) => Promise<ConnectedHost>
   readonly onBrowse: (hostId: string, path: string) => Promise<BrowseHostResponse>
+  readonly onDisconnect: (hostId: string) => Promise<ProjectHostOption>
   readonly onOpen: (hostId: string, path: string) => Promise<ProjectState>
   readonly onOpened: (state: ProjectState) => void
 }): ReactElement {
@@ -568,6 +625,35 @@ function SessionDialog({
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string>()
   const selectedHost = hosts.find((host) => host.hostId === hostId)
+
+  const releaseUnopenedHost = async (): Promise<void> => {
+    if (connected?.host.kind === 'ssh' && connected.host.hostId !== currentRoot.hostId) {
+      await onDisconnect(connected.host.hostId)
+    }
+  }
+
+  const cancel = async (): Promise<void> => {
+    setBusy(true)
+    try {
+      await releaseUnopenedHost()
+    } finally {
+      onCancel()
+    }
+  }
+
+  const back = async (): Promise<void> => {
+    setBusy(true)
+    setError(undefined)
+    try {
+      await releaseUnopenedHost()
+      setStage('host')
+      setConnected(undefined)
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason))
+    } finally {
+      setBusy(false)
+    }
+  }
 
   const browse = async (targetPath: string): Promise<void> => {
     if (!connected) return
@@ -710,19 +796,11 @@ function SessionDialog({
         )}
         <div className="dialog-actions">
           {stage === 'folder' ? (
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => {
-                setStage('host')
-                setConnected(undefined)
-                setError(undefined)
-              }}
-            >
+            <button type="button" disabled={busy} onClick={() => void back()}>
               Back
             </button>
           ) : null}
-          <button type="button" onClick={onCancel}>
+          <button type="button" disabled={busy} onClick={() => void cancel()}>
             Cancel
           </button>
           <button

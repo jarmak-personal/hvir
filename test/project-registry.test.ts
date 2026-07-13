@@ -55,4 +55,20 @@ describe('ProjectRegistry session flow', () => {
     )
     await registry.dispose()
   })
+
+  it('does not allow the local host to disconnect', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'hvir-registry-'))
+    cleanups.push(root)
+    const registry = await ProjectRegistry.create(
+      localPath(root),
+      { prompt: () => Promise.resolve(undefined) },
+      join(root, 'known-hosts.json'),
+      () => undefined,
+    )
+
+    await expect(registry.disconnectHost('local')).rejects.toThrow(
+      'The local host cannot disconnect',
+    )
+    await registry.dispose()
+  })
 })

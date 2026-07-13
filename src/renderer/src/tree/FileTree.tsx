@@ -20,6 +20,10 @@ interface FileTreeProps {
   readonly watchTier?: HostWatchTier
   readonly sessionLabel: string
   readonly onChangeSession: () => void
+  readonly onDisconnectSession: () => void
+  readonly onReconnectSession: () => void
+  readonly sessionBusy?: boolean
+  readonly sessionError?: string
 }
 
 export function FileTree({
@@ -33,15 +37,23 @@ export function FileTree({
   watchTier = 'native',
   sessionLabel,
   onChangeSession,
+  onDisconnectSession,
+  onReconnectSession,
+  sessionBusy = false,
+  sessionError,
 }: FileTreeProps): ReactElement {
   return (
     <section className="tree-panel" aria-label="Files">
       <SessionBar
         label={sessionLabel}
-        root={root}
+        remote={root.hostId !== 'local'}
         connectionState={connectionState}
         watchTier={watchTier}
         onChange={onChangeSession}
+        onDisconnect={onDisconnectSession}
+        onReconnect={onReconnectSession}
+        busy={sessionBusy}
+        error={sessionError}
       />
       <header className="panel-header">
         <span>Files</span>
@@ -53,15 +65,19 @@ export function FileTree({
         ) : null}
       </header>
       <div className="tree-scroll">
-        <Directory
-          path={root}
-          label={basenameHostPath(root) || root.path}
-          depth={0}
-          initiallyOpen
-          refreshVersion={refreshVersion}
-          selected={selected}
-          onOpen={onOpen}
-        />
+        {connectionState === 'connected' ? (
+          <Directory
+            path={root}
+            label={basenameHostPath(root) || root.path}
+            depth={0}
+            initiallyOpen
+            refreshVersion={refreshVersion}
+            selected={selected}
+            onOpen={onOpen}
+          />
+        ) : (
+          <div className="tree-error">Reconnect to browse this host.</div>
+        )}
       </div>
     </section>
   )
@@ -69,34 +85,51 @@ export function FileTree({
 
 export function SessionBar({
   label,
-  root,
+  remote,
   connectionState,
   watchTier,
   onChange,
+  onDisconnect,
+  onReconnect,
+  busy,
+  error,
 }: {
   readonly label: string
-  readonly root: HostPath
+  readonly remote: boolean
   readonly connectionState: HostConnectionState
   readonly watchTier: HostWatchTier
   readonly onChange: () => void
+  readonly onDisconnect: () => void
+  readonly onReconnect: () => void
+  readonly busy: boolean
+  readonly error?: string
 }): ReactElement {
+  const disconnected = connectionState === 'disconnected' || connectionState === 'failed'
   return (
-    <button
-      type="button"
+    <div
       className="session-bar"
-      onClick={onChange}
-      title={`${label} · ${root.path} · ${connectionState} · ${watchTier}`}
+      title={error ?? `${label} · ${connectionState} · ${watchTier}`}
     >
       <span className={`connection-state ${connectionState}`} />
       <span className="session-copy">
         <strong>{label}</strong>
-        <small>{root.path}</small>
+        <small className={error ? 'error' : ''}>{error ?? connectionState}</small>
       </span>
-      <span className="session-meta">
-        <small>{connectionState}</small>
-        <span>Change</span>
+      <span className="session-actions">
+        <button type="button" onClick={onChange} disabled={busy}>
+          Change
+        </button>
+        {remote ? (
+          <button
+            type="button"
+            onClick={disconnected ? onReconnect : onDisconnect}
+            disabled={busy}
+          >
+            {busy ? 'Working…' : disconnected ? 'Reconnect' : 'Disconnect'}
+          </button>
+        ) : null}
       </span>
-    </button>
+    </div>
   )
 }
 

@@ -80,6 +80,10 @@ dependency-reload fixes.
 
 ## P1 — SSH session workflow
 
+- [x] Make disconnect a complete session lifecycle: explicit Disconnect/Reconnect actions,
+      no implicit reconnect from filesystem operations, cleanup of unopened picker hosts,
+      automatic disposal when switching machines, last-window cleanup on macOS, and an
+      awaited app-quit barrier for watchers, PTYs, workers, and SSH transports.
 - [x] Resolve plain terminal shells on the owning `ProjectHost` so a local macOS `$SHELL`
       is never launched on a Linux SSH host. Make fallback polling single-flight with
       bounded error backoff so a slow recursive snapshot cannot exhaust SSH channels.
@@ -98,9 +102,10 @@ dependency-reload fixes.
       viewer modes, terminal, shortcuts, and project controls. Renderer features must not
       branch on local vs SSH.
 - [x] Keep remote context continuously visible without copying VS Code chrome: a quiet
-      `ssh:<alias>` session indicator with connected/reconnecting/failed state, current root,
-      and actions to reconnect, change host, or return local. Local mode may use a low-noise
-      `Local` label rather than hiding the session model.
+      `ssh:<alias>` session indicator with connected/reconnecting/failed state and actions to
+      disconnect, reconnect, change host, or return local. Do not repeat the project path in
+      this strip; each rail panel header owns concise folder context. Local mode uses a
+      low-noise `Local` label rather than hiding the session model.
 - [x] Switching hosts/projects cleanly replaces the active session: preserve cached stale
       tabs for recovery, stop the old watch, end its terminals through the PTY supervisor,
       start the new host watch, and restore that host/root's tab state.

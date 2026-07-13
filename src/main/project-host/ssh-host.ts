@@ -99,7 +99,7 @@ export class SshHost implements ProjectHost {
     this.setState(this.reconnectAttempt ? 'reconnecting' : 'connecting')
     this.connecting = this.open()
       .catch((error: unknown) => {
-        this.setState('failed')
+        this.setState(this.disposed ? 'disconnected' : 'failed')
         throw error
       })
       .finally(() => {
@@ -107,17 +107,38 @@ export class SshHost implements ProjectHost {
       })
     return this.connecting
   }
-  dispose(): Promise<void> {
+  async dispose(): Promise<void> {
     this.disposed = true
-    if (this.reconnectTimer) clearTimeout(this.reconnectTimer)
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer)
+      this.reconnectTimer = undefined
+    }
+    this.reconnectAttempt = 0
     for (const channel of this.channels) channel.close()
     this.channels.clear()
-    this.client?.end()
+    const client = this.client
     this.client = undefined
     this.cache.clear()
     this.resolvedShell = undefined
     this.setState('disconnected')
-    return Promise.resolve()
+    if (!client) return
+    await new Promise<void>((resolve) => {
+      let settled = false
+      const finish = (): void => {
+        if (settled) return
+        settled = true
+        clearTimeout(timer)
+        client.removeListener('close', finish)
+        resolve()
+      }
+      const timer = setTimeout(finish, 1_000)
+      client.once('close', finish)
+      try {
+        client.end()
+      } catch {
+        finish()
+      }
+    })
   }
 
   async defaultShell(): Promise<string> {
@@ -493,6 +514,9 @@ export class SshHost implements ProjectHost {
   }
 
   private async connected(): Promise<Client> {
+    if (this.disposed || this.state === 'disconnected' || this.state === 'failed') {
+      throw new Error('SSH host is disconnected; reconnect explicitly before retrying')
+    }
     await this.connect()
     if (!this.client || this.state !== 'connected') throw new Error('SSH disconnected')
     return this.client

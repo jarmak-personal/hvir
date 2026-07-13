@@ -348,20 +348,15 @@ body.pane-resizing-row * {
 
 .session-bar {
   width: 100%;
-  flex: 0 0 43px;
+  flex: 0 0 36px;
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 5px 9px;
-  border: 0;
+  gap: 7px;
+  padding: 4px 7px 4px 9px;
   border-bottom: 1px solid #282d36;
   background: #101318;
   color: #cbd0d8;
   text-align: left;
-}
-
-.session-bar:hover {
-  background: #1a1e25;
 }
 
 .session-copy {
@@ -388,19 +383,33 @@ body.pane-resizing-row * {
   font-size: 9px;
 }
 
-.session-meta {
-  display: flex;
-  flex: 0 0 auto;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 1px;
-  color: #788494;
-  font-size: 9px;
+.session-copy small.error {
+  color: #d76d76;
 }
 
-.session-meta small {
-  color: #969fad;
+.session-actions {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 3px;
+}
+
+.session-actions button {
+  padding: 2px 4px;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  background: transparent;
+  color: #7f8997;
   font-size: 8px;
+}
+
+.session-actions button:hover:not(:disabled) {
+  border-color: #343a45;
+  background: #1a1e25;
+  color: #c2c8d1;
+}
+
+.session-actions button:disabled {
+  opacity: 0.55;
 }
 
 .panel-meta {

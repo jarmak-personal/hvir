@@ -21,6 +21,7 @@ import {
   ECHO_REQUEST_TYPE,
   joinHostPath,
   localPath,
+  LOCAL_HOST_ID,
   type Disposer,
   type EchoWorkerProtocol,
   type ExecResult,
@@ -47,6 +48,9 @@ let projectRegistry: ProjectRegistry | null = null
 let sshPrompter: RendererSshPrompter | null = null
 let ptySupervisor: PtySupervisor | null = null
 let disposeWatch: Disposer | null = null
+let suspendSessions: Promise<void> = Promise.resolve()
+let shutdownStarted = false
+let shutdownComplete = false
 
 function createWindow(
   discardRendererResources: () => void = () => {
@@ -132,7 +136,18 @@ function createWindow(
         handlingUnresponsive = false
       })
   })
-  win.on('closed', discardRendererResources)
+  win.on('closed', () => {
+    discardRendererResources()
+    if (
+      process.platform === 'darwin' &&
+      BrowserWindow.getAllWindows().length === 0 &&
+      !shutdownStarted
+    ) {
+      suspendSessions = suspendWorkbenchSessions().catch((error) =>
+        console.error('[session] cleanup after window close failed', error),
+      )
+    }
+  })
 
   // Open external links in the OS browser, never in-app (security posture).
   win.webContents.setWindowOpenHandler(({ url }) => {
@@ -191,7 +206,21 @@ async function startup(): Promise<void> {
     listHosts: () => projectRegistry?.listHosts() ?? [],
     connectHost: async (hostId) => {
       if (!projectRegistry) throw new Error('Project registry is unavailable')
-      return projectRegistry.connectHost(hostId)
+      const connected = await projectRegistry.connectHost(hostId)
+      if (projectRegistry.active.host.hostId === hostId) {
+        await stopProjectWatch()
+        startProjectWatch(projectRegistry.active, emit)
+      }
+      return connected
+    },
+    disconnectHost: async (hostId) => {
+      if (!projectRegistry) throw new Error('Project registry is unavailable')
+      if (projectRegistry.active.host.hostId === hostId) {
+        await stopProjectWatch()
+        ptySupervisor?.disposeAll()
+        htmlPreviews.clear()
+      }
+      return projectRegistry.disconnectHost(hostId)
     },
     browseHost: async (hostId, path) => {
       if (!projectRegistry) throw new Error('Project registry is unavailable')
@@ -199,9 +228,14 @@ async function startup(): Promise<void> {
     },
     openProject: async (hostId, path) => {
       if (!projectRegistry) throw new Error('Project registry is unavailable')
+      const previousHostId = projectRegistry.active.host.hostId
       const state = await projectRegistry.open(hostId, path)
+      await stopProjectWatch()
       ptySupervisor?.disposeAll()
       htmlPreviews.clear()
+      if (previousHostId !== hostId && previousHostId !== LOCAL_HOST_ID) {
+        await projectRegistry.disconnectHost(previousHostId)
+      }
       startProjectWatch(projectRegistry.active, emit)
       return state
     },
@@ -215,15 +249,32 @@ async function startup(): Promise<void> {
 
   app.on('activate', () => {
     // macOS: re-open a window when the dock icon is clicked and none are open.
-    if (BrowserWindow.getAllWindows().length === 0) createWindow()
+    if (BrowserWindow.getAllWindows().length === 0) {
+      const reopen = (): void => {
+        if (!projectRegistry || BrowserWindow.getAllWindows().length > 0) return
+        if (projectRegistry.active.host.connectionState === 'connected') {
+          startProjectWatch(projectRegistry.active, emit)
+        }
+        createWindow()
+      }
+      void suspendSessions.then(reopen, (error) => {
+        console.error('[session] cleanup before reopen failed', error)
+        reopen()
+      })
+    }
   })
+}
+
+async function stopProjectWatch(): Promise<void> {
+  const stop = disposeWatch
+  disposeWatch = null
+  await stop?.()
 }
 
 function startProjectWatch(
   project: { readonly host: ProjectHost; readonly root: HostPath },
   emit: <E extends IpcEventChannel>(channel: E, payload: IpcEventPayload<E>) => void,
 ): void {
-  void disposeWatch?.()
   const pendingWatchEvents = new Map<string, IpcEventPayload<'project:watch'>>()
   let watchTimer: ReturnType<typeof setTimeout> | undefined
   const stopHostWatch = project.host.watch(
@@ -333,6 +384,14 @@ async function runSmoke(): Promise<number> {
             watchTier: host.watchTier,
           },
           suggestedPath: smokeRoot.path,
+        }),
+      disconnectHost: () =>
+        Promise.resolve({
+          hostId: host.hostId,
+          label: 'Local',
+          kind: 'local',
+          connectionState: host.connectionState,
+          watchTier: host.watchTier,
         }),
       browseHost: (_hostId, path) =>
         Promise.resolve({ path: localPath(path), directories: [] }),
@@ -1002,7 +1061,19 @@ async function runSmoke(): Promise<number> {
       win.webContents.executeJavaScript(`
       new Promise((resolve, reject) => {
         const deadline = Date.now() + 10000;
-        document.querySelector('.session-bar')?.click();
+        const sessionBar = document.querySelector('.session-bar');
+        const sessionText = sessionBar?.textContent || '';
+        if (sessionText.includes(${JSON.stringify(smokeRoot.path)})) {
+          return reject(new Error('session strip still exposes the full project path'));
+        }
+        const change = [...(sessionBar?.querySelectorAll('button') || [])]
+          .find((node) => node.textContent?.trim() === 'Change');
+        const disconnect = [...(sessionBar?.querySelectorAll('button') || [])]
+          .find((node) => node.textContent?.trim() === 'Disconnect');
+        if (!change || disconnect) {
+          return reject(new Error('local session actions are incorrect'));
+        }
+        change.click();
         const waitForHost = () => {
           const local = [...document.querySelectorAll('.session-host-option')]
             .find((node) => node.textContent?.includes('Local'));
@@ -1149,18 +1220,42 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit()
 })
 
-app.on('before-quit', () => {
-  void disposeWatch?.()
-  disposeWatch = null
+app.on('before-quit', (event) => {
+  if (shutdownComplete) return
+  event.preventDefault()
+  if (shutdownStarted) return
+  shutdownStarted = true
+  void shutdown().finally(() => {
+    shutdownComplete = true
+    app.quit()
+  })
+})
+
+async function suspendWorkbenchSessions(): Promise<void> {
+  await stopProjectWatch()
+  ptySupervisor?.disposeAll()
+  htmlPreviews.clear()
+  sshPrompter?.cancelAll()
+  await projectRegistry?.disconnectSshHosts()
+}
+
+async function shutdown(): Promise<void> {
+  sshPrompter?.cancelAll()
+  await suspendSessions
+  await stopProjectWatch().catch((error) =>
+    console.error('[shutdown] watcher cleanup failed', error),
+  )
   ptySupervisor?.disposeAll()
   ptySupervisor = null
-  sshPrompter?.cancelAll()
-  sshPrompter = null
-  void projectRegistry?.dispose()
+  const registry = projectRegistry
   projectRegistry = null
+  await registry
+    ?.dispose()
+    .catch((error) => console.error('[shutdown] host cleanup failed', error))
+  sshPrompter = null
   echoWorker?.dispose()
   echoWorker = null
   gitWorker?.dispose()
   gitWorker = null
   htmlPreviews.dispose()
-})
+}
