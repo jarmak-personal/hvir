@@ -39,6 +39,10 @@ on 5 and 6. 8 is last.
 - [Phase 3–5 review follow-ups](03-05-review-followups.md) — macOS cold-dev stability,
   rendered links/YAML, compact source gutters, rail navigation, and Git topology graph.
   Resolve P0 before further milestone acceptance work.
+- [Phase 4–5 deep-audit follow-ups](04-05-deep-audit-followups.md) — dirty-buffer safety,
+  SSH lifecycle/auth reliability, Git broker and missing-path correctness, polling load,
+  diff truthfulness, request races, scale, and integrated UX. Resolve P0 before Phase 4/5
+  acceptance.
 
 ## Ground rules (apply to every phase)
 
