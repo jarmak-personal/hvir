@@ -58,7 +58,8 @@ acceptance.
 
 ### UX
 - [x] Session flow: choose a local/SSH host, connect and authenticate first, then browse or
-      enter a folder on that host. Keep the active host/root and connection state visible.
+      enter a folder on that host using the shared lazy directory tree. Keep the active
+      host/root and connection state visible.
 - [x] Explicit disconnect/reconnect lifecycle: stop watches and PTYs, close the transport,
       retain stale tabs, disconnect the replaced host on session switches, and gracefully
       close every SSH client before app quit.

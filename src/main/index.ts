@@ -393,10 +393,14 @@ async function runSmoke(): Promise<number> {
           connectionState: host.connectionState,
           watchTier: host.watchTier,
         }),
-      browseHost: (_hostId, path) =>
-        path.endsWith('.missing')
-          ? Promise.reject(new Error(`Folder not found: ${path}`))
-          : Promise.resolve({ path: localPath(path), directories: [] }),
+      browseHost: async (_hostId, path) => {
+        if (path.endsWith('.missing')) throw new Error(`Folder not found: ${path}`)
+        const canonical = await host.realpath(localPath(path))
+        const directories = (await host.readdir(canonical)).filter(
+          (entry) => entry.type === 'dir',
+        )
+        return { path: canonical, directories }
+      },
       openProject: () =>
         Promise.resolve({
           root: smokeRoot,
@@ -1102,13 +1106,26 @@ async function runSmoke(): Promise<number> {
           choose.click();
           const waitForFolder = () => {
             const path = document.querySelector('.folder-path-form input')?.value || '';
+            const selected = document.querySelector('.folder-selection code')?.textContent || '';
+            const selectedRow = document.querySelector('.folder-browser .directory-row.selected');
             const open = [...document.querySelectorAll('.project-dialog button')]
-              .find((node) => node.textContent?.trim() === 'Open this folder');
-            if (path && open) {
-              const cancel = [...document.querySelectorAll('.project-dialog button')]
-                .find((node) => node.textContent?.trim() === 'Cancel');
-              cancel?.click();
-              return resolve('Local→connected→folder ' + path);
+              .find((node) => node.textContent?.trim() === 'Open selected folder');
+            const docs = [...document.querySelectorAll('.folder-browser .directory-row')]
+              .find((node) => node.getAttribute('title') === ${JSON.stringify(`${smokeRoot.path}/docs`)});
+            if (path && selected === path && selectedRow?.getAttribute('title') === path && open && docs) {
+              docs.click();
+              const waitForPicked = () => {
+                const picked = document.querySelector('.folder-selection code')?.textContent || '';
+                if (picked.endsWith('/docs')) {
+                  const cancel = [...document.querySelectorAll('.project-dialog button')]
+                    .find((node) => node.textContent?.trim() === 'Cancel');
+                  cancel?.click();
+                  return resolve('Local→connected→tree ' + picked);
+                }
+                if (Date.now() > deadline) return reject(new Error('tree folder selection failed'));
+                setTimeout(waitForPicked, 25);
+              };
+              return waitForPicked();
             }
             if (Date.now() > deadline) return reject(new Error('session folder step missing'));
             setTimeout(waitForFolder, 50);

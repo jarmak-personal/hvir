@@ -101,6 +101,10 @@ dependency-reload fixes.
 - [x] Add a narrowly scoped remote-folder picker backed by `ProjectHost.readdir` (directory
       selection only, not an SFTP file manager), plus recent folders per host and direct path
       entry for experienced users.
+- [x] Use the same lazy host-qualified directory-tree presentation for Files and folder
+      selection. Inject separate loaders so the Files tree remains confined to the active
+      project while the pre-project picker can explore from `/`; auto-expand the suggested
+      path, select folders in place, and keep direct path/recent-folder controls.
 - [x] Once connected, remote hvir behaves like local hvir: the same Files/Git/Harness rail,
       viewer modes, terminal, shortcuts, and project controls. Renderer features must not
       branch on local vs SSH.

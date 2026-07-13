@@ -2,7 +2,6 @@ import { useCallback, useEffect, useRef, useState, type ReactElement } from 'rea
 
 import {
   asHostId,
-  dirnameHostPath,
   defaultViewMode,
   hostPath,
   hostPathEquals,
@@ -23,6 +22,7 @@ import {
 import { PaneResizer } from './layout/PaneResizer'
 import { TerminalView } from './terminal/TerminalView'
 import { FileTree } from './tree/FileTree'
+import { DirectoryTree } from './tree/DirectoryTree'
 import { GitPanel } from './git/GitPanel'
 import { FileViewer } from './viewer/FileViewer'
 import { TabStrip } from './viewer/TabStrip'
@@ -566,22 +566,10 @@ export function App(): ReactElement {
           hosts={hosts}
           currentRoot={root}
           onCancel={() => setShowAddProject(false)}
-          onConnect={(hostId) =>
-            window.hvir.invoke('project:connect-host', { hostId }).then(unwrapOperation)
-          }
-          onBrowse={(hostId, path) =>
-            window.hvir
-              .invoke('project:browse-host', { hostId, path })
-              .then(unwrapOperation)
-          }
-          onDisconnect={(hostId) =>
-            window.hvir
-              .invoke('project:disconnect-host', { hostId })
-              .then(unwrapOperation)
-          }
-          onOpen={(hostId, path) =>
-            window.hvir.invoke('project:open', { hostId, path }).then(unwrapOperation)
-          }
+          onConnect={connectProjectHost}
+          onBrowse={browseProjectHost}
+          onDisconnect={disconnectProjectHost}
+          onOpen={openProjectHost}
           onOpened={(state) => {
             persistTabs(root, tabsRef.current, activeIdRef.current)
             setRestored(false)
@@ -639,8 +627,9 @@ function SessionDialog({
       : (hosts[0]?.hostId ?? 'local'),
   )
   const [connected, setConnected] = useState<ConnectedHost>()
-  const [path, setPath] = useState('')
-  const [directories, setDirectories] = useState<BrowseHostResponse['directories']>([])
+  const [pathInput, setPathInput] = useState('')
+  const [selectedPath, setSelectedPath] = useState<string>()
+  const [revealedPath, setRevealedPath] = useState<string>()
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string>()
   const selectedHost = hosts.find((host) => host.hostId === hostId)
@@ -667,6 +656,9 @@ function SessionDialog({
       await releaseUnopenedHost()
       setStage('host')
       setConnected(undefined)
+      setPathInput('')
+      setSelectedPath(undefined)
+      setRevealedPath(undefined)
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason))
     } finally {
@@ -674,14 +666,15 @@ function SessionDialog({
     }
   }
 
-  const browse = async (targetPath: string): Promise<void> => {
+  const selectPath = async (targetPath: string): Promise<void> => {
     if (!connected) return
     setBusy(true)
     setError(undefined)
     try {
       const result = await onBrowse(connected.host.hostId, targetPath)
-      setPath(result.path.path)
-      setDirectories(result.directories)
+      setPathInput(result.path.path)
+      setSelectedPath(result.path.path)
+      setRevealedPath(result.path.path)
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason))
     } finally {
@@ -695,11 +688,11 @@ function SessionDialog({
     try {
       const result = await onConnect(hostId)
       setConnected(result)
-      setPath(result.suggestedPath)
       setStage('folder')
       const listing = await onBrowse(result.host.hostId, result.suggestedPath)
-      setPath(listing.path.path)
-      setDirectories(listing.directories)
+      setPathInput(listing.path.path)
+      setSelectedPath(listing.path.path)
+      setRevealedPath(listing.path.path)
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason))
     } finally {
@@ -708,11 +701,11 @@ function SessionDialog({
   }
 
   const open = async (): Promise<void> => {
-    if (!connected || !path.trim()) return
+    if (!connected || !selectedPath) return
     setBusy(true)
     setError(undefined)
     try {
-      const state = await onOpen(connected.host.hostId, path.trim())
+      const state = await onOpen(connected.host.hostId, selectedPath)
       rememberFolder(connected.host.hostId, state.root.path)
       onOpened(state)
     } catch (reason) {
@@ -720,6 +713,15 @@ function SessionDialog({
       setBusy(false)
     }
   }
+
+  const connectedHostId = connected?.host.hostId
+  const loadPickerEntries = useCallback(
+    async (directory: HostPath) => {
+      if (!connectedHostId) return []
+      return (await onBrowse(connectedHostId, directory.path)).directories
+    },
+    [connectedHostId, onBrowse],
+  )
 
   return (
     <div className="modal-backdrop">
@@ -757,14 +759,17 @@ function SessionDialog({
               className="folder-path-form"
               onSubmit={(event) => {
                 event.preventDefault()
-                void browse(path)
+                void selectPath(pathInput)
               }}
             >
               <input
                 aria-label="Folder path"
                 autoFocus
-                value={path}
-                onChange={(event) => setPath(event.target.value)}
+                value={pathInput}
+                onChange={(event) => {
+                  setPathInput(event.target.value)
+                  setSelectedPath(undefined)
+                }}
               />
               <button type="submit" disabled={busy}>
                 Go
@@ -773,43 +778,44 @@ function SessionDialog({
             {connected ? (
               <div className="recent-folders">
                 {recentFolders(connected.host.hostId).map((folder) => (
-                  <button type="button" key={folder} onClick={() => void browse(folder)}>
+                  <button
+                    type="button"
+                    key={folder}
+                    onClick={() => void selectPath(folder)}
+                  >
                     {folder}
                   </button>
                 ))}
               </div>
             ) : null}
             <div className="folder-browser" aria-label="Folders">
-              <button
-                type="button"
-                className="folder-row"
-                disabled={path === '/' || busy}
-                onClick={() =>
-                  connected &&
-                  void browse(
-                    dirnameHostPath(hostPath(asHostId(connected.host.hostId), path)).path,
-                  )
-                }
-              >
-                <span>..</span>
-                <small>Parent folder</small>
-              </button>
-              {directories.map((directory) => (
-                <button
-                  type="button"
-                  className="folder-row"
-                  key={directory.name}
-                  disabled={busy}
-                  onClick={() =>
-                    void browse(`${path.replace(/\/$/, '')}/${directory.name}`)
+              <div className="folder-selection">
+                <small>Selected folder</small>
+                <code>{selectedPath ?? 'Choose a folder from the tree'}</code>
+              </div>
+              {connectedHostId ? (
+                <DirectoryTree
+                  root={hostPath(asHostId(connectedHostId), '/')}
+                  rootLabel="/"
+                  loadEntries={loadPickerEntries}
+                  selected={
+                    selectedPath
+                      ? hostPath(asHostId(connectedHostId), selectedPath)
+                      : undefined
                   }
-                >
-                  <span>{directory.name}</span>
-                  <small>Folder</small>
-                </button>
-              ))}
-              {directories.length === 0 && !busy ? <p>No subfolders</p> : null}
-              {busy ? <p>Loading…</p> : null}
+                  expandedPath={
+                    revealedPath
+                      ? hostPath(asHostId(connectedHostId), revealedPath)
+                      : undefined
+                  }
+                  showFiles={false}
+                  onSelectDirectory={(directory) => {
+                    setPathInput(directory.path)
+                    setSelectedPath(directory.path)
+                    setRevealedPath(directory.path)
+                  }}
+                />
+              ) : null}
             </div>
           </>
         )}
@@ -824,7 +830,7 @@ function SessionDialog({
           </button>
           <button
             type="button"
-            disabled={busy}
+            disabled={busy || (stage === 'folder' && !selectedPath)}
             onClick={() => void (stage === 'host' ? connect() : open())}
           >
             {busy
@@ -834,7 +840,7 @@ function SessionDialog({
                   selectedHost?.connectionState === 'connected'
                   ? 'Choose folder'
                   : 'Connect'
-                : 'Open this folder'}
+                : 'Open selected folder'}
           </button>
         </div>
       </section>
@@ -893,6 +899,22 @@ function SshPromptDialog({
       </form>
     </div>
   )
+}
+
+function connectProjectHost(hostId: string): Promise<ConnectedHost> {
+  return window.hvir.invoke('project:connect-host', { hostId }).then(unwrapOperation)
+}
+
+function browseProjectHost(hostId: string, path: string): Promise<BrowseHostResponse> {
+  return window.hvir.invoke('project:browse-host', { hostId, path }).then(unwrapOperation)
+}
+
+function disconnectProjectHost(hostId: string): Promise<ProjectHostOption> {
+  return window.hvir.invoke('project:disconnect-host', { hostId }).then(unwrapOperation)
+}
+
+function openProjectHost(hostId: string, path: string): Promise<ProjectState> {
+  return window.hvir.invoke('project:open', { hostId, path }).then(unwrapOperation)
 }
 
 function recentFolders(hostId: string): readonly string[] {

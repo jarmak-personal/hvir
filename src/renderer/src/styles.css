@@ -639,8 +639,7 @@ body.pane-resizing-row * {
   max-height: 360px;
 }
 
-.session-host-option,
-.folder-row {
+.session-host-option {
   width: 100%;
   display: flex;
   align-items: center;
@@ -653,8 +652,7 @@ body.pane-resizing-row * {
   text-align: left;
 }
 
-.session-host-option:hover,
-.folder-row:hover {
+.session-host-option:hover {
   background: #20242c;
 }
 
@@ -669,8 +667,7 @@ body.pane-resizing-row * {
   gap: 2px;
 }
 
-.session-host-option small,
-.folder-row small {
+.session-host-option small {
   color: #747e8d;
   font-size: 10px;
 }
@@ -709,17 +706,37 @@ body.pane-resizing-row * {
 }
 
 .folder-browser {
-  min-height: 140px;
+  min-height: 260px;
+  flex: 1;
   padding: 5px;
   border: 1px solid #2b3039;
   border-radius: 5px;
   background: #101318;
 }
 
-.folder-browser p {
-  margin: 8px;
-  color: #727c8a;
+.folder-selection {
+  position: sticky;
+  z-index: 1;
+  top: -5px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 7px;
+  border-bottom: 1px solid #272d36;
+  background: #101318;
+}
+
+.folder-selection small {
+  color: #747e8d;
+  font-size: 9px;
+}
+
+.folder-selection code {
+  overflow: hidden;
+  color: #b8c0cb;
   font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .project-dialog p {
   color: #949dab;
