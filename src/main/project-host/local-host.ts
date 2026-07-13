@@ -13,6 +13,7 @@
 
 import { spawn } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
+import { realpathSync } from 'node:fs'
 import { promises as fsp } from 'node:fs'
 import { basename, dirname, join, relative, sep } from 'node:path'
 import { StringDecoder } from 'node:string_decoder'
@@ -51,8 +52,8 @@ export class LocalHost implements ProjectHost {
   readonly connectionState: HostConnectionState = 'connected'
   readonly watchTier: HostWatchTier = 'native'
 
-  /** Live watchers, closed on dispose(). */
-  private readonly watchers = new Set<import('chokidar').FSWatcher>()
+  /** Live watcher lifecycles, including any native-to-polling fallback. */
+  private readonly watchers = new Set<Disposer>()
 
   connect(): Promise<void> {
     return Promise.resolve()
@@ -64,9 +65,9 @@ export class LocalHost implements ProjectHost {
   }
 
   async dispose(): Promise<void> {
-    const closing = [...this.watchers].map((w) => w.close())
+    const closing = [...this.watchers].map((stop) => stop())
     this.watchers.clear()
-    await Promise.all(closing)
+    await Promise.all(closing.map((result) => Promise.resolve(result)))
   }
 
   defaultShell(): Promise<string> {
@@ -329,40 +330,73 @@ export class LocalHost implements ProjectHost {
     onEvent: (e: WatchEvent) => void,
     opts: WatchOptions = {},
   ): Disposer {
-    const root = this.resolve(path)
+    const root = realpathSync.native(this.resolve(path))
     const excludedNames = new Set(opts.excludeDirectoryNames ?? [])
-    const watcher = chokidar.watch(root, {
-      ignoreInitial: true,
-      depth: opts.recursive === false ? 0 : undefined,
-      ignored:
-        excludedNames.size === 0
-          ? undefined
-          : (candidate) =>
-              relative(root, candidate)
-                .split(sep)
-                .some((part) => excludedNames.has(part)),
-    })
+    let active: import('chokidar').FSWatcher | undefined
+    let fallback: Promise<void> | undefined
+    let fallingBack = false
+    let stopped = false
 
     const emit =
       (type: WatchEventType) =>
       (absPath: string): void =>
         onEvent({ type, path: this.wrap(absPath) })
 
-    watcher
-      .on('add', emit('add'))
-      .on('change', emit('change'))
-      .on('unlink', emit('unlink'))
-      .on('addDir', emit('addDir'))
-      .on('unlinkDir', emit('unlinkDir'))
-      .on('error', (error) =>
-        opts.onError?.(error instanceof Error ? error : new Error(String(error))),
-      )
-
-    this.watchers.add(watcher)
-    return async () => {
-      this.watchers.delete(watcher)
-      await watcher.close()
+    const start = (usePolling: boolean): import('chokidar').FSWatcher => {
+      const watcher = chokidar.watch(root, {
+        ignoreInitial: true,
+        usePolling,
+        depth: opts.recursive === false ? 0 : undefined,
+        ignored:
+          excludedNames.size === 0
+            ? undefined
+            : (candidate) =>
+                relative(root, candidate)
+                  .split(sep)
+                  .some((part) => excludedNames.has(part)),
+      })
+      watcher
+        .on('add', emit('add'))
+        .on('change', emit('change'))
+        .on('unlink', emit('unlink'))
+        .on('addDir', emit('addDir'))
+        .on('unlinkDir', emit('unlinkDir'))
+        .on('error', (reason) => {
+          const error = reason instanceof Error ? reason : new Error(String(reason))
+          if (!usePolling && !fallingBack && !stopped && watchCapacityError(error)) {
+            fallingBack = true
+            if (active === watcher) active = undefined
+            fallback = watcher.close().then(
+              () => {
+                if (!stopped) active = start(true)
+              },
+              (closeReason: unknown) => {
+                opts.onError?.(
+                  closeReason instanceof Error
+                    ? closeReason
+                    : new Error(String(closeReason)),
+                )
+              },
+            )
+            return
+          }
+          opts.onError?.(error)
+        })
+      return watcher
     }
+
+    const stop: Disposer = async () => {
+      if (stopped) return
+      stopped = true
+      this.watchers.delete(stop)
+      const watcher = active
+      active = undefined
+      if (watcher) await watcher.close()
+      if (fallback) await fallback
+    }
+    this.watchers.add(stop)
+    active = start(false)
+    return stop
   }
 
   /** Unwrap a same-host HostPath to a raw string, rejecting foreign hosts. */
@@ -383,4 +417,9 @@ export class LocalHost implements ProjectHost {
 
 function fileChangedError(): Error {
   return new Error('File changed since it was opened; reload before saving')
+}
+
+function watchCapacityError(error: Error): boolean {
+  const code = (error as NodeJS.ErrnoException).code
+  return code === 'EMFILE' || code === 'ENOSPC'
 }

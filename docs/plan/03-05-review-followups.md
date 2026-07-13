@@ -20,21 +20,23 @@ phase records intact; check these items in the implementation commit that resolv
       defense in depth so malformed rendered content can never replace the workbench. Allow
       only the expected dev-server reload or packaged app document; external URLs open in
       the OS browser.
-- [ ] **Diagnose and eliminate the solid-white renderer failure.** Exact observed sequence
+- [x] **Diagnose and eliminate the solid-white renderer failure.** Exact observed sequence
       on macOS: several rendered-Markdown relative links failed to navigate, then switching
       a design document to source/raw made the entire window solid white and unresponsive.
       Cmd-Q still worked; relaunching hvir recovered it. It has not reproduced yet. Capture
       `will-navigate`/`did-fail-load`, `render-process-gone`, `unresponsive`, worker errors,
       and the active tab/mode transition so the next occurrence distinguishes unintended
       navigation, renderer crash/hang, and dev-server reload. A failure must leave a usable
-      recovery surface rather than a permanently white window.
-- [ ] **Remove the cold-dev Shiki dependency reload as a separate variable.** Reproduce on
+      recovery surface rather than a permanently white window. Navigation guards, failure
+      telemetry, renderer recovery, and dependency prewarming landed; sustained use and a
+      cold-cache macOS pass showed no recurrence, so the residual unknown exact cause is accepted.
+- [x] **Remove the cold-dev Shiki dependency reload as a separate variable.** Reproduce on
       macOS after clearing Vite's dependency cache. Explicitly include Markdown/Shiki worker
       dependencies in renderer `optimizeDeps` so first use does not discover new dependency
       chunks and force a full-page reload. Vite's optimization notice may occur during
       startup, never in response to changing a tab's view mode. This is a plausible
-      contributor to the observed sequence, not yet established as the white-screen cause.
-- [ ] Add a cold-cache macOS regression check: first Markdown render, rendered → source,
+      contributor to the observed sequence, not established as the original white-screen cause.
+- [x] Add a cold-cache macOS regression check: first Markdown render, rendered → source,
       and an internal relative link all succeed without a renderer reload; open tabs, tree
       expansion, and the terminal survive.
 
@@ -229,11 +231,11 @@ dependency-reload fixes.
 
 ## Acceptance
 
-- [ ] A cold `npm run dev` on macOS completes the entire P0 scenario without a solid-white
+- [x] A cold `npm run dev` on macOS completes the entire P0 scenario without a solid-white
       renderer failure, unexpected navigation, lost terminal, collapsed tree, or
       post-interaction Vite reload. A forced renderer crash/unresponsive test demonstrates
       an in-app recovery path without requiring Cmd-Q.
 - [x] YAML, compact source gutters, and the full-width rail navigation pass Linux/macOS
       smoke checks. Hands-on macOS review and the production Linux smoke both passed.
-- [ ] The graph answers branch/merge topology at a glance on a merge-heavy repository and
+- [x] The graph answers branch/merge topology at a glance on a merge-heavy repository and
       remains smooth on the largest repository available.

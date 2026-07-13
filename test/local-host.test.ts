@@ -1,5 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { mkdir, mkdtemp, rm, symlink, utimes, writeFile } from 'node:fs/promises'
+import {
+  mkdir,
+  mkdtemp,
+  realpath,
+  rm,
+  symlink,
+  utimes,
+  writeFile,
+} from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -183,9 +191,10 @@ describe('LocalHost', () => {
     await writeFile(join(outside, 'secret.txt'), 'secret')
     await symlink(outside, join(dir, 'escape'), 'dir')
     try {
+      const canonicalOutside = await realpath(outside)
       expect(
         (await host.realpath(localPath(join(dir, 'escape', 'secret.txt')))).path,
-      ).toBe(join(outside, 'secret.txt'))
+      ).toBe(join(canonicalOutside, 'secret.txt'))
     } finally {
       await rm(outside, { recursive: true })
     }

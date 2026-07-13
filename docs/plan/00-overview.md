@@ -24,8 +24,8 @@ conflict, the design doc wins; if you must deviate, record why (see Ground rules
 | 1 | Scaffold & core seams | [01-scaffold-and-seams.md](01-scaffold-and-seams.md) | done |
 | 2 | Viewer spike (the risk) | [02-viewer-spike.md](02-viewer-spike.md) | done |
 | 3 | Tabs & view modes | [03-tabs-and-view-modes.md](03-tabs-and-view-modes.md) | done |
-| 4 | SSH hosts | [04-ssh-hosts.md](04-ssh-hosts.md) | in progress |
-| 5 | Git explorer | [05-git-explorer.md](05-git-explorer.md) | in progress |
+| 4 | SSH hosts | [04-ssh-hosts.md](04-ssh-hosts.md) | done |
+| 5 | Git explorer | [05-git-explorer.md](05-git-explorer.md) | done |
 | 6 | Agent awareness | [06-agent-awareness.md](06-agent-awareness.md) | not started |
 | 7 | Workspaces | [07-workspaces.md](07-workspaces.md) | not started |
 | 8 | Polish & packaging | [08-polish-and-packaging.md](08-polish-and-packaging.md) | not started |

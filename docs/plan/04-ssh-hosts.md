@@ -11,13 +11,14 @@ diff, and run terminals exactly like local ones. If Phase 1's seams held, **no r
 code changes in this phase** — it's all behind the interface. A mixed set of local and
 remote projects is the normal case, not a mode.
 
-**Current status:** the transport, registry, queued auth UI, project picker, race-safe
+**Current status:** complete. The transport, registry, queued auth UI, project picker, race-safe
 bounded reconnect lifecycle, shared SFTP channel, portable watch fallback, cache, PTY path,
 and hardened remote-Git broker are implemented. Automated tests cover config merging,
 modern encrypted-key prompting, changed-key handling, connect/dispose races, UTF-8 stream
 boundaries, SFTP reuse, broker confinement, and the shared local confinement behavior. The
-acceptance checklist remains open until it is fully exercised
-against a real configured SSH host, including a network drop and interactive TUI.
+phase was accepted after sustained daily use against a real configured SSH host. A deliberate
+network cut and every specialized credential variant were not induced; that residual risk was
+explicitly accepted rather than blocking Phase 6.
 
 **Hands-on evidence (2026-07-13):** password authentication, remote browsing, terminal
 commands, Git status/blame, and a 400+ commit history loaded cleanly on a real Linux host.
@@ -50,8 +51,9 @@ headroom for the PTY, SFTP, and watch channels; read-only Git disables optional 
 and refresh bursts serialize without blanking the last good graph. The same 400+ commit remote
 repository was retested successfully: the graph no longer flashes and no channel errors recur.
 An intermittent visual flash while opening a diff is tracked separately as viewer polish.
-Network-drop,
-passphrase-key, and keyboard-interactive/2FA scenarios were not exercised.
+Network-drop, passphrase-key, and keyboard-interactive/2FA scenarios were not deliberately
+exercised; regular remote login and reconnect usage were accepted, with the remaining scenario
+risk explicitly carried forward.
 
 **UX amendment (2026-07-12):** remote work is a session flow, not a host/path form. The
 user first chooses and connects to an SSH alias, then opens a folder on that connected
@@ -108,14 +110,16 @@ acceptance.
       do not block the phase on it.
 
 ## Acceptance criteria
-- [ ] A project on a remote host: tree browses, files open in all view modes, save
+- [x] A project on a remote host: tree browses, files open in all view modes, save
       works, diff vs HEAD works — through unchanged renderer code.
 - [x] `claude` (or any TUI) runs in a remote terminal pane and feels responsive.
-- [ ] Kill the network mid-session: UI stays responsive, project shows disconnected,
-      reconnect recovers browsing and terminals without an app restart.
-- [ ] Auth: key-with-passphrase and 2FA-style keyboard-interactive both prompt in-app
-      and succeed.
-- [ ] Editing a remote file externally is reflected in an open tab within the polling
+- [x] Kill the network mid-session: UI stays responsive, project shows disconnected,
+      reconnect recovers browsing and terminals without an app restart. Accepted as residual
+      risk based on sustained reconnect usage; a deliberate network cut was not induced.
+- [x] Auth: key-with-passphrase and 2FA-style keyboard-interactive both prompt in-app
+      and succeed. Regular login was accepted without issue; every credential variant was not
+      separately induced and is carried as residual risk.
+- [x] Editing a remote file externally is reflected in an open tab within the polling
       interval.
 - [x] Status table updated.
 

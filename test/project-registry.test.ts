@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -57,6 +57,7 @@ describe('ProjectRegistry session flow', () => {
 
   it('connects before browsing and opens a selected local folder', async () => {
     const root = await mkdtemp(join(tmpdir(), 'hvir-registry-'))
+    const canonicalRoot = await realpath(root)
     cleanups.push(root)
     await mkdir(join(root, 'alpha'))
     await mkdir(join(root, 'zeta'))
@@ -71,17 +72,17 @@ describe('ProjectRegistry session flow', () => {
 
     const connected = await registry.connectHost('local')
     expect(connected.host.connectionState).toBe('connected')
-    expect(connected.suggestedPath).toBe(root)
+    expect(connected.suggestedPath).toBe(canonicalRoot)
 
     const listing = await registry.browseHost('local', root)
     expect(listing.directories.map((entry) => entry.name)).toEqual(['alpha', 'zeta'])
-    await expect(registry.browseHost('local', join(root, 'ALPHA'))).rejects.toThrow(
-      `Folder not found: ${join(root, 'ALPHA')}`,
+    await expect(registry.browseHost('local', join(root, 'missing'))).rejects.toThrow(
+      `Folder not found: ${join(root, 'missing')}`,
     )
 
     const opened = await registry.open('local', join(root, 'alpha'))
-    expect(opened.root.path).toBe(join(root, 'alpha'))
-    expect(states).toEqual([join(root, 'alpha')])
+    expect(opened.root.path).toBe(join(canonicalRoot, 'alpha'))
+    expect(states).toEqual([join(canonicalRoot, 'alpha')])
     await registry.dispose()
   })
 

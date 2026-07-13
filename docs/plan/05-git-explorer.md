@@ -12,25 +12,25 @@ looked" — then history and blame as table stakes. Everything runs off-thread t
 Phase 3 git module (system git via `ProjectHost.exec`, so it works on SSH hosts for
 free).
 
-**Current status:** the local vertical slice is mounted and runtime-smoked: live changes
+**Current status:** complete. The local vertical slice is mounted and runtime-smoked: live changes
 (including terminal-only `.git` updates and unborn repositories),
 branch-point isolation, diff tabs, topology-safe cursor/infinite history with bounded DOM,
 commit detail with historical file diffs, badge, compact lazy blame gutter, a current-branch
 rail graph with expandable changed-file trees, and a dedicated all-ref topology viewer with
 virtual rows and a tree-shaped commit inspector. The Files tree also marks ignored entries
 through lazy per-directory Git batches without delaying filesystem paint. Git transport
-calls are brokered by host ID as recorded in the ADR-005 addenda. The phase remains in
-progress until the same UI is accepted on a real SSH project and the new graph receives a
-merge-heavy hands-on pass.
+calls are brokered by host ID as recorded in the ADR-005 addenda. Sustained real-SSH usage
+accepted the shared UI, and hands-on graph review accepted the topology presentation; further
+iteration on the large History view remains normal UX follow-up rather than a phase blocker.
 
 **Hands-on evidence (2026-07-13):** the real-host Git panel, blame, and a 400+ commit
-history loaded cleanly. Keep the broad SSH acceptance item open until live Changes/diffs
-and the terminal-driven refresh path are retested after the remote watch fix. The subsequent
+history loaded cleanly. Live Changes/diffs and terminal-driven refresh were subsequently
+accepted through sustained remote use after the watch fix. The subsequent
 all-ref graph pass on that repository exposed a self-feeding index refresh and SSH channel
 exhaustion; both are fixed in the engine/transport. The exact repository was retested with no
 graph flashing or channel errors. Diff tabs load, although an intermittent visual flash during
-diff loading remains as a separate P1 follow-up. The broad SSH acceptance item stays open for
-the remaining auth/network and view-mode matrix.
+diff loading remains as a separate P1 follow-up. Remaining specialized auth/network scenarios
+are recorded as accepted Phase 4 residual risk rather than blockers for the Git reading workflow.
 
 **Scope amendment (2026-07-12):** hands-on review established that branch/merge topology
 is core to the Git reading workflow. A read-only commit graph is now in scope; it does not
@@ -79,7 +79,7 @@ spike and acceptance are tracked in
       largest to hand) scrolls smoothly with no renderer stall; first paint of the
       panel is instant while the log streams in.
 - [x] Blame on a large file appears without blocking the tab.
-- [ ] All of the above works identically on an SSH-host project.
+- [x] All of the above works identically on an SSH-host project.
 - [x] Status table updated.
 
 ## Non-goals

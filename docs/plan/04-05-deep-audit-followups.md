@@ -10,9 +10,11 @@ and the remaining real-host auth/network acceptance matrix. Check items in the s
 commit that implements and verifies them.
 
 **Implementation status (2026-07-13):** all engineering items below are complete. The
-focused SSH matrix and production Electron smoke are green. The remaining unchecked
-verification rows require broader renderer automation or hands-on SSH scenarios and do
-not represent known implementation defects.
+focused SSH matrix, full verification suite, and production Electron smoke are green.
+Sustained real-host use was accepted for Phase 4/5; deliberately inducing a network cut and
+every specialized credential variant was declined, with that residual risk recorded rather
+than represented as tested. The remaining unchecked rows are broader automation coverage,
+not known implementation defects.
 
 ## P0 — data safety and trust boundaries
 
@@ -124,8 +126,9 @@ not represent known implementation defects.
       selector semantics, disconnected Git state, terminal restart, scroll restoration,
       symlink rows, and keyboard-modal dialogs/tree navigation.
 - [x] Full `npm run verify` and the production Electron smoke remain green.
-- [ ] Repeat the real SSH regression/auth/network matrix. Phase 4/5 acceptance boxes are
-      updated only after their real-host criteria pass.
+- [x] Repeat the real SSH regression/auth/network matrix. Sustained remote use, login,
+      reconnect, Git, and viewer behavior were accepted. A deliberate network cut and every
+      specialized credential variant were not induced; the user explicitly accepted that risk.
 
 ## What the audit found solid
 
