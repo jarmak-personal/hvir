@@ -108,6 +108,12 @@ class GhosttyTerminalPane implements TerminalPane {
     if (!this.disposed) this.terminal.resize(cols, rows)
   }
 
+  redraw(): void {
+    if (this.disposed) return
+    const { renderer, wasmTerm, viewportY } = this.terminal
+    if (renderer && wasmTerm) renderer.render(wasmTerm, true, viewportY)
+  }
+
   focus(): void {
     if (!this.disposed) this.terminal.focus()
   }

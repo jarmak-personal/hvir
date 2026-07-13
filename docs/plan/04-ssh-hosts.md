@@ -27,9 +27,12 @@ working frames while ordinary typed input became visually hidden. Parent-listing
 invalidation alone did not fix the tree on retest, so inotify now has an independent SFTP
 snapshot watchdog and polling removals invalidate their parent listing. The first terminal
 frame timer increased the flashing rate; it has been replaced with a chunk-boundary-safe DEC
-synchronized-output buffer based on the mature Warp implementation. Both fixes still need a
-real-host retest. Network-drop, passphrase-key, and keyboard-interactive/2FA scenarios were not
-exercised.
+synchronized-output buffer based on the mature Warp implementation. A second real-host retest
+showed that an arbitrary terminal resize reliably clears both Codex defects, while the tree
+still stayed stale. Complete synchronized frames now force the same full Ghostty repaint
+without changing geometry, and a two-second cache-invalidating refresh pulse is independent of
+the potentially long recursive SFTP snapshot. Both need another real-host retest. Network-drop,
+passphrase-key, and keyboard-interactive/2FA scenarios were not exercised.
 
 **UX amendment (2026-07-12):** remote work is a session flow, not a host/path form. The
 user first chooses and connects to an SSH alias, then opens a folder on that connected

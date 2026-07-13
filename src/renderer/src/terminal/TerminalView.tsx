@@ -47,7 +47,10 @@ export function TerminalView({ cwd, connectionState }: TerminalViewProps): React
           pane.dispose()
           return
         }
-        outputWriter = new SynchronizedOutputWriter((data) => pane.write(data))
+        outputWriter = new SynchronizedOutputWriter(
+          (data) => pane.write(data),
+          () => pane.redraw(),
+        )
         pane.mount(container)
         disposePane = () => pane.dispose()
 

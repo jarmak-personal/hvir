@@ -19,7 +19,8 @@ describe('SynchronizedOutputWriter', () => {
 
   it('holds a synchronized frame and emits it atomically across split markers', () => {
     const writes: string[] = []
-    const output = new SynchronizedOutputWriter((data) => writes.push(data))
+    const redraw = vi.fn()
+    const output = new SynchronizedOutputWriter((data) => writes.push(data), redraw)
 
     output.write(`before${begin.slice(0, 4)}`)
     output.write(`${begin.slice(4)}working${end.slice(0, 5)}`)
@@ -28,13 +29,19 @@ describe('SynchronizedOutputWriter', () => {
     output.write(`${end.slice(5)}after`)
 
     expect(writes).toEqual(['before', `${begin}working${end}`, 'after'])
+    expect(redraw).toHaveBeenCalledOnce()
   })
 
   it('closes a timed-out frame before releasing it to the emulator', () => {
     vi.useFakeTimers()
     try {
       const writes: string[] = []
-      const output = new SynchronizedOutputWriter((data) => writes.push(data), 150)
+      const redraw = vi.fn()
+      const output = new SynchronizedOutputWriter(
+        (data) => writes.push(data),
+        redraw,
+        150,
+      )
 
       output.write(`${begin}partial`)
       vi.advanceTimersByTime(149)
@@ -42,6 +49,7 @@ describe('SynchronizedOutputWriter', () => {
       vi.advanceTimersByTime(1)
 
       expect(writes).toEqual([`${begin}partial${end}`])
+      expect(redraw).toHaveBeenCalledOnce()
       output.write('visible')
       expect(writes.at(-1)).toBe('visible')
     } finally {
@@ -51,7 +59,12 @@ describe('SynchronizedOutputWriter', () => {
 
   it('bounds malformed frames by size', () => {
     const writes: string[] = []
-    const output = new SynchronizedOutputWriter((data) => writes.push(data), 150, 12)
+    const output = new SynchronizedOutputWriter(
+      (data) => writes.push(data),
+      () => undefined,
+      150,
+      12,
+    )
 
     output.write(`${begin}overflow`)
 

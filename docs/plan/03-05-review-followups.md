@@ -119,11 +119,17 @@ dependency-reload fixes.
       cannot leave the tree stale forever. Emit directory-specific add/remove events,
       invalidate removed entries' parents, and refresh once after the initial snapshot to
       close the watcher-start race.
+- [x] Decouple tree liveness from recursive snapshot completion. Every remote watch emits a
+      lightweight two-second refresh pulse that invalidates transport caches and makes the
+      renderer reload only expanded directories; one huge or unreadable subtree can no longer
+      prevent top-level additions/removals from appearing.
 - [ ] Retest Codex on a real SSH host after normalizing `TERM`/true-color metadata and
       replacing the partial-frame timer with a persistent DEC synchronized-output buffer.
       Markers may span arbitrary SSH chunks; complete frames render atomically, while the
-      timeout/size escape hatch must explicitly close the mode. Ordinary input must remain
-      visible and the working animation must redraw without flashing partial frames.
+      timeout/size escape hatch must explicitly close the mode. The repeatable finding that
+      any resize clears both defects is now mirrored by forcing a full Ghostty canvas redraw
+      after each complete synchronized frame, without changing PTY geometry. Ordinary input
+      must remain visible and the working animation must redraw without flashing partial frames.
 
 - [x] Keep expected session failures contained: invalid/case-mismatched folder paths and
       cancelled SFTP watches surface as concise picker/session state, not rejected Electron

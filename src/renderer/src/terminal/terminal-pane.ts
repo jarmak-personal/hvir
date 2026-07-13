@@ -44,6 +44,8 @@ export interface TerminalPane {
   write(data: string): void
   /** Resize the terminal grid. */
   resize(cols: number, rows: number): void
+  /** Force the current grid to repaint without changing PTY geometry. */
+  redraw(): void
   focus(): void
   readonly events: TerminalPaneEvents
 }

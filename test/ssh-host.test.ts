@@ -503,6 +503,45 @@ describe('SshHost remote behavior', () => {
     }
   })
 
+  it('emits a bounded tree refresh pulse even when the watch backend stalls', async () => {
+    vi.useFakeTimers()
+    try {
+      const host = new SshHost({
+        config: aliasConfig(),
+        refreshPulseIntervalMs: 10,
+        prompter: { prompt: () => Promise.resolve(undefined) },
+      })
+      const root = hostPath(asHostId('example'), '/project')
+      const stopBackend = vi.fn()
+      const internals = host as unknown as {
+        state: 'connected'
+        tier: 'inotify'
+        watchInotify(
+          path: HostPath,
+          onEvent: (event: WatchEvent) => void,
+          opts: WatchOptions,
+        ): Disposer
+      }
+      internals.state = 'connected'
+      internals.tier = 'inotify'
+      internals.watchInotify = () => stopBackend
+      const events: WatchEvent[] = []
+
+      const stop = host.watch(root, (event) => events.push(event))
+      await vi.advanceTimersByTimeAsync(9)
+      expect(events).toEqual([])
+      await vi.advanceTimersByTimeAsync(1)
+      expect(events).toEqual([{ type: 'change', path: root }])
+
+      await stop()
+      await vi.advanceTimersByTimeAsync(20)
+      expect(events).toHaveLength(1)
+      expect(stopBackend).toHaveBeenCalledOnce()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('suppresses an in-flight polling error after the watcher stops', async () => {
     const host = new SshHost({
       config: aliasConfig(),

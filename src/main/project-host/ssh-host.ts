@@ -59,6 +59,8 @@ export interface SshHostOptions {
   readonly pollIntervalMs?: number
   /** Slower snapshot safety net when inotify stays alive but emits no usable events. */
   readonly watchdogIntervalMs?: number
+  /** Lightweight cache/tree refresh cadence, independent of recursive snapshots. */
+  readonly refreshPulseIntervalMs?: number
   readonly trustedHostKey?: () => string | undefined
   readonly rememberHostKey?: (fingerprint: string) => Promise<void>
   /** Test seam for transport lifecycle races; production always constructs ssh2.Client. */
@@ -400,10 +402,24 @@ export class SshHost implements ProjectHost {
     let stopBackend: Disposer | undefined
     const start = (): void => {
       if (stopped || stopBackend || this.state !== 'connected') return
-      stopBackend =
+      const stopWatch =
         this.tier === 'inotify'
           ? this.watchInotify(path, onEvent, opts)
           : this.watchPolling(path, onEvent, opts)
+      const pulseIntervalMs =
+        this.options.refreshPulseIntervalMs ?? this.options.pollIntervalMs ?? 2_000
+      let pulseTimer: ReturnType<typeof setTimeout> | undefined
+      const pulse = (): void => {
+        if (stopped || this.state !== 'connected') return
+        this.invalidate(path.path)
+        onEvent({ type: 'change', path })
+        pulseTimer = setTimeout(pulse, pulseIntervalMs)
+      }
+      pulseTimer = setTimeout(pulse, pulseIntervalMs)
+      stopBackend = () => {
+        if (pulseTimer) clearTimeout(pulseTimer)
+        return stopWatch()
+      }
     }
     const stopState = this.onConnectionState((state) => {
       if (state === 'connected') start()

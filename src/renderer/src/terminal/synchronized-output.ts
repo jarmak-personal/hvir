@@ -20,6 +20,7 @@ export class SynchronizedOutputWriter {
 
   constructor(
     private readonly writeOutput: (data: string) => void,
+    private readonly redraw: () => void = () => undefined,
     private readonly maxFrameMs = 150,
     private readonly maxFrameLength = 2 * 1024 * 1024,
   ) {}
@@ -39,7 +40,7 @@ export class SynchronizedOutputWriter {
         if (endAt >= 0) {
           const frameEnd = endAt + SYNC_OUTPUT_END.length
           const trailing = this.activeFrame.slice(frameEnd)
-          this.emit(this.activeFrame.slice(0, frameEnd))
+          this.emit(this.activeFrame.slice(0, frameEnd), true)
           this.activeFrame = ''
           this.clearTimeout()
           input = trailing
@@ -80,7 +81,7 @@ export class SynchronizedOutputWriter {
     const frame = this.activeFrame
     this.activeFrame = ''
     this.clearTimeout()
-    this.emit(frame + SYNC_OUTPUT_END)
+    this.emit(frame + SYNC_OUTPUT_END, true)
   }
 
   private armTimeout(): void {
@@ -93,8 +94,10 @@ export class SynchronizedOutputWriter {
     this.timeout = undefined
   }
 
-  private emit(data: string): void {
-    if (data) this.writeOutput(data)
+  private emit(data: string, synchronized = false): void {
+    if (!data) return
+    this.writeOutput(data)
+    if (synchronized) this.redraw()
   }
 }
 
