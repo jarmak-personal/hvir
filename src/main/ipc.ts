@@ -35,7 +35,7 @@ import {
   type ConnectedHost,
   type BrowseHostResponse,
 } from '../shared'
-import { plainShellAdapter } from './harness/harness-adapter'
+import { harnessAdapter } from './harness/harness-adapter'
 import type { ProjectHost } from './project-host'
 import type { HtmlPreviewProtocol } from './html-preview-protocol'
 import type { PtySupervisor } from './pty/pty-supervisor'
@@ -43,16 +43,20 @@ import type { WorkerClient } from './worker-host'
 
 type Handler<C extends IpcInvokeChannel> = (
   req: IpcRequest<C>,
+  event: Electron.IpcMainInvokeEvent,
 ) => IpcResponse<C> | Promise<IpcResponse<C>>
 
 function handle<C extends IpcInvokeChannel>(channel: C, handler: Handler<C>): void {
   ipcMain.handle(channel, (event, req: IpcRequest<C>) => {
     assertMainFrame(event)
-    return handler(req)
+    return handler(req, event)
   })
 }
 
-type SendHandler<C extends IpcSendChannel> = (payload: IpcSendPayload<C>) => void
+type SendHandler<C extends IpcSendChannel> = (
+  payload: IpcSendPayload<C>,
+  event: Electron.IpcMainEvent,
+) => void
 
 const canonicalRoots = new WeakMap<ProjectHost, Map<string, Promise<HostPath>>>()
 
@@ -60,7 +64,7 @@ function handleSend<C extends IpcSendChannel>(channel: C, handler: SendHandler<C
   ipcMain.on(channel, (event, payload: IpcSendPayload<C>) => {
     try {
       assertMainFrame(event)
-      handler(payload)
+      handler(payload, event)
     } catch (reason) {
       // `ipcMain.on` has no response promise. Throwing here would become an
       // uncaught main-process exception during renderer reload/teardown.
@@ -321,7 +325,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 
   handle('html-preview:create', (req) => deps.htmlPreviews.create(req.content))
 
-  handle('pty:start', async (req) => {
+  handle('pty:start', async (req, event) => {
     if (!/^[a-zA-Z0-9-]{1,80}$/.test(req.sessionId)) {
       throw new Error('Invalid PTY session id')
     }
@@ -331,34 +335,47 @@ export function registerIpcHandlers(deps: IpcDeps): void {
     const rows = terminalDimension(req.rows)
     const managed = await deps.ptySupervisor.spawn({
       host,
-      adapter: plainShellAdapter,
+      adapter: harnessAdapter(req.adapterId),
       cwd,
+      ownerId: event.sender.id,
       sessionId: req.sessionId,
       cols,
       rows,
     })
     let detach: () => void | Promise<void> = () => undefined
-    detach = deps.ptySupervisor.attach(managed.id, {
-      onData: (data) => deps.emit('pty:data', { id: managed.id, data }),
+    const owner = event.sender
+    detach = deps.ptySupervisor.attach(managed.id, owner.id, {
+      onData: (data) => {
+        if (!owner.isDestroyed()) owner.send('pty:data', { id: managed.id, data })
+      },
       onExit: (exit) => {
         void detach()
-        deps.emit('pty:exit', { id: managed.id, ...exit })
+        if (!owner.isDestroyed()) owner.send('pty:exit', { id: managed.id, ...exit })
       },
     })
     return { id: managed.id, pid: managed.pid }
   })
 
-  handleSend('pty:write', ({ id, data }) => {
-    if (deps.ptySupervisor.get(id)) deps.ptySupervisor.write(id, data)
-  })
-  handleSend('html-preview:release', ({ id }) => deps.htmlPreviews.release(id))
-  handleSend('pty:resize', ({ id, cols, rows }) => {
-    if (deps.ptySupervisor.get(id)) {
-      deps.ptySupervisor.resize(id, terminalDimension(cols), terminalDimension(rows))
+  handleSend('pty:write', ({ id, data }, event) => {
+    if (deps.ptySupervisor.isOwnedBy(id, event.sender.id)) {
+      deps.ptySupervisor.write(id, event.sender.id, data)
     }
   })
-  handleSend('pty:kill', ({ id }) => {
-    if (deps.ptySupervisor.get(id)) deps.ptySupervisor.kill(id)
+  handleSend('html-preview:release', ({ id }) => deps.htmlPreviews.release(id))
+  handleSend('pty:resize', ({ id, cols, rows }, event) => {
+    if (deps.ptySupervisor.isOwnedBy(id, event.sender.id)) {
+      deps.ptySupervisor.resize(
+        id,
+        event.sender.id,
+        terminalDimension(cols),
+        terminalDimension(rows),
+      )
+    }
+  })
+  handleSend('pty:kill', ({ id }, event) => {
+    if (deps.ptySupervisor.isOwnedBy(id, event.sender.id)) {
+      deps.ptySupervisor.kill(id, event.sender.id)
+    }
   })
 }
 

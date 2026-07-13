@@ -17,6 +17,8 @@ import { PtySupervisor } from '../src/main/pty/pty-supervisor'
 import { SshHost } from '../src/main/project-host'
 import { LOCAL_HOST_ID, hostPath, localPath } from '../src/shared'
 
+const OWNER_ID = 17
+
 class FakePty implements PtyProcess {
   readonly pid = 4242
   readonly dataListeners = new Set<(data: string) => void>()
@@ -79,6 +81,7 @@ describe('PtySupervisor', () => {
       host,
       adapter: plainShellAdapter,
       cwd: localPath('/tmp/project'),
+      ownerId: OWNER_ID,
       sessionId: 'host-shell',
     })
 
@@ -102,11 +105,13 @@ describe('PtySupervisor', () => {
       host,
       adapter,
       cwd: localPath('/tmp/project'),
+      ownerId: OWNER_ID,
       sessionId: 'session-1',
     })
 
     expect(info).toMatchObject({
       id: 'session-1',
+      ownerId: OWNER_ID,
       hostId: LOCAL_HOST_ID,
       adapterId: 'test',
       pid: 4242,
@@ -121,17 +126,89 @@ describe('PtySupervisor', () => {
     )
 
     const onData = vi.fn<(data: string) => void>()
-    const detach = supervisor.attach(info.id, { onData })
+    const detach = supervisor.attach(info.id, OWNER_ID, { onData })
     pty.emitData('hello')
     expect(onData).toHaveBeenCalledWith('hello')
     await detach()
     pty.emitData('ignored')
     expect(onData).toHaveBeenCalledTimes(1)
 
-    supervisor.write(info.id, 'input')
-    supervisor.resize(info.id, 120, 40)
+    supervisor.write(info.id, OWNER_ID, 'input')
+    supervisor.resize(info.id, OWNER_ID, 120, 40)
     expect(pty.write).toHaveBeenCalledWith('input')
     expect(pty.resize).toHaveBeenCalledWith(120, 40)
+  })
+
+  it('replays bounded initial output in order on the first renderer attach', async () => {
+    const { supervisor, pty, host, adapter } = fixture()
+    const info = await supervisor.spawn({
+      host,
+      adapter,
+      cwd: localPath('/tmp/project'),
+      ownerId: OWNER_ID,
+      sessionId: 'replay-session',
+    })
+    pty.emitData('first')
+    pty.emitData(' second')
+
+    const onData = vi.fn<(data: string) => void>()
+    supervisor.attach(info.id, OWNER_ID, { onData })
+    pty.emitData(' third')
+
+    expect(onData.mock.calls.map(([data]) => data)).toEqual([
+      'first',
+      ' second',
+      ' third',
+    ])
+  })
+
+  it('retains only the newest 256 KiB before the first attach', async () => {
+    const { supervisor, pty, host, adapter } = fixture()
+    const info = await supervisor.spawn({
+      host,
+      adapter,
+      cwd: localPath('/tmp/project'),
+      ownerId: OWNER_ID,
+      sessionId: 'bounded-replay',
+    })
+    pty.emitData(`discard${'x'.repeat(256 * 1024)}`)
+
+    const onData = vi.fn<(data: string) => void>()
+    supervisor.attach(info.id, OWNER_ID, { onData })
+
+    expect(onData).toHaveBeenCalledOnce()
+    expect(onData.mock.calls[0]?.[0]).toBe('x'.repeat(256 * 1024))
+  })
+
+  it('confines control and disposal to the owning renderer', async () => {
+    const first = new FakePty()
+    const second = new FakePty()
+    const { supervisor, host, adapter, spawnPty } = fixture()
+    spawnPty.mockResolvedValueOnce(first).mockResolvedValueOnce(second)
+    await supervisor.spawn({
+      host,
+      adapter,
+      cwd: localPath('/tmp/project'),
+      ownerId: OWNER_ID,
+      sessionId: 'owned-first',
+    })
+    await supervisor.spawn({
+      host,
+      adapter,
+      cwd: localPath('/tmp/project'),
+      ownerId: OWNER_ID + 1,
+      sessionId: 'owned-second',
+    })
+
+    expect(() => supervisor.write('owned-first', OWNER_ID + 1, 'nope')).toThrow(
+      /another renderer/,
+    )
+    supervisor.disposeOwner(OWNER_ID)
+
+    expect(first.kill).toHaveBeenCalledOnce()
+    expect(second.kill).not.toHaveBeenCalled()
+    expect(supervisor.get('owned-first')).toBeUndefined()
+    expect(supervisor.get('owned-second')).toBeDefined()
   })
 
   it('rejects an already-active session id without leaking another PTY', async () => {
@@ -140,6 +217,7 @@ describe('PtySupervisor', () => {
       host,
       adapter,
       cwd: localPath('/tmp/project'),
+      ownerId: OWNER_ID,
       sessionId: 'same-session',
     }
     await supervisor.spawn(request)
@@ -160,6 +238,7 @@ describe('PtySupervisor', () => {
       host,
       adapter,
       cwd: localPath('/tmp/project'),
+      ownerId: OWNER_ID,
       sessionId: 'pending-session',
     }
 
@@ -184,11 +263,38 @@ describe('PtySupervisor', () => {
       host,
       adapter,
       cwd: localPath('/tmp/project'),
+      ownerId: OWNER_ID,
       sessionId: 'stale-pending',
     })
     await Promise.resolve()
 
     supervisor.disposeAll()
+    finishSpawn?.()
+
+    await expect(spawning).rejects.toThrow('cancelled before it started')
+    expect(pty.kill).toHaveBeenCalledOnce()
+    expect(supervisor.list()).toEqual([])
+  })
+
+  it('cancels a pending spawn when its renderer owner is disposed', async () => {
+    const { supervisor, pty, host, adapter, spawnPty } = fixture()
+    let finishSpawn: (() => void) | undefined
+    spawnPty.mockImplementationOnce(
+      () =>
+        new Promise<PtyProcess>((resolve) => {
+          finishSpawn = () => resolve(pty)
+        }),
+    )
+    const spawning = supervisor.spawn({
+      host,
+      adapter,
+      cwd: localPath('/tmp/project'),
+      ownerId: OWNER_ID,
+      sessionId: 'owner-pending',
+    })
+    await Promise.resolve()
+
+    supervisor.disposeOwner(OWNER_ID)
     finishSpawn?.()
 
     await expect(spawning).rejects.toThrow('cancelled before it started')
@@ -235,6 +341,7 @@ describe('PtySupervisor', () => {
       host,
       adapter: plainShellAdapter,
       cwd: hostPath(host.hostId, '/project'),
+      ownerId: OWNER_ID,
       sessionId: 'remote-close',
     })
     channel.emit('close')
@@ -256,6 +363,7 @@ describe('PtySupervisor', () => {
       host,
       adapter,
       cwd: localPath('/tmp/project'),
+      ownerId: OWNER_ID,
       sessionId: 'resumable',
     }
     await supervisor.spawn(request)

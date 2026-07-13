@@ -18,6 +18,8 @@ export interface PtySpawnRequest {
   readonly host: ProjectHost
   readonly adapter: HarnessAdapter
   readonly cwd: HostPath
+  /** Electron webContents id that owns and may control this PTY. */
+  readonly ownerId: number
   /** Pre-assigned session id; generated if omitted (ADR-006 determinism). */
   readonly sessionId?: string
   /** Resume the session id via the adapter rather than launching fresh. */
@@ -29,6 +31,7 @@ export interface PtySpawnRequest {
 /** Immutable, serializable description of a managed PTY session. */
 export interface ManagedPty {
   readonly id: string
+  readonly ownerId: number
   readonly hostId: HostId
   readonly adapterId: string
   readonly pid: number
@@ -47,12 +50,23 @@ interface Entry {
   readonly dataListeners: Set<(data: string) => void>
   readonly exitListeners: Set<(exit: PtyExit) => void>
   readonly disposers: Disposer[]
+  readonly replay: string[]
+  replayLength: number
+  replayPending: boolean
   exited: boolean
 }
 
+interface PendingEntry {
+  readonly token: symbol
+  readonly ownerId: number
+  cancelled: boolean
+}
+
+const MAX_INITIAL_REPLAY_LENGTH = 256 * 1024
+
 export class PtySupervisor {
   private readonly entries = new Map<string, Entry>()
-  private readonly pendingIds = new Map<string, symbol>()
+  private readonly pendingIds = new Map<string, PendingEntry>()
   private generation = 0
   private readonly globalExitListeners = new Set<
     (info: ManagedPty, exit: PtyExit) => void
@@ -64,9 +78,13 @@ export class PtySupervisor {
     if (this.entries.has(sessionId) || this.pendingIds.has(sessionId)) {
       throw new Error(`PTY session '${sessionId}' is already active`)
     }
-    const pendingToken = Symbol(sessionId)
+    const pending: PendingEntry = {
+      token: Symbol(sessionId),
+      ownerId: req.ownerId,
+      cancelled: false,
+    }
     const generation = this.generation
-    this.pendingIds.set(sessionId, pendingToken)
+    this.pendingIds.set(sessionId, pending)
 
     const resumed = req.resume === true && req.adapter.supportsResume
     let pty: PtyProcess
@@ -94,18 +112,19 @@ export class PtySupervisor {
         rows: req.rows,
       })
     } finally {
-      if (this.pendingIds.get(sessionId) === pendingToken) {
+      if (this.pendingIds.get(sessionId)?.token === pending.token) {
         this.pendingIds.delete(sessionId)
       }
     }
 
-    if (this.generation !== generation) {
+    if (pending.cancelled || this.generation !== generation) {
       pty.kill()
       throw new Error(`PTY session '${sessionId}' was cancelled before it started`)
     }
 
     const info: ManagedPty = {
       id: sessionId,
+      ownerId: req.ownerId,
       hostId: req.host.hostId,
       adapterId: req.adapter.id,
       pid: pty.pid,
@@ -119,6 +138,9 @@ export class PtySupervisor {
       dataListeners: new Set(),
       exitListeners: new Set(),
       disposers: [],
+      replay: [],
+      replayLength: 0,
+      replayPending: true,
       exited: false,
     }
 
@@ -128,6 +150,9 @@ export class PtySupervisor {
 
     entry.disposers.push(
       pty.onData((data) => {
+        if (entry.replayPending && entry.dataListeners.size === 0) {
+          retainReplay(entry, data)
+        }
         for (const cb of entry.dataListeners) cb(data)
       }),
     )
@@ -153,26 +178,32 @@ export class PtySupervisor {
   }
 
   /** Attach renderer stream handlers. Returns a disposer that detaches them. */
-  attach(id: string, handlers: PtyStreamHandlers): Disposer {
-    const entry = this.require(id)
+  attach(id: string, ownerId: number, handlers: PtyStreamHandlers): Disposer {
+    const entry = this.requireOwned(id, ownerId)
     if (handlers.onData) entry.dataListeners.add(handlers.onData)
     if (handlers.onExit) entry.exitListeners.add(handlers.onExit)
+    if (handlers.onData && entry.replayPending) {
+      entry.replayPending = false
+      const replay = entry.replay.splice(0)
+      entry.replayLength = 0
+      for (const data of replay) handlers.onData(data)
+    }
     return () => {
       if (handlers.onData) entry.dataListeners.delete(handlers.onData)
       if (handlers.onExit) entry.exitListeners.delete(handlers.onExit)
     }
   }
 
-  write(id: string, data: string): void {
-    this.require(id).pty.write(data)
+  write(id: string, ownerId: number, data: string): void {
+    this.requireOwned(id, ownerId).pty.write(data)
   }
 
-  resize(id: string, cols: number, rows: number): void {
-    this.require(id).pty.resize(cols, rows)
+  resize(id: string, ownerId: number, cols: number, rows: number): void {
+    this.requireOwned(id, ownerId).pty.resize(cols, rows)
   }
 
-  kill(id: string, signal?: string): void {
-    this.require(id).pty.kill(signal)
+  kill(id: string, ownerId: number, signal?: string): void {
+    this.requireOwned(id, ownerId).pty.kill(signal)
   }
 
   get(id: string): ManagedPty | undefined {
@@ -181,6 +212,10 @@ export class PtySupervisor {
 
   list(): ManagedPty[] {
     return [...this.entries.values()].map((e) => e.info)
+  }
+
+  isOwnedBy(id: string, ownerId: number): boolean {
+    return this.entries.get(id)?.info.ownerId === ownerId
   }
 
   /** Subscribe to exits across all sessions. Returns an unsubscribe fn. */
@@ -194,6 +229,7 @@ export class PtySupervisor {
   /** Kill every session and release listeners. */
   disposeAll(): void {
     this.generation++
+    for (const pending of this.pendingIds.values()) pending.cancelled = true
     this.pendingIds.clear()
     for (const entry of this.entries.values()) {
       for (const dispose of entry.disposers) void dispose()
@@ -203,9 +239,57 @@ export class PtySupervisor {
     this.globalExitListeners.clear()
   }
 
+  /** Kill only the sessions and pending spawns owned by one renderer. */
+  disposeOwner(ownerId: number): void {
+    for (const [id, pending] of this.pendingIds) {
+      if (pending.ownerId !== ownerId) continue
+      pending.cancelled = true
+      this.pendingIds.delete(id)
+    }
+    for (const [id, entry] of this.entries) {
+      if (entry.info.ownerId !== ownerId) continue
+      for (const dispose of entry.disposers) void dispose()
+      entry.dataListeners.clear()
+      entry.exitListeners.clear()
+      entry.replay.length = 0
+      entry.replayLength = 0
+      if (!entry.exited) entry.pty.kill()
+      this.entries.delete(id)
+    }
+  }
+
   private require(id: string): Entry {
     const entry = this.entries.get(id)
     if (!entry) throw new Error(`No PTY session '${id}'`)
     return entry
+  }
+
+  private requireOwned(id: string, ownerId: number): Entry {
+    const entry = this.require(id)
+    if (entry.info.ownerId !== ownerId) {
+      throw new Error(`PTY session '${id}' belongs to another renderer`)
+    }
+    return entry
+  }
+}
+
+function retainReplay(entry: Entry, data: string): void {
+  if (data.length >= MAX_INITIAL_REPLAY_LENGTH) {
+    entry.replay.splice(0, entry.replay.length, data.slice(-MAX_INITIAL_REPLAY_LENGTH))
+    entry.replayLength = MAX_INITIAL_REPLAY_LENGTH
+    return
+  }
+  entry.replay.push(data)
+  entry.replayLength += data.length
+  while (entry.replayLength > MAX_INITIAL_REPLAY_LENGTH && entry.replay.length > 0) {
+    const overflow = entry.replayLength - MAX_INITIAL_REPLAY_LENGTH
+    const first = entry.replay[0] ?? ''
+    if (first.length <= overflow) {
+      entry.replay.shift()
+      entry.replayLength -= first.length
+    } else {
+      entry.replay[0] = first.slice(overflow)
+      entry.replayLength -= overflow
+    }
   }
 }

@@ -32,9 +32,10 @@ button {
 .workbench {
   --tree-track: 238px;
   --terminal-track: minmax(240px, 3fr);
+  --terminal-rail-track: 220px;
 
   display: grid;
-  grid-template-columns: var(--tree-track) 5px minmax(0, 1fr);
+  grid-template-columns: var(--tree-track) 5px minmax(0, 1fr) var(--terminal-rail-track);
   grid-template-rows: minmax(260px, 4fr) 5px var(--terminal-track);
   width: 100%;
   height: 100%;
@@ -349,9 +350,234 @@ button {
   font-size: 10px;
 }
 
-.terminal-panel {
+.terminal-deck {
+  position: relative;
   grid-column: 3;
   grid-row: 3;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: #111318;
+}
+
+.terminal-surface {
+  position: absolute;
+  inset: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.terminal-surface.active {
+  visibility: visible;
+  pointer-events: auto;
+}
+
+.terminal-panel-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.terminal-rail {
+  grid-column: 4;
+  grid-row: 1 / -1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid #282d36;
+  background: #12151a;
+}
+
+.terminal-rail-header {
+  position: relative;
+  z-index: 7;
+  flex: 0 0 36px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 8px 0 11px;
+  border-bottom: 1px solid #282d36;
+  background: #181b21;
+  color: #c9ced6;
+  font-size: 10px;
+  font-weight: 650;
+}
+
+.terminal-new-control {
+  position: relative;
+}
+
+.terminal-icon-button,
+.terminal-close-button {
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: #99a2af;
+  line-height: 1;
+}
+
+.terminal-icon-button {
+  font-size: 19px;
+}
+
+.terminal-icon-button:hover,
+.terminal-icon-button:focus-visible,
+.terminal-close-button:hover,
+.terminal-close-button:focus-visible {
+  outline: none;
+  background: #252b34;
+  color: #edf0f5;
+}
+
+.terminal-new-menu {
+  position: absolute;
+  top: 29px;
+  right: 0;
+  width: 150px;
+  padding: 4px;
+  border: 1px solid #3a424e;
+  border-radius: 4px;
+  background: #1b1f26;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 38%);
+}
+
+.terminal-new-menu button {
+  width: 100%;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: #cbd1da;
+  font-size: 10px;
+  text-align: left;
+}
+
+.terminal-new-menu button:hover,
+.terminal-new-menu button:focus-visible {
+  outline: none;
+  background: #293240;
+  color: #f0f2f5;
+}
+
+.terminal-list {
+  min-height: 0;
+  overflow: auto;
+}
+
+.terminal-list-row {
+  min-height: 48px;
+  display: flex;
+  align-items: stretch;
+  border-bottom: 1px solid #22272f;
+  background: #12151a;
+}
+
+.terminal-list-row:hover {
+  background: #171b21;
+}
+
+.terminal-list-row.active {
+  box-shadow: inset 2px 0 #65a2ef;
+  background: #202630;
+}
+
+.terminal-list-main {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 2px 6px 11px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+}
+
+.terminal-list-main:focus-visible {
+  outline: 1px solid #65a2ef;
+  outline-offset: -2px;
+}
+
+.terminal-attention {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 7px;
+  border-radius: 50%;
+  background: transparent;
+}
+
+.terminal-attention.output {
+  background: #72a7df;
+}
+
+.terminal-attention.bell {
+  background: #e2b35f;
+}
+
+.terminal-attention.idle {
+  background: #74c58b;
+  box-shadow: 0 0 0 2px rgb(116 197 139 / 16%);
+}
+
+.terminal-list-copy {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.terminal-list-title,
+.terminal-list-meta {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.terminal-list-title {
+  color: #d3d8df;
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.terminal-list-meta {
+  color: #77818f;
+  font-size: 9px;
+}
+
+.terminal-close-button {
+  align-self: center;
+  flex: 0 0 26px;
+  margin-right: 4px;
+  opacity: 0;
+  font-size: 15px;
+}
+
+.terminal-list-row:hover .terminal-close-button,
+.terminal-list-row.active .terminal-close-button,
+.terminal-close-button:focus-visible {
+  opacity: 1;
+}
+
+.terminal-empty {
+  height: 100%;
+  display: grid;
+  place-items: center;
+  color: #7f8895;
+}
+
+.terminal-empty button {
+  padding: 5px 9px;
+  border: 1px solid #3b4654;
+  border-radius: 3px;
+  background: #191e25;
+  color: #bfc6cf;
+  font-size: 10px;
 }
 
 .pane-resizer {
@@ -2216,5 +2442,6 @@ body.pane-resizing-row * {
 @media (max-width: 1000px) {
   .workbench {
     --tree-track: 210px;
+    --terminal-rail-track: 180px;
   }
 }

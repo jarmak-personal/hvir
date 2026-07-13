@@ -1,24 +1,64 @@
 import { useEffect, useRef, useState, type ReactElement } from 'react'
 
-import type { HostConnectionState, HostPath } from '../../../shared'
+import type { HostConnectionState, HostPath, TerminalAdapterId } from '../../../shared'
 import { createGhosttyTerminalPane } from './ghostty-terminal-pane'
 import { SynchronizedOutputWriter } from './synchronized-output'
+import type { TerminalPane } from './terminal-pane'
 
 interface TerminalViewProps {
+  readonly sessionId: string
+  readonly adapterId: TerminalAdapterId
+  readonly fallbackTitle: string
+  readonly active: boolean
   readonly cwd: HostPath
   readonly connectionState: HostConnectionState
+  readonly onTitle: (title: string) => void
+  readonly onStatus: (status: string) => void
+  readonly onOutput: () => void
+  readonly onBell: () => void
+  readonly onFocus: () => void
 }
 
 const PTY_RESIZE_DEBOUNCE_MS = 75
 
-export function TerminalView({ cwd, connectionState }: TerminalViewProps): ReactElement {
+export function TerminalView({
+  sessionId,
+  adapterId,
+  fallbackTitle,
+  active,
+  cwd,
+  connectionState,
+  onTitle,
+  onStatus,
+  onOutput,
+  onBell,
+  onFocus,
+}: TerminalViewProps): ReactElement {
   const containerRef = useRef<HTMLDivElement>(null)
+  const paneRef = useRef<TerminalPane | undefined>(undefined)
+  const activeRef = useRef(active)
   const disconnectedRef = useRef(false)
   const restartRequestedRef = useRef(false)
-  const [title, setTitle] = useState('Shell')
+  const handlersRef = useRef({ onTitle, onStatus, onOutput, onBell, onFocus })
+  const [title, setTitle] = useState(fallbackTitle)
   const [status, setStatus] = useState('Starting…')
   const [exited, setExited] = useState(false)
   const [restartGeneration, setRestartGeneration] = useState(0)
+  handlersRef.current = { onTitle, onStatus, onOutput, onBell, onFocus }
+  activeRef.current = active
+
+  useEffect(() => handlersRef.current.onTitle(title), [title])
+  useEffect(() => handlersRef.current.onStatus(status), [status])
+
+  useEffect(() => {
+    if (!active) return
+    const frame = window.requestAnimationFrame(() => {
+      paneRef.current?.redraw()
+      paneRef.current?.focus()
+      handlersRef.current.onFocus()
+    })
+    return () => window.cancelAnimationFrame(frame)
+  }, [active])
 
   useEffect(() => {
     const container = containerRef.current
@@ -26,7 +66,8 @@ export function TerminalView({ cwd, connectionState }: TerminalViewProps): React
     if (connectionState !== 'connected') {
       disconnectedRef.current = true
       container.replaceChildren()
-      setTitle('Shell')
+      paneRef.current = undefined
+      setTitle(fallbackTitle)
       setStatus(connectionState)
       setExited(false)
       return
@@ -36,10 +77,7 @@ export function TerminalView({ cwd, connectionState }: TerminalViewProps): React
     disconnectedRef.current = false
     restartRequestedRef.current = false
     setExited(false)
-    if (isManualRestart) setTitle('Shell')
-    // A newly connected host always gets a new PTY. Remove the old render
-    // surface before Ghostty initializes so a GPU-backed canvas cannot remain
-    // visible as fake scrollback from the ended session.
+    if (isManualRestart) setTitle(fallbackTitle)
     container.replaceChildren()
     let cancelled = false
     let ptyStarted = false
@@ -48,16 +86,16 @@ export function TerminalView({ cwd, connectionState }: TerminalViewProps): React
     let disposePane: (() => void) | undefined
     let terminalSize = { cols: 80, rows: 24 }
     let outputWriter: SynchronizedOutputWriter | undefined
-    const sessionId = crypto.randomUUID()
 
     const stopData = window.hvir.on('pty:data', ({ id, data }) => {
-      if (id === sessionId) outputWriter?.write(data)
+      if (id !== sessionId) return
+      handlersRef.current.onOutput()
+      outputWriter?.write(data)
     })
     const stopExit = window.hvir.on('pty:exit', ({ id, exitCode }) => {
-      if (id === sessionId) {
-        setStatus(`Exited (${exitCode})`)
-        setExited(true)
-      }
+      if (id !== sessionId) return
+      setStatus(`Exited (${exitCode})`)
+      setExited(true)
     })
     void (async () => {
       try {
@@ -66,13 +104,11 @@ export function TerminalView({ cwd, connectionState }: TerminalViewProps): React
           pane.dispose()
           return
         }
+        paneRef.current = pane
         outputWriter = new SynchronizedOutputWriter(
           (data) => pane.write(data),
           () => pane.redraw(),
         )
-        // Subscribe before mount: FitAddon emits the initial grid size during
-        // mount. Missing that event starts every PTY at the 80x24 fallback until
-        // the user resizes, which breaks full-screen TUIs such as Codex.
         const disposers = [
           pane.events.onData((data) => {
             if (ptyStarted) window.hvir.send('pty:write', { id: sessionId, data })
@@ -89,10 +125,9 @@ export function TerminalView({ cwd, connectionState }: TerminalViewProps): React
             }
           }),
           pane.events.onTitle((nextTitle) => {
-            setTitle(nextTitle || 'Shell')
-            console.debug('[terminal:title]', nextTitle)
+            setTitle(nextTitle.trim() || fallbackTitle)
           }),
-          pane.events.onBell(() => console.debug('[terminal:bell]')),
+          pane.events.onBell(() => handlersRef.current.onBell()),
           pane.events.onOsc((event) => console.debug('[terminal:osc]', event)),
         ]
         disposePane = () => {
@@ -104,6 +139,7 @@ export function TerminalView({ cwd, connectionState }: TerminalViewProps): React
 
         const result = await window.hvir.invoke('pty:start', {
           sessionId,
+          adapterId,
           cwd,
           cols: terminalSize.cols,
           rows: terminalSize.rows,
@@ -121,10 +157,13 @@ export function TerminalView({ cwd, connectionState }: TerminalViewProps): React
           isManualRestart
             ? `Restarted · pid ${result.pid}`
             : isReconnect
-              ? `New shell · pid ${result.pid}`
+              ? `${adapterId === 'plain-shell' ? 'New shell' : 'New session'} · pid ${result.pid}`
               : `pid ${result.pid}`,
         )
-        pane.focus()
+        if (activeRef.current) {
+          pane.focus()
+          handlersRef.current.onFocus()
+        }
       } catch (error) {
         if (!cancelled) {
           setStatus(error instanceof Error ? error.message : String(error))
@@ -142,15 +181,20 @@ export function TerminalView({ cwd, connectionState }: TerminalViewProps): React
       outputWriter = undefined
       pendingInput = ''
       disposePane?.()
+      paneRef.current = undefined
       container.replaceChildren()
       if (ptyStarted) window.hvir.send('pty:kill', { id: sessionId })
     }
-  }, [connectionState, cwd, restartGeneration])
+  }, [adapterId, connectionState, cwd, fallbackTitle, restartGeneration, sessionId])
 
   return (
-    <section className="terminal-panel" aria-label="Terminal">
+    <section
+      className={`terminal-panel terminal-surface${active ? ' active' : ''}`}
+      aria-label={title}
+      aria-hidden={!active}
+    >
       <header className="panel-header">
-        <span>{title}</span>
+        <span className="terminal-panel-title">{title}</span>
         <span className="terminal-status">
           <span className="panel-meta">{status}</span>
           {connectionState === 'connected' && exited ? (
@@ -171,6 +215,7 @@ export function TerminalView({ cwd, connectionState }: TerminalViewProps): React
         key={`${cwd.hostId}:${cwd.path}:${connectionState}`}
         className="terminal-container"
         ref={containerRef}
+        onMouseDown={() => handlersRef.current.onFocus()}
       />
     </section>
   )

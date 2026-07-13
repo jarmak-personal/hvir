@@ -227,6 +227,16 @@ harnesses already persist that on disk for free. What resume loses vs a daemon
 the supervisor seam keeps the door open); tmux control mode (we'd be rendering tmux's
 view of the terminal, fighting the entire Ghostty investment).
 
+#### Phase 6 CLI verification — 2026-07-13
+
+Claude Code 2.1.207 supports both deterministic launch (`claude --session-id <uuid>`)
+and resume (`claude --resume <uuid>`). Codex CLI 0.144.3 accepts a known UUID or session
+name through `codex resume <session>`, but exposes no launch option that lets hvir
+pre-assign or capture that identifier. The v1 Codex adapter therefore launches Codex but
+does not claim deterministic recovery until Codex exposes a stable identifier handoff.
+`codex resume --last` is explicitly rejected: with multiple terminals, "last" is global
+ambient state and can resume the wrong conversation.
+
 ### ADR-007 — Per-tab view mode: rendered / source / diff
 **Decision:** Every viewer tab has a single three-state **view mode** — *rendered /
 source / diff* — with a visible segmented control and one keybinding that cycles it.

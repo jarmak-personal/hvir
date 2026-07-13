@@ -14,43 +14,50 @@ you which agent wants you.
 ## Tasks
 
 ### Harness adapters (ADR-006)
-- [ ] **Verify CLI surfaces first** (design.md §9 open question): for Claude Code —
+- [x] **Verify CLI surfaces first** (design.md §9 open question): for Claude Code —
       the flag to pre-assign a session id and the resume invocation; for Codex — the
       equivalents (`codex resume`, `--last`, session id assignment). Check current
       docs/`--help`; record findings in this doc. The adapters encode whatever is
       actually true, not what this plan remembers.
-- [ ] `ClaudeCodeAdapter` and `CodexAdapter`: launch command with pre-assigned session
+      Verified locally on 2026-07-13: Claude Code 2.1.207 exposes `--session-id <uuid>`
+      and `--resume <uuid>`. Codex CLI 0.144.3 exposes `codex resume [SESSION_ID]` and
+      `--last`, but no launch-time id assignment or stable id handoff. The Codex adapter
+      is launch-only for now; using global `--last` would be incorrect with multiple
+      terminals. See the ADR-006 addendum.
+- [x] `ClaudeCodeAdapter` and `CodexAdapter`: launch command with pre-assigned session
       UUID, resume command from a stored session id, title conventions. Keep every
-      harness-specific detail inside the adapter.
+      harness-specific detail inside the adapter. Claude implements deterministic
+      launch/resume. Codex implements launch and explicitly reports no deterministic
+      resume support under the verified CLI limitation above.
 - [ ] Session registry (persisted): terminal → {harness, session id, hostId, cwd,
       last-seen title}. Written by the PTY supervisor on spawn.
 - [ ] Recovery flow: on app start (or host reconnect), for each registered session,
       offer resume — restart the adapter's resume command in a new PTY, same pane
       position. Auto-resume vs prompt: make it a setting, default prompt.
-- [ ] "New terminal" UX: plain shell by default; one-action launch of a harness
+- [x] "New terminal" UX: plain shell by default; one-action launch of a harness
       (adapter list) in a chosen workspace.
 
 ### Terminal lifecycle hardening
-- [ ] Make initial PTY output lossless: retain a small bounded replay buffer between
+- [x] Make initial PTY output lossless: retain a small bounded replay buffer between
       supervisor spawn and the renderer's first attach, then drain it in order. This
       closes the Phase 2 attach-after-spawn microtask gap without unbounded scrollback.
-- [ ] Replace Phase 2's single-renderer `disposeAll` reload cleanup with explicit
+- [x] Replace Phase 2's single-renderer `disposeAll` reload cleanup with explicit
       webContents/window ownership per terminal before multiple terminals land.
 
 ### Auto-titles (§7)
-- [ ] Parse OSC 0/2 from the PTY stream (via `TerminalPane` events from Phase 2);
+- [x] Parse OSC 0/2 from the PTY stream (via `TerminalPane` events from Phase 2);
       right-rail terminal list shows live titles. Fallback title: adapter name + cwd.
 
 ### Notification dots (ADR-009 — the model is already decided)
-- [ ] Signal detection per terminal, in priority order:
+- [x] Signal detection per terminal, in priority order:
       **idle-after-burst** (no PTY output for N seconds following a burst — start with
       a fixed N ~3–5 s, threshold configurable; per-harness tuning via adapter is an
       open question, don't build it yet), **bell** (BEL / OSC 9), **new output since
       last focus**.
-- [ ] Dot state per terminal with the clearing rule: *focusing the terminal clears its
+- [x] Dot state per terminal with the clearing rule: *focusing the terminal clears its
       dot; nothing else does.* Parents (worktree, project — wired fully in Phase 7)
       only aggregate children's unseen dots. No suppression on active parents.
-- [ ] Right-rail terminal list: title + dot (color/style by signal type, idle-after-
+- [x] Right-rail terminal list: title + dot (color/style by signal type, idle-after-
       burst most prominent).
 - [ ] OS-level nudge when hvir is unfocused (badge/urgency hint), driven by the same
       dot state. Keep minimal.

@@ -46,6 +46,8 @@ export interface HarnessAdapter {
   deriveTitle?(rawTitle: string): string
 }
 
+export type HarnessAdapterId = 'plain-shell' | 'claude-code' | 'codex'
+
 /**
  * A plain login shell — no session id, no resume. The degenerate adapter that
  * every host supports. "Resume" just starts a new shell.
@@ -63,4 +65,48 @@ export const plainShellAdapter: HarnessAdapter = {
     // No session semantics — a resume is indistinguishable from a fresh shell.
     return this.launch(ctx)
   },
+}
+
+export const claudeCodeAdapter: HarnessAdapter = {
+  id: 'claude-code',
+  displayName: 'Claude Code',
+  supportsResume: true,
+
+  launch(ctx): LaunchSpec {
+    return { file: 'claude', args: ['--session-id', ctx.sessionId] }
+  },
+
+  resume(ctx): LaunchSpec {
+    return { file: 'claude', args: ['--resume', ctx.sessionId] }
+  },
+}
+
+export const codexAdapter: HarnessAdapter = {
+  id: 'codex',
+  displayName: 'Codex',
+  // Codex 0.144.3 can resume a known id, but exposes no launch flag that lets
+  // hvir pre-assign or capture that id. Treating --last as deterministic would
+  // resume the wrong conversation as soon as two terminals exist.
+  supportsResume: false,
+
+  launch(): LaunchSpec {
+    return { file: 'codex', args: [] }
+  },
+
+  resume(ctx): LaunchSpec {
+    return this.launch(ctx)
+  },
+}
+
+const adapters = new Map<string, HarnessAdapter>(
+  [plainShellAdapter, claudeCodeAdapter, codexAdapter].map((adapter) => [
+    adapter.id,
+    adapter,
+  ]),
+)
+
+export function harnessAdapter(id: string): HarnessAdapter {
+  const adapter = adapters.get(id)
+  if (!adapter) throw new Error(`Unknown harness adapter '${id}'`)
+  return adapter
 }

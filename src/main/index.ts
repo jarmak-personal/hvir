@@ -54,8 +54,8 @@ let shutdownStarted = false
 let shutdownComplete = false
 
 function createWindow(
-  discardRendererResources: () => void = () => {
-    ptySupervisor?.disposeAll()
+  discardRendererResources: (ownerId: number) => void = (ownerId) => {
+    ptySupervisor?.disposeOwner(ownerId)
     sshPrompter?.cancelAll()
     htmlPreviews.clear()
   },
@@ -78,13 +78,14 @@ function createWindow(
   const rendererUrl = process.env['ELECTRON_RENDERER_URL']
   const packagedEntry = join(__dirname, '../renderer/index.html')
   const entryUrl = rendererUrl ?? pathToFileURL(packagedEntry).href
+  const ownerId = win.webContents.id
 
   win.on('ready-to-show', () => win.show())
   // Phase 2 has one renderer-owned terminal set. A renderer reload/crash cannot
   // run React cleanup, so main must end those PTYs rather than orphan shells.
   win.webContents.on('did-start-navigation', (_event, url, isInPlace, isMainFrame) => {
     if (isMainFrame && !isInPlace && isWorkbenchDocument(url, entryUrl)) {
-      discardRendererResources()
+      discardRendererResources(ownerId)
     }
   })
   win.webContents.on('will-navigate', (event, url) => {
@@ -102,7 +103,7 @@ function createWindow(
   })
   let rendererRecoveryRequested = false
   win.webContents.on('render-process-gone', (_event, details) => {
-    discardRendererResources()
+    discardRendererResources(ownerId)
     console.error(`[window] renderer process gone: ${JSON.stringify(details)}`)
     if (rendererRecoveryRequested) {
       rendererRecoveryRequested = false
@@ -139,7 +140,7 @@ function createWindow(
       })
   })
   win.on('closed', () => {
-    discardRendererResources()
+    discardRendererResources(ownerId)
     if (
       process.platform === 'darwin' &&
       BrowserWindow.getAllWindows().length === 0 &&
@@ -459,8 +460,8 @@ async function runSmoke(): Promise<number> {
     await host.stat(localPath(process.cwd()))
     console.log('[smoke] LocalHost.stat OK')
 
-    const win = createWindow(() => {
-      supervisor.disposeAll()
+    const win = createWindow((ownerId) => {
+      supervisor.disposeOwner(ownerId)
       htmlPreviews.clear()
     })
     smokeWindow = win
@@ -565,10 +566,22 @@ async function runSmoke(): Promise<number> {
         const firstTerminal = supervisor.list()[0]
         if (!firstTerminal)
           throw new Error('initial terminal disappeared before reconnect')
-        supervisor.write(firstTerminal.id, "printf '\\033[41m\\033[2J\\033[H\\033[0m'\n")
-        await win.webContents.executeJavaScript(`
-          new Promise((resolve, reject) => {
+        let terminalProbe = ''
+        const detachProbe = supervisor.attach(firstTerminal.id, firstTerminal.ownerId, {
+          onData: (data) => {
+            terminalProbe = (terminalProbe + data).slice(-4_096)
+          },
+        })
+        supervisor.write(
+          firstTerminal.id,
+          firstTerminal.ownerId,
+          "printf '\\033[41m\\033[2J\\033[H\\033[0m'; sleep 1\n",
+        )
+        try {
+          await win.webContents.executeJavaScript(`
+            new Promise((resolve, reject) => {
             const deadline = Date.now() + 5000;
+            let lastState = 'canvas missing';
             const poll = () => {
               const canvas = document.querySelector('.terminal-container canvas');
               const context = canvas?.getContext('2d');
@@ -579,14 +592,28 @@ async function runSmoke(): Promise<number> {
                   1,
                   1
                 ).data;
+                const surface = canvas.closest('.terminal-surface');
+                const rect = canvas.getBoundingClientRect();
+                lastState = 'canvas=' + canvas.width + 'x' + canvas.height +
+                  ' rect=' + rect.width + 'x' + rect.height +
+                  ' visibility=' + getComputedStyle(surface).visibility +
+                  ' pixel=' + [...pixel].join(',');
                 if (pixel[0] > 120 && pixel[1] < 140) return resolve(true);
               }
-              if (Date.now() > deadline) return reject(new Error('terminal fixture did not paint'));
+              if (Date.now() > deadline) return reject(new Error(
+                'terminal fixture did not paint: ' + lastState
+              ));
               setTimeout(poll, 25);
             };
             poll();
-          })
-        `)
+            })
+          `)
+        } catch (error) {
+          console.error(`[smoke] PTY probe: ${JSON.stringify(terminalProbe)}`)
+          throw error
+        } finally {
+          void detachProbe()
+        }
         await win.webContents.executeJavaScript(`
           window.__hvirSmokeTerminalCanvas = document.querySelector('.terminal-container canvas');
           window.__hvirSmokeTerminalHost = document.querySelector('.terminal-container');
@@ -660,6 +687,90 @@ async function runSmoke(): Promise<number> {
       'terminal reconnect lifecycle timed out',
     )
     console.log(`[smoke] terminal reconnect remount OK (${reconnectTerminalStatus})`)
+
+    const multiTerminalStatus = (await withTimeout(
+      win.webContents.executeJavaScript(`
+        new Promise((resolve, reject) => {
+          const deadline = Date.now() + 8000;
+          document.querySelector('.terminal-icon-button')?.click();
+          const waitForSecond = () => {
+            const rows = [...document.querySelectorAll('.terminal-list-row')];
+            const surfaces = [...document.querySelectorAll('.terminal-surface')];
+            const active = document.querySelector('.terminal-surface.active');
+            const status = active?.querySelector('.panel-meta')?.textContent || '';
+            if (rows.length === 2 && surfaces.length === 2 && status.startsWith('pid ')) {
+              const visible = surfaces.filter(
+                (surface) => getComputedStyle(surface).visibility === 'visible'
+              );
+              if (visible.length !== 1 || visible[0] !== active) {
+                return reject(new Error('terminal selection did not isolate one canvas'));
+              }
+              rows[0]?.querySelector('.terminal-list-main')?.click();
+              const waitForSwitch = () => {
+                if (document.querySelector('.terminal-list-row.active') === rows[0]) {
+                  return resolve('2 live canvases · switch');
+                }
+                if (Date.now() > deadline) {
+                  return reject(new Error('terminal selection did not switch'));
+                }
+                setTimeout(waitForSwitch, 25);
+              };
+              return waitForSwitch();
+            }
+            if (Date.now() > deadline) return reject(new Error(
+              'second terminal did not start: rows=' + rows.length +
+              ' surfaces=' + surfaces.length + ' status=' + status
+            ));
+            setTimeout(waitForSecond, 25);
+          };
+          const waitForMenu = () => {
+            const shell = [...document.querySelectorAll('.terminal-new-menu button')]
+              .find((node) => node.textContent?.trim() === 'Shell');
+            if (shell) {
+              shell.click();
+              return waitForSecond();
+            }
+            if (Date.now() > deadline) return reject(new Error('new-terminal menu did not open'));
+            setTimeout(waitForMenu, 25);
+          };
+          waitForMenu();
+        })
+      `),
+      'multi-terminal interaction timed out',
+      10_000,
+    )) as string
+    const secondTerminal = supervisor.list()[1]
+    if (!secondTerminal) throw new Error('second terminal was not registered')
+    supervisor.write(
+      secondTerminal.id,
+      secondTerminal.ownerId,
+      "printf '\\033]0;Smoke agent\\007\\007'\n",
+    )
+    const terminalSignalStatus = (await withTimeout(
+      win.webContents.executeJavaScript(`
+        new Promise((resolve, reject) => {
+          const deadline = Date.now() + 5000;
+          const poll = () => {
+            const rows = [...document.querySelectorAll('.terminal-list-row')];
+            const title = rows[1]?.querySelector('.terminal-list-title')?.textContent || '';
+            const bell = rows[1]?.querySelector('.terminal-attention.bell');
+            if (title === 'Smoke agent' && bell) {
+              rows[1]?.querySelector('.terminal-close-button')?.click();
+              return resolve('live title · bell dot · close');
+            }
+            if (Date.now() > deadline) return reject(new Error(
+              'terminal signal missing: title=' + title + ' bell=' + Boolean(bell)
+            ));
+            setTimeout(poll, 25);
+          };
+          poll();
+        })
+      `),
+      'terminal signal interaction timed out',
+    )) as string
+    console.log(
+      `[smoke] multi-terminal rail OK (${multiTerminalStatus} · ${terminalSignalStatus})`,
+    )
 
     const viewerStatus = (await withTimeout(
       win.webContents.executeJavaScript(`
@@ -856,10 +967,18 @@ async function runSmoke(): Promise<number> {
     if (sandboxPolicy !== 'allow-scripts') {
       throw new Error(`unsafe HTML sandbox policy: ${sandboxPolicy}`)
     }
-    const iframe = win.webContents.mainFrame.frames.find((frame) =>
-      frame.url.startsWith(`${HTML_PREVIEW_SCHEME}://document/`),
+    const iframe = await withTimeout(
+      (async () => {
+        for (;;) {
+          const frame = win.webContents.mainFrame.frames.find((candidate) =>
+            candidate.url.startsWith(`${HTML_PREVIEW_SCHEME}://document/`),
+          )
+          if (frame) return frame
+          await new Promise<void>((resolve) => setTimeout(resolve, 25))
+        }
+      })(),
+      'sandboxed HTML frame was not created',
     )
-    if (!iframe) throw new Error('sandboxed HTML frame was not created')
     const sandboxProbe = await withTimeout(
       (async (): Promise<{
         ran?: string
@@ -1031,15 +1150,16 @@ async function runSmoke(): Promise<number> {
       `),
       'source edit did not reach tab state',
     )
+    const saveModifier = process.platform === 'darwin' ? 'meta' : 'control'
     win.webContents.sendInputEvent({
       type: 'keyDown',
       keyCode: 'S',
-      modifiers: ['control'],
+      modifiers: [saveModifier],
     })
     win.webContents.sendInputEvent({
       type: 'keyUp',
       keyCode: 'S',
-      modifiers: ['control'],
+      modifiers: [saveModifier],
     })
     await withTimeout(
       (async (): Promise<void> => {

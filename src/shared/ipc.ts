@@ -157,10 +157,13 @@ export interface ReadAssetResponse {
 
 export interface StartPtyRequest {
   readonly sessionId: string
+  readonly adapterId: TerminalAdapterId
   readonly cwd: HostPath
   readonly cols: number
   readonly rows: number
 }
+
+export type TerminalAdapterId = 'plain-shell' | 'claude-code' | 'codex'
 
 export interface StartPtyResponse {
   readonly id: string
