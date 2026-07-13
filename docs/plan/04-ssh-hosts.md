@@ -31,8 +31,14 @@ synchronized-output buffer based on the mature Warp implementation. A second rea
 showed that an arbitrary terminal resize reliably clears both Codex defects, while the tree
 still stayed stale. Complete synchronized frames now force the same full Ghostty repaint
 without changing geometry, and a two-second cache-invalidating refresh pulse is independent of
-the potentially long recursive SFTP snapshot. Both need another real-host retest. Network-drop,
-passphrase-key, and keyboard-interactive/2FA scenarios were not exercised.
+the potentially long recursive SFTP snapshot. The tree refresh is now hands-on verified. The
+remaining resize dependency exposed a separate initialization bug: terminal resize listeners
+were attached after the initial fit, so PTYs always started at the 80x24 fallback until a manual
+resize. Listeners now precede mount, the default terminal is slightly taller, and a reconnect
+fully replaces and repaints its canvas. Because harness recovery belongs to Phase 6, reconnect
+starts a clearly labeled clean shell instead of presenting stale pixels as apparent scrollback.
+The Codex TUI fix still needs a real-host retest. Network-drop, passphrase-key, and
+keyboard-interactive/2FA scenarios were not exercised.
 
 **UX amendment (2026-07-12):** remote work is a session flow, not a host/path form. The
 user first chooses and connects to an SSH alias, then opens a folder on that connected
@@ -81,7 +87,8 @@ acceptance.
       retain stale tabs, disconnect the replaced host on session switches, and gracefully
       close every SSH client before app quit.
 - [x] Disconnected project state: tabs show cached content marked stale; terminals show
-      exited; reconnect restores and (Phase 6+) offers session resume.
+      exited; reconnect replaces stale terminal pixels with a clearly labeled new shell;
+      Phase 6 offers deterministic harness resume.
 - [ ] Investigate remote-session survivability across SSH drops: prototype wrapping
       remote harness PTYs in `dtach` or `abduco` (transparent, no rendering layer —
       unlike tmux). Record the outcome as an ADR or an updated open question. Stretch —

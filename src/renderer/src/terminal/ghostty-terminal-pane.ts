@@ -93,8 +93,15 @@ class GhosttyTerminalPane implements TerminalPane {
     this.terminal.open(container)
     this.fit.fit()
     this.fit.observeResize()
+    this.redraw()
     requestAnimationFrame(() => {
-      if (!this.disposed) this.fit.fit()
+      if (!this.disposed) {
+        this.fit.fit()
+        // Paint the complete blank grid as well as dirty cells. Canvas/GPU
+        // backing stores can otherwise expose pixels from a disposed terminal
+        // until the first physical resize forces a full render.
+        this.redraw()
+      }
     })
   }
 

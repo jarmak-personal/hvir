@@ -559,6 +559,56 @@ async function runSmoke(): Promise<number> {
     )) as string
     console.log(`[smoke] ghostty-web + PTY OK (${terminalStatus})`)
 
+    const reconnectTerminalStatus = await withTimeout(
+      (async () => {
+        await win.webContents.executeJavaScript(`
+          window.__hvirSmokeTerminalCanvas = document.querySelector('.terminal-container canvas');
+        `)
+        emit('project:state', {
+          root: smokeRoot,
+          connectionState: 'disconnected',
+          watchTier: 'native',
+        })
+        await win.webContents.executeJavaScript(`
+          new Promise((resolve, reject) => {
+            const deadline = Date.now() + 5000;
+            const poll = () => {
+              const container = document.querySelector('.terminal-container');
+              const status = document.querySelector('.terminal-panel .panel-meta')?.textContent || '';
+              if (container?.childElementCount === 0 && status === 'disconnected') return resolve(true);
+              if (Date.now() > deadline) return reject(new Error('terminal did not clear on disconnect'));
+              setTimeout(poll, 25);
+            };
+            poll();
+          })
+        `)
+        emit('project:state', {
+          root: smokeRoot,
+          connectionState: 'connected',
+          watchTier: 'native',
+        })
+        const status: unknown = await win.webContents.executeJavaScript(`
+          new Promise((resolve, reject) => {
+            const deadline = Date.now() + 5000;
+            const poll = () => {
+              const canvas = document.querySelector('.terminal-container canvas');
+              const status = document.querySelector('.terminal-panel .panel-meta')?.textContent || '';
+              if (canvas && canvas !== window.__hvirSmokeTerminalCanvas && status.startsWith('New shell · pid ')) {
+                return resolve(status);
+              }
+              if (Date.now() > deadline) return reject(new Error('terminal did not remount cleanly'));
+              setTimeout(poll, 25);
+            };
+            poll();
+          })
+        `)
+        if (typeof status !== 'string') throw new Error('terminal reconnect returned no status')
+        return status
+      })(),
+      'terminal reconnect lifecycle timed out',
+    )
+    console.log(`[smoke] terminal reconnect remount OK (${reconnectTerminalStatus})`)
+
     const viewerStatus = (await withTimeout(
       win.webContents.executeJavaScript(`
         new Promise((resolve, reject) => {
@@ -1224,6 +1274,9 @@ async function runSmoke(): Promise<number> {
           }
           const treeBefore = tree.getBoundingClientRect().width;
           const terminalBefore = terminal.getBoundingClientRect().height;
+          if (terminalBefore < 325) {
+            return reject(new Error('default terminal is too short for full-screen harnesses'));
+          }
           treeDivider.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
           terminalDivider.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true }));
           requestAnimationFrame(() => requestAnimationFrame(() => {
