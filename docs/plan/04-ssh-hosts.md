@@ -43,6 +43,11 @@ the real-sized grid copy the old cells back in. Replacement panes now use a new 
 stay hidden through initialization, and hard-reset the final-sized VT buffer after its initial
 fit. The production smoke seeds the old screen with a colored fixture and verifies the
 replacement is blank. The reconnect/TUI repaint fix was subsequently hands-on verified.
+The first hands-on all-ref graph pass then exposed SSH `MaxSessions` pressure: overlapping
+Changes/history/detail reads could exhaust exec channels, while background `git status`
+could refresh `.git/index` and feed its own watcher. Buffered execs are now bounded with
+headroom for the PTY, SFTP, and watch channels; read-only Git disables optional index writes;
+and refresh bursts serialize without blanking the last good graph. A real-host retest remains.
 Network-drop,
 passphrase-key, and keyboard-interactive/2FA scenarios were not exercised.
 

@@ -39,6 +39,7 @@ describe('Git worker host broker', () => {
     expect(lastCall?.[0]).toBe('git')
     expect(lastCall?.[1]).toEqual(['-c', 'core.fsmonitor=false', ...call.args])
     expect(lastCall?.[2]?.cwd).toEqual(localPath(rootPath))
+    expect(lastCall?.[2]?.env).toEqual({ GIT_OPTIONAL_LOCKS: '0' })
     expect(lastCall?.[2]?.maxBuffer).toBe(10 * 1024 * 1024)
     expect(lastCall?.[2]?.signal).toBeInstanceOf(AbortSignal)
     expect(realpath).toHaveBeenCalledOnce()

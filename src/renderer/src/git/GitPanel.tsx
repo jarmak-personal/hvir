@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactElement } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react'
 
 import {
   basenameHostPath,
@@ -20,6 +20,7 @@ interface GitPanelProps {
   readonly onChangedCount: (count: number) => void
   readonly connectionState?: HostConnectionState
   readonly hidden?: boolean
+  readonly historyPaused?: boolean
 }
 
 export function GitPanel({
@@ -31,6 +32,7 @@ export function GitPanel({
   onChangedCount,
   connectionState = 'connected',
   hidden = false,
+  historyPaused = false,
 }: GitPanelProps): ReactElement {
   const [view, setView] = useState<'changes' | 'history'>('changes')
   const [changes, setChanges] = useState<GitChanges>()
@@ -45,8 +47,62 @@ export function GitPanel({
     useState<GitRepositoryState>()
   const historyLoading = useRef(false)
   const historyGeneration = useRef(0)
+  const changesValue = useRef<GitChanges | undefined>(undefined)
+  const changesControl = useRef({ running: false, queued: false, generation: 0 })
+  const changesContext = useRef({ root, connectionState, onChangedCount })
+  changesContext.current = { root, connectionState, onChangedCount }
+
+  const requestChanges = useCallback((): void => {
+    const control = changesControl.current
+    control.queued = true
+    if (control.running) return
+    control.running = true
+    const drain = async (): Promise<void> => {
+      while (control.queued) {
+        control.queued = false
+        const context = changesContext.current
+        if (context.connectionState !== 'connected') continue
+        const requestRoot = context.root
+        const requestKey = `${requestRoot.hostId}\0${requestRoot.path}`
+        const requestGeneration = control.generation
+        if (!changesValue.current) setChangesLoading(true)
+        setChangesError(undefined)
+        try {
+          const result = await window.hvir.invoke('git:changes', { root: requestRoot })
+          const latest = changesContext.current
+          if (
+            requestGeneration !== control.generation ||
+            `${latest.root.hostId}\0${latest.root.path}` !== requestKey ||
+            latest.connectionState !== 'connected'
+          )
+            continue
+          changesValue.current = result
+          setChanges(result)
+          setChangesLoading(false)
+          setChangesError(undefined)
+          latest.onChangedCount(result.workingTree.length)
+        } catch (reason) {
+          const latest = changesContext.current
+          if (
+            requestGeneration !== control.generation ||
+            `${latest.root.hostId}\0${latest.root.path}` !== requestKey
+          )
+            continue
+          setChangesLoading(false)
+          if (!changesValue.current) latest.onChangedCount(0)
+          setChangesError(reason instanceof Error ? reason.message : String(reason))
+        }
+      }
+      control.running = false
+    }
+    void drain()
+  }, [])
 
   useEffect(() => {
+    const control = changesControl.current
+    control.generation += 1
+    control.queued = false
+    changesValue.current = undefined
     setChanges(undefined)
     setCommits([])
     setHasMore(false)
@@ -58,39 +114,20 @@ export function GitPanel({
     setHistoryError(undefined)
     onChangedCount(0)
     historyGeneration.current += 1
+    return () => {
+      control.generation += 1
+    }
   }, [connectionState, onChangedCount, root.hostId, root.path])
 
   useEffect(() => {
     if (connectionState !== 'connected') return
-    let cancelled = false
-    setChangesLoading(true)
-    setChangesError(undefined)
-    void window.hvir.invoke('git:changes', { root }).then(
-      (result) => {
-        if (!cancelled) {
-          setChanges(result)
-          setChangesLoading(false)
-          setChangesError(undefined)
-          onChangedCount(result.workingTree.length)
-        }
-      },
-      (reason: unknown) => {
-        if (!cancelled) {
-          setChanges(undefined)
-          setChangesLoading(false)
-          onChangedCount(0)
-          setChangesError(reason instanceof Error ? reason.message : String(reason))
-        }
-      },
-    )
-    return () => {
-      cancelled = true
-    }
-  }, [connectionState, onChangedCount, refreshVersion, root])
+    requestChanges()
+  }, [connectionState, refreshVersion, requestChanges, root.hostId, root.path])
 
   const loadHistory = (): void => {
     if (
       connectionState !== 'connected' ||
+      historyPaused ||
       historyLoading.current ||
       !hasMore ||
       !historyCursor
@@ -129,7 +166,7 @@ export function GitPanel({
   }
 
   useEffect(() => {
-    if (view !== 'history' || connectionState !== 'connected') return
+    if (view !== 'history' || connectionState !== 'connected' || historyPaused) return
     let cancelled = false
     const generation = ++historyGeneration.current
     historyLoading.current = false
@@ -162,7 +199,7 @@ export function GitPanel({
     return () => {
       cancelled = true
     }
-  }, [connectionState, historyRefreshVersion, root, view])
+  }, [connectionState, historyPaused, historyRefreshVersion, root, view])
 
   return (
     <section className="rail-section git-panel" aria-label="Git" hidden={hidden}>
@@ -196,9 +233,10 @@ export function GitPanel({
           <>
             {changesError ? (
               <div className="tree-error">Changes unavailable: {changesError}</div>
-            ) : !changes && changesLoading ? (
+            ) : null}
+            {!changes && changesLoading ? (
               <div className="git-empty">Loading changes…</div>
-            ) : changes?.repositoryState === 'not-git' ? (
+            ) : !changes ? null : changes.repositoryState === 'not-git' ? (
               <div className="git-empty">Not a Git repository</div>
             ) : changes &&
               changes.workingTree.length === 0 &&

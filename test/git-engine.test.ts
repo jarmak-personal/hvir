@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process'
 import { mkdir, mkdtemp, rm, symlink, unlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { GitEngine } from '../src/main/git/git-engine'
 import { LocalHost } from '../src/main/project-host'
@@ -86,6 +86,22 @@ describe('GitEngine', () => {
     expect(changes.branchPoint).toEqual([
       expect.objectContaining({ additions: 1, deletions: 1 }),
     ])
+    await host.dispose()
+  })
+
+  it('keeps background Git inspection from refreshing the index', async () => {
+    const root = await repository()
+    const host = new LocalHost()
+    const exec = vi.spyOn(host, 'exec')
+
+    await new GitEngine(host).changes(localPath(root))
+
+    expect(exec).toHaveBeenCalled()
+    for (const [command, _args, options] of exec.mock.calls) {
+      if (command === 'git') {
+        expect(options?.env).toMatchObject({ GIT_OPTIONAL_LOCKS: '0' })
+      }
+    }
     await host.dispose()
   })
 

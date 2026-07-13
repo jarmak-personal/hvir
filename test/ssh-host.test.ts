@@ -707,6 +707,54 @@ describe('SshHost remote behavior', () => {
     await host.dispose()
   })
 
+  it('keeps buffered execs within the SSH session budget', async () => {
+    const channels = Array.from({ length: 3 }, () => {
+      const channel = Object.assign(new EventEmitter(), {
+        stderr: new EventEmitter(),
+        close: vi.fn(() => channel.emit('close')),
+        end: vi.fn(),
+      })
+      return channel
+    })
+    const [first, second, third] = channels
+    if (!first || !second || !third) throw new Error('Expected three test channels')
+    let nextChannel = 0
+    const client = Object.assign(
+      fakeClient(() => undefined),
+      {
+        exec: vi.fn(
+          (
+            _command: string,
+            callback: (error: Error | undefined, value: unknown) => void,
+          ) => callback(undefined, channels[nextChannel++]),
+        ),
+      },
+    )
+    const host = new SshHost({
+      config: aliasConfig(),
+      maxConcurrentExecs: 2,
+      prompter: { prompt: () => Promise.resolve(undefined) },
+    })
+    const internals = host as unknown as { state: 'connected'; client: Client }
+    internals.state = 'connected'
+    internals.client = client as unknown as Client
+
+    const results = [host.exec('one', []), host.exec('two', []), host.exec('three', [])]
+    await vi.waitFor(() => expect(client.exec).toHaveBeenCalledTimes(2))
+    expect(third.end).not.toHaveBeenCalled()
+
+    first.emit('exit', 0)
+    first.emit('close')
+    await vi.waitFor(() => expect(client.exec).toHaveBeenCalledTimes(3))
+    second.emit('exit', 0)
+    second.emit('close')
+    third.emit('exit', 0)
+    third.emit('close')
+
+    await expect(Promise.all(results)).resolves.toHaveLength(3)
+    await host.dispose()
+  })
+
   it('resolves and caches the remote host shell', async () => {
     const host = new SshHost({
       config: aliasConfig(),

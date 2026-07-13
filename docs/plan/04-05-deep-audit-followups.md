@@ -66,7 +66,9 @@ not represent known implementation defects.
       avoid a continuous full-tree scan, and keep slow safety refreshes adaptive/single-flight.
 - [x] Separate synthetic tree-liveness pulses from Git invalidation. An idle SSH project must
       not run the multi-command Changes pipeline every two seconds; real bursts coalesce into
-      one active refresh plus at most one trailing refresh.
+      one active refresh plus at most one trailing refresh. Read-only Git disables optional
+      index writes, and short-lived SSH execs retain session headroom for PTY/SFTP/watch
+      channels so a large graph cannot turn refresh pressure into `CHANNEL_OPEN_FAILURE`.
 - [x] Close remote cleanup edge cases: root `/` cache invalidation, inotify move/remove and
       directory classification, and standard default identity files when neither an agent nor
       explicit `IdentityFile` is available.

@@ -286,6 +286,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
       path,
       limit: req.limit,
       cursor: req.cursor,
+      allRefs: req.allRefs,
     })
   })
 

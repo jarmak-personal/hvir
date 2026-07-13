@@ -55,6 +55,9 @@ export async function dispatchWorkerHostCall(
   return withTimeout(
     host.exec('git', [...SAFE_GIT_CONFIG, ...call.args], {
       cwd: root,
+      // GitEngine is read-only. Suppress optional index refresh writes so the
+      // .git watcher cannot feed a status request back into itself.
+      env: { GIT_OPTIONAL_LOCKS: '0' },
       ...(call.input !== undefined ? { input: call.input } : {}),
       maxBuffer,
       signal: controller.signal,

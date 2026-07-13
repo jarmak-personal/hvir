@@ -71,6 +71,12 @@ export interface SshHostOptions {
   readonly pollDirectoryBatchSize?: number
   /** Local window for catching multiple writes hidden by SFTP's second-level mtime. */
   readonly fingerprintObservationWindowMs?: number
+  /**
+   * Maximum short-lived buffered exec channels. Long-lived PTY, watcher, and
+   * SFTP channels share the server's MaxSessions budget, so keep headroom for
+   * them rather than opening every background Git command at once.
+   */
+  readonly maxConcurrentExecs?: number
   readonly trustedHostKey?: () => string | undefined
   readonly rememberHostKey?: (fingerprint: string) => Promise<void>
   /** Test seam for transport lifecycle races; production always constructs ssh2.Client. */
@@ -97,6 +103,14 @@ export class SshHost implements ProjectHost {
   private sftpSession?: Promise<SFTPWrapper>
   private readonly listeners = new Set<(state: HostConnectionState) => void>()
   private readonly channels = new Set<ClientChannel>()
+  private readonly maxConcurrentExecs: number
+  private activeExecs = 0
+  private readonly execWaiters: Array<{
+    resolve: (release: () => void) => void
+    reject: (error: Error) => void
+    signal?: AbortSignal
+    abort?: () => void
+  }> = []
   private readonly cache = new Map<
     string,
     { expires: number; value: Buffer | DirEntry[] }
@@ -112,6 +126,11 @@ export class SshHost implements ProjectHost {
 
   constructor(private readonly options: SshHostOptions) {
     this.hostId = asHostId(options.config.alias)
+    const requestedExecs = options.maxConcurrentExecs ?? 3
+    this.maxConcurrentExecs = Math.max(
+      1,
+      Math.min(16, Number.isFinite(requestedExecs) ? Math.floor(requestedExecs) : 3),
+    )
   }
   get connectionState(): HostConnectionState {
     return this.state
@@ -155,6 +174,10 @@ export class SshHost implements ProjectHost {
       this.reconnectTimer = undefined
     }
     this.reconnectAttempt = 0
+    for (const waiter of this.execWaiters.splice(0)) {
+      if (waiter.abort) waiter.signal?.removeEventListener('abort', waiter.abort)
+      waiter.reject(new Error('SSH connection cancelled'))
+    }
     for (const channel of this.channels) channel.close()
     this.channels.clear()
     const client = this.client
@@ -215,60 +238,65 @@ export class SshHost implements ProjectHost {
     opts: ExecOptions = {},
   ): Promise<ExecResult> {
     if (opts.signal?.aborted) throw abortError()
-    const client = await this.connected()
-    return new Promise((resolve, reject) =>
-      client.exec(remoteCommand(command, args, opts), (error, stream) => {
-        if (error) return reject(error)
-        this.channels.add(stream)
-        let stdout = '',
-          stderr = '',
-          bytes = 0,
-          code: number | null = null,
-          signal: string | null = null
-        let settled = false
-        const stdoutDecoder = new StringDecoder('utf8')
-        const stderrDecoder = new StringDecoder('utf8')
-        const append = (kind: 'out' | 'err', chunk: Buffer): void => {
-          bytes += chunk.length
-          if (bytes > (opts.maxBuffer ?? 10 * 1024 * 1024)) {
-            if (!settled) reject(new Error('SSH exec output exceeded maxBuffer'))
+    const release = await this.acquireExecSlot(opts.signal)
+    try {
+      const client = await this.connected()
+      return await new Promise((resolve, reject) =>
+        client.exec(remoteCommand(command, args, opts), (error, stream) => {
+          if (error) return reject(error)
+          this.channels.add(stream)
+          let stdout = '',
+            stderr = '',
+            bytes = 0,
+            code: number | null = null,
+            signal: string | null = null
+          let settled = false
+          const stdoutDecoder = new StringDecoder('utf8')
+          const stderrDecoder = new StringDecoder('utf8')
+          const append = (kind: 'out' | 'err', chunk: Buffer): void => {
+            bytes += chunk.length
+            if (bytes > (opts.maxBuffer ?? 10 * 1024 * 1024)) {
+              if (!settled) reject(new Error('SSH exec output exceeded maxBuffer'))
+              settled = true
+              return stream.close()
+            }
+            if (kind === 'out') stdout += stdoutDecoder.write(chunk)
+            else stderr += stderrDecoder.write(chunk)
+          }
+          stream.on('data', (chunk: Buffer) => append('out', chunk))
+          stream.stderr.on('data', (chunk: Buffer) => append('err', chunk))
+          stream.on('exit', (exitCode: number | null, exitSignal?: string) => {
+            code = exitCode
+            signal = exitSignal ?? null
+          })
+          stream.on('error', (reason: Error) => {
+            if (!settled) reject(reason)
             settled = true
-            return stream.close()
-          }
-          if (kind === 'out') stdout += stdoutDecoder.write(chunk)
-          else stderr += stderrDecoder.write(chunk)
-        }
-        stream.on('data', (chunk: Buffer) => append('out', chunk))
-        stream.stderr.on('data', (chunk: Buffer) => append('err', chunk))
-        stream.on('exit', (exitCode: number | null, exitSignal?: string) => {
-          code = exitCode
-          signal = exitSignal ?? null
-        })
-        stream.on('error', (reason: Error) => {
-          if (!settled) reject(reason)
-          settled = true
-        })
-        stream.on('close', () => {
-          this.channels.delete(stream)
-          if (!settled) {
-            stdout += stdoutDecoder.end()
-            stderr += stderrDecoder.end()
-            resolve({ code, signal, stdout, stderr })
-          }
-          settled = true
-        })
-        if (opts.signal) {
-          const abort = (): void => {
-            if (!settled) reject(abortError())
+          })
+          stream.on('close', () => {
+            this.channels.delete(stream)
+            if (!settled) {
+              stdout += stdoutDecoder.end()
+              stderr += stderrDecoder.end()
+              resolve({ code, signal, stdout, stderr })
+            }
             settled = true
-            stream.close()
+          })
+          if (opts.signal) {
+            const abort = (): void => {
+              if (!settled) reject(abortError())
+              settled = true
+              stream.close()
+            }
+            opts.signal.addEventListener('abort', abort, { once: true })
+            stream.once('close', () => opts.signal?.removeEventListener('abort', abort))
           }
-          opts.signal.addEventListener('abort', abort, { once: true })
-          stream.once('close', () => opts.signal?.removeEventListener('abort', abort))
-        }
-        stream.end(opts.input)
-      }),
-    )
+          stream.end(opts.input)
+        }),
+      )
+    } finally {
+      release()
+    }
   }
 
   execStream(
@@ -759,6 +787,58 @@ export class SshHost implements ProjectHost {
     if (!this.client || this.state !== 'connected') throw new Error('SSH disconnected')
     return this.client
   }
+
+  private acquireExecSlot(signal?: AbortSignal): Promise<() => void> {
+    if (signal?.aborted) return Promise.reject(abortError())
+    if (this.disposed) {
+      return Promise.reject(
+        new Error('SSH host is disconnected; reconnect explicitly before retrying'),
+      )
+    }
+    if (this.activeExecs < this.maxConcurrentExecs) {
+      this.activeExecs++
+      return Promise.resolve(this.execRelease())
+    }
+    return new Promise((resolve, reject) => {
+      const waiter: (typeof this.execWaiters)[number] = { resolve, reject, signal }
+      if (signal) {
+        const abort = (): void => {
+          const index = this.execWaiters.indexOf(waiter)
+          if (index >= 0) this.execWaiters.splice(index, 1)
+          reject(abortError())
+        }
+        waiter.abort = abort
+        signal.addEventListener('abort', abort, { once: true })
+      }
+      this.execWaiters.push(waiter)
+    })
+  }
+
+  private execRelease(): () => void {
+    let released = false
+    return () => {
+      if (released) return
+      released = true
+      this.activeExecs = Math.max(0, this.activeExecs - 1)
+      while (this.execWaiters.length > 0) {
+        const waiter = this.execWaiters.shift()
+        if (!waiter) return
+        if (waiter.abort) waiter.signal?.removeEventListener('abort', waiter.abort)
+        if (this.disposed) {
+          waiter.reject(new Error('SSH connection cancelled'))
+          continue
+        }
+        if (waiter.signal?.aborted) {
+          waiter.reject(abortError())
+          continue
+        }
+        this.activeExecs++
+        waiter.resolve(this.execRelease())
+        return
+      }
+    }
+  }
+
   private scheduleReconnect(): void {
     if (this.disposed || this.reconnectSuppressed || this.reconnectTimer) return
     if (this.reconnectAttempt >= 5) {

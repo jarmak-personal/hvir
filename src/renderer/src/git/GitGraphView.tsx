@@ -69,37 +69,86 @@ export function GitGraphView({
   const loadingMore = useRef(false)
   const generation = useRef(0)
   const detailGeneration = useRef(0)
+  const commitsValue = useRef<readonly GitCommitSummary[]>([])
+  const refreshControl = useRef({ running: false, queued: false })
+  const refreshContext = useRef({ root, connectionState })
+  commitsValue.current = commits
+  refreshContext.current = { root, connectionState }
+
+  const requestRefresh = useCallback((): void => {
+    const control = refreshControl.current
+    control.queued = true
+    if (control.running) return
+    control.running = true
+    const drain = async (): Promise<void> => {
+      while (control.queued) {
+        control.queued = false
+        const context = refreshContext.current
+        if (context.connectionState !== 'connected') continue
+        const requestRoot = context.root
+        const requestKey = `${requestRoot.hostId}\0${requestRoot.path}`
+        const requestGeneration = ++generation.current
+        loadingMore.current = false
+        if (commitsValue.current.length === 0) setInitialLoading(true)
+        setError(undefined)
+        try {
+          const page = await window.hvir.invoke('git:history', {
+            root: requestRoot,
+            limit: 100,
+            allRefs: true,
+          })
+          const latest = refreshContext.current
+          if (
+            requestGeneration !== generation.current ||
+            `${latest.root.hostId}\0${latest.root.path}` !== requestKey ||
+            latest.connectionState !== 'connected'
+          )
+            continue
+          commitsValue.current = page.commits
+          setCommits(page.commits)
+          setCursor(page.nextCursor)
+          setHasMore(page.hasMore)
+          setRepositoryState(page.repositoryState)
+          setInitialLoading(false)
+        } catch (reason) {
+          const latest = refreshContext.current
+          if (
+            requestGeneration !== generation.current ||
+            `${latest.root.hostId}\0${latest.root.path}` !== requestKey
+          )
+            continue
+          setError(reason instanceof Error ? reason.message : String(reason))
+          setInitialLoading(false)
+        }
+      }
+      control.running = false
+    }
+    void drain()
+  }, [])
 
   useEffect(() => {
-    if (connectionState !== 'connected') return
-    let cancelled = false
-    const requestGeneration = ++generation.current
+    const control = refreshControl.current
+    control.queued = false
+    generation.current += 1
     loadingMore.current = false
+    commitsValue.current = []
     setCommits([])
     setCursor(undefined)
     setHasMore(false)
     setRepositoryState(undefined)
     setError(undefined)
-    setInitialLoading(true)
-    void window.hvir.invoke('git:history', { root, limit: 100, allRefs: true }).then(
-      (page) => {
-        if (cancelled || requestGeneration !== generation.current) return
-        setCommits(page.commits)
-        setCursor(page.nextCursor)
-        setHasMore(page.hasMore)
-        setRepositoryState(page.repositoryState)
-        setInitialLoading(false)
-      },
-      (reason: unknown) => {
-        if (cancelled || requestGeneration !== generation.current) return
-        setError(reason instanceof Error ? reason.message : String(reason))
-        setInitialLoading(false)
-      },
-    )
+    setInitialLoading(false)
+    setSelectedHash(undefined)
+    setInspectorOpen(false)
     return () => {
-      cancelled = true
+      control.queued = false
+      generation.current += 1
     }
-  }, [connectionState, refreshVersion, root])
+  }, [connectionState, root.hostId, root.path])
+
+  useEffect(() => {
+    if (connectionState === 'connected') requestRefresh()
+  }, [connectionState, refreshVersion, requestRefresh, root.hostId, root.path])
 
   const loadMore = useCallback((): void => {
     if (connectionState !== 'connected' || loadingMore.current || !hasMore || !cursor) {

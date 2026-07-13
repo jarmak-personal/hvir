@@ -23,7 +23,10 @@ merge-heavy hands-on pass.
 
 **Hands-on evidence (2026-07-13):** the real-host Git panel, blame, and a 400+ commit
 history loaded cleanly. Keep the broad SSH acceptance item open until live Changes/diffs
-and the terminal-driven refresh path are retested after the remote watch fix.
+and the terminal-driven refresh path are retested after the remote watch fix. The subsequent
+all-ref graph pass on that repository exposed a self-feeding index refresh and SSH channel
+exhaustion; both are fixed in the engine/transport, and the graph now refreshes in place, but
+that exact scenario still needs a hands-on retest.
 
 **Scope amendment (2026-07-12):** hands-on review established that branch/merge topology
 is core to the Git reading workflow. A read-only commit graph is now in scope; it does not

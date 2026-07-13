@@ -3,6 +3,7 @@ import {
   dirnameHostPath,
   hostPath,
   type DiffBase,
+  type ExecResult,
   type GitDiffResponse,
   type GitBlameRun,
   type GitChangedFile,
@@ -12,7 +13,7 @@ import {
   type GitCommitDetail,
   type HostPath,
 } from '../../shared'
-import type { ProjectHost } from '../project-host'
+import type { ExecOptions, ProjectHost } from '../project-host'
 
 /**
  * Minimal, single-file git slice for ADR-007. Every command crosses the
@@ -311,7 +312,7 @@ export class GitEngine {
       '--',
       relativePath,
     ]
-    const result = await this.host.exec('git', ['-C', commandRoot.path, ...args], {
+    const result = await execReadOnlyGit(this.host, commandRoot, args, {
       input: `${frontier.join('\n')}\n`,
     })
     if (result.code !== 0) throw gitError(args, result.stderr, result.code)
@@ -462,9 +463,7 @@ export class GitEngine {
     | undefined
   > {
     this.assertHost(projectRoot)
-    const rootResult = await this.host.exec('git', [
-      '-C',
-      projectRoot.path,
+    const rootResult = await execReadOnlyGit(this.host, projectRoot, [
       'rev-parse',
       '--show-toplevel',
     ])
@@ -503,9 +502,7 @@ export class GitEngine {
       'refs/remotes/origin/master',
       'refs/heads/master',
     ]) {
-      const exists = await this.host.exec('git', [
-        '-C',
-        repoRoot.path,
+      const exists = await execReadOnlyGit(this.host, repoRoot, [
         'show-ref',
         '--verify',
         '--quiet',
@@ -520,7 +517,7 @@ export class GitEngine {
   }
 
   private async showOrEmpty(repoRoot: HostPath, revision: string): Promise<string> {
-    const result = await this.host.exec('git', ['-C', repoRoot.path, 'show', revision])
+    const result = await execReadOnlyGit(this.host, repoRoot, ['show', revision])
     if (result.code === 0) return result.stdout
     // A path absent from the index/commit is an empty side of the diff, not a
     // fatal error (new and untracked files are common in agent worktrees).
@@ -536,9 +533,7 @@ export class GitEngine {
     try {
       return await this.host.readTextFile(path)
     } catch (reason) {
-      const trackedDeletion = await this.host.exec('git', [
-        '-C',
-        commandRoot.path,
+      const trackedDeletion = await execReadOnlyGit(this.host, commandRoot, [
         'ls-files',
         '--deleted',
         '--error-unmatch',
@@ -555,7 +550,7 @@ export class GitEngine {
     args: readonly string[],
     maxBuffer?: number,
   ): Promise<string> {
-    const result = await this.host.exec('git', ['-C', repoRoot.path, ...args], {
+    const result = await execReadOnlyGit(this.host, repoRoot, args, {
       maxBuffer,
     })
     if (result.code !== 0) throw gitError(args, result.stderr, result.code)
@@ -566,7 +561,7 @@ export class GitEngine {
     repoRoot: HostPath,
     args: readonly string[],
   ): Promise<string | undefined> {
-    const result = await this.host.exec('git', ['-C', repoRoot.path, ...args])
+    const result = await execReadOnlyGit(this.host, repoRoot, args)
     return result.code === 0 ? result.stdout : undefined
   }
 
@@ -837,9 +832,7 @@ async function addUntrackedStats(
         const relativePath = repositoryPrefix
           ? file.path.slice(repositoryPrefix.length)
           : file.path
-        const result = await host.exec('git', [
-          '-C',
-          projectRoot.path,
+        const result = await execReadOnlyGit(host, projectRoot, [
           'diff',
           '--no-ext-diff',
           '--no-textconv',
@@ -868,4 +861,19 @@ async function addUntrackedStats(
       }),
     )
   }
+}
+
+function execReadOnlyGit(
+  host: ProjectHost,
+  root: HostPath,
+  args: readonly string[],
+  opts: ExecOptions = {},
+): Promise<ExecResult> {
+  return host.exec('git', ['-C', root.path, ...args], {
+    ...opts,
+    // Background status/diff/history must never rewrite .git/index. Besides
+    // being genuinely read-only, this prevents the index watcher from feeding
+    // a Git refresh back into itself indefinitely.
+    env: { ...opts.env, GIT_OPTIONAL_LOCKS: '0' },
+  })
 }

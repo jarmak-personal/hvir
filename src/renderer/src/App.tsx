@@ -157,6 +157,7 @@ export function App(): ReactElement {
     let cancelled = false
     let watchRefreshTimer: number | undefined
     let contentRefreshTimer: number | undefined
+    let gitRefreshTimer: number | undefined
     void window.hvir.invoke('project:root', undefined).then(
       ({ root: projectRoot, connectionState: state, watchTier: tier }) => {
         if (!cancelled) {
@@ -171,8 +172,13 @@ export function App(): ReactElement {
       },
     )
     const stopWatch = window.hvir.on('project:watch', (event) => {
-      if (event.path.path.includes('/.git/')) {
-        setGitVersion((version) => version + 1)
+      const gitMetadataEvent =
+        event.synthetic !== 'refresh' && /(^|\/)\.git(?:\/|$)/.test(event.path.path)
+      if (gitMetadataEvent && gitRefreshTimer === undefined) {
+        gitRefreshTimer = window.setTimeout(() => {
+          gitRefreshTimer = undefined
+          setGitVersion((version) => version + 1)
+        }, 250)
       }
       if (watchRefreshTimer === undefined) {
         watchRefreshTimer = window.setTimeout(() => {
@@ -212,6 +218,7 @@ export function App(): ReactElement {
       cancelled = true
       if (watchRefreshTimer !== undefined) window.clearTimeout(watchRefreshTimer)
       if (contentRefreshTimer !== undefined) window.clearTimeout(contentRefreshTimer)
+      if (gitRefreshTimer !== undefined) window.clearTimeout(gitRefreshTimer)
       void stopWatch()
       void stopState()
       void stopPrompt()
@@ -620,6 +627,7 @@ export function App(): ReactElement {
               onOpenGraph={openGitGraph}
               connectionState={connectionState}
               hidden={railMode !== 'git'}
+              historyPaused={gitGraphActive}
             />
           </div>
         </aside>
