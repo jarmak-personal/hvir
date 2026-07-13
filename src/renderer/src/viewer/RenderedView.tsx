@@ -59,14 +59,25 @@ export function RenderedView({
   onScroll,
   onOpenPath,
 }: RenderedViewProps): ReactElement {
+  const renderGeneration = useDevRendererGeneration()
   const type = renderedFileType(path)
   if (type === 'html') {
-    return <HtmlPreview path={path} content={content} />
+    return (
+      <HtmlPreview path={path} content={content} renderGeneration={renderGeneration} />
+    )
   }
   if (type === 'json' || type === 'yaml') {
-    return <StructuredDataView content={content} format={type} />
+    return (
+      <StructuredDataView
+        content={content}
+        format={type}
+        renderGeneration={renderGeneration}
+      />
+    )
   }
-  if (type === 'mermaid') return <StandaloneMermaid content={content} />
+  if (type === 'mermaid') {
+    return <StandaloneMermaid content={content} renderGeneration={renderGeneration} />
+  }
   if (type === 'markdown') {
     return (
       <MarkdownView
@@ -75,6 +86,7 @@ export function RenderedView({
         scrollTop={scrollTop}
         onScroll={onScroll}
         onOpenPath={onOpenPath}
+        renderGeneration={renderGeneration}
       />
     )
   }
@@ -84,9 +96,11 @@ export function RenderedView({
 function HtmlPreview({
   path,
   content,
+  renderGeneration,
 }: {
   readonly path: HostPath
   readonly content: string
+  readonly renderGeneration: number
 }): ReactElement {
   const [preview, setPreview] = useState<CreateHtmlPreviewResponse>()
   const [error, setError] = useState<string>()
@@ -114,7 +128,7 @@ function HtmlPreview({
       cancelled = true
       if (previewId) window.hvir.send('html-preview:release', { id: previewId })
     }
-  }, [content])
+  }, [content, renderGeneration])
 
   if (error) return <div className="viewer-empty error">{error}</div>
   if (!preview) return <div className="viewer-empty">Preparing HTML preview…</div>
@@ -135,7 +149,8 @@ function MarkdownView({
   scrollTop,
   onScroll,
   onOpenPath,
-}: RenderedViewProps): ReactElement {
+  renderGeneration,
+}: RenderedViewProps & { readonly renderGeneration: number }): ReactElement {
   const container = useRef<HTMLDivElement>(null)
   const scrollTopRef = useRef(scrollTop)
   const [html, setHtml] = useState('')
@@ -157,7 +172,7 @@ function MarkdownView({
     worker.addEventListener('message', onMessage)
     worker.postMessage({ id, markdown: content })
     return () => worker.removeEventListener('message', onMessage)
-  }, [content])
+  }, [content, renderGeneration])
 
   useEffect(() => {
     const root = container.current
@@ -207,7 +222,13 @@ function MarkdownView({
   )
 }
 
-function StandaloneMermaid({ content }: { content: string }): ReactElement {
+function StandaloneMermaid({
+  content,
+  renderGeneration,
+}: {
+  readonly content: string
+  readonly renderGeneration: number
+}): ReactElement {
   const ref = useRef<HTMLDivElement>(null)
   useEffect(() => {
     const root = ref.current
@@ -226,7 +247,7 @@ function StandaloneMermaid({ content }: { content: string }): ReactElement {
     return () => {
       cancelled = true
     }
-  }, [content])
+  }, [content, renderGeneration])
   return <div className="rendered-scroll mermaid-standalone" ref={ref} />
 }
 
@@ -267,9 +288,11 @@ async function renderMermaid(source: string, id: string): Promise<string> {
 function StructuredDataView({
   content,
   format,
+  renderGeneration,
 }: {
   readonly content: string
   readonly format: 'json' | 'yaml'
+  readonly renderGeneration: number
 }): ReactElement {
   const [document, setDocument] = useState<{
     readonly id: number
@@ -297,7 +320,7 @@ function StructuredDataView({
       cancelled = true
       void requestJson({ type: 'dispose', documentId }).catch(() => undefined)
     }
-  }, [content, format])
+  }, [content, format, renderGeneration])
 
   if (error)
     return (
@@ -312,6 +335,26 @@ function StructuredDataView({
       <JsonNode node={document.root} documentId={document.id} initiallyOpen />
     </div>
   )
+}
+
+/** Re-render active previews when their implementation changes during Vite dev HMR. */
+function useDevRendererGeneration(): number {
+  const [generation, setGeneration] = useState(0)
+  useEffect(() => {
+    const hot = import.meta.hot
+    if (!hot) return
+    const refresh = (): void => {
+      markdownWorker?.terminate()
+      markdownWorker = undefined
+      jsonWorker?.terminate()
+      jsonWorker = undefined
+      mermaidPromise = undefined
+      setGeneration((current) => current + 1)
+    }
+    hot.on('vite:afterUpdate', refresh)
+    return () => hot.off('vite:afterUpdate', refresh)
+  }, [])
+  return generation
 }
 
 function JsonNode({

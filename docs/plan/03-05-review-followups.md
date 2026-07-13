@@ -48,6 +48,10 @@ dependency-reload fixes.
       nesting, as polished disabled checkboxes, plus GitLab's `- [~]` inapplicable state.
       Rendered mode remains read-only; changing a task belongs in source mode so the UI
       never implies an unpersisted edit.
+- [x] **Hot-reload rendered output in place.** A Vite update to Markdown/YAML/JSON/Mermaid
+      renderer code invalidates the active worker and regenerates the current preview even
+      when file content is unchanged. Preserve tab, tree, terminal, and scroll state rather
+      than requiring the user to switch away and back.
 - [ ] **GitHub/GitLab alerts.** Render blockquote alerts using the shared
       `> [!NOTE|TIP|IMPORTANT|WARNING|CAUTION]` syntax with accessible labels and restrained
       theme colors. Accept case-insensitive GitLab input and its optional custom title;
