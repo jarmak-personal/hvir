@@ -210,9 +210,10 @@ actions to the inspector (still outside the view-first v1 scope).
 
 ### ADR-006 — Session recovery: harness resume, not a daemon
 **Decision:** Recover agent sessions through the harness's own persistence
-(`claude --resume`, `codex resume`), not by keeping PTYs alive in a daemon. hvir
-generates a session UUID at launch and passes it in (`claude --session-id <uuid>`), so
-resume is deterministic — no scraping or guessing. Two seams keep this evolvable:
+(`claude --resume`, `codex resume`), not by keeping PTYs alive in a daemon. An adapter
+either pre-assigns the harness session UUID at launch or identifies exactly one persisted
+session record in a bounded, fail-closed post-launch window. hvir never guesses from
+ambient "latest" state or terminal text. Two seams keep this evolvable:
 1. All PTY spawning goes through one narrow **PTY supervisor** module, so a daemon could
    replace it out-of-process later without touching the UI.
 2. Harness-specific behavior (launch flags, resume commands, title conventions) lives
@@ -232,10 +233,23 @@ view of the terminal, fighting the entire Ghostty investment).
 Claude Code 2.1.207 supports both deterministic launch (`claude --session-id <uuid>`)
 and resume (`claude --resume <uuid>`). Codex CLI 0.144.3 accepts a known UUID or session
 name through `codex resume <session>`, but exposes no launch option that lets hvir
-pre-assign or capture that identifier. The v1 Codex adapter therefore launches Codex but
-does not claim deterministic recovery until Codex exposes a stable identifier handoff.
-`codex resume --last` is explicitly rejected: with multiple terminals, "last" is global
-ambient state and can resume the wrong conversation.
+pre-assign or directly capture that identifier.
+
+For Codex, the adapter snapshots the existing rollout records immediately before launch,
+then inspects only new `session_meta` records. It accepts an id only when exactly one
+candidate has a matching working directory, `codex-tui` originator, session timestamp
+within the launch window, and the same UUID in both the record payload and filename. A
+short settle interval catches near-simultaneous candidates. The PTY supervisor serializes
+these discovery windows per host and adapter so two hvir-launched Codex terminals cannot
+share a baseline. If metadata is unavailable, changes shape, or produces multiple
+candidates, the terminal still launches but recovery remains unavailable; hvir never
+chooses among candidates.
+
+The rollout layout is an internal, version-sensitive Codex detail and remains contained
+inside `CodexAdapter`. `codex resume --last` remains explicitly rejected because it is
+global ambient state. Launching Codex, immediately exiting it, and relaunching with the
+printed resume id is also rejected: it visibly churns the terminal, can interrupt startup
+state, and provides no stronger identity guarantee than matching the persisted record.
 
 ### ADR-007 — Per-tab view mode: rendered / source / diff
 **Decision:** Every viewer tab has a single three-state **view mode** — *rendered /

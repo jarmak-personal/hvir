@@ -68,6 +68,7 @@ function fixture(): {
     id: 'test',
     displayName: 'Test',
     supportsResume: true,
+    sessionIdentity: 'preassigned',
     launch: () => ({ file: 'test-harness', args: ['launch'] }),
     resume: () => ({ file: 'test-harness', args: ['resume'] }),
   }
@@ -116,6 +117,8 @@ describe('PtySupervisor', () => {
       adapterId: 'test',
       pid: 4242,
       resumed: false,
+      harnessSessionId: 'session-1',
+      identityStatus: 'identified',
     })
     expect(spawnPty).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -384,6 +387,205 @@ describe('PtySupervisor', () => {
     expect(resumed.resumed).toBe(true)
     expect(spawnPty).toHaveBeenLastCalledWith(
       expect.objectContaining({ args: ['resume'] }),
+    )
+  })
+
+  it('publishes a session id discovered after launch', async () => {
+    const { supervisor, host, adapter, spawnPty } = fixture()
+    let finishIdentification: ((sessionId: string) => void) | undefined
+    Object.assign(adapter, {
+      sessionIdentity: 'discovered',
+      sessionDiscovery: {
+        snapshot: vi.fn(() => Promise.resolve(['before'])),
+        identify: vi.fn(
+          () =>
+            new Promise((resolve) => {
+              finishIdentification = (sessionId) =>
+                resolve({ status: 'identified', sessionId })
+            }),
+        ),
+      },
+    })
+    const onIdentity = vi.fn()
+    supervisor.onSessionIdentity(onIdentity)
+
+    const initial = await supervisor.spawn({
+      host,
+      adapter,
+      cwd: localPath('/tmp/project'),
+      ownerId: OWNER_ID,
+      sessionId: 'terminal-id',
+    })
+    expect(initial).toMatchObject({
+      id: 'terminal-id',
+      identityStatus: 'discovering',
+      harnessSessionId: undefined,
+    })
+    expect(spawnPty).toHaveBeenCalledOnce()
+
+    finishIdentification?.('codex-session-id')
+    await vi.waitFor(() => expect(onIdentity).toHaveBeenCalledOnce())
+    expect(supervisor.get('terminal-id')).toMatchObject({
+      harnessSessionId: 'codex-session-id',
+      identityStatus: 'identified',
+    })
+  })
+
+  it('serializes discovery windows for the same host and adapter', async () => {
+    const firstPty = new FakePty()
+    const secondPty = new FakePty()
+    const { supervisor, host, adapter, spawnPty } = fixture()
+    const order: string[] = []
+    let releaseFirst: (() => void) | undefined
+    let identifyCount = 0
+    Object.assign(adapter, {
+      sessionIdentity: 'discovered',
+      sessionDiscovery: {
+        snapshot: vi.fn(() => {
+          order.push('snapshot')
+          return Promise.resolve([])
+        }),
+        identify: vi.fn(() => {
+          identifyCount++
+          order.push('identify')
+          if (identifyCount === 1) {
+            return new Promise((resolve) => {
+              releaseFirst = () => resolve({ status: 'unavailable' })
+            })
+          }
+          return Promise.resolve({ status: 'unavailable' })
+        }),
+      },
+    })
+    spawnPty.mockImplementationOnce(() => {
+      order.push('spawn')
+      return Promise.resolve(firstPty)
+    })
+    spawnPty.mockImplementationOnce(() => {
+      order.push('spawn')
+      return Promise.resolve(secondPty)
+    })
+
+    await supervisor.spawn({
+      host,
+      adapter,
+      cwd: localPath('/tmp/project'),
+      ownerId: OWNER_ID,
+      sessionId: 'first-terminal',
+    })
+    const secondSpawn = supervisor.spawn({
+      host,
+      adapter,
+      cwd: localPath('/tmp/project'),
+      ownerId: OWNER_ID,
+      sessionId: 'second-terminal',
+    })
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(order).toEqual(['snapshot', 'spawn', 'identify'])
+
+    releaseFirst?.()
+    await secondSpawn
+    await vi.waitFor(() => expect(identifyCount).toBe(2))
+    expect(order).toEqual([
+      'snapshot',
+      'spawn',
+      'identify',
+      'snapshot',
+      'spawn',
+      'identify',
+    ])
+  })
+
+  it('fails closed when discovered session identity is ambiguous', async () => {
+    const { supervisor, host, adapter } = fixture()
+    Object.assign(adapter, {
+      sessionIdentity: 'discovered',
+      sessionDiscovery: {
+        snapshot: () => Promise.resolve([]),
+        identify: () => Promise.resolve({ status: 'ambiguous' }),
+      },
+    })
+    const onIdentity = vi.fn()
+    supervisor.onSessionIdentity(onIdentity)
+
+    await supervisor.spawn({
+      host,
+      adapter,
+      cwd: localPath('/tmp/project'),
+      ownerId: OWNER_ID,
+      sessionId: 'ambiguous-terminal',
+    })
+    await vi.waitFor(() => expect(onIdentity).toHaveBeenCalledOnce())
+    expect(supervisor.get('ambiguous-terminal')).toMatchObject({
+      identityStatus: 'ambiguous',
+      harnessSessionId: undefined,
+    })
+  })
+
+  it('still launches when the discovery snapshot is unavailable', async () => {
+    const { supervisor, host, adapter, spawnPty } = fixture()
+    const identify = vi.fn()
+    Object.assign(adapter, {
+      sessionIdentity: 'discovered',
+      sessionDiscovery: {
+        snapshot: () => Promise.reject(new Error('scan failed')),
+        identify,
+      },
+    })
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+
+    const info = await supervisor.spawn({
+      host,
+      adapter,
+      cwd: localPath('/tmp/project'),
+      ownerId: OWNER_ID,
+      sessionId: 'snapshot-failed',
+    })
+
+    expect(spawnPty).toHaveBeenCalledOnce()
+    expect(info.identityStatus).toBe('unavailable')
+    expect(identify).not.toHaveBeenCalled()
+    warn.mockRestore()
+  })
+
+  it('requires an exact id to resume a discovered session', async () => {
+    const { supervisor, host, adapter, spawnPty } = fixture()
+    Object.assign(adapter, {
+      sessionIdentity: 'discovered',
+      resume: (ctx: { sessionId: string }) => ({
+        file: 'test-harness',
+        args: ['resume', ctx.sessionId],
+      }),
+    })
+
+    await expect(
+      supervisor.spawn({
+        host,
+        adapter,
+        cwd: localPath('/tmp/project'),
+        ownerId: OWNER_ID,
+        sessionId: 'new-terminal-id',
+        resume: true,
+      }),
+    ).rejects.toThrow(/requires an exact session id/)
+
+    const resumed = await supervisor.spawn({
+      host,
+      adapter,
+      cwd: localPath('/tmp/project'),
+      ownerId: OWNER_ID,
+      sessionId: 'new-terminal-id',
+      harnessSessionId: 'exact-harness-id',
+      resume: true,
+    })
+    expect(resumed).toMatchObject({
+      resumed: true,
+      harnessSessionId: 'exact-harness-id',
+      identityStatus: 'identified',
+    })
+    expect(spawnPty).toHaveBeenCalledWith(
+      expect.objectContaining({ args: ['resume', 'exact-harness-id'] }),
     )
   })
 })

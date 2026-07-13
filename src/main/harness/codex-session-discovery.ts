@@ -1,0 +1,262 @@
+/**
+ * Codex persisted-session identification.
+ *
+ * Codex can resume an exact session id but does not accept a launch-time id.
+ * Its rollout record is therefore treated as a version-sensitive adapter
+ * detail. Discovery is deliberately fail-closed: hvir only accepts one new
+ * session_meta record matching the launch window, cwd, originator, and filename
+ * UUID. The PTY supervisor serializes hvir-owned discovery windows separately.
+ */
+
+import type { HostPath } from '../../shared'
+import type { ProjectHost } from '../project-host'
+
+const LIST_SESSION_FILES_SCRIPT = `
+root="\${CODEX_HOME:-\${HOME}/.codex}/sessions"
+printf 'hvir-clock:%s\\0' "$(date +%s)"
+[ -d "$root" ] || exit 0
+cd "$root" || exit 0
+find "$PWD" -type f -name 'rollout-*.jsonl' -print0
+`.trim()
+const SESSION_ID_IN_FILENAME =
+  /(?:^|\/)(?:rollout-[^/]*-)?([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.jsonl$/i
+const LIST_MAX_BUFFER = 2 * 1024 * 1024
+const META_MAX_BUFFER = 512 * 1024
+const DEFAULT_TIMEOUT_MS = 5_000
+const DEFAULT_INITIAL_POLL_MS = 75
+const DEFAULT_MAX_POLL_MS = 1_000
+const DEFAULT_SETTLE_MS = 250
+const LAUNCH_CLOCK_SLOP_MS = 2_000
+const MAX_NEW_CANDIDATES = 32
+
+interface CodexSessionSnapshot {
+  readonly paths: readonly string[]
+  readonly hostCapturedAtMs: number
+  readonly localCapturedAtMs: number
+}
+
+interface SessionFileScan {
+  readonly paths: readonly string[]
+  readonly hostNowMs: number
+}
+
+interface SessionMetaEnvelope {
+  readonly type?: unknown
+  readonly payload?: {
+    readonly id?: unknown
+    readonly timestamp?: unknown
+    readonly cwd?: unknown
+    readonly originator?: unknown
+  }
+}
+
+export interface CodexSessionDiscoveryOptions {
+  readonly timeoutMs?: number
+  readonly initialPollMs?: number
+  readonly maxPollMs?: number
+  readonly settleMs?: number
+  readonly now?: () => number
+  readonly sleep?: (ms: number, signal: AbortSignal) => Promise<void>
+}
+
+export function createCodexSessionDiscovery(options: CodexSessionDiscoveryOptions = {}): {
+  snapshot(host: ProjectHost): Promise<unknown>
+  identify(
+    host: ProjectHost,
+    snapshot: unknown,
+    context: {
+      readonly cwd: HostPath
+      readonly launchedAtMs: number
+      readonly signal: AbortSignal
+    },
+  ): Promise<
+    | { readonly status: 'identified'; readonly sessionId: string }
+    | { readonly status: 'ambiguous' }
+    | { readonly status: 'unavailable' }
+  >
+} {
+  const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS
+  const initialPollMs = options.initialPollMs ?? DEFAULT_INITIAL_POLL_MS
+  const maxPollMs = options.maxPollMs ?? DEFAULT_MAX_POLL_MS
+  const settleMs = options.settleMs ?? DEFAULT_SETTLE_MS
+  const now = options.now ?? Date.now
+  const sleep = options.sleep ?? abortableSleep
+
+  return {
+    async snapshot(host): Promise<CodexSessionSnapshot> {
+      const localBeforeMs = now()
+      const scan = await listSessionFiles(host)
+      const localAfterMs = now()
+      return {
+        paths: scan.paths,
+        hostCapturedAtMs: scan.hostNowMs,
+        localCapturedAtMs: localBeforeMs + (localAfterMs - localBeforeMs) / 2,
+      }
+    },
+
+    async identify(host, rawSnapshot, context) {
+      if (!isSnapshot(rawSnapshot)) return { status: 'unavailable' }
+      const baseline = new Set(rawSnapshot.paths)
+      const deadline = context.launchedAtMs + timeoutMs
+      const launchedAtHostMs =
+        rawSnapshot.hostCapturedAtMs +
+        (context.launchedAtMs - rawSnapshot.localCapturedAtMs)
+      let firstMatchAt: number | undefined
+      let firstMatchId: string | undefined
+      let pollMs = Math.max(1, initialPollMs)
+
+      while (!context.signal.aborted) {
+        const currentTime = now()
+        const scan = await listSessionFiles(host, context.signal)
+        const newPaths = scan.paths.filter((path) => !baseline.has(path))
+        if (newPaths.length > MAX_NEW_CANDIDATES) return { status: 'ambiguous' }
+
+        const matches = await matchingSessions(
+          host,
+          newPaths,
+          context.cwd,
+          launchedAtHostMs,
+          scan.hostNowMs,
+          context.signal,
+        )
+        if (matches.size > 1) return { status: 'ambiguous' }
+
+        const match = matches.values().next().value
+        if (match) {
+          if (firstMatchId && firstMatchId !== match) return { status: 'ambiguous' }
+          firstMatchId = match
+          firstMatchAt ??= currentTime
+          if (currentTime - firstMatchAt >= settleMs) {
+            return { status: 'identified', sessionId: match }
+          }
+        }
+
+        if (currentTime >= deadline) return { status: 'unavailable' }
+        const remaining = deadline - currentTime
+        const settleRemaining = firstMatchAt
+          ? Math.max(1, settleMs - (currentTime - firstMatchAt))
+          : remaining
+        await sleep(Math.min(pollMs, remaining, settleRemaining), context.signal)
+        pollMs = Math.min(maxPollMs, pollMs * 2)
+      }
+
+      return { status: 'unavailable' }
+    },
+  }
+}
+
+export const codexSessionDiscovery = createCodexSessionDiscovery()
+
+async function listSessionFiles(
+  host: ProjectHost,
+  signal?: AbortSignal,
+): Promise<SessionFileScan> {
+  const result = await host.exec('sh', ['-c', LIST_SESSION_FILES_SCRIPT], {
+    signal,
+    maxBuffer: LIST_MAX_BUFFER,
+  })
+  if (result.code !== 0) {
+    throw new Error(
+      `Codex session scan failed (${result.code ?? result.signal ?? 'exit'})`,
+    )
+  }
+  const [clock = '', ...paths] = result.stdout.split('\0').filter(Boolean)
+  const hostSeconds = Number(clock.startsWith('hvir-clock:') ? clock.slice(11) : NaN)
+  if (!Number.isFinite(hostSeconds)) {
+    throw new Error('Codex session scan did not report the project host clock')
+  }
+  return { paths, hostNowMs: hostSeconds * 1_000 }
+}
+
+async function matchingSessions(
+  host: ProjectHost,
+  paths: readonly string[],
+  cwd: HostPath,
+  launchedAtHostMs: number,
+  hostNowMs: number,
+  signal: AbortSignal,
+): Promise<Set<string>> {
+  const matches = new Set<string>()
+  for (const path of paths) {
+    if (signal.aborted) break
+    const filenameId = SESSION_ID_IN_FILENAME.exec(path)?.[1]
+    if (!filenameId) continue
+    const result = await host.exec('head', ['-n', '1', '--', path], {
+      signal,
+      maxBuffer: META_MAX_BUFFER,
+    })
+    if (result.code !== 0) continue
+    const record = parseSessionMeta(result.stdout)
+    if (!record) continue
+    if (record.id.toLowerCase() !== filenameId.toLowerCase()) continue
+    if (record.cwd !== cwd.path || record.originator !== 'codex-tui') continue
+    if (
+      record.timestampMs < launchedAtHostMs - LAUNCH_CLOCK_SLOP_MS ||
+      record.timestampMs > hostNowMs + LAUNCH_CLOCK_SLOP_MS
+    ) {
+      continue
+    }
+    matches.add(record.id)
+  }
+  return matches
+}
+
+function parseSessionMeta(value: string): {
+  readonly id: string
+  readonly cwd: string
+  readonly originator: string
+  readonly timestampMs: number
+} | null {
+  try {
+    const envelope = JSON.parse(value) as SessionMetaEnvelope
+    const payload = envelope.payload
+    const timestampMs =
+      typeof payload?.timestamp === 'string' ? Date.parse(payload.timestamp) : NaN
+    if (
+      envelope.type !== 'session_meta' ||
+      typeof payload?.id !== 'string' ||
+      typeof payload.cwd !== 'string' ||
+      typeof payload.originator !== 'string' ||
+      !Number.isFinite(timestampMs)
+    ) {
+      return null
+    }
+    return {
+      id: payload.id,
+      cwd: payload.cwd,
+      originator: payload.originator,
+      timestampMs,
+    }
+  } catch {
+    return null
+  }
+}
+
+function isSnapshot(value: unknown): value is CodexSessionSnapshot {
+  if (!value || typeof value !== 'object') return false
+  const paths = (value as { paths?: unknown }).paths
+  const hostCapturedAtMs = (value as { hostCapturedAtMs?: unknown }).hostCapturedAtMs
+  const localCapturedAtMs = (value as { localCapturedAtMs?: unknown }).localCapturedAtMs
+  return (
+    Array.isArray(paths) &&
+    paths.every((path) => typeof path === 'string') &&
+    typeof hostCapturedAtMs === 'number' &&
+    Number.isFinite(hostCapturedAtMs) &&
+    typeof localCapturedAtMs === 'number' &&
+    Number.isFinite(localCapturedAtMs)
+  )
+}
+
+function abortableSleep(ms: number, signal: AbortSignal): Promise<void> {
+  if (signal.aborted) return Promise.resolve()
+  return new Promise((resolve) => {
+    const timer = setTimeout(finish, ms)
+    const abort = (): void => finish()
+    function finish(): void {
+      clearTimeout(timer)
+      signal.removeEventListener('abort', abort)
+      resolve()
+    }
+    signal.addEventListener('abort', abort, { once: true })
+  })
+}

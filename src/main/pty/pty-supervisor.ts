@@ -12,7 +12,7 @@ import { randomUUID } from 'node:crypto'
 
 import type { HostId, HostPath } from '../../shared'
 import type { Disposer, ProjectHost, PtyExit, PtyProcess } from '../project-host'
-import type { HarnessAdapter } from '../harness/harness-adapter'
+import type { HarnessAdapter, HarnessSessionDiscovery } from '../harness/harness-adapter'
 
 export interface PtySpawnRequest {
   readonly host: ProjectHost
@@ -20,9 +20,11 @@ export interface PtySpawnRequest {
   readonly cwd: HostPath
   /** Electron webContents id that owns and may control this PTY. */
   readonly ownerId: number
-  /** Pre-assigned session id; generated if omitted (ADR-006 determinism). */
+  /** hvir's PTY registry id; generated if omitted. */
   readonly sessionId?: string
-  /** Resume the session id via the adapter rather than launching fresh. */
+  /** Exact harness-owned session id, when distinct from the PTY id. */
+  readonly harnessSessionId?: string
+  /** Resume `harnessSessionId` via the adapter rather than launching fresh. */
   readonly resume?: boolean
   readonly cols?: number
   readonly rows?: number
@@ -37,7 +39,12 @@ export interface ManagedPty {
   readonly pid: number
   readonly startedAt: number
   readonly resumed: boolean
+  readonly harnessSessionId?: string
+  readonly identityStatus: HarnessSessionIdentityStatus
 }
+
+export type HarnessSessionIdentityStatus =
+  'none' | 'discovering' | 'identified' | 'ambiguous' | 'unavailable'
 
 export interface PtyStreamHandlers {
   onData?: (data: string) => void
@@ -45,7 +52,7 @@ export interface PtyStreamHandlers {
 }
 
 interface Entry {
-  readonly info: ManagedPty
+  info: ManagedPty
   readonly pty: PtyProcess
   readonly dataListeners: Set<(data: string) => void>
   readonly exitListeners: Set<(exit: PtyExit) => void>
@@ -71,6 +78,9 @@ export class PtySupervisor {
   private readonly globalExitListeners = new Set<
     (info: ManagedPty, exit: PtyExit) => void
   >()
+  private readonly identityListeners = new Set<(info: ManagedPty) => void>()
+  private readonly discoveryQueues = new Map<string, Promise<void>>()
+  private readonly discoveryControllers = new Set<AbortController>()
 
   /** Spawn a PTY. The one and only site that calls `host.spawnPty`. */
   async spawn(req: PtySpawnRequest): Promise<ManagedPty> {
@@ -87,17 +97,56 @@ export class PtySupervisor {
     this.pendingIds.set(sessionId, pending)
 
     const resumed = req.resume === true && req.adapter.supportsResume
+    const harnessSessionId = resumed
+      ? (req.harnessSessionId ??
+        (req.adapter.sessionIdentity === 'preassigned' ? sessionId : undefined))
+      : req.adapter.sessionIdentity === 'preassigned'
+        ? sessionId
+        : undefined
+    if (resumed && !harnessSessionId) {
+      this.pendingIds.delete(sessionId)
+      throw new Error(`Harness '${req.adapter.id}' resume requires an exact session id`)
+    }
+
+    const discovery =
+      !resumed && req.adapter.sessionIdentity === 'discovered'
+        ? req.adapter.sessionDiscovery
+        : undefined
+    let discoverySnapshot: unknown
+    let discoveryReady = false
+    let releaseDiscovery: Disposer | undefined
     let pty: PtyProcess
+    let launchedAtMs = Date.now()
     try {
+      if (discovery) {
+        releaseDiscovery = await this.reserveDiscovery(
+          `${req.host.hostId}:${req.adapter.id}`,
+        )
+        this.assertPending(sessionId, pending, generation)
+        try {
+          discoverySnapshot = await discovery.snapshot(req.host)
+          discoveryReady = true
+        } catch (error) {
+          console.warn(
+            `[pty] ${req.adapter.id} session discovery snapshot unavailable`,
+            error,
+          )
+          void releaseDiscovery()
+          releaseDiscovery = undefined
+        }
+      }
+
+      this.assertPending(sessionId, pending, generation)
       const defaultShell = await req.host.defaultShell()
       const ctx = {
-        sessionId,
+        sessionId: harnessSessionId ?? sessionId,
         cwd: req.cwd,
         cols: req.cols,
         rows: req.rows,
         defaultShell,
       }
       const spec = resumed ? req.adapter.resume(ctx) : req.adapter.launch(ctx)
+      launchedAtMs = Date.now()
       pty = await req.host.spawnPty({
         file: spec.file,
         args: spec.args,
@@ -111,6 +160,9 @@ export class PtySupervisor {
         cols: req.cols,
         rows: req.rows,
       })
+    } catch (error) {
+      void releaseDiscovery?.()
+      throw error
     } finally {
       if (this.pendingIds.get(sessionId)?.token === pending.token) {
         this.pendingIds.delete(sessionId)
@@ -118,6 +170,7 @@ export class PtySupervisor {
     }
 
     if (pending.cancelled || this.generation !== generation) {
+      void releaseDiscovery?.()
       pty.kill()
       throw new Error(`PTY session '${sessionId}' was cancelled before it started`)
     }
@@ -128,8 +181,10 @@ export class PtySupervisor {
       hostId: req.host.hostId,
       adapterId: req.adapter.id,
       pid: pty.pid,
-      startedAt: Date.now(),
+      startedAt: launchedAtMs,
       resumed,
+      harnessSessionId,
+      identityStatus: identityStatus(req.adapter, harnessSessionId, discoveryReady),
     }
 
     const entry: Entry = {
@@ -162,7 +217,7 @@ export class PtySupervisor {
         entry.exited = true
         try {
           for (const cb of entry.exitListeners) cb(exit)
-          for (const cb of this.globalExitListeners) cb(info, exit)
+          for (const cb of this.globalExitListeners) cb(entry.info, exit)
         } finally {
           for (const dispose of entry.disposers) void dispose()
           entry.dataListeners.clear()
@@ -173,6 +228,21 @@ export class PtySupervisor {
         }
       }),
     )
+
+    if (discovery && discoveryReady && releaseDiscovery) {
+      const controller = new AbortController()
+      this.discoveryControllers.add(controller)
+      void this.identifySession(
+        entry,
+        req.host,
+        discovery,
+        discoverySnapshot,
+        req.cwd,
+        launchedAtMs,
+        controller,
+        releaseDiscovery,
+      )
+    }
 
     return info
   }
@@ -226,9 +296,19 @@ export class PtySupervisor {
     }
   }
 
+  /** Subscribe when a post-launch harness identity resolves or fails closed. */
+  onSessionIdentity(cb: (info: ManagedPty) => void): Disposer {
+    this.identityListeners.add(cb)
+    return () => {
+      this.identityListeners.delete(cb)
+    }
+  }
+
   /** Kill every session and release listeners. */
   disposeAll(): void {
     this.generation++
+    for (const controller of this.discoveryControllers) controller.abort()
+    this.discoveryControllers.clear()
     for (const pending of this.pendingIds.values()) pending.cancelled = true
     this.pendingIds.clear()
     for (const entry of this.entries.values()) {
@@ -237,6 +317,7 @@ export class PtySupervisor {
     }
     this.entries.clear()
     this.globalExitListeners.clear()
+    this.identityListeners.clear()
   }
 
   /** Kill only the sessions and pending spawns owned by one renderer. */
@@ -271,6 +352,86 @@ export class PtySupervisor {
     }
     return entry
   }
+
+  private assertPending(id: string, pending: PendingEntry, generation: number): void {
+    if (pending.cancelled || this.generation !== generation) {
+      throw new Error(`PTY session '${id}' was cancelled before it started`)
+    }
+  }
+
+  private reserveDiscovery(key: string): Promise<Disposer> {
+    const previous = this.discoveryQueues.get(key) ?? Promise.resolve()
+    let openGate: (() => void) | undefined
+    const gate = new Promise<void>((resolve) => {
+      openGate = resolve
+    })
+    const tail = previous.catch(() => undefined).then(() => gate)
+    // Store the reservation before awaiting the previous holder. Concurrent
+    // spawn() calls therefore cannot capture the same persisted-session baseline.
+    this.discoveryQueues.set(key, tail)
+
+    return previous
+      .catch(() => undefined)
+      .then(() => {
+        let released = false
+        return () => {
+          if (released) return
+          released = true
+          openGate?.()
+          void tail.then(() => {
+            if (this.discoveryQueues.get(key) === tail) {
+              this.discoveryQueues.delete(key)
+            }
+          })
+        }
+      })
+  }
+
+  private async identifySession(
+    entry: Entry,
+    host: ProjectHost,
+    discovery: HarnessSessionDiscovery,
+    snapshot: unknown,
+    cwd: HostPath,
+    launchedAtMs: number,
+    controller: AbortController,
+    release: Disposer,
+  ): Promise<void> {
+    try {
+      const result = await discovery.identify(host, snapshot, {
+        cwd,
+        launchedAtMs,
+        signal: controller.signal,
+      })
+      entry.info =
+        result.status === 'identified'
+          ? {
+              ...entry.info,
+              harnessSessionId: result.sessionId,
+              identityStatus: 'identified',
+            }
+          : { ...entry.info, identityStatus: result.status }
+    } catch (error) {
+      entry.info = { ...entry.info, identityStatus: 'unavailable' }
+      if (!controller.signal.aborted) {
+        console.warn(`[pty] ${entry.info.adapterId} session discovery unavailable`, error)
+      }
+    } finally {
+      this.discoveryControllers.delete(controller)
+      void release()
+    }
+    for (const cb of this.identityListeners) cb(entry.info)
+  }
+}
+
+function identityStatus(
+  adapter: HarnessAdapter,
+  harnessSessionId: string | undefined,
+  discoveryReady: boolean,
+): HarnessSessionIdentityStatus {
+  if (adapter.sessionIdentity === 'none') return 'none'
+  if (harnessSessionId) return 'identified'
+  return discoveryReady ? 'discovering' : 'unavailable'
 }
 
 function retainReplay(entry: Entry, data: string): void {

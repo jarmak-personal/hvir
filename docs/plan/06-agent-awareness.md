@@ -21,14 +21,15 @@ you which agent wants you.
       actually true, not what this plan remembers.
       Verified locally on 2026-07-13: Claude Code 2.1.207 exposes `--session-id <uuid>`
       and `--resume <uuid>`. Codex CLI 0.144.3 exposes `codex resume [SESSION_ID]` and
-      `--last`, but no launch-time id assignment or stable id handoff. The Codex adapter
-      is launch-only for now; using global `--last` would be incorrect with multiple
-      terminals. See the ADR-006 addendum.
+      `--last`, but no launch-time id assignment or direct id handoff. The Codex adapter
+      identifies one new persisted `session_meta` record using cwd, originator, launch
+      time, and filename/payload UUID checks. Ambiguity fails closed; global `--last`
+      remains incorrect with multiple terminals. See the ADR-006 addendum.
 - [x] `ClaudeCodeAdapter` and `CodexAdapter`: launch command with pre-assigned session
       UUID, resume command from a stored session id, title conventions. Keep every
-      harness-specific detail inside the adapter. Claude implements deterministic
-      launch/resume. Codex implements launch and explicitly reports no deterministic
-      resume support under the verified CLI limitation above.
+      harness-specific detail inside the adapter. Claude pre-assigns its id. Codex uses a
+      serialized, bounded post-launch discovery window and only enables resume after one
+      exact id is identified.
 - [ ] Session registry (persisted): terminal → {harness, session id, hostId, cwd,
       last-seen title}. Written by the PTY supervisor on spawn.
 - [ ] Recovery flow: on app start (or host reconnect), for each registered session,

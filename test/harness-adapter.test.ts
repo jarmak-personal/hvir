@@ -25,12 +25,18 @@ describe('Harness adapters', () => {
       args: ['--resume', context.sessionId],
     })
     expect(claudeCodeAdapter.supportsResume).toBe(true)
+    expect(claudeCodeAdapter.sessionIdentity).toBe('preassigned')
   })
 
-  it('does not claim deterministic Codex recovery without launch id assignment', () => {
+  it('resumes an exactly discovered Codex session id', () => {
     expect(codexAdapter.launch(context)).toEqual({ file: 'codex', args: [] })
-    expect(codexAdapter.resume(context)).toEqual({ file: 'codex', args: [] })
-    expect(codexAdapter.supportsResume).toBe(false)
+    expect(codexAdapter.resume(context)).toEqual({
+      file: 'codex',
+      args: ['resume', context.sessionId],
+    })
+    expect(codexAdapter.supportsResume).toBe(true)
+    expect(codexAdapter.sessionIdentity).toBe('discovered')
+    expect(codexAdapter.sessionDiscovery).toBeDefined()
   })
 
   it('resolves only registered adapters', () => {
