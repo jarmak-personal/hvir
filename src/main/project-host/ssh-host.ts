@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto'
+
 import {
   Client,
   utils,
@@ -39,6 +41,7 @@ export interface SshPrompt {
   readonly kind: 'password' | 'passphrase' | 'keyboard-interactive' | 'host-key'
   readonly title: string
   readonly instructions?: string
+  readonly fingerprint?: string
   readonly prompts: readonly { readonly text: string; readonly echo: boolean }[]
 }
 export interface SshAuthPrompter {
@@ -373,16 +376,25 @@ export class SshHost implements ProjectHost {
       username: config.user,
       keepaliveInterval: 10_000,
       keepaliveCountMax: 3,
-      readyTimeout: 20_000,
-      hostHash: 'sha256',
-      hostVerifier: (fingerprint: string, verify: (valid: boolean) => void) => {
-        if (this.options.isHostKeyTrusted?.(fingerprint)) return true
+      // Host verification is intentionally interactive; leave enough time to
+      // compare a fingerprint without the handshake timing out underneath it.
+      readyTimeout: 120_000,
+      hostVerifier: (key: Buffer, verify: (valid: boolean) => void) => {
+        const fingerprint = `SHA256:${createHash('sha256')
+          .update(key)
+          .digest('base64')
+          .replace(/=+$/, '')}`
+        if (this.options.isHostKeyTrusted?.(fingerprint)) {
+          verify(true)
+          return
+        }
         void prompter
           .prompt({
             kind: 'host-key',
             title: `Trust ${config.alias}?`,
-            instructions: `SHA-256 fingerprint: ${fingerprint}`,
-            prompts: [{ text: 'Type yes to trust', echo: true }],
+            instructions: 'Verify the SHA-256 fingerprint before trusting this host.',
+            fingerprint,
+            prompts: [],
           })
           .then(async (a) => {
             const trusted = a?.[0]?.toLowerCase() === 'yes'
@@ -390,14 +402,21 @@ export class SshHost implements ProjectHost {
             verify(trusted)
           })
           .catch(() => verify(false))
-        return false
+        // This verifier is callback-only: returning a boolean would make
+        // `ssh2` decide synchronously before the user can answer.
       },
       authHandler: (methods, _partial, next) => {
         const send = next as unknown as (
           value: import('ssh2').AnyAuthMethod | false,
         ) => void
         void (async (): Promise<import('ssh2').AnyAuthMethod | false> => {
-          const available = new Set(methods ?? [])
+          // `ssh2` passes null before the first authentication attempt. That
+          // means the server's methods are not known yet, not that none are
+          // available. Start our configured ladder and narrow it after the
+          // server returns its actual method list.
+          const available = new Set(
+            methods ?? ['agent', 'publickey', 'keyboard-interactive', 'password'],
+          )
           if (agentSocket && available.has('agent') && !attempted.has('agent')) {
             attempted.add('agent')
             return { type: 'agent', username: config.user, agent: agentSocket }

@@ -80,6 +80,10 @@ dependency-reload fixes.
 
 ## P1 — SSH session workflow
 
+- [x] Honor `ssh2`'s async host-verifier and initial-auth callback contracts: wait for an
+      explicit Trust Host action before accepting/rejecting, wrap the standard SHA-256
+      fingerprint inside the dialog, and begin the auth ladder when server methods are not
+      known yet instead of treating that state as authentication failure.
 - [x] Replace the combined host/path form with a staged remote-session flow:
       **Connect to Host…** → select an SSH alias → connect/authenticate → select or enter a
       folder on that host → open the workbench. Local gets the parallel **Open Local

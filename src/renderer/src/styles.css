@@ -597,6 +597,22 @@ body.pane-resizing-row * {
   color: #dc7b82;
 }
 
+.ssh-host-fingerprint {
+  display: block;
+  max-width: 100%;
+  padding: 9px 10px;
+  overflow-wrap: anywhere;
+  border: 1px solid #303743;
+  border-radius: 5px;
+  background: #101318;
+  color: #b9c7d8;
+  font-size: 11px;
+  line-height: 1.5;
+  user-select: text;
+  white-space: normal;
+  word-break: break-all;
+}
+
 .session-dialog {
   max-height: min(680px, calc(100vh - 32px));
 }

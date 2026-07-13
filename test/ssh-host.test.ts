@@ -36,7 +36,7 @@ describe('SshHost authentication', () => {
     })
     const config = connectConfig(host)
 
-    const agent = await nextAuth(config, ['agent', 'publickey'])
+    const agent = await nextAuth(config, null)
     expect(agent).toMatchObject({ type: 'agent' })
     const key = await nextAuth(config, ['publickey'])
 
@@ -49,15 +49,36 @@ describe('SshHost authentication', () => {
     const host = new SshHost({
       config: aliasConfig(),
       prompter: { prompt },
-      isHostKeyTrusted: (fingerprint) => fingerprint === 'trusted-fingerprint',
+      isHostKeyTrusted: () => true,
     })
     const verifier = connectConfig(host).hostVerifier as unknown as (
-      fingerprint: string,
+      key: Buffer,
       verify: (valid: boolean) => void,
-    ) => boolean
+    ) => void
+    const verify = vi.fn()
     expect(verifier).toBeTypeOf('function')
-    expect(verifier('trusted-fingerprint', vi.fn())).toBe(true)
+    expect(verifier(Buffer.from('trusted-host-key'), verify)).toBeUndefined()
+    expect(verify).toHaveBeenCalledWith(true)
     expect(prompt).not.toHaveBeenCalled()
+  })
+
+  it('waits for an unknown host to be trusted before verifying it', async () => {
+    const remember = vi.fn<() => Promise<void>>(() => Promise.resolve())
+    const host = new SshHost({
+      config: aliasConfig(),
+      prompter: { prompt: () => Promise.resolve(['yes']) },
+      isHostKeyTrusted: () => false,
+      rememberHostKey: remember,
+    })
+    const verifier = connectConfig(host).hostVerifier as unknown as (
+      key: Buffer,
+      verify: (valid: boolean) => void,
+    ) => void
+    const verify = vi.fn()
+
+    expect(verifier(Buffer.from('new-host-key'), verify)).toBeUndefined()
+    await vi.waitFor(() => expect(verify).toHaveBeenCalledWith(true))
+    expect(remember).toHaveBeenCalledWith(expect.stringMatching(/^SHA256:/))
   })
 })
 
@@ -77,12 +98,14 @@ function connectConfig(host: SshHost): ConnectConfig {
 
 function nextAuth(
   config: ConnectConfig,
-  methods: readonly string[],
+  methods: readonly string[] | null,
 ): Promise<AnyAuthMethod | false> {
   const handler = config.authHandler as unknown as (
-    methods: readonly string[],
-    partial: boolean,
+    methods: readonly string[] | null,
+    partial: boolean | null,
     next: (method: AnyAuthMethod | false) => void,
   ) => void
-  return new Promise((resolve) => handler(methods, false, resolve))
+  return new Promise((resolve) =>
+    handler(methods, methods === null ? null : false, resolve),
+  )
 }

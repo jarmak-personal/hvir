@@ -98,6 +98,7 @@ export interface SshPromptRequest {
   readonly kind: 'password' | 'passphrase' | 'keyboard-interactive' | 'host-key'
   readonly title: string
   readonly instructions?: string
+  readonly fingerprint?: string
   readonly prompts: readonly { readonly text: string; readonly echo: boolean }[]
 }
 

@@ -394,6 +394,40 @@ async function runSmoke(): Promise<number> {
     }
     console.log('[smoke] renderer IPC + echo worker round-trip OK')
 
+    emit('ssh:prompt', {
+      id: 9001,
+      kind: 'host-key',
+      title: 'Trust smoke-host?',
+      instructions: 'Verify the SHA-256 fingerprint before trusting this host.',
+      fingerprint: `SHA256:${'abcdefghijklmnopqrstuvwxyz'.repeat(4)}`,
+      prompts: [],
+    })
+    const hostKeyPromptStatus = (await withTimeout(
+      win.webContents.executeJavaScript(`
+        new Promise((resolve, reject) => {
+          const deadline = Date.now() + 5000;
+          const poll = () => {
+            const dialog = document.querySelector('.project-dialog');
+            const fingerprint = document.querySelector('.ssh-host-fingerprint');
+            const trust = [...document.querySelectorAll('.project-dialog button')]
+              .find((node) => node.textContent?.trim() === 'Trust Host');
+            if (dialog && fingerprint && trust) {
+              const fits = dialog.scrollWidth <= dialog.clientWidth;
+              trust.click();
+              return fits
+                ? resolve('wrapped fingerprint · explicit trust')
+                : reject(new Error('host fingerprint overflowed its dialog'));
+            }
+            if (Date.now() > deadline) return reject(new Error('host-key prompt missing'));
+            setTimeout(poll, 25);
+          };
+          poll();
+        })
+      `),
+      'host-key prompt timed out',
+    )) as string
+    console.log(`[smoke] SSH host-key prompt OK (${hostKeyPromptStatus})`)
+
     // Wait for the actual Phase 2 vertical slice: Ghostty WASM mounted, the
     // native node-pty process spawned, and the lazy tree populated.
     const terminalStatus = (await withTimeout(

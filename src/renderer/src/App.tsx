@@ -524,6 +524,7 @@ export function App(): ReactElement {
       ) : null}
       {sshPrompt ? (
         <SshPromptDialog
+          key={sshPrompt.id}
           prompt={sshPrompt}
           onAnswer={(answers) => {
             void window.hvir.invoke('ssh:prompt-response', {
@@ -758,33 +759,39 @@ function SshPromptDialog({
         className="project-dialog"
         onSubmit={(event) => {
           event.preventDefault()
-          onAnswer(answers)
+          onAnswer(prompt.kind === 'host-key' ? ['yes'] : answers)
         }}
       >
         <h2>{prompt.title}</h2>
         {prompt.instructions ? <p>{prompt.instructions}</p> : null}
-        {prompt.prompts.map((item, index) => (
-          <label key={`${item.text}:${index}`}>
-            {item.text}
-            <input
-              autoFocus={index === 0}
-              type={item.echo ? 'text' : 'password'}
-              value={answers[index]}
-              onChange={(event) =>
-                setAnswers((current) =>
-                  current.map((answer, at) =>
-                    at === index ? event.target.value : answer,
-                  ),
-                )
-              }
-            />
-          </label>
-        ))}
+        {prompt.kind === 'host-key' && prompt.fingerprint ? (
+          <code className="ssh-host-fingerprint">{prompt.fingerprint}</code>
+        ) : (
+          prompt.prompts.map((item, index) => (
+            <label key={`${item.text}:${index}`}>
+              {item.text}
+              <input
+                autoFocus={index === 0}
+                type={item.echo ? 'text' : 'password'}
+                value={answers[index]}
+                onChange={(event) =>
+                  setAnswers((current) =>
+                    current.map((answer, at) =>
+                      at === index ? event.target.value : answer,
+                    ),
+                  )
+                }
+              />
+            </label>
+          ))
+        )}
         <div className="dialog-actions">
           <button type="button" onClick={() => onAnswer(undefined)}>
             Cancel
           </button>
-          <button type="submit">Continue</button>
+          <button type="submit" autoFocus={prompt.kind === 'host-key'}>
+            {prompt.kind === 'host-key' ? 'Trust Host' : 'Continue'}
+          </button>
         </div>
       </form>
     </div>
