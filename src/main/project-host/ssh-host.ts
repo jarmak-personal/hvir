@@ -68,6 +68,7 @@ export class SshHost implements ProjectHost {
   private disposed = false
   private reconnectAttempt = 0
   private reconnectTimer?: ReturnType<typeof setTimeout>
+  private resolvedShell?: string
   private readonly listeners = new Set<(state: HostConnectionState) => void>()
   private readonly channels = new Set<ClientChannel>()
   private readonly cache = new Map<
@@ -114,8 +115,21 @@ export class SshHost implements ProjectHost {
     this.client?.end()
     this.client = undefined
     this.cache.clear()
+    this.resolvedShell = undefined
     this.setState('disconnected')
     return Promise.resolve()
+  }
+
+  async defaultShell(): Promise<string> {
+    if (this.resolvedShell) return this.resolvedShell
+    const result = await this.exec('sh', [
+      '-lc',
+      'if [ -n "$SHELL" ] && [ -x "$SHELL" ]; then printf "%s\\n" "$SHELL"; elif command -v bash >/dev/null 2>&1; then command -v bash; else printf "/bin/sh\\n"; fi',
+    ])
+    const candidate = result.stdout.trim().split(/\r?\n/).at(-1)
+    this.resolvedShell =
+      result.code === 0 && candidate?.startsWith('/') ? candidate : '/bin/sh'
+    return this.resolvedShell
   }
 
   async exec(
@@ -553,7 +567,15 @@ export class SshHost implements ProjectHost {
   ): Disposer {
     let stopped = false,
       initialized = false,
-      previous = new Map<string, string>()
+      previous = new Map<string, string>(),
+      timer: ReturnType<typeof setTimeout> | undefined,
+      retryMs = this.options.pollIntervalMs ?? 2_000,
+      lastError: string | undefined
+    const intervalMs = this.options.pollIntervalMs ?? 2_000
+    const schedule = (delay: number): void => {
+      if (stopped) return
+      timer = setTimeout(() => void poll(), delay)
+    }
     const poll = async (): Promise<void> => {
       try {
         const current = await this.pollSnapshot(path, opts)
@@ -570,18 +592,21 @@ export class SshHost implements ProjectHost {
             onEvent({ type: 'unlink', path: hostPath(this.hostId, file) })
         previous = current
         initialized = true
+        retryMs = intervalMs
+        lastError = undefined
       } catch (e) {
-        opts.onError?.(asError(e))
+        const error = asError(e)
+        if (error.message !== lastError) opts.onError?.(error)
+        lastError = error.message
+        retryMs = Math.min(30_000, Math.max(intervalMs, retryMs * 2))
+      } finally {
+        schedule(retryMs)
       }
     }
-    const timer = setInterval(
-      () => !stopped && void poll(),
-      this.options.pollIntervalMs ?? 2_000,
-    )
     void poll()
     return () => {
       stopped = true
-      clearInterval(timer)
+      if (timer) clearTimeout(timer)
     }
   }
   private async pollSnapshot(

@@ -5,7 +5,13 @@ import { join } from 'node:path'
 import type { AnyAuthMethod, ConnectConfig } from 'ssh2'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { SshHost, type SshPrompt } from '../src/main/project-host'
+import {
+  SshHost,
+  type Disposer,
+  type SshPrompt,
+  type WatchOptions,
+} from '../src/main/project-host'
+import { asHostId, hostPath, type HostPath, type WatchEvent } from '../src/shared'
 
 const cleanups: string[] = []
 
@@ -79,6 +85,65 @@ describe('SshHost authentication', () => {
     expect(verifier(Buffer.from('new-host-key'), verify)).toBeUndefined()
     await vi.waitFor(() => expect(verify).toHaveBeenCalledWith(true))
     expect(remember).toHaveBeenCalledWith(expect.stringMatching(/^SHA256:/))
+  })
+})
+
+describe('SshHost remote behavior', () => {
+  it('resolves and caches the remote host shell', async () => {
+    const host = new SshHost({
+      config: aliasConfig(),
+      prompter: { prompt: () => Promise.resolve(undefined) },
+    })
+    const exec = vi
+      .spyOn(host, 'exec')
+      .mockResolvedValue({ code: 0, signal: null, stdout: '/bin/bash\n', stderr: '' })
+
+    await expect(host.defaultShell()).resolves.toBe('/bin/bash')
+    await expect(host.defaultShell()).resolves.toBe('/bin/bash')
+    expect(exec).toHaveBeenCalledOnce()
+  })
+
+  it('never overlaps remote polling snapshots', async () => {
+    vi.useFakeTimers()
+    try {
+      const host = new SshHost({
+        config: aliasConfig(),
+        pollIntervalMs: 10,
+        prompter: { prompt: () => Promise.resolve(undefined) },
+      })
+      let finishFirst: ((snapshot: Map<string, string>) => void) | undefined
+      const first = new Promise<Map<string, string>>((resolve) => {
+        finishFirst = resolve
+      })
+      const snapshot = vi
+        .fn<() => Promise<Map<string, string>>>()
+        .mockReturnValueOnce(first)
+        .mockResolvedValue(new Map())
+      const internals = host as unknown as {
+        pollSnapshot(path: HostPath, opts: WatchOptions): Promise<Map<string, string>>
+        watchPolling(
+          path: HostPath,
+          onEvent: (event: WatchEvent) => void,
+          opts: WatchOptions,
+        ): Disposer
+      }
+      internals.pollSnapshot = snapshot
+      const stop = internals.watchPolling(
+        hostPath(asHostId('example'), '/project'),
+        () => undefined,
+        {},
+      )
+
+      await vi.advanceTimersByTimeAsync(100)
+      expect(snapshot).toHaveBeenCalledOnce()
+      finishFirst?.(new Map())
+      await Promise.resolve()
+      await vi.advanceTimersByTimeAsync(10)
+      expect(snapshot).toHaveBeenCalledTimes(2)
+      await stop()
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })
 

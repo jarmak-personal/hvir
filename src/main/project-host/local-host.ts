@@ -65,6 +65,13 @@ export class LocalHost implements ProjectHost {
     await Promise.all(closing)
   }
 
+  defaultShell(): Promise<string> {
+    return Promise.resolve(
+      process.env.SHELL ??
+        (process.platform === 'win32' ? 'powershell.exe' : '/bin/bash'),
+    )
+  }
+
   exec(
     command: string,
     args: readonly string[],

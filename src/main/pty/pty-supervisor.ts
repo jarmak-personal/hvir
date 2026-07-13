@@ -65,10 +65,17 @@ export class PtySupervisor {
     }
     this.pendingIds.add(sessionId)
 
-    const ctx = { sessionId, cwd: req.cwd, cols: req.cols, rows: req.rows }
     const resumed = req.resume === true && req.adapter.supportsResume
     let pty: PtyProcess
     try {
+      const defaultShell = await req.host.defaultShell()
+      const ctx = {
+        sessionId,
+        cwd: req.cwd,
+        cols: req.cols,
+        rows: req.rows,
+        defaultShell,
+      }
       const spec = resumed ? req.adapter.resume(ctx) : req.adapter.launch(ctx)
       pty = await req.host.spawnPty({
         file: spec.file,

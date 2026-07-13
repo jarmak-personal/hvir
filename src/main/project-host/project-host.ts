@@ -86,6 +86,9 @@ export interface ProjectHost {
   dispose(): Promise<void>
   onConnectionState(cb: (state: HostConnectionState) => void): Disposer
 
+  /** Resolve the interactive shell on this host (never inherit it from another host). */
+  defaultShell(): Promise<string>
+
   /** Buffered command execution. */
   exec(command: string, args: readonly string[], opts?: ExecOptions): Promise<ExecResult>
   /** Streaming command execution. */

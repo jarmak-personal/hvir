@@ -80,6 +80,9 @@ dependency-reload fixes.
 
 ## P1 — SSH session workflow
 
+- [x] Resolve plain terminal shells on the owning `ProjectHost` so a local macOS `$SHELL`
+      is never launched on a Linux SSH host. Make fallback polling single-flight with
+      bounded error backoff so a slow recursive snapshot cannot exhaust SSH channels.
 - [x] Honor `ssh2`'s async host-verifier and initial-auth callback contracts: wait for an
       explicit Trust Host action before accepting/rejecting, wrap the standard SHA-256
       fingerprint inside the dialog, and begin the auth ladder when server methods are not

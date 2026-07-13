@@ -19,6 +19,8 @@ export interface LaunchContext {
   readonly cwd: HostPath
   readonly cols?: number
   readonly rows?: number
+  /** Interactive shell resolved by the owning ProjectHost. */
+  readonly defaultShell: string
 }
 
 export interface LaunchSpec {
@@ -53,18 +55,12 @@ export const plainShellAdapter: HarnessAdapter = {
   displayName: 'Shell',
   supportsResume: false,
 
-  launch(): LaunchSpec {
-    return { file: defaultShell(), args: [] }
+  launch(ctx): LaunchSpec {
+    return { file: ctx.defaultShell, args: [] }
   },
 
   resume(ctx): LaunchSpec {
     // No session semantics — a resume is indistinguishable from a fresh shell.
     return this.launch(ctx)
   },
-}
-
-function defaultShell(): string {
-  return (
-    process.env.SHELL ?? (process.platform === 'win32' ? 'powershell.exe' : '/bin/bash')
-  )
 }

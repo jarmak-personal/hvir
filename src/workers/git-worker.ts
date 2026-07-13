@@ -104,6 +104,9 @@ class ProxyGitHost implements ProjectHost {
     cb('connected')
     return () => undefined
   }
+  defaultShell(): Promise<string> {
+    return Promise.reject(new Error('git worker does not resolve interactive shells'))
+  }
   exec(
     command: string,
     args: readonly string[],

@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import type { HarnessAdapter } from '../src/main/harness/harness-adapter'
+import {
+  plainShellAdapter,
+  type HarnessAdapter,
+} from '../src/main/harness/harness-adapter'
 import type {
   ProjectHost,
   PtyExit,
@@ -43,13 +46,16 @@ function fixture(): {
   host: ProjectHost
   adapter: HarnessAdapter
   spawnPty: ReturnType<typeof vi.fn<(opts: SpawnPtyOptions) => Promise<PtyProcess>>>
+  defaultShell: ReturnType<typeof vi.fn<() => Promise<string>>>
 } {
   const pty = new FakePty()
   const spawnPty = vi.fn((_opts: SpawnPtyOptions): Promise<PtyProcess> =>
     Promise.resolve(pty),
   )
+  const defaultShell = vi.fn(() => Promise.resolve('/remote/bin/bash'))
   const host = {
     hostId: LOCAL_HOST_ID,
+    defaultShell,
     spawnPty,
   } as unknown as ProjectHost
   const adapter: HarnessAdapter = {
@@ -59,10 +65,25 @@ function fixture(): {
     launch: () => ({ file: 'test-harness', args: ['launch'] }),
     resume: () => ({ file: 'test-harness', args: ['resume'] }),
   }
-  return { supervisor: new PtySupervisor(), pty, host, adapter, spawnPty }
+  return { supervisor: new PtySupervisor(), pty, host, adapter, spawnPty, defaultShell }
 }
 
 describe('PtySupervisor', () => {
+  it('launches a plain shell resolved by the owning host', async () => {
+    const { supervisor, host, spawnPty, defaultShell } = fixture()
+    await supervisor.spawn({
+      host,
+      adapter: plainShellAdapter,
+      cwd: localPath('/tmp/project'),
+      sessionId: 'host-shell',
+    })
+
+    expect(defaultShell).toHaveBeenCalledOnce()
+    expect(spawnPty).toHaveBeenCalledWith(
+      expect.objectContaining({ file: '/remote/bin/bash', args: [] }),
+    )
+  })
+
   it('is the lifecycle and stream boundary for a spawned PTY', async () => {
     const { supervisor, pty, host, adapter, spawnPty } = fixture()
     const info = await supervisor.spawn({
