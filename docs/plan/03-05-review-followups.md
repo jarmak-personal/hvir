@@ -92,6 +92,11 @@ dependency-reload fixes.
       line-number gutter otherwise. Verify source and both diff editors on Linux and macOS.
 - [x] Restyle CodeMirror's collapsed “unchanged lines” diff widget: remove its large white
       gradient and use the same compact, quiet surface/borders as the rest of hvir's diff UI.
+- [ ] **Investigate intermittent diff-load flashing.** During the successful SSH graph
+      stability retest, opening a diff occasionally produced a visible flash even though the
+      diff completed and the app remained usable. Determine whether the viewer or MergeView is
+      being remounted during loading and preserve a stable loading/previous-content surface.
+      This is distinct from the earlier app-wide solid-white renderer failure.
 - [x] **Rendered YAML.** Treat `.yaml`/`.yml` as renderable structured data. Parse in a
       worker with the maintained `yaml` package and reuse the lazy/collapsible JSON tree
       presentation. Surface multi-document YAML and parse errors clearly; never parse large
@@ -123,13 +128,15 @@ dependency-reload fixes.
       lightweight two-second refresh pulse that invalidates transport caches and makes the
       renderer reload only expanded directories; one huge or unreadable subtree can no longer
       prevent top-level additions/removals from appearing.
-- [ ] Retest Codex on a real SSH host after normalizing `TERM`/true-color metadata and
+- [x] Retest Codex on a real SSH host after normalizing `TERM`/true-color metadata and
       replacing the partial-frame timer with a persistent DEC synchronized-output buffer.
       Markers may span arbitrary SSH chunks; complete frames render atomically, while the
       timeout/size escape hatch must explicitly close the mode. The repeatable finding that
       any resize clears both defects is now mirrored by forcing a full Ghostty canvas redraw
       after each complete synchronized frame, without changing PTY geometry. Ordinary input
       must remain visible and the working animation must redraw without flashing partial frames.
+      Hands-on retesting verified both the animation and ordinary input render cleanly without
+      a manual resize.
 
 - [x] Keep expected session failures contained: invalid/case-mismatched folder paths and
       cancelled SFTP watches surface as concise picker/session state, not rejected Electron
@@ -196,7 +203,7 @@ dependency-reload fixes.
       renderer failure, unexpected navigation, lost terminal, collapsed tree, or
       post-interaction Vite reload. A forced renderer crash/unresponsive test demonstrates
       an in-app recovery path without requiring Cmd-Q.
-- [ ] YAML, compact source gutters, and the full-width rail navigation pass Linux/macOS
-      smoke checks.
+- [x] YAML, compact source gutters, and the full-width rail navigation pass Linux/macOS
+      smoke checks. Hands-on macOS review and the production Linux smoke both passed.
 - [ ] The graph answers branch/merge topology at a glance on a merge-heavy repository and
       remains smooth on the largest repository available.

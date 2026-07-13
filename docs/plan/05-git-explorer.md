@@ -25,8 +25,10 @@ merge-heavy hands-on pass.
 history loaded cleanly. Keep the broad SSH acceptance item open until live Changes/diffs
 and the terminal-driven refresh path are retested after the remote watch fix. The subsequent
 all-ref graph pass on that repository exposed a self-feeding index refresh and SSH channel
-exhaustion; both are fixed in the engine/transport, and the graph now refreshes in place, but
-that exact scenario still needs a hands-on retest.
+exhaustion; both are fixed in the engine/transport. The exact repository was retested with no
+graph flashing or channel errors. Diff tabs load, although an intermittent visual flash during
+diff loading remains as a separate P1 follow-up. The broad SSH acceptance item stays open for
+the remaining auth/network and view-mode matrix.
 
 **Scope amendment (2026-07-12):** hands-on review established that branch/merge topology
 is core to the Git reading workflow. A read-only commit graph is now in scope; it does not

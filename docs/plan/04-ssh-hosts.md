@@ -47,7 +47,9 @@ The first hands-on all-ref graph pass then exposed SSH `MaxSessions` pressure: o
 Changes/history/detail reads could exhaust exec channels, while background `git status`
 could refresh `.git/index` and feed its own watcher. Buffered execs are now bounded with
 headroom for the PTY, SFTP, and watch channels; read-only Git disables optional index writes;
-and refresh bursts serialize without blanking the last good graph. A real-host retest remains.
+and refresh bursts serialize without blanking the last good graph. The same 400+ commit remote
+repository was retested successfully: the graph no longer flashes and no channel errors recur.
+An intermittent visual flash while opening a diff is tracked separately as viewer polish.
 Network-drop,
 passphrase-key, and keyboard-interactive/2FA scenarios were not exercised.
 
