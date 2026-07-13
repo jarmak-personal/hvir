@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState, type ReactElement } from 'react'
+import { useEffect, useRef, useState, type MouseEvent, type ReactElement } from 'react'
 
 import {
   HTML_SANDBOX,
+  resolveRenderedLink,
   renderedFileType,
   type CreateHtmlPreviewResponse,
   type HostPath,
@@ -48,6 +49,7 @@ interface RenderedViewProps {
   readonly content: string
   readonly scrollTop: number
   readonly onScroll: (scrollTop: number) => void
+  readonly onOpenPath: (path: HostPath) => void
 }
 
 export function RenderedView({
@@ -55,15 +57,26 @@ export function RenderedView({
   content,
   scrollTop,
   onScroll,
+  onOpenPath,
 }: RenderedViewProps): ReactElement {
   const type = renderedFileType(path)
   if (type === 'html') {
     return <HtmlPreview path={path} content={content} />
   }
-  if (type === 'json') return <JsonView content={content} />
+  if (type === 'json' || type === 'yaml') {
+    return <StructuredDataView content={content} format={type} />
+  }
   if (type === 'mermaid') return <StandaloneMermaid content={content} />
   if (type === 'markdown') {
-    return <MarkdownView content={content} scrollTop={scrollTop} onScroll={onScroll} />
+    return (
+      <MarkdownView
+        path={path}
+        content={content}
+        scrollTop={scrollTop}
+        onScroll={onScroll}
+        onOpenPath={onOpenPath}
+      />
+    )
   }
   return <div className="viewer-empty">No rendered view for this file type</div>
 }
@@ -117,10 +130,12 @@ function HtmlPreview({
 }
 
 function MarkdownView({
+  path,
   content,
   scrollTop,
   onScroll,
-}: Omit<RenderedViewProps, 'path'>): ReactElement {
+  onOpenPath,
+}: RenderedViewProps): ReactElement {
   const container = useRef<HTMLDivElement>(null)
   const scrollTopRef = useRef(scrollTop)
   const [html, setHtml] = useState('')
@@ -163,11 +178,31 @@ function MarkdownView({
 
   if (error) return <div className="viewer-empty error">{error}</div>
   if (!html) return <div className="viewer-empty">Rendering markdown…</div>
+  const followLink = (event: MouseEvent<HTMLDivElement>): void => {
+    if (!(event.target instanceof Element)) return
+    const anchor = event.target.closest<HTMLAnchorElement>('a[href]')
+    if (!anchor || !event.currentTarget.contains(anchor)) return
+    const href = anchor.getAttribute('href')
+    if (!href) return
+    const target = resolveRenderedLink(path, href)
+    event.preventDefault()
+    if (target.kind === 'file') {
+      onOpenPath(target.path)
+    } else if (target.kind === 'external') {
+      window.open(target.url, '_blank', 'noopener,noreferrer')
+    } else if (target.kind === 'anchor') {
+      const destination = [
+        ...event.currentTarget.querySelectorAll<HTMLElement>('[id]'),
+      ].find((element) => element.id === target.fragment)
+      destination?.scrollIntoView({ block: 'start' })
+    }
+  }
   return (
     <div
       className="rendered-scroll markdown-body"
       ref={container}
       onScroll={(event) => onScroll(event.currentTarget.scrollTop)}
+      onClick={followLink}
     />
   )
 }
@@ -229,7 +264,13 @@ async function renderMermaid(source: string, id: string): Promise<string> {
   return svg
 }
 
-function JsonView({ content }: { content: string }): ReactElement {
+function StructuredDataView({
+  content,
+  format,
+}: {
+  readonly content: string
+  readonly format: 'json' | 'yaml'
+}): ReactElement {
   const [document, setDocument] = useState<{
     readonly id: number
     readonly root: JsonNodeDescriptor
@@ -241,7 +282,7 @@ function JsonView({ content }: { content: string }): ReactElement {
     let cancelled = false
     setDocument(undefined)
     setError(undefined)
-    void requestJson({ type: 'parse', documentId, json: content }).then(
+    void requestJson({ type: 'parse', documentId, source: content, format }).then(
       (response) => {
         if (!cancelled && response.type === 'parsed') {
           setDocument({ id: documentId, root: response.root })
@@ -256,10 +297,16 @@ function JsonView({ content }: { content: string }): ReactElement {
       cancelled = true
       void requestJson({ type: 'dispose', documentId }).catch(() => undefined)
     }
-  }, [content])
+  }, [content, format])
 
-  if (error) return <div className="viewer-empty error">Invalid JSON: {error}</div>
-  if (!document) return <div className="viewer-empty">Parsing JSON…</div>
+  if (error)
+    return (
+      <div className="viewer-empty error">
+        Invalid {format.toUpperCase()}: {error}
+      </div>
+    )
+  if (!document)
+    return <div className="viewer-empty">Parsing {format.toUpperCase()}…</div>
   return (
     <div className="rendered-scroll json-tree">
       <JsonNode node={document.root} documentId={document.id} initiallyOpen />

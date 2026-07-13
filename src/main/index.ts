@@ -7,7 +7,8 @@
  */
 
 import { join } from 'node:path'
-import { app, BrowserWindow, protocol, shell } from 'electron'
+import { pathToFileURL } from 'node:url'
+import { app, BrowserWindow, dialog, protocol, shell } from 'electron'
 
 import { registerIpcHandlers } from './ipc'
 import { HtmlPreviewProtocol } from './html-preview-protocol'
@@ -15,6 +16,7 @@ import { createWorkerClient, workerPath, type WorkerClient } from './worker-host
 import { LocalHost, type ProjectHost } from './project-host'
 import { ProjectRegistry, RendererSshPrompter } from './project-registry'
 import { PtySupervisor } from './pty/pty-supervisor'
+import { isSafeExternalUrl, isWorkbenchDocument } from './navigation-policy'
 import {
   ECHO_REQUEST_TYPE,
   joinHostPath,
@@ -56,6 +58,7 @@ function createWindow(
     width: 1280,
     height: 800,
     show: false,
+    backgroundColor: '#0f1115',
     autoHideMenuBar: true,
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
@@ -64,32 +67,86 @@ function createWindow(
       nodeIntegration: false,
     },
   })
+  // electron-vite sets ELECTRON_RENDERER_URL in dev (Vite dev server); in a
+  // packaged build we load the built HTML from disk.
+  const rendererUrl = process.env['ELECTRON_RENDERER_URL']
+  const packagedEntry = join(__dirname, '../renderer/index.html')
+  const entryUrl = rendererUrl ?? pathToFileURL(packagedEntry).href
 
   win.on('ready-to-show', () => win.show())
   // Phase 2 has one renderer-owned terminal set. A renderer reload/crash cannot
   // run React cleanup, so main must end those PTYs rather than orphan shells.
-  win.webContents.on('did-start-navigation', (_event, _url, _isInPlace, isMainFrame) => {
-    if (isMainFrame) discardRendererResources()
+  win.webContents.on('did-start-navigation', (_event, url, isInPlace, isMainFrame) => {
+    if (isMainFrame && !isInPlace && isWorkbenchDocument(url, entryUrl)) {
+      discardRendererResources()
+    }
   })
-  win.webContents.on('render-process-gone', discardRendererResources)
+  win.webContents.on('will-navigate', (event, url) => {
+    if (isWorkbenchDocument(url, entryUrl)) return
+    event.preventDefault()
+    console.warn(`[navigation] blocked workbench replacement: ${url}`)
+    if (isSafeExternalUrl(url)) void shell.openExternal(url)
+  })
+  win.webContents.on('did-fail-load', (_event, code, description, url, isMainFrame) => {
+    if (isMainFrame) {
+      console.error(
+        `[window] main document failed to load (${code}): ${description} ${url}`,
+      )
+    }
+  })
+  let rendererRecoveryRequested = false
+  win.webContents.on('render-process-gone', (_event, details) => {
+    discardRendererResources()
+    console.error(`[window] renderer process gone: ${JSON.stringify(details)}`)
+    if (rendererRecoveryRequested) {
+      rendererRecoveryRequested = false
+    } else if (!win.isDestroyed() && details.reason !== 'clean-exit') {
+      // A crashed renderer cannot paint a React recovery screen. Reloading
+      // creates a fresh renderer process and restores persisted tabs.
+      win.webContents.reload()
+    }
+  })
+  let handlingUnresponsive = false
+  win.webContents.on('unresponsive', () => {
+    if (handlingUnresponsive || win.isDestroyed()) return
+    handlingUnresponsive = true
+    console.error('[window] renderer became unresponsive')
+    void dialog
+      .showMessageBox(win, {
+        type: 'warning',
+        title: 'hvir is not responding',
+        message: 'The hvir window stopped responding.',
+        detail: 'Reloading will recover the window but may discard unsaved source edits.',
+        buttons: ['Wait', 'Reload hvir'],
+        defaultId: 0,
+        cancelId: 0,
+      })
+      .then(({ response }) => {
+        if (response === 1 && !win.isDestroyed()) {
+          rendererRecoveryRequested = true
+          win.webContents.forcefullyCrashRenderer()
+          win.webContents.reload()
+        }
+      })
+      .finally(() => {
+        handlingUnresponsive = false
+      })
+  })
   win.on('closed', discardRendererResources)
 
   // Open external links in the OS browser, never in-app (security posture).
   win.webContents.setWindowOpenHandler(({ url }) => {
-    void shell.openExternal(url)
+    if (isSafeExternalUrl(url)) void shell.openExternal(url)
     return { action: 'deny' }
   })
 
-  // electron-vite sets ELECTRON_RENDERER_URL in dev (Vite dev server); in a
-  // packaged build we load the built HTML from disk.
-  const rendererUrl = process.env['ELECTRON_RENDERER_URL']
   if (rendererUrl) {
     void win
       .loadURL(rendererUrl)
       .catch((error) => console.error('[window] failed to load renderer URL', error))
   } else {
     void win
-      .loadFile(join(__dirname, '../renderer/index.html'))
+      .loadFile(packagedEntry)
       .catch((error) => console.error('[window] failed to load renderer file', error))
   }
 
@@ -427,6 +484,56 @@ async function runSmoke(): Promise<number> {
       20000,
     )) as string
     console.log(`[smoke] rendered Markdown fixture OK (${renderedFixture})`)
+
+    const renderedLinkStatus = (await withTimeout(
+      win.webContents.executeJavaScript(`
+        new Promise((resolve, reject) => {
+          const deadline = Date.now() + 10000;
+          const link = (text) => [...document.querySelectorAll('.markdown-body a')]
+            .find((node) => node.textContent?.trim() === text);
+          const missing = link('Missing target');
+          if (!missing) return reject(new Error('rendered missing-link fixture absent'));
+          missing.click();
+          const waitForYaml = () => {
+            const title = document.querySelector('.viewer-title')?.textContent || '';
+            const keys = [...document.querySelectorAll('.json-key')]
+              .map((node) => node.textContent || '');
+            const fixturesOpen = [...document.querySelectorAll('.directory-row')]
+              .some((node) => node.getAttribute('title')?.endsWith('/test/fixtures') &&
+                node.querySelector('.tree-chevron')?.textContent?.trim() === '⌄');
+            if (title.includes('rendered.yml') && keys.some((key) => key.includes('name')) && fixturesOpen) {
+              return resolve('internal tab · YAML tree · tree preserved · ' + location.protocol);
+            }
+            if (Date.now() > deadline) return reject(new Error(
+              'internal YAML link timed out: ' + title + ' ' + keys.join(',')
+            ));
+            setTimeout(waitForYaml, 50);
+          };
+          const waitForContainedError = () => {
+            if (document.querySelector('.viewer-empty.error')) {
+              const renderedTab = [...document.querySelectorAll('.viewer-tab')]
+                .find((node) => node.querySelector('.tab-name')?.textContent?.trim() === 'rendered.md');
+              renderedTab?.querySelector('.tab-main')?.click();
+              const waitForOriginal = () => {
+                const yaml = link('Open the YAML fixture');
+                if (yaml) {
+                  yaml.click();
+                  return waitForYaml();
+                }
+                if (Date.now() > deadline) return reject(new Error('original rendered tab did not recover'));
+                setTimeout(waitForOriginal, 50);
+              };
+              return waitForOriginal();
+            }
+            if (Date.now() > deadline) return reject(new Error('missing internal link escaped the viewer'));
+            setTimeout(waitForContainedError, 50);
+          };
+          waitForContainedError();
+        })
+      `),
+      'rendered internal link did not stay in hvir',
+    )) as string
+    console.log(`[smoke] rendered link routing + YAML OK (${renderedLinkStatus})`)
 
     const sandboxPolicy = (await withTimeout(
       win.webContents.executeJavaScript(`
@@ -784,7 +891,15 @@ async function runSmoke(): Promise<number> {
             blameButton.click();
             const waitForBlame = () => {
               const marker = document.querySelector('.cm-blame-marker');
-              if (marker) return resolve(marker.textContent || 'blame marker');
+              if (marker) {
+                const label = marker.textContent || 'blame marker';
+                blameButton.click();
+                return requestAnimationFrame(() => {
+                  document.querySelector('.cm-blame-gutter')
+                    ? reject(new Error('disabled blame gutter still reserves width'))
+                    : resolve(label + ' · compact when off');
+                });
+              }
               const status = document.querySelector('.source-meta')?.textContent || '';
               if (status.includes('blame unavailable')) return reject(new Error(status));
               if (Date.now() > deadline) return reject(new Error('blame gutter did not load: ' + status));

@@ -34,6 +34,12 @@ Dependency notes: 2 depends on 1. 3 depends on 2. Phases 4 and 5 both depend on 
 could run in parallel or swapped. 6 depends on 1 (seams) and benefits from 3. 7 depends
 on 5 and 6. 8 is last.
 
+## Active review queue
+
+- [Phase 3–5 review follow-ups](03-05-review-followups.md) — macOS cold-dev stability,
+  rendered links/YAML, compact source gutters, rail navigation, and Git topology graph.
+  Resolve P0 before further milestone acceptance work.
+
 ## Ground rules (apply to every phase)
 
 - **Hard constraints** from AGENTS.md are non-negotiable: no real editing beyond

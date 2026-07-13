@@ -1,0 +1,8 @@
+name: hvir
+views:
+  - rendered
+  - source
+  - diff
+remote:
+  transport: ssh
+  agentless: true

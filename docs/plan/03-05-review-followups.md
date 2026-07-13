@@ -1,0 +1,119 @@
+# Phase 3–5 review follow-ups
+
+**Source:** macOS hands-on review after the integrated Phase 4/5 slice (2026-07-12).
+This is the active queue for regressions and workflow feedback that crosses the viewer
+(Phase 3), SSH integration (Phase 4), and Git explorer (Phase 5). Keep the completed
+phase records intact; check these items in the implementation commit that resolves them.
+
+## P0 — stability and navigation
+
+- [x] **Route links in rendered Markdown through hvir.** Intercept anchor clicks before
+      browser navigation. Resolve relative paths against the rendered file's host-qualified
+      parent directory, then open them through the normal tab/`ProjectHost` path. Preserve
+      same-document `#anchors`; send explicit `http:`/`https:` links to the OS browser.
+      Missing or out-of-root files must show a contained tab error and must not reload the
+      renderer, tear down terminals, or collapse the file tree.
+- [x] Disable MarkdownIt's automatic prose linkifier: bare repository filenames such as
+      `design.md` must remain text rather than becoming `http://design.md`; explicit
+      Markdown web links still work.
+- [x] **Add a main-frame navigation guard.** Reject unexpected `will-navigate` events as
+      defense in depth so malformed rendered content can never replace the workbench. Allow
+      only the expected dev-server reload or packaged app document; external URLs open in
+      the OS browser.
+- [ ] **Diagnose and eliminate the solid-white renderer failure.** Exact observed sequence
+      on macOS: several rendered-Markdown relative links failed to navigate, then switching
+      a design document to source/raw made the entire window solid white and unresponsive.
+      Cmd-Q still worked; relaunching hvir recovered it. It has not reproduced yet. Capture
+      `will-navigate`/`did-fail-load`, `render-process-gone`, `unresponsive`, worker errors,
+      and the active tab/mode transition so the next occurrence distinguishes unintended
+      navigation, renderer crash/hang, and dev-server reload. A failure must leave a usable
+      recovery surface rather than a permanently white window.
+- [ ] **Remove the cold-dev Shiki dependency reload as a separate variable.** Reproduce on
+      macOS after clearing Vite's dependency cache. Explicitly include Markdown/Shiki worker
+      dependencies in renderer `optimizeDeps` so first use does not discover new dependency
+      chunks and force a full-page reload. Vite's optimization notice may occur during
+      startup, never in response to changing a tab's view mode. This is a plausible
+      contributor to the observed sequence, not yet established as the white-screen cause.
+- [ ] Add a cold-cache macOS regression check: first Markdown render, rendered → source,
+      and an internal relative link all succeed without a renderer reload; open tabs, tree
+      expansion, and the terminal survive.
+
+The `task_policy_set` messages in the review log are Chromium/macOS process-policy noise;
+track them only if they correlate with an observable hvir failure after the navigation and
+dependency-reload fixes.
+
+## P1 — viewer polish
+
+- [x] **Do not reserve the blame gutter while blame is off.** The current empty
+      `.cm-blame-gutter` has `min-width: 165px`, which looks like an enormous line-number
+      margin. Mount that gutter only when blame is enabled; keep CodeMirror's normal compact
+      line-number gutter otherwise. Verify source and both diff editors on Linux and macOS.
+- [x] **Rendered YAML.** Treat `.yaml`/`.yml` as renderable structured data. Parse in a
+      worker with the maintained `yaml` package and reuse the lazy/collapsible JSON tree
+      presentation. Surface multi-document YAML and parse errors clearly; never parse large
+      YAML on the renderer thread.
+
+## P1 — left-rail information architecture
+
+- [ ] Replace the small child-owned Files/Git switches with one full-width rail navigation
+      strip owned by the rail container: `Files | Git | Harness`. Files and Git are active;
+      Harness reserves the Phase 6 location without leaking harness-specific behavior into
+      either panel. Keep the changed-file badge on Git and connection state/project controls
+      consistently above or beside the strip.
+- [ ] Preserve each section's local state when switching: expanded directories and scroll,
+      Git subview/history position, and eventually Harness selection.
+- [ ] Runtime-smoke repeated Files ↔ Git switching so navigation never remounts unrelated
+      viewer tabs or collapses the tree.
+
+## P1 — SSH session workflow
+
+- [ ] Replace the combined host/path form with a staged remote-session flow:
+      **Connect to Host…** → select an SSH alias → connect/authenticate → select or enter a
+      folder on that host → open the workbench. Local gets the parallel **Open Local
+      Folder…** path. Do not ask for a remote path before the connection succeeds.
+- [ ] Add a narrowly scoped remote-folder picker backed by `ProjectHost.readdir` (directory
+      selection only, not an SFTP file manager), plus recent folders per host and direct path
+      entry for experienced users.
+- [ ] Once connected, remote hvir behaves like local hvir: the same Files/Git/Harness rail,
+      viewer modes, terminal, shortcuts, and project controls. Renderer features must not
+      branch on local vs SSH.
+- [ ] Keep remote context continuously visible without copying VS Code chrome: a quiet
+      `ssh:<alias>` session indicator with connected/reconnecting/failed state, current root,
+      and actions to reconnect, change host, or return local. Local mode may use a low-noise
+      `Local` label rather than hiding the session model.
+- [ ] Switching hosts/projects cleanly replaces the active session: preserve cached stale
+      tabs for recovery, stop the old watch, end its terminals through the PTY supervisor,
+      start the new host watch, and restore that host/root's tab state.
+- [ ] Validate the flow first against a disposable localhost SSH server, then on a real host
+      with agent auth, passphrase auth, and keyboard-interactive/2FA. Phase 4 acceptance stays
+      open until this session flow—not the old combined form—passes.
+
+## P1 — Git topology graph (Phase 5 scope amendment)
+
+- [ ] Extend paged history data with parent hashes and decorated refs/branch heads from
+      system Git through the existing worker/`ProjectHost` route.
+- [ ] Spike the maintained `commit-graph` React component against real hvir history:
+      dark-theme fit, merge/lane correctness, React 19 compatibility, incremental loading,
+      keyboard/selection behavior, license metadata, and large-repository responsiveness.
+      It natively accepts commits with parents and branch heads and supports infinite scroll.
+- [ ] Decide placement from the spike: a dedicated full viewer graph is preferred for the
+      primary workflow, with an optional compact lane strip in rail History. Do not squeeze
+      the only graph into the 238px rail.
+- [ ] If the spike fails, retain its commit-lane model but implement the narrow SVG lane
+      renderer locally; do not adopt an editor extension or generic force-directed graph.
+      `@gitgraph/js` is rejected as the default candidate because its repository is archived
+      and describes itself as an illustration/presentation API rather than a repository-log
+      viewer.
+- [ ] Commit selection opens the existing commit detail; file selection opens historical
+      diff tabs. Graph loading remains paged/off-thread and refreshes from host watch events.
+
+## Acceptance
+
+- [ ] A cold `npm run dev` on macOS completes the entire P0 scenario without a solid-white
+      renderer failure, unexpected navigation, lost terminal, collapsed tree, or
+      post-interaction Vite reload. A forced renderer crash/unresponsive test demonstrates
+      an in-app recovery path without requiring Cmd-Q.
+- [ ] YAML, compact source gutters, and the full-width rail navigation pass Linux/macOS
+      smoke checks.
+- [ ] The graph answers branch/merge topology at a glance on a merge-heavy repository and
+      remains smooth on the largest repository available.

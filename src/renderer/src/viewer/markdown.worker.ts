@@ -2,7 +2,11 @@ import MarkdownIt from 'markdown-it'
 import { createHighlighterCore } from 'shiki/core'
 import { createJavaScriptRegexEngine } from 'shiki/engine/javascript'
 
-import type { MarkdownRenderRequest, MarkdownRenderResponse } from './render-protocol'
+import {
+  MARKDOWN_OPTIONS,
+  type MarkdownRenderRequest,
+  type MarkdownRenderResponse,
+} from './render-protocol'
 
 const highlighterPromise = createHighlighterCore({
   themes: [import('@shikijs/themes/dark-plus')],
@@ -30,7 +34,10 @@ self.onmessage = (event: MessageEvent<MarkdownRenderRequest>): void => {
 async function render(request: MarkdownRenderRequest): Promise<void> {
   try {
     const highlighter = await highlighterPromise
-    const markdown = new MarkdownIt({ html: false, linkify: true, typographer: true })
+    // Bare repository filenames such as `design.md` are not web hosts. The
+    // linkifier turns them into http://design.md and can navigate Electron's
+    // main frame; authored Markdown links still render normally.
+    const markdown = new MarkdownIt(MARKDOWN_OPTIONS)
     markdown.renderer.rules.fence = (tokens, index) => {
       const token = tokens[index]
       if (!token) return ''

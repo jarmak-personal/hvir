@@ -4,6 +4,7 @@ import type {
   JsonWorkerRequest,
   JsonWorkerResponse,
 } from './json-protocol'
+import { parseStructuredData } from './structured-data'
 
 const documents = new Map<number, unknown>()
 
@@ -11,7 +12,7 @@ self.onmessage = (event: MessageEvent<JsonWorkerRequest>): void => {
   const request = event.data
   try {
     if (request.type === 'parse') {
-      const value: unknown = JSON.parse(request.json)
+      const value = parseStructuredData(request.source, request.format)
       documents.set(request.documentId, value)
       post({
         type: 'parsed',

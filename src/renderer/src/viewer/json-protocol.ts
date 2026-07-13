@@ -11,7 +11,8 @@ export interface JsonNodeDescriptor {
 interface JsonWorkerParseInput {
   readonly type: 'parse'
   readonly documentId: number
-  readonly json: string
+  readonly source: string
+  readonly format: 'json' | 'yaml'
 }
 
 interface JsonWorkerChildrenInput {

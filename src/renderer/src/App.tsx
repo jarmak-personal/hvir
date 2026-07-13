@@ -456,6 +456,12 @@ export function App(): ReactElement {
             onScroll={(scrollTop) =>
               activeTab && scheduleScrollPersistence(activeTab.id, scrollTop)
             }
+            onOpenPath={(path) => {
+              if (activeTab) {
+                updateTab(activeTab.id, (tab) => ({ ...tab, pinned: true }))
+              }
+              openFile(path, true)
+            }}
           />
         </section>
         <PaneResizer

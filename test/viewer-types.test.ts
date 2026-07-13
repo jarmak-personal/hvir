@@ -8,6 +8,8 @@ describe('view mode inference', () => {
     ['diagram.mmd', 'mermaid'],
     ['page.html', 'html'],
     ['data.json', 'json'],
+    ['workflow.yml', 'yaml'],
+    ['config.yaml', 'yaml'],
   ] as const)('opens %s rendered through the %s renderer', (name, renderer) => {
     const path = localPath(`/project/${name}`)
     expect(defaultViewMode(path)).toBe('rendered')

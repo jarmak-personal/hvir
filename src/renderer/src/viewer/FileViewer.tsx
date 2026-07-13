@@ -16,6 +16,7 @@ import {
   type DiffBase,
   type ViewMode,
   type GitBlameLine,
+  type HostPath,
 } from '../../../shared'
 import { DiffView } from './DiffView'
 import type {
@@ -83,6 +84,7 @@ interface FileViewerProps {
   readonly onSave: () => void
   readonly onReload: () => void
   readonly onScroll: (scrollTop: number) => void
+  readonly onOpenPath: (path: HostPath) => void
 }
 
 export function FileViewer({
@@ -93,6 +95,7 @@ export function FileViewer({
   onSave,
   onReload,
   onScroll,
+  onOpenPath,
 }: FileViewerProps): ReactElement {
   const [showBlame, setShowBlame] = useState(false)
   const [blame, setBlame] = useState<readonly GitBlameLine[]>([])
@@ -197,6 +200,7 @@ export function FileViewer({
             onScroll={onScroll}
             blame={showBlame ? blame : []}
             blameStatus={showBlame ? blameStatus : ''}
+            onOpenPath={onOpenPath}
           />
         ) : null}
       </div>
@@ -212,6 +216,7 @@ function ActiveView({
   onScroll,
   blame,
   blameStatus,
+  onOpenPath,
 }: {
   readonly tab: ViewerTab
   readonly file: NonNullable<ViewerTab['file']>
@@ -220,6 +225,7 @@ function ActiveView({
   readonly onScroll: (scrollTop: number) => void
   readonly blame: readonly GitBlameLine[]
   readonly blameStatus: string
+  readonly onOpenPath: (path: HostPath) => void
 }): ReactElement {
   if (tab.mode === 'rendered') {
     return (
@@ -228,6 +234,7 @@ function ActiveView({
         content={file.content}
         scrollTop={tab.scrollTop}
         onScroll={onScroll}
+        onOpenPath={onOpenPath}
       />
     )
   }
@@ -386,6 +393,7 @@ class BlameMarker extends GutterMarker {
 }
 
 function blameGutter(lines: readonly GitBlameLine[]) {
+  if (lines.length === 0) return []
   const byLine = new Map(lines.map((line) => [line.line, line]))
   return gutter({
     class: 'cm-blame-gutter',

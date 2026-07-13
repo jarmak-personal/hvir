@@ -18,6 +18,12 @@ file diffs, badge, and lazy blame gutter. Git transport calls are brokered by ho
 recorded in the ADR-005 addendum. The phase remains in progress until the same UI is
 accepted on a real SSH project.
 
+**Scope amendment (2026-07-12):** hands-on review established that branch/merge topology
+is core to the Git reading workflow. A read-only commit graph is now in scope; it does not
+relax the prohibition on stage/commit/push/branch/stash operations. The implementation
+spike and acceptance are tracked in
+[`03-05-review-followups.md`](03-05-review-followups.md).
+
 ## Tasks
 
 ### Engine (extend the Phase 3 utility-process git module)
@@ -43,6 +49,8 @@ accepted on a real SSH project.
 - [x] History view: commit list (infinite scroll off the paged log), commit detail with
       per-file diffs opening in tabs.
 - [x] Blame layered onto source-mode tabs (gutter or hover), toggleable.
+- [ ] Read-only commit topology graph with branch/merge lanes, paged history, and commit
+      detail/diff integration (see the active review queue).
 
 ## Acceptance criteria
 - [x] In a repo where an agent has uncommitted work: Changes view shows it live,
@@ -57,5 +65,5 @@ accepted on a real SSH project.
 
 ## Non-goals
 Any write operations — stage, commit, push, branch, stash are **out of scope for v1**
-(view-first; the terminal is right there). Graph/topology visualization. Submodule
-UI. If write operations ever come, that's a §2 conversation and an ADR first.
+(view-first; the terminal is right there). Submodule UI. If write operations ever come,
+that's a §2 conversation and an ADR first.

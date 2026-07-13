@@ -17,6 +17,13 @@ cover config merging, modern encrypted-key prompting, host-key reuse, and the sh
 local confinement behavior. The acceptance checklist remains open until it is exercised
 against a real configured SSH host, including a network drop and interactive TUI.
 
+**UX amendment (2026-07-12):** remote work is a session flow, not a host/path form. The
+user first chooses and connects to an SSH alias, then opens a folder on that connected
+host; afterward hvir behaves exactly like a local session while continuously showing a
+quiet remote-context indicator. The redesign is tracked in
+[`03-05-review-followups.md`](03-05-review-followups.md) and must land before Phase 4
+acceptance.
+
 ## Tasks
 
 ### Connection layer
