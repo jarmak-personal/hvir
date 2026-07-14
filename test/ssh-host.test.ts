@@ -169,6 +169,42 @@ describe('SshHost authentication', () => {
 })
 
 describe('SshHost remote behavior', () => {
+  it('connects, probes, and executes through the default buffered slot', async () => {
+    const client = Object.assign(
+      fakeClient(() => queueMicrotask(() => client.emit('ready'))),
+      {
+        exec: vi.fn(
+          (
+            _command: string,
+            callback: (error: Error | undefined, value: unknown) => void,
+          ) => {
+            const channel = Object.assign(new EventEmitter(), {
+              stderr: new EventEmitter(),
+              close: vi.fn(),
+              end: vi.fn(() =>
+                queueMicrotask(() => {
+                  channel.emit('exit', 0)
+                  channel.emit('close')
+                }),
+              ),
+            })
+            callback(undefined, channel)
+          },
+        ),
+      },
+    )
+    const host = new SshHost({
+      config: aliasConfig(),
+      prompter: { prompt: () => Promise.resolve(undefined) },
+      clientFactory: () => client as unknown as Client,
+    })
+
+    await host.connect()
+    await expect(host.exec('true', [])).resolves.toMatchObject({ code: 0 })
+    expect(client.exec).toHaveBeenCalledTimes(2)
+    await host.dispose()
+  })
+
   it('invalidates cached parent listings when watched children change', () => {
     const host = new SshHost({
       config: aliasConfig(),
@@ -752,6 +788,86 @@ describe('SshHost remote behavior', () => {
     third.emit('close')
 
     await expect(Promise.all(results)).resolves.toHaveLength(3)
+    await host.dispose()
+  })
+
+  it('serializes buffered execs by default to preserve restored terminal channels', async () => {
+    const channels = Array.from({ length: 2 }, () =>
+      Object.assign(new EventEmitter(), {
+        stderr: new EventEmitter(),
+        close: vi.fn(),
+        end: vi.fn(),
+      }),
+    )
+    const [first, second] = channels
+    if (!first || !second) throw new Error('Expected two test channels')
+    let nextChannel = 0
+    const client = Object.assign(
+      fakeClient(() => undefined),
+      {
+        exec: vi.fn(
+          (
+            _command: string,
+            callback: (error: Error | undefined, value: unknown) => void,
+          ) => callback(undefined, channels[nextChannel++]),
+        ),
+      },
+    )
+    const host = new SshHost({
+      config: aliasConfig(),
+      prompter: { prompt: () => Promise.resolve(undefined) },
+    })
+    const internals = host as unknown as { state: 'connected'; client: Client }
+    internals.state = 'connected'
+    internals.client = client as unknown as Client
+
+    const results = [host.exec('one', []), host.exec('two', [])]
+    await vi.waitFor(() => expect(client.exec).toHaveBeenCalledOnce())
+    first.emit('exit', 0)
+    first.emit('close')
+    await vi.waitFor(() => expect(client.exec).toHaveBeenCalledTimes(2))
+    second.emit('exit', 0)
+    second.emit('close')
+
+    await expect(Promise.all(results)).resolves.toHaveLength(2)
+    await host.dispose()
+  })
+
+  it('retries a transient SSH channel-open race', async () => {
+    const channel = Object.assign(new EventEmitter(), {
+      stderr: new EventEmitter(),
+      close: vi.fn(),
+      end: vi.fn(),
+    })
+    const client = Object.assign(
+      fakeClient(() => undefined),
+      {
+        exec: vi
+          .fn(
+            (
+              _command: string,
+              callback: (error: Error | undefined, value?: unknown) => void,
+            ) => callback(undefined, channel),
+          )
+          .mockImplementationOnce((_command, callback) =>
+            callback(new Error('(SSH) Channel open failure: open failed')),
+          ),
+      },
+    )
+    const host = new SshHost({
+      config: aliasConfig(),
+      prompter: { prompt: () => Promise.resolve(undefined) },
+    })
+    const internals = host as unknown as { state: 'connected'; client: Client }
+    internals.state = 'connected'
+    internals.client = client as unknown as Client
+
+    const result = host.exec('git', ['status'])
+    await vi.waitFor(() => expect(client.exec).toHaveBeenCalledTimes(2))
+    channel.emit('exit', 0)
+    channel.emit('close')
+
+    await expect(result).resolves.toMatchObject({ code: 0 })
     await host.dispose()
   })
 

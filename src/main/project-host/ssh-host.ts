@@ -73,8 +73,9 @@ export interface SshHostOptions {
   readonly fingerprintObservationWindowMs?: number
   /**
    * Maximum short-lived buffered exec channels. Long-lived PTY, watcher, and
-   * SFTP channels share the server's MaxSessions budget, so keep headroom for
-   * them rather than opening every background Git command at once.
+   * telemetry channels plus SFTP share the server's MaxSessions budget. The
+   * default serializes buffered work so restored agents keep enough headroom;
+   * callers may raise it for servers with a known larger session budget.
    */
   readonly maxConcurrentExecs?: number
   readonly trustedHostKey?: () => string | undefined
@@ -126,10 +127,10 @@ export class SshHost implements ProjectHost {
 
   constructor(private readonly options: SshHostOptions) {
     this.hostId = asHostId(options.config.alias)
-    const requestedExecs = options.maxConcurrentExecs ?? 3
+    const requestedExecs = options.maxConcurrentExecs ?? 1
     this.maxConcurrentExecs = Math.max(
       1,
-      Math.min(16, Number.isFinite(requestedExecs) ? Math.floor(requestedExecs) : 3),
+      Math.min(16, Number.isFinite(requestedExecs) ? Math.floor(requestedExecs) : 1),
     )
   }
   get connectionState(): HostConnectionState {
@@ -237,65 +238,75 @@ export class SshHost implements ProjectHost {
     args: readonly string[],
     opts: ExecOptions = {},
   ): Promise<ExecResult> {
-    if (opts.signal?.aborted) throw abortError()
-    const release = await this.acquireExecSlot(opts.signal)
-    try {
+    let channelOpenRetries = 0
+    for (;;) {
+      if (opts.signal?.aborted) throw abortError()
+      // Connecting performs its own short capability probe through exec(). Do
+      // not reserve the sole buffered slot until that handshake has completed.
       const client = await this.connected()
-      return await new Promise((resolve, reject) =>
-        client.exec(remoteCommand(command, args, opts), (error, stream) => {
-          if (error) return reject(error)
-          this.channels.add(stream)
-          let stdout = '',
-            stderr = '',
-            bytes = 0,
-            code: number | null = null,
-            signal: string | null = null
-          let settled = false
-          const stdoutDecoder = new StringDecoder('utf8')
-          const stderrDecoder = new StringDecoder('utf8')
-          const append = (kind: 'out' | 'err', chunk: Buffer): void => {
-            bytes += chunk.length
-            if (bytes > (opts.maxBuffer ?? 10 * 1024 * 1024)) {
-              if (!settled) reject(new Error('SSH exec output exceeded maxBuffer'))
+      const release = await this.acquireExecSlot(opts.signal)
+      try {
+        return await new Promise((resolve, reject) =>
+          client.exec(remoteCommand(command, args, opts), (error, stream) => {
+            if (error) return reject(error)
+            this.channels.add(stream)
+            let stdout = '',
+              stderr = '',
+              bytes = 0,
+              code: number | null = null,
+              signal: string | null = null
+            let settled = false
+            const stdoutDecoder = new StringDecoder('utf8')
+            const stderrDecoder = new StringDecoder('utf8')
+            const append = (kind: 'out' | 'err', chunk: Buffer): void => {
+              bytes += chunk.length
+              if (bytes > (opts.maxBuffer ?? 10 * 1024 * 1024)) {
+                if (!settled) reject(new Error('SSH exec output exceeded maxBuffer'))
+                settled = true
+                return stream.close()
+              }
+              if (kind === 'out') stdout += stdoutDecoder.write(chunk)
+              else stderr += stderrDecoder.write(chunk)
+            }
+            stream.on('data', (chunk: Buffer) => append('out', chunk))
+            stream.stderr.on('data', (chunk: Buffer) => append('err', chunk))
+            stream.on('exit', (exitCode: number | null, exitSignal?: string) => {
+              code = exitCode
+              signal = exitSignal ?? null
+            })
+            stream.on('error', (reason: Error) => {
+              if (!settled) reject(reason)
               settled = true
-              return stream.close()
-            }
-            if (kind === 'out') stdout += stdoutDecoder.write(chunk)
-            else stderr += stderrDecoder.write(chunk)
-          }
-          stream.on('data', (chunk: Buffer) => append('out', chunk))
-          stream.stderr.on('data', (chunk: Buffer) => append('err', chunk))
-          stream.on('exit', (exitCode: number | null, exitSignal?: string) => {
-            code = exitCode
-            signal = exitSignal ?? null
-          })
-          stream.on('error', (reason: Error) => {
-            if (!settled) reject(reason)
-            settled = true
-          })
-          stream.on('close', () => {
-            this.channels.delete(stream)
-            if (!settled) {
-              stdout += stdoutDecoder.end()
-              stderr += stderrDecoder.end()
-              resolve({ code, signal, stdout, stderr })
-            }
-            settled = true
-          })
-          if (opts.signal) {
-            const abort = (): void => {
-              if (!settled) reject(abortError())
+            })
+            stream.on('close', () => {
+              this.channels.delete(stream)
+              if (!settled) {
+                stdout += stdoutDecoder.end()
+                stderr += stderrDecoder.end()
+                resolve({ code, signal, stdout, stderr })
+              }
               settled = true
-              stream.close()
+            })
+            if (opts.signal) {
+              const abort = (): void => {
+                if (!settled) reject(abortError())
+                settled = true
+                stream.close()
+              }
+              opts.signal.addEventListener('abort', abort, { once: true })
+              stream.once('close', () => opts.signal?.removeEventListener('abort', abort))
             }
-            opts.signal.addEventListener('abort', abort, { once: true })
-            stream.once('close', () => opts.signal?.removeEventListener('abort', abort))
-          }
-          stream.end(opts.input)
-        }),
-      )
-    } finally {
-      release()
+            stream.end(opts.input)
+          }),
+        )
+      } catch (reason) {
+        if (!isChannelOpenFailure(reason) || channelOpenRetries >= 4) throw reason
+      } finally {
+        release()
+      }
+      const retryDelayMs = 25 * 2 ** channelOpenRetries
+      channelOpenRetries++
+      await abortableDelay(retryDelayMs, opts.signal)
     }
   }
 
@@ -1324,6 +1335,25 @@ function subscribe<T>(set: Set<(v: T) => void>, cb: (v: T) => void): Disposer {
 }
 function asError(value: unknown): Error {
   return value instanceof Error ? value : new Error(String(value))
+}
+function isChannelOpenFailure(value: unknown): boolean {
+  return value instanceof Error && /\bchannel open failure\b/i.test(value.message)
+}
+function abortableDelay(ms: number, signal?: AbortSignal): Promise<void> {
+  if (signal?.aborted) return Promise.reject(abortError())
+  return new Promise((resolve, reject) => {
+    const finish = (): void => {
+      signal?.removeEventListener('abort', abort)
+      resolve()
+    }
+    const abort = (): void => {
+      clearTimeout(timer)
+      signal?.removeEventListener('abort', abort)
+      reject(abortError())
+    }
+    const timer = setTimeout(finish, ms)
+    signal?.addEventListener('abort', abort, { once: true })
+  })
 }
 function abortError(): Error {
   return new DOMException('The operation was aborted', 'AbortError')
