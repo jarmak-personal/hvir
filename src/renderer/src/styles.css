@@ -2171,6 +2171,64 @@ body.pane-resizing-row * {
   color: #a5afbc;
 }
 
+.file-row.git-status-untracked:not(.selected) .tree-file-stem,
+.directory-row[aria-expanded='false'].git-status-untracked:not(.selected) .tree-name {
+  color: #67ae77;
+}
+
+.file-row.git-status-modified:not(.selected) .tree-file-stem,
+.directory-row[aria-expanded='false'].git-status-modified:not(.selected) .tree-name {
+  color: #d4a85f;
+}
+
+.file-row.git-status-conflict:not(.selected) .tree-file-stem,
+.directory-row[aria-expanded='false'].git-status-conflict:not(.selected) .tree-name {
+  color: #d76d76;
+}
+
+.file-row.selected .tree-file-stem,
+.directory-row.selected .tree-name {
+  color: #eef0f4;
+}
+
+.tree-git-status {
+  flex: 0 0 auto;
+  font-variant-numeric: tabular-nums;
+}
+
+.tree-git-status.file {
+  width: 11px;
+  font-size: 9px;
+  font-weight: 700;
+  text-align: center;
+}
+
+.tree-git-status.directory {
+  width: 9px;
+  height: 9px;
+  display: grid;
+  place-items: center;
+}
+
+.tree-git-status.directory > span {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.tree-git-status.untracked {
+  color: #67ae77;
+}
+
+.tree-git-status.modified {
+  color: #d4a85f;
+}
+
+.tree-git-status.conflict {
+  color: #d76d76;
+}
+
 .tree-depth-guides {
   height: 100%;
   position: absolute;

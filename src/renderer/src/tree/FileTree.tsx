@@ -1,18 +1,23 @@
-import { useCallback, type ReactElement } from 'react'
+import { useCallback, useMemo, type ReactElement } from 'react'
 
 import {
   basenameHostPath,
   unwrapOperation,
+  type GitChangedFile,
   type HostConnectionState,
   type HostPath,
   type HostWatchTier,
 } from '../../../shared'
 import { DirectoryTree } from './DirectoryTree'
+import { buildTreeGitDecorations } from './git-status-decoration'
+
+const NO_CHANGED_FILES: readonly GitChangedFile[] = []
 
 interface FileTreeProps {
   readonly root: HostPath
   readonly refreshVersion: number
   readonly ignoredRefreshVersion: number
+  readonly changedFiles?: readonly GitChangedFile[]
   readonly selected?: HostPath
   readonly onOpen: (path: HostPath, pinned: boolean) => void
   readonly connected?: boolean
@@ -23,11 +28,16 @@ export function FileTree({
   root,
   refreshVersion,
   ignoredRefreshVersion,
+  changedFiles = NO_CHANGED_FILES,
   selected,
   onOpen,
   connected = true,
   hidden = false,
 }: FileTreeProps): ReactElement {
+  const gitDecorations = useMemo(
+    () => buildTreeGitDecorations(root, changedFiles),
+    [changedFiles, root],
+  )
   const loadIgnoredEntries = useCallback(
     async (
       directory: HostPath,
@@ -66,6 +76,7 @@ export function FileTree({
             resolveEntry={resolveProjectEntry}
             refreshVersion={refreshVersion}
             ignoredRefreshVersion={ignoredRefreshVersion}
+            gitDecorations={gitDecorations}
             selected={selected}
             onOpenFile={onOpen}
           />

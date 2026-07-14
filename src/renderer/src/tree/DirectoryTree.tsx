@@ -16,6 +16,12 @@ import {
 } from '../../../shared'
 import { splitFileName } from './file-name'
 import { directoryEntriesEqual } from './git-ignore-refresh'
+import {
+  treeGitPathKey,
+  type TreeDirectoryGitDecoration,
+  type TreeFileGitDecoration,
+  type TreeGitDecorations,
+} from './git-status-decoration'
 
 export interface DirectoryTreeProps {
   readonly root: HostPath
@@ -28,6 +34,7 @@ export interface DirectoryTreeProps {
   readonly resolveEntry?: (path: HostPath) => Promise<FileType>
   readonly refreshVersion?: number
   readonly ignoredRefreshVersion?: number
+  readonly gitDecorations?: TreeGitDecorations
   readonly selected?: HostPath
   readonly expandedPath?: HostPath
   readonly showFiles?: boolean
@@ -48,6 +55,7 @@ export function DirectoryTree({
   resolveEntry,
   refreshVersion = 0,
   ignoredRefreshVersion = 0,
+  gitDecorations,
   selected,
   expandedPath,
   showFiles = true,
@@ -66,6 +74,7 @@ export function DirectoryTree({
         resolveEntry={resolveEntry}
         refreshVersion={refreshVersion}
         ignoredRefreshVersion={ignoredRefreshVersion}
+        gitDecorations={gitDecorations}
         selected={selected}
         expandedPath={expandedPath}
         showFiles={showFiles}
@@ -102,6 +111,7 @@ function DirectoryNode({
   resolveEntry,
   refreshVersion,
   ignoredRefreshVersion,
+  gitDecorations,
   selected,
   expandedPath,
   showFiles,
@@ -119,6 +129,7 @@ function DirectoryNode({
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string>()
   const isSelected = Boolean(selected && hostPathEquals(selected, stablePath))
+  const gitDecoration = gitDecorations?.directories.get(treeGitPathKey(stablePath))
   const entryNames = useMemo(() => entries.map((entry) => entry.name), [entries])
 
   useEffect(() => {
@@ -189,7 +200,7 @@ function DirectoryNode({
         role="treeitem"
         aria-expanded={open}
         aria-selected={isSelected}
-        className={`tree-row directory-row${isSelected ? ' selected' : ''}${linked ? ' symlink-row' : ''}${gitIgnored ? ' gitignored' : ''}`}
+        className={`tree-row directory-row${isSelected ? ' selected' : ''}${linked ? ' symlink-row' : ''}${gitIgnored ? ' gitignored' : ''}${gitDecoration ? ` git-status-${gitDecoration.tone}` : ''}`}
         style={{ paddingLeft: 10 + depth * 14, zIndex: depth + 1 }}
         onClick={() => {
           if (onSelectDirectory) {
@@ -227,6 +238,7 @@ function DirectoryNode({
         ) : null}
         <span className="tree-name">{label}</span>
         {gitIgnoredRoot ? <span className="tree-gitignored">ignored</span> : null}
+        {gitDecoration ? <DirectoryGitStatus decoration={gitDecoration} /> : null}
         {loading ? <span className="tree-loading">…</span> : null}
       </button>
       {open && error ? (
@@ -255,6 +267,7 @@ function DirectoryNode({
                   resolveEntry={resolveEntry}
                   refreshVersion={refreshVersion}
                   ignoredRefreshVersion={ignoredRefreshVersion}
+                  gitDecorations={gitDecorations}
                   selected={selected}
                   expandedPath={expandedPath}
                   showFiles={showFiles}
@@ -277,6 +290,7 @@ function DirectoryNode({
                   resolveEntry={resolveEntry}
                   refreshVersion={refreshVersion}
                   ignoredRefreshVersion={ignoredRefreshVersion}
+                  gitDecorations={gitDecorations}
                   selected={selected}
                   expandedPath={expandedPath}
                   showFiles={showFiles}
@@ -288,13 +302,14 @@ function DirectoryNode({
             if (!showFiles) return []
             const fileSelected = Boolean(selected && hostPathEquals(selected, child))
             const openable = entry.type === 'file'
+            const fileGitDecoration = gitDecorations?.files.get(treeGitPathKey(child))
             return [
               <button
                 type="button"
                 role="treeitem"
                 aria-selected={fileSelected}
                 key={`${child.hostId}:${child.path}`}
-                className={`tree-row file-row${fileSelected ? ' selected' : ''}${childGitIgnored ? ' gitignored' : ''}`}
+                className={`tree-row file-row${fileSelected ? ' selected' : ''}${childGitIgnored ? ' gitignored' : ''}${fileGitDecoration ? ` git-status-${fileGitDecoration.tone}` : ''}`}
                 style={{ paddingLeft: 24 + (depth + 1) * 14 }}
                 onClick={() => openable && onOpenFile?.(child, false)}
                 onDoubleClick={() => openable && onOpenFile?.(child, true)}
@@ -304,6 +319,9 @@ function DirectoryNode({
               >
                 <TreeDepthGuides depth={depth + 1} />
                 <FileTreeName name={entry.name} />
+                {fileGitDecoration ? (
+                  <FileGitStatus decoration={fileGitDecoration} />
+                ) : null}
                 {childGitIgnoredRoot ? (
                   <span className="tree-gitignored">ignored</span>
                 ) : null}
@@ -327,6 +345,7 @@ function SymlinkNode({
   resolveEntry,
   refreshVersion,
   ignoredRefreshVersion,
+  gitDecorations,
   selected,
   expandedPath,
   showFiles,
@@ -376,6 +395,7 @@ function SymlinkNode({
         resolveEntry={resolveEntry}
         refreshVersion={refreshVersion}
         ignoredRefreshVersion={ignoredRefreshVersion}
+        gitDecorations={gitDecorations}
         selected={selected}
         expandedPath={expandedPath}
         showFiles={showFiles}
@@ -387,12 +407,13 @@ function SymlinkNode({
   if (targetType === 'file') {
     if (!showFiles) return null
     const fileSelected = Boolean(selected && hostPathEquals(selected, stablePath))
+    const fileGitDecoration = gitDecorations?.files.get(treeGitPathKey(stablePath))
     return (
       <button
         type="button"
         role="treeitem"
         aria-selected={fileSelected}
-        className={`tree-row file-row symlink-row${fileSelected ? ' selected' : ''}${gitIgnored ? ' gitignored' : ''}`}
+        className={`tree-row file-row symlink-row${fileSelected ? ' selected' : ''}${gitIgnored ? ' gitignored' : ''}${fileGitDecoration ? ` git-status-${fileGitDecoration.tone}` : ''}`}
         style={{ paddingLeft: 24 + depth * 14 }}
         onClick={() => onOpenFile?.(stablePath, false)}
         onDoubleClick={() => onOpenFile?.(stablePath, true)}
@@ -404,6 +425,7 @@ function SymlinkNode({
           ↗
         </span>
         <FileTreeName name={label} />
+        {fileGitDecoration ? <FileGitStatus decoration={fileGitDecoration} /> : null}
         {gitIgnoredRoot ? <span className="tree-gitignored">ignored</span> : null}
       </button>
     )
@@ -452,6 +474,38 @@ function FileTreeName({ name }: { readonly name: string }): ReactElement {
     <span className="tree-name tree-file-name">
       <span className="tree-file-stem">{stem}</span>
       {extension ? <span className="tree-file-extension">{extension}</span> : null}
+    </span>
+  )
+}
+
+function FileGitStatus({
+  decoration,
+}: {
+  readonly decoration: TreeFileGitDecoration
+}): ReactElement {
+  return (
+    <span
+      className={`tree-git-status file ${decoration.tone}`}
+      aria-label={decoration.label}
+      title={decoration.label}
+    >
+      {decoration.marker}
+    </span>
+  )
+}
+
+function DirectoryGitStatus({
+  decoration,
+}: {
+  readonly decoration: TreeDirectoryGitDecoration
+}): ReactElement {
+  return (
+    <span
+      className={`tree-git-status directory ${decoration.tone}`}
+      aria-label={decoration.label}
+      title={decoration.label}
+    >
+      <span aria-hidden="true" />
     </span>
   )
 }
