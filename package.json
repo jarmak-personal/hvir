@@ -23,7 +23,8 @@
     "test:watch": "vitest",
     "check-seams": "bash scripts/check-seams.sh",
     "verify": "npm run check-seams && npm run lint && npm run typecheck && npm test",
-    "smoke": "electron-vite build && cross-env HVIR_SMOKE=1 electron . --no-sandbox"
+    "smoke": "electron-vite build && cross-env HVIR_SMOKE=1 electron . --no-sandbox",
+    "smoke:capacity": "electron-vite build && cross-env HVIR_SMOKE=1 HVIR_CAPACITY_SMOKE=1 electron . --no-sandbox"
   },
   "dependencies": {
     "@codemirror/merge": "^6.12.2",

@@ -68,7 +68,7 @@ export interface HarnessTelemetryContext {
   readonly sessionId: string
   readonly sessionData?: unknown
   readonly signal: AbortSignal
-  readonly emit: (telemetry: HarnessTelemetry) => void
+  readonly emit: (telemetry: HarnessTelemetry | undefined) => void
 }
 
 export interface HarnessTelemetryObserver {

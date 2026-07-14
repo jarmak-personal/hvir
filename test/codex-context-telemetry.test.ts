@@ -195,7 +195,9 @@ describe('Codex context telemetry', () => {
         sessionId: SESSION_ID,
         sessionData: { rolloutPath: path },
         signal: controller.signal,
-        emit: (telemetry) => emitted.push(telemetry),
+        emit: (telemetry) => {
+          if (telemetry) emitted.push(telemetry)
+        },
       })
       await vi.waitFor(() => expect(emitted.at(-1)?.contextUsedPercent).toBe(40), {
         timeout: 4_000,

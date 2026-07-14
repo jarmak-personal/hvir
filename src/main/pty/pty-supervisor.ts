@@ -54,7 +54,7 @@ export type HarnessSessionIdentityStatus = TerminalIdentityStatus
 export interface PtyStreamHandlers {
   onData?: (data: string) => void
   onExit?: (exit: PtyExit) => void
-  onTelemetry?: (telemetry: HarnessTelemetry) => void
+  onTelemetry?: (telemetry: HarnessTelemetry | undefined) => void
 }
 
 interface Entry {
@@ -62,7 +62,7 @@ interface Entry {
   readonly pty: PtyProcess
   readonly dataListeners: Set<(data: string) => void>
   readonly exitListeners: Set<(exit: PtyExit) => void>
-  readonly telemetryListeners: Set<(telemetry: HarnessTelemetry) => void>
+  readonly telemetryListeners: Set<(telemetry: HarnessTelemetry | undefined) => void>
   readonly disposers: Disposer[]
   readonly replay: string[]
   replayLength: number

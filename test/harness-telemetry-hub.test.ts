@@ -76,7 +76,9 @@ describe('HarnessTelemetryHub', () => {
       .mockReturnValueOnce(streams[1]!.handle)
     const hub = telemetryHub(execStream)
     const stopFirst = hub.subscribe(subscription(3))
-    const stopSecond = hub.subscribe(subscription(4))
+    const remainingEmit = vi.fn()
+    const remaining = subscription(4, remainingEmit)
+    const stopSecond = hub.subscribe(remaining)
     await vi.waitFor(() => expect(streams[0]!.writes).toHaveLength(3))
 
     void stopFirst()
@@ -86,6 +88,7 @@ describe('HarnessTelemetryHub', () => {
 
     const warning = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
     streams[0]!.fail(new Error('transport lost'))
+    expect(remainingEmit).toHaveBeenCalledWith(undefined)
     await vi.waitFor(() => expect(execStream).toHaveBeenCalledTimes(2), {
       timeout: 1_000,
     })
@@ -93,6 +96,12 @@ describe('HarnessTelemetryHub', () => {
 
     expect(streams[1]!.writes[0]).toBe('R\t3\t1\n')
     expect(streams[1]!.writes[1]).toContain(`\t${uuid(4)}\t${uuid(4)}\t`)
+    const epoch = execStream.mock.calls[1]?.[1].at(-1)
+    if (!epoch) throw new Error('Expected restarted telemetry hub epoch')
+    streams[1]!.stdout(
+      frame(epoch, '3', remaining.subscriptionId, remaining.sessionId, 9),
+    )
+    expect(remainingEmit).toHaveBeenLastCalledWith({ contextUsedTokens: 9 })
     void stopSecond()
     warning.mockRestore()
   })

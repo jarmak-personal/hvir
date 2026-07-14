@@ -311,7 +311,8 @@ describe('PtySupervisor', () => {
       setWindow: vi.fn(),
       write: vi.fn(),
     })
-    const client = Object.assign(new EventEmitter(), {
+    const terminalClient = Object.assign(new EventEmitter(), {
+      connect: vi.fn(() => queueMicrotask(() => terminalClient.emit('ready'))),
       exec: vi.fn(
         (
           _command: string,
@@ -319,8 +320,12 @@ describe('PtySupervisor', () => {
           callback: (error: Error | undefined, value: unknown) => void,
         ) => callback(undefined, channel),
       ),
-      end: vi.fn(() => client.emit('close')),
-      destroy: vi.fn(() => client.emit('close')),
+      end: vi.fn(() => terminalClient.emit('close')),
+      destroy: vi.fn(() => terminalClient.emit('close')),
+    })
+    const primaryClient = Object.assign(new EventEmitter(), {
+      end: vi.fn(() => primaryClient.emit('close')),
+      destroy: vi.fn(() => primaryClient.emit('close')),
     })
     const host = new SshHost({
       config: {
@@ -331,11 +336,12 @@ describe('PtySupervisor', () => {
         identityFiles: [],
       },
       prompter: { prompt: () => Promise.resolve(undefined) },
+      clientFactory: () => terminalClient as unknown as Client,
     })
     vi.spyOn(host, 'defaultShell').mockResolvedValue('/bin/sh')
     const internals = host as unknown as { state: 'connected'; client: Client }
     internals.state = 'connected'
-    internals.client = client as unknown as Client
+    internals.client = primaryClient as unknown as Client
     const supervisor = new PtySupervisor()
     const onExit = vi.fn()
     supervisor.onExit(onExit)

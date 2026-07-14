@@ -16,7 +16,7 @@ export interface HarnessTelemetrySubscription {
   readonly sessionId: string
   readonly resource: string
   readonly signal: AbortSignal
-  readonly emit: (telemetry: HarnessTelemetry) => void
+  readonly emit: (telemetry: HarnessTelemetry | undefined) => void
 }
 
 interface LiveSubscription extends HarnessTelemetrySubscription {
@@ -206,6 +206,10 @@ export class HarnessTelemetryHub {
     for (const dispose of this.streamDisposers.splice(0)) void dispose()
     stream.dispose()
     if (this.subscriptions.size === 0 || this.stopped) return
+    for (const subscription of this.subscriptions.values()) {
+      subscription.latest = undefined
+      subscription.emit(undefined)
+    }
     console.warn(`[harness:${this.options.adapterId}] telemetry hub unavailable`, error)
     if (!this.restartTimer) {
       this.restartTimer = setTimeout(() => {

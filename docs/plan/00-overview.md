@@ -28,7 +28,7 @@ conflict, the design doc wins; if you must deviate, record why (see Ground rules
 | 5 | Git explorer | [05-git-explorer.md](05-git-explorer.md) | done |
 | 6 | Agent awareness | [06-agent-awareness.md](06-agent-awareness.md) | done |
 | 7 | Workspaces | [07-workspaces.md](07-workspaces.md) | in progress |
-| 7.5 | SSH capacity & telemetry multiplexing | [07.5-ssh-capacity.md](07.5-ssh-capacity.md) | not started |
+| 7.5 | SSH capacity & telemetry multiplexing | [07.5-ssh-capacity.md](07.5-ssh-capacity.md) | in progress |
 | 8 | Polish & packaging | [08-polish-and-packaging.md](08-polish-and-packaging.md) | not started |
 
 Dependency notes: 2 depends on 1. 3 depends on 2. Phases 4 and 5 both depend on 3 and

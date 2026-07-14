@@ -324,7 +324,10 @@ export interface IpcEventMap {
   'ssh:prompt-cancel': { readonly hostId: string }
   'pty:data': { readonly id: string; readonly data: string }
   'pty:exit': { readonly id: string; readonly exitCode: number; readonly signal?: number }
-  'pty:telemetry': { readonly id: string; readonly telemetry: HarnessTelemetry }
+  'pty:telemetry': {
+    readonly id: string
+    readonly telemetry: HarnessTelemetry | undefined
+  }
   'pty:identity': {
     readonly id: string
     readonly harnessSessionId?: string
