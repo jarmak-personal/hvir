@@ -1,0 +1,200 @@
+import { appendFile, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+
+import { describe, expect, it, vi } from 'vitest'
+
+import {
+  observeCodexContext,
+  parseCodexTokenCount,
+} from '../src/main/harness/codex-context-telemetry'
+import { BoundedLineReader } from '../src/main/harness/bounded-line-reader'
+import type { ExecStreamHandle, ProjectHost } from '../src/main/project-host'
+import { LocalHost } from '../src/main/project-host/local-host'
+import { localPath } from '../src/shared'
+
+const SESSION_ID = '019ab123-4567-7890-abcd-ef0123456789'
+
+describe('Codex context telemetry', () => {
+  it('uses current input usage rather than cumulative token totals', () => {
+    expect(
+      parseCodexTokenCount(
+        JSON.stringify({
+          type: 'event_msg',
+          payload: {
+            type: 'token_count',
+            info: {
+              total_token_usage: { input_tokens: 3_375_392 },
+              last_token_usage: {
+                input_tokens: 107_459,
+                cached_input_tokens: 102_272,
+              },
+              model_context_window: 258_400,
+            },
+          },
+        }),
+      ),
+    ).toEqual({
+      contextUsedTokens: 107_459,
+      contextWindowTokens: 258_400,
+      contextUsedPercent: (107_459 / 258_400) * 100,
+    })
+  })
+
+  it('prefers the latest active context total when Codex provides it', () => {
+    expect(
+      parseCodexTokenCount(
+        JSON.stringify({
+          type: 'event_msg',
+          payload: {
+            type: 'token_count',
+            info: {
+              last_token_usage: { input_tokens: 15_377, total_tokens: 15_437 },
+              model_context_window: 258_400,
+            },
+          },
+        }),
+      ),
+    ).toEqual({
+      contextUsedTokens: 15_437,
+      contextWindowTokens: 258_400,
+      contextUsedPercent: (15_437 / 258_400) * 100,
+    })
+  })
+
+  it('rejects malformed, unrelated, and unavailable usage records', () => {
+    expect(parseCodexTokenCount('not-json')).toBeNull()
+    expect(
+      parseCodexTokenCount(JSON.stringify({ type: 'event_msg', payload: {} })),
+    ).toBeNull()
+    expect(
+      parseCodexTokenCount(
+        JSON.stringify({
+          type: 'event_msg',
+          payload: {
+            type: 'token_count',
+            info: {
+              last_token_usage: { input_tokens: 0 },
+              model_context_window: 258_400,
+            },
+          },
+        }),
+      ),
+    ).toEqual({
+      contextUsedTokens: 0,
+      contextWindowTokens: 258_400,
+      contextUsedPercent: 0,
+    })
+  })
+
+  it('drops an oversized record without losing the next bounded line', () => {
+    const onLine = vi.fn<(line: string) => void>()
+    const reader = new BoundedLineReader(onLine)
+
+    reader.push(`${'x'.repeat(256 * 1024 + 1)}\nvalid`)
+    reader.push('\n')
+
+    expect(onLine).toHaveBeenCalledOnce()
+    expect(onLine).toHaveBeenCalledWith('valid')
+  })
+
+  it('follows the exact discovered rollout path and disposes its stream', async () => {
+    const stdoutListeners = new Set<(chunk: string) => void>()
+    const dispose = vi.fn()
+    const stream: ExecStreamHandle = {
+      onStdout: (cb) => {
+        stdoutListeners.add(cb)
+        return () => {
+          stdoutListeners.delete(cb)
+        }
+      },
+      onStderr: () => () => undefined,
+      onError: () => () => undefined,
+      onExit: () => () => undefined,
+      kill: vi.fn(),
+      dispose,
+    }
+    const execStream = vi.fn(() => stream)
+    const host = { hostId: localPath('/').hostId, execStream } as unknown as ProjectHost
+    const emitted = vi.fn()
+    const controller = new AbortController()
+    const rolloutPath = localPath(
+      `/home/user/.codex/sessions/rollout-session-${SESSION_ID}.jsonl`,
+    )
+
+    const stop = await observeCodexContext(host, {
+      sessionId: SESSION_ID,
+      sessionData: { rolloutPath },
+      signal: controller.signal,
+      emit: emitted,
+    })
+    expect(execStream).toHaveBeenCalledWith(
+      'sh',
+      expect.arrayContaining([rolloutPath.path]),
+    )
+
+    const record = JSON.stringify({
+      type: 'event_msg',
+      payload: {
+        type: 'token_count',
+        info: {
+          last_token_usage: { input_tokens: 80_000 },
+          model_context_window: 200_000,
+        },
+      },
+    })
+    for (const listener of stdoutListeners) listener(`${record}\n`)
+    expect(emitted).toHaveBeenCalledWith(
+      expect.objectContaining({ contextUsedPercent: 40 }),
+    )
+
+    void stop()
+    expect(dispose).toHaveBeenCalledOnce()
+  })
+
+  it('filters and follows real rollout records through LocalHost', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'hvir-codex-context-'))
+    const path = localPath(join(directory, `rollout-session-${SESSION_ID}.jsonl`))
+    const host = new LocalHost()
+    const emitted: Array<{ contextUsedPercent?: number }> = []
+    const controller = new AbortController()
+    const record = (used: number): string =>
+      JSON.stringify({
+        type: 'event_msg',
+        payload: {
+          type: 'token_count',
+          info: {
+            last_token_usage: { input_tokens: used },
+            model_context_window: 200_000,
+          },
+        },
+      })
+
+    await writeFile(
+      path.path,
+      `${JSON.stringify({ type: 'session_meta' })}\n${record(80_000)}\n`,
+    )
+    await host.connect()
+    let stop: (() => void | Promise<void>) | undefined
+    try {
+      stop = await observeCodexContext(host, {
+        sessionId: SESSION_ID,
+        sessionData: { rolloutPath: path },
+        signal: controller.signal,
+        emit: (telemetry) => emitted.push(telemetry),
+      })
+      await vi.waitFor(() => expect(emitted.at(-1)?.contextUsedPercent).toBe(40), {
+        timeout: 4_000,
+      })
+
+      await appendFile(path.path, `${record(30_000)}\n`)
+      await vi.waitFor(() => expect(emitted.at(-1)?.contextUsedPercent).toBe(15), {
+        timeout: 4_000,
+      })
+    } finally {
+      await stop?.()
+      await host.dispose()
+      await rm(directory, { recursive: true, force: true })
+    }
+  })
+})

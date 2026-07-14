@@ -18,6 +18,11 @@ import { LocalHost, type ProjectHost } from './project-host'
 import { ProjectRegistry, RendererSshPrompter } from './project-registry'
 import { PtySupervisor } from './pty/pty-supervisor'
 import { isSafeExternalUrl, isWorkbenchDocument } from './navigation-policy'
+import { AttentionBadge } from './attention-badge'
+import {
+  TerminalSessionRegistry,
+  type TerminalSessionStore,
+} from './terminal/session-registry'
 import {
   ECHO_REQUEST_TYPE,
   hostPath,
@@ -30,6 +35,7 @@ import {
   type HostPath,
   type IpcEventChannel,
   type IpcEventPayload,
+  type TerminalRecoverySession,
   HTML_PREVIEW_SCHEME,
 } from '../shared'
 
@@ -47,6 +53,8 @@ let gitWorker: WorkerClient<GitWorkerProtocol> | null = null
 let projectRegistry: ProjectRegistry | null = null
 let sshPrompter: RendererSshPrompter | null = null
 let ptySupervisor: PtySupervisor | null = null
+let terminalSessionRegistry: TerminalSessionRegistry | null = null
+let attentionBadge: AttentionBadge | null = null
 let disposeWatch: Disposer | null = null
 let sessionOperation: Promise<void> = Promise.resolve()
 let suspendSessions: Promise<void> = Promise.resolve()
@@ -56,6 +64,7 @@ let shutdownComplete = false
 function createWindow(
   discardRendererResources: (ownerId: number) => void = (ownerId) => {
     ptySupervisor?.disposeOwner(ownerId)
+    attentionBadge?.update(ownerId, 0)
     sshPrompter?.cancelAll()
     htmlPreviews.clear()
   },
@@ -79,6 +88,9 @@ function createWindow(
   const packagedEntry = join(__dirname, '../renderer/index.html')
   const entryUrl = rendererUrl ?? pathToFileURL(packagedEntry).href
   const ownerId = win.webContents.id
+
+  win.on('focus', () => attentionBadge?.setFocused(ownerId, true))
+  win.on('blur', () => attentionBadge?.setFocused(ownerId, false))
 
   win.on('ready-to-show', () => win.show())
   // Phase 2 has one renderer-owned terminal set. A renderer reload/crash cannot
@@ -141,6 +153,7 @@ function createWindow(
   })
   win.on('closed', () => {
     discardRendererResources(ownerId)
+    attentionBadge?.remove(ownerId)
     if (
       process.platform === 'darwin' &&
       BrowserWindow.getAllWindows().length === 0 &&
@@ -190,6 +203,12 @@ async function startup(): Promise<void> {
     join(app.getPath('userData'), 'known-hosts.json'),
     (state) => emit('project:state', state),
   )
+  const metadataHost = projectRegistry.hostById(LOCAL_HOST_ID)
+  if (!metadataHost) throw new Error('Local metadata host is unavailable')
+  terminalSessionRegistry = await TerminalSessionRegistry.load(
+    metadataHost,
+    localPath(join(app.getPath('userData'), 'terminal-sessions.json')),
+  )
   echoWorker = createWorkerClient<EchoWorkerProtocol>(
     workerPath('echo-worker.js'),
     'hvir-echo',
@@ -200,6 +219,22 @@ async function startup(): Promise<void> {
     (call) => dispatchWorkerHostCall(call, projectRegistry?.active ?? null),
   )
   ptySupervisor = new PtySupervisor()
+  attentionBadge = new AttentionBadge((count) => {
+    if (process.platform !== 'darwin' && process.platform !== 'linux') return false
+    return app.setBadgeCount(count)
+  })
+  ptySupervisor.onSessionIdentity((info) => {
+    if (info.identityStatus === 'identified' && info.harnessSessionId) {
+      void terminalSessionRegistry
+        ?.recordIdentity(info.id, info.harnessSessionId)
+        .catch((error) => console.error('[terminal] identity persistence failed', error))
+    }
+    emit('pty:identity', {
+      id: info.id,
+      harnessSessionId: info.harnessSessionId,
+      identityStatus: info.identityStatus,
+    })
+  })
 
   registerIpcHandlers({
     echoWorker,
@@ -224,7 +259,7 @@ async function startup(): Promise<void> {
         if (!projectRegistry) throw new Error('Project registry is unavailable')
         if (projectRegistry.active.host.hostId === hostId) {
           await stopProjectWatch()
-          ptySupervisor?.disposeAll()
+          ptySupervisor?.disposeSessions()
           htmlPreviews.clear()
         }
         return projectRegistry.disconnectHost(hostId)
@@ -239,7 +274,7 @@ async function startup(): Promise<void> {
         const previousHostId = projectRegistry.active.host.hostId
         const state = await projectRegistry.open(hostId, path)
         await stopProjectWatch()
-        ptySupervisor?.disposeAll()
+        ptySupervisor?.disposeSessions()
         htmlPreviews.clear()
         if (previousHostId !== hostId && previousHostId !== LOCAL_HOST_ID) {
           await projectRegistry.disconnectHost(previousHostId)
@@ -249,6 +284,8 @@ async function startup(): Promise<void> {
       }),
     respondSshPrompt: (id, answers) => sshPrompter?.respond(id, answers),
     ptySupervisor,
+    terminalSessions: terminalSessionRegistry,
+    updateAttention: (ownerId, count) => attentionBadge?.update(ownerId, count),
     htmlPreviews,
     emit,
   })
@@ -397,6 +434,16 @@ async function runSmoke(): Promise<number> {
         smokeWindow.webContents.send(channel, payload)
       }
     }
+    let smokeRecoverySessions: readonly TerminalRecoverySession[] = []
+    const smokeTerminalSessions: TerminalSessionStore = {
+      list: () => smokeRecoverySessions,
+      recordSpawn: () => Promise.resolve(),
+      recordIdentity: () => Promise.resolve(),
+      updateLayout: () => Promise.resolve(),
+      forget: () => Promise.resolve(),
+      authorizeResume: () => false,
+      flush: () => Promise.resolve(),
+    }
     registerIpcHandlers({
       echoWorker: worker,
       gitWorker: git,
@@ -445,6 +492,8 @@ async function runSmoke(): Promise<number> {
         }),
       respondSshPrompt: () => undefined,
       ptySupervisor: supervisor,
+      terminalSessions: smokeTerminalSessions,
+      updateAttention: () => undefined,
       htmlPreviews,
       emit,
     })
@@ -692,7 +741,7 @@ async function runSmoke(): Promise<number> {
       win.webContents.executeJavaScript(`
         new Promise((resolve, reject) => {
           const deadline = Date.now() + 8000;
-          document.querySelector('.terminal-icon-button')?.click();
+          let menuOpened = false;
           const waitForSecond = () => {
             const rows = [...document.querySelectorAll('.terminal-list-row')];
             const surfaces = [...document.querySelectorAll('.terminal-surface')];
@@ -724,6 +773,11 @@ async function runSmoke(): Promise<number> {
             setTimeout(waitForSecond, 25);
           };
           const waitForMenu = () => {
+            const add = document.querySelector('button[aria-label="New terminal"]');
+            if (!menuOpened && add && !add.disabled) {
+              add.click();
+              menuOpened = true;
+            }
             const shell = [...document.querySelectorAll('.terminal-new-menu button')]
               .find((node) => node.textContent?.trim() === 'Shell');
             if (shell) {
@@ -1489,11 +1543,30 @@ async function runSmoke(): Promise<number> {
       win.webContents.executeJavaScript(`
         new Promise((resolve, reject) => {
           const tree = document.querySelector('.tree-panel');
+          const workbench = document.querySelector('.workbench');
+          const viewer = document.querySelector('.viewer-panel');
           const terminal = document.querySelector('.terminal-panel');
+          const terminalRail = document.querySelector('.terminal-rail');
           const treeDivider = document.querySelector('.tree-resizer');
           const terminalDivider = document.querySelector('.terminal-resizer');
-          if (!tree || !terminal || !treeDivider || !terminalDivider) {
+          if (
+            !tree || !workbench || !viewer || !terminal || !terminalRail ||
+            !treeDivider || !terminalDivider
+          ) {
             return reject(new Error('pane dividers missing'));
+          }
+          const workbenchRect = workbench.getBoundingClientRect();
+          const viewerRect = viewer.getBoundingClientRect();
+          const terminalRect = terminal.getBoundingClientRect();
+          const terminalRailRect = terminalRail.getBoundingClientRect();
+          const terminalDividerRect = terminalDivider.getBoundingClientRect();
+          if (
+            Math.abs(viewerRect.right - workbenchRect.right) > 1 ||
+            Math.abs(terminalDividerRect.right - workbenchRect.right) > 1 ||
+            Math.abs(terminalRailRect.top - terminalRect.top) > 1 ||
+            Math.abs(terminalRailRect.bottom - terminalRect.bottom) > 1
+          ) {
+            return reject(new Error('terminal rail is not aligned to the terminal row'));
           }
           const treeBefore = tree.getBoundingClientRect().width;
           const terminalBefore = terminal.getBoundingClientRect().height;
@@ -1512,7 +1585,8 @@ async function runSmoke(): Promise<number> {
             terminalDivider.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
             resolve(
               Math.round(treeBefore) + '→' + Math.round(treeAfter) + 'px tree; ' +
-              Math.round(terminalBefore) + '→' + Math.round(terminalAfter) + 'px terminal'
+              Math.round(terminalBefore) + '→' + Math.round(terminalAfter) +
+              'px terminal; rail aligned'
             );
           }));
         })
@@ -1520,6 +1594,94 @@ async function runSmoke(): Promise<number> {
       'pane resize controls did not respond',
     )) as string
     console.log(`[smoke] pane dividers OK (${resizeStatus})`)
+
+    const previousRecoveryMode = (await win.webContents.executeJavaScript(
+      `localStorage.getItem('hvir:terminal-recovery-mode')`,
+    )) as string | null
+    await win.webContents.executeJavaScript(
+      `localStorage.setItem('hvir:terminal-recovery-mode', 'prompt')`,
+    )
+    smokeRecoverySessions = [
+      {
+        id: 'smoke-recovery-shell',
+        adapterId: 'plain-shell',
+        hostId: smokeRoot.hostId,
+        cwd: smokeRoot,
+        title: 'Recovered smoke shell',
+        position: 0,
+        active: true,
+        updatedAt: Date.now(),
+      },
+    ]
+    const reloaded = new Promise<void>((resolve) =>
+      win.webContents.once('did-finish-load', () => resolve()),
+    )
+    win.webContents.reload()
+    await withTimeout(reloaded, 'recovery smoke reload timed out')
+    let recoveryStatus: string
+    try {
+      recoveryStatus = (await withTimeout(
+        win.webContents.executeJavaScript(`
+          new Promise((resolve, reject) => {
+            const deadline = Date.now() + 10000;
+            const waitForDialog = () => {
+              const dialog = document.querySelector('.terminal-recovery-dialog');
+              const option = dialog?.querySelector('.terminal-recovery-option input');
+              if (option) {
+                option.click();
+                requestAnimationFrame(() => {
+                  if (!document.querySelector('.terminal-recovery-dialog')) {
+                    return reject(new Error('recovery dialog crashed after changing selection'));
+                  }
+                  if (option.checked) {
+                    return reject(new Error('recovery option did not clear'));
+                  }
+                  option.click();
+                  requestAnimationFrame(() => {
+                    if (!option.checked) {
+                      return reject(new Error('recovery option did not reselect'));
+                    }
+                    const restore = [...dialog.querySelectorAll('button')]
+                      .find((node) => node.textContent?.trim() === 'Restore selected');
+                    restore?.click();
+                    const waitForTerminal = () => {
+                      const status = document.querySelector('.terminal-panel .panel-meta')?.textContent || '';
+                      const gitReady = [...document.querySelectorAll('.git-tabs button')]
+                        .some((node) => /^Changes \\(\\d+\\)$/.test(node.textContent?.trim() || ''));
+                      if (status.startsWith('pid ') && gitReady) {
+                        return resolve('toggle selection · restore · ' + status);
+                      }
+                      if (Date.now() > deadline) {
+                        return reject(new Error('restored workspace did not settle: ' + status));
+                      }
+                      setTimeout(waitForTerminal, 25);
+                    };
+                    waitForTerminal();
+                  });
+                });
+                return;
+              }
+              if (Date.now() > deadline) return reject(new Error('recovery dialog missing'));
+              setTimeout(waitForDialog, 25);
+            };
+            waitForDialog();
+          })
+        `),
+        'terminal recovery interaction timed out',
+        12_000,
+      )) as string
+    } finally {
+      if (previousRecoveryMode === null) {
+        await win.webContents.executeJavaScript(
+          `localStorage.removeItem('hvir:terminal-recovery-mode')`,
+        )
+      } else {
+        await win.webContents.executeJavaScript(
+          `localStorage.setItem('hvir:terminal-recovery-mode', ${JSON.stringify(previousRecoveryMode)})`,
+        )
+      }
+    }
+    console.log(`[smoke] terminal recovery picker OK (${recoveryStatus})`)
     win.destroy()
     if (supervisor.list().length !== 0) {
       throw new Error('window close left an orphaned PTY')
@@ -1598,9 +1760,10 @@ app.on('before-quit', (event) => {
 
 async function suspendWorkbenchSessions(): Promise<void> {
   await stopProjectWatch()
-  ptySupervisor?.disposeAll()
+  ptySupervisor?.disposeSessions()
   htmlPreviews.clear()
   sshPrompter?.cancelAll()
+  await terminalSessionRegistry?.flush()
   await projectRegistry?.disconnectSshHosts()
 }
 
@@ -1612,6 +1775,12 @@ async function shutdown(): Promise<void> {
   )
   ptySupervisor?.disposeAll()
   ptySupervisor = null
+  attentionBadge?.clear()
+  attentionBadge = null
+  await terminalSessionRegistry
+    ?.flush()
+    .catch((error) => console.error('[shutdown] terminal persistence failed', error))
+  terminalSessionRegistry = null
   const registry = projectRegistry
   projectRegistry = null
   await registry

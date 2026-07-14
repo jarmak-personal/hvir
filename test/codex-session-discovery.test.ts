@@ -14,6 +14,7 @@ const SECOND_ID = '019ab123-4567-7890-abcd-ef0123456790'
 interface DiscoveryFixture {
   readonly host: ProjectHost
   readonly setPaths: (paths: readonly string[]) => void
+  readonly setPathsAfter: (delayMs: number, paths: readonly string[]) => void
   readonly setRecord: (path: string, record: string) => void
   readonly discovery: ReturnType<typeof createCodexSessionDiscovery>
   readonly identify: (
@@ -21,17 +22,22 @@ interface DiscoveryFixture {
   ) => ReturnType<ReturnType<typeof createCodexSessionDiscovery>['identify']>
 }
 
-function fixture(): DiscoveryFixture {
+function fixture(useDefaultTiming = false): DiscoveryFixture {
   let paths: readonly string[] = []
+  let scheduledPaths:
+    { readonly visibleAt: number; readonly paths: readonly string[] } | undefined
   let now = LAUNCHED_AT
   const records = new Map<string, string>()
   const host = {
+    hostId: CWD.hostId,
     exec: (command: string, args: readonly string[]) => {
       if (command === 'sh') {
+        const visiblePaths =
+          scheduledPaths && now >= scheduledPaths.visibleAt ? scheduledPaths.paths : paths
         return Promise.resolve({
           code: 0,
           signal: null,
-          stdout: `hvir-clock:${Math.floor((now + HOST_CLOCK_SKEW_MS) / 1_000)}\0${paths.length > 0 ? `${paths.join('\0')}\0` : ''}`,
+          stdout: `hvir-clock:${Math.floor((now + HOST_CLOCK_SKEW_MS) / 1_000)}\0${visiblePaths.length > 0 ? `${visiblePaths.join('\0')}\0` : ''}`,
           stderr: '',
         })
       }
@@ -45,10 +51,14 @@ function fixture(): DiscoveryFixture {
     },
   } as unknown as ProjectHost
   const discovery = createCodexSessionDiscovery({
-    timeoutMs: 40,
-    initialPollMs: 10,
-    maxPollMs: 10,
-    settleMs: 10,
+    ...(useDefaultTiming
+      ? {}
+      : {
+          timeoutMs: 40,
+          initialPollMs: 10,
+          maxPollMs: 10,
+          settleMs: 10,
+        }),
     now: () => now,
     sleep: (ms) => {
       now += ms
@@ -59,6 +69,10 @@ function fixture(): DiscoveryFixture {
     host,
     setPaths: (next) => {
       paths = next
+      scheduledPaths = undefined
+    },
+    setPathsAfter: (delayMs, next) => {
+      scheduledPaths = { visibleAt: LAUNCHED_AT + delayMs, paths: next }
     },
     setRecord: (path, record) => records.set(path, record),
     discovery,
@@ -109,6 +123,21 @@ describe('Codex session discovery', () => {
     await expect(f.identify(snapshot)).resolves.toEqual({
       status: 'identified',
       sessionId: FIRST_ID,
+      sessionData: { rolloutPath: localPath(created) },
+    })
+  })
+
+  it('keeps discovery open when Codex materializes rollout metadata late', async () => {
+    const f = fixture(true)
+    const snapshot = await f.discovery.snapshot(f.host)
+    const created = rolloutPath(FIRST_ID)
+    f.setRecord(created, sessionMeta(FIRST_ID))
+    f.setPathsAfter(32_000, [created])
+
+    await expect(f.identify(snapshot)).resolves.toEqual({
+      status: 'identified',
+      sessionId: FIRST_ID,
+      sessionData: { rolloutPath: localPath(created) },
     })
   })
 

@@ -13,7 +13,7 @@ import type {
   PtyProcess,
   SpawnPtyOptions,
 } from '../src/main/project-host'
-import { PtySupervisor } from '../src/main/pty/pty-supervisor'
+import { PtySupervisor, type ManagedPty } from '../src/main/pty/pty-supervisor'
 import { SshHost } from '../src/main/project-host'
 import { LOCAL_HOST_ID, hostPath, localPath } from '../src/shared'
 
@@ -406,7 +406,7 @@ describe('PtySupervisor', () => {
         ),
       },
     })
-    const onIdentity = vi.fn()
+    const onIdentity = vi.fn<(info: ManagedPty) => void>()
     supervisor.onSessionIdentity(onIdentity)
 
     const initial = await supervisor.spawn({
@@ -428,6 +428,129 @@ describe('PtySupervisor', () => {
     expect(supervisor.get('terminal-id')).toMatchObject({
       harnessSessionId: 'codex-session-id',
       identityStatus: 'identified',
+    })
+  })
+
+  it('re-arms unavailable identity discovery on later terminal input', async () => {
+    const { supervisor, pty, host, adapter } = fixture()
+    const snapshot = vi.fn(() => Promise.resolve(['pre-launch']))
+    const identify = vi
+      .fn()
+      .mockResolvedValueOnce({ status: 'unavailable' })
+      .mockResolvedValueOnce({
+        status: 'identified',
+        sessionId: 'codex-after-input',
+      })
+    Object.assign(adapter, {
+      sessionIdentity: 'discovered',
+      sessionDiscovery: { snapshot, identify },
+    })
+    const onIdentity = vi.fn<(info: ManagedPty) => void>()
+    supervisor.onSessionIdentity(onIdentity)
+
+    const info = await supervisor.spawn({
+      host,
+      adapter,
+      cwd: localPath('/tmp/project'),
+      ownerId: OWNER_ID,
+      sessionId: 'terminal-before-input',
+    })
+    await vi.waitFor(() =>
+      expect(onIdentity).toHaveBeenLastCalledWith(
+        expect.objectContaining({ identityStatus: 'unavailable' }),
+      ),
+    )
+
+    supervisor.write(info.id, OWNER_ID, 'first prompt')
+
+    await vi.waitFor(() =>
+      expect(supervisor.get(info.id)).toMatchObject({
+        harnessSessionId: 'codex-after-input',
+        identityStatus: 'identified',
+      }),
+    )
+    expect(pty.write).toHaveBeenCalledWith('first prompt')
+    expect(snapshot).toHaveBeenCalledOnce()
+    expect(identify).toHaveBeenCalledTimes(2)
+    expect(onIdentity.mock.calls.map(([value]) => value.identityStatus)).toEqual([
+      'unavailable',
+      'discovering',
+      'identified',
+    ])
+  })
+
+  it('caches adapter telemetry for attachment and disposes it with the PTY', async () => {
+    const { supervisor, host, adapter } = fixture()
+    const telemetry = {
+      contextUsedTokens: 80_000,
+      contextWindowTokens: 200_000,
+      contextUsedPercent: 40,
+    }
+    const disposeTelemetry = vi.fn()
+    const observe = vi.fn(
+      (_host: ProjectHost, context: { emit: (value: typeof telemetry) => void }) => {
+        context.emit(telemetry)
+        return disposeTelemetry
+      },
+    )
+    Object.assign(adapter, { telemetry: { observe } })
+
+    const info = await supervisor.spawn({
+      host,
+      adapter,
+      cwd: localPath('/tmp/project'),
+      ownerId: OWNER_ID,
+      sessionId: 'telemetry-session',
+    })
+    const onTelemetry = vi.fn()
+    supervisor.attach(info.id, OWNER_ID, { onTelemetry })
+
+    expect(onTelemetry).toHaveBeenCalledOnce()
+    expect(onTelemetry).toHaveBeenCalledWith(telemetry)
+    supervisor.disposeOwner(OWNER_ID)
+    await vi.waitFor(() => expect(disposeTelemetry).toHaveBeenCalledOnce())
+  })
+
+  it('retains identity subscriptions when only live sessions are disposed', async () => {
+    const firstPty = new FakePty()
+    const secondPty = new FakePty()
+    const { supervisor, host, adapter, spawnPty } = fixture()
+    spawnPty.mockResolvedValueOnce(firstPty).mockResolvedValueOnce(secondPty)
+    Object.assign(adapter, {
+      sessionIdentity: 'discovered',
+      sessionDiscovery: {
+        snapshot: vi.fn(() => Promise.resolve([])),
+        identify: vi
+          .fn()
+          .mockResolvedValueOnce({ status: 'identified', sessionId: 'harness-first' })
+          .mockResolvedValueOnce({ status: 'identified', sessionId: 'harness-second' }),
+      },
+    })
+    const onIdentity = vi.fn()
+    supervisor.onSessionIdentity(onIdentity)
+
+    await supervisor.spawn({
+      host,
+      adapter,
+      cwd: localPath('/tmp/project'),
+      ownerId: OWNER_ID,
+      sessionId: 'first-after-project-open',
+    })
+    await vi.waitFor(() => expect(onIdentity).toHaveBeenCalledTimes(1))
+
+    supervisor.disposeSessions()
+    await supervisor.spawn({
+      host,
+      adapter,
+      cwd: localPath('/tmp/project'),
+      ownerId: OWNER_ID,
+      sessionId: 'second-after-project-open',
+    })
+
+    await vi.waitFor(() => expect(onIdentity).toHaveBeenCalledTimes(2))
+    expect(onIdentity.mock.calls[1]?.[0]).toMatchObject({
+      id: 'second-after-project-open',
+      harnessSessionId: 'harness-second',
     })
   })
 

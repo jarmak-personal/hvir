@@ -26,13 +26,22 @@ describe('Harness adapters', () => {
     })
     expect(claudeCodeAdapter.supportsResume).toBe(true)
     expect(claudeCodeAdapter.sessionIdentity).toBe('preassigned')
+    expect(claudeCodeAdapter.telemetry).toBeDefined()
   })
 
   it('resumes an exactly discovered Codex session id', () => {
-    expect(codexAdapter.launch(context)).toEqual({ file: 'codex', args: [] })
+    expect(codexAdapter.launch(context)).toEqual({
+      file: 'codex',
+      args: ['--config', 'tui.terminal_title=["thread-title"]'],
+    })
     expect(codexAdapter.resume(context)).toEqual({
       file: 'codex',
-      args: ['resume', context.sessionId],
+      args: [
+        '--config',
+        'tui.terminal_title=["thread-title"]',
+        'resume',
+        context.sessionId,
+      ],
     })
     expect(codexAdapter.supportsResume).toBe(true)
     expect(codexAdapter.sessionIdentity).toBe('discovered')

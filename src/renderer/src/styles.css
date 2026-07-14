@@ -123,7 +123,7 @@ button {
 }
 
 .viewer-panel {
-  grid-column: 3;
+  grid-column: 3 / 5;
   grid-row: 1;
   border-right: 0;
 }
@@ -380,7 +380,7 @@ button {
 
 .terminal-rail {
   grid-column: 4;
-  grid-row: 1 / -1;
+  grid-row: 3;
   min-width: 0;
   min-height: 0;
   display: flex;
@@ -408,6 +408,12 @@ button {
   position: relative;
 }
 
+.terminal-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 1px;
+}
+
 .terminal-icon-button,
 .terminal-close-button {
   width: 26px;
@@ -422,6 +428,14 @@ button {
 
 .terminal-icon-button {
   font-size: 19px;
+}
+
+.terminal-icon-button:disabled {
+  opacity: 0.38;
+}
+
+.terminal-settings-button {
+  font-size: 13px;
 }
 
 .terminal-icon-button:hover,
@@ -461,6 +475,26 @@ button {
   outline: none;
   background: #293240;
   color: #f0f2f5;
+}
+
+.terminal-settings-menu {
+  width: 184px;
+}
+
+.terminal-settings-menu label {
+  display: grid;
+  grid-template-columns: 14px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  padding: 6px 7px;
+  color: #cbd1da;
+  font-size: 10px;
+}
+
+.terminal-settings-menu input {
+  width: 14px;
+  height: 14px;
+  margin: 0;
 }
 
 .terminal-list {
@@ -550,6 +584,57 @@ button {
   font-size: 9px;
 }
 
+.terminal-context {
+  width: 100%;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 36px;
+  align-items: center;
+  gap: 6px;
+  margin-top: 2px;
+  color: #7f8996;
+  font-size: 9px;
+  font-variant-numeric: tabular-nums;
+}
+
+.terminal-context-track {
+  height: 3px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: #303641;
+}
+
+.terminal-context-fill {
+  height: 100%;
+  display: block;
+  border-radius: inherit;
+  background: #7f93aa;
+}
+
+.terminal-context.count-only .terminal-context-track {
+  opacity: 0.45;
+}
+
+.terminal-context.warning {
+  color: #d4a84f;
+}
+
+.terminal-context.warning .terminal-context-fill {
+  background: #d4a84f;
+}
+
+.terminal-context.critical {
+  color: #dc6b78;
+}
+
+.terminal-context.critical .terminal-context-fill {
+  background: #dc6b78;
+}
+
+.terminal-context-value {
+  text-align: right;
+  white-space: nowrap;
+}
+
 .terminal-close-button {
   align-self: center;
   flex: 0 0 26px;
@@ -615,7 +700,7 @@ button {
 }
 
 .terminal-resizer {
-  grid-column: 3;
+  grid-column: 3 / 5;
   grid-row: 2;
   cursor: row-resize;
 }
@@ -1751,6 +1836,66 @@ body.pane-resizing-row * {
 
 .project-dialog .dialog-error {
   color: #dc7b82;
+}
+
+.terminal-recovery-dialog {
+  max-height: min(560px, calc(100vh - 32px));
+}
+
+.terminal-recovery-list {
+  min-height: 0;
+  overflow: auto;
+  border: 1px solid #303640;
+  border-radius: 4px;
+  background: #12151a;
+}
+
+.project-dialog .terminal-recovery-option {
+  display: grid;
+  grid-template-columns: 14px minmax(0, 1fr);
+  align-items: center;
+  gap: 9px;
+  padding: 8px 10px;
+  border-bottom: 1px solid #252a32;
+}
+
+.project-dialog .terminal-recovery-option:last-child {
+  border-bottom: 0;
+}
+
+.project-dialog .terminal-recovery-option:hover {
+  background: #191e25;
+}
+
+.project-dialog .terminal-recovery-option input {
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  padding: 0;
+}
+
+.terminal-recovery-option > span {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.terminal-recovery-option strong,
+.terminal-recovery-option small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.terminal-recovery-option strong {
+  color: #d4d9e0;
+  font-size: 11px;
+}
+
+.terminal-recovery-option small {
+  color: #7f8997;
+  font-size: 9px;
 }
 
 .ssh-host-fingerprint {

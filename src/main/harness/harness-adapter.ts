@@ -7,9 +7,13 @@
  * record after launch. Either way, only an exact identified id may be resumed.
  */
 
-import type { HostPath } from '../../shared'
-import type { ProjectHost } from '../project-host'
+import type { HarnessTelemetry, HostPath } from '../../shared'
+import type { Disposer, ProjectHost } from '../project-host'
+import { observeClaudeContext } from './claude-context-telemetry'
+import { observeCodexContext } from './codex-context-telemetry'
 import { codexSessionDiscovery } from './codex-session-discovery'
+
+const CODEX_THREAD_TITLE_CONFIG = 'tui.terminal_title=["thread-title"]'
 
 export interface LaunchContext {
   /** Exact harness id for pre-assigned launches and resume commands. */
@@ -30,13 +34,20 @@ export interface LaunchSpec {
 export type HarnessSessionIdentity = 'none' | 'preassigned' | 'discovered'
 
 export type HarnessSessionDiscoveryResult =
-  | { readonly status: 'identified'; readonly sessionId: string }
+  | {
+      readonly status: 'identified'
+      readonly sessionId: string
+      /** Adapter-private state associated with the exact persisted session. */
+      readonly sessionData?: unknown
+    }
   | { readonly status: 'ambiguous' }
   | { readonly status: 'unavailable' }
 
 export interface HarnessSessionDiscoveryContext {
   readonly cwd: HostPath
   readonly launchedAtMs: number
+  /** Start of this bounded attempt; later input may re-arm discovery. */
+  readonly discoveryStartedAtMs?: number
   readonly signal: AbortSignal
 }
 
@@ -51,6 +62,20 @@ export interface HarnessSessionDiscovery {
   ): Promise<HarnessSessionDiscoveryResult>
 }
 
+export interface HarnessTelemetryContext {
+  readonly sessionId: string
+  readonly sessionData?: unknown
+  readonly signal: AbortSignal
+  readonly emit: (telemetry: HarnessTelemetry) => void
+}
+
+export interface HarnessTelemetryObserver {
+  observe(
+    host: ProjectHost,
+    context: HarnessTelemetryContext,
+  ): Disposer | Promise<Disposer>
+}
+
 export interface HarnessAdapter {
   readonly id: string
   readonly displayName: string
@@ -60,6 +85,8 @@ export interface HarnessAdapter {
   readonly sessionIdentity: HarnessSessionIdentity
   /** Present only when `sessionIdentity` is `discovered`. */
   readonly sessionDiscovery?: HarnessSessionDiscovery
+  /** Optional structured, read-only operational state for this harness. */
+  readonly telemetry?: HarnessTelemetryObserver
 
   /** Command to start a fresh session. */
   launch(ctx: LaunchContext): LaunchSpec
@@ -99,6 +126,7 @@ export const claudeCodeAdapter: HarnessAdapter = {
   displayName: 'Claude Code',
   supportsResume: true,
   sessionIdentity: 'preassigned',
+  telemetry: { observe: observeClaudeContext },
 
   launch(ctx): LaunchSpec {
     return { file: 'claude', args: ['--session-id', ctx.sessionId] }
@@ -115,13 +143,17 @@ export const codexAdapter: HarnessAdapter = {
   supportsResume: true,
   sessionIdentity: 'discovered',
   sessionDiscovery: codexSessionDiscovery,
+  telemetry: { observe: observeCodexContext },
 
   launch(): LaunchSpec {
-    return { file: 'codex', args: [] }
+    return { file: 'codex', args: ['--config', CODEX_THREAD_TITLE_CONFIG] }
   },
 
   resume(ctx): LaunchSpec {
-    return { file: 'codex', args: ['resume', ctx.sessionId] }
+    return {
+      file: 'codex',
+      args: ['--config', CODEX_THREAD_TITLE_CONFIG, 'resume', ctx.sessionId],
+    }
   },
 }
 

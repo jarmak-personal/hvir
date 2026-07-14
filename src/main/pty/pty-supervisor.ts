@@ -10,7 +10,12 @@
 
 import { randomUUID } from 'node:crypto'
 
-import type { HostId, HostPath } from '../../shared'
+import type {
+  HarnessTelemetry,
+  HostId,
+  HostPath,
+  TerminalIdentityStatus,
+} from '../../shared'
 import type { Disposer, ProjectHost, PtyExit, PtyProcess } from '../project-host'
 import type { HarnessAdapter, HarnessSessionDiscovery } from '../harness/harness-adapter'
 
@@ -35,6 +40,7 @@ export interface ManagedPty {
   readonly id: string
   readonly ownerId: number
   readonly hostId: HostId
+  readonly cwd: HostPath
   readonly adapterId: string
   readonly pid: number
   readonly startedAt: number
@@ -43,12 +49,12 @@ export interface ManagedPty {
   readonly identityStatus: HarnessSessionIdentityStatus
 }
 
-export type HarnessSessionIdentityStatus =
-  'none' | 'discovering' | 'identified' | 'ambiguous' | 'unavailable'
+export type HarnessSessionIdentityStatus = TerminalIdentityStatus
 
 export interface PtyStreamHandlers {
   onData?: (data: string) => void
   onExit?: (exit: PtyExit) => void
+  onTelemetry?: (telemetry: HarnessTelemetry) => void
 }
 
 interface Entry {
@@ -56,11 +62,25 @@ interface Entry {
   readonly pty: PtyProcess
   readonly dataListeners: Set<(data: string) => void>
   readonly exitListeners: Set<(exit: PtyExit) => void>
+  readonly telemetryListeners: Set<(telemetry: HarnessTelemetry) => void>
   readonly disposers: Disposer[]
   readonly replay: string[]
   replayLength: number
   replayPending: boolean
+  telemetry?: HarnessTelemetry
+  telemetryStarted: boolean
+  identityDiscoveryActive: boolean
+  identityRetry?: IdentityRetry
   exited: boolean
+}
+
+interface IdentityRetry {
+  readonly host: ProjectHost
+  readonly adapter: HarnessAdapter
+  readonly discovery: HarnessSessionDiscovery
+  readonly snapshot: unknown
+  readonly cwd: HostPath
+  readonly launchedAtMs: number
 }
 
 interface PendingEntry {
@@ -179,6 +199,7 @@ export class PtySupervisor {
       id: sessionId,
       ownerId: req.ownerId,
       hostId: req.host.hostId,
+      cwd: req.cwd,
       adapterId: req.adapter.id,
       pid: pty.pid,
       startedAt: launchedAtMs,
@@ -192,10 +213,13 @@ export class PtySupervisor {
       pty,
       dataListeners: new Set(),
       exitListeners: new Set(),
+      telemetryListeners: new Set(),
       disposers: [],
       replay: [],
       replayLength: 0,
       replayPending: true,
+      telemetryStarted: false,
+      identityDiscoveryActive: false,
       exited: false,
     }
 
@@ -222,6 +246,7 @@ export class PtySupervisor {
           for (const dispose of entry.disposers) void dispose()
           entry.dataListeners.clear()
           entry.exitListeners.clear()
+          entry.telemetryListeners.clear()
           // The registry represents live sessions. Removing an exited entry
           // also permits a later deterministic resume with the same id.
           if (this.entries.get(sessionId) === entry) this.entries.delete(sessionId)
@@ -232,16 +257,30 @@ export class PtySupervisor {
     if (discovery && discoveryReady && releaseDiscovery) {
       const controller = new AbortController()
       this.discoveryControllers.add(controller)
+      entry.disposers.push(() => controller.abort())
+      entry.identityDiscoveryActive = true
+      entry.identityRetry = {
+        host: req.host,
+        adapter: req.adapter,
+        discovery,
+        snapshot: discoverySnapshot,
+        cwd: req.cwd,
+        launchedAtMs,
+      }
       void this.identifySession(
         entry,
         req.host,
+        req.adapter,
         discovery,
         discoverySnapshot,
         req.cwd,
         launchedAtMs,
+        launchedAtMs,
         controller,
         releaseDiscovery,
       )
+    } else if (harnessSessionId) {
+      this.startTelemetry(entry, req.host, req.adapter, harnessSessionId)
     }
 
     return info
@@ -252,20 +291,27 @@ export class PtySupervisor {
     const entry = this.requireOwned(id, ownerId)
     if (handlers.onData) entry.dataListeners.add(handlers.onData)
     if (handlers.onExit) entry.exitListeners.add(handlers.onExit)
+    if (handlers.onTelemetry) entry.telemetryListeners.add(handlers.onTelemetry)
     if (handlers.onData && entry.replayPending) {
       entry.replayPending = false
       const replay = entry.replay.splice(0)
       entry.replayLength = 0
       for (const data of replay) handlers.onData(data)
     }
+    if (handlers.onTelemetry && entry.telemetry) {
+      handlers.onTelemetry(entry.telemetry)
+    }
     return () => {
       if (handlers.onData) entry.dataListeners.delete(handlers.onData)
       if (handlers.onExit) entry.exitListeners.delete(handlers.onExit)
+      if (handlers.onTelemetry) entry.telemetryListeners.delete(handlers.onTelemetry)
     }
   }
 
   write(id: string, ownerId: number, data: string): void {
-    this.requireOwned(id, ownerId).pty.write(data)
+    const entry = this.requireOwned(id, ownerId)
+    entry.pty.write(data)
+    this.retryIdentityAfterInput(entry)
   }
 
   resize(id: string, ownerId: number, cols: number, rows: number): void {
@@ -304,8 +350,8 @@ export class PtySupervisor {
     }
   }
 
-  /** Kill every session and release listeners. */
-  disposeAll(): void {
+  /** Kill every session while retaining supervisor-lifetime subscriptions. */
+  disposeSessions(): void {
     this.generation++
     for (const controller of this.discoveryControllers) controller.abort()
     this.discoveryControllers.clear()
@@ -316,6 +362,11 @@ export class PtySupervisor {
       if (!entry.exited) entry.pty.kill()
     }
     this.entries.clear()
+  }
+
+  /** Kill every session and release supervisor-lifetime listeners. */
+  disposeAll(): void {
+    this.disposeSessions()
     this.globalExitListeners.clear()
     this.identityListeners.clear()
   }
@@ -332,6 +383,7 @@ export class PtySupervisor {
       for (const dispose of entry.disposers) void dispose()
       entry.dataListeners.clear()
       entry.exitListeners.clear()
+      entry.telemetryListeners.clear()
       entry.replay.length = 0
       entry.replayLength = 0
       if (!entry.exited) entry.pty.kill()
@@ -390,10 +442,12 @@ export class PtySupervisor {
   private async identifySession(
     entry: Entry,
     host: ProjectHost,
+    adapter: HarnessAdapter,
     discovery: HarnessSessionDiscovery,
     snapshot: unknown,
     cwd: HostPath,
     launchedAtMs: number,
+    discoveryStartedAtMs: number,
     controller: AbortController,
     release: Disposer,
   ): Promise<void> {
@@ -401,8 +455,10 @@ export class PtySupervisor {
       const result = await discovery.identify(host, snapshot, {
         cwd,
         launchedAtMs,
+        discoveryStartedAtMs,
         signal: controller.signal,
       })
+      if (entry.exited || this.entries.get(entry.info.id) !== entry) return
       entry.info =
         result.status === 'identified'
           ? {
@@ -411,16 +467,122 @@ export class PtySupervisor {
               identityStatus: 'identified',
             }
           : { ...entry.info, identityStatus: result.status }
+      if (result.status === 'identified') {
+        entry.identityRetry = undefined
+        this.startTelemetry(entry, host, adapter, result.sessionId, result.sessionData)
+      } else if (result.status === 'ambiguous') {
+        entry.identityRetry = undefined
+      }
     } catch (error) {
-      entry.info = { ...entry.info, identityStatus: 'unavailable' }
+      if (!entry.exited && this.entries.get(entry.info.id) === entry) {
+        entry.info = { ...entry.info, identityStatus: 'unavailable' }
+      }
       if (!controller.signal.aborted) {
         console.warn(`[pty] ${entry.info.adapterId} session discovery unavailable`, error)
       }
     } finally {
+      entry.identityDiscoveryActive = false
       this.discoveryControllers.delete(controller)
       void release()
     }
+    if (entry.exited || this.entries.get(entry.info.id) !== entry) return
     for (const cb of this.identityListeners) cb(entry.info)
+  }
+
+  private retryIdentityAfterInput(entry: Entry): void {
+    const retry = entry.identityRetry
+    if (
+      !retry ||
+      entry.identityDiscoveryActive ||
+      entry.exited ||
+      entry.info.identityStatus === 'identified' ||
+      this.entries.get(entry.info.id) !== entry
+    ) {
+      return
+    }
+    entry.identityDiscoveryActive = true
+    entry.info = { ...entry.info, identityStatus: 'discovering' }
+    for (const cb of this.identityListeners) cb(entry.info)
+
+    const controller = new AbortController()
+    this.discoveryControllers.add(controller)
+    entry.disposers.push(() => controller.abort())
+    const key = `${retry.host.hostId}:${retry.adapter.id}`
+    void this.reserveDiscovery(key).then((release) => {
+      if (
+        controller.signal.aborted ||
+        entry.exited ||
+        this.entries.get(entry.info.id) !== entry
+      ) {
+        entry.identityDiscoveryActive = false
+        this.discoveryControllers.delete(controller)
+        void release()
+        return
+      }
+      void this.identifySession(
+        entry,
+        retry.host,
+        retry.adapter,
+        retry.discovery,
+        retry.snapshot,
+        retry.cwd,
+        retry.launchedAtMs,
+        Date.now(),
+        controller,
+        release,
+      )
+    })
+  }
+
+  private startTelemetry(
+    entry: Entry,
+    host: ProjectHost,
+    adapter: HarnessAdapter,
+    sessionId: string,
+    sessionData?: unknown,
+  ): void {
+    const observer = adapter.telemetry
+    if (!observer || entry.telemetryStarted) return
+    entry.telemetryStarted = true
+    const controller = new AbortController()
+    entry.disposers.push(() => controller.abort())
+    void Promise.resolve()
+      .then(() =>
+        observer.observe(host, {
+          sessionId,
+          sessionData,
+          signal: controller.signal,
+          emit: (telemetry) => {
+            if (
+              controller.signal.aborted ||
+              entry.exited ||
+              this.entries.get(entry.info.id) !== entry
+            ) {
+              return
+            }
+            entry.telemetry = telemetry
+            for (const cb of entry.telemetryListeners) cb(telemetry)
+          },
+        }),
+      )
+      .then(
+        (dispose) => {
+          if (
+            controller.signal.aborted ||
+            entry.exited ||
+            this.entries.get(entry.info.id) !== entry
+          ) {
+            void dispose()
+          } else {
+            entry.disposers.push(dispose)
+          }
+        },
+        (error: unknown) => {
+          if (!controller.signal.aborted) {
+            console.warn(`[pty] ${adapter.id} telemetry unavailable`, error)
+          }
+        },
+      )
   }
 }
 

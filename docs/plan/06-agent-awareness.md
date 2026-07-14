@@ -30,11 +30,17 @@ you which agent wants you.
       harness-specific detail inside the adapter. Claude pre-assigns its id. Codex uses a
       serialized, bounded post-launch discovery window and only enables resume after one
       exact id is identified.
-- [ ] Session registry (persisted): terminal → {harness, session id, hostId, cwd,
-      last-seen title}. Written by the PTY supervisor on spawn.
-- [ ] Recovery flow: on app start (or host reconnect), for each registered session,
-      offer resume — restart the adapter's resume command in a new PTY, same pane
-      position. Auto-resume vs prompt: make it a setting, default prompt.
+      hvir-launched Codex terminals request the canonical `thread-title` terminal-title
+      item. Codex updates it after `/rename`; unnamed threads intentionally emit their
+      UUID until Codex has a real thread name.
+- [x] Session registry (persisted): terminal → {harness, optional exact session id,
+      hostId, cwd, last-seen title}. Written on confirmed supervisor spawn. Harness
+      sessions resume exactly when identified; provisional harness records restart fresh,
+      and plain-shell records recreate a fresh shell in place.
+- [x] Recovery flow: on app start (or host reconnect), for each registered session,
+      offer restore — restart the harness adapter's exact resume command or recreate a
+      plain shell in a new PTY, same pane position. Auto-restore vs prompt: make it a
+      setting, default prompt.
 - [x] "New terminal" UX: plain shell by default; one-action launch of a harness
       (adapter list) in a chosen workspace.
 
@@ -49,6 +55,16 @@ you which agent wants you.
 - [x] Parse OSC 0/2 from the PTY stream (via `TerminalPane` events from Phase 2);
       right-rail terminal list shows live titles. Fallback title: adapter name + cwd.
 
+### Context pressure (explicitly promoted from the v2 parking lot)
+- [x] Show a stable per-harness context meter in the terminal rail. Codex reads
+      structured current-usage records from the exact rollout file already established
+      by session discovery; parsing and observation stay off-renderer and behind
+      `HarnessAdapter` / `ProjectHost`. Use neutral below 40%, amber at 40–69%, red at
+      70%+. Claude follows the exact preassigned transcript and shows a neutral current
+      token count because its authoritative window is unavailable there. Use `--` when
+      no trustworthy source is available. Do not guess model windows or override Claude
+      Code's configured statusline. See the ADR-006 addendum.
+
 ### Notification dots (ADR-009 — the model is already decided)
 - [x] Signal detection per terminal, in priority order:
       **idle-after-burst** (no PTY output for N seconds following a burst — start with
@@ -60,23 +76,26 @@ you which agent wants you.
       only aggregate children's unseen dots. No suppression on active parents.
 - [x] Right-rail terminal list: title + dot (color/style by signal type, idle-after-
       burst most prominent).
-- [ ] OS-level nudge when hvir is unfocused (badge/urgency hint), driven by the same
+- [x] OS-level nudge when hvir is unfocused (badge/urgency hint), driven by the same
       dot state. Keep minimal.
 
 ## Acceptance criteria
-- [ ] Start a Claude Code session via hvir, quit hvir mid-task, relaunch: resume
+- [x] Start a Claude Code session via hvir, quit hvir mid-task, relaunch: resume
       restores the conversation in place.
-- [ ] Same flow on an SSH host after a network drop (composes with Phase 4).
-- [ ] Terminal titles update live as CC/Codex set them; plain shells get sane fallbacks.
-- [ ] An agent finishing its turn raises an idle-after-burst dot within N seconds; a
+- [x] Same flow on an SSH host after a network drop (composes with Phase 4). Sustained
+      remote use passed; an induced disconnect was accepted as residual risk on
+      2026-07-14.
+- [x] Terminal titles update live as CC/Codex set them; plain shells get sane fallbacks.
+- [x] An agent finishing its turn raises an idle-after-burst dot within N seconds; a
       streaming agent does not flicker dots; focusing the terminal clears it; the
       right-rail shows it while you're reading a file elsewhere in the same project.
-- [ ] Bell from any terminal raises the bell-style dot.
-- [ ] Adapter quirks stay contained: grep shows no harness-specific strings outside the
+- [x] Bell from any terminal raises the bell-style dot.
+- [x] Adapter quirks stay contained: grep shows no harness-specific strings outside the
       adapter modules.
-- [ ] Status table updated.
+- [x] Status table updated.
 
 ## Non-goals
-Harness telemetry (tokens, usage, skills, MCPs) — v2 parking lot, hold the line.
+Harness telemetry beyond the narrow context-pressure signal (cost, usage history,
+skills, MCPs, and a full harness viewer) — v2 parking lot, hold the line.
 Orchestration of any kind (spawning agents on a schedule, queueing prompts). Per-harness
 idle tuning (open question — revisit with real usage data).

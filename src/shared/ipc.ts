@@ -35,6 +35,7 @@ import type {
   GitIgnoredEntriesResponse,
 } from './git-types'
 import type { HostConnectionState, HostWatchTier } from './fs-types'
+import type { HarnessTelemetry } from './harness-telemetry'
 
 /** Basic app/runtime info — the trivial round-trip that proves the contract. */
 export interface AppInfo {
@@ -161,6 +162,11 @@ export interface StartPtyRequest {
   readonly cwd: HostPath
   readonly cols: number
   readonly rows: number
+  readonly title: string
+  readonly position: number
+  readonly active: boolean
+  readonly resume?: boolean
+  readonly harnessSessionId?: string
 }
 
 export type TerminalAdapterId = 'plain-shell' | 'claude-code' | 'codex'
@@ -168,6 +174,44 @@ export type TerminalAdapterId = 'plain-shell' | 'claude-code' | 'codex'
 export interface StartPtyResponse {
   readonly id: string
   readonly pid: number
+  readonly harnessSessionId?: string
+  readonly identityStatus: TerminalIdentityStatus
+}
+
+export type TerminalIdentityStatus =
+  'none' | 'discovering' | 'identified' | 'ambiguous' | 'unavailable'
+
+export interface TerminalRecoverySession {
+  readonly id: string
+  readonly adapterId: TerminalAdapterId
+  readonly harnessSessionId?: string
+  readonly hostId: string
+  readonly cwd: HostPath
+  readonly title: string
+  readonly position: number
+  readonly active: boolean
+  readonly updatedAt: number
+}
+
+export interface TerminalLayoutEntry {
+  readonly id: string
+  readonly title: string
+  readonly position: number
+  readonly active: boolean
+}
+
+export interface TerminalRecoveryRequest {
+  readonly root: HostPath
+}
+
+export interface TerminalLayoutRequest {
+  readonly root: HostPath
+  readonly sessions: readonly TerminalLayoutEntry[]
+}
+
+export interface ForgetTerminalRequest {
+  readonly root: HostPath
+  readonly id: string
 }
 
 /**
@@ -224,6 +268,12 @@ export interface IpcInvokeMap {
     request: CreateHtmlPreviewRequest
     response: CreateHtmlPreviewResponse
   }
+  'terminal:recovery': {
+    request: TerminalRecoveryRequest
+    response: readonly TerminalRecoverySession[]
+  }
+  'terminal:update-layout': { request: TerminalLayoutRequest; response: void }
+  'terminal:forget': { request: ForgetTerminalRequest; response: void }
   'pty:start': { request: StartPtyRequest; response: StartPtyResponse }
 }
 
@@ -236,6 +286,7 @@ export interface IpcSendMap {
   'pty:write': { readonly id: string; readonly data: string }
   'pty:resize': { readonly id: string; readonly cols: number; readonly rows: number }
   'pty:kill': { readonly id: string }
+  'app:attention': { readonly count: number }
 }
 
 /** Main -> renderer push channels. */
@@ -246,6 +297,12 @@ export interface IpcEventMap {
   'ssh:prompt-cancel': { readonly hostId: string }
   'pty:data': { readonly id: string; readonly data: string }
   'pty:exit': { readonly id: string; readonly exitCode: number; readonly signal?: number }
+  'pty:telemetry': { readonly id: string; readonly telemetry: HarnessTelemetry }
+  'pty:identity': {
+    readonly id: string
+    readonly harnessSessionId?: string
+    readonly identityStatus: TerminalIdentityStatus
+  }
 }
 
 export type IpcInvokeChannel = keyof IpcInvokeMap
@@ -300,6 +357,9 @@ export const INVOKE_CHANNELS = [
   'git:commit-detail',
   'git:blame',
   'html-preview:create',
+  'terminal:recovery',
+  'terminal:update-layout',
+  'terminal:forget',
   'pty:start',
 ] as const satisfies readonly IpcInvokeChannel[]
 
@@ -308,6 +368,7 @@ export const SEND_CHANNELS = [
   'pty:write',
   'pty:resize',
   'pty:kill',
+  'app:attention',
 ] as const satisfies readonly IpcSendChannel[]
 
 export const EVENT_CHANNELS = [
@@ -317,6 +378,8 @@ export const EVENT_CHANNELS = [
   'ssh:prompt-cancel',
   'pty:data',
   'pty:exit',
+  'pty:telemetry',
+  'pty:identity',
 ] as const satisfies readonly IpcEventChannel[]
 
 // Compile-time proof that INVOKE_CHANNELS stays in sync with IpcInvokeMap.

@@ -8,7 +8,7 @@
  * UUID. The PTY supervisor serializes hvir-owned discovery windows separately.
  */
 
-import type { HostPath } from '../../shared'
+import { hostPath, type HostPath } from '../../shared'
 import type { ProjectHost } from '../project-host'
 
 const LIST_SESSION_FILES_SCRIPT = `
@@ -22,9 +22,9 @@ const SESSION_ID_IN_FILENAME =
   /(?:^|\/)(?:rollout-[^/]*-)?([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.jsonl$/i
 const LIST_MAX_BUFFER = 2 * 1024 * 1024
 const META_MAX_BUFFER = 512 * 1024
-const DEFAULT_TIMEOUT_MS = 5_000
+const DEFAULT_TIMEOUT_MS = 90_000
 const DEFAULT_INITIAL_POLL_MS = 75
-const DEFAULT_MAX_POLL_MS = 1_000
+const DEFAULT_MAX_POLL_MS = 5_000
 const DEFAULT_SETTLE_MS = 250
 const LAUNCH_CLOCK_SLOP_MS = 2_000
 const MAX_NEW_CANDIDATES = 32
@@ -67,10 +67,15 @@ export function createCodexSessionDiscovery(options: CodexSessionDiscoveryOption
     context: {
       readonly cwd: HostPath
       readonly launchedAtMs: number
+      readonly discoveryStartedAtMs?: number
       readonly signal: AbortSignal
     },
   ): Promise<
-    | { readonly status: 'identified'; readonly sessionId: string }
+    | {
+        readonly status: 'identified'
+        readonly sessionId: string
+        readonly sessionData: { readonly rolloutPath: HostPath }
+      }
     | { readonly status: 'ambiguous' }
     | { readonly status: 'unavailable' }
   >
@@ -97,12 +102,12 @@ export function createCodexSessionDiscovery(options: CodexSessionDiscoveryOption
     async identify(host, rawSnapshot, context) {
       if (!isSnapshot(rawSnapshot)) return { status: 'unavailable' }
       const baseline = new Set(rawSnapshot.paths)
-      const deadline = context.launchedAtMs + timeoutMs
+      const deadline = (context.discoveryStartedAtMs ?? context.launchedAtMs) + timeoutMs
       const launchedAtHostMs =
         rawSnapshot.hostCapturedAtMs +
         (context.launchedAtMs - rawSnapshot.localCapturedAtMs)
       let firstMatchAt: number | undefined
-      let firstMatchId: string | undefined
+      let firstMatch: MatchedSession | undefined
       let pollMs = Math.max(1, initialPollMs)
 
       while (!context.signal.aborted) {
@@ -119,15 +124,25 @@ export function createCodexSessionDiscovery(options: CodexSessionDiscoveryOption
           scan.hostNowMs,
           context.signal,
         )
-        if (matches.size > 1) return { status: 'ambiguous' }
+        if (matches.length > 1) return { status: 'ambiguous' }
 
-        const match = matches.values().next().value
+        const match = matches[0]
         if (match) {
-          if (firstMatchId && firstMatchId !== match) return { status: 'ambiguous' }
-          firstMatchId = match
+          if (
+            firstMatch &&
+            (firstMatch.sessionId !== match.sessionId ||
+              firstMatch.rolloutPath.path !== match.rolloutPath.path)
+          ) {
+            return { status: 'ambiguous' }
+          }
+          firstMatch = match
           firstMatchAt ??= currentTime
           if (currentTime - firstMatchAt >= settleMs) {
-            return { status: 'identified', sessionId: match }
+            return {
+              status: 'identified',
+              sessionId: match.sessionId,
+              sessionData: { rolloutPath: match.rolloutPath },
+            }
           }
         }
 
@@ -175,8 +190,8 @@ async function matchingSessions(
   launchedAtHostMs: number,
   hostNowMs: number,
   signal: AbortSignal,
-): Promise<Set<string>> {
-  const matches = new Set<string>()
+): Promise<MatchedSession[]> {
+  const matches: MatchedSession[] = []
   for (const path of paths) {
     if (signal.aborted) break
     const filenameId = SESSION_ID_IN_FILENAME.exec(path)?.[1]
@@ -196,9 +211,17 @@ async function matchingSessions(
     ) {
       continue
     }
-    matches.add(record.id)
+    matches.push({
+      sessionId: record.id,
+      rolloutPath: hostPath(host.hostId, path),
+    })
   }
   return matches
+}
+
+interface MatchedSession {
+  readonly sessionId: string
+  readonly rolloutPath: HostPath
 }
 
 function parseSessionMeta(value: string): {
