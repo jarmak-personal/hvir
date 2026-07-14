@@ -63,6 +63,8 @@ export interface HarnessSessionDiscovery {
 }
 
 export interface HarnessTelemetryContext {
+  /** Stable hvir PTY identity used to route multiplexed adapter telemetry. */
+  readonly subscriptionId: string
   readonly sessionId: string
   readonly sessionData?: unknown
   readonly signal: AbortSignal

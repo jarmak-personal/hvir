@@ -101,6 +101,8 @@ describe('Codex context telemetry', () => {
   it('follows the exact discovered rollout path and disposes its stream', async () => {
     const stdoutListeners = new Set<(chunk: string) => void>()
     const dispose = vi.fn()
+    const write = vi.fn<ExecStreamHandle['write']>(() => Promise.resolve())
+    const end = vi.fn<ExecStreamHandle['end']>(() => Promise.resolve())
     const stream: ExecStreamHandle = {
       onStdout: (cb) => {
         stdoutListeners.add(cb)
@@ -111,10 +113,12 @@ describe('Codex context telemetry', () => {
       onStderr: () => () => undefined,
       onError: () => () => undefined,
       onExit: () => () => undefined,
+      write,
+      end,
       kill: vi.fn(),
       dispose,
     }
-    const execStream = vi.fn(() => stream)
+    const execStream = vi.fn<ProjectHost['execStream']>(() => stream)
     const host = { hostId: localPath('/').hostId, execStream } as unknown as ProjectHost
     const emitted = vi.fn()
     const controller = new AbortController()
@@ -123,14 +127,18 @@ describe('Codex context telemetry', () => {
     )
 
     const stop = await observeCodexContext(host, {
+      subscriptionId: SESSION_ID,
       sessionId: SESSION_ID,
       sessionData: { rolloutPath },
       signal: controller.signal,
       emit: emitted,
     })
-    expect(execStream).toHaveBeenCalledWith(
-      'sh',
-      expect.arrayContaining([rolloutPath.path]),
+    expect(execStream).toHaveBeenCalledWith('sh', expect.any(Array), {
+      keepStdinOpen: true,
+    })
+    await vi.waitFor(() => expect(write).toHaveBeenCalledTimes(2))
+    expect(write.mock.calls[1]?.[0]).toContain(
+      Buffer.from(rolloutPath.path, 'utf8').toString('base64'),
     )
 
     const record = JSON.stringify({
@@ -143,13 +151,18 @@ describe('Codex context telemetry', () => {
         },
       },
     })
-    for (const listener of stdoutListeners) listener(`${record}\n`)
+    const execArgs = execStream.mock.calls[0]?.[1]
+    const epoch = execArgs?.at(-1)
+    const generation = write.mock.calls[0]?.[0].split('\t')[1]
+    const frame = `E\t${epoch}\t${generation}\t${SESSION_ID}\t${SESSION_ID}\t${Buffer.from(record).toString('base64')}\n`
+    for (const listener of stdoutListeners) listener(frame)
     expect(emitted).toHaveBeenCalledWith(
       expect.objectContaining({ contextUsedPercent: 40 }),
     )
 
     void stop()
-    expect(dispose).toHaveBeenCalledOnce()
+    expect(end).toHaveBeenCalledOnce()
+    await vi.waitFor(() => expect(dispose).toHaveBeenCalledOnce())
   })
 
   it('filters and follows real rollout records through LocalHost', async () => {
@@ -178,6 +191,7 @@ describe('Codex context telemetry', () => {
     let stop: (() => void | Promise<void>) | undefined
     try {
       stop = await observeCodexContext(host, {
+        subscriptionId: SESSION_ID,
         sessionId: SESSION_ID,
         sessionData: { rolloutPath: path },
         signal: controller.signal,

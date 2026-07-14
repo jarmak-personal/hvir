@@ -743,6 +743,62 @@ describe('SshHost remote behavior', () => {
     await host.dispose()
   })
 
+  it('supports bounded duplex exec streams over SSH', async () => {
+    const stderr = new EventEmitter()
+    const channel = Object.assign(new EventEmitter(), {
+      stderr,
+      close: vi.fn(() => channel.emit('close')),
+      write: vi.fn((data: string, callback?: () => void) => {
+        channel.emit('data', Buffer.from(data))
+        callback?.()
+        return true
+      }),
+      end: vi.fn((data?: string, callback?: () => void) => {
+        if (data) channel.emit('data', Buffer.from(data))
+        callback?.()
+        queueMicrotask(() => {
+          channel.emit('exit', 0)
+          channel.emit('close')
+        })
+      }),
+    })
+    const client = Object.assign(
+      fakeClient(() => undefined),
+      {
+        exec: vi.fn(
+          (
+            _command: string,
+            callback: (error: Error | undefined, value: unknown) => void,
+          ) => callback(undefined, channel),
+        ),
+      },
+    )
+    const host = new SshHost({
+      config: aliasConfig(),
+      prompter: { prompt: () => Promise.resolve(undefined) },
+    })
+    const internals = host as unknown as { state: 'connected'; client: Client }
+    internals.state = 'connected'
+    internals.client = client as unknown as Client
+    const stream = host.execStream('cat', [], { keepStdinOpen: true })
+    let stdout = ''
+    stream.onStdout((chunk) => {
+      stdout += chunk
+    })
+    const exited = new Promise<void>((resolve, reject) => {
+      stream.onError(reject)
+      stream.onExit(() => resolve())
+    })
+
+    await stream.write('first ')
+    await stream.end('second')
+    await exited
+
+    expect(stdout).toBe('first second')
+    expect(channel.write).toHaveBeenCalledWith('first ', expect.any(Function))
+    await host.dispose()
+  })
+
   it('keeps buffered execs within the SSH session budget', async () => {
     const channels = Array.from({ length: 3 }, () => {
       const channel = Object.assign(new EventEmitter(), {
@@ -1245,6 +1301,8 @@ describe('SshHost remote behavior', () => {
         onStderr: () => () => undefined,
         onError: () => () => undefined,
         onExit: () => () => undefined,
+        write: () => Promise.resolve(),
+        end: () => Promise.resolve(),
         kill: () => undefined,
         dispose: vi.fn(),
       }
@@ -1308,6 +1366,8 @@ describe('SshHost remote behavior', () => {
       onStderr: () => () => undefined,
       onError: () => () => undefined,
       onExit: () => () => undefined,
+      write: () => Promise.resolve(),
+      end: () => Promise.resolve(),
       kill: () => undefined,
       dispose: vi.fn(),
     }

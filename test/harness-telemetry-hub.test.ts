@@ -1,0 +1,181 @@
+import { describe, expect, it, vi } from 'vitest'
+
+import {
+  HarnessTelemetryHub,
+  type HarnessTelemetrySubscription,
+} from '../src/main/harness/harness-telemetry-hub'
+import type { ExecStreamHandle, ProjectHost } from '../src/main/project-host'
+import { LOCAL_HOST_ID } from '../src/shared'
+
+interface FakeStream {
+  readonly handle: ExecStreamHandle
+  readonly writes: string[]
+  readonly end: ReturnType<typeof vi.fn>
+  stdout(value: string): void
+  fail(error: Error): void
+}
+
+describe('HarnessTelemetryHub', () => {
+  it('coalesces 12 subscriptions into one versioned adapter stream', async () => {
+    const stream = fakeStream()
+    const execStream = vi.fn<ProjectHost['execStream']>(() => stream.handle)
+    const hub = telemetryHub(execStream)
+    const stops = Array.from({ length: 12 }, (_, index) =>
+      hub.subscribe(subscription(index)),
+    )
+
+    await vi.waitFor(() => expect(stream.writes).toHaveLength(13))
+
+    expect(execStream).toHaveBeenCalledOnce()
+    expect(stream.writes[0]).toBe('R\t1\t12\n')
+    expect(stream.writes.slice(1)).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining(`\t${uuid(0)}\t${uuid(0)}\t`),
+        expect.stringContaining(`\t${uuid(11)}\t${uuid(11)}\t`),
+      ]),
+    )
+
+    for (const stop of stops) void stop()
+    expect(stream.end).toHaveBeenCalledOnce()
+  })
+
+  it('routes split/coalesced frames and isolates stale or cross-session records', async () => {
+    const stream = fakeStream()
+    const execStream = vi.fn<ProjectHost['execStream']>(() => stream.handle)
+    const hub = telemetryHub(execStream)
+    const firstEmit = vi.fn()
+    const secondEmit = vi.fn()
+    const first = subscription(1, firstEmit)
+    const second = subscription(2, secondEmit)
+    const stopFirst = hub.subscribe(first)
+    const stopSecond = hub.subscribe(second)
+    await vi.waitFor(() => expect(stream.writes).toHaveLength(3))
+    const epoch = execStream.mock.calls[0]?.[1].at(-1)
+    if (!epoch) throw new Error('Expected telemetry hub epoch argument')
+    const generation = stream.writes[0]?.split('\t')[1]
+    const valid = frame(epoch, generation, first.subscriptionId, first.sessionId, 41)
+    const stale = frame(epoch, '0', first.subscriptionId, first.sessionId, 1)
+    const crossed = frame(epoch, generation, first.subscriptionId, second.sessionId, 2)
+    const malformed = `E\t${epoch}\t${generation}\t${second.subscriptionId}\t${second.sessionId}\t%%%\n`
+
+    stream.stdout(valid.slice(0, 17))
+    stream.stdout(`${valid.slice(17)}${stale}${crossed}${malformed}`)
+
+    expect(firstEmit).toHaveBeenCalledOnce()
+    expect(firstEmit).toHaveBeenCalledWith({ contextUsedTokens: 41 })
+    expect(secondEmit).not.toHaveBeenCalled()
+    void stopFirst()
+    void stopSecond()
+  })
+
+  it('reconciles unsubscribe without restarting and rehydrates after stream failure', async () => {
+    const streams = [fakeStream(), fakeStream()]
+    const execStream = vi
+      .fn<ProjectHost['execStream']>()
+      .mockReturnValueOnce(streams[0]!.handle)
+      .mockReturnValueOnce(streams[1]!.handle)
+    const hub = telemetryHub(execStream)
+    const stopFirst = hub.subscribe(subscription(3))
+    const stopSecond = hub.subscribe(subscription(4))
+    await vi.waitFor(() => expect(streams[0]!.writes).toHaveLength(3))
+
+    void stopFirst()
+    await vi.waitFor(() => expect(streams[0]!.writes).toHaveLength(5))
+    expect(streams[0]!.writes[3]).toBe('R\t2\t1\n')
+    expect(execStream).toHaveBeenCalledOnce()
+
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    streams[0]!.fail(new Error('transport lost'))
+    await vi.waitFor(() => expect(execStream).toHaveBeenCalledTimes(2), {
+      timeout: 1_000,
+    })
+    await vi.waitFor(() => expect(streams[1]!.writes).toHaveLength(2))
+
+    expect(streams[1]!.writes[0]).toBe('R\t3\t1\n')
+    expect(streams[1]!.writes[1]).toContain(`\t${uuid(4)}\t${uuid(4)}\t`)
+    void stopSecond()
+    warning.mockRestore()
+  })
+})
+
+function telemetryHub(execStream: ProjectHost['execStream']): HarnessTelemetryHub {
+  const host = {
+    hostId: LOCAL_HOST_ID,
+    execStream,
+  } as unknown as ProjectHost
+  return new HarnessTelemetryHub(host, {
+    adapterId: 'test',
+    remoteScript: 'test helper',
+    parse: (record) => {
+      try {
+        const value = JSON.parse(record) as { used?: unknown }
+        return typeof value.used === 'number' ? { contextUsedTokens: value.used } : null
+      } catch {
+        return null
+      }
+    },
+  })
+}
+
+function subscription(index: number, emit = vi.fn()): HarnessTelemetrySubscription {
+  return {
+    subscriptionId: uuid(index),
+    sessionId: uuid(index),
+    resource: `/tmp/session-${index}.jsonl`,
+    signal: new AbortController().signal,
+    emit,
+  }
+}
+
+function uuid(index: number): string {
+  return `00000000-0000-4000-8000-${String(index).padStart(12, '0')}`
+}
+
+function frame(
+  epoch: string,
+  generation: string | undefined,
+  subscriptionId: string,
+  sessionId: string,
+  used: number,
+): string {
+  const payload = Buffer.from(JSON.stringify({ used }), 'utf8').toString('base64')
+  return `E\t${epoch}\t${generation}\t${subscriptionId}\t${sessionId}\t${payload}\n`
+}
+
+function fakeStream(): FakeStream {
+  const stdoutListeners = new Set<(value: string) => void>()
+  const errorListeners = new Set<(error: Error) => void>()
+  const writes: string[] = []
+  const end = vi.fn(() => Promise.resolve())
+  const handle: ExecStreamHandle = {
+    onStdout: (callback) => subscribe(stdoutListeners, callback),
+    onStderr: () => () => undefined,
+    onError: (callback) => subscribe(errorListeners, callback),
+    onExit: () => () => undefined,
+    write: (value) => {
+      writes.push(value)
+      return Promise.resolve()
+    },
+    end,
+    kill: () => undefined,
+    dispose: () => undefined,
+  }
+  return {
+    handle,
+    writes,
+    end,
+    stdout(value) {
+      for (const callback of stdoutListeners) callback(value)
+    },
+    fail(error) {
+      for (const callback of errorListeners) callback(error)
+    },
+  }
+}
+
+function subscribe<T>(listeners: Set<(value: T) => void>, callback: (value: T) => void) {
+  listeners.add(callback)
+  return () => {
+    listeners.delete(callback)
+  }
+}

@@ -549,6 +549,7 @@ export class PtySupervisor {
     void Promise.resolve()
       .then(() =>
         observer.observe(host, {
+          subscriptionId: entry.info.id,
           sessionId,
           sessionData,
           signal: controller.signal,

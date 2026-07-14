@@ -34,6 +34,7 @@ import type {
   WatchOptions,
   WriteFileOptions,
 } from './project-host'
+import { MAX_EXEC_STREAM_WRITE_BYTES } from './project-host'
 import type { SshAliasConfig } from './ssh-config'
 
 export interface SshIdentity {
@@ -320,19 +321,51 @@ export class SshHost implements ProjectHost {
     const failures = new Set<(v: Error) => void>()
     const exits = new Set<(v: { code: number | null; signal: string | null }) => void>()
     let stream: ClientChannel | undefined,
-      disposed = false
+      disposed = false,
+      stdinOpen = opts.keepStdinOpen === true
+    let resolveReady!: (channel: ClientChannel) => void
+    let rejectReady!: (error: Error) => void
+    let readySettled = false
+    const ready = new Promise<ClientChannel>((resolve, reject) => {
+      resolveReady = resolve
+      rejectReady = reject
+    })
+    // A listener-only caller may never call write/end. Keep an early channel
+    // failure observable through onError without creating an unhandled promise.
+    void ready.catch(() => undefined)
+    const settleReady = (channel: ClientChannel): void => {
+      if (readySettled) return
+      readySettled = true
+      resolveReady(channel)
+    }
+    const rejectPendingReady = (reason: unknown): Error => {
+      const error = asError(reason)
+      if (!readySettled) {
+        readySettled = true
+        rejectReady(error)
+      }
+      return error
+    }
+    const failReady = (reason: unknown): void => {
+      const error = rejectPendingReady(reason)
+      for (const cb of failures) cb(error)
+    }
     const stdoutDecoder = new StringDecoder('utf8')
     const stderrDecoder = new StringDecoder('utf8')
     void this.connected().then(
       (client) =>
         client.exec(remoteCommand(command, args, opts), (error, channel) => {
           if (error) {
-            for (const cb of failures) cb(error)
+            failReady(error)
             return
           }
-          if (disposed) return channel.close()
+          if (disposed) {
+            failReady(new Error('Exec stream is disposed'))
+            return channel.close()
+          }
           stream = channel
           this.channels.add(channel)
+          settleReady(channel)
           let result = { code: null as number | null, signal: null as string | null }
           channel.on('data', (b: Buffer) => {
             const value = stdoutDecoder.write(b)
@@ -346,9 +379,10 @@ export class SshHost implements ProjectHost {
             result = { code, signal: signal ?? null }
           })
           channel.on('error', (e: Error) => {
-            for (const cb of failures) cb(e)
+            failReady(e)
           })
           channel.on('close', () => {
+            stdinOpen = false
             this.channels.delete(channel)
             const finalOut = stdoutDecoder.end()
             const finalErr = stderrDecoder.end()
@@ -356,20 +390,62 @@ export class SshHost implements ProjectHost {
             if (finalErr) for (const cb of err) cb(finalErr)
             for (const cb of exits) cb(result)
           })
-          channel.end(opts.input)
+          if (stdinOpen) {
+            if (opts.input !== undefined) channel.write(opts.input)
+          } else {
+            channel.end(opts.input)
+          }
         }),
       (reason: unknown) => {
-        for (const cb of failures) cb(asError(reason))
+        failReady(reason)
       },
     )
+    const writableStdin = (data?: string): void => {
+      if (disposed) throw new Error('Exec stream is disposed')
+      if (!stdinOpen) throw new Error('Exec stream stdin is not open')
+      if (
+        data !== undefined &&
+        Buffer.byteLength(data, 'utf8') > MAX_EXEC_STREAM_WRITE_BYTES
+      ) {
+        throw new Error(
+          `Exec stream write exceeds ${MAX_EXEC_STREAM_WRITE_BYTES} byte limit`,
+        )
+      }
+    }
     return {
       onStdout: (cb) => subscribe(out, cb),
       onStderr: (cb) => subscribe(err, cb),
       onError: (cb) => subscribe(failures, cb),
       onExit: (cb) => subscribe(exits, cb),
-      kill: () => stream?.close(),
+      write: async (data) => {
+        writableStdin(data)
+        const channel = await ready
+        writableStdin(data)
+        await new Promise<void>((resolve, reject) => {
+          channel.write(data, (error?: Error | null) =>
+            error ? reject(error) : resolve(),
+          )
+        })
+      },
+      end: async (data) => {
+        writableStdin(data)
+        const channel = await ready
+        writableStdin(data)
+        stdinOpen = false
+        await new Promise<void>((resolve, reject) => {
+          channel.end(data, (error?: Error | null) => (error ? reject(error) : resolve()))
+        })
+      },
+      kill: () => {
+        disposed = true
+        stdinOpen = false
+        rejectPendingReady(new Error('Exec stream was killed'))
+        stream?.close()
+      },
       dispose: () => {
         disposed = true
+        stdinOpen = false
+        rejectPendingReady(new Error('Exec stream is disposed'))
         stream?.close()
       },
     }

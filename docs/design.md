@@ -509,6 +509,53 @@ them (puts the trust check on the hostile-repository parsing side); treating any
 the registry as active authority (lets a stale worker reach replaced sessions); claiming
 the renderer-selected root is a capability without a main-owned gesture token.
 
+#### Phase 7.5 addendum — 2026-07-14: one logical SSH host, pooled transports
+
+**`SshHost` remains one logical `ProjectHost`, but may own a bounded role-aware pool of
+physical SSH transports.** The host id, trust decision, authentication coordinator,
+connection state, SFTP/cache state, and reconnect contract remain singular. Control
+transports carry bounded `exec`, SFTP, watchers, and adapter telemetry hubs with reserved
+capacity; terminal transports carry PTYs only. A PTY is pinned to one transport for its
+lifetime. Pool admission opens lazily, reuses idle capacity first, serializes new
+authentication, and spills after a channel-open refusal without moving existing PTYs.
+The initial policy caps one host at eight physical transports (at most two control), with
+soft budgets of six control channels or eight PTYs per transport and a five-minute idle
+grace for auxiliaries. These are centralized safety defaults, not claims about a server's
+configured `MaxSessions`; real-host evidence may revise them.
+
+**Context telemetry is multiplexed per `(host, HarnessAdapter)`, not followed once per
+terminal.** Codex and Claude Code each own one lazy host-scoped hub that reconciles a
+versioned full subscription set over a bounded duplex `ProjectHost.execStream`. Adapter
+code still owns transcript/rollout discovery, remote filtering, framing, and parsing. Hub
+epochs and per-subscription generations reject late or cross-session records; the PTY
+supervisor still owns subscription lifecycle and the latest typed snapshot. A hub is a
+temporary child of its SSH channel, never installed remote software.
+
+**Why:** a normal agent workload can keep 10+ terminals across projects on one machine.
+OpenSSH commonly limits shell/exec/subsystem channels per connection; PTYs, SFTP,
+watchers, Git commands, and one follower per terminal otherwise compete for that same
+budget. Merely serializing Git preserves a slot at small scale but cannot make ten PTYs
+fit beside the control plane. Pooling solves physical capacity without weakening the
+logical host seam, while telemetry hubs remove avoidable one-channel-per-agent pressure.
+Interactive Git or long-running user commands remain inside a PTY; hvir's own `exec` is
+bounded noninteractive control work and never spills onto terminal transports.
+
+**Authentication and failure contract:** reusable password/passphrase material may live
+only in memory until explicit disconnect/app quit; keyboard-interactive/OTP answers are
+never cached. Pool growth has one prompt sequence per logical host, finite method/challenge
+attempts, and no prompted automatic retry after failure or cancellation. Failure of an
+auxiliary transport exits only its pinned PTYs exactly once and does not mark the control
+plane disconnected. Harness resume remains recovery; pooling does not claim process
+survival across a broken transport.
+
+**Rejected:** requiring users to raise `MaxSessions` (not portable or always permitted);
+one `SshHost` per project/workspace/worker (duplicates identity and lifecycle); one TCP
+connection per PTY (unbounded transport/auth churn); letting control commands borrow PTY
+transports (destroys reservation); terminal-screen scraping or OSC injection for telemetry
+(fragile and contaminates the terminal surface); restarting every telemetry follower on
+ordinary subscription churn (avoidable gaps/work); and a persistent installed remote
+agent (still rejected by ADR-010).
+
 ---
 
 ## 5. Architecture
