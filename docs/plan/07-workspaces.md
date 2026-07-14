@@ -49,6 +49,11 @@ Phase 7 acceptance gate. Automated verification currently covers registry persis
 NUL-safe worktree discovery, broker confinement, changed-count polling, and the full
 Electron smoke (including terminal recovery/reconnect and PTY cleanup).
 
+Same-host SSH capacity beyond one physical connection, including 10+ restored terminals
+and multiplexed context telemetry, is the explicit follow-on in
+[`Phase 7.5`](07.5-ssh-capacity.md); serialized exec headroom is not its final scaling
+model.
+
 - [ ] Register two projects (one local, one SSH). Create a worktree from a terminal
       (`git worktree add ...`): it appears as a workspace without user action; its
       agent terminal's dots roll up to the right project tab.
