@@ -67,6 +67,7 @@ describe('ProjectRegistry session flow', () => {
       localPath(root),
       { prompt: () => Promise.resolve(undefined) },
       join(root, 'known-hosts.json'),
+      join(root, 'projects.json'),
       (state) => states.push(state.root.path),
     )
 
@@ -93,6 +94,7 @@ describe('ProjectRegistry session flow', () => {
       localPath(root),
       { prompt: () => Promise.resolve(undefined) },
       join(root, 'known-hosts.json'),
+      join(root, 'projects.json'),
       () => undefined,
     )
 
@@ -109,6 +111,7 @@ describe('ProjectRegistry session flow', () => {
       localPath(root),
       { prompt: () => Promise.resolve(undefined) },
       join(root, 'known-hosts.json'),
+      join(root, 'projects.json'),
       () => undefined,
     )
 
@@ -116,6 +119,74 @@ describe('ProjectRegistry session flow', () => {
       'The local host cannot disconnect',
     )
     await registry.dispose()
+  })
+
+  it('persists registered projects and preserves removed worktrees until dismissal', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'hvir-registry-'))
+    const linked = join(root, 'linked')
+    await mkdir(linked)
+    const canonicalRoot = await realpath(root)
+    const canonicalLinked = await realpath(linked)
+    cleanups.push(root)
+    const projectsFile = join(root, 'projects.json')
+    const registry = await ProjectRegistry.create(
+      localPath(root),
+      { prompt: () => Promise.resolve(undefined) },
+      join(root, 'known-hosts.json'),
+      projectsFile,
+      () => undefined,
+    )
+    const projectId = registry.state().activeProjectId
+    await registry.reconcileWorktrees(projectId, {
+      repository: true,
+      worktrees: [
+        { root: localPath(canonicalRoot), branch: 'main', detached: false, bare: false },
+        {
+          root: localPath(canonicalLinked),
+          branch: 'feature',
+          detached: false,
+          bare: false,
+        },
+      ],
+    })
+    const linkedId = registry
+      .projectById(projectId)!
+      .workspaces.find((workspace) => workspace.root.path === canonicalLinked)!.id
+    await registry.activate(projectId, linkedId)
+    await registry.reconcileWorktrees(projectId, {
+      repository: true,
+      worktrees: [
+        {
+          root: localPath(canonicalRoot),
+          branch: 'main',
+          detached: false,
+          bare: false,
+        },
+      ],
+    })
+
+    expect(registry.projectById(projectId)?.workspaces).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: linkedId, missing: true, branch: 'feature' }),
+      ]),
+    )
+    await registry.dispose()
+
+    const restored = await ProjectRegistry.create(
+      localPath(root),
+      { prompt: () => Promise.resolve(undefined) },
+      join(root, 'known-hosts.json'),
+      projectsFile,
+      () => undefined,
+    )
+    expect(restored.state().activeWorkspaceId).not.toBe(linkedId)
+    expect(restored.projectById(projectId)?.workspaces).toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: linkedId, missing: true })]),
+    )
+    await restored.dismissWorkspace(projectId, linkedId)
+    expect(restored.projectById(projectId)?.workspaces).toHaveLength(1)
+    expect(restored.state().root.path).toBe(await realpath(root))
+    await restored.dispose()
   })
 })
 

@@ -142,6 +142,10 @@ describe('Git worker host broker', () => {
     } as unknown as ProjectHost
     const engine = new GitEngine(proxy, localPath(rootPath))
 
+    await expect(engine.worktrees(localPath(rootPath))).resolves.toEqual(
+      expect.objectContaining({ repository: true }),
+    )
+    await expect(engine.changedFileCount(localPath(rootPath))).resolves.toBe(1)
     const changes = await engine.changes(localPath(rootPath))
     const history = await engine.history(localPath(rootPath), 1)
     const graphHistory = await engine.history(

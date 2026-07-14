@@ -30,6 +30,8 @@ import {
 } from '../../shared'
 import { PaneResizer } from './layout/PaneResizer'
 import { TerminalWorkspace } from './terminal/TerminalWorkspace'
+import type { TerminalWorkspaceRollup } from './terminal/TerminalWorkspace'
+import { ProjectsBar } from './workspaces/ProjectsBar'
 import { FileTree, SessionBar } from './tree/FileTree'
 import { DirectoryTree } from './tree/DirectoryTree'
 import { isGitIgnoreRulePath } from './tree/git-ignore-refresh'
@@ -51,6 +53,13 @@ const DRAFT_STORAGE_CHARACTER_LIMIT = 2 * 1024 * 1024
 export function App(): ReactElement {
   const workbenchRef = useRef<HTMLElement>(null)
   const tabsRef = useRef<readonly ViewerTab[]>([])
+  const rootRef = useRef<HostPath | undefined>(undefined)
+  const warmTabs = useRef(
+    new Map<
+      string,
+      { readonly tabs: readonly ViewerTab[]; readonly activeId?: string }
+    >(),
+  )
   const activeIdRef = useRef<string | undefined>(undefined)
   const gitGraphActiveRef = useRef(false)
   const fileReadGenerations = useRef(new Map<string, number>())
@@ -69,6 +78,7 @@ export function App(): ReactElement {
     | undefined
   >(undefined)
   const [root, setRoot] = useState<HostPath>()
+  const [projectState, setProjectState] = useState<ProjectState>()
   const [rootError, setRootError] = useState<string>()
   const [watchVersion, setWatchVersion] = useState(0)
   const [ignoredRefreshVersion, setIgnoredRefreshVersion] = useState(0)
@@ -92,10 +102,59 @@ export function App(): ReactElement {
   const [sessionBusy, setSessionBusy] = useState(false)
   const [sessionError, setSessionError] = useState<string>()
   const [sshPrompts, setSshPrompts] = useState<readonly SshPromptRequest[]>([])
+  const [terminalRollups, setTerminalRollups] = useState<
+    Readonly<Record<string, TerminalWorkspaceRollup>>
+  >({})
   tabsRef.current = tabs
+  rootRef.current = root
   activeIdRef.current = activeId
   gitGraphActiveRef.current = gitGraphActive
   const changedCount = gitChanges?.workingTree.length ?? 0
+  const activeProject = projectState?.projects.find(
+    (project) => project.id === projectState.activeProjectId,
+  )
+  const activeWorkspace = activeProject?.workspaces.find(
+    (workspace) => workspace.id === projectState?.activeWorkspaceId,
+  )
+
+  const applyProjectState = useCallback((state: ProjectState): void => {
+    setProjectState(state)
+    setConnectionState(state.connectionState)
+    setWatchTier(state.watchTier)
+    const currentRoot = rootRef.current
+    if (currentRoot && hostPathEquals(currentRoot, state.root)) return
+    if (currentRoot) {
+      persistTabs(currentRoot, tabsRef.current, activeIdRef.current)
+      warmTabs.current.set(storageKey(currentRoot), {
+        tabs: tabsRef.current,
+        activeId: activeIdRef.current,
+      })
+    }
+    setRestored(false)
+    setRoot(state.root)
+    setTabs([])
+    setActiveId(undefined)
+    setGitGraphOpen(false)
+    setGitGraphActive(false)
+    setGitChanges(undefined)
+    setSessionError(undefined)
+  }, [])
+
+  const updateTerminalRollup = useCallback(
+    (workspaceId: string, rollup: TerminalWorkspaceRollup): void => {
+      setTerminalRollups((current) => {
+        const existing = current[workspaceId]
+        if (
+          existing?.unseen === rollup.unseen &&
+          existing.actionable === rollup.actionable
+        ) {
+          return current
+        }
+        return { ...current, [workspaceId]: rollup }
+      })
+    },
+    [],
+  )
 
   const loadFile = useCallback((path: HostPath): void => {
     const id = tabId(path)
@@ -164,12 +223,8 @@ export function App(): ReactElement {
     let contentRefreshTimer: number | undefined
     let gitRefreshTimer: number | undefined
     void window.hvir.invoke('project:root', undefined).then(
-      ({ root: projectRoot, connectionState: state, watchTier: tier }) => {
-        if (!cancelled) {
-          setRoot(projectRoot)
-          setConnectionState(state)
-          setWatchTier(tier)
-        }
+      (state) => {
+        if (!cancelled) applyProjectState(state)
       },
       (error: unknown) => {
         if (!cancelled)
@@ -208,8 +263,7 @@ export function App(): ReactElement {
       watchHandler.current(event)
     })
     const stopState = window.hvir.on('project:state', (state) => {
-      setConnectionState(state.connectionState)
-      setWatchTier(state.watchTier)
+      applyProjectState(state)
       if (state.connectionState === 'connected') setSessionError(undefined)
       if (state.connectionState === 'disconnected') {
         setSshPrompts((current) =>
@@ -238,7 +292,7 @@ export function App(): ReactElement {
       void stopPrompt()
       void stopPromptCancel()
     }
-  }, [])
+  }, [applyProjectState])
 
   useEffect(() => {
     let cancelled = false
@@ -255,12 +309,39 @@ export function App(): ReactElement {
 
   useEffect(() => {
     if (!root) return
-    const restoredState = restoreTabs(root)
+    const restoredState = warmTabs.current.get(storageKey(root)) ?? restoreTabs(root)
     setTabs(restoredState.tabs)
     setActiveId(restoredState.activeId)
     setRestored(true)
-    for (const tab of restoredState.tabs) loadFile(tab.path)
+    for (const tab of restoredState.tabs) if (!tab.dirty) loadFile(tab.path)
+    const layout = restoreLayout(root)
+    const workbench = workbenchRef.current
+    if (workbench) {
+      if (layout.treeWidth) {
+        workbench.style.setProperty('--tree-track', `${layout.treeWidth}px`)
+      } else {
+        workbench.style.removeProperty('--tree-track')
+      }
+      if (layout.terminalHeight) {
+        workbench.style.setProperty('--terminal-track', `${layout.terminalHeight}px`)
+      } else {
+        workbench.style.removeProperty('--terminal-track')
+      }
+    }
   }, [loadFile, root])
+
+  useEffect(() => {
+    if (activeWorkspace?.repository === false && railMode === 'git') setRailMode('files')
+  }, [activeWorkspace?.repository, railMode])
+
+  useEffect(() => {
+    const actionable = Object.values(terminalRollups).reduce(
+      (total, rollup) => total + rollup.actionable,
+      0,
+    )
+    window.hvir.send('app:attention', { count: actionable })
+  }, [terminalRollups])
+  useEffect(() => () => window.hvir.send('app:attention', { count: 0 }), [])
 
   useEffect(() => {
     if (!root || !restored) return
@@ -499,16 +580,78 @@ export function App(): ReactElement {
   }
 
   const changeSession = (): void => {
-    const dirtyCount = tabsRef.current.filter((tab) => tab.dirty).length
+    setShowAddProject(true)
+  }
+
+  const switchWorkspace = async (
+    projectId: string,
+    workspaceId: string,
+  ): Promise<void> => {
     if (
-      dirtyCount > 0 &&
-      !window.confirm(
-        `${dirtyCount} tab${dirtyCount === 1 ? ' has' : 's have'} unsaved changes. Switching sessions will discard them. Continue?`,
-      )
+      projectId === projectState?.activeProjectId &&
+      workspaceId === projectState.activeWorkspaceId
     ) {
       return
     }
-    setShowAddProject(true)
+    setSessionBusy(true)
+    setSessionError(undefined)
+    try {
+      const targetProject = projectState?.projects.find(
+        (project) => project.id === projectId,
+      )
+      if (
+        targetProject &&
+        targetProject.registeredRoot.hostId !== 'local' &&
+        targetProject.connectionState !== 'connected'
+      ) {
+        unwrapOperation(
+          await window.hvir.invoke('project:connect-host', {
+            hostId: targetProject.registeredRoot.hostId,
+          }),
+        )
+      }
+      const state = unwrapOperation(
+        await window.hvir.invoke('project:switch', { projectId, workspaceId }),
+      )
+      applyProjectState(state)
+    } catch (reason) {
+      setSessionError(reason instanceof Error ? reason.message : String(reason))
+    } finally {
+      setSessionBusy(false)
+    }
+  }
+
+  const refreshProject = async (projectId: string): Promise<void> => {
+    setSessionBusy(true)
+    setSessionError(undefined)
+    try {
+      applyProjectState(
+        unwrapOperation(await window.hvir.invoke('project:refresh', { projectId })),
+      )
+    } catch (reason) {
+      setSessionError(reason instanceof Error ? reason.message : String(reason))
+    } finally {
+      setSessionBusy(false)
+    }
+  }
+
+  const dismissWorkspace = async (
+    projectId: string,
+    workspaceId: string,
+  ): Promise<void> => {
+    setSessionBusy(true)
+    setSessionError(undefined)
+    try {
+      applyProjectState(
+        unwrapOperation(
+          await window.hvir.invoke('workspace:dismiss', { projectId, workspaceId }),
+        ),
+      )
+    } catch (reason) {
+      setSessionError(reason instanceof Error ? reason.message : String(reason))
+    } finally {
+      setSessionBusy(false)
+    }
   }
 
   const disconnectSession = async (): Promise<void> => {
@@ -567,7 +710,9 @@ export function App(): ReactElement {
         workbench.clientWidth - DIVIDER_SIZE - MAIN_MIN_WIDTH - terminalRailWidth,
       ),
     )
-    workbench.style.setProperty('--tree-track', `${clamp(width, TREE_MIN_WIDTH, max)}px`)
+    const next = clamp(width, TREE_MIN_WIDTH, max)
+    workbench.style.setProperty('--tree-track', `${next}px`)
+    if (rootRef.current) persistLayout(rootRef.current, { treeWidth: next })
   }
 
   const setTerminalHeight = (height: number): void => {
@@ -577,17 +722,31 @@ export function App(): ReactElement {
       TERMINAL_MIN_HEIGHT,
       workbench.clientHeight - DIVIDER_SIZE - VIEWER_MIN_HEIGHT,
     )
-    workbench.style.setProperty(
-      '--terminal-track',
-      `${clamp(height, TERMINAL_MIN_HEIGHT, max)}px`,
-    )
+    const next = clamp(height, TERMINAL_MIN_HEIGHT, max)
+    workbench.style.setProperty('--terminal-track', `${next}px`)
+    if (rootRef.current) persistLayout(rootRef.current, { terminalHeight: next })
   }
 
   if (rootError) return <div className="startup-error">{rootError}</div>
   if (!root) return <div className="startup-loading">Starting hvir…</div>
 
   return (
-    <>
+    <div className="app-shell">
+      {projectState ? (
+        <ProjectsBar
+          state={projectState}
+          rollups={terminalRollups}
+          busy={sessionBusy}
+          onAdd={changeSession}
+          onSwitch={(projectId, workspaceId) =>
+            void switchWorkspace(projectId, workspaceId)
+          }
+          onRefresh={(projectId) => void refreshProject(projectId)}
+          onDismiss={(projectId, workspaceId) =>
+            void dismissWorkspace(projectId, workspaceId)
+          }
+        />
+      ) : null}
       <main
         className={`workbench${connectionState === 'connected' ? '' : ' project-stale'}`}
         ref={workbenchRef}
@@ -613,14 +772,16 @@ export function App(): ReactElement {
             >
               Files
             </button>
-            <button
-              type="button"
-              className={railMode === 'git' ? 'active' : ''}
-              aria-current={railMode === 'git' ? 'page' : undefined}
-              onClick={() => setRailMode('git')}
-            >
-              Git{changedCount > 0 ? ` ${changedCount}` : ''}
-            </button>
+            {activeWorkspace?.repository !== false ? (
+              <button
+                type="button"
+                className={railMode === 'git' ? 'active' : ''}
+                aria-current={railMode === 'git' ? 'page' : undefined}
+                onClick={() => setRailMode('git')}
+              >
+                Git{changedCount > 0 ? ` ${changedCount}` : ''}
+              </button>
+            ) : null}
             <button type="button" disabled title="Harness view lands in Phase 6">
               Harness
             </button>
@@ -669,7 +830,10 @@ export function App(): ReactElement {
               workbenchRef.current?.querySelector<HTMLElement>('.tree-panel')
             if (current) setTreeWidth(current.getBoundingClientRect().width + delta)
           }}
-          onReset={() => workbenchRef.current?.style.removeProperty('--tree-track')}
+          onReset={() => {
+            workbenchRef.current?.style.removeProperty('--tree-track')
+            if (rootRef.current) persistLayout(rootRef.current, { treeWidth: 0 })
+          }}
         />
         <section className="viewer-panel" aria-label="File viewer">
           <TabStrip
@@ -768,13 +932,35 @@ export function App(): ReactElement {
               workbenchRef.current?.querySelector<HTMLElement>('.terminal-panel')
             if (current) setTerminalHeight(current.getBoundingClientRect().height + delta)
           }}
-          onReset={() => workbenchRef.current?.style.removeProperty('--terminal-track')}
+          onReset={() => {
+            workbenchRef.current?.style.removeProperty('--terminal-track')
+            if (rootRef.current) persistLayout(rootRef.current, { terminalHeight: 0 })
+          }}
         />
-        <TerminalWorkspace
-          key={`terminals:${root.hostId}:${root.path}`}
-          cwd={root}
-          connectionState={connectionState}
-        />
+        {projectState?.projects.flatMap((project) =>
+          project.workspaces.map((workspace) => (
+            <TerminalWorkspace
+              key={workspace.id}
+              workspaceId={workspace.id}
+              cwd={workspace.root}
+              label={workspace.name}
+              visible={workspace.id === projectState.activeWorkspaceId}
+              connectionState={project.connectionState}
+              onRollup={updateTerminalRollup}
+              railGroups={project.workspaces.map((candidate) => ({
+                projectId: project.id,
+                workspaceId: candidate.id,
+                label: candidate.name,
+                active: candidate.id === workspace.id,
+                missing: candidate.missing,
+                unseen: terminalRollups[candidate.id]?.unseen ?? 0,
+              }))}
+              onSelectWorkspace={(projectId, workspaceId) =>
+                void switchWorkspace(projectId, workspaceId)
+              }
+            />
+          )),
+        )}
       </main>
       {showAddProject ? (
         <SessionDialog
@@ -787,17 +973,7 @@ export function App(): ReactElement {
           onDisconnect={disconnectProjectHost}
           onOpen={openProjectHost}
           onOpened={(state) => {
-            persistTabs(root, tabsRef.current, activeIdRef.current, false)
-            setRestored(false)
-            setRoot(state.root)
-            setConnectionState(state.connectionState)
-            setWatchTier(state.watchTier)
-            setTabs([])
-            setActiveId(undefined)
-            setGitGraphOpen(false)
-            setGitGraphActive(false)
-            setGitChanges(undefined)
-            setSessionError(undefined)
+            applyProjectState(state)
             setShowAddProject(false)
           }}
         />
@@ -819,7 +995,7 @@ export function App(): ReactElement {
           }}
         />
       ) : null}
-    </>
+    </div>
   )
 }
 
@@ -1391,6 +1567,52 @@ function persistTabs(
 
 function storageKey(root: HostPath): string {
   return `hvir:tabs:${root.hostId}:${root.path}`
+}
+
+interface StoredLayout {
+  readonly version: 1
+  readonly treeWidth?: number
+  readonly terminalHeight?: number
+}
+
+function restoreLayout(root: HostPath): StoredLayout {
+  try {
+    const parsed: unknown = JSON.parse(
+      localStorage.getItem(`hvir:layout:${root.hostId}:${root.path}`) ?? 'null',
+    )
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      return { version: 1 }
+    }
+    const layout = parsed as Record<string, unknown>
+    return {
+      version: 1,
+      treeWidth:
+        typeof layout['treeWidth'] === 'number' && Number.isFinite(layout['treeWidth'])
+          ? layout['treeWidth']
+          : undefined,
+      terminalHeight:
+        typeof layout['terminalHeight'] === 'number' &&
+        Number.isFinite(layout['terminalHeight'])
+          ? layout['terminalHeight']
+          : undefined,
+    }
+  } catch {
+    return { version: 1 }
+  }
+}
+
+function persistLayout(
+  root: HostPath,
+  update: { readonly treeWidth?: number; readonly terminalHeight?: number },
+): void {
+  try {
+    localStorage.setItem(
+      `hvir:layout:${root.hostId}:${root.path}`,
+      JSON.stringify({ ...restoreLayout(root), ...update }),
+    )
+  } catch {
+    // Layout recovery is best effort and never blocks the live workbench.
+  }
 }
 
 function tabId(path: HostPath): string {

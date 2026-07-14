@@ -21,6 +21,7 @@ import type {
   GitCommitDetail,
   GitCommitDetailRequest,
 } from './git-types'
+import type { WorktreeDiscovery } from './workspace-types'
 
 export interface WorkerRequest<T = unknown> {
   readonly id: number
@@ -100,6 +101,8 @@ export const GIT_HISTORY_TYPE = 'git:history' as const
 export const GIT_IGNORED_ENTRIES_TYPE = 'git:ignored-entries' as const
 export const GIT_BLAME_TYPE = 'git:blame' as const
 export const GIT_COMMIT_DETAIL_TYPE = 'git:commit-detail' as const
+export const GIT_WORKTREES_TYPE = 'git:worktrees' as const
+export const GIT_CHANGED_FILE_COUNT_TYPE = 'git:changed-file-count' as const
 
 export interface GitWorkerPayload extends GitDiffRequest {
   /** Project confinement boundary, independently revalidated by the worker. */
@@ -107,6 +110,14 @@ export interface GitWorkerPayload extends GitDiffRequest {
 }
 
 export interface GitWorkerProtocol {
+  readonly [GIT_CHANGED_FILE_COUNT_TYPE]: WorkerOperation<
+    { readonly root: HostPath },
+    number
+  >
+  readonly [GIT_WORKTREES_TYPE]: WorkerOperation<
+    { readonly root: HostPath },
+    WorktreeDiscovery
+  >
   readonly [GIT_DIFF_INPUTS_TYPE]: WorkerOperation<GitWorkerPayload, GitDiffResponse>
   readonly [GIT_CHANGES_TYPE]: WorkerOperation<
     GitChangesRequest & { readonly root: HostPath },

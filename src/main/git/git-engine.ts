@@ -11,7 +11,9 @@ import {
   type GitCommitSummary,
   type GitHistoryPage,
   type GitCommitDetail,
+  type HostId,
   type HostPath,
+  type WorktreeDiscovery,
 } from '../../shared'
 import type { ExecOptions, ProjectHost } from '../project-host'
 
@@ -29,6 +31,45 @@ export class GitEngine {
      */
     private readonly projectRoot?: HostPath,
   ) {}
+
+  async worktrees(projectRoot: HostPath): Promise<WorktreeDiscovery> {
+    this.assertHost(projectRoot)
+    const result = await execReadOnlyGit(this.host, projectRoot, [
+      'worktree',
+      'list',
+      '--porcelain',
+      '-z',
+    ])
+    if (result.code !== 0) {
+      return {
+        repository: false,
+        worktrees: [
+          {
+            root: projectRoot,
+            detached: false,
+            bare: false,
+          },
+        ],
+      }
+    }
+    const worktrees = parseWorktreeList(result.stdout, projectRoot.hostId)
+    if (worktrees.length === 0) throw new Error('git reported no worktrees')
+    return { repository: true, worktrees }
+  }
+
+  async changedFileCount(workspaceRoot: HostPath): Promise<number> {
+    this.assertHost(workspaceRoot)
+    return parseStatus(
+      await this.run(workspaceRoot, [
+        'status',
+        '--porcelain=v2',
+        '-z',
+        '--untracked-files=all',
+        '--',
+        '.',
+      ]),
+    ).length
+  }
 
   async diffInputs(
     path: HostPath,
@@ -644,6 +685,59 @@ export class GitEngine {
       throw new Error(`GitEngine received path for host '${path.hostId}'`)
     }
   }
+}
+
+/** Parse Git's NUL-delimited porcelain format without interpreting paths as text lines. */
+export function parseWorktreeList(
+  output: string,
+  hostId: HostId,
+): WorktreeDiscovery['worktrees'] {
+  const worktrees: WorktreeDiscovery['worktrees'][number][] = []
+  let current:
+    | {
+        root: HostPath
+        head?: string
+        branch?: string
+        detached: boolean
+        bare: boolean
+        prunable?: boolean
+      }
+    | undefined
+  const finish = (): void => {
+    if (!current) return
+    worktrees.push(current)
+    current = undefined
+  }
+  for (const field of output.split('\0')) {
+    if (!field) {
+      finish()
+      continue
+    }
+    const separator = field.indexOf(' ')
+    const key = separator < 0 ? field : field.slice(0, separator)
+    const value = separator < 0 ? '' : field.slice(separator + 1)
+    if (key === 'worktree') {
+      finish()
+      if (!value.startsWith('/')) throw new Error('git reported a non-absolute worktree')
+      current = {
+        root: hostPath(hostId, value),
+        detached: false,
+        bare: false,
+      }
+    } else if (current && key === 'HEAD' && /^[0-9a-f]{40,64}$/i.test(value)) {
+      current.head = value
+    } else if (current && key === 'branch' && value.startsWith('refs/heads/')) {
+      current.branch = value.slice('refs/heads/'.length)
+    } else if (current && key === 'detached') {
+      current.detached = true
+    } else if (current && key === 'bare') {
+      current.bare = true
+    } else if (current && key === 'prunable') {
+      current.prunable = true
+    }
+  }
+  finish()
+  return worktrees
 }
 
 function gitError(args: readonly string[], stderr: string, code: number | null): Error {

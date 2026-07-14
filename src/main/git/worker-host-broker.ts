@@ -158,6 +158,9 @@ function validateGitInvocation(args: readonly string[]): void {
       )
         return
       break
+    case 'worktree':
+      if (sameArgs(rest, ['list', '--porcelain', '-z'])) return
+      break
   }
   invalidGitInvocation()
 }

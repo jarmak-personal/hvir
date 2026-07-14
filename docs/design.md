@@ -394,6 +394,38 @@ agent workspaces simply appear.
 worktree creation/cleanup (one step from branch naming and merge-back — orchestration
 creep).
 
+#### Phase 7 addendum — 2026-07-14: persisted discovery and multi-root Git authority
+
+**The local project registry is the durable authority list; the active workspace remains
+the renderer's filesystem authority.** Registration persists the host-qualified project
+root, display name, active workspace, and last discovered worktree records in local app
+metadata. Worktrees are reconciled from NUL-delimited `git worktree list --porcelain -z`
+output in the Git utility process. A missing worktree is retained as a gray workspace,
+including its layout/session identity, until the user explicitly dismisses it. Plain
+directories produce the same one-workspace model with Git surfaces omitted.
+
+Phase 5's Git broker confinement expands from the one active root to the exact set of
+registered project and discovered workspace roots so the utility process can refresh
+inactive-project discovery and changed-file counts. This does not expand renderer file
+access: filesystem/viewer IPC still resolves only against the active workspace. Main
+chooses the deepest registered boundary for each worker host call, and the existing
+command grammar, canonical-path checks, output bounds, and timeouts still apply. A cheap
+worktree/status refresh runs after watch events, on demand, and on a five-second fallback
+poll; parsing and Git execution remain off-renderer.
+
+Workspace switches preserve live terminal components and PTYs while swapping the active
+filesystem authority. Tabs and pane sizes persist per host-qualified workspace, and clean
+tabs refresh asynchronously when revisited; dirty drafts remain authoritative. Removed
+workspace dismissal is the explicit point that ends its PTYs and forgets recovery
+records.
+
+**Rejected:** one Git worker or SSH connection per workspace (duplicates transport and
+auth state); granting inactive roots to general renderer filesystem IPC (weakens the
+active-workspace boundary); killing PTYs on workspace switches (turns navigation into
+session loss); treating object identity as path identity across IPC (structured cloning
+would restart stable workspaces); watching every inactive tree recursively (unbounded
+watcher and SSH load).
+
 ### ADR-009 — Notifications: focus clears, parents aggregate
 **Decision:** One rule, no special cases: **a dot is cleared by focusing the thing that
 raised it; parents only aggregate their children's unseen dots.** No dot on the terminal

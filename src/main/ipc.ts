@@ -11,6 +11,7 @@ import {
   asHostId,
   dirnameHostPath,
   hostPath,
+  hostPathEquals,
   type AppInfo,
   type EchoWorkerProtocol,
   GIT_DIFF_INPUTS_TYPE,
@@ -85,11 +86,24 @@ export interface IpcDeps {
   readonly echoWorker: WorkerClient<EchoWorkerProtocol>
   readonly gitWorker: WorkerClient<GitWorkerProtocol>
   readonly getProject: () => { readonly host: ProjectHost; readonly root: HostPath }
+  readonly getProjectForRoot: (
+    root: HostPath,
+  ) => { readonly host: ProjectHost; readonly root: HostPath } | undefined
+  readonly getProjectState: () => ProjectState
   readonly listHosts: () => readonly ProjectHostOption[]
   readonly connectHost: (hostId: string) => Promise<ConnectedHost>
   readonly disconnectHost: (hostId: string) => Promise<ProjectHostOption>
   readonly browseHost: (hostId: string, path: string) => Promise<BrowseHostResponse>
   readonly openProject: (hostId: string, path: string) => Promise<ProjectState>
+  readonly switchWorkspace: (
+    projectId: string,
+    workspaceId: string,
+  ) => Promise<ProjectState>
+  readonly refreshProject: (projectId: string) => Promise<ProjectState>
+  readonly dismissWorkspace: (
+    projectId: string,
+    workspaceId: string,
+  ) => Promise<ProjectState>
   readonly respondSshPrompt: (id: number, answers?: readonly string[]) => void
   readonly ptySupervisor: PtySupervisor
   readonly terminalSessions: TerminalSessionStore
@@ -114,14 +128,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
     return { text: result.text, workerPid: result.workerPid }
   })
 
-  handle('project:root', () => {
-    const { root, host } = deps.getProject()
-    return {
-      root,
-      connectionState: host.connectionState,
-      watchTier: host.watchTier,
-    }
-  })
+  handle('project:root', () => deps.getProjectState())
   handle('project:hosts', () => deps.listHosts())
   handle('project:connect-host', (req) =>
     operationResult(() => deps.connectHost(req.hostId)),
@@ -134,6 +141,15 @@ export function registerIpcHandlers(deps: IpcDeps): void {
   )
   handle('project:open', (req) =>
     operationResult(() => deps.openProject(req.hostId, req.path)),
+  )
+  handle('project:switch', (req) =>
+    operationResult(() => deps.switchWorkspace(req.projectId, req.workspaceId)),
+  )
+  handle('project:refresh', (req) =>
+    operationResult(() => deps.refreshProject(req.projectId)),
+  )
+  handle('workspace:dismiss', (req) =>
+    operationResult(() => deps.dismissWorkspace(req.projectId, req.workspaceId)),
   )
   handle('ssh:prompt-response', (req) => {
     if (!Number.isSafeInteger(req?.id) || req.id <= 0) {
@@ -329,12 +345,12 @@ export function registerIpcHandlers(deps: IpcDeps): void {
   handle('html-preview:create', (req) => deps.htmlPreviews.create(req.content))
 
   handle('terminal:recovery', (req) => {
-    const root = activeProjectRoot(req.root, deps)
+    const root = registeredWorkspaceRoot(req.root, deps)
     return deps.terminalSessions.list(root)
   })
 
   handle('terminal:update-layout', async (req) => {
-    const root = activeProjectRoot(req.root, deps)
+    const root = registeredWorkspaceRoot(req.root, deps)
     const rawSessions: unknown = req.sessions
     if (!Array.isArray(rawSessions) || rawSessions.length > 500) {
       throw new Error('Invalid terminal layout')
@@ -364,7 +380,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
   })
 
   handle('terminal:forget', async (req) => {
-    const root = activeProjectRoot(req.root, deps)
+    const root = registeredWorkspaceRoot(req.root, deps)
     if (!isTerminalId(req.id)) throw new Error('Invalid terminal session id')
     await deps.terminalSessions.forget(root, req.id)
   })
@@ -477,18 +493,20 @@ export function registerIpcHandlers(deps: IpcDeps): void {
   })
 }
 
-function activeProjectRoot(candidate: HostPath, deps: IpcDeps): HostPath {
-  const { root } = deps.getProject()
+function registeredWorkspaceRoot(candidate: HostPath, deps: IpcDeps): HostPath {
   if (
     !candidate ||
     typeof candidate.hostId !== 'string' ||
-    typeof candidate.path !== 'string' ||
-    candidate.hostId !== root.hostId ||
-    candidate.path !== root.path
+    typeof candidate.path !== 'string'
   ) {
     throw new Error('Terminal session belongs to another project')
   }
-  return root
+  const decoded = hostPath(asHostId(candidate.hostId), candidate.path)
+  const project = deps.getProjectForRoot(decoded)
+  if (!project || !hostPathEquals(decoded, project.root)) {
+    throw new Error('Terminal session belongs to another project')
+  }
+  return project.root
 }
 
 function isTerminalId(value: unknown): value is string {

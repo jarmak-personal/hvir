@@ -25,7 +25,10 @@ import {
 } from './terminal/session-registry'
 import {
   ECHO_REQUEST_TYPE,
+  GIT_CHANGED_FILE_COUNT_TYPE,
+  GIT_WORKTREES_TYPE,
   hostPath,
+  hostPathEquals,
   joinHostPath,
   localPath,
   LOCAL_HOST_ID,
@@ -36,6 +39,7 @@ import {
   type IpcEventChannel,
   type IpcEventPayload,
   type TerminalRecoverySession,
+  type ProjectState,
   HTML_PREVIEW_SCHEME,
 } from '../shared'
 
@@ -56,6 +60,9 @@ let ptySupervisor: PtySupervisor | null = null
 let terminalSessionRegistry: TerminalSessionRegistry | null = null
 let attentionBadge: AttentionBadge | null = null
 let disposeWatch: Disposer | null = null
+let workspacePoll: ReturnType<typeof setInterval> | null = null
+const workspaceRefreshes = new Map<string, Promise<ProjectState>>()
+const workspaceRefreshTimers = new Map<string, ReturnType<typeof setTimeout>>()
 let sessionOperation: Promise<void> = Promise.resolve()
 let suspendSessions: Promise<void> = Promise.resolve()
 let shutdownStarted = false
@@ -201,6 +208,7 @@ async function startup(): Promise<void> {
     localPath(projectRootArgument()),
     sshPrompter,
     join(app.getPath('userData'), 'known-hosts.json'),
+    join(app.getPath('userData'), 'projects.json'),
     (state) => emit('project:state', state),
   )
   const metadataHost = projectRegistry.hostById(LOCAL_HOST_ID)
@@ -216,7 +224,14 @@ async function startup(): Promise<void> {
   gitWorker = createWorkerClient<GitWorkerProtocol>(
     workerPath('git-worker.js'),
     'hvir-git',
-    (call) => dispatchWorkerHostCall(call, projectRegistry?.active ?? null),
+    (call) => {
+      const path =
+        call.operation === 'readTextFile' ? call.path.path : (call.args[1] ?? '')
+      return dispatchWorkerHostCall(
+        call,
+        projectRegistry?.authorityForPath(call.hostId, path) ?? null,
+      )
+    },
   )
   ptySupervisor = new PtySupervisor()
   attentionBadge = new AttentionBadge((count) => {
@@ -243,6 +258,12 @@ async function startup(): Promise<void> {
       if (!projectRegistry) throw new Error('Project registry is unavailable')
       return projectRegistry.active
     },
+    getProjectForRoot: (root) =>
+      projectRegistry?.authorityForPath(root.hostId, root.path),
+    getProjectState: () => {
+      if (!projectRegistry) throw new Error('Project registry is unavailable')
+      return projectRegistry.state()
+    },
     listHosts: () => projectRegistry?.listHosts() ?? [],
     connectHost: (hostId) =>
       serializeSession(async () => {
@@ -252,6 +273,13 @@ async function startup(): Promise<void> {
           await stopProjectWatch()
           startProjectWatch(projectRegistry.active, emit)
         }
+        for (const project of projectRegistry.state().projects) {
+          if (project.registeredRoot.hostId === hostId) {
+            void refreshProjectWorkspaces(project.id).catch((error) =>
+              console.error('[workspace] refresh after connect failed', error),
+            )
+          }
+        }
         return connected
       }),
     disconnectHost: (hostId) =>
@@ -259,7 +287,6 @@ async function startup(): Promise<void> {
         if (!projectRegistry) throw new Error('Project registry is unavailable')
         if (projectRegistry.active.host.hostId === hostId) {
           await stopProjectWatch()
-          ptySupervisor?.disposeSessions()
           htmlPreviews.clear()
         }
         return projectRegistry.disconnectHost(hostId)
@@ -271,15 +298,49 @@ async function startup(): Promise<void> {
     openProject: (hostId, path) =>
       serializeSession(async () => {
         if (!projectRegistry) throw new Error('Project registry is unavailable')
-        const previousHostId = projectRegistry.active.host.hostId
-        const state = await projectRegistry.open(hostId, path)
+        await projectRegistry.open(hostId, path)
         await stopProjectWatch()
-        ptySupervisor?.disposeSessions()
         htmlPreviews.clear()
-        if (previousHostId !== hostId && previousHostId !== LOCAL_HOST_ID) {
-          await projectRegistry.disconnectHost(previousHostId)
-        }
+        const state = await refreshProjectWorkspaces(
+          projectRegistry.active.projectId,
+        ).catch((error) => {
+          console.error('[workspace] discovery after registration failed', error)
+          return projectRegistry!.state()
+        })
         startProjectWatch(projectRegistry.active, emit)
+        return state
+      }),
+    switchWorkspace: (projectId, workspaceId) =>
+      serializeSession(async () => {
+        if (!projectRegistry) throw new Error('Project registry is unavailable')
+        const state = await projectRegistry.activate(projectId, workspaceId)
+        await stopProjectWatch()
+        htmlPreviews.clear()
+        startProjectWatch(projectRegistry.active, emit)
+        return state
+      }),
+    refreshProject: (projectId) => refreshProjectWorkspaces(projectId),
+    dismissWorkspace: (projectId, workspaceId) =>
+      serializeSession(async () => {
+        if (!projectRegistry) throw new Error('Project registry is unavailable')
+        const workspace = projectRegistry
+          .projectById(projectId)
+          ?.workspaces.find((candidate) => candidate.id === workspaceId)
+        if (workspace?.missing) {
+          await Promise.all(
+            terminalSessionRegistry
+              ?.list(workspace.root)
+              .map((session) =>
+                terminalSessionRegistry!.forget(workspace.root, session.id),
+              ) ?? [],
+          )
+        }
+        const wasActive = projectRegistry.active.workspaceId === workspaceId
+        const state = await projectRegistry.dismissWorkspace(projectId, workspaceId)
+        if (wasActive) {
+          await stopProjectWatch()
+          startProjectWatch(projectRegistry.active, emit)
+        }
         return state
       }),
     respondSshPrompt: (id, answers) => sshPrompter?.respond(id, answers),
@@ -289,7 +350,22 @@ async function startup(): Promise<void> {
     htmlPreviews,
     emit,
   })
-  startProjectWatch(projectRegistry.active, emit)
+  if (projectRegistry.active.host.connectionState === 'connected') {
+    startProjectWatch(projectRegistry.active, emit)
+    void refreshProjectWorkspaces(projectRegistry.active.projectId).catch((error) =>
+      console.error('[workspace] initial discovery failed', error),
+    )
+  }
+  workspacePoll = setInterval(() => {
+    const registry = projectRegistry
+    if (!registry) return
+    for (const project of registry.state().projects) {
+      if (project.connectionState !== 'connected') continue
+      void refreshProjectWorkspaces(project.id).catch((error) =>
+        console.error(`[workspace] periodic refresh failed for ${project.id}`, error),
+      )
+    }
+  }, 5_000)
   createWindow()
 
   app.on('activate', () => {
@@ -316,8 +392,70 @@ async function stopProjectWatch(): Promise<void> {
   await stop?.()
 }
 
+function refreshProjectWorkspaces(projectId: string): Promise<ProjectState> {
+  const existing = workspaceRefreshes.get(projectId)
+  if (existing) return existing
+  const refresh = (async (): Promise<ProjectState> => {
+    const registry = projectRegistry
+    const worker = gitWorker
+    if (!registry || !worker) throw new Error('Workspace discovery is unavailable')
+    const project = registry.projectById(projectId)
+    if (!project) throw new Error('Unknown project')
+    if (project.connectionState !== 'connected') return registry.state()
+    const discovery = await worker.request(GIT_WORKTREES_TYPE, {
+      root: project.registeredRoot,
+    })
+    await registry.reconcileWorktrees(projectId, discovery)
+    const refreshed = registry.projectById(projectId)
+    if (!refreshed || !discovery.repository) return registry.state()
+    const present = refreshed.workspaces.filter((workspace) => !workspace.missing)
+    const counts = new Map<string, number>()
+    for (let index = 0; index < present.length; index += 3) {
+      await Promise.all(
+        present.slice(index, index + 3).map(async (workspace) => {
+          counts.set(
+            workspace.id,
+            await worker.request(GIT_CHANGED_FILE_COUNT_TYPE, { root: workspace.root }),
+          )
+        }),
+      )
+    }
+    return registry.updateChangedCounts(projectId, counts)
+  })()
+  workspaceRefreshes.set(projectId, refresh)
+  void refresh.then(
+    () => {
+      if (workspaceRefreshes.get(projectId) === refresh)
+        workspaceRefreshes.delete(projectId)
+    },
+    () => {
+      if (workspaceRefreshes.get(projectId) === refresh)
+        workspaceRefreshes.delete(projectId)
+    },
+  )
+  return refresh
+}
+
+function scheduleWorkspaceRefresh(projectId: string): void {
+  const existing = workspaceRefreshTimers.get(projectId)
+  if (existing) clearTimeout(existing)
+  workspaceRefreshTimers.set(
+    projectId,
+    setTimeout(() => {
+      workspaceRefreshTimers.delete(projectId)
+      void refreshProjectWorkspaces(projectId).catch((error) =>
+        console.error('[workspace] watch refresh failed', error),
+      )
+    }, 350),
+  )
+}
+
 function startProjectWatch(
-  project: { readonly host: ProjectHost; readonly root: HostPath },
+  project: {
+    readonly host: ProjectHost
+    readonly root: HostPath
+    readonly projectId: string
+  },
   emit: <E extends IpcEventChannel>(channel: E, payload: IpcEventPayload<E>) => void,
 ): void {
   const pendingWatchEvents = new Map<string, IpcEventPayload<'project:watch'>>()
@@ -326,6 +464,7 @@ function startProjectWatch(
   const stops: Disposer[] = []
   const receive = (event: IpcEventPayload<'project:watch'>): void => {
     if (stopped) return
+    scheduleWorkspaceRefresh(project.projectId)
     pendingWatchEvents.set(`${event.path.hostId}:${event.path.path}`, event)
     if (watchTimer) return
     // Watcher churn must not become thousands of renderer IPC paints. The
@@ -407,6 +546,34 @@ async function runSmoke(): Promise<number> {
   let smokeWindow: BrowserWindow | undefined
   let stopSmokeWatch: Disposer | undefined
   const smokeRoot = localPath(process.cwd())
+  const smokeProjectState = (connectionState = host.connectionState): ProjectState => ({
+    root: smokeRoot,
+    connectionState,
+    watchTier: host.watchTier,
+    activeProjectId: 'smoke-project',
+    activeWorkspaceId: 'smoke-workspace',
+    projects: [
+      {
+        id: 'smoke-project',
+        registeredRoot: smokeRoot,
+        displayName: 'hvir',
+        connectionState,
+        watchTier: host.watchTier,
+        activeWorkspaceId: 'smoke-workspace',
+        workspaces: [
+          {
+            id: 'smoke-workspace',
+            root: smokeRoot,
+            name: 'hvir',
+            main: true,
+            missing: false,
+            repository: true,
+            changedFiles: 0,
+          },
+        ],
+      },
+    ],
+  })
   const liveReloadPath = joinHostPath(smokeRoot, '.hvir-smoke-live.txt')
   const largeJsonPath = joinHostPath(smokeRoot, '.hvir-smoke-large.json')
   try {
@@ -448,6 +615,9 @@ async function runSmoke(): Promise<number> {
       echoWorker: worker,
       gitWorker: git,
       getProject: () => ({ host, root: smokeRoot }),
+      getProjectForRoot: (root) =>
+        hostPathEquals(root, smokeRoot) ? { host, root: smokeRoot } : undefined,
+      getProjectState: () => smokeProjectState(),
       listHosts: () => [
         {
           hostId: host.hostId,
@@ -484,12 +654,10 @@ async function runSmoke(): Promise<number> {
         )
         return { path: canonical, directories }
       },
-      openProject: () =>
-        Promise.resolve({
-          root: smokeRoot,
-          connectionState: host.connectionState,
-          watchTier: host.watchTier,
-        }),
+      openProject: () => Promise.resolve(smokeProjectState()),
+      switchWorkspace: () => Promise.resolve(smokeProjectState()),
+      refreshProject: () => Promise.resolve(smokeProjectState()),
+      dismissWorkspace: () => Promise.resolve(smokeProjectState()),
       respondSshPrompt: () => undefined,
       ptySupervisor: supervisor,
       terminalSessions: smokeTerminalSessions,
@@ -667,11 +835,7 @@ async function runSmoke(): Promise<number> {
           window.__hvirSmokeTerminalCanvas = document.querySelector('.terminal-container canvas');
           window.__hvirSmokeTerminalHost = document.querySelector('.terminal-container');
         `)
-        emit('project:state', {
-          root: smokeRoot,
-          connectionState: 'disconnected',
-          watchTier: 'native',
-        })
+        emit('project:state', smokeProjectState('disconnected'))
         await win.webContents.executeJavaScript(`
           new Promise((resolve, reject) => {
             const deadline = Date.now() + 5000;
@@ -685,11 +849,7 @@ async function runSmoke(): Promise<number> {
             poll();
           })
         `)
-        emit('project:state', {
-          root: smokeRoot,
-          connectionState: 'connected',
-          watchTier: 'native',
-        })
+        emit('project:state', smokeProjectState('connected'))
         const status: unknown = await win.webContents.executeJavaScript(`
           new Promise((resolve, reject) => {
             const deadline = Date.now() + 5000;
@@ -698,6 +858,11 @@ async function runSmoke(): Promise<number> {
               const canvas = document.querySelector('.terminal-container canvas');
               const host = document.querySelector('.terminal-container');
               const status = document.querySelector('.terminal-panel .panel-meta')?.textContent || '';
+              lastState = 'status=' + status +
+                ' canvas=' + Boolean(canvas) +
+                ' host=' + Boolean(host) +
+                ' hostChanged=' + (host !== window.__hvirSmokeTerminalHost) +
+                ' oldDetached=' + (!window.__hvirSmokeTerminalHost?.isConnected);
               if (
                 canvas &&
                 host &&
@@ -1780,6 +1945,10 @@ async function suspendWorkbenchSessions(): Promise<void> {
 
 async function shutdown(): Promise<void> {
   sshPrompter?.cancelAll()
+  if (workspacePoll) clearInterval(workspacePoll)
+  workspacePoll = null
+  for (const timer of workspaceRefreshTimers.values()) clearTimeout(timer)
+  workspaceRefreshTimers.clear()
   await suspendSessions
   await stopProjectWatch().catch((error) =>
     console.error('[shutdown] watcher cleanup failed', error),

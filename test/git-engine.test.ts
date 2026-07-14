@@ -1,12 +1,20 @@
 import { execFileSync } from 'node:child_process'
-import { mkdir, mkdtemp, rm, symlink, unlink, writeFile } from 'node:fs/promises'
+import {
+  mkdir,
+  mkdtemp,
+  realpath,
+  rm,
+  symlink,
+  unlink,
+  writeFile,
+} from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { GitEngine } from '../src/main/git/git-engine'
+import { GitEngine, parseWorktreeList } from '../src/main/git/git-engine'
 import { LocalHost } from '../src/main/project-host'
-import { localPath } from '../src/shared'
+import { LOCAL_HOST_ID, localPath } from '../src/shared'
 
 const cleanups: string[] = []
 
@@ -15,6 +23,59 @@ afterEach(async () => {
 })
 
 describe('GitEngine', () => {
+  it('discovers linked worktrees and treats a plain directory as one workspace', async () => {
+    const root = await repository()
+    const linked = `${root}-feature`
+    cleanups.push(linked)
+    git(root, ['worktree', 'add', '-b', 'feature', linked])
+    const host = new LocalHost()
+    const engine = new GitEngine(host, localPath(root))
+    const canonicalRoot = await realpath(root)
+    const canonicalLinked = await realpath(linked)
+
+    const discovery = await engine.worktrees(localPath(root))
+
+    expect(discovery.repository).toBe(true)
+    expect(discovery.worktrees).toEqual([
+      expect.objectContaining({ root: localPath(canonicalRoot), branch: 'main' }),
+      expect.objectContaining({ root: localPath(canonicalLinked), branch: 'feature' }),
+    ])
+    await writeFile(join(linked, 'dirty.txt'), 'dirty\n')
+    await expect(engine.changedFileCount(localPath(canonicalLinked))).resolves.toBe(1)
+    await rm(linked, { recursive: true })
+    const prunable = await engine.worktrees(localPath(root))
+    expect(prunable.worktrees).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ root: localPath(canonicalLinked), prunable: true }),
+      ]),
+    )
+    await mkdir(linked)
+    const plain = await mkdtemp(join(tmpdir(), 'hvir-plain-'))
+    cleanups.push(plain)
+    await expect(engine.worktrees(localPath(plain))).resolves.toEqual({
+      repository: false,
+      worktrees: [{ root: localPath(plain), detached: false, bare: false }],
+    })
+    await host.dispose()
+  })
+
+  it('parses NUL-delimited worktree paths without line-based path corruption', () => {
+    expect(
+      parseWorktreeList(
+        'worktree /tmp/a\ncheckout\0HEAD 0123456789012345678901234567890123456789\0detached\0prunable gitdir file points to non-existent location\0\0',
+        LOCAL_HOST_ID,
+      ),
+    ).toEqual([
+      {
+        root: localPath('/tmp/a\ncheckout'),
+        head: '0123456789012345678901234567890123456789',
+        detached: true,
+        bare: false,
+        prunable: true,
+      },
+    ])
+  })
+
   it('produces index, HEAD, and branch-point inputs for one file', async () => {
     const root = await mkdtemp(join(tmpdir(), 'hvir-git-'))
     cleanups.push(root)
