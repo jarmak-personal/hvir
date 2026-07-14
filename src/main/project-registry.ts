@@ -150,6 +150,13 @@ export class ProjectRegistry {
     return project ? this.rendererProject(project) : undefined
   }
 
+  /** Resolve only exact persisted workspace roots; no live host is required. */
+  registeredWorkspaceRoot(candidate: HostPath): HostPath | undefined {
+    return this.projects
+      .flatMap((project) => project.workspaces)
+      .find((workspace) => hostPathEquals(workspace.root, candidate))?.root
+  }
+
   authorityForPath(hostId: string, path: string): ActiveProject | undefined {
     const candidates = this.projects.flatMap((project) =>
       [

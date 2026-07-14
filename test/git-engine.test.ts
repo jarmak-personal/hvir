@@ -13,7 +13,7 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { GitEngine, parseWorktreeList } from '../src/main/git/git-engine'
-import { LocalHost } from '../src/main/project-host'
+import { LocalHost, type ExecOptions, type ProjectHost } from '../src/main/project-host'
 import { LOCAL_HOST_ID, localPath } from '../src/shared'
 
 const cleanups: string[] = []
@@ -74,6 +74,61 @@ describe('GitEngine', () => {
         prunable: true,
       },
     ])
+  })
+
+  it('falls back to legacy porcelain when remote Git does not support -z', async () => {
+    const root = await repository()
+    const linked = `${root}-legacy`
+    cleanups.push(linked)
+    git(root, ['worktree', 'add', '-b', 'legacy', linked])
+    const actual = new LocalHost()
+    const host = {
+      hostId: actual.hostId,
+      exec: (command: string, args: readonly string[], opts: ExecOptions = {}) => {
+        if (args.slice(-4).join(' ') === 'worktree list --porcelain -z') {
+          return Promise.resolve({
+            stdout: '',
+            stderr: "error: unknown switch `z'\nusage: git worktree list [--porcelain]",
+            code: 129,
+            signal: null,
+          })
+        }
+        return actual.exec(command, args, opts)
+      },
+    } as ProjectHost
+
+    const discovery = await new GitEngine(host, localPath(root)).worktrees(
+      localPath(root),
+    )
+    expect(discovery.repository).toBe(true)
+    expect(discovery.worktrees.map((worktree) => worktree.branch)).toEqual(
+      expect.arrayContaining(['main', 'legacy']),
+    )
+    await actual.dispose()
+  })
+
+  it('does not misclassify an operational worktree error as a plain directory', async () => {
+    const root = await repository()
+    const actual = new LocalHost()
+    const host = {
+      hostId: actual.hostId,
+      exec: (command: string, args: readonly string[], opts: ExecOptions = {}) => {
+        if (args.slice(-4).join(' ') === 'worktree list --porcelain -z') {
+          return Promise.resolve({
+            stdout: '',
+            stderr: 'fatal: detected dubious ownership in repository',
+            code: 128,
+            signal: null,
+          })
+        }
+        return actual.exec(command, args, opts)
+      },
+    } as ProjectHost
+
+    await expect(
+      new GitEngine(host, localPath(root)).worktrees(localPath(root)),
+    ).rejects.toThrow('dubious ownership')
+    await actual.dispose()
   })
 
   it('produces index, HEAD, and branch-point inputs for one file', async () => {

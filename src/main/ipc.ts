@@ -86,9 +86,7 @@ export interface IpcDeps {
   readonly echoWorker: WorkerClient<EchoWorkerProtocol>
   readonly gitWorker: WorkerClient<GitWorkerProtocol>
   readonly getProject: () => { readonly host: ProjectHost; readonly root: HostPath }
-  readonly getProjectForRoot: (
-    root: HostPath,
-  ) => { readonly host: ProjectHost; readonly root: HostPath } | undefined
+  readonly getRegisteredWorkspaceRoot: (root: HostPath) => HostPath | undefined
   readonly getProjectState: () => ProjectState
   readonly listHosts: () => readonly ProjectHostOption[]
   readonly connectHost: (hostId: string) => Promise<ConnectedHost>
@@ -502,11 +500,11 @@ function registeredWorkspaceRoot(candidate: HostPath, deps: IpcDeps): HostPath {
     throw new Error('Terminal session belongs to another project')
   }
   const decoded = hostPath(asHostId(candidate.hostId), candidate.path)
-  const project = deps.getProjectForRoot(decoded)
-  if (!project || !hostPathEquals(decoded, project.root)) {
+  const root = deps.getRegisteredWorkspaceRoot(decoded)
+  if (!root || !hostPathEquals(decoded, root)) {
     throw new Error('Terminal session belongs to another project')
   }
-  return project.root
+  return root
 }
 
 function isTerminalId(value: unknown): value is string {

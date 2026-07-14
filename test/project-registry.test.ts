@@ -8,7 +8,7 @@ import {
   RendererSshPrompter,
   identityFileCandidates,
 } from '../src/main/project-registry'
-import { localPath } from '../src/shared'
+import { asHostId, hostPath, localPath } from '../src/shared'
 
 const cleanups: string[] = []
 
@@ -118,6 +118,70 @@ describe('ProjectRegistry session flow', () => {
     await expect(registry.disconnectHost('local')).rejects.toThrow(
       'The local host cannot disconnect',
     )
+    await registry.dispose()
+  })
+
+  it('authorizes persisted workspace roots without instantiating their SSH host', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'hvir-registry-'))
+    const canonicalRoot = await realpath(root)
+    const projectsFile = join(root, 'projects.json')
+    cleanups.push(root)
+    await writeFile(
+      projectsFile,
+      JSON.stringify({
+        version: 1,
+        activeProjectId: `project:local:${canonicalRoot}`,
+        projects: [
+          {
+            hostId: 'local',
+            path: canonicalRoot,
+            displayName: 'local',
+            activeWorkspacePath: canonicalRoot,
+            workspaces: [
+              {
+                path: canonicalRoot,
+                main: true,
+                missing: false,
+                repository: false,
+                changedFiles: 0,
+              },
+            ],
+          },
+          {
+            hostId: 'example',
+            path: '/srv/repo',
+            displayName: 'remote',
+            activeWorkspacePath: '/srv/repo-linked',
+            workspaces: [
+              {
+                path: '/srv/repo-linked',
+                branch: 'feature',
+                main: false,
+                missing: false,
+                repository: true,
+                changedFiles: 0,
+              },
+            ],
+          },
+        ],
+      }),
+    )
+    const registry = await ProjectRegistry.create(
+      localPath(root),
+      { prompt: () => Promise.resolve(undefined) },
+      join(root, 'known-hosts.json'),
+      projectsFile,
+      () => undefined,
+    )
+    const remoteRoot = hostPath(asHostId('example'), '/srv/repo-linked')
+
+    expect(registry.hostById('example')).toBeUndefined()
+    expect(registry.registeredWorkspaceRoot(remoteRoot)).toEqual(remoteRoot)
+    expect(
+      registry.registeredWorkspaceRoot(
+        hostPath(asHostId('example'), '/srv/repo-linked/nested'),
+      ),
+    ).toBeUndefined()
     await registry.dispose()
   })
 

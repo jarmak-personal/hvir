@@ -258,8 +258,7 @@ async function startup(): Promise<void> {
       if (!projectRegistry) throw new Error('Project registry is unavailable')
       return projectRegistry.active
     },
-    getProjectForRoot: (root) =>
-      projectRegistry?.authorityForPath(root.hostId, root.path),
+    getRegisteredWorkspaceRoot: (root) => projectRegistry?.registeredWorkspaceRoot(root),
     getProjectState: () => {
       if (!projectRegistry) throw new Error('Project registry is unavailable')
       return projectRegistry.state()
@@ -357,6 +356,7 @@ async function startup(): Promise<void> {
     )
   }
   workspacePoll = setInterval(() => {
+    if (shutdownStarted || BrowserWindow.getAllWindows().length === 0) return
     const registry = projectRegistry
     if (!registry) return
     for (const project of registry.state().projects) {
@@ -437,6 +437,7 @@ function refreshProjectWorkspaces(projectId: string): Promise<ProjectState> {
 }
 
 function scheduleWorkspaceRefresh(projectId: string): void {
+  if (shutdownStarted) return
   const existing = workspaceRefreshTimers.get(projectId)
   if (existing) clearTimeout(existing)
   workspaceRefreshTimers.set(
@@ -615,8 +616,8 @@ async function runSmoke(): Promise<number> {
       echoWorker: worker,
       gitWorker: git,
       getProject: () => ({ host, root: smokeRoot }),
-      getProjectForRoot: (root) =>
-        hostPathEquals(root, smokeRoot) ? { host, root: smokeRoot } : undefined,
+      getRegisteredWorkspaceRoot: (root) =>
+        hostPathEquals(root, smokeRoot) ? smokeRoot : undefined,
       getProjectState: () => smokeProjectState(),
       listHosts: () => [
         {
@@ -1936,6 +1937,7 @@ app.on('before-quit', (event) => {
 
 async function suspendWorkbenchSessions(): Promise<void> {
   await stopProjectWatch()
+  await settleWorkspaceRefreshes()
   ptySupervisor?.disposeSessions()
   htmlPreviews.clear()
   sshPrompter?.cancelAll()
@@ -1953,6 +1955,7 @@ async function shutdown(): Promise<void> {
   await stopProjectWatch().catch((error) =>
     console.error('[shutdown] watcher cleanup failed', error),
   )
+  await settleWorkspaceRefreshes()
   ptySupervisor?.disposeAll()
   ptySupervisor = null
   attentionBadge?.clear()
@@ -1962,14 +1965,18 @@ async function shutdown(): Promise<void> {
     .catch((error) => console.error('[shutdown] terminal persistence failed', error))
   terminalSessionRegistry = null
   const registry = projectRegistry
-  projectRegistry = null
   await registry
     ?.dispose()
     .catch((error) => console.error('[shutdown] host cleanup failed', error))
+  projectRegistry = null
   sshPrompter = null
   echoWorker?.dispose()
   echoWorker = null
   gitWorker?.dispose()
   gitWorker = null
   htmlPreviews.dispose()
+}
+
+async function settleWorkspaceRefreshes(): Promise<void> {
+  await Promise.allSettled([...workspaceRefreshes.values()])
 }

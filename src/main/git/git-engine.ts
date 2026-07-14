@@ -41,6 +41,27 @@ export class GitEngine {
       '-z',
     ])
     if (result.code !== 0) {
+      const context = await this.projectContext(projectRoot)
+      if (context && unsupportedWorktreeNulOption(result.stderr)) {
+        const legacy = await execReadOnlyGit(this.host, projectRoot, [
+          'worktree',
+          'list',
+          '--porcelain',
+        ])
+        if (legacy.code !== 0) {
+          throw gitError(['worktree', 'list', '--porcelain'], legacy.stderr, legacy.code)
+        }
+        const worktrees = parseLegacyWorktreeList(legacy.stdout, projectRoot.hostId)
+        if (worktrees.length === 0) throw new Error('git reported no worktrees')
+        return { repository: true, worktrees }
+      }
+      if (context) {
+        throw gitError(
+          ['worktree', 'list', '--porcelain', '-z'],
+          result.stderr,
+          result.code,
+        )
+      }
       return {
         repository: false,
         worktrees: [
@@ -738,6 +759,23 @@ export function parseWorktreeList(
   }
   finish()
   return worktrees
+}
+
+/** Compatibility for Git versions predating `worktree list -z`. */
+function parseLegacyWorktreeList(
+  output: string,
+  hostId: HostId,
+): WorktreeDiscovery['worktrees'] {
+  // Porcelain fields keep spaces after their key. Reject quoted paths rather
+  // than misaddressing a workspace that legacy Git cannot represent safely.
+  const fields = output.split(/\r?\n/).filter(Boolean).join('\0')
+  return parseWorktreeList(fields, hostId)
+}
+
+function unsupportedWorktreeNulOption(stderr: string): boolean {
+  return /(?:unknown (?:option|switch)|unrecognized option)[^\n]*[\s'"`]z[\s'"`]/i.test(
+    stderr,
+  )
 }
 
 function gitError(args: readonly string[], stderr: string, code: number | null): Error {
