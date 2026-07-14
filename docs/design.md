@@ -195,7 +195,12 @@ The Files tree decorates ignored entries lazily rather than folding Git work int
 `readdir`. Each expanded directory paints from `ProjectHost.readdir` first, then sends its
 immediate basenames through bounded, off-thread `git check-ignore` batches. Direct ignore
 roots receive an explicit status label; their descendants inherit the muted treatment
-without repeating it. Non-repositories and decoration failures leave normal filesystem
+without repeating it. Working-tree decorations reuse the single `GitChanges` snapshot
+that drives the Git rail: file stems carry a restrained status tint and compact text
+marker, while directories aggregate their changed descendants so collapsed branches
+remain navigable. Expanded directories keep only the aggregate marker and let their
+children carry the stronger color. Deleted descendants still contribute to their parent;
+ignored paths do not. Non-repositories and decoration failures leave normal filesystem
 browsing intact.
 
 **Rejected:** making the narrow rail the only graph (topology loses the width needed for
@@ -206,7 +211,9 @@ an exploration network); keeping author/date/hash columns beside an open detail 
 (plain text already degrades correctly); scanning every ignored path repository-wide
 (unbounded and unnecessary for a lazy tree); spawning Git once per visible row (remote
 round-trip pressure); adopting either component despite the spike gaps; adding Git write
-actions to the inspector (still outside the view-first v1 scope).
+actions to the inspector (still outside the view-first v1 scope); adding a Files-tree
+"show only changes" mode (the Git Changes view already owns that workflow; reconsider
+only with broader v2 navigation evidence).
 
 ### ADR-006 — Session recovery: harness resume, not a daemon
 **Decision:** Recover agent sessions through the harness's own persistence

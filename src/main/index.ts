@@ -1105,7 +1105,7 @@ async function runSmoke(): Promise<number> {
           const deadline = Date.now() + 15000;
           const open = () => {
             const file = [...document.querySelectorAll('.file-row')]
-              .find((node) => node.textContent?.trim() === '.hvir-smoke-large.json');
+              .find((node) => node.getAttribute('title') === ${JSON.stringify(largeJsonPath.path)});
             if (!file) {
               if (Date.now() > deadline) return reject(new Error('large JSON fixture missing'));
               return setTimeout(open, 50);
@@ -1150,7 +1150,7 @@ async function runSmoke(): Promise<number> {
               return setTimeout(open, 50);
             }
             const file = [...document.querySelectorAll('.file-row')]
-              .find((node) => node.textContent?.trim() === '.hvir-smoke-live.txt');
+              .find((node) => node.getAttribute('title') === ${JSON.stringify(liveReloadPath.path)});
             if (!file) {
               if (Date.now() > deadline) return reject(new Error('live-reload fixture missing'));
               return setTimeout(open, 50);
@@ -1448,8 +1448,17 @@ async function runSmoke(): Promise<number> {
           const directory = [...document.querySelectorAll('[aria-label="Files"] .tree-directory')]
             .find((node) => node.querySelector(':scope > .directory-row')
               ?.getAttribute('title')?.endsWith('/src'));
+          const smokeFile = [...document.querySelectorAll('[aria-label="Files"] .file-row')]
+            .find((node) => node.getAttribute('title')
+              ?.startsWith(${JSON.stringify(liveReloadPath.path)}));
+          const rootStatus = document.querySelector(
+            '[aria-label="Files"] .directory-row .tree-git-status.directory'
+          );
           if (!files || !git || !harness || !directory) {
             return reject(new Error('stable rail navigation controls missing'));
+          }
+          if (!smokeFile?.querySelector('.tree-git-status.file.untracked') || !rootStatus) {
+            return reject(new Error('working-tree explorer decorations missing'));
           }
           const directoryRow = directory.querySelector(':scope > .directory-row');
           if (directoryRow?.getAttribute('aria-expanded') !== 'true') directoryRow?.click();
@@ -1468,7 +1477,9 @@ async function runSmoke(): Promise<number> {
             if (!files.classList.contains('active') || !harness.disabled) {
               return reject(new Error('rail active/reserved states are incorrect'));
             }
-            resolve('stable tabs · Files state preserved · Harness reserved');
+            resolve(
+              'stable tabs · Files state preserved · Git decorations · Harness reserved'
+            );
           });
         })
       `),

@@ -39,7 +39,7 @@ interface GitPanelProps {
   readonly onOpenChange: (path: HostPath, base: DiffBase, untracked?: boolean) => void
   readonly onOpenHistory: (path: HostPath, revision: string) => void
   readonly onOpenGraph: (hash?: string) => void
-  readonly onChangedCount: (count: number) => void
+  readonly onChanges: (changes: GitChanges | undefined) => void
   readonly connectionState?: HostConnectionState
   readonly hidden?: boolean
   readonly historyPaused?: boolean
@@ -52,7 +52,7 @@ export function GitPanel({
   onOpenChange,
   onOpenHistory,
   onOpenGraph,
-  onChangedCount,
+  onChanges,
   connectionState = 'connected',
   hidden = false,
   historyPaused = false,
@@ -72,8 +72,8 @@ export function GitPanel({
   const historyGeneration = useRef(0)
   const changesValue = useRef<GitChanges | undefined>(undefined)
   const changesControl = useRef({ running: false, queued: false, generation: 0 })
-  const changesContext = useRef({ root, connectionState, onChangedCount })
-  changesContext.current = { root, connectionState, onChangedCount }
+  const changesContext = useRef({ root, connectionState, onChanges })
+  changesContext.current = { root, connectionState, onChanges }
 
   const requestChanges = useCallback((): void => {
     const control = changesControl.current
@@ -103,7 +103,7 @@ export function GitPanel({
           setChanges(result)
           setChangesLoading(false)
           setChangesError(undefined)
-          latest.onChangedCount(result.workingTree.length)
+          latest.onChanges(result)
         } catch (reason) {
           const latest = changesContext.current
           if (
@@ -112,7 +112,7 @@ export function GitPanel({
           )
             continue
           setChangesLoading(false)
-          if (!changesValue.current) latest.onChangedCount(0)
+          if (!changesValue.current) latest.onChanges(undefined)
           setChangesError(reason instanceof Error ? reason.message : String(reason))
         }
       }
@@ -135,12 +135,12 @@ export function GitPanel({
     setHistoryRepositoryState(undefined)
     setChangesError(undefined)
     setHistoryError(undefined)
-    onChangedCount(0)
+    onChanges(undefined)
     historyGeneration.current += 1
     return () => {
       control.generation += 1
     }
-  }, [connectionState, onChangedCount, root.hostId, root.path])
+  }, [connectionState, onChanges, root.hostId, root.path])
 
   useEffect(() => {
     if (connectionState !== 'connected') return

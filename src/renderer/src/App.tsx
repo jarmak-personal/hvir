@@ -16,6 +16,7 @@ import {
   unwrapOperation,
   type DiffBase,
   type FileOpenContext,
+  type GitChanges,
   type HostPath,
   type HostConnectionState,
   type HostWatchTier,
@@ -83,7 +84,7 @@ export function App(): ReactElement {
   }>({ serial: 0 })
   const [restored, setRestored] = useState(false)
   const [railMode, setRailMode] = useState<'files' | 'git'>('files')
-  const [changedCount, setChangedCount] = useState(0)
+  const [gitChanges, setGitChanges] = useState<GitChanges>()
   const [connectionState, setConnectionState] = useState<HostConnectionState>('connected')
   const [watchTier, setWatchTier] = useState<HostWatchTier>('native')
   const [hosts, setHosts] = useState<readonly ProjectHostOption[]>([])
@@ -94,6 +95,7 @@ export function App(): ReactElement {
   tabsRef.current = tabs
   activeIdRef.current = activeId
   gitGraphActiveRef.current = gitGraphActive
+  const changedCount = gitChanges?.workingTree.length ?? 0
 
   const loadFile = useCallback((path: HostPath): void => {
     const id = tabId(path)
@@ -629,6 +631,7 @@ export function App(): ReactElement {
               root={root}
               refreshVersion={watchVersion}
               ignoredRefreshVersion={ignoredRefreshVersion}
+              changedFiles={gitChanges?.workingTree}
               selected={activeTab?.path}
               onOpen={openFile}
               connected={connectionState === 'connected'}
@@ -639,7 +642,7 @@ export function App(): ReactElement {
               root={root}
               refreshVersion={contentVersion}
               historyRefreshVersion={gitVersion}
-              onChangedCount={setChangedCount}
+              onChanges={setGitChanges}
               onOpenChange={(path, base, untracked) =>
                 openFile(path, true, untracked ? 'git-untracked' : 'git', base)
               }
@@ -793,7 +796,7 @@ export function App(): ReactElement {
             setActiveId(undefined)
             setGitGraphOpen(false)
             setGitGraphActive(false)
-            setChangedCount(0)
+            setGitChanges(undefined)
             setSessionError(undefined)
             setShowAddProject(false)
           }}
