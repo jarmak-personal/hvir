@@ -35,24 +35,29 @@ import {
   type ConnectedHost,
   type BrowseHostResponse,
 } from '../shared'
-import { plainShellAdapter } from './harness/harness-adapter'
+import { harnessAdapter } from './harness/harness-adapter'
 import type { ProjectHost } from './project-host'
 import type { HtmlPreviewProtocol } from './html-preview-protocol'
 import type { PtySupervisor } from './pty/pty-supervisor'
+import type { TerminalSessionStore } from './terminal/session-registry'
 import type { WorkerClient } from './worker-host'
 
 type Handler<C extends IpcInvokeChannel> = (
   req: IpcRequest<C>,
+  event: Electron.IpcMainInvokeEvent,
 ) => IpcResponse<C> | Promise<IpcResponse<C>>
 
 function handle<C extends IpcInvokeChannel>(channel: C, handler: Handler<C>): void {
   ipcMain.handle(channel, (event, req: IpcRequest<C>) => {
     assertMainFrame(event)
-    return handler(req)
+    return handler(req, event)
   })
 }
 
-type SendHandler<C extends IpcSendChannel> = (payload: IpcSendPayload<C>) => void
+type SendHandler<C extends IpcSendChannel> = (
+  payload: IpcSendPayload<C>,
+  event: Electron.IpcMainEvent,
+) => void
 
 const canonicalRoots = new WeakMap<ProjectHost, Map<string, Promise<HostPath>>>()
 
@@ -60,7 +65,7 @@ function handleSend<C extends IpcSendChannel>(channel: C, handler: SendHandler<C
   ipcMain.on(channel, (event, payload: IpcSendPayload<C>) => {
     try {
       assertMainFrame(event)
-      handler(payload)
+      handler(payload, event)
     } catch (reason) {
       // `ipcMain.on` has no response promise. Throwing here would become an
       // uncaught main-process exception during renderer reload/teardown.
@@ -87,6 +92,8 @@ export interface IpcDeps {
   readonly openProject: (hostId: string, path: string) => Promise<ProjectState>
   readonly respondSshPrompt: (id: number, answers?: readonly string[]) => void
   readonly ptySupervisor: PtySupervisor
+  readonly terminalSessions: TerminalSessionStore
+  readonly updateAttention: (ownerId: number, count: number) => void
   readonly htmlPreviews: HtmlPreviewProtocol
   readonly emit: EmitRendererEvent
 }
@@ -321,45 +328,201 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 
   handle('html-preview:create', (req) => deps.htmlPreviews.create(req.content))
 
-  handle('pty:start', async (req) => {
-    if (!/^[a-zA-Z0-9-]{1,80}$/.test(req.sessionId)) {
+  handle('terminal:recovery', (req) => {
+    const root = activeProjectRoot(req.root, deps)
+    return deps.terminalSessions.list(root)
+  })
+
+  handle('terminal:update-layout', async (req) => {
+    const root = activeProjectRoot(req.root, deps)
+    const rawSessions: unknown = req.sessions
+    if (!Array.isArray(rawSessions) || rawSessions.length > 500) {
+      throw new Error('Invalid terminal layout')
+    }
+    const sessions = rawSessions.map((value: unknown) => {
+      if (!isUnknownRecord(value)) {
+        throw new Error('Invalid terminal layout entry')
+      }
+      const id = value['id']
+      const title = value['title']
+      const position = value['position']
+      const active = value['active']
+      if (
+        !isTerminalId(id) ||
+        !isTerminalTitle(title) ||
+        !Number.isSafeInteger(position) ||
+        typeof position !== 'number' ||
+        position < 0 ||
+        position >= 500 ||
+        typeof active !== 'boolean'
+      ) {
+        throw new Error('Invalid terminal layout entry')
+      }
+      return { id, title, position, active }
+    })
+    await deps.terminalSessions.updateLayout(root, sessions)
+  })
+
+  handle('terminal:forget', async (req) => {
+    const root = activeProjectRoot(req.root, deps)
+    if (!isTerminalId(req.id)) throw new Error('Invalid terminal session id')
+    await deps.terminalSessions.forget(root, req.id)
+  })
+
+  handle('pty:start', async (req, event) => {
+    if (!isTerminalId(req.sessionId)) {
       throw new Error('Invalid PTY session id')
     }
     const { root, host } = deps.getProject()
     const cwd = await projectPath(req.cwd, root, host)
     const cols = terminalDimension(req.cols)
     const rows = terminalDimension(req.rows)
+    const adapter = harnessAdapter(req.adapterId)
+    if (
+      !isTerminalTitle(req.title) ||
+      !Number.isSafeInteger(req.position) ||
+      req.position < 0 ||
+      req.position >= 500 ||
+      typeof req.active !== 'boolean' ||
+      (req.resume !== undefined && typeof req.resume !== 'boolean')
+    ) {
+      throw new Error('Invalid PTY session metadata')
+    }
+    if (req.resume) {
+      if (
+        !adapter.supportsResume ||
+        !isHarnessSessionId(req.harnessSessionId) ||
+        !deps.terminalSessions.authorizeResume({
+          id: req.sessionId,
+          adapterId: req.adapterId,
+          harnessSessionId: req.harnessSessionId,
+          projectRoot: root,
+          cwd,
+        })
+      ) {
+        throw new Error('Terminal resume is not authorized for this project')
+      }
+    }
     const managed = await deps.ptySupervisor.spawn({
       host,
-      adapter: plainShellAdapter,
+      adapter,
       cwd,
+      ownerId: event.sender.id,
       sessionId: req.sessionId,
+      harnessSessionId: req.resume ? req.harnessSessionId : undefined,
+      resume: req.resume,
       cols,
       rows,
     })
+    void deps.terminalSessions
+      .recordSpawn({
+        id: managed.id,
+        adapterId: req.adapterId,
+        harnessSessionId: managed.harnessSessionId,
+        projectRoot: root,
+        cwd,
+        title: req.title,
+        position: req.position,
+        active: req.active,
+      })
+      .catch((error) => console.error('[terminal] session persistence failed', error))
     let detach: () => void | Promise<void> = () => undefined
-    detach = deps.ptySupervisor.attach(managed.id, {
-      onData: (data) => deps.emit('pty:data', { id: managed.id, data }),
+    const owner = event.sender
+    detach = deps.ptySupervisor.attach(managed.id, owner.id, {
+      onData: (data) => {
+        if (!owner.isDestroyed()) owner.send('pty:data', { id: managed.id, data })
+      },
       onExit: (exit) => {
         void detach()
-        deps.emit('pty:exit', { id: managed.id, ...exit })
+        if (!owner.isDestroyed()) owner.send('pty:exit', { id: managed.id, ...exit })
+      },
+      onTelemetry: (telemetry) => {
+        if (!owner.isDestroyed()) {
+          owner.send('pty:telemetry', { id: managed.id, telemetry })
+        }
       },
     })
-    return { id: managed.id, pid: managed.pid }
-  })
-
-  handleSend('pty:write', ({ id, data }) => {
-    if (deps.ptySupervisor.get(id)) deps.ptySupervisor.write(id, data)
-  })
-  handleSend('html-preview:release', ({ id }) => deps.htmlPreviews.release(id))
-  handleSend('pty:resize', ({ id, cols, rows }) => {
-    if (deps.ptySupervisor.get(id)) {
-      deps.ptySupervisor.resize(id, terminalDimension(cols), terminalDimension(rows))
+    return {
+      id: managed.id,
+      pid: managed.pid,
+      harnessSessionId: managed.harnessSessionId,
+      identityStatus: managed.identityStatus,
     }
   })
-  handleSend('pty:kill', ({ id }) => {
-    if (deps.ptySupervisor.get(id)) deps.ptySupervisor.kill(id)
+
+  handleSend('pty:write', ({ id, data }, event) => {
+    if (deps.ptySupervisor.isOwnedBy(id, event.sender.id)) {
+      deps.ptySupervisor.write(id, event.sender.id, data)
+    }
   })
+  handleSend('html-preview:release', ({ id }) => deps.htmlPreviews.release(id))
+  handleSend('pty:resize', ({ id, cols, rows }, event) => {
+    if (deps.ptySupervisor.isOwnedBy(id, event.sender.id)) {
+      deps.ptySupervisor.resize(
+        id,
+        event.sender.id,
+        terminalDimension(cols),
+        terminalDimension(rows),
+      )
+    }
+  })
+  handleSend('pty:kill', ({ id }, event) => {
+    if (deps.ptySupervisor.isOwnedBy(id, event.sender.id)) {
+      deps.ptySupervisor.kill(id, event.sender.id)
+    }
+  })
+  handleSend('app:attention', ({ count }, event) => {
+    const safeCount = Number.isSafeInteger(count) ? Math.max(0, Math.min(99, count)) : 0
+    deps.updateAttention(event.sender.id, safeCount)
+  })
+}
+
+function activeProjectRoot(candidate: HostPath, deps: IpcDeps): HostPath {
+  const { root } = deps.getProject()
+  if (
+    !candidate ||
+    typeof candidate.hostId !== 'string' ||
+    typeof candidate.path !== 'string' ||
+    candidate.hostId !== root.hostId ||
+    candidate.path !== root.path
+  ) {
+    throw new Error('Terminal session belongs to another project')
+  }
+  return root
+}
+
+function isTerminalId(value: unknown): value is string {
+  return typeof value === 'string' && /^[a-zA-Z0-9-]{1,80}$/.test(value)
+}
+
+function isTerminalTitle(value: unknown): value is string {
+  return (
+    typeof value === 'string' &&
+    value.length > 0 &&
+    value.length <= 512 &&
+    !hasControlCharacter(value)
+  )
+}
+
+function isHarnessSessionId(value: unknown): value is string {
+  return (
+    typeof value === 'string' &&
+    value.length > 0 &&
+    value.length <= 240 &&
+    !/\s/.test(value) &&
+    !hasControlCharacter(value)
+  )
+}
+
+function hasControlCharacter(value: string): boolean {
+  return [...value].some((character) => {
+    const code = character.charCodeAt(0)
+    return code <= 31 || code === 127
+  })
+}
+
+function isUnknownRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
 }
 
 async function operationResult<T>(

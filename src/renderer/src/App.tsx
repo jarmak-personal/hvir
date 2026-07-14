@@ -28,7 +28,7 @@ import {
   type WatchEvent,
 } from '../../shared'
 import { PaneResizer } from './layout/PaneResizer'
-import { TerminalView } from './terminal/TerminalView'
+import { TerminalWorkspace } from './terminal/TerminalWorkspace'
 import { FileTree, SessionBar } from './tree/FileTree'
 import { DirectoryTree } from './tree/DirectoryTree'
 import { isGitIgnoreRulePath } from './tree/git-ignore-refresh'
@@ -555,9 +555,15 @@ export function App(): ReactElement {
   const setTreeWidth = (width: number): void => {
     const workbench = workbenchRef.current
     if (!workbench) return
+    const terminalRailWidth =
+      workbench.querySelector<HTMLElement>('.terminal-rail')?.getBoundingClientRect()
+        .width ?? 0
     const max = Math.max(
       TREE_MIN_WIDTH,
-      Math.min(TREE_MAX_WIDTH, workbench.clientWidth - DIVIDER_SIZE - MAIN_MIN_WIDTH),
+      Math.min(
+        TREE_MAX_WIDTH,
+        workbench.clientWidth - DIVIDER_SIZE - MAIN_MIN_WIDTH - terminalRailWidth,
+      ),
     )
     workbench.style.setProperty('--tree-track', `${clamp(width, TREE_MIN_WIDTH, max)}px`)
   }
@@ -761,7 +767,11 @@ export function App(): ReactElement {
           }}
           onReset={() => workbenchRef.current?.style.removeProperty('--terminal-track')}
         />
-        <TerminalView cwd={root} connectionState={connectionState} />
+        <TerminalWorkspace
+          key={`terminals:${root.hostId}:${root.path}`}
+          cwd={root}
+          connectionState={connectionState}
+        />
       </main>
       {showAddProject ? (
         <SessionDialog

@@ -210,9 +210,10 @@ actions to the inspector (still outside the view-first v1 scope).
 
 ### ADR-006 — Session recovery: harness resume, not a daemon
 **Decision:** Recover agent sessions through the harness's own persistence
-(`claude --resume`, `codex resume`), not by keeping PTYs alive in a daemon. hvir
-generates a session UUID at launch and passes it in (`claude --session-id <uuid>`), so
-resume is deterministic — no scraping or guessing. Two seams keep this evolvable:
+(`claude --resume`, `codex resume`), not by keeping PTYs alive in a daemon. An adapter
+either pre-assigns the harness session UUID at launch or identifies exactly one persisted
+session record in a bounded, fail-closed post-launch window. hvir never guesses from
+ambient "latest" state or terminal text. Two seams keep this evolvable:
 1. All PTY spawning goes through one narrow **PTY supervisor** module, so a daemon could
    replace it out-of-process later without touching the UI.
 2. Harness-specific behavior (launch flags, resume commands, title conventions) lives
@@ -226,6 +227,100 @@ harnesses already persist that on disk for free. What resume loses vs a daemon
 **Rejected:** a PTY daemon (real complexity for a rare event; *deferred, not foreclosed* —
 the supervisor seam keeps the door open); tmux control mode (we'd be rendering tmux's
 view of the terminal, fighting the entire Ghostty investment).
+
+#### Phase 6 CLI verification — 2026-07-13
+
+Claude Code 2.1.207 supports both deterministic launch (`claude --session-id <uuid>`)
+and resume (`claude --resume <uuid>`). Codex CLI 0.144.3 accepts a known UUID or session
+name through `codex resume <session>`, but exposes no launch option that lets hvir
+pre-assign or directly capture that identifier.
+
+For Codex, the adapter snapshots the existing rollout records immediately before launch,
+then inspects only new `session_meta` records. It accepts an id only when exactly one
+candidate has a matching working directory, `codex-tui` originator, session timestamp
+within the launch window, and the same UUID in both the record payload and filename. A
+short settle interval catches near-simultaneous candidates. The bounded discovery window
+allows 90 seconds because Codex can delay creating the rollout until interactive startup
+finishes; polling backs off to five seconds to limit local and SSH pressure. The PTY
+supervisor serializes these discovery windows per host and adapter so two hvir-launched
+Codex terminals cannot share a baseline. The rail shows recovery as pending until one
+exact id is known. If metadata is unavailable, changes shape, or produces multiple
+candidates, the terminal still launches but recovery is visibly unavailable; hvir never
+chooses among candidates.
+
+An untouched Codex terminal may create no rollout during that window. The PTY supervisor
+therefore retains the original pre-launch baseline and treats later user input as a
+generic discovered-identity retry signal. It does not parse prompts, messages, or terminal
+text: the first input after an unavailable attempt merely starts another bounded adapter
+scan. Exactly one match enables resume; ambiguity remains terminal for that launch.
+
+The rollout layout is an internal, version-sensitive Codex detail and remains contained
+inside `CodexAdapter`. `codex resume --last` remains explicitly rejected because it is
+global ambient state. Launching Codex, immediately exiting it, and relaunching with the
+printed resume id is also rejected: it visibly churns the terminal, can interrupt startup
+state, and provides no stronger identity guarantee than matching the persisted record.
+
+#### Phase 6 addendum — 2026-07-13: context pressure is operational state
+
+**The terminal rail may show current context pressure, but not the broader v2 harness
+telemetry viewer.** Context exhaustion directly determines when a user should compact or
+start a fresh terminal, so the product owner pulled this one signal into Phase 6. A narrow
+adapter-owned observer reports current used tokens and, when authoritative, the model
+window and percentage; the PTY supervisor owns its lifecycle and forwards typed snapshots
+to the renderer. Exact percentages use a stable meter: neutral below 40%, amber from
+40–69%, and red at 70% or above. A trustworthy count without a window renders as a neutral
+compact token count. Missing trustworthy data renders as `--`; plain shells have no meter.
+
+Codex observation reuses the exact rollout record established by session discovery. A
+host-side filtered follower sends only structured `event_msg` / `token_count` records
+through `ProjectHost`, with bounded line buffering and PTY-owned cleanup. The percentage
+uses `last_token_usage.total_tokens / model_context_window` (falling back to current
+input tokens for older records); cumulative
+`total_token_usage` is deliberately rejected because it spans the conversation rather
+than the current context. Compaction therefore lowers the meter naturally.
+
+Claude Code observation follows the transcript for its exact preassigned session id. The
+latest main-thread assistant usage supplies current input, cache-creation, cache-read, and
+output counts; hvir shows their sum as a neutral compact count because the transcript does
+not expose an authoritative window. Claude's official status-line input does expose the
+percentage, but installing a tap would replace or wrap user configuration and can alter
+the terminal surface, especially on SSH hosts. Terminal-screen scraping and
+model-name-to-window lookup tables are rejected as configurable and version-fragile.
+Broader cost, skills, MCP, and usage telemetry remains parked for v2.
+
+#### Phase 6 addendum — 2026-07-13: persisted recovery registry
+
+**Recovery is an exact, local registry of harness conversations, not a record of live
+PTYs.** After the supervisor confirms a harness spawn, hvir records the adapter id,
+exact harness session id when known, host-qualified project root and cwd, last title,
+rail position, and active state in app metadata. Plain-shell records omit the harness id
+and restore a new shell in the same pane; they do not claim to preserve shell process
+state. A discovered-id harness may remain provisional when the harness creates no durable
+session before teardown. hvir retains that pane and relaunches the adapter fresh, but it
+never treats the provisional record as resumable. Explicitly closing a terminal forgets
+its record; quitting hvir, reloading the renderer, switching projects, or disconnecting
+a host retains it.
+
+When a project surface starts, registered sessions are offered in one restore prompt,
+selected by default and restored to their prior rail order. A visible setting permits
+automatic restore, but the default remains prompt. Plain shells and provisional harness
+records launch fresh; every harness resume request is authorized in main against the
+stored terminal id, adapter, harness id, project root, and cwd before the adapter command
+is spawned. A connected terminal also uses that exact identity after a host reconnect.
+Missing, ambiguous, mismatched, or provisional identity fails closed and never falls
+back to ambient “last session” state.
+
+The registry file is local even for SSH projects; its project and cwd values remain
+host-qualified, and all reads and writes go through the local `ProjectHost`. It stores no
+terminal output, prompts, credentials, or harness transcript contents. Renderer-local
+layout updates can change only the presentation fields of an already authorized record.
+
+**Rejected:** persisting PTYs or scrollback (the harness transcript is the durable state);
+auto-restore by default (surprising process launch on app open); implying a recreated
+plain shell preserves process state; accepting a title/cwd match without an exact id (can
+resume the wrong conversation); deleting records during ordinary app or network teardown
+(defeats recovery); storing the registry on each remote host (unnecessary remote state
+and weaker ownership).
 
 ### ADR-007 — Per-tab view mode: rendered / source / diff
 **Decision:** Every viewer tab has a single three-state **view mode** — *rendered /
@@ -308,6 +403,20 @@ reading a diff in workspace A while terminal 3 finishes).
 
 **Rejected:** suppressing rollups on the active parent ("you're already here") —
 special-casing is exactly where the system starts feeling smarter than the user.
+
+#### Phase 6 addendum — 2026-07-13: quiet OS attention
+
+The OS badge is a quiet aggregate of distinct terminals with actionable **idle** or
+**bell** dots. New-output-only dots remain visible in hvir but do not raise the OS count.
+The badge appears only while every hvir window is unfocused; focusing any hvir window
+clears the OS badge without clearing terminal dots, whose existing focus-the-terminal
+rule remains authoritative. macOS uses the Dock count and Linux uses Electron's Unity
+launcher count where available. Unsupported Linux desktops fail silently.
+
+**Rejected:** sound, toast notifications, Dock bouncing, window flashing, or Linux
+urgency fallbacks (too noisy for normal streaming work); counting raw output (nearly
+permanent badges); clearing terminal dots on app focus (loses which terminal raised the
+signal); per-event badge increments (duplicates one terminal instead of aggregating it).
 
 ### ADR-010 — Remote projects: `ProjectHost` seam, host-qualified paths, no remote server
 **Decision:** Every project (ADR-008) is registered *on a host*. All filesystem, git,
@@ -455,7 +564,9 @@ Phase 2 addendum for evidence and retained caveats.
 ### Auto-titled terminals
 Terminals already emit OSC 0/2 title sequences, and CC/Codex set them. We read those and
 label the right-rail terminal list automatically — no manual naming. (Title conventions
-live in `HarnessAdapter` — ADR-006.)
+live in `HarnessAdapter` — ADR-006.) Codex defaults its terminal title to spinner and
+project, which duplicates the project rail; hvir-launched Codex sessions request its
+supported `thread-title` item so the rail receives the conversation title through OSC.
 
 ### Notification dots
 Raise a color dot on a terminal when it wants attention. Signals and the
