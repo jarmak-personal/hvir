@@ -44,9 +44,15 @@ describe('GitEngine', () => {
     await expect(engine.changedFileCount(localPath(canonicalLinked))).resolves.toBe(1)
     await rm(linked, { recursive: true })
     const prunable = await engine.worktrees(localPath(root))
-    expect(prunable.worktrees).toEqual(
+    const stale = prunable.worktrees.find(
+      (worktree) => worktree.root.path === canonicalLinked,
+    )
+    expect(stale?.prunable).toBe(true)
+    expect(stale?.prunableReason).toContain('non-existent location')
+    const pruned = await engine.pruneWorktrees(localPath(root))
+    expect(pruned.worktrees).not.toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ root: localPath(canonicalLinked), prunable: true }),
+        expect.objectContaining({ root: localPath(canonicalLinked) }),
       ]),
     )
     await mkdir(linked)
@@ -72,8 +78,36 @@ describe('GitEngine', () => {
         detached: true,
         bare: false,
         prunable: true,
+        prunableReason: 'gitdir file points to non-existent location',
       },
     ])
+  })
+
+  it('prunes stale administrative data without deleting a surviving directory', async () => {
+    const root = await repository()
+    const linked = `${root}-surviving`
+    cleanups.push(linked)
+    git(root, ['worktree', 'add', '--detach', linked])
+    const canonicalLinked = await realpath(linked)
+    await unlink(join(linked, '.git'))
+    const host = new LocalHost()
+    const engine = new GitEngine(host, localPath(root))
+
+    const before = await engine.worktrees(localPath(root))
+    expect(
+      before.worktrees.find((worktree) => worktree.root.path === canonicalLinked)
+        ?.prunable,
+    ).toBe(true)
+
+    const after = await engine.pruneWorktrees(localPath(root))
+
+    expect(
+      after.worktrees.some((worktree) => worktree.root.path === canonicalLinked),
+    ).toBe(false)
+    await expect(host.readTextFile(localPath(join(linked, 'file.txt')))).resolves.toBe(
+      'base\n',
+    )
+    await host.dispose()
   })
 
   it('falls back to legacy porcelain when remote Git does not support -z', async () => {

@@ -274,6 +274,85 @@ describe('ProjectRegistry session flow', () => {
     expect(restored.state().root.path).toBe(await realpath(root))
     await restored.dispose()
   })
+
+  it('persists Git prunable reasons and clears them when a worktree recovers', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'hvir-registry-prunable-'))
+    const canonicalRoot = await realpath(root)
+    const staleRoot = localPath(`${canonicalRoot}-stale`)
+    const projectsFile = join(root, 'projects.json')
+    cleanups.push(root)
+    const registry = await ProjectRegistry.create(
+      localPath(root),
+      { prompt: () => Promise.resolve(undefined) },
+      join(root, 'known-hosts.json'),
+      projectsFile,
+      () => undefined,
+    )
+    const projectId = registry.state().activeProjectId
+    await registry.reconcileWorktrees(projectId, {
+      repository: true,
+      worktrees: [
+        { root: localPath(canonicalRoot), branch: 'main', detached: false, bare: false },
+        {
+          root: staleRoot,
+          head: '0123456789012345678901234567890123456789',
+          detached: true,
+          bare: false,
+          prunable: true,
+          prunableReason: 'gitdir file points to non-existent location',
+        },
+      ],
+    })
+    expect(registry.projectById(projectId)?.workspaces).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          root: staleRoot,
+          missing: true,
+          prunableReason: 'gitdir file points to non-existent location',
+        }),
+      ]),
+    )
+    await registry.dispose()
+
+    const restored = await ProjectRegistry.create(
+      localPath(root),
+      { prompt: () => Promise.resolve(undefined) },
+      join(root, 'known-hosts.json'),
+      projectsFile,
+      () => undefined,
+    )
+    expect(restored.projectById(projectId)?.workspaces).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          root: staleRoot,
+          prunableReason: 'gitdir file points to non-existent location',
+        }),
+      ]),
+    )
+    await restored.reconcileWorktrees(projectId, {
+      repository: true,
+      worktrees: [
+        { root: localPath(canonicalRoot), branch: 'main', detached: false, bare: false },
+        { root: staleRoot, branch: 'repaired', detached: false, bare: false },
+      ],
+    })
+    expect(restored.projectById(projectId)?.workspaces).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          root: staleRoot,
+          missing: false,
+          branch: 'repaired',
+        }),
+      ]),
+    )
+    expect(
+      restored
+        .projectById(projectId)
+        ?.workspaces.find((workspace) => workspace.root.path === staleRoot.path)
+        ?.prunableReason,
+    ).toBeUndefined()
+    await restored.dispose()
+  })
 })
 
 describe('RendererSshPrompter', () => {

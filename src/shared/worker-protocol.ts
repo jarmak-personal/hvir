@@ -102,6 +102,7 @@ export const GIT_IGNORED_ENTRIES_TYPE = 'git:ignored-entries' as const
 export const GIT_BLAME_TYPE = 'git:blame' as const
 export const GIT_COMMIT_DETAIL_TYPE = 'git:commit-detail' as const
 export const GIT_WORKTREES_TYPE = 'git:worktrees' as const
+export const GIT_PRUNE_WORKTREES_TYPE = 'git:prune-worktrees' as const
 export const GIT_CHANGED_FILE_COUNT_TYPE = 'git:changed-file-count' as const
 
 export interface GitWorkerPayload extends GitDiffRequest {
@@ -115,6 +116,10 @@ export interface GitWorkerProtocol {
     number
   >
   readonly [GIT_WORKTREES_TYPE]: WorkerOperation<
+    { readonly root: HostPath },
+    WorktreeDiscovery
+  >
+  readonly [GIT_PRUNE_WORKTREES_TYPE]: WorkerOperation<
     { readonly root: HostPath },
     WorktreeDiscovery
   >

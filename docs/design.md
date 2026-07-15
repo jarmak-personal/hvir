@@ -426,6 +426,36 @@ session loss); treating object identity as path identity across IPC (structured 
 would restart stable workspaces); watching every inactive tree recursively (unbounded
 watcher and SSH load).
 
+#### Phase 7 addendum — 2026-07-14: explicit stale-record pruning
+
+**hvir may prune Git worktree records only after Git itself reports them as
+`prunable`.** This is a narrow cleanup exception to ADR-008's discovered-never-managed
+rule, explicitly approved by the product owner after real SSH use surfaced detached
+benchmark records whose worktree `.git` locations no longer existed. It does not permit
+creating, moving, removing, or repairing a live worktree.
+
+The worktree tier preserves Git's porcelain reason and last known HEAD, marks the entry
+as prunable, and offers one project-level **Prune N** action. The action lists every
+host-qualified path, reason, and abbreviated HEAD and warns that an otherwise-unreferenced
+detached commit may later be garbage-collected. Confirmation invokes
+`git worktree prune --expire now --verbose`; Git's command is project-wide, so the UI does
+not pretend it can target one stale row. The Git utility process issues the command
+through `ProjectHost`, and main grants the broker a single-use mutation capability for
+that exact host-qualified project root. Afterward hvir rediscovers the worktrees and
+forgets recovery/layout state only for confirmed records Git no longer reports.
+
+**Why:** stale worktree metadata is surfaced by hvir in the workspace tier, and leaving
+cleanup to an external terminal makes that surface an unactionable warning. Git's prune
+operation removes administrative records rather than working directories, while the
+prunable precondition, explicit bulk confirmation, and single-use broker authorization
+keep the exception materially narrower than worktree orchestration.
+
+**Rejected:** automatic pruning during discovery (surprising mutation, especially for
+temporarily unavailable storage); labeling the existing local-only dismiss control as
+prune (the Git record would simply reappear); deleting `$GIT_DIR/worktrees` entries
+directly (reimplements Git and is unsafe); `git worktree remove` (acts on a worktree,
+not the already-stale administrative record).
+
 ### ADR-009 — Notifications: focus clears, parents aggregate
 **Decision:** One rule, no special cases: **a dot is cleared by focusing the thing that
 raised it; parents only aggregate their children's unseen dots.** No dot on the terminal

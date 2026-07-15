@@ -18,7 +18,9 @@ This is where the single-directory viewer becomes the multi-agent workbench.
       single-workspace project — no special cases downstream).
 - [x] Worktree *discovery*: `git worktree list --porcelain` via the git module, per
       project, refreshed on watch events and on demand. **hvir never creates, moves, or
-      removes worktrees** — if a task seems to need that, stop and re-read §2.
+      removes live worktrees.** The sole lifecycle exception is an explicitly confirmed
+      `git worktree prune` for records Git already reports as stale (design.md Phase 7
+      stale-record addendum).
 - [x] Workspace = one worktree (or the plain directory). Each workspace owns its file
       tree root, git state, open tabs, and terminals.
 
@@ -30,6 +32,9 @@ This is where the single-directory viewer becomes the multi-agent workbench.
 - [x] Newly discovered worktrees appear automatically (an agent tool creating a
       worktree shows up without user action); removed worktrees gray out with their
       state preserved until dismissed.
+- [x] Git-reported prunable records show their exact reason and last known HEAD; a
+      project-level, confirmed **Prune N** action removes their stale Git administrative
+      records through the worker/`ProjectHost` seam and refreshes discovery.
 - [x] Rollups (ADR-009): terminal dots → workspace → project tab, aggregation only,
       focus-clears at the leaf. Changed-file counts (Phase 5) roll up alongside.
 - [x] Per-workspace persistence: open tabs (with view modes), terminal sessions (via
@@ -64,9 +69,13 @@ model.
       (via resume) agent sessions come back per workspace.
 - [ ] With 5+ workspaces active and churning, the UI stays instant (§3.2 — this is the
       load VSCode strains under; it's the reason hvir exists).
+- [ ] On local and SSH projects, a Git-reported prunable record shows its reason and
+      HEAD; cancel leaves it untouched, while confirmed prune removes the Git record and
+      hvir workspace without deleting any surviving directory.
 - [ ] Status table updated.
 
 ## Non-goals
-Worktree lifecycle management (create/delete/merge — orchestration creep, rejected in
-ADR-008). Cross-workspace search. Session-queue/kanban features of the harness-first
-tools — that's their lane.
+Live worktree lifecycle management (create/delete/repair/merge — orchestration creep,
+rejected in ADR-008; explicit stale administrative-record pruning is the only exception).
+Cross-workspace search. Session-queue/kanban features of the harness-first tools — that's
+their lane.

@@ -81,6 +81,29 @@ export class GitEngine {
     return { repository: true, worktrees }
   }
 
+  /**
+   * Remove only stale worktree administrative records, then rediscover the
+   * repository while the caller's explicit mutation authorization is active.
+   */
+  async pruneWorktrees(projectRoot: HostPath): Promise<WorktreeDiscovery> {
+    this.assertHost(projectRoot)
+    const result = await execGit(this.host, projectRoot, [
+      'worktree',
+      'prune',
+      '--expire',
+      'now',
+      '--verbose',
+    ])
+    if (result.code !== 0) {
+      throw gitError(
+        ['worktree', 'prune', '--expire', 'now', '--verbose'],
+        result.stderr,
+        result.code,
+      )
+    }
+    return this.worktrees(projectRoot)
+  }
+
   async changedFileCount(workspaceRoot: HostPath): Promise<number> {
     this.assertHost(workspaceRoot)
     return parseStatus(
@@ -725,6 +748,7 @@ export function parseWorktreeList(
         detached: boolean
         bare: boolean
         prunable?: boolean
+        prunableReason?: string
       }
     | undefined
   const finish = (): void => {
@@ -758,6 +782,8 @@ export function parseWorktreeList(
       current.bare = true
     } else if (current && key === 'prunable') {
       current.prunable = true
+      current.prunableReason =
+        value.trim().slice(0, 1_024) || 'Git reported stale worktree metadata'
     }
   }
   finish()
@@ -1079,4 +1105,13 @@ function execReadOnlyGit(
     // a Git refresh back into itself indefinitely.
     env: { ...opts.env, GIT_OPTIONAL_LOCKS: '0' },
   })
+}
+
+function execGit(
+  host: ProjectHost,
+  root: HostPath,
+  args: readonly string[],
+  opts: ExecOptions = {},
+): Promise<ExecResult> {
+  return host.exec('git', ['-C', root.path, ...args], opts)
 }

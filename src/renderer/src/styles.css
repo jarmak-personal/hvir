@@ -64,6 +64,7 @@ button {
 .project-tab,
 .project-add,
 .workspace-tab > button,
+.workspaces-prune,
 .workspaces-refresh {
   border: 0;
   background: transparent;
@@ -122,6 +123,7 @@ button {
 }
 
 .project-add:hover,
+.workspaces-prune:hover,
 .workspaces-refresh:hover,
 .workspace-tab > button:hover {
   background: #20262e;
@@ -199,12 +201,22 @@ button {
   color: #f1c2c6;
 }
 
+.workspaces-actions {
+  margin-left: auto;
+  display: flex;
+  gap: 3px;
+}
+
+.workspaces-prune,
 .workspaces-refresh {
   height: 24px;
-  margin-left: auto;
   padding: 0 8px;
   border-radius: 3px;
   font-size: 9px;
+}
+
+.workspaces-prune {
+  color: #d6b16e;
 }
 
 .workspace-attention-dot {
@@ -2071,6 +2083,60 @@ body.pane-resizing-row * {
 
 .project-dialog .dialog-error {
   color: #dc7b82;
+}
+
+.worktree-prune-dialog {
+  width: min(560px, calc(100vw - 32px));
+}
+
+.worktree-prune-list {
+  max-height: min(280px, 42vh);
+  overflow: auto;
+  border: 1px solid #303640;
+  border-radius: 4px;
+  background: #12151a;
+}
+
+.worktree-prune-list > div {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 9px 10px;
+  border-bottom: 1px solid #252a32;
+}
+
+.worktree-prune-list > div:last-child {
+  border-bottom: 0;
+}
+
+.worktree-prune-list code,
+.worktree-prune-list small {
+  overflow-wrap: anywhere;
+}
+
+.worktree-prune-list code {
+  color: #c5cbd4;
+  font-size: 10px;
+}
+
+.worktree-prune-list small {
+  color: #828c9a;
+  font-size: 9px;
+}
+
+.project-dialog .worktree-prune-warning {
+  color: #d6b16e;
+}
+
+.project-dialog .danger-action {
+  border-color: #75434a;
+  background: #4b292f;
+  color: #f0c2c6;
+}
+
+.project-dialog .danger-action:hover {
+  background: #60333a;
 }
 
 .terminal-recovery-dialog {

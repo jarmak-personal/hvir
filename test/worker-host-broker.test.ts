@@ -70,6 +70,40 @@ describe('Git worker host broker', () => {
     ).rejects.toThrow('escapes the active project')
   })
 
+  it('requires one-shot authorization for the exact worktree prune grammar', async () => {
+    const rootPath = await mkdtemp(join(tmpdir(), 'hvir-broker-prune-'))
+    cleanups.push(rootPath)
+    const host = new LocalHost()
+    const exec = vi.spyOn(host, 'exec').mockResolvedValue({
+      code: 0,
+      signal: null,
+      stdout: '',
+      stderr: '',
+    })
+    const project = { host, root: localPath(rootPath) }
+    const call: ExecHostCall = {
+      ...hostCall(rootPath),
+      args: ['-C', rootPath, 'worktree', 'prune', '--expire', 'now', '--verbose'],
+    }
+
+    await expect(dispatchWorkerHostCall(call, project)).rejects.toThrow(
+      'unauthorized worktree prune',
+    )
+    expect(exec).not.toHaveBeenCalled()
+
+    await dispatchWorkerHostCall(call, project, { allowWorktreePrune: true })
+    expect(exec).toHaveBeenCalledOnce()
+    expect(exec.mock.calls[0]?.[2]?.env).toBeUndefined()
+
+    await expect(
+      dispatchWorkerHostCall(
+        { ...call, args: ['-C', rootPath, 'worktree', 'prune', '--verbose'] },
+        project,
+        { allowWorktreePrune: true },
+      ),
+    ).rejects.toThrow('forbidden git invocation')
+  })
+
   it.each([
     ['config alias execution', ['-c', 'alias.x=!touch /tmp/hvir-owned', 'x']],
     ['second working directory', ['status', '-C', '/tmp', '--porcelain=v2']],

@@ -635,6 +635,20 @@ export function App(): ReactElement {
     }
   }
 
+  const pruneWorktrees = async (projectId: string): Promise<void> => {
+    setSessionBusy(true)
+    setSessionError(undefined)
+    try {
+      applyProjectState(
+        unwrapOperation(await window.hvir.invoke('workspace:prune', { projectId })),
+      )
+    } catch (reason) {
+      setSessionError(reason instanceof Error ? reason.message : String(reason))
+    } finally {
+      setSessionBusy(false)
+    }
+  }
+
   const dismissWorkspace = async (
     projectId: string,
     workspaceId: string,
@@ -742,6 +756,7 @@ export function App(): ReactElement {
             void switchWorkspace(projectId, workspaceId)
           }
           onRefresh={(projectId) => void refreshProject(projectId)}
+          onPrune={(projectId) => void pruneWorktrees(projectId)}
           onDismiss={(projectId, workspaceId) =>
             void dismissWorkspace(projectId, workspaceId)
           }

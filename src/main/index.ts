@@ -26,6 +26,7 @@ import {
 import {
   ECHO_REQUEST_TYPE,
   GIT_CHANGED_FILE_COUNT_TYPE,
+  GIT_PRUNE_WORKTREES_TYPE,
   GIT_WORKTREES_TYPE,
   hostPath,
   hostPathEquals,
@@ -40,6 +41,7 @@ import {
   type IpcEventPayload,
   type TerminalRecoverySession,
   type ProjectState,
+  type WorktreeDiscovery,
   HTML_PREVIEW_SCHEME,
 } from '../shared'
 
@@ -63,6 +65,8 @@ let disposeWatch: Disposer | null = null
 let workspacePoll: ReturnType<typeof setInterval> | null = null
 const workspaceRefreshes = new Map<string, Promise<ProjectState>>()
 const workspaceRefreshTimers = new Map<string, ReturnType<typeof setTimeout>>()
+const workspacePrunes = new Map<string, Promise<ProjectState>>()
+const worktreePruneAuthorizations = new Set<string>()
 let sessionOperation: Promise<void> = Promise.resolve()
 let suspendSessions: Promise<void> = Promise.resolve()
 let shutdownStarted = false
@@ -227,9 +231,18 @@ async function startup(): Promise<void> {
     (call) => {
       const path =
         call.operation === 'readTextFile' ? call.path.path : (call.args[1] ?? '')
+      const authorization = gitMutationKey(call.hostId, path)
+      const pruneArgs = ['worktree', 'prune', '--expire', 'now', '--verbose']
+      const requestsWorktreePrune =
+        call.operation === 'exec' &&
+        call.args.length === pruneArgs.length + 2 &&
+        pruneArgs.every((arg, index) => call.args[index + 2] === arg)
+      const allowWorktreePrune =
+        requestsWorktreePrune && worktreePruneAuthorizations.delete(authorization)
       return dispatchWorkerHostCall(
         call,
         projectRegistry?.authorityForPath(call.hostId, path) ?? null,
+        { allowWorktreePrune },
       )
     },
   )
@@ -319,6 +332,7 @@ async function startup(): Promise<void> {
         return state
       }),
     refreshProject: (projectId) => refreshProjectWorkspaces(projectId),
+    pruneWorktrees: (projectId) => requestProjectWorktreePrune(projectId, emit),
     dismissWorkspace: (projectId, workspaceId) =>
       serializeSession(async () => {
         if (!projectRegistry) throw new Error('Project registry is unavailable')
@@ -393,6 +407,8 @@ async function stopProjectWatch(): Promise<void> {
 }
 
 function refreshProjectWorkspaces(projectId: string): Promise<ProjectState> {
+  const pruning = workspacePrunes.get(projectId)
+  if (pruning) return pruning
   const existing = workspaceRefreshes.get(projectId)
   if (existing) return existing
   const refresh = (async (): Promise<ProjectState> => {
@@ -434,6 +450,88 @@ function refreshProjectWorkspaces(projectId: string): Promise<ProjectState> {
     },
   )
   return refresh
+}
+
+function requestProjectWorktreePrune(
+  projectId: string,
+  emit: <E extends IpcEventChannel>(channel: E, payload: IpcEventPayload<E>) => void,
+): Promise<ProjectState> {
+  const existing = workspacePrunes.get(projectId)
+  if (existing) return existing
+  const prune = serializeSession(() => pruneProjectWorktrees(projectId, emit))
+  workspacePrunes.set(projectId, prune)
+  void prune.then(
+    () => {
+      if (workspacePrunes.get(projectId) === prune) workspacePrunes.delete(projectId)
+    },
+    () => {
+      if (workspacePrunes.get(projectId) === prune) workspacePrunes.delete(projectId)
+    },
+  )
+  return prune
+}
+
+async function pruneProjectWorktrees(
+  projectId: string,
+  emit: <E extends IpcEventChannel>(channel: E, payload: IpcEventPayload<E>) => void,
+): Promise<ProjectState> {
+  const registry = projectRegistry
+  const worker = gitWorker
+  const sessions = terminalSessionRegistry
+  if (!registry || !worker || !sessions) {
+    throw new Error('Workspace pruning is unavailable')
+  }
+  await workspaceRefreshes.get(projectId)?.catch(() => undefined)
+  const project = registry.projectById(projectId)
+  if (!project) throw new Error('Unknown project')
+  if (project.connectionState !== 'connected') {
+    throw new Error('Connect to the project host before pruning worktrees')
+  }
+  const targets = project.workspaces.filter(
+    (workspace) => workspace.missing && workspace.prunableReason !== undefined,
+  )
+  if (targets.length === 0) throw new Error('Git reports no prunable worktrees')
+  const prunesActiveWorkspace = targets.some(
+    (workspace) => workspace.id === registry.active.workspaceId,
+  )
+
+  const authorization = gitMutationKey(
+    project.registeredRoot.hostId,
+    project.registeredRoot.path,
+  )
+  if (worktreePruneAuthorizations.has(authorization)) {
+    throw new Error('A worktree prune is already running for this project')
+  }
+  worktreePruneAuthorizations.add(authorization)
+  let discovery: WorktreeDiscovery
+  try {
+    discovery = await worker.request(GIT_PRUNE_WORKTREES_TYPE, {
+      root: project.registeredRoot,
+    })
+  } finally {
+    worktreePruneAuthorizations.delete(authorization)
+  }
+
+  await registry.reconcileWorktrees(projectId, discovery)
+  for (const target of targets) {
+    if (
+      discovery.worktrees.some((worktree) => hostPathEquals(worktree.root, target.root))
+    ) {
+      continue
+    }
+    await Promise.all(
+      sessions
+        .list(target.root)
+        .map((session) => sessions.forget(target.root, session.id)),
+    )
+    await registry.dismissWorkspace(projectId, target.id)
+  }
+  if (prunesActiveWorkspace) {
+    await stopProjectWatch()
+    htmlPreviews.clear()
+    startProjectWatch(registry.active, emit)
+  }
+  return registry.state()
 }
 
 function scheduleWorkspaceRefresh(projectId: string): void {
@@ -515,6 +613,10 @@ function serializeSession<T>(operation: () => Promise<T>): Promise<T> {
     () => undefined,
   )
   return result
+}
+
+function gitMutationKey(hostId: string, path: string): string {
+  return JSON.stringify([hostId, path])
 }
 
 function projectRootArgument(): string {
@@ -658,6 +760,7 @@ async function runSmoke(): Promise<number> {
       openProject: () => Promise.resolve(smokeProjectState()),
       switchWorkspace: () => Promise.resolve(smokeProjectState()),
       refreshProject: () => Promise.resolve(smokeProjectState()),
+      pruneWorktrees: () => Promise.resolve(smokeProjectState()),
       dismissWorkspace: () => Promise.resolve(smokeProjectState()),
       respondSshPrompt: () => undefined,
       ptySupervisor: supervisor,
