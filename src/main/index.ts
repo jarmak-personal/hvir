@@ -949,7 +949,7 @@ async function runSmoke(): Promise<number> {
       win.webContents.executeJavaScript(`
         new Promise((resolve, reject) => {
           const poll = () => {
-            const status = document.querySelector('.terminal-panel .panel-meta')?.textContent || '';
+            const status = document.querySelector('.terminal-panel')?.getAttribute('data-terminal-status') || '';
             if (status.startsWith('pid ')) return resolve(status);
             if (status && status !== 'Starting…') return reject(new Error(status));
             setTimeout(poll, 50);
@@ -965,12 +965,20 @@ async function runSmoke(): Promise<number> {
       (() => {
         const host = document.querySelector('.terminal-container');
         if (!(host instanceof HTMLElement)) throw new Error('terminal input host missing');
+        const panel = host.closest('.terminal-panel');
+        if (!(panel instanceof HTMLElement)) throw new Error('terminal panel missing');
+        if (panel.querySelector(':scope > .panel-header')) {
+          throw new Error('redundant terminal header is still mounted');
+        }
+        if (Math.abs(panel.getBoundingClientRect().top - host.getBoundingClientRect().top) > 1) {
+          throw new Error('terminal canvas does not begin at the deck edge');
+        }
         host.focus();
         const caret = getComputedStyle(host).caretColor;
         if (caret !== 'transparent' && caret !== 'rgba(0, 0, 0, 0)') {
           throw new Error('browser caret is visible in terminal input host: ' + caret);
         }
-        return 'canvas cursor only';
+        return 'headerless · canvas cursor only';
       })()
     `)) as string
     console.log(`[smoke] terminal input caret contained (${terminalCaretStatus})`)
@@ -1038,7 +1046,7 @@ async function runSmoke(): Promise<number> {
             const deadline = Date.now() + 5000;
             const poll = () => {
               const container = document.querySelector('.terminal-container');
-              const status = document.querySelector('.terminal-panel .panel-meta')?.textContent || '';
+              const status = document.querySelector('.terminal-panel')?.getAttribute('data-terminal-status') || '';
               if (container?.childElementCount === 0 && status === 'disconnected') return resolve(true);
               if (Date.now() > deadline) return reject(new Error('terminal did not clear on disconnect'));
               setTimeout(poll, 25);
@@ -1054,7 +1062,7 @@ async function runSmoke(): Promise<number> {
             const poll = () => {
               const canvas = document.querySelector('.terminal-container canvas');
               const host = document.querySelector('.terminal-container');
-              const status = document.querySelector('.terminal-panel .panel-meta')?.textContent || '';
+              const status = document.querySelector('.terminal-panel')?.getAttribute('data-terminal-status') || '';
               lastState = 'status=' + status +
                 ' canvas=' + Boolean(canvas) +
                 ' host=' + Boolean(host) +
@@ -1108,7 +1116,7 @@ async function runSmoke(): Promise<number> {
             const rows = [...document.querySelectorAll('.terminal-list-row')];
             const surfaces = [...document.querySelectorAll('.terminal-surface')];
             const active = document.querySelector('.terminal-surface.active');
-            const status = active?.querySelector('.panel-meta')?.textContent || '';
+            const status = active?.getAttribute('data-terminal-status') || '';
             if (rows.length === 2 && surfaces.length === 2 && status.startsWith('pid ')) {
               const visible = surfaces.filter(
                 (surface) => getComputedStyle(surface).visibility === 'visible'
@@ -2325,7 +2333,7 @@ async function runSmoke(): Promise<number> {
                       .find((node) => node.textContent?.trim() === 'Restore selected');
                     restore?.click();
                     const waitForTerminal = () => {
-                      const status = document.querySelector('.terminal-panel .panel-meta')?.textContent || '';
+                      const status = document.querySelector('.terminal-panel')?.getAttribute('data-terminal-status') || '';
                       const gitReady = [...document.querySelectorAll('.git-tabs button')]
                         .some((node) => /^Changes \\(\\d+\\)$/.test(node.textContent?.trim() || ''));
                       if (status.startsWith('pid ') && gitReady) {

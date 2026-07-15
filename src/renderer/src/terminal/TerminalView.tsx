@@ -320,25 +320,21 @@ export function TerminalView({
       aria-label={title}
       aria-hidden={!visible}
       data-terminal-session={sessionId}
+      data-terminal-status={status}
     >
-      <header className="panel-header">
-        <span className="terminal-panel-title">{title}</span>
-        <span className="terminal-status">
-          <span className="panel-meta">{status}</span>
-          {connectionState === 'connected' && exited ? (
-            <button
-              type="button"
-              className="terminal-restart"
-              onClick={() => {
-                restartRequestedRef.current = true
-                setRestartGeneration((generation) => generation + 1)
-              }}
-            >
-              {adapterId !== 'plain-shell' && harnessSessionId ? 'Resume' : 'Restart'}
-            </button>
-          ) : null}
-        </span>
-      </header>
+      {connectionState === 'connected' && exited ? (
+        <button
+          type="button"
+          className="terminal-restart"
+          aria-label={`${adapterId !== 'plain-shell' && harnessSessionId ? 'Resume' : 'Restart'} ${title}`}
+          onClick={() => {
+            restartRequestedRef.current = true
+            setRestartGeneration((generation) => generation + 1)
+          }}
+        >
+          {adapterId !== 'plain-shell' && harnessSessionId ? 'Resume' : 'Restart'}
+        </button>
+      ) : null}
       <div
         key={`${workspaceRoot.hostId}:${workspaceRoot.path}:${connectionState}`}
         className="terminal-container"
