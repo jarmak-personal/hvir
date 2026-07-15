@@ -14,6 +14,8 @@ const SAFE_GIT_CONFIG = ['-c', 'core.fsmonitor=false'] as const
 export interface GitHostCallPermissions {
   /** One-shot main-process authorization for the explicit workspace prune UI. */
   readonly allowWorktreePrune?: boolean
+  /** One-shot authorization for one exact existing local branch target. */
+  readonly allowBranchSwitch?: string
 }
 
 /** Main-side enforcement for the untrusted Git utility-process transport. */
@@ -50,9 +52,14 @@ export async function dispatchWorkerHostCall(
     'now',
     '--verbose',
   ])
+  const branchSwitch =
+    call.args.length === 5 && call.args[2] === 'switch' && call.args[3] === '--no-guess'
   validateGitInvocation(call.args)
   if (worktreePrune && !permissions.allowWorktreePrune) {
     throw new Error('git worker requested an unauthorized worktree prune')
+  }
+  if (branchSwitch && permissions.allowBranchSwitch !== call.args[4]) {
+    throw new Error('git worker requested an unauthorized branch switch')
   }
   if (call.cwd || !isAllowedGitInput(call.args, call.input)) {
     throw new Error('git worker supplied unsupported execution options')
@@ -73,8 +80,8 @@ export async function dispatchWorkerHostCall(
       cwd: root,
       // Background reads suppress optional index refresh writes so the .git
       // watcher cannot feed a status request back into itself. The one
-      // explicitly authorized prune retains Git's normal locking.
-      ...(worktreePrune ? {} : { env: { GIT_OPTIONAL_LOCKS: '0' } }),
+      // explicitly authorized mutations retain Git's normal locking.
+      ...(worktreePrune || branchSwitch ? {} : { env: { GIT_OPTIONAL_LOCKS: '0' } }),
       ...(call.input !== undefined ? { input: call.input } : {}),
       maxBuffer,
       signal: controller.signal,
@@ -120,12 +127,17 @@ function validateGitInvocation(args: readonly string[]): void {
       if (
         sameArgs(rest, [
           '--format=%(objectname)%00%(objecttype)%00%(*objectname)%00%(*objecttype)',
-        ])
+        ]) ||
+        sameArgs(rest, ['--format=%(refname:short)%00', 'refs/heads'])
       )
         return
       break
     case 'symbolic-ref':
-      if (sameArgs(rest, ['--quiet', '--short', 'refs/remotes/origin/HEAD'])) return
+      if (
+        sameArgs(rest, ['--quiet', '--short', 'refs/remotes/origin/HEAD']) ||
+        sameArgs(rest, ['--quiet', '--short', 'HEAD'])
+      )
+        return
       break
     case 'show-ref':
       if (
@@ -141,7 +153,10 @@ function validateGitInvocation(args: readonly string[]): void {
         return
       break
     case 'status':
-      if (sameArgs(rest, ['--porcelain=v2', '-z', '--untracked-files=all', '--', '.']))
+      if (
+        sameArgs(rest, ['--porcelain=v2', '-z', '--untracked-files=all', '--', '.']) ||
+        sameArgs(rest, ['--porcelain=v2', '-z', '--untracked-files=all'])
+      )
         return
       break
     case 'check-ignore':
@@ -180,6 +195,14 @@ function validateGitInvocation(args: readonly string[]): void {
         sameArgs(rest, ['list', '--porcelain', '-z']) ||
         sameArgs(rest, ['list', '--porcelain']) ||
         sameArgs(rest, ['prune', '--expire', 'now', '--verbose'])
+      )
+        return
+      break
+    case 'switch':
+      if (
+        rest.length === 2 &&
+        rest[0] === '--no-guess' &&
+        isSafeBranchName(rest[1] ?? '')
       )
         return
       break
@@ -307,6 +330,28 @@ function isSafeRevisionOrRef(value: string): boolean {
       !value.includes('..') &&
       !value.includes('@{'))
   )
+}
+
+function isSafeBranchName(branch: string): boolean {
+  return (
+    branch.length > 0 &&
+    branch.length <= 1_024 &&
+    !branch.startsWith('-') &&
+    !branch.includes('\0') &&
+    !branch.includes('..') &&
+    !branch.includes('@{') &&
+    !branch.endsWith('.') &&
+    !branch.endsWith('/') &&
+    !branch.split('/').some((part) => !part || part.endsWith('.lock')) &&
+    !hasForbiddenBranchCharacter(branch)
+  )
+}
+
+function hasForbiddenBranchCharacter(branch: string): boolean {
+  return [...branch].some((character) => {
+    const code = character.charCodeAt(0)
+    return code <= 32 || code === 127 || '~^:?*\\['.includes(character)
+  })
 }
 
 function isObjectId(value: string): boolean {

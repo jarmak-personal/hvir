@@ -33,6 +33,8 @@ import type {
   GitHistoryRequest,
   GitIgnoredEntriesRequest,
   GitIgnoredEntriesResponse,
+  GitBranchModel,
+  GitSwitchBranchRequest,
 } from './git-types'
 import type { HostConnectionState, HostWatchTier } from './fs-types'
 import type { HarnessTelemetry } from './harness-telemetry'
@@ -296,6 +298,11 @@ export interface IpcInvokeMap {
   }
   'git:commit-detail': { request: GitCommitDetailRequest; response: GitCommitDetail }
   'git:blame': { request: GitBlameRequest; response: readonly GitBlameRun[] }
+  'git:branches': { request: GitChangesRequest; response: GitBranchModel }
+  'git:switch-branch': {
+    request: GitSwitchBranchRequest
+    response: OperationResult<ProjectState>
+  }
   'html-preview:create': {
     request: CreateHtmlPreviewRequest
     response: CreateHtmlPreviewResponse
@@ -395,6 +402,8 @@ export const INVOKE_CHANNELS = [
   'git:ignored-entries',
   'git:commit-detail',
   'git:blame',
+  'git:branches',
+  'git:switch-branch',
   'html-preview:create',
   'terminal:recovery',
   'terminal:update-layout',

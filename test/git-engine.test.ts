@@ -23,6 +23,53 @@ afterEach(async () => {
 })
 
 describe('GitEngine', () => {
+  it('models local branches and switches only from a clean available worktree', async () => {
+    const root = await repository()
+    const linked = `${root}-occupied`
+    cleanups.push(linked)
+    git(root, ['branch', 'feature'])
+    git(root, ['worktree', 'add', '-b', 'occupied', linked])
+    const workspaceRoot = localPath(await realpath(root))
+    const canonicalLinked = await realpath(linked)
+    const host = new LocalHost()
+    const engine = new GitEngine(host, workspaceRoot)
+
+    const model = await engine.branches(workspaceRoot)
+
+    expect(model).toEqual(
+      expect.objectContaining({
+        repositoryState: 'ready',
+        current: 'main',
+        detached: false,
+      }),
+    )
+    expect(model.branches).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: 'main', current: true }),
+        expect.objectContaining({ name: 'feature', current: false }),
+        expect.objectContaining({
+          name: 'occupied',
+          worktree: localPath(canonicalLinked),
+        }),
+      ]),
+    )
+    await expect(engine.switchBranch(workspaceRoot, 'occupied')).rejects.toThrow(
+      'checked out in',
+    )
+    await expect(engine.switchBranch(workspaceRoot, 'feature')).resolves.toBeUndefined()
+    await expect(engine.branches(workspaceRoot)).resolves.toEqual(
+      expect.objectContaining({ current: 'feature' }),
+    )
+    await writeFile(join(root, 'dirty.txt'), 'dirty\n')
+    await expect(engine.switchBranch(workspaceRoot, 'main')).rejects.toThrow(
+      'Working tree changed',
+    )
+    await expect(engine.switchBranch(workspaceRoot, 'missing')).rejects.toThrow(
+      'no longer exists',
+    )
+    await host.dispose()
+  })
+
   it('discovers linked worktrees and treats a plain directory as one workspace', async () => {
     const root = await repository()
     const linked = `${root}-feature`

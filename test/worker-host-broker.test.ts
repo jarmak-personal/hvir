@@ -104,6 +104,45 @@ describe('Git worker host broker', () => {
     ).rejects.toThrow('forbidden git invocation')
   })
 
+  it('authorizes only one exact branch switch target', async () => {
+    const rootPath = await mkdtemp(join(tmpdir(), 'hvir-broker-switch-'))
+    cleanups.push(rootPath)
+    const host = new LocalHost()
+    const exec = vi.spyOn(host, 'exec').mockResolvedValue({
+      code: 0,
+      signal: null,
+      stdout: '',
+      stderr: '',
+    })
+    const project = { host, root: localPath(rootPath) }
+    const call: ExecHostCall = {
+      ...hostCall(rootPath),
+      args: ['-C', rootPath, 'switch', '--no-guess', 'feature/one'],
+    }
+
+    await expect(dispatchWorkerHostCall(call, project)).rejects.toThrow(
+      'unauthorized branch switch',
+    )
+    await expect(
+      dispatchWorkerHostCall(call, project, { allowBranchSwitch: 'feature/two' }),
+    ).rejects.toThrow('unauthorized branch switch')
+    expect(exec).not.toHaveBeenCalled()
+
+    await dispatchWorkerHostCall(call, project, {
+      allowBranchSwitch: 'feature/one',
+    })
+    expect(exec).toHaveBeenCalledOnce()
+    expect(exec.mock.calls[0]?.[2]?.env).toBeUndefined()
+
+    await expect(
+      dispatchWorkerHostCall(
+        { ...call, args: ['-C', rootPath, 'switch', '-C', 'feature/one'] },
+        project,
+        { allowBranchSwitch: 'feature/one' },
+      ),
+    ).rejects.toThrow('forbidden git invocation')
+  })
+
   it.each([
     ['config alias execution', ['-c', 'alias.x=!touch /tmp/hvir-owned', 'x']],
     ['second working directory', ['status', '-C', '/tmp', '--porcelain=v2']],
@@ -180,6 +219,9 @@ describe('Git worker host broker', () => {
       expect.objectContaining({ repository: true }),
     )
     await expect(engine.changedFileCount(localPath(rootPath))).resolves.toBe(1)
+    await expect(engine.branches(localPath(rootPath))).resolves.toEqual(
+      expect.objectContaining({ current: 'main' }),
+    )
     const changes = await engine.changes(localPath(rootPath))
     const history = await engine.history(localPath(rootPath), 1)
     const graphHistory = await engine.history(

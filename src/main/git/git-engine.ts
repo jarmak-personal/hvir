@@ -2,6 +2,7 @@ import {
   basenameHostPath,
   dirnameHostPath,
   hostPath,
+  hostPathEquals,
   type DiffBase,
   type ExecResult,
   type GitDiffResponse,
@@ -11,6 +12,7 @@ import {
   type GitCommitSummary,
   type GitHistoryPage,
   type GitCommitDetail,
+  type GitBranchModel,
   type HostId,
   type HostPath,
   type WorktreeDiscovery,
@@ -116,6 +118,76 @@ export class GitEngine {
         '.',
       ]),
     ).length
+  }
+
+  async branches(workspaceRoot: HostPath): Promise<GitBranchModel> {
+    this.assertHost(workspaceRoot)
+    const context = await this.projectContext(workspaceRoot)
+    if (!context) {
+      return {
+        repositoryState: 'not-git',
+        detached: false,
+        branches: [],
+      }
+    }
+    const { commandRoot } = context
+    const [headOutput, currentOutput, refsOutput, discovery] = await Promise.all([
+      this.tryRun(commandRoot, ['rev-parse', '--verify', 'HEAD']),
+      this.tryRun(commandRoot, ['symbolic-ref', '--quiet', '--short', 'HEAD']),
+      this.run(commandRoot, [
+        'for-each-ref',
+        '--format=%(refname:short)%00',
+        'refs/heads',
+      ]),
+      this.worktrees(workspaceRoot),
+    ])
+    const head = headOutput?.trim() || undefined
+    const current = currentOutput?.trim() || undefined
+    const occupied = new Map(
+      discovery.worktrees.flatMap((worktree) =>
+        worktree.branch ? [[worktree.branch, worktree.root] as const] : [],
+      ),
+    )
+    return {
+      repositoryState: head ? 'ready' : 'unborn',
+      current,
+      head,
+      detached: Boolean(head && !current),
+      branches: parseLocalBranches(refsOutput).map((name) => ({
+        name,
+        current: name === current,
+        ...(occupied.get(name) ? { worktree: occupied.get(name) } : {}),
+      })),
+    }
+  }
+
+  async switchBranch(workspaceRoot: HostPath, branch: string): Promise<void> {
+    assertBranchName(branch)
+    const model = await this.branches(workspaceRoot)
+    if (model.repositoryState === 'not-git') throw new Error('Not a Git repository')
+    const target = model.branches.find((candidate) => candidate.name === branch)
+    if (!target) throw new Error('Branch no longer exists')
+    if (target.current) throw new Error(`${branch} is already checked out`)
+    if (target.worktree && !hostPathEquals(target.worktree, workspaceRoot)) {
+      throw new Error(`${branch} is checked out in ${target.worktree.path}`)
+    }
+    const status = await this.run(workspaceRoot, [
+      'status',
+      '--porcelain=v2',
+      '-z',
+      '--untracked-files=all',
+    ])
+    if (parseStatus(status).length > 0) {
+      throw new Error('Working tree changed; commit or stash before switching')
+    }
+    const result = await execGit(this.host, workspaceRoot, [
+      'switch',
+      '--no-guess',
+      branch,
+    ])
+    if (result.code !== 0) {
+      throw gitError(['switch', '--no-guess', branch], result.stderr, result.code)
+    }
   }
 
   async diffInputs(
@@ -788,6 +860,37 @@ export function parseWorktreeList(
   }
   finish()
   return worktrees
+}
+
+export function parseLocalBranches(output: string): readonly string[] {
+  return output
+    .split('\0')
+    .map((branch) => branch.trim())
+    .filter(Boolean)
+}
+
+function assertBranchName(branch: string): void {
+  if (
+    !branch ||
+    branch.length > 1_024 ||
+    branch.startsWith('-') ||
+    branch.includes('\0') ||
+    branch.includes('..') ||
+    branch.includes('@{') ||
+    branch.endsWith('.') ||
+    branch.endsWith('/') ||
+    branch.split('/').some((part) => !part || part.endsWith('.lock')) ||
+    hasForbiddenBranchCharacter(branch)
+  ) {
+    throw new Error('Invalid branch name')
+  }
+}
+
+function hasForbiddenBranchCharacter(branch: string): boolean {
+  return [...branch].some((character) => {
+    const code = character.charCodeAt(0)
+    return code <= 32 || code === 127 || '~^:?*\\['.includes(character)
+  })
 }
 
 /** Compatibility for Git versions predating `worktree list -z`. */

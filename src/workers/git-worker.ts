@@ -8,6 +8,8 @@ import {
   GIT_WORKTREES_TYPE,
   GIT_PRUNE_WORKTREES_TYPE,
   GIT_CHANGED_FILE_COUNT_TYPE,
+  GIT_BRANCHES_TYPE,
+  GIT_SWITCH_BRANCH_TYPE,
   asHostId,
   hostPath,
   type DiffBase,
@@ -65,6 +67,13 @@ async function handle(request: WorkerRequest): Promise<void> {
     let result: unknown
     if (request.type === GIT_WORKTREES_TYPE) {
       result = await engine.worktrees(root)
+    } else if (request.type === GIT_BRANCHES_TYPE) {
+      result = await engine.branches(root)
+    } else if (
+      request.type === GIT_SWITCH_BRANCH_TYPE &&
+      typeof raw['branch'] === 'string'
+    ) {
+      result = await engine.switchBranch(root, raw['branch'])
     } else if (request.type === GIT_PRUNE_WORKTREES_TYPE) {
       result = await engine.pruneWorktrees(root)
     } else if (request.type === GIT_CHANGED_FILE_COUNT_TYPE) {

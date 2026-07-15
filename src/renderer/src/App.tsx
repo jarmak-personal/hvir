@@ -697,6 +697,28 @@ export function App(): ReactElement {
     }
   }
 
+  const switchGitBranch = async (branch: string): Promise<void> => {
+    const workspaceRoot = rootRef.current
+    if (!workspaceRoot) throw new Error('No active workspace')
+    if (tabsRef.current.some((tab) => tab.dirty)) {
+      throw new Error('Save or close unsaved viewer tabs before switching')
+    }
+    const state = unwrapOperation(
+      await window.hvir.invoke('git:switch-branch', {
+        root: workspaceRoot,
+        branch,
+      }),
+    )
+    applyProjectState(state)
+    setWatchVersion((version) => version + 1)
+    setIgnoredRefreshVersion((version) => version + 1)
+    setContentVersion((version) => version + 1)
+    setGitVersion((version) => version + 1)
+    for (const tab of tabsRef.current) {
+      if (!tab.dirty) loadFile(tab.path)
+    }
+  }
+
   const disconnectSession = async (): Promise<void> => {
     if (!root || root.hostId === 'local') return
     setSessionBusy(true)
@@ -858,6 +880,8 @@ export function App(): ReactElement {
               connectionState={connectionState}
               hidden={railMode !== 'git'}
               historyPaused={gitGraphActive}
+              hasDirtyViewerTabs={tabs.some((tab) => tab.dirty)}
+              onSwitchBranch={switchGitBranch}
             />
           </div>
         </aside>

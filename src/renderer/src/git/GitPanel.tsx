@@ -12,6 +12,7 @@ import {
   basenameHostPath,
   type DiffBase,
   type GitChanges,
+  type GitBranchModel,
   type GitCommitDetail,
   type GitCommitSummary,
   type GitRepositoryState,
@@ -43,6 +44,8 @@ interface GitPanelProps {
   readonly connectionState?: HostConnectionState
   readonly hidden?: boolean
   readonly historyPaused?: boolean
+  readonly hasDirtyViewerTabs: boolean
+  readonly onSwitchBranch: (branch: string) => Promise<void>
 }
 
 export function GitPanel({
@@ -56,6 +59,8 @@ export function GitPanel({
   connectionState = 'connected',
   hidden = false,
   historyPaused = false,
+  hasDirtyViewerTabs,
+  onSwitchBranch,
 }: GitPanelProps): ReactElement {
   const [view, setView] = useState<'changes' | 'history'>('changes')
   const [changes, setChanges] = useState<GitChanges>()
@@ -68,6 +73,10 @@ export function GitPanel({
   const [historyInitialLoading, setHistoryInitialLoading] = useState(false)
   const [historyRepositoryState, setHistoryRepositoryState] =
     useState<GitRepositoryState>()
+  const [branchModel, setBranchModel] = useState<GitBranchModel>()
+  const [branchError, setBranchError] = useState<string>()
+  const [branchSwitching, setBranchSwitching] = useState(false)
+  const [branchRefresh, setBranchRefresh] = useState(0)
   const historyLoading = useRef(false)
   const historyGeneration = useRef(0)
   const changesValue = useRef<GitChanges | undefined>(undefined)
@@ -143,6 +152,25 @@ export function GitPanel({
   }, [connectionState, onChanges, root.hostId, root.path])
 
   useEffect(() => {
+    let cancelled = false
+    setBranchModel(undefined)
+    setBranchError(undefined)
+    if (connectionState !== 'connected') return () => undefined
+    void window.hvir.invoke('git:branches', { root }).then(
+      (model) => {
+        if (!cancelled) setBranchModel(model)
+      },
+      (reason: unknown) => {
+        if (!cancelled)
+          setBranchError(reason instanceof Error ? reason.message : String(reason))
+      },
+    )
+    return () => {
+      cancelled = true
+    }
+  }, [branchRefresh, connectionState, historyRefreshVersion, root])
+
+  useEffect(() => {
     if (connectionState !== 'connected') return
     requestChanges()
   }, [connectionState, refreshVersion, requestChanges, root.hostId, root.path])
@@ -188,6 +216,23 @@ export function GitPanel({
       })
   }
 
+  const branchBlockReason =
+    connectionState !== 'connected'
+      ? 'Reconnect before switching branches'
+      : hasDirtyViewerTabs
+        ? 'Save or close unsaved viewer tabs before switching'
+        : !changes
+          ? 'Checking working tree…'
+          : changes.workingTree.length > 0
+            ? 'Commit or stash working tree changes before switching'
+            : undefined
+  const hasSwitchableBranch = branchModel?.branches.some(
+    (branch) =>
+      !branch.current &&
+      (!branch.worktree ||
+        (branch.worktree.hostId === root.hostId && branch.worktree.path === root.path)),
+  )
+
   useEffect(() => {
     if (view !== 'history' || connectionState !== 'connected' || historyPaused) return
     let cancelled = false
@@ -229,6 +274,70 @@ export function GitPanel({
       <header className="panel-header">
         <span className="panel-meta">{basenameHostPath(root)}</span>
       </header>
+      {branchModel?.repositoryState !== 'not-git' || branchError ? (
+        <div className="git-branch-control">
+          <label htmlFor="git-branch-select">Branch</label>
+          <select
+            id="git-branch-select"
+            value={branchModel?.current ?? '__detached__'}
+            disabled={
+              !branchModel ||
+              branchSwitching ||
+              Boolean(branchBlockReason) ||
+              !hasSwitchableBranch
+            }
+            title={branchError ?? branchBlockReason ?? 'Switch existing local branch'}
+            onChange={(event) => {
+              const branch = event.currentTarget.value
+              if (!branchModel?.branches.some((candidate) => candidate.name === branch)) {
+                return
+              }
+              setBranchSwitching(true)
+              setBranchError(undefined)
+              void onSwitchBranch(branch)
+                .then(
+                  () => setBranchRefresh((version) => version + 1),
+                  (reason: unknown) =>
+                    setBranchError(
+                      reason instanceof Error ? reason.message : String(reason),
+                    ),
+                )
+                .finally(() => setBranchSwitching(false))
+            }}
+          >
+            {!branchModel?.current ? (
+              <option value="__detached__" disabled>
+                {branchModel?.detached && branchModel.head
+                  ? `Detached at ${branchModel.head.slice(0, 8)}`
+                  : 'No branch'}
+              </option>
+            ) : null}
+            {branchModel?.branches.map((branch) => {
+              const occupiedElsewhere =
+                branch.worktree &&
+                (branch.worktree.hostId !== root.hostId ||
+                  branch.worktree.path !== root.path)
+              return (
+                <option
+                  key={branch.name}
+                  value={branch.name}
+                  disabled={Boolean(occupiedElsewhere)}
+                >
+                  {branch.name}
+                  {occupiedElsewhere ? ` — in ${branch.worktree?.path}` : ''}
+                </option>
+              )
+            })}
+          </select>
+          {branchSwitching ? (
+            <small>Switching…</small>
+          ) : branchError ? (
+            <small className="error">{branchError}</small>
+          ) : branchBlockReason && branchModel ? (
+            <small>{branchBlockReason}</small>
+          ) : null}
+        </div>
+      ) : null}
       <div className="git-tabs">
         <button
           type="button"

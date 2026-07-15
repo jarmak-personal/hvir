@@ -28,6 +28,7 @@ import {
   GIT_CHANGED_FILE_COUNT_TYPE,
   GIT_PRUNE_WORKTREES_TYPE,
   GIT_WORKTREES_TYPE,
+  GIT_SWITCH_BRANCH_TYPE,
   hostPath,
   hostPathEquals,
   joinHostPath,
@@ -67,6 +68,7 @@ const workspaceRefreshes = new Map<string, Promise<ProjectState>>()
 const workspaceRefreshTimers = new Map<string, ReturnType<typeof setTimeout>>()
 const workspacePrunes = new Map<string, Promise<ProjectState>>()
 const worktreePruneAuthorizations = new Set<string>()
+const branchSwitchAuthorizations = new Set<string>()
 let sessionOperation: Promise<void> = Promise.resolve()
 let suspendSessions: Promise<void> = Promise.resolve()
 let shutdownStarted = false
@@ -239,10 +241,24 @@ async function startup(): Promise<void> {
         pruneArgs.every((arg, index) => call.args[index + 2] === arg)
       const allowWorktreePrune =
         requestsWorktreePrune && worktreePruneAuthorizations.delete(authorization)
+      const requestedBranch =
+        call.operation === 'exec' &&
+        call.args.length === 5 &&
+        call.args[2] === 'switch' &&
+        call.args[3] === '--no-guess'
+          ? call.args[4]
+          : undefined
+      const allowBranchSwitch = requestedBranch
+        ? branchSwitchAuthorizations.delete(
+            gitMutationKey(call.hostId, path, requestedBranch),
+          )
+          ? requestedBranch
+          : undefined
+        : undefined
       return dispatchWorkerHostCall(
         call,
         projectRegistry?.authorityForPath(call.hostId, path) ?? null,
-        { allowWorktreePrune },
+        { allowWorktreePrune, allowBranchSwitch },
       )
     },
   )
@@ -356,6 +372,7 @@ async function startup(): Promise<void> {
         }
         return state
       }),
+    switchGitBranch: (root, branch) => requestGitBranchSwitch(root, branch),
     respondSshPrompt: (id, answers) => sshPrompter?.respond(id, answers),
     ptySupervisor,
     terminalSessions: terminalSessionRegistry,
@@ -534,6 +551,49 @@ async function pruneProjectWorktrees(
   return registry.state()
 }
 
+function requestGitBranchSwitch(root: HostPath, branch: string): Promise<ProjectState> {
+  return serializeSession(async () => {
+    const registry = projectRegistry
+    const worker = gitWorker
+    if (!registry || !worker) throw new Error('Branch switching is unavailable')
+    if (!hostPathEquals(root, registry.active.root)) {
+      throw new Error('Branch switch belongs to another workspace')
+    }
+    if (registry.active.host.connectionState !== 'connected') {
+      throw new Error('Reconnect before switching branches')
+    }
+    if (
+      typeof branch !== 'string' ||
+      branch.length === 0 ||
+      branch.length > 1_024 ||
+      branch.includes('\0')
+    ) {
+      throw new Error('Invalid branch target')
+    }
+
+    const projectId = registry.active.projectId
+    await workspaceRefreshes.get(projectId)?.catch(() => undefined)
+    workspaceRefreshes.delete(projectId)
+    const authorization = gitMutationKey(root.hostId, root.path, branch)
+    if (branchSwitchAuthorizations.has(authorization)) {
+      throw new Error('A branch switch is already running for this workspace')
+    }
+    branchSwitchAuthorizations.add(authorization)
+    try {
+      await worker.request(GIT_SWITCH_BRANCH_TYPE, { root, branch })
+    } finally {
+      branchSwitchAuthorizations.delete(authorization)
+    }
+    try {
+      return await refreshProjectWorkspaces(projectId)
+    } catch (error) {
+      console.error('[git] workspace refresh after branch switch failed', error)
+      scheduleWorkspaceRefresh(projectId)
+      return registry.state()
+    }
+  })
+}
+
 function scheduleWorkspaceRefresh(projectId: string): void {
   if (shutdownStarted) return
   const existing = workspaceRefreshTimers.get(projectId)
@@ -615,8 +675,8 @@ function serializeSession<T>(operation: () => Promise<T>): Promise<T> {
   return result
 }
 
-function gitMutationKey(hostId: string, path: string): string {
-  return JSON.stringify([hostId, path])
+function gitMutationKey(hostId: string, path: string, target?: string): string {
+  return JSON.stringify(target === undefined ? [hostId, path] : [hostId, path, target])
 }
 
 function projectRootArgument(): string {
@@ -762,6 +822,7 @@ async function runSmoke(): Promise<number> {
       refreshProject: () => Promise.resolve(smokeProjectState()),
       pruneWorktrees: () => Promise.resolve(smokeProjectState()),
       dismissWorkspace: () => Promise.resolve(smokeProjectState()),
+      switchGitBranch: () => Promise.resolve(smokeProjectState()),
       respondSshPrompt: () => undefined,
       ptySupervisor: supervisor,
       terminalSessions: smokeTerminalSessions,

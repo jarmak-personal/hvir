@@ -20,6 +20,7 @@ import {
   GIT_HISTORY_TYPE,
   GIT_IGNORED_ENTRIES_TYPE,
   GIT_COMMIT_DETAIL_TYPE,
+  GIT_BRANCHES_TYPE,
   repositoryImageMimeType,
   type GitWorkerProtocol,
   type HostPath,
@@ -103,6 +104,7 @@ export interface IpcDeps {
     projectId: string,
     workspaceId: string,
   ) => Promise<ProjectState>
+  readonly switchGitBranch: (root: HostPath, branch: string) => Promise<ProjectState>
   readonly respondSshPrompt: (id: number, answers?: readonly string[]) => void
   readonly ptySupervisor: PtySupervisor
   readonly terminalSessions: TerminalSessionStore
@@ -343,6 +345,20 @@ export function registerIpcHandlers(deps: IpcDeps): void {
     const path = await projectPath(req.path, root, host)
     return deps.gitWorker.request(GIT_BLAME_TYPE, { root, path })
   })
+
+  handle('git:branches', async (req) => {
+    const project = deps.getProject()
+    const root = await projectPath(req.root, project.root, project.host)
+    return deps.gitWorker.request(GIT_BRANCHES_TYPE, { root })
+  })
+
+  handle('git:switch-branch', (req) =>
+    operationResult(async () => {
+      const project = deps.getProject()
+      const root = await projectPath(req.root, project.root, project.host)
+      return deps.switchGitBranch(root, req.branch)
+    }),
+  )
 
   handle('html-preview:create', (req) => deps.htmlPreviews.create(req.content))
 
