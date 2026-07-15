@@ -986,6 +986,9 @@ async function runSmoke(): Promise<number> {
         if (parseFloat(getComputedStyle(activeRow).marginLeft) >= 0) {
           throw new Error('active terminal curve cuts inward instead of opening outward');
         }
+        if (!getComputedStyle(activeRow).backgroundImage.includes('linear-gradient')) {
+          throw new Error('active terminal entry does not blend into the canvas');
+        }
         host.focus();
         const caret = getComputedStyle(host).caretColor;
         if (caret !== 'transparent' && caret !== 'rgba(0, 0, 0, 0)') {

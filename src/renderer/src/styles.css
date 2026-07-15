@@ -957,7 +957,11 @@ button {
   box-shadow:
     inset 0 1px #3c526c,
     inset 0 -1px #3c526c;
-  background: #202630;
+  background: linear-gradient(
+    to right,
+    var(--terminal-join-background) 0%,
+    var(--terminal-active-background) 100%
+  );
 }
 
 .terminal-list-main {

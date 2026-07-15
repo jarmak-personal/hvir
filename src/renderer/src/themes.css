@@ -6,6 +6,7 @@
   --surface-raised: #181b21;
   --surface-hover: #20242c;
   --surface-active: #243142;
+  --terminal-active-background: #202630;
   --border-subtle: #282d36;
   --border-strong: #343a45;
   --text-strong: #edf0f5;
@@ -28,6 +29,7 @@
   --surface-raised: #e9eef4;
   --surface-hover: #e5ebf2;
   --surface-active: #dbe9f8;
+  --terminal-active-background: #dbe9f8;
   --border-subtle: #d4dbe3;
   --border-strong: #bcc6d1;
   --text-strong: #17202b;
@@ -183,6 +185,23 @@
   ) {
   color: var(--text-strong);
   background: var(--surface-active);
+}
+
+:root[data-theme='light'] .terminal-list-row.active,
+:root[data-theme='light'] .terminal-list-row.active:hover {
+  background: linear-gradient(
+    to right,
+    var(--terminal-join-background) 0%,
+    var(--terminal-active-background) 100%
+  );
+}
+
+.terminal-rail[data-terminal-theme='dark'] {
+  --terminal-join-background: #111318;
+}
+
+.terminal-rail[data-terminal-theme='light'] {
+  --terminal-join-background: #ecece7;
 }
 
 :root[data-theme='light']

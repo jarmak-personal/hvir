@@ -20,6 +20,7 @@ import {
 } from './terminal-attention'
 import { PaneResizer } from '../layout/PaneResizer'
 import type { TerminalRecoveryMode, TerminalThemeOverride } from '../settings/settings'
+import { useAppTheme } from '../theme'
 import { resolveTerminalFileTarget } from './terminal-file-link'
 import { TerminalView } from './TerminalView'
 
@@ -77,6 +78,8 @@ export function TerminalWorkspace({
   terminalTheme,
   onOpenSettings,
 }: TerminalWorkspaceProps): ReactElement {
+  const appTheme = useAppTheme()
+  const effectiveTerminalTheme = terminalTheme === 'app' ? appTheme : terminalTheme
   const workspaceRootRef = useRef(cwd)
   if (
     workspaceRootRef.current.hostId !== cwd.hostId ||
@@ -576,6 +579,7 @@ export function TerminalWorkspace({
       <aside
         className="terminal-rail"
         aria-label={`Open terminals in ${label}`}
+        data-terminal-theme={effectiveTerminalTheme}
         hidden={!visible}
       >
         <header className="terminal-rail-header">
