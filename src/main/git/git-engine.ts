@@ -41,8 +41,9 @@ export class GitEngine {
       '-z',
     ])
     if (result.code !== 0) {
-      const context = await this.projectContext(projectRoot)
-      if (context && unsupportedWorktreeNulOption(result.stderr)) {
+      // Git's usage exit is locale-independent; stderr wording is not. A
+      // fixed command reaching usage here means this Git predates `list -z`.
+      if (result.code === 129) {
         const legacy = await execReadOnlyGit(this.host, projectRoot, [
           'worktree',
           'list',
@@ -55,6 +56,7 @@ export class GitEngine {
         if (worktrees.length === 0) throw new Error('git reported no worktrees')
         return { repository: true, worktrees }
       }
+      const context = await this.projectContext(projectRoot)
       if (context) {
         throw gitError(
           ['worktree', 'list', '--porcelain', '-z'],
@@ -770,12 +772,6 @@ function parseLegacyWorktreeList(
   // than misaddressing a workspace that legacy Git cannot represent safely.
   const fields = output.split(/\r?\n/).filter(Boolean).join('\0')
   return parseWorktreeList(fields, hostId)
-}
-
-function unsupportedWorktreeNulOption(stderr: string): boolean {
-  return /(?:unknown (?:option|switch)|unrecognized option)[^\n]*[\s'"`]z[\s'"`]/i.test(
-    stderr,
-  )
 }
 
 function gitError(args: readonly string[], stderr: string, code: number | null): Error {

@@ -8,6 +8,7 @@ import type { AnyAuthMethod, Client, ConnectConfig } from 'ssh2'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import {
+  SSH_DEFAULT_MAX_CONCURRENT_EXECS,
   SshHost,
   type Disposer,
   type ExecStreamHandle,
@@ -847,16 +848,16 @@ describe('SshHost remote behavior', () => {
     await host.dispose()
   })
 
-  it('serializes buffered execs by default to preserve restored terminal channels', async () => {
-    const channels = Array.from({ length: 2 }, () =>
+  it('admits bounded parallel buffered execs by default', async () => {
+    const channels = Array.from({ length: SSH_DEFAULT_MAX_CONCURRENT_EXECS + 1 }, () =>
       Object.assign(new EventEmitter(), {
         stderr: new EventEmitter(),
         close: vi.fn(),
         end: vi.fn(),
       }),
     )
-    const [first, second] = channels
-    if (!first || !second) throw new Error('Expected two test channels')
+    const first = channels[0]
+    if (!first) throw new Error('Expected test channels')
     let nextChannel = 0
     const client = Object.assign(
       fakeClient(() => undefined),
@@ -877,15 +878,19 @@ describe('SshHost remote behavior', () => {
     internals.state = 'connected'
     internals.client = client as unknown as Client
 
-    const results = [host.exec('one', []), host.exec('two', [])]
-    await vi.waitFor(() => expect(client.exec).toHaveBeenCalledOnce())
+    const results = channels.map((_, index) => host.exec(`command-${index}`, []))
+    await vi.waitFor(() =>
+      expect(client.exec).toHaveBeenCalledTimes(SSH_DEFAULT_MAX_CONCURRENT_EXECS),
+    )
     first.emit('exit', 0)
     first.emit('close')
-    await vi.waitFor(() => expect(client.exec).toHaveBeenCalledTimes(2))
-    second.emit('exit', 0)
-    second.emit('close')
+    await vi.waitFor(() => expect(client.exec).toHaveBeenCalledTimes(channels.length))
+    for (const channel of channels.slice(1)) {
+      channel.emit('exit', 0)
+      channel.emit('close')
+    }
 
-    await expect(Promise.all(results)).resolves.toHaveLength(2)
+    await expect(Promise.all(results)).resolves.toHaveLength(channels.length)
     await host.dispose()
   })
 

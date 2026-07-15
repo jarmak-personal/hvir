@@ -20,13 +20,43 @@ export interface HarnessTelemetrySubscription {
 }
 
 interface LiveSubscription extends HarnessTelemetrySubscription {
-  latest?: HarnessTelemetry
+  admittedGeneration?: number
 }
 
 export interface HarnessTelemetryHubOptions {
   readonly adapterId: string
   readonly remoteScript: string
   readonly parse: (record: string) => HarnessTelemetry | null
+}
+
+export interface TelemetryFollowerScript {
+  /** Prepare `follower_source`, waiting for it when necessary. */
+  readonly prepareFollower: string
+  /** Inspect `$line` and call `emit_frame "$line"` for accepted records. */
+  readonly acceptRecord: string
+}
+
+/**
+ * Adapter-scoped host registry for lazy hubs.
+ *
+ * Keeping creation and empty-hub eviction here makes adapter observers only
+ * responsible for exact session/resource discovery and record parsing.
+ */
+export class HarnessTelemetryHubRegistry {
+  private readonly hubs = new WeakMap<ProjectHost, HarnessTelemetryHub>()
+
+  constructor(private readonly options: HarnessTelemetryHubOptions) {}
+
+  subscribe(host: ProjectHost, subscription: HarnessTelemetrySubscription): Disposer {
+    let hub = this.hubs.get(host)
+    if (!hub) {
+      hub = new HarnessTelemetryHub(host, this.options, () => {
+        if (this.hubs.get(host) === hub) this.hubs.delete(host)
+      })
+      this.hubs.set(host, hub)
+    }
+    return hub.subscribe(subscription)
+  }
 }
 
 /**
@@ -51,6 +81,7 @@ export class HarnessTelemetryHub {
   constructor(
     private readonly host: ProjectHost,
     private readonly options: HarnessTelemetryHubOptions,
+    private readonly onEmpty: () => void = () => undefined,
   ) {}
 
   get size(): number {
@@ -75,8 +106,10 @@ export class HarnessTelemetryHub {
       subscription.signal.removeEventListener('abort', abort)
       if (this.subscriptions.get(subscription.subscriptionId) !== live) return
       this.subscriptions.delete(subscription.subscriptionId)
-      if (this.subscriptions.size === 0) this.stop()
-      else this.scheduleReconcile()
+      if (this.subscriptions.size === 0) {
+        this.stop()
+        this.onEmpty()
+      } else this.scheduleReconcile()
     }
     subscription.signal.addEventListener('abort', abort, { once: true })
     if (subscription.signal.aborted) {
@@ -86,11 +119,6 @@ export class HarnessTelemetryHub {
     this.ensureStream()
     this.scheduleReconcile()
     return dispose
-  }
-
-  dispose(): void {
-    this.subscriptions.clear()
-    this.stop()
   }
 
   private ensureStream(): void {
@@ -112,6 +140,9 @@ export class HarnessTelemetryHub {
     )
     this.epoch = epoch
     this.stream = stream
+    for (const subscription of this.subscriptions.values()) {
+      subscription.admittedGeneration = undefined
+    }
     const lines = new BoundedLineReader(
       (line) => this.acceptFrame(stream, line),
       MAX_TELEMETRY_FRAME_LENGTH,
@@ -152,6 +183,11 @@ export class HarnessTelemetryHub {
     this.reconcileRequested = false
     const generation = ++this.generation
     const subscriptions = [...this.subscriptions.values()]
+    // Admit before writing: a newly-created remote follower can replay its
+    // bounded history as soon as its S record arrives.
+    for (const subscription of subscriptions) {
+      subscription.admittedGeneration ??= generation
+    }
     try {
       await stream.write(`R\t${generation}\t${subscriptions.length}\n`)
       for (const subscription of subscriptions) {
@@ -173,9 +209,12 @@ export class HarnessTelemetryHub {
     const fields = line.split('\t')
     if (fields.length !== 6 || fields[0] !== 'E') return
     const [, epoch, rawGeneration, subscriptionId, sessionId, encoded] = fields
+    const frameGeneration = Number(rawGeneration)
     if (
       epoch !== this.epoch ||
-      rawGeneration !== String(this.generation) ||
+      !Number.isSafeInteger(frameGeneration) ||
+      frameGeneration < 1 ||
+      frameGeneration > this.generation ||
       !subscriptionId ||
       !sessionId ||
       !encoded ||
@@ -186,7 +225,14 @@ export class HarnessTelemetryHub {
       return
     }
     const subscription = this.subscriptions.get(subscriptionId)
-    if (!subscription || subscription.sessionId !== sessionId) return
+    if (
+      !subscription ||
+      subscription.sessionId !== sessionId ||
+      subscription.admittedGeneration === undefined ||
+      frameGeneration < subscription.admittedGeneration
+    ) {
+      return
+    }
     let record: string
     try {
       record = Buffer.from(encoded, 'base64').toString('utf8')
@@ -196,7 +242,6 @@ export class HarnessTelemetryHub {
     if (Buffer.byteLength(record, 'utf8') > MAX_TELEMETRY_RESOURCE_BYTES * 2) return
     const telemetry = this.options.parse(record)
     if (!telemetry) return
-    subscription.latest = telemetry
     subscription.emit(telemetry)
   }
 
@@ -207,7 +252,6 @@ export class HarnessTelemetryHub {
     stream.dispose()
     if (this.subscriptions.size === 0 || this.stopped) return
     for (const subscription of this.subscriptions.values()) {
-      subscription.latest = undefined
       subscription.emit(undefined)
     }
     console.warn(`[harness:${this.options.adapterId}] telemetry hub unavailable`, error)
@@ -230,10 +274,18 @@ export class HarnessTelemetryHub {
     this.stream = undefined
     for (const dispose of this.streamDisposers.splice(0)) void dispose()
     if (stream) {
-      void stream
-        .end()
-        .catch(() => undefined)
-        .finally(() => stream.dispose())
+      let settled = false
+      let stopExit: Disposer = () => undefined
+      const finish = (): void => {
+        if (settled) return
+        settled = true
+        clearTimeout(forceTimer)
+        void stopExit()
+        stream.dispose()
+      }
+      const forceTimer = setTimeout(finish, 1_000)
+      stopExit = stream.onExit(finish)
+      void stream.end().catch(finish)
     }
   }
 
@@ -255,7 +307,7 @@ export class HarnessTelemetryHub {
 }
 
 /** Build the common temporary POSIX-shell hub around adapter-owned follower code. */
-export function buildTelemetryHubScript(startFollowerBody: string): string {
+export function buildTelemetryHubScript(follower: TelemetryFollowerScript): string {
   return `
 umask 077
 epoch=$1
@@ -267,33 +319,113 @@ decode_base64() {
   printf '%s' "$1" | base64 -D 2>/dev/null
 }
 
+if printf '' | base64 -w 0 >/dev/null 2>&1; then
+  encode_base64() { base64 -w 0; }
+elif printf '' | base64 -b 0 >/dev/null 2>&1; then
+  encode_base64() { base64 -b 0; }
+else
+  encode_base64() { base64 | tr -d '\\r\\n'; }
+fi
+
+clear_frame_lock() {
+  expected_lock_owner=$1
+  lock_owner=
+  IFS= read -r lock_owner <"$tmp_dir/write.lock" 2>/dev/null || true
+  if [ -n "$expected_lock_owner" ] && [ "$lock_owner" = "$expected_lock_owner" ]; then
+    rm -f "$tmp_dir/write.lock"
+  fi
+}
+
+release_frame_lock() {
+  [ "$write_lock_owned" = 1 ] || return 0
+  clear_frame_lock "$follower_subscription"
+  write_lock_owned=0
+}
+
+acquire_frame_lock() {
+  lock_attempt=0
+  # Bound contention so a bad owner can delay one sample, never create an
+  # unbounded remote fork loop. Reconcile teardown clears an owned lock within
+  # the same 250 ms window.
+  while [ "$lock_attempt" -lt 25 ]; do
+    set -C
+    if printf '%s\\n' "$follower_subscription" 2>/dev/null >"$tmp_dir/write.lock"; then
+      set +C
+      write_lock_owned=1
+      return 0
+    fi
+    set +C
+
+    # Heal an owner that died without running its trap (for example SIGKILL).
+    lock_owner=
+    IFS= read -r lock_owner <"$tmp_dir/write.lock" 2>/dev/null || true
+    lock_pid=
+    if [ -n "$lock_owner" ]; then
+      IFS= read -r lock_pid <"$tmp_dir/sub-$lock_owner/pid" 2>/dev/null || true
+    fi
+    if [ "$lock_attempt" -ge 5 ] && { [ -z "$lock_pid" ] || ! kill -0 "$lock_pid" 2>/dev/null; }; then
+      clear_frame_lock "$lock_owner"
+    fi
+    lock_attempt=$((lock_attempt + 1))
+    sleep 0.01
+  done
+  return 1
+}
+
 emit_frame() {
-  frame_dir=$1
-  frame_line=$2
+  frame_line=$1
   [ "\${#frame_line}" -le 131072 ] || return 0
-  frame_generation=$(cat "$frame_dir/generation") || return 0
-  frame_subscription=$(cat "$frame_dir/subscription") || return 0
-  frame_session=$(cat "$frame_dir/session") || return 0
-  frame_payload=$(printf '%s' "$frame_line" | base64 | tr -d '\\r\\n') || return 0
-  while ! mkdir "$tmp_dir/write.lock" 2>/dev/null; do sleep 0.01; done
-  printf 'E\\t%s\\t%s\\t%s\\t%s\\t%s\\n' "$epoch" "$frame_generation" "$frame_subscription" "$frame_session" "$frame_payload"
-  rmdir "$tmp_dir/write.lock" 2>/dev/null
+  frame_generation=
+  IFS= read -r frame_generation <"$follower_dir/generation" || return 0
+  frame_payload=$(printf '%s' "$frame_line" | encode_base64) || return 0
+  acquire_frame_lock || return 0
+  printf 'E\\t%s\\t%s\\t%s\\t%s\\t%s\\n' "$epoch" "$frame_generation" "$follower_subscription" "$follower_session" "$frame_payload"
+  release_frame_lock
 }
 
 start_follower() {
   follower_dir=$1
-  follower_session=$2
-  follower_resource=$3
-${startFollowerBody}
+  follower_subscription=$2
+  follower_session=$3
+  follower_resource=$4
+  (
+    tail_pid=
+    write_lock_owned=0
+    cleanup_follower_process() {
+      trap - EXIT TERM INT HUP
+      [ -n "$tail_pid" ] && kill "$tail_pid" 2>/dev/null
+      release_frame_lock
+      rm -f "$follower_dir/events" "$follower_dir/tail-pid"
+    }
+    trap cleanup_follower_process EXIT TERM INT HUP
+${follower.prepareFollower}
+    [ -n "$follower_source" ] || exit 1
+    mkfifo "$follower_dir/events" || exit 1
+    tail -n 512 -F -- "$follower_source" >"$follower_dir/events" 2>/dev/null &
+    tail_pid=$!
+    printf '%s\n' "$tail_pid" >"$follower_dir/tail-pid"
+    while IFS= read -r line; do
+${follower.acceptRecord}
+    done <"$follower_dir/events"
+  ) &
+  printf '%s\\n' "$!" >"$follower_dir/pid"
 }
 
 stop_follower() {
   follower_dir=$1
+  follower_subscription=
+  IFS= read -r follower_subscription <"$follower_dir/subscription" 2>/dev/null || true
   if [ -f "$follower_dir/pid" ]; then
-    follower_pid=$(cat "$follower_dir/pid")
+    follower_pid=
+    IFS= read -r follower_pid <"$follower_dir/pid" 2>/dev/null || true
     kill "$follower_pid" 2>/dev/null
+    kill -KILL "$follower_pid" 2>/dev/null
     wait "$follower_pid" 2>/dev/null
   fi
+  tail_pid=
+  IFS= read -r tail_pid <"$follower_dir/tail-pid" 2>/dev/null || true
+  [ -n "$tail_pid" ] && kill "$tail_pid" 2>/dev/null
+  clear_frame_lock "$follower_subscription"
   rm -rf "$follower_dir"
 }
 
@@ -347,13 +479,13 @@ while IFS="$tab" read -r record_kind record_generation record_count record_extra
       printf '%s' "$item_subscription" >"$follower_dir/subscription"
       printf '%s' "$item_session" >"$follower_dir/session"
       printf '%s' "$item_resource" >"$follower_dir/resource-frame"
-      printf '%s' "$record_generation" >"$follower_dir/generation"
-      if ! start_follower "$follower_dir" "$item_session" "$item_resource"; then
+      printf '%s\n' "$record_generation" >"$follower_dir/generation"
+      if ! start_follower "$follower_dir" "$item_subscription" "$item_session" "$item_resource"; then
         stop_follower "$follower_dir"
         continue
       fi
     fi
-    printf '%s' "$record_generation" >"$follower_dir/generation.next"
+    printf '%s\n' "$record_generation" >"$follower_dir/generation.next"
     mv "$follower_dir/generation.next" "$follower_dir/generation"
     : >"$follower_dir/seen"
   done <"$desired"

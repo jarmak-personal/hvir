@@ -4,7 +4,10 @@ import type { HarnessTelemetry, HostPath } from '../../shared'
 import { hostPath } from '../../shared'
 import type { Disposer, ProjectHost } from '../project-host'
 import type { HarnessTelemetryContext } from './harness-adapter'
-import { buildTelemetryHubScript, HarnessTelemetryHub } from './harness-telemetry-hub'
+import {
+  buildTelemetryHubScript,
+  HarnessTelemetryHubRegistry,
+} from './harness-telemetry-hub'
 
 const SESSION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const FIND_SESSION_SCRIPT = `
@@ -12,34 +15,22 @@ root="\${CODEX_HOME:-\${HOME}/.codex}/sessions"
 [ -d "$root" ] || exit 0
 find "$root" -type f -name "rollout-*-$1.jsonl" -print0
 `.trim()
-const FOLLOW_TOKEN_COUNTS_SCRIPT = buildTelemetryHubScript(`
-  [ "$follower_resource" != - ] || return 1
-  decode_base64 "$follower_resource" >"$follower_dir/resource" || return 1
-  mkfifo "$follower_dir/events" || return 1
-  (
-    tail_pid=
-    cleanup_follower_process() {
-      trap - EXIT TERM INT HUP
-      [ -n "$tail_pid" ] && kill "$tail_pid" 2>/dev/null
-      rm -f "$follower_dir/events"
-    }
-    trap cleanup_follower_process EXIT TERM INT HUP
-    tail -n 512 -F -- "$(cat "$follower_dir/resource")" >"$follower_dir/events" 2>/dev/null &
-    tail_pid=$!
-    while IFS= read -r line; do
+const FOLLOW_TOKEN_COUNTS_SCRIPT = buildTelemetryHubScript({
+  prepareFollower: `
+    [ "$follower_resource" != - ] || exit 1
+    follower_source=$(decode_base64 "$follower_resource") || exit 1
+  `,
+  acceptRecord: `
       case "$line" in
         *'"type":"event_msg"'*)
           case "$line" in
-            *'"type":"token_count"'*) emit_frame "$follower_dir" "$line" ;;
+            *'"type":"token_count"'*) emit_frame "$line" ;;
           esac
           ;;
       esac
-    done <"$follower_dir/events"
-  ) &
-  printf '%s' "$!" >"$follower_dir/pid"
-`)
+  `,
+})
 const FIND_MAX_BUFFER = 256 * 1024
-const hubs = new WeakMap<ProjectHost, HarnessTelemetryHub>()
 
 interface CodexSessionData {
   readonly rolloutPath: HostPath
@@ -68,18 +59,13 @@ export async function observeCodexContext(
     (await findSessionPath(host, context.sessionId, context.signal))
   if (!rolloutPath || context.signal.aborted) return () => undefined
 
-  const hub = getCodexHub(host)
-  const stop = hub.subscribe({
+  return codexHubs.subscribe(host, {
     subscriptionId: context.subscriptionId,
     sessionId: context.sessionId,
     resource: rolloutPath.path,
     signal: context.signal,
     emit: context.emit,
   })
-  return () => {
-    void stop()
-    if (hub.size === 0 && hubs.get(host) === hub) hubs.delete(host)
-  }
 }
 
 export function parseCodexTokenCount(value: string): HarnessTelemetry | null {
@@ -132,18 +118,11 @@ function sessionDataPath(value: unknown, host: ProjectHost): HostPath | undefine
     : undefined
 }
 
-function getCodexHub(host: ProjectHost): HarnessTelemetryHub {
-  let hub = hubs.get(host)
-  if (!hub) {
-    hub = new HarnessTelemetryHub(host, {
-      adapterId: 'codex',
-      remoteScript: FOLLOW_TOKEN_COUNTS_SCRIPT,
-      parse: parseCodexTokenCount,
-    })
-    hubs.set(host, hub)
-  }
-  return hub
-}
+const codexHubs = new HarnessTelemetryHubRegistry({
+  adapterId: 'codex',
+  remoteScript: FOLLOW_TOKEN_COUNTS_SCRIPT,
+  parse: parseCodexTokenCount,
+})
 
 function isPositiveFiniteNumber(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value) && value > 0

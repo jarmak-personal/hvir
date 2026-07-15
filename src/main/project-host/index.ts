@@ -15,6 +15,7 @@ export { LocalHost } from './local-host'
 export { SshHost } from './ssh-host'
 export {
   SSH_CONTROL_CHANNEL_BUDGET,
+  SSH_DEFAULT_MAX_CONCURRENT_EXECS,
   SSH_MAX_CONTROL_TRANSPORTS,
   SSH_MAX_KEYBOARD_INTERACTIVE_ROUNDS,
   SSH_MAX_PHYSICAL_TRANSPORTS,

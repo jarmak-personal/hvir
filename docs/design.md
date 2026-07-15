@@ -521,15 +521,21 @@ authentication, and spills after a channel-open refusal without moving existing 
 The initial policy caps one host at eight physical transports (at most two control), with
 soft budgets of six control channels or eight PTYs per transport and a five-minute idle
 grace for auxiliaries. These are centralized safety defaults, not claims about a server's
-configured `MaxSessions`; real-host evidence may revise them.
+configured `MaxSessions`; real-host evidence may revise them. Buffered control execs admit
+four concurrent operations by default, still within transport reservation rather than a
+separate global serialization bottleneck. A channel-open refusal excludes that transport
+only for the bounded admission attempt; it records diagnostics but never permanently
+shrinks a live transport's soft budget, so later work can recover when server capacity does.
 
 **Context telemetry is multiplexed per `(host, HarnessAdapter)`, not followed once per
 terminal.** Codex and Claude Code each own one lazy host-scoped hub that reconciles a
 versioned full subscription set over a bounded duplex `ProjectHost.execStream`. Adapter
 code still owns transcript/rollout discovery, remote filtering, framing, and parsing. Hub
-epochs and per-subscription generations reject late or cross-session records; the PTY
-supervisor still owns subscription lifecycle and the latest typed snapshot. A hub is a
-temporary child of its SSH channel, never installed remote software.
+epochs and per-subscription admitted-generation floors reject late or cross-session records
+without dropping replay that overlaps a newer full-set reconcile; the PTY supervisor still
+owns subscription lifecycle and the latest typed snapshot. Concurrent followers serialize
+bounded frames through an owned, self-healing, bounded-wait lock whose teardown is shared by
+all adapters. A hub is a temporary child of its SSH channel, never installed remote software.
 
 **Why:** a normal agent workload can keep 10+ terminals across projects on one machine.
 OpenSSH commonly limits shell/exec/subsystem channels per connection; PTYs, SFTP,
@@ -546,7 +552,9 @@ never cached. Pool growth has one prompt sequence per logical host, finite metho
 attempts, and no prompted automatic retry after failure or cancellation. Failure of an
 auxiliary transport exits only its pinned PTYs exactly once and does not mark the control
 plane disconnected. Harness resume remains recovery; pooling does not claim process
-survival across a broken transport.
+survival across a broken transport. The prompted-growth block lasts until explicit disposal
+or a later successful primary authentication; that lifecycle boundary permits promptless
+growth with newly reusable in-memory credentials without reintroducing modal retry loops.
 
 **Rejected:** requiring users to raise `MaxSessions` (not portable or always permitted);
 one `SshHost` per project/workspace/worker (duplicates identity and lifecycle); one TCP

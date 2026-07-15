@@ -1,10 +1,16 @@
+import { appendFile, mkdtemp, rm, stat, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+
 import { describe, expect, it, vi } from 'vitest'
 
 import {
+  buildTelemetryHubScript,
   HarnessTelemetryHub,
   type HarnessTelemetrySubscription,
 } from '../src/main/harness/harness-telemetry-hub'
 import type { ExecStreamHandle, ProjectHost } from '../src/main/project-host'
+import { LocalHost } from '../src/main/project-host'
 import { LOCAL_HOST_ID } from '../src/shared'
 
 interface FakeStream {
@@ -99,11 +105,103 @@ describe('HarnessTelemetryHub', () => {
     const epoch = execStream.mock.calls[1]?.[1].at(-1)
     if (!epoch) throw new Error('Expected restarted telemetry hub epoch')
     streams[1]!.stdout(
+      frame(epoch, '1', remaining.subscriptionId, remaining.sessionId, 8),
+    )
+    expect(remainingEmit).toHaveBeenLastCalledWith(undefined)
+    streams[1]!.stdout(
       frame(epoch, '3', remaining.subscriptionId, remaining.sessionId, 9),
     )
     expect(remainingEmit).toHaveBeenLastCalledWith({ contextUsedTokens: 9 })
     void stopSecond()
     warning.mockRestore()
+  })
+
+  it('accepts an admitted subscription frame while a newer reconcile is in flight', async () => {
+    const stream = fakeStream()
+    const execStream = vi.fn<ProjectHost['execStream']>(() => stream.handle)
+    const hub = telemetryHub(execStream)
+    const firstEmit = vi.fn()
+    const first = subscription(5, firstEmit)
+    const stopFirst = hub.subscribe(first)
+    await vi.waitFor(() => expect(stream.writes).toHaveLength(2))
+
+    const secondEmit = vi.fn()
+    const second = subscription(6, secondEmit)
+    const stopSecond = hub.subscribe(second)
+    await vi.waitFor(() => expect(stream.writes).toHaveLength(5))
+    const epoch = execStream.mock.calls[0]?.[1].at(-1)
+    if (!epoch) throw new Error('Expected telemetry hub epoch argument')
+
+    stream.stdout(frame(epoch, '1', first.subscriptionId, first.sessionId, 17))
+    stream.stdout(frame(epoch, '1', second.subscriptionId, second.sessionId, 99))
+
+    expect(firstEmit).toHaveBeenCalledWith({ contextUsedTokens: 17 })
+    expect(secondEmit).not.toHaveBeenCalled()
+    void stopFirst()
+    void stopSecond()
+  })
+
+  it('releases a killed follower write lock without stalling survivors', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'hvir-telemetry-lock-'))
+    const firstPath = join(directory, 'first.jsonl')
+    const secondPath = join(directory, 'second.jsonl')
+    await writeFile(firstPath, '')
+    await writeFile(secondPath, '')
+    const host = new LocalHost()
+    await host.connect()
+    const script = buildTelemetryHubScript({
+      prepareFollower: `
+        follower_source=$(decode_base64 "$follower_resource") || exit 1
+      `,
+      acceptRecord: `
+        if [ "$line" = hold ]; then
+          acquire_frame_lock || continue
+          : >"$follower_source.locked"
+          sleep 30
+          release_frame_lock
+        else
+          emit_frame "$line"
+        fi
+      `,
+    })
+    const hub = new HarnessTelemetryHub(host, {
+      adapterId: 'lock-test',
+      remoteScript: script,
+      parse: (record) => {
+        const value = JSON.parse(record) as { used: number }
+        return { contextUsedTokens: value.used }
+      },
+    })
+    const stopFirst = hub.subscribe({
+      ...subscription(7),
+      resource: firstPath,
+    })
+    const survivorEmit = vi.fn()
+    const stopSecond = hub.subscribe({
+      ...subscription(8, survivorEmit),
+      resource: secondPath,
+    })
+    try {
+      await appendFile(firstPath, 'hold\n')
+      await vi.waitFor(
+        () => expect(fileExists(`${firstPath}.locked`)).resolves.toBe(true),
+        {
+          timeout: 4_000,
+        },
+      )
+
+      void stopFirst()
+      await appendFile(secondPath, '{"used":23}\n')
+
+      await vi.waitFor(
+        () => expect(survivorEmit).toHaveBeenLastCalledWith({ contextUsedTokens: 23 }),
+        { timeout: 4_000 },
+      )
+    } finally {
+      void stopSecond()
+      await host.dispose()
+      await rm(directory, { recursive: true, force: true })
+    }
   })
 })
 
@@ -154,13 +252,21 @@ function frame(
 function fakeStream(): FakeStream {
   const stdoutListeners = new Set<(value: string) => void>()
   const errorListeners = new Set<(error: Error) => void>()
+  const exitListeners = new Set<
+    (result: { code: number | null; signal: string | null }) => void
+  >()
   const writes: string[] = []
-  const end = vi.fn(() => Promise.resolve())
+  const end = vi.fn(() => {
+    queueMicrotask(() => {
+      for (const callback of exitListeners) callback({ code: 0, signal: null })
+    })
+    return Promise.resolve()
+  })
   const handle: ExecStreamHandle = {
     onStdout: (callback) => subscribe(stdoutListeners, callback),
     onStderr: () => () => undefined,
     onError: (callback) => subscribe(errorListeners, callback),
-    onExit: () => () => undefined,
+    onExit: (callback) => subscribe(exitListeners, callback),
     write: (value) => {
       writes.push(value)
       return Promise.resolve()
@@ -186,5 +292,14 @@ function subscribe<T>(listeners: Set<(value: T) => void>, callback: (value: T) =
   listeners.add(callback)
   return () => {
     listeners.delete(callback)
+  }
+}
+
+async function fileExists(path: string): Promise<boolean> {
+  try {
+    await stat(path)
+    return true
+  } catch {
+    return false
   }
 }

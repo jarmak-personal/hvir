@@ -100,9 +100,17 @@ describe('Codex context telemetry', () => {
 
   it('follows the exact discovered rollout path and disposes its stream', async () => {
     const stdoutListeners = new Set<(chunk: string) => void>()
+    const exitListeners = new Set<
+      (result: { code: number | null; signal: string | null }) => void
+    >()
     const dispose = vi.fn()
     const write = vi.fn<ExecStreamHandle['write']>(() => Promise.resolve())
-    const end = vi.fn<ExecStreamHandle['end']>(() => Promise.resolve())
+    const end = vi.fn<ExecStreamHandle['end']>(() => {
+      queueMicrotask(() => {
+        for (const listener of exitListeners) listener({ code: 0, signal: null })
+      })
+      return Promise.resolve()
+    })
     const stream: ExecStreamHandle = {
       onStdout: (cb) => {
         stdoutListeners.add(cb)
@@ -112,7 +120,12 @@ describe('Codex context telemetry', () => {
       },
       onStderr: () => () => undefined,
       onError: () => () => undefined,
-      onExit: () => () => undefined,
+      onExit: (cb) => {
+        exitListeners.add(cb)
+        return () => {
+          exitListeners.delete(cb)
+        }
+      },
       write,
       end,
       kill: vi.fn(),

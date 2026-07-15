@@ -157,10 +157,43 @@ describe('SshHost transport pool', () => {
     expect(clients).toHaveLength(3)
     expect(fixture.host.transportDiagnostics()).toEqual([
       expect.objectContaining({ role: 'control' }),
-      expect.objectContaining({ role: 'terminal', channelBudget: 0, refusedChannels: 1 }),
+      expect.objectContaining({ role: 'terminal', channelBudget: 8, refusedChannels: 2 }),
+      expect.objectContaining({ role: 'terminal', channels: 1 }),
+    ])
+
+    await spawnShells(fixture, 1, 1)
+    expect(clients).toHaveLength(3)
+    expect(fixture.host.transportDiagnostics()).toEqual([
+      expect.objectContaining({ role: 'control' }),
+      expect.objectContaining({ role: 'terminal', channelBudget: 8, channels: 1 }),
       expect.objectContaining({ role: 'terminal', channels: 1 }),
     ])
     await fixture.host.dispose()
+    fixture.supervisor.disposeAll()
+  })
+
+  it('cancels PTY channel-refusal backoff during disconnect', async () => {
+    const clients: PoolClient[] = []
+    let reportRefusal!: () => void
+    const refused = new Promise<void>((resolve) => {
+      reportRefusal = resolve
+    })
+    const factory = vi.fn(() => {
+      const client = poolClient({
+        channelOpenFailures: clients.length === 1 ? 1 : 0,
+        onChannelOpenFailure: reportRefusal,
+      })
+      clients.push(client)
+      return client as unknown as Client
+    })
+    const fixture = await poolFixture(factory, clients)
+    const spawning = spawnShells(fixture, 1)
+    await refused
+    const rejected = expect(spawning).rejects.toMatchObject({ name: 'AbortError' })
+
+    await fixture.host.dispose()
+
+    await rejected
     fixture.supervisor.disposeAll()
   })
 
@@ -375,6 +408,51 @@ describe('SshHost pooled authentication bounds', () => {
     expect(factory).toHaveBeenCalledTimes(2)
     await host.dispose()
   })
+
+  it('allows promptless pool growth after a successful primary reconnect', async () => {
+    const clients: PoolClient[] = []
+    const prompt = vi.fn(() => Promise.resolve(undefined))
+    const factory = vi.fn(() => {
+      const client = poolClient()
+      if (clients.length === 1) {
+        client.connect.mockImplementation((config: ConnectConfig) => {
+          const handler = config.authHandler as unknown as (
+            methods: readonly string[],
+            partial: boolean,
+            next: (method: AnyAuthMethod | false) => void,
+          ) => void
+          handler(['password'], false, () => client.emit('close'))
+        })
+      }
+      clients.push(client)
+      return client as unknown as Client
+    })
+    const host = new SshHost({
+      config: aliasConfig(),
+      prompter: { prompt },
+      clientFactory: factory,
+    })
+    const probe = vi.spyOn(host, 'exec').mockResolvedValue({
+      code: 1,
+      signal: null,
+      stdout: '',
+      stderr: '',
+    })
+    await host.connect()
+    probe.mockRestore()
+    vi.spyOn(host, 'defaultShell').mockResolvedValue('/bin/sh')
+    const fixture = { host, supervisor: new PtySupervisor(), clients }
+
+    await expect(spawnShells(fixture, 1)).rejects.toThrow(/capacity could not grow/i)
+    clients[0]?.emit('close')
+    await host.connect()
+    await expect(spawnShells(fixture, 1, 1)).resolves.toBeUndefined()
+
+    expect(prompt).toHaveBeenCalledOnce()
+    expect(factory).toHaveBeenCalledTimes(4)
+    fixture.supervisor.disposeAll()
+    await host.dispose()
+  })
 })
 
 interface PoolClient extends EventEmitter {
@@ -439,7 +517,9 @@ async function spawnShells(
   )
 }
 
-function poolClient(options: { channelOpenFailures?: number } = {}): PoolClient {
+function poolClient(
+  options: { channelOpenFailures?: number; onChannelOpenFailure?: () => void } = {},
+): PoolClient {
   let remainingFailures = options.channelOpenFailures ?? 0
   const channels: ClientChannel[] = []
   const sessions: SFTPWrapper[] = []
@@ -460,6 +540,7 @@ function poolClient(options: { channelOpenFailures?: number } = {}): PoolClient 
         if (!callback) throw new Error('Expected SSH exec callback')
         if (remainingFailures > 0) {
           remainingFailures--
+          options.onChannelOpenFailure?.()
           callback(new Error('(SSH) Channel open failure: open failed'))
           return
         }

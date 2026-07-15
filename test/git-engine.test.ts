@@ -82,13 +82,15 @@ describe('GitEngine', () => {
     cleanups.push(linked)
     git(root, ['worktree', 'add', '-b', 'legacy', linked])
     const actual = new LocalHost()
+    const calls: string[] = []
     const host = {
       hostId: actual.hostId,
       exec: (command: string, args: readonly string[], opts: ExecOptions = {}) => {
+        calls.push(args.join(' '))
         if (args.slice(-4).join(' ') === 'worktree list --porcelain -z') {
           return Promise.resolve({
             stdout: '',
-            stderr: "error: unknown switch `z'\nusage: git worktree list [--porcelain]",
+            stderr: 'Fehler: unbekannte Option',
             code: 129,
             signal: null,
           })
@@ -104,6 +106,7 @@ describe('GitEngine', () => {
     expect(discovery.worktrees.map((worktree) => worktree.branch)).toEqual(
       expect.arrayContaining(['main', 'legacy']),
     )
+    expect(calls).not.toContain(expect.stringContaining('rev-parse'))
     await actual.dispose()
   })
 

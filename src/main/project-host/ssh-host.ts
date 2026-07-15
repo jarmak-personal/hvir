@@ -74,9 +74,9 @@ export interface SshHostOptions {
   readonly fingerprintObservationWindowMs?: number
   /**
    * Maximum short-lived buffered exec channels. Long-lived PTY, watcher, and
-   * telemetry channels plus SFTP share the server's MaxSessions budget. The
-   * default serializes buffered work so restored agents keep enough headroom;
-   * callers may raise it for servers with a known larger session budget.
+   * telemetry channels plus SFTP share the control transport budget. The
+   * default admits bounded parallel Git/filesystem reads while pool admission
+   * still protects every transport's reserved capacity.
    */
   readonly maxConcurrentExecs?: number
   readonly trustedHostKey?: () => string | undefined
@@ -89,8 +89,10 @@ export const SSH_MAX_PHYSICAL_TRANSPORTS = 8
 export const SSH_MAX_CONTROL_TRANSPORTS = 2
 export const SSH_CONTROL_CHANNEL_BUDGET = 6
 export const SSH_TERMINAL_CHANNEL_BUDGET = 8
+export const SSH_DEFAULT_MAX_CONCURRENT_EXECS = 4
 export const SSH_TRANSPORT_IDLE_GRACE_MS = 5 * 60_000
 export const SSH_MAX_KEYBOARD_INTERACTIVE_ROUNDS = 4
+const SSH_CHANNEL_OPEN_ATTEMPTS = 5
 
 type SshTransportRole = 'control' | 'terminal'
 
@@ -102,7 +104,7 @@ interface SshTransport {
   readonly channels: Set<ClientChannel>
   readonly failureListeners: Set<() => void>
   pendingChannels: number
-  channelBudget: number
+  readonly channelBudget: number
   sftpActive: boolean
   closed: boolean
   idleTimer?: ReturnType<typeof setTimeout>
@@ -157,7 +159,8 @@ export class SshHost implements ProjectHost {
   private cachedPassword?: string
   private readonly cachedPassphrases = new Map<string, string>()
   private acceptedHostFingerprint?: string
-  private poolGrowthAuthBlocked = false
+  private poolGrowthPromptBlocked = false
+  private lifecycleAbort = new AbortController()
   private readonly maxConcurrentExecs: number
   private activeExecs = 0
   private readonly execWaiters: Array<{
@@ -181,10 +184,15 @@ export class SshHost implements ProjectHost {
 
   constructor(private readonly options: SshHostOptions) {
     this.hostId = asHostId(options.config.alias)
-    const requestedExecs = options.maxConcurrentExecs ?? 1
+    const requestedExecs = options.maxConcurrentExecs ?? SSH_DEFAULT_MAX_CONCURRENT_EXECS
     this.maxConcurrentExecs = Math.max(
       1,
-      Math.min(16, Number.isFinite(requestedExecs) ? Math.floor(requestedExecs) : 1),
+      Math.min(
+        16,
+        Number.isFinite(requestedExecs)
+          ? Math.floor(requestedExecs)
+          : SSH_DEFAULT_MAX_CONCURRENT_EXECS,
+      ),
     )
   }
   get connectionState(): HostConnectionState {
@@ -222,6 +230,7 @@ export class SshHost implements ProjectHost {
     if (this.state === 'connected') return
     if (this.connecting) return this.connecting
     this.disposed = false
+    if (this.lifecycleAbort.signal.aborted) this.lifecycleAbort = new AbortController()
     this.setState(this.reconnectAttempt ? 'reconnecting' : 'connecting')
     this.connecting = this.open()
       .catch((error: unknown) => {
@@ -235,6 +244,7 @@ export class SshHost implements ProjectHost {
   }
   async dispose(): Promise<void> {
     this.disposed = true
+    this.lifecycleAbort.abort()
     this.clientGeneration++
     this.cancelConnecting?.(new Error('SSH connection cancelled'))
     this.cancelConnecting = undefined
@@ -274,7 +284,7 @@ export class SshHost implements ProjectHost {
     this.cachedPassword = undefined
     this.cachedPassphrases.clear()
     this.acceptedHostFingerprint = undefined
-    this.poolGrowthAuthBlocked = false
+    this.poolGrowthPromptBlocked = false
     this.refusedChannels.clear()
     this.setState('disconnected')
     void sftp?.then(
@@ -301,94 +311,75 @@ export class SshHost implements ProjectHost {
     args: readonly string[],
     opts: ExecOptions = {},
   ): Promise<ExecResult> {
-    let channelOpenRetries = 0
-    const excludedTransports = new Set<number>()
-    for (;;) {
-      if (opts.signal?.aborted) throw abortError()
-      // Connecting performs its own short capability probe through exec(). Do
-      // not reserve the sole buffered slot until that handshake has completed.
-      const release = await this.acquireExecSlot(opts.signal)
-      let reservation: SshTransportReservation | undefined
-      try {
-        reservation = await this.reserveTransport('control', excludedTransports)
-        const activeReservation = reservation
-        return await new Promise((resolve, reject) => {
-          try {
-            activeReservation.transport.client.exec(
-              remoteCommand(command, args, opts),
-              (error, stream) => {
-                if (error) {
-                  activeReservation.release()
-                  return reject(error)
-                }
-                this.activateChannel(activeReservation, stream)
-                let stdout = '',
-                  stderr = '',
-                  bytes = 0,
-                  code: number | null = null,
-                  signal: string | null = null
-                let settled = false
-                const stdoutDecoder = new StringDecoder('utf8')
-                const stderrDecoder = new StringDecoder('utf8')
-                const append = (kind: 'out' | 'err', chunk: Buffer): void => {
-                  bytes += chunk.length
-                  if (bytes > (opts.maxBuffer ?? 10 * 1024 * 1024)) {
-                    if (!settled) reject(new Error('SSH exec output exceeded maxBuffer'))
-                    settled = true
-                    return stream.close()
-                  }
-                  if (kind === 'out') stdout += stdoutDecoder.write(chunk)
-                  else stderr += stderrDecoder.write(chunk)
-                }
-                stream.on('data', (chunk: Buffer) => append('out', chunk))
-                stream.stderr.on('data', (chunk: Buffer) => append('err', chunk))
-                stream.on('exit', (exitCode: number | null, exitSignal?: string) => {
-                  code = exitCode
-                  signal = exitSignal ?? null
-                })
-                stream.on('error', (reason: Error) => {
-                  if (!settled) reject(reason)
-                  settled = true
-                })
-                stream.on('close', () => {
-                  if (!settled) {
-                    stdout += stdoutDecoder.end()
-                    stderr += stderrDecoder.end()
-                    resolve({ code, signal, stdout, stderr })
-                  }
-                  settled = true
-                })
-                if (opts.signal) {
-                  const abort = (): void => {
-                    if (!settled) reject(abortError())
-                    settled = true
-                    stream.close()
-                  }
-                  opts.signal.addEventListener('abort', abort, { once: true })
-                  stream.once('close', () =>
-                    opts.signal?.removeEventListener('abort', abort),
-                  )
-                }
-                stream.end(opts.input)
-              },
-            )
-          } catch (error) {
-            activeReservation.release()
-            reject(asError(error))
+    // Connecting performs its own short capability probe through exec(). Do
+    // not reserve a buffered slot until that handshake has completed.
+    const release = await this.acquireExecSlot(opts.signal)
+    try {
+      const { value: stream, reservation } = await this.openWithChannelRetry(
+        'control',
+        (transport) =>
+          new Promise<ClientChannel>((resolve, reject) => {
+            try {
+              transport.client.exec(remoteCommand(command, args, opts), (error, value) =>
+                error ? reject(error) : resolve(value),
+              )
+            } catch (error) {
+              reject(asError(error))
+            }
+          }),
+        opts.signal,
+      )
+      this.activateChannel(reservation, stream)
+      return await new Promise((resolve, reject) => {
+        let stdout = '',
+          stderr = '',
+          bytes = 0,
+          code: number | null = null,
+          signal: string | null = null
+        let settled = false
+        const stdoutDecoder = new StringDecoder('utf8')
+        const stderrDecoder = new StringDecoder('utf8')
+        const append = (kind: 'out' | 'err', chunk: Buffer): void => {
+          bytes += chunk.length
+          if (bytes > (opts.maxBuffer ?? 10 * 1024 * 1024)) {
+            if (!settled) reject(new Error('SSH exec output exceeded maxBuffer'))
+            settled = true
+            return stream.close()
           }
-        })
-      } catch (reason) {
-        if (!isChannelOpenFailure(reason) || channelOpenRetries >= 4) throw reason
-        if (channelOpenRetries > 0 && reservation) {
-          this.noteChannelRefusal(reservation.transport)
-          excludedTransports.add(reservation.transport.id)
+          if (kind === 'out') stdout += stdoutDecoder.write(chunk)
+          else stderr += stderrDecoder.write(chunk)
         }
-      } finally {
-        release()
-      }
-      const retryDelayMs = 25 * 2 ** channelOpenRetries
-      channelOpenRetries++
-      await abortableDelay(retryDelayMs, opts.signal)
+        stream.on('data', (chunk: Buffer) => append('out', chunk))
+        stream.stderr.on('data', (chunk: Buffer) => append('err', chunk))
+        stream.on('exit', (exitCode: number | null, exitSignal?: string) => {
+          code = exitCode
+          signal = exitSignal ?? null
+        })
+        stream.on('error', (reason: Error) => {
+          if (!settled) reject(reason)
+          settled = true
+        })
+        stream.on('close', () => {
+          if (!settled) {
+            stdout += stdoutDecoder.end()
+            stderr += stderrDecoder.end()
+            resolve({ code, signal, stdout, stderr })
+          }
+          settled = true
+        })
+        if (opts.signal) {
+          const abort = (): void => {
+            if (!settled) reject(abortError())
+            settled = true
+            stream.close()
+          }
+          opts.signal.addEventListener('abort', abort, { once: true })
+          stream.once('close', () => opts.signal?.removeEventListener('abort', abort))
+        }
+        stream.end(opts.input)
+      })
+    } finally {
+      release()
     }
   }
 
@@ -752,6 +743,9 @@ export class SshHost implements ProjectHost {
       client.once('ready', () => {
         ready = true
         this.rememberSuccessfulCredentials(credentialAttempt)
+        // A fresh successful primary authentication is the explicit lifecycle
+        // boundary that permits pool growth after a cancelled prompted attempt.
+        this.poolGrowthPromptBlocked = false
         finish()
       })
       // ssh2 reports agent socket/signing failures through Client's `error`
@@ -998,44 +992,33 @@ export class SshHost implements ProjectHost {
     args: readonly string[],
     opts: ExecOptions,
   ): Promise<{ channel: ClientChannel; transport: SshTransport }> {
-    const excluded = new Set<number>()
-    for (let attempt = 0; ; attempt++) {
-      const reservation = await this.reserveTransport('control', excluded)
-      try {
-        const channel = await new Promise<ClientChannel>((resolve, reject) => {
+    const { value: channel, reservation } = await this.openWithChannelRetry(
+      'control',
+      (transport) =>
+        new Promise<ClientChannel>((resolve, reject) => {
           try {
-            reservation.transport.client.exec(
-              remoteCommand(command, args, opts),
-              (error, stream) => (error ? reject(error) : resolve(stream)),
+            transport.client.exec(remoteCommand(command, args, opts), (error, stream) =>
+              error ? reject(error) : resolve(stream),
             )
           } catch (error) {
             reject(asError(error))
           }
-        })
-        this.activateChannel(reservation, channel)
-        return { channel, transport: reservation.transport }
-      } catch (error) {
-        reservation.release()
-        if (!isChannelOpenFailure(error) || attempt >= 4) throw error
-        if (attempt > 0) {
-          this.noteChannelRefusal(reservation.transport)
-          excluded.add(reservation.transport.id)
-        }
-        await abortableDelay(25 * 2 ** attempt, opts.signal)
-      }
-    }
+        }),
+      opts.signal,
+    )
+    this.activateChannel(reservation, channel)
+    return { channel, transport: reservation.transport }
   }
 
   private async openTerminalPtyChannel(
     opts: SpawnPtyOptions,
   ): Promise<{ channel: ClientChannel; transport: SshTransport }> {
-    const excluded = new Set<number>()
-    for (let attempt = 0; ; attempt++) {
-      const reservation = await this.reserveTransport('terminal', excluded)
-      try {
-        const channel = await new Promise<ClientChannel>((resolve, reject) => {
+    const { value: channel, reservation } = await this.openWithChannelRetry(
+      'terminal',
+      (transport) =>
+        new Promise<ClientChannel>((resolve, reject) => {
           try {
-            reservation.transport.client.exec(
+            transport.client.exec(
               remoteCommand(opts.file, opts.args ?? [], {
                 cwd: opts.cwd,
                 env: opts.env,
@@ -1052,19 +1035,37 @@ export class SshHost implements ProjectHost {
           } catch (error) {
             reject(asError(error))
           }
-        })
-        this.activateChannel(reservation, channel)
-        return { channel, transport: reservation.transport }
+        }),
+    )
+    this.activateChannel(reservation, channel)
+    return { channel, transport: reservation.transport }
+  }
+
+  private async openWithChannelRetry<T>(
+    role: SshTransportRole,
+    open: (transport: SshTransport) => Promise<T>,
+    signal?: AbortSignal,
+  ): Promise<{ value: T; reservation: SshTransportReservation }> {
+    const excluded = new Set<number>()
+    for (let attempt = 0; attempt < SSH_CHANNEL_OPEN_ATTEMPTS; attempt++) {
+      throwIfAborted(signal, this.lifecycleAbort.signal)
+      const reservation = await this.reserveTransport(role, excluded)
+      try {
+        const value = await open(reservation.transport)
+        return { value, reservation }
       } catch (error) {
         reservation.release()
-        if (!isChannelOpenFailure(error) || attempt >= 4) throw error
-        if (attempt > 0) {
-          this.noteChannelRefusal(reservation.transport)
-          excluded.add(reservation.transport.id)
+        if (!isChannelOpenFailure(error) || attempt + 1 >= SSH_CHANNEL_OPEN_ATTEMPTS) {
+          throw error
         }
-        await abortableDelay(25 * 2 ** attempt)
+        this.noteChannelRefusal(reservation.transport)
+        // Retry one transient refusal on the same transport. A second refusal
+        // spills to another healthy/new transport for the rest of this open.
+        if (attempt > 0) excluded.add(reservation.transport.id)
+        await abortableDelay(25 * 2 ** attempt, signal, this.lifecycleAbort.signal)
       }
     }
+    throw sshCapacityError(role)
   }
 
   private serializedPrompt<T>(work: () => Promise<T>): Promise<T> {
@@ -1186,7 +1187,7 @@ export class SshHost implements ProjectHost {
         ) {
           throw sshCapacityError(role)
         }
-        if (this.poolGrowthAuthBlocked) {
+        if (this.poolGrowthPromptBlocked) {
           throw new Error(
             `SSH ${role} capacity is unavailable after authentication was cancelled or refused`,
           )
@@ -1265,7 +1266,7 @@ export class SshHost implements ProjectHost {
       transport = this.registerTransport(role, client, false)
       return transport
     } catch (error) {
-      if (prompted) this.poolGrowthAuthBlocked = true
+      if (prompted) this.poolGrowthPromptBlocked = true
       if (!closed) {
         try {
           client.end()
@@ -1309,10 +1310,6 @@ export class SshHost implements ProjectHost {
     this.refusedChannels.set(
       transport.id,
       Math.min(1_000, (this.refusedChannels.get(transport.id) ?? 0) + 1),
-    )
-    transport.channelBudget = Math.min(
-      transport.channelBudget,
-      this.transportLoad(transport),
     )
   }
 
@@ -1472,39 +1469,29 @@ export class SshHost implements ProjectHost {
   }
 
   private async openSftpSession(): Promise<SFTPWrapper> {
-    const excluded = new Set<number>()
-    for (let attempt = 0; ; attempt++) {
-      const reservation = await this.reserveTransport('control', excluded)
-      try {
-        const session = await new Promise<SFTPWrapper>((resolve, reject) => {
+    const { value: session, reservation } = await this.openWithChannelRetry(
+      'control',
+      (transport) =>
+        new Promise<SFTPWrapper>((resolve, reject) => {
           try {
-            reservation.transport.client.sftp((error, value) =>
+            transport.client.sftp((error, value) =>
               error ? reject(error) : resolve(value),
             )
           } catch (error) {
             reject(asError(error))
           }
-        })
-        reservation.release()
-        const { transport } = reservation
-        if (transport.idleTimer) clearTimeout(transport.idleTimer)
-        transport.idleTimer = undefined
-        transport.sftpActive = true
-        session.once('close', () => {
-          transport.sftpActive = false
-          this.scheduleTransportIdle(transport)
-        })
-        return session
-      } catch (error) {
-        reservation.release()
-        if (!isChannelOpenFailure(error) || attempt >= 4) throw error
-        if (attempt > 0) {
-          this.noteChannelRefusal(reservation.transport)
-          excluded.add(reservation.transport.id)
-        }
-        await abortableDelay(25 * 2 ** attempt)
-      }
-    }
+        }),
+    )
+    reservation.release()
+    const { transport } = reservation
+    if (transport.idleTimer) clearTimeout(transport.idleTimer)
+    transport.idleTimer = undefined
+    transport.sftpActive = true
+    session.once('close', () => {
+      transport.sftpActive = false
+      this.scheduleTransportIdle(transport)
+    })
+    return session
   }
 
   private watchInotify(
@@ -1964,21 +1951,37 @@ function closeSshClient(client: Client): Promise<void> {
     }
   })
 }
-function abortableDelay(ms: number, signal?: AbortSignal): Promise<void> {
-  if (signal?.aborted) return Promise.reject(abortError())
+function abortableDelay(
+  ms: number,
+  ...signals: Array<AbortSignal | undefined>
+): Promise<void> {
+  const activeSignals = signals.filter(
+    (signal): signal is AbortSignal => signal !== undefined,
+  )
+  if (activeSignals.some((signal) => signal.aborted)) {
+    return Promise.reject(abortError())
+  }
   return new Promise((resolve, reject) => {
+    const cleanup = (): void => {
+      for (const signal of activeSignals) signal.removeEventListener('abort', abort)
+    }
     const finish = (): void => {
-      signal?.removeEventListener('abort', abort)
+      cleanup()
       resolve()
     }
     const abort = (): void => {
       clearTimeout(timer)
-      signal?.removeEventListener('abort', abort)
+      cleanup()
       reject(abortError())
     }
     const timer = setTimeout(finish, ms)
-    signal?.addEventListener('abort', abort, { once: true })
+    for (const signal of activeSignals) {
+      signal.addEventListener('abort', abort, { once: true })
+    }
   })
+}
+function throwIfAborted(...signals: Array<AbortSignal | undefined>): void {
+  if (signals.some((signal) => signal?.aborted)) throw abortError()
 }
 function abortError(): Error {
   return new DOMException('The operation was aborted', 'AbortError')
