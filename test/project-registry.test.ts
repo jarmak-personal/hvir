@@ -8,7 +8,7 @@ import {
   RendererSshPrompter,
   identityFileCandidates,
 } from '../src/main/project-registry'
-import { localPath } from '../src/shared'
+import { asHostId, hostPath, localPath } from '../src/shared'
 
 const cleanups: string[] = []
 
@@ -67,6 +67,7 @@ describe('ProjectRegistry session flow', () => {
       localPath(root),
       { prompt: () => Promise.resolve(undefined) },
       join(root, 'known-hosts.json'),
+      join(root, 'projects.json'),
       (state) => states.push(state.root.path),
     )
 
@@ -93,6 +94,7 @@ describe('ProjectRegistry session flow', () => {
       localPath(root),
       { prompt: () => Promise.resolve(undefined) },
       join(root, 'known-hosts.json'),
+      join(root, 'projects.json'),
       () => undefined,
     )
 
@@ -109,6 +111,7 @@ describe('ProjectRegistry session flow', () => {
       localPath(root),
       { prompt: () => Promise.resolve(undefined) },
       join(root, 'known-hosts.json'),
+      join(root, 'projects.json'),
       () => undefined,
     )
 
@@ -116,6 +119,239 @@ describe('ProjectRegistry session flow', () => {
       'The local host cannot disconnect',
     )
     await registry.dispose()
+  })
+
+  it('authorizes persisted workspace roots without instantiating their SSH host', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'hvir-registry-'))
+    const canonicalRoot = await realpath(root)
+    const projectsFile = join(root, 'projects.json')
+    cleanups.push(root)
+    await writeFile(
+      projectsFile,
+      JSON.stringify({
+        version: 1,
+        activeProjectId: `project:local:${canonicalRoot}`,
+        projects: [
+          {
+            hostId: 'local',
+            path: canonicalRoot,
+            displayName: 'local',
+            activeWorkspacePath: canonicalRoot,
+            workspaces: [
+              {
+                path: canonicalRoot,
+                main: true,
+                missing: false,
+                repository: false,
+                changedFiles: 0,
+              },
+            ],
+          },
+          {
+            hostId: 'example',
+            path: '/srv/repo',
+            displayName: 'remote',
+            activeWorkspacePath: '/srv/repo-linked',
+            workspaces: [
+              {
+                path: '/srv/repo-linked',
+                branch: 'feature',
+                main: false,
+                missing: false,
+                repository: true,
+                changedFiles: 0,
+              },
+            ],
+          },
+        ],
+      }),
+    )
+    const registry = await ProjectRegistry.create(
+      localPath(root),
+      { prompt: () => Promise.resolve(undefined) },
+      join(root, 'known-hosts.json'),
+      projectsFile,
+      () => undefined,
+    )
+    const remoteRoot = hostPath(asHostId('example'), '/srv/repo-linked')
+
+    expect(registry.hostById('example')).toBeUndefined()
+    expect(registry.registeredWorkspaceRoot(remoteRoot)).toEqual(remoteRoot)
+    expect(
+      registry.registeredWorkspaceRoot(
+        hostPath(asHostId('example'), '/srv/repo-linked/nested'),
+      ),
+    ).toBeUndefined()
+    await registry.dispose()
+  })
+
+  it('persists registered projects and preserves removed worktrees until dismissal', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'hvir-registry-'))
+    const linked = join(root, 'linked')
+    await mkdir(linked)
+    const canonicalRoot = await realpath(root)
+    const canonicalLinked = await realpath(linked)
+    cleanups.push(root)
+    const projectsFile = join(root, 'projects.json')
+    const registry = await ProjectRegistry.create(
+      localPath(root),
+      { prompt: () => Promise.resolve(undefined) },
+      join(root, 'known-hosts.json'),
+      projectsFile,
+      () => undefined,
+    )
+    const projectId = registry.state().activeProjectId
+    await registry.reconcileWorktrees(projectId, {
+      repository: true,
+      worktrees: [
+        { root: localPath(canonicalRoot), branch: 'main', detached: false, bare: false },
+        {
+          root: localPath(canonicalLinked),
+          branch: 'feature',
+          detached: false,
+          bare: false,
+        },
+      ],
+    })
+    const linkedId = registry
+      .projectById(projectId)!
+      .workspaces.find((workspace) => workspace.root.path === canonicalLinked)!.id
+    await registry.activate(projectId, linkedId)
+    await registry.reconcileWorktrees(projectId, {
+      repository: true,
+      worktrees: [
+        {
+          root: localPath(canonicalRoot),
+          branch: 'main',
+          detached: false,
+          bare: false,
+        },
+      ],
+    })
+
+    expect(registry.projectById(projectId)?.workspaces).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: linkedId, missing: true, branch: 'feature' }),
+      ]),
+    )
+    await registry.dispose()
+
+    const restored = await ProjectRegistry.create(
+      localPath(root),
+      { prompt: () => Promise.resolve(undefined) },
+      join(root, 'known-hosts.json'),
+      projectsFile,
+      () => undefined,
+    )
+    expect(restored.state().activeWorkspaceId).not.toBe(linkedId)
+    expect(restored.projectById(projectId)?.workspaces).toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: linkedId, missing: true })]),
+    )
+    await restored.reconcileWorktrees(projectId, {
+      repository: true,
+      worktrees: [
+        { root: localPath(canonicalRoot), branch: 'main', detached: false, bare: false },
+        {
+          root: localPath(canonicalLinked),
+          branch: 'feature',
+          detached: false,
+          bare: false,
+        },
+      ],
+    })
+    await expect(restored.activate(projectId, linkedId)).resolves.toMatchObject({
+      activeWorkspaceId: linkedId,
+      root: localPath(canonicalLinked),
+    })
+    await restored.reconcileWorktrees(projectId, {
+      repository: true,
+      worktrees: [
+        { root: localPath(canonicalRoot), branch: 'main', detached: false, bare: false },
+      ],
+    })
+    await restored.dismissWorkspace(projectId, linkedId)
+    expect(restored.projectById(projectId)?.workspaces).toHaveLength(1)
+    expect(restored.state().root.path).toBe(await realpath(root))
+    await restored.dispose()
+  })
+
+  it('persists Git prunable reasons and clears them when a worktree recovers', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'hvir-registry-prunable-'))
+    const canonicalRoot = await realpath(root)
+    const staleRoot = localPath(`${canonicalRoot}-stale`)
+    const projectsFile = join(root, 'projects.json')
+    cleanups.push(root)
+    const registry = await ProjectRegistry.create(
+      localPath(root),
+      { prompt: () => Promise.resolve(undefined) },
+      join(root, 'known-hosts.json'),
+      projectsFile,
+      () => undefined,
+    )
+    const projectId = registry.state().activeProjectId
+    await registry.reconcileWorktrees(projectId, {
+      repository: true,
+      worktrees: [
+        { root: localPath(canonicalRoot), branch: 'main', detached: false, bare: false },
+        {
+          root: staleRoot,
+          head: '0123456789012345678901234567890123456789',
+          detached: true,
+          bare: false,
+          prunable: true,
+          prunableReason: 'gitdir file points to non-existent location',
+        },
+      ],
+    })
+    expect(registry.projectById(projectId)?.workspaces).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          root: staleRoot,
+          missing: true,
+          prunableReason: 'gitdir file points to non-existent location',
+        }),
+      ]),
+    )
+    await registry.dispose()
+
+    const restored = await ProjectRegistry.create(
+      localPath(root),
+      { prompt: () => Promise.resolve(undefined) },
+      join(root, 'known-hosts.json'),
+      projectsFile,
+      () => undefined,
+    )
+    expect(restored.projectById(projectId)?.workspaces).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          root: staleRoot,
+          prunableReason: 'gitdir file points to non-existent location',
+        }),
+      ]),
+    )
+    await restored.reconcileWorktrees(projectId, {
+      repository: true,
+      worktrees: [
+        { root: localPath(canonicalRoot), branch: 'main', detached: false, bare: false },
+        { root: staleRoot, branch: 'repaired', detached: false, bare: false },
+      ],
+    })
+    expect(restored.projectById(projectId)?.workspaces).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          root: staleRoot,
+          missing: false,
+          branch: 'repaired',
+        }),
+      ]),
+    )
+    expect(
+      restored
+        .projectById(projectId)
+        ?.workspaces.find((workspace) => workspace.root.path === staleRoot.path)
+        ?.prunableReason,
+    ).toBeUndefined()
+    await restored.dispose()
   })
 })
 

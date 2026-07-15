@@ -27,7 +27,27 @@ interface TerminalSession {
 
 interface TerminalWorkspaceProps {
   readonly cwd: HostPath
+  readonly workspaceId: string
   readonly connectionState: HostConnectionState
+  readonly visible: boolean
+  readonly label: string
+  readonly onRollup: (workspaceId: string, rollup: TerminalWorkspaceRollup) => void
+  readonly railGroups: readonly TerminalRailGroup[]
+  readonly onSelectWorkspace: (projectId: string, workspaceId: string) => void
+}
+
+export interface TerminalWorkspaceRollup {
+  readonly unseen: number
+  readonly actionable: number
+}
+
+export interface TerminalRailGroup {
+  readonly projectId: string
+  readonly workspaceId: string
+  readonly label: string
+  readonly active: boolean
+  readonly missing: boolean
+  readonly unseen: number
 }
 
 const IDLE_AFTER_BURST_MS = 4_000
@@ -42,8 +62,22 @@ const adapterLabels: Record<TerminalAdapterId, string> = {
 
 export function TerminalWorkspace({
   cwd,
+  workspaceId,
   connectionState,
+  visible,
+  label,
+  onRollup,
+  railGroups,
+  onSelectWorkspace,
 }: TerminalWorkspaceProps): ReactElement {
+  const workspaceRootRef = useRef(cwd)
+  if (
+    workspaceRootRef.current.hostId !== cwd.hostId ||
+    workspaceRootRef.current.path !== cwd.path
+  ) {
+    workspaceRootRef.current = cwd
+  }
+  const workspaceRoot = workspaceRootRef.current
   const [sessions, setSessions] = useState<readonly TerminalSession[]>([])
   const [activeId, setActiveId] = useState<string>()
   const [menuOpen, setMenuOpen] = useState(false)
@@ -58,8 +92,11 @@ export function TerminalWorkspace({
   const appFocusedRef = useRef(document.hasFocus())
   const focusedTerminalRef = useRef<string | undefined>(undefined)
   const idleTimers = useRef(new Map<string, number>())
+  const visibleRef = useRef(visible)
+  const shouldCreateDefault = useRef(false)
   activeIdRef.current = activeId
   sessionsRef.current = sessions
+  visibleRef.current = visible
 
   useEffect(() => {
     const timers = idleTimers.current
@@ -116,17 +153,21 @@ export function TerminalWorkspace({
     setRecoveryCandidates([])
     setSessions([])
     setActiveId(undefined)
-    void window.hvir.invoke('terminal:recovery', { root: cwd }).then(
+    void window.hvir.invoke('terminal:recovery', { root: workspaceRoot }).then(
       (candidates) => {
         if (cancelled) return
         if (candidates.length === 0) {
-          const session = createSession('plain-shell', cwd)
-          setSessions([session])
-          setActiveId(session.id)
+          shouldCreateDefault.current = true
+          if (visibleRef.current) {
+            const session = createSession('plain-shell', workspaceRoot)
+            shouldCreateDefault.current = false
+            setSessions([session])
+            setActiveId(session.id)
+          }
           setRecoveryReady(true)
           return
         }
-        if (readRecoveryMode() === 'auto') {
+        if (readRecoveryMode() === 'auto' && visibleRef.current) {
           restoreSessions(candidates, setSessions, setActiveId)
           setRecoveryReady(true)
           return
@@ -135,7 +176,7 @@ export function TerminalWorkspace({
       },
       () => {
         if (cancelled) return
-        const session = createSession('plain-shell', cwd)
+        const session = createSession('plain-shell', workspaceRoot)
         setSessions([session])
         setActiveId(session.id)
         setRecoveryReady(true)
@@ -144,7 +185,23 @@ export function TerminalWorkspace({
     return () => {
       cancelled = true
     }
-  }, [cwd])
+  }, [workspaceRoot])
+
+  useEffect(() => {
+    if (!visible || sessions.length > 0) return
+    if (recoveryCandidates.length > 0 && readRecoveryMode() === 'auto') {
+      restoreSessions(recoveryCandidates, setSessions, setActiveId)
+      setRecoveryCandidates([])
+      setRecoveryReady(true)
+      return
+    }
+    if (!recoveryReady) return
+    if (!shouldCreateDefault.current || recoveryCandidates.length > 0) return
+    shouldCreateDefault.current = false
+    const session = createSession('plain-shell', workspaceRoot)
+    setSessions([session])
+    setActiveId(session.id)
+  }, [recoveryCandidates, recoveryReady, sessions.length, visible, workspaceRoot])
 
   const layoutKey = JSON.stringify(
     sessions.map((session, position) => ({
@@ -163,17 +220,24 @@ export function TerminalWorkspace({
       active: session.id === activeIdRef.current,
     }))
     void window.hvir
-      .invoke('terminal:update-layout', { root: cwd, sessions: layout })
+      .invoke('terminal:update-layout', { root: workspaceRoot, sessions: layout })
       .catch(() => undefined)
-  }, [cwd, layoutKey, recoveryReady])
+  }, [layoutKey, recoveryReady, workspaceRoot])
 
   const actionableAttention = sessions.filter(
     (session) => session.attention === 'idle' || session.attention === 'bell',
   ).length
+  const unseenAttention = sessions.filter((session) => session.attention).length
   useEffect(() => {
-    window.hvir.send('app:attention', { count: actionableAttention })
-  }, [actionableAttention])
-  useEffect(() => () => window.hvir.send('app:attention', { count: 0 }), [])
+    onRollup(workspaceId, {
+      unseen: unseenAttention,
+      actionable: actionableAttention,
+    })
+  }, [actionableAttention, onRollup, unseenAttention, workspaceId])
+  useEffect(
+    () => () => onRollup(workspaceId, { unseen: 0, actionable: 0 }),
+    [onRollup, workspaceId],
+  )
 
   const updateSession = (
     id: string,
@@ -203,7 +267,7 @@ export function TerminalWorkspace({
   }
 
   const addSession = (adapterId: TerminalAdapterId): void => {
-    const session = createSession(adapterId, cwd)
+    const session = createSession(adapterId, workspaceRoot)
     setSessions((current) => [...current, session])
     setActiveId(session.id)
     setMenuOpen(false)
@@ -214,7 +278,9 @@ export function TerminalWorkspace({
     const timer = idleTimers.current.get(id)
     if (timer !== undefined) window.clearTimeout(timer)
     idleTimers.current.delete(id)
-    void window.hvir.invoke('terminal:forget', { root: cwd, id }).catch(() => undefined)
+    void window.hvir
+      .invoke('terminal:forget', { root: workspaceRoot, id })
+      .catch(() => undefined)
     setSessions((current) => {
       const index = current.findIndex((session) => session.id === id)
       const next = current.filter((session) => session.id !== id)
@@ -257,7 +323,11 @@ export function TerminalWorkspace({
 
   return (
     <>
-      <div className="terminal-deck" aria-label="Terminal workspace">
+      <div
+        className="terminal-deck"
+        aria-label={`${label} terminal workspace`}
+        hidden={!visible}
+      >
         {recoveryReady && sessions.length === 0 ? (
           <div className="terminal-empty">
             <button type="button" onClick={() => addSession('plain-shell')}>
@@ -274,8 +344,8 @@ export function TerminalWorkspace({
             harnessSessionId={session.harnessSessionId}
             resumeOnStart={session.resumeOnStart}
             position={position}
-            active={session.id === activeId}
-            cwd={cwd}
+            active={visible && session.id === activeId}
+            cwd={workspaceRoot}
             connectionState={connectionState}
             onTitle={(title) =>
               updateSession(session.id, (current) => ({ ...current, title }))
@@ -306,9 +376,13 @@ export function TerminalWorkspace({
           />
         ))}
       </div>
-      <aside className="terminal-rail" aria-label="Open terminals">
+      <aside
+        className="terminal-rail"
+        aria-label={`Open terminals in ${label}`}
+        hidden={!visible}
+      >
         <header className="terminal-rail-header">
-          <span>Terminals</span>
+          <span>Terminals · {label}</span>
           <div className="terminal-header-actions">
             <div className="terminal-new-control">
               <button
@@ -382,6 +456,10 @@ export function TerminalWorkspace({
             </div>
           </div>
         </header>
+        <div className="terminal-workspace-heading">
+          <span>{label}</span>
+          <small>{sessions.length}</small>
+        </div>
         <div className="terminal-list" role="list">
           {sessions.map((session) => (
             <div
@@ -422,13 +500,32 @@ export function TerminalWorkspace({
               </button>
             </div>
           ))}
+          {railGroups
+            .filter((group) => !group.active)
+            .map((group) => (
+              <button
+                type="button"
+                className={`terminal-workspace-jump${group.missing ? ' missing' : ''}`}
+                key={group.workspaceId}
+                disabled={group.missing}
+                onClick={() => onSelectWorkspace(group.projectId, group.workspaceId)}
+              >
+                <span>{group.label}</span>
+                {group.unseen > 0 ? (
+                  <i
+                    className="workspace-attention-dot"
+                    aria-label="Terminal attention"
+                  />
+                ) : null}
+              </button>
+            ))}
         </div>
       </aside>
-      {recoveryCandidates.length > 0 ? (
+      {visible && recoveryCandidates.length > 0 ? (
         <TerminalRecoveryDialog
           sessions={recoveryCandidates}
           onCancel={() => {
-            const session = createSession('plain-shell', cwd)
+            const session = createSession('plain-shell', workspaceRoot)
             setSessions([session])
             setActiveId(session.id)
             setRecoveryCandidates([])
@@ -439,7 +536,7 @@ export function TerminalWorkspace({
             if (selected.length > 0) {
               restoreSessions(selected, setSessions, setActiveId)
             } else {
-              const session = createSession('plain-shell', cwd)
+              const session = createSession('plain-shell', workspaceRoot)
               setSessions([session])
               setActiveId(session.id)
             }

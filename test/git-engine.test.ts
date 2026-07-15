@@ -1,12 +1,20 @@
 import { execFileSync } from 'node:child_process'
-import { mkdir, mkdtemp, rm, symlink, unlink, writeFile } from 'node:fs/promises'
+import {
+  mkdir,
+  mkdtemp,
+  realpath,
+  rm,
+  symlink,
+  unlink,
+  writeFile,
+} from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { GitEngine } from '../src/main/git/git-engine'
-import { LocalHost } from '../src/main/project-host'
-import { localPath } from '../src/shared'
+import { GitEngine, parseWorktreeList } from '../src/main/git/git-engine'
+import { LocalHost, type ExecOptions, type ProjectHost } from '../src/main/project-host'
+import { LOCAL_HOST_ID, localPath } from '../src/shared'
 
 const cleanups: string[] = []
 
@@ -15,6 +23,183 @@ afterEach(async () => {
 })
 
 describe('GitEngine', () => {
+  it('discovers linked worktrees and treats a plain directory as one workspace', async () => {
+    const root = await repository()
+    const linked = `${root}-feature`
+    cleanups.push(linked)
+    git(root, ['worktree', 'add', '-b', 'feature', linked])
+    const host = new LocalHost()
+    const engine = new GitEngine(host, localPath(root))
+    const canonicalRoot = await realpath(root)
+    const canonicalLinked = await realpath(linked)
+
+    const discovery = await engine.worktrees(localPath(root))
+
+    expect(discovery.repository).toBe(true)
+    expect(discovery.worktrees).toEqual([
+      expect.objectContaining({ root: localPath(canonicalRoot), branch: 'main' }),
+      expect.objectContaining({ root: localPath(canonicalLinked), branch: 'feature' }),
+    ])
+    await writeFile(join(linked, 'dirty.txt'), 'dirty\n')
+    await expect(engine.changedFileCount(localPath(canonicalLinked))).resolves.toBe(1)
+    await rm(linked, { recursive: true })
+    const prunable = await engine.worktrees(localPath(root))
+    const stale = prunable.worktrees.find(
+      (worktree) => worktree.root.path === canonicalLinked,
+    )
+    expect(stale?.prunable).toBe(true)
+    expect(stale?.prunableReason).toContain('non-existent location')
+    const pruned = await engine.pruneWorktrees(localPath(root))
+    expect(pruned.worktrees).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ root: localPath(canonicalLinked) }),
+      ]),
+    )
+    await mkdir(linked)
+    const plain = await mkdtemp(join(tmpdir(), 'hvir-plain-'))
+    cleanups.push(plain)
+    await expect(engine.worktrees(localPath(plain))).resolves.toEqual({
+      repository: false,
+      worktrees: [{ root: localPath(plain), detached: false, bare: false }],
+    })
+    await host.dispose()
+  })
+
+  it('parses NUL-delimited worktree paths without line-based path corruption', () => {
+    expect(
+      parseWorktreeList(
+        'worktree /tmp/a\ncheckout\0HEAD 0123456789012345678901234567890123456789\0detached\0prunable gitdir file points to non-existent location\0\0',
+        LOCAL_HOST_ID,
+      ),
+    ).toEqual([
+      {
+        root: localPath('/tmp/a\ncheckout'),
+        head: '0123456789012345678901234567890123456789',
+        detached: true,
+        bare: false,
+        prunable: true,
+        prunableReason: 'gitdir file points to non-existent location',
+      },
+    ])
+  })
+
+  it('prunes stale administrative data without deleting a surviving directory', async () => {
+    const root = await repository()
+    const linked = `${root}-surviving`
+    cleanups.push(linked)
+    git(root, ['worktree', 'add', '--detach', linked])
+    const canonicalLinked = await realpath(linked)
+    await unlink(join(linked, '.git'))
+    const host = new LocalHost()
+    const engine = new GitEngine(host, localPath(root))
+
+    const before = await engine.worktrees(localPath(root))
+    expect(
+      before.worktrees.find((worktree) => worktree.root.path === canonicalLinked)
+        ?.prunable,
+    ).toBe(true)
+
+    const after = await engine.pruneWorktrees(localPath(root))
+
+    expect(
+      after.worktrees.some((worktree) => worktree.root.path === canonicalLinked),
+    ).toBe(false)
+    await expect(host.readTextFile(localPath(join(linked, 'file.txt')))).resolves.toBe(
+      'base\n',
+    )
+    await host.dispose()
+  })
+
+  it('falls back to legacy porcelain when remote Git does not support -z', async () => {
+    const root = await repository()
+    const linked = `${root}-legacy`
+    cleanups.push(linked)
+    git(root, ['worktree', 'add', '-b', 'legacy', linked])
+    const actual = new LocalHost()
+    const calls: string[] = []
+    const host = {
+      hostId: actual.hostId,
+      exec: (command: string, args: readonly string[], opts: ExecOptions = {}) => {
+        calls.push(args.join(' '))
+        if (args.slice(-4).join(' ') === 'worktree list --porcelain -z') {
+          return Promise.resolve({
+            stdout: '',
+            stderr: 'Fehler: unbekannte Option',
+            code: 129,
+            signal: null,
+          })
+        }
+        return actual.exec(command, args, opts)
+      },
+    } as ProjectHost
+
+    const discovery = await new GitEngine(host, localPath(root)).worktrees(
+      localPath(root),
+    )
+    expect(discovery.repository).toBe(true)
+    expect(discovery.worktrees.map((worktree) => worktree.branch)).toEqual(
+      expect.arrayContaining(['main', 'legacy']),
+    )
+    expect(calls).not.toContain(expect.stringContaining('rev-parse'))
+    await actual.dispose()
+  })
+
+  it('falls back when an SSH server omits the old-Git command exit status', async () => {
+    const root = await repository()
+    const actual = new LocalHost()
+    const host = {
+      hostId: actual.hostId,
+      exec: (command: string, args: readonly string[], opts: ExecOptions = {}) => {
+        if (args.slice(-4).join(' ') === 'worktree list --porcelain -z') {
+          return Promise.resolve({
+            stdout: '',
+            stderr: "error: unknown switch `z'",
+            code: null,
+            signal: null,
+          })
+        }
+        return actual.exec(command, args, opts)
+      },
+    } as ProjectHost
+
+    await expect(
+      new GitEngine(host, localPath(root)).worktrees(localPath(root)),
+    ).resolves.toEqual({
+      repository: true,
+      worktrees: [
+        expect.objectContaining({
+          root: localPath(await realpath(root)),
+          branch: 'main',
+        }),
+      ],
+    })
+    await actual.dispose()
+  })
+
+  it('does not misclassify an operational worktree error as a plain directory', async () => {
+    const root = await repository()
+    const actual = new LocalHost()
+    const host = {
+      hostId: actual.hostId,
+      exec: (command: string, args: readonly string[], opts: ExecOptions = {}) => {
+        if (args.slice(-4).join(' ') === 'worktree list --porcelain -z') {
+          return Promise.resolve({
+            stdout: '',
+            stderr: 'fatal: detected dubious ownership in repository',
+            code: 128,
+            signal: null,
+          })
+        }
+        return actual.exec(command, args, opts)
+      },
+    } as ProjectHost
+
+    await expect(
+      new GitEngine(host, localPath(root)).worktrees(localPath(root)),
+    ).rejects.toThrow('dubious ownership')
+    await actual.dispose()
+  })
+
   it('produces index, HEAD, and branch-point inputs for one file', async () => {
     const root = await mkdtemp(join(tmpdir(), 'hvir-git-'))
     cleanups.push(root)

@@ -249,11 +249,15 @@ within the launch window, and the same UUID in both the record payload and filen
 short settle interval catches near-simultaneous candidates. The bounded discovery window
 allows 90 seconds because Codex can delay creating the rollout until interactive startup
 finishes; polling backs off to five seconds to limit local and SSH pressure. The PTY
-supervisor serializes these discovery windows per host and adapter so two hvir-launched
-Codex terminals cannot share a baseline. The rail shows recovery as pending until one
-exact id is known. If metadata is unavailable, changes shape, or produces multiple
-candidates, the terminal still launches but recovery is visibly unavailable; hvir never
-chooses among candidates.
+supervisor serializes each pre-launch snapshot through PTY creation per host and adapter,
+then releases the launch queue before the bounded identity scan completes. A later PTY is
+never held behind the 90-second scan. If concurrent same-directory launches leave a scan
+with multiple candidates, recovery fails closed as ambiguous instead of delaying a
+terminal or choosing an id. The rail shows recovery as pending until one exact id is
+known. If metadata is unavailable or changes shape, the terminal still launches but
+recovery is visibly unavailable; hvir never chooses among candidates. Holding the launch
+queue through the complete identity scan was rejected because an untouched first Codex
+session could make every later Codex terminal appear blank for the full timeout.
 
 An untouched Codex terminal may create no rollout during that window. The PTY supervisor
 therefore retains the original pre-launch baseline and treats later user input as a
@@ -394,6 +398,68 @@ agent workspaces simply appear.
 worktree creation/cleanup (one step from branch naming and merge-back — orchestration
 creep).
 
+#### Phase 7 addendum — 2026-07-14: persisted discovery and multi-root Git authority
+
+**The local project registry is the durable authority list; the active workspace remains
+the renderer's filesystem authority.** Registration persists the host-qualified project
+root, display name, active workspace, and last discovered worktree records in local app
+metadata. Worktrees are reconciled from NUL-delimited `git worktree list --porcelain -z`
+output in the Git utility process. A missing worktree is retained as a gray workspace,
+including its layout/session identity, until the user explicitly dismisses it. Plain
+directories produce the same one-workspace model with Git surfaces omitted.
+
+Phase 5's Git broker confinement expands from the one active root to the exact set of
+registered project and discovered workspace roots so the utility process can refresh
+inactive-project discovery and changed-file counts. This does not expand renderer file
+access: filesystem/viewer IPC still resolves only against the active workspace. Main
+chooses the deepest registered boundary for each worker host call, and the existing
+command grammar, canonical-path checks, output bounds, and timeouts still apply. A cheap
+worktree/status refresh runs after watch events, on demand, and on a five-second fallback
+poll; parsing and Git execution remain off-renderer.
+
+Workspace switches preserve live terminal components and PTYs while swapping the active
+filesystem authority. Tabs and pane sizes persist per host-qualified workspace, and clean
+tabs refresh asynchronously when revisited; dirty drafts remain authoritative. Removed
+workspace dismissal is the explicit point that ends its PTYs and forgets recovery
+records.
+
+**Rejected:** one Git worker or SSH connection per workspace (duplicates transport and
+auth state); granting inactive roots to general renderer filesystem IPC (weakens the
+active-workspace boundary); killing PTYs on workspace switches (turns navigation into
+session loss); treating object identity as path identity across IPC (structured cloning
+would restart stable workspaces); watching every inactive tree recursively (unbounded
+watcher and SSH load).
+
+#### Phase 7 addendum — 2026-07-14: explicit stale-record pruning
+
+**hvir may prune Git worktree records only after Git itself reports them as
+`prunable`.** This is a narrow cleanup exception to ADR-008's discovered-never-managed
+rule, explicitly approved by the product owner after real SSH use surfaced detached
+benchmark records whose worktree `.git` locations no longer existed. It does not permit
+creating, moving, removing, or repairing a live worktree.
+
+The worktree tier preserves Git's porcelain reason and last known HEAD, marks the entry
+as prunable, and offers one project-level **Prune N** action. The action lists every
+host-qualified path, reason, and abbreviated HEAD and warns that an otherwise-unreferenced
+detached commit may later be garbage-collected. Confirmation invokes
+`git worktree prune --expire now --verbose`; Git's command is project-wide, so the UI does
+not pretend it can target one stale row. The Git utility process issues the command
+through `ProjectHost`, and main grants the broker a single-use mutation capability for
+that exact host-qualified project root. Afterward hvir rediscovers the worktrees and
+forgets recovery/layout state only for confirmed records Git no longer reports.
+
+**Why:** stale worktree metadata is surfaced by hvir in the workspace tier, and leaving
+cleanup to an external terminal makes that surface an unactionable warning. Git's prune
+operation removes administrative records rather than working directories, while the
+prunable precondition, explicit bulk confirmation, and single-use broker authorization
+keep the exception materially narrower than worktree orchestration.
+
+**Rejected:** automatic pruning during discovery (surprising mutation, especially for
+temporarily unavailable storage); labeling the existing local-only dismiss control as
+prune (the Git record would simply reappear); deleting `$GIT_DIR/worktrees` entries
+directly (reimplements Git and is unsafe); `git worktree remove` (acts on a worktree,
+not the already-stale administrative record).
+
 ### ADR-009 — Notifications: focus clears, parents aggregate
 **Decision:** One rule, no special cases: **a dot is cleared by focusing the thing that
 raised it; parents only aggregate their children's unseen dots.** No dot on the terminal
@@ -476,6 +542,66 @@ remain useful validation but are not the enforcement boundary.
 them (puts the trust check on the hostile-repository parsing side); treating any host ID in
 the registry as active authority (lets a stale worker reach replaced sessions); claiming
 the renderer-selected root is a capability without a main-owned gesture token.
+
+#### Phase 7.5 addendum — 2026-07-14: one logical SSH host, pooled transports
+
+**`SshHost` remains one logical `ProjectHost`, but may own a bounded role-aware pool of
+physical SSH transports.** The host id, trust decision, authentication coordinator,
+connection state, SFTP/cache state, and reconnect contract remain singular. Control
+transports carry bounded `exec`, SFTP, watchers, and adapter telemetry hubs with reserved
+capacity; terminal transports carry PTYs only. A PTY is pinned to one transport for its
+lifetime. Pool admission opens lazily, reuses idle capacity first, serializes new
+authentication, and spills after a channel-open refusal without moving existing PTYs.
+The initial policy caps one host at eight physical transports (at most two control), with
+soft budgets of six control channels or eight PTYs per transport and a five-minute idle
+grace for auxiliaries. These are centralized safety defaults, not claims about a server's
+configured `MaxSessions`; real-host evidence may revise them. Buffered control execs admit
+four concurrent operations by default, still within transport reservation rather than a
+separate global serialization bottleneck. A channel-open refusal excludes that transport
+only for the bounded admission attempt; it records diagnostics but never permanently
+shrinks a live transport's soft budget, so later work can recover when server capacity does.
+Some SSH servers close an exec channel without the optional SSH `exit-status` message.
+Buffered execs therefore wrap only their bounded command in a POSIX subshell that appends
+an unguessable per-command status marker to stderr; hvir strips it before returning the
+result and uses it only when the transport status is absent. Streaming services and PTYs
+retain their native lifecycle and never receive this wrapper.
+
+**Context telemetry is multiplexed per `(host, HarnessAdapter)`, not followed once per
+terminal.** Codex and Claude Code each own one lazy host-scoped hub that reconciles a
+versioned full subscription set over a bounded duplex `ProjectHost.execStream`. Adapter
+code still owns transcript/rollout discovery, remote filtering, framing, and parsing. Hub
+epochs and per-subscription admitted-generation floors reject late or cross-session records
+without dropping replay that overlaps a newer full-set reconcile; the PTY supervisor still
+owns subscription lifecycle and the latest typed snapshot. Concurrent followers serialize
+bounded frames through an owned, self-healing, bounded-wait lock whose teardown is shared by
+all adapters. A hub is a temporary child of its SSH channel, never installed remote software.
+
+**Why:** a normal agent workload can keep 10+ terminals across projects on one machine.
+OpenSSH commonly limits shell/exec/subsystem channels per connection; PTYs, SFTP,
+watchers, Git commands, and one follower per terminal otherwise compete for that same
+budget. Merely serializing Git preserves a slot at small scale but cannot make ten PTYs
+fit beside the control plane. Pooling solves physical capacity without weakening the
+logical host seam, while telemetry hubs remove avoidable one-channel-per-agent pressure.
+Interactive Git or long-running user commands remain inside a PTY; hvir's own `exec` is
+bounded noninteractive control work and never spills onto terminal transports.
+
+**Authentication and failure contract:** reusable password/passphrase material may live
+only in memory until explicit disconnect/app quit; keyboard-interactive/OTP answers are
+never cached. Pool growth has one prompt sequence per logical host, finite method/challenge
+attempts, and no prompted automatic retry after failure or cancellation. Failure of an
+auxiliary transport exits only its pinned PTYs exactly once and does not mark the control
+plane disconnected. Harness resume remains recovery; pooling does not claim process
+survival across a broken transport. The prompted-growth block lasts until explicit disposal
+or a later successful primary authentication; that lifecycle boundary permits promptless
+growth with newly reusable in-memory credentials without reintroducing modal retry loops.
+
+**Rejected:** requiring users to raise `MaxSessions` (not portable or always permitted);
+one `SshHost` per project/workspace/worker (duplicates identity and lifecycle); one TCP
+connection per PTY (unbounded transport/auth churn); letting control commands borrow PTY
+transports (destroys reservation); terminal-screen scraping or OSC injection for telemetry
+(fragile and contaminates the terminal surface); restarting every telemetry follower on
+ordinary subscription churn (avoidable gaps/work); and a persistent installed remote
+agent (still rejected by ADR-010).
 
 ---
 

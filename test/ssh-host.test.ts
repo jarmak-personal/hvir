@@ -8,6 +8,7 @@ import type { AnyAuthMethod, Client, ConnectConfig } from 'ssh2'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import {
+  SSH_DEFAULT_MAX_CONCURRENT_EXECS,
   SshHost,
   type Disposer,
   type ExecStreamHandle,
@@ -169,6 +170,42 @@ describe('SshHost authentication', () => {
 })
 
 describe('SshHost remote behavior', () => {
+  it('connects, probes, and executes through the default buffered slot', async () => {
+    const client = Object.assign(
+      fakeClient(() => queueMicrotask(() => client.emit('ready'))),
+      {
+        exec: vi.fn(
+          (
+            _command: string,
+            callback: (error: Error | undefined, value: unknown) => void,
+          ) => {
+            const channel = Object.assign(new EventEmitter(), {
+              stderr: new EventEmitter(),
+              close: vi.fn(),
+              end: vi.fn(() =>
+                queueMicrotask(() => {
+                  channel.emit('exit', 0)
+                  channel.emit('close')
+                }),
+              ),
+            })
+            callback(undefined, channel)
+          },
+        ),
+      },
+    )
+    const host = new SshHost({
+      config: aliasConfig(),
+      prompter: { prompt: () => Promise.resolve(undefined) },
+      clientFactory: () => client as unknown as Client,
+    })
+
+    await host.connect()
+    await expect(host.exec('true', [])).resolves.toMatchObject({ code: 0 })
+    expect(client.exec).toHaveBeenCalledTimes(2)
+    await host.dispose()
+  })
+
   it('invalidates cached parent listings when watched children change', () => {
     const host = new SshHost({
       config: aliasConfig(),
@@ -707,6 +744,107 @@ describe('SshHost remote behavior', () => {
     await host.dispose()
   })
 
+  it('recovers a buffered command status when the server omits exit-status', async () => {
+    const stderr = new EventEmitter()
+    let remote = ''
+    const channel = Object.assign(new EventEmitter(), {
+      stderr,
+      close: vi.fn(() => channel.emit('close')),
+      end: vi.fn(() => {
+        const marker = remote.match(/__hvir_exec_status_[0-9a-f-]+__/)?.[0]
+        if (!marker) throw new Error('Expected buffered exec status marker')
+        stderr.emit('data', Buffer.from(`old git usage\n${marker}129`))
+        channel.emit('close')
+      }),
+    })
+    const client = Object.assign(
+      fakeClient(() => undefined),
+      {
+        exec: vi.fn(
+          (
+            command: string,
+            callback: (error: Error | undefined, value: unknown) => void,
+          ) => {
+            remote = command
+            callback(undefined, channel)
+          },
+        ),
+      },
+    )
+    const host = new SshHost({
+      config: aliasConfig(),
+      prompter: { prompt: () => Promise.resolve(undefined) },
+    })
+    const internals = host as unknown as { state: 'connected'; client: Client }
+    internals.state = 'connected'
+    internals.client = client as unknown as Client
+
+    await expect(host.exec('git', ['worktree', 'list'])).resolves.toEqual({
+      code: 129,
+      signal: null,
+      stdout: '',
+      stderr: 'old git usage\n',
+    })
+    expect(remote).toContain('hvir_status=$?')
+    await host.dispose()
+  })
+
+  it('supports bounded duplex exec streams over SSH', async () => {
+    const stderr = new EventEmitter()
+    const channel = Object.assign(new EventEmitter(), {
+      stderr,
+      close: vi.fn(() => channel.emit('close')),
+      write: vi.fn((data: string, callback?: () => void) => {
+        channel.emit('data', Buffer.from(data))
+        callback?.()
+        return true
+      }),
+      end: vi.fn((data?: string, callback?: () => void) => {
+        if (data) channel.emit('data', Buffer.from(data))
+        callback?.()
+        queueMicrotask(() => {
+          channel.emit('exit', 0)
+          channel.emit('close')
+        })
+      }),
+    })
+    const client = Object.assign(
+      fakeClient(() => undefined),
+      {
+        exec: vi.fn(
+          (
+            _command: string,
+            callback: (error: Error | undefined, value: unknown) => void,
+          ) => callback(undefined, channel),
+        ),
+      },
+    )
+    const host = new SshHost({
+      config: aliasConfig(),
+      prompter: { prompt: () => Promise.resolve(undefined) },
+    })
+    const internals = host as unknown as { state: 'connected'; client: Client }
+    internals.state = 'connected'
+    internals.client = client as unknown as Client
+    const stream = host.execStream('cat', [], { keepStdinOpen: true })
+    let stdout = ''
+    stream.onStdout((chunk) => {
+      stdout += chunk
+    })
+    const exited = new Promise<void>((resolve, reject) => {
+      stream.onError(reject)
+      stream.onExit(() => resolve())
+    })
+
+    await stream.write('first ')
+    await stream.end('second')
+    await exited
+
+    expect(stdout).toBe('first second')
+    expect(channel.write).toHaveBeenCalledWith('first ', expect.any(Function))
+    await host.dispose()
+  })
+
   it('keeps buffered execs within the SSH session budget', async () => {
     const channels = Array.from({ length: 3 }, () => {
       const channel = Object.assign(new EventEmitter(), {
@@ -752,6 +890,90 @@ describe('SshHost remote behavior', () => {
     third.emit('close')
 
     await expect(Promise.all(results)).resolves.toHaveLength(3)
+    await host.dispose()
+  })
+
+  it('admits bounded parallel buffered execs by default', async () => {
+    const channels = Array.from({ length: SSH_DEFAULT_MAX_CONCURRENT_EXECS + 1 }, () =>
+      Object.assign(new EventEmitter(), {
+        stderr: new EventEmitter(),
+        close: vi.fn(),
+        end: vi.fn(),
+      }),
+    )
+    const first = channels[0]
+    if (!first) throw new Error('Expected test channels')
+    let nextChannel = 0
+    const client = Object.assign(
+      fakeClient(() => undefined),
+      {
+        exec: vi.fn(
+          (
+            _command: string,
+            callback: (error: Error | undefined, value: unknown) => void,
+          ) => callback(undefined, channels[nextChannel++]),
+        ),
+      },
+    )
+    const host = new SshHost({
+      config: aliasConfig(),
+      prompter: { prompt: () => Promise.resolve(undefined) },
+    })
+    const internals = host as unknown as { state: 'connected'; client: Client }
+    internals.state = 'connected'
+    internals.client = client as unknown as Client
+
+    const results = channels.map((_, index) => host.exec(`command-${index}`, []))
+    await vi.waitFor(() =>
+      expect(client.exec).toHaveBeenCalledTimes(SSH_DEFAULT_MAX_CONCURRENT_EXECS),
+    )
+    first.emit('exit', 0)
+    first.emit('close')
+    await vi.waitFor(() => expect(client.exec).toHaveBeenCalledTimes(channels.length))
+    for (const channel of channels.slice(1)) {
+      channel.emit('exit', 0)
+      channel.emit('close')
+    }
+
+    await expect(Promise.all(results)).resolves.toHaveLength(channels.length)
+    await host.dispose()
+  })
+
+  it('retries a transient SSH channel-open race', async () => {
+    const channel = Object.assign(new EventEmitter(), {
+      stderr: new EventEmitter(),
+      close: vi.fn(),
+      end: vi.fn(),
+    })
+    const client = Object.assign(
+      fakeClient(() => undefined),
+      {
+        exec: vi
+          .fn(
+            (
+              _command: string,
+              callback: (error: Error | undefined, value?: unknown) => void,
+            ) => callback(undefined, channel),
+          )
+          .mockImplementationOnce((_command, callback) =>
+            callback(new Error('(SSH) Channel open failure: open failed')),
+          ),
+      },
+    )
+    const host = new SshHost({
+      config: aliasConfig(),
+      prompter: { prompt: () => Promise.resolve(undefined) },
+    })
+    const internals = host as unknown as { state: 'connected'; client: Client }
+    internals.state = 'connected'
+    internals.client = client as unknown as Client
+
+    const result = host.exec('git', ['status'])
+    await vi.waitFor(() => expect(client.exec).toHaveBeenCalledTimes(2))
+    channel.emit('exit', 0)
+    channel.emit('close')
+
+    await expect(result).resolves.toMatchObject({ code: 0 })
     await host.dispose()
   })
 
@@ -1129,6 +1351,8 @@ describe('SshHost remote behavior', () => {
         onStderr: () => () => undefined,
         onError: () => () => undefined,
         onExit: () => () => undefined,
+        write: () => Promise.resolve(),
+        end: () => Promise.resolve(),
         kill: () => undefined,
         dispose: vi.fn(),
       }
@@ -1192,6 +1416,8 @@ describe('SshHost remote behavior', () => {
       onStderr: () => () => undefined,
       onError: () => () => undefined,
       onExit: () => () => undefined,
+      write: () => Promise.resolve(),
+      end: () => Promise.resolve(),
       kill: () => undefined,
       dispose: vi.fn(),
     }

@@ -34,6 +34,7 @@ import type {
   WatchOptions,
   WriteFileOptions,
 } from './project-host'
+import { MAX_EXEC_STREAM_WRITE_BYTES } from './project-host'
 import type { SshAliasConfig } from './ssh-config'
 
 export interface SshIdentity {
@@ -73,14 +74,60 @@ export interface SshHostOptions {
   readonly fingerprintObservationWindowMs?: number
   /**
    * Maximum short-lived buffered exec channels. Long-lived PTY, watcher, and
-   * SFTP channels share the server's MaxSessions budget, so keep headroom for
-   * them rather than opening every background Git command at once.
+   * telemetry channels plus SFTP share the control transport budget. The
+   * default admits bounded parallel Git/filesystem reads while pool admission
+   * still protects every transport's reserved capacity.
    */
   readonly maxConcurrentExecs?: number
   readonly trustedHostKey?: () => string | undefined
   readonly rememberHostKey?: (fingerprint: string) => Promise<void>
   /** Test seam for transport lifecycle races; production always constructs ssh2.Client. */
   readonly clientFactory?: () => Client
+}
+
+export const SSH_MAX_PHYSICAL_TRANSPORTS = 8
+export const SSH_MAX_CONTROL_TRANSPORTS = 2
+export const SSH_CONTROL_CHANNEL_BUDGET = 6
+export const SSH_TERMINAL_CHANNEL_BUDGET = 8
+export const SSH_DEFAULT_MAX_CONCURRENT_EXECS = 4
+export const SSH_TRANSPORT_IDLE_GRACE_MS = 5 * 60_000
+export const SSH_MAX_KEYBOARD_INTERACTIVE_ROUNDS = 4
+const SSH_CHANNEL_OPEN_ATTEMPTS = 5
+
+type SshTransportRole = 'control' | 'terminal'
+
+interface SshTransport {
+  readonly id: number
+  readonly role: SshTransportRole
+  readonly client: Client
+  readonly primary: boolean
+  readonly channels: Set<ClientChannel>
+  readonly failureListeners: Set<() => void>
+  pendingChannels: number
+  readonly channelBudget: number
+  sftpActive: boolean
+  closed: boolean
+  idleTimer?: ReturnType<typeof setTimeout>
+}
+
+interface SshTransportReservation {
+  readonly transport: SshTransport
+  release(): void
+}
+
+interface SshCredentialAttempt {
+  password?: string
+  readonly passphrases: Map<string, string>
+}
+
+export interface SshTransportDiagnostic {
+  readonly id: number
+  readonly role: SshTransportRole
+  readonly primary: boolean
+  readonly channels: number
+  readonly pendingChannels: number
+  readonly channelBudget: number
+  readonly refusedChannels: number
 }
 
 let nextRemotePid = -1
@@ -103,6 +150,17 @@ export class SshHost implements ProjectHost {
   private sftpSession?: Promise<SFTPWrapper>
   private readonly listeners = new Set<(state: HostConnectionState) => void>()
   private readonly channels = new Set<ClientChannel>()
+  private readonly transports = new Set<SshTransport>()
+  private readonly pendingClients = new Set<Client>()
+  private nextTransportId = 1
+  private transportGrowthTail: Promise<void> = Promise.resolve()
+  private promptTail: Promise<void> = Promise.resolve()
+  private readonly refusedChannels = new Map<number, number>()
+  private cachedPassword?: string
+  private readonly cachedPassphrases = new Map<string, string>()
+  private acceptedHostFingerprint?: string
+  private poolGrowthPromptBlocked = false
+  private lifecycleAbort = new AbortController()
   private readonly maxConcurrentExecs: number
   private activeExecs = 0
   private readonly execWaiters: Array<{
@@ -126,10 +184,15 @@ export class SshHost implements ProjectHost {
 
   constructor(private readonly options: SshHostOptions) {
     this.hostId = asHostId(options.config.alias)
-    const requestedExecs = options.maxConcurrentExecs ?? 3
+    const requestedExecs = options.maxConcurrentExecs ?? SSH_DEFAULT_MAX_CONCURRENT_EXECS
     this.maxConcurrentExecs = Math.max(
       1,
-      Math.min(16, Number.isFinite(requestedExecs) ? Math.floor(requestedExecs) : 3),
+      Math.min(
+        16,
+        Number.isFinite(requestedExecs)
+          ? Math.floor(requestedExecs)
+          : SSH_DEFAULT_MAX_CONCURRENT_EXECS,
+      ),
     )
   }
   get connectionState(): HostConnectionState {
@@ -137,6 +200,20 @@ export class SshHost implements ProjectHost {
   }
   get watchTier(): HostWatchTier {
     return this.tier
+  }
+  transportDiagnostics(): readonly SshTransportDiagnostic[] {
+    return [...this.transports]
+      .filter((transport) => !transport.closed)
+      .map((transport) => ({
+        id: transport.id,
+        role: transport.role,
+        primary: transport.primary,
+        channels: transport.channels.size + (transport.sftpActive ? 1 : 0),
+        pendingChannels: transport.pendingChannels,
+        channelBudget: transport.channelBudget,
+        refusedChannels: this.refusedChannels.get(transport.id) ?? 0,
+      }))
+      .sort((a, b) => a.id - b.id)
   }
   onConnectionState(cb: (state: HostConnectionState) => void): Disposer {
     this.listeners.add(cb)
@@ -153,6 +230,7 @@ export class SshHost implements ProjectHost {
     if (this.state === 'connected') return
     if (this.connecting) return this.connecting
     this.disposed = false
+    if (this.lifecycleAbort.signal.aborted) this.lifecycleAbort = new AbortController()
     this.setState(this.reconnectAttempt ? 'reconnecting' : 'connecting')
     this.connecting = this.open()
       .catch((error: unknown) => {
@@ -166,6 +244,7 @@ export class SshHost implements ProjectHost {
   }
   async dispose(): Promise<void> {
     this.disposed = true
+    this.lifecycleAbort.abort()
     this.clientGeneration++
     this.cancelConnecting?.(new Error('SSH connection cancelled'))
     this.cancelConnecting = undefined
@@ -178,9 +257,22 @@ export class SshHost implements ProjectHost {
       if (waiter.abort) waiter.signal?.removeEventListener('abort', waiter.abort)
       waiter.reject(new Error('SSH connection cancelled'))
     }
+    const transports = [...this.transports]
+    const clients = new Set<Client>([
+      ...transports.map((transport) => transport.client),
+      ...this.pendingClients,
+    ])
+    if (this.client) clients.add(this.client)
+    for (const transport of transports) {
+      transport.closed = true
+      if (transport.idleTimer) clearTimeout(transport.idleTimer)
+      for (const fail of transport.failureListeners) fail()
+      transport.failureListeners.clear()
+    }
+    this.transports.clear()
+    this.pendingClients.clear()
     for (const channel of this.channels) channel.close()
     this.channels.clear()
-    const client = this.client
     this.client = undefined
     const sftp = this.sftpSession
     this.sftpSession = undefined
@@ -189,35 +281,17 @@ export class SshHost implements ProjectHost {
     this.readDigests.clear()
     this.fingerprintObservations.clear()
     this.resolvedShell = undefined
+    this.cachedPassword = undefined
+    this.cachedPassphrases.clear()
+    this.acceptedHostFingerprint = undefined
+    this.poolGrowthPromptBlocked = false
+    this.refusedChannels.clear()
     this.setState('disconnected')
     void sftp?.then(
       (session) => session.end(),
       () => undefined,
     )
-    if (!client) return
-    await new Promise<void>((resolve) => {
-      let settled = false
-      const finish = (): void => {
-        if (settled) return
-        settled = true
-        clearTimeout(timer)
-        client.removeListener('close', finish)
-        resolve()
-      }
-      const timer = setTimeout(() => {
-        try {
-          client.destroy()
-        } finally {
-          finish()
-        }
-      }, 1_000)
-      client.once('close', finish)
-      try {
-        client.end()
-      } catch {
-        finish()
-      }
-    })
+    await Promise.all([...clients].map((client) => closeSshClient(client)))
   }
 
   async defaultShell(): Promise<string> {
@@ -237,63 +311,81 @@ export class SshHost implements ProjectHost {
     args: readonly string[],
     opts: ExecOptions = {},
   ): Promise<ExecResult> {
-    if (opts.signal?.aborted) throw abortError()
+    const statusMarker = `__hvir_exec_status_${randomUUID()}__`
+    // Connecting performs its own short capability probe through exec(). Do
+    // not reserve a buffered slot until that handshake has completed.
     const release = await this.acquireExecSlot(opts.signal)
     try {
-      const client = await this.connected()
-      return await new Promise((resolve, reject) =>
-        client.exec(remoteCommand(command, args, opts), (error, stream) => {
-          if (error) return reject(error)
-          this.channels.add(stream)
-          let stdout = '',
-            stderr = '',
-            bytes = 0,
-            code: number | null = null,
-            signal: string | null = null
-          let settled = false
-          const stdoutDecoder = new StringDecoder('utf8')
-          const stderrDecoder = new StringDecoder('utf8')
-          const append = (kind: 'out' | 'err', chunk: Buffer): void => {
-            bytes += chunk.length
-            if (bytes > (opts.maxBuffer ?? 10 * 1024 * 1024)) {
-              if (!settled) reject(new Error('SSH exec output exceeded maxBuffer'))
-              settled = true
-              return stream.close()
+      const { value: stream, reservation } = await this.openWithChannelRetry(
+        'control',
+        (transport) =>
+          new Promise<ClientChannel>((resolve, reject) => {
+            try {
+              transport.client.exec(
+                remoteBufferedCommand(command, args, opts, statusMarker),
+                (error, value) => (error ? reject(error) : resolve(value)),
+              )
+            } catch (error) {
+              reject(asError(error))
             }
-            if (kind === 'out') stdout += stdoutDecoder.write(chunk)
-            else stderr += stderrDecoder.write(chunk)
-          }
-          stream.on('data', (chunk: Buffer) => append('out', chunk))
-          stream.stderr.on('data', (chunk: Buffer) => append('err', chunk))
-          stream.on('exit', (exitCode: number | null, exitSignal?: string) => {
-            code = exitCode
-            signal = exitSignal ?? null
-          })
-          stream.on('error', (reason: Error) => {
-            if (!settled) reject(reason)
-            settled = true
-          })
-          stream.on('close', () => {
-            this.channels.delete(stream)
-            if (!settled) {
-              stdout += stdoutDecoder.end()
-              stderr += stderrDecoder.end()
-              resolve({ code, signal, stdout, stderr })
-            }
-            settled = true
-          })
-          if (opts.signal) {
-            const abort = (): void => {
-              if (!settled) reject(abortError())
-              settled = true
-              stream.close()
-            }
-            opts.signal.addEventListener('abort', abort, { once: true })
-            stream.once('close', () => opts.signal?.removeEventListener('abort', abort))
-          }
-          stream.end(opts.input)
-        }),
+          }),
+        opts.signal,
       )
+      this.activateChannel(reservation, stream)
+      return await new Promise((resolve, reject) => {
+        let stdout = '',
+          stderr = '',
+          bytes = 0,
+          code: number | null = null,
+          signal: string | null = null
+        let settled = false
+        const stdoutDecoder = new StringDecoder('utf8')
+        const stderrDecoder = new StringDecoder('utf8')
+        const append = (kind: 'out' | 'err', chunk: Buffer): void => {
+          bytes += chunk.length
+          if (bytes > (opts.maxBuffer ?? 10 * 1024 * 1024)) {
+            if (!settled) reject(new Error('SSH exec output exceeded maxBuffer'))
+            settled = true
+            return stream.close()
+          }
+          if (kind === 'out') stdout += stdoutDecoder.write(chunk)
+          else stderr += stderrDecoder.write(chunk)
+        }
+        stream.on('data', (chunk: Buffer) => append('out', chunk))
+        stream.stderr.on('data', (chunk: Buffer) => append('err', chunk))
+        stream.on('exit', (exitCode: number | null, exitSignal?: string) => {
+          code = exitCode
+          signal = exitSignal ?? null
+        })
+        stream.on('error', (reason: Error) => {
+          if (!settled) reject(reason)
+          settled = true
+        })
+        stream.on('close', () => {
+          if (!settled) {
+            stdout += stdoutDecoder.end()
+            stderr += stderrDecoder.end()
+            const recovered = recoverBufferedExecStatus(stderr, statusMarker)
+            resolve({
+              code: recovered.code ?? code,
+              signal,
+              stdout,
+              stderr: recovered.stderr,
+            })
+          }
+          settled = true
+        })
+        if (opts.signal) {
+          const abort = (): void => {
+            if (!settled) reject(abortError())
+            settled = true
+            stream.close()
+          }
+          opts.signal.addEventListener('abort', abort, { once: true })
+          stream.once('close', () => opts.signal?.removeEventListener('abort', abort))
+        }
+        stream.end(opts.input)
+      })
     } finally {
       release()
     }
@@ -309,77 +401,131 @@ export class SshHost implements ProjectHost {
     const failures = new Set<(v: Error) => void>()
     const exits = new Set<(v: { code: number | null; signal: string | null }) => void>()
     let stream: ClientChannel | undefined,
-      disposed = false
+      disposed = false,
+      stdinOpen = opts.keepStdinOpen === true
+    let resolveReady!: (channel: ClientChannel) => void
+    let rejectReady!: (error: Error) => void
+    let readySettled = false
+    const ready = new Promise<ClientChannel>((resolve, reject) => {
+      resolveReady = resolve
+      rejectReady = reject
+    })
+    // A listener-only caller may never call write/end. Keep an early channel
+    // failure observable through onError without creating an unhandled promise.
+    void ready.catch(() => undefined)
+    const settleReady = (channel: ClientChannel): void => {
+      if (readySettled) return
+      readySettled = true
+      resolveReady(channel)
+    }
+    const rejectPendingReady = (reason: unknown): Error => {
+      const error = asError(reason)
+      if (!readySettled) {
+        readySettled = true
+        rejectReady(error)
+      }
+      return error
+    }
+    const failReady = (reason: unknown): void => {
+      const error = rejectPendingReady(reason)
+      for (const cb of failures) cb(error)
+    }
     const stdoutDecoder = new StringDecoder('utf8')
     const stderrDecoder = new StringDecoder('utf8')
-    void this.connected().then(
-      (client) =>
-        client.exec(remoteCommand(command, args, opts), (error, channel) => {
-          if (error) {
-            for (const cb of failures) cb(error)
-            return
-          }
-          if (disposed) return channel.close()
-          stream = channel
-          this.channels.add(channel)
-          let result = { code: null as number | null, signal: null as string | null }
-          channel.on('data', (b: Buffer) => {
-            const value = stdoutDecoder.write(b)
-            if (value) for (const cb of out) cb(value)
-          })
-          channel.stderr.on('data', (b: Buffer) => {
-            const value = stderrDecoder.write(b)
-            if (value) for (const cb of err) cb(value)
-          })
-          channel.on('exit', (code: number | null, signal?: string) => {
-            result = { code, signal: signal ?? null }
-          })
-          channel.on('error', (e: Error) => {
-            for (const cb of failures) cb(e)
-          })
-          channel.on('close', () => {
-            this.channels.delete(channel)
-            const finalOut = stdoutDecoder.end()
-            const finalErr = stderrDecoder.end()
-            if (finalOut) for (const cb of out) cb(finalOut)
-            if (finalErr) for (const cb of err) cb(finalErr)
-            for (const cb of exits) cb(result)
-          })
+    void this.openControlStreamChannel(command, args, opts).then(
+      ({ channel }) => {
+        if (disposed) {
+          failReady(new Error('Exec stream is disposed'))
+          return channel.close()
+        }
+        stream = channel
+        settleReady(channel)
+        let result = { code: null as number | null, signal: null as string | null }
+        channel.on('data', (b: Buffer) => {
+          const value = stdoutDecoder.write(b)
+          if (value) for (const cb of out) cb(value)
+        })
+        channel.stderr.on('data', (b: Buffer) => {
+          const value = stderrDecoder.write(b)
+          if (value) for (const cb of err) cb(value)
+        })
+        channel.on('exit', (code: number | null, signal?: string) => {
+          result = { code, signal: signal ?? null }
+        })
+        channel.on('error', (e: Error) => {
+          failReady(e)
+        })
+        channel.on('close', () => {
+          stdinOpen = false
+          const finalOut = stdoutDecoder.end()
+          const finalErr = stderrDecoder.end()
+          if (finalOut) for (const cb of out) cb(finalOut)
+          if (finalErr) for (const cb of err) cb(finalErr)
+          for (const cb of exits) cb(result)
+        })
+        if (stdinOpen) {
+          if (opts.input !== undefined) channel.write(opts.input)
+        } else {
           channel.end(opts.input)
-        }),
+        }
+      },
       (reason: unknown) => {
-        for (const cb of failures) cb(asError(reason))
+        failReady(reason)
       },
     )
+    const writableStdin = (data?: string): void => {
+      if (disposed) throw new Error('Exec stream is disposed')
+      if (!stdinOpen) throw new Error('Exec stream stdin is not open')
+      if (
+        data !== undefined &&
+        Buffer.byteLength(data, 'utf8') > MAX_EXEC_STREAM_WRITE_BYTES
+      ) {
+        throw new Error(
+          `Exec stream write exceeds ${MAX_EXEC_STREAM_WRITE_BYTES} byte limit`,
+        )
+      }
+    }
     return {
       onStdout: (cb) => subscribe(out, cb),
       onStderr: (cb) => subscribe(err, cb),
       onError: (cb) => subscribe(failures, cb),
       onExit: (cb) => subscribe(exits, cb),
-      kill: () => stream?.close(),
+      write: async (data) => {
+        writableStdin(data)
+        const channel = await ready
+        writableStdin(data)
+        await new Promise<void>((resolve, reject) => {
+          channel.write(data, (error?: Error | null) =>
+            error ? reject(error) : resolve(),
+          )
+        })
+      },
+      end: async (data) => {
+        writableStdin(data)
+        const channel = await ready
+        writableStdin(data)
+        stdinOpen = false
+        await new Promise<void>((resolve, reject) => {
+          channel.end(data, (error?: Error | null) => (error ? reject(error) : resolve()))
+        })
+      },
+      kill: () => {
+        disposed = true
+        stdinOpen = false
+        rejectPendingReady(new Error('Exec stream was killed'))
+        stream?.close()
+      },
       dispose: () => {
         disposed = true
+        stdinOpen = false
+        rejectPendingReady(new Error('Exec stream is disposed'))
         stream?.close()
       },
     }
   }
 
   async spawnPty(opts: SpawnPtyOptions): Promise<PtyProcess> {
-    const client = await this.connected()
-    const channel = await new Promise<ClientChannel>((resolve, reject) =>
-      client.exec(
-        remoteCommand(opts.file, opts.args ?? [], { cwd: opts.cwd, env: opts.env }),
-        {
-          pty: {
-            term: opts.name ?? 'xterm-256color',
-            cols: opts.cols ?? 80,
-            rows: opts.rows ?? 24,
-          },
-        },
-        (error, stream) => (error ? reject(error) : resolve(stream)),
-      ),
-    )
-    this.channels.add(channel)
+    const { channel, transport } = await this.openTerminalPtyChannel(opts)
     const data = new Set<(v: string) => void>(),
       exits = new Set<(v: { exitCode: number; signal: number | undefined }) => void>()
     const decoder = new StringDecoder('utf8')
@@ -389,6 +535,8 @@ export class SshHost implements ProjectHost {
       exited = true
       for (const cb of exits) cb({ exitCode, signal: undefined })
     }
+    const transportFailure = (): void => reportExit(255)
+    transport.failureListeners.add(transportFailure)
     channel.on('data', (b: Buffer) => {
       const value = decoder.write(b)
       if (value) for (const cb of data) cb(value)
@@ -397,7 +545,7 @@ export class SshHost implements ProjectHost {
       reportExit(code ?? 0)
     })
     channel.on('close', () => {
-      this.channels.delete(channel)
+      transport.failureListeners.delete(transportFailure)
       const final = decoder.end()
       if (final) for (const cb of data) cb(final)
       // Some SSH servers close a PTY channel without sending exit-status.
@@ -564,11 +712,16 @@ export class SshHost implements ProjectHost {
   private async open(): Promise<void> {
     this.promptedDuringConnect = false
     const client = this.options.clientFactory?.() ?? new Client()
+    this.pendingClients.add(client)
     const generation = ++this.clientGeneration
     const previousClient = this.client
+    const previousTransport = previousClient
+      ? this.transportForClient(previousClient)
+      : undefined
     this.client = client
     this.sftpSession = undefined
     if (previousClient && previousClient !== client) {
+      if (previousTransport) this.retireTransport(previousTransport)
       try {
         previousClient.destroy()
       } catch {
@@ -576,7 +729,15 @@ export class SshHost implements ProjectHost {
         // already unable to affect the replacement.
       }
     }
-    const config = this.connectConfig()
+    const credentialAttempt = this.createCredentialAttempt()
+    const config = this.connectConfig(
+      'primary',
+      undefined,
+      () =>
+        !this.disposed && this.client === client && this.clientGeneration === generation,
+      credentialAttempt,
+    )
+    const transportRef: { current?: SshTransport } = {}
     await new Promise<void>((resolve, reject) => {
       let ready = false
       let settled = false
@@ -589,6 +750,10 @@ export class SshHost implements ProjectHost {
       this.cancelConnecting = (error) => finish(error)
       client.once('ready', () => {
         ready = true
+        this.rememberSuccessfulCredentials(credentialAttempt)
+        // A fresh successful primary authentication is the explicit lifecycle
+        // boundary that permits pool growth after a cancelled prompted attempt.
+        this.poolGrowthPromptBlocked = false
         finish()
       })
       // ssh2 reports agent socket/signing failures through Client's `error`
@@ -600,6 +765,7 @@ export class SshHost implements ProjectHost {
         if (!ready) finish(error)
       })
       client.on('close', () => {
+        if (transportRef.current) this.handleTransportClose(transportRef.current)
         const current = this.client === client && this.clientGeneration === generation
         if (current) {
           this.client = undefined
@@ -617,11 +783,13 @@ export class SshHost implements ProjectHost {
         finish(asError(reason))
       }
     }).finally(() => {
+      this.pendingClients.delete(client)
       this.cancelConnecting = undefined
     })
     if (this.client !== client || this.clientGeneration !== generation) {
       throw new Error('SSH connection was replaced before it became ready')
     }
+    transportRef.current = this.registerTransport('control', client, true)
     this.reconnectAttempt = 0
     this.setState('connected')
     const probe = new AbortController()
@@ -646,17 +814,35 @@ export class SshHost implements ProjectHost {
     if (this.client === client && this.clientGeneration === generation) this.notifyState()
   }
 
-  private connectConfig(): ConnectConfig {
+  private connectConfig(
+    purpose: 'primary' | 'pool' = 'primary',
+    markPrompt?: () => void,
+    isActive: () => boolean = () => !this.disposed,
+    credentialAttempt: SshCredentialAttempt = this.createCredentialAttempt(),
+  ): ConnectConfig {
     const { config, agentSocket, identities = [], prompter } = this.options
     const attempted = new Set<string>()
     let password: string | undefined
     let authenticationCancelled = false
+    let keyboardInteractiveRounds = 0
     const prompt = async (request: SshPrompt): Promise<readonly string[] | undefined> => {
-      this.promptedDuringConnect = true
-      const answers = await prompter.prompt(request)
+      if (purpose === 'primary') this.promptedDuringConnect = true
+      markPrompt?.()
+      const presentedRequest =
+        purpose === 'pool'
+          ? {
+              ...request,
+              title: `Additional SSH capacity — ${request.title}`,
+            }
+          : request
+      const answers = await this.serializedPrompt(() => prompter.prompt(presentedRequest))
+      if (!isActive()) {
+        authenticationCancelled = true
+        return undefined
+      }
       if (!answers) {
         authenticationCancelled = true
-        this.reconnectSuppressed = true
+        if (purpose === 'primary') this.reconnectSuppressed = true
       }
       return answers
     }
@@ -670,11 +856,16 @@ export class SshHost implements ProjectHost {
       // compare a fingerprint without the handshake timing out underneath it.
       readyTimeout: 120_000,
       hostVerifier: (key: Buffer, verify: (valid: boolean) => void) => {
+        if (!isActive()) {
+          verify(false)
+          return
+        }
         const fingerprint = `SHA256:${createHash('sha256')
           .update(key)
           .digest('base64')
           .replace(/=+$/, '')}`
-        const trustedFingerprint = this.options.trustedHostKey?.()
+        const trustedFingerprint =
+          this.acceptedHostFingerprint ?? this.options.trustedHostKey?.()
         if (trustedFingerprint === fingerprint) {
           verify(true)
           return
@@ -694,7 +885,10 @@ export class SshHost implements ProjectHost {
         })
           .then(async (a) => {
             const trusted = a?.[0]?.toLowerCase() === 'yes'
-            if (trusted) await this.options.rememberHostKey?.(fingerprint)
+            if (trusted) {
+              this.acceptedHostFingerprint = fingerprint
+              await this.options.rememberHostKey?.(fingerprint)
+            }
             verify(trusted)
           })
           .catch(() => verify(false))
@@ -706,7 +900,7 @@ export class SshHost implements ProjectHost {
           value: import('ssh2').AnyAuthMethod | false,
         ) => void
         void (async (): Promise<import('ssh2').AnyAuthMethod | false> => {
-          if (authenticationCancelled) return false
+          if (authenticationCancelled || !isActive()) return false
           // `ssh2` passes null before the first authentication attempt. That
           // means the server's methods are not known yet, not that none are
           // available. Start our configured ladder and narrow it after the
@@ -724,6 +918,12 @@ export class SshHost implements ProjectHost {
             let passphrase: string | undefined
             const parsed = utils.parseKey(identity.privateKey)
             if (parsed instanceof Error && /encrypted|passphrase/i.test(parsed.message))
+              passphrase = this.cachedPassphrases.get(identity.path)
+            if (
+              parsed instanceof Error &&
+              /encrypted|passphrase/i.test(parsed.message) &&
+              !passphrase
+            ) {
               passphrase = (
                 await prompt({
                   hostId: this.hostId,
@@ -732,7 +932,10 @@ export class SshHost implements ProjectHost {
                   prompts: [{ text: 'Passphrase', echo: false }],
                 })
               )?.[0]
+              if (passphrase) credentialAttempt.passphrases.set(identity.path, passphrase)
+            }
             if (authenticationCancelled) return false
+            if (!isActive()) return false
             return {
               type: 'publickey',
               username: config.user,
@@ -746,6 +949,12 @@ export class SshHost implements ProjectHost {
               type: 'keyboard-interactive',
               username: config.user,
               prompt: (name, instructions, _lang, prompts, finish) => {
+                keyboardInteractiveRounds++
+                if (keyboardInteractiveRounds > SSH_MAX_KEYBOARD_INTERACTIVE_ROUNDS) {
+                  authenticationCancelled = true
+                  finish([])
+                  return
+                }
                 void prompt({
                   hostId: this.hostId,
                   kind: 'keyboard-interactive',
@@ -763,6 +972,7 @@ export class SshHost implements ProjectHost {
           }
           if (available.has('password') && !attempted.has('password')) {
             attempted.add('password')
+            password ??= this.cachedPassword
             password ??= (
               await prompt({
                 hostId: this.hostId,
@@ -771,12 +981,382 @@ export class SshHost implements ProjectHost {
                 prompts: [{ text: `Password for ${config.user}`, echo: false }],
               })
             )?.[0]
-            if (password) return { type: 'password', username: config.user, password }
+            if (password && isActive()) {
+              credentialAttempt.password = password
+              return { type: 'password', username: config.user, password }
+            }
           }
           return false
-        })().then(send, () => send(false))
+        })().then(
+          (method) => send(isActive() ? method : false),
+          () => send(false),
+        )
       },
     }
+  }
+
+  private async openControlStreamChannel(
+    command: string,
+    args: readonly string[],
+    opts: ExecOptions,
+  ): Promise<{ channel: ClientChannel; transport: SshTransport }> {
+    const { value: channel, reservation } = await this.openWithChannelRetry(
+      'control',
+      (transport) =>
+        new Promise<ClientChannel>((resolve, reject) => {
+          try {
+            transport.client.exec(remoteCommand(command, args, opts), (error, stream) =>
+              error ? reject(error) : resolve(stream),
+            )
+          } catch (error) {
+            reject(asError(error))
+          }
+        }),
+      opts.signal,
+    )
+    this.activateChannel(reservation, channel)
+    return { channel, transport: reservation.transport }
+  }
+
+  private async openTerminalPtyChannel(
+    opts: SpawnPtyOptions,
+  ): Promise<{ channel: ClientChannel; transport: SshTransport }> {
+    const { value: channel, reservation } = await this.openWithChannelRetry(
+      'terminal',
+      (transport) =>
+        new Promise<ClientChannel>((resolve, reject) => {
+          try {
+            transport.client.exec(
+              remoteCommand(opts.file, opts.args ?? [], {
+                cwd: opts.cwd,
+                env: opts.env,
+              }),
+              {
+                pty: {
+                  term: opts.name ?? 'xterm-256color',
+                  cols: opts.cols ?? 80,
+                  rows: opts.rows ?? 24,
+                },
+              },
+              (error, stream) => (error ? reject(error) : resolve(stream)),
+            )
+          } catch (error) {
+            reject(asError(error))
+          }
+        }),
+    )
+    this.activateChannel(reservation, channel)
+    return { channel, transport: reservation.transport }
+  }
+
+  private async openWithChannelRetry<T>(
+    role: SshTransportRole,
+    open: (transport: SshTransport) => Promise<T>,
+    signal?: AbortSignal,
+  ): Promise<{ value: T; reservation: SshTransportReservation }> {
+    const excluded = new Set<number>()
+    for (let attempt = 0; attempt < SSH_CHANNEL_OPEN_ATTEMPTS; attempt++) {
+      throwIfAborted(signal, this.lifecycleAbort.signal)
+      const reservation = await this.reserveTransport(role, excluded)
+      try {
+        const value = await open(reservation.transport)
+        return { value, reservation }
+      } catch (error) {
+        reservation.release()
+        if (!isChannelOpenFailure(error) || attempt + 1 >= SSH_CHANNEL_OPEN_ATTEMPTS) {
+          throw error
+        }
+        this.noteChannelRefusal(reservation.transport)
+        // Retry one transient refusal on the same transport. A second refusal
+        // spills to another healthy/new transport for the rest of this open.
+        if (attempt > 0) excluded.add(reservation.transport.id)
+        await abortableDelay(25 * 2 ** attempt, signal, this.lifecycleAbort.signal)
+      }
+    }
+    throw sshCapacityError(role)
+  }
+
+  private serializedPrompt<T>(work: () => Promise<T>): Promise<T> {
+    const result = this.promptTail.then(work, work)
+    this.promptTail = result.then(
+      () => undefined,
+      () => undefined,
+    )
+    return result
+  }
+
+  private createCredentialAttempt(): SshCredentialAttempt {
+    return { passphrases: new Map() }
+  }
+
+  private rememberSuccessfulCredentials(attempt: SshCredentialAttempt): void {
+    if (attempt.password) this.cachedPassword = attempt.password
+    for (const [path, passphrase] of attempt.passphrases) {
+      this.cachedPassphrases.set(path, passphrase)
+    }
+  }
+
+  private registerTransport(
+    role: SshTransportRole,
+    client: Client,
+    primary: boolean,
+  ): SshTransport {
+    const existing = this.transportForClient(client)
+    if (existing) return existing
+    const transport: SshTransport = {
+      id: this.nextTransportId++,
+      role,
+      client,
+      primary,
+      channels: new Set(),
+      failureListeners: new Set(),
+      pendingChannels: 0,
+      channelBudget:
+        role === 'control' ? SSH_CONTROL_CHANNEL_BUDGET : SSH_TERMINAL_CHANNEL_BUDGET,
+      sftpActive: false,
+      closed: false,
+    }
+    this.transports.add(transport)
+    return transport
+  }
+
+  private transportForClient(client: Client): SshTransport | undefined {
+    return [...this.transports].find(
+      (transport) => transport.client === client && !transport.closed,
+    )
+  }
+
+  private transportLoad(transport: SshTransport): number {
+    return (
+      transport.channels.size + transport.pendingChannels + (transport.sftpActive ? 1 : 0)
+    )
+  }
+
+  private availableTransport(
+    role: SshTransportRole,
+    excluded: ReadonlySet<number>,
+  ): SshTransport | undefined {
+    return [...this.transports]
+      .filter(
+        (transport) =>
+          !transport.closed &&
+          transport.role === role &&
+          !excluded.has(transport.id) &&
+          this.transportLoad(transport) < transport.channelBudget,
+      )
+      .sort((a, b) => this.transportLoad(a) - this.transportLoad(b) || a.id - b.id)[0]
+  }
+
+  private reserveOnTransport(transport: SshTransport): SshTransportReservation {
+    if (transport.idleTimer) {
+      clearTimeout(transport.idleTimer)
+      transport.idleTimer = undefined
+    }
+    transport.pendingChannels++
+    let released = false
+    return {
+      transport,
+      release: () => {
+        if (released) return
+        released = true
+        transport.pendingChannels = Math.max(0, transport.pendingChannels - 1)
+        this.scheduleTransportIdle(transport)
+      },
+    }
+  }
+
+  private async reserveTransport(
+    role: SshTransportRole,
+    excluded: ReadonlySet<number> = new Set(),
+  ): Promise<SshTransportReservation> {
+    const primary = await this.connected()
+    this.registerTransport('control', primary, true)
+    const available = this.availableTransport(role, excluded)
+    if (available) return this.reserveOnTransport(available)
+
+    let resolveResult!: (reservation: SshTransportReservation) => void
+    let rejectResult!: (error: Error) => void
+    const result = new Promise<SshTransportReservation>((resolve, reject) => {
+      resolveResult = resolve
+      rejectResult = reject
+    })
+    const grow = async (): Promise<void> => {
+      try {
+        const reused = this.availableTransport(role, excluded)
+        if (reused) {
+          resolveResult(this.reserveOnTransport(reused))
+          return
+        }
+        const live = [...this.transports].filter((transport) => !transport.closed)
+        const roleCount = live.filter((transport) => transport.role === role).length
+        if (
+          live.length >= SSH_MAX_PHYSICAL_TRANSPORTS ||
+          (role === 'control' && roleCount >= SSH_MAX_CONTROL_TRANSPORTS)
+        ) {
+          throw sshCapacityError(role)
+        }
+        if (this.poolGrowthPromptBlocked) {
+          throw new Error(
+            `SSH ${role} capacity is unavailable after authentication was cancelled or refused`,
+          )
+        }
+        let transport: SshTransport
+        try {
+          transport = await this.openAuxiliaryTransport(role)
+        } catch (error) {
+          throw new Error(
+            `SSH ${role} capacity could not grow; existing sessions remain connected: ${asError(error).message}`,
+          )
+        }
+        resolveResult(this.reserveOnTransport(transport))
+      } catch (error) {
+        rejectResult(asError(error))
+      }
+    }
+    const queued = this.transportGrowthTail.then(grow, grow)
+    this.transportGrowthTail = queued.then(
+      () => undefined,
+      () => undefined,
+    )
+    return result
+  }
+
+  private async openAuxiliaryTransport(role: SshTransportRole): Promise<SshTransport> {
+    const client = this.options.clientFactory?.() ?? new Client()
+    this.pendingClients.add(client)
+    let ready = false
+    let closed = false
+    let prompted = false
+    let transport: SshTransport | undefined
+    const credentialAttempt = this.createCredentialAttempt()
+    const config = this.connectConfig(
+      'pool',
+      () => {
+        prompted = true
+      },
+      () => !this.disposed && !closed,
+      credentialAttempt,
+    )
+    try {
+      await new Promise<void>((resolve, reject) => {
+        let settled = false
+        const finish = (error?: Error): void => {
+          if (settled) return
+          settled = true
+          if (error) reject(error)
+          else resolve()
+        }
+        client.once('ready', () => {
+          ready = true
+          this.rememberSuccessfulCredentials(credentialAttempt)
+          finish()
+        })
+        client.on('error', (error) => {
+          if (!ready && isRecoverableAuthenticationError(error)) return
+          if (!ready) finish(error)
+        })
+        client.on('close', () => {
+          closed = true
+          if (transport) this.handleTransportClose(transport)
+          if (!ready) {
+            finish(new Error('SSH pool transport closed before authentication completed'))
+          }
+        })
+        try {
+          client.connect(config)
+        } catch (error) {
+          finish(asError(error))
+        }
+      })
+      if (this.disposed || closed) {
+        throw new Error('SSH pool transport closed before it became available')
+      }
+      transport = this.registerTransport(role, client, false)
+      return transport
+    } catch (error) {
+      if (prompted) this.poolGrowthPromptBlocked = true
+      if (!closed) {
+        try {
+          client.end()
+        } catch {
+          // A failed auxiliary never became pool capacity.
+        }
+      }
+      throw error
+    } finally {
+      this.pendingClients.delete(client)
+    }
+  }
+
+  private activateChannel(
+    reservation: SshTransportReservation,
+    channel: ClientChannel,
+  ): void {
+    reservation.release()
+    const { transport } = reservation
+    if (transport.closed) {
+      channel.close()
+      return
+    }
+    if (transport.idleTimer) {
+      clearTimeout(transport.idleTimer)
+      transport.idleTimer = undefined
+    }
+    transport.channels.add(channel)
+    this.channels.add(channel)
+    let released = false
+    channel.once('close', () => {
+      if (released) return
+      released = true
+      transport.channels.delete(channel)
+      this.channels.delete(channel)
+      this.scheduleTransportIdle(transport)
+    })
+  }
+
+  private noteChannelRefusal(transport: SshTransport): void {
+    this.refusedChannels.set(
+      transport.id,
+      Math.min(1_000, (this.refusedChannels.get(transport.id) ?? 0) + 1),
+    )
+  }
+
+  private scheduleTransportIdle(transport: SshTransport): void {
+    if (
+      transport.primary ||
+      transport.closed ||
+      transport.idleTimer ||
+      this.transportLoad(transport) !== 0
+    ) {
+      return
+    }
+    transport.idleTimer = setTimeout(() => {
+      transport.idleTimer = undefined
+      if (transport.closed || this.transportLoad(transport) !== 0) return
+      this.retireTransport(transport)
+      try {
+        transport.client.end()
+      } catch {
+        // Idle retirement is best-effort; the transport is already unregistered.
+      }
+    }, SSH_TRANSPORT_IDLE_GRACE_MS)
+  }
+
+  private handleTransportClose(transport: SshTransport): void {
+    this.retireTransport(transport)
+  }
+
+  private retireTransport(transport: SshTransport): void {
+    if (transport.closed) return
+    transport.closed = true
+    if (transport.idleTimer) clearTimeout(transport.idleTimer)
+    transport.idleTimer = undefined
+    transport.sftpActive = false
+    this.transports.delete(transport)
+    for (const fail of transport.failureListeners) fail()
+    transport.failureListeners.clear()
+    for (const channel of transport.channels) this.channels.delete(channel)
+    transport.channels.clear()
   }
 
   private async connected(): Promise<Client> {
@@ -881,12 +1461,7 @@ export class SshHost implements ProjectHost {
 
   private getSftp(): Promise<SFTPWrapper> {
     if (this.sftpSession) return this.sftpSession
-    const pending = this.connected().then(
-      (client) =>
-        new Promise<SFTPWrapper>((resolve, reject) =>
-          client.sftp((error, session) => (error ? reject(error) : resolve(session))),
-        ),
-    )
+    const pending = this.openSftpSession()
     this.sftpSession = pending
     void pending.then(
       (session) => {
@@ -899,6 +1474,32 @@ export class SshHost implements ProjectHost {
       },
     )
     return pending
+  }
+
+  private async openSftpSession(): Promise<SFTPWrapper> {
+    const { value: session, reservation } = await this.openWithChannelRetry(
+      'control',
+      (transport) =>
+        new Promise<SFTPWrapper>((resolve, reject) => {
+          try {
+            transport.client.sftp((error, value) =>
+              error ? reject(error) : resolve(value),
+            )
+          } catch (error) {
+            reject(asError(error))
+          }
+        }),
+    )
+    reservation.release()
+    const { transport } = reservation
+    if (transport.idleTimer) clearTimeout(transport.idleTimer)
+    transport.idleTimer = undefined
+    transport.sftpActive = true
+    session.once('close', () => {
+      transport.sftpActive = false
+      this.scheduleTransportIdle(transport)
+    })
+    return session
   }
 
   private watchInotify(
@@ -1253,6 +1854,27 @@ function remoteCommand(
   const invocation = env ? `env ${env} ${executable}` : executable
   return opts.cwd ? `cd -- ${quote(opts.cwd.path)} && ${invocation}` : invocation
 }
+function remoteBufferedCommand(
+  command: string,
+  args: readonly string[],
+  opts: Pick<ExecOptions, 'cwd' | 'env'>,
+  statusMarker: string,
+): string {
+  const invocation = remoteCommand(command, args, opts)
+  return `( ${invocation} ); hvir_status=$?; printf '%s%s' ${quote(statusMarker)} "$hvir_status" >&2; exit "$hvir_status"`
+}
+function recoverBufferedExecStatus(
+  stderr: string,
+  statusMarker: string,
+): { readonly code?: number; readonly stderr: string } {
+  const markerAt = stderr.lastIndexOf(statusMarker)
+  if (markerAt < 0) return { stderr }
+  const rawCode = stderr.slice(markerAt + statusMarker.length)
+  if (!/^\d{1,3}$/.test(rawCode)) return { stderr }
+  const code = Number(rawCode)
+  if (!Number.isSafeInteger(code) || code > 255) return { stderr }
+  return { code, stderr: stderr.slice(0, markerAt) }
+}
 function quote(value: string): string {
   return `'${value.replaceAll("'", `'"'"'`)}'`
 }
@@ -1324,6 +1946,71 @@ function subscribe<T>(set: Set<(v: T) => void>, cb: (v: T) => void): Disposer {
 }
 function asError(value: unknown): Error {
   return value instanceof Error ? value : new Error(String(value))
+}
+function isChannelOpenFailure(value: unknown): boolean {
+  return value instanceof Error && /\bchannel open failure\b/i.test(value.message)
+}
+function sshCapacityError(role: SshTransportRole): Error {
+  return new Error(
+    `SSH ${role} capacity is full (${SSH_MAX_PHYSICAL_TRANSPORTS} transport limit); existing sessions remain connected`,
+  )
+}
+function closeSshClient(client: Client): Promise<void> {
+  return new Promise<void>((resolve) => {
+    let settled = false
+    const finish = (): void => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      client.removeListener('close', finish)
+      resolve()
+    }
+    const timer = setTimeout(() => {
+      try {
+        client.destroy()
+      } finally {
+        finish()
+      }
+    }, 1_000)
+    client.once('close', finish)
+    try {
+      client.end()
+    } catch {
+      finish()
+    }
+  })
+}
+function abortableDelay(
+  ms: number,
+  ...signals: Array<AbortSignal | undefined>
+): Promise<void> {
+  const activeSignals = signals.filter(
+    (signal): signal is AbortSignal => signal !== undefined,
+  )
+  if (activeSignals.some((signal) => signal.aborted)) {
+    return Promise.reject(abortError())
+  }
+  return new Promise((resolve, reject) => {
+    const cleanup = (): void => {
+      for (const signal of activeSignals) signal.removeEventListener('abort', abort)
+    }
+    const finish = (): void => {
+      cleanup()
+      resolve()
+    }
+    const abort = (): void => {
+      clearTimeout(timer)
+      cleanup()
+      reject(abortError())
+    }
+    const timer = setTimeout(finish, ms)
+    for (const signal of activeSignals) {
+      signal.addEventListener('abort', abort, { once: true })
+    }
+  })
+}
+function throwIfAborted(...signals: Array<AbortSignal | undefined>): void {
+  if (signals.some((signal) => signal?.aborted)) throw abortError()
 }
 function abortError(): Error {
   return new DOMException('The operation was aborted', 'AbortError')

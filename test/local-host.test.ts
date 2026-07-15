@@ -12,6 +12,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { LocalHost } from '../src/main/project-host/local-host'
+import { MAX_EXEC_STREAM_WRITE_BYTES } from '../src/main/project-host/project-host'
 import { asHostId, hostPath, localPath, type WatchEvent } from '../src/shared'
 
 const delay = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms))
@@ -143,6 +144,38 @@ describe('LocalHost', () => {
     expect(result).toEqual({ code: 0, signal: null })
     expect(stdout).toBe('')
     stream.dispose()
+  })
+
+  it('supports bounded duplex streaming when explicitly requested', async () => {
+    const stream = host.execStream('cat', [], { keepStdinOpen: true })
+    let stdout = ''
+    stream.onStdout((chunk) => {
+      stdout += chunk
+    })
+    const exited = new Promise<void>((resolve, reject) => {
+      stream.onError(reject)
+      stream.onExit(() => resolve())
+    })
+
+    await stream.write('first ')
+    await stream.end('second')
+    await exited
+
+    expect(stdout).toBe('first second')
+    stream.dispose()
+  })
+
+  it('rejects oversized or unrequested streaming stdin writes', async () => {
+    const closed = host.execStream('cat', [])
+    await expect(closed.write('unexpected')).rejects.toThrow('stdin is not open')
+    closed.dispose()
+
+    const duplex = host.execStream('cat', [], { keepStdinOpen: true })
+    await expect(
+      duplex.write('x'.repeat(MAX_EXEC_STREAM_WRITE_BYTES + 1)),
+    ).rejects.toThrow('byte limit')
+    await duplex.end()
+    duplex.dispose()
   })
 
   it('reports streaming spawn errors instead of emitting an unhandled error', async () => {

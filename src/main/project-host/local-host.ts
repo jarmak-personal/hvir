@@ -44,6 +44,7 @@ import type {
   WatchOptions,
   WriteFileOptions,
 } from './project-host'
+import { MAX_EXEC_STREAM_WRITE_BYTES } from './project-host'
 
 const DEFAULT_MAX_BUFFER = 10 * 1024 * 1024 // 10 MiB
 
@@ -149,6 +150,8 @@ export class LocalHost implements ProjectHost {
     const stderrListeners = new Set<(value: string) => void>()
     const stdoutDecoder = new StringDecoder('utf8')
     const stderrDecoder = new StringDecoder('utf8')
+    let stdinOpen = opts.keepStdinOpen === true
+    let disposed = false
     const onError = (error: Error): void => {
       for (const cb of errorListeners) cb(error)
     }
@@ -164,15 +167,43 @@ export class LocalHost implements ProjectHost {
       if (value) for (const cb of stderrListeners) cb(value)
     })
     child.on('close', () => {
+      stdinOpen = false
       const stdout = stdoutDecoder.end()
       const stderr = stderrDecoder.end()
       if (stdout) for (const cb of stdoutListeners) cb(stdout)
       if (stderr) for (const cb of stderrListeners) cb(stderr)
     })
 
-    // There is no streaming stdin writer in this Phase 1 seam, so EOF is the
-    // only useful default when no fixed input was supplied.
-    child.stdin.end(opts.input)
+    if (stdinOpen) {
+      if (opts.input !== undefined) child.stdin.write(opts.input)
+    } else {
+      child.stdin.end(opts.input)
+    }
+
+    const writableStdin = (data?: string): void => {
+      if (disposed) throw new Error('Exec stream is disposed')
+      if (!stdinOpen) throw new Error('Exec stream stdin is not open')
+      if (
+        data !== undefined &&
+        Buffer.byteLength(data, 'utf8') > MAX_EXEC_STREAM_WRITE_BYTES
+      ) {
+        throw new Error(
+          `Exec stream write exceeds ${MAX_EXEC_STREAM_WRITE_BYTES} byte limit`,
+        )
+      }
+    }
+    const performStdinWrite = (operation: (done: () => void) => void): Promise<void> =>
+      new Promise<void>((resolve, reject) => {
+        const onStdinError = (error: Error): void => {
+          child.stdin.off('error', onStdinError)
+          reject(error)
+        }
+        child.stdin.once('error', onStdinError)
+        operation(() => {
+          child.stdin.off('error', onStdinError)
+          resolve()
+        })
+      })
 
     return {
       onStdout(cb) {
@@ -201,10 +232,29 @@ export class LocalHost implements ProjectHost {
           child.off('close', h)
         }
       },
+      write(data) {
+        try {
+          writableStdin(data)
+        } catch (error) {
+          return Promise.reject(asError(error))
+        }
+        return performStdinWrite((done) => child.stdin.write(data, done))
+      },
+      end(data) {
+        try {
+          writableStdin(data)
+        } catch (error) {
+          return Promise.reject(asError(error))
+        }
+        stdinOpen = false
+        return performStdinWrite((done) => child.stdin.end(data, done))
+      },
       kill(signal) {
         child.kill(signal as NodeJS.Signals | undefined)
       },
       dispose() {
+        disposed = true
+        stdinOpen = false
         errorListeners.clear()
         stdoutListeners.clear()
         stderrListeners.clear()
@@ -413,6 +463,10 @@ export class LocalHost implements ProjectHost {
   private wrap(rawPath: string): HostPath {
     return hostPath(this.hostId, rawPath)
   }
+}
+
+function asError(reason: unknown): Error {
+  return reason instanceof Error ? reason : new Error(String(reason))
 }
 
 function fileChangedError(): Error {

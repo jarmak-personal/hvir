@@ -11,7 +11,9 @@ import {
   type GitCommitSummary,
   type GitHistoryPage,
   type GitCommitDetail,
+  type HostId,
   type HostPath,
+  type WorktreeDiscovery,
 } from '../../shared'
 import type { ExecOptions, ProjectHost } from '../project-host'
 
@@ -29,6 +31,92 @@ export class GitEngine {
      */
     private readonly projectRoot?: HostPath,
   ) {}
+
+  async worktrees(projectRoot: HostPath): Promise<WorktreeDiscovery> {
+    this.assertHost(projectRoot)
+    const result = await execReadOnlyGit(this.host, projectRoot, [
+      'worktree',
+      'list',
+      '--porcelain',
+      '-z',
+    ])
+    if (result.code !== 0) {
+      // Git's usage exit is locale-independent; stderr wording is not. Null is
+      // retained for transports that omit exit-status, and the legacy command
+      // must still succeed before its less expressive output is accepted.
+      if (result.code === 129 || result.code === null) {
+        const legacy = await execReadOnlyGit(this.host, projectRoot, [
+          'worktree',
+          'list',
+          '--porcelain',
+        ])
+        if (legacy.code !== 0) {
+          throw gitError(['worktree', 'list', '--porcelain'], legacy.stderr, legacy.code)
+        }
+        const worktrees = parseLegacyWorktreeList(legacy.stdout, projectRoot.hostId)
+        if (worktrees.length === 0) throw new Error('git reported no worktrees')
+        return { repository: true, worktrees }
+      }
+      const context = await this.projectContext(projectRoot)
+      if (context) {
+        throw gitError(
+          ['worktree', 'list', '--porcelain', '-z'],
+          result.stderr,
+          result.code,
+        )
+      }
+      return {
+        repository: false,
+        worktrees: [
+          {
+            root: projectRoot,
+            detached: false,
+            bare: false,
+          },
+        ],
+      }
+    }
+    const worktrees = parseWorktreeList(result.stdout, projectRoot.hostId)
+    if (worktrees.length === 0) throw new Error('git reported no worktrees')
+    return { repository: true, worktrees }
+  }
+
+  /**
+   * Remove only stale worktree administrative records, then rediscover the
+   * repository while the caller's explicit mutation authorization is active.
+   */
+  async pruneWorktrees(projectRoot: HostPath): Promise<WorktreeDiscovery> {
+    this.assertHost(projectRoot)
+    const result = await execGit(this.host, projectRoot, [
+      'worktree',
+      'prune',
+      '--expire',
+      'now',
+      '--verbose',
+    ])
+    if (result.code !== 0) {
+      throw gitError(
+        ['worktree', 'prune', '--expire', 'now', '--verbose'],
+        result.stderr,
+        result.code,
+      )
+    }
+    return this.worktrees(projectRoot)
+  }
+
+  async changedFileCount(workspaceRoot: HostPath): Promise<number> {
+    this.assertHost(workspaceRoot)
+    return parseStatus(
+      await this.run(workspaceRoot, [
+        'status',
+        '--porcelain=v2',
+        '-z',
+        '--untracked-files=all',
+        '--',
+        '.',
+      ]),
+    ).length
+  }
 
   async diffInputs(
     path: HostPath,
@@ -646,6 +734,73 @@ export class GitEngine {
   }
 }
 
+/** Parse Git's NUL-delimited porcelain format without interpreting paths as text lines. */
+export function parseWorktreeList(
+  output: string,
+  hostId: HostId,
+): WorktreeDiscovery['worktrees'] {
+  const worktrees: WorktreeDiscovery['worktrees'][number][] = []
+  let current:
+    | {
+        root: HostPath
+        head?: string
+        branch?: string
+        detached: boolean
+        bare: boolean
+        prunable?: boolean
+        prunableReason?: string
+      }
+    | undefined
+  const finish = (): void => {
+    if (!current) return
+    worktrees.push(current)
+    current = undefined
+  }
+  for (const field of output.split('\0')) {
+    if (!field) {
+      finish()
+      continue
+    }
+    const separator = field.indexOf(' ')
+    const key = separator < 0 ? field : field.slice(0, separator)
+    const value = separator < 0 ? '' : field.slice(separator + 1)
+    if (key === 'worktree') {
+      finish()
+      if (!value.startsWith('/')) throw new Error('git reported a non-absolute worktree')
+      current = {
+        root: hostPath(hostId, value),
+        detached: false,
+        bare: false,
+      }
+    } else if (current && key === 'HEAD' && /^[0-9a-f]{40,64}$/i.test(value)) {
+      current.head = value
+    } else if (current && key === 'branch' && value.startsWith('refs/heads/')) {
+      current.branch = value.slice('refs/heads/'.length)
+    } else if (current && key === 'detached') {
+      current.detached = true
+    } else if (current && key === 'bare') {
+      current.bare = true
+    } else if (current && key === 'prunable') {
+      current.prunable = true
+      current.prunableReason =
+        value.trim().slice(0, 1_024) || 'Git reported stale worktree metadata'
+    }
+  }
+  finish()
+  return worktrees
+}
+
+/** Compatibility for Git versions predating `worktree list -z`. */
+function parseLegacyWorktreeList(
+  output: string,
+  hostId: HostId,
+): WorktreeDiscovery['worktrees'] {
+  // Porcelain fields keep spaces after their key. Reject quoted paths rather
+  // than misaddressing a workspace that legacy Git cannot represent safely.
+  const fields = output.split(/\r?\n/).filter(Boolean).join('\0')
+  return parseWorktreeList(fields, hostId)
+}
+
 function gitError(args: readonly string[], stderr: string, code: number | null): Error {
   const detail = stderr.trim() || `exit code ${String(code)}`
   return new Error(`git ${args.join(' ')} failed: ${detail}`)
@@ -950,4 +1105,13 @@ function execReadOnlyGit(
     // a Git refresh back into itself indefinitely.
     env: { ...opts.env, GIT_OPTIONAL_LOCKS: '0' },
   })
+}
+
+function execGit(
+  host: ProjectHost,
+  root: HostPath,
+  args: readonly string[],
+  opts: ExecOptions = {},
+): Promise<ExecResult> {
+  return host.exec('git', ['-C', root.path, ...args], opts)
 }

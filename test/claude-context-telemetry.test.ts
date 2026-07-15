@@ -98,9 +98,12 @@ describe('Claude Code context telemetry', () => {
     let stop: (() => void | Promise<void>) | undefined
     try {
       stop = observeClaudeContext(host, {
+        subscriptionId: SESSION_ID,
         sessionId: SESSION_ID,
         signal: controller.signal,
-        emit: (telemetry) => emitted.push(telemetry),
+        emit: (telemetry) => {
+          if (telemetry) emitted.push(telemetry)
+        },
       })
       await appendFile(
         transcript,

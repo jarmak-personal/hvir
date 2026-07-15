@@ -55,6 +55,14 @@ export function TerminalView({
   onBell,
   onFocus,
 }: TerminalViewProps): ReactElement {
+  const workspaceRootRef = useRef(cwd)
+  if (
+    workspaceRootRef.current.hostId !== cwd.hostId ||
+    workspaceRootRef.current.path !== cwd.path
+  ) {
+    workspaceRootRef.current = cwd
+  }
+  const workspaceRoot = workspaceRootRef.current
   const containerRef = useRef<HTMLDivElement>(null)
   const paneRef = useRef<TerminalPane | undefined>(undefined)
   const activeRef = useRef(active)
@@ -215,7 +223,7 @@ export function TerminalView({
         const result = await window.hvir.invoke('pty:start', {
           sessionId,
           adapterId,
-          cwd,
+          cwd: workspaceRoot,
           cols: terminalSize.cols,
           rows: terminalSize.rows,
           title: metadata.title,
@@ -272,7 +280,14 @@ export function TerminalView({
       container.replaceChildren()
       if (ptyStarted) window.hvir.send('pty:kill', { id: sessionId })
     }
-  }, [adapterId, connectionState, cwd, fallbackTitle, restartGeneration, sessionId])
+  }, [
+    adapterId,
+    connectionState,
+    fallbackTitle,
+    restartGeneration,
+    sessionId,
+    workspaceRoot,
+  ])
 
   return (
     <section
@@ -300,7 +315,7 @@ export function TerminalView({
         </span>
       </header>
       <div
-        key={`${cwd.hostId}:${cwd.path}:${connectionState}`}
+        key={`${workspaceRoot.hostId}:${workspaceRoot.path}:${connectionState}`}
         className="terminal-container"
         ref={containerRef}
         onMouseDown={() => handlersRef.current.onFocus()}

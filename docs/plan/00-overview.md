@@ -27,12 +27,14 @@ conflict, the design doc wins; if you must deviate, record why (see Ground rules
 | 4 | SSH hosts | [04-ssh-hosts.md](04-ssh-hosts.md) | done |
 | 5 | Git explorer | [05-git-explorer.md](05-git-explorer.md) | done |
 | 6 | Agent awareness | [06-agent-awareness.md](06-agent-awareness.md) | done |
-| 7 | Workspaces | [07-workspaces.md](07-workspaces.md) | not started |
+| 7 | Workspaces | [07-workspaces.md](07-workspaces.md) | done |
+| 7.5 | SSH capacity & telemetry multiplexing | [07.5-ssh-capacity.md](07.5-ssh-capacity.md) | done |
 | 8 | Polish & packaging | [08-polish-and-packaging.md](08-polish-and-packaging.md) | not started |
 
 Dependency notes: 2 depends on 1. 3 depends on 2. Phases 4 and 5 both depend on 3 and
 could run in parallel or swapped. 6 depends on 1 (seams) and benefits from 3. 7 depends
-on 5 and 6. 8 is last.
+on 5 and 6. 7.5 depends on the SSH, agent-awareness, and workspace load exposed by phases
+4, 6, and 7. Phase 8 is last.
 
 ## Active review queue
 

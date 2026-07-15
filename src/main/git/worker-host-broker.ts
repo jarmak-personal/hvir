@@ -11,10 +11,16 @@ const MAX_ARGUMENTS = 256
 const MAX_ARGUMENT_LENGTH = 16_384
 const SAFE_GIT_CONFIG = ['-c', 'core.fsmonitor=false'] as const
 
+export interface GitHostCallPermissions {
+  /** One-shot main-process authorization for the explicit workspace prune UI. */
+  readonly allowWorktreePrune?: boolean
+}
+
 /** Main-side enforcement for the untrusted Git utility-process transport. */
 export async function dispatchWorkerHostCall(
   call: WorkerHostCall,
   project: { readonly host: ProjectHost; readonly root: HostPath } | null,
+  permissions: GitHostCallPermissions = {},
 ): Promise<ExecResult | string> {
   if (!project || call.hostId !== project.host.hostId) {
     throw new Error('git worker requested an inactive host')
@@ -37,7 +43,17 @@ export async function dispatchWorkerHostCall(
   ) {
     throw new Error('git worker supplied an invalid command')
   }
+  const worktreePrune = sameArgs(call.args.slice(2), [
+    'worktree',
+    'prune',
+    '--expire',
+    'now',
+    '--verbose',
+  ])
   validateGitInvocation(call.args)
+  if (worktreePrune && !permissions.allowWorktreePrune) {
+    throw new Error('git worker requested an unauthorized worktree prune')
+  }
   if (call.cwd || !isAllowedGitInput(call.args, call.input)) {
     throw new Error('git worker supplied unsupported execution options')
   }
@@ -55,9 +71,10 @@ export async function dispatchWorkerHostCall(
   return withTimeout(
     host.exec('git', [...SAFE_GIT_CONFIG, ...call.args], {
       cwd: root,
-      // GitEngine is read-only. Suppress optional index refresh writes so the
-      // .git watcher cannot feed a status request back into itself.
-      env: { GIT_OPTIONAL_LOCKS: '0' },
+      // Background reads suppress optional index refresh writes so the .git
+      // watcher cannot feed a status request back into itself. The one
+      // explicitly authorized prune retains Git's normal locking.
+      ...(worktreePrune ? {} : { env: { GIT_OPTIONAL_LOCKS: '0' } }),
       ...(call.input !== undefined ? { input: call.input } : {}),
       maxBuffer,
       signal: controller.signal,
@@ -67,7 +84,7 @@ export async function dispatchWorkerHostCall(
   )
 }
 
-/** Validate the exact read-only command grammar emitted by GitEngine. */
+/** Validate the exact command grammar emitted by GitEngine. */
 function validateGitInvocation(args: readonly string[]): void {
   const [dashC, commandRoot, subcommand, ...rest] = args
   if (dashC !== '-C' || !commandRoot || !subcommand) invalidGitInvocation()
@@ -155,6 +172,14 @@ function validateGitInvocation(args: readonly string[]): void {
         rest[1] === '--error-unmatch' &&
         rest[2] === '--' &&
         isRepositoryPath(rest[3] ?? '')
+      )
+        return
+      break
+    case 'worktree':
+      if (
+        sameArgs(rest, ['list', '--porcelain', '-z']) ||
+        sameArgs(rest, ['list', '--porcelain']) ||
+        sameArgs(rest, ['prune', '--expire', 'now', '--verbose'])
       )
         return
       break

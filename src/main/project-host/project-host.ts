@@ -22,11 +22,22 @@ import type {
 
 export type { Disposer }
 
+/** Maximum UTF-8 payload accepted by one duplex exec-stream write. */
+export const MAX_EXEC_STREAM_WRITE_BYTES = 256 * 1024
+
 export interface ExecOptions {
   readonly cwd?: HostPath
   readonly env?: Record<string, string>
-  /** Written to the child's stdin, then stdin is closed. */
+  /** Written to the child's stdin before the stream is exposed. */
   readonly input?: string
+  /**
+   * Keep stdin open for `ExecStreamHandle.write()` / `.end()`.
+   *
+   * Streaming stdin remains closed by default so existing commands that read
+   * until EOF cannot hang. Buffered `exec()` always ignores this option and
+   * closes stdin after `input`.
+   */
+  readonly keepStdinOpen?: boolean
   readonly signal?: AbortSignal
   /** Max bytes to buffer across stdout+stderr before failing. */
   readonly maxBuffer?: number
@@ -37,6 +48,10 @@ export interface ExecStreamHandle {
   onStderr(cb: (chunk: string) => void): Disposer
   onError(cb: (error: Error) => void): Disposer
   onExit(cb: (result: { code: number | null; signal: string | null }) => void): Disposer
+  /** Write one bounded UTF-8 payload, resolving after the transport accepts it. */
+  write(data: string): Promise<void>
+  /** Optionally write one final bounded payload, then close stdin. */
+  end(data?: string): Promise<void>
   kill(signal?: string): void
   dispose(): void
 }

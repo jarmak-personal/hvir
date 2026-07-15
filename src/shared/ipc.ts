@@ -36,6 +36,7 @@ import type {
 } from './git-types'
 import type { HostConnectionState, HostWatchTier } from './fs-types'
 import type { HarnessTelemetry } from './harness-telemetry'
+import type { RegisteredProjectState } from './workspace-types'
 
 /** Basic app/runtime info — the trivial round-trip that proves the contract. */
 export interface AppInfo {
@@ -70,12 +71,27 @@ export interface ProjectHostOption {
 export interface ProjectState extends ProjectRootResponse {
   readonly connectionState: HostConnectionState
   readonly watchTier: HostWatchTier
+  readonly projects: readonly RegisteredProjectState[]
+  readonly activeProjectId: string
+  readonly activeWorkspaceId: string
 }
 
 export interface OpenProjectRequest {
   readonly hostId: string
   readonly path: string
 }
+
+export interface SwitchWorkspaceRequest {
+  readonly projectId: string
+  readonly workspaceId: string
+}
+
+export interface RefreshProjectRequest {
+  readonly projectId: string
+}
+
+export type PruneProjectWorktreesRequest = RefreshProjectRequest
+export type DismissWorkspaceRequest = SwitchWorkspaceRequest
 
 export interface ConnectHostRequest {
   readonly hostId: string
@@ -240,6 +256,22 @@ export interface IpcInvokeMap {
     request: OpenProjectRequest
     response: OperationResult<ProjectState>
   }
+  'project:switch': {
+    request: SwitchWorkspaceRequest
+    response: OperationResult<ProjectState>
+  }
+  'project:refresh': {
+    request: RefreshProjectRequest
+    response: OperationResult<ProjectState>
+  }
+  'workspace:prune': {
+    request: PruneProjectWorktreesRequest
+    response: OperationResult<ProjectState>
+  }
+  'workspace:dismiss': {
+    request: DismissWorkspaceRequest
+    response: OperationResult<ProjectState>
+  }
   'ssh:prompt-response': { request: SshPromptResponse; response: void }
   'fs:readdir': {
     request: ReadDirectoryRequest
@@ -297,7 +329,10 @@ export interface IpcEventMap {
   'ssh:prompt-cancel': { readonly hostId: string }
   'pty:data': { readonly id: string; readonly data: string }
   'pty:exit': { readonly id: string; readonly exitCode: number; readonly signal?: number }
-  'pty:telemetry': { readonly id: string; readonly telemetry: HarnessTelemetry }
+  'pty:telemetry': {
+    readonly id: string
+    readonly telemetry: HarnessTelemetry | undefined
+  }
   'pty:identity': {
     readonly id: string
     readonly harnessSessionId?: string
@@ -344,6 +379,10 @@ export const INVOKE_CHANNELS = [
   'project:disconnect-host',
   'project:browse-host',
   'project:open',
+  'project:switch',
+  'project:refresh',
+  'workspace:prune',
+  'workspace:dismiss',
   'ssh:prompt-response',
   'fs:readdir',
   'fs:resolve-entry',
