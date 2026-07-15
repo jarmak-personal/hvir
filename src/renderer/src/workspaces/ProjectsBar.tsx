@@ -9,6 +9,7 @@ import {
 import type { TerminalWorkspaceRollup } from '../terminal/TerminalWorkspace'
 import { ConnectionStatus } from './ConnectionStatus'
 import { aggregateWorkspaceAttention } from './workspace-attention'
+import type { AppTheme } from '../theme'
 
 interface ProjectsBarProps {
   readonly state: ProjectState
@@ -19,6 +20,8 @@ interface ProjectsBarProps {
   readonly onRefresh: (projectId: string) => void
   readonly onPrune: (projectId: string) => void
   readonly onDismiss: (projectId: string, workspaceId: string) => void
+  readonly theme: AppTheme
+  readonly onTheme: (theme: AppTheme) => void
 }
 
 export function ProjectsBar({
@@ -30,6 +33,8 @@ export function ProjectsBar({
   onRefresh,
   onPrune,
   onDismiss,
+  theme,
+  onTheme,
 }: ProjectsBarProps): ReactElement {
   const [pruneProjectId, setPruneProjectId] = useState<string>()
   const activeProject = state.projects.find(
@@ -97,6 +102,15 @@ export function ProjectsBar({
             onClick={onAdd}
           >
             +
+          </button>
+          <button
+            type="button"
+            className="theme-toggle"
+            aria-label={`Use ${theme === 'dark' ? 'light' : 'dark'} theme`}
+            title={`Use ${theme === 'dark' ? 'light' : 'dark'} theme`}
+            onClick={() => onTheme(theme === 'dark' ? 'light' : 'dark')}
+          >
+            <span aria-hidden="true">{theme === 'dark' ? '☼' : '☾'}</span>
           </button>
         </nav>
         {activeProject && activeProject.workspaces.length > 1 ? (

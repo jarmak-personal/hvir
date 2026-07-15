@@ -13,6 +13,7 @@ import { useEffect, useRef, useState, type ReactElement } from 'react'
 import {
   basenameHostPath,
   canRender,
+  renderedFileType,
   type DiffBase,
   type ViewMode,
   type GitBlameRun,
@@ -26,6 +27,7 @@ import {
 } from './highlight-protocol'
 import { RenderedView } from './RenderedView'
 import type { ViewerTab } from './tab-state'
+import { useAppTheme } from '../theme'
 
 export const HIGHLIGHT_SIZE_LIMIT = 1024 * 1024
 export const CODEMIRROR_SIZE_LIMIT = 5 * 1024 * 1024
@@ -106,6 +108,7 @@ export function FileViewer({
   const [blameStatus, setBlameStatus] = useState('')
   const currentPath = tab?.path
   const blameMode = tab?.mode
+  const binaryImage = Boolean(tab?.file?.binary && renderedFileType(tab.path) === 'image')
 
   useEffect(() => {
     if (!showBlame || !currentPath || blameMode !== 'source') return
@@ -182,10 +185,13 @@ export function FileViewer({
                   className={tab.mode === mode ? 'active' : ''}
                   aria-pressed={tab.mode === mode}
                   title={
-                    mode === 'rendered' && !canRender(tab.path)
-                      ? 'No renderer registered for this file type'
-                      : `${mode} view · Ctrl/Cmd+Shift+M cycles modes`
+                    tab.file?.binary && mode !== 'rendered'
+                      ? 'Binary repository assets are available in rendered view only'
+                      : mode === 'rendered' && !canRender(tab.path)
+                        ? 'No renderer registered for this file type'
+                        : `${mode} view · Ctrl/Cmd+Shift+M cycles modes`
                   }
+                  disabled={Boolean(tab.file?.binary && mode !== 'rendered')}
                   key={mode}
                   onClick={() => onMode(mode)}
                 >
@@ -200,10 +206,10 @@ export function FileViewer({
         {!tab ? <EmptyViewer text="Choose a file from the tree" /> : null}
         {tab?.loading ? <EmptyViewer text="Opening…" /> : null}
         {tab?.error && !tab.file ? <EmptyViewer text={tab.error} error /> : null}
-        {tab && !tab.loading && tab.file?.binary ? (
-          <EmptyViewer text="Binary files are not rendered" />
+        {tab && !tab.loading && tab.file?.binary && !binaryImage ? (
+          <BinaryFileView path={tab.path} size={tab.file.size} />
         ) : null}
-        {tab && !tab.loading && tab.file && !tab.file.binary ? (
+        {tab && !tab.loading && tab.file && (!tab.file.binary || binaryImage) ? (
           <ActiveView
             tab={tab}
             file={tab.file}
@@ -218,6 +224,23 @@ export function FileViewer({
         ) : null}
       </div>
     </>
+  )
+}
+
+function BinaryFileView({
+  path,
+  size,
+}: {
+  readonly path: HostPath
+  readonly size: number
+}): ReactElement {
+  const extension = basenameHostPath(path).split('.').at(-1)?.toUpperCase()
+  return (
+    <div className="viewer-empty binary-file-summary">
+      <strong>{extension ? `${extension} binary file` : 'Binary file'}</strong>
+      <span>{formatBytes(size)}</span>
+      <span>Source and diff views are unavailable.</span>
+    </div>
   )
 }
 
@@ -348,6 +371,7 @@ function SourceView({
   readonly blame: readonly GitBlameRun[]
   readonly blameStatus: string
 }): ReactElement {
+  const theme = useAppTheme()
   const container = useRef<HTMLDivElement>(null)
   const view = useRef<EditorView | undefined>(undefined)
   const applyingExternal = useRef(false)
@@ -427,8 +451,8 @@ function SourceView({
       applyingExternal.current = false
     }
     if (userAuthored) return
-    return highlight(editor, pathKey, content, size, setHighlightStatus)
-  }, [content, pathKey, size])
+    return highlight(editor, pathKey, content, size, theme, setHighlightStatus)
+  }, [content, pathKey, size, theme])
 
   return (
     <div className="source-shell">
@@ -488,6 +512,7 @@ function highlight(
   path: string,
   content: string,
   size: number,
+  theme: 'dark' | 'light',
   setStatus: (status: string) => void,
 ): () => void {
   view.dispatch({ effects: resetTokens.of(null) })
@@ -519,7 +544,7 @@ function highlight(
   }
   worker.addEventListener('message', onMessage)
   worker.addEventListener('error', onError)
-  worker.postMessage({ id: requestId, code: content, language })
+  worker.postMessage({ id: requestId, code: content, language, theme })
   return () => {
     worker.removeEventListener('message', onMessage)
     worker.removeEventListener('error', onError)
@@ -559,18 +584,18 @@ function formatBytes(bytes: number): string {
 }
 
 const sourceTheme = EditorView.theme({
-  '&': { height: '100%', backgroundColor: '#15181e', color: '#d4d7dd' },
+  '&': { height: '100%', backgroundColor: 'var(--viewer-bg)', color: 'var(--text)' },
   '.cm-scroller': {
     overflow: 'auto',
     fontFamily: "'JetBrains Mono', 'SFMono-Regular', Consolas, monospace",
     fontSize: '13px',
     lineHeight: '1.55',
   },
-  '.cm-content': { padding: '12px 0', caretColor: '#d4d7dd' },
+  '.cm-content': { padding: '12px 0', caretColor: 'var(--text)' },
   '.cm-gutters': {
-    backgroundColor: '#15181e',
-    borderRight: '1px solid #242933',
-    color: '#5f6877',
+    backgroundColor: 'var(--viewer-gutter)',
+    borderRight: '1px solid var(--code-border)',
+    color: 'var(--viewer-gutter-text)',
   },
   '&.cm-focused': { outline: 'none' },
 })

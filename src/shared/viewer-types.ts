@@ -1,4 +1,5 @@
 import type { HostPath } from './host-path'
+import { repositoryImageMimeType } from './rendered-link'
 
 export type ViewMode = 'rendered' | 'source' | 'diff'
 
@@ -55,11 +56,13 @@ export function canRender(path: HostPath): boolean {
   return defaultViewMode(path) === 'rendered'
 }
 
-export type RenderedFileType = 'markdown' | 'mermaid' | 'html' | 'json' | 'yaml'
+export type RenderedFileType =
+  'markdown' | 'mermaid' | 'html' | 'json' | 'yaml' | 'csv' | 'image'
 
 export function renderedFileType(path: HostPath): RenderedFileType | undefined {
   const name = path.path.toLowerCase()
   const extension = name.includes('.') ? name.slice(name.lastIndexOf('.') + 1) : ''
+  if (repositoryImageMimeType(name)) return 'image'
   if (extension === 'md' || extension === 'mdx' || extension === 'markdown') {
     return 'markdown'
   }
@@ -67,6 +70,7 @@ export function renderedFileType(path: HostPath): RenderedFileType | undefined {
   if (extension === 'htm' || extension === 'html') return 'html'
   if (extension === 'json') return 'json'
   if (extension === 'yaml' || extension === 'yml') return 'yaml'
+  if (extension === 'csv') return 'csv'
   return undefined
 }
 
@@ -81,4 +85,14 @@ const RENDERED_EXTENSIONS = new Set([
   'mdx',
   'mermaid',
   'mmd',
+  'csv',
+  'avif',
+  'bmp',
+  'gif',
+  'ico',
+  'jpeg',
+  'jpg',
+  'png',
+  'svg',
+  'webp',
 ])

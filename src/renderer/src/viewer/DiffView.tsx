@@ -104,15 +104,15 @@ export function DiffView({
 }
 
 const diffTheme = EditorView.theme({
-  '&': { height: '100%', backgroundColor: '#15181e', color: '#d4d7dd' },
+  '&': { height: '100%', backgroundColor: 'var(--viewer-bg)', color: 'var(--text)' },
   '.cm-scroller': {
     fontFamily: "'JetBrains Mono', 'SFMono-Regular', Consolas, monospace",
     fontSize: '12px',
     lineHeight: '1.5',
   },
   '.cm-gutters': {
-    backgroundColor: '#15181e',
-    borderRight: '1px solid #242933',
-    color: '#5f6877',
+    backgroundColor: 'var(--viewer-gutter)',
+    borderRight: '1px solid var(--code-border)',
+    color: 'var(--viewer-gutter-text)',
   },
 })

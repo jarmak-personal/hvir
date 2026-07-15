@@ -1278,15 +1278,94 @@ async function runSmoke(): Promise<number> {
     )) as string
     console.log(`[smoke] rendered Markdown fixture OK (${renderedFixture})`)
 
+    const richerViewerStatus = (await withTimeout(
+      win.webContents.executeJavaScript(`
+        new Promise((resolve, reject) => {
+          const deadline = Date.now() + 10000;
+          const findBySuffix = (suffix) => [...document.querySelectorAll('.tree-row')]
+            .find((node) => node.getAttribute('title')?.endsWith(suffix));
+          const openWhenReady = (suffix, next) => {
+            const node = findBySuffix(suffix);
+            if (node) {
+              node.click();
+              next();
+            } else if (Date.now() > deadline) {
+              reject(new Error('richer viewer fixture missing: ' + suffix));
+            } else {
+              setTimeout(() => openWhenReady(suffix, next), 50);
+            }
+          };
+          openWhenReady('/test/fixtures/rendered.csv', () => {
+            const waitForCsv = () => {
+              const cells = [...document.querySelectorAll('.csv-view td')]
+                .map((node) => node.textContent || '');
+              if (cells.includes('Ada Lovelace') && cells.includes('compiler pioneer')) {
+                openWhenReady('/test/fixtures/rendered-image.svg', () => {
+                  const waitForImage = () => {
+                    const image = document.querySelector('.image-view img');
+                    if (image?.getAttribute('src')?.startsWith('blob:') && image.complete) {
+                      return resolve('worker CSV table + repository image view');
+                    }
+                    if (Date.now() > deadline) return reject(new Error('image view timed out'));
+                    setTimeout(waitForImage, 50);
+                  };
+                  waitForImage();
+                });
+                return;
+              }
+              if (Date.now() > deadline) return reject(new Error('CSV table timed out'));
+              setTimeout(waitForCsv, 50);
+            };
+            waitForCsv();
+          });
+        })
+      `),
+      'CSV/image viewer smoke timed out',
+    )) as string
+    console.log(`[smoke] richer rendered views OK (${richerViewerStatus})`)
+
+    const themeStatus = (await withTimeout(
+      win.webContents.executeJavaScript(`
+        new Promise((resolve, reject) => {
+          const initial = document.documentElement.dataset.theme;
+          const canvas = document.querySelector('.terminal-container canvas');
+          const toggle = document.querySelector('.theme-toggle');
+          const shell = document.querySelector('.app-shell');
+          if (!canvas || !toggle || !shell) return reject(new Error('theme smoke controls missing'));
+          const before = getComputedStyle(shell).backgroundColor;
+          toggle.click();
+          requestAnimationFrame(() => requestAnimationFrame(() => {
+            const current = document.documentElement.dataset.theme;
+            const after = getComputedStyle(shell).backgroundColor;
+            if (current === initial || before === after) {
+              return reject(new Error('chrome theme did not change'));
+            }
+            if (!canvas.isConnected || document.querySelector('.terminal-container canvas') !== canvas) {
+              return reject(new Error('theme switch remounted terminal'));
+            }
+            toggle.click();
+            requestAnimationFrame(() => {
+              if (document.documentElement.dataset.theme !== initial) {
+                return reject(new Error('theme did not restore'));
+              }
+              resolve(initial + '→' + current + '→' + initial + ' · PTY canvas retained');
+            });
+          }));
+        })
+      `),
+      'theme switch smoke timed out',
+    )) as string
+    console.log(`[smoke] synchronized theme switch OK (${themeStatus})`)
+
     const renderedLinkStatus = (await withTimeout(
       win.webContents.executeJavaScript(`
         new Promise((resolve, reject) => {
           const deadline = Date.now() + 10000;
           const link = (text) => [...document.querySelectorAll('.markdown-body a')]
             .find((node) => node.textContent?.trim() === text);
-          const missing = link('Missing target');
-          if (!missing) return reject(new Error('rendered missing-link fixture absent'));
-          missing.click();
+          const renderedTab = [...document.querySelectorAll('.viewer-tab')]
+            .find((node) => node.querySelector('.tab-name')?.textContent?.trim() === 'rendered.md');
+          renderedTab?.querySelector('.tab-main')?.click();
           const waitForYaml = () => {
             const title = document.querySelector('.viewer-title')?.textContent || '';
             const keys = [...document.querySelectorAll('.json-key')]
@@ -1317,6 +1396,11 @@ async function runSmoke(): Promise<number> {
                 setTimeout(waitForOriginal, 50);
               };
               return waitForOriginal();
+            }
+            const missing = link('Missing target');
+            if (missing) {
+              missing.click();
+              return setTimeout(waitForContainedError, 50);
             }
             if (Date.now() > deadline) return reject(new Error('missing internal link escaped the viewer'));
             setTimeout(waitForContainedError, 50);

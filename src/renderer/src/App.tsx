@@ -42,6 +42,7 @@ import { GitGraphView } from './git/GitGraphView'
 import { FileViewer } from './viewer/FileViewer'
 import { TabStrip } from './viewer/TabStrip'
 import type { ViewerTab } from './viewer/tab-state'
+import { setAppTheme, useAppTheme } from './theme'
 
 const TREE_MIN_WIDTH = 160
 const TREE_MAX_WIDTH = 520
@@ -53,6 +54,7 @@ const TAB_STORAGE_VERSION = 1
 const DRAFT_STORAGE_CHARACTER_LIMIT = 2 * 1024 * 1024
 
 export function App(): ReactElement {
+  const theme = useAppTheme()
   const workbenchRef = useRef<HTMLElement>(null)
   const tabsRef = useRef<readonly ViewerTab[]>([])
   const rootRef = useRef<HostPath | undefined>(undefined)
@@ -812,6 +814,8 @@ export function App(): ReactElement {
           onDismiss={(projectId, workspaceId) =>
             void dismissWorkspace(projectId, workspaceId)
           }
+          theme={theme}
+          onTheme={(nextTheme) => setAppTheme(nextTheme)}
         />
       ) : null}
       <main

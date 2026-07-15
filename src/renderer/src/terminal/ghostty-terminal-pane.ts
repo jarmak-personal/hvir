@@ -12,6 +12,7 @@ import type {
   TerminalPane,
   TerminalPaneEvents,
   TerminalSize,
+  TerminalColorTheme,
 } from './terminal-pane'
 import { detectTerminalFileLinks, isFileUri } from './terminal-file-link'
 import { TerminalSignalParser } from './terminal-signals'
@@ -19,10 +20,12 @@ import { TerminalSignalParser } from './terminal-signals'
 let initializeGhostty: Promise<void> | undefined
 
 /** Load the shared WASM instance off the first paint, then create a pane. */
-export async function createGhosttyTerminalPane(): Promise<TerminalPane> {
+export async function createGhosttyTerminalPane(
+  theme: TerminalColorTheme,
+): Promise<TerminalPane> {
   initializeGhostty ??= init()
   await initializeGhostty
-  return new GhosttyTerminalPane()
+  return new GhosttyTerminalPane(theme)
 }
 
 class ListenerSet<T> {
@@ -45,29 +48,21 @@ class ListenerSet<T> {
 }
 
 class GhosttyTerminalPane implements TerminalPane {
-  private readonly terminal = new GhosttyTerminal({
-    allowTransparency: false,
-    cursorBlink: true,
-    cursorStyle: 'block',
-    fontFamily: "'JetBrains Mono', 'SFMono-Regular', Consolas, monospace",
-    fontSize: 13,
-    scrollback: 10_000,
-    theme: {
-      background: '#111318',
-      foreground: '#d8dee9',
-      cursor: '#d8dee9',
-      selectionBackground: '#39445a',
-      black: '#20242c',
-      red: '#e06c75',
-      green: '#98c379',
-      yellow: '#e5c07b',
-      blue: '#61afef',
-      magenta: '#c678dd',
-      cyan: '#56b6c2',
-      white: '#d8dee9',
-    },
-  })
+  private readonly terminal: GhosttyTerminal
   private readonly fit = new FitAddon()
+
+  constructor(theme: TerminalColorTheme) {
+    this.terminal = new GhosttyTerminal({
+      allowTransparency: false,
+      cursorBlink: true,
+      cursorStyle: 'block',
+      fontFamily: "'JetBrains Mono', 'SFMono-Regular', Consolas, monospace",
+      fontSize: 13,
+      scrollback: 10_000,
+      theme,
+    })
+  }
+
   private readonly dataListeners = new ListenerSet<string>()
   private readonly titleListeners = new ListenerSet<string>()
   private readonly bellListeners = new ListenerSet<void>()
@@ -133,6 +128,12 @@ class GhosttyTerminalPane implements TerminalPane {
 
   resize(cols: number, rows: number): void {
     if (!this.disposed) this.terminal.resize(cols, rows)
+  }
+
+  setTheme(theme: TerminalColorTheme): void {
+    if (this.disposed) return
+    this.terminal.options.theme = theme
+    this.redraw()
   }
 
   redraw(): void {

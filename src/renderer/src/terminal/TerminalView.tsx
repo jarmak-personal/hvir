@@ -10,6 +10,8 @@ import type {
 import { createGhosttyTerminalPane } from './ghostty-terminal-pane'
 import { SynchronizedOutputWriter } from './synchronized-output'
 import type { TerminalPane } from './terminal-pane'
+import type { TerminalColorTheme } from './terminal-pane'
+import { useAppTheme, type AppTheme } from '../theme'
 
 interface TerminalViewProps {
   readonly sessionId: string
@@ -57,6 +59,7 @@ export function TerminalView({
   onFocus,
   onLink,
 }: TerminalViewProps): ReactElement {
+  const appTheme = useAppTheme()
   const workspaceRootRef = useRef(cwd)
   if (
     workspaceRootRef.current.hostId !== cwd.hostId ||
@@ -67,6 +70,8 @@ export function TerminalView({
   const workspaceRoot = workspaceRootRef.current
   const containerRef = useRef<HTMLDivElement>(null)
   const paneRef = useRef<TerminalPane | undefined>(undefined)
+  const themeRef = useRef(appTheme)
+  themeRef.current = appTheme
   const activeRef = useRef(active)
   const disconnectedRef = useRef(false)
   const restartRequestedRef = useRef(false)
@@ -115,6 +120,10 @@ export function TerminalView({
 
   useEffect(() => handlersRef.current.onTitle(title), [title])
   useEffect(() => handlersRef.current.onStatus(status), [status])
+
+  useEffect(() => {
+    paneRef.current?.setTheme(terminalTheme(appTheme))
+  }, [appTheme])
 
   useEffect(() => {
     if (!active) return
@@ -178,7 +187,7 @@ export function TerminalView({
     )
     void (async () => {
       try {
-        const pane = await createGhosttyTerminalPane()
+        const pane = await createGhosttyTerminalPane(terminalTheme(themeRef.current))
         if (cancelled) {
           pane.dispose()
           return
@@ -327,4 +336,37 @@ export function TerminalView({
       />
     </section>
   )
+}
+
+function terminalTheme(theme: AppTheme): TerminalColorTheme {
+  if (theme === 'light') {
+    return {
+      background: '#ffffff',
+      foreground: '#283544',
+      cursor: '#283544',
+      selectionBackground: '#cddff2',
+      black: '#24292f',
+      red: '#cf222e',
+      green: '#116329',
+      yellow: '#9a6700',
+      blue: '#0969da',
+      magenta: '#8250df',
+      cyan: '#1b7c83',
+      white: '#6e7781',
+    }
+  }
+  return {
+    background: '#111318',
+    foreground: '#d8dee9',
+    cursor: '#d8dee9',
+    selectionBackground: '#39445a',
+    black: '#20242c',
+    red: '#e06c75',
+    green: '#98c379',
+    yellow: '#e5c07b',
+    blue: '#61afef',
+    magenta: '#c678dd',
+    cyan: '#56b6c2',
+    white: '#d8dee9',
+  }
 }

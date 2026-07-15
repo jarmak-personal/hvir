@@ -22,6 +22,21 @@ export interface TerminalSize {
   readonly rows: number
 }
 
+export interface TerminalColorTheme {
+  readonly background: string
+  readonly foreground: string
+  readonly cursor: string
+  readonly selectionBackground: string
+  readonly black: string
+  readonly red: string
+  readonly green: string
+  readonly yellow: string
+  readonly blue: string
+  readonly magenta: string
+  readonly cyan: string
+  readonly white: string
+}
+
 export interface TerminalPaneEvents {
   /** User keystrokes / paste — data the pane wants written to the PTY. */
   onData(cb: (data: string) => void): Disposer
@@ -46,6 +61,8 @@ export interface TerminalPane {
   write(data: string): void
   /** Resize the terminal grid. */
   resize(cols: number, rows: number): void
+  /** Update colors without remounting or restarting the PTY. */
+  setTheme(theme: TerminalColorTheme): void
   /** Force the current grid to repaint without changing PTY geometry. */
   redraw(): void
   focus(): void
