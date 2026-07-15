@@ -973,6 +973,11 @@ async function runSmoke(): Promise<number> {
         if (Math.abs(panel.getBoundingClientRect().top - host.getBoundingClientRect().top) > 1) {
           throw new Error('terminal canvas does not begin at the deck edge');
         }
+        const rail = document.querySelector('.terminal-rail');
+        if (!(rail instanceof HTMLElement)) throw new Error('terminal rail missing');
+        if (parseFloat(getComputedStyle(rail).borderLeftWidth) !== 0) {
+          throw new Error('terminal rail divider cannot open at the active entry');
+        }
         host.focus();
         const caret = getComputedStyle(host).caretColor;
         if (caret !== 'transparent' && caret !== 'rgba(0, 0, 0, 0)') {

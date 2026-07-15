@@ -735,7 +735,6 @@ button {
   min-height: 0;
   display: flex;
   flex-direction: column;
-  border-left: 1px solid #282d36;
   background: #12151a;
 }
 
@@ -748,6 +747,7 @@ button {
   justify-content: space-between;
   padding: 0 8px 0 11px;
   border-bottom: 1px solid #282d36;
+  box-shadow: inset 1px 0 var(--border-subtle);
   background: #181b21;
   color: #c9ced6;
   font-size: 10px;
@@ -922,6 +922,7 @@ button {
 .terminal-list {
   min-height: 0;
   overflow: auto;
+  background: linear-gradient(to right, var(--border-subtle) 1px, transparent 1px);
 }
 
 .terminal-list-row {
@@ -929,6 +930,7 @@ button {
   display: flex;
   align-items: stretch;
   border-bottom: 1px solid #22272f;
+  box-shadow: inset 1px 0 var(--border-subtle);
   background: #12151a;
 }
 
@@ -942,18 +944,6 @@ button {
     inset 0 1px #3c526c,
     inset 0 -1px #3c526c;
   background: #202630;
-}
-
-.terminal-list-row.active::before {
-  position: absolute;
-  z-index: 1;
-  top: 1px;
-  bottom: 1px;
-  left: -2px;
-  width: 3px;
-  background: inherit;
-  content: '';
-  pointer-events: none;
 }
 
 .terminal-list-main {
