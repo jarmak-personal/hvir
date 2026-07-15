@@ -744,6 +744,51 @@ describe('SshHost remote behavior', () => {
     await host.dispose()
   })
 
+  it('recovers a buffered command status when the server omits exit-status', async () => {
+    const stderr = new EventEmitter()
+    let remote = ''
+    const channel = Object.assign(new EventEmitter(), {
+      stderr,
+      close: vi.fn(() => channel.emit('close')),
+      end: vi.fn(() => {
+        const marker = remote.match(/__hvir_exec_status_[0-9a-f-]+__/)?.[0]
+        if (!marker) throw new Error('Expected buffered exec status marker')
+        stderr.emit('data', Buffer.from(`old git usage\n${marker}129`))
+        channel.emit('close')
+      }),
+    })
+    const client = Object.assign(
+      fakeClient(() => undefined),
+      {
+        exec: vi.fn(
+          (
+            command: string,
+            callback: (error: Error | undefined, value: unknown) => void,
+          ) => {
+            remote = command
+            callback(undefined, channel)
+          },
+        ),
+      },
+    )
+    const host = new SshHost({
+      config: aliasConfig(),
+      prompter: { prompt: () => Promise.resolve(undefined) },
+    })
+    const internals = host as unknown as { state: 'connected'; client: Client }
+    internals.state = 'connected'
+    internals.client = client as unknown as Client
+
+    await expect(host.exec('git', ['worktree', 'list'])).resolves.toEqual({
+      code: 129,
+      signal: null,
+      stdout: '',
+      stderr: 'old git usage\n',
+    })
+    expect(remote).toContain('hvir_status=$?')
+    await host.dispose()
+  })
+
   it('supports bounded duplex exec streams over SSH', async () => {
     const stderr = new EventEmitter()
     const channel = Object.assign(new EventEmitter(), {

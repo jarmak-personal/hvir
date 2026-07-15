@@ -110,6 +110,38 @@ describe('GitEngine', () => {
     await actual.dispose()
   })
 
+  it('falls back when an SSH server omits the old-Git command exit status', async () => {
+    const root = await repository()
+    const actual = new LocalHost()
+    const host = {
+      hostId: actual.hostId,
+      exec: (command: string, args: readonly string[], opts: ExecOptions = {}) => {
+        if (args.slice(-4).join(' ') === 'worktree list --porcelain -z') {
+          return Promise.resolve({
+            stdout: '',
+            stderr: "error: unknown switch `z'",
+            code: null,
+            signal: null,
+          })
+        }
+        return actual.exec(command, args, opts)
+      },
+    } as ProjectHost
+
+    await expect(
+      new GitEngine(host, localPath(root)).worktrees(localPath(root)),
+    ).resolves.toEqual({
+      repository: true,
+      worktrees: [
+        expect.objectContaining({
+          root: localPath(await realpath(root)),
+          branch: 'main',
+        }),
+      ],
+    })
+    await actual.dispose()
+  })
+
   it('does not misclassify an operational worktree error as a plain directory', async () => {
     const root = await repository()
     const actual = new LocalHost()

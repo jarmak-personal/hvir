@@ -41,9 +41,10 @@ export class GitEngine {
       '-z',
     ])
     if (result.code !== 0) {
-      // Git's usage exit is locale-independent; stderr wording is not. A
-      // fixed command reaching usage here means this Git predates `list -z`.
-      if (result.code === 129) {
+      // Git's usage exit is locale-independent; stderr wording is not. Null is
+      // retained for transports that omit exit-status, and the legacy command
+      // must still succeed before its less expressive output is accepted.
+      if (result.code === 129 || result.code === null) {
         const legacy = await execReadOnlyGit(this.host, projectRoot, [
           'worktree',
           'list',

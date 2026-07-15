@@ -526,6 +526,11 @@ four concurrent operations by default, still within transport reservation rather
 separate global serialization bottleneck. A channel-open refusal excludes that transport
 only for the bounded admission attempt; it records diagnostics but never permanently
 shrinks a live transport's soft budget, so later work can recover when server capacity does.
+Some SSH servers close an exec channel without the optional SSH `exit-status` message.
+Buffered execs therefore wrap only their bounded command in a POSIX subshell that appends
+an unguessable per-command status marker to stderr; hvir strips it before returning the
+result and uses it only when the transport status is absent. Streaming services and PTYs
+retain their native lifecycle and never receive this wrapper.
 
 **Context telemetry is multiplexed per `(host, HarnessAdapter)`, not followed once per
 terminal.** Codex and Claude Code each own one lazy host-scoped hub that reconciles a

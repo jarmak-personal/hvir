@@ -247,6 +247,28 @@ describe('ProjectRegistry session flow', () => {
     expect(restored.projectById(projectId)?.workspaces).toEqual(
       expect.arrayContaining([expect.objectContaining({ id: linkedId, missing: true })]),
     )
+    await restored.reconcileWorktrees(projectId, {
+      repository: true,
+      worktrees: [
+        { root: localPath(canonicalRoot), branch: 'main', detached: false, bare: false },
+        {
+          root: localPath(canonicalLinked),
+          branch: 'feature',
+          detached: false,
+          bare: false,
+        },
+      ],
+    })
+    await expect(restored.activate(projectId, linkedId)).resolves.toMatchObject({
+      activeWorkspaceId: linkedId,
+      root: localPath(canonicalLinked),
+    })
+    await restored.reconcileWorktrees(projectId, {
+      repository: true,
+      worktrees: [
+        { root: localPath(canonicalRoot), branch: 'main', detached: false, bare: false },
+      ],
+    })
     await restored.dismissWorkspace(projectId, linkedId)
     expect(restored.projectById(projectId)?.workspaces).toHaveLength(1)
     expect(restored.state().root.path).toBe(await realpath(root))

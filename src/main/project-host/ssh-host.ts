@@ -311,6 +311,7 @@ export class SshHost implements ProjectHost {
     args: readonly string[],
     opts: ExecOptions = {},
   ): Promise<ExecResult> {
+    const statusMarker = `__hvir_exec_status_${randomUUID()}__`
     // Connecting performs its own short capability probe through exec(). Do
     // not reserve a buffered slot until that handshake has completed.
     const release = await this.acquireExecSlot(opts.signal)
@@ -320,8 +321,9 @@ export class SshHost implements ProjectHost {
         (transport) =>
           new Promise<ClientChannel>((resolve, reject) => {
             try {
-              transport.client.exec(remoteCommand(command, args, opts), (error, value) =>
-                error ? reject(error) : resolve(value),
+              transport.client.exec(
+                remoteBufferedCommand(command, args, opts, statusMarker),
+                (error, value) => (error ? reject(error) : resolve(value)),
               )
             } catch (error) {
               reject(asError(error))
@@ -363,7 +365,13 @@ export class SshHost implements ProjectHost {
           if (!settled) {
             stdout += stdoutDecoder.end()
             stderr += stderrDecoder.end()
-            resolve({ code, signal, stdout, stderr })
+            const recovered = recoverBufferedExecStatus(stderr, statusMarker)
+            resolve({
+              code: recovered.code ?? code,
+              signal,
+              stdout,
+              stderr: recovered.stderr,
+            })
           }
           settled = true
         })
@@ -1845,6 +1853,27 @@ function remoteCommand(
     .join(' ')
   const invocation = env ? `env ${env} ${executable}` : executable
   return opts.cwd ? `cd -- ${quote(opts.cwd.path)} && ${invocation}` : invocation
+}
+function remoteBufferedCommand(
+  command: string,
+  args: readonly string[],
+  opts: Pick<ExecOptions, 'cwd' | 'env'>,
+  statusMarker: string,
+): string {
+  const invocation = remoteCommand(command, args, opts)
+  return `( ${invocation} ); hvir_status=$?; printf '%s%s' ${quote(statusMarker)} "$hvir_status" >&2; exit "$hvir_status"`
+}
+function recoverBufferedExecStatus(
+  stderr: string,
+  statusMarker: string,
+): { readonly code?: number; readonly stderr: string } {
+  const markerAt = stderr.lastIndexOf(statusMarker)
+  if (markerAt < 0) return { stderr }
+  const rawCode = stderr.slice(markerAt + statusMarker.length)
+  if (!/^\d{1,3}$/.test(rawCode)) return { stderr }
+  const code = Number(rawCode)
+  if (!Number.isSafeInteger(code) || code > 255) return { stderr }
+  return { code, stderr: stderr.slice(0, markerAt) }
 }
 function quote(value: string): string {
   return `'${value.replaceAll("'", `'"'"'`)}'`
