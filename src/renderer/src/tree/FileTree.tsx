@@ -64,9 +64,6 @@ export function FileTree({
 
   return (
     <section className="rail-section" aria-label="Files" hidden={hidden}>
-      <header className="panel-header">
-        <span className="panel-meta">{basenameHostPath(root)}</span>
-      </header>
       <div className="tree-scroll">
         {connected ? (
           <DirectoryTree
