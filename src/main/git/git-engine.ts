@@ -106,17 +106,32 @@ export class GitEngine {
     return this.worktrees(projectRoot)
   }
 
-  async changedFileCount(workspaceRoot: HostPath): Promise<number> {
+  async changedFileCount(
+    workspaceRoot: HostPath,
+    relatedWorktreeRoots: readonly HostPath[] = [],
+  ): Promise<number> {
     this.assertHost(workspaceRoot)
-    return parseStatus(
-      await this.run(workspaceRoot, [
-        'status',
-        '--porcelain=v2',
-        '-z',
-        '--untracked-files=all',
-        '--',
-        '.',
-      ]),
+    const hasNestedWorktree = relatedWorktreeRoots.some((candidate) =>
+      isNestedHostPath(candidate, workspaceRoot),
+    )
+    const repositoryPrefix = hasNestedWorktree
+      ? (await this.projectContext(workspaceRoot))?.repositoryPrefix
+      : ''
+    if (repositoryPrefix === undefined) return 0
+    return excludeNestedWorktrees(
+      parseStatus(
+        await this.run(workspaceRoot, [
+          'status',
+          '--porcelain=v2',
+          '-z',
+          '--untracked-files=all',
+          '--',
+          '.',
+        ]),
+      ),
+      workspaceRoot,
+      repositoryPrefix,
+      relatedWorktreeRoots,
     ).length
   }
 
@@ -161,7 +176,11 @@ export class GitEngine {
     }
   }
 
-  async switchBranch(workspaceRoot: HostPath, branch: string): Promise<void> {
+  async switchBranch(
+    workspaceRoot: HostPath,
+    branch: string,
+    relatedWorktreeRoots: readonly HostPath[] = [],
+  ): Promise<void> {
     assertBranchName(branch)
     const model = await this.branches(workspaceRoot)
     if (model.repositoryState === 'not-git') throw new Error('Not a Git repository')
@@ -177,7 +196,16 @@ export class GitEngine {
       '-z',
       '--untracked-files=all',
     ])
-    if (parseStatus(status).length > 0) {
+    const context = await this.projectContext(workspaceRoot)
+    if (!context) throw new Error('Not a Git repository')
+    if (
+      excludeNestedWorktrees(
+        parseStatus(status),
+        workspaceRoot,
+        context.repositoryPrefix,
+        relatedWorktreeRoots,
+      ).length > 0
+    ) {
       throw new Error('Working tree changed; commit or stash before switching')
     }
     const result = await execGit(this.host, workspaceRoot, [
@@ -258,7 +286,10 @@ export class GitEngine {
     return (await this.repoContext(path)).repositoryRoot
   }
 
-  async changes(projectRoot: HostPath): Promise<GitChanges> {
+  async changes(
+    projectRoot: HostPath,
+    relatedWorktreeRoots: readonly HostPath[] = [],
+  ): Promise<GitChanges> {
     const context = await this.projectContext(projectRoot)
     if (!context) return emptyChanges('not-git', 'Not a Git repository')
     const { commandRoot, repositoryPrefix } = context
@@ -273,8 +304,11 @@ export class GitEngine {
       '--',
       '.',
     ])
-    const parsedStatus = parseStatus(status).filter((file) =>
-      isInsideProject(file.path, repositoryPrefix),
+    const parsedStatus = excludeNestedWorktrees(
+      parseStatus(status).filter((file) => isInsideProject(file.path, repositoryPrefix)),
+      projectRoot,
+      repositoryPrefix,
+      relatedWorktreeRoots,
     )
     const headDiff = await this.tryRun(commandRoot, [
       'diff',
@@ -1129,6 +1163,39 @@ function errorMessage(reason: unknown): string {
 
 function isInsideProject(repositoryPath: string, repositoryPrefix: string): boolean {
   return !repositoryPrefix || repositoryPath.startsWith(repositoryPrefix)
+}
+
+function excludeNestedWorktrees(
+  files: readonly ParsedStatus[],
+  workspaceRoot: HostPath,
+  repositoryPrefix: string,
+  relatedWorktreeRoots: readonly HostPath[],
+): readonly ParsedStatus[] {
+  const workspacePrefix = workspaceRoot.path === '/' ? '/' : `${workspaceRoot.path}/`
+  const nestedRoots = relatedWorktreeRoots.flatMap((candidate) => {
+    if (!isNestedHostPath(candidate, workspaceRoot)) return []
+    const relative = candidate.path.slice(workspacePrefix.length).replace(/\/$/, '')
+    return relative ? [`${repositoryPrefix}${relative}`] : []
+  })
+  if (nestedRoots.length === 0) return files
+  return files.filter(
+    (file) =>
+      !nestedRoots.some(
+        (nested) =>
+          file.path === nested ||
+          file.path === `${nested}/` ||
+          file.path.startsWith(`${nested}/`),
+      ),
+  )
+}
+
+function isNestedHostPath(candidate: HostPath, parent: HostPath): boolean {
+  const prefix = parent.path === '/' ? '/' : `${parent.path}/`
+  return (
+    candidate.hostId === parent.hostId &&
+    candidate.path !== parent.path &&
+    candidate.path.startsWith(prefix)
+  )
 }
 
 function projectFilePath(

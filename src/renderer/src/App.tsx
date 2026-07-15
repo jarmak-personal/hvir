@@ -32,7 +32,7 @@ import { PaneResizer } from './layout/PaneResizer'
 import { TerminalWorkspace } from './terminal/TerminalWorkspace'
 import type { TerminalWorkspaceRollup } from './terminal/TerminalWorkspace'
 import { ProjectsBar } from './workspaces/ProjectsBar'
-import { ConnectionStatus } from './workspaces/ConnectionStatus'
+import { RemoteConnectionBadge } from './workspaces/ConnectionStatus'
 import { initialHostConnectionTarget } from './workspaces/initial-host-connection'
 import { FileTree, SessionBar } from './tree/FileTree'
 import { DirectoryTree } from './tree/DirectoryTree'
@@ -1491,9 +1491,15 @@ function SessionDialog({
                 key={host.hostId}
                 onClick={() => setHostId(host.hostId)}
               >
-                <ConnectionStatus state={host.connectionState} />
-                <span>
-                  <strong>{host.kind === 'ssh' ? `ssh:${host.label}` : 'Local'}</strong>
+                <span className="session-host-copy">
+                  {host.kind === 'ssh' ? (
+                    <RemoteConnectionBadge
+                      state={host.connectionState}
+                      hostLabel={`ssh:${host.label}`}
+                    />
+                  ) : (
+                    <strong>Local</strong>
+                  )}
                   <small>
                     {host.kind === 'ssh' ? host.connectionState : 'this machine'}
                   </small>

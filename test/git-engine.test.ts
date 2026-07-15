@@ -112,6 +112,30 @@ describe('GitEngine', () => {
     await host.dispose()
   })
 
+  it('excludes a registered nested worktree from its parent workspace status', async () => {
+    const root = await repository()
+    const nested = join(root, 'test-worktree')
+    git(root, ['branch', 'feature'])
+    git(root, ['worktree', 'add', '-b', 'nested-worktree', nested])
+    const workspaceRoot = localPath(await realpath(root))
+    const nestedRoot = localPath(await realpath(nested))
+    const host = new LocalHost()
+    const engine = new GitEngine(host, workspaceRoot)
+    const related = [workspaceRoot, nestedRoot]
+
+    expect(
+      gitOutput(root, ['status', '--porcelain=v2', '--untracked-files=all']),
+    ).toContain('test-worktree/')
+    await expect(engine.changedFileCount(workspaceRoot, related)).resolves.toBe(0)
+    await expect(engine.changes(workspaceRoot, related)).resolves.toEqual(
+      expect.objectContaining({ workingTree: [] }),
+    )
+    await expect(engine.switchBranch(workspaceRoot, 'feature', related)).resolves.toBe(
+      undefined,
+    )
+    await host.dispose()
+  })
+
   it('parses NUL-delimited worktree paths without line-based path corruption', () => {
     expect(
       parseWorktreeList(

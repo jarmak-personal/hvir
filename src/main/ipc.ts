@@ -300,7 +300,10 @@ export function registerIpcHandlers(deps: IpcDeps): void {
   handle('git:changes', async (req) => {
     const project = deps.getProject()
     const root = await projectPath(req.root, project.root, project.host)
-    return deps.gitWorker.request(GIT_CHANGES_TYPE, { root })
+    return deps.gitWorker.request(GIT_CHANGES_TYPE, {
+      root,
+      relatedWorktreeRoots: projectWorktreeRoots(root, deps),
+    })
   })
 
   handle('git:history', async (req) => {
@@ -525,6 +528,19 @@ function registeredWorkspaceRoot(candidate: HostPath, deps: IpcDeps): HostPath {
     throw new Error('Terminal session belongs to another project')
   }
   return root
+}
+
+function projectWorktreeRoots(root: HostPath, deps: IpcDeps): readonly HostPath[] {
+  const project = deps
+    .getProjectState()
+    .projects.find((candidate) =>
+      candidate.workspaces.some((workspace) => hostPathEquals(workspace.root, root)),
+    )
+  return (
+    project?.workspaces
+      .filter((workspace) => !workspace.missing)
+      .map((workspace) => workspace.root) ?? []
+  )
 }
 
 function isTerminalId(value: unknown): value is string {

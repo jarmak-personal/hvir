@@ -119,9 +119,12 @@ export interface GitWorkerProtocol {
     { readonly root: HostPath },
     GitBranchModel
   >
-  readonly [GIT_SWITCH_BRANCH_TYPE]: WorkerOperation<GitSwitchBranchRequest, void>
+  readonly [GIT_SWITCH_BRANCH_TYPE]: WorkerOperation<
+    GitSwitchBranchRequest & { readonly relatedWorktreeRoots?: readonly HostPath[] },
+    void
+  >
   readonly [GIT_CHANGED_FILE_COUNT_TYPE]: WorkerOperation<
-    { readonly root: HostPath },
+    { readonly root: HostPath; readonly relatedWorktreeRoots?: readonly HostPath[] },
     number
   >
   readonly [GIT_WORKTREES_TYPE]: WorkerOperation<
@@ -134,7 +137,10 @@ export interface GitWorkerProtocol {
   >
   readonly [GIT_DIFF_INPUTS_TYPE]: WorkerOperation<GitWorkerPayload, GitDiffResponse>
   readonly [GIT_CHANGES_TYPE]: WorkerOperation<
-    GitChangesRequest & { readonly root: HostPath },
+    GitChangesRequest & {
+      readonly root: HostPath
+      readonly relatedWorktreeRoots?: readonly HostPath[]
+    },
     GitChanges
   >
   readonly [GIT_HISTORY_TYPE]: WorkerOperation<GitHistoryRequest, GitHistoryPage>

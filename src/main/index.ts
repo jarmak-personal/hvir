@@ -442,13 +442,17 @@ function refreshProjectWorkspaces(projectId: string): Promise<ProjectState> {
     const refreshed = registry.projectById(projectId)
     if (!refreshed || !discovery.repository) return registry.state()
     const present = refreshed.workspaces.filter((workspace) => !workspace.missing)
+    const relatedWorktreeRoots = present.map((workspace) => workspace.root)
     const counts = new Map<string, number>()
     for (let index = 0; index < present.length; index += 3) {
       await Promise.all(
         present.slice(index, index + 3).map(async (workspace) => {
           counts.set(
             workspace.id,
-            await worker.request(GIT_CHANGED_FILE_COUNT_TYPE, { root: workspace.root }),
+            await worker.request(GIT_CHANGED_FILE_COUNT_TYPE, {
+              root: workspace.root,
+              relatedWorktreeRoots,
+            }),
           )
         }),
       )
@@ -580,7 +584,16 @@ function requestGitBranchSwitch(root: HostPath, branch: string): Promise<Project
     }
     branchSwitchAuthorizations.add(authorization)
     try {
-      await worker.request(GIT_SWITCH_BRANCH_TYPE, { root, branch })
+      const relatedWorktreeRoots =
+        registry
+          .projectById(projectId)
+          ?.workspaces.filter((workspace) => !workspace.missing)
+          .map((workspace) => workspace.root) ?? []
+      await worker.request(GIT_SWITCH_BRANCH_TYPE, {
+        root,
+        branch,
+        relatedWorktreeRoots,
+      })
     } finally {
       branchSwitchAuthorizations.delete(authorization)
     }
@@ -1804,6 +1817,17 @@ async function runSmoke(): Promise<number> {
               if (Date.now() > deadline) return reject(new Error('Git changes did not load'));
               return setTimeout(waitForChanges, 50);
             }
+            if (!changed.querySelector('.git-file-name .tree-file-stem')) {
+              return reject(new Error('Git change filename does not match Files schema'));
+            }
+            const branchPoint = document.querySelector('.git-group.branch-point .git-group-toggle');
+            if (branchPoint && branchPoint.getAttribute('aria-expanded') !== 'false') {
+              return reject(new Error('Branch point is not collapsed by default'));
+            }
+            const branchSelect = document.querySelector('#git-branch-select');
+            if (branchSelect && branchSelect.options.length > 1 && branchSelect.disabled) {
+              return reject(new Error('Branch menu cannot be inspected while switching is blocked'));
+            }
             const untracked = changed.querySelector('small')?.textContent?.trim().startsWith('?');
             changed.click();
             const waitForView = () => {
@@ -1988,6 +2012,9 @@ async function runSmoke(): Promise<number> {
         const deadline = Date.now() + 10000;
         const sessionBar = document.querySelector('.session-bar');
         const sessionText = sessionBar?.textContent || '';
+        if (sessionBar?.querySelector('.remote-connection-badge')) {
+          return reject(new Error('local session shows a remote connection badge'));
+        }
         if (sessionText.includes(${JSON.stringify(smokeRoot.path)})) {
           return reject(new Error('session strip still exposes the full project path'));
         }
@@ -2007,6 +2034,9 @@ async function runSmoke(): Promise<number> {
           if (!local || !choose) {
             if (Date.now() > deadline) return reject(new Error('session host step missing'));
             return setTimeout(waitForHost, 50);
+          }
+          if (local.querySelector('.remote-connection-badge')) {
+            return reject(new Error('local host option shows a remote connection badge'));
           }
           local.click();
           choose.click();

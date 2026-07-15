@@ -11,6 +11,7 @@ import {
 import {
   basenameHostPath,
   type DiffBase,
+  type GitChangedFile,
   type GitChanges,
   type GitBranchModel,
   type GitCommitDetail,
@@ -31,6 +32,7 @@ import { loadCommitDetail } from './commit-detail-client'
 import { buildGitGraphLayout, type GitGraphRow } from './git-graph-layout'
 import { gitGraphWidth, RAIL_GRAPH_LANE_METRICS } from './git-graph-lane-metrics'
 import { GitGraphCell, GitGraphContinuation } from './GitGraphLanes'
+import { splitFileName } from '../tree/file-name'
 import { measureVariableRows, variableVirtualRange, virtualRange } from './virtual-range'
 
 interface GitPanelProps {
@@ -226,12 +228,7 @@ export function GitPanel({
           : changes.workingTree.length > 0
             ? 'Commit or stash working tree changes before switching'
             : undefined
-  const hasSwitchableBranch = branchModel?.branches.some(
-    (branch) =>
-      !branch.current &&
-      (!branch.worktree ||
-        (branch.worktree.hostId === root.hostId && branch.worktree.path === root.path)),
-  )
+  const hasAlternativeBranch = branchModel?.branches.some((branch) => !branch.current)
 
   useEffect(() => {
     if (view !== 'history' || connectionState !== 'connected' || historyPaused) return
@@ -280,12 +277,7 @@ export function GitPanel({
           <select
             id="git-branch-select"
             value={branchModel?.current ?? '__detached__'}
-            disabled={
-              !branchModel ||
-              branchSwitching ||
-              Boolean(branchBlockReason) ||
-              !hasSwitchableBranch
-            }
+            disabled={!branchModel || branchSwitching || !hasAlternativeBranch}
             title={branchError ?? branchBlockReason ?? 'Switch existing local branch'}
             onChange={(event) => {
               const branch = event.currentTarget.value
@@ -321,7 +313,9 @@ export function GitPanel({
                 <option
                   key={branch.name}
                   value={branch.name}
-                  disabled={Boolean(occupiedElsewhere)}
+                  disabled={Boolean(
+                    occupiedElsewhere || (!branch.current && branchBlockReason),
+                  )}
                 >
                   {branch.name}
                   {occupiedElsewhere ? ` — in ${branch.worktree?.path}` : ''}
@@ -388,13 +382,17 @@ export function GitPanel({
                   onOpen={onOpenChange}
                 />
                 {changes?.branchPointAvailable ? (
-                  <ChangeGroup
-                    title="Branch point"
-                    files={changes.branchPoint}
-                    root={root}
-                    base="branch-point"
-                    onOpen={onOpenChange}
-                  />
+                  changes.branchPoint.length > 0 ? (
+                    <ChangeGroup
+                      key={`${root.hostId}:${root.path}:branch-point`}
+                      title="Branch point"
+                      files={changes.branchPoint}
+                      root={root}
+                      base="branch-point"
+                      onOpen={onOpenChange}
+                      collapsible
+                    />
+                  ) : null
                 ) : changes ? (
                   <div
                     className="git-empty git-branch-unavailable"
@@ -876,20 +874,42 @@ function ChangeGroup({
   root,
   base,
   onOpen,
+  collapsible = false,
 }: {
   readonly title: string
   readonly files: GitChanges['workingTree']
   readonly root: HostPath
   readonly base: DiffBase
   readonly onOpen: (path: HostPath, base: DiffBase, untracked?: boolean) => void
+  readonly collapsible?: boolean
 }): ReactElement {
+  const [expanded, setExpanded] = useState(!collapsible)
   return (
-    <div className="git-group">
+    <div className={`git-group${collapsible ? ' branch-point' : ''}`}>
       <h3>
-        {title}
-        <span>{files.length}</span>
+        {collapsible ? (
+          <button
+            type="button"
+            className="git-group-toggle"
+            aria-expanded={expanded}
+            onClick={() => setExpanded((value) => !value)}
+          >
+            <span className="git-group-chevron" aria-hidden="true">
+              {expanded ? '⌄' : '›'}
+            </span>
+            <span>{title}</span>
+            <span className="git-group-count">{files.length}</span>
+          </button>
+        ) : (
+          <>
+            <span>{title}</span>
+            <span>{files.length}</span>
+          </>
+        )}
       </h3>
-      <VirtualChangeFiles files={files} root={root} base={base} onOpen={onOpen} />
+      {expanded ? (
+        <VirtualChangeFiles files={files} root={root} base={base} onOpen={onOpen} />
+      ) : null}
     </div>
   )
 }
@@ -927,10 +947,12 @@ function VirtualChangeFiles({
         {files.slice(start, end).map((file, offset) => {
           const index = start + offset
           const directory = displayGitParentPath(file.path, root)
+          const name = splitFileName(basenameHostPath(file.path))
+          const tone = gitChangeTone(file)
           return (
             <button
               type="button"
-              className="git-file"
+              className={`git-file git-status-${tone}`}
               key={`${file.path.hostId}:${file.path.path}`}
               style={{
                 height: DETAIL_ROW_HEIGHT,
@@ -940,21 +962,28 @@ function VirtualChangeFiles({
               title={file.path.path}
             >
               <span className="git-file-copy">
-                <span className="git-file-name">{basenameHostPath(file.path)}</span>
+                <span className="git-file-name tree-file-name">
+                  <span className="tree-file-stem">{name.stem}</span>
+                  {name.extension ? (
+                    <span className="tree-file-extension">{name.extension}</span>
+                  ) : null}
+                </span>
                 {directory ? (
                   <span className="git-file-directory">{directory}</span>
                 ) : null}
               </span>
-              <small>
-                {file.conflicted
-                  ? '!'
-                  : file.untracked
-                    ? '?'
-                    : file.staged && file.unstaged
-                      ? '±'
-                      : file.staged
-                        ? 'S'
-                        : 'M'}{' '}
+              <small className={`git-change-summary ${tone}`}>
+                <span className="git-change-marker">
+                  {file.conflicted
+                    ? '!'
+                    : file.untracked
+                      ? '?'
+                      : file.staged && file.unstaged
+                        ? '±'
+                        : file.staged
+                          ? 'S'
+                          : 'M'}
+                </span>{' '}
                 {file.additions === undefined || file.deletions === undefined ? (
                   <span className="git-count-omitted" title="Line counts unavailable">
                     —
@@ -971,4 +1000,9 @@ function VirtualChangeFiles({
       </div>
     </div>
   )
+}
+
+function gitChangeTone(file: GitChangedFile): 'untracked' | 'modified' | 'conflict' {
+  if (file.conflicted) return 'conflict'
+  return file.untracked ? 'untracked' : 'modified'
 }

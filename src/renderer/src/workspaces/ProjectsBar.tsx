@@ -7,7 +7,7 @@ import {
   type WorkspaceState,
 } from '../../../shared'
 import type { TerminalWorkspaceRollup } from '../terminal/TerminalWorkspace'
-import { ConnectionStatus } from './ConnectionStatus'
+import { RemoteConnectionBadge } from './ConnectionStatus'
 import { aggregateWorkspaceAttention } from './workspace-attention'
 import type { AppTheme } from '../theme'
 
@@ -74,12 +74,12 @@ export function ProjectsBar({
                 onClick={() => target && onSwitch(project.id, target.id)}
                 title={`${project.registeredRoot.path} · ${project.connectionState}`}
               >
-                <ConnectionStatus state={project.connectionState} />
                 <strong>{project.displayName}</strong>
                 {project.registeredRoot.hostId !== 'local' ? (
-                  <small className="project-host-badge">
-                    ssh:{project.registeredRoot.hostId}
-                  </small>
+                  <RemoteConnectionBadge
+                    state={project.connectionState}
+                    hostLabel={`ssh:${project.registeredRoot.hostId}`}
+                  />
                 ) : null}
                 {changed > 0 ? (
                   <span

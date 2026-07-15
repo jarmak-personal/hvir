@@ -133,6 +133,9 @@ is an ADR conversation, not a quiet addition here.
   were verified arm64. The AppImage and zip were also produced.
 - The local post-gauntlet teardown audit found no telemetry helper directories, follower
   `tail` processes, PTYs, Electron app processes, Docker containers, or build volumes.
+- The final Git/connection polish keeps registered nested worktree roots out of their
+  parent's status/count/branch-safety model, leaves blocked branch menus inspectable,
+  collapses branch-point detail by default, and reserves connection badges for SSH.
 
 ## Manual release acceptance remaining
 

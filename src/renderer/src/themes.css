@@ -109,6 +109,16 @@
   border-color: var(--border-subtle);
 }
 
+:root[data-theme='light'] .remote-connection-badge {
+  background: var(--surface-2);
+  color: var(--text-muted);
+  box-shadow: inset 0 0 0 1px var(--border-subtle);
+}
+
+:root[data-theme='light'] .git-group.branch-point {
+  border-color: var(--border-subtle);
+}
+
 :root[data-theme='light'] :is(.tree-row, .git-file) {
   color: var(--text);
   background: transparent;

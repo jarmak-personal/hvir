@@ -63,6 +63,10 @@ async function handle(request: WorkerRequest): Promise<void> {
     const raw = request.payload as Record<string, unknown>
     if (!isRawPath(raw['root'])) throw new Error('invalid git root')
     const root = decodePath(raw['root'])
+    const relatedWorktreeRoots = decodeRelatedWorktreeRoots(
+      raw['relatedWorktreeRoots'],
+      root,
+    )
     const engine = new GitEngine(new ProxyGitHost(root.hostId), root)
     let result: unknown
     if (request.type === GIT_WORKTREES_TYPE) {
@@ -73,11 +77,11 @@ async function handle(request: WorkerRequest): Promise<void> {
       request.type === GIT_SWITCH_BRANCH_TYPE &&
       typeof raw['branch'] === 'string'
     ) {
-      result = await engine.switchBranch(root, raw['branch'])
+      result = await engine.switchBranch(root, raw['branch'], relatedWorktreeRoots)
     } else if (request.type === GIT_PRUNE_WORKTREES_TYPE) {
       result = await engine.pruneWorktrees(root)
     } else if (request.type === GIT_CHANGED_FILE_COUNT_TYPE) {
-      result = await engine.changedFileCount(root)
+      result = await engine.changedFileCount(root, relatedWorktreeRoots)
     } else if (request.type === GIT_DIFF_INPUTS_TYPE && isPayload(request.payload)) {
       const path = decodePath(request.payload.path)
       assertProjectPath(path, root)
@@ -87,7 +91,7 @@ async function handle(request: WorkerRequest): Promise<void> {
         request.payload.revision,
       )
     } else if (request.type === GIT_CHANGES_TYPE) {
-      result = await engine.changes(root)
+      result = await engine.changes(root, relatedWorktreeRoots)
     } else if (
       request.type === GIT_IGNORED_ENTRIES_TYPE &&
       isRawPath(raw['directory']) &&
@@ -126,6 +130,18 @@ async function handle(request: WorkerRequest): Promise<void> {
       error: error instanceof Error ? error.message : String(error),
     })
   }
+}
+
+function decodeRelatedWorktreeRoots(value: unknown, root: HostPath): readonly HostPath[] {
+  if (value === undefined) return []
+  if (!Array.isArray(value) || value.length > 1_000 || !value.every(isRawPath)) {
+    throw new Error('invalid related worktree roots')
+  }
+  return value.map((candidate) => {
+    const decoded = decodePath(candidate)
+    if (decoded.hostId !== root.hostId) throw new Error('worktree host mismatch')
+    return decoded
+  })
 }
 
 class ProxyGitHost implements ProjectHost {

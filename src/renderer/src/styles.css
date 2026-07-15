@@ -137,7 +137,6 @@ button {
   white-space: nowrap;
 }
 
-.project-host-badge,
 .project-change-count {
   flex: 0 0 auto;
   padding: 2px 5px;
@@ -1325,42 +1324,55 @@ body.pane-resizing-row * {
   color: #aeb5c0;
 }
 
-.connection-state {
-  min-width: 22px;
-  height: 15px;
+.remote-connection-badge {
+  max-width: 180px;
+  height: 17px;
   flex: 0 0 auto;
   display: inline-flex;
   align-items: center;
-  justify-content: center;
-  padding: 0 4px;
-  border: 1px solid #497c55;
-  border-radius: 3px;
-  background: #17251b;
-  color: #75bd84;
-  font-size: 7px;
-  font-weight: 750;
-  letter-spacing: 0.04em;
+  gap: 4px;
+  overflow: hidden;
+  padding: 0 6px 0 4px;
+  border-radius: 8px;
+  background: #252c36;
+  color: #8fa6c2;
+  font-size: 8px;
+  font-weight: 600;
   line-height: 1;
-  text-transform: uppercase;
 }
 
-.connection-state.connecting,
-.connection-state.reconnecting {
-  border-color: #765e36;
-  background: #292216;
+.remote-connection-mark {
+  width: 10px;
+  flex: 0 0 10px;
+  color: #75bd84;
+  font-size: 9px;
+  font-weight: 800;
+  text-align: center;
+}
+
+.remote-connection-host {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.remote-connection-badge.connecting .remote-connection-mark,
+.remote-connection-badge.reconnecting .remote-connection-mark {
   color: #d4a85f;
 }
 
-.connection-state.failed {
-  border-color: #7e454b;
-  background: #2c191b;
+.remote-connection-badge.failed .remote-connection-mark {
   color: #df7b83;
 }
 
-.connection-state.disconnected {
-  border-color: #4c5562;
-  background: #1b1f25;
+.remote-connection-badge.disconnected .remote-connection-mark {
   color: #8993a0;
+}
+
+.session-bar .remote-connection-badge,
+.session-host-option .remote-connection-badge {
+  height: 20px;
+  font-size: 10px;
 }
 
 .project-stale .viewer-body::after {
@@ -1468,6 +1480,40 @@ body.pane-resizing-row * {
   text-transform: uppercase;
 }
 
+.git-group.branch-point {
+  margin-top: 8px;
+  padding-top: 4px;
+  border-top: 1px solid #2c323b;
+}
+
+.git-group-toggle {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-transform: inherit;
+}
+
+.git-group-toggle:hover {
+  color: #b0b8c4;
+}
+
+.git-group-chevron {
+  width: 9px;
+  flex: 0 0 9px;
+  font-size: 13px;
+  line-height: 0.7;
+}
+
+.git-group-count {
+  margin-left: auto;
+}
+
 .git-file {
   width: 100%;
   display: flex;
@@ -1500,6 +1546,32 @@ body.pane-resizing-row * {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.git-file-name {
+  display: flex;
+}
+
+.git-file.git-status-untracked .tree-file-stem,
+.git-change-summary.untracked .git-change-marker {
+  color: #67ae77;
+}
+
+.git-file.git-status-modified .tree-file-stem,
+.git-change-summary.modified .git-change-marker {
+  color: #d4a85f;
+}
+
+.git-file.git-status-conflict .tree-file-stem,
+.git-change-summary.conflict .git-change-marker {
+  color: #d76d76;
+}
+
+.git-change-marker {
+  display: inline-block;
+  width: 9px;
+  font-weight: 700;
+  text-align: center;
 }
 
 .git-file-directory {
@@ -2600,7 +2672,7 @@ body.pane-resizing-row * {
   background: #1b2632;
 }
 
-.session-host-option > span:not(.connection-state) {
+.session-host-copy {
   display: flex;
   flex-direction: column;
   gap: 2px;
