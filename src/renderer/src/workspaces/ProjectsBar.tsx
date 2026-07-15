@@ -7,6 +7,8 @@ import {
   type WorkspaceState,
 } from '../../../shared'
 import type { TerminalWorkspaceRollup } from '../terminal/TerminalWorkspace'
+import { ConnectionStatus } from './ConnectionStatus'
+import { aggregateWorkspaceAttention } from './workspace-attention'
 
 interface ProjectsBarProps {
   readonly state: ProjectState
@@ -50,10 +52,10 @@ export function ProjectsBar({
             const changed = project.workspaces
               .filter((workspace) => !workspace.missing)
               .reduce((total, workspace) => total + workspace.changedFiles, 0)
-            const unseen = project.workspaces.reduce(
-              (total, workspace) => total + (rollups[workspace.id]?.unseen ?? 0),
-              0,
-            )
+            const unseen = aggregateWorkspaceAttention(
+              project.workspaces.map((workspace) => workspace.id),
+              rollups,
+            ).unseen
             const target = activeWorkspace(project)
             return (
               <button
@@ -65,7 +67,7 @@ export function ProjectsBar({
                 onClick={() => target && onSwitch(project.id, target.id)}
                 title={`${project.registeredRoot.path} · ${project.connectionState}`}
               >
-                <span className={`connection-state ${project.connectionState}`} />
+                <ConnectionStatus state={project.connectionState} />
                 <strong>{project.displayName}</strong>
                 {project.registeredRoot.hostId !== 'local' ? (
                   <small className="project-host-badge">
@@ -73,14 +75,16 @@ export function ProjectsBar({
                   </small>
                 ) : null}
                 {changed > 0 ? (
-                  <span className="project-change-count">{changed}</span>
-                ) : null}
-                {unseen > 0 ? (
                   <span
-                    className="workspace-attention-dot"
-                    aria-label="Terminal attention"
-                  />
+                    className="project-change-count"
+                    aria-label={`${changed} changed files`}
+                    title={`${changed} changed files`}
+                  >
+                    <span aria-hidden="true">Δ </span>
+                    {changed}
+                  </span>
                 ) : null}
+                {unseen > 0 ? <AttentionCount count={unseen} /> : null}
               </button>
             )
           })}
@@ -112,12 +116,18 @@ export function ProjectsBar({
                   <span>{workspace.name}</span>
                   {workspace.main ? <small>main checkout</small> : null}
                   {workspace.prunableReason ? <small>prunable</small> : null}
-                  {workspace.changedFiles > 0 ? <b>{workspace.changedFiles}</b> : null}
+                  {workspace.changedFiles > 0 ? (
+                    <b
+                      className="workspace-change-count"
+                      aria-label={`${workspace.changedFiles} changed files`}
+                      title={`${workspace.changedFiles} changed files`}
+                    >
+                      <span aria-hidden="true">Δ </span>
+                      {workspace.changedFiles}
+                    </b>
+                  ) : null}
                   {(rollups[workspace.id]?.unseen ?? 0) > 0 ? (
-                    <i
-                      className="workspace-attention-dot"
-                      aria-label="Terminal attention"
-                    />
+                    <AttentionCount count={rollups[workspace.id]?.unseen ?? 0} />
                   ) : null}
                 </button>
                 {workspace.missing && !workspace.prunableReason ? (
@@ -170,6 +180,16 @@ export function ProjectsBar({
         />
       ) : null}
     </>
+  )
+}
+
+function AttentionCount({ count }: { readonly count: number }): ReactElement {
+  const label = `${count} unseen terminal${count === 1 ? '' : 's'}`
+  return (
+    <span className="terminal-attention-count" aria-label={label} title={label}>
+      <span aria-hidden="true">!</span>
+      {count}
+    </span>
   )
 }
 

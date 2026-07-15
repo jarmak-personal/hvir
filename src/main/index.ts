@@ -1137,10 +1137,10 @@ async function runSmoke(): Promise<number> {
           const poll = () => {
             const rows = [...document.querySelectorAll('.terminal-list-row')];
             const title = rows[1]?.querySelector('.terminal-list-title')?.textContent || '';
-            const bell = rows[1]?.querySelector('.terminal-attention.bell');
+            const bell = rows[1]?.querySelector('.terminal-attention-badge.bell');
             if (title === 'Smoke agent' && bell) {
               rows[1]?.querySelector('.terminal-close-button')?.click();
-              return resolve('live title · bell dot · close');
+              return resolve('live title · bell badge · close');
             }
             if (Date.now() > deadline) return reject(new Error(
               'terminal signal missing: title=' + title + ' bell=' + Boolean(bell)
@@ -1508,6 +1508,9 @@ async function runSmoke(): Promise<number> {
                 scroller.scrollTop = 220;
                 return requestAnimationFrame(() => resolve(scroller.scrollTop));
               }
+              const source = [...document.querySelectorAll('.mode-control button')]
+                .find((node) => node.textContent?.trim() === 'source');
+              source?.click();
               if (Date.now() > deadline) return reject(new Error('live-reload source missing'));
               setTimeout(waitForSource, 50);
             };

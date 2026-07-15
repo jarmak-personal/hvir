@@ -181,9 +181,14 @@ button {
   font-size: 8px;
 }
 
-.workspace-tab b {
+.workspace-change-count {
+  padding: 1px 4px;
+  border: 1px solid #594c32;
+  border-radius: 3px;
+  background: #211d16;
   color: #d6b16e;
   font-size: 9px;
+  font-weight: 650;
   font-variant-numeric: tabular-nums;
 }
 
@@ -219,14 +224,22 @@ button {
   color: #d6b16e;
 }
 
-.workspace-attention-dot {
-  width: 7px;
-  height: 7px;
-  flex: 0 0 7px;
-  display: inline-block;
-  border-radius: 50%;
-  background: #e2aa57;
-  box-shadow: 0 0 0 2px rgb(226 170 87 / 10%);
+.terminal-attention-count {
+  min-width: 22px;
+  height: 17px;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  padding: 0 5px;
+  border: 1px solid #71552d;
+  border-radius: 8px;
+  background: #2a2114;
+  color: #efbd67;
+  font-size: 8px;
+  font-weight: 750;
+  font-variant-numeric: tabular-nums;
 }
 
 .workbench {
@@ -752,25 +765,32 @@ button {
   outline-offset: -2px;
 }
 
-.terminal-attention {
-  width: 7px;
-  height: 7px;
-  flex: 0 0 7px;
-  border-radius: 50%;
-  background: transparent;
+.terminal-attention-badge {
+  flex: 0 0 auto;
+  align-self: center;
+  padding: 2px 5px;
+  border: 1px solid currentColor;
+  border-radius: 3px;
+  font-size: 7px;
+  font-weight: 750;
+  letter-spacing: 0.03em;
+  line-height: 1;
+  text-transform: uppercase;
 }
 
-.terminal-attention.output {
-  background: #72a7df;
+.terminal-attention-badge.output {
+  background: #172230;
+  color: #78ace4;
 }
 
-.terminal-attention.bell {
-  background: #e2b35f;
+.terminal-attention-badge.bell {
+  background: #2a2114;
+  color: #e5b65f;
 }
 
-.terminal-attention.idle {
-  background: #74c58b;
-  box-shadow: 0 0 0 2px rgb(116 197 139 / 16%);
+.terminal-attention-badge.idle {
+  background: #17261c;
+  color: #7ccc91;
 }
 
 .terminal-list-copy {
@@ -1076,24 +1096,41 @@ body.pane-resizing-row * {
 }
 
 .connection-state {
-  width: 7px;
-  height: 7px;
-  flex: 0 0 7px;
-  border-radius: 50%;
-  background: #5aa66a;
+  min-width: 22px;
+  height: 15px;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 4px;
+  border: 1px solid #497c55;
+  border-radius: 3px;
+  background: #17251b;
+  color: #75bd84;
+  font-size: 7px;
+  font-weight: 750;
+  letter-spacing: 0.04em;
+  line-height: 1;
+  text-transform: uppercase;
 }
 
 .connection-state.connecting,
 .connection-state.reconnecting {
-  background: #d4a85f;
+  border-color: #765e36;
+  background: #292216;
+  color: #d4a85f;
 }
 
 .connection-state.failed {
-  background: #d76d76;
+  border-color: #7e454b;
+  background: #2c191b;
+  color: #df7b83;
 }
 
 .connection-state.disconnected {
-  background: #687180;
+  border-color: #4c5562;
+  background: #1b1f25;
+  color: #8993a0;
 }
 
 .project-stale .viewer-body::after {

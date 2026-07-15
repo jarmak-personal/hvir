@@ -9,7 +9,12 @@ import {
   type TerminalIdentityStatus,
   type TerminalRecoverySession,
 } from '../../../shared'
-import { nextTerminalAttention, type TerminalAttention } from './terminal-attention'
+import {
+  nextTerminalAttention,
+  terminalAttentionLabel,
+  terminalAttentionRollup,
+  type TerminalAttention,
+} from './terminal-attention'
 import { resolveTerminalFileTarget } from './terminal-file-link'
 import { TerminalView } from './TerminalView'
 
@@ -92,6 +97,11 @@ export function TerminalWorkspace({
     const timers = idleTimers.current
     const focused = (): void => {
       appFocusedRef.current = true
+      focusedTerminalRef.current =
+        document.activeElement instanceof Element
+          ? document.activeElement.closest<HTMLElement>('[data-terminal-session]')
+              ?.dataset['terminalSession']
+          : undefined
     }
     const blurred = (): void => {
       appFocusedRef.current = false
@@ -214,16 +224,15 @@ export function TerminalWorkspace({
       .catch(() => undefined)
   }, [layoutKey, recoveryReady, workspaceRoot])
 
-  const actionableAttention = sessions.filter(
-    (session) => session.attention === 'idle' || session.attention === 'bell',
-  ).length
-  const unseenAttention = sessions.filter((session) => session.attention).length
+  const attentionRollup = terminalAttentionRollup(
+    sessions.map((session) => session.attention),
+  )
   useEffect(() => {
     onRollup(workspaceId, {
-      unseen: unseenAttention,
-      actionable: actionableAttention,
+      unseen: attentionRollup.unseen,
+      actionable: attentionRollup.actionable,
     })
-  }, [actionableAttention, onRollup, unseenAttention, workspaceId])
+  }, [attentionRollup.actionable, attentionRollup.unseen, onRollup, workspaceId])
   useEffect(
     () => () => onRollup(workspaceId, { unseen: 0, actionable: 0 }),
     [onRollup, workspaceId],
@@ -462,12 +471,6 @@ export function TerminalWorkspace({
                 className="terminal-list-main"
                 onClick={() => focusSession(session.id)}
               >
-                <span
-                  className={`terminal-attention${session.attention ? ` ${session.attention}` : ''}`}
-                  aria-label={
-                    session.attention ? `${session.attention} attention` : undefined
-                  }
-                />
                 <span className="terminal-list-copy">
                   <span className="terminal-list-title">{session.title}</span>
                   <span className="terminal-list-meta">
@@ -478,6 +481,19 @@ export function TerminalWorkspace({
                     <ContextMeter telemetry={session.telemetry} />
                   ) : null}
                 </span>
+                {session.attention ? (
+                  <span
+                    className={`terminal-attention-badge ${session.attention}`}
+                    aria-label={terminalAttentionLabel(session.attention)}
+                    title={terminalAttentionLabel(session.attention)}
+                  >
+                    {session.attention === 'output'
+                      ? 'new'
+                      : session.attention === 'bell'
+                        ? 'bell'
+                        : 'ready'}
+                  </span>
+                ) : null}
               </button>
               <button
                 type="button"

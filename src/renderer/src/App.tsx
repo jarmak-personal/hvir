@@ -32,6 +32,7 @@ import { PaneResizer } from './layout/PaneResizer'
 import { TerminalWorkspace } from './terminal/TerminalWorkspace'
 import type { TerminalWorkspaceRollup } from './terminal/TerminalWorkspace'
 import { ProjectsBar } from './workspaces/ProjectsBar'
+import { ConnectionStatus } from './workspaces/ConnectionStatus'
 import { initialHostConnectionTarget } from './workspaces/initial-host-connection'
 import { FileTree, SessionBar } from './tree/FileTree'
 import { DirectoryTree } from './tree/DirectoryTree'
@@ -1236,7 +1237,7 @@ function SessionDialog({
                 key={host.hostId}
                 onClick={() => setHostId(host.hostId)}
               >
-                <span className={`connection-state ${host.connectionState}`} />
+                <ConnectionStatus state={host.connectionState} />
                 <span>
                   <strong>{host.kind === 'ssh' ? `ssh:${host.label}` : 'Local'}</strong>
                   <small>

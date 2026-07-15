@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest'
 
-import { nextTerminalAttention } from '../src/renderer/src/terminal/terminal-attention'
+import {
+  nextTerminalAttention,
+  terminalAttentionLabel,
+  terminalAttentionRollup,
+} from '../src/renderer/src/terminal/terminal-attention'
 
 describe('terminal attention', () => {
   it('suppresses every signal while the terminal is focused', () => {
@@ -21,5 +25,15 @@ describe('terminal attention', () => {
     expect(nextTerminalAttention('bell', 'output', false)).toBe('bell')
     expect(nextTerminalAttention('bell', 'idle', false)).toBe('idle')
     expect(nextTerminalAttention('idle', 'bell', false)).toBe('idle')
+  })
+
+  it('labels signals without relying on color and aggregates distinct terminals', () => {
+    expect(terminalAttentionLabel('output')).toBe('New output')
+    expect(terminalAttentionLabel('bell')).toBe('Bell')
+    expect(terminalAttentionLabel('idle')).toBe('Ready')
+    expect(terminalAttentionRollup(['output', 'bell', 'idle', undefined])).toEqual({
+      unseen: 3,
+      actionable: 2,
+    })
   })
 })

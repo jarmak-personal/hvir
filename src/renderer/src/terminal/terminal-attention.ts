@@ -17,3 +17,20 @@ export function nextTerminalAttention(
   }
   return incoming
 }
+
+export function terminalAttentionLabel(attention: TerminalAttention): string {
+  if (attention === 'idle') return 'Ready'
+  if (attention === 'bell') return 'Bell'
+  return 'New output'
+}
+
+export function terminalAttentionRollup(
+  attentions: readonly (TerminalAttention | undefined)[],
+): { readonly unseen: number; readonly actionable: number } {
+  return {
+    unseen: attentions.filter(Boolean).length,
+    actionable: attentions.filter(
+      (attention) => attention === 'idle' || attention === 'bell',
+    ).length,
+  }
+}

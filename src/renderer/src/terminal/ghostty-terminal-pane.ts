@@ -14,6 +14,7 @@ import type {
   TerminalSize,
 } from './terminal-pane'
 import { detectTerminalFileLinks, isFileUri } from './terminal-file-link'
+import { TerminalSignalParser } from './terminal-signals'
 
 let initializeGhostty: Promise<void> | undefined
 
@@ -76,7 +77,7 @@ class GhosttyTerminalPane implements TerminalPane {
   private readonly engineDisposers: Array<{ dispose(): void }> = []
   private mounted = false
   private disposed = false
-  private oscCarry = ''
+  private readonly signalParser = new TerminalSignalParser()
   private lastTitle = ''
 
   readonly events: TerminalPaneEvents = {
@@ -96,7 +97,6 @@ class GhosttyTerminalPane implements TerminalPane {
     this.engineDisposers.push(
       this.terminal.onData((data) => this.dataListeners.emit(data)),
       this.terminal.onResize((size) => this.resizeListeners.emit(size)),
-      this.terminal.onBell(() => this.bellListeners.emit()),
       this.terminal.onTitleChange((title) => this.emitTitle(title)),
     )
     this.terminal.open(container)
@@ -127,7 +127,7 @@ class GhosttyTerminalPane implements TerminalPane {
 
   write(data: string): void {
     if (this.disposed) return
-    this.inspectOsc(data)
+    this.inspectSignals(data)
     this.terminal.write(data)
   }
 
@@ -161,45 +161,16 @@ class GhosttyTerminalPane implements TerminalPane {
     this.oscListeners.clear()
     this.resizeListeners.clear()
     this.linkListeners.clear()
+    this.signalParser.reset()
   }
 
-  /** ghostty-web exposes title/bell but not the general xterm parser hook. */
-  private inspectOsc(chunk: string): void {
-    const input = this.oscCarry + chunk
-    this.oscCarry = ''
-    let cursor = 0
-
-    while (cursor < input.length) {
-      const start = input.indexOf('\u001b]', cursor)
-      if (start < 0) {
-        if (input.endsWith('\u001b')) this.oscCarry = '\u001b'
-        return
-      }
-
-      const bel = input.indexOf('\u0007', start + 2)
-      const st = input.indexOf('\u001b\\', start + 2)
-      const usesBel = bel >= 0 && (st < 0 || bel < st)
-      const end = usesBel ? bel : st
-      if (end < 0) {
-        // Bound malformed/unbounded OSC memory while preserving split sequences.
-        this.oscCarry = input.slice(start, start + 64 * 1024)
-        return
-      }
-
-      const body = input.slice(start + 2, end)
-      const separator = body.indexOf(';')
-      const codeText = separator < 0 ? body : body.slice(0, separator)
-      const code = Number.parseInt(codeText, 10)
-      const payload = separator < 0 ? '' : body.slice(separator + 1)
-      if (Number.isFinite(code)) {
-        if (code === 0 || code === 2) this.emitTitle(payload)
-        else {
-          const event = { code, data: payload }
-          this.oscListeners.emit(event)
-          if (code === 9) this.bellListeners.emit()
-        }
-      }
-      cursor = end + (usesBel ? 1 : 2)
+  /** ghostty-web does not distinguish real BEL from BEL-terminated OSC. */
+  private inspectSignals(chunk: string): void {
+    const signals = this.signalParser.consume(chunk)
+    for (const title of signals.titles) this.emitTitle(title)
+    for (const event of signals.oscillators) this.oscListeners.emit(event)
+    for (let index = 0; index < signals.bells; index += 1) {
+      this.bellListeners.emit()
     }
   }
 

@@ -9,6 +9,7 @@ import {
   type HostWatchTier,
 } from '../../../shared'
 import { DirectoryTree } from './DirectoryTree'
+import { ConnectionStatus } from '../workspaces/ConnectionStatus'
 import { buildTreeGitDecorations } from './git-status-decoration'
 
 const NO_CHANGED_FILES: readonly GitChangedFile[] = []
@@ -115,7 +116,7 @@ export function SessionBar({
       className="session-bar"
       title={error ?? `${label} · ${connectionState} · ${watchTier}`}
     >
-      <span className={`connection-state ${connectionState}`} />
+      <ConnectionStatus state={connectionState} />
       <span className="session-copy">
         <strong>{label}</strong>
         <small className={error ? 'error' : ''}>{error ?? connectionState}</small>
