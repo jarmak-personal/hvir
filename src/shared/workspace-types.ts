@@ -9,6 +9,8 @@ export interface DiscoveredWorktree {
   readonly detached: boolean
   readonly bare: boolean
   readonly prunable?: boolean
+  /** Git's porcelain explanation for why its administrative record is stale. */
+  readonly prunableReason?: string
 }
 
 export interface WorktreeDiscovery {
@@ -25,6 +27,8 @@ export interface WorkspaceState {
   readonly branch?: string
   readonly main: boolean
   readonly missing: boolean
+  /** Present only when Git still lists this missing workspace as prunable. */
+  readonly prunableReason?: string
   readonly repository: boolean
   readonly changedFiles: number
 }

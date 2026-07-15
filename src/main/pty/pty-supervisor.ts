@@ -54,7 +54,7 @@ export type HarnessSessionIdentityStatus = TerminalIdentityStatus
 export interface PtyStreamHandlers {
   onData?: (data: string) => void
   onExit?: (exit: PtyExit) => void
-  onTelemetry?: (telemetry: HarnessTelemetry) => void
+  onTelemetry?: (telemetry: HarnessTelemetry | undefined) => void
 }
 
 interface Entry {
@@ -62,7 +62,7 @@ interface Entry {
   readonly pty: PtyProcess
   readonly dataListeners: Set<(data: string) => void>
   readonly exitListeners: Set<(exit: PtyExit) => void>
-  readonly telemetryListeners: Set<(telemetry: HarnessTelemetry) => void>
+  readonly telemetryListeners: Set<(telemetry: HarnessTelemetry | undefined) => void>
   readonly disposers: Disposer[]
   readonly replay: string[]
   replayLength: number
@@ -134,12 +134,12 @@ export class PtySupervisor {
         : undefined
     let discoverySnapshot: unknown
     let discoveryReady = false
-    let releaseDiscovery: Disposer | undefined
+    let releaseDiscoveryLaunch: Disposer | undefined
     let pty: PtyProcess
     let launchedAtMs = Date.now()
     try {
       if (discovery) {
-        releaseDiscovery = await this.reserveDiscovery(
+        releaseDiscoveryLaunch = await this.reserveDiscoveryLaunch(
           `${req.host.hostId}:${req.adapter.id}`,
         )
         this.assertPending(sessionId, pending, generation)
@@ -151,8 +151,8 @@ export class PtySupervisor {
             `[pty] ${req.adapter.id} session discovery snapshot unavailable`,
             error,
           )
-          void releaseDiscovery()
-          releaseDiscovery = undefined
+          void releaseDiscoveryLaunch()
+          releaseDiscoveryLaunch = undefined
         }
       }
 
@@ -166,10 +166,13 @@ export class PtySupervisor {
         defaultShell,
       }
       const spec = resumed ? req.adapter.resume(ctx) : req.adapter.launch(ctx)
+      const launch = spec.shellEnvironment
+        ? interactiveShellLaunch(defaultShell, spec.file, spec.args)
+        : spec
       launchedAtMs = Date.now()
       pty = await req.host.spawnPty({
-        file: spec.file,
-        args: spec.args,
+        file: launch.file,
+        args: launch.args,
         cwd: req.cwd,
         env: {
           TERM: 'xterm-256color',
@@ -180,8 +183,12 @@ export class PtySupervisor {
         cols: req.cols,
         rows: req.rows,
       })
+      // Keep same-adapter baselines ordered through PTY creation, but never
+      // hold a later terminal behind the bounded post-launch identity scan.
+      void releaseDiscoveryLaunch?.()
+      releaseDiscoveryLaunch = undefined
     } catch (error) {
-      void releaseDiscovery?.()
+      void releaseDiscoveryLaunch?.()
       throw error
     } finally {
       if (this.pendingIds.get(sessionId)?.token === pending.token) {
@@ -190,7 +197,6 @@ export class PtySupervisor {
     }
 
     if (pending.cancelled || this.generation !== generation) {
-      void releaseDiscovery?.()
       pty.kill()
       throw new Error(`PTY session '${sessionId}' was cancelled before it started`)
     }
@@ -254,7 +260,7 @@ export class PtySupervisor {
       }),
     )
 
-    if (discovery && discoveryReady && releaseDiscovery) {
+    if (discovery && discoveryReady) {
       const controller = new AbortController()
       this.discoveryControllers.add(controller)
       entry.disposers.push(() => controller.abort())
@@ -277,7 +283,6 @@ export class PtySupervisor {
         launchedAtMs,
         launchedAtMs,
         controller,
-        releaseDiscovery,
       )
     } else if (harnessSessionId) {
       this.startTelemetry(entry, req.host, req.adapter, harnessSessionId)
@@ -411,7 +416,7 @@ export class PtySupervisor {
     }
   }
 
-  private reserveDiscovery(key: string): Promise<Disposer> {
+  private reserveDiscoveryLaunch(key: string): Promise<Disposer> {
     const previous = this.discoveryQueues.get(key) ?? Promise.resolve()
     let openGate: (() => void) | undefined
     const gate = new Promise<void>((resolve) => {
@@ -419,7 +424,8 @@ export class PtySupervisor {
     })
     const tail = previous.catch(() => undefined).then(() => gate)
     // Store the reservation before awaiting the previous holder. Concurrent
-    // spawn() calls therefore cannot capture the same persisted-session baseline.
+    // launches cannot snapshot and spawn out of order, but identification is
+    // deliberately outside this queue because it may take up to 90 seconds.
     this.discoveryQueues.set(key, tail)
 
     return previous
@@ -449,7 +455,6 @@ export class PtySupervisor {
     launchedAtMs: number,
     discoveryStartedAtMs: number,
     controller: AbortController,
-    release: Disposer,
   ): Promise<void> {
     try {
       const result = await discovery.identify(host, snapshot, {
@@ -483,7 +488,6 @@ export class PtySupervisor {
     } finally {
       entry.identityDiscoveryActive = false
       this.discoveryControllers.delete(controller)
-      void release()
     }
     if (entry.exited || this.entries.get(entry.info.id) !== entry) return
     for (const cb of this.identityListeners) cb(entry.info)
@@ -507,31 +511,17 @@ export class PtySupervisor {
     const controller = new AbortController()
     this.discoveryControllers.add(controller)
     entry.disposers.push(() => controller.abort())
-    const key = `${retry.host.hostId}:${retry.adapter.id}`
-    void this.reserveDiscovery(key).then((release) => {
-      if (
-        controller.signal.aborted ||
-        entry.exited ||
-        this.entries.get(entry.info.id) !== entry
-      ) {
-        entry.identityDiscoveryActive = false
-        this.discoveryControllers.delete(controller)
-        void release()
-        return
-      }
-      void this.identifySession(
-        entry,
-        retry.host,
-        retry.adapter,
-        retry.discovery,
-        retry.snapshot,
-        retry.cwd,
-        retry.launchedAtMs,
-        Date.now(),
-        controller,
-        release,
-      )
-    })
+    void this.identifySession(
+      entry,
+      retry.host,
+      retry.adapter,
+      retry.discovery,
+      retry.snapshot,
+      retry.cwd,
+      retry.launchedAtMs,
+      Date.now(),
+      controller,
+    )
   }
 
   private startTelemetry(
@@ -549,6 +539,7 @@ export class PtySupervisor {
     void Promise.resolve()
       .then(() =>
         observer.observe(host, {
+          subscriptionId: entry.info.id,
           sessionId,
           sessionData,
           signal: controller.signal,
@@ -584,6 +575,19 @@ export class PtySupervisor {
         },
       )
   }
+}
+
+function interactiveShellLaunch(
+  shell: string,
+  file: string,
+  args: readonly string[],
+): { file: string; args: readonly string[] } {
+  const command = [file, ...args].map(shellQuote).join(' ')
+  return { file: shell, args: ['-ic', `exec ${command}`] }
+}
+
+function shellQuote(value: string): string {
+  return `'${value.replaceAll("'", `'"'"'`)}'`
 }
 
 function identityStatus(

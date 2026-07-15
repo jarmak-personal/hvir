@@ -58,6 +58,7 @@ interface StoredProjectRegistry {
       readonly branch?: string
       readonly main: boolean
       readonly missing: boolean
+      readonly prunableReason?: string
       readonly repository: boolean
       readonly changedFiles: number
     }[]
@@ -366,6 +367,12 @@ export class ProjectRegistry {
         branch: discovered.branch,
         main: hostPathEquals(discovered.root, project.registeredRoot),
         missing: discovered.prunable === true,
+        ...(discovered.prunable === true
+          ? {
+              prunableReason:
+                discovered.prunableReason ?? 'Git reported stale worktree metadata',
+            }
+          : {}),
         repository: discovery.repository,
         changedFiles: existing?.changedFiles ?? 0,
       }
@@ -374,7 +381,9 @@ export class ProjectRegistry {
     }
     project.workspaces = project.workspaces
       .map((workspace) =>
-        seen.has(workspace.id) ? workspace : { ...workspace, missing: true },
+        seen.has(workspace.id)
+          ? workspace
+          : { ...workspace, missing: true, prunableReason: undefined },
       )
       .sort(compareWorkspaces)
     if (
@@ -488,6 +497,7 @@ export class ProjectRegistry {
             branch: workspace.branch,
             main: workspace.main,
             missing: workspace.missing,
+            prunableReason: workspace.prunableReason,
             repository: workspace.repository,
             changedFiles: workspace.changedFiles,
           })),
@@ -706,15 +716,27 @@ function isInsidePath(path: string, root: string): boolean {
 
 function workspaceSignature(workspaces: readonly WorkspaceRecord[]): string {
   return JSON.stringify(
-    workspaces.map(({ id, head, branch, main, missing, repository, changedFiles }) => ({
-      id,
-      head,
-      branch,
-      main,
-      missing,
-      repository,
-      changedFiles,
-    })),
+    workspaces.map(
+      ({
+        id,
+        head,
+        branch,
+        main,
+        missing,
+        prunableReason,
+        repository,
+        changedFiles,
+      }) => ({
+        id,
+        head,
+        branch,
+        main,
+        missing,
+        prunableReason,
+        repository,
+        changedFiles,
+      }),
+    ),
   )
 }
 
@@ -779,14 +801,23 @@ async function loadProjects(
           /^[0-9a-f]{40,64}$/i.test(workspace['head'])
             ? workspace['head']
             : undefined
+        const missing = workspace['missing'] === true
+        const prunableReason =
+          missing &&
+          typeof workspace['prunableReason'] === 'string' &&
+          workspace['prunableReason'].length > 0 &&
+          workspace['prunableReason'].length <= 1_024
+            ? workspace['prunableReason']
+            : undefined
         workspaces.push({
           id: workspaceId(workspaceRoot),
           root: workspaceRoot,
           name: branch ?? basenameHostPath(workspaceRoot) ?? workspaceRoot.path,
           ...(head ? { head } : {}),
           ...(branch ? { branch } : {}),
+          ...(prunableReason ? { prunableReason } : {}),
           main: workspace['main'] === true,
-          missing: workspace['missing'] === true,
+          missing,
           repository: workspace['repository'] === true,
           changedFiles:
             typeof workspace['changedFiles'] === 'number' &&

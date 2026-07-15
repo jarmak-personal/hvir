@@ -41,8 +41,10 @@ export class GitEngine {
       '-z',
     ])
     if (result.code !== 0) {
-      const context = await this.projectContext(projectRoot)
-      if (context && unsupportedWorktreeNulOption(result.stderr)) {
+      // Git's usage exit is locale-independent; stderr wording is not. Null is
+      // retained for transports that omit exit-status, and the legacy command
+      // must still succeed before its less expressive output is accepted.
+      if (result.code === 129 || result.code === null) {
         const legacy = await execReadOnlyGit(this.host, projectRoot, [
           'worktree',
           'list',
@@ -55,6 +57,7 @@ export class GitEngine {
         if (worktrees.length === 0) throw new Error('git reported no worktrees')
         return { repository: true, worktrees }
       }
+      const context = await this.projectContext(projectRoot)
       if (context) {
         throw gitError(
           ['worktree', 'list', '--porcelain', '-z'],
@@ -76,6 +79,29 @@ export class GitEngine {
     const worktrees = parseWorktreeList(result.stdout, projectRoot.hostId)
     if (worktrees.length === 0) throw new Error('git reported no worktrees')
     return { repository: true, worktrees }
+  }
+
+  /**
+   * Remove only stale worktree administrative records, then rediscover the
+   * repository while the caller's explicit mutation authorization is active.
+   */
+  async pruneWorktrees(projectRoot: HostPath): Promise<WorktreeDiscovery> {
+    this.assertHost(projectRoot)
+    const result = await execGit(this.host, projectRoot, [
+      'worktree',
+      'prune',
+      '--expire',
+      'now',
+      '--verbose',
+    ])
+    if (result.code !== 0) {
+      throw gitError(
+        ['worktree', 'prune', '--expire', 'now', '--verbose'],
+        result.stderr,
+        result.code,
+      )
+    }
+    return this.worktrees(projectRoot)
   }
 
   async changedFileCount(workspaceRoot: HostPath): Promise<number> {
@@ -722,6 +748,7 @@ export function parseWorktreeList(
         detached: boolean
         bare: boolean
         prunable?: boolean
+        prunableReason?: string
       }
     | undefined
   const finish = (): void => {
@@ -755,6 +782,8 @@ export function parseWorktreeList(
       current.bare = true
     } else if (current && key === 'prunable') {
       current.prunable = true
+      current.prunableReason =
+        value.trim().slice(0, 1_024) || 'Git reported stale worktree metadata'
     }
   }
   finish()
@@ -770,12 +799,6 @@ function parseLegacyWorktreeList(
   // than misaddressing a workspace that legacy Git cannot represent safely.
   const fields = output.split(/\r?\n/).filter(Boolean).join('\0')
   return parseWorktreeList(fields, hostId)
-}
-
-function unsupportedWorktreeNulOption(stderr: string): boolean {
-  return /(?:unknown (?:option|switch)|unrecognized option)[^\n]*[\s'"`]z[\s'"`]/i.test(
-    stderr,
-  )
 }
 
 function gitError(args: readonly string[], stderr: string, code: number | null): Error {
@@ -1082,4 +1105,13 @@ function execReadOnlyGit(
     // a Git refresh back into itself indefinitely.
     env: { ...opts.env, GIT_OPTIONAL_LOCKS: '0' },
   })
+}
+
+function execGit(
+  host: ProjectHost,
+  root: HostPath,
+  args: readonly string[],
+  opts: ExecOptions = {},
+): Promise<ExecResult> {
+  return host.exec('git', ['-C', root.path, ...args], opts)
 }

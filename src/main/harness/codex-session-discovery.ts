@@ -5,7 +5,8 @@
  * Its rollout record is therefore treated as a version-sensitive adapter
  * detail. Discovery is deliberately fail-closed: hvir only accepts one new
  * session_meta record matching the launch window, cwd, originator, and filename
- * UUID. The PTY supervisor serializes hvir-owned discovery windows separately.
+ * UUID. The PTY supervisor serializes hvir-owned snapshot/launch handoffs
+ * separately; bounded identification never blocks a later PTY from starting.
  */
 
 import { hostPath, type HostPath } from '../../shared'

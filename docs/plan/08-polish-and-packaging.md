@@ -36,6 +36,12 @@ builds for Linux and macOS.
 - [ ] Profile the §3.2 gauntlet and fix regressions: 5+ churning workspaces, sustained
       terminal output, large-file open, git status storms. Add a repeatable script or
       documented manual protocol for this gauntlet so later changes can re-run it.
+- [ ] Repeat the Phase 7 workspace edge matrix while polishing: terminal-created
+      worktree auto-discovery and rollups, collapsed single-workspace tier, plain non-git
+      project behavior, and cancel/confirm stale-record pruning on local and SSH hosts.
+- [ ] Repeat the Phase 7.5 real-host topology with 12+ terminals across two SSH projects
+      and three workspaces, then audit the remote host after quit for leftover
+      `hvir-telemetry.*` directories or follower `tail` processes.
 - [ ] Memory sanity: long-running session (hours, many terminals) has bounded growth;
       scrollback limits enforced.
 - [ ] Error surfaces: host disconnects, git failures, and renderer errors all land as

@@ -6,6 +6,7 @@ import {
   GIT_IGNORED_ENTRIES_TYPE,
   GIT_COMMIT_DETAIL_TYPE,
   GIT_WORKTREES_TYPE,
+  GIT_PRUNE_WORKTREES_TYPE,
   GIT_CHANGED_FILE_COUNT_TYPE,
   asHostId,
   hostPath,
@@ -64,6 +65,8 @@ async function handle(request: WorkerRequest): Promise<void> {
     let result: unknown
     if (request.type === GIT_WORKTREES_TYPE) {
       result = await engine.worktrees(root)
+    } else if (request.type === GIT_PRUNE_WORKTREES_TYPE) {
+      result = await engine.pruneWorktrees(root)
     } else if (request.type === GIT_CHANGED_FILE_COUNT_TYPE) {
       result = await engine.changedFileCount(root)
     } else if (request.type === GIT_DIFF_INPUTS_TYPE && isPayload(request.payload)) {

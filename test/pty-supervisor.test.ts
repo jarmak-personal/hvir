@@ -100,6 +100,39 @@ describe('PtySupervisor', () => {
     )
   })
 
+  it('launches harness commands through the interactive shell environment', async () => {
+    const { supervisor, host, adapter, spawnPty } = fixture()
+    Object.assign(adapter, {
+      launch: () => ({
+        file: 'test-harness',
+        args: ['launch', "profile's command"],
+        env: { HARNESS_TEST: 'yes' },
+        shellEnvironment: true,
+      }),
+    })
+
+    await supervisor.spawn({
+      host,
+      adapter,
+      cwd: localPath('/tmp/project'),
+      ownerId: OWNER_ID,
+      sessionId: 'shell-environment',
+    })
+
+    expect(spawnPty).toHaveBeenCalledWith(
+      expect.objectContaining({
+        file: '/remote/bin/bash',
+        args: ['-ic', `exec 'test-harness' 'launch' 'profile'"'"'s command'`],
+        env: {
+          TERM: 'xterm-256color',
+          COLORTERM: 'truecolor',
+          TERM_PROGRAM: 'hvir',
+          HARNESS_TEST: 'yes',
+        },
+      }),
+    )
+  })
+
   it('is the lifecycle and stream boundary for a spawned PTY', async () => {
     const { supervisor, pty, host, adapter, spawnPty } = fixture()
     const info = await supervisor.spawn({
@@ -311,7 +344,8 @@ describe('PtySupervisor', () => {
       setWindow: vi.fn(),
       write: vi.fn(),
     })
-    const client = Object.assign(new EventEmitter(), {
+    const terminalClient = Object.assign(new EventEmitter(), {
+      connect: vi.fn(() => queueMicrotask(() => terminalClient.emit('ready'))),
       exec: vi.fn(
         (
           _command: string,
@@ -319,8 +353,12 @@ describe('PtySupervisor', () => {
           callback: (error: Error | undefined, value: unknown) => void,
         ) => callback(undefined, channel),
       ),
-      end: vi.fn(() => client.emit('close')),
-      destroy: vi.fn(() => client.emit('close')),
+      end: vi.fn(() => terminalClient.emit('close')),
+      destroy: vi.fn(() => terminalClient.emit('close')),
+    })
+    const primaryClient = Object.assign(new EventEmitter(), {
+      end: vi.fn(() => primaryClient.emit('close')),
+      destroy: vi.fn(() => primaryClient.emit('close')),
     })
     const host = new SshHost({
       config: {
@@ -331,11 +369,12 @@ describe('PtySupervisor', () => {
         identityFiles: [],
       },
       prompter: { prompt: () => Promise.resolve(undefined) },
+      clientFactory: () => terminalClient as unknown as Client,
     })
     vi.spyOn(host, 'defaultShell').mockResolvedValue('/bin/sh')
     const internals = host as unknown as { state: 'connected'; client: Client }
     internals.state = 'connected'
-    internals.client = client as unknown as Client
+    internals.client = primaryClient as unknown as Client
     const supervisor = new PtySupervisor()
     const onExit = vi.fn()
     supervisor.onExit(onExit)
@@ -479,6 +518,56 @@ describe('PtySupervisor', () => {
     ])
   })
 
+  it('does not let an input-triggered identity retry block a later PTY', async () => {
+    const firstPty = new FakePty()
+    const secondPty = new FakePty()
+    const { supervisor, host, adapter, spawnPty } = fixture()
+    spawnPty.mockResolvedValueOnce(firstPty).mockResolvedValueOnce(secondPty)
+    let finishRetry: (() => void) | undefined
+    const identify = vi
+      .fn()
+      .mockResolvedValueOnce({ status: 'unavailable' })
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            finishRetry = () => resolve({ status: 'unavailable' })
+          }),
+      )
+      .mockResolvedValueOnce({ status: 'unavailable' })
+    Object.assign(adapter, {
+      sessionIdentity: 'discovered',
+      sessionDiscovery: {
+        snapshot: () => Promise.resolve([]),
+        identify,
+      },
+    })
+
+    const first = await supervisor.spawn({
+      host,
+      adapter,
+      cwd: localPath('/tmp/project'),
+      ownerId: OWNER_ID,
+      sessionId: 'retrying-terminal',
+    })
+    await vi.waitFor(() =>
+      expect(supervisor.get(first.id)?.identityStatus).toBe('unavailable'),
+    )
+    supervisor.write(first.id, OWNER_ID, 'start')
+    await vi.waitFor(() => expect(identify).toHaveBeenCalledTimes(2))
+
+    await supervisor.spawn({
+      host,
+      adapter,
+      cwd: localPath('/tmp/project'),
+      ownerId: OWNER_ID,
+      sessionId: 'later-terminal',
+    })
+
+    expect(spawnPty).toHaveBeenCalledTimes(2)
+    await vi.waitFor(() => expect(identify).toHaveBeenCalledTimes(3))
+    finishRetry?.()
+  })
+
   it('caches adapter telemetry for attachment and disposes it with the PTY', async () => {
     const { supervisor, host, adapter } = fixture()
     const telemetry = {
@@ -554,11 +643,12 @@ describe('PtySupervisor', () => {
     })
   })
 
-  it('serializes discovery windows for the same host and adapter', async () => {
+  it('serializes discovery launches without blocking later PTYs on identity', async () => {
     const firstPty = new FakePty()
     const secondPty = new FakePty()
     const { supervisor, host, adapter, spawnPty } = fixture()
     const order: string[] = []
+    let finishFirstSpawn: (() => void) | undefined
     let releaseFirst: (() => void) | undefined
     let identifyCount = 0
     Object.assign(adapter, {
@@ -582,20 +672,23 @@ describe('PtySupervisor', () => {
     })
     spawnPty.mockImplementationOnce(() => {
       order.push('spawn')
-      return Promise.resolve(firstPty)
+      return new Promise((resolve) => {
+        finishFirstSpawn = () => resolve(firstPty)
+      })
     })
     spawnPty.mockImplementationOnce(() => {
       order.push('spawn')
       return Promise.resolve(secondPty)
     })
 
-    await supervisor.spawn({
+    const firstSpawn = supervisor.spawn({
       host,
       adapter,
       cwd: localPath('/tmp/project'),
       ownerId: OWNER_ID,
       sessionId: 'first-terminal',
     })
+    await vi.waitFor(() => expect(order).toEqual(['snapshot', 'spawn']))
     const secondSpawn = supervisor.spawn({
       host,
       adapter,
@@ -604,10 +697,10 @@ describe('PtySupervisor', () => {
       sessionId: 'second-terminal',
     })
     await Promise.resolve()
-    await Promise.resolve()
-    expect(order).toEqual(['snapshot', 'spawn', 'identify'])
+    expect(order).toEqual(['snapshot', 'spawn'])
 
-    releaseFirst?.()
+    finishFirstSpawn?.()
+    await firstSpawn
     await secondSpawn
     await vi.waitFor(() => expect(identifyCount).toBe(2))
     expect(order).toEqual([
@@ -618,6 +711,7 @@ describe('PtySupervisor', () => {
       'spawn',
       'identify',
     ])
+    releaseFirst?.()
   })
 
   it('fails closed when discovered session identity is ambiguous', async () => {

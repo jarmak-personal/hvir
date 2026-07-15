@@ -44,9 +44,15 @@ describe('GitEngine', () => {
     await expect(engine.changedFileCount(localPath(canonicalLinked))).resolves.toBe(1)
     await rm(linked, { recursive: true })
     const prunable = await engine.worktrees(localPath(root))
-    expect(prunable.worktrees).toEqual(
+    const stale = prunable.worktrees.find(
+      (worktree) => worktree.root.path === canonicalLinked,
+    )
+    expect(stale?.prunable).toBe(true)
+    expect(stale?.prunableReason).toContain('non-existent location')
+    const pruned = await engine.pruneWorktrees(localPath(root))
+    expect(pruned.worktrees).not.toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ root: localPath(canonicalLinked), prunable: true }),
+        expect.objectContaining({ root: localPath(canonicalLinked) }),
       ]),
     )
     await mkdir(linked)
@@ -72,8 +78,36 @@ describe('GitEngine', () => {
         detached: true,
         bare: false,
         prunable: true,
+        prunableReason: 'gitdir file points to non-existent location',
       },
     ])
+  })
+
+  it('prunes stale administrative data without deleting a surviving directory', async () => {
+    const root = await repository()
+    const linked = `${root}-surviving`
+    cleanups.push(linked)
+    git(root, ['worktree', 'add', '--detach', linked])
+    const canonicalLinked = await realpath(linked)
+    await unlink(join(linked, '.git'))
+    const host = new LocalHost()
+    const engine = new GitEngine(host, localPath(root))
+
+    const before = await engine.worktrees(localPath(root))
+    expect(
+      before.worktrees.find((worktree) => worktree.root.path === canonicalLinked)
+        ?.prunable,
+    ).toBe(true)
+
+    const after = await engine.pruneWorktrees(localPath(root))
+
+    expect(
+      after.worktrees.some((worktree) => worktree.root.path === canonicalLinked),
+    ).toBe(false)
+    await expect(host.readTextFile(localPath(join(linked, 'file.txt')))).resolves.toBe(
+      'base\n',
+    )
+    await host.dispose()
   })
 
   it('falls back to legacy porcelain when remote Git does not support -z', async () => {
@@ -82,13 +116,15 @@ describe('GitEngine', () => {
     cleanups.push(linked)
     git(root, ['worktree', 'add', '-b', 'legacy', linked])
     const actual = new LocalHost()
+    const calls: string[] = []
     const host = {
       hostId: actual.hostId,
       exec: (command: string, args: readonly string[], opts: ExecOptions = {}) => {
+        calls.push(args.join(' '))
         if (args.slice(-4).join(' ') === 'worktree list --porcelain -z') {
           return Promise.resolve({
             stdout: '',
-            stderr: "error: unknown switch `z'\nusage: git worktree list [--porcelain]",
+            stderr: 'Fehler: unbekannte Option',
             code: 129,
             signal: null,
           })
@@ -104,6 +140,39 @@ describe('GitEngine', () => {
     expect(discovery.worktrees.map((worktree) => worktree.branch)).toEqual(
       expect.arrayContaining(['main', 'legacy']),
     )
+    expect(calls).not.toContain(expect.stringContaining('rev-parse'))
+    await actual.dispose()
+  })
+
+  it('falls back when an SSH server omits the old-Git command exit status', async () => {
+    const root = await repository()
+    const actual = new LocalHost()
+    const host = {
+      hostId: actual.hostId,
+      exec: (command: string, args: readonly string[], opts: ExecOptions = {}) => {
+        if (args.slice(-4).join(' ') === 'worktree list --porcelain -z') {
+          return Promise.resolve({
+            stdout: '',
+            stderr: "error: unknown switch `z'",
+            code: null,
+            signal: null,
+          })
+        }
+        return actual.exec(command, args, opts)
+      },
+    } as ProjectHost
+
+    await expect(
+      new GitEngine(host, localPath(root)).worktrees(localPath(root)),
+    ).resolves.toEqual({
+      repository: true,
+      worktrees: [
+        expect.objectContaining({
+          root: localPath(await realpath(root)),
+          branch: 'main',
+        }),
+      ],
+    })
     await actual.dispose()
   })
 
