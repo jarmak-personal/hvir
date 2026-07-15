@@ -32,6 +32,7 @@ import { PaneResizer } from './layout/PaneResizer'
 import { TerminalWorkspace } from './terminal/TerminalWorkspace'
 import type { TerminalWorkspaceRollup } from './terminal/TerminalWorkspace'
 import { ProjectsBar } from './workspaces/ProjectsBar'
+import { initialHostConnectionTarget } from './workspaces/initial-host-connection'
 import { FileTree, SessionBar } from './tree/FileTree'
 import { DirectoryTree } from './tree/DirectoryTree'
 import { isGitIgnoreRulePath } from './tree/git-ignore-refresh'
@@ -222,15 +223,40 @@ export function App(): ReactElement {
     let ignoredRefreshTimer: number | undefined
     let contentRefreshTimer: number | undefined
     let gitRefreshTimer: number | undefined
-    void window.hvir.invoke('project:root', undefined).then(
-      (state) => {
-        if (!cancelled) applyProjectState(state)
-      },
-      (error: unknown) => {
+    const initializeProject = async (): Promise<void> => {
+      let state: ProjectState
+      try {
+        state = await window.hvir.invoke('project:root', undefined)
+      } catch (error) {
         if (!cancelled)
           setRootError(error instanceof Error ? error.message : String(error))
-      },
-    )
+        return
+      }
+      if (cancelled) return
+      applyProjectState(state)
+
+      const hostId = initialHostConnectionTarget(state)
+      if (!hostId) return
+      setSessionBusy(true)
+      setSessionError(undefined)
+      try {
+        const connected = unwrapOperation(
+          await window.hvir.invoke('project:connect-host', { hostId }),
+        )
+        if (cancelled) return
+        setConnectionState(connected.host.connectionState)
+        setWatchTier(connected.host.watchTier)
+        for (const tab of tabsRef.current) {
+          if (!tab.dirty) loadFile(tab.path)
+        }
+      } catch (error) {
+        if (!cancelled)
+          setSessionError(error instanceof Error ? error.message : String(error))
+      } finally {
+        if (!cancelled) setSessionBusy(false)
+      }
+    }
+    void initializeProject()
     const stopWatch = window.hvir.on('project:watch', (event) => {
       const gitMetadataEvent =
         event.synthetic !== 'refresh' && /(^|\/)\.git(?:\/|$)/.test(event.path.path)
@@ -292,7 +318,7 @@ export function App(): ReactElement {
       void stopPrompt()
       void stopPromptCancel()
     }
-  }, [applyProjectState])
+  }, [applyProjectState, loadFile])
 
   useEffect(() => {
     let cancelled = false
