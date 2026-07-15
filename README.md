@@ -2,75 +2,73 @@
 
 **H**arness · **V**iew · **I**nteract · **R**espond
 
-A lightweight, view-first workbench for agentic development: a beautiful code + git
-explorer wrapped around the terminals where agents (Claude Code, Codex, …) do their
+A lightweight, view-first workbench for agentic development: a polished code and Git
+explorer wrapped around the terminals where Claude Code, Codex, and your shell do the
 work.
 
-> **Status: early prototype.** Phases 1–2 are complete: the Electron shell and core
-> seams run, with a lazy file tree, CodeMirror/Shiki viewer, and ghostty-web terminal.
-> Tabs, rendered view modes, SSH, git exploration, and multi-terminal UX come next.
+![hvir in the dark theme](docs/screenshots/workbench-dark.png)
 
-## What / why
+## Why hvir?
 
-hvir is **not an IDE and not an editor** — it's a *viewer*. It serves one workflow:
-*"I hand off to agents frequently, but I like to stay in the loop and know what's going
-on."*
+hvir is not an IDE and not an editor. It serves one workflow: _“I hand work to agents
+frequently, but I want to stay in the loop.”_ tmux is too hands-off for exploring a
+codebase and its history; a full IDE is more than this workflow needs. hvir sits between
+them.
 
-The existing options bracket the problem without solving it:
+- Local and SSH projects are peers, with discovered Git worktrees as warm workspaces.
+- Files, rendered Markdown, source, diffs, blame, Changes, History, and the commit graph
+  are first-class viewing surfaces.
+- Existing clean local branches can be explored from a bounded branch selector; advanced
+  Git operations stay in the terminal.
+- Multiple shell, Claude Code, and Codex sessions split, recover, resume, and report
+  attention without a daemon.
+- Dark/light themes, viewer splits, terminal splits, configurable core shortcuts, and a
+  one-click terminal-focus mode keep the workbench fluid.
+- Heavy filesystem, Git, rendering, watching, and telemetry work stays off the render
+  thread.
 
-- **tmux** is too hands-off — you can't explore a codebase or its git history from a
-  grid of terminals.
-- **VSCode** is more than we want — a full IDE that strains under 5+ open directories
-  and many agent terminals, when all we need is to *watch and read*.
-- **The agent-tool cluster** (Conductor, Vibe Kanban, Claude Squad, …) is
-  harness-first: great at running parallel sessions, weak at beautifully exploring what
-  the agents actually did.
+![hvir light theme with split viewers and terminals](docs/screenshots/workbench-light-splits.png)
 
-hvir inverts that last one: a fast, gorgeous code/git explorer that happens to host your
-agent terminals. Working-tree diffs ("what did the agent change"), auto-titled
-terminals, and is-it-waiting-for-me notification dots are first-class; editing beyond
-minor-edit-and-save is deliberately out of scope, forever.
+## Install
 
-## Design highlights
+Tagged builds are produced as Linux AppImage/deb and macOS dmg/zip artifacts for Apple
+Silicon and Intel. The v1 macOS artifacts are currently unsigned, so first launch on
+another Mac requires explicit approval in **System Settings → Privacy & Security**.
+Signing and notarization are documented in [docs/packaging.md](docs/packaging.md).
 
-- **Nothing blocks the paint** — all heavy work (git walks, watching, tokenizing) runs
-  off the render thread. "Lighter than VSCode" is a feel, not a byte count.
-- **Local and SSH projects are peers** — every path is a `(host, path)` pair; remote
-  support is transport, not a server.
-- **Sessions survive restarts** — agent sessions resume through the harness's own
-  persistence; no daemon.
-- **Everything risky sits behind a seam** — terminal engine, harness CLIs, and host
-  transport are swappable interfaces, not foundations.
-
-Stack: Electron + electron-vite, React, CodeMirror 6 + Shiki, Ghostty-based terminal,
-system git. Targets Linux and modern macOS.
-
-## Documents
-
-| Doc | What it is |
-|---|---|
-| [`docs/design.md`](docs/design.md) | The founding design: philosophy, non-goals, ADR-001–010, architecture, risks. Authoritative. |
-| [`docs/plan/`](docs/plan/00-overview.md) | Plan of Record: phased implementation plan with task checklists. |
-| [`AGENTS.md`](AGENTS.md) | Ground rules for AI agents working in this repo. |
-
-## Contributing (human or agent)
-
-Read `docs/design.md` first, then work the first unfinished phase in
-`docs/plan/00-overview.md`. Architectural decisions are recorded as ADRs with rejected
-alternatives — nothing is decided silently.
+hvir expects the system `git` binary. Claude Code and Codex launch options use those CLIs
+from the selected host's login-shell environment; plain shells work without either.
 
 ## Development
+
+Node 24 is used by release CI.
 
 ```sh
 npm ci
 npm run verify
+npm run smoke
 npm run dev
 ```
 
-`npm ci` also downloads Electron's platform binary and rebuilds native dependencies
-for Electron's ABI. This explicit bootstrap is required by Electron 42+; if an existing
-checkout is missing the binary, repair it with `npm run install:runtime`.
+`npm ci` downloads Electron and rebuilds native dependencies for Electron's ABI. On a
+headless Linux machine, run the Electron smoke under `xvfb-run`. The full Phase 8 release
+check is:
 
-`npm run smoke` exercises the built Electron window, typed renderer IPC, utility process,
-and local host. On a headless Linux machine, run it as
-`xvfb-run -a npm run smoke`.
+```sh
+npm run gauntlet
+```
+
+Build native artifacts on their target operating system with `npm run dist:linux` or
+`npm run dist:mac`. See the [performance gauntlet](docs/phase8-performance-gauntlet.md)
+and [packaging guide](docs/packaging.md) for release acceptance.
+
+## Project documents
+
+| Document | Purpose |
+| --- | --- |
+| [Design and ADRs](docs/design.md) | Product philosophy, hard boundaries, architecture, and decisions |
+| [Plan of Record](docs/plan/00-overview.md) | Phased implementation status and acceptance criteria |
+| [AGENTS.md](AGENTS.md) | Repository rules for AI collaborators |
+
+The deliberate boundary remains: hvir may surface rich read-only information and permit
+a minor edit-and-save, but it does not grow into an IDE.

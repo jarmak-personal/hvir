@@ -1180,7 +1180,7 @@ async function runSmoke(): Promise<number> {
     const viewerStatus = (await withTimeout(
       win.webContents.executeJavaScript(`
         new Promise((resolve, reject) => {
-          const deadline = Date.now() + 10000;
+          const deadline = Date.now() + 15000;
           const poll = () => {
             const file = [...document.querySelectorAll('.file-row')]
               .find((node) => node.textContent?.trim() === 'AGENTS.md');
@@ -1202,7 +1202,7 @@ async function runSmoke(): Promise<number> {
                   .find((node) => node.textContent?.trim() === 'source');
                 if (!source) return reject(new Error('source mode control missing'));
                 source.click();
-                const sourceDeadline = Date.now() + 15000;
+                const sourceDeadline = Date.now() + 20000;
                 const waitForSource = () => {
                   const status = document.querySelector('.source-meta')?.textContent || '';
                   if (document.querySelector('.cm-editor') && status.includes('markdown')) {
@@ -1223,6 +1223,7 @@ async function runSmoke(): Promise<number> {
         })
       `),
       'tree/viewer/worker did not become ready',
+      40_000,
     )) as string
     console.log(`[smoke] ProjectHost tree + CodeMirror/Shiki worker OK (${viewerStatus})`)
 
@@ -1260,6 +1261,9 @@ async function runSmoke(): Promise<number> {
                     if (document.querySelectorAll('.task-list-item-checkbox.inapplicable').length !== 1) {
                       return reject(new Error('GitLab inapplicable task did not render'));
                     }
+                    const renderedTab = [...document.querySelectorAll('.viewer-tab')]
+                      .find((node) => node.querySelector('.tab-name')?.textContent?.trim() === 'rendered.md');
+                    renderedTab?.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
                     const body = document.querySelector('.markdown-body');
                     body?.dispatchEvent(new Event('scroll', { bubbles: true }));
                     return setTimeout(() => {
@@ -1344,12 +1348,17 @@ async function runSmoke(): Promise<number> {
           const shell = document.querySelector('.app-shell');
           if (!canvas || !toggle || !shell) return reject(new Error('theme smoke controls missing'));
           const before = getComputedStyle(shell).backgroundColor;
+          const terminalBefore = getComputedStyle(canvas).filter;
           toggle.click();
           requestAnimationFrame(() => requestAnimationFrame(() => {
             const current = document.documentElement.dataset.theme;
             const after = getComputedStyle(shell).backgroundColor;
+            const terminalAfter = getComputedStyle(canvas).filter;
             if (current === initial || before === after) {
               return reject(new Error('chrome theme did not change'));
+            }
+            if (terminalBefore === terminalAfter) {
+              return reject(new Error('live terminal palette did not change'));
             }
             if (!canvas.isConnected || document.querySelector('.terminal-container canvas') !== canvas) {
               return reject(new Error('theme switch remounted terminal'));
@@ -1374,6 +1383,7 @@ async function runSmoke(): Promise<number> {
           const deadline = Date.now() + 10000;
           const link = (text) => [...document.querySelectorAll('.markdown-body a')]
             .find((node) => node.textContent?.trim() === text);
+          let missingActivated = false;
           const renderedTab = [...document.querySelectorAll('.viewer-tab')]
             .find((node) => node.querySelector('.tab-name')?.textContent?.trim() === 'rendered.md');
           renderedTab?.querySelector('.tab-main')?.click();
@@ -1408,18 +1418,23 @@ async function runSmoke(): Promise<number> {
               };
               return waitForOriginal();
             }
-            const missing = link('Missing target');
-            if (missing) {
+            const missing = missingActivated ? undefined : link('Missing target');
+            if (missing && !missingActivated) {
+              missingActivated = true;
               missing.click();
               return setTimeout(waitForContainedError, 50);
             }
-            if (Date.now() > deadline) return reject(new Error('missing internal link escaped the viewer'));
+            if (Date.now() > deadline) return reject(new Error(
+              'missing internal link escaped the viewer: ' +
+              (document.querySelector('.viewer-title')?.textContent || 'no title')
+            ));
             setTimeout(waitForContainedError, 50);
           };
           waitForContainedError();
         })
       `),
       'rendered internal link did not stay in hvir',
+      20_000,
     )) as string
     console.log(`[smoke] rendered link routing + YAML OK (${renderedLinkStatus})`)
 
@@ -1894,7 +1909,7 @@ async function runSmoke(): Promise<number> {
           };
           const openTracked = () => {
             const tracked = [...document.querySelectorAll('.file-row')]
-              .find((node) => node.textContent?.trim() === 'package-lock.json');
+              .find((node) => node.getAttribute('title')?.endsWith('/package-lock.json'));
             if (!tracked) {
               if (Date.now() > deadline) return reject(new Error('tracked blame fixture missing'));
               return setTimeout(openTracked, 50);

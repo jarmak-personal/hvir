@@ -67,3 +67,17 @@ rotating terminals, workspaces, Git, a large file, Markdown, CSV, and image tabs
 may step up as lazy renderers load, then must plateau under a stable tab/terminal count.
 Treat monotonic post-warmup growth, a renderer crash/OOM, or scrollback exceeding 10,000
 lines per terminal as a failure and retain the sample table with the release evidence.
+
+## Latest automated evidence
+
+On 2026-07-15, the full gauntlet passed on the development MacBook Air:
+
+- seam checks, scoped lint, both TypeScript builds, and 39 test files / 272 tests passed;
+- production smoke covered Git, terminal lifecycle/recovery, themes, richer renderers,
+  terminal/viewer splits, settings, file handoff, and a bounded >5 MiB preview;
+- the 12-terminal probe measured **17.7 ms p99 / 17.8 ms max** over 75 UI transitions,
+  with 50 MiB net / 106 MiB peak working-set growth during the 30-second run; and
+- all 12 terminals recovered after reload with Changes and History ready.
+
+The local teardown audit was empty. This automated result does not replace the live SSH
+topology or two-hour memory protocols above; both remain Phase 8 release acceptance work.

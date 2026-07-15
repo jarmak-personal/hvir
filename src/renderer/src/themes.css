@@ -103,6 +103,54 @@
   color: var(--text);
 }
 
+:root[data-theme='light'] :is(.session-bar, .directory-row) {
+  color: var(--text);
+  background: var(--surface-1);
+  border-color: var(--border-subtle);
+}
+
+:root[data-theme='light'] :is(.tree-row, .git-file) {
+  color: var(--text);
+  background: transparent;
+}
+
+:root[data-theme='light']
+  :is(
+    .mode-control button,
+    .blame-toggle,
+    .diff-base-select,
+    .git-tabs button,
+    .git-load-more
+  ) {
+  color: var(--text-muted);
+  background: var(--surface-2);
+  border-color: var(--border-strong);
+}
+
+:root[data-theme='light']
+  :is(
+    .rail-nav button:hover:not(:disabled),
+    .rail-nav button.active,
+    .mode-control button:hover,
+    .mode-control button.active,
+    .blame-toggle.active,
+    .git-file:hover
+  ) {
+  color: var(--text-strong);
+  background: var(--accent-soft);
+}
+
+:root[data-theme='light'] .rail-nav button.active {
+  border-color: var(--border-strong);
+  border-bottom-color: var(--surface-1);
+}
+
+:root[data-theme='light'] .session-actions button:hover:not(:disabled) {
+  color: var(--text-strong);
+  background: var(--surface-hover);
+  border-color: var(--border-strong);
+}
+
 :root[data-theme='light'] .settings-keybindings small,
 :root[data-theme='light'] .settings-number {
   color: var(--text-muted);
@@ -194,6 +242,18 @@
   border-color: var(--border-strong);
   background: var(--surface-1);
   color: var(--text-muted);
+}
+
+.terminal-container[data-terminal-theme='dark'] {
+  background: #111318;
+}
+
+.terminal-container[data-terminal-theme='light'] {
+  background: #ecece7;
+}
+
+.terminal-container[data-terminal-theme='light'] canvas {
+  filter: invert(1) hue-rotate(180deg);
 }
 
 :root[data-theme='light'] .markdown-body {

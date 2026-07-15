@@ -1,0 +1,71 @@
+name: Release artifacts
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-artifacts-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run verify
+      - run: xvfb-run -a npm run smoke
+
+  build:
+    needs: verify
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-x64
+            os: ubuntu-24.04
+            command: npm run dist:linux -- --x64
+            artifacts: |
+              dist/*.AppImage
+              dist/*.deb
+          - name: macos-arm64
+            os: macos-15
+            command: npm run dist:mac -- --arm64
+            artifacts: |
+              dist/*.dmg
+              dist/*.zip
+          - name: macos-x64
+            os: macos-15-intel
+            command: npm run dist:mac -- --x64
+            artifacts: |
+              dist/*.dmg
+              dist/*.zip
+    name: Build ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    env:
+      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: ${{ matrix.command }}
+      - uses: actions/upload-artifact@v7
+        with:
+          name: hvir-${{ matrix.name }}
+          path: ${{ matrix.artifacts }}
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14

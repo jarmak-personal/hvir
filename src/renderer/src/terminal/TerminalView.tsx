@@ -78,8 +78,6 @@ export function TerminalView({
   const workspaceRoot = workspaceRootRef.current
   const containerRef = useRef<HTMLDivElement>(null)
   const paneRef = useRef<TerminalPane | undefined>(undefined)
-  const themeRef = useRef(effectiveTheme)
-  themeRef.current = effectiveTheme
   const activeRef = useRef(active)
   const disconnectedRef = useRef(false)
   const restartRequestedRef = useRef(false)
@@ -128,10 +126,6 @@ export function TerminalView({
 
   useEffect(() => handlersRef.current.onTitle(title), [title])
   useEffect(() => handlersRef.current.onStatus(status), [status])
-
-  useEffect(() => {
-    paneRef.current?.setTheme(terminalTheme(effectiveTheme))
-  }, [effectiveTheme])
 
   useEffect(() => {
     if (!active) return
@@ -195,7 +189,10 @@ export function TerminalView({
     )
     void (async () => {
       try {
-        const pane = await createGhosttyTerminalPane(terminalTheme(themeRef.current))
+        // ghostty-web 0.4 cannot recolor cells already in the VT buffer. Keep one
+        // canonical palette and apply the light appearance to the retained canvas;
+        // this changes instantly without losing scrollback or remounting the PTY.
+        const pane = await createGhosttyTerminalPane(baseTerminalTheme())
         if (cancelled) {
           pane.dispose()
           return
@@ -340,6 +337,7 @@ export function TerminalView({
       <div
         key={`${workspaceRoot.hostId}:${workspaceRoot.path}:${connectionState}`}
         className="terminal-container"
+        data-terminal-theme={effectiveTheme}
         ref={containerRef}
         onMouseDown={() => handlersRef.current.onFocus()}
       />
@@ -347,23 +345,7 @@ export function TerminalView({
   )
 }
 
-function terminalTheme(theme: AppTheme): TerminalColorTheme {
-  if (theme === 'light') {
-    return {
-      background: '#ffffff',
-      foreground: '#283544',
-      cursor: '#283544',
-      selectionBackground: '#cddff2',
-      black: '#24292f',
-      red: '#cf222e',
-      green: '#116329',
-      yellow: '#9a6700',
-      blue: '#0969da',
-      magenta: '#8250df',
-      cyan: '#1b7c83',
-      white: '#6e7781',
-    }
-  }
+function baseTerminalTheme(): TerminalColorTheme {
   return {
     background: '#111318',
     foreground: '#d8dee9',

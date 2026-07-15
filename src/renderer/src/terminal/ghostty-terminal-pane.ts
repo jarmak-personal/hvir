@@ -133,6 +133,10 @@ class GhosttyTerminalPane implements TerminalPane {
   setTheme(theme: TerminalColorTheme): void {
     if (this.disposed) return
     this.terminal.options.theme = theme
+    // ghostty-web's mutable option currently records the value but does not
+    // forward it to the canvas renderer. Keep the seam correct for engines and
+    // call the renderer's public theme method while upstream support matures.
+    this.terminal.renderer?.setTheme(theme)
     this.redraw()
   }
 
