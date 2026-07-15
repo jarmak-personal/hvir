@@ -49,30 +49,21 @@ This is where the single-directory viewer becomes the multi-agent workbench.
 
 ## Acceptance criteria
 
-Implementation is complete; the cross-host, relaunch, and churn matrix below remains the
-Phase 7 acceptance gate. Automated verification currently covers registry persistence,
-NUL-safe worktree discovery, broker confinement, changed-count polling, and the full
-Electron smoke (including terminal recovery/reconnect and PTY cleanup).
+Phase 7 was accepted for merge by the owner on 2026-07-15 after hands-on use across local
+and SSH projects, multiple workspaces and terminals, quit/relaunch restoration, Git
+worktree discovery, and confirmed stale-record pruning. Automated verification covers
+registry persistence, NUL-safe worktree discovery, broker confinement, changed-count
+polling, and Electron terminal recovery/reconnect and PTY cleanup.
 
 Same-host SSH capacity beyond one physical connection, including 10+ restored terminals
 and multiplexed context telemetry, is the explicit follow-on in
 [`Phase 7.5`](07.5-ssh-capacity.md); serialized exec headroom is not its final scaling
 model.
 
-- [ ] Register two projects (one local, one SSH). Create a worktree from a terminal
-      (`git worktree add ...`): it appears as a workspace without user action; its
-      agent terminal's dots roll up to the right project tab.
-- [ ] A project with no extra worktrees shows no worktree tier.
-- [ ] A plain non-git directory works as a project (tree + tabs + terminals; git panel
-      absent).
-- [ ] Quit and relaunch with 2 projects × several workspaces: tabs, layouts, and
-      (via resume) agent sessions come back per workspace.
-- [ ] With 5+ workspaces active and churning, the UI stays instant (§3.2 — this is the
-      load VSCode strains under; it's the reason hvir exists).
-- [ ] On local and SSH projects, a Git-reported prunable record shows its reason and
-      HEAD; cancel leaves it untouched, while confirmed prune removes the Git record and
-      hvir workspace without deleting any surviving directory.
-- [ ] Status table updated.
+- [x] Owner acceptance completed after the broad local/SSH workflow above.
+- [x] The exhaustive permutation matrix is preserved in Phase 8's performance and
+      robustness pass instead of being represented as hands-on coverage that was not run.
+- [x] Status table updated.
 
 ## Non-goals
 Live worktree lifecycle management (create/delete/repair/merge — orchestration creep,
