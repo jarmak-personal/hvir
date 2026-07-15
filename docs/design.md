@@ -215,6 +215,37 @@ actions to the inspector (still outside the view-first v1 scope); adding a Files
 "show only changes" mode (the Git Changes view already owns that workflow; reconsider
 only with broader v2 navigation evidence).
 
+#### Phase 8 addendum — 2026-07-15: bounded branch navigation
+
+**The active workspace may switch among existing repository-local branches
+(`refs/heads/*`) from a branch selector in the Git rail.** This is navigation with a
+filesystem consequence, not a general Git client surface. The selector always shows the
+current branch or detached HEAD. A target is enabled only when the Git working tree is
+clean, hvir has no unsaved viewer tabs in that workspace, and Git does not report the
+branch checked out by another worktree. Selecting an enabled target runs the equivalent
+of `git switch <branch>` without force or discard flags, then refreshes worktree
+discovery, Files, Changes, History, and clean open tabs. The same flow works through
+`ProjectHost` for local and SSH projects.
+
+Branch enumeration and command construction stay in the Git utility process. The main
+process grants a single-use, exact-root mutation authorization, matching the narrow
+broker pattern used by stale worktree pruning; arguments never pass through a shell.
+Failures leave the current workspace intact and surface beside the selector. Dirty,
+occupied, or otherwise advanced cases point to the terminal instead of offering an
+override.
+
+**Why:** choosing which existing branch to inspect is a common viewer navigation action,
+and requiring a terminal round trip for it makes the Git surface feel artificially
+read-only. Clean-only switching preserves the view-first guardrail and avoids silently
+carrying edits across branches. Keeping the control workspace-scoped also avoids
+confusing branches with the project/worktree selector above it.
+
+**Rejected:** creating, deleting, renaming, or tracking branches; checking out arbitrary
+commits from the graph; force/discard/autostash controls; carrying staged, unstaged,
+untracked, conflicted, or unsaved hvir edits across a switch; stage/commit/stash/merge/
+rebase/push/pull UI; placing the branch selector in the global project bar (branch state
+belongs to one active worktree); invoking Git directly from the renderer or main process.
+
 ### ADR-006 — Session recovery: harness resume, not a daemon
 **Decision:** Recover agent sessions through the harness's own persistence
 (`claude --resume`, `codex resume`), not by keeping PTYs alive in a daemon. An adapter
@@ -460,6 +491,20 @@ prune (the Git record would simply reappear); deleting `$GIT_DIR/worktrees` entr
 directly (reimplements Git and is unsafe); `git worktree remove` (acts on a worktree,
 not the already-stale administrative record).
 
+#### Phase 8 addendum — 2026-07-15: one workspace selector
+
+**Workspace navigation lives only in the top project/worktree tier.** The right terminal
+rail lists terminals from the active workspace and contains no duplicate rows that jump
+to inactive worktrees. Inactive PTYs remain live and continue contributing attention
+rollups to their workspace and project controls at the top.
+
+**Why:** worktree rows in the terminal rail repeat the global workspace selector, mix two
+navigation hierarchies, and spend scarce rail space on something that is not a terminal.
+
+**Rejected:** keeping inactive-workspace jump rows for convenience; flattening terminals
+from every workspace into one list (loses cwd and recovery ownership); removing top-level
+attention rollups when the duplicate rows disappear.
+
 ### ADR-009 — Notifications: focus clears, parents aggregate
 **Decision:** One rule, no special cases: **a dot is cleared by focusing the thing that
 raised it; parents only aggregate their children's unseen dots.** No dot on the terminal
@@ -490,6 +535,25 @@ launcher count where available. Unsupported Linux desktops fail silently.
 urgency fallbacks (too noisy for normal streaming work); counting raw output (nearly
 permanent badges); clearing terminal dots on app focus (loses which terminal raised the
 signal); per-event badge increments (duplicates one terminal instead of aggregating it).
+
+#### Phase 8 addendum — 2026-07-15: distinct status and attention language
+
+The focus-clears/parents-aggregate behavior and signal priority remain unchanged, but
+connection state, Git changes, and terminal attention no longer share ambiguous dot/badge
+styling. Project connection state uses a labeled status glyph or pill at the leading edge.
+Attention uses one consistent trailing badge vocabulary: a terminal shows its strongest
+unseen signal, while workspace and project parents show the count of unseen child
+terminals. Changed-file counts retain a separate Git-specific treatment. Color is
+secondary to shape, placement, label, and accessible text.
+
+Phase 8 re-verifies the complete event path with real and synthetic plain BEL/OSC bell,
+output, idle-after-burst, terminal focus, workspace/project switching, window focus, and
+OS badge behavior. A bell transport or focus-tracking failure is a functional bug, not a
+theme-polish issue.
+
+**Rejected:** identical dots on both sides of a tab; color-only signal distinctions;
+using the connection indicator as an attention carrier; clearing child attention by
+focusing only its parent; replacing the quiet Dock/launcher count with sound or toasts.
 
 ### ADR-010 — Remote projects: `ProjectHost` seam, host-qualified paths, no remote server
 **Decision:** Every project (ADR-008) is registered *on a host*. All filesystem, git,

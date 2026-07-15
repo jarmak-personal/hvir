@@ -1,14 +1,16 @@
 # Phase 8 — Polish & packaging
 
 **Read first:** [`00-overview.md`](00-overview.md); design.md §3 (principles — polish
-means responsiveness and rendering quality, not feature additions), ADR-007 (view-mode
-philosophy extends to any new renderers).
+means responsiveness and rendering quality, not feature additions), ADR-005 (bounded
+branch navigation), ADR-007 (view-mode philosophy extends to any new renderers), ADR-008
+(one workspace selector), and ADR-009 (notification semantics and visual language).
 
 ## Goal
 
 Turn "works" into "gorgeous and shippable": themes, side-by-side panes, renderer
-completeness, a performance pass against the load-bearing scenarios, and installable
-builds for Linux and macOS.
+completeness, a small bounded branch-navigation control, clearer terminal/notification
+information architecture, a performance pass against the load-bearing scenarios, and
+installable builds for Linux and macOS.
 
 ## Tasks
 
@@ -26,11 +28,36 @@ builds for Linux and macOS.
 ### Layout
 - [ ] Side-by-side panes: split the viewer area (like VSCode), tabs draggable between
       panes; terminal area supports splits too (per the §5 layout).
+- [ ] Keep workspace selection in one place: remove inactive-worktree jump rows from the
+      right terminal rail. It lists only terminals owned by the active workspace; inactive
+      terminal attention continues to roll up to the top workspace/project controls.
 - [ ] Keybinding surface: the handful of core actions (cycle view mode, focus terminal
       / viewer / tree, workspace switch) documented and rebindable via a simple JSON
       config. No keymap engine.
 - [ ] Minimal settings UI (or settings file + reload): theme, idle threshold,
       resume-on-start behavior, keybindings pointer.
+
+### Git branch navigation
+- [ ] Add an off-thread, host-agnostic branch model for the active workspace: current or
+      detached HEAD, existing local branches, and the worktree path occupying each branch.
+- [ ] Add a compact branch selector to the Git rail. Enable switching only when the Git
+      worktree is clean, no hvir viewer tab in that workspace has unsaved content, and the
+      target is not checked out in another worktree. Explain disabled targets calmly.
+- [ ] Execute only an exact existing-branch `git switch` through a single-use main-process
+      broker authorization. Never force, discard, autostash, create, delete, rename, or
+      track a branch; advanced cases stay in the terminal.
+- [ ] After a successful local or SSH switch, refresh worktree labels, Files, Changes,
+      History/graph, changed counts, and clean tabs without blocking paint or losing PTYs.
+
+### Notifications and status clarity
+- [ ] Give connection state, Git changed counts, and terminal attention distinct visual
+      treatments. Remove the same-looking leading/trailing dots; use one consistent,
+      accessible trailing attention badge with unseen-terminal counts on workspace and
+      project parents.
+- [ ] Functionally audit attention end to end: plain BEL and supported OSC bell events,
+      new output, idle-after-burst, terminal focus clearing, parent aggregation, workspace
+      switching, window focus, and the quiet OS badge. Add deterministic regressions for
+      every broken path found before styling it.
 
 ### Performance & robustness pass
 - [ ] Profile the §3.2 gauntlet and fix regressions: 5+ churning workspaces, sustained
@@ -58,6 +85,12 @@ builds for Linux and macOS.
 - [ ] Fresh install from a built artifact on Linux and macOS runs the full workflow
       (register projects, view, terminals, SSH) with no dev environment.
 - [ ] Theme switch is instant and consistent across chrome, code, markdown, terminal.
+- [ ] On local and SSH repositories, the Git rail accurately shows the active branch and
+      switches to an existing unoccupied branch only when both Git and hvir are clean;
+      dirty, occupied, detached, and failed cases are safe and legible.
+- [ ] The terminal rail contains no duplicate workspace navigation, and connection,
+      changes, output, bell, and idle attention are distinguishable without relying on
+      color or ambiguous dots.
 - [ ] The performance gauntlet passes on a modest machine and is documented/scripted
       for reuse.
 - [ ] A reviewer who reads design.md §1 can look at the running app and agree the
@@ -67,5 +100,6 @@ builds for Linux and macOS.
 
 ## Non-goals
 The v2 harness viewer. Extension/plugin anything. Windows builds (only if incidental —
-do not spend time on Windows-specific bugs). New features not in design.md — if v1
-feels incomplete, the fix is an ADR conversation, not a quiet addition here.
+do not spend time on Windows-specific bugs). Any Git mutation beyond the bounded existing-
+branch switch in ADR-005. New features not in design.md — if v1 feels incomplete, the fix
+is an ADR conversation, not a quiet addition here.
