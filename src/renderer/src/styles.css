@@ -3468,10 +3468,17 @@ body.pane-resizing-row * {
   overflow: hidden;
   padding: 7px 6px;
   background: #111318;
+  /* ghostty-web focuses this contenteditable host for keyboard input. Hide the
+     browser caret; the terminal cursor is painted independently on the canvas. */
+  caret-color: transparent;
 }
 
 .terminal-container canvas {
   display: block;
+}
+
+.terminal-container textarea {
+  caret-color: transparent;
 }
 
 .terminal-status {

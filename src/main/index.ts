@@ -961,6 +961,20 @@ async function runSmoke(): Promise<number> {
     )) as string
     console.log(`[smoke] ghostty-web + PTY OK (${terminalStatus})`)
 
+    const terminalCaretStatus = (await win.webContents.executeJavaScript(`
+      (() => {
+        const host = document.querySelector('.terminal-container');
+        if (!(host instanceof HTMLElement)) throw new Error('terminal input host missing');
+        host.focus();
+        const caret = getComputedStyle(host).caretColor;
+        if (caret !== 'transparent' && caret !== 'rgba(0, 0, 0, 0)') {
+          throw new Error('browser caret is visible in terminal input host: ' + caret);
+        }
+        return 'canvas cursor only';
+      })()
+    `)) as string
+    console.log(`[smoke] terminal input caret contained (${terminalCaretStatus})`)
+
     const reconnectTerminalStatus = await withTimeout(
       (async () => {
         const firstTerminal = supervisor.list()[0]
