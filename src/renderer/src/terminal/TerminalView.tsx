@@ -32,6 +32,7 @@ interface TerminalViewProps {
   readonly onOutput: () => void
   readonly onBell: () => void
   readonly onFocus: () => void
+  readonly onLink: (target: string) => void
 }
 
 const PTY_RESIZE_DEBOUNCE_MS = 75
@@ -54,6 +55,7 @@ export function TerminalView({
   onOutput,
   onBell,
   onFocus,
+  onLink,
 }: TerminalViewProps): ReactElement {
   const workspaceRootRef = useRef(cwd)
   if (
@@ -78,6 +80,7 @@ export function TerminalView({
     onOutput,
     onBell,
     onFocus,
+    onLink,
   })
   const [title, setTitle] = useState(fallbackTitle)
   const [status, setStatus] = useState('Starting…')
@@ -99,6 +102,7 @@ export function TerminalView({
     onOutput,
     onBell,
     onFocus,
+    onLink,
   }
   activeRef.current = active
   launchMetadataRef.current = {
@@ -204,6 +208,7 @@ export function TerminalView({
           }),
           pane.events.onBell(() => handlersRef.current.onBell()),
           pane.events.onOsc((event) => console.debug('[terminal:osc]', event)),
+          pane.events.onLink((target) => handlersRef.current.onLink(target)),
         ]
         disposePane = () => {
           for (const dispose of disposers) void dispose()

@@ -13,6 +13,7 @@ interface PaneResizerProps {
   readonly onDrag: (clientPosition: number) => void
   readonly onNudge: (delta: number) => void
   readonly onReset: () => void
+  readonly action?: ReactElement
 }
 
 const KEYBOARD_STEP = 16
@@ -24,6 +25,7 @@ export function PaneResizer({
   onDrag,
   onNudge,
   onReset,
+  action,
 }: PaneResizerProps): ReactElement {
   const [dragging, setDragging] = useState(false)
 
@@ -76,6 +78,12 @@ export function PaneResizer({
       onDoubleClick={onReset}
       onKeyDown={handleKeyDown}
       onPointerDown={(event) => {
+        if (
+          event.target instanceof Element &&
+          event.target.closest('[data-resizer-action]')
+        ) {
+          return
+        }
         if (!event.isPrimary || event.button !== 0) return
         event.preventDefault()
         event.currentTarget.setPointerCapture(event.pointerId)
@@ -92,6 +100,8 @@ export function PaneResizer({
       onPointerUp={finishDrag}
       onPointerCancel={finishDrag}
       title={`${label}. Double-click to reset.`}
-    />
+    >
+      {action}
+    </div>
   )
 }

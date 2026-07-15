@@ -106,6 +106,7 @@ export function App(): ReactElement {
   const [terminalRollups, setTerminalRollups] = useState<
     Readonly<Record<string, TerminalWorkspaceRollup>>
   >({})
+  const [terminalFocused, setTerminalFocused] = useState(false)
   tabsRef.current = tabs
   rootRef.current = root
   activeIdRef.current = activeId
@@ -139,6 +140,7 @@ export function App(): ReactElement {
     setGitGraphActive(false)
     setGitChanges(undefined)
     setSessionError(undefined)
+    setTerminalFocused(false)
   }, [])
 
   const updateTerminalRollup = useCallback(
@@ -461,6 +463,7 @@ export function App(): ReactElement {
     diffBase: DiffBase = 'head',
     diffRevision?: string,
   ): void => {
+    setTerminalFocused(false)
     setGitGraphActive(false)
     const id = tabId(path)
     const existing = tabsRef.current.find((tab) => tab.id === id)
@@ -789,7 +792,7 @@ export function App(): ReactElement {
         />
       ) : null}
       <main
-        className={`workbench${connectionState === 'connected' ? '' : ' project-stale'}`}
+        className={`workbench${connectionState === 'connected' ? '' : ' project-stale'}${terminalFocused ? ' terminal-focused' : ''}`}
         ref={workbenchRef}
       >
         <aside className="tree-panel" aria-label="Project rail">
@@ -881,6 +884,7 @@ export function App(): ReactElement {
             tabs={tabs}
             activeId={gitGraphActive ? undefined : activeId}
             onActivate={(id) => {
+              setTerminalFocused(false)
               setActiveId(id)
               setGitGraphActive(false)
             }}
@@ -977,6 +981,28 @@ export function App(): ReactElement {
             workbenchRef.current?.style.removeProperty('--terminal-track')
             if (rootRef.current) persistLayout(rootRef.current, { terminalHeight: 0 })
           }}
+          action={
+            <button
+              type="button"
+              className="terminal-focus-toggle"
+              data-resizer-action
+              aria-label={terminalFocused ? 'Restore file viewer' : 'Expand terminal'}
+              aria-pressed={terminalFocused}
+              title={terminalFocused ? 'Restore file viewer' : 'Expand terminal'}
+              onDoubleClick={(event) => event.stopPropagation()}
+              onClick={() => setTerminalFocused((focused) => !focused)}
+            >
+              <svg aria-hidden="true" viewBox="0 0 16 16">
+                <path
+                  d={
+                    terminalFocused
+                      ? 'M3 4.5 8 9l5-4.5M3 8.5 8 13l5-4.5'
+                      : 'M3 11.5 8 7l5 4.5M3 7.5 8 3l5 4.5'
+                  }
+                />
+              </svg>
+            </button>
+          }
         />
         {projectState?.projects.flatMap((project) =>
           project.workspaces.map((workspace) => (
@@ -988,17 +1014,7 @@ export function App(): ReactElement {
               visible={workspace.id === projectState.activeWorkspaceId}
               connectionState={project.connectionState}
               onRollup={updateTerminalRollup}
-              railGroups={project.workspaces.map((candidate) => ({
-                projectId: project.id,
-                workspaceId: candidate.id,
-                label: candidate.name,
-                active: candidate.id === workspace.id,
-                missing: candidate.missing,
-                unseen: terminalRollups[candidate.id]?.unseen ?? 0,
-              }))}
-              onSelectWorkspace={(projectId, workspaceId) =>
-                void switchWorkspace(projectId, workspaceId)
-              }
+              onOpenPath={(path) => openFile(path, true)}
             />
           )),
         )}

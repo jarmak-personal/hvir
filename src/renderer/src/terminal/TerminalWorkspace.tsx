@@ -10,6 +10,7 @@ import {
   type TerminalRecoverySession,
 } from '../../../shared'
 import { nextTerminalAttention, type TerminalAttention } from './terminal-attention'
+import { resolveTerminalFileTarget } from './terminal-file-link'
 import { TerminalView } from './TerminalView'
 
 interface TerminalSession {
@@ -32,22 +33,12 @@ interface TerminalWorkspaceProps {
   readonly visible: boolean
   readonly label: string
   readonly onRollup: (workspaceId: string, rollup: TerminalWorkspaceRollup) => void
-  readonly railGroups: readonly TerminalRailGroup[]
-  readonly onSelectWorkspace: (projectId: string, workspaceId: string) => void
+  readonly onOpenPath: (path: HostPath) => void
 }
 
 export interface TerminalWorkspaceRollup {
   readonly unseen: number
   readonly actionable: number
-}
-
-export interface TerminalRailGroup {
-  readonly projectId: string
-  readonly workspaceId: string
-  readonly label: string
-  readonly active: boolean
-  readonly missing: boolean
-  readonly unseen: number
 }
 
 const IDLE_AFTER_BURST_MS = 4_000
@@ -67,8 +58,7 @@ export function TerminalWorkspace({
   visible,
   label,
   onRollup,
-  railGroups,
-  onSelectWorkspace,
+  onOpenPath,
 }: TerminalWorkspaceProps): ReactElement {
   const workspaceRootRef = useRef(cwd)
   if (
@@ -373,6 +363,10 @@ export function TerminalWorkspace({
             onOutput={() => recordOutput(session.id)}
             onBell={() => raiseAttention(session.id, 'bell')}
             onFocus={() => focusSession(session.id)}
+            onLink={(target) => {
+              const path = resolveTerminalFileTarget(target, workspaceRoot)
+              if (path) onOpenPath(path)
+            }}
           />
         ))}
       </div>
@@ -382,7 +376,7 @@ export function TerminalWorkspace({
         hidden={!visible}
       >
         <header className="terminal-rail-header">
-          <span>Terminals · {label}</span>
+          <span>Terminals</span>
           <div className="terminal-header-actions">
             <div className="terminal-new-control">
               <button
@@ -456,10 +450,6 @@ export function TerminalWorkspace({
             </div>
           </div>
         </header>
-        <div className="terminal-workspace-heading">
-          <span>{label}</span>
-          <small>{sessions.length}</small>
-        </div>
         <div className="terminal-list" role="list">
           {sessions.map((session) => (
             <div
@@ -500,25 +490,6 @@ export function TerminalWorkspace({
               </button>
             </div>
           ))}
-          {railGroups
-            .filter((group) => !group.active)
-            .map((group) => (
-              <button
-                type="button"
-                className={`terminal-workspace-jump${group.missing ? ' missing' : ''}`}
-                key={group.workspaceId}
-                disabled={group.missing}
-                onClick={() => onSelectWorkspace(group.projectId, group.workspaceId)}
-              >
-                <span>{group.label}</span>
-                {group.unseen > 0 ? (
-                  <i
-                    className="workspace-attention-dot"
-                    aria-label="Terminal attention"
-                  />
-                ) : null}
-              </button>
-            ))}
         </div>
       </aside>
       {visible && recoveryCandidates.length > 0 ? (

@@ -33,6 +33,8 @@ export interface TerminalPaneEvents {
   onOsc(cb: (osc: OscEvent) => void): Disposer
   /** The pane's own resize (cols/rows), e.g. from a layout change. */
   onResize(cb: (size: TerminalSize) => void): Disposer
+  /** A user activated an inert link target rendered by the terminal. */
+  onLink(cb: (target: string) => void): Disposer
 }
 
 export interface TerminalPane {
