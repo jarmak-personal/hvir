@@ -13,7 +13,10 @@ import {
   nextTerminalAttention,
   terminalAttentionLabel,
   terminalAttentionRollup,
+  terminalIdleAttentionAfterInput,
+  terminalOutputAttentionDecision,
   type TerminalAttention,
+  type TerminalIdleAttentionState,
 } from './terminal-attention'
 import { PaneResizer } from '../layout/PaneResizer'
 import type { TerminalRecoveryMode, TerminalThemeOverride } from '../settings/settings'
@@ -102,6 +105,7 @@ export function TerminalWorkspace({
   const appFocusedRef = useRef(document.hasFocus())
   const focusedTerminalRef = useRef<string | undefined>(undefined)
   const idleTimers = useRef(new Map<string, number>())
+  const idleAttentionStates = useRef(new Map<string, TerminalIdleAttentionState>())
   const visibleRef = useRef(visible)
   const shouldCreateDefault = useRef(false)
   activeIdRef.current = activeId
@@ -164,6 +168,10 @@ export function TerminalWorkspace({
 
   useEffect(() => {
     let cancelled = false
+    for (const timer of idleTimers.current.values()) window.clearTimeout(timer)
+    idleTimers.current.clear()
+    idleAttentionStates.current.clear()
+    focusedTerminalRef.current = undefined
     setRecoveryReady(false)
     setRecoveryCandidates([])
     setSessions([])
@@ -369,6 +377,7 @@ export function TerminalWorkspace({
     const timer = idleTimers.current.get(id)
     if (timer !== undefined) window.clearTimeout(timer)
     idleTimers.current.delete(id)
+    idleAttentionStates.current.delete(id)
     void window.hvir
       .invoke('terminal:forget', { root: workspaceRoot, id })
       .catch(() => undefined)
@@ -404,19 +413,30 @@ export function TerminalWorkspace({
     })
   }
 
+  const recordInput = (id: string, data: string): void => {
+    const current = idleAttentionStates.current.get(id) ?? 'initial'
+    idleAttentionStates.current.set(id, terminalIdleAttentionAfterInput(current, data))
+  }
+
   const recordOutput = (id: string): void => {
     const focused = focusedTerminalRef.current === id && appFocusedRef.current
     const existing = idleTimers.current.get(id)
     if (existing !== undefined) window.clearTimeout(existing)
+    idleTimers.current.delete(id)
+    const decision = terminalOutputAttentionDecision(
+      idleAttentionStates.current.get(id) ?? 'initial',
+    )
+    if (!decision.notify) return
     if (focused) {
-      idleTimers.current.delete(id)
       return
     }
     raiseAttention(id, 'output')
+    if (!decision.scheduleIdle) return
     idleTimers.current.set(
       id,
       window.setTimeout(() => {
         idleTimers.current.delete(id)
+        idleAttentionStates.current.set(id, 'settled')
         if (focusedTerminalRef.current !== id || !appFocusedRef.current) {
           raiseAttention(id, 'idle')
         }
@@ -513,6 +533,7 @@ export function TerminalWorkspace({
                 current.resumeOnStart ? { ...current, resumeOnStart: false } : current,
               )
             }
+            onInput={(data) => recordInput(session.id, data)}
             onOutput={() => recordOutput(session.id)}
             onBell={() => raiseAttention(session.id, 'bell')}
             onFocus={() => focusSession(session.id)}
@@ -621,6 +642,7 @@ export function TerminalWorkspace({
               <button
                 type="button"
                 className="terminal-list-main"
+                data-terminal-session={session.id}
                 onClick={() => focusSession(session.id)}
               >
                 <span className="terminal-list-copy">

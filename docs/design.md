@@ -587,6 +587,21 @@ theme-polish issue.
 using the connection indicator as an attention carrier; clearing child attention by
 focusing only its parent; replacing the quiet Dock/launcher count with sound or toasts.
 
+#### Phase 8 addendum — 2026-07-15: turn-qualified idle attention
+
+Idle-after-burst is armed by a user submission boundary (Enter/newline through the
+`TerminalPane` input event), then raised at most once when that turn first becomes quiet.
+PTY startup, recovery prompts, resize repaints, and later periodic control-sequence output
+do not repeatedly manufacture **Ready** attention. Bytes arriving after a settled turn
+can still raise the lower-priority **New output** signal; another user submission re-arms
+**Ready**. This rule is terminal- and harness-independent. Terminal selector controls
+carry their session identity so selecting one remains terminal focus across an app-window
+refocus and consistently clears its child attention.
+
+**Rejected:** treating every PTY write as a fresh turn (quiet shells and idle harness
+repaints repeatedly become Ready); parsing harness screen contents; per-harness timing or
+prompt heuristics.
+
 ### ADR-010 — Remote projects: `ProjectHost` seam, host-qualified paths, no remote server
 **Decision:** Every project (ADR-008) is registered *on a host*. All filesystem, git,
 PTY, and watch operations go through a **`ProjectHost`** interface — `exec`, `spawnPty`,

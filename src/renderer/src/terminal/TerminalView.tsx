@@ -35,6 +35,7 @@ interface TerminalViewProps {
     status: TerminalIdentityStatus,
   ) => void
   readonly onStarted: () => void
+  readonly onInput: (data: string) => void
   readonly onOutput: () => void
   readonly onBell: () => void
   readonly onFocus: () => void
@@ -61,6 +62,7 @@ export function TerminalView({
   onTelemetry,
   onIdentity,
   onStarted,
+  onInput,
   onOutput,
   onBell,
   onFocus,
@@ -88,6 +90,7 @@ export function TerminalView({
     onTelemetry,
     onIdentity,
     onStarted,
+    onInput,
     onOutput,
     onBell,
     onFocus,
@@ -110,6 +113,7 @@ export function TerminalView({
     onTelemetry,
     onIdentity,
     onStarted,
+    onInput,
     onOutput,
     onBell,
     onFocus,
@@ -204,6 +208,7 @@ export function TerminalView({
         )
         const disposers = [
           pane.events.onData((data) => {
+            handlersRef.current.onInput(data)
             if (ptyStarted) window.hvir.send('pty:write', { id: sessionId, data })
             else pendingInput += data
           }),
