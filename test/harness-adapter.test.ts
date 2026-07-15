@@ -19,10 +19,12 @@ describe('Harness adapters', () => {
     expect(claudeCodeAdapter.launch(context)).toEqual({
       file: 'claude',
       args: ['--session-id', context.sessionId],
+      shellEnvironment: true,
     })
     expect(claudeCodeAdapter.resume(context)).toEqual({
       file: 'claude',
       args: ['--resume', context.sessionId],
+      shellEnvironment: true,
     })
     expect(claudeCodeAdapter.supportsResume).toBe(true)
     expect(claudeCodeAdapter.sessionIdentity).toBe('preassigned')
@@ -33,6 +35,7 @@ describe('Harness adapters', () => {
     expect(codexAdapter.launch(context)).toEqual({
       file: 'codex',
       args: ['--config', 'tui.terminal_title=["thread-title"]'],
+      shellEnvironment: true,
     })
     expect(codexAdapter.resume(context)).toEqual({
       file: 'codex',
@@ -42,6 +45,7 @@ describe('Harness adapters', () => {
         'resume',
         context.sessionId,
       ],
+      shellEnvironment: true,
     })
     expect(codexAdapter.supportsResume).toBe(true)
     expect(codexAdapter.sessionIdentity).toBe('discovered')

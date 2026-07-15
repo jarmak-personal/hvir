@@ -28,8 +28,10 @@ you which agent wants you.
 - [x] `ClaudeCodeAdapter` and `CodexAdapter`: launch command with pre-assigned session
       UUID, resume command from a stored session id, title conventions. Keep every
       harness-specific detail inside the adapter. Claude pre-assigns its id. Codex uses a
-      serialized, bounded post-launch discovery window and only enables resume after one
-      exact id is identified.
+      serialized pre-launch snapshot/PTY handoff followed by bounded asynchronous
+      discovery, and only enables resume after one exact id is identified. A later PTY is
+      never held behind an earlier terminal's identity timeout; overlapping ambiguity
+      fails closed with recovery unavailable.
       hvir-launched Codex terminals request the canonical `thread-title` terminal-title
       item. Codex updates it after `/rename`; unnamed threads intentionally emit their
       UUID until Codex has a real thread name.

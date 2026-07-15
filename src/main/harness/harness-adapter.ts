@@ -29,6 +29,8 @@ export interface LaunchSpec {
   readonly file: string
   readonly args: readonly string[]
   readonly env?: Record<string, string>
+  /** Resolve the command in the user's interactive shell environment. */
+  readonly shellEnvironment?: boolean
 }
 
 export type HarnessSessionIdentity = 'none' | 'preassigned' | 'discovered'
@@ -131,11 +133,19 @@ export const claudeCodeAdapter: HarnessAdapter = {
   telemetry: { observe: observeClaudeContext },
 
   launch(ctx): LaunchSpec {
-    return { file: 'claude', args: ['--session-id', ctx.sessionId] }
+    return {
+      file: 'claude',
+      args: ['--session-id', ctx.sessionId],
+      shellEnvironment: true,
+    }
   },
 
   resume(ctx): LaunchSpec {
-    return { file: 'claude', args: ['--resume', ctx.sessionId] }
+    return {
+      file: 'claude',
+      args: ['--resume', ctx.sessionId],
+      shellEnvironment: true,
+    }
   },
 }
 
@@ -148,13 +158,18 @@ export const codexAdapter: HarnessAdapter = {
   telemetry: { observe: observeCodexContext },
 
   launch(): LaunchSpec {
-    return { file: 'codex', args: ['--config', CODEX_THREAD_TITLE_CONFIG] }
+    return {
+      file: 'codex',
+      args: ['--config', CODEX_THREAD_TITLE_CONFIG],
+      shellEnvironment: true,
+    }
   },
 
   resume(ctx): LaunchSpec {
     return {
       file: 'codex',
       args: ['--config', CODEX_THREAD_TITLE_CONFIG, 'resume', ctx.sessionId],
+      shellEnvironment: true,
     }
   },
 }

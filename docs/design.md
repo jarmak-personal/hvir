@@ -249,11 +249,15 @@ within the launch window, and the same UUID in both the record payload and filen
 short settle interval catches near-simultaneous candidates. The bounded discovery window
 allows 90 seconds because Codex can delay creating the rollout until interactive startup
 finishes; polling backs off to five seconds to limit local and SSH pressure. The PTY
-supervisor serializes these discovery windows per host and adapter so two hvir-launched
-Codex terminals cannot share a baseline. The rail shows recovery as pending until one
-exact id is known. If metadata is unavailable, changes shape, or produces multiple
-candidates, the terminal still launches but recovery is visibly unavailable; hvir never
-chooses among candidates.
+supervisor serializes each pre-launch snapshot through PTY creation per host and adapter,
+then releases the launch queue before the bounded identity scan completes. A later PTY is
+never held behind the 90-second scan. If concurrent same-directory launches leave a scan
+with multiple candidates, recovery fails closed as ambiguous instead of delaying a
+terminal or choosing an id. The rail shows recovery as pending until one exact id is
+known. If metadata is unavailable or changes shape, the terminal still launches but
+recovery is visibly unavailable; hvir never chooses among candidates. Holding the launch
+queue through the complete identity scan was rejected because an untouched first Codex
+session could make every later Codex terminal appear blank for the full timeout.
 
 An untouched Codex terminal may create no rollout during that window. The PTY supervisor
 therefore retains the original pre-launch baseline and treats later user input as a
