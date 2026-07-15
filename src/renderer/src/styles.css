@@ -920,23 +920,9 @@ button {
 }
 
 .terminal-list {
-  --terminal-open-radius: 6px;
-
   min-height: 0;
-  margin-top: calc(-1 * var(--terminal-open-radius));
-  margin-bottom: calc(-1 * var(--terminal-open-radius));
-  margin-left: calc(-1 * var(--terminal-open-radius));
   overflow: auto;
-  padding-top: var(--terminal-open-radius);
-  padding-bottom: var(--terminal-open-radius);
-  padding-left: var(--terminal-open-radius);
-  background: linear-gradient(
-    to right,
-    transparent var(--terminal-open-radius),
-    var(--border-subtle) var(--terminal-open-radius),
-    var(--border-subtle) calc(var(--terminal-open-radius) + 1px),
-    transparent calc(var(--terminal-open-radius) + 1px)
-  );
+  background: linear-gradient(to right, var(--border-subtle) 1px, transparent 1px);
 }
 
 .terminal-list-row {
@@ -953,8 +939,6 @@ button {
 }
 
 .terminal-list-row.active {
-  position: relative;
-  z-index: 8;
   border-top: 1px solid var(--terminal-active-border);
   border-bottom-color: var(--terminal-active-border);
   box-shadow: none;
@@ -964,31 +948,6 @@ button {
     var(--terminal-active-background) 80%,
     var(--terminal-active-background) 100%
   );
-}
-
-.terminal-list-row.active::before,
-.terminal-list-row.active::after {
-  position: absolute;
-  left: calc(-1 * var(--terminal-open-radius));
-  width: calc(var(--terminal-open-radius) + 1px);
-  height: var(--terminal-open-radius);
-  background: var(--terminal-join-background);
-  content: '';
-  pointer-events: none;
-}
-
-.terminal-list-row.active::before {
-  top: calc(-1 * var(--terminal-open-radius));
-  border-bottom: 1px solid var(--terminal-active-border);
-  border-left: 1px solid var(--terminal-active-border);
-  border-bottom-left-radius: var(--terminal-open-radius);
-}
-
-.terminal-list-row.active::after {
-  bottom: calc(-1 * var(--terminal-open-radius));
-  border-top: 1px solid var(--terminal-active-border);
-  border-left: 1px solid var(--terminal-active-border);
-  border-top-left-radius: var(--terminal-open-radius);
 }
 
 .terminal-list-main {
