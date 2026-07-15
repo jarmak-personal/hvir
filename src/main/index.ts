@@ -983,11 +983,12 @@ async function runSmoke(): Promise<number> {
         if (parseFloat(getComputedStyle(activeRow).borderTopLeftRadius) !== 0) {
           throw new Error('active terminal row still narrows its opening');
         }
-        if (parseFloat(getComputedStyle(activeRow).marginLeft) >= 0) {
-          throw new Error('active terminal curve cuts inward instead of opening outward');
-        }
         const outwardCurve = getComputedStyle(activeRow, '::before');
-        if (parseFloat(outwardCurve.borderTopLeftRadius) < 4) {
+        if (
+          parseFloat(outwardCurve.left) >= 0 ||
+          parseFloat(outwardCurve.top) >= 0 ||
+          parseFloat(outwardCurve.borderBottomLeftRadius) < 4
+        ) {
           throw new Error('active terminal opening does not flare outward');
         }
         const activeBackground = getComputedStyle(activeRow).backgroundImage;

@@ -191,6 +191,8 @@
 
 :root[data-theme='light'] .terminal-list-row.active,
 :root[data-theme='light'] .terminal-list-row.active:hover {
+  border-top-color: var(--terminal-active-border);
+  border-bottom-color: var(--terminal-active-border);
   background: linear-gradient(
     to right,
     var(--terminal-join-background) 0%,
