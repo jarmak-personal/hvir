@@ -169,6 +169,15 @@
   background: var(--border-subtle);
 }
 
+:root[data-theme='light'] .fatal-error {
+  color: var(--text);
+  background: var(--surface-1);
+}
+
+:root[data-theme='light'] .fatal-error h1 {
+  color: var(--text-strong);
+}
+
 :root[data-theme='light'] .viewer-pane-action {
   border-color: var(--border-subtle);
   color: var(--text-muted);

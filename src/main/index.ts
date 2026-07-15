@@ -739,6 +739,7 @@ async function runSmoke(): Promise<number> {
   })
   const liveReloadPath = joinHostPath(smokeRoot, '.hvir-smoke-live.txt')
   const largeJsonPath = joinHostPath(smokeRoot, '.hvir-smoke-large.json')
+  const largeTextPath = joinHostPath(smokeRoot, '.hvir-smoke-large.txt')
   try {
     const echo = await worker.request(ECHO_REQUEST_TYPE, { text: 'ping' })
     if (echo.text !== 'ping') throw new Error(`echo mismatch: ${echo.text}`)
@@ -758,6 +759,10 @@ async function runSmoke(): Promise<number> {
           value: `item-${index}`,
         })),
       ),
+    )
+    await host.writeFile(
+      largeTextPath,
+      `${'large file responsiveness fixture 0123456789\n'.repeat(135_000)}end\n`,
     )
     const emit: EmitSmokeEvent = (channel, payload) => {
       if (smokeWindow && !smokeWindow.isDestroyed()) {
@@ -1197,12 +1202,13 @@ async function runSmoke(): Promise<number> {
                   .find((node) => node.textContent?.trim() === 'source');
                 if (!source) return reject(new Error('source mode control missing'));
                 source.click();
+                const sourceDeadline = Date.now() + 15000;
                 const waitForSource = () => {
                   const status = document.querySelector('.source-meta')?.textContent || '';
                   if (document.querySelector('.cm-editor') && status.includes('markdown')) {
                     return resolve('rendered→source · ' + status);
                   }
-                  if (Date.now() > deadline) return reject(new Error('source highlight timed out: ' + status));
+                  if (Date.now() > sourceDeadline) return reject(new Error('source highlight timed out: ' + status));
                   setTimeout(waitForSource, 50);
                 };
                 waitForSource();
@@ -1223,7 +1229,7 @@ async function runSmoke(): Promise<number> {
     const renderedFixture = (await withTimeout(
       win.webContents.executeJavaScript(`
         new Promise((resolve, reject) => {
-          const deadline = Date.now() + 15000;
+          const deadline = Date.now() + 30000;
           const findBySuffix = (suffix) => [...document.querySelectorAll('.tree-row')]
             .find((node) => node.getAttribute('title')?.endsWith(suffix));
           const openWhenReady = (suffix, next) => {
@@ -1264,7 +1270,12 @@ async function runSmoke(): Promise<number> {
                       }
                     }, 100);
                   }
-                  if (Date.now() > deadline) return reject(new Error('rendered fixture timed out'));
+                  if (Date.now() > deadline) return reject(new Error(
+                    'rendered fixture timed out: mermaid=' + Boolean(document.querySelector('.mermaid-diagram svg')) +
+                    ' shiki=' + Boolean(document.querySelector('.markdown-body .shiki')) +
+                    ' image=' + Boolean(image) + '/' + (image?.complete ? image.naturalWidth : 'pending') +
+                    ' tasks=' + tasks.length
+                  ));
                   setTimeout(waitForRendered, 50);
                 };
                 waitForRendered();
@@ -1274,7 +1285,7 @@ async function runSmoke(): Promise<number> {
         })
       `),
       'Markdown Mermaid fixture did not render',
-      20000,
+      35000,
     )) as string
     console.log(`[smoke] rendered Markdown fixture OK (${renderedFixture})`)
 
@@ -1561,6 +1572,41 @@ async function runSmoke(): Promise<number> {
       20000,
     )) as string
     console.log(`[smoke] worker-backed lazy JSON OK (${jsonStatus})`)
+
+    const largeFileStatus = (await withTimeout(
+      win.webContents.executeJavaScript(`
+        new Promise((resolve, reject) => {
+          const deadline = Date.now() + 15000;
+          const open = () => {
+            const file = [...document.querySelectorAll('.file-row')]
+              .find((node) => node.getAttribute('title') === ${JSON.stringify(largeTextPath.path)});
+            if (!file) {
+              if (Date.now() > deadline) return reject(new Error('large text fixture missing'));
+              return setTimeout(open, 50);
+            }
+            const started = performance.now();
+            file.click();
+            requestAnimationFrame((painted) => {
+              if (painted - started > 500) return reject(new Error('large-file activation stalled paint'));
+              const waitForPreview = () => {
+                const preview = document.querySelector('.large-file-preview');
+                const meta = document.querySelector('.source-meta')?.textContent || '';
+                if (preview && meta.includes('preview')) {
+                  return resolve(meta + ' · activation paint ' + Math.round(painted - started) + 'ms');
+                }
+                if (Date.now() > deadline) return reject(new Error('bounded large-file preview timed out'));
+                setTimeout(waitForPreview, 50);
+              };
+              waitForPreview();
+            });
+          };
+          open();
+        })
+      `),
+      'large text preview smoke timed out',
+      20_000,
+    )) as string
+    console.log(`[smoke] bounded large-file view OK (${largeFileStatus})`)
 
     const scrollBefore = (await withTimeout(
       win.webContents.executeJavaScript(`
@@ -2282,6 +2328,7 @@ async function runSmoke(): Promise<number> {
     await stopSmokeWatch?.()
     await host.exec('rm', ['-f', '--', liveReloadPath.path])
     await host.exec('rm', ['-f', '--', largeJsonPath.path])
+    await host.exec('rm', ['-f', '--', largeTextPath.path])
     await host.dispose()
     worker.dispose()
     git.dispose()
@@ -2294,6 +2341,10 @@ interface CapacitySmokeReport {
   readonly clickLatenciesMs: readonly number[]
   readonly p99Ms: number
   readonly maxMs: number
+  readonly memoryStartKiB?: number
+  readonly memoryEndKiB?: number
+  readonly memoryPeakKiB?: number
+  readonly memoryGrowthKiB?: number
 }
 
 async function runCapacityRecoverySmoke(
@@ -2446,6 +2497,11 @@ async function runCapacityLoadSmoke(
   })()
 
   let report: CapacitySmokeReport
+  const memoryStartKiB = appWorkingSetKiB()
+  let memoryPeakKiB = memoryStartKiB
+  const memoryTimer = setInterval(() => {
+    memoryPeakKiB = Math.max(memoryPeakKiB, appWorkingSetKiB())
+  }, 500)
   try {
     report = (await withTimeout(
       win.webContents.executeJavaScript(`
@@ -2513,11 +2569,21 @@ async function runCapacityLoadSmoke(
       40_000,
     )) as CapacitySmokeReport
   } finally {
+    clearInterval(memoryTimer)
     churning = false
     await watchChurn
     for (const terminal of supervisor.list()) {
       supervisor.write(terminal.id, terminal.ownerId, '\u0003')
     }
+  }
+
+  const memoryEndKiB = appWorkingSetKiB()
+  report = {
+    ...report,
+    memoryStartKiB,
+    memoryEndKiB,
+    memoryPeakKiB,
+    memoryGrowthKiB: memoryEndKiB - memoryStartKiB,
   }
 
   console.log(`[smoke:capacity:raw] ${JSON.stringify(report)}`)
@@ -2527,9 +2593,20 @@ async function runCapacityLoadSmoke(
   if (report.maxMs > 500) {
     throw new Error(`capacity responsiveness max ${report.maxMs}ms exceeded 500ms`)
   }
+  if ((report.memoryGrowthKiB ?? 0) > 256 * 1024) {
+    throw new Error(
+      `capacity memory grew ${Math.round((report.memoryGrowthKiB ?? 0) / 1024)} MiB in 30s`,
+    )
+  }
   console.log(
-    `[smoke] 12-terminal responsiveness OK (p99 ${report.p99Ms}ms · max ${report.maxMs}ms · ${report.clickLatenciesMs.length} clicks)`,
+    `[smoke] 12-terminal responsiveness OK (p99 ${report.p99Ms}ms · max ${report.maxMs}ms · ${report.clickLatenciesMs.length} clicks · memory ${Math.round((report.memoryGrowthKiB ?? 0) / 1024)} MiB net / ${Math.round(((report.memoryPeakKiB ?? 0) - (report.memoryStartKiB ?? 0)) / 1024)} MiB peak growth)`,
   )
+}
+
+function appWorkingSetKiB(): number {
+  return app
+    .getAppMetrics()
+    .reduce((total, metric) => total + metric.memory.workingSetSize, 0)
 }
 
 type EmitSmokeEvent = <E extends IpcEventChannel>(

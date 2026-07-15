@@ -25,6 +25,43 @@ body,
   overflow: hidden;
 }
 
+.fatal-error {
+  width: 100%;
+  height: 100%;
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  gap: 10px;
+  padding: 32px;
+  color: #b8c0cb;
+  background: #111318;
+  text-align: center;
+}
+
+.fatal-error h1,
+.fatal-error p {
+  max-width: 620px;
+  margin: 0;
+}
+
+.fatal-error h1 {
+  color: #e7eaf0;
+  font-size: 18px;
+}
+
+.fatal-error p {
+  color: #d9858c;
+  font-size: 12px;
+}
+
+.fatal-error button {
+  padding: 6px 10px;
+  border: 1px solid #3c4653;
+  border-radius: 4px;
+  color: #cbd1da;
+  background: #1b2027;
+}
+
 button {
   font: inherit;
 }
