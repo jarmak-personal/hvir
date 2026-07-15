@@ -22,6 +22,7 @@ interface ProjectsBarProps {
   readonly onDismiss: (projectId: string, workspaceId: string) => void
   readonly theme: AppTheme
   readonly onTheme: (theme: AppTheme) => void
+  readonly onSettings: () => void
 }
 
 export function ProjectsBar({
@@ -35,6 +36,7 @@ export function ProjectsBar({
   onDismiss,
   theme,
   onTheme,
+  onSettings,
 }: ProjectsBarProps): ReactElement {
   const [pruneProjectId, setPruneProjectId] = useState<string>()
   const activeProject = state.projects.find(
@@ -111,6 +113,15 @@ export function ProjectsBar({
             onClick={() => onTheme(theme === 'dark' ? 'light' : 'dark')}
           >
             <span aria-hidden="true">{theme === 'dark' ? '☼' : '☾'}</span>
+          </button>
+          <button
+            type="button"
+            className="settings-toggle"
+            aria-label="Open settings"
+            title="Settings"
+            onClick={onSettings}
+          >
+            <span aria-hidden="true">⚙</span>
           </button>
         </nav>
         {activeProject && activeProject.workspaces.length > 1 ? (

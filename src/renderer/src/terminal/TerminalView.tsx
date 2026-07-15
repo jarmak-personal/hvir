@@ -12,6 +12,7 @@ import { SynchronizedOutputWriter } from './synchronized-output'
 import type { TerminalPane } from './terminal-pane'
 import type { TerminalColorTheme } from './terminal-pane'
 import { useAppTheme, type AppTheme } from '../theme'
+import type { TerminalThemeOverride } from '../settings/settings'
 
 interface TerminalViewProps {
   readonly sessionId: string
@@ -20,7 +21,10 @@ interface TerminalViewProps {
   readonly harnessSessionId?: string
   readonly resumeOnStart: boolean
   readonly position: number
+  readonly slot: 'primary' | 'secondary'
+  readonly visible: boolean
   readonly active: boolean
+  readonly themeOverride: TerminalThemeOverride
   readonly cwd: HostPath
   readonly connectionState: HostConnectionState
   readonly onTitle: (title: string) => void
@@ -46,7 +50,10 @@ export function TerminalView({
   harnessSessionId,
   resumeOnStart,
   position,
+  slot,
+  visible,
   active,
+  themeOverride,
   cwd,
   connectionState,
   onTitle,
@@ -60,6 +67,7 @@ export function TerminalView({
   onLink,
 }: TerminalViewProps): ReactElement {
   const appTheme = useAppTheme()
+  const effectiveTheme: AppTheme = themeOverride === 'app' ? appTheme : themeOverride
   const workspaceRootRef = useRef(cwd)
   if (
     workspaceRootRef.current.hostId !== cwd.hostId ||
@@ -70,8 +78,8 @@ export function TerminalView({
   const workspaceRoot = workspaceRootRef.current
   const containerRef = useRef<HTMLDivElement>(null)
   const paneRef = useRef<TerminalPane | undefined>(undefined)
-  const themeRef = useRef(appTheme)
-  themeRef.current = appTheme
+  const themeRef = useRef(effectiveTheme)
+  themeRef.current = effectiveTheme
   const activeRef = useRef(active)
   const disconnectedRef = useRef(false)
   const restartRequestedRef = useRef(false)
@@ -122,8 +130,8 @@ export function TerminalView({
   useEffect(() => handlersRef.current.onStatus(status), [status])
 
   useEffect(() => {
-    paneRef.current?.setTheme(terminalTheme(appTheme))
-  }, [appTheme])
+    paneRef.current?.setTheme(terminalTheme(effectiveTheme))
+  }, [effectiveTheme])
 
   useEffect(() => {
     if (!active) return
@@ -305,9 +313,10 @@ export function TerminalView({
 
   return (
     <section
-      className={`terminal-panel terminal-surface${active ? ' active' : ''}`}
+      className={`terminal-panel terminal-surface${visible ? ' visible' : ''}${active ? ' active' : ''}`}
+      data-terminal-slot={slot}
       aria-label={title}
-      aria-hidden={!active}
+      aria-hidden={!visible}
       data-terminal-session={sessionId}
     >
       <header className="panel-header">

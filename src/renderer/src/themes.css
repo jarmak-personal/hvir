@@ -82,17 +82,30 @@
     .panel-header,
     .viewer-toolbar,
     .viewer-tabs,
+    .tab-strip,
     .terminal-rail-header,
     .git-tabs,
     .source-meta,
     .diff-labels,
     .terminal-list-row,
     .project-dialog,
+    .settings-fields select,
+    .settings-fields input,
+    .settings-fields textarea,
     .terminal-new-menu
   ) {
   color: var(--text);
   background: var(--surface-0);
   border-color: var(--border-subtle);
+}
+
+:root[data-theme='light'] .settings-fields > label {
+  color: var(--text);
+}
+
+:root[data-theme='light'] .settings-keybindings small,
+:root[data-theme='light'] .settings-number {
+  color: var(--text-muted);
 }
 
 :root[data-theme='light']
@@ -154,6 +167,18 @@
 
 :root[data-theme='light'] .pane-resizer {
   background: var(--border-subtle);
+}
+
+:root[data-theme='light'] .viewer-pane-action {
+  border-color: var(--border-subtle);
+  color: var(--text-muted);
+  background: var(--surface-0);
+}
+
+:root[data-theme='light'] .viewer-pane-action:hover,
+:root[data-theme='light'] .viewer-pane-action:focus-visible {
+  color: var(--text-strong);
+  background: var(--surface-hover);
 }
 
 :root[data-theme='light'] .terminal-focus-toggle {
@@ -266,7 +291,8 @@
   color: #cf222e;
 }
 
-.theme-toggle {
+.theme-toggle,
+.settings-toggle {
   width: 34px;
   flex: 0 0 34px;
   border: 0;
@@ -277,7 +303,9 @@
 }
 
 .theme-toggle:hover,
-.theme-toggle:focus-visible {
+.theme-toggle:focus-visible,
+.settings-toggle:hover,
+.settings-toggle:focus-visible {
   outline: none;
   background: var(--surface-hover);
   color: var(--text-strong);

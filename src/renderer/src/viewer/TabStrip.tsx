@@ -1,15 +1,22 @@
-import { useState, type DragEvent, type ReactElement } from 'react'
+import type { DragEvent, ReactElement } from 'react'
 
 import { basenameHostPath } from '../../../shared'
-import type { ViewerTab } from './tab-state'
+import type { ViewerPaneId, ViewerTab } from './tab-state'
+
+const VIEWER_TAB_DRAG_TYPE = 'application/x-hvir-viewer-tab'
 
 interface TabStripProps {
   readonly tabs: readonly ViewerTab[]
+  readonly pane: ViewerPaneId
   readonly activeId?: string
   readonly onActivate: (id: string) => void
   readonly onClose: (id: string) => void
   readonly onPin: (id: string) => void
   readonly onReorder: (draggedId: string, targetId: string) => void
+  readonly onMoveToPane: (id: string, pane: ViewerPaneId) => void
+  readonly split: boolean
+  readonly onSplit: () => void
+  readonly onClosePane?: () => void
   readonly graphOpen: boolean
   readonly graphActive: boolean
   readonly onActivateGraph: () => void
@@ -18,19 +25,34 @@ interface TabStripProps {
 
 export function TabStrip({
   tabs,
+  pane,
   activeId,
   onActivate,
   onClose,
   onPin,
   onReorder,
+  onMoveToPane,
+  split,
+  onSplit,
+  onClosePane,
   graphOpen,
   graphActive,
   onActivateGraph,
   onCloseGraph,
 }: TabStripProps): ReactElement {
-  const [dragged, setDragged] = useState<string>()
   return (
-    <div className="tab-strip" role="tablist" aria-label="Open views">
+    <div
+      className="tab-strip"
+      role="tablist"
+      aria-label={`${pane === 'primary' ? 'Primary' : 'Secondary'} open views`}
+      onDragOver={(event) => acceptTabDrag(event)}
+      onDrop={(event) => {
+        const id = draggedTabId(event)
+        if (!id) return
+        event.preventDefault()
+        onMoveToPane(id, pane)
+      }}
+    >
       {tabs.map((tab) => (
         <div
           className={`viewer-tab${tab.id === activeId ? ' active' : ''}${tab.pinned ? '' : ' preview'}`}
@@ -39,19 +61,19 @@ export function TabStrip({
           aria-selected={tab.id === activeId}
           draggable
           onDragStart={(event: DragEvent) => {
-            setDragged(tab.id)
+            event.dataTransfer.setData(VIEWER_TAB_DRAG_TYPE, tab.id)
+            event.dataTransfer.setData('text/plain', tab.id)
             event.dataTransfer.effectAllowed = 'move'
           }}
-          onDragOver={(event) => {
-            event.preventDefault()
-            event.dataTransfer.dropEffect = 'move'
-          }}
+          onDragOver={acceptTabDrag}
           onDrop={(event) => {
+            event.stopPropagation()
+            const dragged = draggedTabId(event)
+            if (!dragged) return
             event.preventDefault()
-            if (dragged && dragged !== tab.id) onReorder(dragged, tab.id)
-            setDragged(undefined)
+            onMoveToPane(dragged, pane)
+            if (dragged !== tab.id) onReorder(dragged, tab.id)
           }}
-          onDragEnd={() => setDragged(undefined)}
           onDoubleClick={() => onPin(tab.id)}
         >
           <button
@@ -103,8 +125,42 @@ export function TabStrip({
         </div>
       ) : null}
       {tabs.length === 0 && !graphOpen ? (
-        <span className="tab-strip-empty">Viewer</span>
+        <span className="tab-strip-empty">{split ? 'Drop a tab here' : 'Viewer'}</span>
+      ) : null}
+      <span className="tab-strip-spacer" />
+      {pane === 'primary' && !split ? (
+        <button
+          className="viewer-pane-action"
+          type="button"
+          aria-label="Split viewer right"
+          title="Split viewer right"
+          onClick={onSplit}
+        >
+          ◫
+        </button>
+      ) : null}
+      {pane === 'secondary' && onClosePane ? (
+        <button
+          className="viewer-pane-action"
+          type="button"
+          aria-label="Close secondary viewer"
+          title="Close secondary viewer"
+          onClick={onClosePane}
+        >
+          ×
+        </button>
       ) : null}
     </div>
   )
+}
+
+function acceptTabDrag(event: DragEvent): void {
+  if (!event.dataTransfer.types.includes(VIEWER_TAB_DRAG_TYPE)) return
+  event.preventDefault()
+  event.dataTransfer.dropEffect = 'move'
+}
+
+function draggedTabId(event: DragEvent): string | undefined {
+  const id = event.dataTransfer.getData(VIEWER_TAB_DRAG_TYPE)
+  return id || undefined
 }

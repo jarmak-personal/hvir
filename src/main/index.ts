@@ -1510,12 +1510,13 @@ async function runSmoke(): Promise<number> {
         const activeMode = () => document.querySelector('.mode-control button.active')?.textContent?.trim();
         const before = activeMode();
         const terminal = document.querySelector('.terminal-panel');
+        const mac = /Mac/.test(navigator.platform);
         terminal?.dispatchEvent(new KeyboardEvent('keydown', {
-          key: 'M', ctrlKey: true, shiftKey: true, bubbles: true
+          key: 'M', ctrlKey: !mac, metaKey: mac, shiftKey: true, bubbles: true
         }));
         if (activeMode() !== before) return reject(new Error('terminal chord changed viewer mode'));
         window.dispatchEvent(new KeyboardEvent('keydown', {
-          key: 'M', ctrlKey: true, shiftKey: true, bubbles: true
+          key: 'M', ctrlKey: !mac, metaKey: mac, shiftKey: true, bubbles: true
         }));
         requestAnimationFrame(() => {
           const after = activeMode();
@@ -2039,11 +2040,141 @@ async function runSmoke(): Promise<number> {
     )) as string
     console.log(`[smoke] pane dividers OK (${resizeStatus})`)
 
+    const splitStatus = (await withTimeout(
+      win.webContents.executeJavaScript(`
+        new Promise((resolve, reject) => {
+          const deadline = Date.now() + 15000;
+          document.querySelector('[aria-label="Close secondary viewer"]')?.click();
+          const begin = () => {
+            const split = document.querySelector('[aria-label="Split viewer right"]');
+            const sourceTab = document.querySelector('.viewer-group-primary .viewer-tab');
+            if (!split || !sourceTab) {
+              if (Date.now() > deadline) return reject(new Error('viewer split controls missing'));
+              return setTimeout(begin, 50);
+            }
+            split.click();
+            requestAnimationFrame(() => {
+              const target = document.querySelector('.viewer-group-secondary .tab-strip');
+              if (!target) return reject(new Error('secondary viewer did not open'));
+              const transfer = new DataTransfer();
+              sourceTab.dispatchEvent(new DragEvent('dragstart', {
+                bubbles: true, dataTransfer: transfer
+              }));
+              target.dispatchEvent(new DragEvent('dragover', {
+                bubbles: true, cancelable: true, dataTransfer: transfer
+              }));
+              target.dispatchEvent(new DragEvent('drop', {
+                bubbles: true, cancelable: true, dataTransfer: transfer
+              }));
+              const waitForViewer = () => {
+                const secondaryTab = document.querySelector('.viewer-group-secondary .viewer-tab');
+                const divider = document.querySelector('.viewer-split-resizer');
+                if (secondaryTab && divider) {
+                  const before = document.querySelector('.viewer-group-primary')?.getBoundingClientRect().width || 0;
+                  divider.dispatchEvent(new KeyboardEvent('keydown', {
+                    key: 'ArrowRight', bubbles: true
+                  }));
+                  return requestAnimationFrame(() => {
+                    const after = document.querySelector('.viewer-group-primary')?.getBoundingClientRect().width || 0;
+                    if (after <= before) return reject(new Error('viewer split did not resize'));
+                    document.querySelector('[aria-label="Close secondary viewer"]')?.click();
+                    const waitForClose = () => {
+                      if (!document.querySelector('.viewer-group-secondary') &&
+                          document.querySelectorAll('.viewer-group-primary .viewer-tab').length > 0) {
+                        return terminalSplit();
+                      }
+                      if (Date.now() > deadline) return reject(new Error('viewer split did not close safely'));
+                      setTimeout(waitForClose, 50);
+                    };
+                    waitForClose();
+                  });
+                }
+                if (Date.now() > deadline) return reject(new Error('tab did not move between viewer panes'));
+                setTimeout(waitForViewer, 50);
+              };
+              waitForViewer();
+            });
+          };
+          const terminalSplit = () => {
+            const button = document.querySelector('.terminal-split-button');
+            const before = document.querySelectorAll('.terminal-list-row').length;
+            if (!button) return reject(new Error('terminal split control missing'));
+            button.click();
+            const waitForTerminal = () => {
+              const deck = document.querySelector('.terminal-deck:not([hidden])');
+              const rows = [...document.querySelectorAll('.terminal-list-row')];
+              const visible = deck?.querySelectorAll('.terminal-surface.visible canvas').length || 0;
+              if (deck?.classList.contains('split') && rows.length === before + 1 && visible === 2) {
+                const divider = deck.querySelector('.terminal-split-resizer');
+                if (!divider) return reject(new Error('terminal split divider missing'));
+                const left = deck.querySelector('[data-terminal-slot="primary"].visible');
+                const widthBefore = left?.getBoundingClientRect().width || 0;
+                divider.dispatchEvent(new KeyboardEvent('keydown', {
+                  key: 'ArrowRight', bubbles: true
+                }));
+                return requestAnimationFrame(() => {
+                  const widthAfter = left?.getBoundingClientRect().width || 0;
+                  if (widthAfter <= widthBefore) return reject(new Error('terminal split did not resize'));
+                  rows.at(-1)?.querySelector('.terminal-close-button')?.click();
+                  const waitForCollapse = () => {
+                    if (!deck.classList.contains('split') &&
+                        document.querySelectorAll('.terminal-list-row').length === before) {
+                      return resolve('viewer drag/drop + terminal PTY split + keyboard dividers');
+                    }
+                    if (Date.now() > deadline) return reject(new Error('terminal split did not collapse'));
+                    setTimeout(waitForCollapse, 50);
+                  };
+                  waitForCollapse();
+                });
+              }
+              if (Date.now() > deadline) return reject(new Error('split terminal PTY did not become ready'));
+              setTimeout(waitForTerminal, 50);
+            };
+            waitForTerminal();
+          };
+          begin();
+        })
+      `),
+      'split layout smoke timed out',
+      18_000,
+    )) as string
+    console.log(`[smoke] split panes OK (${splitStatus})`)
+
+    const settingsStatus = (await withTimeout(
+      win.webContents.executeJavaScript(`
+        new Promise((resolve, reject) => {
+          document.querySelector('.settings-toggle')?.click();
+          requestAnimationFrame(() => {
+            const dialog = document.querySelector('.settings-dialog');
+            const keybindings = dialog?.querySelector('.settings-keybindings textarea');
+            const fields = dialog?.querySelectorAll('select, input, textarea').length || 0;
+            if (!dialog || !keybindings || fields < 5 ||
+                !keybindings.value.includes('toggleTerminalFocus')) {
+              return reject(new Error('settings surface incomplete'));
+            }
+            [...dialog.querySelectorAll('button')]
+              .find((button) => button.textContent?.trim() === 'Cancel')?.click();
+            requestAnimationFrame(() => {
+              if (document.querySelector('.settings-dialog')) {
+                return reject(new Error('settings dialog did not close'));
+              }
+              resolve(fields + ' controls · JSON keybinding map');
+            });
+          });
+        })
+      `),
+      'settings smoke timed out',
+    )) as string
+    console.log(`[smoke] minimal settings OK (${settingsStatus})`)
+
     const previousRecoveryMode = (await win.webContents.executeJavaScript(
       `localStorage.getItem('hvir:terminal-recovery-mode')`,
     )) as string | null
+    const previousSettings = (await win.webContents.executeJavaScript(
+      `localStorage.getItem('hvir:settings:v1')`,
+    )) as string | null
     await win.webContents.executeJavaScript(
-      `localStorage.setItem('hvir:terminal-recovery-mode', 'prompt')`,
+      `localStorage.setItem('hvir:terminal-recovery-mode', 'prompt'); localStorage.setItem('hvir:settings:v1', JSON.stringify({ terminalRecoveryMode: 'prompt' }))`,
     )
     smokeRecoverySessions = [
       {
@@ -2122,6 +2253,15 @@ async function runSmoke(): Promise<number> {
       } else {
         await win.webContents.executeJavaScript(
           `localStorage.setItem('hvir:terminal-recovery-mode', ${JSON.stringify(previousRecoveryMode)})`,
+        )
+      }
+      if (previousSettings === null) {
+        await win.webContents.executeJavaScript(
+          `localStorage.removeItem('hvir:settings:v1')`,
+        )
+      } else {
+        await win.webContents.executeJavaScript(
+          `localStorage.setItem('hvir:settings:v1', ${JSON.stringify(previousSettings)})`,
         )
       }
     }
