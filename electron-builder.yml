@@ -1,6 +1,5 @@
 appId: dev.hvir.app
 productName: hvir
-artifactName: ${productName}-${version}-${os}-${arch}.${ext}
 directories:
   output: dist
   buildResources: build
@@ -17,22 +16,14 @@ npmRebuild: false
 mac:
   icon: build/icon.icns
   category: public.app-category.developer-tools
-  # Phase 8 ships deterministic unsigned v1 artifacts. Remove this when the
+  # Phase 8 ships deterministic unsigned v1 npm payloads. Remove this when the
   # Developer ID + notarization decision in docs/packaging.md is activated.
   identity: null
   hardenedRuntime: true
   entitlements: build/entitlements.mac.plist
   entitlementsInherit: build/entitlements.mac.inherit.plist
-  target:
-    - dmg
-    - zip
 linux:
   icon: build/icons
   executableName: hvir
   syncDesktopName: true
-  target:
-    - AppImage
-    - deb
   category: Development
-deb:
-  packageCategory: devel

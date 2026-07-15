@@ -1,68 +1,103 @@
-# Packaging and release artifacts
+# Packaging and npm releases
 
-hvir uses electron-vite for its production bundle and electron-builder for native
-artifacts. This follows electron-vite's current recommendation to build the complete
-`out/` tree before packaging it.
-
-## Local builds
-
-Install dependencies once with `npm ci`, then build on the target operating system:
+hvir has one supported installation path:
 
 ```sh
-npm run dist:linux # AppImage and deb, on Linux
-npm run dist:mac   # dmg and zip, on macOS
+npm install -g hvir
+hvir
 ```
 
-Artifacts land in `dist/` and include their operating system and architecture in the
-filename. `npm run build:dir` remains the fast unpacked-app check. `npm ci` rebuilds the
-required `node-pty` dependency for Electron's ABI. Packaging deliberately skips a second
-blanket native rebuild so ssh2's optional `cpu-features` acceleration cannot break an
-otherwise supported build; ssh2 uses its JavaScript fallback when it is unavailable.
+The public `hvir` package is a small launcher. npm selects one hidden optional payload
+for the current machine:
 
-The tag workflow builds Linux x64, macOS arm64, and macOS x64 artifacts on native GitHub
-runners. It deliberately uploads workflow artifacts instead of publishing a GitHub
-Release automatically; a human can attach the verified files to the release after the
-real-host acceptance pass.
+| Platform | Payload package |
+| --- | --- |
+| Linux x64 | `hvir-linux-x64` |
+| Linux arm64 | `hvir-linux-arm64` |
+| macOS arm64 | `hvir-darwin-arm64` |
+
+Intel macOS, Windows, native installers, and downloadable dmg/zip/AppImage/deb files are
+not release targets. Keeping one user-facing install/update/remove workflow is an
+intentional product-support boundary, not merely a CI convenience.
+
+## How the packages are built
+
+electron-vite builds the production `out/` tree. electron-builder then produces an
+unpacked application on a native runner so Electron and `node-pty` have the correct
+architecture. `scripts/package-npm.mjs` archives that directory into the matching
+platform package and creates the launcher package from the repository version.
+
+The platform package's install script expands its integrity-checked application payload
+inside that npm package. The launcher locates the selected package and starts its native
+application. Users do not compile hvir or `node-pty`; installs with npm
+`--ignore-scripts` are unsupported because the payload cannot be expanded.
+
+Local package commands are architecture-specific:
+
+```sh
+npm run pack:npm:launcher
+npm run pack:npm:linux:x64    # native Linux x64 host
+npm run pack:npm:linux:arm64  # native Linux arm64 host
+npm run pack:npm:mac:arm64    # Apple-silicon Mac
+```
+
+Tarballs land in `dist/npm/`. Every platform pack command installs its generated tarball
+into a temporary npm prefix and verifies the extracted executable before succeeding.
+After also packing the launcher, `npm run smoke:packaged` installs both tarballs into a
+clean prefix and exercises the complete `hvir` launcher → native application chain.
+
+## Release workflow
+
+Pushing a `v*` tag runs `.github/workflows/release-npm.yml`:
+
+1. Verify and smoke the source tree on Linux.
+2. Build and smoke Linux x64, Linux arm64, and macOS arm64 on native runners.
+3. Publish the three platform packages.
+4. Publish `hvir` last, so its optional dependencies already exist at the same version.
+
+The tag must equal the version in the root `package.json` (`v0.1.0` for version `0.1.0`).
+The first publish bootstraps the four unscoped package names with a granular npm token in
+the `NPM_TOKEN` repository secret. After that, configure each package's npm trusted
+publisher for `release-npm.yml` and remove the long-lived token; the workflow already has
+the required OIDC permission and emits provenance attestations. Workflow artifacts are
+only short-lived handoff files between build and publish jobs; they are not supported
+downloads.
 
 ## macOS signing decision
 
-As of 2026-07-15, v1 development and tag artifacts are unsigned. hvir does not yet have
-an Apple Developer team/certificate configured, and the Phase 8 plan explicitly permits
-unsigned v1 development builds. On another Mac, an unsigned build requires explicit
-approval in System Settings → Privacy & Security before first launch.
+As of 2026-07-15, development payloads are unsigned because hvir has no configured Apple
+Developer team/certificate. That is acceptable for development validation, not broad
+public distribution. Before promoting the npm path publicly, remove `mac.identity: null`,
+configure a Developer ID Application certificate, enable electron-builder notarization,
+and retain the checked-in hardened-runtime entitlements. Signing happens before the app
+bundle is archived into `hvir-darwin-arm64`, so npm does not alter the signed bundle.
 
-This is appropriate for development distribution, not a broad public release. Before
-public distribution, remove `mac.identity: null`, configure a Developer ID Application
-certificate via `CSC_LINK` and `CSC_KEY_PASSWORD`, enable `mac.notarize: true`, and
-provide either App Store Connect API-key credentials or Apple ID notarization credentials
-to the macOS jobs. Keep the hardened runtime and checked-in Electron entitlements
-enabled. Then verify every artifact with:
+Verify the expanded application before publishing:
 
 ```sh
-codesign --verify --deep --strict --verbose=2 /Applications/hvir.app
-spctl --assess --verbose --type exec /Applications/hvir.app
-xcrun stapler validate /Applications/hvir.app
+codesign --verify --deep --strict --verbose=2 path/to/hvir.app
+spctl --assess --verbose --type exec path/to/hvir.app
+xcrun stapler validate path/to/hvir.app
 ```
 
-Code signing and notarization are separate requirements for direct macOS distribution;
-electron-builder performs signing, notarization, and stapling when configured. See the
-[electron-builder signing guide](https://www.electron.build/docs/features/code-signing/code-signing-mac/),
+See the [electron-builder signing guide](https://www.electron.build/docs/features/code-signing/code-signing-mac/),
 [notarization guide](https://www.electron.build/docs/notarization/), and
-[Apple's distribution documentation](https://developer.apple.com/documentation/xcode/packaging-mac-software-for-distribution).
+[Apple distribution documentation](https://developer.apple.com/documentation/xcode/packaging-mac-software-for-distribution).
 
-## Latest artifact evidence
+## Release acceptance
 
-On 2026-07-15, the Linux x64 `.deb` was extracted in a clean container and its packaged
-app passed hvir's full smoke workflow; the executable and `node-pty` addon were verified
-as x86-64. The macOS arm64 app was launched directly from the mounted DMG and passed the
-same workflow; both binaries were verified arm64. AppImage and zip artifacts were also
-produced. A clean-machine install with a real SSH project remains part of manual release
-acceptance.
+On each supported architecture, install the exact release tarballs through npm in a clean
+environment, run `hvir`, register local and SSH projects, open Files and Git, start
+shell/Codex/Claude terminals, quit, relaunch, and confirm recovery. Run the
+[Phase 8 gauntlet](phase8-performance-gauntlet.md) before tagging and retain the real-host
+evidence with the release notes.
 
-## Artifact acceptance
+## Current implementation evidence
 
-For a release candidate, install from the dmg/deb or launch the AppImage on a machine
-without the source checkout. Register a local project and an SSH project, open Files and
-Git, start shell/Codex/Claude terminals, quit, relaunch, and confirm recovery. Run the
-[Phase 8 gauntlet](phase8-performance-gauntlet.md) before creating the tag and retain its
-real-host evidence with the release notes.
+On 2026-07-15, `hvir-darwin-arm64@0.1.0` packed to a 160.9 MB npm tarball. A clean
+temporary npm prefix ran the platform package's postinstall extraction, verified the
+arm64 executable, and passed the complete packaged-app smoke workflow through the
+installed `hvir` launcher—including its project-path argument—from that exact payload.
+The launcher tarball also passed `npm publish --dry-run` and its `hvir --version`/help
+contract. Linux x64 and arm64 retain native CI build-and-smoke acceptance before they can
+be published.

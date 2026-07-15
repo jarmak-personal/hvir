@@ -88,15 +88,20 @@ the load-bearing scenarios, and installable builds for Linux and macOS.
       visible-but-calm UI states, never silent failure or a white screen.
 
 ### Packaging
-- [x] electron-builder (or forge — verify current best practice with electron-vite):
-      Linux AppImage + deb, macOS dmg/zip. CI workflow building all targets on tag.
+- [x] Use one supported distribution path: `npm install -g hvir` installs a small
+      launcher plus one hidden, integrity-checked native payload. Do not also maintain
+      dmg, zip, AppImage, or deb install paths.
+- [x] Build Linux x64, Linux arm64, and macOS arm64 payload packages on native CI
+      runners. Intel macOS and Windows are not release targets.
+- [ ] Publish the first matched-version platform packages and `hvir` launcher from a tag,
+      then verify install/update/remove through the public npm registry.
 - [x] App icon, name, basic README with screenshots.
 - [x] macOS signing/notarization: investigate and document; unsigned dev builds are
       acceptable for v1 if cost is prohibitive — record the decision.
 
 ## Acceptance criteria
-- [ ] Fresh install from a built artifact on Linux and macOS runs the full workflow
-      (register projects, view, terminals, SSH) with no dev environment.
+- [ ] Fresh global npm installs on Linux x64, Linux arm64, and macOS arm64 run the full
+      workflow (register projects, view, terminals, SSH) with no source checkout.
 - [x] Theme switch is instant and consistent across chrome, code, markdown, terminal.
 - [ ] On local and SSH repositories, the Git rail accurately shows the active branch and
       switches to an existing unoccupied branch only when both Git and hvir are clean;
@@ -127,10 +132,14 @@ is an ADR conversation, not a quiet addition here.
 - The capacity run mounted 12 live terminals and measured **17.7 ms p99 / 17.8 ms max**
   responsiveness across 75 transitions. Working-set growth was 50 MiB net / 106 MiB peak,
   then all 12 terminals recovered with Changes and History ready.
-- A Linux x64 `.deb` was extracted in a clean container and its packaged app passed the
-  full smoke workflow; the app and `node-pty` binaries were verified x86-64. A macOS arm64
-  app launched directly from the mounted DMG and passed the same workflow; both binaries
-  were verified arm64. The AppImage and zip were also produced.
+- Earlier Linux x64 deb/AppImage and macOS arm64 dmg/zip prototypes proved the packaged
+  application and native `node-pty` layouts. Those formats are now superseded by the
+  single npm launcher plus native-payload model and are no longer release products.
+- The macOS arm64 npm payload packed at 160.9 MB, installed through its real postinstall
+  extraction into a clean temporary npm prefix, verified its native architecture, and
+  passed the complete packaged-app smoke workflow through the installed `hvir` launcher,
+  including its project-path argument. The launcher also passed its
+  `hvir --version`/help contract and both packages passed `npm publish --dry-run`.
 - The local post-gauntlet teardown audit found no telemetry helper directories, follower
   `tail` processes, PTYs, Electron app processes, Docker containers, or build volumes.
 - The final Git/connection polish keeps registered nested worktree roots out of their
@@ -142,5 +151,6 @@ is an ADR conversation, not a quiet addition here.
 The unchecked items are deliberately not inferred from automation: repeat the workspace
 edge matrix on current local and SSH builds; run the 12+ terminal real-host SSH topology
 and teardown audit; complete the two-hour memory soak; exercise branch switching and a
-fresh installed artifact against a real SSH project; and obtain the final view-first
+fresh global npm install against a real SSH project on each supported architecture; and
+obtain the final view-first
 thesis review. Phase 8 stays **in progress** until those checks are recorded.

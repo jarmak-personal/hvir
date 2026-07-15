@@ -714,6 +714,30 @@ transports (destroys reservation); terminal-screen scraping or OSC injection for
 ordinary subscription churn (avoidable gaps/work); and a persistent installed remote
 agent (still rejected by ADR-010).
 
+### ADR-011 — Distribution: one npm launcher, native payloads
+
+**Decision:** hvir has one supported installation contract: `npm install -g hvir`, then
+`hvir`. The public launcher selects an integrity-checked optional payload package for
+Linux x64, Linux arm64, or macOS arm64. Payloads contain an electron-builder unpacked app
+built and smoke-tested on the matching native architecture; their npm install step expands
+the app without compiling on the user's machine. Intel macOS, Windows, dmg, zip, AppImage,
+and deb are not release targets.
+
+**Why:** hvir's likely users already have Node/npm for their agent harnesses, and a single
+install/update/remove path is materially easier to explain and support. The launcher keeps
+the user-facing package small while npm handles platform selection, version matching,
+integrity, caching, and provenance. Native runners keep Electron and `node-pty` honest;
+Linux arm64 adds little policy complexity now that both Electron binaries and hosted arm64
+runners exist. The three hidden payload packages are release mechanics, not alternative
+products.
+
+**Rejected:** maintaining native installers alongside npm (multiple install, update, and
+support paths); publishing the source app and compiling Electron/native dependencies on
+user machines (slow and toolchain-sensitive); one universal package containing every
+platform (wasted bandwidth); a postinstall download from a separate release host (splits
+version/integrity authority between npm and another service); macOS x64 (explicitly outside
+the supported hardware target).
+
 ---
 
 ## 5. Architecture

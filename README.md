@@ -31,10 +31,16 @@ them.
 
 ## Install
 
-Tagged builds are produced as Linux AppImage/deb and macOS dmg/zip artifacts for Apple
-Silicon and Intel. The v1 macOS artifacts are currently unsigned, so first launch on
-another Mac requires explicit approval in **System Settings → Privacy & Security**.
-Signing and notarization are documented in [docs/packaging.md](docs/packaging.md).
+Install hvir from npm, then launch it from any directory:
+
+```sh
+npm install -g hvir
+hvir
+```
+
+Pass a local project folder to open it directly (`hvir .`). The npm launcher supports
+Linux x64, Linux arm64, and Apple-silicon macOS. Native installers are deliberately not
+another supported release path; see [docs/packaging.md](docs/packaging.md).
 
 hvir expects the system `git` binary. Claude Code and Codex launch options use those CLIs
 from the selected host's login-shell environment; plain shells work without either.
@@ -58,9 +64,10 @@ check is:
 npm run gauntlet
 ```
 
-Build native artifacts on their target operating system with `npm run dist:linux` or
-`npm run dist:mac`. See the [performance gauntlet](docs/phase8-performance-gauntlet.md)
-and [packaging guide](docs/packaging.md) for release acceptance.
+Build the npm payload for the current supported platform with the matching
+`pack:npm:*` script. See the
+[performance gauntlet](docs/phase8-performance-gauntlet.md) and
+[packaging guide](docs/packaging.md) for release acceptance.
 
 ## Project documents
 
