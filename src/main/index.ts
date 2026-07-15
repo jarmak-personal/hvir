@@ -978,6 +978,11 @@ async function runSmoke(): Promise<number> {
         if (parseFloat(getComputedStyle(rail).borderLeftWidth) !== 0) {
           throw new Error('terminal rail divider cannot open at the active entry');
         }
+        const activeRow = rail.querySelector('.terminal-list-row.active');
+        if (!(activeRow instanceof HTMLElement)) throw new Error('active terminal row missing');
+        if (parseFloat(getComputedStyle(activeRow).borderTopLeftRadius) < 4) {
+          throw new Error('active terminal edge does not curve into the canvas');
+        }
         host.focus();
         const caret = getComputedStyle(host).caretColor;
         if (caret !== 'transparent' && caret !== 'rgba(0, 0, 0, 0)') {
