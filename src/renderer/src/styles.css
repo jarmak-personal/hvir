@@ -920,9 +920,19 @@ button {
 }
 
 .terminal-list {
+  --terminal-open-radius: 6px;
+
   min-height: 0;
+  margin-left: calc(-1 * var(--terminal-open-radius));
   overflow: auto;
-  background: linear-gradient(to right, var(--border-subtle) 1px, transparent 1px);
+  padding-left: var(--terminal-open-radius);
+  background: linear-gradient(
+    to right,
+    transparent var(--terminal-open-radius),
+    var(--border-subtle) var(--terminal-open-radius),
+    var(--border-subtle) calc(var(--terminal-open-radius) + 1px),
+    transparent calc(var(--terminal-open-radius) + 1px)
+  );
 }
 
 .terminal-list-row {
@@ -941,7 +951,9 @@ button {
 .terminal-list-row.active {
   position: relative;
   overflow: hidden;
-  border-radius: 6px 0 0 6px;
+  margin-left: calc(-1 * var(--terminal-open-radius));
+  padding-left: var(--terminal-open-radius);
+  border-radius: var(--terminal-open-radius) 0 0 var(--terminal-open-radius);
   box-shadow:
     inset 0 1px #3c526c,
     inset 0 -1px #3c526c;
