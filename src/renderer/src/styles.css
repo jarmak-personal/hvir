@@ -923,8 +923,12 @@ button {
   --terminal-open-radius: 6px;
 
   min-height: 0;
+  margin-top: calc(-1 * var(--terminal-open-radius));
+  margin-bottom: calc(-1 * var(--terminal-open-radius));
   margin-left: calc(-1 * var(--terminal-open-radius));
   overflow: auto;
+  padding-top: var(--terminal-open-radius);
+  padding-bottom: var(--terminal-open-radius);
   padding-left: var(--terminal-open-radius);
   background: linear-gradient(
     to right,
@@ -950,18 +954,43 @@ button {
 
 .terminal-list-row.active {
   position: relative;
-  overflow: hidden;
+  z-index: 8;
   margin-left: calc(-1 * var(--terminal-open-radius));
   padding-left: var(--terminal-open-radius);
-  border-radius: var(--terminal-open-radius) 0 0 var(--terminal-open-radius);
   box-shadow:
-    inset 0 1px #3c526c,
-    inset 0 -1px #3c526c;
+    inset 0 1px var(--terminal-active-border),
+    inset 0 -1px var(--terminal-active-border);
   background: linear-gradient(
     to right,
     var(--terminal-join-background) 0%,
+    var(--terminal-active-background) 80%,
     var(--terminal-active-background) 100%
   );
+}
+
+.terminal-list-row.active::before,
+.terminal-list-row.active::after {
+  position: absolute;
+  left: 0;
+  width: var(--terminal-open-radius);
+  height: var(--terminal-open-radius);
+  background: var(--terminal-join-background);
+  content: '';
+  pointer-events: none;
+}
+
+.terminal-list-row.active::before {
+  top: calc(-1 * var(--terminal-open-radius));
+  border-top: 1px solid var(--terminal-active-border);
+  border-left: 1px solid var(--terminal-active-border);
+  border-top-left-radius: var(--terminal-open-radius);
+}
+
+.terminal-list-row.active::after {
+  bottom: calc(-1 * var(--terminal-open-radius));
+  border-bottom: 1px solid var(--terminal-active-border);
+  border-left: 1px solid var(--terminal-active-border);
+  border-bottom-left-radius: var(--terminal-open-radius);
 }
 
 .terminal-list-main {

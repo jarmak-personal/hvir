@@ -980,13 +980,18 @@ async function runSmoke(): Promise<number> {
         }
         const activeRow = rail.querySelector('.terminal-list-row.active');
         if (!(activeRow instanceof HTMLElement)) throw new Error('active terminal row missing');
-        if (parseFloat(getComputedStyle(activeRow).borderTopLeftRadius) < 4) {
-          throw new Error('active terminal edge does not curve into the canvas');
+        if (parseFloat(getComputedStyle(activeRow).borderTopLeftRadius) !== 0) {
+          throw new Error('active terminal row still narrows its opening');
         }
         if (parseFloat(getComputedStyle(activeRow).marginLeft) >= 0) {
           throw new Error('active terminal curve cuts inward instead of opening outward');
         }
-        if (!getComputedStyle(activeRow).backgroundImage.includes('linear-gradient')) {
+        const outwardCurve = getComputedStyle(activeRow, '::before');
+        if (parseFloat(outwardCurve.borderTopLeftRadius) < 4) {
+          throw new Error('active terminal opening does not flare outward');
+        }
+        const activeBackground = getComputedStyle(activeRow).backgroundImage;
+        if (!activeBackground.includes('linear-gradient') || !activeBackground.includes('80%')) {
           throw new Error('active terminal entry does not blend into the canvas');
         }
         host.focus();

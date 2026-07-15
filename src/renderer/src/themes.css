@@ -7,6 +7,7 @@
   --surface-hover: #20242c;
   --surface-active: #243142;
   --terminal-active-background: #202630;
+  --terminal-active-border: #3c526c;
   --border-subtle: #282d36;
   --border-strong: #343a45;
   --text-strong: #edf0f5;
@@ -30,6 +31,7 @@
   --surface-hover: #e5ebf2;
   --surface-active: #dbe9f8;
   --terminal-active-background: #dbe9f8;
+  --terminal-active-border: #8faac5;
   --border-subtle: #d4dbe3;
   --border-strong: #bcc6d1;
   --text-strong: #17202b;
@@ -192,6 +194,7 @@
   background: linear-gradient(
     to right,
     var(--terminal-join-background) 0%,
+    var(--terminal-active-background) 80%,
     var(--terminal-active-background) 100%
   );
 }
