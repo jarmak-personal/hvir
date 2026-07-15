@@ -33,6 +33,7 @@ import { TerminalWorkspace } from './terminal/TerminalWorkspace'
 import type { TerminalWorkspaceRollup } from './terminal/TerminalWorkspace'
 import { ProjectsBar } from './workspaces/ProjectsBar'
 import { RemoteConnectionBadge } from './workspaces/ConnectionStatus'
+import { MissingWorkspaceNotice } from './workspaces/MissingWorkspaceNotice'
 import { initialHostConnectionTarget } from './workspaces/initial-host-connection'
 import { FileTree, SessionBar } from './tree/FileTree'
 import { DirectoryTree } from './tree/DirectoryTree'
@@ -407,8 +408,17 @@ export function App(): ReactElement {
   }, [loadFile, root])
 
   useEffect(() => {
-    if (activeWorkspace?.repository === false && railMode === 'git') setRailMode('files')
-  }, [activeWorkspace?.repository, railMode])
+    if (
+      (activeWorkspace?.repository === false || activeWorkspace?.missing) &&
+      railMode === 'git'
+    ) {
+      setRailMode('files')
+    }
+    if (activeWorkspace?.missing) {
+      setGitGraphOpen(false)
+      setGitGraphActive(false)
+    }
+  }, [activeWorkspace?.missing, activeWorkspace?.repository, railMode])
 
   useEffect(() => {
     const actionable = Object.values(terminalRollups).reduce(
@@ -1027,52 +1037,58 @@ export function App(): ReactElement {
         </div>
       ) : null}
       <div className="workspace-view" hidden={graphPane && gitGraphActive}>
-        <FileViewer
-          key={`${pane}:${paneTab?.id ?? 'empty'}`}
-          tab={paneTab}
-          onMode={(mode) => paneTab && updateTab(paneTab.id, (tab) => ({ ...tab, mode }))}
-          onDiffBase={(diffBase) =>
-            paneTab && updateTab(paneTab.id, (tab) => ({ ...tab, diffBase }))
-          }
-          onContent={(content) =>
-            paneTab &&
-            updateTab(paneTab.id, (tab) =>
-              tab.file
-                ? {
-                    ...tab,
-                    pinned: true,
-                    dirty: true,
-                    file: {
-                      ...tab.file,
-                      content,
-                      size: new TextEncoder().encode(content).byteLength,
-                    },
-                  }
-                : tab,
-            )
-          }
-          onSave={() => paneTab && saveTab(paneTab.id)}
-          onReload={() => {
-            if (!paneTab) return
-            updateTab(paneTab.id, (tab) => ({
-              ...tab,
-              dirty: false,
-              conflict: false,
-            }))
-            loadFile(paneTab.path)
-          }}
-          onScroll={(scrollTop) =>
-            paneTab && scheduleScrollPersistence(paneTab.id, scrollTop)
-          }
-          onOpenPath={(path) => {
-            activePaneRef.current = pane
-            if (paneTab) {
-              updateTab(paneTab.id, (tab) => ({ ...tab, pinned: true }))
+        {activeWorkspace?.missing ? (
+          <MissingWorkspaceNotice root={root} />
+        ) : (
+          <FileViewer
+            key={`${pane}:${paneTab?.id ?? 'empty'}`}
+            tab={paneTab}
+            onMode={(mode) =>
+              paneTab && updateTab(paneTab.id, (tab) => ({ ...tab, mode }))
             }
-            openFile(path, true)
-          }}
-          refreshVersion={contentVersion}
-        />
+            onDiffBase={(diffBase) =>
+              paneTab && updateTab(paneTab.id, (tab) => ({ ...tab, diffBase }))
+            }
+            onContent={(content) =>
+              paneTab &&
+              updateTab(paneTab.id, (tab) =>
+                tab.file
+                  ? {
+                      ...tab,
+                      pinned: true,
+                      dirty: true,
+                      file: {
+                        ...tab.file,
+                        content,
+                        size: new TextEncoder().encode(content).byteLength,
+                      },
+                    }
+                  : tab,
+              )
+            }
+            onSave={() => paneTab && saveTab(paneTab.id)}
+            onReload={() => {
+              if (!paneTab) return
+              updateTab(paneTab.id, (tab) => ({
+                ...tab,
+                dirty: false,
+                conflict: false,
+              }))
+              loadFile(paneTab.path)
+            }}
+            onScroll={(scrollTop) =>
+              paneTab && scheduleScrollPersistence(paneTab.id, scrollTop)
+            }
+            onOpenPath={(path) => {
+              activePaneRef.current = pane
+              if (paneTab) {
+                updateTab(paneTab.id, (tab) => ({ ...tab, pinned: true }))
+              }
+              openFile(path, true)
+            }}
+            refreshVersion={contentVersion}
+          />
+        )}
       </div>
     </section>
   )
@@ -1123,7 +1139,7 @@ export function App(): ReactElement {
             >
               Files
             </button>
-            {activeWorkspace?.repository !== false ? (
+            {activeWorkspace?.repository !== false && !activeWorkspace?.missing ? (
               <button
                 type="button"
                 className={railMode === 'git' ? 'active' : ''}
@@ -1147,27 +1163,30 @@ export function App(): ReactElement {
               selected={activeTab?.path}
               onOpen={openFile}
               connected={connectionState === 'connected'}
+              missing={activeWorkspace?.missing}
               hidden={railMode !== 'files'}
             />
-            <GitPanel
-              key={`git:${root.hostId}:${root.path}`}
-              root={root}
-              refreshVersion={contentVersion}
-              historyRefreshVersion={gitVersion}
-              onChanges={setGitChanges}
-              onOpenChange={(path, base, untracked) =>
-                openFile(path, true, untracked ? 'git-untracked' : 'git', base)
-              }
-              onOpenHistory={(path, revision) =>
-                openFile(path, true, 'git', 'head', revision)
-              }
-              onOpenGraph={openGitGraph}
-              connectionState={connectionState}
-              hidden={railMode !== 'git'}
-              historyPaused={gitGraphActive}
-              hasDirtyViewerTabs={tabs.some((tab) => tab.dirty)}
-              onSwitchBranch={switchGitBranch}
-            />
+            {!activeWorkspace?.missing ? (
+              <GitPanel
+                key={`git:${root.hostId}:${root.path}`}
+                root={root}
+                refreshVersion={contentVersion}
+                historyRefreshVersion={gitVersion}
+                onChanges={setGitChanges}
+                onOpenChange={(path, base, untracked) =>
+                  openFile(path, true, untracked ? 'git-untracked' : 'git', base)
+                }
+                onOpenHistory={(path, revision) =>
+                  openFile(path, true, 'git', 'head', revision)
+                }
+                onOpenGraph={openGitGraph}
+                connectionState={connectionState}
+                hidden={railMode !== 'git'}
+                historyPaused={gitGraphActive}
+                hasDirtyViewerTabs={tabs.some((tab) => tab.dirty)}
+                onSwitchBranch={switchGitBranch}
+              />
+            ) : null}
           </div>
         </aside>
         <PaneResizer
@@ -1274,6 +1293,7 @@ export function App(): ReactElement {
               workspaceId={workspace.id}
               cwd={workspace.root}
               label={workspace.name}
+              available={!workspace.missing}
               visible={workspace.id === projectState.activeWorkspaceId}
               connectionState={project.connectionState}
               onRollup={updateTerminalRollup}

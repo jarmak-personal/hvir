@@ -2978,6 +2978,33 @@ body.pane-resizing-row * {
   font-size: 11px;
 }
 
+.workspace-missing-notice {
+  min-width: 0;
+  min-height: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 24px;
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.45;
+  text-align: center;
+}
+
+.workspace-missing-notice strong {
+  color: var(--text-strong);
+  font-size: 13px;
+}
+
+.workspace-missing-path {
+  max-width: 100%;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
 .viewer-body,
 .codemirror-host,
 .terminal-container {

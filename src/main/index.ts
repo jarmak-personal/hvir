@@ -722,7 +722,10 @@ async function runSmoke(): Promise<number> {
   let smokeWindow: BrowserWindow | undefined
   let stopSmokeWatch: Disposer | undefined
   const smokeRoot = localPath(process.cwd())
-  const smokeProjectState = (connectionState = host.connectionState): ProjectState => ({
+  const smokeProjectState = (
+    connectionState = host.connectionState,
+    missing = false,
+  ): ProjectState => ({
     root: smokeRoot,
     connectionState,
     watchTier: host.watchTier,
@@ -742,7 +745,7 @@ async function runSmoke(): Promise<number> {
             root: smokeRoot,
             name: 'hvir',
             main: true,
-            missing: false,
+            missing,
             repository: true,
             changedFiles: 0,
           },
@@ -2041,6 +2044,55 @@ async function runSmoke(): Promise<number> {
       'rail navigation did not preserve section state',
     )) as string
     console.log(`[smoke] rail navigation OK (${railNavigationStatus})`)
+
+    emit('project:state', smokeProjectState(host.connectionState, true))
+    const missingWorkspaceStatus = (await withTimeout(
+      win.webContents.executeJavaScript(`
+        new Promise((resolve, reject) => {
+          const deadline = Date.now() + 5000;
+          const inspect = () => {
+            const notices = [...document.querySelectorAll('.workspace-missing-notice')];
+            const git = [...document.querySelectorAll('.rail-nav button')]
+              .find((button) => button.textContent?.trim().startsWith('Git'));
+            const terminal = document.querySelector('.terminal-surface');
+            const newTerminal = document.querySelector('[aria-label="New terminal"]');
+            const splitTerminal = document.querySelector('[aria-label="Split terminal"]');
+            if (
+              notices.length >= 2 && !git && terminal &&
+              newTerminal?.disabled && splitTerminal?.disabled
+            ) {
+              const rawError = notices.some((notice) => notice.textContent?.includes('ENOENT'));
+              if (rawError) return reject(new Error('missing workspace exposes a raw filesystem error'));
+              return resolve(
+                notices.length + ' notices · Git/new PTYs suppressed · terminal retained'
+              );
+            }
+            if (Date.now() > deadline) {
+              return reject(new Error('missing workspace state did not settle'));
+            }
+            setTimeout(inspect, 25);
+          };
+          inspect();
+        })
+      `),
+      'missing workspace state timed out',
+    )) as string
+    console.log(`[smoke] missing workspace state OK (${missingWorkspaceStatus})`)
+    emit('project:state', smokeProjectState())
+    await withTimeout(
+      win.webContents.executeJavaScript(`
+        new Promise((resolve, reject) => {
+          const deadline = Date.now() + 5000;
+          const inspect = () => {
+            if (!document.querySelector('.workspace-missing-notice')) return resolve(true);
+            if (Date.now() > deadline) return reject(new Error('workspace did not recover'));
+            setTimeout(inspect, 25);
+          };
+          inspect();
+        })
+      `),
+      'workspace recovery timed out',
+    )
 
     const sessionFlowStatus = (await withTimeout(
       win.webContents.executeJavaScript(`

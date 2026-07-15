@@ -10,6 +10,7 @@ import {
 } from '../../../shared'
 import { DirectoryTree } from './DirectoryTree'
 import { RemoteConnectionBadge } from '../workspaces/ConnectionStatus'
+import { MissingWorkspaceNotice } from '../workspaces/MissingWorkspaceNotice'
 import { buildTreeGitDecorations } from './git-status-decoration'
 
 const NO_CHANGED_FILES: readonly GitChangedFile[] = []
@@ -22,6 +23,7 @@ interface FileTreeProps {
   readonly selected?: HostPath
   readonly onOpen: (path: HostPath, pinned: boolean) => void
   readonly connected?: boolean
+  readonly missing?: boolean
   readonly hidden?: boolean
 }
 
@@ -33,6 +35,7 @@ export function FileTree({
   selected,
   onOpen,
   connected = true,
+  missing = false,
   hidden = false,
 }: FileTreeProps): ReactElement {
   const gitDecorations = useMemo(
@@ -64,24 +67,28 @@ export function FileTree({
 
   return (
     <section className="rail-section" aria-label="Files" hidden={hidden}>
-      <div className="tree-scroll">
-        {connected ? (
-          <DirectoryTree
-            root={root}
-            rootLabel={basenameHostPath(root) || root.path}
-            loadEntries={loadProjectEntries}
-            loadIgnoredEntries={loadIgnoredEntries}
-            resolveEntry={resolveProjectEntry}
-            refreshVersion={refreshVersion}
-            ignoredRefreshVersion={ignoredRefreshVersion}
-            gitDecorations={gitDecorations}
-            selected={selected}
-            onOpenFile={onOpen}
-          />
-        ) : (
-          <div className="tree-error">Reconnect to browse this host.</div>
-        )}
-      </div>
+      {missing ? (
+        <MissingWorkspaceNotice root={root} />
+      ) : (
+        <div className="tree-scroll">
+          {connected ? (
+            <DirectoryTree
+              root={root}
+              rootLabel={basenameHostPath(root) || root.path}
+              loadEntries={loadProjectEntries}
+              loadIgnoredEntries={loadIgnoredEntries}
+              resolveEntry={resolveProjectEntry}
+              refreshVersion={refreshVersion}
+              ignoredRefreshVersion={ignoredRefreshVersion}
+              gitDecorations={gitDecorations}
+              selected={selected}
+              onOpenFile={onOpen}
+            />
+          ) : (
+            <div className="tree-error">Reconnect to browse this host.</div>
+          )}
+        </div>
+      )}
     </section>
   )
 }

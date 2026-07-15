@@ -44,6 +44,7 @@ interface TerminalWorkspaceProps {
   readonly cwd: HostPath
   readonly workspaceId: string
   readonly connectionState: HostConnectionState
+  readonly available: boolean
   readonly visible: boolean
   readonly label: string
   readonly onRollup: (workspaceId: string, rollup: TerminalWorkspaceRollup) => void
@@ -69,6 +70,7 @@ export function TerminalWorkspace({
   cwd,
   workspaceId,
   connectionState,
+  available,
   visible,
   label,
   onRollup,
@@ -110,10 +112,12 @@ export function TerminalWorkspace({
   const idleTimers = useRef(new Map<string, number>())
   const idleAttentionStates = useRef(new Map<string, TerminalIdleAttentionState>())
   const visibleRef = useRef(visible)
+  const availableRef = useRef(available)
   const shouldCreateDefault = useRef(false)
   activeIdRef.current = activeId
   sessionsRef.current = sessions
   visibleRef.current = visible
+  availableRef.current = available
   recoveryModeRef.current = recoveryMode
 
   useEffect(() => {
@@ -185,8 +189,8 @@ export function TerminalWorkspace({
       (candidates) => {
         if (cancelled) return
         if (candidates.length === 0) {
-          shouldCreateDefault.current = true
-          if (visibleRef.current) {
+          shouldCreateDefault.current = availableRef.current
+          if (visibleRef.current && availableRef.current) {
             const session = createSession('plain-shell', workspaceRoot, 'primary')
             shouldCreateDefault.current = false
             setSessions([session])
@@ -209,9 +213,11 @@ export function TerminalWorkspace({
       },
       () => {
         if (cancelled) return
-        const session = createSession('plain-shell', workspaceRoot, 'primary')
-        setSessions([session])
-        setActiveId(session.id)
+        if (availableRef.current) {
+          const session = createSession('plain-shell', workspaceRoot, 'primary')
+          setSessions([session])
+          setActiveId(session.id)
+        }
         setRecoveryReady(true)
       },
     )
@@ -221,7 +227,7 @@ export function TerminalWorkspace({
   }, [workspaceRoot])
 
   useEffect(() => {
-    if (!visible || sessions.length > 0) return
+    if (!available || !visible || sessions.length > 0) return
     if (recoveryCandidates.length > 0 && recoveryMode === 'auto') {
       restoreSessions(
         recoveryCandidates,
@@ -243,6 +249,7 @@ export function TerminalWorkspace({
     recoveryCandidates,
     recoveryMode,
     recoveryReady,
+    available,
     sessions.length,
     visible,
     workspaceRoot,
@@ -334,6 +341,7 @@ export function TerminalWorkspace({
   }
 
   const addSession = (adapterId: TerminalAdapterId): void => {
+    if (!available) return
     const split = sessionsRef.current.some((session) => session.pane === 'secondary')
     const pane = split ? activePaneRef.current : 'primary'
     const session = createSession(adapterId, workspaceRoot, pane)
@@ -344,6 +352,7 @@ export function TerminalWorkspace({
   }
 
   const splitTerminal = (): void => {
+    if (!available) return
     const split = sessionsRef.current.some((session) => session.pane === 'secondary')
     const pane: TerminalSplitPane = split
       ? activePaneRef.current === 'primary'
@@ -489,9 +498,13 @@ export function TerminalWorkspace({
       >
         {recoveryReady && sessions.length === 0 ? (
           <div className="terminal-empty">
-            <button type="button" onClick={() => addSession('plain-shell')}>
-              New terminal
-            </button>
+            {available ? (
+              <button type="button" onClick={() => addSession('plain-shell')}>
+                New terminal
+              </button>
+            ) : (
+              <span>No retained terminals</span>
+            )}
           </div>
         ) : null}
         {sessions.map((session, position) => (
@@ -590,7 +603,7 @@ export function TerminalWorkspace({
               className="terminal-icon-button terminal-split-button"
               aria-label="Split terminal"
               title="Open a shell in the other terminal split"
-              disabled={!recoveryReady}
+              disabled={!recoveryReady || !available}
               onClick={splitTerminal}
             >
               ◫
@@ -612,7 +625,7 @@ export function TerminalWorkspace({
                 title="New terminal"
                 aria-haspopup="menu"
                 aria-expanded={menuOpen}
-                disabled={!recoveryReady}
+                disabled={!recoveryReady || !available}
                 onClick={() => {
                   setMenuOpen((open) => !open)
                 }}
