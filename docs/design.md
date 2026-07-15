@@ -114,6 +114,38 @@ libghostty dependency yet; `electron-libghostty@0.0.0` contains no usable implem
 and upstream libghostty remains unversioned. Fall back to `@xterm/xterm` if later load
 testing exposes a blocker, without changing code above the pane seam.
 
+#### Phase 8 addendum — 2026-07-15: transient terminal focus and file handoff
+
+**The horizontal viewer/terminal divider owns a transient terminal-focus mode.** A small,
+accessible double-up-chevron control expands the active terminal deck to the full center
+height and hides the viewer surface; in that state it becomes a double-down-chevron that
+restores the viewer and the exact prior terminal height. Expansion never overwrites the
+workspace's persisted divider height, never unmounts viewer tabs or terminal panes, and
+is not restored after app relaunch. `TerminalPane` receives the resulting resize through
+its existing interface but knows nothing about application layout state.
+
+Any intentional file activation restores the viewer before opening or selecting the
+file: Files tree rows, Git Changes/History/graph entries, rendered internal links, and
+terminal file links all share this rule. Terminal file links are added behind the
+terminal seam as a user-activated raw link/path event. The renderer resolves relative
+targets against the terminal's host-qualified workspace root, accepts absolute targets
+only inside that same authorized workspace, and routes the resulting `HostPath` through
+the existing viewer open path. Common `path:line[:column]` decorations may be parsed, but
+path text is never executed and cannot expand filesystem authority. OSC 8 file links and
+engine-supported plain-path detection remain implementation details of the active
+`TerminalPane`.
+
+**Why:** terminal-heavy work benefits from one-click vertical focus, while a file click
+is an unambiguous request to see the viewer again. Keeping this as a reversible overlay
+preserves the carefully chosen per-workspace split instead of making maximize/minimize a
+second persistent layout system.
+
+**Rejected:** persisting the maximized height as the workspace divider value; unmounting
+the viewer or PTY while focused (loses scroll/state and creates recovery churn); teaching
+the terminal engine about React layout; allowing terminal links outside the active
+workspace; executing link text; requiring separate restore actions for file-tree, Git,
+rendered-link, and terminal-link navigation.
+
 ### ADR-004 — Code viewer: CodeMirror 6 + Shiki
 **Decision:** CodeMirror 6 for the view surface, Shiki for highlighting.
 **Why:** Shiki (TextMate grammars + VSCode themes) is the "renders beautifully" payoff.

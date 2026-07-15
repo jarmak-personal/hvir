@@ -1,16 +1,17 @@
 # Phase 8 — Polish & packaging
 
 **Read first:** [`00-overview.md`](00-overview.md); design.md §3 (principles — polish
-means responsiveness and rendering quality, not feature additions), ADR-005 (bounded
-branch navigation), ADR-007 (view-mode philosophy extends to any new renderers), ADR-008
-(one workspace selector), and ADR-009 (notification semantics and visual language).
+means responsiveness and rendering quality, not feature additions), ADR-003 (terminal
+focus and file-link seam), ADR-005 (bounded branch navigation), ADR-007 (view-mode
+philosophy extends to any new renderers), ADR-008 (one workspace selector), and ADR-009
+(notification semantics and visual language).
 
 ## Goal
 
 Turn "works" into "gorgeous and shippable": themes, side-by-side panes, renderer
 completeness, a small bounded branch-navigation control, clearer terminal/notification
-information architecture, a performance pass against the load-bearing scenarios, and
-installable builds for Linux and macOS.
+information architecture, a one-click terminal-focus mode, a performance pass against
+the load-bearing scenarios, and installable builds for Linux and macOS.
 
 ## Tasks
 
@@ -28,12 +29,24 @@ installable builds for Linux and macOS.
 ### Layout
 - [ ] Side-by-side panes: split the viewer area (like VSCode), tabs draggable between
       panes; terminal area supports splits too (per the §5 layout).
+- [ ] Add a compact double-up-chevron control to the horizontal divider that expands the
+      active terminal deck to the full center height. In focus mode it becomes a
+      double-down-chevron and restores the exact pre-expansion divider height.
+- [ ] Keep terminal focus transient: hide rather than unmount the viewer, keep PTYs and
+      tabs alive, do not overwrite the persisted per-workspace terminal height, and do
+      not reopen maximized after relaunch.
+- [ ] Restore the viewer automatically before every file activation from Files, Git
+      Changes/History/graph, rendered internal links, or a terminal path link. Activating
+      an already-open tab follows the same rule.
+- [ ] Extend `TerminalPane` with an engine-agnostic user-activated link event. Resolve
+      OSC 8 file targets and supported plain `path:line[:column]` links relative to the
+      host-qualified active workspace; reject paths outside it and never execute text.
 - [ ] Keep workspace selection in one place: remove inactive-worktree jump rows from the
       right terminal rail. It lists only terminals owned by the active workspace; inactive
       terminal attention continues to roll up to the top workspace/project controls.
 - [ ] Keybinding surface: the handful of core actions (cycle view mode, focus terminal
-      / viewer / tree, workspace switch) documented and rebindable via a simple JSON
-      config. No keymap engine.
+      / viewer / tree, toggle terminal focus, workspace switch) documented and rebindable
+      via a simple JSON config. No keymap engine.
 - [ ] Minimal settings UI (or settings file + reload): theme, idle threshold,
       resume-on-start behavior, keybindings pointer.
 
@@ -91,6 +104,9 @@ installable builds for Linux and macOS.
 - [ ] The terminal rail contains no duplicate workspace navigation, and connection,
       changes, output, bell, and idle attention are distinguishable without relying on
       color or ambiguous dots.
+- [ ] Terminal focus expands and restores without losing viewer/PTY state or changing the
+      saved divider height. Every supported file activation—including a safe local or SSH
+      terminal path link—restores the viewer and opens the intended workspace file.
 - [ ] The performance gauntlet passes on a modest machine and is documented/scripted
       for reuse.
 - [ ] A reviewer who reads design.md §1 can look at the running app and agree the
