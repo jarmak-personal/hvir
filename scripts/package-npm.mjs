@@ -243,10 +243,13 @@ function stagePackagePath(stage) {
 }
 
 function assertReleaseVersion() {
+  const expectedVersion = process.env.HVIR_RELEASE_VERSION
   const tag = process.env.GITHUB_REF_NAME
-  if (tag?.startsWith('v') && tag !== `v${rootPackage.version}`) {
+  const tagVersion = tag?.startsWith('v') ? tag.slice(1) : undefined
+  const releaseVersion = expectedVersion ?? tagVersion
+  if (releaseVersion && releaseVersion !== rootPackage.version) {
     throw new Error(
-      `Release tag ${tag} does not match package version ${rootPackage.version}`,
+      `Release version ${releaseVersion} does not match package version ${rootPackage.version}`,
     )
   }
 }

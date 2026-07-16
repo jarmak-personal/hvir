@@ -48,19 +48,46 @@ clean prefix and exercises the complete `hvir` launcher → native application c
 
 ## Release workflow
 
-Pushing a `v*` tag runs `.github/workflows/release-npm.yml`:
+Use **Actions → Release → Run workflow** on the `main` branch and choose a version:
 
-1. Verify and smoke the source tree on Linux.
-2. Build and smoke Linux x64, Linux arm64, and macOS arm64 on native runners.
-3. Publish the three platform packages.
-4. Publish `hvir` last, so its optional dependencies already exist at the same version.
+- `current` releases the version already in `package.json`. It is also the recovery
+  choice for an interrupted release whose tag already exists.
+- `patch`, `minor`, or `major` updates `package.json` and `package-lock.json`, verifies
+  that tree, and pushes the version commit to `main` before the native builds begin.
 
-The tag must equal the version in the root `package.json` (`v0.1.0` for version `0.1.0`).
-The first publish bootstraps the four unscoped package names with a granular npm token in
-the `NPM_TOKEN` repository secret. After that, configure each package's npm trusted
-publisher for `release-npm.yml` and remove the long-lived token; the workflow already has
-the required OIDC permission and emits provenance attestations. Workflow artifacts are
-only short-lived handoff files between build and publish jobs; they are not supported
+The one `.github/workflows/release-npm.yml` run then:
+
+1. Verifies and smokes the exact release source on Linux.
+2. Builds and smokes Linux x64, Linux arm64, and macOS arm64 from that exact commit on
+   native runners.
+3. Creates or verifies the matching `v*` tag after every native build succeeds.
+4. Publishes the three platform packages, skipping versions already present during a
+   recovery run.
+5. Publishes `hvir` last, so its optional dependencies already exist at the same version.
+6. Publishes a generated-notes GitHub Release only after npm publication succeeds. It
+   has no downloadable application assets; npm remains the only supported distribution.
+
+The workflow owns tag creation; manually pushing a tag is not a release trigger. The tag
+always equals the root package version (`v0.1.0` for version `0.1.0`). For the first
+release, add a granular npm publishing token as the `NPM_TOKEN` repository secret and run
+the workflow with `current` to bootstrap the four unscoped package names. Afterward,
+configure each package's npm trusted publisher for repository `jarmak-personal/hvir`,
+workflow filename `release-npm.yml`, and the `npm publish` action. Then remove the
+long-lived token; the publish job already has the required OIDC permission and emits
+provenance attestations.
+
+Version commits and release tags are pushed with the repository's GitHub Actions token.
+If `main` branch protection or tag rules are added later, they must permit this workflow
+to update `main` for version bumps and create `v*` tags; otherwise a release will stop at
+the corresponding push after its earlier validation or builds.
+
+If a run fails before creating the tag, fix `main` and rerun with `current`. If the tag
+exists, `current` may safely finish an otherwise unchanged partial release and skips any
+package versions already published. If npm contains the version but its tag is missing,
+the workflow refuses to retag potentially different source; restore the original tag or
+release a new version. Published npm versions are immutable: if an artifact itself must
+change, make the fix and release a new patch instead. Workflow artifacts are only
+short-lived handoff files between build and publish jobs; they are not supported
 downloads.
 
 ## macOS signing decision

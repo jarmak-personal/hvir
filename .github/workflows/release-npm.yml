@@ -1,32 +1,154 @@
-name: Publish npm release
+name: Release
 
 on:
-  push:
-    tags:
-      - 'v*'
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: Version to release. current reuses package.json; patch/minor/major commit the bump to main.
+        required: true
+        type: choice
+        options:
+          - current
+          - patch
+          - minor
+          - major
 
 permissions:
   contents: read
 
 concurrency:
-  group: release-npm-${{ github.ref }}
+  group: release
   cancel-in-progress: false
 
 jobs:
-  verify:
+  prepare:
+    name: Prepare ${{ inputs.bump }} release
     runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    outputs:
+      version: ${{ steps.release.outputs.version }}
+      tag: ${{ steps.release.outputs.tag }}
+      sha: ${{ steps.release.outputs.sha }}
     steps:
+      - name: Require the default branch
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          if [ "$GITHUB_REF" != "refs/heads/$DEFAULT_BRANCH" ]; then
+            echo "::error::Run releases from $DEFAULT_BRANCH, not $GITHUB_REF_NAME"
+            exit 1
+          fi
+
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 0
+          fetch-tags: true
+
       - uses: actions/setup-node@v6
         with:
           node-version: 24
-          cache: npm
+          package-manager-cache: false
+
+      - name: Select release version
+        id: version
+        env:
+          BUMP: ${{ inputs.bump }}
+        run: |
+          current=$(node -p "require('./package.json').version")
+          if [ "$BUMP" = "current" ]; then
+            version=$current
+          else
+            npm version "$BUMP" --no-git-tag-version --ignore-scripts
+            version=$(node -p "require('./package.json').version")
+          fi
+          tag="v$version"
+
+          remote_tag_sha=$(git ls-remote origin "refs/tags/$tag^{}" | awk '{print $1}')
+          if [ -z "$remote_tag_sha" ]; then
+            remote_tag_sha=$(git ls-remote origin "refs/tags/$tag" | awk '{print $1}')
+          fi
+
+          registry_version_state() {
+            package_name=$1
+            error_file=$(mktemp)
+            if npm view "${package_name}@${version}" version --json >/dev/null 2>"$error_file"; then
+              rm -f "$error_file"
+              echo published
+            elif grep -q 'E404' "$error_file"; then
+              rm -f "$error_file"
+              echo missing
+            else
+              cat "$error_file" >&2
+              rm -f "$error_file"
+              return 2
+            fi
+          }
+
+          if [ "$BUMP" = "current" ] && [ -n "$remote_tag_sha" ]; then
+            git checkout --detach "$remote_tag_sha"
+            tagged_version=$(node -p "require('./package.json').version")
+            if [ "$tagged_version" != "$version" ]; then
+              echo "::error::$tag contains package version $tagged_version, expected $version"
+              exit 1
+            fi
+            echo "Reusing $tag at $remote_tag_sha"
+          elif [ -n "$remote_tag_sha" ]; then
+            echo "::error::$tag already exists; rerun with bump=current"
+            exit 1
+          else
+            published_packages=()
+            for package_name in hvir hvir-linux-x64 hvir-linux-arm64 hvir-darwin-arm64; do
+              state=$(registry_version_state "$package_name")
+              if [ "$state" = "published" ]; then
+                published_packages+=("$package_name")
+              fi
+            done
+            if [ "${#published_packages[@]}" -gt 0 ]; then
+              echo "::error::$tag is missing, but version $version already exists for: ${published_packages[*]}"
+              echo "Restore the original tag or choose a new version; refusing to retag different source."
+              exit 1
+            fi
+          fi
+
+          echo "current=$current" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          {
+            echo "### hvir $version"
+            echo
+            echo "Version: $current -> $version ($BUMP)"
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - run: npm ci
       - run: npm run verify
       - run: xvfb-run -a npm run smoke
 
+      - name: Commit version bump and publish release source
+        id: release
+        env:
+          BUMP: ${{ inputs.bump }}
+          VERSION: ${{ steps.version.outputs.version }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          if [ "$BUMP" != "current" ]; then
+            git add package.json package-lock.json
+            git commit -m "Bump hvir to $VERSION"
+            git push origin "HEAD:${{ github.event.repository.default_branch }}"
+          fi
+
+          sha=$(git rev-parse HEAD)
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "Release source: $sha" >> "$GITHUB_STEP_SUMMARY"
+
   build-platforms:
-    needs: verify
+    needs: prepare
     strategy:
       fail-fast: false
       matrix:
@@ -47,12 +169,15 @@ jobs:
     runs-on: ${{ matrix.os }}
     env:
       CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      HVIR_RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
       - uses: actions/setup-node@v6
         with:
           node-version: 24
-          cache: npm
+          package-manager-cache: false
       - run: npm ci
       - run: ${{ matrix.command }}
       - run: npm run pack:npm:launcher
@@ -60,52 +185,158 @@ jobs:
       - uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.package }}
-          path: dist/npm/${{ matrix.package }}-*.tgz
+          path: dist/npm/${{ matrix.package }}-${{ needs.prepare.outputs.version }}.tgz
           if-no-files-found: error
           retention-days: 1
 
-  publish:
-    needs: build-platforms
+  publish-npm:
+    name: Publish npm packages
+    needs:
+      - prepare
+      - build-platforms
     runs-on: ubuntu-24.04
     permissions:
-      contents: read
+      contents: write
       id-token: write
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
+          fetch-depth: 0
+          fetch-tags: true
       - uses: actions/setup-node@v6
         with:
           node-version: 24
-          cache: npm
           registry-url: https://registry.npmjs.org
-      - run: npm ci
+          package-manager-cache: false
+
+      - name: Create or verify release tag
+        env:
+          TAG: ${{ needs.prepare.outputs.tag }}
+          RELEASE_SHA: ${{ needs.prepare.outputs.sha }}
+        run: |
+          remote_tag_sha=$(git ls-remote origin "refs/tags/$TAG^{}" | awk '{print $1}')
+          if [ -z "$remote_tag_sha" ]; then
+            remote_tag_sha=$(git ls-remote origin "refs/tags/$TAG" | awk '{print $1}')
+          fi
+
+          if [ -n "$remote_tag_sha" ] && [ "$remote_tag_sha" != "$RELEASE_SHA" ]; then
+            echo "::error::$TAG points at $remote_tag_sha, expected $RELEASE_SHA"
+            exit 1
+          fi
+
+          if [ -z "$remote_tag_sha" ]; then
+            git tag "$TAG" "$RELEASE_SHA"
+            git push origin "$TAG"
+          else
+            echo "$TAG already exists at $RELEASE_SHA"
+          fi
+
       - uses: actions/download-artifact@v8
         with:
           pattern: hvir-*
           path: dist/npm
           merge-multiple: true
+
       - run: npm run pack:npm:launcher
+
       - name: Publish platform payloads
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
         run: |
-          version=$(node -p "require('./package.json').version")
+          registry_version_state() {
+            package_name=$1
+            error_file=$(mktemp)
+            if npm view "${package_name}@${VERSION}" version --json >/dev/null 2>"$error_file"; then
+              rm -f "$error_file"
+              echo published
+            elif grep -q 'E404' "$error_file"; then
+              rm -f "$error_file"
+              echo missing
+            else
+              cat "$error_file" >&2
+              rm -f "$error_file"
+              return 2
+            fi
+          }
+
           publish_if_missing() {
             package_name=$1
-            tarball=$2
-            if npm view "${package_name}@${version}" version >/dev/null 2>&1; then
-              echo "${package_name}@${version} already published"
+            tarball="dist/npm/${package_name}-${VERSION}.tgz"
+            if [ ! -f "$tarball" ]; then
+              echo "::error::Missing tarball for ${package_name}@${VERSION}"
+              exit 1
+            fi
+            state=$(registry_version_state "$package_name")
+            if [ "$state" = "published" ]; then
+              echo "${package_name}@${VERSION} already published"
             else
               npm publish "$tarball" --access public --provenance
             fi
           }
-          publish_if_missing hvir-linux-x64 dist/npm/hvir-linux-x64-*.tgz
-          publish_if_missing hvir-linux-arm64 dist/npm/hvir-linux-arm64-*.tgz
-          publish_if_missing hvir-darwin-arm64 dist/npm/hvir-darwin-arm64-*.tgz
+
+          publish_if_missing hvir-linux-x64
+          publish_if_missing hvir-linux-arm64
+          publish_if_missing hvir-darwin-arm64
+
       - name: Publish hvir launcher
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
         run: |
-          version=$(node -p "require('./package.json').version")
-          if npm view "hvir@${version}" version >/dev/null 2>&1; then
-            echo "hvir@${version} already published"
+          registry_version_state() {
+            error_file=$(mktemp)
+            if npm view "hvir@${VERSION}" version --json >/dev/null 2>"$error_file"; then
+              rm -f "$error_file"
+              echo published
+            elif grep -q 'E404' "$error_file"; then
+              rm -f "$error_file"
+              echo missing
+            else
+              cat "$error_file" >&2
+              rm -f "$error_file"
+              return 2
+            fi
+          }
+
+          tarball="dist/npm/hvir-${VERSION}.tgz"
+          if [ ! -f "$tarball" ]; then
+            echo "::error::Missing launcher tarball $tarball"
+            exit 1
+          fi
+          state=$(registry_version_state)
+          if [ "$state" = "published" ]; then
+            echo "hvir@${VERSION} already published"
           else
-            npm publish dist/npm/hvir-[0-9]*.tgz --access public --provenance
+            npm publish "$tarball" --access public --provenance
           fi
     env:
+      HVIR_RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
       NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+  publish-github-release:
+    name: Publish GitHub Release
+    needs:
+      - prepare
+      - publish-npm
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - name: Create or publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+        run: |
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release edit "$TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --draft=false \
+              --latest
+          else
+            gh release create "$TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --verify-tag \
+              --title "$TAG" \
+              --generate-notes \
+              --latest
+          fi
