@@ -857,6 +857,20 @@ export function App(): ReactElement {
     }
   }
 
+  const closeProject = async (projectId: string): Promise<void> => {
+    setSessionBusy(true)
+    setSessionError(undefined)
+    try {
+      applyProjectState(
+        unwrapOperation(await window.hvir.invoke('project:close', { projectId })),
+      )
+    } catch (reason) {
+      setSessionError(reason instanceof Error ? reason.message : String(reason))
+    } finally {
+      setSessionBusy(false)
+    }
+  }
+
   const pruneWorktrees = async (projectId: string): Promise<void> => {
     setSessionBusy(true)
     setSessionError(undefined)
@@ -1136,6 +1150,7 @@ export function App(): ReactElement {
             void switchWorkspace(projectId, workspaceId)
           }
           onRefresh={(projectId) => void refreshProject(projectId)}
+          onCloseProject={(projectId) => void closeProject(projectId)}
           onPrune={(projectId) => void pruneWorktrees(projectId)}
           onDismiss={(projectId, workspaceId) =>
             void dismissWorkspace(projectId, workspaceId)

@@ -113,10 +113,51 @@ button {
   flex: 0 0 auto;
   display: flex;
   align-items: center;
-  gap: 7px;
-  padding: 0 11px;
   border-right: 1px solid #282e37;
   border-top: 2px solid transparent;
+}
+
+.project-tab-main {
+  min-width: 0;
+  height: 100%;
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 6px 0 11px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+}
+
+.project-close {
+  width: 24px;
+  height: 100%;
+  flex: 0 0 24px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #77808e;
+  opacity: 0;
+}
+
+.project-tab:hover .project-close,
+.project-tab.active .project-close,
+.project-close:focus-visible {
+  opacity: 1;
+}
+
+.project-close:hover:not(:disabled) {
+  background: #2b313a;
+  color: #eef1f5;
+}
+
+.project-close:disabled {
+  cursor: default;
+}
+
+.project-tab.active .project-close:disabled {
+  opacity: 0.3;
 }
 
 .project-tab:hover,
@@ -2545,6 +2586,21 @@ body.pane-resizing-row * {
 
 .project-dialog .dialog-error {
   color: #dc7b82;
+}
+
+.close-project-dialog > code {
+  overflow-wrap: anywhere;
+  padding: 9px 10px;
+  border: 1px solid #303640;
+  border-radius: 4px;
+  background: #12151a;
+  color: #c5cbd4;
+  font-size: 10px;
+}
+
+.project-dialog .dialog-note {
+  color: #747e8d;
+  font-size: 10px;
 }
 
 .worktree-prune-dialog {

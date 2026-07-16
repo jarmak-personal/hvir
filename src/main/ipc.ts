@@ -99,6 +99,7 @@ export interface IpcDeps {
     workspaceId: string,
   ) => Promise<ProjectState>
   readonly refreshProject: (projectId: string) => Promise<ProjectState>
+  readonly closeProject: (projectId: string) => Promise<ProjectState>
   readonly pruneWorktrees: (projectId: string) => Promise<ProjectState>
   readonly dismissWorkspace: (
     projectId: string,
@@ -148,6 +149,9 @@ export function registerIpcHandlers(deps: IpcDeps): void {
   )
   handle('project:refresh', (req) =>
     operationResult(() => deps.refreshProject(req.projectId)),
+  )
+  handle('project:close', (req) =>
+    operationResult(() => deps.closeProject(req.projectId)),
   )
   handle('workspace:prune', (req) =>
     operationResult(() => deps.pruneWorktrees(req.projectId)),

@@ -53,6 +53,8 @@ the load-bearing scenarios, and installable builds for Linux and macOS.
 - [x] Keep workspace selection in one place: remove inactive-worktree jump rows from the
       right terminal rail. It lists only terminals owned by the active workspace; inactive
       terminal attention continues to roll up to the top workspace/project controls.
+- [x] Add a confirmed project-tab close action. Unregister without touching repository
+      data, retain terminal recovery metadata, and keep one project active in v1.
 - [x] Keybinding surface: the handful of core actions (cycle view mode, focus terminal
       / viewer / tree, toggle terminal focus, workspace switch) documented and rebindable
       via a simple JSON config. No keymap engine. Match bracket chords by physical key so
@@ -143,11 +145,12 @@ is an ADR conversation, not a quiet addition here.
 ## Automated implementation evidence (2026-07-15)
 
 - Review hardening passed seam enforcement, lint, both TypeScript builds, 40 test files /
-  280 tests, and the production Electron smoke. The added regressions cover macOS
+  281 tests, and the production Electron smoke. The added regressions cover macOS
   Option-bracket matching, bounded OSC discard, ragged/truncated CSVs, line-bearing
   terminal targets, and corrupt/valid npm payload swaps; the smoke now checks modal
-  shortcut isolation, visible settings validation, and empty-viewer auto-collapse. SSH
-  refresh pulses retain cached tree contents without flashing first-load indicators.
+  shortcut isolation, visible settings validation, empty-viewer auto-collapse, and
+  confirmed project unregistering with final-project protection. SSH refresh pulses retain
+  cached tree contents without flashing first-load indicators.
 - `npm run gauntlet` passed seam enforcement, scoped lint, both TypeScript builds, 39 test
   files / 272 tests, the production workflow smoke, and the 30-second capacity smoke.
 - The capacity run mounted 12 live terminals and measured **17.7 ms p99 / 17.8 ms max**

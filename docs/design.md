@@ -486,6 +486,14 @@ tabs refresh asynchronously when revisited; dirty drafts remain authoritative. R
 workspace dismissal is the explicit point that ends its PTYs and forgets recovery
 records.
 
+Project tabs may be explicitly closed when another registered project can become active.
+Closing unregisters the project and unmounts its live PTYs without touching its files,
+Git branches, or worktrees. Terminal recovery metadata is retained so re-registering the
+same host-qualified root can restore those sessions. V1 keeps one project registered at
+all times: a zero-project welcome state was rejected because it would make filesystem,
+Git, watch, and PTY authority optional throughout the application for little workflow
+gain; register a replacement before closing the final project.
+
 **Rejected:** one Git worker or SSH connection per workspace (duplicates transport and
 auth state); granting inactive roots to general renderer filesystem IPC (weakens the
 active-workspace boundary); killing PTYs on workspace switches (turns navigation into

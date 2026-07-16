@@ -348,6 +348,26 @@ async function startup(): Promise<void> {
         return state
       }),
     refreshProject: (projectId) => refreshProjectWorkspaces(projectId),
+    closeProject: (projectId) =>
+      serializeSession(async () => {
+        if (!projectRegistry) throw new Error('Project registry is unavailable')
+        const wasActive = projectRegistry.active.projectId === projectId
+        if (wasActive) await stopProjectWatch()
+        try {
+          await workspaceRefreshes.get(projectId)?.catch(() => undefined)
+          workspaceRefreshes.delete(projectId)
+          const refreshTimer = workspaceRefreshTimers.get(projectId)
+          if (refreshTimer) clearTimeout(refreshTimer)
+          workspaceRefreshTimers.delete(projectId)
+          const state = await projectRegistry.closeProject(projectId)
+          if (wasActive) htmlPreviews.clear()
+          return state
+        } finally {
+          if (wasActive && projectRegistry.active.host.connectionState === 'connected') {
+            startProjectWatch(projectRegistry.active, emit)
+          }
+        }
+      }),
     pruneWorktrees: (projectId) => requestProjectWorktreePrune(projectId, emit),
     dismissWorkspace: (projectId, workspaceId) =>
       serializeSession(async () => {
@@ -722,6 +742,7 @@ async function runSmoke(): Promise<number> {
   let smokeWindow: BrowserWindow | undefined
   let stopSmokeWatch: Disposer | undefined
   const smokeRoot = localPath(process.cwd())
+  const smokeCloseableRoot = joinHostPath(smokeRoot, '.hvir-smoke-closed-project')
   const smokeProjectState = (
     connectionState = host.connectionState,
     missing = false,
@@ -800,7 +821,9 @@ async function runSmoke(): Promise<number> {
       gitWorker: git,
       getProject: () => ({ host, root: smokeRoot }),
       getRegisteredWorkspaceRoot: (root) =>
-        hostPathEquals(root, smokeRoot) ? smokeRoot : undefined,
+        hostPathEquals(root, smokeRoot) || hostPathEquals(root, smokeCloseableRoot)
+          ? root
+          : undefined,
       getProjectState: () => smokeProjectState(),
       listHosts: () => [
         {
@@ -841,6 +864,7 @@ async function runSmoke(): Promise<number> {
       openProject: () => Promise.resolve(smokeProjectState()),
       switchWorkspace: () => Promise.resolve(smokeProjectState()),
       refreshProject: () => Promise.resolve(smokeProjectState()),
+      closeProject: () => Promise.resolve(smokeProjectState()),
       pruneWorktrees: () => Promise.resolve(smokeProjectState()),
       dismissWorkspace: () => Promise.resolve(smokeProjectState()),
       switchGitBranch: () => Promise.resolve(smokeProjectState()),
@@ -2540,6 +2564,72 @@ async function runSmoke(): Promise<number> {
       'settings smoke timed out',
     )) as string
     console.log(`[smoke] minimal settings OK (${settingsStatus})`)
+
+    const closeableState = smokeProjectState()
+    emit('project:state', {
+      ...closeableState,
+      projects: [
+        ...closeableState.projects,
+        {
+          id: 'smoke-closeable-project',
+          registeredRoot: smokeCloseableRoot,
+          displayName: 'Close me',
+          connectionState: host.connectionState,
+          watchTier: host.watchTier,
+          activeWorkspaceId: 'smoke-closeable-workspace',
+          workspaces: [
+            {
+              id: 'smoke-closeable-workspace',
+              root: smokeCloseableRoot,
+              name: 'Close me',
+              main: true,
+              missing: true,
+              repository: false,
+              changedFiles: 0,
+            },
+          ],
+        },
+      ],
+    })
+    const projectCloseStatus = (await withTimeout(
+      win.webContents.executeJavaScript(`
+        new Promise((resolve, reject) => {
+          const deadline = Date.now() + 5000;
+          const waitForClose = () => {
+            const close = document.querySelector(
+              '[aria-label="Close project Close me"]'
+            );
+            if (!close) {
+              if (Date.now() > deadline) return reject(new Error('project close control missing'));
+              return setTimeout(waitForClose, 25);
+            }
+            if (close.disabled) return reject(new Error('secondary project close is disabled'));
+            close.click();
+            requestAnimationFrame(() => {
+              const dialog = document.querySelector('.close-project-dialog');
+              if (!dialog || !dialog.textContent?.includes('Files, Git branches, and worktrees are not changed')) {
+                return reject(new Error('project close confirmation incomplete'));
+              }
+              [...dialog.querySelectorAll('button')]
+                .find((button) => button.textContent?.trim() === 'Close project')?.click();
+              const waitForRemoval = () => {
+                const removed = document.querySelector('[aria-label="Close project Close me"]');
+                const remaining = document.querySelector('[aria-label="Close project hvir"]');
+                if (!removed && remaining?.disabled) {
+                  return resolve('confirmed unregister · final project protected');
+                }
+                if (Date.now() > deadline) return reject(new Error('project did not close safely'));
+                setTimeout(waitForRemoval, 25);
+              };
+              waitForRemoval();
+            });
+          };
+          waitForClose();
+        })
+      `),
+      'project close smoke timed out',
+    )) as string
+    console.log(`[smoke] project close OK (${projectCloseStatus})`)
 
     const previousRecoveryMode = (await win.webContents.executeJavaScript(
       `localStorage.getItem('hvir:terminal-recovery-mode')`,

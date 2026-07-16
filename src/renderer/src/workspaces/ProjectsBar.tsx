@@ -18,6 +18,7 @@ interface ProjectsBarProps {
   readonly onAdd: () => void
   readonly onSwitch: (projectId: string, workspaceId: string) => void
   readonly onRefresh: (projectId: string) => void
+  readonly onCloseProject: (projectId: string) => void
   readonly onPrune: (projectId: string) => void
   readonly onDismiss: (projectId: string, workspaceId: string) => void
   readonly theme: AppTheme
@@ -32,6 +33,7 @@ export function ProjectsBar({
   onAdd,
   onSwitch,
   onRefresh,
+  onCloseProject,
   onPrune,
   onDismiss,
   theme,
@@ -39,6 +41,7 @@ export function ProjectsBar({
   onSettings,
 }: ProjectsBarProps): ReactElement {
   const [pruneProjectId, setPruneProjectId] = useState<string>()
+  const [closeProjectId, setCloseProjectId] = useState<string>()
   const activeProject = state.projects.find(
     (project) => project.id === state.activeProjectId,
   )
@@ -47,6 +50,7 @@ export function ProjectsBar({
       (workspace) => workspace.prunableReason !== undefined,
     ) ?? []
   const pruneProject = state.projects.find((project) => project.id === pruneProjectId)
+  const closeProject = state.projects.find((project) => project.id === closeProjectId)
   const pruneTargets =
     pruneProject?.workspaces.filter(
       (workspace) => workspace.prunableReason !== undefined,
@@ -65,34 +69,53 @@ export function ProjectsBar({
             ).unseen
             const target = activeWorkspace(project)
             return (
-              <button
-                type="button"
+              <div
                 className={`project-tab${project.id === state.activeProjectId ? ' active' : ''}`}
-                aria-current={project.id === state.activeProjectId ? 'page' : undefined}
                 key={project.id}
-                disabled={busy || !target}
-                onClick={() => target && onSwitch(project.id, target.id)}
                 title={`${project.registeredRoot.path} · ${project.connectionState}`}
               >
-                <strong>{project.displayName}</strong>
-                {project.registeredRoot.hostId !== 'local' ? (
-                  <RemoteConnectionBadge
-                    state={project.connectionState}
-                    hostLabel={`ssh:${project.registeredRoot.hostId}`}
-                  />
-                ) : null}
-                {changed > 0 ? (
-                  <span
-                    className="project-change-count"
-                    aria-label={`${changed} changed files`}
-                    title={`${changed} changed files`}
-                  >
-                    <span aria-hidden="true">Δ </span>
-                    {changed}
-                  </span>
-                ) : null}
-                {unseen > 0 ? <AttentionCount count={unseen} /> : null}
-              </button>
+                <button
+                  type="button"
+                  className="project-tab-main"
+                  aria-current={project.id === state.activeProjectId ? 'page' : undefined}
+                  disabled={busy || !target}
+                  onClick={() => target && onSwitch(project.id, target.id)}
+                  title={`${project.registeredRoot.path} · ${project.connectionState}`}
+                >
+                  <strong>{project.displayName}</strong>
+                  {project.registeredRoot.hostId !== 'local' ? (
+                    <RemoteConnectionBadge
+                      state={project.connectionState}
+                      hostLabel={`ssh:${project.registeredRoot.hostId}`}
+                    />
+                  ) : null}
+                  {changed > 0 ? (
+                    <span
+                      className="project-change-count"
+                      aria-label={`${changed} changed files`}
+                      title={`${changed} changed files`}
+                    >
+                      <span aria-hidden="true">Δ </span>
+                      {changed}
+                    </span>
+                  ) : null}
+                  {unseen > 0 ? <AttentionCount count={unseen} /> : null}
+                </button>
+                <button
+                  type="button"
+                  className="project-close"
+                  disabled={busy || state.projects.length <= 1}
+                  onClick={() => setCloseProjectId(project.id)}
+                  aria-label={`Close project ${project.displayName}`}
+                  title={
+                    state.projects.length <= 1
+                      ? 'Register another project before closing this one'
+                      : `Close project ${project.displayName}`
+                  }
+                >
+                  <span aria-hidden="true">×</span>
+                </button>
+              </div>
             )
           })}
           <button
@@ -204,7 +227,61 @@ export function ProjectsBar({
           }}
         />
       ) : null}
+      {closeProject ? (
+        <CloseProjectDialog
+          project={closeProject}
+          onCancel={() => setCloseProjectId(undefined)}
+          onConfirm={() => {
+            setCloseProjectId(undefined)
+            onCloseProject(closeProject.id)
+          }}
+        />
+      ) : null}
     </>
+  )
+}
+
+function CloseProjectDialog({
+  project,
+  onCancel,
+  onConfirm,
+}: {
+  readonly project: RegisteredProjectState
+  readonly onCancel: () => void
+  readonly onConfirm: () => void
+}): ReactElement {
+  return (
+    <div className="modal-backdrop">
+      <section
+        className="project-dialog close-project-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="close-project-title"
+        tabIndex={-1}
+        onKeyDown={(event) => {
+          if (event.key === 'Escape') onCancel()
+        }}
+      >
+        <h2 id="close-project-title">Close {project.displayName}?</h2>
+        <p>
+          This removes the project from hvir and closes its live terminals. Files, Git
+          branches, and worktrees are not changed.
+        </p>
+        <code>{displayHostPath(project.registeredRoot)}</code>
+        <p className="dialog-note">
+          Terminal recovery metadata is retained, so re-registering this project can
+          restore its sessions.
+        </p>
+        <div className="dialog-actions">
+          <button type="button" autoFocus onClick={onCancel}>
+            Cancel
+          </button>
+          <button type="button" className="danger-action" onClick={onConfirm}>
+            Close project
+          </button>
+        </div>
+      </section>
+    </div>
   )
 }
 

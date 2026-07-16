@@ -92,6 +92,7 @@ export interface RefreshProjectRequest {
   readonly projectId: string
 }
 
+export type CloseProjectRequest = RefreshProjectRequest
 export type PruneProjectWorktreesRequest = RefreshProjectRequest
 export type DismissWorkspaceRequest = SwitchWorkspaceRequest
 
@@ -266,6 +267,10 @@ export interface IpcInvokeMap {
     request: RefreshProjectRequest
     response: OperationResult<ProjectState>
   }
+  'project:close': {
+    request: CloseProjectRequest
+    response: OperationResult<ProjectState>
+  }
   'workspace:prune': {
     request: PruneProjectWorktreesRequest
     response: OperationResult<ProjectState>
@@ -388,6 +393,7 @@ export const INVOKE_CHANNELS = [
   'project:open',
   'project:switch',
   'project:refresh',
+  'project:close',
   'workspace:prune',
   'workspace:dismiss',
   'ssh:prompt-response',

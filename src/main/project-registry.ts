@@ -418,6 +418,38 @@ export class ProjectRegistry {
     return this.state()
   }
 
+  async closeProject(projectId: string): Promise<ProjectState> {
+    const index = this.projects.findIndex((candidate) => candidate.id === projectId)
+    if (index < 0) throw new Error('Unknown project')
+    if (this.projects.length <= 1) throw new Error('hvir must keep one project open')
+
+    const closesActiveProject = projectId === this.activeProjectId
+    if (closesActiveProject) {
+      const remaining = this.projects.filter((project) => project.id !== projectId)
+      const project = remaining[Math.min(index, remaining.length - 1)]!
+      const workspace =
+        project.workspaces.find(
+          (candidate) => candidate.id === project.activeWorkspaceId && !candidate.missing,
+        ) ??
+        project.workspaces.find((candidate) => !candidate.missing) ??
+        project.workspaces[0]!
+      const host = await this.host(project.registeredRoot.hostId)
+      this.activeProjectId = project.id
+      project.activeWorkspaceId = workspace.id
+      this.activeProject = {
+        host,
+        root: workspace.root,
+        projectId: project.id,
+        workspaceId: workspace.id,
+      }
+    }
+
+    this.projects.splice(index, 1)
+    await this.persist()
+    this.emitState()
+    return this.state()
+  }
+
   async dismissWorkspace(projectId: string, id: string): Promise<ProjectState> {
     const project = this.projects.find((candidate) => candidate.id === projectId)
     const workspace = project?.workspaces.find((candidate) => candidate.id === id)
