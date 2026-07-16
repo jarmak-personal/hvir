@@ -2022,36 +2022,44 @@ async function runSmoke(): Promise<number> {
               },
               'long diff did not create scroll extent'
             );
-            const waitForStableMerge = async () => {
+            const waitForScrolledMerge = async () => {
+              let attempts = 0;
+              let lastActual = 0;
+              let lastMax = 0;
               for (;;) {
                 const candidate = await waitForScrollableMerge();
-                await new Promise((done) =>
-                  requestAnimationFrame(() => requestAnimationFrame(done))
-                );
-                if (
-                  candidate.isConnected &&
-                  document.querySelector('.cm-mergeView') === candidate
-                ) {
-                  return candidate;
+                const maxScroll = candidate.scrollHeight - candidate.clientHeight;
+                const targetScroll = Math.min(120, maxScroll);
+                attempts += 1;
+                candidate.scrollTop = targetScroll;
+                candidate.dispatchEvent(new Event('scroll'));
+                let stableSamples = 0;
+                while (stableSamples < 3) {
+                  await new Promise((done) => setTimeout(done, 50));
+                  lastActual = candidate.scrollTop;
+                  lastMax = maxScroll;
+                  if (
+                    !candidate.isConnected ||
+                    document.querySelector('.cm-mergeView') !== candidate ||
+                    Math.abs(candidate.scrollTop - targetScroll) > 2
+                  ) {
+                    break;
+                  }
+                  stableSamples += 1;
+                }
+                if (stableSamples === 3) {
+                  return { merge: candidate, maxScroll, targetScroll };
                 }
                 if (Date.now() > deadline) {
-                  throw new Error('long diff did not settle');
+                  throw new Error(
+                    'long diff scroll did not settle after ' + attempts +
+                      ' attempts: actual=' + lastActual + ' max=' + lastMax
+                  );
                 }
               }
             };
-            const scrollableMerge = await waitForStableMerge();
-            const maxScroll = scrollableMerge.scrollHeight - scrollableMerge.clientHeight;
-            const targetScroll = Math.min(120, maxScroll);
-            scrollableMerge.scrollTop = targetScroll;
-            scrollableMerge.dispatchEvent(new Event('scroll'));
-            await new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done)));
-            if (Math.abs(scrollableMerge.scrollTop - targetScroll) > 2) {
-              throw new Error(
-                'long diff scroll did not settle: target=' + targetScroll +
-                  ' actual=' + scrollableMerge.scrollTop +
-                  ' max=' + maxScroll
-              );
-            }
+            const scrolledMerge = await waitForScrolledMerge();
+            const scrollableMerge = scrolledMerge.merge;
             const visibleLine = (root, selector) => {
               const viewportTop = root.getBoundingClientRect().top;
               const markers = [...root.querySelectorAll(selector)]
