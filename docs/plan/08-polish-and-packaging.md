@@ -25,8 +25,9 @@ the load-bearing scenarios, and installable builds for Linux and macOS.
       notebook/other formats — only if trivial, else parking lot.
 - [x] Typography/spacing pass on rendered markdown — this is a "renders beautifully"
       surface; treat readability as the feature.
-- [x] Keep side-by-side CodeMirror diffs vertically scrollable for long files and retain
-      their scroll position with the active viewer tab.
+- [x] Keep side-by-side CodeMirror diffs vertically scrollable for long files. Preserve
+      the top visible current-file line in both directions when switching between Source
+      and Diff, even though the modes have different line heights and collapsed regions.
 
 ### Layout
 - [x] Side-by-side panes: split the viewer area (like VSCode), tabs draggable between

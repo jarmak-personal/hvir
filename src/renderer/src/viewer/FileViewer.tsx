@@ -21,6 +21,12 @@ import {
 } from '../../../shared'
 import { DiffView } from './DiffView'
 import {
+  captureTopLine,
+  restoreTopLine,
+  type CodeScrollAnchor,
+  type CodeScrollCapture,
+} from './code-scroll-anchor'
+import {
   languageForPath,
   type HighlightResponse,
   type HighlightToken,
@@ -108,6 +114,8 @@ export function FileViewer({
   const [blameStatus, setBlameStatus] = useState('')
   const currentPath = tab?.path
   const blameMode = tab?.mode
+  const codeScrollAnchor = useRef<number | undefined>(undefined)
+  const codeScrollCapture = useRef<(() => number) | undefined>(undefined)
   const binaryImage = Boolean(tab?.file?.binary && renderedFileType(tab.path) === 'image')
 
   useEffect(() => {
@@ -193,7 +201,11 @@ export function FileViewer({
                   }
                   disabled={Boolean(tab.file?.binary && mode !== 'rendered')}
                   key={mode}
-                  onClick={() => onMode(mode)}
+                  onClick={() => {
+                    const line = codeScrollCapture.current?.()
+                    if (line !== undefined) codeScrollAnchor.current = line
+                    onMode(mode)
+                  }}
                 >
                   {mode}
                 </button>
@@ -220,6 +232,8 @@ export function FileViewer({
             blameStatus={showBlame ? blameStatus : ''}
             onOpenPath={onOpenPath}
             refreshVersion={refreshVersion}
+            codeScrollAnchor={codeScrollAnchor}
+            codeScrollCapture={codeScrollCapture}
           />
         ) : null}
       </div>
@@ -254,6 +268,8 @@ function ActiveView({
   blameStatus,
   onOpenPath,
   refreshVersion,
+  codeScrollAnchor,
+  codeScrollCapture,
 }: {
   readonly tab: ViewerTab
   readonly file: NonNullable<ViewerTab['file']>
@@ -264,6 +280,8 @@ function ActiveView({
   readonly blameStatus: string
   readonly onOpenPath: (path: HostPath) => void
   readonly refreshVersion: number
+  readonly codeScrollAnchor: CodeScrollAnchor
+  readonly codeScrollCapture: CodeScrollCapture
 }): ReactElement {
   if (tab.mode === 'rendered') {
     return (
@@ -298,6 +316,8 @@ function ActiveView({
         refreshVersion={refreshVersion}
         scrollTop={tab.scrollTop}
         onScroll={onScroll}
+        codeScrollAnchor={codeScrollAnchor}
+        codeScrollCapture={codeScrollCapture}
       />
     )
   }
@@ -312,6 +332,8 @@ function ActiveView({
       onScroll={onScroll}
       blame={blame}
       blameStatus={blameStatus}
+      codeScrollAnchor={codeScrollAnchor}
+      codeScrollCapture={codeScrollCapture}
     />
   )
 }
@@ -360,6 +382,8 @@ function SourceView({
   onScroll,
   blame,
   blameStatus,
+  codeScrollAnchor,
+  codeScrollCapture,
 }: {
   readonly pathKey: string
   readonly content: string
@@ -370,6 +394,8 @@ function SourceView({
   readonly onScroll: (scrollTop: number) => void
   readonly blame: readonly GitBlameRun[]
   readonly blameStatus: string
+  readonly codeScrollAnchor: CodeScrollAnchor
+  readonly codeScrollCapture: CodeScrollCapture
 }): ReactElement {
   const theme = useAppTheme()
   const container = useRef<HTMLDivElement>(null)
@@ -413,17 +439,28 @@ function SourceView({
         ],
       }),
     })
-    const handleScroll = (): void => {
+    const restoreLine = codeScrollAnchor.current
+    const captureLine = (): number => captureTopLine(editor, editor.scrollDOM)
+    codeScrollCapture.current = captureLine
+    const captureScroll = (): void => {
+      codeScrollAnchor.current = captureLine()
       callbacks.current.onScroll(editor.scrollDOM.scrollTop)
     }
-    editor.scrollDOM.addEventListener('scroll', handleScroll, { passive: true })
+    editor.scrollDOM.addEventListener('scroll', captureScroll, { passive: true })
     view.current = editor
     requestAnimationFrame(() => {
-      editor.scrollDOM.scrollTop = scrollTop
+      if (restoreLine === undefined) {
+        editor.scrollDOM.scrollTop = scrollTop
+      } else {
+        restoreTopLine(editor, editor.scrollDOM, restoreLine)
+      }
     })
     return () => {
       callbacks.current.onScroll(editor.scrollDOM.scrollTop)
-      editor.scrollDOM.removeEventListener('scroll', handleScroll)
+      editor.scrollDOM.removeEventListener('scroll', captureScroll)
+      if (codeScrollCapture.current === captureLine) {
+        codeScrollCapture.current = undefined
+      }
       view.current = undefined
       editor.destroy()
     }

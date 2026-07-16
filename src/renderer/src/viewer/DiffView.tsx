@@ -4,6 +4,12 @@ import { MergeView } from '@codemirror/merge'
 import { useEffect, useRef, useState, type ReactElement } from 'react'
 
 import type { DiffBase, GitDiffResponse, HostPath } from '../../../shared'
+import {
+  captureTopLine,
+  restoreTopLine,
+  type CodeScrollAnchor,
+  type CodeScrollCapture,
+} from './code-scroll-anchor'
 import { usesUnsavedContent } from './diff-policy'
 
 interface DiffViewProps {
@@ -15,6 +21,8 @@ interface DiffViewProps {
   readonly refreshVersion: number
   readonly scrollTop: number
   readonly onScroll: (scrollTop: number) => void
+  readonly codeScrollAnchor: CodeScrollAnchor
+  readonly codeScrollCapture: CodeScrollCapture
 }
 
 export function DiffView({
@@ -26,6 +34,8 @@ export function DiffView({
   refreshVersion,
   scrollTop,
   onScroll,
+  codeScrollAnchor,
+  codeScrollCapture,
 }: DiffViewProps): ReactElement {
   const host = useRef<HTMLDivElement>(null)
   const scrollTopRef = useRef(scrollTop)
@@ -74,18 +84,31 @@ export function DiffView({
       highlightChanges: true,
       gutter: true,
     })
-    const handleScroll = (): void => onScrollRef.current(merge.dom.scrollTop)
-    merge.dom.addEventListener('scroll', handleScroll, { passive: true })
+    const restoreLine = codeScrollAnchor.current
+    const captureLine = (): number => captureTopLine(merge.b, merge.dom)
+    codeScrollCapture.current = captureLine
+    const captureScroll = (): void => {
+      codeScrollAnchor.current = captureLine()
+      onScrollRef.current(merge.dom.scrollTop)
+    }
+    merge.dom.addEventListener('scroll', captureScroll, { passive: true })
     const restoreFrame = requestAnimationFrame(() => {
-      merge.dom.scrollTop = scrollTopRef.current
+      if (restoreLine === undefined) {
+        merge.dom.scrollTop = scrollTopRef.current
+      } else {
+        restoreTopLine(merge.b, merge.dom, restoreLine)
+      }
     })
     return () => {
       cancelAnimationFrame(restoreFrame)
       onScrollRef.current(merge.dom.scrollTop)
-      merge.dom.removeEventListener('scroll', handleScroll)
+      merge.dom.removeEventListener('scroll', captureScroll)
+      if (codeScrollCapture.current === captureLine) {
+        codeScrollCapture.current = undefined
+      }
       merge.destroy()
     }
-  }, [base, currentContent, dirty, inputs, revision])
+  }, [base, codeScrollAnchor, codeScrollCapture, currentContent, dirty, inputs, revision])
 
   if (error) return <div className="viewer-empty error">{error}</div>
   if (!inputs) return <div className="viewer-empty">Preparing diff…</div>

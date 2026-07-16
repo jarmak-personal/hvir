@@ -1867,9 +1867,83 @@ async function runSmoke(): Promise<number> {
             if (scrollableMerge.scrollTop < 100) {
               throw new Error('long diff scroll position did not move');
             }
+            const visibleLine = (root, selector) => {
+              const viewportTop = root.getBoundingClientRect().top;
+              const markers = [...root.querySelectorAll(selector)]
+                .filter((node) => /^[0-9]+$/.test(node.textContent?.trim() || ''))
+                .sort((left, right) =>
+                  left.getBoundingClientRect().top - right.getBoundingClientRect().top
+                );
+              const marker = markers.find(
+                (node) => node.getBoundingClientRect().bottom > viewportTop + 1
+              );
+              return marker ? Number(marker.textContent?.trim()) : undefined;
+            };
+            const initialDiffLine = visibleLine(
+              scrollableMerge,
+              '.cm-merge-b .cm-lineNumbers .cm-gutterElement'
+            );
+            const sourceButton = [...document.querySelectorAll('.mode-control button')]
+              .find((node) => node.textContent?.trim() === 'source');
+            sourceButton?.click();
+            const sourceScroller = await waitFor(
+              () => document.querySelector('.source-shell .cm-scroller'),
+              'source view did not replace long diff'
+            );
+            await new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done)));
+            const restoredSourceLine = visibleLine(
+              sourceScroller,
+              '.cm-lineNumbers .cm-gutterElement'
+            );
+            if (
+              initialDiffLine === undefined ||
+              restoredSourceLine === undefined ||
+              Math.abs(restoredSourceLine - initialDiffLine) > 1
+            ) {
+              throw new Error(
+                'diff→source line changed: ' + initialDiffLine + '→' + restoredSourceLine +
+                  ' at ' + Math.round(sourceScroller.scrollTop) + 'px'
+              );
+            }
+            sourceScroller.scrollTop = Math.min(
+              900,
+              sourceScroller.scrollHeight - sourceScroller.clientHeight
+            );
+            sourceScroller.dispatchEvent(new Event('scroll'));
+            await new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done)));
+            const sourceLine = visibleLine(
+              sourceScroller,
+              '.cm-lineNumbers .cm-gutterElement'
+            );
+            const returnToDiff = [...document.querySelectorAll('.mode-control button')]
+              .find((node) => node.textContent?.trim() === 'diff');
+            returnToDiff?.click();
+            const restoredMerge = await waitFor(
+              () => {
+                const merge = document.querySelector('.cm-mergeView');
+                return merge && merge.scrollHeight > merge.clientHeight + 40
+                  ? merge
+                  : undefined;
+              },
+              'diff did not return after source scroll'
+            );
+            await new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done)));
+            const restoredDiffLine = visibleLine(
+              restoredMerge,
+              '.cm-merge-b .cm-lineNumbers .cm-gutterElement'
+            );
+            if (
+              sourceLine === undefined ||
+              restoredDiffLine === undefined ||
+              Math.abs(restoredDiffLine - sourceLine) > 1
+            ) {
+              throw new Error(
+                'source→diff line changed: ' + sourceLine + '→' + restoredDiffLine
+              );
+            }
             resolve(
               expectations.map(([base]) => base).join(', ') +
-                ' · long diff scrolled ' + Math.round(scrollableMerge.scrollTop) + 'px'
+                ' · line anchor ' + initialDiffLine + '→' + sourceLine + '→' + restoredDiffLine
             );
           })().catch(reject);
         })
