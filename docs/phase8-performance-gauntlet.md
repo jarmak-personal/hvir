@@ -28,7 +28,7 @@ linked worktree, a terminal-created worktree, a plain non-Git directory, and a p
 record. Repeat on local and SSH hosts where the row applies.
 
 1. Create/delete the live worktree from a terminal while Files and Git are open. Confirm
-   discovery, labels, changed-count rollups, collapsed single-workspace behavior, and
+   discovery, labels, changed-count rollups, persistent single-workspace context, and
    warm state when switching rapidly.
 2. Exercise cancel and confirm for stale-record pruning. Confirm it removes only Git's
    stale administration record and never an existing directory.

@@ -160,6 +160,35 @@ button {
   opacity: 0.3;
 }
 
+.project-connection-trigger {
+  height: 100%;
+  flex: 0 1 auto;
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  overflow: hidden;
+  padding: 0 2px;
+  border: 0;
+  background: transparent;
+  color: #77808e;
+}
+
+.project-connection-trigger:hover:not(:disabled),
+.project-connection-trigger[aria-expanded='true'] {
+  background: #252b34;
+  color: #dce1e8;
+}
+
+.project-connection-trigger:disabled {
+  opacity: 0.6;
+}
+
+.project-connection-chevron {
+  width: 9px;
+  flex: 0 0 9px;
+  font-size: 7px;
+}
+
 .project-tab:hover,
 .project-tab.active {
   background: #191d24;
@@ -218,6 +247,81 @@ button {
   padding: 3px 7px 4px;
   border-top: 1px solid #242a33;
   background: #14171c;
+}
+
+.project-connection-backdrop {
+  position: fixed;
+  z-index: 899;
+  inset: 0;
+}
+
+.project-connection-menu {
+  width: 240px;
+  position: fixed;
+  z-index: 900;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 11px;
+  border: 1px solid #3a424e;
+  border-radius: 6px;
+  outline: 0;
+  background: #181c23;
+  box-shadow: 0 12px 32px #050608b8;
+}
+
+.project-connection-menu header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.project-connection-menu header strong {
+  min-width: 0;
+  overflow: hidden;
+  color: #dce1e8;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.project-connection-menu header span,
+.project-connection-menu > small {
+  color: #8792a1;
+  font-size: 9px;
+}
+
+.project-connection-menu p {
+  margin: 0;
+  color: #d76d76;
+  font-size: 9px;
+  line-height: 1.35;
+}
+
+.project-connection-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.project-connection-actions button {
+  flex: 1 1 0;
+  padding: 5px 7px;
+  border: 1px solid #3a424e;
+  border-radius: 4px;
+  background: #20252d;
+  color: #b9c0ca;
+  font-size: 9px;
+}
+
+.project-connection-actions button:hover:not(:disabled) {
+  border-color: #536174;
+  background: #29313b;
+  color: #eef1f5;
+}
+
+.project-connection-actions button:disabled {
+  opacity: 0.55;
 }
 
 .workspace-tab {
@@ -288,9 +392,21 @@ button {
 }
 
 .workspaces-actions {
+  min-width: 0;
   margin-left: auto;
   display: flex;
+  align-items: center;
   gap: 3px;
+}
+
+.workspace-status-error {
+  max-width: min(320px, 35vw);
+  overflow: hidden;
+  padding: 0 6px;
+  color: #d76d76;
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .workspaces-prune,
@@ -325,7 +441,7 @@ button {
 
 .workbench {
   --tree-track: 238px;
-  --terminal-track: minmax(260px, 3.4fr);
+  --terminal-track: minmax(260px, 3.8fr);
   --terminal-rail-track: 220px;
 
   display: grid;
@@ -1347,72 +1463,6 @@ body.pane-resizing-row * {
   white-space: nowrap;
 }
 
-.session-bar {
-  width: 100%;
-  flex: 0 0 36px;
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  padding: 4px 7px 4px 9px;
-  border-bottom: 1px solid #282d36;
-  background: #101318;
-  color: #cbd0d8;
-  text-align: left;
-}
-
-.session-copy {
-  min-width: 0;
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-}
-
-.session-copy strong,
-.session-copy small {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.session-copy strong {
-  font-size: 11px;
-}
-
-.session-copy small {
-  color: #707a88;
-  font-size: 9px;
-}
-
-.session-copy small.error {
-  color: #d76d76;
-}
-
-.session-actions {
-  display: flex;
-  flex: 0 0 auto;
-  gap: 3px;
-}
-
-.session-actions button {
-  padding: 2px 4px;
-  border: 1px solid transparent;
-  border-radius: 3px;
-  background: transparent;
-  color: #7f8997;
-  font-size: 8px;
-}
-
-.session-actions button:hover:not(:disabled) {
-  border-color: #343a45;
-  background: #1a1e25;
-  color: #c2c8d1;
-}
-
-.session-actions button:disabled {
-  opacity: 0.55;
-}
-
 .panel-meta {
   min-width: 0;
   overflow: hidden;
@@ -1479,7 +1529,6 @@ body.pane-resizing-row * {
   color: #8993a0;
 }
 
-.session-bar .remote-connection-badge,
 .session-host-option .remote-connection-badge {
   height: 20px;
   font-size: 10px;

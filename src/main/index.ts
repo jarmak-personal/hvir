@@ -32,6 +32,7 @@ import {
   GIT_FETCH_TYPE,
   GIT_PULL_TYPE,
   GIT_SWITCH_BRANCH_TYPE,
+  asHostId,
   hostPath,
   hostPathEquals,
   joinHostPath,
@@ -852,6 +853,37 @@ async function runSmoke(): Promise<number> {
             name: 'hvir',
             main: true,
             missing,
+            repository: true,
+            changedFiles: 0,
+          },
+        ],
+      },
+    ],
+  })
+  const smokeRemoteRoot = hostPath(asHostId('smoke-remote'), '/srv/hvir')
+  const smokeRemoteProjectState = (): ProjectState => ({
+    // Keep the real local workspace mounted while presenting remote project chrome.
+    // This isolates the connection-control smoke from ProjectHost authority checks.
+    root: smokeRoot,
+    connectionState: 'connected',
+    watchTier: 'polling',
+    activeProjectId: 'smoke-remote-project',
+    activeWorkspaceId: 'smoke-workspace',
+    projects: [
+      {
+        id: 'smoke-remote-project',
+        registeredRoot: smokeRemoteRoot,
+        displayName: 'remote-hvir',
+        connectionState: 'connected',
+        watchTier: 'polling',
+        activeWorkspaceId: 'smoke-workspace',
+        workspaces: [
+          {
+            id: 'smoke-workspace',
+            root: smokeRoot,
+            name: 'feature/header',
+            main: true,
+            missing: false,
             repository: true,
             changedFiles: 0,
           },
@@ -2379,26 +2411,78 @@ async function runSmoke(): Promise<number> {
       'workspace recovery timed out',
     )
 
+    emit('project:state', smokeRemoteProjectState())
+    const remoteConnectionStatus = (await withTimeout(
+      win.webContents.executeJavaScript(`
+        new Promise((resolve, reject) => {
+          const deadline = Date.now() + 5000;
+          const inspect = () => {
+            const trigger = document.querySelector('.project-tab.active .project-connection-trigger');
+            if (!(trigger instanceof HTMLButtonElement)) {
+              if (Date.now() > deadline) return reject(new Error('active SSH connection control missing'));
+              return setTimeout(inspect, 25);
+            }
+            trigger.click();
+            const waitForMenu = () => {
+              const menu = document.querySelector('.project-connection-menu');
+              const text = menu?.textContent || '';
+              if (
+                menu && text.includes('ssh:smoke-remote') && text.includes('Connected') &&
+                text.includes('File watching: polling') && text.includes('Change') &&
+                text.includes('Disconnect')
+              ) {
+                window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+                const waitForClose = () => {
+                  if (!document.querySelector('.project-connection-menu')) {
+                    return resolve('badge→status + controls→Escape');
+                  }
+                  if (Date.now() > deadline) {
+                    return reject(new Error('SSH connection menu ignored Escape'));
+                  }
+                  setTimeout(waitForClose, 25);
+                };
+                return waitForClose();
+              }
+              if (Date.now() > deadline) {
+                return reject(new Error('SSH connection menu content is incomplete: ' + text));
+              }
+              setTimeout(waitForMenu, 25);
+            };
+            waitForMenu();
+          };
+          inspect();
+        })
+      `),
+      'SSH connection controls timed out',
+    )) as string
+    console.log(`[smoke] SSH connection controls OK (${remoteConnectionStatus})`)
+    emit('project:state', smokeProjectState())
+
     const sessionFlowStatus = (await withTimeout(
       win.webContents.executeJavaScript(`
       new Promise((resolve, reject) => {
         const deadline = Date.now() + 10000;
-        const sessionBar = document.querySelector('.session-bar');
-        const sessionText = sessionBar?.textContent || '';
-        if (sessionBar?.querySelector('.remote-connection-badge')) {
-          return reject(new Error('local session shows a remote connection badge'));
+        if (document.querySelector('.session-bar')) {
+          return reject(new Error('legacy host/session strip is still mounted'));
         }
-        if (sessionText.includes(${JSON.stringify(smokeRoot.path)})) {
-          return reject(new Error('session strip still exposes the full project path'));
+        const activeProject = document.querySelector('.project-tab.active');
+        if (activeProject?.querySelector('.remote-connection-badge')) {
+          return reject(new Error('local project shows a remote connection badge'));
         }
-        const change = [...(sessionBar?.querySelectorAll('button') || [])]
-          .find((node) => node.textContent?.trim() === 'Change');
-        const disconnect = [...(sessionBar?.querySelectorAll('button') || [])]
-          .find((node) => node.textContent?.trim() === 'Disconnect');
-        if (!change || disconnect) {
-          return reject(new Error('local session actions are incorrect'));
+        const workspaceBar = document.querySelector('.workspaces-bar');
+        const workspaceTabs = workspaceBar?.querySelectorAll('.workspace-tab') || [];
+        if (
+          workspaceTabs.length !== 1 ||
+          !workspaceTabs[0]?.classList.contains('active') ||
+          !workspaceTabs[0]?.textContent?.includes('project root')
+        ) {
+          return reject(new Error('single-checkout workspace context is missing'));
         }
-        change.click();
+        const addProject = document.querySelector('.project-add');
+        if (!(addProject instanceof HTMLButtonElement)) {
+          return reject(new Error('project registration control is missing'));
+        }
+        addProject.click();
         const waitForHost = () => {
           const local = [...document.querySelectorAll('.session-host-option')]
             .find((node) => node.textContent?.includes('Local'));

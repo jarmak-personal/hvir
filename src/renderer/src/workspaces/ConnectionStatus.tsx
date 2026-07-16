@@ -1,17 +1,7 @@
 import type { ReactElement } from 'react'
 
 import type { HostConnectionState } from '../../../shared'
-
-const statusCopy: Record<
-  HostConnectionState,
-  { readonly mark: string; readonly label: string }
-> = {
-  connected: { mark: '✓', label: 'Connected' },
-  connecting: { mark: '…', label: 'Connecting' },
-  reconnecting: { mark: '↻', label: 'Reconnecting' },
-  failed: { mark: '×', label: 'Connection failed' },
-  disconnected: { mark: '×', label: 'Disconnected' },
-}
+import { connectionStateCopy } from './connection-status'
 
 export function RemoteConnectionBadge({
   state,
@@ -20,7 +10,7 @@ export function RemoteConnectionBadge({
   readonly state: HostConnectionState
   readonly hostLabel: string
 }): ReactElement {
-  const copy = statusCopy[state]
+  const copy = connectionStateCopy(state)
   return (
     <span
       className={`remote-connection-badge ${state}`}

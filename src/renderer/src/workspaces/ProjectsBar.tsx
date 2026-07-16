@@ -1,13 +1,15 @@
-import { useState, type ReactElement } from 'react'
+import { useEffect, useRef, useState, type ReactElement } from 'react'
 
 import {
   displayHostPath,
   type ProjectState,
   type RegisteredProjectState,
+  type HostWatchTier,
   type WorkspaceState,
 } from '../../../shared'
 import type { TerminalWorkspaceRollup } from '../terminal/TerminalWorkspace'
 import { RemoteConnectionBadge } from './ConnectionStatus'
+import { connectionStateLabel } from './connection-status'
 import { aggregateWorkspaceAttention } from './workspace-attention'
 import type { AppTheme } from '../theme'
 
@@ -21,6 +23,11 @@ interface ProjectsBarProps {
   readonly onCloseProject: (projectId: string) => void
   readonly onPrune: (projectId: string) => void
   readonly onDismiss: (projectId: string, workspaceId: string) => void
+  readonly watchTier: HostWatchTier
+  readonly statusError?: string
+  readonly onChangeConnection: () => void
+  readonly onDisconnect: () => void
+  readonly onReconnect: () => void
   readonly theme: AppTheme
   readonly onTheme: (theme: AppTheme) => void
   readonly onSettings: () => void
@@ -36,12 +43,23 @@ export function ProjectsBar({
   onCloseProject,
   onPrune,
   onDismiss,
+  watchTier,
+  statusError,
+  onChangeConnection,
+  onDisconnect,
+  onReconnect,
   theme,
   onTheme,
   onSettings,
 }: ProjectsBarProps): ReactElement {
   const [pruneProjectId, setPruneProjectId] = useState<string>()
   const [closeProjectId, setCloseProjectId] = useState<string>()
+  const [connectionMenu, setConnectionMenu] = useState<{
+    readonly projectId: string
+    readonly left: number
+    readonly top: number
+  }>()
+  const connectionMenuRef = useRef<HTMLElement>(null)
   const activeProject = state.projects.find(
     (project) => project.id === state.activeProjectId,
   )
@@ -55,11 +73,29 @@ export function ProjectsBar({
     pruneProject?.workspaces.filter(
       (workspace) => workspace.prunableReason !== undefined,
     ) ?? []
+  const connectionProject =
+    activeProject?.id === connectionMenu?.projectId ? activeProject : undefined
+  useEffect(() => {
+    setConnectionMenu((current) =>
+      current && current.projectId !== state.activeProjectId ? undefined : current,
+    )
+  }, [state.activeProjectId])
+  useEffect(() => {
+    if (!connectionMenu) return
+    const handleKeyDown = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') setConnectionMenu(undefined)
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    connectionMenuRef.current?.focus()
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [connectionMenu])
   return (
     <>
       <header className="projects-shell">
         <nav className="projects-bar" aria-label="Projects">
           {state.projects.map((project) => {
+            const active = project.id === state.activeProjectId
+            const remote = project.registeredRoot.hostId !== 'local'
             const changed = project.workspaces
               .filter((workspace) => !workspace.missing)
               .reduce((total, workspace) => total + workspace.changedFiles, 0)
@@ -70,20 +106,20 @@ export function ProjectsBar({
             const target = activeWorkspace(project)
             return (
               <div
-                className={`project-tab${project.id === state.activeProjectId ? ' active' : ''}`}
+                className={`project-tab${active ? ' active' : ''}`}
                 key={project.id}
                 title={`${project.registeredRoot.path} · ${project.connectionState}`}
               >
                 <button
                   type="button"
                   className="project-tab-main"
-                  aria-current={project.id === state.activeProjectId ? 'page' : undefined}
+                  aria-current={active ? 'page' : undefined}
                   disabled={busy || !target}
                   onClick={() => target && onSwitch(project.id, target.id)}
                   title={`${project.registeredRoot.path} · ${project.connectionState}`}
                 >
                   <strong>{project.displayName}</strong>
-                  {project.registeredRoot.hostId !== 'local' ? (
+                  {remote && !active ? (
                     <RemoteConnectionBadge
                       state={project.connectionState}
                       hostLabel={`ssh:${project.registeredRoot.hostId}`}
@@ -101,6 +137,37 @@ export function ProjectsBar({
                   ) : null}
                   {unseen > 0 ? <AttentionCount count={unseen} /> : null}
                 </button>
+                {remote && active ? (
+                  <button
+                    type="button"
+                    className="project-connection-trigger"
+                    disabled={busy}
+                    aria-haspopup="dialog"
+                    aria-expanded={connectionMenu?.projectId === project.id}
+                    aria-label={`Connection controls for ssh:${project.registeredRoot.hostId}`}
+                    title="Connection controls"
+                    onClick={(event) => {
+                      if (connectionMenu?.projectId === project.id) {
+                        setConnectionMenu(undefined)
+                        return
+                      }
+                      const bounds = event.currentTarget.getBoundingClientRect()
+                      setConnectionMenu({
+                        projectId: project.id,
+                        left: Math.max(8, Math.min(bounds.left, window.innerWidth - 248)),
+                        top: bounds.bottom + 4,
+                      })
+                    }}
+                  >
+                    <RemoteConnectionBadge
+                      state={project.connectionState}
+                      hostLabel={`ssh:${project.registeredRoot.hostId}`}
+                    />
+                    <span className="project-connection-chevron" aria-hidden="true">
+                      ▾
+                    </span>
+                  </button>
+                ) : null}
                 <button
                   type="button"
                   className="project-close"
@@ -147,8 +214,8 @@ export function ProjectsBar({
             <span aria-hidden="true">⚙</span>
           </button>
         </nav>
-        {activeProject && activeProject.workspaces.length > 1 ? (
-          <nav className="workspaces-bar" aria-label="Worktree workspaces">
+        {activeProject ? (
+          <nav className="workspaces-bar" aria-label="Workspaces">
             {activeProject.workspaces.map((workspace) => (
               <div
                 className={`workspace-tab${workspace.id === state.activeWorkspaceId ? ' active' : ''}${workspace.missing ? ' missing' : ''}`}
@@ -162,7 +229,7 @@ export function ProjectsBar({
                   title={workspaceStatusTitle(workspace)}
                 >
                   <span>{workspace.name}</span>
-                  {workspace.main ? <small>main checkout</small> : null}
+                  {workspace.main ? <small>project root</small> : null}
                   {workspace.prunableReason ? <small>prunable</small> : null}
                   {workspace.changedFiles > 0 ? (
                     <b
@@ -193,6 +260,11 @@ export function ProjectsBar({
               </div>
             ))}
             <div className="workspaces-actions">
+              {statusError ? (
+                <span className="workspace-status-error" title={statusError}>
+                  {statusError}
+                </span>
+              ) : null}
               {prunable.length > 0 ? (
                 <button
                   type="button"
@@ -216,6 +288,70 @@ export function ProjectsBar({
           </nav>
         ) : null}
       </header>
+      {connectionProject ? (
+        <>
+          <div
+            className="project-connection-backdrop"
+            aria-hidden="true"
+            onMouseDown={() => setConnectionMenu(undefined)}
+          />
+          <section
+            ref={connectionMenuRef}
+            className="project-connection-menu"
+            role="dialog"
+            aria-modal="true"
+            aria-label={`Connection controls for ssh:${connectionProject.registeredRoot.hostId}`}
+            tabIndex={-1}
+            style={{ left: connectionMenu?.left, top: connectionMenu?.top }}
+          >
+            <header>
+              <strong>ssh:{connectionProject.registeredRoot.hostId}</strong>
+              <span>{connectionStateLabel(connectionProject.connectionState)}</span>
+            </header>
+            <small>{watchTierLabel(watchTier)}</small>
+            {statusError ? <p className="error">{statusError}</p> : null}
+            <div className="project-connection-actions">
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => {
+                  setConnectionMenu(undefined)
+                  onChangeConnection()
+                }}
+              >
+                Change
+              </button>
+              <button
+                type="button"
+                disabled={
+                  busy ||
+                  (connectionProject.connectionState !== 'connected' &&
+                    connectionProject.connectionState !== 'disconnected' &&
+                    connectionProject.connectionState !== 'failed')
+                }
+                onClick={() => {
+                  setConnectionMenu(undefined)
+                  if (
+                    connectionProject.connectionState === 'disconnected' ||
+                    connectionProject.connectionState === 'failed'
+                  ) {
+                    onReconnect()
+                  } else {
+                    onDisconnect()
+                  }
+                }}
+              >
+                {busy
+                  ? 'Working…'
+                  : connectionProject.connectionState === 'disconnected' ||
+                      connectionProject.connectionState === 'failed'
+                    ? 'Reconnect'
+                    : 'Disconnect'}
+              </button>
+            </div>
+          </section>
+        </>
+      ) : null}
       {pruneProject && pruneTargets.length > 0 ? (
         <PruneWorktreesDialog
           project={pruneProject}
@@ -362,6 +498,12 @@ function workspaceStatusTitle(workspace: WorkspaceState): string {
     return `${workspace.root.path}\nThis worktree was absent from Git's last successful discovery.`
   }
   return workspace.root.path
+}
+
+function watchTierLabel(watchTier: HostWatchTier): string {
+  if (watchTier === 'inotify') return 'File watching: inotify'
+  if (watchTier === 'native') return 'File watching: native'
+  return 'File watching: polling'
 }
 
 function activeWorkspace(project: RegisteredProjectState) {

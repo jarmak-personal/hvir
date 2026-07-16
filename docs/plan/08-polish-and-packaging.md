@@ -53,6 +53,9 @@ the load-bearing scenarios, and installable builds for Linux and macOS.
 - [x] Keep workspace selection in one place: remove inactive-worktree jump rows from the
       right terminal rail. It lists only terminals owned by the active workspace; inactive
       terminal attention continues to roll up to the top workspace/project controls.
+- [x] Keep the workspace/branch tier visible for a single checkout. Remove the redundant
+      local/remote host strip; local projects need no host chrome, while the active SSH
+      badge exposes status, watch mode, Change, and Disconnect/Reconnect controls.
 - [x] Add a confirmed project-tab close action. Unregister without touching repository
       data, retain terminal recovery metadata, and keep one project active in v1.
 - [x] Keybinding surface: the handful of core actions (cycle view mode, focus terminal
@@ -103,7 +106,7 @@ the load-bearing scenarios, and installable builds for Linux and macOS.
       terminal output, large-file open, git status storms. Add a repeatable script or
       documented manual protocol for this gauntlet so later changes can re-run it.
 - [ ] Repeat the Phase 7 workspace edge matrix while polishing: terminal-created
-      worktree auto-discovery and rollups, collapsed single-workspace tier, plain non-git
+      worktree auto-discovery and rollups, persistent single-workspace context, plain non-git
       project behavior, and cancel/confirm stale-record pruning on local and SSH hosts.
 - [ ] Repeat the Phase 7.5 real-host topology with 12+ terminals across two SSH projects
       and three workspaces, then audit the remote host after quit for leftover
@@ -186,7 +189,9 @@ here.
   `tail` processes, PTYs, Electron app processes, Docker containers, or build volumes.
 - The final Git/connection polish keeps registered nested worktree roots out of their
   parent's status/count/branch-safety model, leaves blocked branch menus inspectable,
-  collapses branch-point detail by default, and reserves connection badges for SSH.
+  collapses branch-point detail by default, reserves connection badges for SSH, and makes
+  the active SSH badge the connection-control surface instead of repeating host identity
+  above the left rail.
 
 ## Manual release acceptance remaining
 

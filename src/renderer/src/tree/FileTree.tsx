@@ -4,12 +4,9 @@ import {
   basenameHostPath,
   unwrapOperation,
   type GitChangedFile,
-  type HostConnectionState,
   type HostPath,
-  type HostWatchTier,
 } from '../../../shared'
 import { DirectoryTree } from './DirectoryTree'
-import { RemoteConnectionBadge } from '../workspaces/ConnectionStatus'
 import { MissingWorkspaceNotice } from '../workspaces/MissingWorkspaceNotice'
 import { buildTreeGitDecorations } from './git-status-decoration'
 
@@ -90,61 +87,6 @@ export function FileTree({
         </div>
       )}
     </section>
-  )
-}
-
-export function SessionBar({
-  label,
-  remote,
-  connectionState,
-  watchTier,
-  onChange,
-  onDisconnect,
-  onReconnect,
-  busy,
-  error,
-}: {
-  readonly label: string
-  readonly remote: boolean
-  readonly connectionState: HostConnectionState
-  readonly watchTier: HostWatchTier
-  readonly onChange: () => void
-  readonly onDisconnect: () => void
-  readonly onReconnect: () => void
-  readonly busy: boolean
-  readonly error?: string
-}): ReactElement {
-  const disconnected = connectionState === 'disconnected' || connectionState === 'failed'
-  return (
-    <div
-      className="session-bar"
-      title={error ?? `${label} · ${connectionState} · ${watchTier}`}
-    >
-      <span className="session-copy">
-        {remote ? (
-          <RemoteConnectionBadge state={connectionState} hostLabel={label} />
-        ) : (
-          <strong>{label}</strong>
-        )}
-        <small className={error ? 'error' : ''}>
-          {error ?? (remote ? connectionState : 'this machine')}
-        </small>
-      </span>
-      <span className="session-actions">
-        <button type="button" onClick={onChange} disabled={busy}>
-          Change
-        </button>
-        {remote ? (
-          <button
-            type="button"
-            onClick={disconnected ? onReconnect : onDisconnect}
-            disabled={busy}
-          >
-            {busy ? 'Working…' : disconnected ? 'Reconnect' : 'Disconnect'}
-          </button>
-        ) : null}
-      </span>
-    </div>
   )
 }
 
