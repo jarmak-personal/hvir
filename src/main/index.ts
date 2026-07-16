@@ -1893,7 +1893,7 @@ async function runSmoke(): Promise<number> {
               'long diff mode button missing'
             );
             longDiffButton.click();
-            const scrollableMerge = await waitFor(
+            const waitForScrollableMerge = () => waitFor(
               () => {
                 const merge = document.querySelector('.cm-mergeView');
                 return merge && merge.scrollHeight > merge.clientHeight + 40
@@ -1902,11 +1902,35 @@ async function runSmoke(): Promise<number> {
               },
               'long diff did not create scroll extent'
             );
-            scrollableMerge.scrollTop = 120;
+            const waitForStableMerge = async () => {
+              for (;;) {
+                const candidate = await waitForScrollableMerge();
+                await new Promise((done) =>
+                  requestAnimationFrame(() => requestAnimationFrame(done))
+                );
+                if (
+                  candidate.isConnected &&
+                  document.querySelector('.cm-mergeView') === candidate
+                ) {
+                  return candidate;
+                }
+                if (Date.now() > deadline) {
+                  throw new Error('long diff did not settle');
+                }
+              }
+            };
+            const scrollableMerge = await waitForStableMerge();
+            const maxScroll = scrollableMerge.scrollHeight - scrollableMerge.clientHeight;
+            const targetScroll = Math.min(120, maxScroll);
+            scrollableMerge.scrollTop = targetScroll;
             scrollableMerge.dispatchEvent(new Event('scroll'));
             await new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done)));
-            if (scrollableMerge.scrollTop < 100) {
-              throw new Error('long diff scroll position did not move');
+            if (Math.abs(scrollableMerge.scrollTop - targetScroll) > 2) {
+              throw new Error(
+                'long diff scroll did not settle: target=' + targetScroll +
+                  ' actual=' + scrollableMerge.scrollTop +
+                  ' max=' + maxScroll
+              );
             }
             const visibleLine = (root, selector) => {
               const viewportTop = root.getBoundingClientRect().top;
