@@ -11,6 +11,7 @@ export type TerminalRecoveryMode = 'prompt' | 'auto'
 
 export interface AppSettings {
   readonly idleThresholdMs: number
+  readonly gitAutoFetchIntervalMs: number
   readonly terminalRecoveryMode: TerminalRecoveryMode
   readonly terminalTheme: TerminalThemeOverride
   readonly keybindings: KeybindingMap
@@ -59,11 +60,18 @@ function readSettings(): AppSettings {
 
 function normalizeSettings(value: Partial<AppSettings>): AppSettings {
   const idle = value.idleThresholdMs
+  const autoFetch = value.gitAutoFetchIntervalMs
   return {
     idleThresholdMs:
       typeof idle === 'number' && Number.isFinite(idle)
         ? Math.min(60_000, Math.max(500, Math.round(idle)))
         : 4_000,
+    gitAutoFetchIntervalMs:
+      typeof autoFetch === 'number' && Number.isFinite(autoFetch)
+        ? autoFetch === 0
+          ? 0
+          : Math.min(60 * 60_000, Math.max(60_000, Math.round(autoFetch)))
+        : 5 * 60_000,
     terminalRecoveryMode: value.terminalRecoveryMode === 'auto' ? 'auto' : 'prompt',
     terminalTheme:
       value.terminalTheme === 'dark' || value.terminalTheme === 'light'
@@ -76,6 +84,7 @@ function normalizeSettings(value: Partial<AppSettings>): AppSettings {
 function defaults(): AppSettings {
   return {
     idleThresholdMs: 4_000,
+    gitAutoFetchIntervalMs: 5 * 60_000,
     terminalRecoveryMode: 'prompt',
     terminalTheme: 'app',
     keybindings: DEFAULT_KEYBINDINGS,

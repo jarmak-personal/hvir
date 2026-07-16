@@ -12,6 +12,7 @@ import { app, BrowserWindow, dialog, protocol, shell } from 'electron'
 
 import { registerIpcHandlers } from './ipc'
 import { dispatchWorkerHostCall } from './git/worker-host-broker'
+import { GIT_FETCH_ARGS, GIT_PULL_ARGS } from './git/git-engine'
 import { HtmlPreviewProtocol } from './html-preview-protocol'
 import { createWorkerClient, workerPath, type WorkerClient } from './worker-host'
 import { LocalHost, type ProjectHost } from './project-host'
@@ -28,6 +29,8 @@ import {
   GIT_CHANGED_FILE_COUNT_TYPE,
   GIT_PRUNE_WORKTREES_TYPE,
   GIT_WORKTREES_TYPE,
+  GIT_FETCH_TYPE,
+  GIT_PULL_TYPE,
   GIT_SWITCH_BRANCH_TYPE,
   hostPath,
   hostPathEquals,
@@ -69,6 +72,8 @@ const workspaceRefreshTimers = new Map<string, ReturnType<typeof setTimeout>>()
 const workspacePrunes = new Map<string, Promise<ProjectState>>()
 const worktreePruneAuthorizations = new Set<string>()
 const branchSwitchAuthorizations = new Set<string>()
+const gitFetchAuthorizations = new Set<string>()
+const gitPullAuthorizations = new Set<string>()
 let sessionOperation: Promise<void> = Promise.resolve()
 let suspendSessions: Promise<void> = Promise.resolve()
 let shutdownStarted = false
@@ -255,10 +260,16 @@ async function startup(): Promise<void> {
           ? requestedBranch
           : undefined
         : undefined
+      const requestsFetch =
+        call.operation === 'exec' && sameGitArgs(call.args.slice(2), GIT_FETCH_ARGS)
+      const requestsPull =
+        call.operation === 'exec' && sameGitArgs(call.args.slice(2), GIT_PULL_ARGS)
+      const allowFetch = requestsFetch && gitFetchAuthorizations.delete(authorization)
+      const allowPull = requestsPull && gitPullAuthorizations.delete(authorization)
       return dispatchWorkerHostCall(
         call,
         projectRegistry?.authorityForPath(call.hostId, path) ?? null,
-        { allowWorktreePrune, allowBranchSwitch },
+        { allowWorktreePrune, allowBranchSwitch, allowFetch, allowPull },
       )
     },
   )
@@ -393,6 +404,8 @@ async function startup(): Promise<void> {
         return state
       }),
     switchGitBranch: (root, branch) => requestGitBranchSwitch(root, branch),
+    fetchGit: (root) => requestGitFetch(root),
+    pullGit: (root) => requestGitPull(root),
     respondSshPrompt: (id, answers) => sshPrompter?.respond(id, answers),
     ptySupervisor,
     terminalSessions: terminalSessionRegistry,
@@ -625,6 +638,78 @@ function requestGitBranchSwitch(root: HostPath, branch: string): Promise<Project
       return registry.state()
     }
   })
+}
+
+function requestGitFetch(root: HostPath): Promise<ProjectState> {
+  return serializeSession(async () => {
+    const registry = projectRegistry
+    const worker = gitWorker
+    if (!registry || !worker) throw new Error('Git fetch is unavailable')
+    assertActiveGitWorkspace(root, registry, 'fetching')
+    const authorization = gitMutationKey(root.hostId, root.path)
+    if (gitFetchAuthorizations.has(authorization)) {
+      throw new Error('A fetch is already running for this workspace')
+    }
+    gitFetchAuthorizations.add(authorization)
+    try {
+      await worker.request(GIT_FETCH_TYPE, { root })
+    } finally {
+      gitFetchAuthorizations.delete(authorization)
+    }
+    return registry.state()
+  })
+}
+
+function requestGitPull(root: HostPath): Promise<ProjectState> {
+  return serializeSession(async () => {
+    const registry = projectRegistry
+    const worker = gitWorker
+    if (!registry || !worker) throw new Error('Git pull is unavailable')
+    assertActiveGitWorkspace(root, registry, 'pulling')
+    const projectId = registry.active.projectId
+    const authorization = gitMutationKey(root.hostId, root.path)
+    if (gitPullAuthorizations.has(authorization)) {
+      throw new Error('A pull is already running for this workspace')
+    }
+    gitPullAuthorizations.add(authorization)
+    try {
+      const relatedWorktreeRoots =
+        registry
+          .projectById(projectId)
+          ?.workspaces.filter((workspace) => !workspace.missing)
+          .map((workspace) => workspace.root) ?? []
+      await worker.request(GIT_PULL_TYPE, { root, relatedWorktreeRoots })
+    } finally {
+      gitPullAuthorizations.delete(authorization)
+    }
+    try {
+      return await refreshProjectWorkspaces(projectId)
+    } catch (error) {
+      console.error('[git] workspace refresh after pull failed', error)
+      scheduleWorkspaceRefresh(projectId)
+      return registry.state()
+    }
+  })
+}
+
+function assertActiveGitWorkspace(
+  root: HostPath,
+  registry: ProjectRegistry,
+  operation: string,
+): void {
+  if (!hostPathEquals(root, registry.active.root)) {
+    throw new Error(`Git ${operation} belongs to another workspace`)
+  }
+  if (registry.active.host.connectionState !== 'connected') {
+    throw new Error(`Reconnect before ${operation}`)
+  }
+}
+
+function sameGitArgs(actual: readonly string[], expected: readonly string[]): boolean {
+  return (
+    actual.length === expected.length &&
+    actual.every((arg, index) => arg === expected[index])
+  )
 }
 
 function scheduleWorkspaceRefresh(projectId: string): void {
@@ -868,6 +953,8 @@ async function runSmoke(): Promise<number> {
       pruneWorktrees: () => Promise.resolve(smokeProjectState()),
       dismissWorkspace: () => Promise.resolve(smokeProjectState()),
       switchGitBranch: () => Promise.resolve(smokeProjectState()),
+      fetchGit: () => Promise.resolve(smokeProjectState()),
+      pullGit: () => Promise.resolve(smokeProjectState()),
       respondSshPrompt: () => undefined,
       ptySupervisor: supervisor,
       terminalSessions: smokeTerminalSessions,
@@ -2042,6 +2129,12 @@ async function runSmoke(): Promise<number> {
             if (branchSelect && branchSelect.options.length > 1 && branchSelect.disabled) {
               return reject(new Error('Branch menu cannot be inspected while switching is blocked'));
             }
+            const syncButtons = [...document.querySelectorAll('.git-sync-actions button')]
+              .map((node) => node.textContent?.trim());
+            if (!syncButtons.includes('Fetch') || !syncButtons.includes('Pull') ||
+                !document.querySelector('.git-sync-summary')) {
+              return reject(new Error('Git sync status/actions missing'));
+            }
             const changedPath = changed.getAttribute('title') || '';
             const untracked = changed.querySelector('small')?.textContent?.trim().startsWith('?');
             changed.click();
@@ -2557,7 +2650,7 @@ async function runSmoke(): Promise<number> {
             const dialog = document.querySelector('.settings-dialog');
             const keybindings = dialog?.querySelector('.settings-keybindings textarea');
             const fields = dialog?.querySelectorAll('select, input, textarea').length || 0;
-            if (!dialog || !keybindings || fields < 5 ||
+            if (!dialog || !keybindings || fields < 6 ||
                 !keybindings.value.includes('toggleTerminalFocus')) {
               return reject(new Error('settings surface incomplete'));
             }

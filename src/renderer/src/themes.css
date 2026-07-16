@@ -262,6 +262,14 @@
   color: var(--text-muted);
 }
 
+:root[data-theme='light'] .git-sync-summary {
+  color: var(--text-muted);
+}
+
+:root[data-theme='light'] .git-sync-summary .needs-agent {
+  color: #8a5b16;
+}
+
 :root[data-theme='light'] .pane-resizer {
   background: var(--border-subtle);
 }

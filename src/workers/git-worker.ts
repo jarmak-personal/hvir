@@ -9,6 +9,8 @@ import {
   GIT_PRUNE_WORKTREES_TYPE,
   GIT_CHANGED_FILE_COUNT_TYPE,
   GIT_BRANCHES_TYPE,
+  GIT_FETCH_TYPE,
+  GIT_PULL_TYPE,
   GIT_SWITCH_BRANCH_TYPE,
   asHostId,
   hostPath,
@@ -73,6 +75,10 @@ async function handle(request: WorkerRequest): Promise<void> {
       result = await engine.worktrees(root)
     } else if (request.type === GIT_BRANCHES_TYPE) {
       result = await engine.branches(root)
+    } else if (request.type === GIT_FETCH_TYPE) {
+      result = await engine.fetch(root)
+    } else if (request.type === GIT_PULL_TYPE) {
+      result = await engine.pullFastForward(root, relatedWorktreeRoots)
     } else if (
       request.type === GIT_SWITCH_BRANCH_TYPE &&
       typeof raw['branch'] === 'string'

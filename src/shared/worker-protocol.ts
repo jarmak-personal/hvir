@@ -21,6 +21,8 @@ import type {
   GitCommitDetail,
   GitCommitDetailRequest,
   GitBranchModel,
+  GitFetchRequest,
+  GitPullRequest,
   GitSwitchBranchRequest,
 } from './git-types'
 import type { WorktreeDiscovery } from './workspace-types'
@@ -107,6 +109,8 @@ export const GIT_WORKTREES_TYPE = 'git:worktrees' as const
 export const GIT_PRUNE_WORKTREES_TYPE = 'git:prune-worktrees' as const
 export const GIT_CHANGED_FILE_COUNT_TYPE = 'git:changed-file-count' as const
 export const GIT_BRANCHES_TYPE = 'git:branches' as const
+export const GIT_FETCH_TYPE = 'git:fetch' as const
+export const GIT_PULL_TYPE = 'git:pull' as const
 export const GIT_SWITCH_BRANCH_TYPE = 'git:switch-branch' as const
 
 export interface GitWorkerPayload extends GitDiffRequest {
@@ -118,6 +122,11 @@ export interface GitWorkerProtocol {
   readonly [GIT_BRANCHES_TYPE]: WorkerOperation<
     { readonly root: HostPath },
     GitBranchModel
+  >
+  readonly [GIT_FETCH_TYPE]: WorkerOperation<GitFetchRequest, void>
+  readonly [GIT_PULL_TYPE]: WorkerOperation<
+    GitPullRequest & { readonly relatedWorktreeRoots?: readonly HostPath[] },
+    void
   >
   readonly [GIT_SWITCH_BRANCH_TYPE]: WorkerOperation<
     GitSwitchBranchRequest & { readonly relatedWorktreeRoots?: readonly HostPath[] },

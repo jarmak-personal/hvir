@@ -34,6 +34,11 @@ import { gitGraphWidth, RAIL_GRAPH_LANE_METRICS } from './git-graph-lane-metrics
 import { GitGraphCell, GitGraphContinuation } from './GitGraphLanes'
 import { splitFileName } from '../tree/file-name'
 import { measureVariableRows, variableVirtualRange, virtualRange } from './virtual-range'
+import {
+  gitBaseDriftSummary,
+  gitPullBlockReason,
+  gitUpstreamSummary,
+} from './git-sync-status'
 
 interface GitPanelProps {
   readonly root: HostPath
@@ -48,6 +53,9 @@ interface GitPanelProps {
   readonly historyPaused?: boolean
   readonly hasDirtyViewerTabs: boolean
   readonly onSwitchBranch: (branch: string) => Promise<void>
+  readonly onFetch: () => Promise<void>
+  readonly onPull: () => Promise<void>
+  readonly autoFetchIntervalMs: number
 }
 
 export function GitPanel({
@@ -63,6 +71,9 @@ export function GitPanel({
   historyPaused = false,
   hasDirtyViewerTabs,
   onSwitchBranch,
+  onFetch,
+  onPull,
+  autoFetchIntervalMs,
 }: GitPanelProps): ReactElement {
   const [view, setView] = useState<'changes' | 'history'>('changes')
   const [changes, setChanges] = useState<GitChanges>()
@@ -79,6 +90,12 @@ export function GitPanel({
   const [branchError, setBranchError] = useState<string>()
   const [branchSwitching, setBranchSwitching] = useState(false)
   const [branchRefresh, setBranchRefresh] = useState(0)
+  const [syncBusy, setSyncBusy] = useState<'fetch' | 'pull'>()
+  const [syncError, setSyncError] = useState<string>()
+  const [lastFetchedAt, setLastFetchedAt] = useState<number>()
+  const [autoFetchBlocked, setAutoFetchBlocked] = useState(false)
+  const syncRunning = useRef(false)
+  const syncGeneration = useRef(0)
   const historyLoading = useRef(false)
   const historyGeneration = useRef(0)
   const changesValue = useRef<GitChanges | undefined>(undefined)
@@ -146,10 +163,17 @@ export function GitPanel({
     setHistoryRepositoryState(undefined)
     setChangesError(undefined)
     setHistoryError(undefined)
+    setSyncBusy(undefined)
+    setSyncError(undefined)
+    setLastFetchedAt(undefined)
+    setAutoFetchBlocked(false)
+    syncRunning.current = false
+    syncGeneration.current += 1
     onChanges(undefined)
     historyGeneration.current += 1
     return () => {
       control.generation += 1
+      syncGeneration.current += 1
     }
   }, [connectionState, onChanges, root.hostId, root.path])
 
@@ -175,7 +199,86 @@ export function GitPanel({
   useEffect(() => {
     if (connectionState !== 'connected') return
     requestChanges()
-  }, [connectionState, refreshVersion, requestChanges, root.hostId, root.path])
+  }, [
+    connectionState,
+    historyRefreshVersion,
+    refreshVersion,
+    requestChanges,
+    root.hostId,
+    root.path,
+  ])
+
+  const runFetch = useCallback(async (): Promise<void> => {
+    if (syncRunning.current) return
+    const generation = syncGeneration.current
+    syncRunning.current = true
+    setSyncBusy('fetch')
+    setSyncError(undefined)
+    try {
+      await onFetch()
+      if (generation !== syncGeneration.current) return
+      setLastFetchedAt(Date.now())
+      setAutoFetchBlocked(false)
+      setBranchRefresh((version) => version + 1)
+    } catch (reason) {
+      if (generation !== syncGeneration.current) return
+      setSyncError(reason instanceof Error ? reason.message : String(reason))
+      setAutoFetchBlocked(true)
+    } finally {
+      if (generation === syncGeneration.current) {
+        syncRunning.current = false
+        setSyncBusy(undefined)
+      }
+    }
+  }, [onFetch])
+
+  const runPull = useCallback(async (): Promise<void> => {
+    if (syncRunning.current) return
+    const generation = syncGeneration.current
+    syncRunning.current = true
+    setSyncBusy('pull')
+    setSyncError(undefined)
+    try {
+      await onPull()
+      if (generation !== syncGeneration.current) return
+      setLastFetchedAt(Date.now())
+      setBranchRefresh((version) => version + 1)
+    } catch (reason) {
+      if (generation !== syncGeneration.current) return
+      setSyncError(reason instanceof Error ? reason.message : String(reason))
+    } finally {
+      if (generation === syncGeneration.current) {
+        syncRunning.current = false
+        setSyncBusy(undefined)
+      }
+    }
+  }, [onPull])
+
+  useEffect(() => {
+    if (
+      hidden ||
+      connectionState !== 'connected' ||
+      autoFetchIntervalMs === 0 ||
+      !branchModel?.remoteAvailable ||
+      autoFetchBlocked ||
+      syncBusy
+    ) {
+      return
+    }
+    const elapsed = lastFetchedAt ? Date.now() - lastFetchedAt : autoFetchIntervalMs
+    const delay = Math.max(0, autoFetchIntervalMs - elapsed)
+    const timer = window.setTimeout(() => void runFetch(), delay)
+    return () => window.clearTimeout(timer)
+  }, [
+    autoFetchBlocked,
+    autoFetchIntervalMs,
+    branchModel?.remoteAvailable,
+    connectionState,
+    hidden,
+    lastFetchedAt,
+    runFetch,
+    syncBusy,
+  ])
 
   const loadHistory = (): void => {
     if (
@@ -229,6 +332,21 @@ export function GitPanel({
             ? 'Commit or stash working tree changes before switching'
             : undefined
   const hasAlternativeBranch = branchModel?.branches.some((branch) => !branch.current)
+  const pullBlockReason = gitPullBlockReason({
+    model: branchModel,
+    changes,
+    connectionState,
+    hasDirtyViewerTabs,
+  })
+  const baseDrift = gitBaseDriftSummary(branchModel)
+  const fetchBlockedReason =
+    connectionState !== 'connected'
+      ? 'Reconnect before fetching'
+      : !branchModel
+        ? 'Checking repository…'
+        : !branchModel.remoteAvailable
+          ? 'No Git remote is configured'
+          : undefined
 
   useEffect(() => {
     if (view !== 'history' || connectionState !== 'connected' || historyPaused) return
@@ -277,7 +395,12 @@ export function GitPanel({
           <select
             id="git-branch-select"
             value={branchModel?.current ?? '__detached__'}
-            disabled={!branchModel || branchSwitching || !hasAlternativeBranch}
+            disabled={
+              !branchModel ||
+              branchSwitching ||
+              Boolean(syncBusy) ||
+              !hasAlternativeBranch
+            }
             title={branchError ?? branchBlockReason ?? 'Switch existing local branch'}
             onChange={(event) => {
               const branch = event.currentTarget.value
@@ -323,6 +446,42 @@ export function GitPanel({
               )
             })}
           </select>
+          <div className="git-sync-row">
+            <div className="git-sync-summary" aria-live="polite">
+              <span>{gitUpstreamSummary(branchModel)}</span>
+              {baseDrift ? <span className="needs-agent">{baseDrift}</span> : null}
+            </div>
+            <div className="git-sync-actions">
+              <button
+                type="button"
+                disabled={Boolean(fetchBlockedReason || syncBusy || branchSwitching)}
+                title={fetchBlockedReason ?? 'Refresh remote branch information'}
+                onClick={() => {
+                  setAutoFetchBlocked(false)
+                  void runFetch()
+                }}
+              >
+                Fetch
+              </button>
+              <button
+                type="button"
+                disabled={Boolean(pullBlockReason || syncBusy || branchSwitching)}
+                title={pullBlockReason ?? 'Fast-forward from the configured upstream'}
+                onClick={() => void runPull()}
+              >
+                Pull
+              </button>
+            </div>
+          </div>
+          {syncBusy ? (
+            <small>{syncBusy === 'fetch' ? 'Fetching…' : 'Pulling…'}</small>
+          ) : syncError ? (
+            <small className="error">{syncError}</small>
+          ) : lastFetchedAt ? (
+            <small title={new Date(lastFetchedAt).toLocaleString()}>
+              Remote checked just now
+            </small>
+          ) : null}
           {branchSwitching ? (
             <small>Switching…</small>
           ) : branchError ? (

@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { dispatchWorkerHostCall } from '../src/main/git/worker-host-broker'
-import { GitEngine } from '../src/main/git/git-engine'
+import { GIT_FETCH_ARGS, GIT_PULL_ARGS, GitEngine } from '../src/main/git/git-engine'
 import { LocalHost, type ProjectHost } from '../src/main/project-host'
 import { localPath, type WorkerHostCall } from '../src/shared'
 
@@ -139,6 +139,53 @@ describe('Git worker host broker', () => {
         { ...call, args: ['-C', rootPath, 'switch', '-C', 'feature/one'] },
         project,
         { allowBranchSwitch: 'feature/one' },
+      ),
+    ).rejects.toThrow('forbidden git invocation')
+  })
+
+  it('authorizes only exact non-interactive fetch and fast-forward pull grammars', async () => {
+    const rootPath = await mkdtemp(join(tmpdir(), 'hvir-broker-sync-'))
+    cleanups.push(rootPath)
+    const host = new LocalHost()
+    const exec = vi.spyOn(host, 'exec').mockResolvedValue({
+      code: 0,
+      signal: null,
+      stdout: '',
+      stderr: '',
+    })
+    const project = { host, root: localPath(rootPath) }
+    const fetchCall: ExecHostCall = {
+      ...hostCall(rootPath),
+      args: ['-C', rootPath, ...GIT_FETCH_ARGS],
+    }
+    const pullCall: ExecHostCall = {
+      ...hostCall(rootPath),
+      args: ['-C', rootPath, ...GIT_PULL_ARGS],
+    }
+
+    await expect(dispatchWorkerHostCall(fetchCall, project)).rejects.toThrow(
+      'unauthorized fetch',
+    )
+    await dispatchWorkerHostCall(fetchCall, project, { allowFetch: true })
+    expect(exec.mock.calls.at(-1)?.[2]?.env).toEqual({
+      GIT_TERMINAL_PROMPT: '0',
+      GCM_INTERACTIVE: 'Never',
+    })
+
+    await expect(dispatchWorkerHostCall(pullCall, project)).rejects.toThrow(
+      'unauthorized pull',
+    )
+    await dispatchWorkerHostCall(pullCall, project, { allowPull: true })
+    expect(exec.mock.calls.at(-1)?.[2]?.env).toEqual({
+      GIT_TERMINAL_PROMPT: '0',
+      GCM_INTERACTIVE: 'Never',
+    })
+
+    await expect(
+      dispatchWorkerHostCall(
+        { ...pullCall, args: [...pullCall.args, '--rebase'] },
+        project,
+        { allowPull: true },
       ),
     ).rejects.toThrow('forbidden git invocation')
   })

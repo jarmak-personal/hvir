@@ -20,6 +20,9 @@ export function SettingsDialog({
   const dialog = useRef<HTMLElement>(null)
   const [nextTheme, setNextTheme] = useState(theme)
   const [idleSeconds, setIdleSeconds] = useState(String(settings.idleThresholdMs / 1000))
+  const [gitAutoFetchIntervalMs, setGitAutoFetchIntervalMs] = useState(
+    String(settings.gitAutoFetchIntervalMs),
+  )
   const [recoveryMode, setRecoveryMode] = useState(settings.terminalRecoveryMode)
   const [terminalTheme, setTerminalTheme] = useState(settings.terminalTheme)
   const [keybindings, setKeybindings] = useState(
@@ -55,6 +58,7 @@ export function SettingsDialog({
       const parsed: unknown = JSON.parse(keybindings)
       onSave(nextTheme, {
         idleThresholdMs: parsedIdleSeconds * 1000,
+        gitAutoFetchIntervalMs: Number(gitAutoFetchIntervalMs),
         terminalRecoveryMode: recoveryMode,
         terminalTheme,
         keybindings: parseKeybindingOverrides(parsed),
@@ -131,6 +135,19 @@ export function SettingsDialog({
             >
               <option value="prompt">Ask which terminals to restore</option>
               <option value="auto">Restore all terminals automatically</option>
+            </select>
+          </label>
+          <label>
+            <span>Git auto-fetch</span>
+            <select
+              value={gitAutoFetchIntervalMs}
+              onChange={(event) => setGitAutoFetchIntervalMs(event.currentTarget.value)}
+            >
+              <option value="0">Off</option>
+              <option value={String(60_000)}>Every minute</option>
+              <option value={String(5 * 60_000)}>Every 5 minutes</option>
+              <option value={String(15 * 60_000)}>Every 15 minutes</option>
+              <option value={String(30 * 60_000)}>Every 30 minutes</option>
             </select>
           </label>
           <label className="settings-keybindings">

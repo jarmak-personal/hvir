@@ -1559,6 +1559,48 @@ body.pane-resizing-row * {
   color: #df858b;
 }
 
+.git-sync-row {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+
+.git-sync-summary {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+  color: #8c97a6;
+  font-size: 9px;
+  line-height: 1.35;
+}
+
+.git-sync-summary span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.git-sync-summary .needs-agent {
+  color: #c6a36c;
+}
+
+.git-sync-actions {
+  display: flex;
+  flex: none;
+  gap: 4px;
+}
+
+.git-sync-actions button {
+  min-width: 43px;
+  padding: 3px 6px;
+  font-size: 9px;
+}
+
 .git-tabs button {
   flex: 1;
   padding: 4px;
