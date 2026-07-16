@@ -60,7 +60,7 @@ async function launch(args) {
   } catch {
     throw new Error(
       `The ${packageName} payload is missing. Reinstall hvir with npm on this ` +
-        `machine (npm install -g hvir). Platform: ${key}.`,
+        `machine (npm install -g hvir-workbench). Platform: ${key}.`,
     )
   }
   const metadata = JSON.parse(readFileSync(metadataPath, 'utf8'))

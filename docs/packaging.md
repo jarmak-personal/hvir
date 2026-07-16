@@ -3,12 +3,12 @@
 hvir has one supported installation path:
 
 ```sh
-npm install -g hvir
+npm install -g hvir-workbench
 hvir
 ```
 
-The public `hvir` package is a small launcher. npm selects one hidden optional payload
-for the current machine:
+The public `hvir-workbench` package is a small launcher that installs the `hvir` command.
+npm selects one hidden optional payload for the current machine:
 
 | Platform | Payload package |
 | --- | --- |
@@ -78,18 +78,26 @@ The one `.github/workflows/release-npm.yml` run then:
 3. Creates or verifies the matching `v*` tag after every native build succeeds.
 4. Publishes the three platform packages, skipping versions already present during a
    recovery run.
-5. Publishes `hvir` last, so its optional dependencies already exist at the same version.
+5. Publishes `hvir-workbench` last, so its optional dependencies already exist at the
+   same version.
 6. Publishes a generated-notes GitHub Release only after npm publication succeeds. It
    has no downloadable application assets; npm remains the only supported distribution.
 
 The workflow owns tag creation; manually pushing a tag is not a release trigger. The tag
-always equals the root package version (`v0.1.0` for version `0.1.0`). For the first
-release, add a granular npm publishing token as the `NPM_TOKEN` repository secret and run
-the workflow with `current` to bootstrap the four unscoped package names. Afterward,
-configure each package's npm trusted publisher for repository `jarmak-personal/hvir`,
-workflow filename `release-npm.yml`, and the `npm publish` action. Then remove the
-long-lived token; the publish job already has the required OIDC permission and emits
-provenance attestations.
+always equals the root package version (`v0.1.0` for version `0.1.0`).
+
+The initial `v0.1.0` attempt published the three platform payloads, but npm rejected the
+unscoped `hvir` launcher as too similar to an existing package. The launcher is therefore
+published as `hvir-workbench`; its `bin` entry still installs the command as `hvir`. Make
+the first complete release with a `patch` bump to `0.1.1`, rather than rewriting the
+partial tag or immutable payload versions.
+
+Keep the granular npm publishing token in the `NPM_TOKEN` repository secret to bootstrap
+`hvir-workbench`. Afterward, configure its npm trusted publisher for repository
+`jarmak-personal/hvir`, workflow filename `release-npm.yml`, and the `npm publish` action.
+The three platform packages should already have the same trusted-publisher configuration.
+Then remove the long-lived token; the publish job already has the required OIDC permission
+and emits provenance attestations.
 
 Version commits and release tags are pushed with the repository's GitHub Actions token.
 If `main` branch protection or tag rules are added later, they must permit this workflow
