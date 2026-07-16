@@ -35,6 +35,9 @@ the load-bearing scenarios, and installable builds for Linux and macOS.
 - [x] Keep terminal focus transient: hide rather than unmount the viewer, keep PTYs and
       tabs alive, do not overwrite the persisted per-workspace terminal height, and do
       not reopen maximized after relaunch.
+- [x] Add the matching double-chevron control to the file-explorer divider. Collapse
+      without unmounting Files/Git state or overwriting the saved explorer width, and
+      let it compose with terminal focus for an almost-just-terminal layout.
 - [x] Restore the viewer automatically before every file activation from Files, Git
       Changes/History/graph, rendered internal links, or a terminal path link. Activating
       an already-open tab follows the same rule.

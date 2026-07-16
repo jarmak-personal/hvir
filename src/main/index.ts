@@ -2173,9 +2173,11 @@ async function runSmoke(): Promise<number> {
           const terminalRail = document.querySelector('.terminal-rail');
           const treeDivider = document.querySelector('.tree-resizer');
           const terminalDivider = document.querySelector('.terminal-resizer');
+          const treeToggle = document.querySelector('.tree-collapse-toggle');
+          const terminalToggle = document.querySelector('.terminal-focus-toggle');
           if (
             !tree || !workbench || !viewer || !terminal || !terminalRail ||
-            !treeDivider || !terminalDivider
+            !treeDivider || !terminalDivider || !treeToggle || !terminalToggle
           ) {
             return reject(new Error('pane dividers missing'));
           }
@@ -2207,11 +2209,47 @@ async function runSmoke(): Promise<number> {
             }
             treeDivider.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
             terminalDivider.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
-            resolve(
-              Math.round(treeBefore) + '→' + Math.round(treeAfter) + 'px tree; ' +
-              Math.round(terminalBefore) + '→' + Math.round(terminalAfter) +
-              'px terminal; rail aligned'
-            );
+            requestAnimationFrame(() => requestAnimationFrame(() => {
+              const restoredTreeWidth = tree.getBoundingClientRect().width;
+              treeToggle.click();
+              requestAnimationFrame(() => requestAnimationFrame(() => {
+                if (
+                  !workbench.classList.contains('tree-collapsed') ||
+                  tree.getBoundingClientRect().width > 1 ||
+                  getComputedStyle(tree).visibility !== 'hidden'
+                ) {
+                  return reject(new Error('file explorer did not collapse'));
+                }
+                terminalToggle.click();
+                requestAnimationFrame(() => requestAnimationFrame(() => {
+                  if (
+                    !workbench.classList.contains('tree-collapsed') ||
+                    !workbench.classList.contains('terminal-focused') ||
+                    getComputedStyle(viewer).visibility !== 'hidden'
+                  ) {
+                    return reject(new Error('pane focus modes did not compose'));
+                  }
+                  terminalToggle.click();
+                  treeToggle.click();
+                  requestAnimationFrame(() => requestAnimationFrame(() => {
+                    const finalTreeWidth = tree.getBoundingClientRect().width;
+                    if (
+                      workbench.classList.contains('tree-collapsed') ||
+                      workbench.classList.contains('terminal-focused') ||
+                      Math.abs(finalTreeWidth - restoredTreeWidth) > 1 ||
+                      getComputedStyle(tree).visibility === 'hidden'
+                    ) {
+                      return reject(new Error('pane focus modes did not restore'));
+                    }
+                    resolve(
+                      Math.round(treeBefore) + '→' + Math.round(treeAfter) + 'px tree; ' +
+                      Math.round(terminalBefore) + '→' + Math.round(terminalAfter) +
+                      'px terminal; collapse composed and restored'
+                    );
+                  }));
+                }));
+              }));
+            }));
           }));
         })
       `),

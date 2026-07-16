@@ -124,6 +124,7 @@ export function App(): ReactElement {
     Readonly<Record<string, TerminalWorkspaceRollup>>
   >({})
   const [terminalFocused, setTerminalFocused] = useState(false)
+  const [treeCollapsed, setTreeCollapsed] = useState(false)
   tabsRef.current = tabs
   rootRef.current = root
   activeIdRef.current = activeId
@@ -161,6 +162,7 @@ export function App(): ReactElement {
     setGitChanges(undefined)
     setSessionError(undefined)
     setTerminalFocused(false)
+    setTreeCollapsed(false)
   }, [])
 
   const updateTerminalRollup = useCallback(
@@ -517,6 +519,7 @@ export function App(): ReactElement {
         )
       } else if (action === 'focusTree') {
         setTerminalFocused(false)
+        setTreeCollapsed(false)
         setRailMode('files')
         requestAnimationFrame(() =>
           document.querySelector<HTMLElement>('.tree-panel')?.focus(),
@@ -1115,7 +1118,7 @@ export function App(): ReactElement {
         />
       ) : null}
       <main
-        className={`workbench${connectionState === 'connected' ? '' : ' project-stale'}${terminalFocused ? ' terminal-focused' : ''}`}
+        className={`workbench${connectionState === 'connected' ? '' : ' project-stale'}${terminalFocused ? ' terminal-focused' : ''}${treeCollapsed ? ' tree-collapsed' : ''}`}
         ref={workbenchRef}
       >
         <aside className="tree-panel" aria-label="Project rail" tabIndex={-1}>
@@ -1195,9 +1198,14 @@ export function App(): ReactElement {
           label="Resize file tree"
           onDrag={(clientX) => {
             const left = workbenchRef.current?.getBoundingClientRect().left ?? 0
+            if (treeCollapsed) setTreeCollapsed(false)
             setTreeWidth(clientX - left)
           }}
           onNudge={(delta) => {
+            if (treeCollapsed) {
+              if (delta > 0) setTreeCollapsed(false)
+              return
+            }
             const current =
               workbenchRef.current?.querySelector<HTMLElement>('.tree-panel')
             if (current) setTreeWidth(current.getBoundingClientRect().width + delta)
@@ -1206,6 +1214,30 @@ export function App(): ReactElement {
             workbenchRef.current?.style.removeProperty('--tree-track')
             if (rootRef.current) persistLayout(rootRef.current, { treeWidth: 0 })
           }}
+          action={
+            <button
+              type="button"
+              className="tree-collapse-toggle"
+              data-resizer-action
+              aria-label={
+                treeCollapsed ? 'Restore file explorer' : 'Collapse file explorer'
+              }
+              aria-pressed={treeCollapsed}
+              title={treeCollapsed ? 'Restore file explorer' : 'Collapse file explorer'}
+              onDoubleClick={(event) => event.stopPropagation()}
+              onClick={() => setTreeCollapsed((collapsed) => !collapsed)}
+            >
+              <svg aria-hidden="true" viewBox="0 0 16 16">
+                <path
+                  d={
+                    treeCollapsed
+                      ? 'M4 3 8.5 8 4 13M8 3l4.5 5L8 13'
+                      : 'M12 3 7.5 8l4.5 5M8 3 3.5 8 8 13'
+                  }
+                />
+              </svg>
+            </button>
+          }
         />
         <section className="viewer-panel" aria-label="File viewer">
           <div
