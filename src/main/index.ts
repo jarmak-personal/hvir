@@ -1209,7 +1209,11 @@ async function runSmoke(): Promise<number> {
     supervisor.write(
       secondTerminal.id,
       secondTerminal.ownerId,
-      "printf '\\033]0;Smoke agent\\007\\007'\n",
+      // Keep the command active while the renderer observes the OSC title. CI
+      // shells commonly reset their title from PROMPT_COMMAND as soon as the
+      // next prompt is drawn, which can otherwise overwrite this fixture while
+      // leaving its bell badge intact.
+      "printf '\\033]0;Smoke agent\\007\\007'; sleep 10\n",
     )
     const terminalSignalStatus = (await withTimeout(
       win.webContents.executeJavaScript(`
