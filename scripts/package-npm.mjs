@@ -25,6 +25,7 @@ const rootPackage = JSON.parse(
 )
 const outputDirectory = join(repositoryRoot, 'dist', 'npm')
 const stagingRoot = join(repositoryRoot, 'dist', 'npm-stage')
+const launcherPackageName = 'hvir-workbench'
 
 const platforms = {
   'darwin-arm64': {
@@ -85,7 +86,7 @@ async function copyLicense(stage) {
 
 async function packLauncher() {
   assertReleaseVersion()
-  const stage = join(stagingRoot, 'hvir')
+  const stage = join(stagingRoot, launcherPackageName)
   await rm(stage, { force: true, recursive: true })
   await mkdir(join(stage, 'bin'), { recursive: true })
   await cp(
@@ -96,14 +97,14 @@ async function packLauncher() {
     Object.values(platforms).map(({ packageName }) => [packageName, rootPackage.version]),
   )
   await writeJson(stagePackagePath(stage), {
-    ...packageMetadata('hvir', rootPackage.description),
+    ...packageMetadata(launcherPackageName, rootPackage.description),
     bin: { hvir: 'bin/hvir.mjs' },
     files: ['bin'],
     optionalDependencies,
   })
   await writeFile(
     join(stage, 'README.md'),
-    `# hvir\n\nInstall globally with \`npm install -g hvir\`, then run \`hvir\`.\n`,
+    `# hvir\n\nInstall globally with \`npm install -g ${launcherPackageName}\`, then run \`hvir\`.\n`,
   )
   await copyLicense(stage)
   try {
@@ -161,7 +162,7 @@ async function packPlatform(platform, arch, buildOutput) {
   await writeJson(stagePackagePath(stage), {
     ...packageMetadata(
       configuration.packageName,
-      `Platform payload for hvir on ${platform} ${arch}. Install hvir instead.`,
+      `Platform payload for hvir on ${platform} ${arch}. Install ${launcherPackageName} instead.`,
     ),
     os: [platform],
     cpu: [arch],
@@ -170,7 +171,7 @@ async function packPlatform(platform, arch, buildOutput) {
   })
   await writeFile(
     join(stage, 'README.md'),
-    '# hvir platform payload\n\nThis package is installed automatically by `hvir`.\n',
+    `# hvir platform payload\n\nThis package is installed automatically by \`${launcherPackageName}\`.\n`,
   )
   await copyLicense(stage)
   try {

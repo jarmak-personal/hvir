@@ -117,13 +117,13 @@ the load-bearing scenarios, and installable builds for Linux and macOS.
       visible-but-calm UI states, never silent failure or a white screen.
 
 ### Packaging
-- [x] Use one supported distribution path: `npm install -g hvir` installs a small
+- [x] Use one supported distribution path: `npm install -g hvir-workbench` installs a small
       launcher plus one hidden, integrity-checked native payload. Do not also maintain
       dmg, zip, AppImage, or deb install paths. Validate an extracted replacement before
       atomically swapping it so a corrupt payload cannot delete a prior app directory.
 - [x] Build Linux x64, Linux arm64, and macOS arm64 payload packages on native CI
       runners. Intel macOS and Windows are not release targets.
-- [ ] Publish the first matched-version platform packages and `hvir` launcher from a tag,
+- [ ] Publish the first matched-version platform packages and `hvir-workbench` launcher from a tag,
       then verify install/update/remove through the public npm registry.
 - [x] App icon, name, basic README with screenshots.
 - [x] macOS signing/notarization: investigate and document; unsigned dev builds are

@@ -757,8 +757,8 @@ agent (still rejected by ADR-010).
 
 ### ADR-011 — Distribution: one npm launcher, native payloads
 
-**Decision:** hvir has one supported installation contract: `npm install -g hvir`, then
-`hvir`. The public launcher selects an integrity-checked optional payload package for
+**Decision:** hvir has one supported installation contract: `npm install -g hvir-workbench`,
+then `hvir`. The public launcher selects an integrity-checked optional payload package for
 Linux x64, Linux arm64, or macOS arm64. Payloads contain an electron-builder unpacked app
 built and smoke-tested on the matching native architecture; their npm install step expands
 the app without compiling on the user's machine. Intel macOS, Windows, dmg, zip, AppImage,

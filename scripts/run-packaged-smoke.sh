@@ -34,9 +34,9 @@ if [[ -z "$tarball" ]]; then
   exit 1
 fi
 
-launcher_tarball=$(find dist/npm -type f -name 'hvir-[0-9]*.tgz' -print -quit)
+launcher_tarball=$(find dist/npm -type f -name 'hvir-workbench-[0-9]*.tgz' -print -quit)
 if [[ -z "$launcher_tarball" ]]; then
-  echo 'hvir launcher tarball not found below dist/npm' >&2
+  echo 'hvir-workbench launcher tarball not found below dist/npm' >&2
   exit 1
 fi
 

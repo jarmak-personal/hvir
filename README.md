@@ -34,7 +34,7 @@ them.
 Install hvir from npm, then launch it from any directory:
 
 ```sh
-npm install -g hvir
+npm install -g hvir-workbench
 hvir
 ```
 

@@ -99,7 +99,7 @@ jobs:
             exit 1
           else
             published_packages=()
-            for package_name in hvir hvir-linux-x64 hvir-linux-arm64 hvir-darwin-arm64; do
+            for package_name in hvir-workbench hvir-linux-x64 hvir-linux-arm64 hvir-darwin-arm64; do
               state=$(registry_version_state "$package_name")
               if [ "$state" = "published" ]; then
                 published_packages+=("$package_name")
@@ -279,13 +279,13 @@ jobs:
           publish_if_missing hvir-linux-arm64
           publish_if_missing hvir-darwin-arm64
 
-      - name: Publish hvir launcher
+      - name: Publish hvir-workbench launcher
         env:
           VERSION: ${{ needs.prepare.outputs.version }}
         run: |
           registry_version_state() {
             error_file=$(mktemp)
-            if npm view "hvir@${VERSION}" version --json >/dev/null 2>"$error_file"; then
+            if npm view "hvir-workbench@${VERSION}" version --json >/dev/null 2>"$error_file"; then
               rm -f "$error_file"
               echo published
             elif grep -q 'E404' "$error_file"; then
@@ -298,14 +298,14 @@ jobs:
             fi
           }
 
-          tarball="dist/npm/hvir-${VERSION}.tgz"
+          tarball="dist/npm/hvir-workbench-${VERSION}.tgz"
           if [ ! -f "$tarball" ]; then
             echo "::error::Missing launcher tarball $tarball"
             exit 1
           fi
           state=$(registry_version_state)
           if [ "$state" = "published" ]; then
-            echo "hvir@${VERSION} already published"
+            echo "hvir-workbench@${VERSION} already published"
           else
             npm publish "$tarball" --access public --provenance
           fi
