@@ -141,7 +141,7 @@ export class PtySupervisor {
     let discoveryReady = false
     let releaseDiscoveryLaunch: Disposer | undefined
     let pty: PtyProcess
-    let launchedAtMs = Date.now()
+    let launchedAtMs: number
     try {
       if (discovery) {
         releaseDiscoveryLaunch = await this.reserveDiscoveryLaunch(

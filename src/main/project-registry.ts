@@ -278,9 +278,10 @@ export class ProjectRegistry {
       return { path, directories }
     } catch (reason) {
       const code = (reason as { code?: unknown } | undefined)?.code
-      if (code === 2 || code === 'ENOENT') throw new Error(`Folder not found: ${rawPath}`)
+      if (code === 2 || code === 'ENOENT')
+        throw new Error(`Folder not found: ${rawPath}`, { cause: reason })
       if (code === 3 || code === 'EACCES')
-        throw new Error(`Cannot access folder: ${rawPath}`)
+        throw new Error(`Cannot access folder: ${rawPath}`, { cause: reason })
       throw reason
     }
   }
