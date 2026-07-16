@@ -229,7 +229,7 @@ export function ProjectsBar({
                   title={workspaceStatusTitle(workspace)}
                 >
                   <span>{workspace.name}</span>
-                  {workspace.main ? <small>main checkout</small> : null}
+                  {workspace.main ? <small>project root</small> : null}
                   {workspace.prunableReason ? <small>prunable</small> : null}
                   {workspace.changedFiles > 0 ? (
                     <b

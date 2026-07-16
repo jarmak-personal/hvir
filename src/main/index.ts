@@ -2474,7 +2474,7 @@ async function runSmoke(): Promise<number> {
         if (
           workspaceTabs.length !== 1 ||
           !workspaceTabs[0]?.classList.contains('active') ||
-          !workspaceTabs[0]?.textContent?.includes('main checkout')
+          !workspaceTabs[0]?.textContent?.includes('project root')
         ) {
           return reject(new Error('single-checkout workspace context is missing'));
         }

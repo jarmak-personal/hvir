@@ -478,9 +478,9 @@ and opened content answer the same “what was committed on this branch?” ques
 **Decision:** A two-tier model. The **project** (the main repo) is the *registration*
 unit — the thing you add to hvir. **Worktrees** are *discovered* children
 (`git worktree list`), each one a workspace. The workspace tier remains visible even when
-there is only the main checkout, giving branch/workspace context one stable home. A plain
-non-git directory is a degenerate single-workspace project, so the model has no special
-cases.
+there is only the registered project root, giving branch/workspace context one stable
+home. A plain non-git directory is a degenerate single-workspace project, so the model has
+no special cases.
 **Why:** The project boundary is the one harnesses care about (CLAUDE.md, config, trust
 are project-scoped). It gives notifications a natural rollup path (terminal → worktree →
 project), and a persistent workspace tier keeps the hierarchy from changing shape when a
