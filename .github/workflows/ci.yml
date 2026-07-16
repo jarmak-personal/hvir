@@ -42,9 +42,23 @@ jobs:
         run: xvfb-run -a npm run gauntlet
 
   packaged-smoke:
-    name: Packaged smoke (Linux x64)
-    runs-on: ubuntu-24.04
+    name: Packaged smoke (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux x64
+            os: ubuntu-24.04
+            build: npm run pack:npm:linux:x64
+            smoke: xvfb-run -a npm run smoke:packaged
+          - name: macOS arm64
+            os: macos-15
+            build: npm run pack:npm:mac:arm64
+            smoke: npm run smoke:packaged
+    env:
+      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
 
     steps:
       - name: Check out repository
@@ -60,10 +74,10 @@ jobs:
         run: npm ci
 
       - name: Build platform package
-        run: npm run pack:npm:linux:x64
+        run: ${{ matrix.build }}
 
       - name: Build launcher package
         run: npm run pack:npm:launcher
 
       - name: Smoke installed packages
-        run: xvfb-run -a npm run smoke:packaged
+        run: ${{ matrix.smoke }}

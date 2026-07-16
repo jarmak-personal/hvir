@@ -91,6 +91,7 @@ function createWindow(
   const win = new BrowserWindow({
     width: 1280,
     height: 800,
+    useContentSize: true,
     show: false,
     backgroundColor: '#0f1115',
     autoHideMenuBar: true,
@@ -2565,8 +2566,24 @@ async function runSmoke(): Promise<number> {
           }
           const treeBefore = tree.getBoundingClientRect().width;
           const terminalBefore = terminal.getBoundingClientRect().height;
-          if (terminalBefore < 325) {
-            return reject(new Error('default terminal is too short for full-screen harnesses'));
+          const defaultTerminalShare = 3.8 / (4 + 3.8);
+          const requiredTerminalHeight = Math.min(
+            325,
+            Math.max(
+              260,
+              Math.floor(
+                (workbenchRect.height - terminalDividerRect.height) *
+                  defaultTerminalShare -
+                  2
+              )
+            )
+          );
+          if (terminalBefore + 1 < requiredTerminalHeight) {
+            return reject(new Error(
+              'default terminal is too short: ' + Math.round(terminalBefore) +
+              'px < ' + requiredTerminalHeight + 'px for a ' +
+              Math.round(workbenchRect.height) + 'px workbench'
+            ));
           }
           treeDivider.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
           terminalDivider.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true }));
