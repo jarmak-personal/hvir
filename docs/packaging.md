@@ -46,6 +46,19 @@ into a temporary npm prefix and verifies the extracted executable before succeed
 After also packing the launcher, `npm run smoke:packaged` installs both tarballs into a
 clean prefix and exercises the complete `hvir` launcher → native application chain.
 
+## Dependency and security automation
+
+Dependabot checks npm dependencies daily and GitHub Actions weekly. Minor and patch
+updates are grouped by ecosystem to keep routine maintenance compact; major updates stay
+in individual pull requests so their compatibility and migration notes remain visible.
+Repository settings also enable vulnerability alerts and Dependabot security-update pull
+requests. Every update pull request goes through the full Linux CI gauntlet.
+
+CodeQL analyzes JavaScript and TypeScript on pull requests, pushes to `main`, and a weekly
+schedule. Before starting a release, review the open Dependabot pull requests and confirm
+that CI and CodeQL are green on `main`; intentionally deferred major upgrades should be
+called out in the release notes.
+
 ## Release workflow
 
 Use **Actions → Release → Run workflow** on the `main` branch and choose a version:
