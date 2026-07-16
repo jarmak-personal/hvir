@@ -40,3 +40,30 @@ jobs:
 
       - name: Run full suite
         run: xvfb-run -a npm run gauntlet
+
+  packaged-smoke:
+    name: Packaged smoke (Linux x64)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          package-manager-cache: false
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build platform package
+        run: npm run pack:npm:linux:x64
+
+      - name: Build launcher package
+        run: npm run pack:npm:launcher
+
+      - name: Smoke installed packages
+        run: xvfb-run -a npm run smoke:packaged

@@ -68,6 +68,22 @@ if [[ ! -x "$launcher" ]]; then
   exit 1
 fi
 
-HVIR_SMOKE=1 "$launcher" "$PWD" \
-  --no-sandbox \
-  --user-data-dir="$profile"
+# Release jobs check out an exact commit in detached-HEAD mode, which does not
+# guarantee a local main branch or origin/HEAD. Give the packaged application a
+# deterministic repository instead of coupling its Git smoke checks to the
+# checkout topology supplied by the runner.
+fixture="$profile/repository"
+mkdir -p "$fixture"
+git archive HEAD | tar -x -C "$fixture"
+git -C "$fixture" init --quiet --initial-branch=main
+git -C "$fixture" config user.name 'hvir packaged smoke'
+git -C "$fixture" config user.email 'hvir-smoke@invalid.example'
+git -C "$fixture" add --all
+git -C "$fixture" commit --quiet -m 'Create packaged smoke fixture'
+
+(
+  cd "$fixture"
+  HVIR_SMOKE=1 "$launcher" "$fixture" \
+    --no-sandbox \
+    --user-data-dir="$profile"
+)

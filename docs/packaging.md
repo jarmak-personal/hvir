@@ -44,7 +44,9 @@ npm run pack:npm:mac:arm64    # Apple-silicon Mac
 Tarballs land in `dist/npm/`. Every platform pack command installs its generated tarball
 into a temporary npm prefix and verifies the extracted executable before succeeding.
 After also packing the launcher, `npm run smoke:packaged` installs both tarballs into a
-clean prefix and exercises the complete `hvir` launcher → native application chain.
+clean prefix and exercises the complete `hvir` launcher → native application chain. Pull
+request CI repeats that packaged smoke on Linux x64 from a detached checkout; the release
+matrix repeats it on every supported platform.
 
 ## Dependency and security automation
 
