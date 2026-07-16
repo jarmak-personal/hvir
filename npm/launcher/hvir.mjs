@@ -98,11 +98,11 @@ async function launch(args) {
 
 async function main() {
   const args = process.argv.slice(2)
-  if (args.includes('--help') || args.includes('-h')) {
+  if (args[0] === '--help' || args[0] === '-h') {
     process.stdout.write(usage())
     return
   }
-  if (args.includes('--version') || args.includes('-v')) {
+  if (args[0] === '--version' || args[0] === '-v') {
     process.stdout.write(`${launcherPackage.version}\n`)
     return
   }

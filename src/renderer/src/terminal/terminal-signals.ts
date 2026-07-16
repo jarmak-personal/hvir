@@ -20,14 +20,27 @@ const MAX_OSC_CARRY = 64 * 1024
  */
 export class TerminalSignalParser {
   private carry = ''
+  private discardingOsc = false
+  private discardSawEscape = false
 
   consume(chunk: string): TerminalSignals {
     const titles: string[] = []
     const oscillators: TerminalOscSignal[] = []
     let bells = 0
-    const input = this.carry + chunk
+    let input = this.carry + chunk
     this.carry = ''
     let cursor = 0
+
+    if (this.discardingOsc) {
+      const discarded = discardThroughOscTerminator(input, this.discardSawEscape)
+      this.discardSawEscape = discarded.sawEscape
+      if (!discarded.terminated) {
+        return { titles, oscillators, bells }
+      }
+      this.discardingOsc = false
+      this.discardSawEscape = false
+      input = input.slice(discarded.consumed)
+    }
 
     while (cursor < input.length) {
       const start = input.indexOf(`${ESC}]`, cursor)
@@ -48,7 +61,12 @@ export class TerminalSignalParser {
       const end = usesBel ? bel : st
       if (end < 0) {
         const incomplete = input.slice(start)
-        if (incomplete.length <= MAX_OSC_CARRY) this.carry = incomplete
+        if (incomplete.length <= MAX_OSC_CARRY) {
+          this.carry = incomplete
+        } else {
+          this.discardingOsc = true
+          this.discardSawEscape = incomplete.endsWith(ESC)
+        }
         break
       }
 
@@ -72,6 +90,35 @@ export class TerminalSignalParser {
 
   reset(): void {
     this.carry = ''
+    this.discardingOsc = false
+    this.discardSawEscape = false
+  }
+}
+
+function discardThroughOscTerminator(
+  value: string,
+  sawEscape: boolean,
+): {
+  readonly terminated: boolean
+  readonly consumed: number
+  readonly sawEscape: boolean
+} {
+  if (sawEscape && value.startsWith('\\')) {
+    return { terminated: true, consumed: 1, sawEscape: false }
+  }
+  for (let index = 0; index < value.length; index += 1) {
+    const character = value[index]
+    if (character === BEL) {
+      return { terminated: true, consumed: index + 1, sawEscape: false }
+    }
+    if (character === ESC && value[index + 1] === '\\') {
+      return { terminated: true, consumed: index + 2, sawEscape: false }
+    }
+  }
+  return {
+    terminated: false,
+    consumed: value.length,
+    sawEscape: value.endsWith(ESC),
   }
 }
 

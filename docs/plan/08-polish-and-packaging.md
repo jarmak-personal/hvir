@@ -22,7 +22,8 @@ the load-bearing scenarios, and installable builds for Linux and macOS.
 - [x] Terminal colors follow the app theme by default, overridable.
 - [x] Renderer completeness pass: images open as a proper image view; binary files get
       a sane fallback instead of garbage; CSV renders as a table (rendered mode);
-      notebook/other formats — only if trivial, else parking lot.
+      ragged CSV rows remain visible and row/column caps are disclosed; notebook/other
+      formats — only if trivial, else parking lot.
 - [x] Typography/spacing pass on rendered markdown — this is a "renders beautifully"
       surface; treat readability as the feature.
 - [x] Keep side-by-side CodeMirror diffs vertically scrollable for long files. Preserve
@@ -31,7 +32,8 @@ the load-bearing scenarios, and installable builds for Linux and macOS.
 
 ### Layout
 - [x] Side-by-side panes: split the viewer area (like VSCode), tabs draggable between
-      panes; terminal area supports splits too (per the §5 layout).
+      panes; terminal area supports splits too (per the §5 layout). Closing the final
+      secondary viewer tab collapses its now-empty pane.
 - [x] Add a compact double-up-chevron control to the horizontal divider that expands the
       active terminal deck to the full center height. In focus mode it becomes a
       double-down-chevron and restores the exact pre-expansion divider height.
@@ -46,15 +48,18 @@ the load-bearing scenarios, and installable builds for Linux and macOS.
       an already-open tab follows the same rule.
 - [x] Extend `TerminalPane` with an engine-agnostic user-activated link event. Resolve
       OSC 8 file targets and supported plain `path:line[:column]` links relative to the
-      host-qualified active workspace; reject paths outside it and never execute text.
+      host-qualified active workspace; reject paths outside it, never execute text, and
+      reveal the requested source line/column.
 - [x] Keep workspace selection in one place: remove inactive-worktree jump rows from the
       right terminal rail. It lists only terminals owned by the active workspace; inactive
       terminal attention continues to roll up to the top workspace/project controls.
 - [x] Keybinding surface: the handful of core actions (cycle view mode, focus terminal
       / viewer / tree, toggle terminal focus, workspace switch) documented and rebindable
-      via a simple JSON config. No keymap engine.
+      via a simple JSON config. No keymap engine. Match bracket chords by physical key so
+      macOS Option transformations remain usable, and suspend global bindings under modals.
 - [x] Minimal settings UI (or settings file + reload): theme, idle threshold,
-      resume-on-start behavior, keybindings pointer.
+      resume-on-start behavior, keybindings pointer. Reject blank/out-of-range thresholds
+      visibly and let Escape remain available while editing the keybinding textarea.
 - [x] Keep the parked Harness rail destination interactive and intentional with a calm
       coming-soon state; switching to it must preserve mounted Files/Git state.
 
@@ -78,7 +83,8 @@ the load-bearing scenarios, and installable builds for Linux and macOS.
 - [x] Functionally audit attention end to end: plain BEL and supported OSC bell events,
       new output, idle-after-burst, terminal focus clearing, parent aggregation, workspace
       switching, window focus, and the quiet OS badge. Add deterministic regressions for
-      every broken path found before styling it.
+      every broken path found before styling it. Oversized malformed OSC sequences stay
+      in bounded discard mode through their terminator and cannot invent bell attention.
 
 ### Performance & robustness pass
 - [x] Profile the §3.2 gauntlet and fix regressions: 5+ churning workspaces, sustained
@@ -98,7 +104,8 @@ the load-bearing scenarios, and installable builds for Linux and macOS.
 ### Packaging
 - [x] Use one supported distribution path: `npm install -g hvir` installs a small
       launcher plus one hidden, integrity-checked native payload. Do not also maintain
-      dmg, zip, AppImage, or deb install paths.
+      dmg, zip, AppImage, or deb install paths. Validate an extracted replacement before
+      atomically swapping it so a corrupt payload cannot delete a prior app directory.
 - [x] Build Linux x64, Linux arm64, and macOS arm64 payload packages on native CI
       runners. Intel macOS and Windows are not release targets.
 - [ ] Publish the first matched-version platform packages and `hvir` launcher from a tag,
@@ -135,6 +142,11 @@ is an ADR conversation, not a quiet addition here.
 
 ## Automated implementation evidence (2026-07-15)
 
+- Review hardening passed seam enforcement, lint, both TypeScript builds, 40 test files /
+  280 tests, and the production Electron smoke. The added regressions cover macOS
+  Option-bracket matching, bounded OSC discard, ragged/truncated CSVs, line-bearing
+  terminal targets, and corrupt/valid npm payload swaps; the smoke now checks modal
+  shortcut isolation, visible settings validation, and empty-viewer auto-collapse.
 - `npm run gauntlet` passed seam enforcement, scoped lint, both TypeScript builds, 39 test
   files / 272 tests, the production workflow smoke, and the 30-second capacity smoke.
 - The capacity run mounted 12 live terminals and measured **17.7 ms p99 / 17.8 ms max**

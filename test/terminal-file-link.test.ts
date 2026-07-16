@@ -29,10 +29,11 @@ describe('terminal file links', () => {
   })
 
   it('keeps relative and absolute targets inside the active workspace', () => {
-    expect(resolveTerminalFileTarget('src/main.ts:9', root)?.path).toBe(
-      '/srv/project/src/main.ts',
-    )
-    expect(resolveTerminalFileTarget('/srv/project/README.md', root)?.path).toBe(
+    expect(resolveTerminalFileTarget('src/main.ts:9', root)).toEqual({
+      path: hostPath(asHostId('remote'), '/srv/project/src/main.ts'),
+      line: 9,
+    })
+    expect(resolveTerminalFileTarget('/srv/project/README.md', root)?.path.path).toBe(
       '/srv/project/README.md',
     )
     expect(resolveTerminalFileTarget('../secret', root)).toBeUndefined()

@@ -19,7 +19,7 @@ export function SettingsDialog({
 }: SettingsDialogProps): ReactElement {
   const dialog = useRef<HTMLElement>(null)
   const [nextTheme, setNextTheme] = useState(theme)
-  const [idleSeconds, setIdleSeconds] = useState(settings.idleThresholdMs / 1000)
+  const [idleSeconds, setIdleSeconds] = useState(String(settings.idleThresholdMs / 1000))
   const [recoveryMode, setRecoveryMode] = useState(settings.terminalRecoveryMode)
   const [terminalTheme, setTerminalTheme] = useState(settings.terminalTheme)
   const [keybindings, setKeybindings] = useState(
@@ -30,7 +30,9 @@ export function SettingsDialog({
   useEffect(() => {
     const frame = requestAnimationFrame(() => dialog.current?.focus())
     const keydown = (event: KeyboardEvent): void => {
-      if (event.key === 'Escape') onClose()
+      if (event.key === 'Escape' && !(event.target instanceof HTMLTextAreaElement)) {
+        onClose()
+      }
     }
     window.addEventListener('keydown', keydown)
     return () => {
@@ -41,9 +43,18 @@ export function SettingsDialog({
 
   const save = (): void => {
     try {
+      const parsedIdleSeconds = Number(idleSeconds)
+      if (
+        idleSeconds.trim().length === 0 ||
+        !Number.isFinite(parsedIdleSeconds) ||
+        parsedIdleSeconds < 0.5 ||
+        parsedIdleSeconds > 60
+      ) {
+        throw new Error('Idle threshold must be between 0.5 and 60 seconds')
+      }
       const parsed: unknown = JSON.parse(keybindings)
       onSave(nextTheme, {
-        idleThresholdMs: idleSeconds * 1000,
+        idleThresholdMs: parsedIdleSeconds * 1000,
         terminalRecoveryMode: recoveryMode,
         terminalTheme,
         keybindings: parseKeybindingOverrides(parsed),
@@ -99,7 +110,11 @@ export function SettingsDialog({
                 max="60"
                 step="0.5"
                 value={idleSeconds}
-                onChange={(event) => setIdleSeconds(event.currentTarget.valueAsNumber)}
+                aria-invalid={Boolean(error && /idle threshold/i.test(error))}
+                onChange={(event) => {
+                  setIdleSeconds(event.currentTarget.value)
+                  setError(undefined)
+                }}
               />
               seconds
             </span>
@@ -123,7 +138,10 @@ export function SettingsDialog({
             <textarea
               spellCheck={false}
               value={keybindings}
-              onChange={(event) => setKeybindings(event.currentTarget.value)}
+              onChange={(event) => {
+                setKeybindings(event.currentTarget.value)
+                setError(undefined)
+              }}
             />
             <small>
               Use Mod for Command on macOS and Ctrl on Linux. Changes apply after Save.

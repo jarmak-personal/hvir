@@ -21,7 +21,10 @@ import {
 import { PaneResizer } from '../layout/PaneResizer'
 import type { TerminalRecoveryMode, TerminalThemeOverride } from '../settings/settings'
 import { useAppTheme } from '../theme'
-import { resolveTerminalFileTarget } from './terminal-file-link'
+import {
+  resolveTerminalFileTarget,
+  type ResolvedTerminalFileTarget,
+} from './terminal-file-link'
 import { TerminalView } from './TerminalView'
 
 interface TerminalSession {
@@ -48,7 +51,7 @@ interface TerminalWorkspaceProps {
   readonly visible: boolean
   readonly label: string
   readonly onRollup: (workspaceId: string, rollup: TerminalWorkspaceRollup) => void
-  readonly onOpenPath: (path: HostPath) => void
+  readonly onOpenPath: (target: ResolvedTerminalFileTarget) => void
   readonly idleThresholdMs: number
   readonly recoveryMode: TerminalRecoveryMode
   readonly terminalTheme: TerminalThemeOverride
@@ -554,8 +557,8 @@ export function TerminalWorkspace({
             onBell={() => raiseAttention(session.id, 'bell')}
             onFocus={() => focusSession(session.id)}
             onLink={(target) => {
-              const path = resolveTerminalFileTarget(target, workspaceRoot)
-              if (path) onOpenPath(path)
+              const resolved = resolveTerminalFileTarget(target, workspaceRoot)
+              if (resolved) onOpenPath(resolved)
             }}
           />
         ))}

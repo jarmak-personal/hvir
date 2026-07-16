@@ -7,6 +7,7 @@ import {
   readFileSync,
   renameSync,
   rmSync,
+  statSync,
 } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import process from 'node:process'
@@ -40,10 +41,38 @@ if (!executableInstalled()) {
       )
     }
     const extractedApplication = join(temporaryDirectory, 'app')
-    rmSync(applicationDirectory, { force: true, recursive: true })
-    renameSync(extractedApplication, applicationDirectory)
-    if (!executableInstalled()) {
-      throw new Error(`hvir executable is missing after extraction: ${executable}`)
+    const extractedExecutable = resolve(temporaryDirectory, metadata.executable)
+    if (
+      !existsSync(extractedApplication) ||
+      !statSync(extractedApplication).isDirectory()
+    ) {
+      throw new Error('hvir platform payload does not contain an app directory')
+    }
+    try {
+      accessSync(extractedExecutable, constants.X_OK)
+    } catch {
+      throw new Error(
+        `hvir platform payload is missing its executable: ${extractedExecutable}`,
+      )
+    }
+
+    // Keep a known-good installation until the validated replacement is in
+    // place. Both paths are below the package directory, so these renames are
+    // atomic on the same filesystem.
+    const previousApplication = join(temporaryDirectory, 'previous-app')
+    const hadPreviousApplication = existsSync(applicationDirectory)
+    if (hadPreviousApplication) renameSync(applicationDirectory, previousApplication)
+    try {
+      renameSync(extractedApplication, applicationDirectory)
+      if (!executableInstalled()) {
+        throw new Error(`hvir executable is missing after extraction: ${executable}`)
+      }
+    } catch (reason) {
+      rmSync(applicationDirectory, { force: true, recursive: true })
+      if (hadPreviousApplication) {
+        renameSync(previousApplication, applicationDirectory)
+      }
+      throw reason
     }
   } finally {
     rmSync(temporaryDirectory, { force: true, recursive: true })

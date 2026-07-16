@@ -42,7 +42,11 @@ import { GitPanel } from './git/GitPanel'
 import { GitGraphView } from './git/GitGraphView'
 import { FileViewer } from './viewer/FileViewer'
 import { TabStrip } from './viewer/TabStrip'
-import type { ViewerPaneId, ViewerTab } from './viewer/tab-state'
+import type {
+  ViewerNavigationPosition,
+  ViewerPaneId,
+  ViewerTab,
+} from './viewer/tab-state'
 import { setAppTheme, useAppTheme } from './theme'
 import { SettingsDialog } from './settings/SettingsDialog'
 import { matchesKeybinding, type KeybindingAction } from './settings/keybindings'
@@ -79,6 +83,7 @@ export function App(): ReactElement {
   const gitGraphActiveRef = useRef(false)
   const workspaceSwitchRef = useRef<(direction: -1 | 1) => void>(() => undefined)
   const fileReadGenerations = useRef(new Map<string, number>())
+  const nextViewerNavigation = useRef(0)
   const discardDirtyOnUnload = useRef(false)
   const watchHandler = useRef<(event: WatchEvent) => void>(() => undefined)
   const pendingScroll = useRef<
@@ -476,13 +481,13 @@ export function App(): ReactElement {
   useEffect(() => {
     const keydown = (event: KeyboardEvent): void => {
       if (event.defaultPrevented) return
+      // Modal dialogs own the keyboard even when the browser reports body as
+      // the target (for example after clicking their backdrop).
+      if (document.querySelector('[aria-modal="true"]')) return
       const action = (
         Object.entries(settings.keybindings) as [KeybindingAction, string][]
       ).find(([, binding]) => matchesKeybinding(event, binding))?.[0]
       if (!action) return
-      if (event.target instanceof Element && event.target.closest('.project-dialog')) {
-        return
-      }
       if (
         action === 'cycleViewMode' &&
         event.target instanceof Element &&
@@ -567,12 +572,16 @@ export function App(): ReactElement {
     context: FileOpenContext = 'file-tree',
     diffBase: DiffBase = 'head',
     diffRevision?: string,
+    position?: Omit<ViewerNavigationPosition, 'serial'>,
   ): void => {
     setTerminalFocused(false)
     setGitGraphActive(false)
     const id = tabId(path)
     const existing = tabsRef.current.find((tab) => tab.id === id)
     const targetPane = existing?.pane ?? (viewerSplit ? activePaneRef.current : 'primary')
+    const navigation = position
+      ? { ...position, serial: (nextViewerNavigation.current += 1) }
+      : undefined
     setTabs((current) => {
       const existing = current.find((tab) => tab.id === id)
       if (existing) {
@@ -581,9 +590,10 @@ export function App(): ReactElement {
             ? {
                 ...tab,
                 pinned: pinned || tab.pinned,
-                mode: context === 'git' ? 'diff' : tab.mode,
+                mode: position ? 'source' : context === 'git' ? 'diff' : tab.mode,
                 diffBase: context === 'git' ? diffBase : tab.diffBase,
                 diffRevision: context === 'git' ? diffRevision : undefined,
+                navigation,
               }
             : tab,
         )
@@ -593,10 +603,11 @@ export function App(): ReactElement {
         path,
         pane: targetPane,
         pinned,
-        mode: defaultViewMode(path, context),
+        mode: position ? 'source' : defaultViewMode(path, context),
         diffBase,
         diffRevision,
         scrollTop: 0,
+        navigation,
         loading: true,
         dirty: false,
         conflict: false,
@@ -622,6 +633,15 @@ export function App(): ReactElement {
       !window.confirm(`Close ${basenameHostPath(closing.path)} without saving?`)
     ) {
       return
+    }
+    const closesLastSecondary =
+      closing?.pane === 'secondary' &&
+      !tabsRef.current.some((tab) => tab.pane === 'secondary' && tab.id !== id)
+    if (closesLastSecondary) {
+      if (activePaneRef.current === 'secondary') activePaneRef.current = 'primary'
+      activeByPaneRef.current.secondary = undefined
+      setViewerSplit(false)
+      if (rootRef.current) persistLayout(rootRef.current, { viewerSplit: false })
     }
     fileReadGenerations.current.set(id, (fileReadGenerations.current.get(id) ?? 0) + 1)
     setTabs((current) => {
@@ -1082,6 +1102,14 @@ export function App(): ReactElement {
             onScroll={(scrollTop) =>
               paneTab && scheduleScrollPersistence(paneTab.id, scrollTop)
             }
+            onNavigationHandled={(serial) =>
+              paneTab &&
+              updateTab(paneTab.id, (tab) =>
+                tab.navigation?.serial === serial
+                  ? { ...tab, navigation: undefined }
+                  : tab,
+              )
+            }
             onOpenPath={(path) => {
               activePaneRef.current = pane
               if (paneTab) {
@@ -1345,7 +1373,18 @@ export function App(): ReactElement {
               visible={workspace.id === projectState.activeWorkspaceId}
               connectionState={project.connectionState}
               onRollup={updateTerminalRollup}
-              onOpenPath={(path) => openFile(path, true)}
+              onOpenPath={(target) =>
+                openFile(
+                  target.path,
+                  true,
+                  'file-tree',
+                  'head',
+                  undefined,
+                  target.line === undefined
+                    ? undefined
+                    : { line: target.line, column: target.column },
+                )
+              }
               idleThresholdMs={settings.idleThresholdMs}
               recoveryMode={settings.terminalRecoveryMode}
               terminalTheme={settings.terminalTheme}

@@ -23,6 +23,7 @@ export const DEFAULT_KEYBINDINGS: KeybindingMap = {
 
 interface KeyboardStroke {
   readonly key: string
+  readonly code?: string
   readonly ctrlKey: boolean
   readonly metaKey: boolean
   readonly altKey: boolean
@@ -71,8 +72,13 @@ export function matchesKeybinding(
 ): boolean {
   const parsed = parseKeybinding(binding)
   const modDown = mac ? event.metaKey : event.ctrlKey
+  const bracketCode =
+    parsed.key === '[' ? 'BracketLeft' : parsed.key === ']' ? 'BracketRight' : undefined
+  const keyMatches = bracketCode
+    ? event.code === bracketCode || event.key === parsed.key
+    : event.key.toLowerCase() === parsed.key.toLowerCase()
   return (
-    event.key.toLowerCase() === parsed.key.toLowerCase() &&
+    keyMatches &&
     event.altKey === parsed.alt &&
     event.shiftKey === parsed.shift &&
     event.ctrlKey === (parsed.ctrl || (parsed.mod && !mac)) &&

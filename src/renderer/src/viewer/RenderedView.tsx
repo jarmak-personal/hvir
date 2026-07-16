@@ -232,32 +232,43 @@ function CsvView({
   if (error) return <div className="viewer-empty error">Invalid CSV: {error}</div>
   if (!table) return <div className="viewer-empty">Parsing CSV…</div>
   const [headings = [], ...rows] = table.rows
+  const visibleColumns = table.rows.reduce(
+    (maximum, row) => Math.max(maximum, row.length),
+    0,
+  )
+  const columnIndexes = Array.from({ length: visibleColumns }, (_, index) => index)
+  const notes = [
+    table.truncated
+      ? `Showing ${table.rows.length.toLocaleString()} of ${table.totalRows.toLocaleString()} rows`
+      : undefined,
+    table.columnsTruncated
+      ? `first ${visibleColumns.toLocaleString()} of ${table.totalColumns.toLocaleString()} columns`
+      : undefined,
+  ].filter((note): note is string => Boolean(note))
   return (
     <div
       className="rendered-scroll csv-view"
       ref={container}
       onScroll={(event) => onScroll(event.currentTarget.scrollTop)}
     >
-      {table.truncated ? (
-        <div className="csv-note">
-          Showing {table.rows.length.toLocaleString()} of{' '}
-          {table.totalRows.toLocaleString()} rows
-        </div>
-      ) : null}
+      {notes.length > 0 ? <div className="csv-note">{notes.join(' · ')}</div> : null}
       <table>
         <thead>
           <tr>
-            {headings.map((heading, index) => (
-              <th key={index} title={heading}>
-                {heading || `Column ${index + 1}`}
-              </th>
-            ))}
+            {columnIndexes.map((index) => {
+              const heading = headings[index] ?? ''
+              return (
+                <th key={index} title={heading}>
+                  {heading || `Column ${index + 1}`}
+                </th>
+              )
+            })}
           </tr>
         </thead>
         <tbody>
           {rows.map((row, rowIndex) => (
             <tr key={rowIndex}>
-              {headings.map((_heading, columnIndex) => (
+              {columnIndexes.map((columnIndex) => (
                 <td key={columnIndex} title={row[columnIndex] ?? ''}>
                   {row[columnIndex] ?? ''}
                 </td>

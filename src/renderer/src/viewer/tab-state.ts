@@ -2,6 +2,12 @@ import type { DiffBase, HostPath, ReadFileResponse, ViewMode } from '../../../sh
 
 export type ViewerPaneId = 'primary' | 'secondary'
 
+export interface ViewerNavigationPosition {
+  readonly line: number
+  readonly column?: number
+  readonly serial: number
+}
+
 export interface ViewerTab {
   readonly id: string
   readonly path: HostPath
@@ -11,6 +17,7 @@ export interface ViewerTab {
   readonly diffBase: DiffBase
   readonly diffRevision?: string
   readonly scrollTop: number
+  readonly navigation?: ViewerNavigationPosition
   readonly file?: ReadFileResponse
   readonly loading: boolean
   readonly error?: string

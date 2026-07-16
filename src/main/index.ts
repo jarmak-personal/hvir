@@ -2418,13 +2418,13 @@ async function runSmoke(): Promise<number> {
                   return requestAnimationFrame(() => {
                     const after = document.querySelector('.viewer-group-primary')?.getBoundingClientRect().width || 0;
                     if (after <= before) return reject(new Error('viewer split did not resize'));
-                    document.querySelector('[aria-label="Close secondary viewer"]')?.click();
+                    secondaryTab.querySelector('.tab-close')?.click();
                     const waitForClose = () => {
                       if (!document.querySelector('.viewer-group-secondary') &&
                           document.querySelectorAll('.viewer-group-primary .viewer-tab').length > 0) {
                         return terminalSplit();
                       }
-                      if (Date.now() > deadline) return reject(new Error('viewer split did not close safely'));
+                      if (Date.now() > deadline) return reject(new Error('empty viewer split did not auto-collapse'));
                       setTimeout(waitForClose, 50);
                     };
                     waitForClose();
@@ -2493,13 +2493,46 @@ async function runSmoke(): Promise<number> {
                 !keybindings.value.includes('toggleTerminalFocus')) {
               return reject(new Error('settings surface incomplete'));
             }
-            [...dialog.querySelectorAll('button')]
-              .find((button) => button.textContent?.trim() === 'Cancel')?.click();
+            const terminalFocused = document.querySelector('.workbench')
+              ?.classList.contains('terminal-focused');
+            document.body.dispatchEvent(new KeyboardEvent('keydown', {
+              key: 'J', code: 'KeyJ', bubbles: true, shiftKey: true,
+              metaKey: navigator.platform.includes('Mac'),
+              ctrlKey: !navigator.platform.includes('Mac')
+            }));
+            keybindings.dispatchEvent(new KeyboardEvent('keydown', {
+              key: 'Escape', bubbles: true
+            }));
             requestAnimationFrame(() => {
-              if (document.querySelector('.settings-dialog')) {
-                return reject(new Error('settings dialog did not close'));
+              const openDialog = document.querySelector('.settings-dialog');
+              if (!openDialog || document.querySelector('.workbench')
+                  ?.classList.contains('terminal-focused') !== terminalFocused) {
+                return reject(new Error('settings modal leaked a global shortcut or textarea Escape'));
               }
-              resolve(fields + ' controls · JSON keybinding map');
+              const idle = openDialog.querySelector('input[type="number"]');
+              if (!idle) return reject(new Error('idle threshold control missing'));
+              Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')
+                ?.set?.call(idle, '');
+              idle.dispatchEvent(new Event('input', { bubbles: true }));
+              requestAnimationFrame(() => {
+                [...openDialog.querySelectorAll('button')]
+                  .find((button) => button.textContent?.trim() === 'Save')?.click();
+                requestAnimationFrame(() => {
+                  const validation = document.querySelector('.settings-dialog .dialog-error')
+                    ?.textContent || '';
+                  if (!/idle threshold/i.test(validation)) {
+                    return reject(new Error('blank idle threshold did not show validation'));
+                  }
+                  [...openDialog.querySelectorAll('button')]
+                    .find((button) => button.textContent?.trim() === 'Cancel')?.click();
+                  requestAnimationFrame(() => {
+                    if (document.querySelector('.settings-dialog')) {
+                      return reject(new Error('settings dialog did not close'));
+                    }
+                    resolve(fields + ' controls · modal isolation · validation');
+                  });
+                });
+              });
             });
           });
         })

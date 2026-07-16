@@ -36,5 +36,15 @@ describe('terminal signal parser', () => {
 
     expect(parser.consume(malformed).bells).toBe(0)
     expect(parser.consume('plain text').bells).toBe(0)
+    expect(parser.consume(`still payload\u0007plain\u0007`).bells).toBe(1)
+  })
+
+  it('discards an oversized OSC through a split string terminator', () => {
+    const parser = new TerminalSignalParser()
+    const malformed = `\u001b]0;${'x'.repeat(70 * 1024)}`
+
+    parser.consume(malformed)
+    expect(parser.consume('payload\u001b').bells).toBe(0)
+    expect(parser.consume('\\\u0007').bells).toBe(1)
   })
 })

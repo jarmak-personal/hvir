@@ -12,6 +12,12 @@ export interface ParsedTerminalFileTarget {
   readonly column?: number
 }
 
+export interface ResolvedTerminalFileTarget {
+  readonly path: HostPath
+  readonly line?: number
+  readonly column?: number
+}
+
 const TOKEN = /[^\s<>"'`|]+/g
 const TRAILING_PUNCTUATION = /[.),;!?}\]]+$/
 const LEADING_PUNCTUATION = /^[([{]+/
@@ -75,16 +81,21 @@ export function parseTerminalFileTarget(
 export function resolveTerminalFileTarget(
   rawTarget: string,
   workspaceRoot: HostPath,
-): HostPath | undefined {
+): ResolvedTerminalFileTarget | undefined {
   const parsed = parseTerminalFileTarget(rawTarget)
   if (!parsed) return undefined
   const candidate = parsed.path.startsWith('/')
     ? hostPath(workspaceRoot.hostId, parsed.path)
     : joinHostPath(workspaceRoot, parsed.path)
   const root = workspaceRoot.path
-  if (root === '/') return candidate
+  const resolved = {
+    path: candidate,
+    ...(parsed.line === undefined ? {} : { line: parsed.line }),
+    ...(parsed.column === undefined ? {} : { column: parsed.column }),
+  }
+  if (root === '/') return resolved
   if (candidate.path !== root && !candidate.path.startsWith(`${root}/`)) return undefined
-  return candidate
+  return resolved
 }
 
 export function isFileUri(target: string): boolean {

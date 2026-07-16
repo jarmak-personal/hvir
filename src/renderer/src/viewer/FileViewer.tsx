@@ -94,6 +94,7 @@ interface FileViewerProps {
   readonly onSave: () => void
   readonly onReload: () => void
   readonly onScroll: (scrollTop: number) => void
+  readonly onNavigationHandled: (serial: number) => void
   readonly onOpenPath: (path: HostPath) => void
   readonly refreshVersion: number
 }
@@ -106,6 +107,7 @@ export function FileViewer({
   onSave,
   onReload,
   onScroll,
+  onNavigationHandled,
   onOpenPath,
   refreshVersion,
 }: FileViewerProps): ReactElement {
@@ -234,6 +236,7 @@ export function FileViewer({
             refreshVersion={refreshVersion}
             codeScrollAnchor={codeScrollAnchor}
             codeScrollCapture={codeScrollCapture}
+            onNavigationHandled={onNavigationHandled}
           />
         ) : null}
       </div>
@@ -270,6 +273,7 @@ function ActiveView({
   refreshVersion,
   codeScrollAnchor,
   codeScrollCapture,
+  onNavigationHandled,
 }: {
   readonly tab: ViewerTab
   readonly file: NonNullable<ViewerTab['file']>
@@ -282,6 +286,7 @@ function ActiveView({
   readonly refreshVersion: number
   readonly codeScrollAnchor: CodeScrollAnchor
   readonly codeScrollCapture: CodeScrollCapture
+  readonly onNavigationHandled: (serial: number) => void
 }): ReactElement {
   if (tab.mode === 'rendered') {
     return (
@@ -334,6 +339,8 @@ function ActiveView({
       blameStatus={blameStatus}
       codeScrollAnchor={codeScrollAnchor}
       codeScrollCapture={codeScrollCapture}
+      navigation={tab.navigation}
+      onNavigationHandled={onNavigationHandled}
     />
   )
 }
@@ -384,6 +391,8 @@ function SourceView({
   blameStatus,
   codeScrollAnchor,
   codeScrollCapture,
+  navigation,
+  onNavigationHandled,
 }: {
   readonly pathKey: string
   readonly content: string
@@ -396,6 +405,8 @@ function SourceView({
   readonly blameStatus: string
   readonly codeScrollAnchor: CodeScrollAnchor
   readonly codeScrollCapture: CodeScrollCapture
+  readonly navigation?: ViewerTab['navigation']
+  readonly onNavigationHandled: (serial: number) => void
 }): ReactElement {
   const theme = useAppTheme()
   const container = useRef<HTMLDivElement>(null)
@@ -467,6 +478,26 @@ function SourceView({
     // A path change is a new editor. Content synchronization is handled below.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pathKey])
+
+  useEffect(() => {
+    if (!navigation) return
+    const frame = requestAnimationFrame(() => {
+      const editor = view.current
+      if (!editor) return
+      const line = editor.state.doc.line(
+        Math.min(editor.state.doc.lines, Math.max(1, Math.floor(navigation.line))),
+      )
+      const columnOffset = Math.max(0, Math.floor((navigation.column ?? 1) - 1))
+      const position = Math.min(line.to, line.from + columnOffset)
+      codeScrollAnchor.current = line.number
+      editor.dispatch({
+        selection: { anchor: position },
+        effects: EditorView.scrollIntoView(position, { y: 'center' }),
+      })
+      onNavigationHandled(navigation.serial)
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [codeScrollAnchor, navigation, onNavigationHandled])
 
   useEffect(() => {
     view.current?.dispatch({

@@ -1,7 +1,9 @@
 export interface CsvTableData {
   readonly rows: readonly (readonly string[])[]
   readonly totalRows: number
+  readonly totalColumns: number
   readonly truncated: boolean
+  readonly columnsTruncated: boolean
 }
 
 const DEFAULT_MAX_ROWS = 500
@@ -15,19 +17,28 @@ export function parseCsv(
 ): CsvTableData {
   const rows: string[][] = []
   let totalRows = 0
+  let totalColumns = 0
+  let columnsTruncated = false
   let row: string[] = []
+  let rowColumns = 0
   let field = ''
   let quoted = false
 
   const finishField = (): void => {
     if (row.length < maxColumns) row.push(field)
+    rowColumns += 1
     field = ''
   }
   const finishRow = (): void => {
     finishField()
     totalRows += 1
-    if (rows.length < maxRows) rows.push(row)
+    totalColumns = Math.max(totalColumns, rowColumns)
+    if (rows.length < maxRows) {
+      columnsTruncated ||= rowColumns > maxColumns
+      rows.push(row)
+    }
     row = []
+    rowColumns = 0
   }
 
   for (let index = 0; index < source.length; index += 1) {
@@ -66,5 +77,11 @@ export function parseCsv(
   ) {
     finishRow()
   }
-  return { rows, totalRows, truncated: totalRows > rows.length }
+  return {
+    rows,
+    totalRows,
+    totalColumns,
+    truncated: totalRows > rows.length,
+    columnsTruncated,
+  }
 }

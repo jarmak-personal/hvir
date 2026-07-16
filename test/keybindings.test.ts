@@ -39,4 +39,19 @@ describe('configurable keybindings', () => {
       ),
     ).toBe(true)
   })
+
+  it('matches bracket chords by physical key when macOS Option changes event.key', () => {
+    const event = {
+      key: '’',
+      code: 'BracketRight',
+      ctrlKey: false,
+      metaKey: true,
+      altKey: true,
+      shiftKey: false,
+    }
+    expect(matchesKeybinding(event, 'Mod+Alt+]', true)).toBe(true)
+    expect(matchesKeybinding({ ...event, code: 'BracketLeft' }, 'Mod+Alt+]', true)).toBe(
+      false,
+    )
+  })
 })

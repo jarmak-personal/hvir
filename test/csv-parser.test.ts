@@ -13,7 +13,9 @@ describe('CSV renderer parser', () => {
         ['Lin', 'two\nlines'],
       ],
       totalRows: 3,
+      totalColumns: 2,
       truncated: false,
+      columnsTruncated: false,
     })
   })
 
@@ -24,7 +26,19 @@ describe('CSV renderer parser', () => {
         ['1', '2'],
       ],
       totalRows: 3,
+      totalColumns: 3,
       truncated: true,
+      columnsTruncated: true,
+    })
+  })
+
+  it('reports ragged width even when the header and stored columns are shorter', () => {
+    expect(parseCsv('name\nAda,engineer,London', 10, 2)).toEqual({
+      rows: [['name'], ['Ada', 'engineer']],
+      totalRows: 2,
+      totalColumns: 3,
+      truncated: false,
+      columnsTruncated: true,
     })
   })
 
