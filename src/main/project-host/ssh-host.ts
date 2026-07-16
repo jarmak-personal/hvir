@@ -1206,6 +1206,7 @@ export class SshHost implements ProjectHost {
         } catch (error) {
           throw new Error(
             `SSH ${role} capacity could not grow; existing sessions remain connected: ${asError(error).message}`,
+            { cause: error },
           )
         }
         resolveResult(this.reserveOnTransport(transport))
