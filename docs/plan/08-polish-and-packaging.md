@@ -146,7 +146,8 @@ is an ADR conversation, not a quiet addition here.
   280 tests, and the production Electron smoke. The added regressions cover macOS
   Option-bracket matching, bounded OSC discard, ragged/truncated CSVs, line-bearing
   terminal targets, and corrupt/valid npm payload swaps; the smoke now checks modal
-  shortcut isolation, visible settings validation, and empty-viewer auto-collapse.
+  shortcut isolation, visible settings validation, and empty-viewer auto-collapse. SSH
+  refresh pulses retain cached tree contents without flashing first-load indicators.
 - `npm run gauntlet` passed seam enforcement, scoped lint, both TypeScript builds, 39 test
   files / 272 tests, the production workflow smoke, and the 30-second capacity smoke.
 - The capacity run mounted 12 live terminals and measured **17.7 ms p99 / 17.8 ms max**

@@ -127,6 +127,7 @@ function DirectoryNode({
   const [entries, setEntries] = useState<readonly DirEntry[]>([])
   const [ignoredNames, setIgnoredNames] = useState<ReadonlySet<string>>(new Set())
   const [loading, setLoading] = useState(false)
+  const [loadedOnce, setLoadedOnce] = useState(false)
   const [error, setError] = useState<string>()
   const isSelected = Boolean(selected && hostPathEquals(selected, stablePath))
   const gitDecoration = gitDecorations?.directories.get(treeGitPathKey(stablePath))
@@ -159,7 +160,10 @@ function DirectoryNode({
           setError(reason instanceof Error ? reason.message : String(reason))
       })
       .finally(() => {
-        if (!cancelled) setLoading(false)
+        if (!cancelled) {
+          setLoading(false)
+          setLoadedOnce(true)
+        }
       })
     return () => {
       cancelled = true
@@ -239,7 +243,7 @@ function DirectoryNode({
         <span className="tree-name">{label}</span>
         {gitIgnoredRoot ? <span className="tree-gitignored">ignored</span> : null}
         {gitDecoration ? <DirectoryGitStatus decoration={gitDecoration} /> : null}
-        {loading ? <span className="tree-loading">…</span> : null}
+        {loading && !loadedOnce ? <span className="tree-loading">…</span> : null}
       </button>
       {open && error ? (
         <div className="tree-error" style={{ paddingLeft: 24 + depth * 14 }}>
