@@ -24,6 +24,10 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v7
+        with:
+          # PRs default to a depth-1 detached merge ref. The Git smoke exercises
+          # branch-point behavior and therefore needs the base branch topology.
+          fetch-depth: 0
 
       - name: Set up Node.js
         uses: actions/setup-node@v7
