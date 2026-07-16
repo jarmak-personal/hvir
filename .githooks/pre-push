@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+cd "$(git rev-parse --show-toplevel)"
+
+echo "[pre-push] Running hvir's local-platform Electron smoke test..."
+
+if [[ "$(uname -s)" == "Linux" && -z "${DISPLAY:-}" ]]; then
+  if ! command -v xvfb-run >/dev/null 2>&1; then
+    echo "[pre-push] Linux has no DISPLAY and xvfb-run is unavailable." >&2
+    echo "[pre-push] Install Xvfb, provide DISPLAY, or use git push --no-verify." >&2
+    exit 1
+  fi
+  exec xvfb-run -a npm run smoke
+fi
+
+exec npm run smoke

@@ -64,6 +64,17 @@ check is:
 npm run gauntlet
 ```
 
+Contributors can opt into the repository's pre-push hook:
+
+```sh
+npm run hooks:install
+```
+
+The hook runs `npm run smoke` using the machine's installed Electron platform and
+architecture. Headless Linux uses `xvfb-run` when available. The full gauntlet remains
+the authoritative CI gate; use `git push --no-verify` when a deliberate local bypass is
+needed.
+
 Build the npm payload for the current supported platform with the matching
 `pack:npm:*` script. See the
 [performance gauntlet](docs/phase8-performance-gauntlet.md) and

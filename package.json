@@ -40,6 +40,7 @@
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
+    "hooks:install": "bash scripts/install-git-hooks.sh",
     "test": "vitest run",
     "test:watch": "vitest",
     "check-seams": "bash scripts/check-seams.sh",
