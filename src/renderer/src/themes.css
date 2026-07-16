@@ -106,10 +106,27 @@
   color: var(--text);
 }
 
-:root[data-theme='light'] :is(.session-bar, .directory-row) {
+:root[data-theme='light'] .directory-row {
   color: var(--text);
   background: var(--surface-1);
   border-color: var(--border-subtle);
+}
+
+:root[data-theme='light'] .project-connection-menu {
+  color: var(--text);
+  background: var(--surface-1);
+  border-color: var(--border-strong);
+  box-shadow: 0 12px 32px rgb(48 57 70 / 24%);
+}
+
+:root[data-theme='light'] .project-connection-menu header strong {
+  color: var(--text);
+}
+
+:root[data-theme='light'] .project-connection-actions button {
+  color: var(--text-muted);
+  background: var(--surface-2);
+  border-color: var(--border-strong);
 }
 
 :root[data-theme='light'] .remote-connection-badge {

@@ -477,17 +477,22 @@ and opened content answer the same “what was committed on this branch?” ques
 ### ADR-008 — Workspaces: project → worktree tiers
 **Decision:** A two-tier model. The **project** (the main repo) is the *registration*
 unit — the thing you add to hvir. **Worktrees** are *discovered* children
-(`git worktree list`), each one a workspace. The tier collapses when trivial — a project
-with only its main checkout shows no worktree layer — and a plain non-git directory is a
-degenerate single-workspace project, so the model has no special cases.
+(`git worktree list`), each one a workspace. The workspace tier remains visible even when
+there is only the main checkout, giving branch/workspace context one stable home. A plain
+non-git directory is a degenerate single-workspace project, so the model has no special
+cases.
 **Why:** The project boundary is the one harnesses care about (CLAUDE.md, config, trust
 are project-scoped). It gives notifications a natural rollup path (terminal → worktree →
-project). And because worktrees are *discovered, never managed*, hvir stays out of
-worktree lifecycle entirely — protecting the "not an orchestrator" non-goal (§2). New
+project), and a persistent workspace tier keeps the hierarchy from changing shape when a
+second worktree appears. Because worktrees are *discovered, never managed*, hvir stays out
+of worktree lifecycle entirely — protecting the "not an orchestrator" non-goal (§2). New
 agent workspaces simply appear.
 **Rejected:** flat workspace-per-directory (loses the project boundary); hvir-managed
 worktree creation/cleanup (one step from branch naming and merge-back — orchestration
-creep).
+creep); collapsing the workspace tier when trivial (hides branch context and makes the
+hierarchy move when worktrees appear); a separate local/remote host strip above the left
+rail (duplicates project-tab identity and wastes vertical space). SSH connection controls
+live behind the active project's connection badge; local projects need no host chrome.
 
 #### Phase 7 addendum — 2026-07-14: persisted discovery and multi-root Git authority
 
@@ -824,7 +829,7 @@ filesystem directly.
 ```
 ┌────────────────────────────────────────────────────────────────────┐
 │ Projects bar — project tabs (host badge, dots/changed-count        │
-│ rollups); worktree workspace tier beneath, collapsed when trivial  │
+│ rollups); persistent worktree/workspace context tier beneath       │
 ├──────────┬────────────────────────────────────────┬────────────────┤
 │ Left     │ Viewer — tabs w/ view mode             │                │
 │ rail     │ (rendered / source / diff),            │  Right rail    │

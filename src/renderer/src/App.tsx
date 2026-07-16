@@ -35,7 +35,7 @@ import { ProjectsBar } from './workspaces/ProjectsBar'
 import { RemoteConnectionBadge } from './workspaces/ConnectionStatus'
 import { MissingWorkspaceNotice } from './workspaces/MissingWorkspaceNotice'
 import { initialHostConnectionTarget } from './workspaces/initial-host-connection'
-import { FileTree, SessionBar } from './tree/FileTree'
+import { FileTree } from './tree/FileTree'
 import { DirectoryTree } from './tree/DirectoryTree'
 import { isGitIgnoreRulePath } from './tree/git-ignore-refresh'
 import { GitPanel } from './git/GitPanel'
@@ -1194,6 +1194,11 @@ export function App(): ReactElement {
           onDismiss={(projectId, workspaceId) =>
             void dismissWorkspace(projectId, workspaceId)
           }
+          watchTier={watchTier}
+          statusError={sessionError}
+          onChangeConnection={changeSession}
+          onDisconnect={() => void disconnectSession()}
+          onReconnect={() => void reconnectSession()}
           theme={theme}
           onTheme={(nextTheme) => setAppTheme(nextTheme)}
           onSettings={() => setShowSettings(true)}
@@ -1204,17 +1209,6 @@ export function App(): ReactElement {
         ref={workbenchRef}
       >
         <aside className="tree-panel" aria-label="Project rail" tabIndex={-1}>
-          <SessionBar
-            label={root.hostId === 'local' ? 'Local' : `ssh:${root.hostId}`}
-            remote={root.hostId !== 'local'}
-            connectionState={connectionState}
-            watchTier={watchTier}
-            onChange={changeSession}
-            onDisconnect={() => void disconnectSession()}
-            onReconnect={() => void reconnectSession()}
-            busy={sessionBusy}
-            error={sessionError}
-          />
           <nav className="rail-nav" aria-label="Project views">
             <button
               type="button"
