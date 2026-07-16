@@ -144,6 +144,11 @@ is an ADR conversation, not a quiet addition here.
 
 ## Automated implementation evidence (2026-07-15)
 
+- The final clean-tree preflight on 2026-07-16 passed seam enforcement, lint, both
+  TypeScript builds, 40 test files / 282 tests, the production workflow smoke, and the
+  12-terminal capacity/recovery smoke. It also caught and fixed an existing untracked
+  Git tab retaining Diff mode, aligned capacity probes with the headerless terminal
+  surface, and drains native PTY exit callbacks during bounded final shutdown.
 - Review hardening passed seam enforcement, lint, both TypeScript builds, 40 test files /
   281 tests, and the production Electron smoke. The added regressions cover macOS
   Option-bracket matching, bounded OSC discard, ragged/truncated CSVs, line-bearing

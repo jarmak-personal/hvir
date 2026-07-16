@@ -89,6 +89,11 @@ interface PendingEntry {
   cancelled: boolean
 }
 
+interface PendingPtyExit {
+  readonly promise: Promise<void>
+  readonly dispose: Disposer
+}
+
 const MAX_INITIAL_REPLAY_LENGTH = 256 * 1024
 
 export class PtySupervisor {
@@ -357,21 +362,62 @@ export class PtySupervisor {
 
   /** Kill every session while retaining supervisor-lifetime subscriptions. */
   disposeSessions(): void {
+    this.beginSessionDisposal(false)
+  }
+
+  /** Kill every session and release supervisor-lifetime listeners. */
+  disposeAll(): void {
+    this.beginSessionDisposal(false)
+    this.clearLifetimeListeners()
+  }
+
+  /**
+   * Kill every session and let native PTY exit callbacks drain before the app
+   * process ends. A short bound keeps an unresponsive remote PTY from holding
+   * shutdown indefinitely.
+   */
+  async disposeAllAndWait(timeoutMs = 2_000): Promise<void> {
+    const pendingExits = this.beginSessionDisposal(true)
+    this.clearLifetimeListeners()
+    if (pendingExits.length === 0) return
+
+    let timer: ReturnType<typeof setTimeout> | undefined
+    try {
+      await Promise.race([
+        Promise.all(pendingExits.map(({ promise }) => promise)),
+        new Promise<void>((resolve) => {
+          timer = setTimeout(resolve, timeoutMs)
+        }),
+      ])
+    } finally {
+      if (timer) clearTimeout(timer)
+      for (const pending of pendingExits) void pending.dispose()
+    }
+  }
+
+  private beginSessionDisposal(waitForExit: boolean): PendingPtyExit[] {
     this.generation++
     for (const controller of this.discoveryControllers) controller.abort()
     this.discoveryControllers.clear()
     for (const pending of this.pendingIds.values()) pending.cancelled = true
     this.pendingIds.clear()
+    const pendingExits: PendingPtyExit[] = []
     for (const entry of this.entries.values()) {
       for (const dispose of entry.disposers) void dispose()
+      if (waitForExit && !entry.exited) {
+        let disposeExit: Disposer = () => undefined
+        const promise = new Promise<void>((resolve) => {
+          disposeExit = entry.pty.onExit(() => resolve())
+        })
+        pendingExits.push({ promise, dispose: () => disposeExit() })
+      }
       if (!entry.exited) entry.pty.kill()
     }
     this.entries.clear()
+    return pendingExits
   }
 
-  /** Kill every session and release supervisor-lifetime listeners. */
-  disposeAll(): void {
-    this.disposeSessions()
+  private clearLifetimeListeners(): void {
     this.globalExitListeners.clear()
     this.identityListeners.clear()
   }

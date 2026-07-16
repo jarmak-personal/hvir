@@ -312,6 +312,26 @@ describe('PtySupervisor', () => {
     expect(supervisor.list()).toEqual([])
   })
 
+  it('drains native PTY exits during final disposal', async () => {
+    const { supervisor, pty, host, adapter } = fixture()
+    await supervisor.spawn({
+      host,
+      adapter,
+      cwd: localPath('/tmp/project'),
+      ownerId: OWNER_ID,
+      sessionId: 'drained-session',
+    })
+    pty.kill.mockImplementationOnce(() => {
+      queueMicrotask(() => pty.emitExit({ exitCode: 0, signal: undefined }))
+    })
+
+    await supervisor.disposeAllAndWait()
+
+    expect(pty.kill).toHaveBeenCalledOnce()
+    expect(pty.exitListeners.size).toBe(0)
+    expect(supervisor.list()).toEqual([])
+  })
+
   it('cancels a pending spawn when its renderer owner is disposed', async () => {
     const { supervisor, pty, host, adapter, spawnPty } = fixture()
     let finishSpawn: (() => void) | undefined

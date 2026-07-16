@@ -2755,7 +2755,7 @@ async function runSmoke(): Promise<number> {
     console.error('HVIR_SMOKE_FAIL', err)
     return 1
   } finally {
-    supervisor.disposeAll()
+    await supervisor.disposeAllAndWait()
     await stopSmokeWatch?.()
     await host.exec('rm', ['-f', '--', liveReloadPath.path])
     await host.exec('rm', ['-f', '--', largeJsonPath.path])
@@ -2808,9 +2808,8 @@ async function runCapacityRecoverySmoke(
         const waitForTerminals = () => {
           const rows = [...document.querySelectorAll('.terminal-list-row')];
           const surfaces = [...document.querySelectorAll('.terminal-surface')];
-          const activeStatus = document.querySelector(
-            '.terminal-surface.active .panel-meta'
-          )?.textContent || '';
+          const activeStatus = document.querySelector('.terminal-surface.active')
+            ?.getAttribute('data-terminal-status') || '';
           if (rows.length === 12 && surfaces.length === 12 && activeStatus.startsWith('pid ')) {
             const git = document.querySelector('.rail-nav button:nth-child(2)');
             git?.click();
@@ -2893,9 +2892,8 @@ async function runCapacityLoadSmoke(
           shell.click();
           await waitFor(() => {
             const rows = [...document.querySelectorAll('.terminal-list-row')];
-            const activeStatus = document.querySelector(
-              '.terminal-surface.active .panel-meta'
-            )?.textContent || '';
+            const activeStatus = document.querySelector('.terminal-surface.active')
+              ?.getAttribute('data-terminal-status') || '';
             return rows.length === target && activeStatus.startsWith('pid ');
           }, 'terminal ' + target + ' did not settle');
         }
@@ -3115,7 +3113,7 @@ async function shutdown(): Promise<void> {
     console.error('[shutdown] watcher cleanup failed', error),
   )
   await settleWorkspaceRefreshes()
-  ptySupervisor?.disposeAll()
+  await ptySupervisor?.disposeAllAndWait()
   ptySupervisor = null
   attentionBadge?.clear()
   attentionBadge = null

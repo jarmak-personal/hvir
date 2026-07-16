@@ -590,7 +590,11 @@ export function App(): ReactElement {
             ? {
                 ...tab,
                 pinned: pinned || tab.pinned,
-                mode: position ? 'source' : context === 'git' ? 'diff' : tab.mode,
+                mode: position
+                  ? 'source'
+                  : context === 'file-tree'
+                    ? tab.mode
+                    : defaultViewMode(path, context),
                 diffBase: context === 'git' ? diffBase : tab.diffBase,
                 diffRevision: context === 'git' ? diffRevision : undefined,
                 navigation,
