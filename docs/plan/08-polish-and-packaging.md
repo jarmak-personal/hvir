@@ -25,6 +25,8 @@ the load-bearing scenarios, and installable builds for Linux and macOS.
       notebook/other formats — only if trivial, else parking lot.
 - [x] Typography/spacing pass on rendered markdown — this is a "renders beautifully"
       surface; treat readability as the feature.
+- [x] Keep side-by-side CodeMirror diffs vertically scrollable for long files and retain
+      their scroll position with the active viewer tab.
 
 ### Layout
 - [x] Side-by-side panes: split the viewer area (like VSCode), tabs draggable between
@@ -52,6 +54,8 @@ the load-bearing scenarios, and installable builds for Linux and macOS.
       via a simple JSON config. No keymap engine.
 - [x] Minimal settings UI (or settings file + reload): theme, idle threshold,
       resume-on-start behavior, keybindings pointer.
+- [x] Keep the parked Harness rail destination interactive and intentional with a calm
+      coming-soon state; switching to it must preserve mounted Files/Git state.
 
 ### Git branch navigation
 - [x] Add an off-thread, host-agnostic branch model for the active workspace: current or

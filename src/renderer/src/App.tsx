@@ -110,7 +110,7 @@ export function App(): ReactElement {
     readonly hash?: string
   }>({ serial: 0 })
   const [restored, setRestored] = useState(false)
-  const [railMode, setRailMode] = useState<'files' | 'git'>('files')
+  const [railMode, setRailMode] = useState<'files' | 'git' | 'harness'>('files')
   const [gitChanges, setGitChanges] = useState<GitChanges>()
   const [connectionState, setConnectionState] = useState<HostConnectionState>('connected')
   const [watchTier, setWatchTier] = useState<HostWatchTier>('native')
@@ -1152,7 +1152,12 @@ export function App(): ReactElement {
                 Git{changedCount > 0 ? ` ${changedCount}` : ''}
               </button>
             ) : null}
-            <button type="button" disabled title="Harness view lands in Phase 6">
+            <button
+              type="button"
+              className={railMode === 'harness' ? 'active' : ''}
+              aria-current={railMode === 'harness' ? 'page' : undefined}
+              onClick={() => setRailMode('harness')}
+            >
               Harness
             </button>
           </nav>
@@ -1190,6 +1195,17 @@ export function App(): ReactElement {
                 onSwitchBranch={switchGitBranch}
               />
             ) : null}
+            <section
+              className="rail-section harness-placeholder"
+              aria-label="Harness"
+              hidden={railMode !== 'harness'}
+            >
+              <div className="harness-placeholder-copy">
+                <strong>Harness view</strong>
+                <span>Coming soon</span>
+                <p>Agent activity and session context will live here.</p>
+              </div>
+            </section>
           </div>
         </aside>
         <PaneResizer

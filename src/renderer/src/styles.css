@@ -395,6 +395,44 @@ button {
   background: #15181e;
 }
 
+.harness-placeholder {
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  text-align: center;
+}
+
+.harness-placeholder-copy {
+  max-width: 190px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 7px;
+}
+
+.harness-placeholder-copy strong {
+  color: var(--text-strong);
+  font-size: 12px;
+}
+
+.harness-placeholder-copy span {
+  padding: 2px 7px;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  color: var(--text-muted);
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.harness-placeholder-copy p {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 10px;
+  line-height: 1.45;
+}
+
 .viewer-panel {
   grid-column: 3 / 5;
   grid-row: 1;
@@ -3095,11 +3133,13 @@ body.pane-resizing-row * {
 }
 
 .diff-host,
-.diff-host .cm-mergeView,
-.diff-host .cm-mergeViewEditors,
-.diff-host .cm-mergeViewEditor {
+.diff-host .cm-mergeView {
   height: 100%;
   min-height: 0;
+}
+
+.diff-host .cm-mergeViewEditors {
+  min-height: 100%;
 }
 
 .diff-host .cm-mergeView {

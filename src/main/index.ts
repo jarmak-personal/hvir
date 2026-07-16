@@ -1834,7 +1834,43 @@ async function runSmoke(): Promise<number> {
                 'diff did not render base ' + base
               );
             }
-            resolve(expectations.map(([base]) => base).join(', '));
+            const longFile = await waitFor(
+              () => [...document.querySelectorAll('.file-row')]
+                .find((node) => node.getAttribute('title') ===
+                  ${JSON.stringify(liveReloadPath.path)}),
+              'long diff fixture missing'
+            );
+            longFile.click();
+            await waitFor(
+              () => document.querySelector('.viewer-title')?.textContent
+                ?.includes('.hvir-smoke-live.txt'),
+              'long diff fixture did not become active'
+            );
+            const longDiffButton = await waitFor(
+              () => [...document.querySelectorAll('.mode-control button')]
+                .find((node) => node.textContent?.trim() === 'diff'),
+              'long diff mode button missing'
+            );
+            longDiffButton.click();
+            const scrollableMerge = await waitFor(
+              () => {
+                const merge = document.querySelector('.cm-mergeView');
+                return merge && merge.scrollHeight > merge.clientHeight + 40
+                  ? merge
+                  : undefined;
+              },
+              'long diff did not create scroll extent'
+            );
+            scrollableMerge.scrollTop = 120;
+            scrollableMerge.dispatchEvent(new Event('scroll'));
+            await new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done)));
+            if (scrollableMerge.scrollTop < 100) {
+              throw new Error('long diff scroll position did not move');
+            }
+            resolve(
+              expectations.map(([base]) => base).join(', ') +
+                ' · long diff scrolled ' + Math.round(scrollableMerge.scrollTop) + 'px'
+            );
           })().catch(reject);
         })
       `),
@@ -2021,23 +2057,37 @@ async function runSmoke(): Promise<number> {
           const directoryRow = directory.querySelector(':scope > .directory-row');
           if (directoryRow?.getAttribute('aria-expanded') !== 'true') directoryRow?.click();
           const tabsBefore = document.querySelectorAll('.viewer-tab').length;
-          git.click();
-          files.click();
-          git.click();
-          files.click();
+          harness.click();
           requestAnimationFrame(() => {
-            if (!directory.isConnected || directoryRow?.getAttribute('aria-expanded') !== 'true') {
-              return reject(new Error('Files state was lost while switching rail views'));
+            const placeholder = document.querySelector('.harness-placeholder');
+            if (
+              harness.disabled ||
+              !harness.classList.contains('active') ||
+              harness.getAttribute('aria-current') !== 'page' ||
+              !placeholder ||
+              placeholder.hidden ||
+              !placeholder.textContent?.includes('Coming soon')
+            ) {
+              return reject(new Error('Harness coming-soon route is not interactive'));
             }
-            if (document.querySelectorAll('.viewer-tab').length !== tabsBefore) {
-              return reject(new Error('rail switching remounted viewer tabs'));
-            }
-            if (!files.classList.contains('active') || !harness.disabled) {
-              return reject(new Error('rail active/reserved states are incorrect'));
-            }
-            resolve(
-              'stable tabs · Files state preserved · Git decorations · Harness reserved'
-            );
+            git.click();
+            files.click();
+            git.click();
+            files.click();
+            requestAnimationFrame(() => {
+              if (!directory.isConnected || directoryRow?.getAttribute('aria-expanded') !== 'true') {
+                return reject(new Error('Files state was lost while switching rail views'));
+              }
+              if (document.querySelectorAll('.viewer-tab').length !== tabsBefore) {
+                return reject(new Error('rail switching remounted viewer tabs'));
+              }
+              if (!files.classList.contains('active') || harness.disabled) {
+                return reject(new Error('rail active states are incorrect'));
+              }
+              resolve(
+                'stable tabs · Files state preserved · Git decorations · Harness coming soon'
+              );
+            });
           });
         })
       `),
