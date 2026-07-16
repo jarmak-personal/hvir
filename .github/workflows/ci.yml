@@ -53,6 +53,10 @@ jobs:
             os: ubuntu-24.04
             build: npm run pack:npm:linux:x64
             smoke: xvfb-run -a npm run smoke:packaged
+          - name: Linux arm64
+            os: ubuntu-24.04-arm
+            build: npm run pack:npm:linux:arm64
+            smoke: xvfb-run -a npm run smoke:packaged
           - name: macOS arm64
             os: macos-15
             build: npm run pack:npm:mac:arm64
