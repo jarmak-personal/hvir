@@ -2018,19 +2018,22 @@ async function runSmoke(): Promise<number> {
             if (branchSelect && branchSelect.options.length > 1 && branchSelect.disabled) {
               return reject(new Error('Branch menu cannot be inspected while switching is blocked'));
             }
+            const changedPath = changed.getAttribute('title') || '';
             const untracked = changed.querySelector('small')?.textContent?.trim().startsWith('?');
             changed.click();
             const waitForView = () => {
+              const activePath = document.querySelector('.viewer-tab.active .tab-main')
+                ?.getAttribute('title') || '';
               const activeMode = [...document.querySelectorAll('.mode-control button')]
                 .find((node) => node.getAttribute('aria-pressed') === 'true')
                 ?.textContent?.trim();
-              if (!activeMode) {
-                if (Date.now() > deadline) return reject(new Error('Git file did not open'));
-                return setTimeout(waitForView, 50);
-              }
-              if (untracked ? activeMode === 'diff' : activeMode !== 'diff') {
+              const expectedMode = untracked ? activeMode !== 'diff' : activeMode === 'diff';
+              if (activePath !== changedPath || !activeMode || !expectedMode) {
+                if (Date.now() <= deadline) return setTimeout(waitForView, 50);
                 return reject(new Error(
-                  'Git file opened in unexpected mode: ' + activeMode +
+                  'Git file did not settle: target=' + changedPath +
+                    ' active=' + activePath +
+                    ' mode=' + activeMode +
                     (untracked ? ' for untracked file' : ' for tracked file')
                 ));
               }
