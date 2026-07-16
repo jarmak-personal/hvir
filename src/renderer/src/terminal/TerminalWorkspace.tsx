@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactElement } from 'react'
+import { useEffect, useRef, useState, type CSSProperties, type ReactElement } from 'react'
 
 import {
   basenameHostPath,
@@ -9,7 +9,22 @@ import {
   type TerminalIdentityStatus,
   type TerminalRecoverySession,
 } from '../../../shared'
-import { nextTerminalAttention, type TerminalAttention } from './terminal-attention'
+import {
+  nextTerminalAttention,
+  terminalAttentionLabel,
+  terminalAttentionRollup,
+  terminalIdleAttentionAfterInput,
+  terminalOutputAttentionDecision,
+  type TerminalAttention,
+  type TerminalIdleAttentionState,
+} from './terminal-attention'
+import { PaneResizer } from '../layout/PaneResizer'
+import type { TerminalRecoveryMode, TerminalThemeOverride } from '../settings/settings'
+import { useAppTheme } from '../theme'
+import {
+  resolveTerminalFileTarget,
+  type ResolvedTerminalFileTarget,
+} from './terminal-file-link'
 import { TerminalView } from './TerminalView'
 
 interface TerminalSession {
@@ -23,36 +38,30 @@ interface TerminalSession {
   readonly harnessSessionId?: string
   readonly identityStatus?: TerminalIdentityStatus
   readonly resumeOnStart: boolean
+  readonly pane: TerminalSplitPane
 }
+
+type TerminalSplitPane = 'primary' | 'secondary'
 
 interface TerminalWorkspaceProps {
   readonly cwd: HostPath
   readonly workspaceId: string
   readonly connectionState: HostConnectionState
+  readonly available: boolean
   readonly visible: boolean
   readonly label: string
   readonly onRollup: (workspaceId: string, rollup: TerminalWorkspaceRollup) => void
-  readonly railGroups: readonly TerminalRailGroup[]
-  readonly onSelectWorkspace: (projectId: string, workspaceId: string) => void
+  readonly onOpenPath: (target: ResolvedTerminalFileTarget) => void
+  readonly idleThresholdMs: number
+  readonly recoveryMode: TerminalRecoveryMode
+  readonly terminalTheme: TerminalThemeOverride
+  readonly onOpenSettings: () => void
 }
 
 export interface TerminalWorkspaceRollup {
   readonly unseen: number
   readonly actionable: number
 }
-
-export interface TerminalRailGroup {
-  readonly projectId: string
-  readonly workspaceId: string
-  readonly label: string
-  readonly active: boolean
-  readonly missing: boolean
-  readonly unseen: number
-}
-
-const IDLE_AFTER_BURST_MS = 4_000
-const RECOVERY_MODE_KEY = 'hvir:terminal-recovery-mode'
-type RecoveryMode = 'prompt' | 'auto'
 
 const adapterLabels: Record<TerminalAdapterId, string> = {
   'plain-shell': 'Shell',
@@ -64,12 +73,18 @@ export function TerminalWorkspace({
   cwd,
   workspaceId,
   connectionState,
+  available,
   visible,
   label,
   onRollup,
-  railGroups,
-  onSelectWorkspace,
+  onOpenPath,
+  idleThresholdMs,
+  recoveryMode,
+  terminalTheme,
+  onOpenSettings,
 }: TerminalWorkspaceProps): ReactElement {
+  const appTheme = useAppTheme()
+  const effectiveTerminalTheme = terminalTheme === 'app' ? appTheme : terminalTheme
   const workspaceRootRef = useRef(cwd)
   if (
     workspaceRootRef.current.hostId !== cwd.hostId ||
@@ -78,30 +93,45 @@ export function TerminalWorkspace({
     workspaceRootRef.current = cwd
   }
   const workspaceRoot = workspaceRootRef.current
+  const terminalDeckRef = useRef<HTMLDivElement>(null)
+  const restoredSplitLayout = useRef(readTerminalSplitLayout(workspaceRoot))
   const [sessions, setSessions] = useState<readonly TerminalSession[]>([])
   const [activeId, setActiveId] = useState<string>()
   const [menuOpen, setMenuOpen] = useState(false)
-  const [settingsOpen, setSettingsOpen] = useState(false)
   const [recoveryReady, setRecoveryReady] = useState(false)
   const [recoveryCandidates, setRecoveryCandidates] = useState<
     readonly TerminalRecoverySession[]
   >([])
-  const [recoveryMode, setRecoveryMode] = useState<RecoveryMode>(readRecoveryMode)
+  const recoveryModeRef = useRef(recoveryMode)
   const activeIdRef = useRef(activeId)
+  const activePaneRef = useRef<TerminalSplitPane>('primary')
+  const activeByPaneRef = useRef<Record<TerminalSplitPane, string | undefined>>({
+    primary: undefined,
+    secondary: undefined,
+  })
   const sessionsRef = useRef(sessions)
   const appFocusedRef = useRef(document.hasFocus())
   const focusedTerminalRef = useRef<string | undefined>(undefined)
   const idleTimers = useRef(new Map<string, number>())
+  const idleAttentionStates = useRef(new Map<string, TerminalIdleAttentionState>())
   const visibleRef = useRef(visible)
+  const availableRef = useRef(available)
   const shouldCreateDefault = useRef(false)
   activeIdRef.current = activeId
   sessionsRef.current = sessions
   visibleRef.current = visible
+  availableRef.current = available
+  recoveryModeRef.current = recoveryMode
 
   useEffect(() => {
     const timers = idleTimers.current
     const focused = (): void => {
       appFocusedRef.current = true
+      focusedTerminalRef.current =
+        document.activeElement instanceof Element
+          ? document.activeElement.closest<HTMLElement>('[data-terminal-session]')
+              ?.dataset['terminalSession']
+          : undefined
     }
     const blurred = (): void => {
       appFocusedRef.current = false
@@ -137,29 +167,34 @@ export function TerminalWorkspace({
   }, [])
 
   useEffect(() => {
-    if (!menuOpen && !settingsOpen) return
+    if (!menuOpen) return
     const close = (event: KeyboardEvent): void => {
       if (event.key !== 'Escape') return
       setMenuOpen(false)
-      setSettingsOpen(false)
     }
     window.addEventListener('keydown', close)
     return () => window.removeEventListener('keydown', close)
-  }, [menuOpen, settingsOpen])
+  }, [menuOpen])
 
   useEffect(() => {
     let cancelled = false
+    for (const timer of idleTimers.current.values()) window.clearTimeout(timer)
+    idleTimers.current.clear()
+    idleAttentionStates.current.clear()
+    focusedTerminalRef.current = undefined
     setRecoveryReady(false)
     setRecoveryCandidates([])
     setSessions([])
     setActiveId(undefined)
+    activePaneRef.current = 'primary'
+    activeByPaneRef.current = { primary: undefined, secondary: undefined }
     void window.hvir.invoke('terminal:recovery', { root: workspaceRoot }).then(
       (candidates) => {
         if (cancelled) return
         if (candidates.length === 0) {
-          shouldCreateDefault.current = true
-          if (visibleRef.current) {
-            const session = createSession('plain-shell', workspaceRoot)
+          shouldCreateDefault.current = availableRef.current
+          if (visibleRef.current && availableRef.current) {
+            const session = createSession('plain-shell', workspaceRoot, 'primary')
             shouldCreateDefault.current = false
             setSessions([session])
             setActiveId(session.id)
@@ -167,8 +202,13 @@ export function TerminalWorkspace({
           setRecoveryReady(true)
           return
         }
-        if (readRecoveryMode() === 'auto' && visibleRef.current) {
-          restoreSessions(candidates, setSessions, setActiveId)
+        if (recoveryModeRef.current === 'auto' && visibleRef.current) {
+          restoreSessions(
+            candidates,
+            restoredSplitLayout.current,
+            setSessions,
+            setActiveId,
+          )
           setRecoveryReady(true)
           return
         }
@@ -176,9 +216,11 @@ export function TerminalWorkspace({
       },
       () => {
         if (cancelled) return
-        const session = createSession('plain-shell', workspaceRoot)
-        setSessions([session])
-        setActiveId(session.id)
+        if (availableRef.current) {
+          const session = createSession('plain-shell', workspaceRoot, 'primary')
+          setSessions([session])
+          setActiveId(session.id)
+        }
         setRecoveryReady(true)
       },
     )
@@ -188,9 +230,14 @@ export function TerminalWorkspace({
   }, [workspaceRoot])
 
   useEffect(() => {
-    if (!visible || sessions.length > 0) return
-    if (recoveryCandidates.length > 0 && readRecoveryMode() === 'auto') {
-      restoreSessions(recoveryCandidates, setSessions, setActiveId)
+    if (!available || !visible || sessions.length > 0) return
+    if (recoveryCandidates.length > 0 && recoveryMode === 'auto') {
+      restoreSessions(
+        recoveryCandidates,
+        restoredSplitLayout.current,
+        setSessions,
+        setActiveId,
+      )
       setRecoveryCandidates([])
       setRecoveryReady(true)
       return
@@ -198,10 +245,18 @@ export function TerminalWorkspace({
     if (!recoveryReady) return
     if (!shouldCreateDefault.current || recoveryCandidates.length > 0) return
     shouldCreateDefault.current = false
-    const session = createSession('plain-shell', workspaceRoot)
+    const session = createSession('plain-shell', workspaceRoot, 'primary')
     setSessions([session])
     setActiveId(session.id)
-  }, [recoveryCandidates, recoveryReady, sessions.length, visible, workspaceRoot])
+  }, [
+    recoveryCandidates,
+    recoveryMode,
+    recoveryReady,
+    available,
+    sessions.length,
+    visible,
+    workspaceRoot,
+  ])
 
   const layoutKey = JSON.stringify(
     sessions.map((session, position) => ({
@@ -209,6 +264,7 @@ export function TerminalWorkspace({
       title: session.title,
       position,
       active: session.id === activeId,
+      pane: session.pane,
     })),
   )
   useEffect(() => {
@@ -224,16 +280,32 @@ export function TerminalWorkspace({
       .catch(() => undefined)
   }, [layoutKey, recoveryReady, workspaceRoot])
 
-  const actionableAttention = sessions.filter(
-    (session) => session.attention === 'idle' || session.attention === 'bell',
-  ).length
-  const unseenAttention = sessions.filter((session) => session.attention).length
+  useEffect(() => {
+    if (!recoveryReady) return
+    writeTerminalSplitLayout(workspaceRoot, {
+      ...readTerminalSplitLayout(workspaceRoot),
+      secondaryIds: sessions
+        .filter((session) => session.pane === 'secondary')
+        .map((session) => session.id),
+    })
+  }, [layoutKey, recoveryReady, sessions, workspaceRoot])
+
+  useEffect(() => {
+    const active = sessions.find((session) => session.id === activeId)
+    if (!active) return
+    activePaneRef.current = active.pane
+    activeByPaneRef.current[active.pane] = active.id
+  }, [activeId, sessions])
+
+  const attentionRollup = terminalAttentionRollup(
+    sessions.map((session) => session.attention),
+  )
   useEffect(() => {
     onRollup(workspaceId, {
-      unseen: unseenAttention,
-      actionable: actionableAttention,
+      unseen: attentionRollup.unseen,
+      actionable: attentionRollup.actionable,
     })
-  }, [actionableAttention, onRollup, unseenAttention, workspaceId])
+  }, [attentionRollup.actionable, attentionRollup.unseen, onRollup, workspaceId])
   useEffect(
     () => () => onRollup(workspaceId, { unseen: 0, actionable: 0 }),
     [onRollup, workspaceId],
@@ -260,6 +332,11 @@ export function TerminalWorkspace({
     if (timer !== undefined) window.clearTimeout(timer)
     idleTimers.current.delete(id)
     focusedTerminalRef.current = id
+    const pane = sessionsRef.current.find((session) => session.id === id)?.pane
+    if (pane) {
+      activePaneRef.current = pane
+      activeByPaneRef.current[pane] = id
+    }
     setActiveId(id)
     updateSession(id, (session) =>
       session.attention ? { ...session, attention: undefined } : session,
@@ -267,25 +344,75 @@ export function TerminalWorkspace({
   }
 
   const addSession = (adapterId: TerminalAdapterId): void => {
-    const session = createSession(adapterId, workspaceRoot)
+    if (!available) return
+    const split = sessionsRef.current.some((session) => session.pane === 'secondary')
+    const pane = split ? activePaneRef.current : 'primary'
+    const session = createSession(adapterId, workspaceRoot, pane)
     setSessions((current) => [...current, session])
+    activeByPaneRef.current[pane] = session.id
     setActiveId(session.id)
     setMenuOpen(false)
-    setSettingsOpen(false)
+  }
+
+  const splitTerminal = (): void => {
+    if (!available) return
+    const split = sessionsRef.current.some((session) => session.pane === 'secondary')
+    const pane: TerminalSplitPane = split
+      ? activePaneRef.current === 'primary'
+        ? 'secondary'
+        : 'primary'
+      : 'secondary'
+    const session = createSession('plain-shell', workspaceRoot, pane)
+    activePaneRef.current = pane
+    activeByPaneRef.current[pane] = session.id
+    setSessions((current) => [...current, session])
+    setActiveId(session.id)
+  }
+
+  const moveSessionToOtherPane = (id: string): void => {
+    const session = sessionsRef.current.find((candidate) => candidate.id === id)
+    if (!session) return
+    const pane: TerminalSplitPane = session.pane === 'primary' ? 'secondary' : 'primary'
+    if (activeByPaneRef.current[session.pane] === id) {
+      activeByPaneRef.current[session.pane] = sessionsRef.current.find(
+        (candidate) => candidate.pane === session.pane && candidate.id !== id,
+      )?.id
+    }
+    activeByPaneRef.current[pane] = id
+    activePaneRef.current = pane
+    setSessions((current) =>
+      current.map((candidate) =>
+        candidate.id === id ? { ...candidate, pane } : candidate,
+      ),
+    )
+    setActiveId(id)
   }
 
   const closeSession = (id: string): void => {
     const timer = idleTimers.current.get(id)
     if (timer !== undefined) window.clearTimeout(timer)
     idleTimers.current.delete(id)
+    idleAttentionStates.current.delete(id)
     void window.hvir
       .invoke('terminal:forget', { root: workspaceRoot, id })
       .catch(() => undefined)
     setSessions((current) => {
       const index = current.findIndex((session) => session.id === id)
+      const pane = current[index]?.pane ?? 'primary'
       const next = current.filter((session) => session.id !== id)
+      const nextInPane =
+        next.slice(index).find((session) => session.pane === pane) ??
+        [...next].reverse().find((session) => session.pane === pane)
+      if (activeByPaneRef.current[pane] === id) {
+        activeByPaneRef.current[pane] = nextInPane?.id
+      }
       if (activeIdRef.current === id) {
-        setActiveId(next[Math.min(index, next.length - 1)]?.id)
+        const nextActive = nextInPane ?? next[Math.min(index, next.length - 1)]
+        if (nextActive) {
+          activePaneRef.current = nextActive.pane
+          activeByPaneRef.current[nextActive.pane] = nextActive.id
+        }
+        setActiveId(nextActive?.id)
       }
       return next
     })
@@ -301,38 +428,86 @@ export function TerminalWorkspace({
     })
   }
 
+  const recordInput = (id: string, data: string): void => {
+    const current = idleAttentionStates.current.get(id) ?? 'initial'
+    idleAttentionStates.current.set(id, terminalIdleAttentionAfterInput(current, data))
+  }
+
   const recordOutput = (id: string): void => {
     const focused = focusedTerminalRef.current === id && appFocusedRef.current
     const existing = idleTimers.current.get(id)
     if (existing !== undefined) window.clearTimeout(existing)
+    idleTimers.current.delete(id)
+    const decision = terminalOutputAttentionDecision(
+      idleAttentionStates.current.get(id) ?? 'initial',
+    )
+    if (!decision.notify) return
     if (focused) {
-      idleTimers.current.delete(id)
       return
     }
     raiseAttention(id, 'output')
+    if (!decision.scheduleIdle) return
     idleTimers.current.set(
       id,
       window.setTimeout(() => {
         idleTimers.current.delete(id)
+        idleAttentionStates.current.set(id, 'settled')
         if (focusedTerminalRef.current !== id || !appFocusedRef.current) {
           raiseAttention(id, 'idle')
         }
-      }, IDLE_AFTER_BURST_MS),
+      }, idleThresholdMs),
     )
   }
+
+  const terminalSplit = sessions.some((session) => session.pane === 'secondary')
+  const primaryActiveId =
+    sessions.find(
+      (session) =>
+        session.pane === 'primary' && session.id === activeByPaneRef.current.primary,
+    )?.id ?? sessions.find((session) => session.pane === 'primary')?.id
+  const secondaryActiveId =
+    sessions.find(
+      (session) =>
+        session.pane === 'secondary' && session.id === activeByPaneRef.current.secondary,
+    )?.id ?? sessions.find((session) => session.pane === 'secondary')?.id
+  activeByPaneRef.current.primary = primaryActiveId
+  activeByPaneRef.current.secondary = secondaryActiveId
+
+  const setTerminalPrimaryWidth = (width: number): void => {
+    const deck = terminalDeckRef.current
+    if (!deck) return
+    const next = Math.min(Math.max(220, width), Math.max(220, deck.clientWidth - 225))
+    deck.style.setProperty('--terminal-primary-track', `${next}px`)
+    const layout = readTerminalSplitLayout(workspaceRoot)
+    const updated = { ...layout, primaryWidth: next }
+    restoredSplitLayout.current = updated
+    writeTerminalSplitLayout(workspaceRoot, updated)
+  }
+
+  const initialDeckStyle = restoredSplitLayout.current.primaryWidth
+    ? ({
+        '--terminal-primary-track': `${restoredSplitLayout.current.primaryWidth}px`,
+      } as CSSProperties)
+    : undefined
 
   return (
     <>
       <div
-        className="terminal-deck"
+        className={`terminal-deck${terminalSplit ? ' split' : ''}`}
+        ref={terminalDeckRef}
+        style={initialDeckStyle}
         aria-label={`${label} terminal workspace`}
         hidden={!visible}
       >
         {recoveryReady && sessions.length === 0 ? (
           <div className="terminal-empty">
-            <button type="button" onClick={() => addSession('plain-shell')}>
-              New terminal
-            </button>
+            {available ? (
+              <button type="button" onClick={() => addSession('plain-shell')}>
+                New terminal
+              </button>
+            ) : (
+              <span>No retained terminals</span>
+            )}
           </div>
         ) : null}
         {sessions.map((session, position) => (
@@ -344,7 +519,14 @@ export function TerminalWorkspace({
             harnessSessionId={session.harnessSessionId}
             resumeOnStart={session.resumeOnStart}
             position={position}
+            slot={session.pane}
+            visible={
+              visible &&
+              session.id ===
+                (session.pane === 'primary' ? primaryActiveId : secondaryActiveId)
+            }
             active={visible && session.id === activeId}
+            themeOverride={terminalTheme}
             cwd={workspaceRoot}
             connectionState={connectionState}
             onTitle={(title) =>
@@ -370,59 +552,74 @@ export function TerminalWorkspace({
                 current.resumeOnStart ? { ...current, resumeOnStart: false } : current,
               )
             }
+            onInput={(data) => recordInput(session.id, data)}
             onOutput={() => recordOutput(session.id)}
             onBell={() => raiseAttention(session.id, 'bell')}
             onFocus={() => focusSession(session.id)}
+            onLink={(target) => {
+              const resolved = resolveTerminalFileTarget(target, workspaceRoot)
+              if (resolved) onOpenPath(resolved)
+            }}
           />
         ))}
+        {terminalSplit ? (
+          <PaneResizer
+            orientation="vertical"
+            className="terminal-split-resizer"
+            label="Resize split terminals"
+            onDrag={(clientX) => {
+              const left = terminalDeckRef.current?.getBoundingClientRect().left ?? 0
+              setTerminalPrimaryWidth(clientX - left)
+            }}
+            onNudge={(delta) => {
+              const primary = terminalDeckRef.current?.querySelector<HTMLElement>(
+                '[data-terminal-slot="primary"].visible',
+              )
+              if (primary) {
+                setTerminalPrimaryWidth(primary.getBoundingClientRect().width + delta)
+              }
+            }}
+            onReset={() => {
+              terminalDeckRef.current?.style.removeProperty('--terminal-primary-track')
+              const layout = readTerminalSplitLayout(workspaceRoot)
+              const updated = {
+                ...layout,
+                primaryWidth: undefined,
+              }
+              restoredSplitLayout.current = updated
+              writeTerminalSplitLayout(workspaceRoot, updated)
+            }}
+          />
+        ) : null}
       </div>
       <aside
         className="terminal-rail"
         aria-label={`Open terminals in ${label}`}
+        data-terminal-theme={effectiveTerminalTheme}
         hidden={!visible}
       >
         <header className="terminal-rail-header">
-          <span>Terminals · {label}</span>
+          <span>Terminals</span>
           <div className="terminal-header-actions">
-            <div className="terminal-new-control">
-              <button
-                type="button"
-                className="terminal-icon-button terminal-settings-button"
-                aria-label="Terminal recovery settings"
-                title="Terminal recovery settings"
-                aria-haspopup="menu"
-                aria-expanded={settingsOpen}
-                disabled={!recoveryReady}
-                onClick={() => {
-                  setSettingsOpen((open) => !open)
-                  setMenuOpen(false)
-                }}
-              >
-                ⚙
-              </button>
-              {settingsOpen ? (
-                <div
-                  className="terminal-new-menu terminal-settings-menu"
-                  role="group"
-                  aria-label="Terminal recovery settings"
-                >
-                  <label>
-                    <input
-                      type="checkbox"
-                      checked={recoveryMode === 'auto'}
-                      onChange={(event) => {
-                        const mode: RecoveryMode = event.currentTarget.checked
-                          ? 'auto'
-                          : 'prompt'
-                        setRecoveryMode(mode)
-                        writeRecoveryMode(mode)
-                      }}
-                    />
-                    <span>Restore automatically</span>
-                  </label>
-                </div>
-              ) : null}
-            </div>
+            <button
+              type="button"
+              className="terminal-icon-button terminal-split-button"
+              aria-label="Split terminal"
+              title="Open a shell in the other terminal split"
+              disabled={!recoveryReady || !available}
+              onClick={splitTerminal}
+            >
+              ◫
+            </button>
+            <button
+              type="button"
+              className="terminal-icon-button terminal-settings-button"
+              aria-label="Open settings"
+              title="Settings"
+              onClick={onOpenSettings}
+            >
+              ⚙
+            </button>
             <div className="terminal-new-control">
               <button
                 type="button"
@@ -431,10 +628,9 @@ export function TerminalWorkspace({
                 title="New terminal"
                 aria-haspopup="menu"
                 aria-expanded={menuOpen}
-                disabled={!recoveryReady}
+                disabled={!recoveryReady || !available}
                 onClick={() => {
                   setMenuOpen((open) => !open)
-                  setSettingsOpen(false)
                 }}
               >
                 +
@@ -456,10 +652,6 @@ export function TerminalWorkspace({
             </div>
           </div>
         </header>
-        <div className="terminal-workspace-heading">
-          <span>{label}</span>
-          <small>{sessions.length}</small>
-        </div>
         <div className="terminal-list" role="list">
           {sessions.map((session) => (
             <div
@@ -470,14 +662,9 @@ export function TerminalWorkspace({
               <button
                 type="button"
                 className="terminal-list-main"
+                data-terminal-session={session.id}
                 onClick={() => focusSession(session.id)}
               >
-                <span
-                  className={`terminal-attention${session.attention ? ` ${session.attention}` : ''}`}
-                  aria-label={
-                    session.attention ? `${session.attention} attention` : undefined
-                  }
-                />
                 <span className="terminal-list-copy">
                   <span className="terminal-list-title">{session.title}</span>
                   <span className="terminal-list-meta">
@@ -485,10 +672,37 @@ export function TerminalWorkspace({
                     {identityLabel(session.identityStatus)}
                   </span>
                   {session.adapterId !== 'plain-shell' ? (
-                    <ContextMeter telemetry={session.telemetry} />
+                    <ContextMeter
+                      telemetry={session.telemetry}
+                      countOnly={session.adapterId === 'claude-code'}
+                    />
                   ) : null}
                 </span>
+                {session.attention ? (
+                  <span
+                    className={`terminal-attention-badge ${session.attention}`}
+                    aria-label={terminalAttentionLabel(session.attention)}
+                    title={terminalAttentionLabel(session.attention)}
+                  >
+                    {session.attention === 'output'
+                      ? 'new'
+                      : session.attention === 'bell'
+                        ? 'bell'
+                        : 'ready'}
+                  </span>
+                ) : null}
               </button>
+              {terminalSplit ? (
+                <button
+                  type="button"
+                  className="terminal-move-button"
+                  aria-label={`Move ${session.title} to ${session.pane === 'primary' ? 'right' : 'left'} split`}
+                  title={`Move to ${session.pane === 'primary' ? 'right' : 'left'} split`}
+                  onClick={() => moveSessionToOtherPane(session.id)}
+                >
+                  {session.pane === 'primary' ? '→' : '←'}
+                </button>
+              ) : null}
               <button
                 type="button"
                 className="terminal-close-button"
@@ -500,32 +714,13 @@ export function TerminalWorkspace({
               </button>
             </div>
           ))}
-          {railGroups
-            .filter((group) => !group.active)
-            .map((group) => (
-              <button
-                type="button"
-                className={`terminal-workspace-jump${group.missing ? ' missing' : ''}`}
-                key={group.workspaceId}
-                disabled={group.missing}
-                onClick={() => onSelectWorkspace(group.projectId, group.workspaceId)}
-              >
-                <span>{group.label}</span>
-                {group.unseen > 0 ? (
-                  <i
-                    className="workspace-attention-dot"
-                    aria-label="Terminal attention"
-                  />
-                ) : null}
-              </button>
-            ))}
         </div>
       </aside>
       {visible && recoveryCandidates.length > 0 ? (
         <TerminalRecoveryDialog
           sessions={recoveryCandidates}
           onCancel={() => {
-            const session = createSession('plain-shell', workspaceRoot)
+            const session = createSession('plain-shell', workspaceRoot, 'primary')
             setSessions([session])
             setActiveId(session.id)
             setRecoveryCandidates([])
@@ -534,9 +729,14 @@ export function TerminalWorkspace({
           onResume={(ids) => {
             const selected = recoveryCandidates.filter((session) => ids.has(session.id))
             if (selected.length > 0) {
-              restoreSessions(selected, setSessions, setActiveId)
+              restoreSessions(
+                selected,
+                restoredSplitLayout.current,
+                setSessions,
+                setActiveId,
+              )
             } else {
-              const session = createSession('plain-shell', workspaceRoot)
+              const session = createSession('plain-shell', workspaceRoot, 'primary')
               setSessions([session])
               setActiveId(session.id)
             }
@@ -655,10 +855,12 @@ function TerminalRecoveryDialog({
 
 function ContextMeter({
   telemetry,
+  countOnly = false,
 }: {
   readonly telemetry?: HarnessTelemetry
+  readonly countOnly?: boolean
 }): ReactElement {
-  const reportedPercent = telemetry?.contextUsedPercent
+  const reportedPercent = countOnly ? undefined : telemetry?.contextUsedPercent
   const percent =
     typeof reportedPercent === 'number' && Number.isFinite(reportedPercent)
       ? Math.min(100, Math.max(0, reportedPercent))
@@ -682,22 +884,27 @@ function ContextMeter({
         : 'Context usage unavailable'
 
   return (
-    <span className={`terminal-context ${pressure}`} title={label}>
-      {displayPercent === undefined ? (
-        <span className="terminal-context-track" aria-hidden="true" />
-      ) : (
-        <span
-          className="terminal-context-track"
-          role="progressbar"
-          aria-label="Context used"
-          aria-valuemin={0}
-          aria-valuemax={100}
-          aria-valuenow={displayPercent}
-          aria-valuetext={label}
-        >
-          <span className="terminal-context-fill" style={{ width: `${percent}%` }} />
-        </span>
-      )}
+    <span
+      className={`terminal-context ${pressure}${countOnly ? ' count-display' : ''}`}
+      title={label}
+    >
+      {!countOnly ? (
+        displayPercent === undefined ? (
+          <span className="terminal-context-track" aria-hidden="true" />
+        ) : (
+          <span
+            className="terminal-context-track"
+            role="progressbar"
+            aria-label="Context used"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={displayPercent}
+            aria-valuetext={label}
+          >
+            <span className="terminal-context-fill" style={{ width: `${percent}%` }} />
+          </span>
+        )
+      ) : null}
       <span className="terminal-context-value">
         {hasCountOnly
           ? formatTokenCount(telemetry.contextUsedTokens)
@@ -732,7 +939,11 @@ function restoreActionLabel(session: TerminalRecoverySession): string {
   return session.harnessSessionId ? 'Resume' : 'New session'
 }
 
-function createSession(adapterId: TerminalAdapterId, cwd: HostPath): TerminalSession {
+function createSession(
+  adapterId: TerminalAdapterId,
+  cwd: HostPath,
+  pane: TerminalSplitPane,
+): TerminalSession {
   const fallbackTitle = `${adapterLabels[adapterId]} · ${basenameHostPath(cwd)}`
   return {
     id: crypto.randomUUID(),
@@ -741,11 +952,13 @@ function createSession(adapterId: TerminalAdapterId, cwd: HostPath): TerminalSes
     title: fallbackTitle,
     status: 'Starting…',
     resumeOnStart: false,
+    pane,
   }
 }
 
 function restoreSessions(
   records: readonly TerminalRecoverySession[],
+  splitLayout: StoredTerminalSplitLayout,
   setSessions: (sessions: readonly TerminalSession[]) => void,
   setActiveId: (id: string | undefined) => void,
 ): void {
@@ -774,6 +987,7 @@ function restoreSessions(
             ? 'identified'
             : 'unavailable',
       resumeOnStart: resumable,
+      pane: splitLayout.secondaryIds.includes(record.id) ? 'secondary' : 'primary',
     }
   })
   setSessions(sessions)
@@ -783,18 +997,49 @@ function restoreSessions(
   )
 }
 
-function readRecoveryMode(): RecoveryMode {
+interface StoredTerminalSplitLayout {
+  readonly secondaryIds: readonly string[]
+  readonly primaryWidth?: number
+}
+
+function readTerminalSplitLayout(root: HostPath): StoredTerminalSplitLayout {
   try {
-    return localStorage.getItem(RECOVERY_MODE_KEY) === 'auto' ? 'auto' : 'prompt'
+    const value: unknown = JSON.parse(
+      localStorage.getItem(terminalSplitStorageKey(root)) ?? 'null',
+    )
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+      return { secondaryIds: [] }
+    }
+    const record = value as Record<string, unknown>
+    const ids = record['secondaryIds']
+    const primaryWidth = record['primaryWidth']
+    return {
+      secondaryIds: Array.isArray(ids)
+        ? ids
+            .filter((id): id is string => typeof id === 'string' && id.length <= 80)
+            .slice(0, 500)
+        : [],
+      primaryWidth:
+        typeof primaryWidth === 'number' && Number.isFinite(primaryWidth)
+          ? primaryWidth
+          : undefined,
+    }
   } catch {
-    return 'prompt'
+    return { secondaryIds: [] }
   }
 }
 
-function writeRecoveryMode(mode: RecoveryMode): void {
+function writeTerminalSplitLayout(
+  root: HostPath,
+  layout: StoredTerminalSplitLayout,
+): void {
   try {
-    localStorage.setItem(RECOVERY_MODE_KEY, mode)
+    localStorage.setItem(terminalSplitStorageKey(root), JSON.stringify(layout))
   } catch {
-    // Storage denial leaves the documented prompt default in place.
+    // Split recovery is best effort and never changes the live PTY layout.
   }
+}
+
+function terminalSplitStorageKey(root: HostPath): string {
+  return `hvir:terminal-split:${root.hostId}:${root.path}`
 }

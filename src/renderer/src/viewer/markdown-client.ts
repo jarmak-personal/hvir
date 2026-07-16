@@ -38,12 +38,15 @@ function getWorker(): Worker {
   return activeWorker
 }
 
-export function renderMarkdown(markdown: string): Promise<string> {
+export function renderMarkdown(
+  markdown: string,
+  theme: 'dark' | 'light',
+): Promise<string> {
   const id = ++nextRequestId
   return new Promise((resolve, reject) => {
     pending.set(id, { resolve, reject })
     try {
-      getWorker().postMessage({ id, markdown })
+      getWorker().postMessage({ id, markdown, theme })
     } catch (reason) {
       pending.delete(id)
       reject(reason instanceof Error ? reason : new Error(String(reason)))

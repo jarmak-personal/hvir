@@ -33,6 +33,8 @@ import type {
   GitHistoryRequest,
   GitIgnoredEntriesRequest,
   GitIgnoredEntriesResponse,
+  GitBranchModel,
+  GitSwitchBranchRequest,
 } from './git-types'
 import type { HostConnectionState, HostWatchTier } from './fs-types'
 import type { HarnessTelemetry } from './harness-telemetry'
@@ -90,6 +92,7 @@ export interface RefreshProjectRequest {
   readonly projectId: string
 }
 
+export type CloseProjectRequest = RefreshProjectRequest
 export type PruneProjectWorktreesRequest = RefreshProjectRequest
 export type DismissWorkspaceRequest = SwitchWorkspaceRequest
 
@@ -264,6 +267,10 @@ export interface IpcInvokeMap {
     request: RefreshProjectRequest
     response: OperationResult<ProjectState>
   }
+  'project:close': {
+    request: CloseProjectRequest
+    response: OperationResult<ProjectState>
+  }
   'workspace:prune': {
     request: PruneProjectWorktreesRequest
     response: OperationResult<ProjectState>
@@ -296,6 +303,11 @@ export interface IpcInvokeMap {
   }
   'git:commit-detail': { request: GitCommitDetailRequest; response: GitCommitDetail }
   'git:blame': { request: GitBlameRequest; response: readonly GitBlameRun[] }
+  'git:branches': { request: GitChangesRequest; response: GitBranchModel }
+  'git:switch-branch': {
+    request: GitSwitchBranchRequest
+    response: OperationResult<ProjectState>
+  }
   'html-preview:create': {
     request: CreateHtmlPreviewRequest
     response: CreateHtmlPreviewResponse
@@ -381,6 +393,7 @@ export const INVOKE_CHANNELS = [
   'project:open',
   'project:switch',
   'project:refresh',
+  'project:close',
   'workspace:prune',
   'workspace:dismiss',
   'ssh:prompt-response',
@@ -395,6 +408,8 @@ export const INVOKE_CHANNELS = [
   'git:ignored-entries',
   'git:commit-detail',
   'git:blame',
+  'git:branches',
+  'git:switch-branch',
   'html-preview:create',
   'terminal:recovery',
   'terminal:update-layout',

@@ -9,6 +9,8 @@ import {
   type HostWatchTier,
 } from '../../../shared'
 import { DirectoryTree } from './DirectoryTree'
+import { RemoteConnectionBadge } from '../workspaces/ConnectionStatus'
+import { MissingWorkspaceNotice } from '../workspaces/MissingWorkspaceNotice'
 import { buildTreeGitDecorations } from './git-status-decoration'
 
 const NO_CHANGED_FILES: readonly GitChangedFile[] = []
@@ -21,6 +23,7 @@ interface FileTreeProps {
   readonly selected?: HostPath
   readonly onOpen: (path: HostPath, pinned: boolean) => void
   readonly connected?: boolean
+  readonly missing?: boolean
   readonly hidden?: boolean
 }
 
@@ -32,6 +35,7 @@ export function FileTree({
   selected,
   onOpen,
   connected = true,
+  missing = false,
   hidden = false,
 }: FileTreeProps): ReactElement {
   const gitDecorations = useMemo(
@@ -63,27 +67,28 @@ export function FileTree({
 
   return (
     <section className="rail-section" aria-label="Files" hidden={hidden}>
-      <header className="panel-header">
-        <span className="panel-meta">{basenameHostPath(root)}</span>
-      </header>
-      <div className="tree-scroll">
-        {connected ? (
-          <DirectoryTree
-            root={root}
-            rootLabel={basenameHostPath(root) || root.path}
-            loadEntries={loadProjectEntries}
-            loadIgnoredEntries={loadIgnoredEntries}
-            resolveEntry={resolveProjectEntry}
-            refreshVersion={refreshVersion}
-            ignoredRefreshVersion={ignoredRefreshVersion}
-            gitDecorations={gitDecorations}
-            selected={selected}
-            onOpenFile={onOpen}
-          />
-        ) : (
-          <div className="tree-error">Reconnect to browse this host.</div>
-        )}
-      </div>
+      {missing ? (
+        <MissingWorkspaceNotice root={root} />
+      ) : (
+        <div className="tree-scroll">
+          {connected ? (
+            <DirectoryTree
+              root={root}
+              rootLabel={basenameHostPath(root) || root.path}
+              loadEntries={loadProjectEntries}
+              loadIgnoredEntries={loadIgnoredEntries}
+              resolveEntry={resolveProjectEntry}
+              refreshVersion={refreshVersion}
+              ignoredRefreshVersion={ignoredRefreshVersion}
+              gitDecorations={gitDecorations}
+              selected={selected}
+              onOpenFile={onOpen}
+            />
+          ) : (
+            <div className="tree-error">Reconnect to browse this host.</div>
+          )}
+        </div>
+      )}
     </section>
   )
 }
@@ -115,10 +120,15 @@ export function SessionBar({
       className="session-bar"
       title={error ?? `${label} · ${connectionState} · ${watchTier}`}
     >
-      <span className={`connection-state ${connectionState}`} />
       <span className="session-copy">
-        <strong>{label}</strong>
-        <small className={error ? 'error' : ''}>{error ?? connectionState}</small>
+        {remote ? (
+          <RemoteConnectionBadge state={connectionState} hostLabel={label} />
+        ) : (
+          <strong>{label}</strong>
+        )}
+        <small className={error ? 'error' : ''}>
+          {error ?? (remote ? connectionState : 'this machine')}
+        </small>
       </span>
       <span className="session-actions">
         <button type="button" onClick={onChange} disabled={busy}>

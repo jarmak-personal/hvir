@@ -7,6 +7,9 @@ import {
   type WorkspaceState,
 } from '../../../shared'
 import type { TerminalWorkspaceRollup } from '../terminal/TerminalWorkspace'
+import { RemoteConnectionBadge } from './ConnectionStatus'
+import { aggregateWorkspaceAttention } from './workspace-attention'
+import type { AppTheme } from '../theme'
 
 interface ProjectsBarProps {
   readonly state: ProjectState
@@ -15,8 +18,12 @@ interface ProjectsBarProps {
   readonly onAdd: () => void
   readonly onSwitch: (projectId: string, workspaceId: string) => void
   readonly onRefresh: (projectId: string) => void
+  readonly onCloseProject: (projectId: string) => void
   readonly onPrune: (projectId: string) => void
   readonly onDismiss: (projectId: string, workspaceId: string) => void
+  readonly theme: AppTheme
+  readonly onTheme: (theme: AppTheme) => void
+  readonly onSettings: () => void
 }
 
 export function ProjectsBar({
@@ -26,10 +33,15 @@ export function ProjectsBar({
   onAdd,
   onSwitch,
   onRefresh,
+  onCloseProject,
   onPrune,
   onDismiss,
+  theme,
+  onTheme,
+  onSettings,
 }: ProjectsBarProps): ReactElement {
   const [pruneProjectId, setPruneProjectId] = useState<string>()
+  const [closeProjectId, setCloseProjectId] = useState<string>()
   const activeProject = state.projects.find(
     (project) => project.id === state.activeProjectId,
   )
@@ -38,6 +50,7 @@ export function ProjectsBar({
       (workspace) => workspace.prunableReason !== undefined,
     ) ?? []
   const pruneProject = state.projects.find((project) => project.id === pruneProjectId)
+  const closeProject = state.projects.find((project) => project.id === closeProjectId)
   const pruneTargets =
     pruneProject?.workspaces.filter(
       (workspace) => workspace.prunableReason !== undefined,
@@ -50,38 +63,59 @@ export function ProjectsBar({
             const changed = project.workspaces
               .filter((workspace) => !workspace.missing)
               .reduce((total, workspace) => total + workspace.changedFiles, 0)
-            const unseen = project.workspaces.reduce(
-              (total, workspace) => total + (rollups[workspace.id]?.unseen ?? 0),
-              0,
-            )
+            const unseen = aggregateWorkspaceAttention(
+              project.workspaces.map((workspace) => workspace.id),
+              rollups,
+            ).unseen
             const target = activeWorkspace(project)
             return (
-              <button
-                type="button"
+              <div
                 className={`project-tab${project.id === state.activeProjectId ? ' active' : ''}`}
-                aria-current={project.id === state.activeProjectId ? 'page' : undefined}
                 key={project.id}
-                disabled={busy || !target}
-                onClick={() => target && onSwitch(project.id, target.id)}
                 title={`${project.registeredRoot.path} · ${project.connectionState}`}
               >
-                <span className={`connection-state ${project.connectionState}`} />
-                <strong>{project.displayName}</strong>
-                {project.registeredRoot.hostId !== 'local' ? (
-                  <small className="project-host-badge">
-                    ssh:{project.registeredRoot.hostId}
-                  </small>
-                ) : null}
-                {changed > 0 ? (
-                  <span className="project-change-count">{changed}</span>
-                ) : null}
-                {unseen > 0 ? (
-                  <span
-                    className="workspace-attention-dot"
-                    aria-label="Terminal attention"
-                  />
-                ) : null}
-              </button>
+                <button
+                  type="button"
+                  className="project-tab-main"
+                  aria-current={project.id === state.activeProjectId ? 'page' : undefined}
+                  disabled={busy || !target}
+                  onClick={() => target && onSwitch(project.id, target.id)}
+                  title={`${project.registeredRoot.path} · ${project.connectionState}`}
+                >
+                  <strong>{project.displayName}</strong>
+                  {project.registeredRoot.hostId !== 'local' ? (
+                    <RemoteConnectionBadge
+                      state={project.connectionState}
+                      hostLabel={`ssh:${project.registeredRoot.hostId}`}
+                    />
+                  ) : null}
+                  {changed > 0 ? (
+                    <span
+                      className="project-change-count"
+                      aria-label={`${changed} changed files`}
+                      title={`${changed} changed files`}
+                    >
+                      <span aria-hidden="true">Δ </span>
+                      {changed}
+                    </span>
+                  ) : null}
+                  {unseen > 0 ? <AttentionCount count={unseen} /> : null}
+                </button>
+                <button
+                  type="button"
+                  className="project-close"
+                  disabled={busy || state.projects.length <= 1}
+                  onClick={() => setCloseProjectId(project.id)}
+                  aria-label={`Close project ${project.displayName}`}
+                  title={
+                    state.projects.length <= 1
+                      ? 'Register another project before closing this one'
+                      : `Close project ${project.displayName}`
+                  }
+                >
+                  <span aria-hidden="true">×</span>
+                </button>
+              </div>
             )
           })}
           <button
@@ -93,6 +127,24 @@ export function ProjectsBar({
             onClick={onAdd}
           >
             +
+          </button>
+          <button
+            type="button"
+            className="theme-toggle"
+            aria-label={`Use ${theme === 'dark' ? 'light' : 'dark'} theme`}
+            title={`Use ${theme === 'dark' ? 'light' : 'dark'} theme`}
+            onClick={() => onTheme(theme === 'dark' ? 'light' : 'dark')}
+          >
+            <span aria-hidden="true">{theme === 'dark' ? '☼' : '☾'}</span>
+          </button>
+          <button
+            type="button"
+            className="settings-toggle"
+            aria-label="Open settings"
+            title="Settings"
+            onClick={onSettings}
+          >
+            <span aria-hidden="true">⚙</span>
           </button>
         </nav>
         {activeProject && activeProject.workspaces.length > 1 ? (
@@ -112,12 +164,18 @@ export function ProjectsBar({
                   <span>{workspace.name}</span>
                   {workspace.main ? <small>main checkout</small> : null}
                   {workspace.prunableReason ? <small>prunable</small> : null}
-                  {workspace.changedFiles > 0 ? <b>{workspace.changedFiles}</b> : null}
+                  {workspace.changedFiles > 0 ? (
+                    <b
+                      className="workspace-change-count"
+                      aria-label={`${workspace.changedFiles} changed files`}
+                      title={`${workspace.changedFiles} changed files`}
+                    >
+                      <span aria-hidden="true">Δ </span>
+                      {workspace.changedFiles}
+                    </b>
+                  ) : null}
                   {(rollups[workspace.id]?.unseen ?? 0) > 0 ? (
-                    <i
-                      className="workspace-attention-dot"
-                      aria-label="Terminal attention"
-                    />
+                    <AttentionCount count={rollups[workspace.id]?.unseen ?? 0} />
                   ) : null}
                 </button>
                 {workspace.missing && !workspace.prunableReason ? (
@@ -169,7 +227,71 @@ export function ProjectsBar({
           }}
         />
       ) : null}
+      {closeProject ? (
+        <CloseProjectDialog
+          project={closeProject}
+          onCancel={() => setCloseProjectId(undefined)}
+          onConfirm={() => {
+            setCloseProjectId(undefined)
+            onCloseProject(closeProject.id)
+          }}
+        />
+      ) : null}
     </>
+  )
+}
+
+function CloseProjectDialog({
+  project,
+  onCancel,
+  onConfirm,
+}: {
+  readonly project: RegisteredProjectState
+  readonly onCancel: () => void
+  readonly onConfirm: () => void
+}): ReactElement {
+  return (
+    <div className="modal-backdrop">
+      <section
+        className="project-dialog close-project-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="close-project-title"
+        tabIndex={-1}
+        onKeyDown={(event) => {
+          if (event.key === 'Escape') onCancel()
+        }}
+      >
+        <h2 id="close-project-title">Close {project.displayName}?</h2>
+        <p>
+          This removes the project from hvir and closes its live terminals. Files, Git
+          branches, and worktrees are not changed.
+        </p>
+        <code>{displayHostPath(project.registeredRoot)}</code>
+        <p className="dialog-note">
+          Terminal recovery metadata is retained, so re-registering this project can
+          restore its sessions.
+        </p>
+        <div className="dialog-actions">
+          <button type="button" autoFocus onClick={onCancel}>
+            Cancel
+          </button>
+          <button type="button" className="danger-action" onClick={onConfirm}>
+            Close project
+          </button>
+        </div>
+      </section>
+    </div>
+  )
+}
+
+function AttentionCount({ count }: { readonly count: number }): ReactElement {
+  const label = `${count} unseen terminal${count === 1 ? '' : 's'}`
+  return (
+    <span className="terminal-attention-count" aria-label={label} title={label}>
+      <span aria-hidden="true">!</span>
+      {count}
+    </span>
   )
 }
 

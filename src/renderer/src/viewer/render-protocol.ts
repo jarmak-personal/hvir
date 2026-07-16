@@ -1,6 +1,7 @@
 export interface MarkdownRenderRequest {
   readonly id: number
   readonly markdown: string
+  readonly theme: 'dark' | 'light'
 }
 
 export type MarkdownRenderResponse =

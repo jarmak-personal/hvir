@@ -32,6 +32,8 @@ import { PaneResizer } from './layout/PaneResizer'
 import { TerminalWorkspace } from './terminal/TerminalWorkspace'
 import type { TerminalWorkspaceRollup } from './terminal/TerminalWorkspace'
 import { ProjectsBar } from './workspaces/ProjectsBar'
+import { RemoteConnectionBadge } from './workspaces/ConnectionStatus'
+import { MissingWorkspaceNotice } from './workspaces/MissingWorkspaceNotice'
 import { initialHostConnectionTarget } from './workspaces/initial-host-connection'
 import { FileTree, SessionBar } from './tree/FileTree'
 import { DirectoryTree } from './tree/DirectoryTree'
@@ -40,7 +42,15 @@ import { GitPanel } from './git/GitPanel'
 import { GitGraphView } from './git/GitGraphView'
 import { FileViewer } from './viewer/FileViewer'
 import { TabStrip } from './viewer/TabStrip'
-import type { ViewerTab } from './viewer/tab-state'
+import type {
+  ViewerNavigationPosition,
+  ViewerPaneId,
+  ViewerTab,
+} from './viewer/tab-state'
+import { setAppTheme, useAppTheme } from './theme'
+import { SettingsDialog } from './settings/SettingsDialog'
+import { matchesKeybinding, type KeybindingAction } from './settings/keybindings'
+import { setAppSettings, useAppSettings } from './settings/settings'
 
 const TREE_MIN_WIDTH = 160
 const TREE_MAX_WIDTH = 520
@@ -52,7 +62,10 @@ const TAB_STORAGE_VERSION = 1
 const DRAFT_STORAGE_CHARACTER_LIMIT = 2 * 1024 * 1024
 
 export function App(): ReactElement {
+  const theme = useAppTheme()
+  const settings = useAppSettings()
   const workbenchRef = useRef<HTMLElement>(null)
+  const viewerGroupsRef = useRef<HTMLDivElement>(null)
   const tabsRef = useRef<readonly ViewerTab[]>([])
   const rootRef = useRef<HostPath | undefined>(undefined)
   const warmTabs = useRef(
@@ -62,8 +75,15 @@ export function App(): ReactElement {
     >(),
   )
   const activeIdRef = useRef<string | undefined>(undefined)
+  const activePaneRef = useRef<ViewerPaneId>('primary')
+  const activeByPaneRef = useRef<Record<ViewerPaneId, string | undefined>>({
+    primary: undefined,
+    secondary: undefined,
+  })
   const gitGraphActiveRef = useRef(false)
+  const workspaceSwitchRef = useRef<(direction: -1 | 1) => void>(() => undefined)
   const fileReadGenerations = useRef(new Map<string, number>())
+  const nextViewerNavigation = useRef(0)
   const discardDirtyOnUnload = useRef(false)
   const watchHandler = useRef<(event: WatchEvent) => void>(() => undefined)
   const pendingScroll = useRef<
@@ -87,6 +107,7 @@ export function App(): ReactElement {
   const [gitVersion, setGitVersion] = useState(0)
   const [tabs, setTabs] = useState<readonly ViewerTab[]>([])
   const [activeId, setActiveId] = useState<string>()
+  const [viewerSplit, setViewerSplit] = useState(false)
   const [gitGraphOpen, setGitGraphOpen] = useState(false)
   const [gitGraphActive, setGitGraphActive] = useState(false)
   const [gitGraphRequest, setGitGraphRequest] = useState<{
@@ -94,18 +115,21 @@ export function App(): ReactElement {
     readonly hash?: string
   }>({ serial: 0 })
   const [restored, setRestored] = useState(false)
-  const [railMode, setRailMode] = useState<'files' | 'git'>('files')
+  const [railMode, setRailMode] = useState<'files' | 'git' | 'harness'>('files')
   const [gitChanges, setGitChanges] = useState<GitChanges>()
   const [connectionState, setConnectionState] = useState<HostConnectionState>('connected')
   const [watchTier, setWatchTier] = useState<HostWatchTier>('native')
   const [hosts, setHosts] = useState<readonly ProjectHostOption[]>([])
   const [showAddProject, setShowAddProject] = useState(false)
+  const [showSettings, setShowSettings] = useState(false)
   const [sessionBusy, setSessionBusy] = useState(false)
   const [sessionError, setSessionError] = useState<string>()
   const [sshPrompts, setSshPrompts] = useState<readonly SshPromptRequest[]>([])
   const [terminalRollups, setTerminalRollups] = useState<
     Readonly<Record<string, TerminalWorkspaceRollup>>
   >({})
+  const [terminalFocused, setTerminalFocused] = useState(false)
+  const [treeCollapsed, setTreeCollapsed] = useState(false)
   tabsRef.current = tabs
   rootRef.current = root
   activeIdRef.current = activeId
@@ -135,10 +159,15 @@ export function App(): ReactElement {
     setRoot(state.root)
     setTabs([])
     setActiveId(undefined)
+    activePaneRef.current = 'primary'
+    activeByPaneRef.current = { primary: undefined, secondary: undefined }
+    setViewerSplit(false)
     setGitGraphOpen(false)
     setGitGraphActive(false)
     setGitChanges(undefined)
     setSessionError(undefined)
+    setTerminalFocused(false)
+    setTreeCollapsed(false)
   }, [])
 
   const updateTerminalRollup = useCallback(
@@ -338,9 +367,27 @@ export function App(): ReactElement {
     const restoredState = warmTabs.current.get(storageKey(root)) ?? restoreTabs(root)
     setTabs(restoredState.tabs)
     setActiveId(restoredState.activeId)
+    const restoredActive = restoredState.tabs.find(
+      (tab) => tab.id === restoredState.activeId,
+    )
+    activePaneRef.current = restoredActive?.pane ?? 'primary'
+    activeByPaneRef.current = {
+      primary:
+        restoredState.tabs.find(
+          (tab) => tab.pane === 'primary' && tab.id === restoredState.activeId,
+        )?.id ?? restoredState.tabs.find((tab) => tab.pane === 'primary')?.id,
+      secondary:
+        restoredState.tabs.find(
+          (tab) => tab.pane === 'secondary' && tab.id === restoredState.activeId,
+        )?.id ?? restoredState.tabs.find((tab) => tab.pane === 'secondary')?.id,
+    }
     setRestored(true)
     for (const tab of restoredState.tabs) if (!tab.dirty) loadFile(tab.path)
     const layout = restoreLayout(root)
+    setViewerSplit(
+      Boolean(layout.viewerSplit) ||
+        restoredState.tabs.some((tab) => tab.pane === 'secondary'),
+    )
     const workbench = workbenchRef.current
     if (workbench) {
       if (layout.treeWidth) {
@@ -354,11 +401,31 @@ export function App(): ReactElement {
         workbench.style.removeProperty('--terminal-track')
       }
     }
+    const viewerGroups = viewerGroupsRef.current
+    if (viewerGroups) {
+      if (layout.viewerPrimaryWidth) {
+        viewerGroups.style.setProperty(
+          '--viewer-primary-track',
+          `${layout.viewerPrimaryWidth}px`,
+        )
+      } else {
+        viewerGroups.style.removeProperty('--viewer-primary-track')
+      }
+    }
   }, [loadFile, root])
 
   useEffect(() => {
-    if (activeWorkspace?.repository === false && railMode === 'git') setRailMode('files')
-  }, [activeWorkspace?.repository, railMode])
+    if (
+      (activeWorkspace?.repository === false || activeWorkspace?.missing) &&
+      railMode === 'git'
+    ) {
+      setRailMode('files')
+    }
+    if (activeWorkspace?.missing) {
+      setGitGraphOpen(false)
+      setGitGraphActive(false)
+    }
+  }, [activeWorkspace?.missing, activeWorkspace?.repository, railMode])
 
   useEffect(() => {
     const actionable = Object.values(terminalRollups).reduce(
@@ -412,31 +479,65 @@ export function App(): ReactElement {
   }, [])
 
   useEffect(() => {
-    const cycle = (event: KeyboardEvent): void => {
+    const keydown = (event: KeyboardEvent): void => {
+      if (event.defaultPrevented) return
+      // Modal dialogs own the keyboard even when the browser reports body as
+      // the target (for example after clicking their backdrop).
+      if (document.querySelector('[aria-modal="true"]')) return
+      const action = (
+        Object.entries(settings.keybindings) as [KeybindingAction, string][]
+      ).find(([, binding]) => matchesKeybinding(event, binding))?.[0]
+      if (!action) return
       if (
-        event.defaultPrevented ||
-        !(event.ctrlKey || event.metaKey) ||
-        !event.shiftKey ||
-        event.key.toLowerCase() !== 'm'
+        action === 'cycleViewMode' &&
+        event.target instanceof Element &&
+        event.target.closest('.terminal-panel')
       ) {
         return
       }
-      if (event.target instanceof Element && event.target.closest('.terminal-panel')) {
-        return
-      }
-      if (gitGraphActiveRef.current) return
-      const id = activeIdRef.current
-      if (!id) return
       event.preventDefault()
-      setTabs((current) =>
-        current.map((tab) =>
-          tab.id === id ? { ...tab, mode: nextMode(tab.mode) } : tab,
-        ),
-      )
+      if (action === 'cycleViewMode') {
+        if (gitGraphActiveRef.current) return
+        const id = activeIdRef.current
+        if (!id) return
+        setTabs((current) =>
+          current.map((tab) =>
+            tab.id === id ? { ...tab, mode: nextMode(tab.mode) } : tab,
+          ),
+        )
+      } else if (action === 'toggleTerminalFocus') {
+        setTerminalFocused((focused) => !focused)
+      } else if (action === 'focusTerminal') {
+        requestAnimationFrame(() =>
+          document
+            .querySelector<HTMLElement>(
+              '.terminal-deck:not([hidden]) .terminal-surface.active textarea',
+            )
+            ?.focus(),
+        )
+      } else if (action === 'focusViewer') {
+        setTerminalFocused(false)
+        requestAnimationFrame(() =>
+          document
+            .querySelector<HTMLElement>(`[data-viewer-pane="${activePaneRef.current}"]`)
+            ?.focus(),
+        )
+      } else if (action === 'focusTree') {
+        setTerminalFocused(false)
+        setTreeCollapsed(false)
+        setRailMode('files')
+        requestAnimationFrame(() =>
+          document.querySelector<HTMLElement>('.tree-panel')?.focus(),
+        )
+      } else if (action === 'nextWorkspace') {
+        workspaceSwitchRef.current(1)
+      } else if (action === 'previousWorkspace') {
+        workspaceSwitchRef.current(-1)
+      }
     }
-    window.addEventListener('keydown', cycle, true)
-    return () => window.removeEventListener('keydown', cycle, true)
-  }, [])
+    window.addEventListener('keydown', keydown, true)
+    return () => window.removeEventListener('keydown', keydown, true)
+  }, [settings.keybindings])
 
   watchHandler.current = (event): void => {
     const tab = tabsRef.current.find((candidate) =>
@@ -454,16 +555,33 @@ export function App(): ReactElement {
     }
   }
 
+  const activateTab = (id: string, pane?: ViewerPaneId): void => {
+    const targetPane = pane ?? tabsRef.current.find((tab) => tab.id === id)?.pane
+    if (targetPane) {
+      activePaneRef.current = targetPane
+      activeByPaneRef.current[targetPane] = id
+    }
+    setActiveId(id)
+    setGitGraphActive(false)
+    setTerminalFocused(false)
+  }
+
   const openFile = (
     path: HostPath,
     pinned: boolean,
     context: FileOpenContext = 'file-tree',
     diffBase: DiffBase = 'head',
     diffRevision?: string,
+    position?: Omit<ViewerNavigationPosition, 'serial'>,
   ): void => {
+    setTerminalFocused(false)
     setGitGraphActive(false)
     const id = tabId(path)
     const existing = tabsRef.current.find((tab) => tab.id === id)
+    const targetPane = existing?.pane ?? (viewerSplit ? activePaneRef.current : 'primary')
+    const navigation = position
+      ? { ...position, serial: (nextViewerNavigation.current += 1) }
+      : undefined
     setTabs((current) => {
       const existing = current.find((tab) => tab.id === id)
       if (existing) {
@@ -472,9 +590,14 @@ export function App(): ReactElement {
             ? {
                 ...tab,
                 pinned: pinned || tab.pinned,
-                mode: context === 'git' ? 'diff' : tab.mode,
+                mode: position
+                  ? 'source'
+                  : context === 'file-tree'
+                    ? tab.mode
+                    : defaultViewMode(path, context),
                 diffBase: context === 'git' ? diffBase : tab.diffBase,
                 diffRevision: context === 'git' ? diffRevision : undefined,
+                navigation,
               }
             : tab,
         )
@@ -482,22 +605,26 @@ export function App(): ReactElement {
       const created: ViewerTab = {
         id,
         path,
+        pane: targetPane,
         pinned,
-        mode: defaultViewMode(path, context),
+        mode: position ? 'source' : defaultViewMode(path, context),
         diffBase,
         diffRevision,
         scrollTop: 0,
+        navigation,
         loading: true,
         dirty: false,
         conflict: false,
       }
-      const previewIndex = current.findIndex((tab) => !tab.pinned && !tab.dirty)
+      const previewIndex = current.findIndex(
+        (tab) => tab.pane === targetPane && !tab.pinned && !tab.dirty,
+      )
       if (previewIndex < 0) return [...current, created]
       const next = [...current]
       next[previewIndex] = created
       return next
     })
-    setActiveId(id)
+    activateTab(id, targetPane)
     // Reopening a dirty tab is navigation, not a reload. Its in-memory buffer
     // is authoritative until the user saves or explicitly chooses reload.
     if (!existing?.dirty) loadFile(path)
@@ -511,13 +638,34 @@ export function App(): ReactElement {
     ) {
       return
     }
+    const closesLastSecondary =
+      closing?.pane === 'secondary' &&
+      !tabsRef.current.some((tab) => tab.pane === 'secondary' && tab.id !== id)
+    if (closesLastSecondary) {
+      if (activePaneRef.current === 'secondary') activePaneRef.current = 'primary'
+      activeByPaneRef.current.secondary = undefined
+      setViewerSplit(false)
+      if (rootRef.current) persistLayout(rootRef.current, { viewerSplit: false })
+    }
     fileReadGenerations.current.set(id, (fileReadGenerations.current.get(id) ?? 0) + 1)
     setTabs((current) => {
       const index = current.findIndex((tab) => tab.id === id)
       if (index < 0) return current
+      const pane = current[index]?.pane ?? 'primary'
       const next = current.filter((tab) => tab.id !== id)
+      const nextInPane =
+        next.slice(index).find((tab) => tab.pane === pane) ??
+        [...next].reverse().find((tab) => tab.pane === pane)
+      if (activeByPaneRef.current[pane] === id) {
+        activeByPaneRef.current[pane] = nextInPane?.id
+      }
       if (activeIdRef.current === id) {
-        setActiveId(next[Math.min(index, next.length - 1)]?.id)
+        const nextActive = nextInPane ?? next[Math.min(index, next.length - 1)]
+        if (nextActive) {
+          activePaneRef.current = nextActive.pane
+          activeByPaneRef.current[nextActive.pane] = nextActive.id
+        }
+        setActiveId(nextActive?.id)
       }
       return next
     })
@@ -525,11 +673,6 @@ export function App(): ReactElement {
 
   const updateTab = (id: string, update: (tab: ViewerTab) => ViewerTab): void => {
     setTabs((current) => current.map((tab) => (tab.id === id ? update(tab) : tab)))
-  }
-
-  const updateActive = (update: (tab: ViewerTab) => ViewerTab): void => {
-    const id = activeIdRef.current
-    if (id) updateTab(id, update)
   }
 
   const scheduleScrollPersistence = (id: string, scrollTop: number): void => {
@@ -545,8 +688,8 @@ export function App(): ReactElement {
     })
   }
 
-  const saveActive = (): void => {
-    const tab = tabsRef.current.find((candidate) => candidate.id === activeIdRef.current)
+  const saveTab = (id: string): void => {
+    const tab = tabsRef.current.find((candidate) => candidate.id === id)
     if (!tab?.file || tab.file.binary || tab.conflict) return
     const savedContent = tab.file.content
     updateTab(tab.id, (candidate) => ({ ...candidate, error: undefined }))
@@ -595,8 +738,51 @@ export function App(): ReactElement {
   }
 
   const activeTab = tabs.find((tab) => tab.id === activeId)
+  const primaryTabs = tabs.filter((tab) => tab.pane === 'primary')
+  const secondaryTabs = tabs.filter((tab) => tab.pane === 'secondary')
+  const primaryActiveTab =
+    primaryTabs.find((tab) => tab.id === activeByPaneRef.current.primary) ??
+    primaryTabs[0]
+  const secondaryActiveTab =
+    secondaryTabs.find((tab) => tab.id === activeByPaneRef.current.secondary) ??
+    secondaryTabs[0]
+
+  const openViewerSplit = (): void => {
+    setViewerSplit(true)
+    if (rootRef.current) persistLayout(rootRef.current, { viewerSplit: true })
+  }
+
+  const closeViewerSplit = (): void => {
+    setTabs((current) =>
+      current.map((tab) =>
+        tab.pane === 'secondary' ? { ...tab, pane: 'primary' } : tab,
+      ),
+    )
+    if (activePaneRef.current === 'secondary') activePaneRef.current = 'primary'
+    if (activeIdRef.current) activeByPaneRef.current.primary = activeIdRef.current
+    activeByPaneRef.current.secondary = undefined
+    setViewerSplit(false)
+    if (rootRef.current) persistLayout(rootRef.current, { viewerSplit: false })
+  }
+
+  const moveTabToPane = (id: string, pane: ViewerPaneId): void => {
+    const moving = tabsRef.current.find((tab) => tab.id === id)
+    if (!moving || moving.pane === pane) return
+    setTabs((current) => current.map((tab) => (tab.id === id ? { ...tab, pane } : tab)))
+    if (activeByPaneRef.current[moving.pane] === id) {
+      activeByPaneRef.current[moving.pane] = tabsRef.current.find(
+        (tab) => tab.pane === moving.pane && tab.id !== id,
+      )?.id
+    }
+    activeByPaneRef.current[pane] = id
+    activePaneRef.current = pane
+    setActiveId(id)
+    setGitGraphActive(false)
+    if (pane === 'secondary') openViewerSplit()
+  }
 
   const openGitGraph = (hash?: string): void => {
+    activePaneRef.current = 'primary'
     setGitGraphOpen(true)
     setGitGraphActive(true)
     setGitGraphRequest((current) => ({
@@ -647,12 +833,40 @@ export function App(): ReactElement {
     }
   }
 
+  workspaceSwitchRef.current = (direction): void => {
+    const project = projectState?.projects.find(
+      (candidate) => candidate.id === projectState.activeProjectId,
+    )
+    const available = project?.workspaces.filter((workspace) => !workspace.missing) ?? []
+    if (!project || available.length < 2) return
+    const currentIndex = available.findIndex(
+      (workspace) => workspace.id === projectState?.activeWorkspaceId,
+    )
+    const target =
+      available[(currentIndex + direction + available.length) % available.length]
+    if (target) void switchWorkspace(project.id, target.id)
+  }
+
   const refreshProject = async (projectId: string): Promise<void> => {
     setSessionBusy(true)
     setSessionError(undefined)
     try {
       applyProjectState(
         unwrapOperation(await window.hvir.invoke('project:refresh', { projectId })),
+      )
+    } catch (reason) {
+      setSessionError(reason instanceof Error ? reason.message : String(reason))
+    } finally {
+      setSessionBusy(false)
+    }
+  }
+
+  const closeProject = async (projectId: string): Promise<void> => {
+    setSessionBusy(true)
+    setSessionError(undefined)
+    try {
+      applyProjectState(
+        unwrapOperation(await window.hvir.invoke('project:close', { projectId })),
       )
     } catch (reason) {
       setSessionError(reason instanceof Error ? reason.message : String(reason))
@@ -691,6 +905,28 @@ export function App(): ReactElement {
       setSessionError(reason instanceof Error ? reason.message : String(reason))
     } finally {
       setSessionBusy(false)
+    }
+  }
+
+  const switchGitBranch = async (branch: string): Promise<void> => {
+    const workspaceRoot = rootRef.current
+    if (!workspaceRoot) throw new Error('No active workspace')
+    if (tabsRef.current.some((tab) => tab.dirty)) {
+      throw new Error('Save or close unsaved viewer tabs before switching')
+    }
+    const state = unwrapOperation(
+      await window.hvir.invoke('git:switch-branch', {
+        root: workspaceRoot,
+        branch,
+      }),
+    )
+    applyProjectState(state)
+    setWatchVersion((version) => version + 1)
+    setIgnoredRefreshVersion((version) => version + 1)
+    setContentVersion((version) => version + 1)
+    setGitVersion((version) => version + 1)
+    for (const tab of tabsRef.current) {
+      if (!tab.dirty) loadFile(tab.path)
     }
   }
 
@@ -767,8 +1003,144 @@ export function App(): ReactElement {
     if (rootRef.current) persistLayout(rootRef.current, { terminalHeight: next })
   }
 
+  const setViewerPrimaryWidth = (width: number): void => {
+    const groups = viewerGroupsRef.current
+    if (!groups) return
+    const next = clamp(width, 240, Math.max(240, groups.clientWidth - 245))
+    groups.style.setProperty('--viewer-primary-track', `${next}px`)
+    if (rootRef.current) {
+      persistLayout(rootRef.current, { viewerPrimaryWidth: next })
+    }
+  }
+
   if (rootError) return <div className="startup-error">{rootError}</div>
   if (!root) return <div className="startup-loading">Starting hvir…</div>
+
+  const renderViewerPane = (
+    pane: ViewerPaneId,
+    paneTabs: readonly ViewerTab[],
+    paneTab: ViewerTab | undefined,
+    graphPane: boolean,
+  ): ReactElement => (
+    <section
+      className={`viewer-group viewer-group-${pane}`}
+      aria-label={`${pane === 'primary' ? 'Primary' : 'Secondary'} file viewer`}
+      data-viewer-pane={pane}
+      tabIndex={-1}
+      onPointerDownCapture={() => {
+        activePaneRef.current = pane
+        if (paneTab && !(graphPane && gitGraphActive)) {
+          activeByPaneRef.current[pane] = paneTab.id
+          setActiveId(paneTab.id)
+        }
+      }}
+    >
+      <TabStrip
+        tabs={paneTabs}
+        pane={pane}
+        activeId={graphPane && gitGraphActive ? undefined : paneTab?.id}
+        onActivate={(id) => activateTab(id, pane)}
+        onClose={closeTab}
+        onPin={(id) =>
+          setTabs((current) =>
+            current.map((tab) => (tab.id === id ? { ...tab, pinned: true } : tab)),
+          )
+        }
+        onReorder={(draggedId, targetId) => {
+          setTabs((current) => reorderTabs(current, draggedId, targetId))
+        }}
+        onMoveToPane={moveTabToPane}
+        split={viewerSplit}
+        onSplit={openViewerSplit}
+        onClosePane={pane === 'secondary' ? closeViewerSplit : undefined}
+        graphOpen={graphPane && gitGraphOpen}
+        graphActive={graphPane && gitGraphActive}
+        onActivateGraph={() => {
+          activePaneRef.current = 'primary'
+          setTerminalFocused(false)
+          setGitGraphActive(true)
+        }}
+        onCloseGraph={() => {
+          setGitGraphOpen(false)
+          setGitGraphActive(false)
+        }}
+      />
+      {graphPane && gitGraphOpen ? (
+        <div className="workspace-view" hidden={!gitGraphActive}>
+          <GitGraphView
+            root={root}
+            refreshVersion={gitVersion}
+            connectionState={connectionState}
+            requestedHash={gitGraphRequest.hash}
+            requestSerial={gitGraphRequest.serial}
+            onOpen={(path, base, revision) => openFile(path, true, 'git', base, revision)}
+          />
+        </div>
+      ) : null}
+      <div className="workspace-view" hidden={graphPane && gitGraphActive}>
+        {activeWorkspace?.missing ? (
+          <MissingWorkspaceNotice root={root} />
+        ) : (
+          <FileViewer
+            key={`${pane}:${paneTab?.id ?? 'empty'}`}
+            tab={paneTab}
+            onMode={(mode) =>
+              paneTab && updateTab(paneTab.id, (tab) => ({ ...tab, mode }))
+            }
+            onDiffBase={(diffBase) =>
+              paneTab && updateTab(paneTab.id, (tab) => ({ ...tab, diffBase }))
+            }
+            onContent={(content) =>
+              paneTab &&
+              updateTab(paneTab.id, (tab) =>
+                tab.file
+                  ? {
+                      ...tab,
+                      pinned: true,
+                      dirty: true,
+                      file: {
+                        ...tab.file,
+                        content,
+                        size: new TextEncoder().encode(content).byteLength,
+                      },
+                    }
+                  : tab,
+              )
+            }
+            onSave={() => paneTab && saveTab(paneTab.id)}
+            onReload={() => {
+              if (!paneTab) return
+              updateTab(paneTab.id, (tab) => ({
+                ...tab,
+                dirty: false,
+                conflict: false,
+              }))
+              loadFile(paneTab.path)
+            }}
+            onScroll={(scrollTop) =>
+              paneTab && scheduleScrollPersistence(paneTab.id, scrollTop)
+            }
+            onNavigationHandled={(serial) =>
+              paneTab &&
+              updateTab(paneTab.id, (tab) =>
+                tab.navigation?.serial === serial
+                  ? { ...tab, navigation: undefined }
+                  : tab,
+              )
+            }
+            onOpenPath={(path) => {
+              activePaneRef.current = pane
+              if (paneTab) {
+                updateTab(paneTab.id, (tab) => ({ ...tab, pinned: true }))
+              }
+              openFile(path, true)
+            }}
+            refreshVersion={contentVersion}
+          />
+        )}
+      </div>
+    </section>
+  )
 
   return (
     <div className="app-shell">
@@ -782,17 +1154,21 @@ export function App(): ReactElement {
             void switchWorkspace(projectId, workspaceId)
           }
           onRefresh={(projectId) => void refreshProject(projectId)}
+          onCloseProject={(projectId) => void closeProject(projectId)}
           onPrune={(projectId) => void pruneWorktrees(projectId)}
           onDismiss={(projectId, workspaceId) =>
             void dismissWorkspace(projectId, workspaceId)
           }
+          theme={theme}
+          onTheme={(nextTheme) => setAppTheme(nextTheme)}
+          onSettings={() => setShowSettings(true)}
         />
       ) : null}
       <main
-        className={`workbench${connectionState === 'connected' ? '' : ' project-stale'}`}
+        className={`workbench${connectionState === 'connected' ? '' : ' project-stale'}${terminalFocused ? ' terminal-focused' : ''}${treeCollapsed ? ' tree-collapsed' : ''}`}
         ref={workbenchRef}
       >
-        <aside className="tree-panel" aria-label="Project rail">
+        <aside className="tree-panel" aria-label="Project rail" tabIndex={-1}>
           <SessionBar
             label={root.hostId === 'local' ? 'Local' : `ssh:${root.hostId}`}
             remote={root.hostId !== 'local'}
@@ -813,7 +1189,7 @@ export function App(): ReactElement {
             >
               Files
             </button>
-            {activeWorkspace?.repository !== false ? (
+            {activeWorkspace?.repository !== false && !activeWorkspace?.missing ? (
               <button
                 type="button"
                 className={railMode === 'git' ? 'active' : ''}
@@ -823,7 +1199,12 @@ export function App(): ReactElement {
                 Git{changedCount > 0 ? ` ${changedCount}` : ''}
               </button>
             ) : null}
-            <button type="button" disabled title="Harness view lands in Phase 6">
+            <button
+              type="button"
+              className={railMode === 'harness' ? 'active' : ''}
+              aria-current={railMode === 'harness' ? 'page' : undefined}
+              onClick={() => setRailMode('harness')}
+            >
               Harness
             </button>
           </nav>
@@ -837,25 +1218,41 @@ export function App(): ReactElement {
               selected={activeTab?.path}
               onOpen={openFile}
               connected={connectionState === 'connected'}
+              missing={activeWorkspace?.missing}
               hidden={railMode !== 'files'}
             />
-            <GitPanel
-              key={`git:${root.hostId}:${root.path}`}
-              root={root}
-              refreshVersion={contentVersion}
-              historyRefreshVersion={gitVersion}
-              onChanges={setGitChanges}
-              onOpenChange={(path, base, untracked) =>
-                openFile(path, true, untracked ? 'git-untracked' : 'git', base)
-              }
-              onOpenHistory={(path, revision) =>
-                openFile(path, true, 'git', 'head', revision)
-              }
-              onOpenGraph={openGitGraph}
-              connectionState={connectionState}
-              hidden={railMode !== 'git'}
-              historyPaused={gitGraphActive}
-            />
+            {!activeWorkspace?.missing ? (
+              <GitPanel
+                key={`git:${root.hostId}:${root.path}`}
+                root={root}
+                refreshVersion={contentVersion}
+                historyRefreshVersion={gitVersion}
+                onChanges={setGitChanges}
+                onOpenChange={(path, base, untracked) =>
+                  openFile(path, true, untracked ? 'git-untracked' : 'git', base)
+                }
+                onOpenHistory={(path, revision) =>
+                  openFile(path, true, 'git', 'head', revision)
+                }
+                onOpenGraph={openGitGraph}
+                connectionState={connectionState}
+                hidden={railMode !== 'git'}
+                historyPaused={gitGraphActive}
+                hasDirtyViewerTabs={tabs.some((tab) => tab.dirty)}
+                onSwitchBranch={switchGitBranch}
+              />
+            ) : null}
+            <section
+              className="rail-section harness-placeholder"
+              aria-label="Harness"
+              hidden={railMode !== 'harness'}
+            >
+              <div className="harness-placeholder-copy">
+                <strong>Harness view</strong>
+                <span>Coming soon</span>
+                <p>Agent activity and session context will live here.</p>
+              </div>
+            </section>
           </div>
         </aside>
         <PaneResizer
@@ -864,9 +1261,14 @@ export function App(): ReactElement {
           label="Resize file tree"
           onDrag={(clientX) => {
             const left = workbenchRef.current?.getBoundingClientRect().left ?? 0
+            if (treeCollapsed) setTreeCollapsed(false)
             setTreeWidth(clientX - left)
           }}
           onNudge={(delta) => {
+            if (treeCollapsed) {
+              if (delta > 0) setTreeCollapsed(false)
+              return
+            }
             const current =
               workbenchRef.current?.querySelector<HTMLElement>('.tree-panel')
             if (current) setTreeWidth(current.getBoundingClientRect().width + delta)
@@ -875,89 +1277,68 @@ export function App(): ReactElement {
             workbenchRef.current?.style.removeProperty('--tree-track')
             if (rootRef.current) persistLayout(rootRef.current, { treeWidth: 0 })
           }}
+          action={
+            <button
+              type="button"
+              className="tree-collapse-toggle"
+              data-resizer-action
+              aria-label={
+                treeCollapsed ? 'Restore file explorer' : 'Collapse file explorer'
+              }
+              aria-pressed={treeCollapsed}
+              title={treeCollapsed ? 'Restore file explorer' : 'Collapse file explorer'}
+              onDoubleClick={(event) => event.stopPropagation()}
+              onClick={() => setTreeCollapsed((collapsed) => !collapsed)}
+            >
+              <svg aria-hidden="true" viewBox="0 0 16 16">
+                <path
+                  d={
+                    treeCollapsed
+                      ? 'M4 3 8.5 8 4 13M8 3l4.5 5L8 13'
+                      : 'M12 3 7.5 8l4.5 5M8 3 3.5 8 8 13'
+                  }
+                />
+              </svg>
+            </button>
+          }
         />
         <section className="viewer-panel" aria-label="File viewer">
-          <TabStrip
-            tabs={tabs}
-            activeId={gitGraphActive ? undefined : activeId}
-            onActivate={(id) => {
-              setActiveId(id)
-              setGitGraphActive(false)
-            }}
-            onClose={closeTab}
-            onPin={(id) =>
-              setTabs((current) =>
-                current.map((tab) => (tab.id === id ? { ...tab, pinned: true } : tab)),
-              )
-            }
-            onReorder={(draggedId, targetId) => {
-              setTabs((current) => reorderTabs(current, draggedId, targetId))
-            }}
-            graphOpen={gitGraphOpen}
-            graphActive={gitGraphActive}
-            onActivateGraph={() => setGitGraphActive(true)}
-            onCloseGraph={() => {
-              setGitGraphOpen(false)
-              setGitGraphActive(false)
-            }}
-          />
-          {gitGraphOpen ? (
-            <div className="workspace-view" hidden={!gitGraphActive}>
-              <GitGraphView
-                root={root}
-                refreshVersion={gitVersion}
-                connectionState={connectionState}
-                requestedHash={gitGraphRequest.hash}
-                requestSerial={gitGraphRequest.serial}
-                onOpen={(path, base, revision) =>
-                  openFile(path, true, 'git', base, revision)
-                }
-              />
-            </div>
-          ) : null}
-          <div className="workspace-view" hidden={gitGraphActive}>
-            <FileViewer
-              key={activeTab?.id ?? 'empty'}
-              tab={activeTab}
-              onMode={(mode) => updateActive((tab) => ({ ...tab, mode }))}
-              onDiffBase={(diffBase) => updateActive((tab) => ({ ...tab, diffBase }))}
-              onContent={(content) =>
-                updateActive((tab) =>
-                  tab.file
-                    ? {
-                        ...tab,
-                        pinned: true,
-                        dirty: true,
-                        file: {
-                          ...tab.file,
-                          content,
-                          size: new TextEncoder().encode(content).byteLength,
-                        },
-                      }
-                    : tab,
-                )
-              }
-              onSave={saveActive}
-              onReload={() => {
-                if (!activeTab) return
-                updateTab(activeTab.id, (tab) => ({
-                  ...tab,
-                  dirty: false,
-                  conflict: false,
-                }))
-                loadFile(activeTab.path)
-              }}
-              onScroll={(scrollTop) =>
-                activeTab && scheduleScrollPersistence(activeTab.id, scrollTop)
-              }
-              onOpenPath={(path) => {
-                if (activeTab) {
-                  updateTab(activeTab.id, (tab) => ({ ...tab, pinned: true }))
-                }
-                openFile(path, true)
-              }}
-              refreshVersion={contentVersion}
-            />
+          <div
+            className={`viewer-groups${viewerSplit ? ' split' : ''}`}
+            ref={viewerGroupsRef}
+          >
+            {renderViewerPane('primary', primaryTabs, primaryActiveTab, true)}
+            {viewerSplit ? (
+              <>
+                <PaneResizer
+                  orientation="vertical"
+                  className="viewer-split-resizer"
+                  label="Resize split viewers"
+                  onDrag={(clientX) => {
+                    const left =
+                      viewerGroupsRef.current?.getBoundingClientRect().left ?? 0
+                    setViewerPrimaryWidth(clientX - left)
+                  }}
+                  onNudge={(delta) => {
+                    const current = viewerGroupsRef.current?.querySelector<HTMLElement>(
+                      '.viewer-group-primary',
+                    )
+                    if (current) {
+                      setViewerPrimaryWidth(current.getBoundingClientRect().width + delta)
+                    }
+                  }}
+                  onReset={() => {
+                    viewerGroupsRef.current?.style.removeProperty(
+                      '--viewer-primary-track',
+                    )
+                    if (rootRef.current) {
+                      persistLayout(rootRef.current, { viewerPrimaryWidth: 0 })
+                    }
+                  }}
+                />
+                {renderViewerPane('secondary', secondaryTabs, secondaryActiveTab, false)}
+              </>
+            ) : null}
           </div>
         </section>
         <PaneResizer
@@ -977,6 +1358,28 @@ export function App(): ReactElement {
             workbenchRef.current?.style.removeProperty('--terminal-track')
             if (rootRef.current) persistLayout(rootRef.current, { terminalHeight: 0 })
           }}
+          action={
+            <button
+              type="button"
+              className="terminal-focus-toggle"
+              data-resizer-action
+              aria-label={terminalFocused ? 'Restore file viewer' : 'Expand terminal'}
+              aria-pressed={terminalFocused}
+              title={terminalFocused ? 'Restore file viewer' : 'Expand terminal'}
+              onDoubleClick={(event) => event.stopPropagation()}
+              onClick={() => setTerminalFocused((focused) => !focused)}
+            >
+              <svg aria-hidden="true" viewBox="0 0 16 16">
+                <path
+                  d={
+                    terminalFocused
+                      ? 'M3 4.5 8 9l5-4.5M3 8.5 8 13l5-4.5'
+                      : 'M3 11.5 8 7l5 4.5M3 7.5 8 3l5 4.5'
+                  }
+                />
+              </svg>
+            </button>
+          }
         />
         {projectState?.projects.flatMap((project) =>
           project.workspaces.map((workspace) => (
@@ -985,20 +1388,26 @@ export function App(): ReactElement {
               workspaceId={workspace.id}
               cwd={workspace.root}
               label={workspace.name}
+              available={!workspace.missing}
               visible={workspace.id === projectState.activeWorkspaceId}
               connectionState={project.connectionState}
               onRollup={updateTerminalRollup}
-              railGroups={project.workspaces.map((candidate) => ({
-                projectId: project.id,
-                workspaceId: candidate.id,
-                label: candidate.name,
-                active: candidate.id === workspace.id,
-                missing: candidate.missing,
-                unseen: terminalRollups[candidate.id]?.unseen ?? 0,
-              }))}
-              onSelectWorkspace={(projectId, workspaceId) =>
-                void switchWorkspace(projectId, workspaceId)
+              onOpenPath={(target) =>
+                openFile(
+                  target.path,
+                  true,
+                  'file-tree',
+                  'head',
+                  undefined,
+                  target.line === undefined
+                    ? undefined
+                    : { line: target.line, column: target.column },
+                )
               }
+              idleThresholdMs={settings.idleThresholdMs}
+              recoveryMode={settings.terminalRecoveryMode}
+              terminalTheme={settings.terminalTheme}
+              onOpenSettings={() => setShowSettings(true)}
             />
           )),
         )}
@@ -1016,6 +1425,18 @@ export function App(): ReactElement {
           onOpened={(state) => {
             applyProjectState(state)
             setShowAddProject(false)
+          }}
+        />
+      ) : null}
+      {showSettings ? (
+        <SettingsDialog
+          theme={theme}
+          settings={settings}
+          onClose={() => setShowSettings(false)}
+          onSave={(nextTheme, nextSettings) => {
+            setAppTheme(nextTheme)
+            setAppSettings(nextSettings)
+            setShowSettings(false)
           }}
         />
       ) : null}
@@ -1196,9 +1617,15 @@ function SessionDialog({
                 key={host.hostId}
                 onClick={() => setHostId(host.hostId)}
               >
-                <span className={`connection-state ${host.connectionState}`} />
-                <span>
-                  <strong>{host.kind === 'ssh' ? `ssh:${host.label}` : 'Local'}</strong>
+                <span className="session-host-copy">
+                  {host.kind === 'ssh' ? (
+                    <RemoteConnectionBadge
+                      state={host.connectionState}
+                      hostLabel={`ssh:${host.label}`}
+                    />
+                  ) : (
+                    <strong>Local</strong>
+                  )}
                   <small>
                     {host.kind === 'ssh' ? host.connectionState : 'this machine'}
                   </small>
@@ -1498,6 +1925,7 @@ interface StoredTabs {
   readonly tabs: readonly {
     readonly hostId: string
     readonly path: string
+    readonly pane?: ViewerPaneId
     readonly pinned: boolean
     readonly mode: ViewMode
     readonly diffBase: DiffBase
@@ -1535,6 +1963,7 @@ function restoreTabs(root: HostPath): { tabs: readonly ViewerTab[]; activeId?: s
         {
           id: tabId(path),
           path,
+          pane: item.pane === 'secondary' ? 'secondary' : 'primary',
           pinned: Boolean(item.pinned),
           mode: item.mode,
           diffBase: item.diffBase,
@@ -1589,6 +2018,7 @@ function persistTabs(
       return {
         hostId: tab.path.hostId,
         path: tab.path.path,
+        pane: tab.pane,
         pinned: tab.pinned,
         mode: tab.mode,
         diffBase: tab.diffBase,
@@ -1614,6 +2044,8 @@ interface StoredLayout {
   readonly version: 1
   readonly treeWidth?: number
   readonly terminalHeight?: number
+  readonly viewerSplit?: boolean
+  readonly viewerPrimaryWidth?: number
 }
 
 function restoreLayout(root: HostPath): StoredLayout {
@@ -1636,6 +2068,13 @@ function restoreLayout(root: HostPath): StoredLayout {
         Number.isFinite(layout['terminalHeight'])
           ? layout['terminalHeight']
           : undefined,
+      viewerSplit:
+        typeof layout['viewerSplit'] === 'boolean' ? layout['viewerSplit'] : undefined,
+      viewerPrimaryWidth:
+        typeof layout['viewerPrimaryWidth'] === 'number' &&
+        Number.isFinite(layout['viewerPrimaryWidth'])
+          ? layout['viewerPrimaryWidth']
+          : undefined,
     }
   } catch {
     return { version: 1 }
@@ -1644,7 +2083,12 @@ function restoreLayout(root: HostPath): StoredLayout {
 
 function persistLayout(
   root: HostPath,
-  update: { readonly treeWidth?: number; readonly terminalHeight?: number },
+  update: {
+    readonly treeWidth?: number
+    readonly terminalHeight?: number
+    readonly viewerSplit?: boolean
+    readonly viewerPrimaryWidth?: number
+  },
 ): void {
   try {
     localStorage.setItem(

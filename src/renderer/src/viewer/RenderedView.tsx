@@ -15,12 +15,17 @@ import type {
   JsonWorkerRequestInput,
   JsonWorkerResponse,
 } from './json-protocol'
+import { useAppTheme } from '../theme'
+import type { CsvTableData } from './csv-parser'
+import type { CsvWorkerResponse } from './csv-protocol'
 
 let jsonWorker: Worker | undefined
 let jsonRequestId = 0
 let jsonDocumentId = 0
 let mermaidRequestId = 0
 let mermaidPromise: Promise<typeof import('mermaid').default> | undefined
+let csvWorker: Worker | undefined
+let csvRequestId = 0
 
 function getJsonWorker(): Worker {
   jsonWorker ??= new Worker(new URL('./json.worker.ts', import.meta.url), {
@@ -29,10 +34,19 @@ function getJsonWorker(): Worker {
   return jsonWorker
 }
 
+function getCsvWorker(): Worker {
+  csvWorker ??= new Worker(new URL('./csv.worker.ts', import.meta.url), {
+    type: 'module',
+  })
+  return csvWorker
+}
+
 if (import.meta.hot) {
   import.meta.hot.dispose(() => {
     jsonWorker?.terminate()
     jsonWorker = undefined
+    csvWorker?.terminate()
+    csvWorker = undefined
   })
 }
 
@@ -54,7 +68,21 @@ export function RenderedView({
   refreshVersion,
 }: RenderedViewProps): ReactElement {
   const renderGeneration = useDevRendererGeneration()
+  const theme = useAppTheme()
   const type = renderedFileType(path)
+  if (type === 'image') {
+    return <RepositoryImageView path={path} refreshVersion={refreshVersion} />
+  }
+  if (type === 'csv') {
+    return (
+      <CsvView
+        content={content}
+        scrollTop={scrollTop}
+        onScroll={onScroll}
+        renderGeneration={renderGeneration}
+      />
+    )
+  }
   if (type === 'html') {
     return (
       <HtmlPreview path={path} content={content} renderGeneration={renderGeneration} />
@@ -72,7 +100,13 @@ export function RenderedView({
     )
   }
   if (type === 'mermaid') {
-    return <StandaloneMermaid content={content} renderGeneration={renderGeneration} />
+    return (
+      <StandaloneMermaid
+        content={content}
+        renderGeneration={renderGeneration}
+        theme={theme}
+      />
+    )
   }
   if (type === 'markdown') {
     return (
@@ -84,10 +118,167 @@ export function RenderedView({
         onOpenPath={onOpenPath}
         renderGeneration={renderGeneration}
         refreshVersion={refreshVersion}
+        theme={theme}
       />
     )
   }
   return <div className="viewer-empty">No rendered view for this file type</div>
+}
+
+function RepositoryImageView({
+  path,
+  refreshVersion,
+}: {
+  readonly path: HostPath
+  readonly refreshVersion: number
+}): ReactElement {
+  const [image, setImage] = useState<{
+    readonly url: string
+    readonly size: number
+    readonly mimeType: string
+  }>()
+  const [dimensions, setDimensions] = useState<string>()
+  const [error, setError] = useState<string>()
+
+  useEffect(() => {
+    let cancelled = false
+    let objectUrl: string | undefined
+    setImage(undefined)
+    setDimensions(undefined)
+    setError(undefined)
+    void window.hvir.invoke('fs:read-asset', { path }).then(
+      (result) => {
+        try {
+          const asset = unwrapOperation(result)
+          objectUrl = URL.createObjectURL(
+            new Blob([new Uint8Array(asset.data)], { type: asset.mimeType }),
+          )
+          if (cancelled) URL.revokeObjectURL(objectUrl)
+          else setImage({ url: objectUrl, size: asset.size, mimeType: asset.mimeType })
+        } catch (reason) {
+          if (!cancelled)
+            setError(reason instanceof Error ? reason.message : String(reason))
+        }
+      },
+      (reason: unknown) => {
+        if (!cancelled)
+          setError(reason instanceof Error ? reason.message : String(reason))
+      },
+    )
+    return () => {
+      cancelled = true
+      if (objectUrl) URL.revokeObjectURL(objectUrl)
+    }
+  }, [path, refreshVersion])
+
+  if (error) return <div className="viewer-empty error">Image unavailable: {error}</div>
+  if (!image) return <div className="viewer-empty">Loading image…</div>
+  return (
+    <figure className="rendered-scroll image-view">
+      <img
+        src={image.url}
+        alt={path.path.split('/').at(-1) ?? 'Repository image'}
+        onLoad={(event) => {
+          const element = event.currentTarget
+          setDimensions(`${element.naturalWidth} × ${element.naturalHeight}`)
+        }}
+      />
+      <figcaption>
+        <span>{dimensions ?? 'Image'}</span>
+        <span>{image.mimeType}</span>
+        <span>{formatAssetBytes(image.size)}</span>
+      </figcaption>
+    </figure>
+  )
+}
+
+function CsvView({
+  content,
+  scrollTop,
+  onScroll,
+  renderGeneration,
+}: {
+  readonly content: string
+  readonly scrollTop: number
+  readonly onScroll: (scrollTop: number) => void
+  readonly renderGeneration: number
+}): ReactElement {
+  const container = useRef<HTMLDivElement>(null)
+  const [table, setTable] = useState<CsvTableData>()
+  const [error, setError] = useState<string>()
+
+  useEffect(() => {
+    let cancelled = false
+    setTable(undefined)
+    setError(undefined)
+    void requestCsv(content).then(
+      (parsed) => {
+        if (!cancelled) setTable(parsed)
+      },
+      (reason: unknown) => {
+        if (!cancelled)
+          setError(reason instanceof Error ? reason.message : String(reason))
+      },
+    )
+    return () => {
+      cancelled = true
+    }
+  }, [content, renderGeneration])
+
+  useEffect(() => {
+    if (table && container.current) container.current.scrollTop = scrollTop
+  }, [scrollTop, table])
+
+  if (error) return <div className="viewer-empty error">Invalid CSV: {error}</div>
+  if (!table) return <div className="viewer-empty">Parsing CSV…</div>
+  const [headings = [], ...rows] = table.rows
+  const visibleColumns = table.rows.reduce(
+    (maximum, row) => Math.max(maximum, row.length),
+    0,
+  )
+  const columnIndexes = Array.from({ length: visibleColumns }, (_, index) => index)
+  const notes = [
+    table.truncated
+      ? `Showing ${table.rows.length.toLocaleString()} of ${table.totalRows.toLocaleString()} rows`
+      : undefined,
+    table.columnsTruncated
+      ? `first ${visibleColumns.toLocaleString()} of ${table.totalColumns.toLocaleString()} columns`
+      : undefined,
+  ].filter((note): note is string => Boolean(note))
+  return (
+    <div
+      className="rendered-scroll csv-view"
+      ref={container}
+      onScroll={(event) => onScroll(event.currentTarget.scrollTop)}
+    >
+      {notes.length > 0 ? <div className="csv-note">{notes.join(' · ')}</div> : null}
+      <table>
+        <thead>
+          <tr>
+            {columnIndexes.map((index) => {
+              const heading = headings[index] ?? ''
+              return (
+                <th key={index} title={heading}>
+                  {heading || `Column ${index + 1}`}
+                </th>
+              )
+            })}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row, rowIndex) => (
+            <tr key={rowIndex}>
+              {columnIndexes.map((columnIndex) => (
+                <td key={columnIndex} title={row[columnIndex] ?? ''}>
+                  {row[columnIndex] ?? ''}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
 }
 
 function HtmlPreview({
@@ -148,7 +339,11 @@ function MarkdownView({
   onOpenPath,
   renderGeneration,
   refreshVersion,
-}: RenderedViewProps & { readonly renderGeneration: number }): ReactElement {
+  theme,
+}: RenderedViewProps & {
+  readonly renderGeneration: number
+  readonly theme: 'dark' | 'light'
+}): ReactElement {
   const container = useRef<HTMLDivElement>(null)
   const scrollTopRef = useRef(scrollTop)
   const [html, setHtml] = useState('')
@@ -159,7 +354,7 @@ function MarkdownView({
     let cancelled = false
     setHtml('')
     setError(undefined)
-    void renderMarkdown(content).then(
+    void renderMarkdown(content, theme).then(
       (rendered) => {
         if (cancelled) return
         setHtml(rendered)
@@ -174,7 +369,7 @@ function MarkdownView({
     return () => {
       cancelled = true
     }
-  }, [content, renderGeneration])
+  }, [content, renderGeneration, theme])
 
   useEffect(() => {
     const root = container.current
@@ -195,12 +390,12 @@ function MarkdownView({
         else objectUrls.push(objectUrl)
       })
     }
-    void renderMermaidNodes(root, () => cancelled)
+    void renderMermaidNodes(root, () => cancelled, theme)
     return () => {
       cancelled = true
       for (const objectUrl of objectUrls) URL.revokeObjectURL(objectUrl)
     }
-  }, [html, path, refreshVersion])
+  }, [html, path, refreshVersion, theme])
 
   if (error) return <div className="viewer-empty error">{error}</div>
   if (!html) return <div className="viewer-empty">Rendering markdown…</div>
@@ -252,9 +447,11 @@ async function hydrateRepositoryImage(
 function StandaloneMermaid({
   content,
   renderGeneration,
+  theme,
 }: {
   readonly content: string
   readonly renderGeneration: number
+  readonly theme: 'dark' | 'light'
 }): ReactElement {
   const ref = useRef<HTMLDivElement>(null)
   useEffect(() => {
@@ -262,7 +459,7 @@ function StandaloneMermaid({
     if (!root) return
     let cancelled = false
     root.textContent = 'Rendering diagram…'
-    void renderMermaid(content, `mermaid-${++mermaidRequestId}`).then(
+    void renderMermaid(content, `mermaid-${++mermaidRequestId}`, theme).then(
       (svg) => {
         if (!cancelled) root.innerHTML = svg
       },
@@ -274,13 +471,14 @@ function StandaloneMermaid({
     return () => {
       cancelled = true
     }
-  }, [content, renderGeneration])
+  }, [content, renderGeneration, theme])
   return <div className="rendered-scroll mermaid-standalone" ref={ref} />
 }
 
 async function renderMermaidNodes(
   root: HTMLElement,
   cancelled: () => boolean,
+  theme: 'dark' | 'light',
 ): Promise<void> {
   const nodes = [...root.querySelectorAll<HTMLElement>('.mermaid-diagram')]
   for (const node of nodes) {
@@ -288,7 +486,7 @@ async function renderMermaidNodes(
     const source = node.querySelector('pre')?.textContent
     if (source === undefined) continue
     try {
-      node.innerHTML = await renderMermaid(source, `mermaid-${++mermaidRequestId}`)
+      node.innerHTML = await renderMermaid(source, `mermaid-${++mermaidRequestId}`, theme)
     } catch (error) {
       node.textContent = error instanceof Error ? error.message : String(error)
       node.classList.add('render-error')
@@ -297,17 +495,19 @@ async function renderMermaidNodes(
   }
 }
 
-async function renderMermaid(source: string, id: string): Promise<string> {
-  mermaidPromise ??= import('mermaid').then(({ default: mermaid }) => {
-    mermaid.initialize({
-      startOnLoad: false,
-      securityLevel: 'strict',
-      theme: 'dark',
-      suppressErrorRendering: true,
-    })
-    return mermaid
-  })
+async function renderMermaid(
+  source: string,
+  id: string,
+  theme: 'dark' | 'light',
+): Promise<string> {
+  mermaidPromise ??= import('mermaid').then(({ default: mermaid }) => mermaid)
   const mermaid = await mermaidPromise
+  mermaid.initialize({
+    startOnLoad: false,
+    securityLevel: 'strict',
+    theme: theme === 'light' ? 'default' : 'dark',
+    suppressErrorRendering: true,
+  })
   const { svg } = await mermaid.render(id, source)
   return svg
 }
@@ -509,4 +709,34 @@ function requestJson(input: JsonWorkerRequestInput): Promise<JsonWorkerResponse>
     worker.addEventListener('error', onError)
     worker.postMessage({ ...input, requestId })
   })
+}
+
+function requestCsv(source: string): Promise<CsvTableData> {
+  const worker = getCsvWorker()
+  const id = ++csvRequestId
+  return new Promise((resolve, reject) => {
+    const onMessage = (event: MessageEvent<CsvWorkerResponse>): void => {
+      if (event.data.id !== id) return
+      cleanup()
+      if (event.data.ok) resolve(event.data.table)
+      else reject(new Error(event.data.error))
+    }
+    const onError = (event: ErrorEvent): void => {
+      cleanup()
+      reject(new Error(event.message || 'CSV worker unavailable'))
+    }
+    const cleanup = (): void => {
+      worker.removeEventListener('message', onMessage)
+      worker.removeEventListener('error', onError)
+    }
+    worker.addEventListener('message', onMessage)
+    worker.addEventListener('error', onError)
+    worker.postMessage({ id, source })
+  })
+}
+
+function formatAssetBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KiB`
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MiB`
 }

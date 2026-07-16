@@ -45,6 +45,7 @@ export default defineConfig({
         'shiki/core',
         'shiki/engine/javascript',
         '@shikijs/themes/dark-plus',
+        '@shikijs/themes/github-light-default',
         '@shikijs/langs/bash',
         '@shikijs/langs/css',
         '@shikijs/langs/go',

@@ -1,17 +1,38 @@
 {
   "name": "hvir",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "A lightweight, view-first workbench for agentic development.",
-  "author": "hvir",
+  "author": {
+    "name": "hvir contributors",
+    "email": "jarmak-personal@users.noreply.github.com"
+  },
   "license": "MIT",
   "private": true,
+  "homepage": "https://github.com/jarmak-personal/hvir",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/jarmak-personal/hvir.git"
+  },
+  "bugs": "https://github.com/jarmak-personal/hvir/issues",
+  "desktopName": "hvir",
+  "keywords": [
+    "agentic-development",
+    "electron",
+    "terminal",
+    "git",
+    "ssh"
+  ],
   "main": "./out/main/index.js",
   "scripts": {
     "postinstall": "npm run install:runtime",
-    "install:runtime": "install-electron --no && electron-builder install-app-deps",
+    "install:runtime": "install-electron --no && electron-rebuild -f -o node-pty",
     "dev": "electron-vite dev",
     "build": "npm run typecheck && electron-vite build",
     "build:dir": "npm run build && electron-builder --dir",
+    "pack:npm:launcher": "node scripts/package-npm.mjs launcher",
+    "pack:npm:linux:x64": "npm run build && electron-builder --linux --x64 --dir --publish never && node scripts/package-npm.mjs platform linux x64 dist",
+    "pack:npm:linux:arm64": "npm run build && electron-builder --linux --arm64 --dir --publish never && node scripts/package-npm.mjs platform linux arm64 dist",
+    "pack:npm:mac:arm64": "npm run build && electron-builder --mac --arm64 --dir --publish never && node scripts/package-npm.mjs platform darwin arm64 dist",
     "preview": "electron-vite preview",
     "typecheck:node": "tsc --noEmit -p tsconfig.node.json",
     "typecheck:web": "tsc --noEmit -p tsconfig.web.json",
@@ -22,9 +43,11 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "check-seams": "bash scripts/check-seams.sh",
-    "verify": "npm run check-seams && npm run lint && npm run typecheck && npm test",
-    "smoke": "electron-vite build && cross-env HVIR_SMOKE=1 electron . --no-sandbox",
-    "smoke:capacity": "electron-vite build && cross-env HVIR_SMOKE=1 HVIR_CAPACITY_SMOKE=1 electron . --no-sandbox"
+    "verify": "npm run check-seams && npm run lint && npm run typecheck && npm test && node npm/launcher/hvir.mjs --help",
+    "smoke": "electron-vite build && bash scripts/run-smoke.sh",
+    "smoke:packaged": "bash scripts/run-packaged-smoke.sh",
+    "smoke:capacity": "electron-vite build && cross-env HVIR_CAPACITY_SMOKE=1 bash scripts/run-smoke.sh",
+    "gauntlet": "bash scripts/phase8-gauntlet.sh"
   },
   "dependencies": {
     "@codemirror/merge": "^6.12.2",
@@ -43,6 +66,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.39.0",
+    "@electron/rebuild": "^4.2.0",
     "@types/markdown-it": "^14.1.2",
     "@types/node": "^24.0.0",
     "@types/react": "^19.2.0",

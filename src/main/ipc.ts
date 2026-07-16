@@ -20,6 +20,7 @@ import {
   GIT_HISTORY_TYPE,
   GIT_IGNORED_ENTRIES_TYPE,
   GIT_COMMIT_DETAIL_TYPE,
+  GIT_BRANCHES_TYPE,
   repositoryImageMimeType,
   type GitWorkerProtocol,
   type HostPath,
@@ -98,11 +99,13 @@ export interface IpcDeps {
     workspaceId: string,
   ) => Promise<ProjectState>
   readonly refreshProject: (projectId: string) => Promise<ProjectState>
+  readonly closeProject: (projectId: string) => Promise<ProjectState>
   readonly pruneWorktrees: (projectId: string) => Promise<ProjectState>
   readonly dismissWorkspace: (
     projectId: string,
     workspaceId: string,
   ) => Promise<ProjectState>
+  readonly switchGitBranch: (root: HostPath, branch: string) => Promise<ProjectState>
   readonly respondSshPrompt: (id: number, answers?: readonly string[]) => void
   readonly ptySupervisor: PtySupervisor
   readonly terminalSessions: TerminalSessionStore
@@ -146,6 +149,9 @@ export function registerIpcHandlers(deps: IpcDeps): void {
   )
   handle('project:refresh', (req) =>
     operationResult(() => deps.refreshProject(req.projectId)),
+  )
+  handle('project:close', (req) =>
+    operationResult(() => deps.closeProject(req.projectId)),
   )
   handle('workspace:prune', (req) =>
     operationResult(() => deps.pruneWorktrees(req.projectId)),
@@ -298,7 +304,10 @@ export function registerIpcHandlers(deps: IpcDeps): void {
   handle('git:changes', async (req) => {
     const project = deps.getProject()
     const root = await projectPath(req.root, project.root, project.host)
-    return deps.gitWorker.request(GIT_CHANGES_TYPE, { root })
+    return deps.gitWorker.request(GIT_CHANGES_TYPE, {
+      root,
+      relatedWorktreeRoots: projectWorktreeRoots(root, deps),
+    })
   })
 
   handle('git:history', async (req) => {
@@ -343,6 +352,20 @@ export function registerIpcHandlers(deps: IpcDeps): void {
     const path = await projectPath(req.path, root, host)
     return deps.gitWorker.request(GIT_BLAME_TYPE, { root, path })
   })
+
+  handle('git:branches', async (req) => {
+    const project = deps.getProject()
+    const root = await projectPath(req.root, project.root, project.host)
+    return deps.gitWorker.request(GIT_BRANCHES_TYPE, { root })
+  })
+
+  handle('git:switch-branch', (req) =>
+    operationResult(async () => {
+      const project = deps.getProject()
+      const root = await projectPath(req.root, project.root, project.host)
+      return deps.switchGitBranch(root, req.branch)
+    }),
+  )
 
   handle('html-preview:create', (req) => deps.htmlPreviews.create(req.content))
 
@@ -509,6 +532,19 @@ function registeredWorkspaceRoot(candidate: HostPath, deps: IpcDeps): HostPath {
     throw new Error('Terminal session belongs to another project')
   }
   return root
+}
+
+function projectWorktreeRoots(root: HostPath, deps: IpcDeps): readonly HostPath[] {
+  const project = deps
+    .getProjectState()
+    .projects.find((candidate) =>
+      candidate.workspaces.some((workspace) => hostPathEquals(workspace.root, root)),
+    )
+  return (
+    project?.workspaces
+      .filter((workspace) => !workspace.missing)
+      .map((workspace) => workspace.root) ?? []
+  )
 }
 
 function isTerminalId(value: unknown): value is string {

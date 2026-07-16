@@ -94,3 +94,24 @@ export interface GitIgnoredEntriesRequest {
 export interface GitIgnoredEntriesResponse {
   readonly ignoredNames: readonly string[]
 }
+
+export interface GitBranch {
+  readonly name: string
+  readonly current: boolean
+  /** Present when Git reports this branch checked out in a worktree. */
+  readonly worktree?: HostPath
+}
+
+export interface GitBranchModel {
+  readonly repositoryState: GitRepositoryState
+  readonly current?: string
+  /** Commit at HEAD when one exists; also identifies a detached HEAD. */
+  readonly head?: string
+  readonly detached: boolean
+  readonly branches: readonly GitBranch[]
+}
+
+export interface GitSwitchBranchRequest {
+  readonly root: HostPath
+  readonly branch: string
+}

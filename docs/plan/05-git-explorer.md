@@ -34,7 +34,9 @@ are recorded as accepted Phase 4 residual risk rather than blockers for the Git 
 
 **Scope amendment (2026-07-12):** hands-on review established that branch/merge topology
 is core to the Git reading workflow. A read-only commit graph is now in scope; it does not
-relax the prohibition on stage/commit/push/branch/stash operations. The implementation
+itself relax the Phase 5 prohibition on stage/commit/push/branch/stash operations. Phase
+8 later admits one separately recorded exception: clean switching among existing local
+branches from the active workspace (ADR-005 Phase 8 addendum). The graph implementation
 spike and acceptance are tracked in
 [`03-05-review-followups.md`](03-05-review-followups.md).
 
@@ -83,6 +85,7 @@ spike and acceptance are tracked in
 - [x] Status table updated.
 
 ## Non-goals
-Any write operations — stage, commit, push, branch, stash are **out of scope for v1**
-(view-first; the terminal is right there). Submodule UI. If write operations ever come,
-that's a §2 conversation and an ADR first.
+Except for Phase 8's narrow, clean switch among existing local branches, Git write
+operations remain **out of scope for v1**: no stage, commit, push/pull, stash, merge,
+rebase, or branch create/delete/rename/track controls. Submodule UI. Any further write
+operation is a §2 conversation and an ADR first.

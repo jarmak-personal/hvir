@@ -8,7 +8,10 @@ import type {
 } from './highlight-protocol'
 
 const highlighterPromise = createHighlighterCore({
-  themes: [import('@shikijs/themes/dark-plus')],
+  themes: [
+    import('@shikijs/themes/dark-plus'),
+    import('@shikijs/themes/github-light-default'),
+  ],
   langs: [
     import('@shikijs/langs/bash'),
     import('@shikijs/langs/css'),
@@ -36,7 +39,7 @@ async function highlight(request: HighlightRequest): Promise<void> {
     const highlighter = await highlighterPromise
     const result = highlighter.codeToTokens(request.code, {
       lang: request.language,
-      theme: 'dark-plus',
+      theme: request.theme === 'light' ? 'github-light-default' : 'dark-plus',
     })
 
     let batch: HighlightToken[] = []

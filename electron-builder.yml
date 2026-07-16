@@ -6,10 +6,24 @@ directories:
 files:
   - out/**
   - package.json
-# Native modules (node-pty) must be rebuilt against Electron's ABI. electron-builder
-# runs this automatically during packaging; it is not needed for `electron-vite dev`.
-npmRebuild: true
+asar: true
+asarUnpack:
+  - node_modules/**/*.node
+# postinstall rebuilds the required node-pty module against Electron's ABI. Keep
+# packaging from also rebuilding ssh2's optional cpu-features acceleration module;
+# ssh2 has a supported JavaScript fallback when that optional module is absent.
+npmRebuild: false
+mac:
+  icon: build/icon.icns
+  category: public.app-category.developer-tools
+  # Phase 8 ships deterministic unsigned v1 npm payloads. Remove this when the
+  # Developer ID + notarization decision in docs/packaging.md is activated.
+  identity: null
+  hardenedRuntime: true
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.inherit.plist
 linux:
-  target:
-    - dir
+  icon: build/icons
+  executableName: hvir
+  syncDesktopName: true
   category: Development

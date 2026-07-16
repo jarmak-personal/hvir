@@ -2,6 +2,7 @@ export interface HighlightRequest {
   readonly id: number
   readonly code: string
   readonly language: HighlightLanguage
+  readonly theme: 'dark' | 'light'
 }
 
 export type HighlightLanguage =

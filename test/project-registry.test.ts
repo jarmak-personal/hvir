@@ -87,6 +87,47 @@ describe('ProjectRegistry session flow', () => {
     await registry.dispose()
   })
 
+  it('closes a registered project, activates a neighbor, and keeps one project open', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'hvir-registry-close-'))
+    const second = join(root, 'second')
+    await mkdir(second)
+    const canonicalRoot = await realpath(root)
+    const canonicalSecond = await realpath(second)
+    const projectsFile = join(root, 'projects.json')
+    cleanups.push(root)
+    const registry = await ProjectRegistry.create(
+      localPath(root),
+      { prompt: () => Promise.resolve(undefined) },
+      join(root, 'known-hosts.json'),
+      projectsFile,
+      () => undefined,
+    )
+    const firstProjectId = registry.state().activeProjectId
+    const opened = await registry.open('local', second)
+    const secondProjectId = opened.activeProjectId
+
+    const closed = await registry.closeProject(secondProjectId)
+    expect(closed.projects.map((project) => project.id)).toEqual([firstProjectId])
+    expect(closed.activeProjectId).toBe(firstProjectId)
+    expect(closed.root.path).toBe(canonicalRoot)
+    expect(closed.projects[0]?.registeredRoot.path).not.toBe(canonicalSecond)
+    await expect(registry.closeProject(firstProjectId)).rejects.toThrow(
+      'hvir must keep one project open',
+    )
+    await registry.dispose()
+
+    const restored = await ProjectRegistry.create(
+      localPath(root),
+      { prompt: () => Promise.resolve(undefined) },
+      join(root, 'known-hosts.json'),
+      projectsFile,
+      () => undefined,
+    )
+    expect(restored.state().projects).toHaveLength(1)
+    expect(restored.state().activeProjectId).toBe(firstProjectId)
+    await restored.dispose()
+  })
+
   it('rejects browsing a host that has not connected', async () => {
     const root = await mkdtemp(join(tmpdir(), 'hvir-registry-'))
     cleanups.push(root)

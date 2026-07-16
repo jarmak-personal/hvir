@@ -3,6 +3,7 @@ import { useEffect, useState, type ReactElement } from 'react'
 import type { HostPath } from '../../../shared'
 import { renderMarkdown, useMarkdownRendererGeneration } from './markdown-client'
 import { handleRenderedLinkClick } from './rendered-link-handler'
+import { useAppTheme } from '../theme'
 
 interface MarkdownFragmentProps {
   readonly path: HostPath
@@ -18,6 +19,7 @@ export function MarkdownFragment({
   onOpenPath,
 }: MarkdownFragmentProps): ReactElement {
   const renderGeneration = useMarkdownRendererGeneration()
+  const theme = useAppTheme()
   const [html, setHtml] = useState('')
   const [error, setError] = useState(false)
 
@@ -25,7 +27,7 @@ export function MarkdownFragment({
     let cancelled = false
     setHtml('')
     setError(false)
-    void renderMarkdown(content).then(
+    void renderMarkdown(content, theme).then(
       (rendered) => {
         if (!cancelled) setHtml(rendered)
       },
@@ -36,7 +38,7 @@ export function MarkdownFragment({
     return () => {
       cancelled = true
     }
-  }, [content, renderGeneration])
+  }, [content, renderGeneration, theme])
 
   if (error)
     return <pre className={`markdown-fragment-fallback ${className}`}>{content}</pre>

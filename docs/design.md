@@ -114,6 +114,38 @@ libghostty dependency yet; `electron-libghostty@0.0.0` contains no usable implem
 and upstream libghostty remains unversioned. Fall back to `@xterm/xterm` if later load
 testing exposes a blocker, without changing code above the pane seam.
 
+#### Phase 8 addendum — 2026-07-15: transient terminal focus and file handoff
+
+**The horizontal viewer/terminal divider owns a transient terminal-focus mode.** A small,
+accessible double-up-chevron control expands the active terminal deck to the full center
+height and hides the viewer surface; in that state it becomes a double-down-chevron that
+restores the viewer and the exact prior terminal height. Expansion never overwrites the
+workspace's persisted divider height, never unmounts viewer tabs or terminal panes, and
+is not restored after app relaunch. `TerminalPane` receives the resulting resize through
+its existing interface but knows nothing about application layout state.
+
+Any intentional file activation restores the viewer before opening or selecting the
+file: Files tree rows, Git Changes/History/graph entries, rendered internal links, and
+terminal file links all share this rule. Terminal file links are added behind the
+terminal seam as a user-activated raw link/path event. The renderer resolves relative
+targets against the terminal's host-qualified workspace root, accepts absolute targets
+only inside that same authorized workspace, and routes the resulting `HostPath` through
+the existing viewer open path. Common `path:line[:column]` decorations may be parsed, but
+path text is never executed and cannot expand filesystem authority. OSC 8 file links and
+engine-supported plain-path detection remain implementation details of the active
+`TerminalPane`.
+
+**Why:** terminal-heavy work benefits from one-click vertical focus, while a file click
+is an unambiguous request to see the viewer again. Keeping this as a reversible overlay
+preserves the carefully chosen per-workspace split instead of making maximize/minimize a
+second persistent layout system.
+
+**Rejected:** persisting the maximized height as the workspace divider value; unmounting
+the viewer or PTY while focused (loses scroll/state and creates recovery churn); teaching
+the terminal engine about React layout; allowing terminal links outside the active
+workspace; executing link text; requiring separate restore actions for file-tree, Git,
+rendered-link, and terminal-link navigation.
+
 ### ADR-004 — Code viewer: CodeMirror 6 + Shiki
 **Decision:** CodeMirror 6 for the view surface, Shiki for highlighting.
 **Why:** Shiki (TextMate grammars + VSCode themes) is the "renders beautifully" payoff.
@@ -214,6 +246,37 @@ round-trip pressure); adopting either component despite the spike gaps; adding G
 actions to the inspector (still outside the view-first v1 scope); adding a Files-tree
 "show only changes" mode (the Git Changes view already owns that workflow; reconsider
 only with broader v2 navigation evidence).
+
+#### Phase 8 addendum — 2026-07-15: bounded branch navigation
+
+**The active workspace may switch among existing repository-local branches
+(`refs/heads/*`) from a branch selector in the Git rail.** This is navigation with a
+filesystem consequence, not a general Git client surface. The selector always shows the
+current branch or detached HEAD. A target is enabled only when the Git working tree is
+clean, hvir has no unsaved viewer tabs in that workspace, and Git does not report the
+branch checked out by another worktree. Selecting an enabled target runs the equivalent
+of `git switch <branch>` without force or discard flags, then refreshes worktree
+discovery, Files, Changes, History, and clean open tabs. The same flow works through
+`ProjectHost` for local and SSH projects.
+
+Branch enumeration and command construction stay in the Git utility process. The main
+process grants a single-use, exact-root mutation authorization, matching the narrow
+broker pattern used by stale worktree pruning; arguments never pass through a shell.
+Failures leave the current workspace intact and surface beside the selector. Dirty,
+occupied, or otherwise advanced cases point to the terminal instead of offering an
+override.
+
+**Why:** choosing which existing branch to inspect is a common viewer navigation action,
+and requiring a terminal round trip for it makes the Git surface feel artificially
+read-only. Clean-only switching preserves the view-first guardrail and avoids silently
+carrying edits across branches. Keeping the control workspace-scoped also avoids
+confusing branches with the project/worktree selector above it.
+
+**Rejected:** creating, deleting, renaming, or tracking branches; checking out arbitrary
+commits from the graph; force/discard/autostash controls; carrying staged, unstaged,
+untracked, conflicted, or unsaved hvir edits across a switch; stage/commit/stash/merge/
+rebase/push/pull UI; placing the branch selector in the global project bar (branch state
+belongs to one active worktree); invoking Git directly from the renderer or main process.
 
 ### ADR-006 — Session recovery: harness resume, not a daemon
 **Decision:** Recover agent sessions through the harness's own persistence
@@ -423,6 +486,14 @@ tabs refresh asynchronously when revisited; dirty drafts remain authoritative. R
 workspace dismissal is the explicit point that ends its PTYs and forgets recovery
 records.
 
+Project tabs may be explicitly closed when another registered project can become active.
+Closing unregisters the project and unmounts its live PTYs without touching its files,
+Git branches, or worktrees. Terminal recovery metadata is retained so re-registering the
+same host-qualified root can restore those sessions. V1 keeps one project registered at
+all times: a zero-project welcome state was rejected because it would make filesystem,
+Git, watch, and PTY authority optional throughout the application for little workflow
+gain; register a replacement before closing the final project.
+
 **Rejected:** one Git worker or SSH connection per workspace (duplicates transport and
 auth state); granting inactive roots to general renderer filesystem IPC (weakens the
 active-workspace boundary); killing PTYs on workspace switches (turns navigation into
@@ -460,6 +531,20 @@ prune (the Git record would simply reappear); deleting `$GIT_DIR/worktrees` entr
 directly (reimplements Git and is unsafe); `git worktree remove` (acts on a worktree,
 not the already-stale administrative record).
 
+#### Phase 8 addendum — 2026-07-15: one workspace selector
+
+**Workspace navigation lives only in the top project/worktree tier.** The right terminal
+rail lists terminals from the active workspace and contains no duplicate rows that jump
+to inactive worktrees. Inactive PTYs remain live and continue contributing attention
+rollups to their workspace and project controls at the top.
+
+**Why:** worktree rows in the terminal rail repeat the global workspace selector, mix two
+navigation hierarchies, and spend scarce rail space on something that is not a terminal.
+
+**Rejected:** keeping inactive-workspace jump rows for convenience; flattening terminals
+from every workspace into one list (loses cwd and recovery ownership); removing top-level
+attention rollups when the duplicate rows disappear.
+
 ### ADR-009 — Notifications: focus clears, parents aggregate
 **Decision:** One rule, no special cases: **a dot is cleared by focusing the thing that
 raised it; parents only aggregate their children's unseen dots.** No dot on the terminal
@@ -490,6 +575,40 @@ launcher count where available. Unsupported Linux desktops fail silently.
 urgency fallbacks (too noisy for normal streaming work); counting raw output (nearly
 permanent badges); clearing terminal dots on app focus (loses which terminal raised the
 signal); per-event badge increments (duplicates one terminal instead of aggregating it).
+
+#### Phase 8 addendum — 2026-07-15: distinct status and attention language
+
+The focus-clears/parents-aggregate behavior and signal priority remain unchanged, but
+connection state, Git changes, and terminal attention no longer share ambiguous dot/badge
+styling. Project connection state uses a labeled status glyph or pill at the leading edge.
+Attention uses one consistent trailing badge vocabulary: a terminal shows its strongest
+unseen signal, while workspace and project parents show the count of unseen child
+terminals. Changed-file counts retain a separate Git-specific treatment. Color is
+secondary to shape, placement, label, and accessible text.
+
+Phase 8 re-verifies the complete event path with real and synthetic plain BEL/OSC bell,
+output, idle-after-burst, terminal focus, workspace/project switching, window focus, and
+OS badge behavior. A bell transport or focus-tracking failure is a functional bug, not a
+theme-polish issue.
+
+**Rejected:** identical dots on both sides of a tab; color-only signal distinctions;
+using the connection indicator as an attention carrier; clearing child attention by
+focusing only its parent; replacing the quiet Dock/launcher count with sound or toasts.
+
+#### Phase 8 addendum — 2026-07-15: turn-qualified idle attention
+
+Idle-after-burst is armed by a user submission boundary (Enter/newline through the
+`TerminalPane` input event), then raised at most once when that turn first becomes quiet.
+PTY startup, recovery prompts, resize repaints, and later periodic control-sequence output
+do not repeatedly manufacture **Ready** attention. Bytes arriving after a settled turn
+can still raise the lower-priority **New output** signal; another user submission re-arms
+**Ready**. This rule is terminal- and harness-independent. Terminal selector controls
+carry their session identity so selecting one remains terminal focus across an app-window
+refocus and consistently clears its child attention.
+
+**Rejected:** treating every PTY write as a fresh turn (quiet shells and idle harness
+repaints repeatedly become Ready); parsing harness screen contents; per-harness timing or
+prompt heuristics.
 
 ### ADR-010 — Remote projects: `ProjectHost` seam, host-qualified paths, no remote server
 **Decision:** Every project (ADR-008) is registered *on a host*. All filesystem, git,
@@ -602,6 +721,30 @@ transports (destroys reservation); terminal-screen scraping or OSC injection for
 (fragile and contaminates the terminal surface); restarting every telemetry follower on
 ordinary subscription churn (avoidable gaps/work); and a persistent installed remote
 agent (still rejected by ADR-010).
+
+### ADR-011 — Distribution: one npm launcher, native payloads
+
+**Decision:** hvir has one supported installation contract: `npm install -g hvir`, then
+`hvir`. The public launcher selects an integrity-checked optional payload package for
+Linux x64, Linux arm64, or macOS arm64. Payloads contain an electron-builder unpacked app
+built and smoke-tested on the matching native architecture; their npm install step expands
+the app without compiling on the user's machine. Intel macOS, Windows, dmg, zip, AppImage,
+and deb are not release targets.
+
+**Why:** hvir's likely users already have Node/npm for their agent harnesses, and a single
+install/update/remove path is materially easier to explain and support. The launcher keeps
+the user-facing package small while npm handles platform selection, version matching,
+integrity, caching, and provenance. Native runners keep Electron and `node-pty` honest;
+Linux arm64 adds little policy complexity now that both Electron binaries and hosted arm64
+runners exist. The three hidden payload packages are release mechanics, not alternative
+products.
+
+**Rejected:** maintaining native installers alongside npm (multiple install, update, and
+support paths); publishing the source app and compiling Electron/native dependencies on
+user machines (slow and toolchain-sensitive); one universal package containing every
+platform (wasted bandwidth); a postinstall download from a separate release host (splits
+version/integrity authority between npm and another service); macOS x64 (explicitly outside
+the supported hardware target).
 
 ---
 

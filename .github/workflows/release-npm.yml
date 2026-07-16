@@ -1,0 +1,111 @@
+name: Publish npm release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-npm-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run verify
+      - run: xvfb-run -a npm run smoke
+
+  build-platforms:
+    needs: verify
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - package: hvir-linux-x64
+            os: ubuntu-24.04
+            command: npm run pack:npm:linux:x64
+            smoke: xvfb-run -a npm run smoke:packaged
+          - package: hvir-linux-arm64
+            os: ubuntu-24.04-arm
+            command: npm run pack:npm:linux:arm64
+            smoke: xvfb-run -a npm run smoke:packaged
+          - package: hvir-darwin-arm64
+            os: macos-15
+            command: npm run pack:npm:mac:arm64
+            smoke: npm run smoke:packaged
+    name: Build ${{ matrix.package }}
+    runs-on: ${{ matrix.os }}
+    env:
+      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: ${{ matrix.command }}
+      - run: npm run pack:npm:launcher
+      - run: ${{ matrix.smoke }}
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.package }}
+          path: dist/npm/${{ matrix.package }}-*.tgz
+          if-no-files-found: error
+          retention-days: 1
+
+  publish:
+    needs: build-platforms
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+          registry-url: https://registry.npmjs.org
+      - run: npm ci
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: hvir-*
+          path: dist/npm
+          merge-multiple: true
+      - run: npm run pack:npm:launcher
+      - name: Publish platform payloads
+        run: |
+          version=$(node -p "require('./package.json').version")
+          publish_if_missing() {
+            package_name=$1
+            tarball=$2
+            if npm view "${package_name}@${version}" version >/dev/null 2>&1; then
+              echo "${package_name}@${version} already published"
+            else
+              npm publish "$tarball" --access public --provenance
+            fi
+          }
+          publish_if_missing hvir-linux-x64 dist/npm/hvir-linux-x64-*.tgz
+          publish_if_missing hvir-linux-arm64 dist/npm/hvir-linux-arm64-*.tgz
+          publish_if_missing hvir-darwin-arm64 dist/npm/hvir-darwin-arm64-*.tgz
+      - name: Publish hvir launcher
+        run: |
+          version=$(node -p "require('./package.json').version")
+          if npm view "hvir@${version}" version >/dev/null 2>&1; then
+            echo "hvir@${version} already published"
+          else
+            npm publish dist/npm/hvir-[0-9]*.tgz --access public --provenance
+          fi
+    env:
+      NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

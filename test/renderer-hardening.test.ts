@@ -20,5 +20,7 @@ describe('renderer filesystem contract', () => {
   it('exposes typed target-resolution and Git-decoration operations', () => {
     expect(INVOKE_CHANNELS).toContain('fs:resolve-entry')
     expect(INVOKE_CHANNELS).toContain('git:ignored-entries')
+    expect(INVOKE_CHANNELS).toContain('git:branches')
+    expect(INVOKE_CHANNELS).toContain('git:switch-branch')
   })
 })

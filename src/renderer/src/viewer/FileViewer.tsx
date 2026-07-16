@@ -13,6 +13,7 @@ import { useEffect, useRef, useState, type ReactElement } from 'react'
 import {
   basenameHostPath,
   canRender,
+  renderedFileType,
   type DiffBase,
   type ViewMode,
   type GitBlameRun,
@@ -20,12 +21,19 @@ import {
 } from '../../../shared'
 import { DiffView } from './DiffView'
 import {
+  captureTopLine,
+  restoreTopLine,
+  type CodeScrollAnchor,
+  type CodeScrollCapture,
+} from './code-scroll-anchor'
+import {
   languageForPath,
   type HighlightResponse,
   type HighlightToken,
 } from './highlight-protocol'
 import { RenderedView } from './RenderedView'
 import type { ViewerTab } from './tab-state'
+import { useAppTheme } from '../theme'
 
 export const HIGHLIGHT_SIZE_LIMIT = 1024 * 1024
 export const CODEMIRROR_SIZE_LIMIT = 5 * 1024 * 1024
@@ -86,6 +94,7 @@ interface FileViewerProps {
   readonly onSave: () => void
   readonly onReload: () => void
   readonly onScroll: (scrollTop: number) => void
+  readonly onNavigationHandled: (serial: number) => void
   readonly onOpenPath: (path: HostPath) => void
   readonly refreshVersion: number
 }
@@ -98,6 +107,7 @@ export function FileViewer({
   onSave,
   onReload,
   onScroll,
+  onNavigationHandled,
   onOpenPath,
   refreshVersion,
 }: FileViewerProps): ReactElement {
@@ -106,6 +116,9 @@ export function FileViewer({
   const [blameStatus, setBlameStatus] = useState('')
   const currentPath = tab?.path
   const blameMode = tab?.mode
+  const codeScrollAnchor = useRef<number | undefined>(undefined)
+  const codeScrollCapture = useRef<(() => number) | undefined>(undefined)
+  const binaryImage = Boolean(tab?.file?.binary && renderedFileType(tab.path) === 'image')
 
   useEffect(() => {
     if (!showBlame || !currentPath || blameMode !== 'source') return
@@ -182,12 +195,19 @@ export function FileViewer({
                   className={tab.mode === mode ? 'active' : ''}
                   aria-pressed={tab.mode === mode}
                   title={
-                    mode === 'rendered' && !canRender(tab.path)
-                      ? 'No renderer registered for this file type'
-                      : `${mode} view · Ctrl/Cmd+Shift+M cycles modes`
+                    tab.file?.binary && mode !== 'rendered'
+                      ? 'Binary repository assets are available in rendered view only'
+                      : mode === 'rendered' && !canRender(tab.path)
+                        ? 'No renderer registered for this file type'
+                        : `${mode} view · Ctrl/Cmd+Shift+M cycles modes`
                   }
+                  disabled={Boolean(tab.file?.binary && mode !== 'rendered')}
                   key={mode}
-                  onClick={() => onMode(mode)}
+                  onClick={() => {
+                    const line = codeScrollCapture.current?.()
+                    if (line !== undefined) codeScrollAnchor.current = line
+                    onMode(mode)
+                  }}
                 >
                   {mode}
                 </button>
@@ -200,10 +220,10 @@ export function FileViewer({
         {!tab ? <EmptyViewer text="Choose a file from the tree" /> : null}
         {tab?.loading ? <EmptyViewer text="Opening…" /> : null}
         {tab?.error && !tab.file ? <EmptyViewer text={tab.error} error /> : null}
-        {tab && !tab.loading && tab.file?.binary ? (
-          <EmptyViewer text="Binary files are not rendered" />
+        {tab && !tab.loading && tab.file?.binary && !binaryImage ? (
+          <BinaryFileView path={tab.path} size={tab.file.size} />
         ) : null}
-        {tab && !tab.loading && tab.file && !tab.file.binary ? (
+        {tab && !tab.loading && tab.file && (!tab.file.binary || binaryImage) ? (
           <ActiveView
             tab={tab}
             file={tab.file}
@@ -214,10 +234,30 @@ export function FileViewer({
             blameStatus={showBlame ? blameStatus : ''}
             onOpenPath={onOpenPath}
             refreshVersion={refreshVersion}
+            codeScrollAnchor={codeScrollAnchor}
+            codeScrollCapture={codeScrollCapture}
+            onNavigationHandled={onNavigationHandled}
           />
         ) : null}
       </div>
     </>
+  )
+}
+
+function BinaryFileView({
+  path,
+  size,
+}: {
+  readonly path: HostPath
+  readonly size: number
+}): ReactElement {
+  const extension = basenameHostPath(path).split('.').at(-1)?.toUpperCase()
+  return (
+    <div className="viewer-empty binary-file-summary">
+      <strong>{extension ? `${extension} binary file` : 'Binary file'}</strong>
+      <span>{formatBytes(size)}</span>
+      <span>Source and diff views are unavailable.</span>
+    </div>
   )
 }
 
@@ -231,6 +271,9 @@ function ActiveView({
   blameStatus,
   onOpenPath,
   refreshVersion,
+  codeScrollAnchor,
+  codeScrollCapture,
+  onNavigationHandled,
 }: {
   readonly tab: ViewerTab
   readonly file: NonNullable<ViewerTab['file']>
@@ -241,6 +284,9 @@ function ActiveView({
   readonly blameStatus: string
   readonly onOpenPath: (path: HostPath) => void
   readonly refreshVersion: number
+  readonly codeScrollAnchor: CodeScrollAnchor
+  readonly codeScrollCapture: CodeScrollCapture
+  readonly onNavigationHandled: (serial: number) => void
 }): ReactElement {
   if (tab.mode === 'rendered') {
     return (
@@ -275,6 +321,8 @@ function ActiveView({
         refreshVersion={refreshVersion}
         scrollTop={tab.scrollTop}
         onScroll={onScroll}
+        codeScrollAnchor={codeScrollAnchor}
+        codeScrollCapture={codeScrollCapture}
       />
     )
   }
@@ -289,6 +337,10 @@ function ActiveView({
       onScroll={onScroll}
       blame={blame}
       blameStatus={blameStatus}
+      codeScrollAnchor={codeScrollAnchor}
+      codeScrollCapture={codeScrollCapture}
+      navigation={tab.navigation}
+      onNavigationHandled={onNavigationHandled}
     />
   )
 }
@@ -337,6 +389,10 @@ function SourceView({
   onScroll,
   blame,
   blameStatus,
+  codeScrollAnchor,
+  codeScrollCapture,
+  navigation,
+  onNavigationHandled,
 }: {
   readonly pathKey: string
   readonly content: string
@@ -347,7 +403,12 @@ function SourceView({
   readonly onScroll: (scrollTop: number) => void
   readonly blame: readonly GitBlameRun[]
   readonly blameStatus: string
+  readonly codeScrollAnchor: CodeScrollAnchor
+  readonly codeScrollCapture: CodeScrollCapture
+  readonly navigation?: ViewerTab['navigation']
+  readonly onNavigationHandled: (serial: number) => void
 }): ReactElement {
+  const theme = useAppTheme()
   const container = useRef<HTMLDivElement>(null)
   const view = useRef<EditorView | undefined>(undefined)
   const applyingExternal = useRef(false)
@@ -389,23 +450,54 @@ function SourceView({
         ],
       }),
     })
-    const handleScroll = (): void => {
+    const restoreLine = codeScrollAnchor.current
+    const captureLine = (): number => captureTopLine(editor, editor.scrollDOM)
+    codeScrollCapture.current = captureLine
+    const captureScroll = (): void => {
+      codeScrollAnchor.current = captureLine()
       callbacks.current.onScroll(editor.scrollDOM.scrollTop)
     }
-    editor.scrollDOM.addEventListener('scroll', handleScroll, { passive: true })
+    editor.scrollDOM.addEventListener('scroll', captureScroll, { passive: true })
     view.current = editor
     requestAnimationFrame(() => {
-      editor.scrollDOM.scrollTop = scrollTop
+      if (restoreLine === undefined) {
+        editor.scrollDOM.scrollTop = scrollTop
+      } else {
+        restoreTopLine(editor, editor.scrollDOM, restoreLine)
+      }
     })
     return () => {
       callbacks.current.onScroll(editor.scrollDOM.scrollTop)
-      editor.scrollDOM.removeEventListener('scroll', handleScroll)
+      editor.scrollDOM.removeEventListener('scroll', captureScroll)
+      if (codeScrollCapture.current === captureLine) {
+        codeScrollCapture.current = undefined
+      }
       view.current = undefined
       editor.destroy()
     }
     // A path change is a new editor. Content synchronization is handled below.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pathKey])
+
+  useEffect(() => {
+    if (!navigation) return
+    const frame = requestAnimationFrame(() => {
+      const editor = view.current
+      if (!editor) return
+      const line = editor.state.doc.line(
+        Math.min(editor.state.doc.lines, Math.max(1, Math.floor(navigation.line))),
+      )
+      const columnOffset = Math.max(0, Math.floor((navigation.column ?? 1) - 1))
+      const position = Math.min(line.to, line.from + columnOffset)
+      codeScrollAnchor.current = line.number
+      editor.dispatch({
+        selection: { anchor: position },
+        effects: EditorView.scrollIntoView(position, { y: 'center' }),
+      })
+      onNavigationHandled(navigation.serial)
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [codeScrollAnchor, navigation, onNavigationHandled])
 
   useEffect(() => {
     view.current?.dispatch({
@@ -427,8 +519,8 @@ function SourceView({
       applyingExternal.current = false
     }
     if (userAuthored) return
-    return highlight(editor, pathKey, content, size, setHighlightStatus)
-  }, [content, pathKey, size])
+    return highlight(editor, pathKey, content, size, theme, setHighlightStatus)
+  }, [content, pathKey, size, theme])
 
   return (
     <div className="source-shell">
@@ -488,6 +580,7 @@ function highlight(
   path: string,
   content: string,
   size: number,
+  theme: 'dark' | 'light',
   setStatus: (status: string) => void,
 ): () => void {
   view.dispatch({ effects: resetTokens.of(null) })
@@ -519,7 +612,7 @@ function highlight(
   }
   worker.addEventListener('message', onMessage)
   worker.addEventListener('error', onError)
-  worker.postMessage({ id: requestId, code: content, language })
+  worker.postMessage({ id: requestId, code: content, language, theme })
   return () => {
     worker.removeEventListener('message', onMessage)
     worker.removeEventListener('error', onError)
@@ -559,18 +652,18 @@ function formatBytes(bytes: number): string {
 }
 
 const sourceTheme = EditorView.theme({
-  '&': { height: '100%', backgroundColor: '#15181e', color: '#d4d7dd' },
+  '&': { height: '100%', backgroundColor: 'var(--viewer-bg)', color: 'var(--text)' },
   '.cm-scroller': {
     overflow: 'auto',
     fontFamily: "'JetBrains Mono', 'SFMono-Regular', Consolas, monospace",
     fontSize: '13px',
     lineHeight: '1.55',
   },
-  '.cm-content': { padding: '12px 0', caretColor: '#d4d7dd' },
+  '.cm-content': { padding: '12px 0', caretColor: 'var(--text)' },
   '.cm-gutters': {
-    backgroundColor: '#15181e',
-    borderRight: '1px solid #242933',
-    color: '#5f6877',
+    backgroundColor: 'var(--viewer-gutter)',
+    borderRight: '1px solid var(--code-border)',
+    color: 'var(--viewer-gutter-text)',
   },
   '&.cm-focused': { outline: 'none' },
 })

@@ -10,7 +10,10 @@ import {
 import { enableTaskLists } from './markdown-extensions'
 
 const highlighterPromise = createHighlighterCore({
-  themes: [import('@shikijs/themes/dark-plus')],
+  themes: [
+    import('@shikijs/themes/dark-plus'),
+    import('@shikijs/themes/github-light-default'),
+  ],
   langs: [
     import('@shikijs/langs/bash'),
     import('@shikijs/langs/css'),
@@ -49,7 +52,7 @@ async function render(request: MarkdownRenderRequest): Promise<void> {
       try {
         return highlighter.codeToHtml(token.content, {
           lang: language || 'text',
-          theme: 'dark-plus',
+          theme: request.theme === 'light' ? 'github-light-default' : 'dark-plus',
         })
       } catch {
         return `<pre><code>${escapeHtml(token.content)}</code></pre>`

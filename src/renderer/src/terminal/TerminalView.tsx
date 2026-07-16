@@ -10,6 +10,9 @@ import type {
 import { createGhosttyTerminalPane } from './ghostty-terminal-pane'
 import { SynchronizedOutputWriter } from './synchronized-output'
 import type { TerminalPane } from './terminal-pane'
+import type { TerminalColorTheme } from './terminal-pane'
+import { useAppTheme, type AppTheme } from '../theme'
+import type { TerminalThemeOverride } from '../settings/settings'
 
 interface TerminalViewProps {
   readonly sessionId: string
@@ -18,7 +21,10 @@ interface TerminalViewProps {
   readonly harnessSessionId?: string
   readonly resumeOnStart: boolean
   readonly position: number
+  readonly slot: 'primary' | 'secondary'
+  readonly visible: boolean
   readonly active: boolean
+  readonly themeOverride: TerminalThemeOverride
   readonly cwd: HostPath
   readonly connectionState: HostConnectionState
   readonly onTitle: (title: string) => void
@@ -29,9 +35,11 @@ interface TerminalViewProps {
     status: TerminalIdentityStatus,
   ) => void
   readonly onStarted: () => void
+  readonly onInput: (data: string) => void
   readonly onOutput: () => void
   readonly onBell: () => void
   readonly onFocus: () => void
+  readonly onLink: (target: string) => void
 }
 
 const PTY_RESIZE_DEBOUNCE_MS = 75
@@ -43,7 +51,10 @@ export function TerminalView({
   harnessSessionId,
   resumeOnStart,
   position,
+  slot,
+  visible,
   active,
+  themeOverride,
   cwd,
   connectionState,
   onTitle,
@@ -51,10 +62,14 @@ export function TerminalView({
   onTelemetry,
   onIdentity,
   onStarted,
+  onInput,
   onOutput,
   onBell,
   onFocus,
+  onLink,
 }: TerminalViewProps): ReactElement {
+  const appTheme = useAppTheme()
+  const effectiveTheme: AppTheme = themeOverride === 'app' ? appTheme : themeOverride
   const workspaceRootRef = useRef(cwd)
   if (
     workspaceRootRef.current.hostId !== cwd.hostId ||
@@ -75,9 +90,11 @@ export function TerminalView({
     onTelemetry,
     onIdentity,
     onStarted,
+    onInput,
     onOutput,
     onBell,
     onFocus,
+    onLink,
   })
   const [title, setTitle] = useState(fallbackTitle)
   const [status, setStatus] = useState('Starting…')
@@ -96,9 +113,11 @@ export function TerminalView({
     onTelemetry,
     onIdentity,
     onStarted,
+    onInput,
     onOutput,
     onBell,
     onFocus,
+    onLink,
   }
   activeRef.current = active
   launchMetadataRef.current = {
@@ -174,7 +193,10 @@ export function TerminalView({
     )
     void (async () => {
       try {
-        const pane = await createGhosttyTerminalPane()
+        // ghostty-web 0.4 cannot recolor cells already in the VT buffer. Keep one
+        // canonical palette and apply the light appearance to the retained canvas;
+        // this changes instantly without losing scrollback or remounting the PTY.
+        const pane = await createGhosttyTerminalPane(baseTerminalTheme())
         if (cancelled) {
           pane.dispose()
           return
@@ -186,6 +208,7 @@ export function TerminalView({
         )
         const disposers = [
           pane.events.onData((data) => {
+            handlersRef.current.onInput(data)
             if (ptyStarted) window.hvir.send('pty:write', { id: sessionId, data })
             else pendingInput += data
           }),
@@ -204,6 +227,7 @@ export function TerminalView({
           }),
           pane.events.onBell(() => handlersRef.current.onBell()),
           pane.events.onOsc((event) => console.debug('[terminal:osc]', event)),
+          pane.events.onLink((target) => handlersRef.current.onLink(target)),
         ]
         disposePane = () => {
           for (const dispose of disposers) void dispose()
@@ -291,35 +315,50 @@ export function TerminalView({
 
   return (
     <section
-      className={`terminal-panel terminal-surface${active ? ' active' : ''}`}
+      className={`terminal-panel terminal-surface${visible ? ' visible' : ''}${active ? ' active' : ''}`}
+      data-terminal-slot={slot}
       aria-label={title}
-      aria-hidden={!active}
+      aria-hidden={!visible}
       data-terminal-session={sessionId}
+      data-terminal-status={status}
     >
-      <header className="panel-header">
-        <span className="terminal-panel-title">{title}</span>
-        <span className="terminal-status">
-          <span className="panel-meta">{status}</span>
-          {connectionState === 'connected' && exited ? (
-            <button
-              type="button"
-              className="terminal-restart"
-              onClick={() => {
-                restartRequestedRef.current = true
-                setRestartGeneration((generation) => generation + 1)
-              }}
-            >
-              {adapterId !== 'plain-shell' && harnessSessionId ? 'Resume' : 'Restart'}
-            </button>
-          ) : null}
-        </span>
-      </header>
+      {connectionState === 'connected' && exited ? (
+        <button
+          type="button"
+          className="terminal-restart"
+          aria-label={`${adapterId !== 'plain-shell' && harnessSessionId ? 'Resume' : 'Restart'} ${title}`}
+          onClick={() => {
+            restartRequestedRef.current = true
+            setRestartGeneration((generation) => generation + 1)
+          }}
+        >
+          {adapterId !== 'plain-shell' && harnessSessionId ? 'Resume' : 'Restart'}
+        </button>
+      ) : null}
       <div
         key={`${workspaceRoot.hostId}:${workspaceRoot.path}:${connectionState}`}
         className="terminal-container"
+        data-terminal-theme={effectiveTheme}
         ref={containerRef}
         onMouseDown={() => handlersRef.current.onFocus()}
       />
     </section>
   )
+}
+
+function baseTerminalTheme(): TerminalColorTheme {
+  return {
+    background: '#111318',
+    foreground: '#d8dee9',
+    cursor: '#d8dee9',
+    selectionBackground: '#39445a',
+    black: '#20242c',
+    red: '#e06c75',
+    green: '#98c379',
+    yellow: '#e5c07b',
+    blue: '#61afef',
+    magenta: '#c678dd',
+    cyan: '#56b6c2',
+    white: '#d8dee9',
+  }
 }
