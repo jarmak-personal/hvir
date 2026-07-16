@@ -106,6 +106,8 @@ export interface IpcDeps {
     workspaceId: string,
   ) => Promise<ProjectState>
   readonly switchGitBranch: (root: HostPath, branch: string) => Promise<ProjectState>
+  readonly fetchGit: (root: HostPath) => Promise<ProjectState>
+  readonly pullGit: (root: HostPath) => Promise<ProjectState>
   readonly respondSshPrompt: (id: number, answers?: readonly string[]) => void
   readonly ptySupervisor: PtySupervisor
   readonly terminalSessions: TerminalSessionStore
@@ -358,6 +360,22 @@ export function registerIpcHandlers(deps: IpcDeps): void {
     const root = await projectPath(req.root, project.root, project.host)
     return deps.gitWorker.request(GIT_BRANCHES_TYPE, { root })
   })
+
+  handle('git:fetch', (req) =>
+    operationResult(async () => {
+      const project = deps.getProject()
+      const root = await projectPath(req.root, project.root, project.host)
+      return deps.fetchGit(root)
+    }),
+  )
+
+  handle('git:pull', (req) =>
+    operationResult(async () => {
+      const project = deps.getProject()
+      const root = await projectPath(req.root, project.root, project.host)
+      return deps.pullGit(root)
+    }),
+  )
 
   handle('git:switch-branch', (req) =>
     operationResult(async () => {

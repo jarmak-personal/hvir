@@ -13,11 +13,20 @@ import {
   type GitHistoryPage,
   type GitCommitDetail,
   type GitBranchModel,
+  type GitBranchSync,
   type HostId,
   type HostPath,
   type WorktreeDiscovery,
 } from '../../shared'
 import type { ExecOptions, ProjectHost } from '../project-host'
+
+export const GIT_FETCH_ARGS = ['fetch', '--prune', '--no-recurse-submodules'] as const
+export const GIT_PULL_ARGS = [
+  'pull',
+  '--no-rebase',
+  '--ff-only',
+  '--no-recurse-submodules',
+] as const
 
 /**
  * Minimal, single-file git slice for ADR-007. Every command crosses the
@@ -142,22 +151,34 @@ export class GitEngine {
       return {
         repositoryState: 'not-git',
         detached: false,
+        remoteAvailable: false,
         branches: [],
       }
     }
     const { commandRoot } = context
-    const [headOutput, currentOutput, refsOutput, discovery] = await Promise.all([
-      this.tryRun(commandRoot, ['rev-parse', '--verify', 'HEAD']),
-      this.tryRun(commandRoot, ['symbolic-ref', '--quiet', '--short', 'HEAD']),
-      this.run(commandRoot, [
-        'for-each-ref',
-        '--format=%(refname:short)%00',
-        'refs/heads',
-      ]),
-      this.worktrees(workspaceRoot),
-    ])
+    const [headOutput, currentOutput, refsOutput, discovery, statusOutput, remoteOutput] =
+      await Promise.all([
+        this.tryRun(commandRoot, ['rev-parse', '--verify', 'HEAD']),
+        this.tryRun(commandRoot, ['symbolic-ref', '--quiet', '--short', 'HEAD']),
+        this.run(commandRoot, [
+          'for-each-ref',
+          '--format=%(refname:short)%00',
+          'refs/heads',
+        ]),
+        this.worktrees(workspaceRoot),
+        this.run(commandRoot, [
+          'status',
+          '--porcelain=v2',
+          '--branch',
+          '-z',
+          '--untracked-files=no',
+        ]),
+        this.run(commandRoot, ['remote']),
+      ])
     const head = headOutput?.trim() || undefined
     const current = currentOutput?.trim() || undefined
+    const sync =
+      head && current ? await this.branchSync(commandRoot, statusOutput) : undefined
     const occupied = new Map(
       discovery.worktrees.flatMap((worktree) =>
         worktree.branch ? [[worktree.branch, worktree.root] as const] : [],
@@ -168,11 +189,67 @@ export class GitEngine {
       current,
       head,
       detached: Boolean(head && !current),
+      remoteAvailable: remoteOutput.trim().length > 0,
+      ...(sync ? { sync } : {}),
       branches: parseLocalBranches(refsOutput).map((name) => ({
         name,
         current: name === current,
         ...(occupied.get(name) ? { worktree: occupied.get(name) } : {}),
       })),
+    }
+  }
+
+  async fetch(workspaceRoot: HostPath): Promise<void> {
+    this.assertHost(workspaceRoot)
+    const context = await this.projectContext(workspaceRoot)
+    if (!context) throw new Error('Not a Git repository')
+    const remotes = await this.run(context.commandRoot, ['remote'])
+    if (!remotes.trim()) throw new Error('No Git remote is configured')
+    const result = await execGit(this.host, context.commandRoot, GIT_FETCH_ARGS)
+    if (result.code !== 0) {
+      throw gitError(GIT_FETCH_ARGS, result.stderr, result.code)
+    }
+  }
+
+  async pullFastForward(
+    workspaceRoot: HostPath,
+    relatedWorktreeRoots: readonly HostPath[] = [],
+  ): Promise<void> {
+    this.assertHost(workspaceRoot)
+    const model = await this.branches(workspaceRoot)
+    if (model.repositoryState === 'not-git') throw new Error('Not a Git repository')
+    if (!model.current) throw new Error('A detached HEAD cannot be pulled')
+    if (!model.remoteAvailable) throw new Error('No Git remote is configured')
+    const upstream = model.sync?.upstream
+    if (!upstream) throw new Error('The current branch has no upstream')
+    if (upstream.gone) throw new Error('The configured upstream no longer exists')
+    if (upstream.ahead > 0 && upstream.behind > 0) {
+      throw new Error('The branch has diverged; ask an agent to integrate it')
+    }
+    if (upstream.behind === 0) throw new Error('The branch is already up to date')
+
+    const status = await this.run(workspaceRoot, [
+      'status',
+      '--porcelain=v2',
+      '-z',
+      '--untracked-files=all',
+    ])
+    const context = await this.projectContext(workspaceRoot)
+    if (!context) throw new Error('Not a Git repository')
+    if (
+      excludeNestedWorktrees(
+        parseStatus(status),
+        workspaceRoot,
+        context.repositoryPrefix,
+        relatedWorktreeRoots,
+      ).length > 0
+    ) {
+      throw new Error('Working tree changed; ask an agent to commit or stash it')
+    }
+
+    const result = await execGit(this.host, context.commandRoot, GIT_PULL_ARGS)
+    if (result.code !== 0) {
+      throw gitError(GIT_PULL_ARGS, result.stderr, result.code)
     }
   }
 
@@ -784,6 +861,38 @@ export class GitEngine {
     )
   }
 
+  private async branchSync(
+    repoRoot: HostPath,
+    statusOutput: string,
+  ): Promise<GitBranchSync> {
+    const upstream = parseBranchTracking(statusOutput)
+    let base: GitBranchSync['base']
+    try {
+      const defaultRef = await this.defaultBranch(repoRoot)
+      const counts = await this.tryRun(repoRoot, [
+        'rev-list',
+        '--left-right',
+        '--count',
+        `HEAD...${defaultRef}`,
+      ])
+      const parsed = counts ? parseAheadBehind(counts) : undefined
+      if (parsed) {
+        base = {
+          name: shortRef(defaultRef),
+          ahead: parsed.ahead,
+          behind: parsed.behind,
+        }
+      }
+    } catch {
+      // Repositories without a conventional default branch still retain their
+      // configured-upstream status. Base drift is additive information.
+    }
+    return {
+      ...(upstream ? { upstream } : {}),
+      ...(base ? { base } : {}),
+    }
+  }
+
   private async showOrEmpty(repoRoot: HostPath, revision: string): Promise<string> {
     const result = await execReadOnlyGit(this.host, repoRoot, ['show', revision])
     if (result.code === 0) return result.stdout
@@ -901,6 +1010,38 @@ export function parseLocalBranches(output: string): readonly string[] {
     .split('\0')
     .map((branch) => branch.trim())
     .filter(Boolean)
+}
+
+function parseBranchTracking(output: string): GitBranchSync['upstream'] | undefined {
+  let name: string | undefined
+  let ahead = 0
+  let behind = 0
+  let hasAheadBehind = false
+  for (const record of output.split(/\0|\r?\n/)) {
+    if (record.startsWith('# branch.upstream ')) {
+      name = record.slice('# branch.upstream '.length).trim() || undefined
+      continue
+    }
+    if (record.startsWith('# branch.ab ')) {
+      const match = /^# branch\.ab \+(\d+) -(\d+)$/.exec(record.trim())
+      if (match) {
+        ahead = Number(match[1])
+        behind = Number(match[2])
+        hasAheadBehind = true
+      }
+    }
+  }
+  return name
+    ? { name, ahead, behind, ...(!hasAheadBehind ? { gone: true } : {}) }
+    : undefined
+}
+
+function parseAheadBehind(
+  output: string,
+): { readonly ahead: number; readonly behind: number } | undefined {
+  const match = /^\s*(\d+)\s+(\d+)\s*$/.exec(output)
+  if (!match) return undefined
+  return { ahead: Number(match[1]), behind: Number(match[2]) }
 }
 
 function assertBranchName(branch: string): void {

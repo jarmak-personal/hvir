@@ -275,8 +275,36 @@ confusing branches with the project/worktree selector above it.
 **Rejected:** creating, deleting, renaming, or tracking branches; checking out arbitrary
 commits from the graph; force/discard/autostash controls; carrying staged, unstaged,
 untracked, conflicted, or unsaved hvir edits across a switch; stage/commit/stash/merge/
-rebase/push/pull UI; placing the branch selector in the global project bar (branch state
+rebase/push UI; placing the branch selector in the global project bar (branch state
 belongs to one active worktree); invoking Git directly from the renderer or main process.
+
+#### Phase 8 addendum — 2026-07-16: bounded remote synchronization
+
+**The Git rail exposes cached upstream/base drift, explicit Fetch, and clean
+fast-forward-only Pull.** Upstream status distinguishes incoming, outgoing, diverged,
+and missing-upstream branches. Feature workspaces also show commits added to the default
+branch since their merge base, even when their own remote branch is synchronized. A
+configurable, conservative auto-fetch runs only while the Git rail is visible; explicit
+Fetch remains available and failures stop automatic retries until the user retries.
+
+Fetch and Pull retain the Git utility-process/`ProjectHost` path. Main grants one-shot
+authorization for exact command grammars, arguments never cross a shell, and network Git
+disables terminal/credential-manager prompting so a background control channel cannot
+hang behind invisible input. Pull is offered only for an attached branch with a configured
+upstream, a clean Git worktree, no unsaved hvir tabs, and a behind-only topology. It uses
+`--no-rebase --ff-only`; any dirty, diverged, detached, missing-upstream, authentication,
+or base-integration case is explained and handed to the agent in a terminal.
+
+**Why:** upstream awareness is part of truthful Git viewing, and a safe fast-forward is
+the routine completion of that observation. Requiring the user to remember an external
+fetch makes hvir's status silently stale; requiring a terminal for an unambiguous
+fast-forward adds ceremony without useful control. Complex integration still benefits
+from an agent that can inspect and explain the repository.
+
+**Rejected:** automatic pull; hidden merge/rebase strategy; autostash; conflict UI;
+force, reset, push, upstream creation, or base-branch integration; retrying failed
+background authentication; interactive credential prompts on buffered Git channels;
+GitHub/GitLab-specific APIs; treating cached remote refs as freshly fetched.
 
 ### ADR-006 — Session recovery: harness resume, not a daemon
 **Decision:** Recover agent sessions through the harness's own persistence

@@ -5,6 +5,7 @@ import {
   type WorkerHostCall,
 } from '../../shared'
 import type { ProjectHost } from '../project-host'
+import { GIT_FETCH_ARGS, GIT_PULL_ARGS } from './git-engine'
 
 const canonicalRoots = new WeakMap<ProjectHost, Map<string, Promise<HostPath>>>()
 const MAX_ARGUMENTS = 256
@@ -16,6 +17,10 @@ export interface GitHostCallPermissions {
   readonly allowWorktreePrune?: boolean
   /** One-shot authorization for one exact existing local branch target. */
   readonly allowBranchSwitch?: string
+  /** One-shot authorization for the exact non-interactive fetch grammar. */
+  readonly allowFetch?: boolean
+  /** One-shot authorization for the exact fast-forward-only pull grammar. */
+  readonly allowPull?: boolean
 }
 
 /** Main-side enforcement for the untrusted Git utility-process transport. */
@@ -54,12 +59,20 @@ export async function dispatchWorkerHostCall(
   ])
   const branchSwitch =
     call.args.length === 5 && call.args[2] === 'switch' && call.args[3] === '--no-guess'
+  const fetch = sameArgs(call.args.slice(2), GIT_FETCH_ARGS)
+  const pull = sameArgs(call.args.slice(2), GIT_PULL_ARGS)
   validateGitInvocation(call.args)
   if (worktreePrune && !permissions.allowWorktreePrune) {
     throw new Error('git worker requested an unauthorized worktree prune')
   }
   if (branchSwitch && permissions.allowBranchSwitch !== call.args[4]) {
     throw new Error('git worker requested an unauthorized branch switch')
+  }
+  if (fetch && !permissions.allowFetch) {
+    throw new Error('git worker requested an unauthorized fetch')
+  }
+  if (pull && !permissions.allowPull) {
+    throw new Error('git worker requested an unauthorized pull')
   }
   if (call.cwd || !isAllowedGitInput(call.args, call.input)) {
     throw new Error('git worker supplied unsupported execution options')
@@ -81,7 +94,11 @@ export async function dispatchWorkerHostCall(
       // Background reads suppress optional index refresh writes so the .git
       // watcher cannot feed a status request back into itself. The one
       // explicitly authorized mutations retain Git's normal locking.
-      ...(worktreePrune || branchSwitch ? {} : { env: { GIT_OPTIONAL_LOCKS: '0' } }),
+      ...(fetch || pull
+        ? { env: { GIT_TERMINAL_PROMPT: '0', GCM_INTERACTIVE: 'Never' } }
+        : worktreePrune || branchSwitch
+          ? {}
+          : { env: { GIT_OPTIONAL_LOCKS: '0' } }),
       ...(call.input !== undefined ? { input: call.input } : {}),
       maxBuffer,
       signal: controller.signal,
@@ -132,6 +149,9 @@ function validateGitInvocation(args: readonly string[]): void {
       )
         return
       break
+    case 'remote':
+      if (rest.length === 0) return
+      break
     case 'symbolic-ref':
       if (
         sameArgs(rest, ['--quiet', '--short', 'refs/remotes/origin/HEAD']) ||
@@ -155,7 +175,18 @@ function validateGitInvocation(args: readonly string[]): void {
     case 'status':
       if (
         sameArgs(rest, ['--porcelain=v2', '-z', '--untracked-files=all', '--', '.']) ||
-        sameArgs(rest, ['--porcelain=v2', '-z', '--untracked-files=all'])
+        sameArgs(rest, ['--porcelain=v2', '-z', '--untracked-files=all']) ||
+        sameArgs(rest, ['--porcelain=v2', '--branch', '-z', '--untracked-files=no'])
+      )
+        return
+      break
+    case 'rev-list':
+      if (
+        rest.length === 3 &&
+        rest[0] === '--left-right' &&
+        rest[1] === '--count' &&
+        rest[2]?.startsWith('HEAD...') &&
+        isSafeRevisionOrRef(rest[2].slice('HEAD...'.length))
       )
         return
       break
@@ -205,6 +236,12 @@ function validateGitInvocation(args: readonly string[]): void {
         isSafeBranchName(rest[1] ?? '')
       )
         return
+      break
+    case 'fetch':
+      if (sameArgs([subcommand, ...rest], GIT_FETCH_ARGS)) return
+      break
+    case 'pull':
+      if (sameArgs([subcommand, ...rest], GIT_PULL_ARGS)) return
       break
   }
   invalidGitInvocation()

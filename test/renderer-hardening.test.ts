@@ -21,6 +21,8 @@ describe('renderer filesystem contract', () => {
     expect(INVOKE_CHANNELS).toContain('fs:resolve-entry')
     expect(INVOKE_CHANNELS).toContain('git:ignored-entries')
     expect(INVOKE_CHANNELS).toContain('git:branches')
+    expect(INVOKE_CHANNELS).toContain('git:fetch')
+    expect(INVOKE_CHANNELS).toContain('git:pull')
     expect(INVOKE_CHANNELS).toContain('git:switch-branch')
   })
 })

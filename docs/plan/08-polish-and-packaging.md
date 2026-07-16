@@ -60,8 +60,9 @@ the load-bearing scenarios, and installable builds for Linux and macOS.
       via a simple JSON config. No keymap engine. Match bracket chords by physical key so
       macOS Option transformations remain usable, and suspend global bindings under modals.
 - [x] Minimal settings UI (or settings file + reload): theme, idle threshold,
-      resume-on-start behavior, keybindings pointer. Reject blank/out-of-range thresholds
-      visibly and let Escape remain available while editing the keybinding textarea.
+      resume-on-start behavior, Git auto-fetch interval, keybindings pointer. Reject
+      blank/out-of-range thresholds visibly and let Escape remain available while editing
+      the keybinding textarea.
 - [x] Keep the parked Harness rail destination interactive and intentional with a calm
       coming-soon state; switching to it must preserve mounted Files/Git state.
 
@@ -76,6 +77,15 @@ the load-bearing scenarios, and installable builds for Linux and macOS.
       track a branch; advanced cases stay in the terminal.
 - [x] After a successful local or SSH switch, refresh worktree labels, Files, Changes,
       History/graph, changed counts, and clean tabs without blocking paint or losing PTYs.
+- [x] Surface cached configured-upstream ahead/behind/diverged state and default-branch
+      drift beside the branch selector. Distinguish "remote branch is current" from
+      "the PR base moved" and label complex integration as agent work.
+- [x] Add explicit Fetch plus configurable conservative auto-fetch while the Git rail is
+      visible. Suppress interactive credential prompts, stop automatic retries after a
+      failure, and retain an explicit retry control.
+- [x] Offer Pull only for a clean, attached, behind-only branch with an upstream and no
+      unsaved viewer tabs. Authorize only exact `--no-rebase --ff-only` grammar; never
+      autostash, merge, rebase, force, resolve conflicts, or integrate the base branch.
 
 ### Notifications and status clarity
 - [x] Give connection state, Git changed counts, and terminal attention distinct visual
@@ -120,9 +130,11 @@ the load-bearing scenarios, and installable builds for Linux and macOS.
 - [ ] Fresh global npm installs on Linux x64, Linux arm64, and macOS arm64 run the full
       workflow (register projects, view, terminals, SSH) with no source checkout.
 - [x] Theme switch is instant and consistent across chrome, code, markdown, terminal.
-- [ ] On local and SSH repositories, the Git rail accurately shows the active branch and
-      switches to an existing unoccupied branch only when both Git and hvir are clean;
-      dirty, occupied, detached, and failed cases are safe and legible.
+- [ ] On local and SSH repositories, the Git rail accurately shows the active branch,
+      configured-upstream/base drift, and switches to an existing unoccupied branch only
+      when both Git and hvir are clean. Fetch refreshes the model; Pull is available only
+      for a clean fast-forward. Dirty, occupied, detached, diverged, authentication, and
+      failed cases are safe and legible.
 - [x] The terminal rail contains no duplicate workspace navigation, and connection,
       changes, output, bell, and idle attention are distinguishable without relying on
       color or ambiguous dots.
@@ -139,8 +151,9 @@ the load-bearing scenarios, and installable builds for Linux and macOS.
 ## Non-goals
 The v2 harness viewer. Extension/plugin anything. Windows builds (only if incidental —
 do not spend time on Windows-specific bugs). Any Git mutation beyond the bounded existing-
-branch switch in ADR-005. New features not in design.md — if v1 feels incomplete, the fix
-is an ADR conversation, not a quiet addition here.
+branch switch and remote fetch/clean fast-forward pull in ADR-005. New features not in
+design.md — if v1 feels incomplete, the fix is an ADR conversation, not a quiet addition
+here.
 
 ## Automated implementation evidence (2026-07-15)
 

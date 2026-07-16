@@ -108,10 +108,37 @@ export interface GitBranchModel {
   /** Commit at HEAD when one exists; also identifies a detached HEAD. */
   readonly head?: string
   readonly detached: boolean
+  /** True when at least one Git remote is configured for this repository. */
+  readonly remoteAvailable: boolean
+  /** Cached remote/base topology; refreshed after every successful fetch. */
+  readonly sync?: GitBranchSync
   readonly branches: readonly GitBranch[]
+}
+
+export interface GitBranchSync {
+  readonly upstream?: {
+    readonly name: string
+    readonly ahead: number
+    readonly behind: number
+    /** Configured tracking ref no longer exists locally after fetch/prune. */
+    readonly gone?: boolean
+  }
+  readonly base?: {
+    readonly name: string
+    readonly ahead: number
+    readonly behind: number
+  }
 }
 
 export interface GitSwitchBranchRequest {
   readonly root: HostPath
   readonly branch: string
+}
+
+export interface GitFetchRequest {
+  readonly root: HostPath
+}
+
+export interface GitPullRequest {
+  readonly root: HostPath
 }

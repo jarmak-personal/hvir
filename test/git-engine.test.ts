@@ -70,6 +70,96 @@ describe('GitEngine', () => {
     await host.dispose()
   })
 
+  it('models upstream and base drift, then permits only a clean fast-forward pull', async () => {
+    const root = await repository()
+    const remote = await mkdtemp(join(tmpdir(), 'hvir-git-remote-'))
+    const peerParent = await mkdtemp(join(tmpdir(), 'hvir-git-peer-'))
+    const peer = join(peerParent, 'peer')
+    cleanups.push(remote, peerParent)
+    git(remote, ['init', '--bare', '-b', 'main'])
+    git(root, ['remote', 'add', 'origin', remote])
+    git(root, ['push', '-u', 'origin', 'main'])
+    git(root, ['switch', '-c', 'feature'])
+    git(root, ['push', '-u', 'origin', 'feature'])
+    git(peerParent, ['clone', remote, 'peer'])
+    git(peer, ['config', 'user.email', 'peer@example.test'])
+    git(peer, ['config', 'user.name', 'hvir peer'])
+    git(peer, ['switch', 'feature'])
+    await writeFile(join(peer, 'incoming.txt'), 'incoming\n')
+    git(peer, ['add', 'incoming.txt'])
+    git(peer, ['commit', '-m', 'feature incoming'])
+    git(peer, ['push'])
+    git(peer, ['switch', 'main'])
+    await writeFile(join(peer, 'main-new.txt'), 'main moved\n')
+    git(peer, ['add', 'main-new.txt'])
+    git(peer, ['commit', '-m', 'main moved'])
+    git(peer, ['push'])
+
+    const workspaceRoot = localPath(await realpath(root))
+    const host = new LocalHost()
+    const engine = new GitEngine(host, workspaceRoot)
+    await engine.fetch(workspaceRoot)
+
+    await expect(engine.branches(workspaceRoot)).resolves.toEqual(
+      expect.objectContaining({
+        remoteAvailable: true,
+        sync: {
+          upstream: { name: 'origin/feature', ahead: 0, behind: 1 },
+          base: { name: 'main', ahead: 0, behind: 1 },
+        },
+      }),
+    )
+
+    await expect(engine.pullFastForward(workspaceRoot)).resolves.toBeUndefined()
+    await expect(host.readTextFile(localPath(join(root, 'incoming.txt')))).resolves.toBe(
+      'incoming\n',
+    )
+    await expect(engine.pullFastForward(workspaceRoot)).rejects.toThrow(
+      'already up to date',
+    )
+
+    git(peer, ['switch', 'feature'])
+    await writeFile(join(peer, 'second.txt'), 'second\n')
+    git(peer, ['add', 'second.txt'])
+    git(peer, ['commit', '-m', 'second incoming'])
+    git(peer, ['push'])
+    await engine.fetch(workspaceRoot)
+    await writeFile(join(root, 'dirty.txt'), 'dirty\n')
+    await expect(engine.pullFastForward(workspaceRoot)).rejects.toThrow(
+      'Working tree changed',
+    )
+    await rm(join(root, 'dirty.txt'))
+    await engine.pullFastForward(workspaceRoot)
+    await writeFile(join(root, 'local.txt'), 'local\n')
+    git(root, ['add', 'local.txt'])
+    git(root, ['commit', '-m', 'local outgoing'])
+    await writeFile(join(peer, 'third.txt'), 'third\n')
+    git(peer, ['add', 'third.txt'])
+    git(peer, ['commit', '-m', 'third incoming'])
+    git(peer, ['push'])
+    await engine.fetch(workspaceRoot)
+    const diverged = await engine.branches(workspaceRoot)
+    expect(diverged.sync?.upstream).toEqual({
+      name: 'origin/feature',
+      ahead: 1,
+      behind: 1,
+    })
+    await expect(engine.pullFastForward(workspaceRoot)).rejects.toThrow('diverged')
+    git(peer, ['push', 'origin', '--delete', 'feature'])
+    await engine.fetch(workspaceRoot)
+    const missingUpstream = await engine.branches(workspaceRoot)
+    expect(missingUpstream.sync?.upstream).toEqual({
+      name: 'origin/feature',
+      ahead: 0,
+      behind: 0,
+      gone: true,
+    })
+    await expect(engine.pullFastForward(workspaceRoot)).rejects.toThrow(
+      'upstream no longer exists',
+    )
+    await host.dispose()
+  })
+
   it('discovers linked worktrees and treats a plain directory as one workspace', async () => {
     const root = await repository()
     const linked = `${root}-feature`

@@ -34,6 +34,8 @@ import type {
   GitIgnoredEntriesRequest,
   GitIgnoredEntriesResponse,
   GitBranchModel,
+  GitFetchRequest,
+  GitPullRequest,
   GitSwitchBranchRequest,
 } from './git-types'
 import type { HostConnectionState, HostWatchTier } from './fs-types'
@@ -304,6 +306,14 @@ export interface IpcInvokeMap {
   'git:commit-detail': { request: GitCommitDetailRequest; response: GitCommitDetail }
   'git:blame': { request: GitBlameRequest; response: readonly GitBlameRun[] }
   'git:branches': { request: GitChangesRequest; response: GitBranchModel }
+  'git:fetch': {
+    request: GitFetchRequest
+    response: OperationResult<ProjectState>
+  }
+  'git:pull': {
+    request: GitPullRequest
+    response: OperationResult<ProjectState>
+  }
   'git:switch-branch': {
     request: GitSwitchBranchRequest
     response: OperationResult<ProjectState>
@@ -409,6 +419,8 @@ export const INVOKE_CHANNELS = [
   'git:commit-detail',
   'git:blame',
   'git:branches',
+  'git:fetch',
+  'git:pull',
   'git:switch-branch',
   'html-preview:create',
   'terminal:recovery',
