@@ -1,4 +1,4 @@
-# hvir
+# hvir (H-veer)
 
 **H**arness · **V**iew · **I**nteract · **R**espond
 
