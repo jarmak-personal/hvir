@@ -1044,6 +1044,11 @@ button {
   font-variant-numeric: tabular-nums;
 }
 
+.terminal-context.count-display {
+  display: flex;
+  justify-content: flex-end;
+}
+
 .terminal-context-track {
   height: 3px;
   overflow: hidden;

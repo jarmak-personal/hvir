@@ -669,7 +669,10 @@ export function TerminalWorkspace({
                     {identityLabel(session.identityStatus)}
                   </span>
                   {session.adapterId !== 'plain-shell' ? (
-                    <ContextMeter telemetry={session.telemetry} />
+                    <ContextMeter
+                      telemetry={session.telemetry}
+                      countOnly={session.adapterId === 'claude-code'}
+                    />
                   ) : null}
                 </span>
                 {session.attention ? (
@@ -849,10 +852,12 @@ function TerminalRecoveryDialog({
 
 function ContextMeter({
   telemetry,
+  countOnly = false,
 }: {
   readonly telemetry?: HarnessTelemetry
+  readonly countOnly?: boolean
 }): ReactElement {
-  const reportedPercent = telemetry?.contextUsedPercent
+  const reportedPercent = countOnly ? undefined : telemetry?.contextUsedPercent
   const percent =
     typeof reportedPercent === 'number' && Number.isFinite(reportedPercent)
       ? Math.min(100, Math.max(0, reportedPercent))
@@ -876,22 +881,27 @@ function ContextMeter({
         : 'Context usage unavailable'
 
   return (
-    <span className={`terminal-context ${pressure}`} title={label}>
-      {displayPercent === undefined ? (
-        <span className="terminal-context-track" aria-hidden="true" />
-      ) : (
-        <span
-          className="terminal-context-track"
-          role="progressbar"
-          aria-label="Context used"
-          aria-valuemin={0}
-          aria-valuemax={100}
-          aria-valuenow={displayPercent}
-          aria-valuetext={label}
-        >
-          <span className="terminal-context-fill" style={{ width: `${percent}%` }} />
-        </span>
-      )}
+    <span
+      className={`terminal-context ${pressure}${countOnly ? ' count-display' : ''}`}
+      title={label}
+    >
+      {!countOnly ? (
+        displayPercent === undefined ? (
+          <span className="terminal-context-track" aria-hidden="true" />
+        ) : (
+          <span
+            className="terminal-context-track"
+            role="progressbar"
+            aria-label="Context used"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={displayPercent}
+            aria-valuetext={label}
+          >
+            <span className="terminal-context-fill" style={{ width: `${percent}%` }} />
+          </span>
+        )
+      ) : null}
       <span className="terminal-context-value">
         {hasCountOnly
           ? formatTokenCount(telemetry.contextUsedTokens)
