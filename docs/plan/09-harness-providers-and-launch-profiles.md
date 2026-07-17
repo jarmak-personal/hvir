@@ -85,33 +85,33 @@ launch/resume commands, exact identities, context meters, terminal records, loca
 behavior, and UI labels must remain equivalent. Do not combine this checkpoint with the
 later profile schema migration in one change.
 
-- [ ] Introduce the minimal `HarnessProvider`, `HarnessManifest`, registry, and serializable
+- [x] Introduce the minimal `HarnessProvider`, `HarnessManifest`, registry, and serializable
       catalog descriptor needed to represent the three existing adapters. Evolve
       `HarnessAdapter` in place or provide a short internal compatibility layer; do not add
       profiles, probes, new providers, or a second PTY launch seam in this milestone.
-- [ ] Model session identity as a discriminated provider capability (`none`,
+- [x] Model session identity as a discriminated provider capability (`none`,
       `preassigned`, `discovered`) with the existing snapshot/identify hooks available only
       to `discovered` providers. Exact resume remains a separate effective capability.
-- [ ] Build a main-owned registry with explicit registration, duplicate-ID rejection,
+- [x] Build a main-owned registry with explicit registration, duplicate-ID rejection,
       bounded provider ID syntax, catalog enumeration, and lookup. Provider modules are
       trusted bundled code imported by main.
-- [ ] Replace the shared `TerminalAdapterId` closed union with an opaque validated provider
+- [x] Replace the shared `TerminalAdapterId` closed union with an opaque validated provider
       ID. Remove hard-coded provider enumeration from shared IPC, the renderer, and the
       terminal registry parser.
-- [ ] Version and migrate the existing terminal registry from `adapterId` to `providerId`
+- [x] Version and migrate the existing terminal registry from `adapterId` to `providerId`
       without adding profile identity yet. Preserve terminal IDs, exact harness IDs, cwd,
       project, title, layout, and authorization behavior; retain an old-file rollback fixture.
-- [ ] Add minimal typed catalog IPC for the three existing providers' display metadata and
+- [x] Add minimal typed catalog IPC for the three existing providers' display metadata and
       current static capabilities. It exposes no profile, probe, risk, environment,
       credential, adapter-private discovery, or executable-command data.
-- [ ] Make the renderer derive labels, context-meter presentation, and new-terminal choices
+- [x] Make the renderer derive labels, context-meter presentation, and new-terminal choices
       from catalog capabilities instead of `claude-code`/`codex` conditionals. Wire title
       normalization through the provider hook or remove the currently unused hook.
-- [ ] Preserve unknown-provider recovery records during load/save. Mark them orphaned and
+- [x] Preserve unknown-provider recovery records during load/save. Mark them orphaned and
       unavailable; never filter them out merely because the current build lacks a provider.
-- [ ] Extend seam enforcement so only the provider registry resolves provider modules and
+- [x] Extend seam enforcement so only the provider registry resolves provider modules and
       only the PTY supervisor calls `ProjectHost.spawnPty`.
-- [ ] Add byte-for-byte launch/resume composition parity tests for Shell, Claude Code, and
+- [x] Add byte-for-byte launch/resume composition parity tests for Shell, Claude Code, and
       Codex plus registry migration, recovery authorization, telemetry, local/SSH, and
       renderer-label coverage. Run the full Phase 6/7.5 recovery/capacity suites.
 - [ ] Land this milestone independently and complete a local/SSH soak with restored Claude
@@ -414,7 +414,24 @@ out-of-process provider SDK requires evidence from this phase and a separate ADR
 
 ## Implementation evidence
 
-Fill this section during implementation with the verified CLI/version matrix, migration and
-compatibility decisions, test/smoke commands, real-host coverage, responsiveness results, and
-any provider capability deliberately left launch-only. Do not record environment values,
-credentials, or transcript contents.
+### Milestone 0 — provider-registry parity checkpoint
+
+- Isolated implementation commit: `b843341` (`refactor: introduce harness provider registry`).
+- `npm run verify`: seam enforcement, lint, both TypeScript builds, launcher help, and all
+  309 tests passed. The focused recovery/telemetry/SSH-capacity set passed 56 tests.
+- `npm run smoke`: production Electron smoke passed, including catalog-driven Shell launch,
+  reconnect, multiple-terminal rail behavior, recovery picker, and PTY cleanup. The first run
+  reached all provider/terminal checks and later hit the existing source→diff line-position
+  timing assertion; an unchanged rerun passed the complete smoke.
+- `npm run smoke:capacity`: 12 live and recovered terminals passed with 18.7 ms p99 / 18.8 ms
+  max frame gap, 75 measured interactions, and 108 MiB net memory growth.
+- Local installed-version check: Claude Code `2.1.212`; Codex CLI `0.144.4`. No harness prompt,
+  credential, transcript, or session artifact was created for this check.
+- The final Milestone 0 gate remains open pending a real local/SSH restored Claude and Codex
+  soak. Automated local/SSH transport and exact-recovery coverage is green, but it is not
+  represented as real-host evidence.
+
+Continue filling this section with the verified CLI/version matrix, migration and
+compatibility decisions, test/smoke commands, real-host coverage, responsiveness results,
+and any provider capability deliberately left launch-only. Do not record environment
+values, credentials, or transcript contents.
