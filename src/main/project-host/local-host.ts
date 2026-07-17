@@ -435,6 +435,9 @@ export class LocalHost implements ProjectHost {
   ): Disposer {
     const root = realpathSync.native(this.resolve(path))
     const excludedNames = new Set(opts.excludeDirectoryNames ?? [])
+    const recursive = opts.recursive !== false
+    const maxWatchedDirectories =
+      opts.maxWatchedDirectories ?? DEFAULT_MAX_WATCHED_DIRECTORIES
     let active: import('chokidar').FSWatcher | undefined
     let fallback: Promise<void> | undefined
     let fallingBack = false
@@ -445,18 +448,29 @@ export class LocalHost implements ProjectHost {
       (absPath: string): void =>
         onEvent({ type, path: this.wrap(absPath) })
 
-    const start = (usePolling: boolean): import('chokidar').FSWatcher => {
+    // chokidar otherwise tries to open every entry it encounters, including
+    // unix sockets, FIFOs, and device files. Opening a FIFO blocks and the
+    // rest spam UNKNOWN/EPERM errors — a home directory is full of both. Skip
+    // anything that is not a regular file or directory. `stats` is supplied for
+    // real filesystem entries during traversal (verified against chokidar v5);
+    // when absent we cannot classify the entry, so we let it through.
+    const ignored = (candidate: string, stats?: import('node:fs').Stats): boolean => {
+      if (stats && !stats.isDirectory() && !stats.isFile()) return true
+      if (excludedNames.size === 0) return false
+      return relative(root, candidate)
+        .split(sep)
+        .some((part) => excludedNames.has(part))
+    }
+
+    const start = (
+      usePolling: boolean,
+      depth: number | undefined,
+    ): import('chokidar').FSWatcher => {
       const watcher = chokidar.watch(root, {
         ignoreInitial: true,
         usePolling,
-        depth: opts.recursive === false ? 0 : undefined,
-        ignored:
-          excludedNames.size === 0
-            ? undefined
-            : (candidate) =>
-                relative(root, candidate)
-                  .split(sep)
-                  .some((part) => excludedNames.has(part)),
+        depth,
+        ignored,
       })
       watcher
         .on('add', emit('add'))
@@ -471,7 +485,7 @@ export class LocalHost implements ProjectHost {
             if (active === watcher) active = undefined
             fallback = watcher.close().then(
               () => {
-                if (!stopped) active = start(true)
+                if (!stopped) active = start(true, depth)
               },
               (closeReason: unknown) => {
                 opts.onError?.(
@@ -488,17 +502,49 @@ export class LocalHost implements ProjectHost {
       return watcher
     }
 
+    // A recursive watch of an oversized tree (e.g. a home directory) establishes
+    // hundreds of thousands of native watchers — exhausting file descriptors and,
+    // once the EMFILE polling fallback kicks in, pegging the CPU. Before
+    // committing to a recursive watch we count directories breadth-first, bounded
+    // to the cap so the scan itself is cheap. If the tree is too large we
+    // downgrade to a shallow root-only watch and surface the truncation loudly.
+    const begin = async (): Promise<void> => {
+      let depth: number | undefined = recursive ? undefined : 0
+      if (recursive) {
+        const oversized = await exceedsDirectoryCap(
+          root,
+          excludedNames,
+          maxWatchedDirectories,
+        )
+        if (oversized) {
+          depth = 0
+          const message =
+            `watch truncated: workspace '${root}' has more than ` +
+            `${maxWatchedDirectories} directories; watching only its top level, ` +
+            `so changes in nested directories will not auto-refresh`
+          log('local-host', 'watch-truncated', {
+            root,
+            maxWatchedDirectories,
+          })
+          opts.onError?.(new Error(message))
+        }
+      }
+      if (!stopped) active = start(false, depth)
+    }
+
+    const setup = begin()
+
     const stop: Disposer = async () => {
       if (stopped) return
       stopped = true
       this.watchers.delete(stop)
+      await setup
       const watcher = active
       active = undefined
       if (watcher) await watcher.close()
       if (fallback) await fallback
     }
     this.watchers.add(stop)
-    active = start(false)
     return stop
   }
 
@@ -540,4 +586,44 @@ function fileChangedError(): Error {
 function watchCapacityError(error: Error): boolean {
   const code = (error as NodeJS.ErrnoException).code
   return code === 'EMFILE' || code === 'ENOSPC'
+}
+
+/**
+ * Default ceiling on directories a recursive watch will establish. Generous
+ * enough that real repositories and large monorepos are unaffected; a home
+ * directory or other non-project root blows past it and gets downgraded.
+ */
+const DEFAULT_MAX_WATCHED_DIRECTORIES = 20_000
+
+/**
+ * Breadth-first count of the directories a recursive watch would establish,
+ * bounded so the scan itself is O(cap) rather than O(tree): it stops and
+ * returns as soon as the cap is exceeded. Prunes the same directory names the
+ * watch prunes, and never follows symlinks (Dirent classification is by lstat),
+ * so it mirrors what chokidar would actually traverse.
+ */
+async function exceedsDirectoryCap(
+  root: string,
+  excludedNames: ReadonlySet<string>,
+  cap: number,
+): Promise<boolean> {
+  let count = 1 // the root itself
+  const queue: string[] = [root]
+  while (queue.length > 0) {
+    const dir = queue.shift() as string
+    let entries: import('node:fs').Dirent[]
+    try {
+      entries = await fsp.readdir(dir, { withFileTypes: true })
+    } catch {
+      continue // unreadable directory — skip, as the watch would too
+    }
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue
+      if (excludedNames.has(entry.name)) continue
+      count += 1
+      if (count > cap) return true
+      queue.push(join(dir, entry.name))
+    }
+  }
+  return false
 }

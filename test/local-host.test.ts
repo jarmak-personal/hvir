@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { execFile } from 'node:child_process'
 import {
   mkdir,
   mkdtemp,
@@ -266,6 +267,66 @@ describe('LocalHost', () => {
       await stop()
 
       expect(events.some((event) => event.path.path.includes('node_modules'))).toBe(false)
+    },
+  )
+
+  it(
+    'skips special files without emitting or erroring',
+    { timeout: 10000 },
+    async () => {
+      const events: WatchEvent[] = []
+      const errors: Error[] = []
+      const stop = host.watch(localPath(dir), (event) => events.push(event), {
+        onError: (error) => errors.push(error),
+      })
+      await delay(400)
+
+      // A FIFO created inside the watched tree must be ignored: chokidar would
+      // otherwise block opening it and spam UNKNOWN/EPERM errors.
+      await new Promise<void>((resolve, reject) =>
+        execFile('mkfifo', [join(dir, 'pipe')], (error) =>
+          error ? reject(new Error(`mkfifo failed: ${error.message}`)) : resolve(),
+        ),
+      )
+      await writeFile(join(dir, 'regular.txt'), 'v1')
+      await waitFor(() => events.some((e) => e.path.path.endsWith('regular.txt')))
+      await delay(200)
+      await stop()
+
+      expect(events.some((e) => e.path.path.endsWith('pipe'))).toBe(false)
+      expect(errors).toEqual([])
+    },
+  )
+
+  it(
+    'downgrades an oversized recursive watch and reports the truncation',
+    { timeout: 10000 },
+    async () => {
+      // A tree that exceeds the injected cap of two directories.
+      await mkdir(join(dir, 'd1', 'd2'), { recursive: true })
+      await mkdir(join(dir, 'd3'))
+      const events: WatchEvent[] = []
+      const errors: Error[] = []
+      const stop = host.watch(localPath(dir), (event) => events.push(event), {
+        recursive: true,
+        maxWatchedDirectories: 2,
+        onError: (error) => errors.push(error),
+      })
+
+      // Truncation is surfaced, not silent.
+      await waitFor(() => errors.some((e) => /watch truncated/.test(e.message)))
+      await delay(400)
+
+      // The downgraded shallow watch still reports top-level changes...
+      await writeFile(join(dir, 'top.txt'), 'v1')
+      await waitFor(() => events.some((e) => e.path.path.endsWith('top.txt')))
+      // ...but changes nested below the root are no longer watched.
+      await writeFile(join(dir, 'd1', 'd2', 'nested.txt'), 'v1')
+      await delay(400)
+      await stop()
+
+      expect(events.some((e) => e.path.path.endsWith('top.txt'))).toBe(true)
+      expect(events.some((e) => e.path.path.endsWith('nested.txt'))).toBe(false)
     },
   )
 })

@@ -62,6 +62,16 @@ export interface WatchOptions {
   readonly excludeDirectoryNames?: readonly string[]
   /** Watch backends report asynchronous failures here instead of throwing. */
   readonly onError?: (error: Error) => void
+  /**
+   * Cap on the number of directories a recursive watch will establish.
+   *
+   * A recursive watch of an oversized tree (e.g. a home directory) can peg the
+   * process and exhaust file descriptors. When a bounded pre-scan finds more
+   * directories than this cap, the watch is downgraded to a shallow root-only
+   * watch and the truncation is reported via `onError`. Defaults to a value
+   * generous enough that real repositories and monorepos are unaffected.
+   */
+  readonly maxWatchedDirectories?: number
 }
 
 export interface WriteFileOptions {
