@@ -98,6 +98,7 @@ class GhosttyTerminalPane implements TerminalPane {
     this.terminal.registerLinkProvider(
       new FileLinkProvider(this.terminal, (target) => this.linkListeners.emit(target)),
     )
+    this.terminal.attachCustomWheelEventHandler((event) => this.handleWheel(event))
     const canvas = this.terminal.renderer?.getCanvas()
     if (canvas) canvas.style.visibility = 'hidden'
     this.fit.fit()
@@ -183,6 +184,45 @@ class GhosttyTerminalPane implements TerminalPane {
     if (title === this.lastTitle) return
     this.lastTitle = title
     this.titleListeners.emit(title)
+  }
+
+  private handleWheel(event: WheelEvent): boolean {
+    if (event.deltaY === 0) return false
+    const term = this.terminal.wasmTerm
+    // Apps that track the mouse (tmux with `mouse on`, and mouse-aware TUIs)
+    // expect real wheel events, but ghostty-web never forwards them. When SGR
+    // extended reporting is active, synthesize the report ourselves (button 64
+    // = wheel up, 65 = wheel down): that's what lets tmux enter copy-mode and
+    // scroll its own scrollback.
+    if ((term?.hasMouseTracking() ?? false) && (term?.getMode(1006) ?? false)) {
+      const { col, row } = this.wheelCell(event)
+      this.dataListeners.emit(`\x1b[<${event.deltaY > 0 ? 65 : 64};${col};${row}M`)
+      return true
+    }
+    // On the alternate screen without mouse tracking (Claude Code, Codex),
+    // ghostty-web's default repeats the Up/Down arrow per tick, which those
+    // CLIs read as prompt-history recall — an incidental scroll silently
+    // overwrites what the user typed. Send PageUp/PageDown instead: it's the
+    // conventional full-screen-TUI scroll key and never collides with
+    // single-line history navigation.
+    if (term?.isAlternateScreen() ?? false) {
+      this.dataListeners.emit(event.deltaY > 0 ? '\x1b[6~' : '\x1b[5~')
+      return true
+    }
+    return false
+  }
+
+  /** 1-based cell under the wheel event, for SGR mouse reports. */
+  private wheelCell(event: WheelEvent): { col: number; row: number } {
+    const renderer = this.terminal.renderer
+    const cellWidth = renderer?.charWidth || 1
+    const cellHeight = renderer?.charHeight || 1
+    const col = Math.floor((event.offsetX || 0) / cellWidth) + 1
+    const row = Math.floor((event.offsetY || 0) / cellHeight) + 1
+    return {
+      col: Math.max(1, Math.min(col, this.terminal.cols)),
+      row: Math.max(1, Math.min(row, this.terminal.rows)),
+    }
   }
 }
 
