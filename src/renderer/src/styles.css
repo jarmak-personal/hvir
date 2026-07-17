@@ -1692,6 +1692,14 @@ button {
   font-size: 9px;
 }
 
+.terminal-list-profile.elevated {
+  color: #d8b36f;
+}
+
+.terminal-list-profile.unclassified {
+  color: #bf91ce;
+}
+
 .terminal-context {
   width: 100%;
   display: grid;

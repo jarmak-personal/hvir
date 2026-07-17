@@ -40,7 +40,6 @@ import {
 import {
   bareShellLaunchChoice,
   compactHarnessCapabilityLabel,
-  compactProfileProviderLabel,
   harnessLaunchMenuState,
 } from './harness-launch-menu'
 
@@ -967,12 +966,14 @@ export function TerminalWorkspace({
                 <span className="terminal-list-copy">
                   <span className="terminal-list-title">{session.title}</span>
                   <span className="terminal-list-meta">
-                    {compactProfileProviderLabel(
-                      profileDisplayName(profiles, session.profileId),
-                      providerDescriptor(providers, session.providerId)?.displayName ??
-                        session.providerId,
-                    )}
-                    {profileRiskMarker(profiles, session.profileId)} · {session.status}
+                    <span
+                      className={`terminal-list-profile${profileRiskClass(profiles, session.profileId)}`}
+                      title={profileRiskTitle(profiles, session.profileId)}
+                      aria-label={profileRiskAriaLabel(profiles, session.profileId)}
+                    >
+                      {profileDisplayName(profiles, session.profileId)}
+                    </span>{' '}
+                    · {session.status}
                     {identityLabel(session.identityStatus)}
                   </span>
                   {providerDescriptor(providers, session.providerId)?.capabilities
@@ -1600,12 +1601,33 @@ function profileDisplayName(
   return profiles.find((profile) => profile.id === id)?.displayName ?? `Missing (${id})`
 }
 
-function profileRiskMarker(
+function profileRiskClass(
   profiles: readonly HarnessProfile[],
   id: HarnessProfileId,
 ): string {
   const risk = profiles.find((profile) => profile.id === id)?.risk
-  return risk && risk !== 'standard' ? ` · ${riskLabel(risk)}` : ''
+  return risk && risk !== 'standard' ? ` ${risk}` : ''
+}
+
+function profileRiskTitle(
+  profiles: readonly HarnessProfile[],
+  id: HarnessProfileId,
+): string | undefined {
+  const risk = profiles.find((profile) => profile.id === id)?.risk
+  return risk === 'elevated'
+    ? 'Elevated permissions'
+    : risk === 'unclassified'
+      ? 'Unclassified permissions'
+      : undefined
+}
+
+function profileRiskAriaLabel(
+  profiles: readonly HarnessProfile[],
+  id: HarnessProfileId,
+): string {
+  const name = profileDisplayName(profiles, id)
+  const risk = profileRiskTitle(profiles, id)
+  return risk ? `${name}, ${risk.toLowerCase()}` : name
 }
 
 function riskLabel(risk: HarnessProfile['risk']): string {

@@ -46,6 +46,7 @@ describe('renderer filesystem contract', () => {
     expect(settings).toContain('aria-labelledby="add-harness-title"')
     expect(settings).toContain("event.key === 'Escape'")
     expect(settings).toContain("event.key !== 'Tab'")
+    expect(styles).toMatch(/\.terminal-list-profile\.elevated\s*\{[^}]*#d8b36f/s)
   })
 
   it('captures form values before scheduling profile state updates', () => {
