@@ -11,12 +11,10 @@ import {
   asHarnessProviderId,
   hostPath,
   unwrapOperation,
-  type HarnessArgumentPart,
   type HarnessCommandPreview,
   type HarnessEnvironmentBinding,
   type HarnessPathBinding,
   type HarnessProfile,
-  type HarnessProfileArgument,
   type HarnessProfileExecutable,
   type HarnessProfileInput,
   type HarnessProfileId,
@@ -25,6 +23,10 @@ import {
   type HarnessProviderId,
   type HostPath,
 } from '../../../shared'
+import {
+  parseHarnessArguments,
+  serializeHarnessArguments,
+} from './harness-argument-editor'
 
 interface HarnessProfilesSettingsProps {
   readonly workspaceRoot?: HostPath
@@ -160,7 +162,10 @@ export function HarnessProfilesSettings({
     const timer = window.setTimeout(() => {
       let previewInput: HarnessProfileInput
       try {
-        previewInput = { ...draft.input, args: parseArguments(draft.argvText) }
+        previewInput = {
+          ...draft.input,
+          args: parseHarnessArguments(draft.argvText),
+        }
       } catch (reason) {
         setPreviews([])
         setPreviewError(message(reason))
@@ -222,7 +227,10 @@ export function HarnessProfilesSettings({
     setBusy(true)
     setError(undefined)
     try {
-      const input = { ...draft.input, args: parseArguments(draft.argvText) }
+      const input = {
+        ...draft.input,
+        args: parseHarnessArguments(draft.argvText),
+      }
       if (
         draft.id &&
         (draft.launchRevision === undefined || draft.metadataRevision === undefined)
@@ -466,18 +474,19 @@ export function HarnessProfilesSettings({
             />
             <label className="settings-profile-argv">
               <span>
-                Arguments <small>one argv value per line</small>
+                Arguments <small>spaces or newlines separate values</small>
               </span>
               <textarea
+                aria-describedby="harness-arguments-help"
                 spellCheck={false}
                 disabled={draft.builtIn}
                 value={draft.argvText}
-                placeholder={'--add-dir\n{binding:monorepo}'}
+                placeholder="--add-dir {binding:monorepo}"
                 onChange={(event) => {
                   const argvText = event.currentTarget.value
                   setDraft((current) => (current ? { ...current, argvText } : current))
                   try {
-                    const args = parseArguments(argvText)
+                    const args = parseHarnessArguments(argvText)
                     updateInput((input) => ({ ...input, args }))
                     setError(undefined)
                   } catch (reason) {
@@ -485,6 +494,10 @@ export function HarnessProfilesSettings({
                   }
                 }}
               />
+              <small id="harness-arguments-help">
+                Shell-style quoting only; no expansion or command execution. Parsed as{' '}
+                {draft.input.args.length} argv values. The launch preview below is exact.
+              </small>
             </label>
             {provider?.profileGuidance.reservedArguments.length ? (
               <p className="settings-profile-note">
@@ -1240,7 +1253,7 @@ function draftFromProfile(profile: HarnessProfile): ProfileDraft {
       pathBindings: profile.pathBindings,
       order: profile.order,
     },
-    argvText: serializeArguments(profile.args),
+    argvText: serializeHarnessArguments(profile.args),
   }
 }
 
@@ -1275,58 +1288,6 @@ function newDraft(
     },
     argvText: '',
   }
-}
-
-function serializeArguments(args: readonly HarnessProfileArgument[]): string {
-  return args
-    .map((argument) => {
-      const value = argument.parts.map(serializePart).join('')
-      return value === '' ? "''" : value
-    })
-    .join('\n')
-}
-
-function serializePart(part: HarnessArgumentPart): string {
-  if (part.kind === 'literal') return part.value
-  if (part.source === 'projectRoot') return '{projectRoot}'
-  if (part.source === 'workspaceRoot') return '{workspaceRoot}'
-  return `{binding:${part.binding ?? ''}}`
-}
-
-function parseArguments(value: string): readonly HarnessProfileArgument[] {
-  return value
-    .split('\n')
-    .filter((line) => line.length > 0)
-    .map((line) => ({ parts: parseArgumentParts(line) }))
-}
-
-function parseArgumentParts(value: string): readonly HarnessArgumentPart[] {
-  if (value === "''") return [{ kind: 'literal', value: '' }]
-  const parts: HarnessArgumentPart[] = []
-  const token = /\{(projectRoot|workspaceRoot|binding:([a-zA-Z][a-zA-Z0-9_-]{0,63}))\}/g
-  let position = 0
-  for (const match of value.matchAll(token)) {
-    if (match.index > position)
-      parts.push({ kind: 'literal', value: value.slice(position, match.index) })
-    const name = match[1]
-    parts.push(
-      name === 'projectRoot'
-        ? { kind: 'path', source: 'projectRoot' }
-        : name === 'workspaceRoot'
-          ? { kind: 'path', source: 'workspaceRoot' }
-          : { kind: 'path', source: 'binding', binding: match[2] },
-    )
-    position = match.index + match[0].length
-  }
-  if (position < value.length)
-    parts.push({ kind: 'literal', value: value.slice(position) })
-  const unknown = parts
-    .filter((part) => part.kind === 'literal')
-    .map((part) => part.value)
-    .join('')
-    .match(/\{[^{}]+\}/)
-  if (unknown) throw new Error(`Unknown path token '${unknown[0]}'`)
-  return parts.length ? parts : [{ kind: 'literal', value: '' }]
 }
 
 function replaceAt<T>(values: readonly T[], index: number, value: T): readonly T[] {

@@ -3060,9 +3060,31 @@ async function runSmoke(): Promise<number> {
                     if (name.value !== 'Smoke renamed harness') {
                       return reject(new Error('harness profile rename did not update'));
                     }
-                    [...document.querySelectorAll('.settings-dialog .dialog-actions button')]
-                      .find((button) => button.textContent?.trim() === 'Cancel')?.click();
-                    requestAnimationFrame(() => resolve('duplicate + rename'));
+                    const argv = document.querySelector('.settings-profile-argv textarea');
+                    if (!argv) return reject(new Error('harness argument editor missing'));
+                    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')
+                      ?.set?.call(argv, '--add-dir {binding:workspace}');
+                    argv.dispatchEvent(new Event('input', { bubbles: true }));
+                    const waitForArgumentPreview = () => {
+                      const help = document.querySelector('#harness-arguments-help')
+                        ?.textContent || '';
+                      const previews = [...document.querySelectorAll(
+                        '.settings-profile-previews code'
+                      )].map((node) => node.textContent || '');
+                      if (/2 argv values/.test(help) &&
+                          previews.some((value) => value.includes('--add-dir'))) {
+                        [...document.querySelectorAll('.settings-dialog .dialog-actions button')]
+                          .find((button) => button.textContent?.trim() === 'Cancel')?.click();
+                        return requestAnimationFrame(() =>
+                          resolve('duplicate + rename + same-line argv')
+                        );
+                      }
+                      if (Date.now() > deadline) {
+                        return reject(new Error('same-line arguments did not reach preview'));
+                      }
+                      setTimeout(waitForArgumentPreview, 50);
+                    };
+                    waitForArgumentPreview();
                   });
                 }
                 if (Date.now() > deadline) {
@@ -3076,7 +3098,7 @@ async function runSmoke(): Promise<number> {
           waitForProfile();
         })
       `),
-      'harness profile rename smoke timed out',
+      'harness profile editor smoke timed out',
     )) as string
     console.log(`[smoke] harness profile editor OK (${harnessRenameStatus})`)
 

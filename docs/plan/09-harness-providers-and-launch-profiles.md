@@ -755,6 +755,10 @@ required structured session and usage/context feed may be disclosed in Settings 
   same terminal slot, and ambiguity/unreadable state fails closed. Telemetry teardown also
   guards optional follower files before reading them, eliminating benign missing-file warnings
   when a zero-turn observer is stopped.
+- Local acceptance also found the original one-argv-value-per-line editor surprising for normal
+  CLI input such as `--add-dir /path`. The editor now uses a non-evaluating shell-shaped lexer:
+  spaces and newlines both separate values, quotes/backslashes group literals, bindings remain
+  structured, and live validation reports the parsed argv count beside the exact launch preview.
 - The expanded user-owned local/SSH UX acceptance pass remains open. These implementation
   commits stay local and unpushed; Milestone 9b was not started.
 

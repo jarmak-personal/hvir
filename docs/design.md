@@ -901,6 +901,12 @@ may use the host's interactive shell environment as it does today, but the shell
 resolves the already-quoted executable and argv before `exec`; it does not evaluate user
 command text.
 
+The profile editor accepts a familiar shell-shaped **input notation**, not shell execution:
+spaces and newlines both separate argv values, quotes/backslashes group literal characters,
+and path placeholders remain structured parts. Expansion, substitution, comments, pipes, and
+operators receive no shell semantics. Persisted argv is rendered back into a canonical quoted
+line, and the live main-owned launch preview shows the exact resulting invocation.
+
 A built-in **custom command provider** is the escape hatch for a fast-moving ecosystem. It
 can launch any explicitly configured executable, argv, and non-secret environment values
 through the same supervisor/host path, but advertises no session recovery or structured
