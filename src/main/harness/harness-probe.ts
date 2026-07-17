@@ -37,8 +37,10 @@ export interface ProbeHarnessProfilesRequest {
 
 /** Bounded, host-scoped availability probes. No probe runs during renderer startup. */
 export class HarnessProbeManager {
-  private readonly hosts = new WeakMap<ProjectHost, HostProbeState>()
-  private readonly hostStates = new Set<HostProbeState>()
+  // ProjectRegistry owns host lifetimes (including disconnected hosts kept for
+  // reconnect). Keep the matching probe state ownership explicit and release
+  // every connection subscription when the app-scoped manager is disposed.
+  private readonly hosts = new Map<ProjectHost, HostProbeState>()
 
   probeProfiles(
     request: ProbeHarnessProfilesRequest,
@@ -67,8 +69,8 @@ export class HarnessProbeManager {
   }
 
   dispose(): void {
-    for (const state of this.hostStates) void state.disposeConnection()
-    this.hostStates.clear()
+    for (const state of this.hosts.values()) void state.disposeConnection()
+    this.hosts.clear()
   }
 
   private probeProfile(
@@ -229,7 +231,6 @@ export class HarnessProbeManager {
       state.cache.clear()
     })
     this.hosts.set(host, state)
-    this.hostStates.add(state)
     return state
   }
 

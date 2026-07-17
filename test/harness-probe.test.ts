@@ -132,6 +132,23 @@ describe('HarnessProbeManager', () => {
     manager.dispose()
   })
 
+  it('releases every tracked host connection subscription on dispose', async () => {
+    const first = probeHost('probe-dispose-one', 'claude 4.0.0')
+    const second = probeHost('probe-dispose-two', 'claude 4.0.0')
+    const manager = new HarnessProbeManager()
+    await Promise.all([
+      manager.probeProfiles(probeRequest(first.host)),
+      manager.probeProfiles(probeRequest(second.host)),
+    ])
+    expect(first.connectionListenerCount()).toBe(1)
+    expect(second.connectionListenerCount()).toBe(1)
+
+    manager.dispose()
+
+    expect(first.connectionListenerCount()).toBe(0)
+    expect(second.connectionListenerCount()).toBe(0)
+  })
+
   it('never runs more than two probes concurrently on one host', async () => {
     const { host, exec } = probeHost('probe-slots', 'claude 4.0.0')
     const implementation = exec.getMockImplementation() as (
@@ -247,5 +264,6 @@ function probeHost(
       Object.assign(host, { connectionState: state })
       for (const listener of listeners) listener(state)
     },
+    connectionListenerCount: () => listeners.size,
   }
 }
