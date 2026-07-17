@@ -311,7 +311,6 @@ jobs:
           fi
     env:
       HVIR_RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
-      NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
   publish-github-release:
     name: Publish GitHub Release
