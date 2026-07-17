@@ -1,12 +1,12 @@
 # Phase 9 — Harness providers & launch profiles
 
-**Status:** Milestone 9a implemented with automated verification complete; local/SSH UX
-acceptance and the Milestone 0 soak remain pending. Milestone 9b provider upgrades are
-independent follow-ups and do not block Phase 9 completion.
+**Status:** Milestone 9a implemented with automated verification and local UX acceptance
+complete; SSH acceptance and the Milestone 0 soak remain pending. Milestone 9b provider
+upgrades are independent follow-ups and do not block Phase 9 completion.
 
 Implementation proceeded on an explicitly authorized feature branch while the Phase 8 gate
 remains open. The exception permits implementation and automated verification only; it does
-not waive or pre-approve the outstanding local/SSH acceptance evidence below.
+not waive or pre-approve the outstanding SSH acceptance and restore-soak evidence below.
 
 **Read first:** [`00-overview.md`](00-overview.md); design.md §2–3, ADR-003
 (`TerminalPane`), ADR-006 (exact harness recovery), ADR-009 (provider-independent
@@ -421,10 +421,12 @@ later profile schema migration in one change.
 - [x] Extend the production Electron smoke with local structured args/env, a host-qualified
       path binding, a Custom command profile, migrated Claude/Codex defaults, profile command
       preview, restore/reconnect, and PTY cleanup.
-- [ ] Run one real local and one real SSH pass for every shipped bundled provider. Record
+- [ ] Run one real local and one real SSH pass for the Phase 9 baseline: bare Shell, Claude,
+      Codex, Custom, and the structured argv/environment/path examples. Record
       executable/version, effective capabilities, launch result, exact recovery result where
       supported, telemetry source, and teardown evidence without recording credentials or
-      transcript contents. Record equivalent research evidence for the one permitted deferral.
+      transcript contents. Pi, Gemini, Copilot, and Cursor real-host integration matrices are
+      independent 9b follow-ups and do not block this foundation.
 - [x] Run seam enforcement, lint, both TypeScript builds, focused/full tests, production smoke,
       and the Phase 8 responsiveness gauntlet. Provider probing/profile UI must not regress
       the existing paint and terminal-output latency bounds.
@@ -451,6 +453,8 @@ Keep these commits local until the user finishes the expanded acceptance pass.
       multi-select, and provides known-provider executable override, additional shell, and
       Custom command paths. Candidate rows resolve progressively with individual pending
       states under the existing two-probe host bound; the dialog never waits for all probes.
+      An already-configured detected provider is annotated and disabled in the convenience
+      list; deliberate additional profiles remain available through Manual profile.
 - [x] Materialize each selection as a normal user-owned profile. Permit any number of named
       profiles per provider with independent argv, environment, path, executable, scope,
       risk acknowledgment, and revisions. Remove the immutable-harness duplication detour.
@@ -487,9 +491,9 @@ Keep these commits local until the user finishes the expanded acceptance pass.
       progressive add, manual add, multiple same-provider profiles, exact legacy ID/revision
       import, last-known-good cold menus, never-probed suppression, local/SSH skew, compact
       labels, responsive settings width, and keyboard/screen-reader behavior.
-- [ ] Repeat full verification, production smoke/capacity, and the UX-focused local/SSH
-      acceptance pass before completing Phase 9. Record no credentials, transcript content,
-      or token-bearing secrets.
+- [ ] Complete the UX-focused SSH acceptance pass, then repeat full verification and
+      production smoke/capacity before completing Phase 9. Local UX acceptance passed on
+      2026-07-17. Record no credentials, transcript content, or token-bearing secrets.
 
 ### Milestone 9b — Independent provider integration upgrades
 
@@ -509,6 +513,9 @@ candidate CLIs.
 - [ ] Audit Claude Code and Codex against the stricter Integrated minimum. Preserve their
       detailed exact-recovery capability in Settings, but use `Launch only` in the compact
       menu if either lacks the required structured Harness-tab feed.
+- [ ] Add artifact-qualified Codex resume validation so a definitively deleted exact rollout
+      can downgrade gracefully while an absent or unreadable rollout root fails closed and
+      retains the recovery identity, matching Claude's irreversible-outcome guard.
 - [ ] Re-evaluate Pi against current official session documentation and one pinned installed
       version; implement bounded project-qualified baseline/discovery, `--session <id>`
       recovery, and a JSONL observer only if exact correlation and required facets pass.
@@ -659,7 +666,7 @@ transcripts, sessions, or artifacts.
 
 | Provider | Evidence checked | Shipped effective behavior | Re-entry criterion |
 |---|---|---|---|
-| Claude Code | Local `claude` 2.1.212 plus the retained parity fixtures | Preassigned exact UUID resume after one artifact-qualified non-empty transcript exists, plus bounded transcript telemetry | Treat a missing zero-turn artifact as fresh; fail closed on ambiguous/unreadable state or a changed session surface |
+| Claude Code | Local `claude` 2.1.212 plus the retained parity fixtures | Preassigned exact UUID resume after one artifact-qualified non-empty transcript exists, plus bounded transcript telemetry | Treat a missing zero-turn artifact as fresh only when its profile-qualified artifact root exists; an absent/unreadable root or ambiguous match fails closed and retains the recovery identity |
 | Codex | Local `codex-cli` 0.144.4 plus the retained parity fixtures | Bounded exact rollout discovery/resume and rollout telemetry | Fail closed if exact discovery or resume becomes ambiguous |
 | Pi | Current [Pi coding-agent documentation](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/README.md); executable absent locally | `pi` launch/probe only. The documented session selector identifies an existing session path/ID and does not prove caller-preassigned creation | Add exact recovery only after a version proves caller-supplied new identity or exposes a bounded exact artifact source |
 | Gemini CLI | Local `gemini` 0.25.2 help and current [Gemini CLI session documentation](https://github.com/google-gemini/gemini-cli/blob/main/docs/cli/session-management.md) | `gemini` launch/probe only. The installed resume surface was not yet verified against one exact newly created session, so hvir rejects it for recovery | Require a full exact ID plus a bounded, project-qualified listing or artifact source |
@@ -752,7 +759,7 @@ required structured session and usage/context feed may be disclosed in Settings 
   host bound, starts unchecked, traps focus, handles Escape, and exposes manual configuration.
   The Settings selector now has sufficient specificity to override the generic 430 px project
   dialog and uses a responsive 1120 px maximum without shrinking the structured editor.
-- `npm run verify` passed seam enforcement, lint, both TypeScript builds, all 377 tests across
+- `npm run verify` passed seam enforcement, lint, both TypeScript builds, all 378 tests across
   53 files, and launcher validation. Focused coverage includes Shell item 0/default choice,
   template ordering and repeated provider materialization, exact legacy import, cold/negative
   menu policy, compact labels, responsive width, typed IPC, semantic profile-draft detection,
@@ -760,16 +767,19 @@ required structured session and usage/context feed may be disclosed in Settings 
 - `npm run smoke` returned `HVIR_SMOKE_OK`, including fresh-store Shell-only enumeration,
   catalog-ordered opt-in materialization, structured Custom preview/PTY launch, recovery, and
   cleanup. The profile-editor path opens through `Configure harnesses…`, verifies top
-  alignment, duplicates, renames, parses same-line argv, closes with a dirty draft, and
-  persists through the nested guard. `npm run smoke:capacity` returned `HVIR_SMOKE_OK` with
-  12 live/restored terminals, 75 measured interactions, 17.7 ms p99 / 17.8 ms maximum frame
-  gap, and +22 MiB net / +44 MiB peak memory growth.
+  alignment and duplicate-safe detected suggestions, duplicates deliberately, renames, parses
+  same-line argv, closes with a dirty draft, and persists through the nested guard.
+  `npm run smoke:capacity` returned `HVIR_SMOKE_OK` with 12 live/restored terminals, 75
+  measured interactions, 17.7 ms p99 / 17.8 ms maximum frame gap, and +22 MiB net / +44 MiB
+  peak memory growth.
 - Local acceptance found that Claude accepts a preassigned UUID before it persists a resumable
   transcript. Recovery now performs a provider-owned, artifact-qualified preflight: one exact
-  non-empty transcript resumes, a definitively missing zero-turn transcript starts fresh in the
-  same terminal slot, and ambiguity/unreadable state fails closed. Telemetry teardown also
-  guards optional follower files before reading them, eliminating benign missing-file warnings
-  when a zero-turn observer is stopped.
+  non-empty transcript resumes, and a definitively missing zero-turn transcript starts fresh in
+  the same terminal slot only when the profile-qualified artifact root itself exists. An absent
+  root, ambiguity, or unreadable state fails closed so a transient mount/configuration problem
+  cannot overwrite the retained recovery identity. Telemetry teardown also guards optional
+  follower files before reading them, eliminating benign missing-file warnings when a zero-turn
+  observer is stopped.
 - Local acceptance also found the original one-argv-value-per-line editor surprising for normal
   CLI input such as `--add-dir /path`. The editor now uses a non-evaluating shell-shaped lexer:
   spaces and newlines both separate values, quotes/backslashes group literals, bindings remain
@@ -779,14 +789,14 @@ required structured session and usage/context feed may be disclosed in Settings 
   shows an unsaved marker and a focus-trapped Save/Discard/Keep-editing prompt protects Settings
   close, app-settings save, profile selection, add, duplicate, and confirmed delete. Discard
   restores the durable profile; equivalent argv formatting does not count as a change.
-- The expanded user-owned local/SSH UX acceptance pass remains open. These implementation
-  commits stay local and unpushed; Milestone 9b was not started.
+- The expanded user-owned local UX acceptance pass was approved on 2026-07-17. SSH acceptance
+  remains open. These implementation commits stay local and unpushed; only 9b planning notes,
+  not provider integration work, were added.
 
 The original acceptance-only items remain open: the isolated Milestone 0 real local/SSH
-Claude/Codex restore soak, the shipped-provider real-host matrix, the three user-example
-local/SSH launches, and the final status transition. The first local UX pass additionally
-opened Milestone 9a for Shell-first opt-in profile materialization, host-filtered menus,
-responsive settings, and compact truthful labels. Milestone 9b tracks the stronger
-Harness-tab integrations independently and may remain open without blocking the phase. Keep
-9a implementation commits local until the user completes the expanded acceptance pass;
-until its evidence is recorded, Phase 9 remains `acceptance refinement` rather than `done`.
+Claude/Codex restore soak, the baseline SSH matrix, the three user-example SSH launches, and
+the final status transition. Milestone 9b tracks the stronger Harness-tab integrations and
+the launch-only candidate real-host matrices independently; it may remain open without
+blocking the phase. Keep 9a implementation commits local until the user completes the SSH
+acceptance pass; until its evidence is recorded, Phase 9 remains `acceptance refinement`
+rather than `done`.

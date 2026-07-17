@@ -44,6 +44,8 @@ describe('renderer filesystem contract', () => {
       /\.project-dialog\.settings-dialog\s*\{[^}]*width:\s*min\(1120px,/s,
     )
     expect(settings).toContain('aria-labelledby="add-harness-title"')
+    expect(settings).toContain('Already added · use Manual profile for another')
+    expect(settings).toContain('checking || busy || alreadyConfigured')
     expect(settings).toContain("event.key === 'Escape'")
     expect(settings).toContain("event.key !== 'Tab'")
     expect(styles).toMatch(/\.terminal-list-profile\.elevated\s*\{[^}]*#d8b36f/s)

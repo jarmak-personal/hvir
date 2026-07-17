@@ -3053,8 +3053,9 @@ async function runSmoke(): Promise<number> {
                 ', max=' + ((dialog?.scrollHeight || 0) - (dialog?.clientHeight || 0))
               ));
             }
-            source.click();
-            requestAnimationFrame(() => {
+            const beginProfileEdit = () => {
+              source.click();
+              requestAnimationFrame(() => {
               const before = document.querySelectorAll('.settings-profile-list button').length;
               const duplicate = [...document.querySelectorAll('.settings-profile-actions button')]
                 .find((button) => button.textContent?.trim() === 'Duplicate');
@@ -3104,7 +3105,7 @@ async function runSmoke(): Promise<number> {
                           const waitForGuardedSave = () => {
                             if (!document.querySelector('.settings-dialog')) {
                               return resolve(
-                                'top-aligned + duplicate + rename + same-line argv + guarded save'
+                                'top-aligned + duplicate-safe add + rename + same-line argv + guarded save'
                               );
                             }
                             if (Date.now() > deadline) {
@@ -3128,8 +3129,36 @@ async function runSmoke(): Promise<number> {
                 }
                 setTimeout(waitForDuplicate, 50);
               };
-              waitForDuplicate();
-            });
+                waitForDuplicate();
+              });
+            };
+            const addHarness = [...document.querySelectorAll(
+              '.settings-harness-actions button'
+            )].find((button) => button.textContent?.trim() === 'Add a harness…');
+            if (!addHarness) return reject(new Error('add harness action missing'));
+            addHarness.click();
+            const waitForConfiguredTemplate = () => {
+              const candidate = [...document.querySelectorAll(
+                '.add-harness-candidates label'
+              )].find((label) =>
+                label.querySelector('strong')?.textContent?.trim() === 'Claude Code'
+              );
+              if (candidate) {
+                const checkbox = candidate.querySelector('input[type="checkbox"]');
+                const detail = candidate.querySelector('small')?.textContent || '';
+                if (!checkbox?.disabled || !detail.includes('Already added')) {
+                  return reject(new Error('configured template remained selectable'));
+                }
+                [...document.querySelectorAll('.add-harness-dialog button')]
+                  .find((button) => button.textContent?.trim() === 'Cancel')?.click();
+                return requestAnimationFrame(beginProfileEdit);
+              }
+              if (Date.now() > deadline) {
+                return reject(new Error('configured template annotation missing'));
+              }
+              setTimeout(waitForConfiguredTemplate, 50);
+            };
+            waitForConfiguredTemplate();
           };
           const waitForConfigure = () => {
             const configure = [...document.querySelectorAll('.terminal-new-menu button')]

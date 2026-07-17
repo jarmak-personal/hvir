@@ -8,12 +8,14 @@ const CLAUDE_RESUME_AVAILABILITY_SCRIPT = `
 root=\${CLAUDE_CONFIG_DIR:-\${HOME}/.claude}/projects
 session_id=$1
 count=0
-if [ -d "$root" ]; then
-  for candidate in "$root"/*/"$session_id.jsonl"; do
-    [ -s "$candidate" ] || continue
-    count=$((count + 1))
-  done
+if [ ! -d "$root" ] || [ ! -r "$root" ] || [ ! -x "$root" ]; then
+  printf unknown
+  exit 0
 fi
+for candidate in "$root"/*/"$session_id.jsonl"; do
+  [ -s "$candidate" ] || continue
+  count=$((count + 1))
+done
 case "$count" in
   0) printf missing ;;
   1) printf available ;;

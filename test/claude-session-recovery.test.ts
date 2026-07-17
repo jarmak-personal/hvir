@@ -39,6 +39,7 @@ describe('Claude Code session recovery', () => {
   })
 
   it('distinguishes a zero-turn ID from one exact persisted transcript', async () => {
+    await mkdir(join(directory, 'projects'), { recursive: true })
     expect(await claudeResumeAvailability(host, context)).toBe('missing')
 
     const project = join(directory, 'projects', '-test-project')
@@ -56,6 +57,13 @@ describe('Claude Code session recovery', () => {
     expect(
       await selectHarnessLaunchMode(host, claudeCodeProvider, 'resume', context),
     ).toBe('resume')
+  })
+
+  it('fails closed while the profile-qualified artifact root is absent', async () => {
+    expect(await claudeResumeAvailability(host, context)).toBe('unknown')
+    await expect(
+      selectHarnessLaunchMode(host, claudeCodeProvider, 'resume', context),
+    ).rejects.toThrow(/could not be verified/)
   })
 
   it('fails closed when the exact UUID is ambiguous across artifact directories', async () => {

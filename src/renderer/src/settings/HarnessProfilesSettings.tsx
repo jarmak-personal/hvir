@@ -699,6 +699,7 @@ export const HarnessProfilesSettings = forwardRef<
       {addOpen ? (
         <AddHarnessDialog
           providers={providers}
+          configuredProviderIds={new Set(profiles.map((profile) => profile.providerId))}
           root={workspaceRoot}
           onCancel={() => setAddOpen(false)}
           onMaterialized={async (created) => {
@@ -827,12 +828,14 @@ function UnsavedHarnessProfileDialog({
 
 function AddHarnessDialog({
   providers,
+  configuredProviderIds,
   root,
   onCancel,
   onMaterialized,
   onManual,
 }: {
   readonly providers: readonly HarnessProviderDescriptor[]
+  readonly configuredProviderIds: ReadonlySet<HarnessProviderId>
   readonly root: HostPath
   readonly onCancel: () => void
   readonly onMaterialized: (profiles: readonly HarnessProfile[]) => Promise<void>
@@ -956,12 +959,16 @@ function AddHarnessDialog({
         <div className="add-harness-candidates" aria-live="polite">
           {detected.map((provider) => {
             const checking = pending.has(provider.id)
+            const alreadyConfigured = configuredProviderIds.has(provider.id)
             return (
-              <label key={provider.id}>
+              <label
+                key={provider.id}
+                className={alreadyConfigured ? 'configured' : undefined}
+              >
                 <input
                   type="checkbox"
-                  disabled={checking || busy}
-                  checked={selected.has(provider.id)}
+                  disabled={checking || busy || alreadyConfigured}
+                  checked={!alreadyConfigured && selected.has(provider.id)}
                   onChange={(event) => {
                     const checked = event.currentTarget.checked
                     setSelected((current) => {
@@ -974,7 +981,13 @@ function AddHarnessDialog({
                 />
                 <span>
                   <strong>{provider.profileTemplate?.displayName}</strong>
-                  <small>{checking ? 'Checking…' : 'Installed on this host'}</small>
+                  <small>
+                    {alreadyConfigured
+                      ? 'Already added · use Manual profile for another'
+                      : checking
+                        ? 'Checking…'
+                        : 'Installed on this host'}
+                  </small>
                 </span>
               </label>
             )

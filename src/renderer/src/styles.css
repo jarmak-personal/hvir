@@ -1460,6 +1460,10 @@ button {
   border-bottom: 0;
 }
 
+.add-harness-candidates label.configured {
+  color: #8c95a2;
+}
+
 .add-harness-candidates label > span,
 .add-harness-manual label {
   display: grid;
