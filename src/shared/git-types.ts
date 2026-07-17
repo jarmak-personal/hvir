@@ -1,5 +1,7 @@
 import type { HostPath } from './host-path'
 
+export const GIT_CHANGE_DISPLAY_LIMIT = 2_000
+
 export interface GitChangedFile {
   readonly path: HostPath
   readonly staged: boolean
@@ -19,6 +21,9 @@ export interface GitChanges {
   /** False when no meaningful merge base can be established. */
   readonly branchPointAvailable: boolean
   readonly branchPointUnavailableReason?: string
+  /** True when the repository has more paths than the bounded detail model. */
+  readonly workingTreeLimited?: boolean
+  readonly workingTreeLimit?: number
 }
 
 export type GitRepositoryState = 'ready' | 'unborn' | 'not-git'

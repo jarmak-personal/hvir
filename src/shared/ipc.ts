@@ -64,6 +64,18 @@ export interface ProjectRootResponse {
   readonly root: HostPath
 }
 
+export const MAX_PROJECT_WATCH_INTERESTS = 128
+
+export interface ProjectWatchInterestsRequest {
+  readonly root: HostPath
+  readonly paths: readonly HostPath[]
+}
+
+export interface ProjectWatchInterestsResponse {
+  readonly accepted: number
+  readonly limited: boolean
+}
+
 export interface ProjectHostOption {
   readonly hostId: string
   readonly label: string
@@ -269,6 +281,10 @@ export interface IpcInvokeMap {
     request: RefreshProjectRequest
     response: OperationResult<ProjectState>
   }
+  'project:watch-interests': {
+    request: ProjectWatchInterestsRequest
+    response: OperationResult<ProjectWatchInterestsResponse>
+  }
   'project:close': {
     request: CloseProjectRequest
     response: OperationResult<ProjectState>
@@ -403,6 +419,7 @@ export const INVOKE_CHANNELS = [
   'project:open',
   'project:switch',
   'project:refresh',
+  'project:watch-interests',
   'project:close',
   'workspace:prune',
   'workspace:dismiss',

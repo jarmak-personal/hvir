@@ -41,6 +41,10 @@ export interface ExecOptions {
   readonly signal?: AbortSignal
   /** Max bytes to buffer across stdout+stderr before failing. */
   readonly maxBuffer?: number
+  /** Terminate and return the buffered prefix instead of rejecting at maxBuffer. */
+  readonly allowTruncatedOutput?: boolean
+  /** Also terminate after this many NUL-delimited stdout records. */
+  readonly maxStdoutNulRecords?: number
 }
 
 export interface ExecStreamHandle {
@@ -58,6 +62,12 @@ export interface ExecStreamHandle {
 
 export interface WatchOptions {
   readonly recursive?: boolean
+  /**
+   * Additional host-qualified roots owned by the same backend. They follow the
+   * same depth policy as `path`; callers use this to keep UI-driven shallow
+   * interests bounded without consuming one SSH channel per directory.
+   */
+  readonly additionalPaths?: readonly HostPath[]
   /** Directory basenames to prune entirely from a recursive watch. */
   readonly excludeDirectoryNames?: readonly string[]
   /** Watch backends report asynchronous failures here instead of throwing. */

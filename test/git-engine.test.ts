@@ -14,7 +14,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { GitEngine, parseWorktreeList } from '../src/main/git/git-engine'
 import { LocalHost, type ExecOptions, type ProjectHost } from '../src/main/project-host'
-import { LOCAL_HOST_ID, localPath } from '../src/shared'
+import { GIT_CHANGE_DISPLAY_LIMIT, LOCAL_HOST_ID, localPath } from '../src/shared'
 
 const cleanups: string[] = []
 
@@ -200,6 +200,92 @@ describe('GitEngine', () => {
       worktrees: [{ root: localPath(plain), detached: false, bare: false }],
     })
     await host.dispose()
+  })
+
+  it(
+    'caps pathological working-tree detail before per-file statistics',
+    { timeout: 20_000 },
+    async () => {
+      const root = await repository()
+      for (let start = 0; start <= GIT_CHANGE_DISPLAY_LIMIT; start += 200) {
+        await Promise.all(
+          Array.from(
+            {
+              length: Math.min(200, GIT_CHANGE_DISPLAY_LIMIT + 1 - start),
+            },
+            (_, offset) =>
+              writeFile(
+                join(root, `untracked-${String(start + offset).padStart(4, '0')}.txt`),
+                'new\n',
+              ),
+          ),
+        )
+      }
+      const workspaceRoot = localPath(await realpath(root))
+      const host = new LocalHost()
+      const exec = vi.spyOn(host, 'exec')
+      const engine = new GitEngine(host, workspaceRoot)
+
+      await expect(engine.changedFileCount(workspaceRoot)).resolves.toBe(
+        GIT_CHANGE_DISPLAY_LIMIT + 1,
+      )
+      const changes = await engine.changes(workspaceRoot)
+
+      expect(changes.workingTreeLimited).toBe(true)
+      expect(changes.workingTreeLimit).toBe(GIT_CHANGE_DISPLAY_LIMIT)
+      expect(changes.workingTree).toHaveLength(GIT_CHANGE_DISPLAY_LIMIT)
+      expect(changes.branchPointAvailable).toBe(false)
+      expect(exec.mock.calls.some(([, args]) => args.includes('--no-index'))).toBe(false)
+      await host.dispose()
+    },
+  )
+
+  it('treats host-truncated status output as limited and dirty', async () => {
+    const root = await repository()
+    const workspaceRoot = localPath(await realpath(root))
+    const actual = new LocalHost()
+    const statusOptions: ExecOptions[] = []
+    const host = {
+      hostId: actual.hostId,
+      exec: (command: string, args: readonly string[], opts: ExecOptions = {}) => {
+        if (args.includes('status') && args.includes('--untracked-files=all')) {
+          statusOptions.push(opts)
+          return Promise.resolve({
+            code: null,
+            signal: 'SIGTERM',
+            stdout: '? partial.txt\0',
+            stderr: '',
+            outputTruncated: true,
+          })
+        }
+        return actual.exec(command, args, opts)
+      },
+    } as ProjectHost
+    const engine = new GitEngine(host, workspaceRoot)
+
+    await expect(engine.changedFileCount(workspaceRoot)).resolves.toBe(
+      GIT_CHANGE_DISPLAY_LIMIT + 1,
+    )
+    await expect(engine.changes(workspaceRoot)).resolves.toEqual(
+      expect.objectContaining({
+        workingTreeLimited: true,
+        workingTree: [
+          expect.objectContaining({
+            path: localPath(join(workspaceRoot.path, 'partial.txt')),
+          }),
+        ],
+        branchPointAvailable: false,
+      }),
+    )
+    expect(statusOptions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          allowTruncatedOutput: true,
+          maxStdoutNulRecords: (GIT_CHANGE_DISPLAY_LIMIT + 1) * 2,
+        }),
+      ]),
+    )
+    await actual.dispose()
   })
 
   it('excludes a registered nested worktree from its parent workspace status', async () => {

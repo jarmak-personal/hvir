@@ -41,9 +41,11 @@ const tonePriority: Record<TreeGitTone, number> = {
 export function buildTreeGitDecorations(
   root: HostPath,
   changedFiles: readonly GitChangedFile[],
+  complete = true,
 ): TreeGitDecorations {
   const files = new Map<string, TreeFileGitDecoration>()
   const directorySummaries = new Map<string, MutableDirectorySummary>()
+  if (!complete) return { files, directories: new Map() }
 
   for (const file of changedFiles) {
     if (!containsPath(root, file.path) || hostPathEquals(root, file.path)) continue

@@ -77,6 +77,22 @@ export async function dispatchWorkerHostCall(
   if (call.cwd || !isAllowedGitInput(call.args, call.input)) {
     throw new Error('git worker supplied unsupported execution options')
   }
+  if (
+    call.allowTruncatedOutput !== undefined &&
+    (call.allowTruncatedOutput !== true || call.args[2] !== 'status')
+  ) {
+    throw new Error('git worker supplied unsupported output truncation')
+  }
+  if (
+    call.maxStdoutNulRecords !== undefined &&
+    (!Number.isSafeInteger(call.maxStdoutNulRecords) ||
+      call.maxStdoutNulRecords < 1 ||
+      call.maxStdoutNulRecords > 10_000 ||
+      call.allowTruncatedOutput !== true ||
+      call.args[2] !== 'status')
+  ) {
+    throw new Error('git worker supplied an invalid stdout record limit')
+  }
   const commandRoot = hostPath(root.hostId, call.args[1])
   await assertProjectPath(commandRoot, root, host)
   const maxBuffer = call.maxBuffer ?? 10 * 1024 * 1024
@@ -101,6 +117,10 @@ export async function dispatchWorkerHostCall(
           : { env: { GIT_OPTIONAL_LOCKS: '0' } }),
       ...(call.input !== undefined ? { input: call.input } : {}),
       maxBuffer,
+      ...(call.allowTruncatedOutput === true ? { allowTruncatedOutput: true } : {}),
+      ...(call.maxStdoutNulRecords !== undefined
+        ? { maxStdoutNulRecords: call.maxStdoutNulRecords }
+        : {}),
       signal: controller.signal,
     }),
     120_000,

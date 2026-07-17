@@ -180,6 +180,8 @@ class ProxyGitHost implements ProjectHost {
       cwd: opts.cwd,
       input: opts.input,
       maxBuffer: opts.maxBuffer,
+      allowTruncatedOutput: opts.allowTruncatedOutput,
+      maxStdoutNulRecords: opts.maxStdoutNulRecords,
     }) as Promise<import('../shared').ExecResult>
   }
   readTextFile(path: HostPath): Promise<string> {

@@ -65,6 +65,17 @@ describe('file-tree Git decorations', () => {
     expect(decorations.files.has(key('/other/outside.ts'))).toBe(false)
     expect(decorations.directories.get(key('/repo'))?.changedCount).toBe(2)
   })
+
+  it('withholds misleading per-path decorations when the status result is limited', () => {
+    const decorations = buildTreeGitDecorations(
+      localPath('/repo'),
+      [changed('/repo/1.txt', { untracked: true })],
+      false,
+    )
+
+    expect(decorations.files.size).toBe(0)
+    expect(decorations.directories.size).toBe(0)
+  })
 })
 
 function changed(

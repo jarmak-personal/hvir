@@ -1671,6 +1671,16 @@ body.pane-resizing-row * {
   font-size: 11px;
 }
 
+.git-limit-notice {
+  margin: 8px 10px 4px;
+  padding: 8px 9px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
 .git-group h3 {
   display: flex;
   justify-content: space-between;
@@ -3189,6 +3199,16 @@ body.pane-resizing-row * {
   padding-bottom: 6px;
   color: #dc7b82;
   font-size: 11px;
+}
+
+.tree-scope-notice {
+  margin: 8px 10px;
+  padding: 7px 9px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.35;
 }
 
 .workspace-missing-notice {

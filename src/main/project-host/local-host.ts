@@ -93,12 +93,24 @@ export class LocalHost implements ProjectHost {
       let stdout = ''
       let stderr = ''
       let bytes = 0
+      let stdoutNulRecords = 0
       let settled = false
+      let truncated = false
       const stdoutDecoder = new StringDecoder('utf8')
       const stderrDecoder = new StringDecoder('utf8')
 
       const overflow = (): boolean => {
-        if (bytes <= maxBuffer) return false
+        if (
+          bytes <= maxBuffer &&
+          (opts.maxStdoutNulRecords === undefined ||
+            stdoutNulRecords < opts.maxStdoutNulRecords)
+        )
+          return false
+        if (opts.allowTruncatedOutput) {
+          truncated = true
+          child.kill()
+          return true
+        }
         settled = true
         child.kill()
         reject(new Error(`exec output exceeded maxBuffer (${maxBuffer} bytes)`))
@@ -106,11 +118,16 @@ export class LocalHost implements ProjectHost {
       }
 
       child.stdout.on('data', (d: Buffer) => {
+        if (truncated) return
         bytes += d.length
+        if (opts.maxStdoutNulRecords !== undefined) {
+          for (const byte of d) if (byte === 0) stdoutNulRecords++
+        }
         stdout += stdoutDecoder.write(d)
         overflow()
       })
       child.stderr.on('data', (d: Buffer) => {
+        if (truncated) return
         bytes += d.length
         stderr += stderrDecoder.write(d)
         overflow()
@@ -126,7 +143,13 @@ export class LocalHost implements ProjectHost {
         settled = true
         stdout += stdoutDecoder.end()
         stderr += stderrDecoder.end()
-        resolve({ code, signal: signal ?? null, stdout, stderr })
+        resolve({
+          code,
+          signal: signal ?? null,
+          stdout,
+          stderr,
+          ...(truncated ? { outputTruncated: true } : {}),
+        })
       })
 
       // Buffered exec has no writable stdin handle, so always close it. Leaving
@@ -380,7 +403,22 @@ export class LocalHost implements ProjectHost {
     onEvent: (e: WatchEvent) => void,
     opts: WatchOptions = {},
   ): Disposer {
+    if ((opts.additionalPaths?.length ?? 0) > 256) {
+      throw new Error('Too many additional watch paths')
+    }
     const root = realpathSync.native(this.resolve(path))
+    const roots = [
+      root,
+      ...(opts.additionalPaths ?? []).flatMap((candidate) => {
+        try {
+          return [realpathSync.native(this.resolve(candidate))]
+        } catch {
+          // An expanded directory can disappear between renderer interest and
+          // watcher replacement. Its parent watch will report that removal.
+          return []
+        }
+      }),
+    ].filter((candidate, index, values) => values.indexOf(candidate) === index)
     const excludedNames = new Set(opts.excludeDirectoryNames ?? [])
     let active: import('chokidar').FSWatcher | undefined
     let fallback: Promise<void> | undefined
@@ -393,7 +431,7 @@ export class LocalHost implements ProjectHost {
         onEvent({ type, path: this.wrap(absPath) })
 
     const start = (usePolling: boolean): import('chokidar').FSWatcher => {
-      const watcher = chokidar.watch(root, {
+      const watcher = chokidar.watch(roots, {
         ignoreInitial: true,
         usePolling,
         depth: opts.recursive === false ? 0 : undefined,
@@ -401,9 +439,14 @@ export class LocalHost implements ProjectHost {
           excludedNames.size === 0
             ? undefined
             : (candidate) =>
-                relative(root, candidate)
-                  .split(sep)
-                  .some((part) => excludedNames.has(part)),
+                roots.some((watchedRoot) => {
+                  const within = relative(watchedRoot, candidate)
+                  return (
+                    within !== '..' &&
+                    !within.startsWith(`..${sep}`) &&
+                    within.split(sep).some((part) => excludedNames.has(part))
+                  )
+                }),
       })
       watcher
         .on('add', emit('add'))

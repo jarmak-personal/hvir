@@ -1,7 +1,7 @@
 import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import {
   ProjectRegistry,
@@ -17,6 +17,108 @@ afterEach(async () => {
 })
 
 describe('ProjectRegistry session flow', () => {
+  it('cancels first-run selection without inventing a cwd project', async () => {
+    const metadata = await mkdtemp(join(tmpdir(), 'hvir-registry-empty-'))
+    cleanups.push(metadata)
+    const select = vi.fn(() => Promise.resolve(undefined))
+
+    const registry = await ProjectRegistry.create(
+      undefined,
+      { prompt: () => Promise.resolve(undefined) },
+      join(metadata, 'known-hosts.json'),
+      join(metadata, 'projects.json'),
+      () => undefined,
+      select,
+    )
+
+    expect(registry).toBeUndefined()
+    expect(select).toHaveBeenCalledOnce()
+  })
+
+  it('restores history without prompting and lets an explicit root override it', async () => {
+    const metadata = await mkdtemp(join(tmpdir(), 'hvir-registry-precedence-'))
+    const first = join(metadata, 'first')
+    const second = join(metadata, 'second')
+    await mkdir(first)
+    await mkdir(second)
+    cleanups.push(metadata)
+    const registryFile = join(metadata, 'projects.json')
+    const trustFile = join(metadata, 'known-hosts.json')
+    const initial = await ProjectRegistry.create(
+      localPath(first),
+      { prompt: () => Promise.resolve(undefined) },
+      trustFile,
+      registryFile,
+      () => undefined,
+    )
+    await initial.open('local', second)
+    await initial.dispose()
+
+    const select = vi.fn(() => Promise.resolve(localPath(metadata)))
+    const restored = await ProjectRegistry.create(
+      undefined,
+      { prompt: () => Promise.resolve(undefined) },
+      trustFile,
+      registryFile,
+      () => undefined,
+      select,
+    )
+    expect(restored?.state().root.path).toBe(await realpath(second))
+    expect(select).not.toHaveBeenCalled()
+    await restored?.dispose()
+
+    const explicit = await ProjectRegistry.create(
+      localPath(first),
+      { prompt: () => Promise.resolve(undefined) },
+      trustFile,
+      registryFile,
+      () => undefined,
+    )
+    expect(explicit.state().root.path).toBe(await realpath(first))
+    expect(explicit.state().projects).toHaveLength(2)
+    await explicit.dispose()
+  })
+
+  it('opens an explicitly requested persisted worktree without duplicating its project', async () => {
+    const metadata = await mkdtemp(join(tmpdir(), 'hvir-registry-worktree-root-'))
+    const root = join(metadata, 'project')
+    const linked = join(metadata, 'linked')
+    await mkdir(root)
+    await mkdir(linked)
+    cleanups.push(metadata)
+    const canonicalRoot = localPath(await realpath(root))
+    const canonicalLinked = localPath(await realpath(linked))
+    const registryFile = join(metadata, 'projects.json')
+    const trustFile = join(metadata, 'known-hosts.json')
+    const initial = await ProjectRegistry.create(
+      canonicalRoot,
+      { prompt: () => Promise.resolve(undefined) },
+      trustFile,
+      registryFile,
+      () => undefined,
+    )
+    await initial.reconcileWorktrees(initial.state().activeProjectId, {
+      repository: true,
+      worktrees: [
+        { root: canonicalRoot, branch: 'main', detached: false, bare: false },
+        { root: canonicalLinked, branch: 'feature', detached: false, bare: false },
+      ],
+    })
+    await initial.dispose()
+
+    const restored = await ProjectRegistry.create(
+      canonicalLinked,
+      { prompt: () => Promise.resolve(undefined) },
+      trustFile,
+      registryFile,
+      () => undefined,
+    )
+
+    expect(restored.state().root).toEqual(canonicalLinked)
+    expect(restored.state().projects).toHaveLength(1)
+    await restored.dispose()
+  })
+
   it('uses configured identities without adding OpenSSH defaults', () => {
     expect(
       identityFileCandidates(
@@ -314,6 +416,37 @@ describe('ProjectRegistry session flow', () => {
     expect(restored.projectById(projectId)?.workspaces).toHaveLength(1)
     expect(restored.state().root.path).toBe(await realpath(root))
     await restored.dispose()
+  })
+
+  it('clears stale Git counts when a project becomes a plain directory', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'hvir-registry-plain-'))
+    const canonicalRoot = localPath(await realpath(root))
+    cleanups.push(root)
+    const registry = await ProjectRegistry.create(
+      canonicalRoot,
+      { prompt: () => Promise.resolve(undefined) },
+      join(root, 'known-hosts.json'),
+      join(root, 'projects.json'),
+      () => undefined,
+    )
+    const projectId = registry.state().activeProjectId
+    const workspaceId = registry.state().activeWorkspaceId
+    await registry.reconcileWorktrees(projectId, {
+      repository: true,
+      worktrees: [{ root: canonicalRoot, branch: 'main', detached: false, bare: false }],
+    })
+    await registry.updateChangedCounts(projectId, new Map([[workspaceId, 12]]))
+
+    await registry.reconcileWorktrees(projectId, {
+      repository: false,
+      worktrees: [{ root: canonicalRoot, detached: false, bare: false }],
+    })
+
+    expect(registry.projectById(projectId)?.workspaces[0]).toMatchObject({
+      repository: false,
+      changedFiles: 0,
+    })
+    await registry.dispose()
   })
 
   it('persists Git prunable reasons and clears them when a worktree recovers', async () => {

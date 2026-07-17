@@ -3,6 +3,7 @@ import {
   dirnameHostPath,
   hostPath,
   hostPathEquals,
+  GIT_CHANGE_DISPLAY_LIMIT,
   type DiffBase,
   type ExecResult,
   type GitDiffResponse,
@@ -27,6 +28,11 @@ export const GIT_PULL_ARGS = [
   '--ff-only',
   '--no-recurse-submodules',
 ] as const
+
+const GIT_STATUS_MAX_BUFFER = 20 * 1024 * 1024
+// Porcelain rename records carry a second NUL-delimited source path. Twice the
+// file cap guarantees at least cap+1 logical changes before host termination.
+const GIT_STATUS_MAX_RECORDS = (GIT_CHANGE_DISPLAY_LIMIT + 1) * 2
 
 /**
  * Minimal, single-file git slice for ADR-007. Every command crosses the
@@ -127,21 +133,25 @@ export class GitEngine {
       ? (await this.projectContext(workspaceRoot))?.repositoryPrefix
       : ''
     if (repositoryPrefix === undefined) return 0
-    return excludeNestedWorktrees(
+    const status = await this.boundedStatus(workspaceRoot, [
+      'status',
+      '--porcelain=v2',
+      '-z',
+      '--untracked-files=all',
+      '--',
+      '.',
+    ])
+    if (status.truncated) return GIT_CHANGE_DISPLAY_LIMIT + 1
+    const count = excludeNestedWorktrees(
       parseStatus(
-        await this.run(workspaceRoot, [
-          'status',
-          '--porcelain=v2',
-          '-z',
-          '--untracked-files=all',
-          '--',
-          '.',
-        ]),
+        status.output,
+        hasNestedWorktree ? undefined : GIT_CHANGE_DISPLAY_LIMIT + 1,
       ),
       workspaceRoot,
       repositoryPrefix,
       relatedWorktreeRoots,
     ).length
+    return Math.min(count, GIT_CHANGE_DISPLAY_LIMIT + 1)
   }
 
   async branches(workspaceRoot: HostPath): Promise<GitBranchModel> {
@@ -228,7 +238,7 @@ export class GitEngine {
     }
     if (upstream.behind === 0) throw new Error('The branch is already up to date')
 
-    const status = await this.run(workspaceRoot, [
+    const status = await this.boundedStatus(workspaceRoot, [
       'status',
       '--porcelain=v2',
       '-z',
@@ -238,11 +248,12 @@ export class GitEngine {
     if (!context) throw new Error('Not a Git repository')
     if (
       excludeNestedWorktrees(
-        parseStatus(status),
+        parseStatus(status.output),
         workspaceRoot,
         context.repositoryPrefix,
         relatedWorktreeRoots,
-      ).length > 0
+      ).length > 0 ||
+      status.truncated
     ) {
       throw new Error('Working tree changed; ask an agent to commit or stash it')
     }
@@ -267,7 +278,7 @@ export class GitEngine {
     if (target.worktree && !hostPathEquals(target.worktree, workspaceRoot)) {
       throw new Error(`${branch} is checked out in ${target.worktree.path}`)
     }
-    const status = await this.run(workspaceRoot, [
+    const status = await this.boundedStatus(workspaceRoot, [
       'status',
       '--porcelain=v2',
       '-z',
@@ -277,11 +288,12 @@ export class GitEngine {
     if (!context) throw new Error('Not a Git repository')
     if (
       excludeNestedWorktrees(
-        parseStatus(status),
+        parseStatus(status.output),
         workspaceRoot,
         context.repositoryPrefix,
         relatedWorktreeRoots,
-      ).length > 0
+      ).length > 0 ||
+      status.truncated
     ) {
       throw new Error('Working tree changed; commit or stash before switching')
     }
@@ -373,7 +385,7 @@ export class GitEngine {
     const hasHead = Boolean(
       await this.tryRun(commandRoot, ['rev-parse', '--verify', 'HEAD']),
     )
-    const status = await this.run(commandRoot, [
+    const status = await this.boundedStatus(commandRoot, [
       'status',
       '--porcelain=v2',
       '-z',
@@ -381,12 +393,35 @@ export class GitEngine {
       '--',
       '.',
     ])
-    const parsedStatus = excludeNestedWorktrees(
-      parseStatus(status).filter((file) => isInsideProject(file.path, repositoryPrefix)),
+    const hasNestedWorktree = relatedWorktreeRoots.some((candidate) =>
+      isNestedHostPath(candidate, projectRoot),
+    )
+    const allParsedStatus = excludeNestedWorktrees(
+      parseStatus(
+        status.output,
+        hasNestedWorktree ? undefined : GIT_CHANGE_DISPLAY_LIMIT + 1,
+      ).filter((file) => isInsideProject(file.path, repositoryPrefix)),
       projectRoot,
       repositoryPrefix,
       relatedWorktreeRoots,
     )
+    const workingTreeLimited =
+      status.truncated || allParsedStatus.length > GIT_CHANGE_DISPLAY_LIMIT
+    const parsedStatus = allParsedStatus.slice(0, GIT_CHANGE_DISPLAY_LIMIT)
+    if (workingTreeLimited) {
+      return {
+        repositoryState: hasHead ? 'ready' : 'unborn',
+        workingTree: parsedStatus.map((file) =>
+          changedFile(commandRoot, repositoryPrefix, file, new Map()),
+        ),
+        branchPoint: [],
+        branchPointAvailable: false,
+        branchPointUnavailableReason:
+          'Branch-point detail is paused while the working tree exceeds the change limit',
+        workingTreeLimited: true,
+        workingTreeLimit: GIT_CHANGE_DISPLAY_LIMIT,
+      }
+    }
     const headDiff = await this.tryRun(commandRoot, [
       'diff',
       '--no-ext-diff',
@@ -934,6 +969,21 @@ export class GitEngine {
     return result.stdout
   }
 
+  private async boundedStatus(
+    repoRoot: HostPath,
+    args: readonly string[],
+  ): Promise<{ readonly output: string; readonly truncated: boolean }> {
+    const result = await execReadOnlyGit(this.host, repoRoot, args, {
+      maxBuffer: GIT_STATUS_MAX_BUFFER,
+      allowTruncatedOutput: true,
+      maxStdoutNulRecords: GIT_STATUS_MAX_RECORDS,
+    })
+    if (!result.outputTruncated && result.code !== 0) {
+      throw gitError(args, result.stderr, result.code)
+    }
+    return { output: result.stdout, truncated: result.outputTruncated === true }
+  }
+
   private async tryRun(
     repoRoot: HostPath,
     args: readonly string[],
@@ -1100,10 +1150,11 @@ interface ParsedStatus {
   readonly conflicted: boolean
 }
 
-function parseStatus(output: string): readonly ParsedStatus[] {
+function parseStatus(output: string, limit?: number): readonly ParsedStatus[] {
   const records = output.split('\0')
   const result: ParsedStatus[] = []
   for (let index = 0; index < records.length; index += 1) {
+    if (limit !== undefined && result.length >= limit) break
     const record = records[index] ?? ''
     if (!record) continue
     if (record.startsWith('? ')) {
