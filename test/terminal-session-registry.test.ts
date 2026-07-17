@@ -6,13 +6,16 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 import { LocalHost } from '../src/main/project-host/local-host'
 import { TerminalSessionRegistry } from '../src/main/terminal/session-registry'
-import { asHarnessProviderId, localPath } from '../src/shared'
+import { asHarnessProfileId, asHarnessProviderId, localPath } from '../src/shared'
 
 const SESSION_ID = 'terminal-1'
 const HARNESS_ID = '019ab123-4567-7890-abcd-ef0123456789'
 const SHELL_PROVIDER_ID = asHarnessProviderId('plain-shell')
 const CLAUDE_PROVIDER_ID = asHarnessProviderId('claude-code')
 const CODEX_PROVIDER_ID = asHarnessProviderId('codex')
+const SHELL_PROFILE_ID = asHarnessProfileId('plain-shell-default')
+const CLAUDE_PROFILE_ID = asHarnessProfileId('claude-code-default')
+const CODEX_PROFILE_ID = asHarnessProfileId('codex-default')
 
 describe('TerminalSessionRegistry', () => {
   let directory: string
@@ -39,6 +42,8 @@ describe('TerminalSessionRegistry', () => {
     await registry.recordSpawn({
       id: SESSION_ID,
       providerId: CODEX_PROVIDER_ID,
+      profileId: CODEX_PROFILE_ID,
+      launchRevision: 1,
       projectRoot: root,
       cwd: root,
       title: 'Codex · project',
@@ -56,6 +61,8 @@ describe('TerminalSessionRegistry', () => {
       expect.objectContaining({
         id: SESSION_ID,
         providerId: CODEX_PROVIDER_ID,
+        profileId: CODEX_PROFILE_ID,
+        launchRevision: 1,
         harnessSessionId: HARNESS_ID,
         cwd: root,
         title: 'Review recovery flow',
@@ -70,6 +77,8 @@ describe('TerminalSessionRegistry', () => {
     await registry.recordSpawn({
       id: SESSION_ID,
       providerId: CODEX_PROVIDER_ID,
+      profileId: CODEX_PROFILE_ID,
+      launchRevision: 1,
       projectRoot: root,
       cwd: root,
       title: 'Codex · project',
@@ -83,6 +92,8 @@ describe('TerminalSessionRegistry', () => {
       expect.objectContaining({
         id: SESSION_ID,
         providerId: CODEX_PROVIDER_ID,
+        profileId: CODEX_PROFILE_ID,
+        launchRevision: 1,
         harnessSessionId: undefined,
         title: 'Codex · project',
       }),
@@ -91,6 +102,8 @@ describe('TerminalSessionRegistry', () => {
       restored.authorizeResume({
         id: SESSION_ID,
         providerId: CODEX_PROVIDER_ID,
+        profileId: CODEX_PROFILE_ID,
+        launchRevision: 1,
         harnessSessionId: HARNESS_ID,
         projectRoot: root,
         cwd: root,
@@ -103,6 +116,8 @@ describe('TerminalSessionRegistry', () => {
     await registry.recordSpawn({
       id: SESSION_ID,
       providerId: SHELL_PROVIDER_ID,
+      profileId: SHELL_PROFILE_ID,
+      launchRevision: 1,
       projectRoot: root,
       cwd: root,
       title: 'Shell · project',
@@ -116,6 +131,8 @@ describe('TerminalSessionRegistry', () => {
       expect.objectContaining({
         id: SESSION_ID,
         providerId: SHELL_PROVIDER_ID,
+        profileId: SHELL_PROFILE_ID,
+        launchRevision: 1,
         harnessSessionId: undefined,
         title: 'Shell · project',
         position: 1,
@@ -130,6 +147,8 @@ describe('TerminalSessionRegistry', () => {
     await registry.recordSpawn({
       id: SESSION_ID,
       providerId: CODEX_PROVIDER_ID,
+      profileId: CODEX_PROFILE_ID,
+      launchRevision: 1,
       projectRoot: root,
       cwd: root,
       title: 'Codex · project',
@@ -152,6 +171,8 @@ describe('TerminalSessionRegistry', () => {
     await registry.recordSpawn({
       id: SESSION_ID,
       providerId: CODEX_PROVIDER_ID,
+      profileId: CODEX_PROFILE_ID,
+      launchRevision: 1,
       projectRoot: root,
       cwd: root,
       title: 'Codex · project',
@@ -167,6 +188,8 @@ describe('TerminalSessionRegistry', () => {
     await registry.recordSpawn({
       id: SESSION_ID,
       providerId: CLAUDE_PROVIDER_ID,
+      profileId: CLAUDE_PROFILE_ID,
+      launchRevision: 1,
       harnessSessionId: HARNESS_ID,
       projectRoot: root,
       cwd: root,
@@ -179,6 +202,8 @@ describe('TerminalSessionRegistry', () => {
       registry.authorizeResume({
         id: SESSION_ID,
         providerId: CLAUDE_PROVIDER_ID,
+        profileId: CLAUDE_PROFILE_ID,
+        launchRevision: 1,
         harnessSessionId: HARNESS_ID,
         projectRoot: root,
         cwd: root,
@@ -188,6 +213,8 @@ describe('TerminalSessionRegistry', () => {
       registry.authorizeResume({
         id: SESSION_ID,
         providerId: CLAUDE_PROVIDER_ID,
+        profileId: CLAUDE_PROFILE_ID,
+        launchRevision: 1,
         harnessSessionId: HARNESS_ID,
         projectRoot: localPath('/tmp/other'),
         cwd: root,
@@ -198,7 +225,59 @@ describe('TerminalSessionRegistry', () => {
     expect(registry.list(root)).toEqual([])
   })
 
-  it('migrates v1 adapter records to v2 provider records without changing identity', async () => {
+  it('rebinds recovery only within the same provider and revision', async () => {
+    const root = localPath('/tmp/project')
+    const alternate = asHarnessProfileId('claude-bypass')
+    await registry.recordSpawn({
+      id: SESSION_ID,
+      providerId: CLAUDE_PROVIDER_ID,
+      profileId: CLAUDE_PROFILE_ID,
+      launchRevision: 1,
+      harnessSessionId: HARNESS_ID,
+      projectRoot: root,
+      cwd: root,
+      title: 'Claude Code · project',
+      position: 0,
+      active: true,
+    })
+
+    const rebound = await registry.rebindProfile({
+      id: SESSION_ID,
+      providerId: CLAUDE_PROVIDER_ID,
+      profileId: alternate,
+      launchRevision: 4,
+      riskAcknowledgedRevision: 4,
+      projectRoot: root,
+    })
+    expect(rebound).toMatchObject({
+      profileId: alternate,
+      launchRevision: 4,
+      riskAcknowledgedRevision: 4,
+      harnessSessionId: HARNESS_ID,
+    })
+    expect(
+      registry.authorizeResume({
+        id: SESSION_ID,
+        providerId: CLAUDE_PROVIDER_ID,
+        profileId: alternate,
+        launchRevision: 4,
+        harnessSessionId: HARNESS_ID,
+        projectRoot: root,
+        cwd: root,
+      }),
+    ).toBe(true)
+    await expect(
+      registry.rebindProfile({
+        id: SESSION_ID,
+        providerId: CODEX_PROVIDER_ID,
+        profileId: CODEX_PROFILE_ID,
+        launchRevision: 1,
+        projectRoot: root,
+      }),
+    ).rejects.toThrow(/same provider/)
+  })
+
+  it('migrates v1 adapter records to v3 profile records without changing identity', async () => {
     const root = localPath('/tmp/project')
     await host.writeFile(
       file,
@@ -226,12 +305,14 @@ describe('TerminalSessionRegistry', () => {
       expect.objectContaining({
         id: SESSION_ID,
         providerId: CODEX_PROVIDER_ID,
+        profileId: CODEX_PROFILE_ID,
+        launchRevision: 1,
         harnessSessionId: HARNESS_ID,
       }),
     ])
     expect(JSON.parse(await host.readTextFile(file))).toEqual(
       expect.objectContaining({
-        version: 2,
+        version: 3,
         sessions: [
           expect.objectContaining({
             providerId: 'codex',

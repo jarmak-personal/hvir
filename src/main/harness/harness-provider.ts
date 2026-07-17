@@ -7,7 +7,12 @@
 
 import {
   asHarnessProviderId,
+  asHarnessProfileId,
   type HarnessContextPresentation,
+  type HarnessEnvironmentBinding,
+  type HarnessLaunchRisk,
+  type HarnessProfileId,
+  type HarnessProviderCapabilities,
   type HarnessProviderDescriptor,
   type HarnessProviderId,
   type HarnessSessionIdentity,
@@ -18,6 +23,10 @@ import type { Disposer, ProjectHost } from '../project-host'
 import { observeClaudeContext } from './claude-context-telemetry'
 import { observeCodexContext } from './codex-context-telemetry'
 import { codexSessionDiscovery } from './codex-session-discovery'
+import { piProvider } from './providers/pi'
+import { geminiProvider } from './providers/gemini'
+import { githubCopilotProvider } from './providers/github-copilot'
+import { cursorProvider } from './providers/cursor'
 
 const CODEX_THREAD_TITLE_CONFIG = 'tui.terminal_title=["thread-title"]'
 
@@ -29,6 +38,7 @@ export interface HarnessLaunchContext {
   readonly rows?: number
   /** Interactive shell resolved by the owning ProjectHost. */
   readonly defaultShell: string
+  readonly effectiveCapabilities?: HarnessProviderCapabilities
 }
 
 export interface HarnessLaunchSpec {
@@ -55,11 +65,18 @@ export interface HarnessSessionDiscoveryContext {
   /** Start of this bounded attempt; later input may re-arm discovery. */
   readonly discoveryStartedAtMs?: number
   readonly signal: AbortSignal
+  readonly artifact: HarnessArtifactContext
+}
+
+export interface HarnessArtifactContext {
+  readonly identity: string
+  readonly environment: Readonly<Record<string, string>>
+  readonly unsetEnvironment: readonly string[]
 }
 
 export interface HarnessSessionDiscovery {
   /** Capture the persisted-session baseline immediately before launch. */
-  snapshot(host: ProjectHost): Promise<unknown>
+  snapshot(host: ProjectHost, artifact: HarnessArtifactContext): Promise<unknown>
   /** Identify exactly one session created after the baseline, or fail closed. */
   identify(
     host: ProjectHost,
@@ -73,6 +90,7 @@ export interface HarnessTelemetryContext {
   readonly subscriptionId: string
   readonly sessionId: string
   readonly sessionData?: unknown
+  readonly artifact: HarnessArtifactContext
   readonly signal: AbortSignal
   readonly emit: (telemetry: HarnessTelemetry | undefined) => void
 }
@@ -91,8 +109,53 @@ export interface HarnessManifest {
   readonly contextPresentation: HarnessContextPresentation
 }
 
+export interface HarnessDefaultProfile {
+  readonly id: HarnessProfileId
+  readonly displayName: string
+  readonly description: string
+}
+
+export interface HarnessRiskInput {
+  readonly args: readonly string[]
+  readonly environment: readonly HarnessEnvironmentBinding[]
+  readonly executableOverridden: boolean
+}
+
+export interface HarnessProfileContract {
+  /** Increment when launch composition or risk rules change. */
+  readonly version: number
+  readonly defaultProfile?: HarnessDefaultProfile
+  readonly reservedArguments: readonly string[]
+  readonly reservedEnvironmentKeys: readonly string[]
+  readonly artifactEnvironmentKeys: readonly string[]
+  readonly artifactExecutable: boolean
+  readonly artifactPathBindings: readonly string[]
+  applyArgs(
+    mode: 'fresh' | 'resume',
+    providerArgs: readonly string[],
+    profileArgs: readonly string[],
+  ): readonly string[]
+  classifyRisk(input: HarnessRiskInput): HarnessLaunchRisk
+}
+
+export interface HarnessProbeContract {
+  /** Omit to check executable resolution without invoking the harness. */
+  readonly versionArgs?: readonly string[]
+  /** Optional bounded help/capability surface, parsed only by this provider. */
+  readonly capabilityArgs?: readonly string[]
+  /** Main must use the probed capabilities when composing this provider. */
+  readonly affectsLaunchCapabilities?: boolean
+  /** Extract one bounded human-readable version or fail closed. */
+  parseVersion(output: string): string | undefined
+  effectiveCapabilities(
+    version: string | undefined,
+    capabilityOutput?: string,
+  ): HarnessProviderCapabilities
+}
+
 export interface HarnessProvider {
   readonly manifest: HarnessManifest
+  readonly profile: HarnessProfileContract
   /** Whether the harness can deterministically resume a prior session id. */
   readonly supportsResume: boolean
   /** How a fresh launch's harness-owned session id becomes known. */
@@ -101,6 +164,7 @@ export interface HarnessProvider {
   readonly sessionDiscovery?: HarnessSessionDiscovery
   /** Optional structured, read-only operational state for this harness. */
   readonly telemetry?: HarnessTelemetryObserver
+  readonly probe: HarnessProbeContract
 
   /** Command to start a fresh session. */
   launch(ctx: HarnessLaunchContext): HarnessLaunchSpec
@@ -119,8 +183,27 @@ export const plainShellProvider: HarnessProvider = {
     default: true,
     contextPresentation: 'none',
   },
+  profile: {
+    version: 1,
+    defaultProfile: {
+      id: asHarnessProfileId('plain-shell-default'),
+      displayName: 'Shell',
+      description: 'The default interactive shell on this host.',
+    },
+    reservedArguments: [],
+    reservedEnvironmentKeys: [],
+    artifactEnvironmentKeys: [],
+    artifactExecutable: false,
+    artifactPathBindings: [],
+    applyArgs: (_mode, providerArgs, profileArgs) => [...providerArgs, ...profileArgs],
+    classifyRisk: ({ args, environment, executableOverridden }) =>
+      args.length === 0 && environment.length === 0 && !executableOverridden
+        ? 'standard'
+        : 'unclassified',
+  },
   supportsResume: false,
   sessionIdentity: 'none',
+  probe: staticProbe('none', false, 'none'),
 
   launch(ctx): HarnessLaunchSpec {
     return { file: ctx.defaultShell, args: [] }
@@ -137,9 +220,25 @@ export const claudeCodeProvider: HarnessProvider = {
     displayName: 'Claude Code',
     contextPresentation: 'count',
   },
+  profile: {
+    version: 1,
+    defaultProfile: {
+      id: asHarnessProfileId('claude-code-default'),
+      displayName: 'Claude Code',
+      description: 'Claude Code with exact hvir-managed session recovery.',
+    },
+    reservedArguments: ['--session-id', '--resume', '--continue'],
+    reservedEnvironmentKeys: ['CLAUDE_CONFIG_DIR'],
+    artifactEnvironmentKeys: ['CLAUDE_CONFIG_DIR'],
+    artifactExecutable: true,
+    artifactPathBindings: [],
+    applyArgs: (_mode, providerArgs, profileArgs) => [...providerArgs, ...profileArgs],
+    classifyRisk: classifyClaudeRisk,
+  },
   supportsResume: true,
   sessionIdentity: 'preassigned',
   telemetry: { observe: observeClaudeContext },
+  probe: versionProbe('preassigned', true, 'count'),
 
   launch(ctx): HarnessLaunchSpec {
     return {
@@ -164,10 +263,36 @@ export const codexProvider: HarnessProvider = {
     displayName: 'Codex',
     contextPresentation: 'pressure',
   },
+  profile: {
+    version: 1,
+    defaultProfile: {
+      id: asHarnessProfileId('codex-default'),
+      displayName: 'Codex',
+      description: 'Codex with exact rollout discovery and recovery.',
+    },
+    reservedArguments: ['resume'],
+    reservedEnvironmentKeys: ['CODEX_HOME'],
+    artifactEnvironmentKeys: ['CODEX_HOME'],
+    artifactExecutable: true,
+    artifactPathBindings: [],
+    applyArgs: (mode, providerArgs, profileArgs) => {
+      if (mode !== 'resume') return [...providerArgs, ...profileArgs]
+      const resumeAt = providerArgs.indexOf('resume')
+      return resumeAt < 0
+        ? [...providerArgs, ...profileArgs]
+        : [
+            ...providerArgs.slice(0, resumeAt),
+            ...profileArgs,
+            ...providerArgs.slice(resumeAt),
+          ]
+    },
+    classifyRisk: classifyCodexRisk,
+  },
   supportsResume: true,
   sessionIdentity: 'discovered',
   sessionDiscovery: codexSessionDiscovery,
   telemetry: { observe: observeCodexContext },
+  probe: versionProbe('discovered', true, 'pressure'),
 
   launch(): HarnessLaunchSpec {
     return {
@@ -184,6 +309,29 @@ export const codexProvider: HarnessProvider = {
       shellEnvironment: true,
     }
   },
+}
+
+export const customCommandProvider: HarnessProvider = {
+  manifest: {
+    id: asHarnessProviderId('custom'),
+    displayName: 'Custom',
+    contextPresentation: 'none',
+  },
+  profile: {
+    version: 1,
+    reservedArguments: [],
+    reservedEnvironmentKeys: [],
+    artifactEnvironmentKeys: [],
+    artifactExecutable: false,
+    artifactPathBindings: [],
+    applyArgs: (_mode, providerArgs, profileArgs) => [...providerArgs, ...profileArgs],
+    classifyRisk: () => 'unclassified',
+  },
+  supportsResume: false,
+  sessionIdentity: 'none',
+  probe: staticProbe('none', false, 'none'),
+  launch: () => ({ file: 'custom', args: [] }),
+  resume: () => ({ file: 'custom', args: [] }),
 }
 
 export class HarnessProviderRegistry {
@@ -215,7 +363,15 @@ export class HarnessProviderRegistry {
         exactResume: provider.supportsResume,
         contextPresentation: provider.manifest.contextPresentation,
       },
+      profileGuidance: {
+        reservedArguments: provider.profile.reservedArguments,
+        riskClassification: 'best-effort',
+      },
     }))
+  }
+
+  all(): readonly HarnessProvider[] {
+    return [...this.providers.values()]
   }
 
   private register(provider: HarnessProvider): void {
@@ -238,6 +394,16 @@ export class HarnessProviderRegistry {
     ) {
       throw new Error(`Harness provider '${id}' has unexpected session discovery`)
     }
+    if (
+      (provider.sessionDiscovery || provider.telemetry) &&
+      provider.profile.reservedEnvironmentKeys.some(
+        (key) => !provider.profile.artifactEnvironmentKeys.includes(key),
+      )
+    ) {
+      throw new Error(
+        `Harness provider '${id}' has a reserved environment key without artifact semantics`,
+      )
+    }
     this.providers.set(id, provider)
   }
 }
@@ -246,6 +412,11 @@ export const harnessProviders = new HarnessProviderRegistry([
   plainShellProvider,
   claudeCodeProvider,
   codexProvider,
+  piProvider,
+  geminiProvider,
+  githubCopilotProvider,
+  cursorProvider,
+  customCommandProvider,
 ])
 
 export function harnessProvider(id: string): HarnessProvider {
@@ -254,4 +425,122 @@ export function harnessProvider(id: string): HarnessProvider {
 
 export function harnessProviderCatalog(): readonly HarnessProviderDescriptor[] {
   return harnessProviders.catalog()
+}
+
+/** Data-only inspection surface for diagnostics/tests; never provider-contributed UI. */
+export function harnessProviderDiagnostics(): readonly {
+  readonly id: HarnessProviderId
+  readonly profileContractVersion: number
+  readonly defaultProfileId?: HarnessProfileId
+  readonly artifactInputs: {
+    readonly executable: boolean
+    readonly environmentKeys: readonly string[]
+    readonly pathBindings: readonly string[]
+  }
+  readonly probeInvokesVersion: boolean
+}[] {
+  return harnessProviders.all().map((provider) => ({
+    id: provider.manifest.id,
+    profileContractVersion: provider.profile.version,
+    defaultProfileId: provider.profile.defaultProfile?.id,
+    artifactInputs: {
+      executable: provider.profile.artifactExecutable,
+      environmentKeys: provider.profile.artifactEnvironmentKeys,
+      pathBindings: provider.profile.artifactPathBindings,
+    },
+    probeInvokesVersion: provider.probe.versionArgs !== undefined,
+  }))
+}
+
+function classifyClaudeRisk(input: HarnessRiskInput): HarnessLaunchRisk {
+  if (input.executableOverridden || input.environment.length > 0) return 'unclassified'
+  let unclassified = false
+  for (const token of input.args) {
+    if (
+      token === '--dangerously-skip-permissions' ||
+      token.startsWith('--dangerously-skip-permissions=')
+    ) {
+      return 'elevated'
+    }
+    unclassified = true
+  }
+  return unclassified ? 'unclassified' : 'standard'
+}
+
+function classifyCodexRisk(input: HarnessRiskInput): HarnessLaunchRisk {
+  if (input.executableOverridden || input.environment.length > 0) return 'unclassified'
+  let unclassified = false
+  for (let index = 0; index < input.args.length; index++) {
+    const token = input.args[index] ?? ''
+    if (token === '--dangerously-bypass-approvals-and-sandbox') return 'elevated'
+    if (token === '--add-dir' && input.args[index + 1] !== undefined) {
+      index++
+      continue
+    }
+    if (token.startsWith('--add-dir=')) continue
+    if ((token === '-c' || token === '--config') && input.args[index + 1]) {
+      const value = input.args[++index] ?? ''
+      if (isElevatedCodexConfig(value)) return 'elevated'
+      unclassified = true
+      continue
+    }
+    if (token.startsWith('-c=') || token.startsWith('--config=')) {
+      if (isElevatedCodexConfig(token.slice(token.indexOf('=') + 1))) {
+        return 'elevated'
+      }
+    }
+    unclassified = true
+  }
+  return unclassified ? 'unclassified' : 'standard'
+}
+
+function isElevatedCodexConfig(value: string): boolean {
+  const normalized = value.replaceAll(/\s/g, '').replaceAll('"', '').replaceAll("'", '')
+  return (
+    normalized === 'sandbox_mode=danger-full-access' ||
+    normalized === 'approval_policy=never'
+  )
+}
+
+function staticProbe(
+  sessionIdentity: HarnessSessionIdentity,
+  exactResume: boolean,
+  contextPresentation: HarnessContextPresentation,
+): HarnessProbeContract {
+  return {
+    parseVersion: () => undefined,
+    effectiveCapabilities: () => ({
+      sessionIdentity,
+      exactResume,
+      contextPresentation,
+    }),
+  }
+}
+
+function versionProbe(
+  sessionIdentity: HarnessSessionIdentity,
+  exactResume: boolean,
+  contextPresentation: HarnessContextPresentation,
+): HarnessProbeContract {
+  return {
+    versionArgs: ['--version'],
+    parseVersion: (output) => {
+      const first = output.trim().split(/\r?\n/, 1)[0]?.trim()
+      return first && first.length <= 160 && !hasControlCharacter(first)
+        ? first
+        : undefined
+    },
+    effectiveCapabilities: () => ({
+      sessionIdentity,
+      exactResume,
+      contextPresentation,
+    }),
+  }
+}
+
+function hasControlCharacter(value: string): boolean {
+  return [...value].some((character) => {
+    const code = character.charCodeAt(0)
+    return code <= 31 || code === 127
+  })
 }

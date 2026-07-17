@@ -60,38 +60,64 @@ describe('Harness providers', () => {
     expect(harnessProvider('claude-code')).toBe(claudeCodeProvider)
     expect(harnessProvider('codex')).toBe(codexProvider)
     expect(() => harnessProvider('other')).toThrow(/Unknown harness provider/)
-    expect(harnessProviderCatalog()).toEqual([
-      {
-        id: 'plain-shell',
-        displayName: 'Shell',
-        default: true,
-        capabilities: {
-          sessionIdentity: 'none',
-          exactResume: false,
-          contextPresentation: 'none',
-        },
-      },
-      {
-        id: 'claude-code',
-        displayName: 'Claude Code',
-        default: false,
-        capabilities: {
+    const catalog = harnessProviderCatalog()
+    expect(catalog.map(({ id, displayName }) => ({ id, displayName }))).toEqual([
+      { id: 'plain-shell', displayName: 'Shell' },
+      { id: 'claude-code', displayName: 'Claude Code' },
+      { id: 'codex', displayName: 'Codex' },
+      { id: 'pi', displayName: 'Pi' },
+      { id: 'gemini-cli', displayName: 'Gemini CLI' },
+      { id: 'github-copilot-cli', displayName: 'GitHub Copilot CLI' },
+      { id: 'cursor-cli', displayName: 'Cursor CLI' },
+      { id: 'custom', displayName: 'Custom' },
+    ])
+    expect(catalog.find(({ id }) => id === 'plain-shell')?.default).toBe(true)
+    expect(catalog.find(({ id }) => id === 'claude-code')?.capabilities).toEqual({
+      sessionIdentity: 'preassigned',
+      exactResume: true,
+      contextPresentation: 'count',
+    })
+    expect(catalog.find(({ id }) => id === 'codex')?.capabilities).toEqual({
+      sessionIdentity: 'discovered',
+      exactResume: true,
+      contextPresentation: 'pressure',
+    })
+    expect(
+      catalog.every(
+        ({ profileGuidance }) => profileGuidance.riskClassification === 'best-effort',
+      ),
+    ).toBe(true)
+  })
+
+  it('ships Pi, Gemini, Copilot, and Cursor as truthful launch-only providers', () => {
+    const actual = ['pi', 'gemini-cli', 'github-copilot-cli', 'cursor-cli'].map((id) => {
+      const provider = harnessProvider(id)
+      expect(provider.sessionIdentity).toBe('none')
+      expect(provider.supportsResume).toBe(false)
+      expect(provider.telemetry).toBeUndefined()
+      return [id, provider.launch(context).file]
+    })
+    expect(actual).toEqual([
+      ['pi', 'pi'],
+      ['gemini-cli', 'gemini'],
+      ['github-copilot-cli', 'copilot'],
+      ['cursor-cli', 'cursor-agent'],
+    ])
+  })
+
+  it('uses Copilot --session-id only after the host probe proves that surface', () => {
+    const provider = harnessProvider('github-copilot-cli')
+    expect(provider.launch(context).args).toEqual([])
+    expect(
+      provider.launch({
+        ...context,
+        effectiveCapabilities: {
           sessionIdentity: 'preassigned',
           exactResume: true,
-          contextPresentation: 'count',
+          contextPresentation: 'none',
         },
-      },
-      {
-        id: 'codex',
-        displayName: 'Codex',
-        default: false,
-        capabilities: {
-          sessionIdentity: 'discovered',
-          exactResume: true,
-          contextPresentation: 'pressure',
-        },
-      },
-    ])
+      }).args,
+    ).toEqual(['--session-id', context.sessionId])
   })
 
   it('rejects duplicate ids and invalid discovered-provider contracts', () => {
@@ -102,8 +128,29 @@ describe('Harness providers', () => {
         default: true,
         contextPresentation: 'none',
       },
+      profile: {
+        version: 1,
+        reservedArguments: [],
+        reservedEnvironmentKeys: [],
+        artifactEnvironmentKeys: [],
+        artifactExecutable: false,
+        artifactPathBindings: [],
+        applyArgs: (_mode, providerArgs, profileArgs) => [
+          ...providerArgs,
+          ...profileArgs,
+        ],
+        classifyRisk: () => 'standard',
+      },
       supportsResume: false,
       sessionIdentity: 'none',
+      probe: {
+        parseVersion: () => undefined,
+        effectiveCapabilities: () => ({
+          sessionIdentity: 'none',
+          exactResume: false,
+          contextPresentation: 'none',
+        }),
+      },
       launch: () => ({ file: 'test', args: [] }),
       resume: () => ({ file: 'test', args: [] }),
     }
@@ -111,6 +158,19 @@ describe('Harness providers', () => {
     expect(
       () => new HarnessProviderRegistry([{ ...base, sessionIdentity: 'discovered' }]),
     ).toThrow(/missing session discovery/)
+    expect(
+      () =>
+        new HarnessProviderRegistry([
+          {
+            ...base,
+            profile: {
+              ...base.profile,
+              reservedEnvironmentKeys: ['TEST_HOME'],
+            },
+            telemetry: { observe: () => () => undefined },
+          },
+        ]),
+    ).toThrow(/without artifact semantics/)
     expect(() => asHarnessProviderId('../escape')).toThrow(/Invalid harness provider id/)
     expect(() => asHarnessProviderId('UPPERCASE')).toThrow(/Invalid harness provider id/)
   })

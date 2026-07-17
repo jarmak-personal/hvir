@@ -11,13 +11,13 @@ import {
 import { BoundedLineReader } from '../src/main/harness/bounded-line-reader'
 import type { ExecStreamHandle, ProjectHost } from '../src/main/project-host'
 import { LocalHost } from '../src/main/project-host/local-host'
-import { localPath } from '../src/shared'
+import { localPath, type HarnessTelemetry } from '../src/shared'
 
 const SESSION_ID = '019ab123-4567-7890-abcd-ef0123456789'
 
 describe('Codex context telemetry', () => {
   it('uses current input usage rather than cumulative token totals', () => {
-    expect(
+    expectContextSnapshot(
       parseCodexTokenCount(
         JSON.stringify({
           type: 'event_msg',
@@ -34,15 +34,13 @@ describe('Codex context telemetry', () => {
           },
         }),
       ),
-    ).toEqual({
-      contextUsedTokens: 107_459,
-      contextWindowTokens: 258_400,
-      contextUsedPercent: (107_459 / 258_400) * 100,
-    })
+      107_459,
+      258_400,
+    )
   })
 
   it('prefers the latest active context total when Codex provides it', () => {
-    expect(
+    expectContextSnapshot(
       parseCodexTokenCount(
         JSON.stringify({
           type: 'event_msg',
@@ -55,11 +53,9 @@ describe('Codex context telemetry', () => {
           },
         }),
       ),
-    ).toEqual({
-      contextUsedTokens: 15_437,
-      contextWindowTokens: 258_400,
-      contextUsedPercent: (15_437 / 258_400) * 100,
-    })
+      15_437,
+      258_400,
+    )
   })
 
   it('rejects malformed, unrelated, and unavailable usage records', () => {
@@ -67,7 +63,7 @@ describe('Codex context telemetry', () => {
     expect(
       parseCodexTokenCount(JSON.stringify({ type: 'event_msg', payload: {} })),
     ).toBeNull()
-    expect(
+    expectContextSnapshot(
       parseCodexTokenCount(
         JSON.stringify({
           type: 'event_msg',
@@ -80,11 +76,9 @@ describe('Codex context telemetry', () => {
           },
         }),
       ),
-    ).toEqual({
-      contextUsedTokens: 0,
-      contextWindowTokens: 258_400,
-      contextUsedPercent: 0,
-    })
+      0,
+      258_400,
+    )
   })
 
   it('drops an oversized record without losing the next bounded line', () => {
@@ -133,7 +127,7 @@ describe('Codex context telemetry', () => {
     }
     const execStream = vi.fn<ProjectHost['execStream']>(() => stream)
     const host = { hostId: localPath('/').hostId, execStream } as unknown as ProjectHost
-    const emitted = vi.fn()
+    const emitted = vi.fn<(value: HarnessTelemetry | undefined) => void>()
     const controller = new AbortController()
     const rolloutPath = localPath(
       `/home/user/.codex/sessions/rollout-session-${SESSION_ID}.jsonl`,
@@ -143,6 +137,7 @@ describe('Codex context telemetry', () => {
       subscriptionId: SESSION_ID,
       sessionId: SESSION_ID,
       sessionData: { rolloutPath },
+      artifact: { identity: 'test', environment: {}, unsetEnvironment: [] },
       signal: controller.signal,
       emit: emitted,
     })
@@ -169,9 +164,7 @@ describe('Codex context telemetry', () => {
     const generation = write.mock.calls[0]?.[0].split('\t')[1]
     const frame = `E\t${epoch}\t${generation}\t${SESSION_ID}\t${SESSION_ID}\t${Buffer.from(record).toString('base64')}\n`
     for (const listener of stdoutListeners) listener(frame)
-    expect(emitted).toHaveBeenCalledWith(
-      expect.objectContaining({ contextUsedPercent: 40 }),
-    )
+    expect(contextPercent(emitted.mock.calls.at(-1)?.[0])).toBe(40)
 
     void stop()
     expect(end).toHaveBeenCalledOnce()
@@ -182,7 +175,7 @@ describe('Codex context telemetry', () => {
     const directory = await mkdtemp(join(tmpdir(), 'hvir-codex-context-'))
     const path = localPath(join(directory, `rollout-session-${SESSION_ID}.jsonl`))
     const host = new LocalHost()
-    const emitted: Array<{ contextUsedPercent?: number }> = []
+    const emitted: HarnessTelemetry[] = []
     const controller = new AbortController()
     const record = (used: number): string =>
       JSON.stringify({
@@ -207,17 +200,18 @@ describe('Codex context telemetry', () => {
         subscriptionId: SESSION_ID,
         sessionId: SESSION_ID,
         sessionData: { rolloutPath: path },
+        artifact: { identity: 'test', environment: {}, unsetEnvironment: [] },
         signal: controller.signal,
         emit: (telemetry) => {
           if (telemetry) emitted.push(telemetry)
         },
       })
-      await vi.waitFor(() => expect(emitted.at(-1)?.contextUsedPercent).toBe(40), {
+      await vi.waitFor(() => expect(contextPercent(emitted.at(-1))).toBe(40), {
         timeout: 4_000,
       })
 
       await appendFile(path.path, `${record(30_000)}\n`)
-      await vi.waitFor(() => expect(emitted.at(-1)?.contextUsedPercent).toBe(15), {
+      await vi.waitFor(() => expect(contextPercent(emitted.at(-1))).toBe(15), {
         timeout: 4_000,
       })
     } finally {
@@ -227,3 +221,27 @@ describe('Codex context telemetry', () => {
     }
   })
 })
+
+function contextPercent(telemetry: HarnessTelemetry | undefined): number | undefined {
+  const context = telemetry?.facets.context
+  return context?.status === 'available' || context?.status === 'stale'
+    ? context.value.usedPercent
+    : undefined
+}
+
+function expectContextSnapshot(
+  telemetry: HarnessTelemetry | null,
+  usedTokens: number,
+  windowTokens: number,
+): void {
+  expect(telemetry?.version).toBe(1)
+  expect(telemetry?.source.providerId).toBe('codex')
+  expect(telemetry?.facets.context).toEqual({
+    status: 'available',
+    value: {
+      usedTokens,
+      windowTokens,
+      usedPercent: Math.min(100, Math.max(0, (usedTokens / windowTokens) * 100)),
+    },
+  })
+}

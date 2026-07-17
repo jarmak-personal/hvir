@@ -1055,6 +1055,7 @@ export class SshHost implements ProjectHost {
               remoteCommand(opts.file, opts.args ?? [], {
                 cwd: opts.cwd,
                 env: opts.env,
+                unsetEnv: opts.unsetEnv,
               }),
               {
                 pty: {
@@ -1886,19 +1887,21 @@ export class SshHost implements ProjectHost {
 function remoteCommand(
   command: string,
   args: readonly string[],
-  opts: Pick<ExecOptions, 'cwd' | 'env'>,
+  opts: Pick<ExecOptions, 'cwd' | 'env' | 'unsetEnv'>,
 ): string {
   const executable = [command, ...args].map(quote).join(' ')
+  const unset = (opts.unsetEnv ?? []).map((key) => `-u ${quote(key)}`).join(' ')
   const env = Object.entries(opts.env ?? {})
     .map(([k, v]) => `${k}=${quote(v)}`)
     .join(' ')
-  const invocation = env ? `env ${env} ${executable}` : executable
+  const environment = [unset, env].filter(Boolean).join(' ')
+  const invocation = environment ? `env ${environment} ${executable}` : executable
   return opts.cwd ? `cd -- ${quote(opts.cwd.path)} && ${invocation}` : invocation
 }
 function remoteBufferedCommand(
   command: string,
   args: readonly string[],
-  opts: Pick<ExecOptions, 'cwd' | 'env'>,
+  opts: Pick<ExecOptions, 'cwd' | 'env' | 'unsetEnv'>,
   statusMarker: string,
 ): string {
   const invocation = remoteCommand(command, args, opts)

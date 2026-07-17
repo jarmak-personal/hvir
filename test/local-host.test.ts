@@ -86,6 +86,29 @@ describe('LocalHost', () => {
     expect(r.stderr).toBe('')
   })
 
+  it('applies explicit environment values and unsets inherited names', async () => {
+    const inheritedName = 'HVIR_LOCAL_HOST_UNSET_TEST'
+    const previous = process.env[inheritedName]
+    process.env[inheritedName] = 'inherited'
+    try {
+      const result = await host.exec(
+        process.execPath,
+        [
+          '-e',
+          `process.stdout.write(JSON.stringify([process.env.${inheritedName}, process.env.HVIR_LOCAL_HOST_SET_TEST]))`,
+        ],
+        {
+          env: { HVIR_LOCAL_HOST_SET_TEST: 'profile value' },
+          unsetEnv: [inheritedName],
+        },
+      )
+      expect(JSON.parse(result.stdout)).toEqual([null, 'profile value'])
+    } finally {
+      if (previous === undefined) delete process.env[inheritedName]
+      else process.env[inheritedName] = previous
+    }
+  })
+
   it('feeds stdin to an exec', async () => {
     const r = await host.exec('cat', [], { input: 'piped-input' })
     expect(r.stdout).toBe('piped-input')

@@ -1,6 +1,10 @@
 # Phase 9 — Harness providers & launch profiles
 
-**Status:** Planned post-v1 work. Do not begin before Phase 8 acceptance.
+**Status:** Implementation complete; real-host and Milestone 0 soak acceptance pending.
+
+Implementation proceeded on an explicitly authorized feature branch while the Phase 8 gate
+remains open. The exception permits implementation and automated verification only; it does
+not waive or pre-approve the outstanding local/SSH acceptance evidence below.
 
 **Read first:** [`00-overview.md`](00-overview.md); design.md §2–3, ADR-003
 (`TerminalPane`), ADR-006 (exact harness recovery), ADR-009 (provider-independent
@@ -120,7 +124,7 @@ later profile schema migration in one change.
 
 ### Milestone 1 — Launch profile model and persistence
 
-- [ ] Define a versioned `HarnessProfile` schema with a stable ID and monotonic
+- [x] Define a versioned `HarnessProfile` schema with a stable ID and monotonic
       `launchRevision` covering provider ID and launch-contract version, scope, executable,
       argv, environment/path bindings, and derived risk. Increment it only when that
       normalized identity changes, including a bundled provider contract/risk-rule upgrade.
@@ -128,240 +132,240 @@ later profile schema migration in one change.
       metadata revision if optimistic concurrency needs one). Cosmetic edits and no-op Saves
       never bump `launchRevision`, invalidate recovery, or reset risk acknowledgment; bind
       restore policy and risk acknowledgment only to `launchRevision`.
-- [ ] Distinguish an executable command name from an absolute executable `HostPath`.
+- [x] Distinguish an executable command name from an absolute executable `HostPath`.
       Validate command names, host identity, absolute paths, string/count/byte bounds,
       control characters, and duplicate environment keys in main.
-- [ ] Support only fixed path tokens (`{projectRoot}`, `{workspaceRoot}`, and named profile
+- [x] Support only fixed path tokens (`{projectRoot}`, `{workspaceRoot}`, and named profile
       bindings). Expand tokens as complete argv values or explicitly typed value fragments;
       reject unknown tokens, `$...`, command substitution, glob expansion, and cross-host
       bindings.
-- [ ] When a global profile requires `{projectRoot}` or `{workspaceRoot}` without matching
+- [x] When a global profile requires `{projectRoot}` or `{workspaceRoot}` without matching
       active context, keep it listed as unavailable with `Requires an active project` or
       `Requires an active workspace`; reject launch before PTY creation rather than treating
       the token as an empty string or validation-corrupting the stored profile.
-- [ ] Represent an explicit outside-project path binding as a main-owned launch grant created
+- [x] Represent an explicit outside-project path binding as a main-owned launch grant created
       by a local/SSH folder-selection gesture. Revalidate its host and canonical target when
       launching, and do not add it to renderer viewer/file IPC authority.
-- [ ] Define environment bindings as discriminated set-literal, named-reference, and unset
+- [x] Define environment bindings as discriminated set-literal, named-reference, and unset
       operations. Validate POSIX environment names, make local-to-remote forwarding an
       explicit source, remove unsets before the interactive shell starts, and never obtain
       values by evaluating a shell expression. Document that shell startup files may set an
       unset name again.
-- [ ] Keep plaintext environment literals out of renderer `localStorage`, the recovery
+- [x] Keep plaintext environment literals out of renderer `localStorage`, the recovery
       registry, logs, analytics, and catalog IPC. Mark their local app-metadata storage as
       plaintext in the UI. Store secret bindings only by reference to a supported credential
       source; if no secure source is available, make them session-only and incompatible with
       unattended restore.
-- [ ] Persist profiles in versioned local app metadata through the local `ProjectHost`, with
+- [x] Persist profiles in versioned local app metadata through the local `ProjectHost`, with
       atomic writes, bounded records, corruption recovery, and deterministic built-in
       defaults. Do not write hvir profile configuration into the user's repository.
-- [ ] Provide CRUD plus duplicate/reorder operations through typed, main-validated IPC.
+- [x] Provide CRUD plus duplicate/reorder operations through typed, main-validated IPC.
       Built-in defaults are immutable; users customize by duplicating them. Rename,
       description, and reorder operations update only cosmetic metadata.
-- [ ] Decide deletion semantics explicitly: deleting an in-use profile preserves affected
+- [x] Decide deletion semantics explicitly: deleting an in-use profile preserves affected
       terminal records as missing-profile records until the user rebinds within the same
       provider or forgets them. Do not offer a cross-provider rebind action.
-- [ ] Implement the Custom command provider with no identity, resume, title convention, or
+- [x] Implement the Custom command provider with no identity, resume, title convention, or
       structured telemetry claims and an always-`unclassified` risk label.
 
 ### Milestone 2 — Deterministic launch composition
 
-- [ ] Give each provider an explicit profile-argument insertion point when building fresh
+- [x] Give each provider an explicit profile-argument insertion point when building fresh
       and resume argv. Provider-owned session selectors and required title/telemetry flags
       cannot be removed, duplicated, or reordered by a normal profile.
-- [ ] Validate provider-specific reserved flags and subcommands. If a user needs to replace
+- [x] Validate provider-specific reserved flags and subcommands. If a user needs to replace
       session semantics, require a Custom command profile and downgrade capabilities rather
       than retaining a false recovery badge.
-- [ ] Add a provider-owned risk classifier over the resolved executable, structured argv,
+- [x] Add a provider-owned risk classifier over the resolved executable, structured argv,
       environment bindings, and config overrides. Its exact-match rules cover known aliases,
       separate and `--flag=value` forms, environment keys, and forms such as `-c key=value`.
       Return `standard`, `elevated`, or `unclassified`; Custom profiles and unrecognized
       extra tokens are never assumed standard. Document that classification is best-effort
       warning/restore policy, not a security boundary.
-- [ ] Add provider declarations for artifact-relevant executable state, environment/config
+- [x] Add provider declarations for artifact-relevant executable state, environment/config
       keys, and path bindings, plus provider-reserved names. Derive an `artifactIdentity`
       only from those resolved inputs for discovery/telemetry. A reserved binding with no
       declared artifact semantics raises a validation warning and disables structured
       discovery/telemetry for that profile until the provider handles it.
-- [ ] Centralize environment precedence:
+- [x] Centralize environment precedence:
       host process/session environment → provider defaults → profile bindings → hvir's
       protected `TERM`, `COLORTERM`, and `TERM_PROGRAM` values. Reject attempts to override
       protected keys in a profile. Apply explicit unsets after inherited/provider values and
       before the protected terminal contract.
-- [ ] Preserve interactive-shell executable resolution for version-manager/user-profile
+- [x] Preserve interactive-shell executable resolution for version-manager/user-profile
       PATHs. Continue to quote each executable/argv element independently and `exec` the
       resolved command; never pass profile text to `sh -c` as an opaque command.
-- [ ] Add a main-owned command-preview operation that returns separate executable/argv/env
+- [x] Add a main-owned command-preview operation that returns separate executable/argv/env
       metadata plus a human-readable rendering for both fresh and resume modes. Show
       plaintext non-secret literals exactly as stored; redact only reference-sourced secret
       values and say so. Preview and actual spawn call the same pure composition function.
-- [ ] Change `pty:start` to identify a profile and expected `launchRevision`. Main resolves the
+- [x] Change `pty:start` to identify a profile and expected `launchRevision`. Main resolves the
       provider/profile against the active host-qualified workspace and passes only the
       resolved trusted launch configuration into the PTY supervisor.
-- [ ] Keep PTY creation, output replay, ownership, resize/write/kill, attention, and
+- [x] Keep PTY creation, output replay, ownership, resize/write/kill, attention, and
       `TerminalPane` behavior unchanged above and below the resolved launch spec.
 
 ### Milestone 3 — Profile-bound recovery and migration
 
-- [ ] Version the terminal-session registry and persist provider ID, profile ID,
+- [x] Version the terminal-session registry and persist provider ID, profile ID,
       `launchRevision`, exact harness session ID when known, host-qualified project/cwd, title,
       position, and active state. Do not persist resolved argv/env snapshots.
-- [ ] Migrate existing `plain-shell`, `claude-code`, and `codex` records to their immutable
+- [x] Migrate existing `plain-shell`, `claude-code`, and `codex` records to their immutable
       default profiles without changing terminal IDs or exact harness IDs. Keep a rollback
       fixture for the previous file version.
-- [ ] Bind resume authorization to terminal ID, provider ID, profile ID/`launchRevision`,
+- [x] Bind resume authorization to terminal ID, provider ID, profile ID/`launchRevision`,
       exact harness session ID, project root, and cwd. A changed launch revision or same-
       provider rebind requires an explicit registry update before resume; cosmetic edits do
       not. Reject cross-provider rebind because its exact harness session ID is not portable.
-- [ ] Apply the same profile to fresh launch, manual restart, exact resume, renderer reload,
+- [x] Apply the same profile to fresh launch, manual restart, exact resume, renderer reload,
       and SSH reconnect. A reconnect cannot silently fall back to the provider default or a
       fresh harness when exact identity/profile authorization is missing.
-- [ ] Skip automatic restoration for missing, launch-changed, session-only-secret,
+- [x] Skip automatic restoration for missing, launch-changed, session-only-secret,
       elevated-without-current-acknowledgment, or unclassified-without-current-
       acknowledgment profiles. Bind acknowledgment to `launchRevision`, not cosmetic
       metadata. Present one calm recovery decision rather than launching and then killing a
       mismatched command.
-- [ ] Preserve the Codex discovery queue's `(host, provider)` serialization and bounded
+- [x] Preserve the Codex discovery queue's `(host, provider)` serialization and bounded
       fail-closed scan. Supply provider-declared `artifactIdentity` to discovery and telemetry;
       never substitute the whole launch revision or let each observer rediscover which
       bindings affect its artifact location.
-- [ ] Cover races between profile edits/deletion, pending probe, pending PTY spawn, identity
+- [x] Cover races between profile edits/deletion, pending probe, pending PTY spawn, identity
       discovery, window teardown, host disconnect, and session-registry persistence.
 
 ### Milestone 4 — Per-host availability and capability probes
 
-- [ ] Give each bundled provider a bounded probe that runs through `ProjectHost`, resolves
+- [x] Give each bundled provider a bounded probe that runs through `ProjectHost`, resolves
       the same interactive-shell environment as launch, captures bounded output, observes an
       abort signal/deadline, and returns structured status without throwing through IPC.
-- [ ] Cache probes by host, provider, profile ID/`launchRevision`, and connection generation
+- [x] Cache probes by host, provider, profile ID/`launchRevision`, and connection generation
       (or by an equivalent normalized probe-input fingerprint). Coalesce duplicate requests;
       invalidate on reconnect, launch edits, and an explicit Refresh action. Expire available
       results after ten minutes and negative/error results after two minutes; opening the menu
       re-probes stale entries in the background.
-- [ ] Let a provider-classified executable-not-found, unsupported-option, or version launch
+- [x] Let a provider-classified executable-not-found, unsupported-option, or version launch
       failure invalidate its probe immediately and schedule one bounded refresh. Do not
       retry arbitrary harness failures or create a PTY restart loop.
-- [ ] Keep probes out of renderer startup and first paint. Populate the menu immediately
+- [x] Keep probes out of renderer startup and first paint. Populate the menu immediately
       from cached/unchecked descriptors and update availability asynchronously.
-- [ ] Distinguish executable missing, version unsupported, capability absent, authentication
+- [x] Distinguish executable missing, version unsupported, capability absent, authentication
       needed, disconnected, timeout, and malformed probe output where the provider can do so
       truthfully. Never convert an unknown result into support.
-- [ ] Test two hosts with different versions of the same provider. The provider/profile ID
+- [x] Test two hosts with different versions of the same provider. The provider/profile ID
       remains stable while effective recovery/telemetry capabilities differ per host.
-- [ ] Bound concurrent probes per host so opening the New terminal menu cannot exhaust SSH
+- [x] Bound concurrent probes per host so opening the New terminal menu cannot exhaust SSH
       control channels or starve Git/files/watch operations.
 
 ### Milestone 5 — Profile and terminal UX
 
-- [ ] Replace the hard-coded New terminal menu with ordered profile rows showing name,
+- [x] Replace the hard-coded New terminal menu with ordered profile rows showing name,
       provider, host availability, elevated/unclassified status, and the strongest supported
       recovery/telemetry summary. Keep the plain Shell default one action away.
-- [ ] Add `Configure harnesses…` to Settings with profile list, create/duplicate/edit/delete,
+- [x] Add `Configure harnesses…` to Settings with profile list, create/duplicate/edit/delete,
       global/project scope, provider selection, executable, argv editor, environment rows,
       path-binding picker, risk disclosure, and fresh/resume previews.
-- [ ] Use the existing local/SSH folder browsing and `HostPath` confinement flow for explicit
+- [x] Use the existing local/SSH folder browsing and `HostPath` confinement flow for explicit
       path bindings. Do not use an OS-local picker for a remote profile, and make an
       outside-project selection visibly distinct from changing the active workspace.
-- [ ] Explain provider-reserved flags inline. Validation errors identify the conflicting
+- [x] Explain provider-reserved flags inline. Validation errors identify the conflicting
       flag/token without silently deleting or rearranging user input.
-- [ ] Show the profile name and Elevated/Unclassified marker in the terminal rail while
+- [x] Show the profile name and Elevated/Unclassified marker in the terminal rail while
       retaining the provider label and existing status/attention language; Custom is the
       provider label, while Unclassified is its risk state.
-- [ ] Update restore prompts to show provider + profile, launch-revision mismatch, capability
+- [x] Update restore prompts to show provider + profile, launch-revision mismatch, capability
       loss, missing executable/provider, and elevated/unclassified status before the user
       approves a launch. Cosmetic metadata changes never create a mismatch prompt.
-- [ ] Keep keyboard navigation, focus clearing, menu dismissal, screen-reader names, and
+- [x] Keep keyboard navigation, focus clearing, menu dismissal, screen-reader names, and
       narrow-rail behavior usable with long profile/provider names.
 
 ### Milestone 6 — Bundled provider expansion
 
-- [ ] Keep the Milestone 0 Shell/Claude/Codex parity suite green while adding providers; do
+- [x] Keep the Milestone 0 Shell/Claude/Codex parity suite green while adding providers; do
       not mix provider expansion with further terminal-registry or launch-pipeline refactors.
-- [ ] Resolve the Pi candidate: ship a verified provider/default profile, or use the one
+- [x] Resolve the Pi candidate: ship a verified provider/default profile, or use the one
       permitted provider deferral with recorded CLI/version evidence and re-entry criteria.
       Prefer exact preassignment only if the installed CLI proves that a caller-supplied ID
       creates the intended session; otherwise implement bounded artifact discovery or
       advertise launch-only.
-- [ ] Resolve the Gemini CLI candidate: ship a verified provider/default profile, or use the
+- [x] Resolve the Gemini CLI candidate: ship a verified provider/default profile, or use the
       one permitted deferral. Use only full exact IDs and a bounded, project-qualified
       discovery source; never `latest` or an interactive picker for hvir recovery.
-- [ ] Resolve the GitHub Copilot CLI candidate: ship a verified provider/default profile, or
+- [x] Resolve the GitHub Copilot CLI candidate: ship a verified provider/default profile, or
       use the one permitted deferral. Capability-gate preassigned `--session-id`; older
       installed versions remain launchable without exact recovery unless a separate exact
       discovery strategy is proven.
-- [ ] Resolve the Cursor CLI candidate: ship a verified provider/default profile, or use the
+- [x] Resolve the Cursor CLI candidate: ship a verified provider/default profile, or use the
       one permitted deferral. Keep it launch-only until an exact, bounded, machine-readable
       identity path is demonstrated.
-- [ ] Ship at least three of the four candidate providers above. At most one may be marked
+- [x] Ship at least three of the four candidate providers above. At most one may be marked
       deferred, with the exact missing/unstable surface, tested version, fallback Custom
       profile instructions, and a concrete condition for revisiting it in Implementation
       evidence. A truthful launch-only provider counts as shipped.
-- [ ] For every provider, capture versioned launch/resume/probe fixtures and adversarial cases
+- [x] For every provider, capture versioned launch/resume/probe fixtures and adversarial cases
       (missing fields, ambiguous sessions, concurrent same-cwd launches, incompatible help
       output). Provider-specific parsing remains inside its module.
-- [ ] Do not add context/cost/configuration telemetry merely because a human-readable TUI
+- [x] Do not add context/cost/configuration telemetry merely because a human-readable TUI
       displays it. Add a facet only from a trustworthy protocol, provider extension, or exact
       session artifact with bounded parsing and cleanup.
 
 ### Milestone 7 — Harness-tab telemetry foundation
 
-- [ ] Replace the narrow context-only payload with a versioned `HarnessSnapshot` envelope
+- [x] Replace the narrow context-only payload with a versioned `HarnessSnapshot` envelope
       containing observation time, source/provenance, freshness, and optional normalized
       facets. Migrate the existing context meter without changing its thresholds or visible
       semantics.
-- [ ] Define initial normalized facets for exact session state, model, context pressure,
+- [x] Define initial normalized facets for exact session state, model, context pressure,
       usage/cost, turn/approval state, and loaded skills/MCPs. Each facet distinguishes
       unsupported, unavailable, stale, and available; absent data is never rendered as zero.
-- [ ] Allow bounded namespaced provider data for facts without honest common semantics.
+- [x] Allow bounded namespaced provider data for facts without honest common semantics.
       Validate it as serializable data with size/depth limits; it cannot inject renderer UI.
-- [ ] Keep generic PTY attention independent from provider turn-state facets. A provider may
+- [x] Keep generic PTY attention independent from provider turn-state facets. A provider may
       enrich a future harness tab but cannot suppress or manufacture the ADR-009 attention
       state through screen heuristics.
-- [ ] Reuse the existing per-`(host, provider)` telemetry hubs, generation reconciliation,
+- [x] Reuse the existing per-`(host, provider)` telemetry hubs, generation reconciliation,
       frame bounds, subscription cleanup, and SSH control-channel reservation. Profile churn
       must not create one follower/channel per terminal. Reconcile subscriptions when the
       provider-declared `artifactIdentity` changes; cosmetic and artifact-irrelevant launch
       changes leave the shared channel intact.
-- [ ] Add a small internal/catalog inspection surface for tests and diagnostics only. The
+- [x] Add a small internal/catalog inspection surface for tests and diagnostics only. The
       user-facing full harness viewer remains a separate future phase and ADR addendum if its
       information architecture changes.
 
 ### Milestone 8 — Verification and hardening
 
-- [ ] Unit-test registry enumeration, duplicate IDs, opaque-ID IPC validation, dynamic labels,
+- [x] Unit-test registry enumeration, duplicate IDs, opaque-ID IPC validation, dynamic labels,
       unknown-provider record preservation, and absence of harness IDs outside provider
       modules/fixtures.
-- [ ] Unit-test profile schema migration, corruption bounds, launch-vs-cosmetic revision
+- [x] Unit-test profile schema migration, corruption bounds, launch-vs-cosmetic revision
       behavior, same-provider rebind, cross-provider rejection, scope, deterministic
       ordering, and atomic persistence.
-- [ ] Property/fuzz-test argv quoting and preview/spawn equivalence with spaces, quotes,
+- [x] Property/fuzz-test argv quoting and preview/spawn equivalence with spaces, quotes,
       newlines/control rejection, leading dashes, Unicode, empty values, and shell metacharacters.
       Run the same cases through local and SSH command construction.
-- [ ] Test environment precedence, explicit unset, protected keys, literal-preview wording,
+- [x] Test environment precedence, explicit unset, protected keys, literal-preview wording,
       secret redaction, local/remote source distinction, and prove reference-sourced secret
       values never enter catalog IPC, logs, previews, or recovery files.
-- [ ] Test path-token expansion and reject unknown tokens, cross-host values, relative explicit
+- [x] Test path-token expansion and reject unknown tokens, cross-host values, relative explicit
       paths, unapproved outside-project bindings, canonical-target changes, and unbounded
       argument/path counts. Prove a valid outside-project launch grant does not expand renderer
       read/write authority.
-- [ ] Test every recovery identity mode, reserved session flags, launch-revision mismatch,
+- [x] Test every recovery identity mode, reserved session flags, launch-revision mismatch,
       cosmetic-edit continuity, elevated/unclassified auto-restore gating, provider
       capability downgrade, missing executable, and ambiguous discovery. No case may resume
       ambient latest state.
-- [ ] Test artifact-identity declarations, artifact-relevant and irrelevant profile changes,
+- [x] Test artifact-identity declarations, artifact-relevant and irrelevant profile changes,
       reserved-but-undeclared binding warnings/fail-closed observers, correct session routing,
       and no unnecessary telemetry-channel restart.
-- [ ] Test probe timeout/cancellation/cache invalidation, positive/negative TTLs, menu-open
+- [x] Test probe timeout/cancellation/cache invalidation, positive/negative TTLs, menu-open
       stale refresh, classified launch-failure refresh, two-host version skew, SSH reconnect,
       channel-pressure bounds, stale response rejection, and menu responsiveness.
-- [ ] Extend the production Electron smoke with local structured args/env, a host-qualified
+- [x] Extend the production Electron smoke with local structured args/env, a host-qualified
       path binding, a Custom command profile, migrated Claude/Codex defaults, profile command
       preview, restore/reconnect, and PTY cleanup.
 - [ ] Run one real local and one real SSH pass for every shipped bundled provider. Record
       executable/version, effective capabilities, launch result, exact recovery result where
       supported, telemetry source, and teardown evidence without recording credentials or
       transcript contents. Record equivalent research evidence for the one permitted deferral.
-- [ ] Run seam enforcement, lint, both TypeScript builds, focused/full tests, production smoke,
+- [x] Run seam enforcement, lint, both TypeScript builds, focused/full tests, production smoke,
       and the Phase 8 responsiveness gauntlet. Provider probing/profile UI must not regress
       the existing paint and terminal-output latency bounds.
 
@@ -375,29 +379,29 @@ later profile schema migration in one change.
       `codex --add-dir <host-qualified-path>`, and
       `SOME_ENVIRONMENT_VARIABLE=value claude`, locally and over SSH, without first opening a
       plain shell.
-- [ ] Adding a launch-only provider requires one provider module/registration and tests; it
+- [x] Adding a launch-only provider requires one provider module/registration and tests; it
       requires no shared ID union, renderer label conditional, persistence parser branch, or
       terminal-engine change.
-- [ ] A Custom command profile launches an unknown future CLI through the PTY supervisor and
+- [x] A Custom command profile launches an unknown future CLI through the PTY supervisor and
       accurately shows no recovery/structured telemetry support.
-- [ ] Different hosts can report different availability/capabilities for the same profile,
+- [x] Different hosts can report different availability/capabilities for the same profile,
       stale local/remote results refresh under the documented TTL/launch-failure policy, and
       a slow probe never blocks initial paint, menu interaction, or a known launch.
-- [ ] Profile args/env/path values are structured, bounded, correctly quoted on local and SSH,
+- [x] Profile args/env/path values are structured, bounded, correctly quoted on local and SSH,
       support explicit unset, are previewed from the same composition path with honest
       literal/reference redaction, and are never evaluated as shell command text.
-- [ ] Recovery remains exact, same-provider, and bound to `launchRevision`. Missing or
+- [x] Recovery remains exact, same-provider, and bound to `launchRevision`. Missing or
       launch-changed profiles and elevated/unclassified unacknowledged profiles never
       auto-launch; cosmetic edits remain resumable, ambient latest is never used, and
       orphaned records are retained.
-- [ ] At least three of Pi, Gemini CLI, GitHub Copilot CLI, and Cursor CLI have verified
+- [x] At least three of Pi, Gemini CLI, GitHub Copilot CLI, and Cursor CLI have verified
       bundled default profiles. Each advertises exact recovery or telemetry only where the
       tested installed version supplies a trustworthy source; launch-only is an accepted
       truthful result. At most one is deferred with recorded evidence and re-entry criteria.
-- [ ] Discovery and telemetry use provider-declared artifact identity. Artifact-relevant
+- [x] Discovery and telemetry use provider-declared artifact identity. Artifact-relevant
       changes cannot observe the wrong session tree, while cosmetic and irrelevant launch
       changes do not churn the shared host/provider channel.
-- [ ] The versioned telemetry envelope carries provenance/freshness and renders existing
+- [x] The versioned telemetry envelope carries provenance/freshness and renders existing
       context pressure without regression, while unsupported facets remain explicitly
       unavailable.
 - [ ] Typecheck, lint, seam enforcement, full tests, production smoke, real-host matrix, and
@@ -431,7 +435,70 @@ out-of-process provider SDK requires evidence from this phase and a separate ADR
   soak. Automated local/SSH transport and exact-recovery coverage is green, but it is not
   represented as real-host evidence.
 
-Continue filling this section with the verified CLI/version matrix, migration and
-compatibility decisions, test/smoke commands, real-host coverage, responsiveness results,
-and any provider capability deliberately left launch-only. Do not record environment
-values, credentials, or transcript contents.
+### Completed implementation
+
+- Profiles are stored in local app metadata with separate `launchRevision` and
+  `metadataRevision` counters. Main owns validation, CRUD/duplicate/delete/order, atomic
+  persistence, path grants, composition, previews, probes, and PTY resolution. Terminal
+  recovery records are v3 and retain provider/profile/revision identity without resolved
+  environment values.
+- Fresh launch, exact resume, restart, reconnect, and restore use the same profile contract.
+  Same-provider rebind is explicit; cross-provider rebind, ambient latest-session recovery,
+  reserved session selectors, stale launch revisions, and unacknowledged elevated or
+  unclassified restores fail closed.
+- Probe results are keyed by host connection generation and launch revision, coalesced, and
+  limited to two concurrent probes per host. Positive entries expire after ten minutes;
+  negative/error entries after two. Menu-open stale refresh and one classified-launch-
+  failure refresh are asynchronous and never retry a harness launch.
+- The New terminal menu and focused Settings editor are catalog/profile driven. Structured
+  argv, literal/reference/unset environment operations, host-qualified path selection,
+  risk/capability state, and fresh/resume previews all flow through typed IPC. The production
+  smoke launches a project-scoped Custom profile through the real preload, IPC, profile
+  store, composer, and PTY supervisor before verifying output and teardown.
+- Claude and Codex discovery/telemetry receive only provider-declared artifact identity.
+  Bundled observer providers cannot register a reserved environment key without declaring
+  its artifact semantics. The v1 `HarnessSnapshot` envelope carries provenance, freshness,
+  normalized optional facets, and bounded provider data while preserving the existing
+  context-pressure UI.
+
+### Provider verification — 2026-07-17
+
+Version/help checks were read-only and did not start a harness prompt or create credentials,
+transcripts, sessions, or artifacts.
+
+| Provider | Evidence checked | Shipped effective behavior | Re-entry criterion |
+|---|---|---|---|
+| Claude Code | Local `claude` 2.1.212 plus the retained parity fixtures | Preassigned exact UUID resume and bounded transcript telemetry | Fail closed if its required session surface changes |
+| Codex | Local `codex-cli` 0.144.4 plus the retained parity fixtures | Bounded exact rollout discovery/resume and rollout telemetry | Fail closed if exact discovery or resume becomes ambiguous |
+| Pi | Current [Pi coding-agent documentation](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/README.md); executable absent locally | `pi` launch/probe only. The documented session selector identifies an existing session path/ID and does not prove caller-preassigned creation | Add exact recovery only after a version proves caller-supplied new identity or exposes a bounded exact artifact source |
+| Gemini CLI | Local `gemini` 0.25.2 help and current [Gemini CLI documentation](https://github.com/google-gemini/gemini-cli/blob/main/docs/cli/commands.md) | `gemini` launch/probe only. The installed resume surface offers ambient latest/index selection, which hvir rejects for recovery | Require a full exact ID plus a bounded, project-qualified listing or artifact source |
+| GitHub Copilot CLI | Local `copilot` 0.0.394 help and current [Copilot CLI reference](https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-command-reference) | Always launchable. The probe advertises and composes exact preassigned `--session-id` only when that installed host's help exposes it; 0.0.394 therefore remains launch-only | The existing per-host probe upgrades capability automatically when the verified flag is present |
+| Cursor CLI | Current [Cursor CLI installation documentation](https://docs.cursor.com/en/cli/installation); `cursor-agent` absent locally | `cursor-agent` launch/probe only while beta session surfaces lack a proven fresh-session identity | Require exact bounded machine-readable identity/listing and exact resume semantics |
+| Custom | Internal structured-command contract | User-selected executable/argv/env/path launch through the PTY supervisor; always Unclassified, with no recovery or structured telemetry | Adopt as a bundled provider only after a reviewed provider contract exists |
+
+All four candidates ship as truthful bundled defaults; none is deferred. Pi, Gemini, and
+Cursor deliberately remain launch-only. Copilot capability varies per installed host and is
+also launch-only on the locally checked 0.0.394 build. Launch-only providers declare no
+speculative artifact-environment semantics.
+
+### Automated verification
+
+- `npm run verify`: seam enforcement, lint, both TypeScript builds, launcher help, and 349
+  tests across 49 files passed.
+- Focused profile/provider/probe/recovery/telemetry verification: 39 tests across six files
+  passed after the final provider-contract cleanup.
+- `npm run smoke`: the production Electron smoke passed, including migrated Claude/Codex
+  defaults, structured Custom args/env/path preview, real PTY output, and cleanup.
+- `npm run smoke:capacity`: 12 live/restored terminals, 75 measured interactions, 18.7 ms p99
+  and 18.8 ms maximum frame gap, +21 MiB net / +33 MiB peak memory.
+- `npm run gauntlet`: repeated verify, production smoke, and capacity successfully; the
+  repeated capacity pass measured 18.7 ms p99/max with no positive memory-growth peak.
+- Local and SSH transport tests cover structured quoting, explicit environment unset/set,
+  bounded host execution, recovery identity, telemetry multiplexing, and PTY failure
+  classification without requiring live credentials.
+
+The five unchecked items above are intentionally acceptance-only: the isolated Milestone 0
+real local/SSH Claude/Codex restore soak, the shipped-provider real-host matrix, the three
+user-example local/SSH launches, and the final status transition. The user will perform that
+acceptance testing on this branch; until its evidence is recorded, Phase 9 remains
+`acceptance pending` rather than `done`.

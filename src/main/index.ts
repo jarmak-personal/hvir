@@ -21,6 +21,8 @@ import { PtySupervisor } from './pty/pty-supervisor'
 import { isSafeExternalUrl, isWorkbenchDocument } from './navigation-policy'
 import { AttentionBadge } from './attention-badge'
 import { harnessProviderCatalog } from './harness/harness-provider'
+import { HarnessProfileStore } from './harness/harness-profile-store'
+import { HarnessProbeManager } from './harness/harness-probe'
 import {
   canonicalProjectWatchInterests,
   ProjectWatchController,
@@ -39,6 +41,7 @@ import {
   GIT_PULL_TYPE,
   GIT_SWITCH_BRANCH_TYPE,
   MAX_PROJECT_WATCH_INTERESTS,
+  asHarnessProfileId,
   asHostId,
   hostPath,
   hostPathEquals,
@@ -65,6 +68,7 @@ protocol.registerSchemesAsPrivileged([
 ])
 
 const htmlPreviews = new HtmlPreviewProtocol()
+const harnessProbeManager = new HarnessProbeManager()
 const defaultHarnessProviderId = harnessProviderCatalog().find(
   (provider) => provider.default,
 )!.id
@@ -75,6 +79,7 @@ let projectRegistry: ProjectRegistry | null = null
 let sshPrompter: RendererSshPrompter | null = null
 let ptySupervisor: PtySupervisor | null = null
 let terminalSessionRegistry: TerminalSessionRegistry | null = null
+let harnessProfileStore: HarnessProfileStore | null = null
 let attentionBadge: AttentionBadge | null = null
 let projectWatchController: ProjectWatchController | null = null
 let projectWatchInterestCache: ProjectWatchInterestCache = new Map()
@@ -258,6 +263,10 @@ async function startup(): Promise<void> {
     metadataHost,
     localPath(join(app.getPath('userData'), 'terminal-sessions.json')),
   )
+  harnessProfileStore = await HarnessProfileStore.load(
+    metadataHost,
+    localPath(join(app.getPath('userData'), 'harness-profiles.json')),
+  )
   echoWorker = createWorkerClient<EchoWorkerProtocol>(
     workerPath('echo-worker.js'),
     'hvir-echo',
@@ -440,6 +449,8 @@ async function startup(): Promise<void> {
     respondSshPrompt: (id, answers) => sshPrompter?.respond(id, answers),
     ptySupervisor,
     terminalSessions: terminalSessionRegistry,
+    harnessProfiles: harnessProfileStore,
+    harnessProbes: harnessProbeManager,
     updateAttention: (ownerId, count) => attentionBadge?.update(ownerId, count),
     htmlPreviews,
     emit,
@@ -923,6 +934,7 @@ async function runSmoke(): Promise<number> {
   const liveReloadPath = joinHostPath(smokeRoot, '.hvir-smoke-live.txt')
   const largeJsonPath = joinHostPath(smokeRoot, '.hvir-smoke-large.json')
   const largeTextPath = joinHostPath(smokeRoot, '.hvir-smoke-large.txt')
+  const harnessProfilesPath = joinHostPath(smokeRoot, '.hvir-smoke-harness-profiles.json')
   try {
     const echo = await worker.request(ECHO_REQUEST_TYPE, { text: 'ping' })
     if (echo.text !== 'ping') throw new Error(`echo mismatch: ${echo.text}`)
@@ -959,9 +971,11 @@ async function runSmoke(): Promise<number> {
       recordIdentity: () => Promise.resolve(),
       updateLayout: () => Promise.resolve(),
       forget: () => Promise.resolve(),
+      rebindProfile: () => Promise.reject(new Error('Smoke recovery is read-only')),
       authorizeResume: () => false,
       flush: () => Promise.resolve(),
     }
+    const smokeHarnessProfiles = await HarnessProfileStore.load(host, harnessProfilesPath)
     registerIpcHandlers({
       echoWorker: worker,
       gitWorker: git,
@@ -1024,6 +1038,8 @@ async function runSmoke(): Promise<number> {
       respondSshPrompt: () => undefined,
       ptySupervisor: supervisor,
       terminalSessions: smokeTerminalSessions,
+      harnessProfiles: smokeHarnessProfiles,
+      harnessProbes: harnessProbeManager,
       updateAttention: () => undefined,
       htmlPreviews,
       emit,
@@ -1074,6 +1090,114 @@ async function runSmoke(): Promise<number> {
       throw new Error('renderer echo ran in the main process')
     }
     console.log('[smoke] renderer IPC + echo worker round-trip OK')
+
+    const profileSmoke = (await withTimeout(
+      win.webContents.executeJavaScript(`
+        (async () => {
+          const root = ${JSON.stringify(smokeRoot)};
+          const defaults = await window.hvir.invoke('harness:profiles', { root });
+          const grant = await window.hvir.invoke('harness:authorize-path', {
+            root,
+            path: root
+          });
+          const profile = await window.hvir.invoke('harness:profile-save', {
+            root,
+            input: {
+              displayName: 'Smoke custom harness',
+              providerId: 'custom',
+              scope: { kind: 'project', projectRoot: root },
+              executable: { kind: 'command', command: 'sh' },
+              args: [
+                { parts: [{ kind: 'literal', value: '-c' }] },
+                { parts: [{ kind: 'literal', value: 'printf hvir-profile-smoke; exec /bin/sh' }] },
+                { parts: [{ kind: 'path', source: 'binding', binding: 'workspace' }] }
+              ],
+              environment: [
+                { kind: 'literal', name: 'HVIR_PROFILE_SMOKE', value: 'structured' }
+              ],
+              pathBindings: [
+                { name: 'workspace', path: grant.path, grantId: grant.id }
+              ],
+              order: 20
+            }
+          });
+          const preview = await window.hvir.invoke('harness:preview', {
+            root,
+            cwd: root,
+            mode: 'fresh',
+            profileId: profile.id,
+            launchRevision: profile.launchRevision
+          });
+          let output = '';
+          const stopOutput = window.hvir.on('pty:data', ({ id, data }) => {
+            if (id === 'profile-smoke-terminal') output += data;
+          });
+          const started = await window.hvir.invoke('pty:start', {
+            sessionId: 'profile-smoke-terminal',
+            profileId: profile.id,
+            launchRevision: profile.launchRevision,
+            cwd: root,
+            cols: 80,
+            rows: 24,
+            title: 'Smoke custom harness',
+            position: 20,
+            active: false,
+            acknowledgeRisk: true
+          });
+          await new Promise((resolve, reject) => {
+            const deadline = Date.now() + 5000;
+            const poll = () => {
+              if (output.includes('hvir-profile-smoke')) return resolve();
+              if (Date.now() >= deadline) {
+                return reject(new Error('Custom profile output was not observed'));
+              }
+              setTimeout(poll, 25);
+            };
+            poll();
+          });
+          stopOutput();
+          return {
+            defaultIds: defaults.map((candidate) => candidate.id),
+            profile,
+            preview,
+            started,
+            output
+          };
+        })()
+      `),
+      'structured harness profile smoke timed out',
+    )) as {
+      defaultIds: readonly string[]
+      profile: { id: string; risk: string }
+      preview: { args: readonly string[]; command: string }
+      started: { id: string; identityStatus: string }
+      output: string
+    }
+    if (
+      !profileSmoke.defaultIds.includes('claude-code-default') ||
+      !profileSmoke.defaultIds.includes('codex-default')
+    ) {
+      throw new Error('migrated Claude/Codex default profiles were missing')
+    }
+    if (
+      profileSmoke.profile.risk !== 'unclassified' ||
+      profileSmoke.started.identityStatus !== 'none' ||
+      !profileSmoke.output.includes('hvir-profile-smoke') ||
+      !profileSmoke.preview.args.includes(smokeRoot.path) ||
+      !profileSmoke.preview.command.includes("HVIR_PROFILE_SMOKE='structured'")
+    ) {
+      throw new Error(
+        'structured Custom profile did not preserve preview/launch semantics',
+      )
+    }
+    const profileTerminal = supervisor.get(profileSmoke.started.id)
+    if (!profileTerminal) throw new Error('Custom profile PTY was not supervised')
+    supervisor.kill(profileTerminal.id, profileTerminal.ownerId)
+    await smokeWaitFor(
+      () => supervisor.get(profileTerminal.id) === undefined,
+      'Custom profile PTY did not exit',
+    )
+    console.log('[smoke] structured profile preview + Custom PTY OK')
 
     const containedSessionError = (await win.webContents.executeJavaScript(`
       window.hvir.invoke('project:browse-host', {
@@ -1343,7 +1467,7 @@ async function runSmoke(): Promise<number> {
               menuOpened = true;
             }
             const shell = [...document.querySelectorAll('.terminal-new-menu button')]
-              .find((node) => node.textContent?.trim() === 'Shell');
+              .find((node) => node.querySelector('strong')?.textContent?.trim() === 'Shell');
             if (shell) {
               shell.click();
               return waitForSecond();
@@ -1398,6 +1522,8 @@ async function runSmoke(): Promise<number> {
       smokeRecoverySessions = supervisor.list().map((terminal, position) => ({
         id: terminal.id,
         providerId: defaultHarnessProviderId,
+        profileId: asHarnessProfileId('plain-shell-default'),
+        launchRevision: 1,
         hostId: terminal.hostId,
         cwd: terminal.cwd,
         title: `Recovered capacity shell ${position + 1}`,
@@ -2923,6 +3049,8 @@ async function runSmoke(): Promise<number> {
       {
         id: 'smoke-recovery-shell',
         providerId: defaultHarnessProviderId,
+        profileId: asHarnessProfileId('plain-shell-default'),
+        launchRevision: 1,
         hostId: smokeRoot.hostId,
         cwd: smokeRoot,
         title: 'Recovered smoke shell',
@@ -3026,6 +3154,7 @@ async function runSmoke(): Promise<number> {
     await host.exec('rm', ['-f', '--', liveReloadPath.path])
     await host.exec('rm', ['-f', '--', largeJsonPath.path])
     await host.exec('rm', ['-f', '--', largeTextPath.path])
+    await host.exec('rm', ['-f', '--', harnessProfilesPath.path])
     await host.dispose()
     worker.dispose()
     git.dispose()
@@ -3152,7 +3281,7 @@ async function runCapacityLoadSmoke(
           add.click();
           const shell = await waitFor(
             () => [...document.querySelectorAll('.terminal-new-menu button')]
-              .find((node) => node.textContent?.trim() === 'Shell'),
+              .find((node) => node.querySelector('strong')?.textContent?.trim() === 'Shell'),
             'shell menu item unavailable'
           );
           shell.click();
@@ -3327,6 +3456,18 @@ async function withTimeout<T>(
   }
 }
 
+async function smokeWaitFor(
+  predicate: () => boolean,
+  message: string,
+  timeoutMs = 5_000,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs
+  while (!predicate()) {
+    if (Date.now() >= deadline) throw new Error(message)
+    await new Promise<void>((resolve) => setTimeout(resolve, 25))
+  }
+}
+
 void app
   .whenReady()
   .then(async () => {
@@ -3365,6 +3506,7 @@ async function suspendWorkbenchSessions(): Promise<void> {
   htmlPreviews.clear()
   sshPrompter?.cancelAll()
   await terminalSessionRegistry?.flush()
+  await harnessProfileStore?.flush()
   await projectRegistry?.disconnectSshHosts()
 }
 
@@ -3387,6 +3529,12 @@ async function shutdown(): Promise<void> {
     ?.flush()
     .catch((error) => console.error('[shutdown] terminal persistence failed', error))
   terminalSessionRegistry = null
+  await harnessProfileStore
+    ?.flush()
+    .catch((error) =>
+      console.error('[shutdown] harness profile persistence failed', error),
+    )
+  harnessProfileStore = null
   const registry = projectRegistry
   await registry
     ?.dispose()
@@ -3398,6 +3546,7 @@ async function shutdown(): Promise<void> {
   gitWorker?.dispose()
   gitWorker = null
   htmlPreviews.dispose()
+  harnessProbeManager.dispose()
 }
 
 async function settleWorkspaceRefreshes(): Promise<void> {

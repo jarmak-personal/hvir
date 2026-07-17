@@ -1014,7 +1014,9 @@ button {
   position: absolute;
   top: 29px;
   right: 0;
-  width: 150px;
+  width: 285px;
+  max-height: min(460px, calc(100vh - 90px));
+  overflow: auto;
   padding: 4px;
   border: 1px solid #3a424e;
   border-radius: 4px;
@@ -1031,6 +1033,54 @@ button {
   color: #cbd1da;
   font-size: 10px;
   text-align: left;
+}
+
+.terminal-new-menu button > span,
+.terminal-new-menu button > small {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.terminal-new-menu button > small {
+  margin-top: 3px;
+  overflow: hidden;
+  color: #7f8997;
+  font-size: 8px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.terminal-new-menu button:disabled {
+  opacity: 0.48;
+}
+
+.harness-risk {
+  padding: 2px 4px;
+  border: 1px solid currentColor;
+  border-radius: 3px;
+  color: #d8b36f;
+  font-size: 7px;
+  font-style: normal;
+  text-transform: uppercase;
+}
+
+.harness-risk.unclassified {
+  color: #bf91ce;
+}
+
+.terminal-new-menu-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  padding-top: 4px;
+  border-top: 1px solid #343a45;
+}
+
+.harness-risk-dialog small {
+  color: #8b95a3;
+  font-size: 10px;
+  line-height: 1.5;
 }
 
 .terminal-new-menu button:hover,
@@ -1061,9 +1111,302 @@ button {
 }
 
 .settings-dialog {
-  width: min(620px, calc(100vw - 48px));
+  width: min(1040px, calc(100vw - 48px));
   max-height: min(760px, calc(100vh - 48px));
   overflow: auto;
+}
+
+.settings-harnesses {
+  display: grid;
+  gap: 10px;
+  padding-top: 14px;
+  border-top: 1px solid #303640;
+}
+
+.settings-harnesses > header,
+.settings-profile-rows > header,
+.settings-profile-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.settings-harnesses h3,
+.settings-harnesses p {
+  margin: 0;
+}
+
+.settings-harnesses > header p,
+.settings-harness-empty {
+  margin-top: 3px;
+  color: #7f8997;
+  font-size: 10px;
+}
+
+.settings-harness-layout {
+  min-height: 430px;
+  display: grid;
+  grid-template-columns: 205px minmax(0, 1fr);
+  overflow: hidden;
+  border: 1px solid #303640;
+  border-radius: 5px;
+  background: #12151a;
+}
+
+.settings-profile-list {
+  min-width: 0;
+  overflow: auto;
+  border-right: 1px solid #303640;
+  background: #15181e;
+}
+
+.settings-profile-list button {
+  width: 100%;
+  display: grid;
+  gap: 3px;
+  padding: 9px 10px;
+  border: 0;
+  border-bottom: 1px solid #252a32;
+  background: transparent;
+  color: #cbd1da;
+  text-align: left;
+}
+
+.settings-profile-list button.active,
+.settings-profile-list button:hover,
+.settings-profile-list button:focus-visible {
+  outline: none;
+  background: #243041;
+}
+
+.settings-profile-list strong,
+.settings-profile-list small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-profile-list strong {
+  font-size: 10px;
+}
+
+.settings-profile-list small,
+.settings-profile-note,
+.settings-profile-risk small,
+.settings-profile-previews small {
+  color: #7f8997;
+  font-size: 9px;
+}
+
+.settings-profile-editor {
+  min-width: 0;
+  display: grid;
+  align-content: start;
+  gap: 12px;
+  padding: 14px;
+  overflow: auto;
+}
+
+.settings-profile-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 9px 12px;
+}
+
+.settings-profile-grid label,
+.settings-profile-argv,
+.settings-profile-executable label {
+  min-width: 0;
+  display: grid;
+  gap: 5px;
+  color: #aeb6c2;
+  font-size: 10px;
+}
+
+.settings-profile-description {
+  grid-column: 1 / -1;
+}
+
+.settings-profile-editor :is(input, select, textarea) {
+  min-width: 0;
+  padding: 6px 8px;
+  border: 1px solid #343a45;
+  border-radius: 4px;
+  outline: none;
+  background: #15181e;
+  color: #cdd2da;
+  font: inherit;
+}
+
+.settings-profile-editor :is(input, select, textarea):focus {
+  border-color: #4d8fd8;
+}
+
+.settings-profile-editor :disabled {
+  opacity: 0.6;
+}
+
+.settings-profile-executable {
+  display: grid;
+  grid-template-columns: minmax(170px, 0.55fr) minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 8px;
+}
+
+.settings-profile-executable code,
+.settings-profile-row code {
+  min-width: 0;
+  overflow: hidden;
+  padding: 7px 8px;
+  border: 1px solid #303640;
+  border-radius: 4px;
+  color: #aeb8c5;
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-profile-argv textarea {
+  min-height: 76px;
+  resize: vertical;
+  font-family: 'JetBrains Mono', 'SFMono-Regular', Consolas, monospace;
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.settings-profile-argv span,
+.settings-profile-risk {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.settings-profile-argv small {
+  color: #737d8b;
+  font-size: 9px;
+}
+
+.settings-profile-rows {
+  display: grid;
+  gap: 6px;
+}
+
+.settings-profile-rows > header {
+  color: #aeb6c2;
+  font-size: 10px;
+}
+
+.settings-profile-row {
+  display: grid;
+  grid-template-columns:
+    minmax(90px, 0.7fr) minmax(110px, 0.85fr) minmax(110px, 1fr)
+    minmax(90px, 0.75fr) 28px;
+  gap: 6px;
+}
+
+.settings-profile-row.path {
+  grid-template-columns: minmax(100px, 0.7fr) minmax(150px, 1fr) auto 28px;
+}
+
+.settings-profile-row > button:last-child {
+  padding: 0;
+}
+
+.settings-profile-risk {
+  align-items: baseline;
+  padding: 8px 9px;
+  border: 1px solid #544632;
+  border-radius: 4px;
+  background: #211d16;
+  color: #d8bd83;
+  font-size: 10px;
+}
+
+.settings-profile-previews {
+  display: grid;
+  gap: 7px;
+}
+
+.settings-profile-previews > div {
+  display: grid;
+  gap: 4px;
+}
+
+.settings-profile-previews strong {
+  color: #aeb6c2;
+  font-size: 9px;
+  text-transform: uppercase;
+}
+
+.settings-profile-previews code {
+  display: block;
+  overflow-x: auto;
+  padding: 8px;
+  border: 1px solid #303640;
+  border-radius: 4px;
+  background: #0f1216;
+  color: #b8c5d5;
+  font-size: 9px;
+  white-space: nowrap;
+}
+
+.settings-profile-actions {
+  justify-content: flex-end;
+}
+
+.modal-backdrop.nested {
+  z-index: 12;
+}
+
+.harness-folder-picker {
+  width: min(560px, calc(100vw - 48px));
+  max-height: min(620px, calc(100vh - 48px));
+}
+
+.harness-folder-picker > code {
+  overflow-wrap: anywhere;
+  color: #b8c5d5;
+  font-size: 10px;
+}
+
+.harness-folder-list {
+  min-height: 220px;
+  display: grid;
+  align-content: start;
+  overflow: auto;
+  border: 1px solid #303640;
+  border-radius: 4px;
+  background: #101318;
+}
+
+.harness-folder-list button {
+  padding: 7px 9px;
+  border: 0;
+  border-bottom: 1px solid #252a32;
+  background: transparent;
+  color: #aeb8c5;
+  text-align: left;
+}
+
+@media (max-width: 800px) {
+  .settings-harness-layout {
+    grid-template-columns: 150px minmax(0, 1fr);
+  }
+
+  .settings-profile-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .settings-profile-description {
+    grid-column: auto;
+  }
+
+  .settings-profile-row,
+  .settings-profile-row.path,
+  .settings-profile-executable {
+    grid-template-columns: 1fr;
+  }
 }
 
 .settings-fields {
@@ -2799,6 +3142,23 @@ body.pane-resizing-row * {
   display: flex;
   flex-direction: column;
   gap: 2px;
+}
+
+.terminal-recovery-rebind {
+  display: flex;
+  gap: 6px;
+  margin-top: 5px;
+}
+
+.terminal-recovery-rebind select,
+.terminal-recovery-rebind button {
+  min-width: 0;
+  padding: 4px 6px;
+  border: 1px solid #343a45;
+  border-radius: 3px;
+  background: #15181e;
+  color: #aeb8c5;
+  font-size: 9px;
 }
 
 .terminal-recovery-option strong,

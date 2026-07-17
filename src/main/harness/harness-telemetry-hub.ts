@@ -242,7 +242,16 @@ export class HarnessTelemetryHub {
     if (Buffer.byteLength(record, 'utf8') > MAX_TELEMETRY_RESOURCE_BYTES * 2) return
     const telemetry = this.options.parse(record)
     if (!telemetry) return
-    subscription.emit(telemetry)
+    subscription.emit({
+      ...telemetry,
+      facets: {
+        ...telemetry.facets,
+        session: {
+          status: 'available',
+          value: { id: subscription.sessionId, state: 'active' },
+        },
+      },
+    })
   }
 
   private failStream(stream: ExecStreamHandle, error: Error): void {

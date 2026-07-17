@@ -2,7 +2,8 @@ import { useEffect, useRef, useState, type ReactElement } from 'react'
 
 import type {
   HarnessTelemetry,
-  HarnessProviderId,
+  HarnessProfileId,
+  HarnessProviderCapabilities,
   HostConnectionState,
   HostPath,
   TerminalIdentityStatus,
@@ -16,7 +17,9 @@ import type { TerminalThemeOverride } from '../settings/settings'
 
 interface TerminalViewProps {
   readonly sessionId: string
-  readonly providerId: HarnessProviderId
+  readonly profileId: HarnessProfileId
+  readonly launchRevision: number
+  readonly riskAcknowledged: boolean
   readonly supportsResume: boolean
   readonly fallbackTitle: string
   readonly harnessSessionId?: string
@@ -36,6 +39,7 @@ interface TerminalViewProps {
     status: TerminalIdentityStatus,
   ) => void
   readonly onStarted: () => void
+  readonly onCapabilities: (capabilities: HarnessProviderCapabilities) => void
   readonly onInput: (data: string) => void
   readonly onOutput: () => void
   readonly onBell: () => void
@@ -47,7 +51,9 @@ const PTY_RESIZE_DEBOUNCE_MS = 75
 
 export function TerminalView({
   sessionId,
-  providerId,
+  profileId,
+  launchRevision,
+  riskAcknowledged,
   supportsResume,
   fallbackTitle,
   harnessSessionId,
@@ -64,6 +70,7 @@ export function TerminalView({
   onTelemetry,
   onIdentity,
   onStarted,
+  onCapabilities,
   onInput,
   onOutput,
   onBell,
@@ -92,6 +99,7 @@ export function TerminalView({
     onTelemetry,
     onIdentity,
     onStarted,
+    onCapabilities,
     onInput,
     onOutput,
     onBell,
@@ -108,6 +116,7 @@ export function TerminalView({
     position,
     active,
     title,
+    riskAcknowledged,
   })
   handlersRef.current = {
     onTitle,
@@ -115,6 +124,7 @@ export function TerminalView({
     onTelemetry,
     onIdentity,
     onStarted,
+    onCapabilities,
     onInput,
     onOutput,
     onBell,
@@ -128,6 +138,7 @@ export function TerminalView({
     position,
     active,
     title,
+    riskAcknowledged,
   }
 
   useEffect(() => handlersRef.current.onTitle(title), [title])
@@ -248,7 +259,8 @@ export function TerminalView({
           (metadata.resumeOnStart || isReconnect || isManualRestart)
         const result = await window.hvir.invoke('pty:start', {
           sessionId,
-          providerId,
+          profileId,
+          launchRevision,
           cwd: workspaceRoot,
           cols: terminalSize.cols,
           rows: terminalSize.rows,
@@ -257,6 +269,7 @@ export function TerminalView({
           active: metadata.active,
           resume,
           harnessSessionId: resume ? metadata.harnessSessionId : undefined,
+          acknowledgeRisk: metadata.riskAcknowledged,
         })
         if (cancelled) {
           window.hvir.send('pty:kill', { id: sessionId })
@@ -265,6 +278,7 @@ export function TerminalView({
         ptyStarted = true
         hasStartedRef.current = true
         handlersRef.current.onIdentity(result.harnessSessionId, result.identityStatus)
+        handlersRef.current.onCapabilities(result.capabilities)
         handlersRef.current.onStarted()
         if (pendingInput) {
           window.hvir.send('pty:write', { id: sessionId, data: pendingInput })
@@ -311,7 +325,9 @@ export function TerminalView({
     fallbackTitle,
     restartGeneration,
     sessionId,
-    providerId,
+    profileId,
+    launchRevision,
+    riskAcknowledged,
     supportsResume,
     workspaceRoot,
   ])

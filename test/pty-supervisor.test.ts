@@ -15,7 +15,13 @@ import type {
 } from '../src/main/project-host'
 import { PtySupervisor, type ManagedPty } from '../src/main/pty/pty-supervisor'
 import { SshHost } from '../src/main/project-host'
-import { LOCAL_HOST_ID, asHarnessProviderId, hostPath, localPath } from '../src/shared'
+import {
+  LOCAL_HOST_ID,
+  asHarnessProviderId,
+  contextHarnessSnapshot,
+  hostPath,
+  localPath,
+} from '../src/shared'
 
 const OWNER_ID = 17
 
@@ -70,8 +76,26 @@ function fixture(): {
       displayName: 'Test',
       contextPresentation: 'none',
     },
+    profile: {
+      version: 1,
+      reservedArguments: [],
+      reservedEnvironmentKeys: [],
+      artifactEnvironmentKeys: [],
+      artifactExecutable: false,
+      artifactPathBindings: [],
+      applyArgs: (_mode, providerArgs, profileArgs) => [...providerArgs, ...profileArgs],
+      classifyRisk: () => 'standard',
+    },
     supportsResume: true,
     sessionIdentity: 'preassigned',
+    probe: {
+      parseVersion: () => undefined,
+      effectiveCapabilities: () => ({
+        sessionIdentity: 'preassigned',
+        exactResume: true,
+        contextPresentation: 'none',
+      }),
+    },
     launch: () => ({ file: 'test-harness', args: ['launch'] }),
     resume: () => ({ file: 'test-harness', args: ['resume'] }),
   }
@@ -134,6 +158,55 @@ describe('PtySupervisor', () => {
         },
       }),
     )
+  })
+
+  it('keeps the terminal contract protected and reports command-not-found exits', async () => {
+    const { supervisor, pty, host, provider, spawnPty } = fixture()
+    const onClassifiedLaunchFailure = vi.fn()
+    await supervisor.spawn({
+      host,
+      provider,
+      launchSpec: {
+        file: 'test-harness',
+        args: [],
+        env: { TERM: 'dumb', COLORTERM: 'no', TERM_PROGRAM: 'other' },
+      },
+      cwd: localPath('/tmp/project'),
+      ownerId: OWNER_ID,
+      sessionId: 'protected-environment',
+      onClassifiedLaunchFailure,
+    })
+
+    expect(spawnPty).toHaveBeenCalledWith(
+      expect.objectContaining({
+        env: {
+          TERM: 'xterm-256color',
+          COLORTERM: 'truecolor',
+          TERM_PROGRAM: 'hvir',
+        },
+      }),
+    )
+    pty.emitExit({ exitCode: 127, signal: undefined })
+    expect(onClassifiedLaunchFailure).toHaveBeenCalledOnce()
+  })
+
+  it('classifies an unsupported-option PTY exit without retrying the session', async () => {
+    const { supervisor, pty, host, provider } = fixture()
+    const onClassifiedLaunchFailure = vi.fn()
+    await supervisor.spawn({
+      host,
+      provider,
+      cwd: localPath('/tmp/project'),
+      ownerId: OWNER_ID,
+      sessionId: 'unsupported-option',
+      onClassifiedLaunchFailure,
+    })
+
+    pty.emitData('error: unknown option --new-surface\r\n')
+    pty.emitExit({ exitCode: 2, signal: undefined })
+
+    expect(onClassifiedLaunchFailure).toHaveBeenCalledOnce()
+    expect(supervisor.get('unsupported-option')).toBeUndefined()
   })
 
   it('is the lifecycle and stream boundary for a spawned PTY', async () => {
@@ -593,11 +666,11 @@ describe('PtySupervisor', () => {
 
   it('caches provider telemetry for attachment and disposes it with the PTY', async () => {
     const { supervisor, host, provider } = fixture()
-    const telemetry = {
-      contextUsedTokens: 80_000,
-      contextWindowTokens: 200_000,
-      contextUsedPercent: 40,
-    }
+    const telemetry = contextHarnessSnapshot({
+      providerId: asHarnessProviderId('test'),
+      provenance: 'test fixture',
+      context: { usedTokens: 80_000, windowTokens: 200_000, usedPercent: 40 },
+    })
     const disposeTelemetry = vi.fn()
     const observe = vi.fn(
       (_host: ProjectHost, context: { emit: (value: typeof telemetry) => void }) => {

@@ -926,10 +926,11 @@ Providers also declare the executable, environment/config keys, and path binding
 change their session-artifact location. Main derives a bounded **artifact identity** from
 only those resolved inputs and supplies it to discovery and telemetry. Artifact-relevant
 changes reconcile the subscription; cosmetic or artifact-irrelevant launch changes do not
-restart the shared `(host, provider)` hub. If a profile uses a provider-reserved environment
-or config key whose artifact effect the provider has not declared, validation warns and
-structured discovery/telemetry fails closed for that profile instead of observing a
-possibly wrong artifact tree.
+restart the shared `(host, provider)` hub. A bundled provider that offers discovery or
+telemetry cannot register a reserved environment key without also declaring its artifact
+semantics; profile validation therefore fails closed before a possibly wrong artifact tree
+can be observed. Future provider contracts that accept opaque config namespaces must retain
+the same fail-closed behavior and surface a validation warning for keys they cannot classify.
 
 **Harness-tab data uses optional, provenance-bearing facets.** The normalized snapshot has a
 version, observation time, source, freshness, and optional facets for session, model, context

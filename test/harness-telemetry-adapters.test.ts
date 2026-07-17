@@ -13,7 +13,18 @@ describe('adapter-owned telemetry multiplexing', () => {
       .fn<ProjectHost['execStream']>()
       .mockReturnValueOnce(codex.handle)
       .mockReturnValueOnce(claude.handle)
-    const host = { hostId: LOCAL_HOST_ID, execStream } as unknown as ProjectHost
+    const host = {
+      hostId: LOCAL_HOST_ID,
+      execStream,
+      exec: vi.fn(() =>
+        Promise.resolve({
+          code: 0,
+          signal: null,
+          stdout: '/tmp/claude-projects',
+          stderr: '',
+        }),
+      ),
+    } as unknown as ProjectHost
     const controllers = Array.from({ length: 20 }, () => new AbortController())
 
     const codexStops = await Promise.all(
@@ -23,20 +34,28 @@ describe('adapter-owned telemetry multiplexing', () => {
           subscriptionId: id,
           sessionId: id,
           sessionData: { rolloutPath: localPath(`/tmp/codex-${index}.jsonl`) },
+          artifact: { identity: 'codex-test', environment: {}, unsetEnvironment: [] },
           signal: controllers[index]!.signal,
           emit: () => undefined,
         })
       }),
     )
-    const claudeStops = Array.from({ length: 10 }, (_, index) => {
-      const id = sessionId(2, index)
-      return observeClaudeContext(host, {
-        subscriptionId: id,
-        sessionId: id,
-        signal: controllers[index + 10]!.signal,
-        emit: () => undefined,
-      })
-    })
+    const claudeStops = await Promise.all(
+      Array.from({ length: 10 }, (_, index) => {
+        const id = sessionId(2, index)
+        return observeClaudeContext(host, {
+          subscriptionId: id,
+          sessionId: id,
+          artifact: {
+            identity: 'claude-test',
+            environment: {},
+            unsetEnvironment: [],
+          },
+          signal: controllers[index + 10]!.signal,
+          emit: () => undefined,
+        })
+      }),
+    )
 
     await vi.waitFor(() => expect(codex.writes).toHaveLength(11))
     await vi.waitFor(() => expect(claude.writes).toHaveLength(11))

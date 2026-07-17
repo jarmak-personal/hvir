@@ -3,6 +3,10 @@ import { useEffect, useRef, useState, type CSSProperties, type ReactElement } fr
 import {
   basenameHostPath,
   type HarnessProviderDescriptor,
+  type HarnessProviderCapabilities,
+  type HarnessProfile,
+  type HarnessProfileId,
+  type HarnessProfileProbe,
   type HarnessTelemetry,
   type HostConnectionState,
   type HostPath,
@@ -27,10 +31,19 @@ import {
   type ResolvedTerminalFileTarget,
 } from './terminal-file-link'
 import { TerminalView } from './TerminalView'
+import {
+  autoRecoverableProfile,
+  probeAllowsAutoRestore,
+  recoverableProfile,
+} from './terminal-profile-recovery'
 
 interface TerminalSession {
   readonly id: string
   readonly providerId: HarnessProviderId
+  readonly profileId: HarnessProfileId
+  readonly launchRevision: number
+  readonly riskAcknowledged: boolean
+  readonly capabilities: HarnessProviderCapabilities
   readonly fallbackTitle: string
   readonly title: string
   readonly status: string
@@ -57,6 +70,7 @@ interface TerminalWorkspaceProps {
   readonly recoveryMode: TerminalRecoveryMode
   readonly terminalTheme: TerminalThemeOverride
   readonly onOpenSettings: () => void
+  readonly onOpenHarnessSettings: () => void
 }
 
 export interface TerminalWorkspaceRollup {
@@ -77,6 +91,7 @@ export function TerminalWorkspace({
   recoveryMode,
   terminalTheme,
   onOpenSettings,
+  onOpenHarnessSettings,
 }: TerminalWorkspaceProps): ReactElement {
   const appTheme = useAppTheme()
   const effectiveTerminalTheme = terminalTheme === 'app' ? appTheme : terminalTheme
@@ -91,10 +106,14 @@ export function TerminalWorkspace({
   const terminalDeckRef = useRef<HTMLDivElement>(null)
   const restoredSplitLayout = useRef(readTerminalSplitLayout(workspaceRoot))
   const [providers, setProviders] = useState<readonly HarnessProviderDescriptor[]>([])
+  const [profiles, setProfiles] = useState<readonly HarnessProfile[]>([])
+  const [probes, setProbes] = useState<readonly HarnessProfileProbe[]>([])
   const [sessions, setSessions] = useState<readonly TerminalSession[]>([])
   const [activeId, setActiveId] = useState<string>()
   const [menuOpen, setMenuOpen] = useState(false)
+  const [pendingRiskProfile, setPendingRiskProfile] = useState<HarnessProfile>()
   const [recoveryReady, setRecoveryReady] = useState(false)
+  const [recoveryProbesReady, setRecoveryProbesReady] = useState(false)
   const [recoveryCandidates, setRecoveryCandidates] = useState<
     readonly TerminalRecoverySession[]
   >([])
@@ -119,6 +138,11 @@ export function TerminalWorkspace({
   availableRef.current = available
   recoveryModeRef.current = recoveryMode
   const defaultProvider = providers.find((provider) => provider.default)
+  const defaultProfile = defaultProvider
+    ? profiles.find(
+        (profile) => profile.builtIn && profile.providerId === defaultProvider.id,
+      )
+    : undefined
 
   useEffect(() => {
     const timers = idleTimers.current
@@ -174,35 +198,79 @@ export function TerminalWorkspace({
   }, [menuOpen])
 
   useEffect(() => {
+    const refreshProfiles = (): void => {
+      void window.hvir
+        .invoke('harness:profiles', { root: workspaceRoot })
+        .then(setProfiles)
+        .catch(() => undefined)
+    }
+    window.addEventListener('hvir:harness-profiles-changed', refreshProfiles)
+    return () =>
+      window.removeEventListener('hvir:harness-profiles-changed', refreshProfiles)
+  }, [workspaceRoot])
+
+  const refreshProbes = (force = false): void => {
+    void window.hvir
+      .invoke('harness:probe-profiles', {
+        root: workspaceRoot,
+        profileIds: profiles.map((profile) => profile.id),
+        force,
+      })
+      .then(setProbes)
+      .catch(() => undefined)
+  }
+
+  useEffect(() => {
+    if (menuOpen) refreshProbes(false)
+    // Probe refresh is intentionally menu-driven and never part of first paint.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [menuOpen])
+
+  useEffect(() => {
     let cancelled = false
     for (const timer of idleTimers.current.values()) window.clearTimeout(timer)
     idleTimers.current.clear()
     idleAttentionStates.current.clear()
     focusedTerminalRef.current = undefined
     setRecoveryReady(false)
+    setRecoveryProbesReady(false)
     setRecoveryCandidates([])
+    setProfiles([])
+    setProbes([])
     setSessions([])
     setActiveId(undefined)
     activePaneRef.current = 'primary'
     activeByPaneRef.current = { primary: undefined, secondary: undefined }
     void Promise.all([
       window.hvir.invoke('harness:catalog', undefined),
+      window.hvir.invoke('harness:profiles', { root: workspaceRoot }),
       window.hvir
         .invoke('terminal:recovery', { root: workspaceRoot })
         .catch(() => [] as readonly TerminalRecoverySession[]),
     ]).then(
-      ([catalog, candidates]) => {
+      ([catalog, launchProfiles, candidates]) => {
         if (cancelled) return
         setProviders(catalog)
+        setProfiles(launchProfiles)
         const defaultHarness = catalog.find((provider) => provider.default)
-        if (!defaultHarness) {
+        const defaultLaunchProfile = defaultHarness
+          ? launchProfiles.find(
+              (profile) => profile.builtIn && profile.providerId === defaultHarness.id,
+            )
+          : undefined
+        if (!defaultHarness || !defaultLaunchProfile) {
           setRecoveryReady(true)
           return
         }
         if (candidates.length === 0) {
           shouldCreateDefault.current = availableRef.current
           if (visibleRef.current && availableRef.current) {
-            const session = createSession(defaultHarness, workspaceRoot, 'primary')
+            const session = createSession(
+              defaultLaunchProfile,
+              defaultHarness,
+              workspaceRoot,
+              'primary',
+            )
             shouldCreateDefault.current = false
             setSessions([session])
             setActiveId(session.id)
@@ -210,25 +278,8 @@ export function TerminalWorkspace({
           setRecoveryReady(true)
           return
         }
-        const hasUnavailableProvider = candidates.some(
-          (candidate) => !providerDescriptor(catalog, candidate.providerId),
-        )
-        if (
-          recoveryModeRef.current === 'auto' &&
-          visibleRef.current &&
-          !hasUnavailableProvider
-        ) {
-          restoreSessions(
-            candidates,
-            catalog,
-            restoredSplitLayout.current,
-            setSessions,
-            setActiveId,
-          )
-          setRecoveryReady(true)
-          return
-        }
         setRecoveryCandidates(candidates)
+        setRecoveryReady(true)
       },
       () => {
         if (cancelled) return
@@ -241,11 +292,51 @@ export function TerminalWorkspace({
   }, [workspaceRoot])
 
   useEffect(() => {
-    if (!available || !visible || sessions.length > 0 || !defaultProvider) return
-    if (recoveryCandidates.length > 0 && recoveryMode === 'auto') {
+    if (
+      recoveryCandidates.length === 0 ||
+      recoveryProbesReady ||
+      !visible ||
+      !available
+    ) {
+      return
+    }
+    let cancelled = false
+    void window.hvir
+      .invoke('harness:probe-profiles', {
+        root: workspaceRoot,
+        profileIds: recoveryCandidates.map((candidate) => candidate.profileId),
+      })
+      .then(
+        (values) => {
+          if (cancelled) return
+          setProbes(values)
+          setRecoveryProbesReady(true)
+        },
+        () => {
+          if (!cancelled) setRecoveryProbesReady(true)
+        },
+      )
+    return () => {
+      cancelled = true
+    }
+  }, [available, recoveryCandidates, recoveryProbesReady, visible, workspaceRoot])
+
+  useEffect(() => {
+    if (
+      !available ||
+      !visible ||
+      sessions.length > 0 ||
+      !defaultProvider ||
+      !defaultProfile
+    )
+      return
+    if (recoveryCandidates.length > 0 && recoveryMode === 'auto' && recoveryProbesReady) {
       if (
         recoveryCandidates.some(
-          (candidate) => !providerDescriptor(providers, candidate.providerId),
+          (candidate) =>
+            !providerDescriptor(providers, candidate.providerId) ||
+            !autoRecoverableProfile(profiles, candidate) ||
+            !probeAllowsAutoRestore(probes, candidate),
         )
       ) {
         return
@@ -253,9 +344,12 @@ export function TerminalWorkspace({
       restoreSessions(
         recoveryCandidates,
         providers,
+        profiles,
+        probes,
         restoredSplitLayout.current,
         setSessions,
         setActiveId,
+        false,
       )
       setRecoveryCandidates([])
       setRecoveryReady(true)
@@ -264,7 +358,12 @@ export function TerminalWorkspace({
     if (!recoveryReady) return
     if (!shouldCreateDefault.current || recoveryCandidates.length > 0) return
     shouldCreateDefault.current = false
-    const session = createSession(defaultProvider, workspaceRoot, 'primary')
+    const session = createSession(
+      defaultProfile,
+      defaultProvider,
+      workspaceRoot,
+      'primary',
+    )
     setSessions([session])
     setActiveId(session.id)
   }, [
@@ -273,7 +372,11 @@ export function TerminalWorkspace({
     recoveryReady,
     available,
     defaultProvider,
+    defaultProfile,
     providers,
+    profiles,
+    probes,
+    recoveryProbesReady,
     sessions.length,
     visible,
     workspaceRoot,
@@ -364,13 +467,36 @@ export function TerminalWorkspace({
     )
   }
 
-  const addSession = (providerId: HarnessProviderId): void => {
+  const addSession = (profileId: HarnessProfileId): void => {
     if (!available) return
-    const provider = providerDescriptor(providers, providerId)
-    if (!provider) return
+    const profile = profiles.find((candidate) => candidate.id === profileId)
+    const provider = profile
+      ? providerDescriptor(providers, profile.providerId)
+      : undefined
+    if (!provider || !profile) return
+    if (profile.risk !== 'standard') {
+      setPendingRiskProfile(profile)
+      setMenuOpen(false)
+      return
+    }
+    launchSession(profile, provider, false)
+  }
+
+  const launchSession = (
+    profile: HarnessProfile,
+    provider: HarnessProviderDescriptor,
+    riskAcknowledged: boolean,
+  ): void => {
     const split = sessionsRef.current.some((session) => session.pane === 'secondary')
     const pane = split ? activePaneRef.current : 'primary'
-    const session = createSession(provider, workspaceRoot, pane)
+    const session = createSession(
+      profile,
+      provider,
+      workspaceRoot,
+      pane,
+      riskAcknowledged,
+      profileProbe(probes, profile)?.capabilities,
+    )
     setSessions((current) => [...current, session])
     activeByPaneRef.current[pane] = session.id
     setActiveId(session.id)
@@ -378,14 +504,14 @@ export function TerminalWorkspace({
   }
 
   const splitTerminal = (): void => {
-    if (!available || !defaultProvider) return
+    if (!available || !defaultProvider || !defaultProfile) return
     const split = sessionsRef.current.some((session) => session.pane === 'secondary')
     const pane: TerminalSplitPane = split
       ? activePaneRef.current === 'primary'
         ? 'secondary'
         : 'primary'
       : 'secondary'
-    const session = createSession(defaultProvider, workspaceRoot, pane)
+    const session = createSession(defaultProfile, defaultProvider, workspaceRoot, pane)
     activePaneRef.current = pane
     activeByPaneRef.current[pane] = session.id
     setSessions((current) => [...current, session])
@@ -524,8 +650,8 @@ export function TerminalWorkspace({
       >
         {recoveryReady && sessions.length === 0 ? (
           <div className="terminal-empty">
-            {available && defaultProvider ? (
-              <button type="button" onClick={() => addSession(defaultProvider.id)}>
+            {available && defaultProfile ? (
+              <button type="button" onClick={() => addSession(defaultProfile.id)}>
                 New terminal
               </button>
             ) : (
@@ -540,8 +666,10 @@ export function TerminalWorkspace({
             <TerminalView
               key={session.id}
               sessionId={session.id}
-              providerId={session.providerId}
-              supportsResume={provider.capabilities.exactResume}
+              profileId={session.profileId}
+              launchRevision={session.launchRevision}
+              riskAcknowledged={session.riskAcknowledged}
+              supportsResume={session.capabilities.exactResume}
               fallbackTitle={session.fallbackTitle}
               harnessSessionId={session.harnessSessionId}
               resumeOnStart={session.resumeOnStart}
@@ -577,6 +705,13 @@ export function TerminalWorkspace({
               onStarted={() =>
                 updateSession(session.id, (current) =>
                   current.resumeOnStart ? { ...current, resumeOnStart: false } : current,
+                )
+              }
+              onCapabilities={(capabilities) =>
+                updateSession(session.id, (current) =>
+                  current.capabilities === capabilities
+                    ? current
+                    : { ...current, capabilities },
                 )
               }
               onInput={(data) => recordInput(session.id, data)}
@@ -665,16 +800,53 @@ export function TerminalWorkspace({
               </button>
               {menuOpen ? (
                 <div className="terminal-new-menu" role="menu">
-                  {providers.map((provider) => (
+                  {profiles.map((profile) => {
+                    const provider = providerDescriptor(providers, profile.providerId)
+                    const probe = profileProbe(probes, profile)
+                    return (
+                      <button
+                        key={profile.id}
+                        type="button"
+                        role="menuitem"
+                        disabled={probeLaunchUnavailable(probe)}
+                        title={probe?.detail}
+                        onClick={() => addSession(profile.id)}
+                      >
+                        <span>
+                          <strong>{profile.displayName}</strong>
+                          {profile.risk === 'standard' ? null : (
+                            <em className={`harness-risk ${profile.risk}`}>
+                              {riskLabel(profile.risk)}
+                            </em>
+                          )}
+                        </span>
+                        <small>
+                          {provider?.displayName ?? profile.providerId} ·{' '}
+                          {probeLabel(probe)} ·{' '}
+                          {capabilityLabel(probe?.capabilities ?? provider?.capabilities)}
+                        </small>
+                      </button>
+                    )
+                  })}
+                  <div className="terminal-new-menu-actions">
                     <button
-                      key={provider.id}
                       type="button"
                       role="menuitem"
-                      onClick={() => addSession(provider.id)}
+                      onClick={() => refreshProbes(true)}
                     >
-                      {provider.displayName}
+                      Refresh availability
                     </button>
-                  ))}
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        setMenuOpen(false)
+                        onOpenHarnessSettings()
+                      }}
+                    >
+                      Configure harnesses…
+                    </button>
+                  </div>
                 </div>
               ) : null}
             </div>
@@ -696,8 +868,8 @@ export function TerminalWorkspace({
                 <span className="terminal-list-copy">
                   <span className="terminal-list-title">{session.title}</span>
                   <span className="terminal-list-meta">
-                    {providerDisplayName(providers, session.providerId)} ·{' '}
-                    {session.status}
+                    {profileDisplayName(profiles, session.profileId)}
+                    {profileRiskMarker(profiles, session.profileId)} · {session.status}
                     {identityLabel(session.identityStatus)}
                   </span>
                   {providerDescriptor(providers, session.providerId)?.capabilities
@@ -751,12 +923,49 @@ export function TerminalWorkspace({
           ))}
         </div>
       </aside>
-      {visible && recoveryCandidates.length > 0 && defaultProvider ? (
+      {visible && pendingRiskProfile ? (
+        <HarnessRiskDialog
+          profile={pendingRiskProfile}
+          provider={providerDescriptor(providers, pendingRiskProfile.providerId)}
+          onCancel={() => setPendingRiskProfile(undefined)}
+          onLaunch={() => {
+            const provider = providerDescriptor(providers, pendingRiskProfile.providerId)
+            if (provider) launchSession(pendingRiskProfile, provider, true)
+            setPendingRiskProfile(undefined)
+          }}
+        />
+      ) : null}
+      {visible &&
+      recoveryCandidates.length > 0 &&
+      recoveryProbesReady &&
+      defaultProvider &&
+      defaultProfile ? (
         <TerminalRecoveryDialog
           sessions={recoveryCandidates}
           providers={providers}
+          profiles={profiles}
+          probes={probes}
+          onRebind={async (record, profile) => {
+            const rebound = await window.hvir.invoke('terminal:rebind-profile', {
+              root: workspaceRoot,
+              id: record.id,
+              profileId: profile.id,
+              launchRevision: profile.launchRevision,
+              acknowledgeRisk: profile.risk !== 'standard',
+            })
+            setRecoveryCandidates((current) =>
+              current.map((candidate) =>
+                candidate.id === rebound.id ? rebound : candidate,
+              ),
+            )
+          }}
           onCancel={() => {
-            const session = createSession(defaultProvider, workspaceRoot, 'primary')
+            const session = createSession(
+              defaultProfile,
+              defaultProvider,
+              workspaceRoot,
+              'primary',
+            )
             setSessions([session])
             setActiveId(session.id)
             setRecoveryCandidates([])
@@ -766,18 +975,27 @@ export function TerminalWorkspace({
             const selected = recoveryCandidates.filter(
               (session) =>
                 ids.has(session.id) &&
-                providerDescriptor(providers, session.providerId) !== undefined,
+                providerDescriptor(providers, session.providerId) !== undefined &&
+                recoverableProfile(profiles, session) !== undefined,
             )
             if (selected.length > 0) {
               restoreSessions(
                 selected,
                 providers,
+                profiles,
+                probes,
                 restoredSplitLayout.current,
                 setSessions,
                 setActiveId,
+                true,
               )
             } else {
-              const session = createSession(defaultProvider, workspaceRoot, 'primary')
+              const session = createSession(
+                defaultProfile,
+                defaultProvider,
+                workspaceRoot,
+                'primary',
+              )
               setSessions([session])
               setActiveId(session.id)
             }
@@ -790,16 +1008,76 @@ export function TerminalWorkspace({
   )
 }
 
+function HarnessRiskDialog({
+  profile,
+  provider,
+  onCancel,
+  onLaunch,
+}: {
+  readonly profile: HarnessProfile
+  readonly provider?: HarnessProviderDescriptor
+  readonly onCancel: () => void
+  readonly onLaunch: () => void
+}): ReactElement {
+  return (
+    <div className="modal-backdrop">
+      <section
+        className="project-dialog harness-risk-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="harness-risk-title"
+      >
+        <h2 id="harness-risk-title">
+          {profile.risk === 'elevated'
+            ? 'Elevated harness profile'
+            : 'Unclassified harness profile'}
+        </h2>
+        <p>
+          <strong>
+            {provider?.displayName ?? profile.providerId} · {profile.displayName}
+          </strong>
+        </p>
+        <p>
+          {profile.risk === 'elevated'
+            ? 'This profile includes a provider-known permission or sandbox bypass.'
+            : 'hvir cannot confidently classify every executable, argument, or environment setting in this profile.'}
+        </p>
+        <small>
+          Acknowledgment applies only to launch revision {profile.launchRevision}. Risk
+          classification is best-effort, not a security boundary.
+        </small>
+        <div className="dialog-actions">
+          <button type="button" onClick={onCancel}>
+            Cancel
+          </button>
+          <button type="button" onClick={onLaunch}>
+            Acknowledge and launch
+          </button>
+        </div>
+      </section>
+    </div>
+  )
+}
+
 function TerminalRecoveryDialog({
   sessions,
   providers,
+  profiles,
+  probes,
   onCancel,
   onResume,
+  onRebind,
 }: {
   readonly sessions: readonly TerminalRecoverySession[]
   readonly providers: readonly HarnessProviderDescriptor[]
+  readonly profiles: readonly HarnessProfile[]
+  readonly probes: readonly HarnessProfileProbe[]
   readonly onCancel: () => void
   readonly onResume: (ids: ReadonlySet<string>) => void
+  readonly onRebind: (
+    record: TerminalRecoverySession,
+    profile: HarnessProfile,
+  ) => Promise<void>
 }): ReactElement {
   const dialogRef = useRef<HTMLElement>(null)
   const onCancelRef = useRef(onCancel)
@@ -808,11 +1086,16 @@ function TerminalRecoveryDialog({
       new Set(
         sessions
           .filter(
-            (session) => providerDescriptor(providers, session.providerId) !== undefined,
+            (session) =>
+              providerDescriptor(providers, session.providerId) !== undefined &&
+              recoverableProfile(profiles, session) !== undefined &&
+              !probeLaunchUnavailable(recoveryProbe(probes, session)),
           )
           .map((session) => session.id),
       ),
   )
+  const [rebind, setRebind] = useState<Readonly<Record<string, HarnessProfileId>>>({})
+  const [error, setError] = useState<string>()
   onCancelRef.current = onCancel
 
   useEffect(() => {
@@ -862,11 +1145,21 @@ function TerminalRecoveryDialog({
         <div className="terminal-recovery-list">
           {sessions.map((session) => {
             const provider = providerDescriptor(providers, session.providerId)
+            const profile = recoverableProfile(profiles, session)
+            const probe = recoveryProbe(probes, session)
+            const sameProviderProfiles = profiles.filter(
+              (candidate) => candidate.providerId === session.providerId,
+            )
+            const selectedRebindProfile = sameProviderProfiles.find(
+              (candidate) =>
+                candidate.id === (rebind[session.id] ?? sameProviderProfiles[0]?.id),
+            )
             return (
-              <label key={session.id} className="terminal-recovery-option">
+              <div key={session.id} className="terminal-recovery-option">
                 <input
                   type="checkbox"
-                  disabled={!provider}
+                  aria-label={`Restore ${session.title}`}
+                  disabled={!provider || !profile || probeLaunchUnavailable(probe)}
                   checked={selected.has(session.id)}
                   onChange={(event) => {
                     const checked = event.currentTarget.checked
@@ -881,17 +1174,57 @@ function TerminalRecoveryDialog({
                 <span>
                   <strong>{session.title}</strong>
                   <small>
-                    {provider?.displayName ??
+                    {profile?.displayName ??
+                      provider?.displayName ??
                       `Unavailable provider (${session.providerId})`}{' '}
-                    · {basenameHostPath(session.cwd)}
-                    {' · '}
-                    {provider ? restoreActionLabel(session, provider) : 'Cannot restore'}
+                    · {basenameHostPath(session.cwd)} ·{' '}
+                    {provider && profile
+                      ? `${restoreActionLabel(session, probe?.capabilities ?? provider.capabilities)} · ${probeLabel(probe)}${profile.risk === 'standard' ? '' : ` · acknowledge ${riskLabel(profile.risk)}`}`
+                      : recoveryIssue(session, provider, profiles)}
                   </small>
+                  {provider && !profile && sameProviderProfiles.length > 0 ? (
+                    <span className="terminal-recovery-rebind">
+                      <select
+                        aria-label={`Rebind ${session.title} profile`}
+                        value={rebind[session.id] ?? sameProviderProfiles[0]?.id}
+                        onChange={(event) =>
+                          setRebind((current) => ({
+                            ...current,
+                            [session.id]: event.currentTarget.value as HarnessProfileId,
+                          }))
+                        }
+                      >
+                        {sameProviderProfiles.map((candidate) => (
+                          <option key={candidate.id} value={candidate.id}>
+                            {candidate.displayName}
+                            {candidate.risk === 'standard'
+                              ? ''
+                              : ` · ${riskLabel(candidate.risk)}`}
+                          </option>
+                        ))}
+                      </select>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (!selectedRebindProfile) return
+                          void onRebind(session, selectedRebindProfile).catch(
+                            (reason: unknown) => setError(message(reason)),
+                          )
+                        }}
+                      >
+                        {selectedRebindProfile?.risk === 'standard' ||
+                        !selectedRebindProfile
+                          ? 'Review and rebind'
+                          : `Rebind and acknowledge ${riskLabel(selectedRebindProfile.risk)}`}
+                      </button>
+                    </span>
+                  ) : null}
                 </span>
-              </label>
+              </div>
             )
           })}
         </div>
+        {error ? <p className="dialog-error">{error}</p> : null}
         <div className="dialog-actions">
           <button type="button" onClick={onCancel}>
             Not now
@@ -916,13 +1249,18 @@ function ContextMeter({
   readonly telemetry?: HarnessTelemetry
   readonly countOnly?: boolean
 }): ReactElement {
-  const reportedPercent = countOnly ? undefined : telemetry?.contextUsedPercent
+  const contextFacet = telemetry?.facets.context
+  const context =
+    contextFacet?.status === 'available' || contextFacet?.status === 'stale'
+      ? contextFacet.value
+      : undefined
+  const reportedPercent = countOnly ? undefined : context?.usedPercent
   const percent =
     typeof reportedPercent === 'number' && Number.isFinite(reportedPercent)
       ? Math.min(100, Math.max(0, reportedPercent))
       : undefined
   const displayPercent = percent === undefined ? undefined : Math.floor(percent)
-  const hasCountOnly = telemetry !== undefined && displayPercent === undefined
+  const hasCountOnly = context !== undefined && displayPercent === undefined
   const pressure = hasCountOnly
     ? 'count-only'
     : displayPercent === undefined
@@ -933,10 +1271,10 @@ function ContextMeter({
           ? 'warning'
           : 'normal'
   const label =
-    telemetry && telemetry.contextWindowTokens !== undefined
-      ? `${formatTokenCount(telemetry.contextUsedTokens)} / ${formatTokenCount(telemetry.contextWindowTokens)} context used`
-      : telemetry
-        ? `${formatTokenCount(telemetry.contextUsedTokens)} current context tokens; limit unavailable`
+    context && context.windowTokens !== undefined
+      ? `${formatTokenCount(context.usedTokens)} / ${formatTokenCount(context.windowTokens)} context used`
+      : context
+        ? `${formatTokenCount(context.usedTokens)} current context tokens; limit unavailable`
         : 'Context usage unavailable'
 
   return (
@@ -963,7 +1301,7 @@ function ContextMeter({
       ) : null}
       <span className="terminal-context-value">
         {hasCountOnly
-          ? formatTokenCount(telemetry.contextUsedTokens)
+          ? formatTokenCount(context.usedTokens)
           : displayPercent === undefined
             ? '--'
             : `${displayPercent}%`}
@@ -992,21 +1330,27 @@ function identityLabel(status: TerminalIdentityStatus | undefined): string {
 
 function restoreActionLabel(
   session: TerminalRecoverySession,
-  provider: HarnessProviderDescriptor,
+  capabilities: HarnessProviderCapabilities,
 ): string {
-  if (provider.capabilities.sessionIdentity === 'none') return 'New shell'
-  return session.harnessSessionId ? 'Resume' : 'New session'
+  return capabilities.exactResume && session.harnessSessionId ? 'Resume' : 'New session'
 }
 
 function createSession(
+  profile: HarnessProfile,
   provider: HarnessProviderDescriptor,
   cwd: HostPath,
   pane: TerminalSplitPane,
+  riskAcknowledged = false,
+  capabilities: HarnessProviderCapabilities = provider.capabilities,
 ): TerminalSession {
   const fallbackTitle = `${provider.displayName} · ${basenameHostPath(cwd)}`
   return {
     id: crypto.randomUUID(),
     providerId: provider.id,
+    profileId: profile.id,
+    launchRevision: profile.launchRevision,
+    riskAcknowledged: profile.risk === 'standard' || riskAcknowledged,
+    capabilities,
     fallbackTitle,
     title: fallbackTitle,
     status: 'Starting…',
@@ -1018,22 +1362,34 @@ function createSession(
 function restoreSessions(
   records: readonly TerminalRecoverySession[],
   providers: readonly HarnessProviderDescriptor[],
+  profiles: readonly HarnessProfile[],
+  probes: readonly HarnessProfileProbe[],
   splitLayout: StoredTerminalSplitLayout,
   setSessions: (sessions: readonly TerminalSession[]) => void,
   setActiveId: (id: string | undefined) => void,
+  manualRiskAcknowledgment: boolean,
 ): void {
   const ordered = [...records].sort(
     (left, right) => left.position - right.position || left.updatedAt - right.updatedAt,
   )
   const sessions = ordered.flatMap<TerminalSession>((record) => {
     const provider = providerDescriptor(providers, record.providerId)
-    if (!provider) return []
-    const resumable =
-      provider.capabilities.exactResume && Boolean(record.harnessSessionId)
-    const hasHarnessIdentity = provider.capabilities.sessionIdentity !== 'none'
+    const profile = recoverableProfile(profiles, record)
+    if (!provider || !profile) return []
+    const capabilities =
+      profileProbe(probes, profile)?.capabilities ?? provider.capabilities
+    const resumable = capabilities.exactResume && Boolean(record.harnessSessionId)
+    const hasHarnessIdentity = capabilities.sessionIdentity !== 'none'
     return {
       id: record.id,
       providerId: record.providerId,
+      profileId: record.profileId,
+      launchRevision: record.launchRevision,
+      riskAcknowledged:
+        profile.risk === 'standard' ||
+        record.riskAcknowledgedRevision === record.launchRevision ||
+        manualRiskAcknowledgment,
+      capabilities,
       fallbackTitle: record.title,
       title: record.title,
       status: !hasHarnessIdentity
@@ -1065,11 +1421,112 @@ function providerDescriptor(
   return providers.find((provider) => provider.id === id)
 }
 
-function providerDisplayName(
-  providers: readonly HarnessProviderDescriptor[],
-  id: HarnessProviderId,
+function profileDisplayName(
+  profiles: readonly HarnessProfile[],
+  id: HarnessProfileId,
 ): string {
-  return providerDescriptor(providers, id)?.displayName ?? `Unavailable (${id})`
+  return profiles.find((profile) => profile.id === id)?.displayName ?? `Missing (${id})`
+}
+
+function profileRiskMarker(
+  profiles: readonly HarnessProfile[],
+  id: HarnessProfileId,
+): string {
+  const risk = profiles.find((profile) => profile.id === id)?.risk
+  return risk && risk !== 'standard' ? ` · ${riskLabel(risk)}` : ''
+}
+
+function riskLabel(risk: HarnessProfile['risk']): string {
+  return risk === 'elevated'
+    ? 'Elevated'
+    : risk === 'unclassified'
+      ? 'Unclassified'
+      : 'Standard'
+}
+
+function profileProbe(
+  probes: readonly HarnessProfileProbe[],
+  profile: HarnessProfile,
+): HarnessProfileProbe | undefined {
+  return probes.find(
+    (probe) =>
+      probe.profileId === profile.id && probe.launchRevision === profile.launchRevision,
+  )
+}
+
+function recoveryProbe(
+  probes: readonly HarnessProfileProbe[],
+  session: TerminalRecoverySession,
+): HarnessProfileProbe | undefined {
+  return probes.find(
+    (probe) =>
+      probe.providerId === session.providerId &&
+      probe.profileId === session.profileId &&
+      probe.launchRevision === session.launchRevision,
+  )
+}
+
+function probeLaunchUnavailable(probe: HarnessProfileProbe | undefined): boolean {
+  return (
+    probe?.status === 'executable-missing' ||
+    probe?.status === 'version-unsupported' ||
+    probe?.status === 'disconnected'
+  )
+}
+
+function probeLabel(probe: HarnessProfileProbe | undefined): string {
+  if (!probe) return 'Unchecked'
+  switch (probe.status) {
+    case 'available':
+      return probe.version ?? 'Available'
+    case 'executable-missing':
+      return 'Executable missing'
+    case 'version-unsupported':
+      return 'Version incompatible'
+    case 'capability-absent':
+      return 'Capability unavailable'
+    case 'authentication-required':
+      return 'Authentication needed'
+    case 'disconnected':
+      return 'Host disconnected'
+    case 'timeout':
+      return 'Probe timed out'
+    case 'malformed-output':
+      return 'Version unknown'
+    case 'probe-failed':
+      return 'Probe failed'
+    case 'unchecked':
+      return 'Unchecked'
+  }
+}
+
+function capabilityLabel(capabilities: HarnessProviderCapabilities | undefined): string {
+  if (!capabilities) return 'Launch status unknown'
+  if (capabilities.exactResume && capabilities.contextPresentation !== 'none') {
+    return 'Exact recovery + telemetry'
+  }
+  if (capabilities.exactResume) return 'Exact recovery'
+  if (capabilities.contextPresentation !== 'none') return 'Telemetry'
+  return 'Launch only'
+}
+
+function recoveryIssue(
+  session: TerminalRecoverySession,
+  provider: HarnessProviderDescriptor | undefined,
+  profiles: readonly HarnessProfile[],
+): string {
+  if (!provider) return `Provider '${session.providerId}' is missing`
+  const current = profiles.find((profile) => profile.id === session.profileId)
+  if (!current) return `Profile '${session.profileId}' is missing`
+  if (current.providerId !== session.providerId) return 'Profile provider changed'
+  if (current.launchRevision !== session.launchRevision) {
+    return `Launch revision changed (${session.launchRevision} → ${current.launchRevision})`
+  }
+  return 'Cannot restore'
+}
+
+function message(reason: unknown): string {
+  return reason instanceof Error ? reason.message : String(reason)
 }
 
 interface StoredTerminalSplitLayout {

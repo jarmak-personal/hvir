@@ -25,6 +25,35 @@ export interface HarnessProviderDescriptor {
   readonly displayName: string
   readonly default: boolean
   readonly capabilities: HarnessProviderCapabilities
+  readonly profileGuidance: {
+    readonly reservedArguments: readonly string[]
+    readonly riskClassification: 'best-effort'
+  }
+}
+
+export type HarnessProbeStatus =
+  | 'unchecked'
+  | 'available'
+  | 'executable-missing'
+  | 'version-unsupported'
+  | 'capability-absent'
+  | 'authentication-required'
+  | 'disconnected'
+  | 'timeout'
+  | 'malformed-output'
+  | 'probe-failed'
+
+export interface HarnessProfileProbe {
+  readonly providerId: HarnessProviderId
+  readonly profileId: import('./harness-profile').HarnessProfileId
+  readonly launchRevision: number
+  readonly hostId: import('./host-path').HostId
+  readonly status: HarnessProbeStatus
+  readonly checkedAt?: number
+  readonly expiresAt?: number
+  readonly version?: string
+  readonly detail?: string
+  readonly capabilities: HarnessProviderCapabilities
 }
 
 export function isHarnessProviderId(value: unknown): value is HarnessProviderId {

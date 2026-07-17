@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState, type ReactElement } from 'react'
 
 import type { AppTheme } from '../theme'
+import type { HostPath } from '../../../shared'
+import { HarnessProfilesSettings } from './HarnessProfilesSettings'
 import { keybindingOverridesJson, parseKeybindingOverrides } from './keybindings'
 import type { AppSettings } from './settings'
 
@@ -9,6 +11,9 @@ interface SettingsDialogProps {
   readonly settings: AppSettings
   readonly onSave: (theme: AppTheme, settings: AppSettings) => void
   readonly onClose: () => void
+  readonly workspaceRoot?: HostPath
+  readonly projectRoot?: HostPath
+  readonly initialSection?: 'general' | 'harnesses'
 }
 
 export function SettingsDialog({
@@ -16,6 +21,9 @@ export function SettingsDialog({
   settings,
   onSave,
   onClose,
+  workspaceRoot,
+  projectRoot,
+  initialSection = 'general',
 }: SettingsDialogProps): ReactElement {
   const dialog = useRef<HTMLElement>(null)
   const [nextTheme, setNextTheme] = useState(theme)
@@ -31,7 +39,15 @@ export function SettingsDialog({
   const [error, setError] = useState<string>()
 
   useEffect(() => {
-    const frame = requestAnimationFrame(() => dialog.current?.focus())
+    const frame = requestAnimationFrame(() => {
+      if (initialSection === 'harnesses') {
+        const heading = document.getElementById('settings-harnesses-title')
+        heading?.scrollIntoView({ block: 'start' })
+        heading?.focus()
+      } else {
+        dialog.current?.focus()
+      }
+    })
     const keydown = (event: KeyboardEvent): void => {
       if (event.key === 'Escape' && !(event.target instanceof HTMLTextAreaElement)) {
         onClose()
@@ -42,7 +58,7 @@ export function SettingsDialog({
       cancelAnimationFrame(frame)
       window.removeEventListener('keydown', keydown)
     }
-  }, [onClose])
+  }, [initialSection, onClose])
 
   const save = (): void => {
     try {
@@ -165,6 +181,10 @@ export function SettingsDialog({
             </small>
           </label>
         </div>
+        <HarnessProfilesSettings
+          workspaceRoot={workspaceRoot}
+          projectRoot={projectRoot}
+        />
         {error ? <p className="dialog-error">{error}</p> : null}
         <div className="dialog-actions">
           <button type="button" onClick={onClose}>
