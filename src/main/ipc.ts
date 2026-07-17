@@ -36,11 +36,12 @@ import {
   type OperationResult,
   type ConnectedHost,
   type BrowseHostResponse,
+  HARNESS_LAUNCH_TIMEOUT_MARKER,
 } from '../shared'
 import { harnessAdapter } from './harness/harness-adapter'
 import type { ProjectHost } from './project-host'
 import type { HtmlPreviewProtocol } from './html-preview-protocol'
-import type { PtySupervisor } from './pty/pty-supervisor'
+import { HarnessLaunchTimeoutError, type PtySupervisor } from './pty/pty-supervisor'
 import type { TerminalSessionStore } from './terminal/session-registry'
 import type { WorkerClient } from './worker-host'
 
@@ -462,17 +463,31 @@ export function registerIpcHandlers(deps: IpcDeps): void {
         throw new Error('Terminal resume is not authorized for this project')
       }
     }
-    const managed = await deps.ptySupervisor.spawn({
-      host,
-      adapter,
-      cwd,
-      ownerId: event.sender.id,
-      sessionId: req.sessionId,
-      harnessSessionId: req.resume ? req.harnessSessionId : undefined,
-      resume: req.resume,
-      cols,
-      rows,
-    })
+    let managed
+    try {
+      managed = await deps.ptySupervisor.spawn({
+        host,
+        adapter,
+        cwd,
+        ownerId: event.sender.id,
+        sessionId: req.sessionId,
+        harnessSessionId: req.resume ? req.harnessSessionId : undefined,
+        resume: req.resume,
+        cols,
+        rows,
+      })
+    } catch (error) {
+      // The supervisor's launch watchdog signals a hung harness with a bespoke
+      // error class, but the class/`.name` and any custom fields are erased by
+      // Electron IPC error marshalling. Re-throw with a stable message sentinel
+      // the renderer can detect (see HARNESS_LAUNCH_TIMEOUT_MARKER).
+      if (error instanceof HarnessLaunchTimeoutError) {
+        throw new Error(`${HARNESS_LAUNCH_TIMEOUT_MARKER}: ${error.message}`, {
+          cause: error,
+        })
+      }
+      throw error
+    }
     void deps.terminalSessions
       .recordSpawn({
         id: managed.id,

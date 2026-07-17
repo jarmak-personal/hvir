@@ -49,6 +49,30 @@ import { MAX_EXEC_STREAM_WRITE_BYTES } from './project-host'
 
 const DEFAULT_MAX_BUFFER = 10 * 1024 * 1024 // 10 MiB
 
+/**
+ * Bound on the atomic tmp-write + rename in `writeFile`. A healthy local write
+ * completes in milliseconds; a stuck one (e.g. a wedged network mount or a
+ * disk fault) must surface an error to the caller rather than hang its promise
+ * forever. Session persistence in particular runs on this path, and a hung
+ * persist previously left the whole app stuck with a dangling `.tmp` and no
+ * error. See [[launch-hang-harness-resume]].
+ */
+const WRITE_FILE_TIMEOUT_MS = 15_000
+
+/** Thrown when the atomic write+rename in `writeFile` exceeds its timeout. */
+export class WriteFileTimeoutError extends Error {
+  constructor(
+    readonly path: string,
+    readonly timeoutMs: number,
+  ) {
+    super(
+      `writing '${path}' did not complete within ${Math.round(timeoutMs / 1000)}s; ` +
+        'the target filesystem may be stuck or unavailable',
+    )
+    this.name = 'WriteFileTimeoutError'
+  }
+}
+
 export class LocalHost implements ProjectHost {
   readonly hostId: HostId = LOCAL_HOST_ID
   readonly connectionState: HostConnectionState = 'connected'
@@ -344,16 +368,34 @@ export class LocalHost implements ProjectHost {
       dirname(destination),
       `.${basename(destination)}.hvir-${randomUUID()}.tmp`,
     )
+    let timer: ReturnType<typeof setTimeout> | undefined
     try {
-      await fsp.writeFile(temporary, data, mode === undefined ? {} : { mode })
-      if (opts.expectedMtimeMs !== undefined) {
-        const current = await fsp.lstat(destination)
-        if (current.mtimeMs !== opts.expectedMtimeMs) throw fileChangedError()
-      }
-      await fsp.rename(temporary, destination)
+      await Promise.race([
+        (async () => {
+          await fsp.writeFile(temporary, data, mode === undefined ? {} : { mode })
+          if (opts.expectedMtimeMs !== undefined) {
+            const current = await fsp.lstat(destination)
+            if (current.mtimeMs !== opts.expectedMtimeMs) throw fileChangedError()
+          }
+          await fsp.rename(temporary, destination)
+        })(),
+        new Promise<never>((_resolve, reject) => {
+          timer = setTimeout(() => {
+            reject(new WriteFileTimeoutError(destination, WRITE_FILE_TIMEOUT_MS))
+          }, WRITE_FILE_TIMEOUT_MS)
+        }),
+      ])
     } catch (reason) {
+      if (reason instanceof WriteFileTimeoutError) {
+        log('local-host', 'write-timeout', {
+          path: destination,
+          timeoutMs: WRITE_FILE_TIMEOUT_MS,
+        })
+      }
       await fsp.unlink(temporary).catch(() => undefined)
       throw reason
+    } finally {
+      if (timer) clearTimeout(timer)
     }
   }
 

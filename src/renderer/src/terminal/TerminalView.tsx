@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState, type ReactElement } from 'react'
 
-import type {
-  HarnessTelemetry,
-  HostConnectionState,
-  HostPath,
-  TerminalAdapterId,
-  TerminalIdentityStatus,
+import {
+  isHarnessLaunchTimeoutError,
+  type HarnessTelemetry,
+  type HostConnectionState,
+  type HostPath,
+  type TerminalAdapterId,
+  type TerminalIdentityStatus,
 } from '../../../shared'
 import { createGhosttyTerminalPane } from './ghostty-terminal-pane'
 import { SynchronizedOutputWriter } from './synchronized-output'
@@ -100,6 +101,12 @@ export function TerminalView({
   const [status, setStatus] = useState('Starting…')
   const [exited, setExited] = useState(false)
   const [restartGeneration, setRestartGeneration] = useState(0)
+  // Once a harness resume trips the launch watchdog, retrying the same resume
+  // just loops on the same hang. Latch that so the recovery button starts a
+  // fresh session (resume: false) and reads "Restart" instead of "Resume".
+  const [resumeFailed, setResumeFailed] = useState(false)
+  const resumeFailedRef = useRef(false)
+  resumeFailedRef.current = resumeFailed
   const launchMetadataRef = useRef({
     harnessSessionId,
     resumeOnStart,
@@ -191,6 +198,7 @@ export function TerminalView({
         handlersRef.current.onIdentity(identifiedId, identityStatus)
       },
     )
+    let resume = false
     void (async () => {
       try {
         // ghostty-web 0.4 cannot recolor cells already in the VT buffer. Keep one
@@ -240,9 +248,10 @@ export function TerminalView({
         if (isReconnect && adapterId !== 'plain-shell' && !metadata.harnessSessionId) {
           throw new Error('Exact harness session id unavailable; start a new terminal')
         }
-        const resume =
+        resume =
           adapterId !== 'plain-shell' &&
           Boolean(metadata.harnessSessionId) &&
+          !resumeFailedRef.current &&
           (metadata.resumeOnStart || isReconnect || isManualRestart)
         const result = await window.hvir.invoke('pty:start', {
           sessionId,
@@ -283,7 +292,18 @@ export function TerminalView({
         }
       } catch (error) {
         if (!cancelled) {
-          setStatus(error instanceof Error ? error.message : String(error))
+          if (resume && isHarnessLaunchTimeoutError(error)) {
+            // A resume that hung on the watchdog. Name what happened plainly and
+            // arm a fresh start so the recovery button no longer loops on the
+            // doomed resume; we never silently downgrade to a plain shell.
+            setResumeFailed(true)
+            setStatus(
+              `Couldn't resume ${launchMetadataRef.current.title}: no response in 18s ` +
+                '(it may be waiting on sign-in or an update). Restart to open a fresh terminal.',
+            )
+          } else {
+            setStatus(error instanceof Error ? error.message : String(error))
+          }
           setExited(true)
         }
       }
@@ -326,13 +346,13 @@ export function TerminalView({
         <button
           type="button"
           className="terminal-restart"
-          aria-label={`${adapterId !== 'plain-shell' && harnessSessionId ? 'Resume' : 'Restart'} ${title}`}
+          aria-label={`${recoveryLabel(adapterId, harnessSessionId, resumeFailed)} ${title}`}
           onClick={() => {
             restartRequestedRef.current = true
             setRestartGeneration((generation) => generation + 1)
           }}
         >
-          {adapterId !== 'plain-shell' && harnessSessionId ? 'Resume' : 'Restart'}
+          {recoveryLabel(adapterId, harnessSessionId, resumeFailed)}
         </button>
       ) : null}
       <div
@@ -344,6 +364,21 @@ export function TerminalView({
       />
     </section>
   )
+}
+
+/**
+ * Label for the post-exit recovery button. A harness session with a known id
+ * offers "Resume" — unless a prior resume tripped the launch watchdog, after
+ * which resuming is doomed and the button starts a fresh session ("Restart").
+ */
+function recoveryLabel(
+  adapterId: TerminalAdapterId,
+  harnessSessionId: string | undefined,
+  resumeFailed: boolean,
+): 'Resume' | 'Restart' {
+  return adapterId !== 'plain-shell' && Boolean(harnessSessionId) && !resumeFailed
+    ? 'Resume'
+    : 'Restart'
 }
 
 function baseTerminalTheme(): TerminalColorTheme {

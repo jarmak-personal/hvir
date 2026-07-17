@@ -13,9 +13,19 @@ import type {
   PtyProcess,
   SpawnPtyOptions,
 } from '../src/main/project-host'
-import { PtySupervisor, type ManagedPty } from '../src/main/pty/pty-supervisor'
+import {
+  HarnessLaunchTimeoutError,
+  PtySupervisor,
+  type ManagedPty,
+} from '../src/main/pty/pty-supervisor'
 import { SshHost } from '../src/main/project-host'
-import { LOCAL_HOST_ID, hostPath, localPath } from '../src/shared'
+import {
+  HARNESS_LAUNCH_TIMEOUT_MARKER,
+  LOCAL_HOST_ID,
+  hostPath,
+  isHarnessLaunchTimeoutError,
+  localPath,
+} from '../src/shared'
 
 const OWNER_ID = 17
 
@@ -832,5 +842,72 @@ describe('PtySupervisor', () => {
     expect(spawnPty).toHaveBeenCalledWith(
       expect.objectContaining({ args: ['resume', 'exact-harness-id'] }),
     )
+  })
+
+  it('kills and reports a shellEnvironment launch that never produces output', async () => {
+    const { supervisor, pty, host, adapter } = fixture()
+    Object.assign(adapter, {
+      resume: () => ({
+        file: 'test-harness',
+        args: ['resume', 'exact-harness-id'],
+        shellEnvironment: true,
+      }),
+    })
+
+    vi.useFakeTimers()
+    try {
+      const spawned = supervisor.spawn({
+        host,
+        adapter,
+        cwd: localPath('/tmp/project'),
+        ownerId: OWNER_ID,
+        sessionId: 'hung-resume',
+        harnessSessionId: 'exact-harness-id',
+        resume: true,
+      })
+      const settled = spawned.then(
+        () => ({ ok: true }) as const,
+        (error: unknown) => ({ ok: false, error }) as const,
+      )
+      // Drive the 18s no-output watchdog: never emit data, never exit.
+      await vi.advanceTimersByTimeAsync(18_000)
+      const outcome = await settled
+      expect(outcome.ok).toBe(false)
+      if (outcome.ok) throw new Error('expected the hung launch to reject')
+      expect(outcome.error).toMatchObject({
+        name: 'HarnessLaunchTimeoutError',
+        adapterId: 'test',
+        timeoutMs: 18_000,
+      })
+      expect(pty.kill).toHaveBeenCalled()
+      // The hung session must not linger in the registry.
+      expect(supervisor.get('hung-resume')).toBeUndefined()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+})
+
+describe('harness launch-timeout IPC signal', () => {
+  it('detects the sentinel across the main→renderer error round trip', () => {
+    // The supervisor throws HarnessLaunchTimeoutError; the ipc boundary rewraps
+    // it with the marker; Electron's invoke wraps THAT again on the renderer.
+    // Only the message text survives, so detection must key off the marker.
+    const thrown = new HarnessLaunchTimeoutError('claude-code', 18_000)
+    const atIpcBoundary = new Error(`${HARNESS_LAUNCH_TIMEOUT_MARKER}: ${thrown.message}`)
+    const atRenderer = new Error(
+      `Error invoking remote method 'pty:start': Error: ${atIpcBoundary.message}`,
+    )
+
+    expect(isHarnessLaunchTimeoutError(atRenderer)).toBe(true)
+    expect(isHarnessLaunchTimeoutError(atIpcBoundary)).toBe(true)
+    expect(isHarnessLaunchTimeoutError(HARNESS_LAUNCH_TIMEOUT_MARKER)).toBe(true)
+  })
+
+  it('does not flag unrelated launch failures', () => {
+    expect(isHarnessLaunchTimeoutError(new Error('Terminal resume is not authorized'))).toBe(
+      false,
+    )
+    expect(isHarnessLaunchTimeoutError(undefined)).toBe(false)
   })
 })

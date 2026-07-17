@@ -202,6 +202,26 @@ export interface StartPtyResponse {
 export type TerminalIdentityStatus =
   'none' | 'discovering' | 'identified' | 'ambiguous' | 'unavailable'
 
+/**
+ * Stable sentinel embedded in a `pty:start` rejection message when a harness
+ * launch/resume tripped the supervisor's no-output watchdog.
+ *
+ * Errors thrown in the main process and returned by `ipcRenderer.invoke` do
+ * NOT arrive at the renderer as their original class: Electron serializes only
+ * an error's `name`/`message`/`stack`, drops custom own-properties (a `.code`
+ * field would be lost), and the renderer rethrows a fresh `Error` whose message
+ * is the original wrapped as `Error invoking remote method 'pty:start': ...`.
+ * The one part that reliably survives that round trip is the message text, so a
+ * fixed token inside the message is the dependable cross-process signal.
+ */
+export const HARNESS_LAUNCH_TIMEOUT_MARKER = 'HARNESS_LAUNCH_TIMEOUT'
+
+/** True when `error` carries the harness launch-timeout sentinel (see above). */
+export function isHarnessLaunchTimeoutError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error)
+  return message.includes(HARNESS_LAUNCH_TIMEOUT_MARKER)
+}
+
 export interface TerminalRecoverySession {
   readonly id: string
   readonly adapterId: TerminalAdapterId
