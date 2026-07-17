@@ -13,13 +13,14 @@
 
 import { spawn } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
-import { realpathSync } from 'node:fs'
+import { constants, realpathSync } from 'node:fs'
 import { promises as fsp } from 'node:fs'
 import { basename, dirname, join, relative, sep } from 'node:path'
 import { StringDecoder } from 'node:string_decoder'
 import chokidar from 'chokidar'
 
 import { hostPath, LOCAL_HOST_ID } from '../../shared'
+import { log } from '../logger'
 import type {
   DirEntry,
   ExecResult,
@@ -71,11 +72,21 @@ export class LocalHost implements ProjectHost {
     await Promise.all(closing.map((result) => Promise.resolve(result)))
   }
 
-  defaultShell(): Promise<string> {
-    return Promise.resolve(
-      process.env.SHELL ??
-        (process.platform === 'win32' ? 'powershell.exe' : '/bin/bash'),
+  async defaultShell(): Promise<string> {
+    if (process.platform === 'win32') return 'powershell.exe'
+    const fallback = '/bin/bash'
+    const candidate = process.env.SHELL
+    if (!candidate) return fallback
+    if (await isExecutableFile(candidate)) return candidate
+    // $SHELL can point at a path that no longer exists (a removed custom
+    // shell, a stale env var inherited across a reinstall, etc). Trusting it
+    // blindly hands node-pty a spawn that fails or misbehaves in ways that
+    // are invisible to the user; fall back to a shell known to exist instead.
+    log('host', 'default-shell-fallback', { candidate, fallback })
+    console.warn(
+      `[host] $SHELL '${candidate}' is not an executable file; falling back to ${fallback}`,
     )
+    return fallback
   }
 
   exec(
@@ -462,6 +473,17 @@ export class LocalHost implements ProjectHost {
   /** Re-qualify a raw local path back into a HostPath. */
   private wrap(rawPath: string): HostPath {
     return hostPath(this.hostId, rawPath)
+  }
+}
+
+async function isExecutableFile(path: string): Promise<boolean> {
+  try {
+    const info = await fsp.stat(path)
+    if (!info.isFile()) return false
+    await fsp.access(path, constants.X_OK)
+    return true
+  } catch {
+    return false
   }
 }
 

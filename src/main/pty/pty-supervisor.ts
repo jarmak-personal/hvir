@@ -18,6 +18,7 @@ import type {
 } from '../../shared'
 import type { Disposer, ProjectHost, PtyExit, PtyProcess } from '../project-host'
 import type { HarnessAdapter, HarnessSessionDiscovery } from '../harness/harness-adapter'
+import { log } from '../logger'
 
 export interface PtySpawnRequest {
   readonly host: ProjectHost
@@ -96,6 +97,30 @@ interface PendingPtyExit {
 
 const MAX_INITIAL_REPLAY_LENGTH = 256 * 1024
 
+/**
+ * Bound on how long an interactive-shell launch (`spec.shellEnvironment`,
+ * used by every harness adapter's `-ic exec ...` wrapper) may sit producing
+ * no output and not exiting before it is treated as hung. A plain shell with
+ * no command to exec into is exempt — an empty, idle terminal tab waiting
+ * for keystrokes is correct behavior, not a hang.
+ */
+const SHELL_LAUNCH_TIMEOUT_MS = 18_000
+
+/** Thrown when a `shellEnvironment` launch produces no output/exit in time. */
+export class HarnessLaunchTimeoutError extends Error {
+  constructor(
+    readonly adapterId: string,
+    readonly timeoutMs: number,
+  ) {
+    super(
+      `'${adapterId}' produced no output within ${Math.round(timeoutMs / 1000)}s of ` +
+        'launching; it may be stuck waiting on auth, an update check, or a prompt ' +
+        'that needs an interactive terminal',
+    )
+    this.name = 'HarnessLaunchTimeoutError'
+  }
+}
+
 export class PtySupervisor {
   private readonly entries = new Map<string, Entry>()
   private readonly pendingIds = new Map<string, PendingEntry>()
@@ -142,6 +167,7 @@ export class PtySupervisor {
     let releaseDiscoveryLaunch: Disposer | undefined
     let pty: PtyProcess
     let launchedAtMs: number
+    let shellEnvironment: boolean
     try {
       if (discovery) {
         releaseDiscoveryLaunch = await this.reserveDiscoveryLaunch(
@@ -171,10 +197,18 @@ export class PtySupervisor {
         defaultShell,
       }
       const spec = resumed ? req.adapter.resume(ctx) : req.adapter.launch(ctx)
-      const launch = spec.shellEnvironment
+      shellEnvironment = spec.shellEnvironment === true
+      const launch = shellEnvironment
         ? interactiveShellLaunch(defaultShell, spec.file, spec.args)
         : spec
       launchedAtMs = Date.now()
+      log('pty', 'spawning', {
+        sessionId,
+        adapterId: req.adapter.id,
+        resumed,
+        shellEnvironment,
+        file: launch.file,
+      })
       pty = await req.host.spawnPty({
         file: launch.file,
         args: launch.args,
@@ -194,6 +228,12 @@ export class PtySupervisor {
       releaseDiscoveryLaunch = undefined
     } catch (error) {
       void releaseDiscoveryLaunch?.()
+      log('pty', 'spawn-failed', {
+        sessionId,
+        adapterId: req.adapter.id,
+        resumed,
+        error: error instanceof Error ? error.message : String(error),
+      })
       throw error
     } finally {
       if (this.pendingIds.get(sessionId)?.token === pending.token) {
@@ -265,6 +305,26 @@ export class PtySupervisor {
       }),
     )
 
+    if (shellEnvironment) {
+      const outcome = await raceFirstOutputOrExit(pty, SHELL_LAUNCH_TIMEOUT_MS)
+      if (outcome === 'timeout' && !entry.exited) {
+        log('pty', 'launch-timeout', {
+          sessionId,
+          adapterId: req.adapter.id,
+          resumed,
+          timeoutMs: SHELL_LAUNCH_TIMEOUT_MS,
+        })
+        for (const dispose of entry.disposers) void dispose()
+        entry.dataListeners.clear()
+        entry.exitListeners.clear()
+        entry.telemetryListeners.clear()
+        if (this.entries.get(sessionId) === entry) this.entries.delete(sessionId)
+        if (!entry.exited) pty.kill()
+        throw new HarnessLaunchTimeoutError(req.adapter.id, SHELL_LAUNCH_TIMEOUT_MS)
+      }
+      log('pty', 'launch-alive', { sessionId, adapterId: req.adapter.id, resumed, outcome })
+    }
+
     if (discovery && discoveryReady) {
       const controller = new AbortController()
       this.discoveryControllers.add(controller)
@@ -293,6 +353,7 @@ export class PtySupervisor {
       this.startTelemetry(entry, req.host, req.adapter, harnessSessionId)
     }
 
+    log('pty', 'spawned', { sessionId, adapterId: req.adapter.id, resumed, pid: pty.pid })
     return info
   }
 
@@ -621,6 +682,35 @@ export class PtySupervisor {
         },
       )
   }
+}
+
+/**
+ * Wait for whichever comes first out of the PTY's first output chunk, its
+ * exit, or a bounded timeout. Used to detect a `shellEnvironment` launch
+ * (harness `-ic exec ...` wrapper) that never produces anything and never
+ * exits — the "sitting at an interactive prompt instead of running the
+ * intended command" failure mode this watchdog exists to catch.
+ */
+function raceFirstOutputOrExit(
+  pty: PtyProcess,
+  timeoutMs: number,
+): Promise<'data' | 'exit' | 'timeout'> {
+  return new Promise((resolve) => {
+    let settled = false
+    let disposeData: Disposer = () => undefined
+    let disposeExit: Disposer = () => undefined
+    const finish = (outcome: 'data' | 'exit' | 'timeout'): void => {
+      if (settled) return
+      settled = true
+      void disposeData()
+      void disposeExit()
+      clearTimeout(timer)
+      resolve(outcome)
+    }
+    disposeData = pty.onData(() => finish('data'))
+    disposeExit = pty.onExit(() => finish('exit'))
+    const timer = setTimeout(() => finish('timeout'), timeoutMs)
+  })
 }
 
 function interactiveShellLaunch(

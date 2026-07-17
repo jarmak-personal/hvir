@@ -7,6 +7,7 @@ import {
   type TerminalRecoverySession,
 } from '../../shared'
 import type { ProjectHost } from '../project-host'
+import { log } from '../logger'
 
 const FILE_VERSION = 1
 const TERMINAL_ID = /^[a-zA-Z0-9-]{1,80}$/
@@ -91,9 +92,18 @@ export class TerminalSessionRegistry implements TerminalSessionStore {
             .filter((session): session is StoredTerminalSession => Boolean(session))
         }
       }
-    } catch {
+    } catch (error) {
+      // A missing file (first run) is normal; log everything else so a
+      // corrupt terminal-sessions.json is diagnosable instead of silently
+      // dropping every session to restore.
+      if ((error as NodeJS.ErrnoException)?.code !== 'ENOENT') {
+        log('terminal', 'session-store-load-failed', {
+          error: error instanceof Error ? error.message : String(error),
+        })
+      }
       sessions = []
     }
+    log('terminal', 'session-store-loaded', { restored: sessions.length })
     return new TerminalSessionRegistry(host, file, sessions)
   }
 
@@ -212,6 +222,12 @@ export class TerminalSessionRegistry implements TerminalSessionStore {
     const write = this.pendingWrite
       .catch(() => undefined)
       .then(() => this.host.writeFile(this.file, JSON.stringify(snapshot, null, 2)))
+      .catch((error: unknown) => {
+        log('terminal', 'session-store-persist-failed', {
+          error: error instanceof Error ? error.message : String(error),
+        })
+        throw error
+      })
     this.pendingWrite = write
     return write
   }

@@ -20,6 +20,7 @@ import { ProjectRegistry, RendererSshPrompter } from './project-registry'
 import { PtySupervisor } from './pty/pty-supervisor'
 import { isSafeExternalUrl, isWorkbenchDocument } from './navigation-policy'
 import { AttentionBadge } from './attention-badge'
+import { log } from './logger'
 import {
   TerminalSessionRegistry,
   type TerminalSessionStore,
@@ -205,6 +206,7 @@ function createWindow(
 }
 
 async function startup(): Promise<void> {
+  log('startup', 'begin', { version: app.getVersion(), platform: process.platform })
   const emit = <E extends IpcEventChannel>(
     channel: E,
     payload: IpcEventPayload<E>,
@@ -433,6 +435,7 @@ async function startup(): Promise<void> {
     }
   }, 5_000)
   createWindow()
+  log('startup', 'ready')
 
   app.on('activate', () => {
     // macOS: re-open a window when the dock icon is clicked and none are open.
@@ -3307,6 +3310,9 @@ void app
   })
   .catch((error: unknown) => {
     console.error('HVIR_STARTUP_FAIL', error)
+    log('startup', 'HVIR_STARTUP_FAIL', {
+      error: error instanceof Error ? (error.stack ?? error.message) : String(error),
+    })
     app.exit(1)
   })
 

@@ -101,7 +101,7 @@ describe('PtySupervisor', () => {
   })
 
   it('launches harness commands through the interactive shell environment', async () => {
-    const { supervisor, host, adapter, spawnPty } = fixture()
+    const { supervisor, pty, host, adapter, spawnPty } = fixture()
     Object.assign(adapter, {
       launch: () => ({
         file: 'test-harness',
@@ -111,13 +111,21 @@ describe('PtySupervisor', () => {
       }),
     })
 
-    await supervisor.spawn({
+    const spawned = supervisor.spawn({
       host,
       adapter,
       cwd: localPath('/tmp/project'),
       ownerId: OWNER_ID,
       sessionId: 'shell-environment',
     })
+    // A `shellEnvironment` launch is held open until the shell produces its
+    // first output (or exits) — see the launch watchdog in pty-supervisor.ts.
+    // Wait for it to start listening, then simulate the harness starting up.
+    await vi.waitFor(() => {
+      expect(pty.dataListeners.size).toBeGreaterThan(0)
+    })
+    pty.emitData('ready\n')
+    await spawned
 
     expect(spawnPty).toHaveBeenCalledWith(
       expect.objectContaining({
