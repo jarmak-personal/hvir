@@ -160,6 +160,8 @@ describe('harness launch composition', () => {
     const baseline = await resolve(created, 'fresh')
     const irrelevant = await store.save({
       id: created.id,
+      expectedLaunchRevision: created.launchRevision,
+      expectedMetadataRevision: created.metadataRevision,
       input: {
         ...created,
         environment: [{ kind: 'literal', name: 'UNRELATED', value: 'one' }],
@@ -170,6 +172,8 @@ describe('harness launch composition', () => {
 
     const relevant = await store.save({
       id: irrelevant.id,
+      expectedLaunchRevision: irrelevant.launchRevision,
+      expectedMetadataRevision: irrelevant.metadataRevision,
       input: {
         ...irrelevant,
         environment: [

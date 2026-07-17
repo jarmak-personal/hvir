@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { HarnessProfileStore } from '../src/main/harness/harness-profile-store'
 import { LocalHost } from '../src/main/project-host/local-host'
@@ -56,6 +56,7 @@ describe('HarnessProfileStore', () => {
     const created = await store.save({ input: input() })
     const renamed = await store.save({
       id: created.id,
+      expectedLaunchRevision: created.launchRevision,
       expectedMetadataRevision: created.metadataRevision,
       input: { ...created, displayName: 'Renamed', order: 5 },
     })
@@ -64,6 +65,7 @@ describe('HarnessProfileStore', () => {
 
     const launchChanged = await store.save({
       id: renamed.id,
+      expectedLaunchRevision: renamed.launchRevision,
       expectedMetadataRevision: renamed.metadataRevision,
       input: {
         ...renamed,
@@ -72,6 +74,97 @@ describe('HarnessProfileStore', () => {
     })
     expect(launchChanged.launchRevision).toBe(created.launchRevision + 1)
     expect(launchChanged.metadataRevision).toBe(renamed.metadataRevision)
+  })
+
+  it('rejects stale launch edits even when metadata did not change', async () => {
+    const created = await store.save({ input: input() })
+    const firstEditor = await store.save({
+      id: created.id,
+      expectedLaunchRevision: created.launchRevision,
+      expectedMetadataRevision: created.metadataRevision,
+      input: { ...created, args: [literal('--add-dir'), literal('/first')] },
+    })
+    expect(firstEditor.metadataRevision).toBe(created.metadataRevision)
+
+    expect(() =>
+      store.save({
+        id: created.id,
+        expectedLaunchRevision: created.launchRevision,
+        expectedMetadataRevision: created.metadataRevision,
+        input: { ...created, args: [literal('--add-dir'), literal('/second')] },
+      }),
+    ).toThrow(/launch settings changed/)
+    expect(store.get(created.id)).toEqual(firstEditor)
+  })
+
+  it('persists risk acknowledgment per launch revision and clears it on launch edits', async () => {
+    const created = await store.save({
+      input: input({ args: [literal('--model'), literal('o3')] }),
+    })
+    expect(created.risk).toBe('unclassified')
+    const acknowledged = await store.acknowledgeRisk(created.id, created.launchRevision)
+    expect(acknowledged.riskAcknowledgedRevision).toBe(created.launchRevision)
+    await store.flush()
+    const restored = await HarnessProfileStore.load(
+      host,
+      localPath(join(directory, 'profiles.json')),
+    )
+    expect(restored.get(created.id)?.riskAcknowledgedRevision).toBe(
+      created.launchRevision,
+    )
+
+    const renamed = await store.save({
+      id: acknowledged.id,
+      expectedLaunchRevision: acknowledged.launchRevision,
+      expectedMetadataRevision: acknowledged.metadataRevision,
+      input: { ...acknowledged, displayName: 'Remembered acknowledgment' },
+    })
+    expect(renamed.riskAcknowledgedRevision).toBe(renamed.launchRevision)
+
+    const launchChanged = await store.save({
+      id: renamed.id,
+      expectedLaunchRevision: renamed.launchRevision,
+      expectedMetadataRevision: renamed.metadataRevision,
+      input: { ...renamed, args: [literal('--model'), literal('o4')] },
+    })
+    expect(launchChanged.riskAcknowledgedRevision).toBeUndefined()
+
+    expect(() => store.acknowledgeRisk(launchChanged.id, renamed.launchRevision)).toThrow(
+      /configuration changed/,
+    )
+  })
+
+  it('does not recreate a concurrently deleted profile', async () => {
+    const created = await store.save({ input: input() })
+    await store.delete(created.id)
+    expect(() =>
+      store.save({
+        id: created.id,
+        expectedLaunchRevision: created.launchRevision,
+        expectedMetadataRevision: created.metadataRevision,
+        input: { ...created, displayName: 'Stale editor' },
+      }),
+    ).toThrow(/was deleted/)
+  })
+
+  it('rolls memory back when a profile save or delete write fails', async () => {
+    const write = vi
+      .spyOn(host, 'writeFile')
+      .mockRejectedValueOnce(new Error('disk full'))
+    const saving = store.save({ input: input({ displayName: 'Must not survive' }) })
+    await expect(saving).rejects.toThrow(/disk full/)
+    expect(
+      store.list().some(({ displayName }) => displayName === 'Must not survive'),
+    ).toBe(false)
+    write.mockRestore()
+
+    const existing = await store.save({ input: input({ displayName: 'Keep me' }) })
+    const deleteWrite = vi
+      .spyOn(host, 'writeFile')
+      .mockRejectedValueOnce(new Error('read only'))
+    await expect(store.delete(existing.id)).rejects.toThrow(/read only/)
+    expect(store.get(existing.id)).toEqual(existing)
+    deleteWrite.mockRestore()
   })
 
   it('persists, duplicates, and deletes user profiles atomically', async () => {
@@ -136,6 +229,22 @@ describe('HarnessProfileStore', () => {
     })
     expect(codex.risk).toBe('elevated')
 
+    const geminiAutoEdit = await store.save({
+      input: input({
+        providerId: asHarnessProviderId('gemini-cli'),
+        args: [literal('--approval-mode'), literal('auto_edit')],
+      }),
+    })
+    expect(geminiAutoEdit.risk).toBe('elevated')
+
+    const geminiUnknownApproval = await store.save({
+      input: input({
+        providerId: asHarnessProviderId('gemini-cli'),
+        args: [literal('--approval-mode=preview')],
+      }),
+    })
+    expect(geminiUnknownApproval.risk).toBe('unclassified')
+
     expect(() =>
       store.save({
         input: input({
@@ -178,6 +287,7 @@ describe('HarnessProfileStore', () => {
     const created = await store.save({ input: input() })
     const unchanged = await store.save({
       id: created.id,
+      expectedLaunchRevision: created.launchRevision,
       expectedMetadataRevision: created.metadataRevision,
       input: created,
     })

@@ -209,6 +209,29 @@ describe('PtySupervisor', () => {
     expect(supervisor.get('unsupported-option')).toBeUndefined()
   })
 
+  it('does not classify old terminal output as a launch failure', async () => {
+    let now = 1_000
+    const clock = vi.spyOn(Date, 'now').mockImplementation(() => now)
+    const { supervisor, pty, host, provider } = fixture()
+    const onClassifiedLaunchFailure = vi.fn()
+    try {
+      await supervisor.spawn({
+        host,
+        provider,
+        cwd: localPath('/tmp/project'),
+        ownerId: OWNER_ID,
+        sessionId: 'long-running-terminal',
+        onClassifiedLaunchFailure,
+      })
+      pty.emitData('earlier command output: unknown option\r\n')
+      now += 30_001
+      pty.emitExit({ exitCode: 2, signal: undefined })
+      expect(onClassifiedLaunchFailure).not.toHaveBeenCalled()
+    } finally {
+      clock.mockRestore()
+    }
+  })
+
   it('is the lifecycle and stream boundary for a spawned PTY', async () => {
     const { supervisor, pty, host, provider, spawnPty } = fixture()
     const info = await supervisor.spawn({

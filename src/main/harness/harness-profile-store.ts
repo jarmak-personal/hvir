@@ -45,6 +45,7 @@ interface StoredFile {
 
 export interface SaveHarnessProfile {
   readonly id?: HarnessProfileId
+  readonly expectedLaunchRevision?: number
   readonly expectedMetadataRevision?: number
   readonly input: HarnessProfileInput
 }
@@ -54,6 +55,7 @@ export interface HarnessProfileStoreContract {
   get(id: HarnessProfileId): HarnessProfile | undefined
   prepare(request: SaveHarnessProfile): HarnessProfile
   save(request: SaveHarnessProfile): Promise<HarnessProfile>
+  acknowledgeRisk(id: HarnessProfileId, launchRevision: number): Promise<HarnessProfile>
   duplicate(id: HarnessProfileId): Promise<HarnessProfile>
   delete(id: HarnessProfileId): Promise<void>
   authorizePath(path: HostPath): Promise<HarnessPathGrant>
@@ -140,8 +142,25 @@ export class HarnessProfileStore implements HarnessProfileStoreContract {
 
   save(request: SaveHarnessProfile): Promise<HarnessProfile> {
     const profile = this.prepare(request)
+    if (
+      request.id &&
+      (request.expectedLaunchRevision === undefined ||
+        request.expectedMetadataRevision === undefined)
+    ) {
+      throw new Error('Editing a harness profile requires both expected revisions')
+    }
+    const previous = this.userProfiles.get(profile.id)
     this.userProfiles.set(profile.id, profile)
-    return this.persist().then(() => profile)
+    return this.persist().then(
+      () => profile,
+      (reason) => {
+        if (this.userProfiles.get(profile.id) === profile) {
+          if (previous) this.userProfiles.set(profile.id, previous)
+          else this.userProfiles.delete(profile.id)
+        }
+        throw reason
+      },
+    )
   }
 
   prepare(request: SaveHarnessProfile): HarnessProfile {
@@ -155,6 +174,9 @@ export class HarnessProfileStore implements HarnessProfileStoreContract {
     const provider = harnessProvider(input.providerId)
     validateProviderProfile(provider, input)
     const current = request.id ? this.get(request.id) : undefined
+    if (request.id && !current) {
+      throw new Error('Harness profile was deleted while it was being edited')
+    }
     if (current?.builtIn) throw new Error('Built-in harness profiles are immutable')
     if (
       current &&
@@ -162,6 +184,13 @@ export class HarnessProfileStore implements HarnessProfileStoreContract {
       current.metadataRevision !== request.expectedMetadataRevision
     ) {
       throw new Error('Harness profile changed while it was being edited')
+    }
+    if (
+      current &&
+      request.expectedLaunchRevision !== undefined &&
+      current.launchRevision !== request.expectedLaunchRevision
+    ) {
+      throw new Error('Harness profile launch settings changed while it was being edited')
     }
     const id = current?.id ?? asHarnessProfileId(randomUUID())
     const launchChanged =
@@ -184,8 +213,37 @@ export class HarnessProfileStore implements HarnessProfileStoreContract {
         current === undefined ? 1 : current.launchRevision + (launchChanged ? 1 : 0),
       metadataRevision:
         current === undefined ? 1 : current.metadataRevision + (metadataChanged ? 1 : 0),
+      riskAcknowledgedRevision: launchChanged
+        ? undefined
+        : current?.riskAcknowledgedRevision,
     }
     return profile
+  }
+
+  acknowledgeRisk(id: HarnessProfileId, launchRevision: number): Promise<HarnessProfile> {
+    const current = this.get(id)
+    if (!current) throw new Error(`Unknown harness profile '${id}'`)
+    if (current.launchRevision !== launchRevision) {
+      throw new Error('Harness profile launch configuration changed')
+    }
+    if (
+      current.risk === 'standard' ||
+      current.riskAcknowledgedRevision === launchRevision
+    ) {
+      return Promise.resolve(current)
+    }
+    if (current.builtIn) {
+      throw new Error('Built-in harness profile risk cannot be acknowledged')
+    }
+    const acknowledged = { ...current, riskAcknowledgedRevision: launchRevision }
+    this.userProfiles.set(id, acknowledged)
+    return this.persist().then(
+      () => acknowledged,
+      (reason) => {
+        if (this.userProfiles.get(id) === acknowledged) this.userProfiles.set(id, current)
+        throw reason
+      },
+    )
   }
 
   duplicate(id: HarnessProfileId): Promise<HarnessProfile> {
@@ -209,8 +267,12 @@ export class HarnessProfileStore implements HarnessProfileStoreContract {
   delete(id: HarnessProfileId): Promise<void> {
     const current = this.get(id)
     if (current?.builtIn) throw new Error('Built-in harness profiles cannot be deleted')
-    if (!this.userProfiles.delete(id)) return Promise.resolve()
-    return this.persist()
+    const deleted = this.userProfiles.get(id)
+    if (!deleted || !this.userProfiles.delete(id)) return Promise.resolve()
+    return this.persist().catch((reason) => {
+      if (!this.userProfiles.has(id)) this.userProfiles.set(id, deleted)
+      throw reason
+    })
   }
 
   authorizePath(path: HostPath): Promise<HarnessPathGrant> {
@@ -413,6 +475,7 @@ function refreshProviderContract(profile: HarnessProfile): HarnessProfile {
     providerContractVersion: provider.profile.version,
     risk,
     launchRevision: profile.launchRevision + 1,
+    riskAcknowledgedRevision: undefined,
   }
 }
 
@@ -459,10 +522,13 @@ function parseStoredProfile(value: unknown): HarnessProfile | undefined {
     const metadataRevision = positiveInteger(value['metadataRevision'])
     const providerContractVersion = positiveInteger(value['providerContractVersion'])
     const risk = value['risk']
+    const riskAcknowledgedRevision = positiveInteger(value['riskAcknowledgedRevision'])
     if (
       launchRevision === undefined ||
       metadataRevision === undefined ||
       providerContractVersion === undefined ||
+      (value['riskAcknowledgedRevision'] !== undefined &&
+        riskAcknowledgedRevision === undefined) ||
       (risk !== 'standard' && risk !== 'elevated' && risk !== 'unclassified')
     ) {
       return undefined
@@ -475,6 +541,7 @@ function parseStoredProfile(value: unknown): HarnessProfile | undefined {
       providerContractVersion,
       builtIn: false,
       risk,
+      riskAcknowledgedRevision,
     }
   } catch {
     return undefined

@@ -12,7 +12,7 @@ export const githubCopilotProvider: HarnessProvider = {
     contextPresentation: 'none',
   },
   profile: {
-    version: 1,
+    version: 2,
     defaultProfile: {
       id: asHarnessProfileId('github-copilot-cli-default'),
       displayName: 'GitHub Copilot CLI',
@@ -30,23 +30,13 @@ export const githubCopilotProvider: HarnessProvider = {
   supportsResume: false,
   sessionIdentity: 'none',
   probe: versionProbe(),
-  launch: (ctx) => ({
+  launch: () => ({
     file: 'copilot',
-    args:
-      ctx.effectiveCapabilities?.sessionIdentity === 'preassigned'
-        ? ['--session-id', ctx.sessionId]
-        : [],
+    args: [],
     shellEnvironment: true,
   }),
   resume(ctx) {
-    return {
-      file: 'copilot',
-      args:
-        ctx.effectiveCapabilities?.exactResume === true
-          ? ['--session-id', ctx.sessionId]
-          : [],
-      shellEnvironment: true,
-    }
+    return this.launch(ctx)
   },
 }
 
@@ -71,14 +61,10 @@ function classifyCopilotRisk(input: HarnessRiskInput): HarnessLaunchRisk {
 function versionProbe(): HarnessProvider['probe'] {
   return {
     versionArgs: ['--version'],
-    capabilityArgs: ['--help'],
-    affectsLaunchCapabilities: true,
     parseVersion: firstLine,
-    effectiveCapabilities: (_version, capabilityOutput) => ({
-      sessionIdentity: capabilityOutput?.includes('--session-id')
-        ? 'preassigned'
-        : 'none',
-      exactResume: capabilityOutput?.includes('--session-id') === true,
+    effectiveCapabilities: () => ({
+      sessionIdentity: 'none',
+      exactResume: false,
       contextPresentation: 'none',
     }),
   }

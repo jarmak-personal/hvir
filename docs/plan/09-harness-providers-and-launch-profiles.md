@@ -75,7 +75,7 @@ and evidence in this document, and encode only verified behavior.
 | Codex | Bounded exact rollout discovery; exact resume; rollout observer | Launch with recovery/telemetry visibly unavailable |
 | Pi | Verify whether exact `--session` can safely create/preassign; otherwise discover one exact session artifact | Launch-only profile |
 | Gemini CLI | Verify full-ID resume and bounded machine-readable session listing/artifacts | Launch-only profile |
-| GitHub Copilot CLI | Use preassigned `--session-id` only on versions that actually expose its create/resume semantics | Launch-only on older versions; never ambient `--continue` |
+| GitHub Copilot CLI | Use preassigned `--session-id` only after a real installed version proves create/resume semantics, with an explicit tested-version gate | Launch-only until then; never ambient `--continue` or help-substring inference |
 | Cursor CLI | Verify exact-ID listing/resume and a trustworthy new-session discovery source | Launch-only profile while beta surfaces are insufficient |
 
 ## Implementation checklist
@@ -139,10 +139,11 @@ later profile schema migration in one change.
       bindings). Expand tokens as complete argv values or explicitly typed value fragments;
       reject unknown tokens, `$...`, command substitution, glob expansion, and cross-host
       bindings.
-- [x] When a global profile requires `{projectRoot}` or `{workspaceRoot}` without matching
-      active context, keep it listed as unavailable with `Requires an active project` or
-      `Requires an active workspace`; reject launch before PTY creation rather than treating
-      the token as an empty string or validation-corrupting the stored profile.
+- [x] Keep profile evaluation and terminal launch behind the current invariant that an active
+      workspace belongs to a registered project. Document the currently unrepresentable
+      projectless/workspaceless case: if a future terminal surface removes that invariant,
+      token-dependent profiles remain listed as unavailable and launch rejects before PTY
+      creation rather than treating a token as an empty string.
 - [x] Represent an explicit outside-project path binding as a main-owned launch grant created
       by a local/SSH folder-selection gesture. Revalidate its host and canonical target when
       launching, and do not add it to renderer viewer/file IPC authority.
@@ -441,20 +442,25 @@ out-of-process provider SDK requires evidence from this phase and a separate ADR
   `metadataRevision` counters. Main owns validation, CRUD/duplicate/delete/order, atomic
   persistence, path grants, composition, previews, probes, and PTY resolution. Terminal
   recovery records are v3 and retain provider/profile/revision identity without resolved
-  environment values.
+  environment values. Edits require both expected revisions; stale launch-only edits and
+  concurrently deleted profiles fail explicitly, and failed save/delete writes roll memory
+  back to the last durable state.
 - Fresh launch, exact resume, restart, reconnect, and restore use the same profile contract.
   Same-provider rebind is explicit; cross-provider rebind, ambient latest-session recovery,
   reserved session selectors, stale launch revisions, and unacknowledged elevated or
   unclassified restores fail closed.
-- Probe results are keyed by host connection generation and launch revision, coalesced, and
-  limited to two concurrent probes per host. Positive entries expire after ten minutes;
+- Probe results are keyed by host connection generation, launch revision, project, and
+  workspace context, coalesced, and strictly limited to two concurrent probes per host.
+  Positive entries expire after ten minutes;
   negative/error entries after two. Menu-open stale refresh and one classified-launch-
   failure refresh are asynchronous and never retry a harness launch.
 - The New terminal menu and focused Settings editor are catalog/profile driven. Structured
   argv, literal/reference/unset environment operations, host-qualified path selection,
   risk/capability state, and fresh/resume previews all flow through typed IPC. The production
   smoke launches a project-scoped Custom profile through the real preload, IPC, profile
-  store, composer, and PTY supervisor before verifying output and teardown.
+  store, risk-acknowledgment operation, composer, and PTY supervisor before verifying output
+  and teardown. A non-standard profile acknowledgment is persisted per launch revision and
+  reused by later menu launches/recovery until launch identity changes.
 - Claude and Codex discovery/telemetry receive only provider-declared artifact identity.
   Bundled observer providers cannot register a reserved environment key without declaring
   its artifact semantics. The v1 `HarnessSnapshot` envelope carries provenance, freshness,
@@ -472,25 +478,25 @@ transcripts, sessions, or artifacts.
 | Codex | Local `codex-cli` 0.144.4 plus the retained parity fixtures | Bounded exact rollout discovery/resume and rollout telemetry | Fail closed if exact discovery or resume becomes ambiguous |
 | Pi | Current [Pi coding-agent documentation](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/README.md); executable absent locally | `pi` launch/probe only. The documented session selector identifies an existing session path/ID and does not prove caller-preassigned creation | Add exact recovery only after a version proves caller-supplied new identity or exposes a bounded exact artifact source |
 | Gemini CLI | Local `gemini` 0.25.2 help and current [Gemini CLI documentation](https://github.com/google-gemini/gemini-cli/blob/main/docs/cli/commands.md) | `gemini` launch/probe only. The installed resume surface offers ambient latest/index selection, which hvir rejects for recovery | Require a full exact ID plus a bounded, project-qualified listing or artifact source |
-| GitHub Copilot CLI | Local `copilot` 0.0.394 help and current [Copilot CLI reference](https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-command-reference) | Always launchable. The probe advertises and composes exact preassigned `--session-id` only when that installed host's help exposes it; 0.0.394 therefore remains launch-only | The existing per-host probe upgrades capability automatically when the verified flag is present |
+| GitHub Copilot CLI | Local `copilot` 0.0.394 help and current [Copilot CLI reference](https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-command-reference) | `copilot` launch/probe only. Help-text flag presence never upgrades recovery because it does not prove create/resume semantics | Verify create and exact resume against a real installed release, then gate the reviewed behavior on an explicit version threshold and fixtures |
 | Cursor CLI | Current [Cursor CLI installation documentation](https://docs.cursor.com/en/cli/installation); `cursor-agent` absent locally | `cursor-agent` launch/probe only while beta session surfaces lack a proven fresh-session identity | Require exact bounded machine-readable identity/listing and exact resume semantics |
 | Custom | Internal structured-command contract | User-selected executable/argv/env/path launch through the PTY supervisor; always Unclassified, with no recovery or structured telemetry | Adopt as a bundled provider only after a reviewed provider contract exists |
 
-All four candidates ship as truthful bundled defaults; none is deferred. Pi, Gemini, and
-Cursor deliberately remain launch-only. Copilot capability varies per installed host and is
-also launch-only on the locally checked 0.0.394 build. Launch-only providers declare no
-speculative artifact-environment semantics.
+All four candidates ship as truthful bundled defaults; none is deferred. Pi, Gemini,
+Copilot, and Cursor deliberately remain launch-only. Launch-only providers declare no
+speculative recovery or artifact-environment semantics.
 
 ### Automated verification
 
-- `npm run verify`: seam enforcement, lint, both TypeScript builds, launcher help, and 349
+- `npm run verify`: seam enforcement, lint, both TypeScript builds, launcher help, and 356
   tests across 49 files passed.
-- Focused profile/provider/probe/recovery/telemetry verification: 39 tests across six files
-  passed after the final provider-contract cleanup.
+- Focused profile/provider/probe/recovery/telemetry verification: 45 tests across six files
+  passed after the review follow-ups.
 - `npm run smoke`: the production Electron smoke passed, including migrated Claude/Codex
   defaults, structured Custom args/env/path preview, real PTY output, and cleanup.
-- `npm run smoke:capacity`: 12 live/restored terminals, 75 measured interactions, 18.7 ms p99
-  and 18.8 ms maximum frame gap, +21 MiB net / +33 MiB peak memory.
+- `npm run smoke:capacity`: the post-review run passed with 12 live/restored terminals, 75
+  measured interactions, 18.6 ms p99 / 18.7 ms maximum frame gap, and +81 MiB net / +126 MiB
+  peak memory growth.
 - `npm run gauntlet`: repeated verify, production smoke, and capacity successfully; the
   repeated capacity pass measured 18.7 ms p99/max with no positive memory-growth peak.
 - Local and SSH transport tests cover structured quoting, explicit environment unset/set,

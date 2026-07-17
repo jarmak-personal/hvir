@@ -12,7 +12,7 @@ export const geminiProvider: HarnessProvider = {
     contextPresentation: 'none',
   },
   profile: {
-    version: 1,
+    version: 2,
     defaultProfile: {
       id: asHarnessProfileId('gemini-cli-default'),
       displayName: 'Gemini CLI',
@@ -42,11 +42,19 @@ function classifyGeminiRisk(input: HarnessRiskInput): HarnessLaunchRisk {
   for (let index = 0; index < input.args.length; index++) {
     const token = input.args[index] ?? ''
     if (token === '--yolo' || token === '-y') return 'elevated'
-    if (token === '--approval-mode' && input.args[index + 1] === 'yolo') return 'elevated'
-    if (token === '--approval-mode') index++
-    else if (token.startsWith('--approval-mode=') && token.endsWith('=yolo')) {
-      return 'elevated'
-    } else unclassified = true
+    if (token === '--approval-mode') {
+      const mode = input.args[++index]
+      if (mode === 'yolo' || mode === 'auto_edit') return 'elevated'
+      unclassified = true
+      continue
+    }
+    if (token.startsWith('--approval-mode=')) {
+      const mode = token.slice('--approval-mode='.length)
+      if (mode === 'yolo' || mode === 'auto_edit') return 'elevated'
+      unclassified = true
+      continue
+    }
+    unclassified = true
   }
   return unclassified ? 'unclassified' : 'standard'
 }

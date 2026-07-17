@@ -169,12 +169,26 @@ export function registerIpcHandlers(deps: IpcDeps): void {
     }
     return deps.harnessProfiles.save({
       id: req.id,
+      expectedLaunchRevision: req.expectedLaunchRevision,
       expectedMetadataRevision: req.expectedMetadataRevision,
       input: req.input,
     })
   })
   handle('harness:profile-duplicate', (req) => deps.harnessProfiles.duplicate(req.id))
   handle('harness:profile-delete', (req) => deps.harnessProfiles.delete(req.id))
+  handle('harness:acknowledge-risk', (req) => {
+    const workspaceRoot = registeredWorkspaceRoot(req.root, deps)
+    const projectRoot = registeredProjectRoot(workspaceRoot, deps)
+    const profile = deps.harnessProfiles.get(req.id)
+    if (!profile) throw new Error(`Unknown harness profile '${req.id}'`)
+    if (
+      profile.scope.kind === 'project' &&
+      !hostPathEquals(profile.scope.projectRoot, projectRoot)
+    ) {
+      throw new Error('Harness profile is scoped to another project')
+    }
+    return deps.harnessProfiles.acknowledgeRisk(req.id, req.launchRevision)
+  })
   handle('harness:preview', async (req) => {
     const root = registeredWorkspaceRoot(req.root, deps)
     const projectRoot = registeredProjectRoot(root, deps)
@@ -608,20 +622,10 @@ export function registerIpcHandlers(deps: IpcDeps): void {
         `${profile.risk === 'elevated' ? 'Elevated' : 'Unclassified'} harness profile requires acknowledgment`,
       )
     }
-    let effectiveCapabilities: HarnessProviderCapabilities = {
+    const effectiveCapabilities: HarnessProviderCapabilities = {
       sessionIdentity: provider.sessionIdentity,
       exactResume: provider.supportsResume,
       contextPresentation: provider.manifest.contextPresentation,
-    }
-    if (provider.probe.affectsLaunchCapabilities) {
-      const [probe] = await deps.harnessProbes.probeProfiles({
-        host,
-        projectRoot,
-        workspaceRoot: cwd,
-        profiles: [profile],
-        store: deps.harnessProfiles,
-      })
-      if (probe?.status === 'available') effectiveCapabilities = probe.capabilities
     }
     if (req.resume) {
       if (

@@ -112,6 +112,7 @@ interface PendingPtyExit {
 }
 
 const MAX_INITIAL_REPLAY_LENGTH = 256 * 1024
+const LAUNCH_FAILURE_WINDOW_MS = 30_000
 
 export class PtySupervisor {
   private readonly entries = new Map<string, Entry>()
@@ -291,7 +292,13 @@ export class PtySupervisor {
       pty.onExit((exit) => {
         if (entry.exited) return
         entry.exited = true
-        if (classifiedEarlyExit(exit, entry.launchDiagnostic)) {
+        if (
+          classifiedEarlyExit(
+            exit,
+            entry.launchDiagnostic,
+            Date.now() - entry.info.startedAt,
+          )
+        ) {
           req.onClassifiedLaunchFailure?.()
         }
         try {
@@ -693,7 +700,8 @@ function interactiveShellLaunch(
   return { file: shell, args: ['-ic', `exec ${command}`] }
 }
 
-function classifiedEarlyExit(exit: PtyExit, output: string): boolean {
+function classifiedEarlyExit(exit: PtyExit, output: string, elapsedMs: number): boolean {
+  if (elapsedMs > LAUNCH_FAILURE_WINDOW_MS) return false
   return (
     exit.exitCode === 126 ||
     exit.exitCode === 127 ||

@@ -143,8 +143,6 @@ export interface HarnessProbeContract {
   readonly versionArgs?: readonly string[]
   /** Optional bounded help/capability surface, parsed only by this provider. */
   readonly capabilityArgs?: readonly string[]
-  /** Main must use the probed capabilities when composing this provider. */
-  readonly affectsLaunchCapabilities?: boolean
   /** Extract one bounded human-readable version or fail closed. */
   parseVersion(output: string): string | undefined
   effectiveCapabilities(

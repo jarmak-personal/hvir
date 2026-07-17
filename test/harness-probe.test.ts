@@ -7,6 +7,7 @@ import {
 } from '../src/main/harness/harness-profile-store'
 import type { ProjectHost } from '../src/main/project-host'
 import {
+  asHarnessProfileId,
   asHostId,
   hostPath,
   type HostConnectionState,
@@ -52,7 +53,7 @@ describe('HarnessProbeManager', () => {
     manager.dispose()
   })
 
-  it('capability-gates exact Copilot sessions per installed host help surface', async () => {
+  it('does not infer Copilot recovery semantics from help substrings', async () => {
     const older = probeHost('copilot-old', '0.0.394', 'connected', true, '--resume')
     const newer = probeHost(
       'copilot-new',
@@ -70,10 +71,12 @@ describe('HarnessProbeManager', () => {
       sessionIdentity: 'none',
       exactResume: false,
     })
+    expect(newProbe?.capabilities).toEqual(oldProbe?.capabilities)
     expect(newProbe?.capabilities).toMatchObject({
-      sessionIdentity: 'preassigned',
-      exactResume: true,
+      sessionIdentity: 'none',
+      exactResume: false,
     })
+    expect(newer.exec).toHaveBeenCalledTimes(2)
     manager.dispose()
   })
 
@@ -118,9 +121,56 @@ describe('HarnessProbeManager', () => {
       clock.mockRestore()
     }
   })
+
+  it('keeps probe cache entries distinct across workspace context', async () => {
+    const { host, exec } = probeHost('probe-context', 'claude 4.0.0')
+    const manager = new HarnessProbeManager()
+    await manager.probeProfiles(probeRequest(host, 'claude-code', '/project/one'))
+    await manager.probeProfiles(probeRequest(host, 'claude-code', '/project/two'))
+    expect(exec).toHaveBeenCalledTimes(4)
+    manager.dispose()
+  })
+
+  it('never runs more than two probes concurrently on one host', async () => {
+    const { host, exec } = probeHost('probe-slots', 'claude 4.0.0')
+    const implementation = exec.getMockImplementation() as (
+      command: string,
+      args: readonly string[],
+    ) => Promise<{ code: number; signal: null; stdout: string; stderr: string }>
+    let active = 0
+    let maximum = 0
+    exec.mockImplementation(async (command, args) => {
+      active++
+      maximum = Math.max(maximum, active)
+      await new Promise((resolve) => setTimeout(resolve, 2))
+      try {
+        return await implementation(command, args)
+      } finally {
+        active--
+      }
+    })
+    const request = probeRequest(host)
+    const profile = request.profiles[0]!
+    const manager = new HarnessProbeManager()
+    await manager.probeProfiles({
+      ...request,
+      profiles: [
+        profile,
+        { ...profile, id: asHarnessProfileId('probe-slot-two') },
+        { ...profile, id: asHarnessProfileId('probe-slot-three') },
+        { ...profile, id: asHarnessProfileId('probe-slot-four') },
+      ],
+    })
+    expect(maximum).toBe(2)
+    manager.dispose()
+  })
 })
 
-function probeRequest(host: ProjectHost, providerId = 'claude-code') {
+function probeRequest(
+  host: ProjectHost,
+  providerId = 'claude-code',
+  workspacePath = '/project',
+) {
   const profile = builtInProfiles().find(
     (candidate) => candidate.providerId === providerId,
   )!
@@ -128,13 +178,14 @@ function probeRequest(host: ProjectHost, providerId = 'claude-code') {
   return {
     host,
     projectRoot: root,
-    workspaceRoot: root,
+    workspaceRoot: hostPath(host.hostId, workspacePath),
     profiles: [profile],
     store: {
       list: () => [profile],
       get: () => profile,
       prepare: () => profile,
       save: () => Promise.resolve(profile),
+      acknowledgeRisk: () => Promise.resolve(profile),
       duplicate: () => Promise.resolve(profile),
       delete: () => Promise.resolve(),
       authorizePath: () => Promise.reject(new Error('not used')),
@@ -150,11 +201,7 @@ function probeHost(
   connectionState: ProjectHost['connectionState'] = 'connected',
   executableAvailable = true,
   capabilityOutput = '',
-): {
-  readonly host: ProjectHost
-  readonly exec: ReturnType<typeof vi.fn>
-  readonly setConnection: (state: HostConnectionState) => void
-} {
+) {
   const exec = vi.fn((_command: string, args: readonly string[]) => {
     const script = args.at(-1) ?? ''
     if (script.startsWith('command -v')) {

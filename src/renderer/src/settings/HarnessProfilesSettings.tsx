@@ -23,6 +23,7 @@ interface HarnessProfilesSettingsProps {
 
 interface ProfileDraft {
   readonly id?: HarnessProfile['id']
+  readonly launchRevision?: number
   readonly metadataRevision?: number
   readonly builtIn: boolean
   readonly input: HarnessProfileInput
@@ -164,12 +165,24 @@ export function HarnessProfilesSettings({
     setError(undefined)
     try {
       const input = { ...draft.input, args: parseArguments(draft.argvText) }
-      const profile = await window.hvir.invoke('harness:profile-save', {
-        root: workspaceRoot,
-        id: draft.id,
-        expectedMetadataRevision: draft.metadataRevision,
-        input,
-      })
+      if (
+        draft.id &&
+        (draft.launchRevision === undefined || draft.metadataRevision === undefined)
+      ) {
+        throw new Error('Harness profile revision is unavailable; reopen it')
+      }
+      const profile = await window.hvir.invoke(
+        'harness:profile-save',
+        draft.id
+          ? {
+              root: workspaceRoot,
+              id: draft.id,
+              expectedLaunchRevision: draft.launchRevision!,
+              expectedMetadataRevision: draft.metadataRevision!,
+              input,
+            }
+          : { root: workspaceRoot, input },
+      )
       await refresh(profile.id)
       window.dispatchEvent(new Event('hvir:harness-profiles-changed'))
     } catch (reason) {
@@ -854,6 +867,7 @@ function HarnessFolderPicker({
 function draftFromProfile(profile: HarnessProfile): ProfileDraft {
   return {
     id: profile.id,
+    launchRevision: profile.launchRevision,
     metadataRevision: profile.metadataRevision,
     builtIn: profile.builtIn,
     input: {

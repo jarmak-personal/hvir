@@ -224,15 +224,33 @@ export interface HarnessProbeProfilesRequest {
   readonly force?: boolean
 }
 
-export interface SaveHarnessProfileRequest {
+interface SaveHarnessProfileRequestBase {
   readonly root: HostPath
-  readonly id?: HarnessProfileId
-  readonly expectedMetadataRevision?: number
   readonly input: HarnessProfileInput
 }
 
+export type SaveHarnessProfileRequest = SaveHarnessProfileRequestBase &
+  (
+    | {
+        readonly id?: never
+        readonly expectedLaunchRevision?: never
+        readonly expectedMetadataRevision?: never
+      }
+    | {
+        readonly id: HarnessProfileId
+        readonly expectedLaunchRevision: number
+        readonly expectedMetadataRevision: number
+      }
+  )
+
 export interface HarnessProfileRequest {
   readonly id: HarnessProfileId
+}
+
+export interface AcknowledgeHarnessProfileRiskRequest {
+  readonly root: HostPath
+  readonly id: HarnessProfileId
+  readonly launchRevision: number
 }
 
 interface HarnessPreviewRequestBase {
@@ -427,6 +445,10 @@ export interface IpcInvokeMap {
     response: HarnessProfile
   }
   'harness:profile-delete': { request: HarnessProfileRequest; response: void }
+  'harness:acknowledge-risk': {
+    request: AcknowledgeHarnessProfileRiskRequest
+    response: HarnessProfile
+  }
   'harness:preview': {
     request: HarnessPreviewRequest
     response: HarnessCommandPreview
@@ -547,6 +569,7 @@ export const INVOKE_CHANNELS = [
   'harness:profile-save',
   'harness:profile-duplicate',
   'harness:profile-delete',
+  'harness:acknowledge-risk',
   'harness:preview',
   'harness:authorize-path',
   'terminal:recovery',

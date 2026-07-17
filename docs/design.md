@@ -869,14 +869,19 @@ environment/path bindings, and derived risk. It increments only when that normal
 identity changes, including a bundled provider contract/risk-rule upgrade. Cosmetic
 metadata—display name, description, and menu order—is stored separately, with an independent
 metadata revision if concurrency requires one, and never invalidates recovery or risk
-acknowledgment. Project/workspace placeholders resolve only through a fixed vocabulary;
+acknowledgment. Saves compare both expected revisions so a launch-only edit cannot be
+silently overwritten by an editor holding a still-current cosmetic revision.
+Project/workspace placeholders resolve only through a fixed vocabulary;
 every stored path is a `HostPath`, and arbitrary `$variable` or shell interpolation is not
 supported. A named binding outside the registered project requires an explicit main-owned
 folder-selection gesture on that host.
 It grants that path only to the composed harness invocation; it does not expand the
-renderer's normal active-workspace filesystem authority. If a global profile is evaluated
-without the active project/workspace required by one of its tokens, it remains listed as
-unavailable with that reason and launch is rejected before PTY creation.
+renderer's normal active-workspace filesystem authority. In the current workbench, profile
+evaluation and terminal launch exist only inside an active workspace belonging to a
+registered project, so projectless/workspaceless token expansion is not representable. If a
+future terminal surface removes that invariant, token-dependent profiles must remain listed
+as unavailable and launch must fail before PTY creation rather than substituting an empty
+path.
 
 Main owns profile persistence, validation, command composition, and value-aware command
 preview. Arguments always remain an argv array and environment changes remain structured
@@ -920,7 +925,9 @@ Providers classify resolved launch configuration as `standard`, `elevated`, or
 key=value`; classification is a best-effort warning, not a security boundary. A Custom
 profile and any extra token a provider cannot classify are never assumed standard.
 Elevated and unclassified profiles are visibly marked and may auto-restore only after an
-explicit acknowledgment tied to the launch revision.
+explicit acknowledgment tied to the launch revision. Main persists that acknowledgment per
+profile/revision so subsequent menu launches and recovery do not repeat a modal until the
+launch identity changes.
 
 Providers also declare the executable, environment/config keys, and path bindings that can
 change their session-artifact location. Main derives a bounded **artifact identity** from

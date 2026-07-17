@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { builtInProfiles } from '../src/main/harness/harness-profile-store'
 import {
   autoRecoverableProfile,
+  profileRiskAcknowledged,
   probeAllowsAutoRestore,
   recoverableProfile,
 } from '../src/renderer/src/terminal/terminal-profile-recovery'
@@ -51,6 +52,18 @@ describe('profile-bound terminal recovery', () => {
         riskAcknowledgedRevision: record.launchRevision,
       }),
     ).toBeDefined()
+    const profileAcknowledged = {
+      ...risky,
+      riskAcknowledgedRevision: risky.launchRevision,
+    }
+    expect(profileRiskAcknowledged(profileAcknowledged)).toBe(true)
+    expect(autoRecoverableProfile([profileAcknowledged], record)).toBeDefined()
+    expect(
+      profileRiskAcknowledged({
+        ...profileAcknowledged,
+        launchRevision: profileAcknowledged.launchRevision + 1,
+      }),
+    ).toBe(false)
   })
 
   it('requires a successful probe for unattended restore', () => {

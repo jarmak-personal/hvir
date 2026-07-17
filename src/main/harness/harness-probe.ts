@@ -53,7 +53,17 @@ export class HarnessProbeManager {
   ): void {
     const state = this.hosts.get(host)
     if (!state) return
-    state.cache.delete(cacheKey(profile, state.generation))
+    // One profile may have entries for several worktrees; invalidate every
+    // matching host entry rather than leaving a context-specific result stale.
+    for (const [key, probe] of state.cache) {
+      if (
+        probe.providerId === profile.providerId &&
+        probe.profileId === profile.id &&
+        probe.launchRevision === profile.launchRevision
+      ) {
+        state.cache.delete(key)
+      }
+    }
   }
 
   dispose(): void {
@@ -66,7 +76,12 @@ export class HarnessProbeManager {
     profile: HarnessProfile,
   ): Promise<HarnessProfileProbe> {
     const state = this.stateFor(request.host)
-    const key = cacheKey(profile, state.generation)
+    const key = cacheKey(
+      profile,
+      state.generation,
+      request.projectRoot,
+      request.workspaceRoot,
+    )
     const now = Date.now()
     const cached = state.cache.get(key)
     if (!request.force && cached?.expiresAt !== undefined && cached.expiresAt > now) {
@@ -77,7 +92,12 @@ export class HarnessProbeManager {
     const probe = this.withHostSlot(state, () => this.runProbe(request, profile))
       .then((result) => {
         // A reconnect while the command was in flight makes the response stale.
-        if (key === cacheKey(profile, state.generation)) state.cache.set(key, result)
+        if (
+          key ===
+          cacheKey(profile, state.generation, request.projectRoot, request.workspaceRoot)
+        ) {
+          state.cache.set(key, result)
+        }
         return result
       })
       .finally(() => state.pending.delete(key))
@@ -217,15 +237,18 @@ export class HarnessProbeManager {
     state: HostProbeState,
     task: () => Promise<T>,
   ): Promise<T> {
+    let inheritedSlot = false
     if (state.active >= MAX_CONCURRENT_PER_HOST) {
       await new Promise<void>((resolve) => state.waiters.push(resolve))
+      inheritedSlot = true
     }
-    state.active++
+    if (!inheritedSlot) state.active++
     try {
       return await task()
     } finally {
-      state.active--
-      state.waiters.shift()?.()
+      const next = state.waiters.shift()
+      if (next) next()
+      else state.active--
     }
   }
 }
@@ -233,8 +256,19 @@ export class HarnessProbeManager {
 function cacheKey(
   profile: Pick<HarnessProfile, 'id' | 'launchRevision' | 'providerId'>,
   generation: number,
+  projectRoot: HostPath,
+  workspaceRoot: HostPath,
 ): string {
-  return `${generation}:${profile.providerId}:${profile.id}:${profile.launchRevision}`
+  return JSON.stringify([
+    generation,
+    profile.providerId,
+    profile.id,
+    profile.launchRevision,
+    projectRoot.hostId,
+    projectRoot.path,
+    workspaceRoot.hostId,
+    workspaceRoot.path,
+  ])
 }
 
 function result(

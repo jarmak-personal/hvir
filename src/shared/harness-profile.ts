@@ -79,6 +79,8 @@ export interface HarnessProfile extends HarnessProfileInput {
   readonly providerContractVersion: number
   readonly builtIn: boolean
   readonly risk: HarnessLaunchRisk
+  /** Explicit launch-menu acknowledgment, valid only for this launch revision. */
+  readonly riskAcknowledgedRevision?: number
 }
 
 export interface HarnessCommandPreviewEnvironment {

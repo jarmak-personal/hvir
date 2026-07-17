@@ -976,6 +976,7 @@ async function runSmoke(): Promise<number> {
       flush: () => Promise.resolve(),
     }
     const smokeHarnessProfiles = await HarnessProfileStore.load(host, harnessProfilesPath)
+    let smokeIpcProjectState = smokeProjectState()
     registerIpcHandlers({
       echoWorker: worker,
       gitWorker: git,
@@ -984,7 +985,7 @@ async function runSmoke(): Promise<number> {
         hostPathEquals(root, smokeRoot) || hostPathEquals(root, smokeCloseableRoot)
           ? root
           : undefined,
-      getProjectState: () => smokeProjectState(),
+      getProjectState: () => smokeIpcProjectState,
       listHosts: () => [
         {
           hostId: host.hostId,
@@ -1029,7 +1030,10 @@ async function runSmoke(): Promise<number> {
           accepted: Math.min(paths.length, MAX_PROJECT_WATCH_INTERESTS),
           limited: paths.length > MAX_PROJECT_WATCH_INTERESTS,
         }),
-      closeProject: () => Promise.resolve(smokeProjectState()),
+      closeProject: () => {
+        smokeIpcProjectState = smokeProjectState()
+        return Promise.resolve(smokeIpcProjectState)
+      },
       pruneWorktrees: () => Promise.resolve(smokeProjectState()),
       dismissWorkspace: () => Promise.resolve(smokeProjectState()),
       switchGitBranch: () => Promise.resolve(smokeProjectState()),
@@ -1121,6 +1125,10 @@ async function runSmoke(): Promise<number> {
               order: 20
             }
           });
+          const acknowledgedProfile = await window.hvir.invoke(
+            'harness:acknowledge-risk',
+            { root, id: profile.id, launchRevision: profile.launchRevision }
+          );
           const preview = await window.hvir.invoke('harness:preview', {
             root,
             cwd: root,
@@ -1158,7 +1166,7 @@ async function runSmoke(): Promise<number> {
           stopOutput();
           return {
             defaultIds: defaults.map((candidate) => candidate.id),
-            profile,
+            profile: acknowledgedProfile,
             preview,
             started,
             output
@@ -1168,7 +1176,12 @@ async function runSmoke(): Promise<number> {
       'structured harness profile smoke timed out',
     )) as {
       defaultIds: readonly string[]
-      profile: { id: string; risk: string }
+      profile: {
+        id: string
+        risk: string
+        launchRevision: number
+        riskAcknowledgedRevision?: number
+      }
       preview: { args: readonly string[]; command: string }
       started: { id: string; identityStatus: string }
       output: string
@@ -1181,6 +1194,8 @@ async function runSmoke(): Promise<number> {
     }
     if (
       profileSmoke.profile.risk !== 'unclassified' ||
+      profileSmoke.profile.riskAcknowledgedRevision !==
+        profileSmoke.profile.launchRevision ||
       profileSmoke.started.identityStatus !== 'none' ||
       !profileSmoke.output.includes('hvir-profile-smoke') ||
       !profileSmoke.preview.args.includes(smokeRoot.path) ||
@@ -2971,7 +2986,7 @@ async function runSmoke(): Promise<number> {
     console.log(`[smoke] minimal settings OK (${settingsStatus})`)
 
     const closeableState = smokeProjectState()
-    emit('project:state', {
+    smokeIpcProjectState = {
       ...closeableState,
       projects: [
         ...closeableState.projects,
@@ -2995,7 +3010,8 @@ async function runSmoke(): Promise<number> {
           ],
         },
       ],
-    })
+    }
+    emit('project:state', smokeIpcProjectState)
     const projectCloseStatus = (await withTimeout(
       win.webContents.executeJavaScript(`
         new Promise((resolve, reject) => {

@@ -105,7 +105,7 @@ describe('Harness providers', () => {
     ])
   })
 
-  it('uses Copilot --session-id only after the host probe proves that surface', () => {
+  it('keeps Copilot launch-only even when caller capabilities claim more', () => {
     const provider = harnessProvider('github-copilot-cli')
     expect(provider.launch(context).args).toEqual([])
     expect(
@@ -117,7 +117,17 @@ describe('Harness providers', () => {
           contextPresentation: 'none',
         },
       }).args,
-    ).toEqual(['--session-id', context.sessionId])
+    ).toEqual([])
+    expect(
+      provider.resume({
+        ...context,
+        effectiveCapabilities: {
+          sessionIdentity: 'preassigned',
+          exactResume: true,
+          contextPresentation: 'none',
+        },
+      }).args,
+    ).toEqual([])
   })
 
   it('rejects duplicate ids and invalid discovered-provider contracts', () => {
