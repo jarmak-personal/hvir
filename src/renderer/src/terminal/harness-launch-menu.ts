@@ -66,3 +66,10 @@ export function compactHarnessCapabilityLabel(
   }
   return 'Launch only'
 }
+
+export function compactProfileProviderLabel(
+  profileName: string,
+  providerName: string,
+): string {
+  return profileName === providerName ? profileName : `${profileName} · ${providerName}`
+}

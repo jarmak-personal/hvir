@@ -47,4 +47,20 @@ describe('renderer filesystem contract', () => {
     expect(settings).toContain("event.key === 'Escape'")
     expect(settings).toContain("event.key !== 'Tab'")
   })
+
+  it('captures form values before scheduling profile state updates', () => {
+    const settings = readFileSync(
+      join(process.cwd(), 'src/renderer/src/settings/HarnessProfilesSettings.tsx'),
+      'utf8',
+    )
+    const terminalWorkspace = readFileSync(
+      join(process.cwd(), 'src/renderer/src/terminal/TerminalWorkspace.tsx'),
+      'utf8',
+    )
+    expect(settings).not.toMatch(/displayName:\s*event\.currentTarget\.value/)
+    expect(settings).not.toMatch(/description:\s*event\.currentTarget\.value/)
+    expect(terminalWorkspace).not.toMatch(
+      /\[session\.id\]:\s*event\.currentTarget\.value/,
+    )
+  })
 })

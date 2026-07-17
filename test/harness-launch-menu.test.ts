@@ -7,6 +7,7 @@ import {
 import {
   bareShellLaunchChoice,
   compactHarnessCapabilityLabel,
+  compactProfileProviderLabel,
   harnessLaunchMenuState,
 } from '../src/renderer/src/terminal/harness-launch-menu'
 import {
@@ -105,5 +106,13 @@ describe('harness launch-menu policy', () => {
         contextPresentation: 'none',
       }),
     ).toBe('Launch only')
+  })
+
+  it('does not repeat a provider name when it is also the profile name', () => {
+    expect(compactProfileProviderLabel('Shell', 'Shell')).toBe('Shell')
+    expect(compactProfileProviderLabel('Claude Code', 'Claude Code')).toBe('Claude Code')
+    expect(compactProfileProviderLabel('Claude YOLO', 'Claude Code')).toBe(
+      'Claude YOLO · Claude Code',
+    )
   })
 })

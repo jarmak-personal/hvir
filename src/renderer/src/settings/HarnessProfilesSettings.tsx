@@ -371,12 +371,13 @@ export function HarnessProfilesSettings({
                 <input
                   value={draft.input.displayName}
                   disabled={draft.builtIn}
-                  onChange={(event) =>
+                  onChange={(event) => {
+                    const displayName = event.currentTarget.value
                     updateInput((input) => ({
                       ...input,
-                      displayName: event.currentTarget.value,
+                      displayName,
                     }))
-                  }
+                  }}
                 />
               </label>
               <label>
@@ -410,12 +411,13 @@ export function HarnessProfilesSettings({
                 <input
                   value={draft.input.description ?? ''}
                   disabled={draft.builtIn}
-                  onChange={(event) =>
+                  onChange={(event) => {
+                    const description = event.currentTarget.value || undefined
                     updateInput((input) => ({
                       ...input,
-                      description: event.currentTarget.value || undefined,
+                      description,
                     }))
-                  }
+                  }}
                 />
               </label>
               <label>
@@ -423,15 +425,16 @@ export function HarnessProfilesSettings({
                 <select
                   value={draft.input.scope.kind}
                   disabled={draft.builtIn}
-                  onChange={(event) =>
+                  onChange={(event) => {
+                    const scope =
+                      event.currentTarget.value === 'project'
+                        ? ({ kind: 'project', projectRoot } as const)
+                        : ({ kind: 'global' } as const)
                     updateInput((input) => ({
                       ...input,
-                      scope:
-                        event.currentTarget.value === 'project'
-                          ? { kind: 'project', projectRoot }
-                          : { kind: 'global' },
+                      scope,
                     }))
-                  }
+                  }}
                 >
                   <option value="global">All projects</option>
                   <option value="project">This registered project</option>

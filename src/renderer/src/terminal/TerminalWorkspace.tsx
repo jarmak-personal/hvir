@@ -40,6 +40,7 @@ import {
 import {
   bareShellLaunchChoice,
   compactHarnessCapabilityLabel,
+  compactProfileProviderLabel,
   harnessLaunchMenuState,
 } from './harness-launch-menu'
 
@@ -966,9 +967,11 @@ export function TerminalWorkspace({
                 <span className="terminal-list-copy">
                   <span className="terminal-list-title">{session.title}</span>
                   <span className="terminal-list-meta">
-                    {profileDisplayName(profiles, session.profileId)} ·{' '}
-                    {providerDescriptor(providers, session.providerId)?.displayName ??
-                      session.providerId}
+                    {compactProfileProviderLabel(
+                      profileDisplayName(profiles, session.profileId),
+                      providerDescriptor(providers, session.providerId)?.displayName ??
+                        session.providerId,
+                    )}
                     {profileRiskMarker(profiles, session.profileId)} · {session.status}
                     {identityLabel(session.identityStatus)}
                   </span>
@@ -1355,12 +1358,13 @@ function TerminalRecoveryDialog({
                       <select
                         aria-label={`Rebind ${session.title} profile`}
                         value={rebind[session.id] ?? sameProviderProfiles[0]?.id}
-                        onChange={(event) =>
+                        onChange={(event) => {
+                          const profileId = event.currentTarget.value as HarnessProfileId
                           setRebind((current) => ({
                             ...current,
-                            [session.id]: event.currentTarget.value as HarnessProfileId,
+                            [session.id]: profileId,
                           }))
-                        }
+                        }}
                       >
                         {sameProviderProfiles.map((candidate) => (
                           <option key={candidate.id} value={candidate.id}>

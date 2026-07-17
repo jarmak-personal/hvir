@@ -3022,6 +3022,63 @@ async function runSmoke(): Promise<number> {
     )) as string
     console.log(`[smoke] minimal settings OK (${settingsStatus})`)
 
+    const harnessRenameStatus = (await withTimeout(
+      win.webContents.executeJavaScript(`
+        new Promise((resolve, reject) => {
+          const deadline = Date.now() + 10000;
+          document.querySelector('.settings-toggle')?.click();
+          const waitForProfile = () => {
+            const rows = [...document.querySelectorAll('.settings-profile-list button')];
+            const source = rows.find((row) =>
+              row.querySelector('strong')?.textContent?.trim() === 'Smoke custom harness'
+            );
+            if (!source) {
+              if (Date.now() > deadline) return reject(new Error('smoke harness profile missing'));
+              return setTimeout(waitForProfile, 50);
+            }
+            source.click();
+            requestAnimationFrame(() => {
+              const before = document.querySelectorAll('.settings-profile-list button').length;
+              const duplicate = [...document.querySelectorAll('.settings-profile-actions button')]
+                .find((button) => button.textContent?.trim() === 'Duplicate');
+              if (!duplicate) return reject(new Error('harness duplicate action missing'));
+              duplicate.click();
+              const waitForDuplicate = () => {
+                const name = document.querySelector(
+                  '.settings-profile-grid label:first-child input'
+                );
+                const count = document.querySelectorAll('.settings-profile-list button').length;
+                if (count > before && name?.value === 'Smoke custom harness copy') {
+                  Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')
+                    ?.set?.call(name, 'Smoke renamed harness');
+                  name.dispatchEvent(new Event('input', { bubbles: true }));
+                  return requestAnimationFrame(() => {
+                    if (document.querySelector('.fatal-error')) {
+                      return reject(new Error('harness rename escaped to the error boundary'));
+                    }
+                    if (name.value !== 'Smoke renamed harness') {
+                      return reject(new Error('harness profile rename did not update'));
+                    }
+                    [...document.querySelectorAll('.settings-dialog .dialog-actions button')]
+                      .find((button) => button.textContent?.trim() === 'Cancel')?.click();
+                    requestAnimationFrame(() => resolve('duplicate + rename'));
+                  });
+                }
+                if (Date.now() > deadline) {
+                  return reject(new Error('duplicated harness profile did not become editable'));
+                }
+                setTimeout(waitForDuplicate, 50);
+              };
+              waitForDuplicate();
+            });
+          };
+          waitForProfile();
+        })
+      `),
+      'harness profile rename smoke timed out',
+    )) as string
+    console.log(`[smoke] harness profile editor OK (${harnessRenameStatus})`)
+
     const closeableState = smokeProjectState()
     smokeIpcProjectState = {
       ...closeableState,
