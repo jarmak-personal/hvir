@@ -298,7 +298,7 @@ export function TerminalView({
             // doomed resume; we never silently downgrade to a plain shell.
             setResumeFailed(true)
             setStatus(
-              `Couldn't resume ${launchMetadataRef.current.title}: no response in 18s ` +
+              `Couldn't resume ${launchMetadataRef.current.title}: it stopped responding ` +
                 '(it may be waiting on sign-in or an update). Restart to open a fresh terminal.',
             )
           } else {

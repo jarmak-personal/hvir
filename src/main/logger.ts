@@ -25,18 +25,19 @@ import { join } from 'node:path'
 import { app } from 'electron'
 
 let resolvedPath: string | undefined
-let unavailable = false
 
 function logFilePath(): string | undefined {
   if (resolvedPath) return resolvedPath
-  if (unavailable) return undefined
   try {
+    // app.getPath('userData') throws before Electron finishes bootstrapping,
+    // so an early log call (e.g. before app-ready) is simply dropped — but we
+    // do NOT latch that failure: a later call once the app is ready resolves
+    // and caches the path, so logging recovers on its own. Optional chaining
+    // also tolerates environments where `app` is absent (unit tests).
+    if (!app?.isReady?.()) return undefined
     resolvedPath = join(app.getPath('userData'), 'hvir.log')
     return resolvedPath
   } catch {
-    // app.getPath is unavailable before Electron has finished bootstrapping.
-    // Fail silent rather than throw from a logging call.
-    unavailable = true
     return undefined
   }
 }
