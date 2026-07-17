@@ -1,6 +1,7 @@
 # Phase 9 — Harness providers & launch profiles
 
-**Status:** Implementation complete; real-host and Milestone 0 soak acceptance pending.
+**Status:** Acceptance refinement planned; original implementation complete, with real-host
+and Milestone 0 soak acceptance still pending.
 
 Implementation proceeded on an explicitly authorized feature branch while the Phase 8 gate
 remains open. The exception permits implementation and automated verification only; it does
@@ -29,15 +30,30 @@ phase; one may be deferred with recorded evidence and concrete re-entry criteria
 holding the provider foundation open indefinitely.
 
 The full v2 harness viewer remains parked. This phase builds the catalog and observation
-contract it will consume; it does not build that tab.
+contract it will consume; it does not build that tab. In the compact terminal UI,
+**hvir-integrated** is therefore a data-quality promise: hvir can correlate the PTY to one
+exact provider session and continuously emit a bounded, provenance-bearing snapshot with
+meaningful session state plus usage/context data. A provider module, version probe, exact
+resume alone, or a human-readable TUI does not earn that label.
 
 ## Product behavior
 
-- The New terminal menu lists **launch profiles**, not hard-coded adapter IDs. Built-in
-  defaults preserve the current Shell, Claude Code, and Codex one-click choices.
-- A provider describes a harness; a profile describes how this user wants to launch it.
-  Multiple profiles may reference one provider, such as `Claude Code`, `Claude Code —
-  bypass permissions`, and `Claude Code — plan`.
+- The provider registry is an integration catalog, not the user's terminal menu. A fresh
+  profile store is empty, including Shell. The empty New terminal menu presents one primary
+  `Add a harness…` action rather than materializing every registered provider automatically.
+- `Add a harness…` probes the active host and offers detected provider templates as an
+  initially unchecked multi-select. `Add manually…` can create a known-provider profile
+  with a custom executable or a Custom command profile. This discovery flow never installs,
+  updates, authenticates, or downloads a harness.
+- Selecting a provider template creates an ordinary user-owned launch profile. A provider
+  describes a harness; a profile describes how this user wants to launch it. Multiple
+  editable, renameable, and deleteable profiles may reference one provider, such as
+  `Claude Code`, `Claude unrestricted`, and `Claude Opus`; no permission or model preset is
+  hard-coded into hvir.
+- Upgrade compatibility is distinct from fresh-install defaults. When migrating legacy
+  recovery records, materialize only the provider profiles those records reference (or keep
+  them visibly rebindable) so existing exact sessions are not lost. A user with no prior
+  harness state still starts with zero profiles.
 - `Configure harnesses…` opens a focused profile editor for name, provider, executable,
   argv, environment bindings, scope, and path bindings. Before Save it shows the effective
   fresh/resume commands, including plaintext literals and redacting only secret references.
@@ -50,8 +66,19 @@ contract it will consume; it does not build that tab.
   immediately, with Shell-level lifecycle only. It never claims recovery or harness
   telemetry.
 - Main probes availability and effective capabilities per host/profile launch revision. The
-  menu distinguishes available, executable missing, version incompatible, probe failed, and
-  unchecked. A slow or disconnected host never delays workbench paint.
+  launch menu shows only configured profiles known to be launchable on the active host; it
+  does not briefly render unchecked rows before a cold probe resolves. Settings retains
+  configured-but-unavailable profiles with a repairable host-specific reason, because one
+  global profile may be available locally and missing over SSH. The add flow hides
+  undetected suggestions by default while retaining an explicit unavailable/manual path.
+  A slow or disconnected host never delays workbench paint.
+- Compact launch rows use only `Launch only` and `Integrated`. Availability is implicit in
+  the filtered list, and the provider name is omitted when it duplicates the profile name.
+  Settings/diagnostics retain the detailed exact-recovery, telemetry-facet, version, and
+  probe status. `Integrated` requires exact host/project/session correlation plus a live
+  structured `HarnessSnapshot` with at least one meaningful session-state facet and one
+  trustworthy usage, cost, token, or context-pressure facet. Unsupported and stale data
+  remain explicit; terminal-screen scraping never qualifies.
 - Profiles that request a provider-known permission/sandbox bypass are marked **Elevated**;
   Custom profiles and provider options whose risk is not understood are **Unclassified**.
   Their warning and auto-restore choice are explicit and tied to the launch revision.
@@ -68,15 +95,15 @@ This table is a research queue, not a CLI contract. Re-run official documentatio
 host-side `--version`/`--help` checks when implementing each provider, record the versions
 and evidence in this document, and encode only verified behavior.
 
-| Provider | Expected launch/recovery direction | Fail-closed fallback |
+| Provider | Expected launch/recovery and observation direction | Fail-closed fallback |
 |---|---|---|
-| Plain shell | Host default shell; no harness identity | Fresh shell |
-| Claude Code | Preassign UUID; exact resume; transcript observer | Launch unavailable if required session flags disappear |
-| Codex | Bounded exact rollout discovery; exact resume; rollout observer | Launch with recovery/telemetry visibly unavailable |
-| Pi | Verify whether exact `--session` can safely create/preassign; otherwise discover one exact session artifact | Launch-only profile |
-| Gemini CLI | Verify full-ID resume and bounded machine-readable session listing/artifacts | Launch-only profile |
-| GitHub Copilot CLI | Use preassigned `--session-id` only after a real installed version proves create/resume semantics, with an explicit tested-version gate | Launch-only until then; never ambient `--continue` or help-substring inference |
-| Cursor CLI | Verify exact-ID listing/resume and a trustworthy new-session discovery source | Launch-only profile while beta surfaces are insufficient |
+| Plain shell | Host default shell; no harness identity or provider telemetry | Launch-only profile |
+| Claude Code | Preassign UUID; exact resume; bounded transcript observer with verified session and usage/context facets | Launch remains available but is not labeled Integrated if identity or required telemetry disappears |
+| Codex | Bounded exact rollout discovery; exact resume; bounded rollout observer with verified session and usage/context facets | Launch remains available but is not labeled Integrated if discovery or required telemetry becomes ambiguous |
+| Pi | Snapshot its documented project-qualified JSONL session tree, discover one exact fresh UUID, resume with `--session <id>`, and verify bounded usage/context extraction | Launch-only profile until both exact correlation and the Integrated telemetry minimum are proven on a pinned version |
+| Gemini CLI | Snapshot its documented project-qualified auto-saved chat artifacts, discover one full UUID, resume with `--resume <uuid>`, and verify its documented token-usage/session data | Launch-only profile until exact discovery, exact resume, and bounded telemetry pass pinned-version fixtures |
+| GitHub Copilot CLI | Snapshot its documented `session-state/<id>` artifacts, discover one exact fresh ID, resume with `--resume <id>`, and verify bounded event-log usage/context extraction; never infer semantics from a help substring | Launch-only profile until a real installed release passes an explicit version gate and the Integrated telemetry minimum |
+| Cursor CLI | Verify exact-ID listing/resume, a trustworthy fresh-session identity source, and a documented or otherwise version-pinned structured telemetry source | Launch-only profile while beta identity/artifact surfaces remain insufficient |
 
 ## Implementation checklist
 
@@ -159,10 +186,13 @@ later profile schema migration in one change.
       unattended restore.
 - [x] Persist profiles in versioned local app metadata through the local `ProjectHost`, with
       atomic writes, bounded records, corruption recovery, and deterministic built-in
-      defaults. Do not write hvir profile configuration into the user's repository.
+      defaults. Do not write hvir profile configuration into the user's repository. This
+      records the initial implementation; Milestone 9 retains the templates but stops
+      materializing them into a fresh user's menu.
 - [x] Provide CRUD plus duplicate/reorder operations through typed, main-validated IPC.
-      Built-in defaults are immutable; users customize by duplicating them. Rename,
-      description, and reorder operations update only cosmetic metadata.
+      The initial built-in defaults are immutable and users customize by duplicating them;
+      Milestone 9 replaces that detour with normal user-owned profiles created from provider
+      templates. Rename, description, and reorder operations update only cosmetic metadata.
 - [x] Decide deletion semantics explicitly: deleting an in-use profile preserves affected
       terminal records as missing-profile records until the user rebinds within the same
       provider or forgets them. Do not offer a cross-provider rebind action.
@@ -213,7 +243,9 @@ later profile schema migration in one change.
       position, and active state. Do not persist resolved argv/env snapshots.
 - [x] Migrate existing `plain-shell`, `claude-code`, and `codex` records to their immutable
       default profiles without changing terminal IDs or exact harness IDs. Keep a rollback
-      fixture for the previous file version.
+      fixture for the previous file version. Milestone 9 changes only the materialization
+      policy: referenced legacy defaults become user-owned profiles while fresh stores stay
+      empty.
 - [x] Bind resume authorization to terminal ID, provider ID, profile ID/`launchRevision`,
       exact harness session ID, project root, and cwd. A changed launch revision or same-
       provider rebind requires an explicit registry update before resume; cosmetic edits do
@@ -260,7 +292,8 @@ later profile schema migration in one change.
 
 - [x] Replace the hard-coded New terminal menu with ordered profile rows showing name,
       provider, host availability, elevated/unclassified status, and the strongest supported
-      recovery/telemetry summary. Keep the plain Shell default one action away.
+      recovery/telemetry summary. The initial implementation kept the plain Shell default one
+      action away; Milestone 9 supersedes that fresh-install behavior with the opt-in add flow.
 - [x] Add `Configure harnesses…` to Settings with profile list, create/duplicate/edit/delete,
       global/project scope, provider selection, executable, argv editor, environment rows,
       path-binding picker, risk disclosure, and fresh/resume previews.
@@ -370,11 +403,74 @@ later profile schema migration in one change.
       and the Phase 8 responsiveness gauntlet. Provider probing/profile UI must not regress
       the existing paint and terminal-output latency bounds.
 
+### Milestone 9 — Acceptance-driven profile and integration refinement
+
+Acceptance testing found that the initial implementation exposed the registry as a menu of
+immutable defaults and compressed the profile editor into the generic dialog width. This
+milestone supersedes those product choices without weakening the provider, `ProjectHost`,
+PTY-supervisor, recovery, or telemetry seams completed above. Keep its commits local until
+the user finishes the expanded acceptance pass.
+
+- [ ] Replace automatically materialized built-in profiles with provider-owned templates.
+      A fresh install has zero launch profiles, including Shell; registry enumeration alone
+      never creates a user-visible terminal action.
+- [ ] Make the empty New terminal menu lead with `Add a harness…`. The add flow probes the
+      active host, offers detected templates as an initially unchecked multi-select, and
+      provides explicit known-provider executable override and Custom command paths. It does
+      not install or authenticate a CLI.
+- [ ] Materialize each selection as a normal user-owned profile. Permit any number of named
+      profiles per provider with independent argv, environment, path, executable, scope,
+      risk acknowledgment, and revisions. Remove the immutable-default duplication detour.
+- [ ] Preserve upgrade recovery without repopulating fresh installs: materialize only
+      profiles referenced by legacy terminal records, or retain those records in a visible
+      exact same-provider rebind flow. Never discard or silently launch a legacy session.
+- [ ] Filter the launch menu to configured profiles that the active host probe says are
+      launchable. Do not flash unchecked or executable-missing providers while a cold probe
+      resolves. Keep unavailable configured profiles in Settings with their current-host
+      reason, Refresh, edit, and delete actions; support local/SSH availability skew.
+- [ ] Make the Harnesses settings surface use its intended wide responsive dialog and verify
+      the complete editor, previews, row actions, and footer at the minimum supported window
+      size. Do not solve overflow by shrinking controls or truncating editable values.
+- [ ] Replace verbose launch-menu capability prose with `Launch only` and `Integrated`, omit
+      redundant provider names, and retain the complete capability/probe explanation in
+      Settings and accessible descriptions.
+- [ ] Encode Integrated as a strict effective capability: exact session identity correlated
+      to host, project, and PTY; exact recovery; provenance/freshness; and a bounded live
+      `HarnessSnapshot` containing a meaningful session-state facet plus a trustworthy
+      usage/cost/token/context facet. A provider with only launch, probe, exact resume, or
+      screen-derived text remains `Launch only` in the compact menu.
+- [ ] Re-evaluate Pi, Gemini CLI, GitHub Copilot CLI, and Cursor CLI against current official
+      session documentation and pinned installed versions. Implement provider-private
+      baseline/discovery/resume/observer logic only where concurrent same-cwd launches,
+      relocated config homes, malformed artifacts, SSH, and cleanup all fail closed.
+- [ ] Add fixtures and tests for empty first run, batch add, manual add, multiple same-provider
+      profiles, legacy materialization, unavailable filtering without UI flash, local/SSH
+      skew, compact labels, responsive settings width, and Integrated downgrade when any
+      required identity or telemetry facet becomes unavailable.
+- [ ] Repeat full verification, production smoke/capacity, and the real local/SSH provider
+      matrix. Record exact versions and facet provenance without credentials, transcript
+      content, or token-bearing secrets before checking this milestone.
+
 ## Acceptance criteria
 
+- [ ] A fresh profile store shows no Shell or harness launch rows. `Add a harness…` offers
+      only detected current-host suggestions by default plus an explicit manual path, and
+      creates user-owned profiles only for the user's selections.
+- [ ] Users can create, name, edit, reorder, and delete multiple profiles for one provider.
+      A configured executable missing on the active host is absent from the launch menu but
+      remains repairable in Settings, including when local and SSH hosts differ.
+- [ ] The settings surface is wide enough to show the full profile editor without the generic
+      project-dialog width overriding it, while remaining responsive at the supported minimum
+      window size.
+- [ ] Compact rows use only `Launch only` or `Integrated`. Integrated always supplies an
+      exact project/session association and a fresh, provenance-bearing structured feed with
+      meaningful session state and usage/context information suitable for aggregation by the
+      future Harness tab; exact resume or provider recognition alone is insufficient.
+
 - [ ] Existing Shell, Claude Code, and Codex menu actions launch the same effective defaults
-      and retain their current local/SSH recovery and context behavior. This parity was
-      landed and soaked as Milestone 0 before profile work began.
+      after the user selects their templates, and migrated legacy records retain their current
+      local/SSH recovery and context behavior. This parity was landed as Milestone 0 before
+      profile work began and must survive the opt-in materialization change.
 - [ ] A user can create and launch profiles equivalent to:
       `claude --dangerously-skip-permissions`,
       `codex --add-dir <host-qualified-path>`, and
@@ -395,10 +491,11 @@ later profile schema migration in one change.
       launch-changed profiles and elevated/unclassified unacknowledged profiles never
       auto-launch; cosmetic edits remain resumable, ambient latest is never used, and
       orphaned records are retained.
-- [x] At least three of Pi, Gemini CLI, GitHub Copilot CLI, and Cursor CLI have verified
-      bundled default profiles. Each advertises exact recovery or telemetry only where the
-      tested installed version supplies a trustworthy source; launch-only is an accepted
-      truthful result. At most one is deferred with recorded evidence and re-entry criteria.
+- [ ] At least three of Pi, Gemini CLI, GitHub Copilot CLI, and Cursor CLI have verified
+      bundled provider templates. Each is labeled Integrated only where a tested installed
+      version supplies exact identity/recovery and the minimum structured Harness-tab feed;
+      launch-only remains an accepted truthful result. At most one integration investigation
+      may be deferred with recorded evidence and re-entry criteria.
 - [x] Discovery and telemetry use provider-declared artifact identity. Artifact-relevant
       changes cannot observe the wrong session tree, while cosmetic and irrelevant launch
       changes do not churn the shared host/provider channel.
@@ -467,7 +564,7 @@ out-of-process provider SDK requires evidence from this phase and a separate ADR
   normalized optional facets, and bounded provider data while preserving the existing
   context-pressure UI.
 
-### Provider verification — 2026-07-17
+### Initial provider verification — 2026-07-17
 
 Version/help checks were read-only and did not start a harness prompt or create credentials,
 transcripts, sessions, or artifacts.
@@ -477,18 +574,53 @@ transcripts, sessions, or artifacts.
 | Claude Code | Local `claude` 2.1.212 plus the retained parity fixtures | Preassigned exact UUID resume and bounded transcript telemetry | Fail closed if its required session surface changes |
 | Codex | Local `codex-cli` 0.144.4 plus the retained parity fixtures | Bounded exact rollout discovery/resume and rollout telemetry | Fail closed if exact discovery or resume becomes ambiguous |
 | Pi | Current [Pi coding-agent documentation](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/README.md); executable absent locally | `pi` launch/probe only. The documented session selector identifies an existing session path/ID and does not prove caller-preassigned creation | Add exact recovery only after a version proves caller-supplied new identity or exposes a bounded exact artifact source |
-| Gemini CLI | Local `gemini` 0.25.2 help and current [Gemini CLI documentation](https://github.com/google-gemini/gemini-cli/blob/main/docs/cli/commands.md) | `gemini` launch/probe only. The installed resume surface offers ambient latest/index selection, which hvir rejects for recovery | Require a full exact ID plus a bounded, project-qualified listing or artifact source |
+| Gemini CLI | Local `gemini` 0.25.2 help and current [Gemini CLI session documentation](https://github.com/google-gemini/gemini-cli/blob/main/docs/cli/session-management.md) | `gemini` launch/probe only. The installed resume surface was not yet verified against one exact newly created session, so hvir rejects it for recovery | Require a full exact ID plus a bounded, project-qualified listing or artifact source |
 | GitHub Copilot CLI | Local `copilot` 0.0.394 help and current [Copilot CLI reference](https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-command-reference) | `copilot` launch/probe only. Help-text flag presence never upgrades recovery because it does not prove create/resume semantics | Verify create and exact resume against a real installed release, then gate the reviewed behavior on an explicit version threshold and fixtures |
-| Cursor CLI | Current [Cursor CLI installation documentation](https://docs.cursor.com/en/cli/installation); `cursor-agent` absent locally | `cursor-agent` launch/probe only while beta session surfaces lack a proven fresh-session identity | Require exact bounded machine-readable identity/listing and exact resume semantics |
+| Cursor CLI | Current [Cursor CLI documentation](https://cursor.com/docs/cli/using); `cursor-agent` absent locally | `cursor-agent` launch/probe only while beta session surfaces lack a proven fresh-session identity | Require exact bounded machine-readable identity/listing and exact resume semantics |
 | Custom | Internal structured-command contract | User-selected executable/argv/env/path launch through the PTY supervisor; always Unclassified, with no recovery or structured telemetry | Adopt as a bundled provider only after a reviewed provider contract exists |
 
-All four candidates ship as truthful bundled defaults; none is deferred. Pi, Gemini,
-Copilot, and Cursor deliberately remain launch-only. Launch-only providers declare no
-speculative recovery or artifact-environment semantics.
+All four candidates currently ship as truthful bundled defaults; none was deferred in the
+initial implementation. Pi, Gemini, Copilot, and Cursor deliberately remain launch-only.
+Launch-only providers declare no speculative recovery or artifact-environment semantics.
+Milestone 9 replaces automatic default materialization with opt-in provider templates and
+reopens their integration evidence under the stricter Harness-tab definition.
+
+### Acceptance research update — 2026-07-17
+
+The following official documentation was reviewed after the first local UX acceptance pass.
+It establishes promising current surfaces, not an automatic capability upgrade: every
+provider still needs a pinned installed version, exact fresh-session discovery fixtures,
+concurrent-launch tests, artifact-relocation handling, and real local/SSH evidence before
+its effective capabilities or compact label change.
+
+- [Pi's current coding-agent documentation](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/README.md)
+  documents auto-saved project-organized JSONL sessions, `/session` identity, exact
+  `--session <path|id>` reopening, configurable session roots, and an inspectable session
+  format. This is a strong candidate for bounded fresh-artifact discovery, exact recovery,
+  and session/usage observation.
+- [Gemini CLI session management](https://github.com/google-gemini/gemini-cli/blob/main/docs/cli/session-management.md)
+  documents project-qualified auto-saved sessions containing complete conversation, tool,
+  token-usage, and reasoning-summary data, plus full-UUID `--resume` and
+  `--list-sessions`. This is a strong candidate for exact discovery/recovery and the
+  Integrated telemetry minimum.
+- [GitHub Copilot CLI session guidance](https://docs.github.com/en/copilot/how-tos/copilot-cli/use-copilot-cli/chronicle)
+  documents exact `copilot --resume <session-id>`, while the
+  [configuration-directory reference](https://docs.github.com/en/enterprise-cloud@latest/copilot/reference/copilot-cli-reference/cli-config-dir-reference)
+  documents per-session `events.jsonl` and workspace artifacts under
+  `session-state/<id>`. Exact recovery looks feasible; the event schema and trustworthy
+  usage/context facets still require version-pinned validation.
+- [Cursor CLI documentation](https://cursor.com/docs/cli/using) documents exact
+  `--resume <thread-id>` and session listing. It does not yet provide enough documented
+  artifact/telemetry semantics to claim Integrated without a separate installed-version
+  investigation.
+
+These surfaces do not relax the fail-closed rule. In particular, exact resume without the
+required structured session and usage/context feed may be disclosed in Settings but remains
+`Launch only` in the deliberately binary compact menu.
 
 ### Automated verification
 
-- `npm run verify`: seam enforcement, lint, both TypeScript builds, launcher help, and 356
+- `npm run verify`: seam enforcement, lint, both TypeScript builds, launcher help, and 358
   tests across 49 files passed.
 - Focused profile/provider/probe/recovery/telemetry verification: 45 tests across six files
   passed after the review follow-ups.
@@ -503,8 +635,16 @@ speculative recovery or artifact-environment semantics.
   bounded host execution, recovery identity, telemetry multiplexing, and PTY failure
   classification without requiring live credentials.
 
-The five unchecked items above are intentionally acceptance-only: the isolated Milestone 0
-real local/SSH Claude/Codex restore soak, the shipped-provider real-host matrix, the three
-user-example local/SSH launches, and the final status transition. The user will perform that
-acceptance testing on this branch; until its evidence is recorded, Phase 9 remains
-`acceptance pending` rather than `done`.
+- Copilot review follow-up commit `b164137` centralized local inherited-unset/explicit-set
+  precedence across buffered exec, streaming exec, and PTY spawn, and made long synthetic
+  legacy profile IDs collision-resistant and always valid. Its focused two-file regression
+  run passed 35 tests, the full 358-test verification passed, and the pre-push production
+  smoke returned `HVIR_SMOKE_OK`.
+
+The original acceptance-only items remain open: the isolated Milestone 0 real local/SSH
+Claude/Codex restore soak, the shipped-provider real-host matrix, the three user-example
+local/SSH launches, and the final status transition. The first local UX pass additionally
+opened Milestone 9 for opt-in profile materialization, host-filtered menus, responsive
+settings, compact truthful labels, and the stronger Harness-tab integration contract. Keep
+those implementation commits local until the user completes the expanded acceptance pass;
+until its evidence is recorded, Phase 9 remains `acceptance refinement` rather than `done`.
