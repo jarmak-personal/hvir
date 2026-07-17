@@ -339,7 +339,9 @@ fi
 clear_frame_lock() {
   expected_lock_owner=$1
   lock_owner=
-  IFS= read -r lock_owner <"$tmp_dir/write.lock" 2>/dev/null || true
+  if [ -f "$tmp_dir/write.lock" ]; then
+    IFS= read -r lock_owner 2>/dev/null <"$tmp_dir/write.lock" || true
+  fi
   if [ -n "$expected_lock_owner" ] && [ "$lock_owner" = "$expected_lock_owner" ]; then
     rm -f "$tmp_dir/write.lock"
   fi
@@ -367,10 +369,14 @@ acquire_frame_lock() {
 
     # Heal an owner that died without running its trap (for example SIGKILL).
     lock_owner=
-    IFS= read -r lock_owner <"$tmp_dir/write.lock" 2>/dev/null || true
+    if [ -f "$tmp_dir/write.lock" ]; then
+      IFS= read -r lock_owner 2>/dev/null <"$tmp_dir/write.lock" || true
+    fi
     lock_pid=
     if [ -n "$lock_owner" ]; then
-      IFS= read -r lock_pid <"$tmp_dir/sub-$lock_owner/pid" 2>/dev/null || true
+      if [ -f "$tmp_dir/sub-$lock_owner/pid" ]; then
+        IFS= read -r lock_pid 2>/dev/null <"$tmp_dir/sub-$lock_owner/pid" || true
+      fi
     fi
     if [ "$lock_attempt" -ge 5 ] && { [ -z "$lock_pid" ] || ! kill -0 "$lock_pid" 2>/dev/null; }; then
       clear_frame_lock "$lock_owner"
@@ -385,7 +391,8 @@ emit_frame() {
   frame_line=$1
   [ "\${#frame_line}" -le 131072 ] || return 0
   frame_generation=
-  IFS= read -r frame_generation <"$follower_dir/generation" || return 0
+  [ -f "$follower_dir/generation" ] || return 0
+  IFS= read -r frame_generation 2>/dev/null <"$follower_dir/generation" || return 0
   frame_payload=$(printf '%s' "$frame_line" | encode_base64) || return 0
   acquire_frame_lock || return 0
   printf 'E\\t%s\\t%s\\t%s\\t%s\\t%s\\n' "$epoch" "$frame_generation" "$follower_subscription" "$follower_session" "$frame_payload"
@@ -423,16 +430,20 @@ ${follower.acceptRecord}
 stop_follower() {
   follower_dir=$1
   follower_subscription=
-  IFS= read -r follower_subscription <"$follower_dir/subscription" 2>/dev/null || true
+  if [ -f "$follower_dir/subscription" ]; then
+    IFS= read -r follower_subscription 2>/dev/null <"$follower_dir/subscription" || true
+  fi
   if [ -f "$follower_dir/pid" ]; then
     follower_pid=
-    IFS= read -r follower_pid <"$follower_dir/pid" 2>/dev/null || true
+    IFS= read -r follower_pid 2>/dev/null <"$follower_dir/pid" || true
     kill "$follower_pid" 2>/dev/null
     kill -KILL "$follower_pid" 2>/dev/null
     wait "$follower_pid" 2>/dev/null
   fi
   tail_pid=
-  IFS= read -r tail_pid <"$follower_dir/tail-pid" 2>/dev/null || true
+  if [ -f "$follower_dir/tail-pid" ]; then
+    IFS= read -r tail_pid 2>/dev/null <"$follower_dir/tail-pid" || true
+  fi
   [ -n "$tail_pid" ] && kill "$tail_pid" 2>/dev/null
   clear_frame_lock "$follower_subscription"
   rm -rf "$follower_dir"

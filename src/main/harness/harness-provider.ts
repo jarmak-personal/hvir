@@ -21,6 +21,7 @@ import {
 } from '../../shared'
 import type { Disposer, ProjectHost } from '../project-host'
 import { observeClaudeContext } from './claude-context-telemetry'
+import { claudeResumeAvailability } from './claude-session-recovery'
 import { observeCodexContext } from './codex-context-telemetry'
 import { codexSessionDiscovery } from './codex-session-discovery'
 import { piProvider } from './providers/pi'
@@ -102,6 +103,20 @@ export interface HarnessTelemetryObserver {
   ): Disposer | Promise<Disposer>
 }
 
+export type HarnessResumeAvailability = 'available' | 'missing' | 'unknown'
+
+export interface HarnessResumeValidationContext {
+  readonly sessionId: string
+  readonly artifact: HarnessArtifactContext
+}
+
+export interface HarnessResumeValidation {
+  availability(
+    host: ProjectHost,
+    context: HarnessResumeValidationContext,
+  ): Promise<HarnessResumeAvailability>
+}
+
 export interface HarnessManifest {
   readonly id: HarnessProviderId
   readonly displayName: string
@@ -162,6 +177,8 @@ export interface HarnessProvider {
   readonly sessionDiscovery?: HarnessSessionDiscovery
   /** Optional structured, read-only operational state for this harness. */
   readonly telemetry?: HarnessTelemetryObserver
+  /** Fail-closed check that the exact provider artifact can actually resume. */
+  readonly resumeValidation?: HarnessResumeValidation
   readonly probe: HarnessProbeContract
 
   /** Command to start a fresh session. */
@@ -236,6 +253,7 @@ export const claudeCodeProvider: HarnessProvider = {
   supportsResume: true,
   sessionIdentity: 'preassigned',
   telemetry: { observe: observeClaudeContext },
+  resumeValidation: { availability: claudeResumeAvailability },
   probe: versionProbe('preassigned', true, 'count'),
 
   launch(ctx): HarnessLaunchSpec {
@@ -398,6 +416,9 @@ export class HarnessProviderRegistry {
     ) {
       throw new Error(`Harness provider '${id}' has unexpected session discovery`)
     }
+    if (provider.resumeValidation && !provider.supportsResume) {
+      throw new Error(`Harness provider '${id}' validates resume without supporting it`)
+    }
     if (
       (provider.sessionDiscovery || provider.telemetry) &&
       provider.profile.reservedEnvironmentKeys.some(
@@ -429,6 +450,21 @@ export function harnessProvider(id: string): HarnessProvider {
 
 export function harnessProviderCatalog(): readonly HarnessProviderDescriptor[] {
   return harnessProviders.catalog()
+}
+
+export async function selectHarnessLaunchMode(
+  host: ProjectHost,
+  provider: HarnessProvider,
+  requestedMode: 'fresh' | 'resume',
+  context: HarnessResumeValidationContext,
+): Promise<'fresh' | 'resume'> {
+  if (requestedMode === 'fresh' || !provider.resumeValidation) return requestedMode
+  const availability = await provider.resumeValidation.availability(host, context)
+  if (availability === 'available') return 'resume'
+  if (availability === 'missing') return 'fresh'
+  throw new Error(
+    `${provider.manifest.displayName} session state could not be verified; recovery was not started`,
+  )
 }
 
 /** Data-only inspection surface for diagnostics/tests; never provider-contributed UI. */

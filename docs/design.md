@@ -926,6 +926,14 @@ edits do not. Rebinding is permitted only to another profile of the same provide
 exact harness session ID has no meaning across providers. hvir does not silently resume with
 changed flags or permissions.
 
+A known or caller-preassigned session ID is not by itself proof that the harness has persisted
+a resumable conversation. Providers may therefore define a bounded, artifact-qualified resume
+validation through `ProjectHost`. Exactly one verified artifact permits resume; ambiguous or
+unreadable state fails closed before PTY creation. A definitively missing artifact represents a
+zero-turn/deleted session and starts fresh in the same hvir terminal slot rather than invoking a
+provider resume command that is known to fail. Claude Code applies this rule to one non-empty
+transcript matching its preassigned UUID under the profile-qualified `CLAUDE_CONFIG_DIR` tree.
+
 Providers classify resolved launch configuration as `standard`, `elevated`, or
 `unclassified` using a provider-owned exact rule set. Rules cover known aliases,
 `--flag=value` forms, environment keys, and embedded config overrides such as `-c

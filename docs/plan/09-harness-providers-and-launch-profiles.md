@@ -647,7 +647,7 @@ transcripts, sessions, or artifacts.
 
 | Provider | Evidence checked | Shipped effective behavior | Re-entry criterion |
 |---|---|---|---|
-| Claude Code | Local `claude` 2.1.212 plus the retained parity fixtures | Preassigned exact UUID resume and bounded transcript telemetry | Fail closed if its required session surface changes |
+| Claude Code | Local `claude` 2.1.212 plus the retained parity fixtures | Preassigned exact UUID resume after one artifact-qualified non-empty transcript exists, plus bounded transcript telemetry | Treat a missing zero-turn artifact as fresh; fail closed on ambiguous/unreadable state or a changed session surface |
 | Codex | Local `codex-cli` 0.144.4 plus the retained parity fixtures | Bounded exact rollout discovery/resume and rollout telemetry | Fail closed if exact discovery or resume becomes ambiguous |
 | Pi | Current [Pi coding-agent documentation](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/README.md); executable absent locally | `pi` launch/probe only. The documented session selector identifies an existing session path/ID and does not prove caller-preassigned creation | Add exact recovery only after a version proves caller-supplied new identity or exposes a bounded exact artifact source |
 | Gemini CLI | Local `gemini` 0.25.2 help and current [Gemini CLI session documentation](https://github.com/google-gemini/gemini-cli/blob/main/docs/cli/session-management.md) | `gemini` launch/probe only. The installed resume surface was not yet verified against one exact newly created session, so hvir rejects it for recovery | Require a full exact ID plus a bounded, project-qualified listing or artifact source |
@@ -749,6 +749,12 @@ required structured session and usage/context feed may be disclosed in Settings 
   cleanup. `npm run smoke:capacity` returned `HVIR_SMOKE_OK` with 12 live/restored terminals,
   75 measured interactions, 17.7 ms p99 / 17.8 ms maximum frame gap, and +22 MiB net / +44 MiB
   peak memory growth.
+- Local acceptance found that Claude accepts a preassigned UUID before it persists a resumable
+  transcript. Recovery now performs a provider-owned, artifact-qualified preflight: one exact
+  non-empty transcript resumes, a definitively missing zero-turn transcript starts fresh in the
+  same terminal slot, and ambiguity/unreadable state fails closed. Telemetry teardown also
+  guards optional follower files before reading them, eliminating benign missing-file warnings
+  when a zero-turn observer is stopped.
 - The expanded user-owned local/SSH UX acceptance pass remains open. These implementation
   commits stay local and unpushed; Milestone 9b was not started.
 

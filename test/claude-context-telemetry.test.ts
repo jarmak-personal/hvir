@@ -143,4 +143,34 @@ describe('Claude Code context telemetry', () => {
       await rm(configDirectory, { recursive: true, force: true })
     }
   })
+
+  it('stops quietly while a zero-turn transcript has not materialized', async () => {
+    const configDirectory = await mkdtemp(join(tmpdir(), 'hvir-claude-context-'))
+    const host = new LocalHost()
+    const controller = new AbortController()
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    vi.stubEnv('CLAUDE_CONFIG_DIR', configDirectory)
+    await mkdir(join(configDirectory, 'projects'), { recursive: true })
+    await host.connect()
+    let stop: (() => void | Promise<void>) | undefined
+    try {
+      stop = await observeClaudeContext(host, {
+        subscriptionId: SESSION_ID,
+        sessionId: SESSION_ID,
+        artifact: { identity: 'test', environment: {}, unsetEnvironment: [] },
+        signal: controller.signal,
+        emit: () => undefined,
+      })
+      await new Promise((resolve) => setTimeout(resolve, 150))
+      await stop()
+      stop = undefined
+      await new Promise((resolve) => setTimeout(resolve, 1_100))
+      expect(warning).not.toHaveBeenCalled()
+    } finally {
+      await stop?.()
+      await host.dispose()
+      warning.mockRestore()
+      await rm(configDirectory, { recursive: true, force: true })
+    }
+  })
 })

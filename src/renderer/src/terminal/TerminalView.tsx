@@ -285,13 +285,15 @@ export function TerminalView({
           pendingInput = ''
         }
         setStatus(
-          resume
+          result.resumed
             ? `Resumed · pid ${result.pid}`
-            : isManualRestart
-              ? `Restarted · pid ${result.pid}`
-              : isReconnect
-                ? `New shell · pid ${result.pid}`
-                : `pid ${result.pid}`,
+            : resume
+              ? `New session · pid ${result.pid}`
+              : isManualRestart
+                ? `Restarted · pid ${result.pid}`
+                : isReconnect
+                  ? `New shell · pid ${result.pid}`
+                  : `pid ${result.pid}`,
         )
         if (activeRef.current) {
           pane.focus()

@@ -1215,7 +1215,7 @@ async function runSmoke(): Promise<number> {
         riskAcknowledgedRevision?: number
       }
       preview: { args: readonly string[]; command: string }
-      started: { id: string; identityStatus: string }
+      started: { id: string; identityStatus: string; resumed: boolean }
       output: string
     }
     if (
@@ -1234,6 +1234,7 @@ async function runSmoke(): Promise<number> {
       profileSmoke.profile.riskAcknowledgedRevision !==
         profileSmoke.profile.launchRevision ||
       profileSmoke.started.identityStatus !== 'none' ||
+      profileSmoke.started.resumed ||
       !profileSmoke.output.includes('hvir-profile-smoke') ||
       !profileSmoke.preview.args.includes(smokeRoot.path) ||
       !profileSmoke.preview.command.includes("HVIR_PROFILE_SMOKE='structured'")

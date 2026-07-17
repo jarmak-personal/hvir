@@ -39,7 +39,11 @@ import {
   type ConnectedHost,
   type BrowseHostResponse,
 } from '../shared'
-import { harnessProvider, harnessProviderCatalog } from './harness/harness-provider'
+import {
+  harnessProvider,
+  harnessProviderCatalog,
+  selectHarnessLaunchMode,
+} from './harness/harness-provider'
 import { commandPreview, resolveHarnessLaunch } from './harness/harness-launch'
 import {
   providerTemplateProfiles,
@@ -671,14 +675,15 @@ export function registerIpcHandlers(deps: IpcDeps): void {
       }
     }
     const defaultShell = await host.defaultShell()
-    const resolved = await resolveHarnessLaunch({
+    const requestedMode = req.resume ? 'resume' : 'fresh'
+    let resolved = await resolveHarnessLaunch({
       profile,
       expectedLaunchRevision: req.launchRevision,
       projectRoot,
       workspaceRoot: cwd,
       host,
       store: deps.harnessProfiles,
-      mode: req.resume ? 'resume' : 'fresh',
+      mode: requestedMode,
       context: {
         sessionId: req.resume ? req.harnessSessionId! : req.sessionId,
         cwd,
@@ -688,6 +693,29 @@ export function registerIpcHandlers(deps: IpcDeps): void {
         effectiveCapabilities,
       },
     })
+    const launchMode = await selectHarnessLaunchMode(host, provider, requestedMode, {
+      sessionId: req.resume ? req.harnessSessionId! : req.sessionId,
+      artifact: resolved.artifact,
+    })
+    if (launchMode !== requestedMode) {
+      resolved = await resolveHarnessLaunch({
+        profile,
+        expectedLaunchRevision: req.launchRevision,
+        projectRoot,
+        workspaceRoot: cwd,
+        host,
+        store: deps.harnessProfiles,
+        mode: launchMode,
+        context: {
+          sessionId: req.sessionId,
+          cwd,
+          cols,
+          rows,
+          defaultShell,
+          effectiveCapabilities,
+        },
+      })
+    }
     let managed
     try {
       managed = await deps.ptySupervisor.spawn({
@@ -700,8 +728,8 @@ export function registerIpcHandlers(deps: IpcDeps): void {
         cwd,
         ownerId: event.sender.id,
         sessionId: req.sessionId,
-        harnessSessionId: req.resume ? req.harnessSessionId : undefined,
-        resume: req.resume,
+        harnessSessionId: launchMode === 'resume' ? req.harnessSessionId : undefined,
+        resume: launchMode === 'resume',
         cols,
         rows,
         onClassifiedLaunchFailure: () => {
@@ -769,6 +797,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
       harnessSessionId: managed.harnessSessionId,
       identityStatus: managed.identityStatus,
       capabilities: managed.capabilities,
+      resumed: managed.resumed,
     }
   })
 

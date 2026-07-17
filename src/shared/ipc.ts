@@ -293,6 +293,8 @@ export interface AuthorizeHarnessPathRequest {
 export interface StartPtyResponse {
   readonly id: string
   readonly pid: number
+  /** Actual provider launch mode after fail-closed artifact validation. */
+  readonly resumed: boolean
   readonly harnessSessionId?: string
   readonly identityStatus: TerminalIdentityStatus
   readonly capabilities: import('./harness-provider').HarnessProviderCapabilities
