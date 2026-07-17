@@ -1164,11 +1164,45 @@ async function runSmoke(): Promise<number> {
           throw new Error('active terminal entry does not blend into the canvas');
         }
         host.focus();
-        const caret = getComputedStyle(host).caretColor;
+        const hostStyle = getComputedStyle(host);
+        const caret = hostStyle.caretColor;
         if (caret !== 'transparent' && caret !== 'rgba(0, 0, 0, 0)') {
           throw new Error('browser caret is visible in terminal input host: ' + caret);
         }
-        return 'headerless · canvas cursor only';
+        const canvas = host.querySelector('canvas');
+        if (!(canvas instanceof HTMLCanvasElement)) throw new Error('terminal canvas missing');
+        const hostRect = host.getBoundingClientRect();
+        const canvasRect = canvas.getBoundingClientRect();
+        const workbench = host.closest('.workbench');
+        if (!(workbench instanceof HTMLElement)) throw new Error('terminal workbench missing');
+        const workbenchRect = workbench.getBoundingClientRect();
+        if (
+          Math.abs(workbenchRect.bottom - window.innerHeight) > 1 ||
+          Math.abs(hostRect.bottom - window.innerHeight) > 1
+        ) {
+          throw new Error(
+            'terminal extends outside the viewport: viewport=' + window.innerHeight +
+            ' workbench=' + workbenchRect.bottom + ' terminal=' + hostRect.bottom
+          );
+        }
+        const paddingRight = parseFloat(hostStyle.paddingRight) || 0;
+        const paddingBottom = parseFloat(hostStyle.paddingBottom) || 0;
+        const rightRemainder = hostRect.right - paddingRight - canvasRect.right;
+        const bottomRemainder = hostRect.bottom - paddingBottom - canvasRect.bottom;
+        if (rightRemainder < -1 || bottomRemainder < -1) {
+          throw new Error(
+            'terminal canvas exceeds its content box: right=' + rightRemainder +
+            ' bottom=' + bottomRemainder
+          );
+        }
+        if (rightRemainder >= 12 || bottomRemainder >= 20) {
+          throw new Error(
+            'terminal fit wastes more than one cell: right=' + rightRemainder +
+            ' bottom=' + bottomRemainder
+          );
+        }
+        return 'headerless · canvas cursor only · fit ' +
+          rightRemainder.toFixed(1) + '×' + bottomRemainder.toFixed(1) + 'px';
       })()
     `)) as string
     console.log(`[smoke] terminal input caret contained (${terminalCaretStatus})`)
@@ -2629,6 +2663,19 @@ async function runSmoke(): Promise<number> {
             const terminalAfter = terminal.getBoundingClientRect().height;
             if (treeAfter <= treeBefore || terminalAfter <= terminalBefore) {
               return reject(new Error('pane keyboard resize did not change tracks'));
+            }
+            for (let index = 0; index < 32; index += 1) {
+              terminalDivider.dispatchEvent(new KeyboardEvent('keydown', {
+                key: 'ArrowUp', bubbles: true
+              }));
+            }
+            const terminalAtLimit = terminal.getBoundingClientRect();
+            const workbenchAtLimit = workbench.getBoundingClientRect();
+            if (terminalAtLimit.bottom > workbenchAtLimit.bottom + 1) {
+              return reject(new Error(
+                'terminal resize escaped the viewport: terminal=' + terminalAtLimit.bottom +
+                ' workbench=' + workbenchAtLimit.bottom
+              ));
             }
             treeDivider.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
             terminalDivider.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
