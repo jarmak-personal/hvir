@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 
 import { usesUnsavedContent } from '../src/renderer/src/viewer/diff-policy'
 import { INVOKE_CHANNELS } from '../src/shared'
@@ -24,5 +26,44 @@ describe('renderer filesystem contract', () => {
     expect(INVOKE_CHANNELS).toContain('git:fetch')
     expect(INVOKE_CHANNELS).toContain('git:pull')
     expect(INVOKE_CHANNELS).toContain('git:switch-branch')
+    expect(INVOKE_CHANNELS).toContain('harness:catalog')
+    expect(INVOKE_CHANNELS).toContain('harness:probe-templates')
+    expect(INVOKE_CHANNELS).toContain('harness:profile-materialize')
+  })
+
+  it('keeps the Harnesses editor wide and the add flow keyboard-addressable', () => {
+    const styles = readFileSync(
+      join(process.cwd(), 'src/renderer/src/styles.css'),
+      'utf8',
+    )
+    const settings = readFileSync(
+      join(process.cwd(), 'src/renderer/src/settings/HarnessProfilesSettings.tsx'),
+      'utf8',
+    )
+    expect(styles).toMatch(
+      /\.project-dialog\.settings-dialog\s*\{[^}]*width:\s*min\(1120px,/s,
+    )
+    expect(settings).toContain('aria-labelledby="add-harness-title"')
+    expect(settings).toContain('Already added · use Manual profile for another')
+    expect(settings).toContain('checking || busy || alreadyConfigured')
+    expect(settings).toContain("event.key === 'Escape'")
+    expect(settings).toContain("event.key !== 'Tab'")
+    expect(styles).toMatch(/\.terminal-list-profile\.elevated\s*\{[^}]*#d8b36f/s)
+  })
+
+  it('captures form values before scheduling profile state updates', () => {
+    const settings = readFileSync(
+      join(process.cwd(), 'src/renderer/src/settings/HarnessProfilesSettings.tsx'),
+      'utf8',
+    )
+    const terminalWorkspace = readFileSync(
+      join(process.cwd(), 'src/renderer/src/terminal/TerminalWorkspace.tsx'),
+      'utf8',
+    )
+    expect(settings).not.toMatch(/displayName:\s*event\.currentTarget\.value/)
+    expect(settings).not.toMatch(/description:\s*event\.currentTarget\.value/)
+    expect(terminalWorkspace).not.toMatch(
+      /\[session\.id\]:\s*event\.currentTarget\.value/,
+    )
   })
 })

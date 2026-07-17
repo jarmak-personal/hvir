@@ -28,6 +28,8 @@ export const MAX_EXEC_STREAM_WRITE_BYTES = 256 * 1024
 export interface ExecOptions {
   readonly cwd?: HostPath
   readonly env?: Record<string, string>
+  /** Remove inherited variables before applying `env`. */
+  readonly unsetEnv?: readonly string[]
   /** Written to the child's stdin before the stream is exposed. */
   readonly input?: string
   /**
@@ -89,6 +91,8 @@ export interface SpawnPtyOptions {
   readonly args?: readonly string[]
   readonly cwd: HostPath
   readonly env?: Record<string, string>
+  /** Remove inherited variables before applying `env`. */
+  readonly unsetEnv?: readonly string[]
   readonly cols?: number
   readonly rows?: number
   /** TERM name; defaults to `xterm-256color`. */

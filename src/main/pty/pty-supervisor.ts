@@ -12,16 +12,28 @@ import { randomUUID } from 'node:crypto'
 
 import type {
   HarnessTelemetry,
+  HarnessProviderId,
+  HarnessProviderCapabilities,
   HostId,
   HostPath,
   TerminalIdentityStatus,
 } from '../../shared'
 import type { Disposer, ProjectHost, PtyExit, PtyProcess } from '../project-host'
-import type { HarnessAdapter, HarnessSessionDiscovery } from '../harness/harness-adapter'
+import type {
+  HarnessLaunchSpec,
+  HarnessProvider,
+  HarnessSessionDiscovery,
+  HarnessArtifactContext,
+} from '../harness/harness-provider'
 
 export interface PtySpawnRequest {
   readonly host: ProjectHost
-  readonly adapter: HarnessAdapter
+  readonly provider: HarnessProvider
+  /** Precomposed profile launch; tests/legacy callers may omit it. */
+  readonly launchSpec?: HarnessLaunchSpec
+  readonly unsetEnvironment?: readonly string[]
+  readonly artifact?: HarnessArtifactContext
+  readonly effectiveCapabilities?: HarnessProviderCapabilities
   readonly cwd: HostPath
   /** Electron webContents id that owns and may control this PTY. */
   readonly ownerId: number
@@ -29,10 +41,12 @@ export interface PtySpawnRequest {
   readonly sessionId?: string
   /** Exact harness-owned session id, when distinct from the PTY id. */
   readonly harnessSessionId?: string
-  /** Resume `harnessSessionId` via the adapter rather than launching fresh. */
+  /** Resume `harnessSessionId` via the provider rather than launching fresh. */
   readonly resume?: boolean
   readonly cols?: number
   readonly rows?: number
+  /** Re-probe once when the interactive shell reports a missing executable. */
+  readonly onClassifiedLaunchFailure?: () => void
 }
 
 /** Immutable, serializable description of a managed PTY session. */
@@ -41,7 +55,8 @@ export interface ManagedPty {
   readonly ownerId: number
   readonly hostId: HostId
   readonly cwd: HostPath
-  readonly adapterId: string
+  readonly providerId: HarnessProviderId
+  readonly capabilities: HarnessProviderCapabilities
   readonly pid: number
   readonly startedAt: number
   readonly resumed: boolean
@@ -70,17 +85,19 @@ interface Entry {
   telemetry?: HarnessTelemetry
   telemetryStarted: boolean
   identityDiscoveryActive: boolean
+  launchDiagnostic: string
   identityRetry?: IdentityRetry
   exited: boolean
 }
 
 interface IdentityRetry {
   readonly host: ProjectHost
-  readonly adapter: HarnessAdapter
+  readonly provider: HarnessProvider
   readonly discovery: HarnessSessionDiscovery
   readonly snapshot: unknown
   readonly cwd: HostPath
   readonly launchedAtMs: number
+  readonly artifact: HarnessArtifactContext
 }
 
 interface PendingEntry {
@@ -95,6 +112,7 @@ interface PendingPtyExit {
 }
 
 const MAX_INITIAL_REPLAY_LENGTH = 256 * 1024
+const LAUNCH_FAILURE_WINDOW_MS = 30_000
 
 export class PtySupervisor {
   private readonly entries = new Map<string, Entry>()
@@ -119,23 +137,35 @@ export class PtySupervisor {
       cancelled: false,
     }
     const generation = this.generation
+    const effectiveCapabilities = req.effectiveCapabilities ?? {
+      sessionIdentity: req.provider.sessionIdentity,
+      exactResume: req.provider.supportsResume,
+      contextPresentation: req.provider.manifest.contextPresentation,
+    }
+    const artifact = req.artifact ?? {
+      identity: `${req.host.hostId}:${req.provider.manifest.id}:default`,
+      environment: {},
+      unsetEnvironment: [],
+    }
     this.pendingIds.set(sessionId, pending)
 
-    const resumed = req.resume === true && req.adapter.supportsResume
+    const resumed = req.resume === true && effectiveCapabilities.exactResume
     const harnessSessionId = resumed
       ? (req.harnessSessionId ??
-        (req.adapter.sessionIdentity === 'preassigned' ? sessionId : undefined))
-      : req.adapter.sessionIdentity === 'preassigned'
+        (effectiveCapabilities.sessionIdentity === 'preassigned' ? sessionId : undefined))
+      : effectiveCapabilities.sessionIdentity === 'preassigned'
         ? sessionId
         : undefined
     if (resumed && !harnessSessionId) {
       this.pendingIds.delete(sessionId)
-      throw new Error(`Harness '${req.adapter.id}' resume requires an exact session id`)
+      throw new Error(
+        `Harness '${req.provider.manifest.id}' resume requires an exact session id`,
+      )
     }
 
     const discovery =
-      !resumed && req.adapter.sessionIdentity === 'discovered'
-        ? req.adapter.sessionDiscovery
+      !resumed && effectiveCapabilities.sessionIdentity === 'discovered'
+        ? req.provider.sessionDiscovery
         : undefined
     let discoverySnapshot: unknown
     let discoveryReady = false
@@ -145,15 +175,15 @@ export class PtySupervisor {
     try {
       if (discovery) {
         releaseDiscoveryLaunch = await this.reserveDiscoveryLaunch(
-          `${req.host.hostId}:${req.adapter.id}`,
+          `${req.host.hostId}:${req.provider.manifest.id}`,
         )
         this.assertPending(sessionId, pending, generation)
         try {
-          discoverySnapshot = await discovery.snapshot(req.host)
+          discoverySnapshot = await discovery.snapshot(req.host, artifact)
           discoveryReady = true
         } catch (error) {
           console.warn(
-            `[pty] ${req.adapter.id} session discovery snapshot unavailable`,
+            `[pty] ${req.provider.manifest.id} session discovery snapshot unavailable`,
             error,
           )
           void releaseDiscoveryLaunch()
@@ -169,8 +199,10 @@ export class PtySupervisor {
         cols: req.cols,
         rows: req.rows,
         defaultShell,
+        effectiveCapabilities,
       }
-      const spec = resumed ? req.adapter.resume(ctx) : req.adapter.launch(ctx)
+      const spec =
+        req.launchSpec ?? (resumed ? req.provider.resume(ctx) : req.provider.launch(ctx))
       const launch = spec.shellEnvironment
         ? interactiveShellLaunch(defaultShell, spec.file, spec.args)
         : spec
@@ -180,15 +212,16 @@ export class PtySupervisor {
         args: launch.args,
         cwd: req.cwd,
         env: {
+          ...spec.env,
           TERM: 'xterm-256color',
           COLORTERM: 'truecolor',
           TERM_PROGRAM: 'hvir',
-          ...spec.env,
         },
+        unsetEnv: req.unsetEnvironment,
         cols: req.cols,
         rows: req.rows,
       })
-      // Keep same-adapter baselines ordered through PTY creation, but never
+      // Keep same-provider baselines ordered through PTY creation, but never
       // hold a later terminal behind the bounded post-launch identity scan.
       void releaseDiscoveryLaunch?.()
       releaseDiscoveryLaunch = undefined
@@ -211,12 +244,17 @@ export class PtySupervisor {
       ownerId: req.ownerId,
       hostId: req.host.hostId,
       cwd: req.cwd,
-      adapterId: req.adapter.id,
+      providerId: req.provider.manifest.id,
+      capabilities: effectiveCapabilities,
       pid: pty.pid,
       startedAt: launchedAtMs,
       resumed,
       harnessSessionId,
-      identityStatus: identityStatus(req.adapter, harnessSessionId, discoveryReady),
+      identityStatus: identityStatus(
+        effectiveCapabilities.sessionIdentity,
+        harnessSessionId,
+        discoveryReady,
+      ),
     }
 
     const entry: Entry = {
@@ -231,6 +269,7 @@ export class PtySupervisor {
       replayPending: true,
       telemetryStarted: false,
       identityDiscoveryActive: false,
+      launchDiagnostic: '',
       exited: false,
     }
 
@@ -240,6 +279,9 @@ export class PtySupervisor {
 
     entry.disposers.push(
       pty.onData((data) => {
+        if (entry.launchDiagnostic.length < 4_096) {
+          entry.launchDiagnostic = `${entry.launchDiagnostic}${data}`.slice(0, 4_096)
+        }
         if (entry.replayPending && entry.dataListeners.size === 0) {
           retainReplay(entry, data)
         }
@@ -250,6 +292,15 @@ export class PtySupervisor {
       pty.onExit((exit) => {
         if (entry.exited) return
         entry.exited = true
+        if (
+          classifiedEarlyExit(
+            exit,
+            entry.launchDiagnostic,
+            Date.now() - entry.info.startedAt,
+          )
+        ) {
+          req.onClassifiedLaunchFailure?.()
+        }
         try {
           for (const cb of entry.exitListeners) cb(exit)
           for (const cb of this.globalExitListeners) cb(entry.info, exit)
@@ -272,25 +323,27 @@ export class PtySupervisor {
       entry.identityDiscoveryActive = true
       entry.identityRetry = {
         host: req.host,
-        adapter: req.adapter,
+        provider: req.provider,
         discovery,
         snapshot: discoverySnapshot,
         cwd: req.cwd,
         launchedAtMs,
+        artifact,
       }
       void this.identifySession(
         entry,
         req.host,
-        req.adapter,
+        req.provider,
         discovery,
         discoverySnapshot,
         req.cwd,
         launchedAtMs,
         launchedAtMs,
+        artifact,
         controller,
       )
     } else if (harnessSessionId) {
-      this.startTelemetry(entry, req.host, req.adapter, harnessSessionId)
+      this.startTelemetry(entry, req.host, req.provider, harnessSessionId, artifact)
     }
 
     return info
@@ -494,12 +547,13 @@ export class PtySupervisor {
   private async identifySession(
     entry: Entry,
     host: ProjectHost,
-    adapter: HarnessAdapter,
+    provider: HarnessProvider,
     discovery: HarnessSessionDiscovery,
     snapshot: unknown,
     cwd: HostPath,
     launchedAtMs: number,
     discoveryStartedAtMs: number,
+    artifact: HarnessArtifactContext,
     controller: AbortController,
   ): Promise<void> {
     try {
@@ -508,6 +562,7 @@ export class PtySupervisor {
         launchedAtMs,
         discoveryStartedAtMs,
         signal: controller.signal,
+        artifact,
       })
       if (entry.exited || this.entries.get(entry.info.id) !== entry) return
       entry.info =
@@ -520,7 +575,14 @@ export class PtySupervisor {
           : { ...entry.info, identityStatus: result.status }
       if (result.status === 'identified') {
         entry.identityRetry = undefined
-        this.startTelemetry(entry, host, adapter, result.sessionId, result.sessionData)
+        this.startTelemetry(
+          entry,
+          host,
+          provider,
+          result.sessionId,
+          artifact,
+          result.sessionData,
+        )
       } else if (result.status === 'ambiguous') {
         entry.identityRetry = undefined
       }
@@ -529,7 +591,10 @@ export class PtySupervisor {
         entry.info = { ...entry.info, identityStatus: 'unavailable' }
       }
       if (!controller.signal.aborted) {
-        console.warn(`[pty] ${entry.info.adapterId} session discovery unavailable`, error)
+        console.warn(
+          `[pty] ${entry.info.providerId} session discovery unavailable`,
+          error,
+        )
       }
     } finally {
       entry.identityDiscoveryActive = false
@@ -560,12 +625,13 @@ export class PtySupervisor {
     void this.identifySession(
       entry,
       retry.host,
-      retry.adapter,
+      retry.provider,
       retry.discovery,
       retry.snapshot,
       retry.cwd,
       retry.launchedAtMs,
       Date.now(),
+      retry.artifact,
       controller,
     )
   }
@@ -573,11 +639,12 @@ export class PtySupervisor {
   private startTelemetry(
     entry: Entry,
     host: ProjectHost,
-    adapter: HarnessAdapter,
+    provider: HarnessProvider,
     sessionId: string,
+    artifact: HarnessArtifactContext,
     sessionData?: unknown,
   ): void {
-    const observer = adapter.telemetry
+    const observer = provider.telemetry
     if (!observer || entry.telemetryStarted) return
     entry.telemetryStarted = true
     const controller = new AbortController()
@@ -588,6 +655,7 @@ export class PtySupervisor {
           subscriptionId: entry.info.id,
           sessionId,
           sessionData,
+          artifact,
           signal: controller.signal,
           emit: (telemetry) => {
             if (
@@ -616,7 +684,7 @@ export class PtySupervisor {
         },
         (error: unknown) => {
           if (!controller.signal.aborted) {
-            console.warn(`[pty] ${adapter.id} telemetry unavailable`, error)
+            console.warn(`[pty] ${provider.manifest.id} telemetry unavailable`, error)
           }
         },
       )
@@ -632,16 +700,27 @@ function interactiveShellLaunch(
   return { file: shell, args: ['-ic', `exec ${command}`] }
 }
 
+function classifiedEarlyExit(exit: PtyExit, output: string, elapsedMs: number): boolean {
+  if (elapsedMs > LAUNCH_FAILURE_WINDOW_MS) return false
+  return (
+    exit.exitCode === 126 ||
+    exit.exitCode === 127 ||
+    /unknown option|unrecognized option|unsupported option|unsupported version|requires (?:a )?newer version/i.test(
+      output,
+    )
+  )
+}
+
 function shellQuote(value: string): string {
   return `'${value.replaceAll("'", `'"'"'`)}'`
 }
 
 function identityStatus(
-  adapter: HarnessAdapter,
+  sessionIdentity: HarnessProviderCapabilities['sessionIdentity'],
   harnessSessionId: string | undefined,
   discoveryReady: boolean,
 ): HarnessSessionIdentityStatus {
-  if (adapter.sessionIdentity === 'none') return 'none'
+  if (sessionIdentity === 'none') return 'none'
   if (harnessSessionId) return 'identified'
   return discoveryReady ? 'discovering' : 'unavailable'
 }

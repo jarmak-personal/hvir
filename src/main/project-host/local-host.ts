@@ -83,10 +83,11 @@ export class LocalHost implements ProjectHost {
     args: readonly string[],
     opts: ExecOptions = {},
   ): Promise<ExecResult> {
+    const environment = childEnvironment(opts.env, opts.unsetEnv)
     return new Promise<ExecResult>((resolve, reject) => {
       const child = spawn(command, [...args], {
         cwd: opts.cwd ? this.resolve(opts.cwd) : undefined,
-        env: opts.env ? { ...process.env, ...opts.env } : process.env,
+        env: environment,
         signal: opts.signal,
       })
       const maxBuffer = opts.maxBuffer ?? DEFAULT_MAX_BUFFER
@@ -163,9 +164,10 @@ export class LocalHost implements ProjectHost {
     args: readonly string[],
     opts: ExecOptions = {},
   ): ExecStreamHandle {
+    const environment = childEnvironment(opts.env, opts.unsetEnv)
     const child = spawn(command, [...args], {
       cwd: opts.cwd ? this.resolve(opts.cwd) : undefined,
-      env: opts.env ? { ...process.env, ...opts.env } : process.env,
+      env: environment,
       signal: opts.signal,
     })
     const errorListeners = new Set<(error: Error) => void>()
@@ -292,9 +294,10 @@ export class LocalHost implements ProjectHost {
   async spawnPty(opts: SpawnPtyOptions): Promise<PtyProcess> {
     // Lazy native import — see file header.
     const pty = await import('node-pty')
+    const env = childEnvironment(opts.env, opts.unsetEnv)
     const proc = pty.spawn(opts.file, [...(opts.args ?? [])], {
       cwd: this.resolve(opts.cwd),
-      env: opts.env ? { ...process.env, ...opts.env } : { ...process.env },
+      env,
       cols: opts.cols ?? 80,
       rows: opts.rows ?? 24,
       name: opts.name ?? 'xterm-256color',
@@ -506,6 +509,15 @@ export class LocalHost implements ProjectHost {
   private wrap(rawPath: string): HostPath {
     return hostPath(this.hostId, rawPath)
   }
+}
+
+function childEnvironment(
+  explicit: Readonly<Record<string, string>> | undefined,
+  inheritedUnsets: readonly string[] | undefined,
+): NodeJS.ProcessEnv {
+  const environment = { ...process.env }
+  for (const name of inheritedUnsets ?? []) delete environment[name]
+  return Object.assign(environment, explicit)
 }
 
 function asError(reason: unknown): Error {

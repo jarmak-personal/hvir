@@ -1,21 +1,34 @@
+import { createHash } from 'node:crypto'
+
 import {
   asHostId,
+  asHarnessProfileId,
   hostPath,
+  isHarnessProviderId,
+  type HarnessProviderId,
+  type HarnessProfileId,
   type HostPath,
-  type TerminalAdapterId,
   type TerminalLayoutEntry,
   type TerminalRecoverySession,
 } from '../../shared'
 import type { ProjectHost } from '../project-host'
+import { harnessProvider } from '../harness/harness-provider'
+import type { HarnessRecoveryProfileReference } from '../harness/harness-profile-store'
 
-const FILE_VERSION = 1
+const FILE_VERSION = 3
+const LEGACY_PROVIDER_FILE_VERSION = 2
+const LEGACY_ADAPTER_FILE_VERSION = 1
 const TERMINAL_ID = /^[a-zA-Z0-9-]{1,80}$/
 const MAX_SESSIONS = 500
 const MAX_TITLE_LENGTH = 512
 
 interface StoredTerminalSession {
   readonly id: string
-  readonly adapterId: TerminalAdapterId
+  readonly providerId: HarnessProviderId
+  readonly profileId: HarnessProfileId
+  readonly launchRevision: number
+  readonly riskAcknowledgedRevision?: number
+  readonly artifactIdentity?: string
   readonly harnessSessionId?: string
   readonly hostId: string
   readonly projectRoot: HostPath
@@ -33,7 +46,11 @@ interface StoredFile {
 
 export interface RecordTerminalSpawn {
   readonly id: string
-  readonly adapterId: TerminalAdapterId
+  readonly providerId: HarnessProviderId
+  readonly profileId: HarnessProfileId
+  readonly launchRevision: number
+  readonly riskAcknowledgedRevision?: number
+  readonly artifactIdentity?: string
   readonly harnessSessionId?: string
   readonly projectRoot: HostPath
   readonly cwd: HostPath
@@ -44,10 +61,21 @@ export interface RecordTerminalSpawn {
 
 export interface AuthorizeTerminalResume {
   readonly id: string
-  readonly adapterId: TerminalAdapterId
+  readonly providerId: HarnessProviderId
+  readonly profileId: HarnessProfileId
+  readonly launchRevision: number
   readonly harnessSessionId: string
   readonly projectRoot: HostPath
   readonly cwd: HostPath
+}
+
+export interface RebindTerminalProfile {
+  readonly id: string
+  readonly providerId: HarnessProviderId
+  readonly profileId: HarnessProfileId
+  readonly launchRevision: number
+  readonly riskAcknowledgedRevision?: number
+  readonly projectRoot: HostPath
 }
 
 export interface TerminalSessionStore {
@@ -59,6 +87,7 @@ export interface TerminalSessionStore {
     layout: readonly TerminalLayoutEntry[],
   ): Promise<void>
   forget(projectRoot: HostPath, id: string): Promise<void>
+  rebindProfile(request: RebindTerminalProfile): Promise<TerminalRecoverySession>
   authorizeResume(request: AuthorizeTerminalResume): boolean
   flush(): Promise<void>
 }
@@ -81,20 +110,42 @@ export class TerminalSessionRegistry implements TerminalSessionStore {
 
   static async load(host: ProjectHost, file: HostPath): Promise<TerminalSessionRegistry> {
     let sessions: StoredTerminalSession[] = []
+    let migrated = false
     try {
       const value: unknown = JSON.parse(await host.readTextFile(file))
-      if (isRecord(value) && value['version'] === FILE_VERSION) {
+      if (
+        isRecord(value) &&
+        (value['version'] === FILE_VERSION ||
+          value['version'] === LEGACY_PROVIDER_FILE_VERSION ||
+          value['version'] === LEGACY_ADAPTER_FILE_VERSION)
+      ) {
         const rawSessions = value['sessions']
         if (Array.isArray(rawSessions)) {
           sessions = rawSessions
-            .map(parseStoredSession)
+            .map((session) =>
+              value['version'] === FILE_VERSION
+                ? parseStoredSession(session)
+                : parseLegacyStoredSession(
+                    session,
+                    value['version'] === LEGACY_ADAPTER_FILE_VERSION,
+                  ),
+            )
             .filter((session): session is StoredTerminalSession => Boolean(session))
+          migrated = value['version'] !== FILE_VERSION
         }
       }
     } catch {
       sessions = []
     }
-    return new TerminalSessionRegistry(host, file, sessions)
+    const registry = new TerminalSessionRegistry(host, file, sessions)
+    if (migrated) {
+      await registry
+        .persist()
+        .catch((error) =>
+          console.warn('[terminal] session registry migration write failed', error),
+        )
+    }
+    return registry
   }
 
   list(projectRoot: HostPath): readonly TerminalRecoverySession[] {
@@ -105,6 +156,14 @@ export class TerminalSessionRegistry implements TerminalSessionStore {
           left.position - right.position || left.updatedAt - right.updatedAt,
       )
       .map(({ projectRoot: _projectRoot, ...session }) => session)
+  }
+
+  profileReferences(): readonly HarnessRecoveryProfileReference[] {
+    return [...this.sessions.values()].map((session) => ({
+      providerId: session.providerId,
+      profileId: session.profileId,
+      launchRevision: session.launchRevision,
+    }))
   }
 
   recordSpawn(spawn: RecordTerminalSpawn): Promise<void> {
@@ -118,7 +177,11 @@ export class TerminalSessionRegistry implements TerminalSessionStore {
     const now = Date.now()
     this.sessions.set(spawn.id, {
       id: spawn.id,
-      adapterId: spawn.adapterId,
+      providerId: spawn.providerId,
+      profileId: spawn.profileId,
+      launchRevision: spawn.launchRevision,
+      riskAcknowledgedRevision: spawn.riskAcknowledgedRevision,
+      artifactIdentity: spawn.artifactIdentity,
       harnessSessionId,
       hostId: spawn.cwd.hostId,
       projectRoot: spawn.projectRoot,
@@ -189,11 +252,35 @@ export class TerminalSessionRegistry implements TerminalSessionStore {
     return this.persist()
   }
 
+  async rebindProfile(request: RebindTerminalProfile): Promise<TerminalRecoverySession> {
+    const current = this.sessions.get(request.id)
+    if (!current || !hostPathEquals(current.projectRoot, request.projectRoot)) {
+      throw new Error('Unknown terminal recovery record')
+    }
+    if (current.providerId !== request.providerId) {
+      throw new Error('Terminal profiles can only be rebound within the same provider')
+    }
+    const updated: StoredTerminalSession = {
+      ...current,
+      profileId: request.profileId,
+      launchRevision: request.launchRevision,
+      riskAcknowledgedRevision: request.riskAcknowledgedRevision,
+      artifactIdentity: undefined,
+      updatedAt: Date.now(),
+    }
+    this.sessions.set(request.id, updated)
+    await this.persist()
+    const { projectRoot: _projectRoot, ...result } = updated
+    return result
+  }
+
   authorizeResume(request: AuthorizeTerminalResume): boolean {
     const stored = this.sessions.get(request.id)
     return Boolean(
       stored &&
-      stored.adapterId === request.adapterId &&
+      stored.providerId === request.providerId &&
+      stored.profileId === request.profileId &&
+      stored.launchRevision === request.launchRevision &&
       stored.harnessSessionId === request.harnessSessionId &&
       hostPathEquals(stored.projectRoot, request.projectRoot) &&
       hostPathEquals(stored.cwd, request.cwd),
@@ -220,7 +307,11 @@ export class TerminalSessionRegistry implements TerminalSessionStore {
 function parseStoredSession(value: unknown): StoredTerminalSession | undefined {
   if (!isRecord(value)) return undefined
   const id = value['id']
-  const adapterId = value['adapterId']
+  const providerId = value['providerId']
+  const profileId = value['profileId']
+  const launchRevision = value['launchRevision']
+  const riskAcknowledgedRevision = value['riskAcknowledgedRevision']
+  const artifactIdentity = value['artifactIdentity']
   const harnessSessionId = value['harnessSessionId']
   const hostId = value['hostId']
   const projectRoot = parsePath(value['projectRoot'])
@@ -232,7 +323,19 @@ function parseStoredSession(value: unknown): StoredTerminalSession | undefined {
   if (
     typeof id !== 'string' ||
     !TERMINAL_ID.test(id) ||
-    !isAdapterId(adapterId) ||
+    !isHarnessProviderId(providerId) ||
+    typeof profileId !== 'string' ||
+    !/^[a-z0-9](?:[a-z0-9._-]{0,78}[a-z0-9])?$/.test(profileId) ||
+    typeof launchRevision !== 'number' ||
+    !Number.isSafeInteger(launchRevision) ||
+    launchRevision <= 0 ||
+    (riskAcknowledgedRevision !== undefined &&
+      (typeof riskAcknowledgedRevision !== 'number' ||
+        !Number.isSafeInteger(riskAcknowledgedRevision) ||
+        riskAcknowledgedRevision <= 0)) ||
+    (artifactIdentity !== undefined &&
+      (typeof artifactIdentity !== 'string' ||
+        !/^[a-f0-9]{24}$/.test(artifactIdentity))) ||
     (harnessSessionId !== undefined &&
       (typeof harnessSessionId !== 'string' || !isHarnessSessionId(harnessSessionId))) ||
     typeof hostId !== 'string' ||
@@ -255,7 +358,11 @@ function parseStoredSession(value: unknown): StoredTerminalSession | undefined {
   }
   return {
     id,
-    adapterId,
+    providerId,
+    profileId: asHarnessProfileId(profileId),
+    launchRevision,
+    riskAcknowledgedRevision,
+    artifactIdentity,
     harnessSessionId,
     hostId,
     projectRoot,
@@ -285,8 +392,36 @@ function parsePath(value: unknown): HostPath | undefined {
   return hostPath(asHostId(hostId), path)
 }
 
-function isAdapterId(value: unknown): value is TerminalAdapterId {
-  return value === 'plain-shell' || value === 'claude-code' || value === 'codex'
+function parseLegacyStoredSession(
+  value: unknown,
+  usesAdapterId: boolean,
+): StoredTerminalSession | undefined {
+  if (!isRecord(value)) return undefined
+  const providerId = value[usesAdapterId ? 'adapterId' : 'providerId']
+  if (!isHarnessProviderId(providerId)) return undefined
+  return parseStoredSession({
+    ...value,
+    providerId,
+    profileId: legacyProfileId(providerId),
+    launchRevision: 1,
+  })
+}
+
+function legacyProfileId(providerId: HarnessProviderId): HarnessProfileId {
+  try {
+    const id = harnessProvider(providerId).profile.defaultProfile?.id
+    if (id) return id
+  } catch {
+    // Missing providers remain as unavailable records with a stable synthetic profile id.
+  }
+  const candidate = `legacy-${providerId}`
+  if (candidate.length <= 80) return asHarnessProfileId(candidate)
+
+  const digest = createHash('sha256').update(providerId).digest('hex').slice(0, 16)
+  const providerPrefixLength = 80 - 'legacy-'.length - 1 - digest.length
+  return asHarnessProfileId(
+    `legacy-${providerId.slice(0, providerPrefixLength)}-${digest}`,
+  )
 }
 
 function cleanTitle(value: string): string {

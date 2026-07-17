@@ -126,6 +126,9 @@ export function App(): ReactElement {
   const [hosts, setHosts] = useState<readonly ProjectHostOption[]>([])
   const [showAddProject, setShowAddProject] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
+  const [settingsInitialSection, setSettingsInitialSection] = useState<
+    'general' | 'harnesses' | 'harnesses-add'
+  >('general')
   const [sessionBusy, setSessionBusy] = useState(false)
   const [sessionError, setSessionError] = useState<string>()
   const [sshPrompts, setSshPrompts] = useState<readonly SshPromptRequest[]>([])
@@ -1264,7 +1267,10 @@ export function App(): ReactElement {
           onReconnect={() => void reconnectSession()}
           theme={theme}
           onTheme={(nextTheme) => setAppTheme(nextTheme)}
-          onSettings={() => setShowSettings(true)}
+          onSettings={() => {
+            setSettingsInitialSection('general')
+            setShowSettings(true)
+          }}
         />
       ) : null}
       <main
@@ -1506,7 +1512,18 @@ export function App(): ReactElement {
               idleThresholdMs={settings.idleThresholdMs}
               recoveryMode={settings.terminalRecoveryMode}
               terminalTheme={settings.terminalTheme}
-              onOpenSettings={() => setShowSettings(true)}
+              onOpenSettings={() => {
+                setSettingsInitialSection('general')
+                setShowSettings(true)
+              }}
+              onOpenHarnessSettings={() => {
+                setSettingsInitialSection('harnesses')
+                setShowSettings(true)
+              }}
+              onAddHarness={() => {
+                setSettingsInitialSection('harnesses-add')
+                setShowSettings(true)
+              }}
             />
           )),
         )}
@@ -1531,6 +1548,9 @@ export function App(): ReactElement {
         <SettingsDialog
           theme={theme}
           settings={settings}
+          workspaceRoot={root}
+          projectRoot={activeProject?.registeredRoot}
+          initialSection={settingsInitialSection}
           onClose={() => setShowSettings(false)}
           onSave={(nextTheme, nextSettings) => {
             setAppTheme(nextTheme)

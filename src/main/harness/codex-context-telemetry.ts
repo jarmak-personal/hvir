@@ -1,9 +1,9 @@
 /** Structured Codex context usage, isolated behind the harness adapter seam. */
 
 import type { HarnessTelemetry, HostPath } from '../../shared'
-import { hostPath } from '../../shared'
+import { asHarnessProviderId, contextHarnessSnapshot, hostPath } from '../../shared'
 import type { Disposer, ProjectHost } from '../project-host'
-import type { HarnessTelemetryContext } from './harness-adapter'
+import type { HarnessTelemetryContext } from './harness-provider'
 import {
   buildTelemetryHubScript,
   HarnessTelemetryHubRegistry,
@@ -56,7 +56,7 @@ export async function observeCodexContext(
 ): Promise<Disposer> {
   const rolloutPath =
     sessionDataPath(context.sessionData, host) ??
-    (await findSessionPath(host, context.sessionId, context.signal))
+    (await findSessionPath(host, context.sessionId, context.signal, context.artifact))
   if (!rolloutPath || context.signal.aborted) return () => undefined
 
   return codexHubs.subscribe(host, {
@@ -84,11 +84,15 @@ export function parseCodexTokenCount(value: string): HarnessTelemetry | null {
     ) {
       return null
     }
-    return {
-      contextUsedTokens: used,
-      contextWindowTokens: window,
-      contextUsedPercent: Math.min(100, Math.max(0, (used / window) * 100)),
-    }
+    return contextHarnessSnapshot({
+      providerId: asHarnessProviderId('codex'),
+      provenance: 'Codex rollout token_count event',
+      context: {
+        usedTokens: used,
+        windowTokens: window,
+        usedPercent: Math.min(100, Math.max(0, (used / window) * 100)),
+      },
+    })
   } catch {
     return null
   }
@@ -98,12 +102,18 @@ async function findSessionPath(
   host: ProjectHost,
   sessionId: string,
   signal: AbortSignal,
+  artifact: HarnessTelemetryContext['artifact'],
 ): Promise<HostPath | undefined> {
   if (!SESSION_ID.test(sessionId)) return undefined
   const result = await host.exec(
     'sh',
     ['-c', FIND_SESSION_SCRIPT, 'hvir-codex-session', sessionId],
-    { signal, maxBuffer: FIND_MAX_BUFFER },
+    {
+      signal,
+      maxBuffer: FIND_MAX_BUFFER,
+      env: artifact.environment,
+      unsetEnv: artifact.unsetEnvironment,
+    },
   )
   if (result.code !== 0) return undefined
   const paths = result.stdout.split('\0').filter(Boolean)
@@ -119,7 +129,7 @@ function sessionDataPath(value: unknown, host: ProjectHost): HostPath | undefine
 }
 
 const codexHubs = new HarnessTelemetryHubRegistry({
-  adapterId: 'codex',
+  providerId: 'codex',
   remoteScript: FOLLOW_TOKEN_COUNTS_SCRIPT,
   parse: parseCodexTokenCount,
 })

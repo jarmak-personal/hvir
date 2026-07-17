@@ -9,7 +9,7 @@ import type {
 } from 'ssh2'
 import { describe, expect, it, vi } from 'vitest'
 
-import { plainShellAdapter } from '../src/main/harness/harness-adapter'
+import { plainShellProvider } from '../src/main/harness/harness-provider'
 import {
   SSH_CONTROL_CHANNEL_BUDGET,
   SSH_MAX_KEYBOARD_INTERACTIVE_ROUNDS,
@@ -508,7 +508,7 @@ async function spawnShells(
     Array.from({ length: count }, (_, offset) =>
       fixture.supervisor.spawn({
         host: fixture.host,
-        adapter: plainShellAdapter,
+        provider: plainShellProvider,
         cwd: hostPath(fixture.host.hostId, '/project'),
         ownerId: OWNER_ID,
         sessionId: `shell-${start + offset}`,

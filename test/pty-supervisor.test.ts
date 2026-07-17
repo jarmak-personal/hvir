@@ -4,9 +4,9 @@ import type { Client } from 'ssh2'
 import { describe, expect, it, vi } from 'vitest'
 
 import {
-  plainShellAdapter,
-  type HarnessAdapter,
-} from '../src/main/harness/harness-adapter'
+  plainShellProvider,
+  type HarnessProvider,
+} from '../src/main/harness/harness-provider'
 import type {
   ProjectHost,
   PtyExit,
@@ -15,7 +15,13 @@ import type {
 } from '../src/main/project-host'
 import { PtySupervisor, type ManagedPty } from '../src/main/pty/pty-supervisor'
 import { SshHost } from '../src/main/project-host'
-import { LOCAL_HOST_ID, hostPath, localPath } from '../src/shared'
+import {
+  LOCAL_HOST_ID,
+  asHarnessProviderId,
+  contextHarnessSnapshot,
+  hostPath,
+  localPath,
+} from '../src/shared'
 
 const OWNER_ID = 17
 
@@ -50,7 +56,7 @@ function fixture(): {
   supervisor: PtySupervisor
   pty: FakePty
   host: ProjectHost
-  adapter: HarnessAdapter
+  provider: HarnessProvider
   spawnPty: ReturnType<typeof vi.fn<(opts: SpawnPtyOptions) => Promise<PtyProcess>>>
   defaultShell: ReturnType<typeof vi.fn<() => Promise<string>>>
 } {
@@ -64,15 +70,36 @@ function fixture(): {
     defaultShell,
     spawnPty,
   } as unknown as ProjectHost
-  const adapter: HarnessAdapter = {
-    id: 'test',
-    displayName: 'Test',
+  const provider: HarnessProvider = {
+    manifest: {
+      id: asHarnessProviderId('test'),
+      displayName: 'Test',
+      contextPresentation: 'none',
+    },
+    profile: {
+      version: 1,
+      reservedArguments: [],
+      reservedEnvironmentKeys: [],
+      artifactEnvironmentKeys: [],
+      artifactExecutable: false,
+      artifactPathBindings: [],
+      applyArgs: (_mode, providerArgs, profileArgs) => [...providerArgs, ...profileArgs],
+      classifyRisk: () => 'standard',
+    },
     supportsResume: true,
     sessionIdentity: 'preassigned',
+    probe: {
+      parseVersion: () => undefined,
+      effectiveCapabilities: () => ({
+        sessionIdentity: 'preassigned',
+        exactResume: true,
+        contextPresentation: 'none',
+      }),
+    },
     launch: () => ({ file: 'test-harness', args: ['launch'] }),
     resume: () => ({ file: 'test-harness', args: ['resume'] }),
   }
-  return { supervisor: new PtySupervisor(), pty, host, adapter, spawnPty, defaultShell }
+  return { supervisor: new PtySupervisor(), pty, host, provider, spawnPty, defaultShell }
 }
 
 describe('PtySupervisor', () => {
@@ -80,7 +107,7 @@ describe('PtySupervisor', () => {
     const { supervisor, host, spawnPty, defaultShell } = fixture()
     await supervisor.spawn({
       host,
-      adapter: plainShellAdapter,
+      provider: plainShellProvider,
       cwd: localPath('/tmp/project'),
       ownerId: OWNER_ID,
       sessionId: 'host-shell',
@@ -101,8 +128,8 @@ describe('PtySupervisor', () => {
   })
 
   it('launches harness commands through the interactive shell environment', async () => {
-    const { supervisor, host, adapter, spawnPty } = fixture()
-    Object.assign(adapter, {
+    const { supervisor, host, provider, spawnPty } = fixture()
+    Object.assign(provider, {
       launch: () => ({
         file: 'test-harness',
         args: ['launch', "profile's command"],
@@ -113,7 +140,7 @@ describe('PtySupervisor', () => {
 
     await supervisor.spawn({
       host,
-      adapter,
+      provider,
       cwd: localPath('/tmp/project'),
       ownerId: OWNER_ID,
       sessionId: 'shell-environment',
@@ -133,11 +160,83 @@ describe('PtySupervisor', () => {
     )
   })
 
+  it('keeps the terminal contract protected and reports command-not-found exits', async () => {
+    const { supervisor, pty, host, provider, spawnPty } = fixture()
+    const onClassifiedLaunchFailure = vi.fn()
+    await supervisor.spawn({
+      host,
+      provider,
+      launchSpec: {
+        file: 'test-harness',
+        args: [],
+        env: { TERM: 'dumb', COLORTERM: 'no', TERM_PROGRAM: 'other' },
+      },
+      cwd: localPath('/tmp/project'),
+      ownerId: OWNER_ID,
+      sessionId: 'protected-environment',
+      onClassifiedLaunchFailure,
+    })
+
+    expect(spawnPty).toHaveBeenCalledWith(
+      expect.objectContaining({
+        env: {
+          TERM: 'xterm-256color',
+          COLORTERM: 'truecolor',
+          TERM_PROGRAM: 'hvir',
+        },
+      }),
+    )
+    pty.emitExit({ exitCode: 127, signal: undefined })
+    expect(onClassifiedLaunchFailure).toHaveBeenCalledOnce()
+  })
+
+  it('classifies an unsupported-option PTY exit without retrying the session', async () => {
+    const { supervisor, pty, host, provider } = fixture()
+    const onClassifiedLaunchFailure = vi.fn()
+    await supervisor.spawn({
+      host,
+      provider,
+      cwd: localPath('/tmp/project'),
+      ownerId: OWNER_ID,
+      sessionId: 'unsupported-option',
+      onClassifiedLaunchFailure,
+    })
+
+    pty.emitData('error: unknown option --new-surface\r\n')
+    pty.emitExit({ exitCode: 2, signal: undefined })
+
+    expect(onClassifiedLaunchFailure).toHaveBeenCalledOnce()
+    expect(supervisor.get('unsupported-option')).toBeUndefined()
+  })
+
+  it('does not classify old terminal output as a launch failure', async () => {
+    let now = 1_000
+    const clock = vi.spyOn(Date, 'now').mockImplementation(() => now)
+    const { supervisor, pty, host, provider } = fixture()
+    const onClassifiedLaunchFailure = vi.fn()
+    try {
+      await supervisor.spawn({
+        host,
+        provider,
+        cwd: localPath('/tmp/project'),
+        ownerId: OWNER_ID,
+        sessionId: 'long-running-terminal',
+        onClassifiedLaunchFailure,
+      })
+      pty.emitData('earlier command output: unknown option\r\n')
+      now += 30_001
+      pty.emitExit({ exitCode: 2, signal: undefined })
+      expect(onClassifiedLaunchFailure).not.toHaveBeenCalled()
+    } finally {
+      clock.mockRestore()
+    }
+  })
+
   it('is the lifecycle and stream boundary for a spawned PTY', async () => {
-    const { supervisor, pty, host, adapter, spawnPty } = fixture()
+    const { supervisor, pty, host, provider, spawnPty } = fixture()
     const info = await supervisor.spawn({
       host,
-      adapter,
+      provider,
       cwd: localPath('/tmp/project'),
       ownerId: OWNER_ID,
       sessionId: 'session-1',
@@ -147,7 +246,7 @@ describe('PtySupervisor', () => {
       id: 'session-1',
       ownerId: OWNER_ID,
       hostId: LOCAL_HOST_ID,
-      adapterId: 'test',
+      providerId: 'test',
       pid: 4242,
       resumed: false,
       harnessSessionId: 'session-1',
@@ -176,10 +275,10 @@ describe('PtySupervisor', () => {
   })
 
   it('replays bounded initial output in order on the first renderer attach', async () => {
-    const { supervisor, pty, host, adapter } = fixture()
+    const { supervisor, pty, host, provider } = fixture()
     const info = await supervisor.spawn({
       host,
-      adapter,
+      provider,
       cwd: localPath('/tmp/project'),
       ownerId: OWNER_ID,
       sessionId: 'replay-session',
@@ -199,10 +298,10 @@ describe('PtySupervisor', () => {
   })
 
   it('retains only the newest 256 KiB before the first attach', async () => {
-    const { supervisor, pty, host, adapter } = fixture()
+    const { supervisor, pty, host, provider } = fixture()
     const info = await supervisor.spawn({
       host,
-      adapter,
+      provider,
       cwd: localPath('/tmp/project'),
       ownerId: OWNER_ID,
       sessionId: 'bounded-replay',
@@ -219,18 +318,18 @@ describe('PtySupervisor', () => {
   it('confines control and disposal to the owning renderer', async () => {
     const first = new FakePty()
     const second = new FakePty()
-    const { supervisor, host, adapter, spawnPty } = fixture()
+    const { supervisor, host, provider, spawnPty } = fixture()
     spawnPty.mockResolvedValueOnce(first).mockResolvedValueOnce(second)
     await supervisor.spawn({
       host,
-      adapter,
+      provider,
       cwd: localPath('/tmp/project'),
       ownerId: OWNER_ID,
       sessionId: 'owned-first',
     })
     await supervisor.spawn({
       host,
-      adapter,
+      provider,
       cwd: localPath('/tmp/project'),
       ownerId: OWNER_ID + 1,
       sessionId: 'owned-second',
@@ -248,10 +347,10 @@ describe('PtySupervisor', () => {
   })
 
   it('rejects an already-active session id without leaking another PTY', async () => {
-    const { supervisor, host, adapter, spawnPty } = fixture()
+    const { supervisor, host, provider, spawnPty } = fixture()
     const request = {
       host,
-      adapter,
+      provider,
       cwd: localPath('/tmp/project'),
       ownerId: OWNER_ID,
       sessionId: 'same-session',
@@ -262,7 +361,7 @@ describe('PtySupervisor', () => {
   })
 
   it('reserves a session id while its asynchronous host spawn is pending', async () => {
-    const { supervisor, pty, host, adapter, spawnPty } = fixture()
+    const { supervisor, pty, host, provider, spawnPty } = fixture()
     let finishSpawn: (() => void) | undefined
     spawnPty.mockImplementationOnce(
       () =>
@@ -272,7 +371,7 @@ describe('PtySupervisor', () => {
     )
     const request = {
       host,
-      adapter,
+      provider,
       cwd: localPath('/tmp/project'),
       ownerId: OWNER_ID,
       sessionId: 'pending-session',
@@ -287,7 +386,7 @@ describe('PtySupervisor', () => {
   })
 
   it('kills a pending host spawn that completes after all sessions are disposed', async () => {
-    const { supervisor, pty, host, adapter, spawnPty } = fixture()
+    const { supervisor, pty, host, provider, spawnPty } = fixture()
     let finishSpawn: (() => void) | undefined
     spawnPty.mockImplementationOnce(
       () =>
@@ -297,7 +396,7 @@ describe('PtySupervisor', () => {
     )
     const spawning = supervisor.spawn({
       host,
-      adapter,
+      provider,
       cwd: localPath('/tmp/project'),
       ownerId: OWNER_ID,
       sessionId: 'stale-pending',
@@ -313,10 +412,10 @@ describe('PtySupervisor', () => {
   })
 
   it('drains native PTY exits during final disposal', async () => {
-    const { supervisor, pty, host, adapter } = fixture()
+    const { supervisor, pty, host, provider } = fixture()
     await supervisor.spawn({
       host,
-      adapter,
+      provider,
       cwd: localPath('/tmp/project'),
       ownerId: OWNER_ID,
       sessionId: 'drained-session',
@@ -333,7 +432,7 @@ describe('PtySupervisor', () => {
   })
 
   it('cancels a pending spawn when its renderer owner is disposed', async () => {
-    const { supervisor, pty, host, adapter, spawnPty } = fixture()
+    const { supervisor, pty, host, provider, spawnPty } = fixture()
     let finishSpawn: (() => void) | undefined
     spawnPty.mockImplementationOnce(
       () =>
@@ -343,7 +442,7 @@ describe('PtySupervisor', () => {
     )
     const spawning = supervisor.spawn({
       host,
-      adapter,
+      provider,
       cwd: localPath('/tmp/project'),
       ownerId: OWNER_ID,
       sessionId: 'owner-pending',
@@ -401,7 +500,7 @@ describe('PtySupervisor', () => {
 
     await supervisor.spawn({
       host,
-      adapter: plainShellAdapter,
+      provider: plainShellProvider,
       cwd: hostPath(host.hostId, '/project'),
       ownerId: OWNER_ID,
       sessionId: 'remote-close',
@@ -418,12 +517,12 @@ describe('PtySupervisor', () => {
   })
 
   it('publishes the exit result, cleans up, and permits deterministic resume', async () => {
-    const { supervisor, pty, host, adapter, spawnPty } = fixture()
+    const { supervisor, pty, host, provider, spawnPty } = fixture()
     const exitListener = vi.fn<(info: { id: string }, exit: PtyExit) => void>()
     supervisor.onExit(exitListener)
     const request = {
       host,
-      adapter,
+      provider,
       cwd: localPath('/tmp/project'),
       ownerId: OWNER_ID,
       sessionId: 'resumable',
@@ -450,9 +549,9 @@ describe('PtySupervisor', () => {
   })
 
   it('publishes a session id discovered after launch', async () => {
-    const { supervisor, host, adapter, spawnPty } = fixture()
+    const { supervisor, host, provider, spawnPty } = fixture()
     let finishIdentification: ((sessionId: string) => void) | undefined
-    Object.assign(adapter, {
+    Object.assign(provider, {
       sessionIdentity: 'discovered',
       sessionDiscovery: {
         snapshot: vi.fn(() => Promise.resolve(['before'])),
@@ -470,7 +569,7 @@ describe('PtySupervisor', () => {
 
     const initial = await supervisor.spawn({
       host,
-      adapter,
+      provider,
       cwd: localPath('/tmp/project'),
       ownerId: OWNER_ID,
       sessionId: 'terminal-id',
@@ -491,7 +590,7 @@ describe('PtySupervisor', () => {
   })
 
   it('re-arms unavailable identity discovery on later terminal input', async () => {
-    const { supervisor, pty, host, adapter } = fixture()
+    const { supervisor, pty, host, provider } = fixture()
     const snapshot = vi.fn(() => Promise.resolve(['pre-launch']))
     const identify = vi
       .fn()
@@ -500,7 +599,7 @@ describe('PtySupervisor', () => {
         status: 'identified',
         sessionId: 'codex-after-input',
       })
-    Object.assign(adapter, {
+    Object.assign(provider, {
       sessionIdentity: 'discovered',
       sessionDiscovery: { snapshot, identify },
     })
@@ -509,7 +608,7 @@ describe('PtySupervisor', () => {
 
     const info = await supervisor.spawn({
       host,
-      adapter,
+      provider,
       cwd: localPath('/tmp/project'),
       ownerId: OWNER_ID,
       sessionId: 'terminal-before-input',
@@ -541,7 +640,7 @@ describe('PtySupervisor', () => {
   it('does not let an input-triggered identity retry block a later PTY', async () => {
     const firstPty = new FakePty()
     const secondPty = new FakePty()
-    const { supervisor, host, adapter, spawnPty } = fixture()
+    const { supervisor, host, provider, spawnPty } = fixture()
     spawnPty.mockResolvedValueOnce(firstPty).mockResolvedValueOnce(secondPty)
     let finishRetry: (() => void) | undefined
     const identify = vi
@@ -554,7 +653,7 @@ describe('PtySupervisor', () => {
           }),
       )
       .mockResolvedValueOnce({ status: 'unavailable' })
-    Object.assign(adapter, {
+    Object.assign(provider, {
       sessionIdentity: 'discovered',
       sessionDiscovery: {
         snapshot: () => Promise.resolve([]),
@@ -564,7 +663,7 @@ describe('PtySupervisor', () => {
 
     const first = await supervisor.spawn({
       host,
-      adapter,
+      provider,
       cwd: localPath('/tmp/project'),
       ownerId: OWNER_ID,
       sessionId: 'retrying-terminal',
@@ -577,7 +676,7 @@ describe('PtySupervisor', () => {
 
     await supervisor.spawn({
       host,
-      adapter,
+      provider,
       cwd: localPath('/tmp/project'),
       ownerId: OWNER_ID,
       sessionId: 'later-terminal',
@@ -588,13 +687,13 @@ describe('PtySupervisor', () => {
     finishRetry?.()
   })
 
-  it('caches adapter telemetry for attachment and disposes it with the PTY', async () => {
-    const { supervisor, host, adapter } = fixture()
-    const telemetry = {
-      contextUsedTokens: 80_000,
-      contextWindowTokens: 200_000,
-      contextUsedPercent: 40,
-    }
+  it('caches provider telemetry for attachment and disposes it with the PTY', async () => {
+    const { supervisor, host, provider } = fixture()
+    const telemetry = contextHarnessSnapshot({
+      providerId: asHarnessProviderId('test'),
+      provenance: 'test fixture',
+      context: { usedTokens: 80_000, windowTokens: 200_000, usedPercent: 40 },
+    })
     const disposeTelemetry = vi.fn()
     const observe = vi.fn(
       (_host: ProjectHost, context: { emit: (value: typeof telemetry) => void }) => {
@@ -602,11 +701,11 @@ describe('PtySupervisor', () => {
         return disposeTelemetry
       },
     )
-    Object.assign(adapter, { telemetry: { observe } })
+    Object.assign(provider, { telemetry: { observe } })
 
     const info = await supervisor.spawn({
       host,
-      adapter,
+      provider,
       cwd: localPath('/tmp/project'),
       ownerId: OWNER_ID,
       sessionId: 'telemetry-session',
@@ -623,9 +722,9 @@ describe('PtySupervisor', () => {
   it('retains identity subscriptions when only live sessions are disposed', async () => {
     const firstPty = new FakePty()
     const secondPty = new FakePty()
-    const { supervisor, host, adapter, spawnPty } = fixture()
+    const { supervisor, host, provider, spawnPty } = fixture()
     spawnPty.mockResolvedValueOnce(firstPty).mockResolvedValueOnce(secondPty)
-    Object.assign(adapter, {
+    Object.assign(provider, {
       sessionIdentity: 'discovered',
       sessionDiscovery: {
         snapshot: vi.fn(() => Promise.resolve([])),
@@ -640,7 +739,7 @@ describe('PtySupervisor', () => {
 
     await supervisor.spawn({
       host,
-      adapter,
+      provider,
       cwd: localPath('/tmp/project'),
       ownerId: OWNER_ID,
       sessionId: 'first-after-project-open',
@@ -650,7 +749,7 @@ describe('PtySupervisor', () => {
     supervisor.disposeSessions()
     await supervisor.spawn({
       host,
-      adapter,
+      provider,
       cwd: localPath('/tmp/project'),
       ownerId: OWNER_ID,
       sessionId: 'second-after-project-open',
@@ -666,12 +765,12 @@ describe('PtySupervisor', () => {
   it('serializes discovery launches without blocking later PTYs on identity', async () => {
     const firstPty = new FakePty()
     const secondPty = new FakePty()
-    const { supervisor, host, adapter, spawnPty } = fixture()
+    const { supervisor, host, provider, spawnPty } = fixture()
     const order: string[] = []
     let finishFirstSpawn: (() => void) | undefined
     let releaseFirst: (() => void) | undefined
     let identifyCount = 0
-    Object.assign(adapter, {
+    Object.assign(provider, {
       sessionIdentity: 'discovered',
       sessionDiscovery: {
         snapshot: vi.fn(() => {
@@ -703,7 +802,7 @@ describe('PtySupervisor', () => {
 
     const firstSpawn = supervisor.spawn({
       host,
-      adapter,
+      provider,
       cwd: localPath('/tmp/project'),
       ownerId: OWNER_ID,
       sessionId: 'first-terminal',
@@ -711,7 +810,7 @@ describe('PtySupervisor', () => {
     await vi.waitFor(() => expect(order).toEqual(['snapshot', 'spawn']))
     const secondSpawn = supervisor.spawn({
       host,
-      adapter,
+      provider,
       cwd: localPath('/tmp/project'),
       ownerId: OWNER_ID,
       sessionId: 'second-terminal',
@@ -735,8 +834,8 @@ describe('PtySupervisor', () => {
   })
 
   it('fails closed when discovered session identity is ambiguous', async () => {
-    const { supervisor, host, adapter } = fixture()
-    Object.assign(adapter, {
+    const { supervisor, host, provider } = fixture()
+    Object.assign(provider, {
       sessionIdentity: 'discovered',
       sessionDiscovery: {
         snapshot: () => Promise.resolve([]),
@@ -748,7 +847,7 @@ describe('PtySupervisor', () => {
 
     await supervisor.spawn({
       host,
-      adapter,
+      provider,
       cwd: localPath('/tmp/project'),
       ownerId: OWNER_ID,
       sessionId: 'ambiguous-terminal',
@@ -761,9 +860,9 @@ describe('PtySupervisor', () => {
   })
 
   it('still launches when the discovery snapshot is unavailable', async () => {
-    const { supervisor, host, adapter, spawnPty } = fixture()
+    const { supervisor, host, provider, spawnPty } = fixture()
     const identify = vi.fn()
-    Object.assign(adapter, {
+    Object.assign(provider, {
       sessionIdentity: 'discovered',
       sessionDiscovery: {
         snapshot: () => Promise.reject(new Error('scan failed')),
@@ -774,7 +873,7 @@ describe('PtySupervisor', () => {
 
     const info = await supervisor.spawn({
       host,
-      adapter,
+      provider,
       cwd: localPath('/tmp/project'),
       ownerId: OWNER_ID,
       sessionId: 'snapshot-failed',
@@ -787,8 +886,8 @@ describe('PtySupervisor', () => {
   })
 
   it('requires an exact id to resume a discovered session', async () => {
-    const { supervisor, host, adapter, spawnPty } = fixture()
-    Object.assign(adapter, {
+    const { supervisor, host, provider, spawnPty } = fixture()
+    Object.assign(provider, {
       sessionIdentity: 'discovered',
       resume: (ctx: { sessionId: string }) => ({
         file: 'test-harness',
@@ -799,7 +898,7 @@ describe('PtySupervisor', () => {
     await expect(
       supervisor.spawn({
         host,
-        adapter,
+        provider,
         cwd: localPath('/tmp/project'),
         ownerId: OWNER_ID,
         sessionId: 'new-terminal-id',
@@ -809,7 +908,7 @@ describe('PtySupervisor', () => {
 
     const resumed = await supervisor.spawn({
       host,
-      adapter,
+      provider,
       cwd: localPath('/tmp/project'),
       ownerId: OWNER_ID,
       sessionId: 'new-terminal-id',

@@ -40,6 +40,15 @@ import type {
 } from './git-types'
 import type { HostConnectionState, HostWatchTier } from './fs-types'
 import type { HarnessTelemetry } from './harness-telemetry'
+import type { HarnessProviderDescriptor, HarnessProviderId } from './harness-provider'
+import type { HarnessProfileProbe } from './harness-provider'
+import type {
+  HarnessCommandPreview,
+  HarnessPathGrant,
+  HarnessProfile,
+  HarnessProfileId,
+  HarnessProfileInput,
+} from './harness-profile'
 import type { RegisteredProjectState } from './workspace-types'
 
 /** Basic app/runtime info — the trivial round-trip that proves the contract. */
@@ -191,7 +200,8 @@ export interface ReadAssetResponse {
 
 export interface StartPtyRequest {
   readonly sessionId: string
-  readonly adapterId: TerminalAdapterId
+  readonly profileId: HarnessProfileId
+  readonly launchRevision: number
   readonly cwd: HostPath
   readonly cols: number
   readonly rows: number
@@ -200,15 +210,94 @@ export interface StartPtyRequest {
   readonly active: boolean
   readonly resume?: boolean
   readonly harnessSessionId?: string
+  /** Explicit user acknowledgment for this profile's current elevated risk. */
+  readonly acknowledgeRisk?: boolean
 }
 
-export type TerminalAdapterId = 'plain-shell' | 'claude-code' | 'codex'
+export interface HarnessProfilesRequest {
+  readonly root: HostPath
+}
+
+export interface HarnessProbeProfilesRequest {
+  readonly root: HostPath
+  readonly profileIds?: readonly HarnessProfileId[]
+  readonly force?: boolean
+}
+
+export interface HarnessProbeTemplatesRequest {
+  readonly root: HostPath
+  readonly providerIds?: readonly HarnessProviderId[]
+  readonly force?: boolean
+}
+
+export interface MaterializeHarnessProfilesRequest {
+  readonly root: HostPath
+  readonly providerIds: readonly HarnessProviderId[]
+}
+
+interface SaveHarnessProfileRequestBase {
+  readonly root: HostPath
+  readonly input: HarnessProfileInput
+}
+
+export type SaveHarnessProfileRequest = SaveHarnessProfileRequestBase &
+  (
+    | {
+        readonly id?: never
+        readonly expectedLaunchRevision?: never
+        readonly expectedMetadataRevision?: never
+      }
+    | {
+        readonly id: HarnessProfileId
+        readonly expectedLaunchRevision: number
+        readonly expectedMetadataRevision: number
+      }
+  )
+
+export interface HarnessProfileRequest {
+  readonly id: HarnessProfileId
+}
+
+export interface AcknowledgeHarnessProfileRiskRequest {
+  readonly root: HostPath
+  readonly id: HarnessProfileId
+  readonly launchRevision: number
+}
+
+interface HarnessPreviewRequestBase {
+  readonly root: HostPath
+  readonly cwd: HostPath
+  readonly mode: 'fresh' | 'resume'
+  readonly harnessSessionId?: string
+}
+
+export type HarnessPreviewRequest = HarnessPreviewRequestBase &
+  (
+    | {
+        readonly profileId: HarnessProfileId
+        readonly launchRevision: number
+        readonly input?: never
+      }
+    | {
+        readonly input: HarnessProfileInput
+        readonly profileId?: HarnessProfileId
+        readonly launchRevision?: never
+      }
+  )
+
+export interface AuthorizeHarnessPathRequest {
+  readonly root: HostPath
+  readonly path: HostPath
+}
 
 export interface StartPtyResponse {
   readonly id: string
   readonly pid: number
+  /** Actual provider launch mode after fail-closed artifact validation. */
+  readonly resumed: boolean
   readonly harnessSessionId?: string
   readonly identityStatus: TerminalIdentityStatus
+  readonly capabilities: import('./harness-provider').HarnessProviderCapabilities
 }
 
 export type TerminalIdentityStatus =
@@ -216,7 +305,12 @@ export type TerminalIdentityStatus =
 
 export interface TerminalRecoverySession {
   readonly id: string
-  readonly adapterId: TerminalAdapterId
+  readonly providerId: HarnessProviderId
+  readonly profileId: HarnessProfileId
+  readonly launchRevision: number
+  /** Present only when this terminal explicitly accepted this launch revision. */
+  readonly riskAcknowledgedRevision?: number
+  readonly artifactIdentity?: string
   readonly harnessSessionId?: string
   readonly hostId: string
   readonly cwd: HostPath
@@ -245,6 +339,14 @@ export interface TerminalLayoutRequest {
 export interface ForgetTerminalRequest {
   readonly root: HostPath
   readonly id: string
+}
+
+export interface RebindTerminalProfileRequest {
+  readonly root: HostPath
+  readonly id: string
+  readonly profileId: HarnessProfileId
+  readonly launchRevision: number
+  readonly acknowledgeRisk?: boolean
 }
 
 /**
@@ -338,12 +440,54 @@ export interface IpcInvokeMap {
     request: CreateHtmlPreviewRequest
     response: CreateHtmlPreviewResponse
   }
+  'harness:catalog': { request: void; response: readonly HarnessProviderDescriptor[] }
+  'harness:profiles': {
+    request: HarnessProfilesRequest
+    response: readonly HarnessProfile[]
+  }
+  'harness:probe-profiles': {
+    request: HarnessProbeProfilesRequest
+    response: readonly HarnessProfileProbe[]
+  }
+  'harness:probe-templates': {
+    request: HarnessProbeTemplatesRequest
+    response: readonly HarnessProfileProbe[]
+  }
+  'harness:profile-materialize': {
+    request: MaterializeHarnessProfilesRequest
+    response: readonly HarnessProfile[]
+  }
+  'harness:profile-save': {
+    request: SaveHarnessProfileRequest
+    response: HarnessProfile
+  }
+  'harness:profile-duplicate': {
+    request: HarnessProfileRequest
+    response: HarnessProfile
+  }
+  'harness:profile-delete': { request: HarnessProfileRequest; response: void }
+  'harness:acknowledge-risk': {
+    request: AcknowledgeHarnessProfileRiskRequest
+    response: HarnessProfile
+  }
+  'harness:preview': {
+    request: HarnessPreviewRequest
+    response: HarnessCommandPreview
+  }
+  'harness:authorize-path': {
+    request: AuthorizeHarnessPathRequest
+    response: HarnessPathGrant
+  }
   'terminal:recovery': {
     request: TerminalRecoveryRequest
     response: readonly TerminalRecoverySession[]
   }
   'terminal:update-layout': { request: TerminalLayoutRequest; response: void }
   'terminal:forget': { request: ForgetTerminalRequest; response: void }
+  'terminal:rebind-profile': {
+    request: RebindTerminalProfileRequest
+    response: TerminalRecoverySession
+  }
   'pty:start': { request: StartPtyRequest; response: StartPtyResponse }
 }
 
@@ -440,9 +584,21 @@ export const INVOKE_CHANNELS = [
   'git:pull',
   'git:switch-branch',
   'html-preview:create',
+  'harness:catalog',
+  'harness:profiles',
+  'harness:probe-profiles',
+  'harness:probe-templates',
+  'harness:profile-materialize',
+  'harness:profile-save',
+  'harness:profile-duplicate',
+  'harness:profile-delete',
+  'harness:acknowledge-risk',
+  'harness:preview',
+  'harness:authorize-path',
   'terminal:recovery',
   'terminal:update-layout',
   'terminal:forget',
+  'terminal:rebind-profile',
   'pty:start',
 ] as const satisfies readonly IpcInvokeChannel[]
 

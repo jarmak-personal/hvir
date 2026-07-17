@@ -24,6 +24,7 @@ import {
   repositoryImageMimeType,
   type GitWorkerProtocol,
   type HostPath,
+  type HarnessProviderCapabilities,
   type IpcEventChannel,
   type IpcEventPayload,
   type IpcInvokeChannel,
@@ -38,7 +39,17 @@ import {
   type ConnectedHost,
   type BrowseHostResponse,
 } from '../shared'
-import { harnessAdapter } from './harness/harness-adapter'
+import {
+  harnessProvider,
+  harnessProviderCatalog,
+  selectHarnessLaunchMode,
+} from './harness/harness-provider'
+import { commandPreview, resolveHarnessLaunch } from './harness/harness-launch'
+import {
+  providerTemplateProfiles,
+  type HarnessProfileStoreContract,
+} from './harness/harness-profile-store'
+import type { HarnessProbeManager } from './harness/harness-probe'
 import type { ProjectHost } from './project-host'
 import type { HtmlPreviewProtocol } from './html-preview-protocol'
 import type { PtySupervisor } from './pty/pty-supervisor'
@@ -115,6 +126,8 @@ export interface IpcDeps {
   readonly respondSshPrompt: (id: number, answers?: readonly string[]) => void
   readonly ptySupervisor: PtySupervisor
   readonly terminalSessions: TerminalSessionStore
+  readonly harnessProfiles: HarnessProfileStoreContract
+  readonly harnessProbes: HarnessProbeManager
   readonly updateAttention: (ownerId: number, count: number) => void
   readonly htmlPreviews: HtmlPreviewProtocol
   readonly emit: EmitRendererEvent
@@ -128,6 +141,132 @@ export function registerIpcHandlers(deps: IpcDeps): void {
     nodeVersion: process.versions.node,
     platform: process.platform,
   }))
+
+  handle('harness:catalog', () => harnessProviderCatalog())
+  handle('harness:profiles', (req) => {
+    const workspaceRoot = registeredWorkspaceRoot(req.root, deps)
+    return deps.harnessProfiles.list(registeredProjectRoot(workspaceRoot, deps))
+  })
+  handle('harness:probe-profiles', async (req) => {
+    const root = registeredWorkspaceRoot(req.root, deps)
+    const projectRoot = registeredProjectRoot(root, deps)
+    const { host } = deps.getProject()
+    const requested = new Set(req.profileIds ?? [])
+    if (requested.size > 200) throw new Error('Too many harness profiles to probe')
+    const profiles = deps.harnessProfiles
+      .list(projectRoot)
+      .filter((profile) => requested.size === 0 || requested.has(profile.id))
+    return deps.harnessProbes.probeProfiles({
+      host,
+      projectRoot,
+      workspaceRoot: root,
+      profiles,
+      store: deps.harnessProfiles,
+      force: req.force === true,
+    })
+  })
+  handle('harness:probe-templates', async (req) => {
+    const root = registeredWorkspaceRoot(req.root, deps)
+    const projectRoot = registeredProjectRoot(root, deps)
+    const { host } = deps.getProject()
+    const requested = new Set(req.providerIds ?? [])
+    if (requested.size > 200) throw new Error('Too many harness templates to probe')
+    const profiles = providerTemplateProfiles().filter(
+      (profile) => requested.size === 0 || requested.has(profile.providerId),
+    )
+    return deps.harnessProbes.probeProfiles({
+      host,
+      projectRoot,
+      workspaceRoot: root,
+      profiles,
+      store: deps.harnessProfiles,
+      force: req.force === true,
+    })
+  })
+  handle('harness:profile-materialize', (req) => {
+    registeredWorkspaceRoot(req.root, deps)
+    if (req.providerIds.length > 200) throw new Error('Too many harness templates')
+    return deps.harnessProfiles.materializeTemplates(req.providerIds)
+  })
+  handle('harness:profile-save', (req) => {
+    const workspaceRoot = registeredWorkspaceRoot(req.root, deps)
+    const projectRoot = registeredProjectRoot(workspaceRoot, deps)
+    if (
+      req.input.scope.kind === 'project' &&
+      !hostPathEquals(req.input.scope.projectRoot, projectRoot)
+    ) {
+      throw new Error('Harness profile scope must match the active registered project')
+    }
+    return deps.harnessProfiles.save({
+      id: req.id,
+      expectedLaunchRevision: req.expectedLaunchRevision,
+      expectedMetadataRevision: req.expectedMetadataRevision,
+      input: req.input,
+    })
+  })
+  handle('harness:profile-duplicate', (req) => deps.harnessProfiles.duplicate(req.id))
+  handle('harness:profile-delete', (req) => deps.harnessProfiles.delete(req.id))
+  handle('harness:acknowledge-risk', (req) => {
+    const workspaceRoot = registeredWorkspaceRoot(req.root, deps)
+    const projectRoot = registeredProjectRoot(workspaceRoot, deps)
+    const profile = deps.harnessProfiles.get(req.id)
+    if (!profile) throw new Error(`Unknown harness profile '${req.id}'`)
+    if (
+      profile.scope.kind === 'project' &&
+      !hostPathEquals(profile.scope.projectRoot, projectRoot)
+    ) {
+      throw new Error('Harness profile is scoped to another project')
+    }
+    return deps.harnessProfiles.acknowledgeRisk(req.id, req.launchRevision)
+  })
+  handle('harness:preview', async (req) => {
+    const root = registeredWorkspaceRoot(req.root, deps)
+    const projectRoot = registeredProjectRoot(root, deps)
+    const { host } = deps.getProject()
+    const cwd = await projectPath(req.cwd, root, host)
+    const profile = req.input
+      ? deps.harnessProfiles.prepare({
+          id: req.profileId,
+          input: req.input,
+        })
+      : deps.harnessProfiles.get(req.profileId)
+    if (!profile) throw new Error(`Unknown harness profile '${req.profileId}'`)
+    const sessionId = isHarnessSessionId(req.harnessSessionId)
+      ? req.harnessSessionId
+      : '00000000-0000-4000-8000-000000000000'
+    const resolved = await resolveHarnessLaunch({
+      profile,
+      expectedLaunchRevision: profile.launchRevision,
+      projectRoot,
+      workspaceRoot: cwd,
+      host,
+      store: deps.harnessProfiles,
+      mode: req.mode,
+      context: {
+        sessionId,
+        cwd,
+        defaultShell: await host.defaultShell(),
+      },
+    })
+    return commandPreview(resolved, req.mode)
+  })
+  handle('harness:authorize-path', async (req) => {
+    const root = registeredWorkspaceRoot(req.root, deps)
+    const { host } = deps.getProject()
+    if (
+      !req.path ||
+      typeof req.path.hostId !== 'string' ||
+      typeof req.path.path !== 'string' ||
+      req.path.hostId !== root.hostId ||
+      !req.path.path.startsWith('/')
+    ) {
+      throw new Error('Invalid host-qualified harness path')
+    }
+    const canonical = await host.realpath(
+      hostPath(asHostId(req.path.hostId), req.path.path),
+    )
+    return deps.harnessProfiles.authorizePath(canonical)
+  })
 
   handle('demo:echo', async (req) => {
     const result = await deps.echoWorker.request(ECHO_REQUEST_TYPE, {
@@ -441,32 +580,92 @@ export function registerIpcHandlers(deps: IpcDeps): void {
     await deps.terminalSessions.forget(root, req.id)
   })
 
+  handle('terminal:rebind-profile', async (req) => {
+    const root = registeredWorkspaceRoot(req.root, deps)
+    const projectRoot = registeredProjectRoot(root, deps)
+    if (!isTerminalId(req.id)) throw new Error('Invalid terminal session id')
+    const profile = deps.harnessProfiles.get(req.profileId)
+    if (!profile || profile.launchRevision !== req.launchRevision) {
+      throw new Error('Harness profile launch configuration changed')
+    }
+    if (
+      profile.scope.kind === 'project' &&
+      !hostPathEquals(profile.scope.projectRoot, projectRoot)
+    ) {
+      throw new Error('Harness profile is scoped to another project')
+    }
+    const acknowledged = profile.risk === 'standard' || req.acknowledgeRisk === true
+    if (!acknowledged) {
+      throw new Error(
+        `${profile.risk === 'elevated' ? 'Elevated' : 'Unclassified'} profile requires acknowledgment`,
+      )
+    }
+    return deps.terminalSessions.rebindProfile({
+      id: req.id,
+      providerId: profile.providerId,
+      profileId: profile.id,
+      launchRevision: profile.launchRevision,
+      riskAcknowledgedRevision:
+        profile.risk === 'standard' ? undefined : profile.launchRevision,
+      projectRoot: root,
+    })
+  })
+
   handle('pty:start', async (req, event) => {
     if (!isTerminalId(req.sessionId)) {
       throw new Error('Invalid PTY session id')
     }
     const { root, host } = deps.getProject()
+    const projectRoot = registeredProjectRoot(root, deps)
     const cwd = await projectPath(req.cwd, root, host)
     const cols = terminalDimension(req.cols)
     const rows = terminalDimension(req.rows)
-    const adapter = harnessAdapter(req.adapterId)
+    const profile = deps.harnessProfiles.get(req.profileId)
+    if (!profile) throw new Error(`Unknown harness profile '${req.profileId}'`)
+    if (
+      !Number.isSafeInteger(req.launchRevision) ||
+      req.launchRevision <= 0 ||
+      profile.launchRevision !== req.launchRevision
+    ) {
+      throw new Error('Harness profile launch configuration changed')
+    }
+    const provider = harnessProvider(profile.providerId)
     if (
       !isTerminalTitle(req.title) ||
       !Number.isSafeInteger(req.position) ||
       req.position < 0 ||
       req.position >= 500 ||
       typeof req.active !== 'boolean' ||
-      (req.resume !== undefined && typeof req.resume !== 'boolean')
+      (req.resume !== undefined && typeof req.resume !== 'boolean') ||
+      (req.acknowledgeRisk !== undefined && typeof req.acknowledgeRisk !== 'boolean')
     ) {
       throw new Error('Invalid PTY session metadata')
     }
+    if (
+      profile.scope.kind === 'project' &&
+      !hostPathEquals(profile.scope.projectRoot, projectRoot)
+    ) {
+      throw new Error('Harness profile is scoped to another project')
+    }
+    if (profile.risk !== 'standard' && req.acknowledgeRisk !== true) {
+      throw new Error(
+        `${profile.risk === 'elevated' ? 'Elevated' : 'Unclassified'} harness profile requires acknowledgment`,
+      )
+    }
+    const effectiveCapabilities: HarnessProviderCapabilities = {
+      sessionIdentity: provider.sessionIdentity,
+      exactResume: provider.supportsResume,
+      contextPresentation: provider.manifest.contextPresentation,
+    }
     if (req.resume) {
       if (
-        !adapter.supportsResume ||
+        !effectiveCapabilities.exactResume ||
         !isHarnessSessionId(req.harnessSessionId) ||
         !deps.terminalSessions.authorizeResume({
           id: req.sessionId,
-          adapterId: req.adapterId,
+          providerId: profile.providerId,
+          profileId: profile.id,
+          launchRevision: profile.launchRevision,
           harnessSessionId: req.harnessSessionId,
           projectRoot: root,
           cwd,
@@ -475,21 +674,99 @@ export function registerIpcHandlers(deps: IpcDeps): void {
         throw new Error('Terminal resume is not authorized for this project')
       }
     }
-    const managed = await deps.ptySupervisor.spawn({
+    const defaultShell = await host.defaultShell()
+    const requestedMode = req.resume ? 'resume' : 'fresh'
+    let resolved = await resolveHarnessLaunch({
+      profile,
+      expectedLaunchRevision: req.launchRevision,
+      projectRoot,
+      workspaceRoot: cwd,
       host,
-      adapter,
-      cwd,
-      ownerId: event.sender.id,
-      sessionId: req.sessionId,
-      harnessSessionId: req.resume ? req.harnessSessionId : undefined,
-      resume: req.resume,
-      cols,
-      rows,
+      store: deps.harnessProfiles,
+      mode: requestedMode,
+      context: {
+        sessionId: req.resume ? req.harnessSessionId! : req.sessionId,
+        cwd,
+        cols,
+        rows,
+        defaultShell,
+        effectiveCapabilities,
+      },
     })
+    const launchMode = await selectHarnessLaunchMode(host, provider, requestedMode, {
+      sessionId: req.resume ? req.harnessSessionId! : req.sessionId,
+      artifact: resolved.artifact,
+    })
+    if (launchMode !== requestedMode) {
+      resolved = await resolveHarnessLaunch({
+        profile,
+        expectedLaunchRevision: req.launchRevision,
+        projectRoot,
+        workspaceRoot: cwd,
+        host,
+        store: deps.harnessProfiles,
+        mode: launchMode,
+        context: {
+          sessionId: req.sessionId,
+          cwd,
+          cols,
+          rows,
+          defaultShell,
+          effectiveCapabilities,
+        },
+      })
+    }
+    let managed
+    try {
+      managed = await deps.ptySupervisor.spawn({
+        host,
+        provider,
+        launchSpec: resolved.spec,
+        unsetEnvironment: resolved.unsetEnvironment,
+        artifact: resolved.artifact,
+        effectiveCapabilities,
+        cwd,
+        ownerId: event.sender.id,
+        sessionId: req.sessionId,
+        harnessSessionId: launchMode === 'resume' ? req.harnessSessionId : undefined,
+        resume: launchMode === 'resume',
+        cols,
+        rows,
+        onClassifiedLaunchFailure: () => {
+          deps.harnessProbes.invalidate(host, profile)
+          void deps.harnessProbes.probeProfiles({
+            host,
+            projectRoot,
+            workspaceRoot: cwd,
+            profiles: [profile],
+            store: deps.harnessProfiles,
+            force: true,
+          })
+        },
+      })
+    } catch (reason) {
+      if (isClassifiedHarnessLaunchFailure(reason)) {
+        deps.harnessProbes.invalidate(host, profile)
+        void deps.harnessProbes.probeProfiles({
+          host,
+          projectRoot,
+          workspaceRoot: cwd,
+          profiles: [profile],
+          store: deps.harnessProfiles,
+          force: true,
+        })
+      }
+      throw reason
+    }
     void deps.terminalSessions
       .recordSpawn({
         id: managed.id,
-        adapterId: req.adapterId,
+        providerId: profile.providerId,
+        profileId: profile.id,
+        launchRevision: profile.launchRevision,
+        riskAcknowledgedRevision:
+          profile.risk === 'standard' ? undefined : profile.launchRevision,
+        artifactIdentity: resolved.artifactIdentity,
         harnessSessionId: managed.harnessSessionId,
         projectRoot: root,
         cwd,
@@ -519,6 +796,8 @@ export function registerIpcHandlers(deps: IpcDeps): void {
       pid: managed.pid,
       harnessSessionId: managed.harnessSessionId,
       identityStatus: managed.identityStatus,
+      capabilities: managed.capabilities,
+      resumed: managed.resumed,
     }
   })
 
@@ -565,6 +844,18 @@ function registeredWorkspaceRoot(candidate: HostPath, deps: IpcDeps): HostPath {
   return root
 }
 
+function registeredProjectRoot(workspaceRoot: HostPath, deps: IpcDeps): HostPath {
+  const project = deps
+    .getProjectState()
+    .projects.find((candidate) =>
+      candidate.workspaces.some((workspace) =>
+        hostPathEquals(workspace.root, workspaceRoot),
+      ),
+    )
+  if (!project) throw new Error('Workspace does not belong to a registered project')
+  return project.registeredRoot
+}
+
 function projectWorktreeRoots(root: HostPath, deps: IpcDeps): readonly HostPath[] {
   const project = deps
     .getProjectState()
@@ -606,6 +897,13 @@ function hasControlCharacter(value: string): boolean {
     const code = character.charCodeAt(0)
     return code <= 31 || code === 127
   })
+}
+
+function isClassifiedHarnessLaunchFailure(reason: unknown): boolean {
+  const message = reason instanceof Error ? reason.message : String(reason)
+  return /\bENOENT\b|command not found|unknown option|unrecognized option|unsupported option/i.test(
+    message,
+  )
 }
 
 function isUnknownRecord(value: unknown): value is Record<string, unknown> {

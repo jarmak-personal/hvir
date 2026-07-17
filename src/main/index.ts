@@ -20,6 +20,9 @@ import { ProjectRegistry, RendererSshPrompter } from './project-registry'
 import { PtySupervisor } from './pty/pty-supervisor'
 import { isSafeExternalUrl, isWorkbenchDocument } from './navigation-policy'
 import { AttentionBadge } from './attention-badge'
+import { harnessProviderCatalog } from './harness/harness-provider'
+import { HarnessProfileStore } from './harness/harness-profile-store'
+import { HarnessProbeManager } from './harness/harness-probe'
 import {
   canonicalProjectWatchInterests,
   ProjectWatchController,
@@ -38,6 +41,7 @@ import {
   GIT_PULL_TYPE,
   GIT_SWITCH_BRANCH_TYPE,
   MAX_PROJECT_WATCH_INTERESTS,
+  asHarnessProfileId,
   asHostId,
   hostPath,
   hostPathEquals,
@@ -64,6 +68,10 @@ protocol.registerSchemesAsPrivileged([
 ])
 
 const htmlPreviews = new HtmlPreviewProtocol()
+const harnessProbeManager = new HarnessProbeManager()
+const defaultHarnessProviderId = harnessProviderCatalog().find(
+  (provider) => provider.default,
+)!.id
 
 let echoWorker: WorkerClient<EchoWorkerProtocol> | null = null
 let gitWorker: WorkerClient<GitWorkerProtocol> | null = null
@@ -71,6 +79,7 @@ let projectRegistry: ProjectRegistry | null = null
 let sshPrompter: RendererSshPrompter | null = null
 let ptySupervisor: PtySupervisor | null = null
 let terminalSessionRegistry: TerminalSessionRegistry | null = null
+let harnessProfileStore: HarnessProfileStore | null = null
 let attentionBadge: AttentionBadge | null = null
 let projectWatchController: ProjectWatchController | null = null
 let projectWatchInterestCache: ProjectWatchInterestCache = new Map()
@@ -254,6 +263,15 @@ async function startup(): Promise<void> {
     metadataHost,
     localPath(join(app.getPath('userData'), 'terminal-sessions.json')),
   )
+  harnessProfileStore = await HarnessProfileStore.load(
+    metadataHost,
+    localPath(join(app.getPath('userData'), 'harness-profiles.json')),
+  )
+  await harnessProfileStore
+    .importLegacyDefaults(terminalSessionRegistry.profileReferences())
+    .catch((error) =>
+      console.warn('[harness] legacy recovery profile import failed', error),
+    )
   echoWorker = createWorkerClient<EchoWorkerProtocol>(
     workerPath('echo-worker.js'),
     'hvir-echo',
@@ -436,6 +454,8 @@ async function startup(): Promise<void> {
     respondSshPrompt: (id, answers) => sshPrompter?.respond(id, answers),
     ptySupervisor,
     terminalSessions: terminalSessionRegistry,
+    harnessProfiles: harnessProfileStore,
+    harnessProbes: harnessProbeManager,
     updateAttention: (ownerId, count) => attentionBadge?.update(ownerId, count),
     htmlPreviews,
     emit,
@@ -919,6 +939,7 @@ async function runSmoke(): Promise<number> {
   const liveReloadPath = joinHostPath(smokeRoot, '.hvir-smoke-live.txt')
   const largeJsonPath = joinHostPath(smokeRoot, '.hvir-smoke-large.json')
   const largeTextPath = joinHostPath(smokeRoot, '.hvir-smoke-large.txt')
+  const harnessProfilesPath = joinHostPath(smokeRoot, '.hvir-smoke-harness-profiles.json')
   try {
     const echo = await worker.request(ECHO_REQUEST_TYPE, { text: 'ping' })
     if (echo.text !== 'ping') throw new Error(`echo mismatch: ${echo.text}`)
@@ -955,9 +976,12 @@ async function runSmoke(): Promise<number> {
       recordIdentity: () => Promise.resolve(),
       updateLayout: () => Promise.resolve(),
       forget: () => Promise.resolve(),
+      rebindProfile: () => Promise.reject(new Error('Smoke recovery is read-only')),
       authorizeResume: () => false,
       flush: () => Promise.resolve(),
     }
+    const smokeHarnessProfiles = await HarnessProfileStore.load(host, harnessProfilesPath)
+    let smokeIpcProjectState = smokeProjectState()
     registerIpcHandlers({
       echoWorker: worker,
       gitWorker: git,
@@ -966,7 +990,7 @@ async function runSmoke(): Promise<number> {
         hostPathEquals(root, smokeRoot) || hostPathEquals(root, smokeCloseableRoot)
           ? root
           : undefined,
-      getProjectState: () => smokeProjectState(),
+      getProjectState: () => smokeIpcProjectState,
       listHosts: () => [
         {
           hostId: host.hostId,
@@ -1011,7 +1035,10 @@ async function runSmoke(): Promise<number> {
           accepted: Math.min(paths.length, MAX_PROJECT_WATCH_INTERESTS),
           limited: paths.length > MAX_PROJECT_WATCH_INTERESTS,
         }),
-      closeProject: () => Promise.resolve(smokeProjectState()),
+      closeProject: () => {
+        smokeIpcProjectState = smokeProjectState()
+        return Promise.resolve(smokeIpcProjectState)
+      },
       pruneWorktrees: () => Promise.resolve(smokeProjectState()),
       dismissWorkspace: () => Promise.resolve(smokeProjectState()),
       switchGitBranch: () => Promise.resolve(smokeProjectState()),
@@ -1020,6 +1047,8 @@ async function runSmoke(): Promise<number> {
       respondSshPrompt: () => undefined,
       ptySupervisor: supervisor,
       terminalSessions: smokeTerminalSessions,
+      harnessProfiles: smokeHarnessProfiles,
+      harnessProbes: harnessProbeManager,
       updateAttention: () => undefined,
       htmlPreviews,
       emit,
@@ -1070,6 +1099,158 @@ async function runSmoke(): Promise<number> {
       throw new Error('renderer echo ran in the main process')
     }
     console.log('[smoke] renderer IPC + echo worker round-trip OK')
+
+    const profileSmoke = (await withTimeout(
+      win.webContents.executeJavaScript(`
+        (async () => {
+          const root = ${JSON.stringify(smokeRoot)};
+          const defaults = await window.hvir.invoke('harness:profiles', { root });
+          const catalog = await window.hvir.invoke('harness:catalog', undefined);
+          const requestedProviderIds = catalog
+            .filter((provider) => provider.profileTemplate && !provider.default)
+            .slice(0, 2)
+            .map((provider) => provider.id);
+          const customProviderId = catalog.find(
+            (provider) => !provider.profileTemplate
+          )?.id;
+          if (!customProviderId) throw new Error('Custom provider was missing');
+          const materialized = await window.hvir.invoke('harness:profile-materialize', {
+            root,
+            providerIds: [...requestedProviderIds].reverse()
+          });
+          const grant = await window.hvir.invoke('harness:authorize-path', {
+            root,
+            path: root
+          });
+          const profile = await window.hvir.invoke('harness:profile-save', {
+            root,
+            input: {
+              displayName: 'Smoke custom harness',
+              providerId: customProviderId,
+              scope: { kind: 'project', projectRoot: root },
+              executable: { kind: 'command', command: 'sh' },
+              args: [
+                { parts: [{ kind: 'literal', value: '-c' }] },
+                { parts: [{ kind: 'literal', value: 'printf hvir-profile-smoke; exec /bin/sh' }] },
+                { parts: [{ kind: 'path', source: 'binding', binding: 'workspace' }] }
+              ],
+              environment: [
+                { kind: 'literal', name: 'HVIR_PROFILE_SMOKE', value: 'structured' }
+              ],
+              pathBindings: [
+                { name: 'workspace', path: grant.path, grantId: grant.id }
+              ],
+              order: 20
+            }
+          });
+          const acknowledgedProfile = await window.hvir.invoke(
+            'harness:acknowledge-risk',
+            { root, id: profile.id, launchRevision: profile.launchRevision }
+          );
+          const preview = await window.hvir.invoke('harness:preview', {
+            root,
+            cwd: root,
+            mode: 'fresh',
+            profileId: profile.id,
+            launchRevision: profile.launchRevision
+          });
+          let output = '';
+          const stopOutput = window.hvir.on('pty:data', ({ id, data }) => {
+            if (id === 'profile-smoke-terminal') output += data;
+          });
+          const started = await window.hvir.invoke('pty:start', {
+            sessionId: 'profile-smoke-terminal',
+            profileId: profile.id,
+            launchRevision: profile.launchRevision,
+            cwd: root,
+            cols: 80,
+            rows: 24,
+            title: 'Smoke custom harness',
+            position: 20,
+            active: false,
+            acknowledgeRisk: true
+          });
+          await new Promise((resolve, reject) => {
+            const deadline = Date.now() + 5000;
+            const poll = () => {
+              if (output.includes('hvir-profile-smoke')) return resolve();
+              if (Date.now() >= deadline) {
+                return reject(new Error('Custom profile output was not observed'));
+              }
+              setTimeout(poll, 25);
+            };
+            poll();
+          });
+          stopOutput();
+          return {
+            defaultIds: defaults.map((candidate) => candidate.id),
+            requestedProviderIds,
+            materialized: materialized.map((candidate) => ({
+              id: candidate.id,
+              providerId: candidate.providerId,
+              builtIn: candidate.builtIn,
+              scope: candidate.scope.kind
+            })),
+            profile: acknowledgedProfile,
+            preview,
+            started,
+            output
+          };
+        })()
+      `),
+      'structured harness profile smoke timed out',
+    )) as {
+      defaultIds: readonly string[]
+      requestedProviderIds: readonly string[]
+      materialized: readonly {
+        id: string
+        providerId: string
+        builtIn: boolean
+        scope: string
+      }[]
+      profile: {
+        id: string
+        risk: string
+        launchRevision: number
+        riskAcknowledgedRevision?: number
+      }
+      preview: { args: readonly string[]; command: string }
+      started: { id: string; identityStatus: string; resumed: boolean }
+      output: string
+    }
+    if (
+      profileSmoke.defaultIds.join(',') !== 'plain-shell-default' ||
+      profileSmoke.materialized.map(({ providerId }) => providerId).join(',') !==
+        profileSmoke.requestedProviderIds.join(',') ||
+      profileSmoke.materialized.some(
+        ({ id, builtIn, scope }) =>
+          id.endsWith('-default') || builtIn || scope !== 'global',
+      )
+    ) {
+      throw new Error('opt-in harness profile materialization was incorrect')
+    }
+    if (
+      profileSmoke.profile.risk !== 'unclassified' ||
+      profileSmoke.profile.riskAcknowledgedRevision !==
+        profileSmoke.profile.launchRevision ||
+      profileSmoke.started.identityStatus !== 'none' ||
+      profileSmoke.started.resumed ||
+      !profileSmoke.output.includes('hvir-profile-smoke') ||
+      !profileSmoke.preview.args.includes(smokeRoot.path) ||
+      !profileSmoke.preview.command.includes("HVIR_PROFILE_SMOKE='structured'")
+    ) {
+      throw new Error(
+        'structured Custom profile did not preserve preview/launch semantics',
+      )
+    }
+    const profileTerminal = supervisor.get(profileSmoke.started.id)
+    if (!profileTerminal) throw new Error('Custom profile PTY was not supervised')
+    supervisor.kill(profileTerminal.id, profileTerminal.ownerId)
+    await smokeWaitFor(
+      () => supervisor.get(profileTerminal.id) === undefined,
+      'Custom profile PTY did not exit',
+    )
+    console.log('[smoke] structured profile preview + Custom PTY OK')
 
     const containedSessionError = (await win.webContents.executeJavaScript(`
       window.hvir.invoke('project:browse-host', {
@@ -1339,7 +1520,7 @@ async function runSmoke(): Promise<number> {
               menuOpened = true;
             }
             const shell = [...document.querySelectorAll('.terminal-new-menu button')]
-              .find((node) => node.textContent?.trim() === 'Shell');
+              .find((node) => node.querySelector('strong')?.textContent?.trim() === 'Shell');
             if (shell) {
               shell.click();
               return waitForSecond();
@@ -1393,7 +1574,9 @@ async function runSmoke(): Promise<number> {
       await runCapacityLoadSmoke(win, supervisor, host, liveReloadPath)
       smokeRecoverySessions = supervisor.list().map((terminal, position) => ({
         id: terminal.id,
-        adapterId: 'plain-shell',
+        providerId: defaultHarnessProviderId,
+        profileId: asHarnessProfileId('plain-shell-default'),
+        launchRevision: 1,
         hostId: terminal.hostId,
         cwd: terminal.cwd,
         title: `Recovered capacity shell ${position + 1}`,
@@ -2815,7 +2998,7 @@ async function runSmoke(): Promise<number> {
               idle.dispatchEvent(new Event('input', { bubbles: true }));
               requestAnimationFrame(() => {
                 [...openDialog.querySelectorAll('button')]
-                  .find((button) => button.textContent?.trim() === 'Save')?.click();
+                  .find((button) => button.textContent?.trim() === 'Save app settings')?.click();
                 requestAnimationFrame(() => {
                   const validation = document.querySelector('.settings-dialog .dialog-error')
                     ?.textContent || '';
@@ -2823,7 +3006,7 @@ async function runSmoke(): Promise<number> {
                     return reject(new Error('blank idle threshold did not show validation'));
                   }
                   [...openDialog.querySelectorAll('button')]
-                    .find((button) => button.textContent?.trim() === 'Cancel')?.click();
+                    .find((button) => button.textContent?.trim() === 'Close settings')?.click();
                   requestAnimationFrame(() => {
                     if (document.querySelector('.settings-dialog')) {
                       return reject(new Error('settings dialog did not close'));
@@ -2840,8 +3023,172 @@ async function runSmoke(): Promise<number> {
     )) as string
     console.log(`[smoke] minimal settings OK (${settingsStatus})`)
 
+    const harnessRenameStatus = (await withTimeout(
+      win.webContents.executeJavaScript(`
+        new Promise((resolve, reject) => {
+          const deadline = Date.now() + 10000;
+          document.querySelector(
+            '.terminal-icon-button[aria-label="New terminal"]'
+          )?.click();
+          const waitForProfile = () => {
+            const rows = [...document.querySelectorAll('.settings-profile-list button')];
+            const source = rows.find((row) =>
+              row.querySelector('strong')?.textContent?.trim() === 'Smoke custom harness'
+            );
+            if (!source) {
+              if (Date.now() > deadline) return reject(new Error('smoke harness profile missing'));
+              return setTimeout(waitForProfile, 50);
+            }
+            const dialog = document.querySelector('.settings-dialog');
+            const heading = document.querySelector('#settings-harnesses-title');
+            const alignment = dialog && heading
+              ? heading.getBoundingClientRect().top -
+                dialog.getBoundingClientRect().top -
+                Number.parseFloat(getComputedStyle(dialog).paddingTop)
+              : Number.NaN;
+            if (!dialog || !heading || Math.abs(alignment) > 2) {
+              return reject(new Error(
+                'configure harnesses did not align its section: delta=' + alignment +
+                ', scroll=' + dialog?.scrollTop +
+                ', max=' + ((dialog?.scrollHeight || 0) - (dialog?.clientHeight || 0))
+              ));
+            }
+            const beginProfileEdit = () => {
+              source.click();
+              requestAnimationFrame(() => {
+              const before = document.querySelectorAll('.settings-profile-list button').length;
+              const duplicate = [...document.querySelectorAll('.settings-profile-actions button')]
+                .find((button) => button.textContent?.trim() === 'Duplicate');
+              if (!duplicate) return reject(new Error('harness duplicate action missing'));
+              duplicate.click();
+              const waitForDuplicate = () => {
+                const name = document.querySelector(
+                  '.settings-profile-grid label:first-child input'
+                );
+                const count = document.querySelectorAll('.settings-profile-list button').length;
+                if (count > before && name?.value === 'Smoke custom harness copy') {
+                  Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')
+                    ?.set?.call(name, 'Smoke renamed harness');
+                  name.dispatchEvent(new Event('input', { bubbles: true }));
+                  return requestAnimationFrame(() => {
+                    if (document.querySelector('.fatal-error')) {
+                      return reject(new Error('harness rename escaped to the error boundary'));
+                    }
+                    if (name.value !== 'Smoke renamed harness') {
+                      return reject(new Error('harness profile rename did not update'));
+                    }
+                    const argv = document.querySelector('.settings-profile-argv textarea');
+                    if (!argv) return reject(new Error('harness argument editor missing'));
+                    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')
+                      ?.set?.call(argv, '--add-dir {binding:workspace}');
+                    argv.dispatchEvent(new Event('input', { bubbles: true }));
+                    const waitForArgumentPreview = () => {
+                      const help = document.querySelector('#harness-arguments-help')
+                        ?.textContent || '';
+                      const previews = [...document.querySelectorAll(
+                        '.settings-profile-previews code'
+                      )].map((node) => node.textContent || '');
+                      if (/2 argv values/.test(help) &&
+                          previews.some((value) => value.includes('--add-dir'))) {
+                        [...document.querySelectorAll('.settings-dialog .dialog-actions button')]
+                          .find((button) => button.textContent?.trim() === 'Close settings')
+                          ?.click();
+                        return requestAnimationFrame(() => {
+                          const prompt = document.querySelector('.unsaved-harness-dialog');
+                          if (!prompt) {
+                            return reject(new Error('unsaved harness prompt did not open'));
+                          }
+                          [...prompt.querySelectorAll('button')]
+                            .find((button) =>
+                              button.textContent?.trim() === 'Save harness profile'
+                            )?.click();
+                          const waitForGuardedSave = () => {
+                            if (!document.querySelector('.settings-dialog')) {
+                              return resolve(
+                                'top-aligned + duplicate-safe add + rename + same-line argv + guarded save'
+                              );
+                            }
+                            if (Date.now() > deadline) {
+                              return reject(new Error('guarded harness save did not close settings'));
+                            }
+                            setTimeout(waitForGuardedSave, 50);
+                          };
+                          waitForGuardedSave();
+                        });
+                      }
+                      if (Date.now() > deadline) {
+                        return reject(new Error('same-line arguments did not reach preview'));
+                      }
+                      setTimeout(waitForArgumentPreview, 50);
+                    };
+                    waitForArgumentPreview();
+                  });
+                }
+                if (Date.now() > deadline) {
+                  return reject(new Error('duplicated harness profile did not become editable'));
+                }
+                setTimeout(waitForDuplicate, 50);
+              };
+                waitForDuplicate();
+              });
+            };
+            const addHarness = [...document.querySelectorAll(
+              '.settings-harness-actions button'
+            )].find((button) => button.textContent?.trim() === 'Add a harness…');
+            if (!addHarness) return reject(new Error('add harness action missing'));
+            addHarness.click();
+            const waitForConfiguredTemplate = () => {
+              const candidates = [...document.querySelectorAll(
+                '.add-harness-candidates label'
+              )];
+              const candidate = candidates.find((label) =>
+                (label.querySelector('small')?.textContent || '').includes('Already added')
+              );
+              if (candidate) {
+                const checkbox = candidate.querySelector('input[type="checkbox"]');
+                const detail = candidate.querySelector('small')?.textContent || '';
+                if (!checkbox?.disabled || !detail.includes('Already added')) {
+                  return reject(new Error('configured template remained selectable'));
+                }
+                [...document.querySelectorAll('.add-harness-dialog button')]
+                  .find((button) => button.textContent?.trim() === 'Cancel')?.click();
+                return requestAnimationFrame(beginProfileEdit);
+              }
+              const refresh = [...document.querySelectorAll('.add-harness-dialog button')]
+                .find((button) => button.textContent?.trim() === 'Refresh');
+              if (refresh && !refresh.disabled) {
+                [...document.querySelectorAll('.add-harness-dialog button')]
+                  .find((button) => button.textContent?.trim() === 'Cancel')?.click();
+                return requestAnimationFrame(beginProfileEdit);
+              }
+              if (Date.now() > deadline) {
+                return reject(new Error('configured template detection did not settle'));
+              }
+              setTimeout(waitForConfiguredTemplate, 50);
+            };
+            waitForConfiguredTemplate();
+          };
+          const waitForConfigure = () => {
+            const configure = [...document.querySelectorAll('.terminal-new-menu button')]
+              .find((button) => button.textContent?.trim() === 'Configure harnesses…');
+            if (configure) {
+              configure.click();
+              return waitForProfile();
+            }
+            if (Date.now() > deadline) {
+              return reject(new Error('configure harnesses action missing'));
+            }
+            requestAnimationFrame(waitForConfigure);
+          };
+          waitForConfigure();
+        })
+      `),
+      'harness profile editor smoke timed out',
+    )) as string
+    console.log(`[smoke] harness profile editor OK (${harnessRenameStatus})`)
+
     const closeableState = smokeProjectState()
-    emit('project:state', {
+    smokeIpcProjectState = {
       ...closeableState,
       projects: [
         ...closeableState.projects,
@@ -2865,7 +3212,8 @@ async function runSmoke(): Promise<number> {
           ],
         },
       ],
-    })
+    }
+    emit('project:state', smokeIpcProjectState)
     const projectCloseStatus = (await withTimeout(
       win.webContents.executeJavaScript(`
         new Promise((resolve, reject) => {
@@ -2918,7 +3266,9 @@ async function runSmoke(): Promise<number> {
     smokeRecoverySessions = [
       {
         id: 'smoke-recovery-shell',
-        adapterId: 'plain-shell',
+        providerId: defaultHarnessProviderId,
+        profileId: asHarnessProfileId('plain-shell-default'),
+        launchRevision: 1,
         hostId: smokeRoot.hostId,
         cwd: smokeRoot,
         title: 'Recovered smoke shell',
@@ -3022,6 +3372,7 @@ async function runSmoke(): Promise<number> {
     await host.exec('rm', ['-f', '--', liveReloadPath.path])
     await host.exec('rm', ['-f', '--', largeJsonPath.path])
     await host.exec('rm', ['-f', '--', largeTextPath.path])
+    await host.exec('rm', ['-f', '--', harnessProfilesPath.path])
     await host.dispose()
     worker.dispose()
     git.dispose()
@@ -3148,7 +3499,7 @@ async function runCapacityLoadSmoke(
           add.click();
           const shell = await waitFor(
             () => [...document.querySelectorAll('.terminal-new-menu button')]
-              .find((node) => node.textContent?.trim() === 'Shell'),
+              .find((node) => node.querySelector('strong')?.textContent?.trim() === 'Shell'),
             'shell menu item unavailable'
           );
           shell.click();
@@ -3323,6 +3674,18 @@ async function withTimeout<T>(
   }
 }
 
+async function smokeWaitFor(
+  predicate: () => boolean,
+  message: string,
+  timeoutMs = 5_000,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs
+  while (!predicate()) {
+    if (Date.now() >= deadline) throw new Error(message)
+    await new Promise<void>((resolve) => setTimeout(resolve, 25))
+  }
+}
+
 void app
   .whenReady()
   .then(async () => {
@@ -3361,6 +3724,7 @@ async function suspendWorkbenchSessions(): Promise<void> {
   htmlPreviews.clear()
   sshPrompter?.cancelAll()
   await terminalSessionRegistry?.flush()
+  await harnessProfileStore?.flush()
   await projectRegistry?.disconnectSshHosts()
 }
 
@@ -3383,6 +3747,12 @@ async function shutdown(): Promise<void> {
     ?.flush()
     .catch((error) => console.error('[shutdown] terminal persistence failed', error))
   terminalSessionRegistry = null
+  await harnessProfileStore
+    ?.flush()
+    .catch((error) =>
+      console.error('[shutdown] harness profile persistence failed', error),
+    )
+  harnessProfileStore = null
   const registry = projectRegistry
   await registry
     ?.dispose()
@@ -3394,6 +3764,7 @@ async function shutdown(): Promise<void> {
   gitWorker?.dispose()
   gitWorker = null
   htmlPreviews.dispose()
+  harnessProbeManager.dispose()
 }
 
 async function settleWorkspaceRefreshes(): Promise<void> {

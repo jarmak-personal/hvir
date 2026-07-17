@@ -1,7 +1,7 @@
 # hvir — Plan of Record (overview)
 
 This directory is the engineering implementation plan for hvir. The PRD is
-[`docs/design.md`](../design.md) — it holds the philosophy, ADR-001 through ADR-010, the
+[`docs/design.md`](../design.md) — it holds the philosophy, the ADRs, the
 architecture, and the risks. **Nothing in this plan overrides it.** If plan and design
 conflict, the design doc wins; if you must deviate, record why (see Ground rules).
 
@@ -30,11 +30,16 @@ conflict, the design doc wins; if you must deviate, record why (see Ground rules
 | 7 | Workspaces | [07-workspaces.md](07-workspaces.md) | done |
 | 7.5 | SSH capacity & telemetry multiplexing | [07.5-ssh-capacity.md](07.5-ssh-capacity.md) | done |
 | 8 | Polish & packaging | [08-polish-and-packaging.md](08-polish-and-packaging.md) | in progress |
+| 9 | Harness providers & launch profiles | [09-harness-providers-and-launch-profiles.md](09-harness-providers-and-launch-profiles.md) | acceptance pending |
 
 Dependency notes: 2 depends on 1. 3 depends on 2. Phases 4 and 5 both depend on 3 and
 could run in parallel or swapped. 6 depends on 1 (seams) and benefits from 3. 7 depends
 on 5 and 6. 7.5 depends on the SSH, agent-awareness, and workspace load exposed by phases
-4, 6, and 7. Phase 8 is last.
+4, 6, and 7. Phase 8 is the last v1 phase. Phase 9 is post-v1 work and starts only after
+Phase 8 acceptance; it evolves the Phase 6/7.5 harness seams without reopening the v1
+packaging gate. Phase 9 implementation proceeded on an explicitly authorized feature branch
+while the Phase 8 and real-host acceptance gates remain open; neither phase is represented as
+done until its outstanding acceptance evidence is recorded.
 
 ## Active review queue
 
@@ -54,7 +59,8 @@ on 5 and 6. 7.5 depends on the SSH, agent-awareness, and workspace load exposed 
 
 - **Hard constraints** from AGENTS.md are non-negotiable: no real editing beyond
   minor-edit-and-save; nothing blocks the paint (heavy work off the render thread);
-  respect the seams (`TerminalPane`, PTY supervisor, `HarnessAdapter`, `ProjectHost`);
+  respect the seams (`TerminalPane`, PTY supervisor, `HarnessAdapter`/harness provider,
+  `ProjectHost`);
   every path is a `(host, path)` pair — no bare string paths, even in local-only code.
 - **Definition of done** for any task that touches code: typecheck passes, lint passes,
   the app launches, and the renderer stays responsive during the feature's heaviest

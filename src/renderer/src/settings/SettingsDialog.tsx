@@ -1,6 +1,11 @@
-import { useEffect, useRef, useState, type ReactElement } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react'
 
 import type { AppTheme } from '../theme'
+import type { HostPath } from '../../../shared'
+import {
+  HarnessProfilesSettings,
+  type HarnessProfilesSettingsHandle,
+} from './HarnessProfilesSettings'
 import { keybindingOverridesJson, parseKeybindingOverrides } from './keybindings'
 import type { AppSettings } from './settings'
 
@@ -9,6 +14,9 @@ interface SettingsDialogProps {
   readonly settings: AppSettings
   readonly onSave: (theme: AppTheme, settings: AppSettings) => void
   readonly onClose: () => void
+  readonly workspaceRoot?: HostPath
+  readonly projectRoot?: HostPath
+  readonly initialSection?: 'general' | 'harnesses' | 'harnesses-add'
 }
 
 export function SettingsDialog({
@@ -16,8 +24,12 @@ export function SettingsDialog({
   settings,
   onSave,
   onClose,
+  workspaceRoot,
+  projectRoot,
+  initialSection = 'general',
 }: SettingsDialogProps): ReactElement {
   const dialog = useRef<HTMLElement>(null)
+  const harnessProfiles = useRef<HarnessProfilesSettingsHandle>(null)
   const [nextTheme, setNextTheme] = useState(theme)
   const [idleSeconds, setIdleSeconds] = useState(String(settings.idleThresholdMs / 1000))
   const [gitAutoFetchIntervalMs, setGitAutoFetchIntervalMs] = useState(
@@ -30,21 +42,66 @@ export function SettingsDialog({
   )
   const [error, setError] = useState<string>()
 
+  const requestClose = useCallback((): void => {
+    void (harnessProfiles.current?.confirmSafeToLeave() ?? Promise.resolve(true)).then(
+      (confirmed) => {
+        if (confirmed) onClose()
+      },
+    )
+  }, [onClose])
+
   useEffect(() => {
-    const frame = requestAnimationFrame(() => dialog.current?.focus())
+    let frame = 0
+    let sectionObserver: ResizeObserver | undefined
+    const alignHarnesses = (): boolean => {
+      const heading = document.getElementById('settings-harnesses-title')
+      const container = dialog.current
+      if (!heading || !container) return false
+      const containerBox = container.getBoundingClientRect()
+      const headingBox = heading.getBoundingClientRect()
+      const paddingTop = Number.parseFloat(getComputedStyle(container).paddingTop) || 0
+      container.scrollTop = Math.max(
+        0,
+        container.scrollTop + headingBox.top - containerBox.top - paddingTop,
+      )
+      heading.focus({ preventScroll: true })
+      return (
+        Math.abs(heading.getBoundingClientRect().top - containerBox.top - paddingTop) <= 2
+      )
+    }
+    const scheduleAlignment = (): void => {
+      cancelAnimationFrame(frame)
+      frame = requestAnimationFrame(() => {
+        if (alignHarnesses()) sectionObserver?.disconnect()
+      })
+    }
+    frame = requestAnimationFrame(() => {
+      if (initialSection !== 'general') {
+        const heading = document.getElementById('settings-harnesses-title')
+        const section = heading?.closest('.settings-harnesses')
+        if (section && !alignHarnesses()) {
+          sectionObserver = new ResizeObserver(scheduleAlignment)
+          sectionObserver.observe(section)
+        }
+      } else {
+        dialog.current?.focus()
+      }
+    })
     const keydown = (event: KeyboardEvent): void => {
+      if (dialog.current?.querySelector('.modal-backdrop.nested')) return
       if (event.key === 'Escape' && !(event.target instanceof HTMLTextAreaElement)) {
-        onClose()
+        requestClose()
       }
     }
     window.addEventListener('keydown', keydown)
     return () => {
       cancelAnimationFrame(frame)
+      sectionObserver?.disconnect()
       window.removeEventListener('keydown', keydown)
     }
-  }, [onClose])
+  }, [initialSection, requestClose])
 
-  const save = (): void => {
+  const save = async (): Promise<void> => {
     try {
       const parsedIdleSeconds = Number(idleSeconds)
       if (
@@ -56,6 +113,9 @@ export function SettingsDialog({
         throw new Error('Idle threshold must be between 0.5 and 60 seconds')
       }
       const parsed: unknown = JSON.parse(keybindings)
+      const confirmed = await (harnessProfiles.current?.confirmSafeToLeave() ??
+        Promise.resolve(true))
+      if (!confirmed) return
       onSave(nextTheme, {
         idleThresholdMs: parsedIdleSeconds * 1000,
         gitAutoFetchIntervalMs: Number(gitAutoFetchIntervalMs),
@@ -71,7 +131,9 @@ export function SettingsDialog({
   return (
     <div className="modal-backdrop">
       <section
-        className="project-dialog settings-dialog"
+        className={`project-dialog settings-dialog${
+          initialSection === 'general' ? '' : ' harnesses-focused'
+        }`}
         ref={dialog}
         role="dialog"
         aria-modal="true"
@@ -165,13 +227,19 @@ export function SettingsDialog({
             </small>
           </label>
         </div>
+        <HarnessProfilesSettings
+          ref={harnessProfiles}
+          workspaceRoot={workspaceRoot}
+          projectRoot={projectRoot}
+          initialAddOpen={initialSection === 'harnesses-add'}
+        />
         {error ? <p className="dialog-error">{error}</p> : null}
         <div className="dialog-actions">
-          <button type="button" onClick={onClose}>
-            Cancel
+          <button type="button" onClick={requestClose}>
+            Close settings
           </button>
-          <button type="button" onClick={save}>
-            Save
+          <button type="button" onClick={() => void save()}>
+            Save app settings
           </button>
         </div>
       </section>

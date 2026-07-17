@@ -2,9 +2,10 @@ import { useEffect, useRef, useState, type ReactElement } from 'react'
 
 import type {
   HarnessTelemetry,
+  HarnessProfileId,
+  HarnessProviderCapabilities,
   HostConnectionState,
   HostPath,
-  TerminalAdapterId,
   TerminalIdentityStatus,
 } from '../../../shared'
 import { createGhosttyTerminalPane } from './ghostty-terminal-pane'
@@ -16,7 +17,10 @@ import type { TerminalThemeOverride } from '../settings/settings'
 
 interface TerminalViewProps {
   readonly sessionId: string
-  readonly adapterId: TerminalAdapterId
+  readonly profileId: HarnessProfileId
+  readonly launchRevision: number
+  readonly riskAcknowledged: boolean
+  readonly supportsResume: boolean
   readonly fallbackTitle: string
   readonly harnessSessionId?: string
   readonly resumeOnStart: boolean
@@ -35,6 +39,7 @@ interface TerminalViewProps {
     status: TerminalIdentityStatus,
   ) => void
   readonly onStarted: () => void
+  readonly onCapabilities: (capabilities: HarnessProviderCapabilities) => void
   readonly onInput: (data: string) => void
   readonly onOutput: () => void
   readonly onBell: () => void
@@ -46,7 +51,10 @@ const PTY_RESIZE_DEBOUNCE_MS = 75
 
 export function TerminalView({
   sessionId,
-  adapterId,
+  profileId,
+  launchRevision,
+  riskAcknowledged,
+  supportsResume,
   fallbackTitle,
   harnessSessionId,
   resumeOnStart,
@@ -62,6 +70,7 @@ export function TerminalView({
   onTelemetry,
   onIdentity,
   onStarted,
+  onCapabilities,
   onInput,
   onOutput,
   onBell,
@@ -90,6 +99,7 @@ export function TerminalView({
     onTelemetry,
     onIdentity,
     onStarted,
+    onCapabilities,
     onInput,
     onOutput,
     onBell,
@@ -106,6 +116,7 @@ export function TerminalView({
     position,
     active,
     title,
+    riskAcknowledged,
   })
   handlersRef.current = {
     onTitle,
@@ -113,6 +124,7 @@ export function TerminalView({
     onTelemetry,
     onIdentity,
     onStarted,
+    onCapabilities,
     onInput,
     onOutput,
     onBell,
@@ -126,6 +138,7 @@ export function TerminalView({
     position,
     active,
     title,
+    riskAcknowledged,
   }
 
   useEffect(() => handlersRef.current.onTitle(title), [title])
@@ -237,16 +250,17 @@ export function TerminalView({
         pane.redraw()
 
         const metadata = launchMetadataRef.current
-        if (isReconnect && adapterId !== 'plain-shell' && !metadata.harnessSessionId) {
+        if (isReconnect && supportsResume && !metadata.harnessSessionId) {
           throw new Error('Exact harness session id unavailable; start a new terminal')
         }
         const resume =
-          adapterId !== 'plain-shell' &&
+          supportsResume &&
           Boolean(metadata.harnessSessionId) &&
           (metadata.resumeOnStart || isReconnect || isManualRestart)
         const result = await window.hvir.invoke('pty:start', {
           sessionId,
-          adapterId,
+          profileId,
+          launchRevision,
           cwd: workspaceRoot,
           cols: terminalSize.cols,
           rows: terminalSize.rows,
@@ -255,6 +269,7 @@ export function TerminalView({
           active: metadata.active,
           resume,
           harnessSessionId: resume ? metadata.harnessSessionId : undefined,
+          acknowledgeRisk: metadata.riskAcknowledged,
         })
         if (cancelled) {
           window.hvir.send('pty:kill', { id: sessionId })
@@ -263,19 +278,22 @@ export function TerminalView({
         ptyStarted = true
         hasStartedRef.current = true
         handlersRef.current.onIdentity(result.harnessSessionId, result.identityStatus)
+        handlersRef.current.onCapabilities(result.capabilities)
         handlersRef.current.onStarted()
         if (pendingInput) {
           window.hvir.send('pty:write', { id: sessionId, data: pendingInput })
           pendingInput = ''
         }
         setStatus(
-          resume
+          result.resumed
             ? `Resumed · pid ${result.pid}`
-            : isManualRestart
-              ? `Restarted · pid ${result.pid}`
-              : isReconnect
-                ? `New shell · pid ${result.pid}`
-                : `pid ${result.pid}`,
+            : resume
+              ? `New session · pid ${result.pid}`
+              : isManualRestart
+                ? `Restarted · pid ${result.pid}`
+                : isReconnect
+                  ? `New shell · pid ${result.pid}`
+                  : `pid ${result.pid}`,
         )
         if (activeRef.current) {
           pane.focus()
@@ -305,11 +323,14 @@ export function TerminalView({
       if (ptyStarted) window.hvir.send('pty:kill', { id: sessionId })
     }
   }, [
-    adapterId,
     connectionState,
     fallbackTitle,
     restartGeneration,
     sessionId,
+    profileId,
+    launchRevision,
+    riskAcknowledged,
+    supportsResume,
     workspaceRoot,
   ])
 
@@ -326,13 +347,13 @@ export function TerminalView({
         <button
           type="button"
           className="terminal-restart"
-          aria-label={`${adapterId !== 'plain-shell' && harnessSessionId ? 'Resume' : 'Restart'} ${title}`}
+          aria-label={`${supportsResume && harnessSessionId ? 'Resume' : 'Restart'} ${title}`}
           onClick={() => {
             restartRequestedRef.current = true
             setRestartGeneration((generation) => generation + 1)
           }}
         >
-          {adapterId !== 'plain-shell' && harnessSessionId ? 'Resume' : 'Restart'}
+          {supportsResume && harnessSessionId ? 'Resume' : 'Restart'}
         </button>
       ) : null}
       <div

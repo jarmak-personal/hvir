@@ -9,6 +9,11 @@ import {
   HarnessTelemetryHub,
   type HarnessTelemetrySubscription,
 } from '../src/main/harness/harness-telemetry-hub'
+import {
+  asHarnessProviderId,
+  contextHarnessSnapshot,
+  type HarnessTelemetry,
+} from '../src/shared'
 import type { ExecStreamHandle, ProjectHost } from '../src/main/project-host'
 import { LocalHost } from '../src/main/project-host'
 import { LOCAL_HOST_ID } from '../src/shared'
@@ -49,8 +54,8 @@ describe('HarnessTelemetryHub', () => {
     const stream = fakeStream()
     const execStream = vi.fn<ProjectHost['execStream']>(() => stream.handle)
     const hub = telemetryHub(execStream)
-    const firstEmit = vi.fn()
-    const secondEmit = vi.fn()
+    const firstEmit = vi.fn<(value: HarnessTelemetry | undefined) => void>()
+    const secondEmit = vi.fn<(value: HarnessTelemetry | undefined) => void>()
     const first = subscription(1, firstEmit)
     const second = subscription(2, secondEmit)
     const stopFirst = hub.subscribe(first)
@@ -68,7 +73,7 @@ describe('HarnessTelemetryHub', () => {
     stream.stdout(`${valid.slice(17)}${stale}${crossed}${malformed}`)
 
     expect(firstEmit).toHaveBeenCalledOnce()
-    expect(firstEmit).toHaveBeenCalledWith({ contextUsedTokens: 41 })
+    expectSnapshot(firstEmit.mock.calls.at(-1)?.[0], 41, first.sessionId)
     expect(secondEmit).not.toHaveBeenCalled()
     void stopFirst()
     void stopSecond()
@@ -82,7 +87,7 @@ describe('HarnessTelemetryHub', () => {
       .mockReturnValueOnce(streams[1]!.handle)
     const hub = telemetryHub(execStream)
     const stopFirst = hub.subscribe(subscription(3))
-    const remainingEmit = vi.fn()
+    const remainingEmit = vi.fn<(value: HarnessTelemetry | undefined) => void>()
     const remaining = subscription(4, remainingEmit)
     const stopSecond = hub.subscribe(remaining)
     await vi.waitFor(() => expect(streams[0]!.writes).toHaveLength(3))
@@ -111,7 +116,7 @@ describe('HarnessTelemetryHub', () => {
     streams[1]!.stdout(
       frame(epoch, '3', remaining.subscriptionId, remaining.sessionId, 9),
     )
-    expect(remainingEmit).toHaveBeenLastCalledWith({ contextUsedTokens: 9 })
+    expectSnapshot(remainingEmit.mock.calls.at(-1)?.[0], 9, remaining.sessionId)
     void stopSecond()
     warning.mockRestore()
   })
@@ -120,12 +125,12 @@ describe('HarnessTelemetryHub', () => {
     const stream = fakeStream()
     const execStream = vi.fn<ProjectHost['execStream']>(() => stream.handle)
     const hub = telemetryHub(execStream)
-    const firstEmit = vi.fn()
+    const firstEmit = vi.fn<(value: HarnessTelemetry | undefined) => void>()
     const first = subscription(5, firstEmit)
     const stopFirst = hub.subscribe(first)
     await vi.waitFor(() => expect(stream.writes).toHaveLength(2))
 
-    const secondEmit = vi.fn()
+    const secondEmit = vi.fn<(value: HarnessTelemetry | undefined) => void>()
     const second = subscription(6, secondEmit)
     const stopSecond = hub.subscribe(second)
     await vi.waitFor(() => expect(stream.writes).toHaveLength(5))
@@ -135,7 +140,7 @@ describe('HarnessTelemetryHub', () => {
     stream.stdout(frame(epoch, '1', first.subscriptionId, first.sessionId, 17))
     stream.stdout(frame(epoch, '1', second.subscriptionId, second.sessionId, 99))
 
-    expect(firstEmit).toHaveBeenCalledWith({ contextUsedTokens: 17 })
+    expectSnapshot(firstEmit.mock.calls.at(-1)?.[0], 17, first.sessionId)
     expect(secondEmit).not.toHaveBeenCalled()
     void stopFirst()
     void stopSecond()
@@ -165,18 +170,18 @@ describe('HarnessTelemetryHub', () => {
       `,
     })
     const hub = new HarnessTelemetryHub(host, {
-      adapterId: 'lock-test',
+      providerId: 'lock-test',
       remoteScript: script,
       parse: (record) => {
         const value = JSON.parse(record) as { used: number }
-        return { contextUsedTokens: value.used }
+        return snapshot(value.used)
       },
     })
     const stopFirst = hub.subscribe({
       ...subscription(7),
       resource: firstPath,
     })
-    const survivorEmit = vi.fn()
+    const survivorEmit = vi.fn<(value: HarnessTelemetry | undefined) => void>()
     const stopSecond = hub.subscribe({
       ...subscription(8, survivorEmit),
       resource: secondPath,
@@ -194,7 +199,9 @@ describe('HarnessTelemetryHub', () => {
       await appendFile(secondPath, '{"used":23}\n')
 
       await vi.waitFor(
-        () => expect(survivorEmit).toHaveBeenLastCalledWith({ contextUsedTokens: 23 }),
+        () => {
+          expectSnapshot(survivorEmit.mock.calls.at(-1)?.[0], 23, uuid(8))
+        },
         { timeout: 4_000 },
       )
     } finally {
@@ -211,16 +218,41 @@ function telemetryHub(execStream: ProjectHost['execStream']): HarnessTelemetryHu
     execStream,
   } as unknown as ProjectHost
   return new HarnessTelemetryHub(host, {
-    adapterId: 'test',
+    providerId: 'test',
     remoteScript: 'test helper',
     parse: (record) => {
       try {
         const value = JSON.parse(record) as { used?: unknown }
-        return typeof value.used === 'number' ? { contextUsedTokens: value.used } : null
+        return typeof value.used === 'number' ? snapshot(value.used) : null
       } catch {
         return null
       }
     },
+  })
+}
+
+function snapshot(usedTokens: number) {
+  return contextHarnessSnapshot({
+    providerId: asHarnessProviderId('test'),
+    provenance: 'test fixture',
+    context: { usedTokens },
+    observedAt: 1,
+  })
+}
+
+function expectSnapshot(
+  telemetry: HarnessTelemetry | undefined,
+  usedTokens: number,
+  sessionId: string,
+): void {
+  expect(telemetry?.version).toBe(1)
+  expect(telemetry?.facets.session).toEqual({
+    status: 'available',
+    value: { id: sessionId, state: 'active' },
+  })
+  expect(telemetry?.facets.context).toEqual({
+    status: 'available',
+    value: { usedTokens },
   })
 }
 

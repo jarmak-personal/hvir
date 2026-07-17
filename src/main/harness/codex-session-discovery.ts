@@ -11,6 +11,7 @@
 
 import { hostPath, type HostPath } from '../../shared'
 import type { ProjectHost } from '../project-host'
+import type { HarnessArtifactContext } from './harness-provider'
 
 const LIST_SESSION_FILES_SCRIPT = `
 root="\${CODEX_HOME:-\${HOME}/.codex}/sessions"
@@ -29,6 +30,11 @@ const DEFAULT_MAX_POLL_MS = 5_000
 const DEFAULT_SETTLE_MS = 250
 const LAUNCH_CLOCK_SLOP_MS = 2_000
 const MAX_NEW_CANDIDATES = 32
+const DEFAULT_ARTIFACT: HarnessArtifactContext = {
+  identity: 'codex-default',
+  environment: {},
+  unsetEnvironment: [],
+}
 
 interface CodexSessionSnapshot {
   readonly paths: readonly string[]
@@ -61,7 +67,7 @@ export interface CodexSessionDiscoveryOptions {
 }
 
 export function createCodexSessionDiscovery(options: CodexSessionDiscoveryOptions = {}): {
-  snapshot(host: ProjectHost): Promise<unknown>
+  snapshot(host: ProjectHost, artifact?: HarnessArtifactContext): Promise<unknown>
   identify(
     host: ProjectHost,
     snapshot: unknown,
@@ -70,6 +76,7 @@ export function createCodexSessionDiscovery(options: CodexSessionDiscoveryOption
       readonly launchedAtMs: number
       readonly discoveryStartedAtMs?: number
       readonly signal: AbortSignal
+      readonly artifact?: HarnessArtifactContext
     },
   ): Promise<
     | {
@@ -89,9 +96,9 @@ export function createCodexSessionDiscovery(options: CodexSessionDiscoveryOption
   const sleep = options.sleep ?? abortableSleep
 
   return {
-    async snapshot(host): Promise<CodexSessionSnapshot> {
+    async snapshot(host, artifact): Promise<CodexSessionSnapshot> {
       const localBeforeMs = now()
-      const scan = await listSessionFiles(host)
+      const scan = await listSessionFiles(host, undefined, artifact ?? DEFAULT_ARTIFACT)
       const localAfterMs = now()
       return {
         paths: scan.paths,
@@ -113,7 +120,11 @@ export function createCodexSessionDiscovery(options: CodexSessionDiscoveryOption
 
       while (!context.signal.aborted) {
         const currentTime = now()
-        const scan = await listSessionFiles(host, context.signal)
+        const scan = await listSessionFiles(
+          host,
+          context.signal,
+          context.artifact ?? DEFAULT_ARTIFACT,
+        )
         const newPaths = scan.paths.filter((path) => !baseline.has(path))
         if (newPaths.length > MAX_NEW_CANDIDATES) return { status: 'ambiguous' }
 
@@ -166,10 +177,13 @@ export const codexSessionDiscovery = createCodexSessionDiscovery()
 async function listSessionFiles(
   host: ProjectHost,
   signal?: AbortSignal,
+  artifact?: HarnessArtifactContext,
 ): Promise<SessionFileScan> {
   const result = await host.exec('sh', ['-c', LIST_SESSION_FILES_SCRIPT], {
     signal,
     maxBuffer: LIST_MAX_BUFFER,
+    env: artifact?.environment,
+    unsetEnv: artifact?.unsetEnvironment,
   })
   if (result.code !== 0) {
     throw new Error(
