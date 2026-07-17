@@ -336,20 +336,34 @@ export class SshHost implements ProjectHost {
         let stdout = '',
           stderr = '',
           bytes = 0,
+          stdoutNulRecords = 0,
           code: number | null = null,
           signal: string | null = null
         let settled = false
+        let truncated = false
         const stdoutDecoder = new StringDecoder('utf8')
         const stderrDecoder = new StringDecoder('utf8')
         const append = (kind: 'out' | 'err', chunk: Buffer): void => {
+          if (truncated) return
           bytes += chunk.length
-          if (bytes > (opts.maxBuffer ?? 10 * 1024 * 1024)) {
+          if (kind === 'out' && opts.maxStdoutNulRecords !== undefined) {
+            for (const byte of chunk) if (byte === 0) stdoutNulRecords++
+          }
+          if (kind === 'out') stdout += stdoutDecoder.write(chunk)
+          else stderr += stderrDecoder.write(chunk)
+          if (
+            bytes > (opts.maxBuffer ?? 10 * 1024 * 1024) ||
+            (opts.maxStdoutNulRecords !== undefined &&
+              stdoutNulRecords >= opts.maxStdoutNulRecords)
+          ) {
+            if (opts.allowTruncatedOutput) {
+              truncated = true
+              return stream.close()
+            }
             if (!settled) reject(new Error('SSH exec output exceeded maxBuffer'))
             settled = true
             return stream.close()
           }
-          if (kind === 'out') stdout += stdoutDecoder.write(chunk)
-          else stderr += stderrDecoder.write(chunk)
         }
         stream.on('data', (chunk: Buffer) => append('out', chunk))
         stream.stderr.on('data', (chunk: Buffer) => append('err', chunk))
@@ -371,6 +385,7 @@ export class SshHost implements ProjectHost {
               signal,
               stdout,
               stderr: recovered.stderr,
+              ...(truncated ? { outputTruncated: true } : {}),
             })
           }
           settled = true
@@ -671,6 +686,14 @@ export class SshHost implements ProjectHost {
     opts: WatchOptions = {},
   ): Disposer {
     this.assertPath(path)
+    if ((opts.additionalPaths?.length ?? 0) > 256) {
+      throw new Error('Too many additional watch paths')
+    }
+    for (const candidate of opts.additionalPaths ?? []) this.assertPath(candidate)
+    const watchedPaths = [path, ...(opts.additionalPaths ?? [])].filter(
+      (candidate, index, values) =>
+        values.findIndex((value) => value.path === candidate.path) === index,
+    )
     let stopped = false
     let stopBackend: Disposer | undefined
     const start = (): void => {
@@ -684,8 +707,10 @@ export class SshHost implements ProjectHost {
       let pulseTimer: ReturnType<typeof setTimeout> | undefined
       const pulse = (): void => {
         if (stopped || this.state !== 'connected') return
-        this.invalidate(path.path)
-        onEvent({ type: 'change', path, synthetic: 'refresh' })
+        for (const watchedPath of watchedPaths) {
+          this.invalidate(watchedPath.path)
+          onEvent({ type: 'change', path: watchedPath, synthetic: 'refresh' })
+        }
         pulseTimer = setTimeout(pulse, pulseIntervalMs)
       }
       pulseTimer = setTimeout(pulse, pulseIntervalMs)
@@ -1515,7 +1540,10 @@ export class SshHost implements ProjectHost {
       const names = opts.excludeDirectoryNames.map(escapeRegex).join('|')
       args.push('--exclude', `(^|/)(${names})(/|$)`)
     }
-    args.push(path.path)
+    args.push(
+      path.path,
+      ...(opts.additionalPaths ?? []).map((candidate) => candidate.path),
+    )
     const handle = this.execStream('inotifywait', args)
     let pending = ''
     handle.onStdout((chunk) => {
@@ -1711,35 +1739,47 @@ export class SshHost implements ProjectHost {
   ): Promise<Map<string, string>> {
     const sftp = await this.getSftp()
     const result = new Map<string, string>()
-    const rootAttrs = await sftpLstat(sftp, root.path)
-    if (fileType(rootAttrs.mode) !== 'dir') {
-      result.set(
-        root.path,
-        await this.pollStamp(
-          sftp,
-          root.path,
-          rootAttrs,
-          this.pollingFiles.has(root.path),
-        ),
-      )
-      return result
-    }
+    const roots = [root, ...(opts.additionalPaths ?? [])].filter(
+      (candidate, index, values) =>
+        values.findIndex((value) => value.path === candidate.path) === index,
+    )
+    for (const watchedRoot of roots) {
+      let rootAttrs: import('ssh2').Attributes
+      try {
+        rootAttrs = await sftpLstat(sftp, watchedRoot.path)
+      } catch (reason) {
+        if (!isNoSuchFile(reason)) throw reason
+        continue
+      }
+      if (fileType(rootAttrs.mode) !== 'dir') {
+        result.set(
+          watchedRoot.path,
+          await this.pollStamp(
+            sftp,
+            watchedRoot.path,
+            rootAttrs,
+            this.pollingFiles.has(watchedRoot.path),
+          ),
+        )
+        continue
+      }
 
-    const entries = await sftpReaddir(sftp, root.path)
-    const entryNames = new Set(entries.map((entry) => entry.filename))
-    const gitMetadataDirectory =
-      opts.recursive === false &&
-      entryNames.has('HEAD') &&
-      (entryNames.has('index') ||
-        entryNames.has('objects') ||
-        entryNames.has('commondir'))
-    for (const entry of entries) {
-      if (entry.filename === '.' || entry.filename === '..') continue
-      const child = remoteChild(root.path, entry.filename)
-      const fingerprint =
-        this.pollingFiles.has(child) ||
-        (gitMetadataDirectory && GIT_PRIORITY_FILES.has(entry.filename))
-      result.set(child, await this.pollStamp(sftp, child, entry.attrs, fingerprint))
+      const entries = await sftpReaddir(sftp, watchedRoot.path)
+      const entryNames = new Set(entries.map((entry) => entry.filename))
+      const gitMetadataDirectory =
+        opts.recursive === false &&
+        entryNames.has('HEAD') &&
+        (entryNames.has('index') ||
+          entryNames.has('objects') ||
+          entryNames.has('commondir'))
+      for (const entry of entries) {
+        if (entry.filename === '.' || entry.filename === '..') continue
+        const child = remoteChild(watchedRoot.path, entry.filename)
+        const fingerprint =
+          this.pollingFiles.has(child) ||
+          (gitMetadataDirectory && GIT_PRIORITY_FILES.has(entry.filename))
+        result.set(child, await this.pollStamp(sftp, child, entry.attrs, fingerprint))
+      }
     }
 
     if (opts.recursive !== false) {

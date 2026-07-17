@@ -94,6 +94,11 @@ export function GitPanel({
   const [syncError, setSyncError] = useState<string>()
   const [lastFetchedAt, setLastFetchedAt] = useState<number>()
   const [autoFetchBlocked, setAutoFetchBlocked] = useState(false)
+  const changeCountLabel = changes
+    ? changes.workingTreeLimited
+      ? `${(changes.workingTreeLimit ?? changes.workingTree.length).toLocaleString()}+`
+      : changes.workingTree.length.toLocaleString()
+    : undefined
   const syncRunning = useRef(false)
   const syncGeneration = useRef(0)
   const historyLoading = useRef(false)
@@ -498,7 +503,7 @@ export function GitPanel({
           disabled={connectionState !== 'connected'}
           onClick={() => setView('changes')}
         >
-          Changes {changes ? `(${changes.workingTree.length})` : ''}
+          Changes {changeCountLabel ? `(${changeCountLabel})` : ''}
         </button>
         <button
           type="button"
@@ -523,6 +528,32 @@ export function GitPanel({
               <div className="git-empty">Loading changes…</div>
             ) : !changes ? null : changes.repositoryState === 'not-git' ? (
               <div className="git-empty">Not a Git repository</div>
+            ) : changes.workingTreeLimited ? (
+              <>
+                <div className="git-limit-notice" role="status">
+                  {changes.workingTree.length >= (changes.workingTreeLimit ?? 2_000) ? (
+                    <>
+                      More than {changes.workingTreeLimit?.toLocaleString() ?? '2,000'}{' '}
+                      changes; showing the first{' '}
+                      {changes.workingTreeLimit?.toLocaleString() ?? '2,000'}.
+                    </>
+                  ) : (
+                    <>
+                      Git status exceeded the bounded output scan; showing{' '}
+                      {changes.workingTree.length.toLocaleString()} complete change
+                      records.
+                    </>
+                  )}{' '}
+                  Per-file statistics and branch-point detail are paused.
+                </div>
+                <ChangeGroup
+                  title="Working tree"
+                  files={changes.workingTree}
+                  root={root}
+                  base="head"
+                  onOpen={onOpenChange}
+                />
+              </>
             ) : changes &&
               changes.workingTree.length === 0 &&
               changes.branchPoint.length === 0 ? (

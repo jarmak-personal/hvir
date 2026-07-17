@@ -103,30 +103,79 @@ export class ProjectRegistry {
     trustFile: string,
     registryFile: string,
     onState: (state: ProjectState) => void,
-  ): Promise<ProjectRegistry> {
+  ): Promise<ProjectRegistry>
+  static async create(
+    initialRoot: HostPath | undefined,
+    prompter: SshAuthPrompter,
+    trustFile: string,
+    registryFile: string,
+    onState: (state: ProjectState) => void,
+    selectInitialRoot: () => Promise<HostPath | undefined>,
+  ): Promise<ProjectRegistry | undefined>
+  static async create(
+    initialRoot: HostPath | undefined,
+    prompter: SshAuthPrompter,
+    trustFile: string,
+    registryFile: string,
+    onState: (state: ProjectState) => void,
+    selectInitialRoot?: () => Promise<HostPath | undefined>,
+  ): Promise<ProjectRegistry | undefined> {
     const local = new LocalHost()
     await local.connect()
-    const canonicalRoot = await local.realpath(initialRoot)
     const aliases = await loadSshAliases(local)
     const trust = await HostTrustStore.load(local, localPath(trustFile))
     const file = localPath(registryFile)
     const stored = await loadProjects(local, file)
-    const projects = stored?.projects.length
-      ? stored.projects
-      : [createProject(canonicalRoot)]
+    let canonicalRoot = initialRoot ? await local.realpath(initialRoot) : undefined
+    if (!canonicalRoot && !stored?.projects.length) {
+      const selected = await selectInitialRoot?.()
+      if (!selected) {
+        await local.dispose()
+        return undefined
+      }
+      canonicalRoot = await local.realpath(selected)
+    }
+    const projects = stored?.projects.length ? stored.projects : []
+    let activeProjectId = stored?.activeProjectId
+    if (canonicalRoot) {
+      let selectedProject = projects.find(
+        (project) =>
+          hostPathEquals(project.registeredRoot, canonicalRoot) ||
+          project.workspaces.some((workspace) =>
+            hostPathEquals(workspace.root, canonicalRoot),
+          ),
+      )
+      if (!selectedProject) {
+        if (projects.length >= MAX_PROJECTS) throw new Error('Project registry is full')
+        selectedProject = createProject(canonicalRoot)
+        projects.push(selectedProject)
+      }
+      const selectedWorkspace = selectedProject.workspaces.find((workspace) =>
+        hostPathEquals(workspace.root, canonicalRoot),
+      )
+      if (selectedWorkspace && !selectedWorkspace.missing) {
+        selectedProject.activeWorkspaceId = selectedWorkspace.id
+      }
+      activeProjectId = selectedProject.id
+    }
+    const fallbackRoot = canonicalRoot ?? projects[0]?.registeredRoot
+    if (!fallbackRoot || !activeProjectId) {
+      await local.dispose()
+      return undefined
+    }
     const registry = new ProjectRegistry(
       local,
-      canonicalRoot,
+      fallbackRoot,
       aliases,
       prompter,
       trust,
       file,
       projects,
-      stored?.activeProjectId ?? projects[0]!.id,
+      activeProjectId,
       onState,
     )
     await registry.restoreActive()
-    if (!stored) await registry.persist()
+    if (!stored || canonicalRoot) await registry.persist()
     return registry
   }
 
@@ -375,7 +424,7 @@ export class ProjectRegistry {
             }
           : {}),
         repository: discovery.repository,
-        changedFiles: existing?.changedFiles ?? 0,
+        changedFiles: discovery.repository ? (existing?.changedFiles ?? 0) : 0,
       }
       if (existing) project.workspaces[project.workspaces.indexOf(existing)] = record
       else project.workspaces.push(record)

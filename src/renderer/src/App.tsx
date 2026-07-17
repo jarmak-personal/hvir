@@ -11,8 +11,11 @@ import {
   asHostId,
   basenameHostPath,
   defaultViewMode,
+  dirnameHostPath,
+  GIT_CHANGE_DISPLAY_LIMIT,
   hostPath,
   hostPathEquals,
+  MAX_PROJECT_WATCH_INTERESTS,
   unwrapOperation,
   type DiffBase,
   type FileOpenContext,
@@ -39,6 +42,7 @@ import { FileTree } from './tree/FileTree'
 import { DirectoryTree } from './tree/DirectoryTree'
 import { isGitIgnoreRulePath } from './tree/git-ignore-refresh'
 import { GitPanel } from './git/GitPanel'
+import { workspaceGitEnabled } from './git/git-capability'
 import { GitGraphView } from './git/GitGraphView'
 import { FileViewer } from './viewer/FileViewer'
 import { TabStrip } from './viewer/TabStrip'
@@ -130,17 +134,24 @@ export function App(): ReactElement {
   >({})
   const [terminalFocused, setTerminalFocused] = useState(false)
   const [treeCollapsed, setTreeCollapsed] = useState(false)
+  const expandedWatchPaths = useRef(new Map<string, HostPath>())
+  const [watchInterestVersion, setWatchInterestVersion] = useState(0)
+  const [watchInterestsLimited, setWatchInterestsLimited] = useState(false)
   tabsRef.current = tabs
   rootRef.current = root
   activeIdRef.current = activeId
   gitGraphActiveRef.current = gitGraphActive
   const changedCount = gitChanges?.workingTree.length ?? 0
+  const changedCountLabel = gitChanges?.workingTreeLimited
+    ? `${GIT_CHANGE_DISPLAY_LIMIT.toLocaleString()}+`
+    : changedCount.toLocaleString()
   const activeProject = projectState?.projects.find(
     (project) => project.id === projectState.activeProjectId,
   )
   const activeWorkspace = activeProject?.workspaces.find(
     (workspace) => workspace.id === projectState?.activeWorkspaceId,
   )
+  const gitEnabled = workspaceGitEnabled(activeWorkspace)
 
   const applyProjectState = useCallback((state: ProjectState): void => {
     setProjectState(state)
@@ -168,7 +179,59 @@ export function App(): ReactElement {
     setSessionError(undefined)
     setTerminalFocused(false)
     setTreeCollapsed(false)
+    expandedWatchPaths.current.clear()
+    setWatchInterestVersion((version) => version + 1)
+    setWatchInterestsLimited(false)
   }, [])
+
+  const updateExpandedWatchPath = useCallback(
+    (path: HostPath, expanded: boolean): void => {
+      const key = `${path.hostId}:${path.path}`
+      const current = expandedWatchPaths.current
+      if (expanded) {
+        if (current.has(key)) return
+        current.set(key, path)
+      } else {
+        if (!current.delete(key)) return
+      }
+      setWatchInterestVersion((version) => version + 1)
+    },
+    [],
+  )
+
+  useEffect(() => {
+    if (!root || connectionState !== 'connected' || activeWorkspace?.missing) {
+      setWatchInterestsLimited(false)
+      return
+    }
+    const unique = new Map<string, HostPath>()
+    // Open files take priority because their viewer contents must stay fresh.
+    for (const tab of tabs) {
+      const parent = dirnameHostPath(tab.path)
+      unique.set(`${parent.hostId}:${parent.path}`, parent)
+    }
+    for (const path of expandedWatchPaths.current.values()) {
+      unique.set(`${path.hostId}:${path.path}`, path)
+    }
+    const allPaths = [...unique.values()].filter((path) => !hostPathEquals(path, root))
+    const locallyLimited = allPaths.length > MAX_PROJECT_WATCH_INTERESTS
+    setWatchInterestsLimited(locallyLimited)
+    let cancelled = false
+    void window.hvir
+      .invoke('project:watch-interests', {
+        root,
+        paths: allPaths.slice(0, MAX_PROJECT_WATCH_INTERESTS),
+      })
+      .then((result) => {
+        if (!cancelled && result.ok) {
+          setWatchInterestsLimited(locallyLimited || result.value.limited)
+        }
+      })
+      .catch(() => undefined)
+    return () => {
+      cancelled = true
+    }
+  }, [activeWorkspace?.missing, connectionState, root, tabs, watchInterestVersion])
 
   const updateTerminalRollup = useCallback(
     (workspaceId: string, rollup: TerminalWorkspaceRollup): void => {
@@ -1218,14 +1281,14 @@ export function App(): ReactElement {
             >
               Files
             </button>
-            {activeWorkspace?.repository !== false && !activeWorkspace?.missing ? (
+            {gitEnabled ? (
               <button
                 type="button"
                 className={railMode === 'git' ? 'active' : ''}
                 aria-current={railMode === 'git' ? 'page' : undefined}
                 onClick={() => setRailMode('git')}
               >
-                Git{changedCount > 0 ? ` ${changedCount}` : ''}
+                Git{changedCount > 0 ? ` ${changedCountLabel}` : ''}
               </button>
             ) : null}
             <button
@@ -1244,13 +1307,17 @@ export function App(): ReactElement {
               refreshVersion={watchVersion}
               ignoredRefreshVersion={ignoredRefreshVersion}
               changedFiles={gitChanges?.workingTree}
+              gitChangesLimited={gitChanges?.workingTreeLimited}
               selected={activeTab?.path}
               onOpen={openFile}
               connected={connectionState === 'connected'}
               missing={activeWorkspace?.missing}
               hidden={railMode !== 'files'}
+              gitEnabled={gitEnabled}
+              watchInterestsLimited={watchInterestsLimited}
+              onExpandedChange={updateExpandedWatchPath}
             />
-            {!activeWorkspace?.missing ? (
+            {gitEnabled ? (
               <GitPanel
                 key={`git:${root.hostId}:${root.path}`}
                 root={root}

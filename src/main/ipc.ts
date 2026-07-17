@@ -33,6 +33,7 @@ import {
   type IpcSendPayload,
   type ProjectHostOption,
   type ProjectState,
+  type ProjectWatchInterestsResponse,
   type OperationResult,
   type ConnectedHost,
   type BrowseHostResponse,
@@ -99,6 +100,9 @@ export interface IpcDeps {
     workspaceId: string,
   ) => Promise<ProjectState>
   readonly refreshProject: (projectId: string) => Promise<ProjectState>
+  readonly updateWatchInterests: (
+    paths: readonly HostPath[],
+  ) => Promise<ProjectWatchInterestsResponse>
   readonly closeProject: (projectId: string) => Promise<ProjectState>
   readonly pruneWorktrees: (projectId: string) => Promise<ProjectState>
   readonly dismissWorkspace: (
@@ -151,6 +155,15 @@ export function registerIpcHandlers(deps: IpcDeps): void {
   )
   handle('project:refresh', (req) =>
     operationResult(() => deps.refreshProject(req.projectId)),
+  )
+  handle('project:watch-interests', (req) =>
+    operationResult(async () => {
+      const project = deps.getProject()
+      if (!hostPathEquals(req.root, project.root)) {
+        throw new Error('Watch interests do not belong to the active workspace')
+      }
+      return deps.updateWatchInterests(req.paths)
+    }),
   )
   handle('project:close', (req) =>
     operationResult(() => deps.closeProject(req.projectId)),

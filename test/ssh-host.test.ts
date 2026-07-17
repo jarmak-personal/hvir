@@ -744,6 +744,47 @@ describe('SshHost remote behavior', () => {
     await host.dispose()
   })
 
+  it('returns a bounded remote prefix at the stdout record limit', async () => {
+    const stderr = new EventEmitter()
+    const channel = Object.assign(new EventEmitter(), {
+      stderr,
+      close: vi.fn(() => channel.emit('close')),
+      end: vi.fn(() => {
+        channel.emit('data', Buffer.from('one\0two\0three\0'))
+        channel.emit('exit', 0)
+        channel.emit('close')
+      }),
+    })
+    const client = Object.assign(
+      fakeClient(() => undefined),
+      {
+        exec: vi.fn(
+          (
+            _command: string,
+            callback: (error: Error | undefined, value: unknown) => void,
+          ) => callback(undefined, channel),
+        ),
+      },
+    )
+    const host = new SshHost({
+      config: aliasConfig(),
+      prompter: { prompt: () => Promise.resolve(undefined) },
+    })
+    const internals = host as unknown as { state: 'connected'; client: Client }
+    internals.state = 'connected'
+    internals.client = client as unknown as Client
+
+    const result = await host.exec('printf', [], {
+      allowTruncatedOutput: true,
+      maxStdoutNulRecords: 2,
+    })
+
+    expect(result.outputTruncated).toBe(true)
+    expect(result.stdout).toContain('one\0two\0')
+    expect(channel.close).toHaveBeenCalledOnce()
+    await host.dispose()
+  })
+
   it('recovers a buffered command status when the server omits exit-status', async () => {
     const stderr = new EventEmitter()
     let remote = ''
@@ -1169,6 +1210,48 @@ describe('SshHost remote behavior', () => {
       '/project/.git/index',
       expect.any(Function),
     )
+  })
+
+  it('polls shallow additional watch paths through one snapshot backend', async () => {
+    const directoryAttrs = { mode: 0o040755, mtime: 100, size: 0, atime: 100 }
+    const fileAttrs = { mode: 0o100644, mtime: 100, size: 5, atime: 100 }
+    const session = {
+      lstat: vi.fn(
+        (_path: string, callback: (error: Error | undefined, value: unknown) => void) =>
+          callback(undefined, directoryAttrs),
+      ),
+      readdir: vi.fn(
+        (path: string, callback: (error: Error | undefined, value: unknown[]) => void) =>
+          callback(undefined, [
+            {
+              filename: path === '/project' ? 'top.txt' : 'nested.txt',
+              attrs: fileAttrs,
+            },
+          ]),
+      ),
+    }
+    const host = new SshHost({
+      config: aliasConfig(),
+      prompter: { prompt: () => Promise.resolve(undefined) },
+    })
+    const internals = host as unknown as {
+      getSftp(): Promise<unknown>
+      pollPrioritySnapshot(
+        path: HostPath,
+        opts: WatchOptions,
+      ): Promise<Map<string, string>>
+    }
+    internals.getSftp = () => Promise.resolve(session)
+    const expanded = hostPath(host.hostId, '/project/expanded')
+
+    const snapshot = await internals.pollPrioritySnapshot(
+      hostPath(host.hostId, '/project'),
+      { recursive: false, additionalPaths: [expanded] },
+    )
+
+    expect(session.readdir).toHaveBeenCalledTimes(2)
+    expect(snapshot.has('/project/top.txt')).toBe(true)
+    expect(snapshot.has('/project/expanded/nested.txt')).toBe(true)
   })
 
   it('never overlaps remote polling snapshots', async () => {

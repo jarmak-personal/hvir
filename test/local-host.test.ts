@@ -102,6 +102,17 @@ describe('LocalHost', () => {
     expect(result.stdout).not.toContain('�')
   })
 
+  it('returns a bounded prefix when buffered output reaches a record limit', async () => {
+    const script = "process.stdout.write('one\\0two\\0three\\0')"
+    const result = await host.exec(process.execPath, ['-e', script], {
+      allowTruncatedOutput: true,
+      maxStdoutNulRecords: 2,
+    })
+
+    expect(result.outputTruncated).toBe(true)
+    expect(result.stdout).toContain('one\0two\0')
+  })
+
   it('decodes multibyte streaming output split across chunks', async () => {
     const script = [
       'process.stdout.write(Buffer.from([0xf0, 0x9f]))',
@@ -243,6 +254,56 @@ describe('LocalHost', () => {
     const added = events.find((e) => e.type === 'add')
     expect(added?.path.path.endsWith('watched.txt')).toBe(true)
     expect(added?.path.hostId).toBe(host.hostId)
+  })
+
+  it('multiplexes shallow root and expanded-directory watch interests', async () => {
+    const expanded = join(dir, 'expanded')
+    const collapsed = join(dir, 'collapsed')
+    const nested = join(collapsed, 'nested')
+    await mkdir(expanded)
+    await mkdir(nested, { recursive: true })
+    const events: WatchEvent[] = []
+    const stop = host.watch(localPath(dir), (event) => events.push(event), {
+      recursive: false,
+      additionalPaths: [localPath(expanded)],
+    })
+    await delay(400)
+
+    await writeFile(join(expanded, 'visible.txt'), 'visible')
+    await writeFile(join(nested, 'hidden.txt'), 'hidden')
+    await waitFor(() =>
+      events.some((event) => event.path.path.endsWith('/expanded/visible.txt')),
+    )
+    await delay(200)
+    await stop()
+
+    expect(
+      events.some((event) => event.path.path.endsWith('/collapsed/nested/hidden.txt')),
+    ).toBe(false)
+  })
+
+  it('does not observe churn below an unexpanded home-shaped root', async () => {
+    const deepFiles: string[] = []
+    for (let index = 0; index < 40; index++) {
+      const nested = join(dir, `folder-${index}`, 'nested', 'deep')
+      await mkdir(nested, { recursive: true })
+      const file = join(nested, 'content.txt')
+      await writeFile(file, 'before')
+      deepFiles.push(file)
+    }
+    const events: WatchEvent[] = []
+    const stop = host.watch(localPath(dir), (event) => events.push(event), {
+      recursive: false,
+    })
+    await delay(400)
+
+    await Promise.all(deepFiles.map((file) => writeFile(file, 'after')))
+    await writeFile(join(dir, 'visible.txt'), 'visible')
+    await waitFor(() => events.some((event) => event.path.path.endsWith('/visible.txt')))
+    await delay(200)
+    await stop()
+
+    expect(events.some((event) => event.path.path.endsWith('/content.txt'))).toBe(false)
   })
 
   it(

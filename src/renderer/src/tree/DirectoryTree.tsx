@@ -15,6 +15,7 @@ import {
   type HostPath,
 } from '../../../shared'
 import { splitFileName } from './file-name'
+import { compareDirectoryEntries } from './directory-entry-sort'
 import { directoryEntriesEqual } from './git-ignore-refresh'
 import {
   treeGitPathKey,
@@ -40,6 +41,7 @@ export interface DirectoryTreeProps {
   readonly showFiles?: boolean
   readonly onSelectDirectory?: (path: HostPath) => void
   readonly onOpenFile?: (path: HostPath, pinned: boolean) => void
+  readonly onExpandedChange?: (path: HostPath, expanded: boolean) => void
 }
 
 /**
@@ -61,6 +63,7 @@ export function DirectoryTree({
   showFiles = true,
   onSelectDirectory,
   onOpenFile,
+  onExpandedChange,
 }: DirectoryTreeProps): ReactElement {
   return (
     <div className="directory-tree" role="tree">
@@ -80,6 +83,7 @@ export function DirectoryTree({
         showFiles={showFiles}
         onSelectDirectory={onSelectDirectory}
         onOpenFile={onOpenFile}
+        onExpandedChange={onExpandedChange}
       />
     </div>
   )
@@ -117,6 +121,7 @@ function DirectoryNode({
   showFiles,
   onSelectDirectory,
   onOpenFile,
+  onExpandedChange,
 }: DirectoryNodeProps): ReactElement {
   const stablePath = useMemo(
     () => hostPath(path.hostId, path.path),
@@ -138,18 +143,20 @@ function DirectoryNode({
   }, [shouldReveal])
 
   useEffect(() => {
+    onExpandedChange?.(stablePath, open)
+    return () => {
+      if (open) onExpandedChange?.(stablePath, false)
+    }
+  }, [onExpandedChange, open, stablePath])
+
+  useEffect(() => {
     if (!open) return
     let cancelled = false
     setLoading(true)
     void loadEntries(stablePath)
       .then((nextEntries) => {
         if (cancelled) return
-        const sortedEntries = [...nextEntries].sort(
-          (left, right) =>
-            Number(right.type === 'dir' || right.type === 'symlink') -
-              Number(left.type === 'dir' || left.type === 'symlink') ||
-            left.name.localeCompare(right.name),
-        )
+        const sortedEntries = [...nextEntries].sort(compareDirectoryEntries)
         setEntries((current) =>
           directoryEntriesEqual(current, sortedEntries) ? current : sortedEntries,
         )
@@ -277,6 +284,7 @@ function DirectoryNode({
                   showFiles={showFiles}
                   onSelectDirectory={onSelectDirectory}
                   onOpenFile={onOpenFile}
+                  onExpandedChange={onExpandedChange}
                 />,
               ]
             }
@@ -300,6 +308,7 @@ function DirectoryNode({
                   showFiles={showFiles}
                   onSelectDirectory={onSelectDirectory}
                   onOpenFile={onOpenFile}
+                  onExpandedChange={onExpandedChange}
                 />,
               ]
             }
@@ -355,6 +364,7 @@ function SymlinkNode({
   showFiles,
   onSelectDirectory,
   onOpenFile,
+  onExpandedChange,
 }: DirectoryNodeProps): ReactElement | null {
   const stablePath = useMemo(
     () => hostPath(path.hostId, path.path),
@@ -405,6 +415,7 @@ function SymlinkNode({
         showFiles={showFiles}
         onSelectDirectory={onSelectDirectory}
         onOpenFile={onOpenFile}
+        onExpandedChange={onExpandedChange}
       />
     )
   }

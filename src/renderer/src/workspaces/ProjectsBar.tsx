@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type ReactElement } from 'react'
 
 import {
   displayHostPath,
+  GIT_CHANGE_DISPLAY_LIMIT,
   type ProjectState,
   type RegisteredProjectState,
   type HostWatchTier,
@@ -31,6 +32,19 @@ interface ProjectsBarProps {
   readonly theme: AppTheme
   readonly onTheme: (theme: AppTheme) => void
   readonly onSettings: () => void
+}
+
+function changeCountLabel(count: number): string {
+  return count > GIT_CHANGE_DISPLAY_LIMIT
+    ? `${GIT_CHANGE_DISPLAY_LIMIT.toLocaleString()}+`
+    : count.toLocaleString()
+}
+
+function projectChangeCountLabel(workspaces: readonly WorkspaceState[]): string {
+  const counts = workspaces.map((workspace) => workspace.changedFiles)
+  const total = counts.reduce((sum, count) => sum + count, 0)
+  const limited = counts.filter((count) => count > GIT_CHANGE_DISPLAY_LIMIT).length
+  return limited > 0 ? `${(total - limited).toLocaleString()}+` : total.toLocaleString()
 }
 
 export function ProjectsBar({
@@ -96,9 +110,14 @@ export function ProjectsBar({
           {state.projects.map((project) => {
             const active = project.id === state.activeProjectId
             const remote = project.registeredRoot.hostId !== 'local'
-            const changed = project.workspaces
-              .filter((workspace) => !workspace.missing)
-              .reduce((total, workspace) => total + workspace.changedFiles, 0)
+            const presentWorkspaces = project.workspaces.filter(
+              (workspace) => !workspace.missing,
+            )
+            const changed = presentWorkspaces.reduce(
+              (total, workspace) => total + workspace.changedFiles,
+              0,
+            )
+            const changedLabel = projectChangeCountLabel(presentWorkspaces)
             const unseen = aggregateWorkspaceAttention(
               project.workspaces.map((workspace) => workspace.id),
               rollups,
@@ -128,11 +147,11 @@ export function ProjectsBar({
                   {changed > 0 ? (
                     <span
                       className="project-change-count"
-                      aria-label={`${changed} changed files`}
-                      title={`${changed} changed files`}
+                      aria-label={`${changedLabel} changed files`}
+                      title={`${changedLabel} changed files`}
                     >
                       <span aria-hidden="true">Δ </span>
-                      {changed}
+                      {changedLabel}
                     </span>
                   ) : null}
                   {unseen > 0 ? <AttentionCount count={unseen} /> : null}
@@ -234,11 +253,11 @@ export function ProjectsBar({
                   {workspace.changedFiles > 0 ? (
                     <b
                       className="workspace-change-count"
-                      aria-label={`${workspace.changedFiles} changed files`}
-                      title={`${workspace.changedFiles} changed files`}
+                      aria-label={`${changeCountLabel(workspace.changedFiles)} changed files`}
+                      title={`${changeCountLabel(workspace.changedFiles)} changed files`}
                     >
                       <span aria-hidden="true">Δ </span>
-                      {workspace.changedFiles}
+                      {changeCountLabel(workspace.changedFiles)}
                     </b>
                   ) : null}
                   {(rollups[workspace.id]?.unseen ?? 0) > 0 ? (

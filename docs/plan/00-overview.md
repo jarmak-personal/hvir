@@ -38,6 +38,10 @@ on 5 and 6. 7.5 depends on the SSH, agent-awareness, and workspace load exposed 
 
 ## Active review queue
 
+- [Project-scope resilience](08-project-scope-resilience.md) — first-run folder
+  selection, demand-driven file watching, plain-directory behavior, and bounded Git
+  degradation. This is the active Phase 8 reliability fix for launching hvir from a
+  broad directory such as a user's home.
 - [Phase 3–5 review follow-ups](03-05-review-followups.md) — macOS cold-dev stability,
   rendered links/YAML, compact source gutters, rail navigation, and Git topology graph.
   Resolve P0 before further milestone acceptance work.

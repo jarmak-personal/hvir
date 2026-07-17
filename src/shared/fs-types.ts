@@ -38,6 +38,8 @@ export interface ExecResult {
   readonly signal: string | null
   readonly stdout: string
   readonly stderr: string
+  /** The process was terminated after returning the bounded buffered prefix. */
+  readonly outputTruncated?: boolean
 }
 
 export type HostConnectionState =

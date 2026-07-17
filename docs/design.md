@@ -578,6 +578,50 @@ navigation hierarchies, and spend scarce rail space on something that is not a t
 from every workspace into one list (loses cwd and recovery ownership); removing top-level
 attention rollups when the duplicate rows disappear.
 
+#### Phase 8 addendum — 2026-07-16: project scope is explicit and demand-driven
+
+**First-run registration is explicit; an open project's filesystem activity follows
+visible demand.** A bare launch restores the last registered project when one exists. If
+there is no history and no explicit launcher/CLI path, hvir uses the native local folder
+picker and exits cleanly on cancellation. An explicit path takes precedence over history.
+This is a bootstrap step, not a zero-project workbench: after selection ADR-008's stable
+project → workspace model remains unchanged.
+
+Every directory is still a valid project. The root receives one shallow watch so its
+immediate tree and a newly created `.git` entry stay current. Expanded directories and
+parents of open viewer files contribute bounded, host-qualified shallow interests; an
+interest disappears when it is no longer visible or open. Main validates canonical
+confinement and coalesces the current set into one content-watch backend, preserving SSH
+channel capacity. Repository metadata has its own shallow watch. The renderer's file tree
+continues to load directory contents lazily through `ProjectHost`; neither local native
+watch fallback nor SSH polling may recursively scan an unexpanded tree.
+
+Repository discovery gates Git behavior. A known plain directory mounts no Git rail,
+runs no ignored-entry classification, and is omitted from periodic Git status/worktree
+polling; initial/manual discovery and a root `.git` event can enable those capabilities.
+For repositories, the detailed working-tree snapshot is capped. Crossing the cap remains
+a truthful dirty state, is disclosed in the Git rail, withholds incomplete per-path Files
+decorations, and skips per-file statistics and branch-point detail whose cost scales with
+the complete change set. The `ProjectHost` buffered-exec boundary terminates status after
+a bounded NUL-record count (allowing for porcelain rename pairs) or byte ceiling and
+returns only the bounded prefix. All Git execution and parsing remain off the render
+thread under ADR-005.
+
+**Why:** laziness in the visible tree is not sufficient if a background watcher or status
+loop independently traverses a user's home directory. Making project registration
+intentional prevents the most surprising case; demand-driven shallow interests make even
+an intentional broad directory safe and preserve the useful file-explorer/terminal
+experience for non-repositories. A bounded Git model keeps the same responsive failure
+posture when the project really is a very dirty repository.
+
+**Rejected:** silently using `process.cwd()` on first launch (shell home is usually
+context, not intent); forbidding home or non-Git roots (breaks the useful degenerate
+project); recursively watching every open project (unbounded descriptors, scans, and SSH
+work); one SSH watcher/channel per expanded row (capacity grows with UI state); hiding
+the symptom with a longer startup spinner (paint still waits); assuming `ignoreInitial`
+prevents Chokidar traversal (it suppresses events, not discovery); running periodic Git
+probes forever on known plain directories; returning an unbounded change model.
+
 ### ADR-009 — Notifications: focus clears, parents aggregate
 **Decision:** One rule, no special cases: **a dot is cleared by focusing the thing that
 raised it; parents only aggregate their children's unseen dots.** No dot on the terminal

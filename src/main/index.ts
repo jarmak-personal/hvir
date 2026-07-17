@@ -21,6 +21,11 @@ import { PtySupervisor } from './pty/pty-supervisor'
 import { isSafeExternalUrl, isWorkbenchDocument } from './navigation-policy'
 import { AttentionBadge } from './attention-badge'
 import {
+  canonicalProjectWatchInterests,
+  ProjectWatchController,
+  type ProjectWatchInterestCache,
+} from './project-watch'
+import {
   TerminalSessionRegistry,
   type TerminalSessionStore,
 } from './terminal/session-registry'
@@ -32,6 +37,7 @@ import {
   GIT_FETCH_TYPE,
   GIT_PULL_TYPE,
   GIT_SWITCH_BRANCH_TYPE,
+  MAX_PROJECT_WATCH_INTERESTS,
   asHostId,
   hostPath,
   hostPathEquals,
@@ -66,7 +72,9 @@ let sshPrompter: RendererSshPrompter | null = null
 let ptySupervisor: PtySupervisor | null = null
 let terminalSessionRegistry: TerminalSessionRegistry | null = null
 let attentionBadge: AttentionBadge | null = null
-let disposeWatch: Disposer | null = null
+let projectWatchController: ProjectWatchController | null = null
+let projectWatchInterestCache: ProjectWatchInterestCache = new Map()
+let projectWatchInterestGeneration = 0
 let workspacePoll: ReturnType<typeof setInterval> | null = null
 const workspaceRefreshes = new Map<string, Promise<ProjectState>>()
 const workspaceRefreshTimers = new Map<string, ReturnType<typeof setTimeout>>()
@@ -217,13 +225,29 @@ async function startup(): Promise<void> {
     (prompt) => emit('ssh:prompt', prompt),
     (hostId) => emit('ssh:prompt-cancel', { hostId }),
   )
-  projectRegistry = await ProjectRegistry.create(
-    localPath(projectRootArgument()),
+  const requestedProjectRoot = projectRootArgument()
+  const registry = await ProjectRegistry.create(
+    requestedProjectRoot ? localPath(requestedProjectRoot) : undefined,
     sshPrompter,
     join(app.getPath('userData'), 'known-hosts.json'),
     join(app.getPath('userData'), 'projects.json'),
     (state) => emit('project:state', state),
+    async () => {
+      const selection = await dialog.showOpenDialog({
+        title: 'Choose a folder for hvir',
+        defaultPath: process.cwd(),
+        properties: ['openDirectory'],
+      })
+      return selection.canceled || !selection.filePaths[0]
+        ? undefined
+        : localPath(selection.filePaths[0])
+    },
   )
+  if (!registry) {
+    app.quit()
+    return
+  }
+  projectRegistry = registry
   const metadataHost = projectRegistry.hostById(LOCAL_HOST_ID)
   if (!metadataHost) throw new Error('Local metadata host is unavailable')
   terminalSessionRegistry = await TerminalSessionRegistry.load(
@@ -361,6 +385,7 @@ async function startup(): Promise<void> {
         return state
       }),
     refreshProject: (projectId) => refreshProjectWorkspaces(projectId),
+    updateWatchInterests: (paths) => updateProjectWatchInterests(paths),
     closeProject: (projectId) =>
       serializeSession(async () => {
         if (!projectRegistry) throw new Error('Project registry is unavailable')
@@ -415,6 +440,9 @@ async function startup(): Promise<void> {
     htmlPreviews,
     emit,
   })
+  // Paint the workbench before background watch and Git discovery can touch a
+  // slow or unexpectedly broad directory.
+  createWindow()
   if (projectRegistry.active.host.connectionState === 'connected') {
     startProjectWatch(projectRegistry.active, emit)
     void refreshProjectWorkspaces(projectRegistry.active.projectId).catch((error) =>
@@ -427,13 +455,14 @@ async function startup(): Promise<void> {
     if (!registry) return
     for (const project of registry.state().projects) {
       if (project.connectionState !== 'connected') continue
+      if (project.workspaces.every((workspace) => workspace.repository === false)) {
+        continue
+      }
       void refreshProjectWorkspaces(project.id).catch((error) =>
         console.error(`[workspace] periodic refresh failed for ${project.id}`, error),
       )
     }
   }, 5_000)
-  createWindow()
-
   app.on('activate', () => {
     // macOS: re-open a window when the dock icon is clicked and none are open.
     if (BrowserWindow.getAllWindows().length === 0) {
@@ -453,9 +482,11 @@ async function startup(): Promise<void> {
 }
 
 async function stopProjectWatch(): Promise<void> {
-  const stop = disposeWatch
-  disposeWatch = null
-  await stop?.()
+  projectWatchInterestGeneration++
+  projectWatchInterestCache.clear()
+  const controller = projectWatchController
+  projectWatchController = null
+  await controller?.dispose()
 }
 
 function refreshProjectWorkspaces(projectId: string): Promise<ProjectState> {
@@ -737,53 +768,50 @@ function startProjectWatch(
   },
   emit: <E extends IpcEventChannel>(channel: E, payload: IpcEventPayload<E>) => void,
 ): void {
-  const pendingWatchEvents = new Map<string, IpcEventPayload<'project:watch'>>()
-  let watchTimer: ReturnType<typeof setTimeout> | undefined
-  let stopped = false
-  const stops: Disposer[] = []
-  const receive = (event: IpcEventPayload<'project:watch'>): void => {
-    if (stopped) return
-    scheduleWorkspaceRefresh(project.projectId)
-    pendingWatchEvents.set(`${event.path.hostId}:${event.path.path}`, event)
-    if (watchTimer) return
-    // Watcher churn must not become thousands of renderer IPC paints. The
-    // tree only needs an invalidation signal during this spike.
-    watchTimer = setTimeout(() => {
-      watchTimer = undefined
-      for (const pending of pendingWatchEvents.values()) {
-        emit('project:watch', pending)
-      }
-      pendingWatchEvents.clear()
-    }, 100)
+  projectWatchInterestGeneration++
+  projectWatchInterestCache = new Map()
+  projectWatchController = new ProjectWatchController(project, {
+    emit: (event) => emit('project:watch', event),
+    refreshGit: () => scheduleWorkspaceRefresh(project.projectId),
+    repositoryEnabled: () => {
+      const workspace = projectRegistry
+        ?.projectById(project.projectId)
+        ?.workspaces.find(
+          (candidate) => candidate.id === projectRegistry?.active.workspaceId,
+        )
+      return workspace?.repository === true
+    },
+  })
+}
+
+async function updateProjectWatchInterests(
+  requestedPaths: readonly HostPath[],
+): Promise<{ readonly accepted: number; readonly limited: boolean }> {
+  const registry = projectRegistry
+  const controller = projectWatchController
+  if (!registry || !controller) throw new Error('Project watch is unavailable')
+  const generation = ++projectWatchInterestGeneration
+  const { host, root } = registry.active
+  if (!hostPathEquals(controller.target.root, root)) {
+    throw new Error('Project watch changed while interests were being updated')
   }
-  stops.push(
-    project.host.watch(project.root, receive, {
-      recursive: true,
-      excludeDirectoryNames: ['.git', 'node_modules', 'out', 'dist'],
-      onError: (error) => console.error('[watch] project watcher failed', error),
-    }),
+  const canonical = await canonicalProjectWatchInterests(
+    host,
+    root,
+    requestedPaths,
+    MAX_PROJECT_WATCH_INTERESTS,
+    projectWatchInterestCache,
   )
-  // Root watches deliberately prune `.git`, whose object database is noisy.
-  // Watch only the repository metadata directory at depth zero so terminal
-  // commit/add/checkout operations refresh Changes and History immediately.
-  void project.host
-    .exec('git', ['-C', project.root.path, 'rev-parse', '--absolute-git-dir'])
-    .then((result) => {
-      const gitDirectory = result.code === 0 ? result.stdout.trim() : ''
-      if (stopped || !gitDirectory.startsWith('/')) return
-      stops.push(
-        project.host.watch(hostPath(project.root.hostId, gitDirectory), receive, {
-          recursive: false,
-          onError: (error) => console.error('[watch] git metadata watcher failed', error),
-        }),
-      )
-    })
-    .catch((error) => console.error('[watch] git metadata discovery failed', error))
-  disposeWatch = async () => {
-    stopped = true
-    if (watchTimer) clearTimeout(watchTimer)
-    await Promise.all(stops.map(async (stop) => stop()))
+  if (
+    generation !== projectWatchInterestGeneration ||
+    projectWatchController !== controller ||
+    !projectRegistry ||
+    !hostPathEquals(projectRegistry.active.root, root)
+  ) {
+    throw new Error('Project watch changed while interests were being updated')
   }
+  controller.updateInterests(canonical.paths)
+  return { accepted: canonical.paths.length, limited: canonical.limited }
 }
 
 function serializeSession<T>(operation: () => Promise<T>): Promise<T> {
@@ -799,13 +827,9 @@ function gitMutationKey(hostId: string, path: string, target?: string): string {
   return JSON.stringify(target === undefined ? [hostId, path] : [hostId, path, target])
 }
 
-function projectRootArgument(): string {
+function projectRootArgument(): string | undefined {
   const fromFlag = process.argv.find((arg) => arg.startsWith('--project-root='))
-  return (
-    fromFlag?.slice('--project-root='.length) ||
-    process.env.HVIR_PROJECT_ROOT ||
-    process.cwd()
-  )
+  return fromFlag?.slice('--project-root='.length) || process.env.HVIR_PROJECT_ROOT
 }
 
 /**
@@ -982,6 +1006,11 @@ async function runSmoke(): Promise<number> {
       openProject: () => Promise.resolve(smokeProjectState()),
       switchWorkspace: () => Promise.resolve(smokeProjectState()),
       refreshProject: () => Promise.resolve(smokeProjectState()),
+      updateWatchInterests: (paths) =>
+        Promise.resolve({
+          accepted: Math.min(paths.length, MAX_PROJECT_WATCH_INTERESTS),
+          limited: paths.length > MAX_PROJECT_WATCH_INTERESTS,
+        }),
       closeProject: () => Promise.resolve(smokeProjectState()),
       pruneWorktrees: () => Promise.resolve(smokeProjectState()),
       dismissWorkspace: () => Promise.resolve(smokeProjectState()),

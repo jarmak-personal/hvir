@@ -46,6 +46,8 @@ export type WorkerHostCallInput =
       readonly cwd?: HostPath
       readonly input?: string
       readonly maxBuffer?: number
+      readonly allowTruncatedOutput?: boolean
+      readonly maxStdoutNulRecords?: number
     }
   | {
       readonly hostId: string
