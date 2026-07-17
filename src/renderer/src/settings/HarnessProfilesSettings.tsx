@@ -1,6 +1,8 @@
 import {
+  forwardRef,
   useCallback,
   useEffect,
+  useImperativeHandle,
   useMemo,
   useRef,
   useState,
@@ -27,11 +29,17 @@ import {
   parseHarnessArguments,
   serializeHarnessArguments,
 } from './harness-argument-editor'
+import { isHarnessProfileDraftDirty } from './harness-profile-draft'
 
 interface HarnessProfilesSettingsProps {
   readonly workspaceRoot?: HostPath
   readonly projectRoot?: HostPath
   readonly initialAddOpen?: boolean
+}
+
+export interface HarnessProfilesSettingsHandle {
+  /** Resolves after the user saves, discards, or cancels an outstanding profile draft. */
+  readonly confirmSafeToLeave: () => Promise<boolean>
 }
 
 interface ProfileDraft {
@@ -45,11 +53,13 @@ interface ProfileDraft {
 
 type PickerTarget = { readonly kind: 'binding'; readonly index: number }
 
-export function HarnessProfilesSettings({
-  workspaceRoot,
-  projectRoot,
-  initialAddOpen = false,
-}: HarnessProfilesSettingsProps): ReactElement {
+export const HarnessProfilesSettings = forwardRef<
+  HarnessProfilesSettingsHandle,
+  HarnessProfilesSettingsProps
+>(function HarnessProfilesSettings(
+  { workspaceRoot, projectRoot, initialAddOpen = false },
+  ref,
+): ReactElement {
   const [providers, setProviders] = useState<readonly HarnessProviderDescriptor[]>([])
   const [profiles, setProfiles] = useState<readonly HarnessProfile[]>([])
   const [draft, setDraft] = useState<ProfileDraft>()
@@ -64,6 +74,10 @@ export function HarnessProfilesSettings({
     new Set(),
   )
   const [addOpen, setAddOpen] = useState(initialAddOpen)
+  const [unsavedPromptOpen, setUnsavedPromptOpen] = useState(false)
+  const pendingLeaveResolution = useRef<((confirmed: boolean) => void) | undefined>(
+    undefined,
+  )
   const workspaceKey = workspaceRoot
     ? `${workspaceRoot.hostId}\u0000${workspaceRoot.path}`
     : ''
@@ -213,6 +227,47 @@ export function HarnessProfilesSettings({
     }
   }, [draft, profiles, serializedInput, workspaceRoot])
 
+  const selectedProfile = profiles.find((profile) => profile.id === draft?.id)
+  const dirty = draft
+    ? isHarnessProfileDraftDirty(selectedProfile, draft.input, draft.argvText)
+    : false
+  const dirtyRef = useRef(dirty)
+  dirtyRef.current = dirty
+
+  const confirmSafeToLeave = useCallback((): Promise<boolean> => {
+    if (!dirtyRef.current) return Promise.resolve(true)
+
+    pendingLeaveResolution.current?.(false)
+    setUnsavedPromptOpen(true)
+    return new Promise<boolean>((resolve) => {
+      pendingLeaveResolution.current = resolve
+    })
+  }, [])
+
+  const resolveUnsavedPrompt = useCallback((confirmed: boolean): void => {
+    const resolve = pendingLeaveResolution.current
+    pendingLeaveResolution.current = undefined
+    setUnsavedPromptOpen(false)
+    resolve?.(confirmed)
+  }, [])
+
+  const discardDraft = (): void => {
+    const restored = selectedProfile ?? profiles[0]
+    setDraft(restored ? draftFromProfile(restored) : undefined)
+    setDeleteArmed(false)
+    setError(undefined)
+  }
+
+  useImperativeHandle(ref, () => ({ confirmSafeToLeave }), [confirmSafeToLeave])
+
+  useEffect(
+    () => () => {
+      pendingLeaveResolution.current?.(false)
+      pendingLeaveResolution.current = undefined
+    },
+    [],
+  )
+
   const updateInput = (
     update: (input: HarnessProfileInput) => HarnessProfileInput,
   ): void => {
@@ -222,8 +277,8 @@ export function HarnessProfilesSettings({
     setError(undefined)
   }
 
-  const save = async (): Promise<void> => {
-    if (!draft || !workspaceRoot || draft.builtIn) return
+  const save = async (): Promise<boolean> => {
+    if (!draft || !workspaceRoot || draft.builtIn) return false
     setBusy(true)
     setError(undefined)
     try {
@@ -251,11 +306,19 @@ export function HarnessProfilesSettings({
       )
       await refresh(profile.id)
       window.dispatchEvent(new Event('hvir:harness-profiles-changed'))
+      return true
     } catch (reason) {
       setError(message(reason))
+      return false
     } finally {
       setBusy(false)
     }
+  }
+
+  const runAfterDraftGuard = (action: () => void): void => {
+    void confirmSafeToLeave().then((confirmed) => {
+      if (confirmed) action()
+    })
   }
 
   const duplicate = async (): Promise<void> => {
@@ -301,7 +364,6 @@ export function HarnessProfilesSettings({
   }
 
   const provider = providers.find((candidate) => candidate.id === draft?.input.providerId)
-  const selectedProfile = profiles.find((profile) => profile.id === draft?.id)
   const selectedProbe = selectedProfile
     ? profileProbe(profileProbes, selectedProfile, workspaceRoot.hostId)
     : undefined
@@ -330,7 +392,7 @@ export function HarnessProfilesSettings({
           <button
             type="button"
             disabled={busy || providers.length === 0}
-            onClick={() => setAddOpen(true)}
+            onClick={() => runAfterDraftGuard(() => setAddOpen(true))}
           >
             Add a harness…
           </button>
@@ -344,8 +406,11 @@ export function HarnessProfilesSettings({
               type="button"
               className={draft?.id === profile.id ? 'active' : undefined}
               onClick={() => {
-                setDraft(draftFromProfile(profile))
-                setDeleteArmed(false)
+                if (draft?.id === profile.id) return
+                runAfterDraftGuard(() => {
+                  setDraft(draftFromProfile(profile))
+                  setDeleteArmed(false)
+                })
               }}
             >
               <strong>{profile.displayName}</strong>
@@ -552,6 +617,11 @@ export function HarnessProfilesSettings({
             </div>
             {error ? <p className="dialog-error">{error}</p> : null}
             <div className="settings-profile-actions">
+              {dirty && !draft.builtIn ? (
+                <span className="settings-profile-unsaved" role="status">
+                  Unsaved changes
+                </span>
+              ) : null}
               <button
                 type="button"
                 disabled={busy || draft.builtIn || draft.input.order === 0}
@@ -573,23 +643,29 @@ export function HarnessProfilesSettings({
               <button
                 type="button"
                 disabled={busy || !draft.id}
-                onClick={() => void duplicate()}
+                onClick={() => runAfterDraftGuard(() => void duplicate())}
               >
                 Duplicate
               </button>
               <button
                 type="button"
                 disabled={busy || draft.builtIn || !draft.id}
-                onClick={() => void remove()}
+                onClick={() => {
+                  if (deleteArmed) {
+                    runAfterDraftGuard(() => void remove())
+                  } else {
+                    void remove()
+                  }
+                }}
               >
                 {deleteArmed ? 'Confirm delete' : 'Delete'}
               </button>
               <button
                 type="button"
-                disabled={busy || draft.builtIn}
+                disabled={busy || draft.builtIn || !dirty}
                 onClick={() => void save()}
               >
-                Save profile
+                Save harness profile
               </button>
             </div>
           </div>
@@ -637,7 +713,115 @@ export function HarnessProfilesSettings({
           }}
         />
       ) : null}
+      {unsavedPromptOpen && draft ? (
+        <UnsavedHarnessProfileDialog
+          profileName={draft.input.displayName || 'Untitled profile'}
+          busy={busy}
+          error={error}
+          onKeepEditing={() => resolveUnsavedPrompt(false)}
+          onDiscard={() => {
+            discardDraft()
+            resolveUnsavedPrompt(true)
+          }}
+          onSave={async () => {
+            if (await save()) resolveUnsavedPrompt(true)
+          }}
+        />
+      ) : null}
     </section>
+  )
+})
+
+function UnsavedHarnessProfileDialog({
+  profileName,
+  busy,
+  error,
+  onKeepEditing,
+  onDiscard,
+  onSave,
+}: {
+  readonly profileName: string
+  readonly busy: boolean
+  readonly error?: string
+  readonly onKeepEditing: () => void
+  readonly onDiscard: () => void
+  readonly onSave: () => Promise<void>
+}): ReactElement {
+  const dialogRef = useRef<HTMLElement>(null)
+  const keepEditingRef = useRef<HTMLButtonElement>(null)
+  const keepEditingCallback = useRef(onKeepEditing)
+  const busyRef = useRef(busy)
+  keepEditingCallback.current = onKeepEditing
+  busyRef.current = busy
+
+  useEffect(() => {
+    const frame = window.requestAnimationFrame(() => keepEditingRef.current?.focus())
+    const keydown = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        event.stopImmediatePropagation()
+        if (!busyRef.current) keepEditingCallback.current()
+        return
+      }
+      if (event.key !== 'Tab') return
+      const focusable = dialogRef.current?.querySelectorAll<HTMLElement>(
+        'button:not(:disabled)',
+      )
+      if (!focusable || focusable.length === 0) return
+      const first = focusable[0]
+      const last = focusable[focusable.length - 1]
+      if (
+        event.shiftKey &&
+        (document.activeElement === first || document.activeElement === dialogRef.current)
+      ) {
+        event.preventDefault()
+        last?.focus()
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault()
+        first?.focus()
+      }
+    }
+    window.addEventListener('keydown', keydown)
+    return () => {
+      window.cancelAnimationFrame(frame)
+      window.removeEventListener('keydown', keydown)
+    }
+  }, [])
+
+  return (
+    <div className="modal-backdrop nested">
+      <section
+        className="project-dialog unsaved-harness-dialog"
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="unsaved-harness-title"
+        tabIndex={-1}
+      >
+        <h3 id="unsaved-harness-title">Unsaved harness profile</h3>
+        <p>
+          <strong>{profileName}</strong> has unsaved changes. Save this harness profile
+          before continuing?
+        </p>
+        {error ? <p className="dialog-error">{error}</p> : null}
+        <div className="dialog-actions">
+          <button
+            ref={keepEditingRef}
+            type="button"
+            disabled={busy}
+            onClick={onKeepEditing}
+          >
+            Keep editing
+          </button>
+          <button type="button" disabled={busy} onClick={onDiscard}>
+            Discard changes
+          </button>
+          <button type="button" disabled={busy} onClick={() => void onSave()}>
+            Save harness profile
+          </button>
+        </div>
+      </section>
+    </div>
   )
 }
 

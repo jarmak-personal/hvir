@@ -470,6 +470,12 @@ Keep these commits local until the user finishes the expanded acceptance pass.
 - [x] Make the Harnesses settings surface use its intended wide responsive dialog and verify
       the complete editor, previews, row actions, and footer at the minimum supported window
       size. Do not solve overflow by shrinking controls or truncating editable values.
+- [x] Keep harness-profile persistence explicit, distinguish `Save harness profile` from
+      `Save app settings`, and show a semantic unsaved indicator. Closing Settings, saving app
+      settings, selecting another profile, adding a harness, duplicating, or confirming delete
+      must offer `Save harness profile`, `Discard changes`, and `Keep editing`; equivalent argv
+      whitespace must not create a false dirty state, and failed validation must keep the draft
+      open. The nested prompt traps focus and Escape returns safely to editing.
 - [x] Replace verbose harness-row prose with `Launch only` and `Integrated`, omit redundant
       provider names, omit the capability label for every Shell-backed profile, and retain
       complete capability/probe details in Settings and accessible descriptions. Treat
@@ -536,6 +542,10 @@ candidate CLIs.
 - [x] The settings surface is wide enough to show the full profile editor without the generic
       project-dialog width overriding it, while remaining responsive at the supported minimum
       window size.
+- [x] Unsaved profile changes cannot be silently lost through Settings close/app-save or a
+      profile-changing action. Saving from the prompt persists the profile before continuing,
+      discarding restores its durable state, and keeping or validation failure leaves the
+      editor intact.
 - [x] Harness rows use only `Launch only` or `Integrated`; Shell-backed profiles omit the
       label. Integrated is a stable probed capability of the provider/version/profile, not
       current live state. Every launched Integrated terminal can produce an exact
@@ -740,15 +750,17 @@ required structured session and usage/context feed may be disclosed in Settings 
   host bound, starts unchecked, traps focus, handles Escape, and exposes manual configuration.
   The Settings selector now has sufficient specificity to override the generic 430 px project
   dialog and uses a responsive 1120 px maximum without shrinking the structured editor.
-- `npm run verify` passed seam enforcement, lint, both TypeScript builds, all 366 tests across
-  50 files, and launcher validation. Focused coverage includes Shell item 0/default choice,
+- `npm run verify` passed seam enforcement, lint, both TypeScript builds, all 377 tests across
+  53 files, and launcher validation. Focused coverage includes Shell item 0/default choice,
   template ordering and repeated provider materialization, exact legacy import, cold/negative
-  menu policy, compact labels, responsive width, typed IPC, and recovery without a Shell probe.
+  menu policy, compact labels, responsive width, typed IPC, semantic profile-draft detection,
+  and recovery without a Shell probe.
 - `npm run smoke` returned `HVIR_SMOKE_OK`, including fresh-store Shell-only enumeration,
   catalog-ordered opt-in materialization, structured Custom preview/PTY launch, recovery, and
-  cleanup. `npm run smoke:capacity` returned `HVIR_SMOKE_OK` with 12 live/restored terminals,
-  75 measured interactions, 17.7 ms p99 / 17.8 ms maximum frame gap, and +22 MiB net / +44 MiB
-  peak memory growth.
+  cleanup. The profile-editor path also duplicates, renames, parses same-line argv, closes with
+  a dirty draft, and persists through the nested guard. `npm run smoke:capacity` returned
+  `HVIR_SMOKE_OK` with 12 live/restored terminals, 75 measured interactions, 17.7 ms p99 /
+  17.8 ms maximum frame gap, and +22 MiB net / +44 MiB peak memory growth.
 - Local acceptance found that Claude accepts a preassigned UUID before it persists a resumable
   transcript. Recovery now performs a provider-owned, artifact-qualified preflight: one exact
   non-empty transcript resumes, a definitively missing zero-turn transcript starts fresh in the
@@ -759,6 +771,11 @@ required structured session and usage/context feed may be disclosed in Settings 
   CLI input such as `--add-dir /path`. The editor now uses a non-evaluating shell-shaped lexer:
   spaces and newlines both separate values, quotes/backslashes group literals, bindings remain
   structured, and live validation reports the parsed argv count beside the exact launch preview.
+- Profile editing remains deliberately explicit rather than live-saving, but the two persistence
+  scopes are now named `Save harness profile` and `Save app settings`. Semantic dirty detection
+  shows an unsaved marker and a focus-trapped Save/Discard/Keep-editing prompt protects Settings
+  close, app-settings save, profile selection, add, duplicate, and confirmed delete. Discard
+  restores the durable profile; equivalent argv formatting does not count as a change.
 - The expanded user-owned local/SSH UX acceptance pass remains open. These implementation
   commits stay local and unpushed; Milestone 9b was not started.
 

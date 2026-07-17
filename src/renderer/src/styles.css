@@ -1385,8 +1385,27 @@ button {
   flex-wrap: wrap;
 }
 
+.settings-profile-unsaved {
+  margin-right: auto;
+  color: #d8b36f;
+  font-size: 10px;
+}
+
 .modal-backdrop.nested {
   z-index: 12;
+}
+
+.project-dialog.unsaved-harness-dialog {
+  width: min(460px, calc(100vw - 48px));
+}
+
+.unsaved-harness-dialog h3,
+.unsaved-harness-dialog p {
+  margin: 0;
+}
+
+.unsaved-harness-dialog strong {
+  color: #d6dbe3;
 }
 
 .project-dialog.add-harness-dialog {

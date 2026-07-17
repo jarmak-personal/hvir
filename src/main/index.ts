@@ -2998,7 +2998,7 @@ async function runSmoke(): Promise<number> {
               idle.dispatchEvent(new Event('input', { bubbles: true }));
               requestAnimationFrame(() => {
                 [...openDialog.querySelectorAll('button')]
-                  .find((button) => button.textContent?.trim() === 'Save')?.click();
+                  .find((button) => button.textContent?.trim() === 'Save app settings')?.click();
                 requestAnimationFrame(() => {
                   const validation = document.querySelector('.settings-dialog .dialog-error')
                     ?.textContent || '';
@@ -3006,7 +3006,7 @@ async function runSmoke(): Promise<number> {
                     return reject(new Error('blank idle threshold did not show validation'));
                   }
                   [...openDialog.querySelectorAll('button')]
-                    .find((button) => button.textContent?.trim() === 'Cancel')?.click();
+                    .find((button) => button.textContent?.trim() === 'Close settings')?.click();
                   requestAnimationFrame(() => {
                     if (document.querySelector('.settings-dialog')) {
                       return reject(new Error('settings dialog did not close'));
@@ -3074,10 +3074,30 @@ async function runSmoke(): Promise<number> {
                       if (/2 argv values/.test(help) &&
                           previews.some((value) => value.includes('--add-dir'))) {
                         [...document.querySelectorAll('.settings-dialog .dialog-actions button')]
-                          .find((button) => button.textContent?.trim() === 'Cancel')?.click();
-                        return requestAnimationFrame(() =>
-                          resolve('duplicate + rename + same-line argv')
-                        );
+                          .find((button) => button.textContent?.trim() === 'Close settings')
+                          ?.click();
+                        return requestAnimationFrame(() => {
+                          const prompt = document.querySelector('.unsaved-harness-dialog');
+                          if (!prompt) {
+                            return reject(new Error('unsaved harness prompt did not open'));
+                          }
+                          [...prompt.querySelectorAll('button')]
+                            .find((button) =>
+                              button.textContent?.trim() === 'Save harness profile'
+                            )?.click();
+                          const waitForGuardedSave = () => {
+                            if (!document.querySelector('.settings-dialog')) {
+                              return resolve(
+                                'duplicate + rename + same-line argv + guarded save'
+                              );
+                            }
+                            if (Date.now() > deadline) {
+                              return reject(new Error('guarded harness save did not close settings'));
+                            }
+                            setTimeout(waitForGuardedSave, 50);
+                          };
+                          waitForGuardedSave();
+                        });
                       }
                       if (Date.now() > deadline) {
                         return reject(new Error('same-line arguments did not reach preview'));

@@ -1,8 +1,11 @@
-import { useEffect, useRef, useState, type ReactElement } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react'
 
 import type { AppTheme } from '../theme'
 import type { HostPath } from '../../../shared'
-import { HarnessProfilesSettings } from './HarnessProfilesSettings'
+import {
+  HarnessProfilesSettings,
+  type HarnessProfilesSettingsHandle,
+} from './HarnessProfilesSettings'
 import { keybindingOverridesJson, parseKeybindingOverrides } from './keybindings'
 import type { AppSettings } from './settings'
 
@@ -26,6 +29,7 @@ export function SettingsDialog({
   initialSection = 'general',
 }: SettingsDialogProps): ReactElement {
   const dialog = useRef<HTMLElement>(null)
+  const harnessProfiles = useRef<HarnessProfilesSettingsHandle>(null)
   const [nextTheme, setNextTheme] = useState(theme)
   const [idleSeconds, setIdleSeconds] = useState(String(settings.idleThresholdMs / 1000))
   const [gitAutoFetchIntervalMs, setGitAutoFetchIntervalMs] = useState(
@@ -37,6 +41,14 @@ export function SettingsDialog({
     keybindingOverridesJson(settings.keybindings),
   )
   const [error, setError] = useState<string>()
+
+  const requestClose = useCallback((): void => {
+    void (harnessProfiles.current?.confirmSafeToLeave() ?? Promise.resolve(true)).then(
+      (confirmed) => {
+        if (confirmed) onClose()
+      },
+    )
+  }, [onClose])
 
   useEffect(() => {
     const frame = requestAnimationFrame(() => {
@@ -51,7 +63,7 @@ export function SettingsDialog({
     const keydown = (event: KeyboardEvent): void => {
       if (dialog.current?.querySelector('.modal-backdrop.nested')) return
       if (event.key === 'Escape' && !(event.target instanceof HTMLTextAreaElement)) {
-        onClose()
+        requestClose()
       }
     }
     window.addEventListener('keydown', keydown)
@@ -59,9 +71,9 @@ export function SettingsDialog({
       cancelAnimationFrame(frame)
       window.removeEventListener('keydown', keydown)
     }
-  }, [initialSection, onClose])
+  }, [initialSection, requestClose])
 
-  const save = (): void => {
+  const save = async (): Promise<void> => {
     try {
       const parsedIdleSeconds = Number(idleSeconds)
       if (
@@ -73,6 +85,9 @@ export function SettingsDialog({
         throw new Error('Idle threshold must be between 0.5 and 60 seconds')
       }
       const parsed: unknown = JSON.parse(keybindings)
+      const confirmed = await (harnessProfiles.current?.confirmSafeToLeave() ??
+        Promise.resolve(true))
+      if (!confirmed) return
       onSave(nextTheme, {
         idleThresholdMs: parsedIdleSeconds * 1000,
         gitAutoFetchIntervalMs: Number(gitAutoFetchIntervalMs),
@@ -183,17 +198,18 @@ export function SettingsDialog({
           </label>
         </div>
         <HarnessProfilesSettings
+          ref={harnessProfiles}
           workspaceRoot={workspaceRoot}
           projectRoot={projectRoot}
           initialAddOpen={initialSection === 'harnesses-add'}
         />
         {error ? <p className="dialog-error">{error}</p> : null}
         <div className="dialog-actions">
-          <button type="button" onClick={onClose}>
-            Cancel
+          <button type="button" onClick={requestClose}>
+            Close settings
           </button>
-          <button type="button" onClick={save}>
-            Save
+          <button type="button" onClick={() => void save()}>
+            Save app settings
           </button>
         </div>
       </section>
