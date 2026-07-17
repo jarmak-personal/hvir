@@ -51,11 +51,38 @@ export function SettingsDialog({
   }, [onClose])
 
   useEffect(() => {
-    const frame = requestAnimationFrame(() => {
+    let frame = 0
+    let sectionObserver: ResizeObserver | undefined
+    const alignHarnesses = (): boolean => {
+      const heading = document.getElementById('settings-harnesses-title')
+      const container = dialog.current
+      if (!heading || !container) return false
+      const containerBox = container.getBoundingClientRect()
+      const headingBox = heading.getBoundingClientRect()
+      const paddingTop = Number.parseFloat(getComputedStyle(container).paddingTop) || 0
+      container.scrollTop = Math.max(
+        0,
+        container.scrollTop + headingBox.top - containerBox.top - paddingTop,
+      )
+      heading.focus({ preventScroll: true })
+      return (
+        Math.abs(heading.getBoundingClientRect().top - containerBox.top - paddingTop) <= 2
+      )
+    }
+    const scheduleAlignment = (): void => {
+      cancelAnimationFrame(frame)
+      frame = requestAnimationFrame(() => {
+        if (alignHarnesses()) sectionObserver?.disconnect()
+      })
+    }
+    frame = requestAnimationFrame(() => {
       if (initialSection !== 'general') {
         const heading = document.getElementById('settings-harnesses-title')
-        heading?.scrollIntoView({ block: 'start' })
-        heading?.focus()
+        const section = heading?.closest('.settings-harnesses')
+        if (section && !alignHarnesses()) {
+          sectionObserver = new ResizeObserver(scheduleAlignment)
+          sectionObserver.observe(section)
+        }
       } else {
         dialog.current?.focus()
       }
@@ -69,6 +96,7 @@ export function SettingsDialog({
     window.addEventListener('keydown', keydown)
     return () => {
       cancelAnimationFrame(frame)
+      sectionObserver?.disconnect()
       window.removeEventListener('keydown', keydown)
     }
   }, [initialSection, requestClose])
@@ -103,7 +131,9 @@ export function SettingsDialog({
   return (
     <div className="modal-backdrop">
       <section
-        className="project-dialog settings-dialog"
+        className={`project-dialog settings-dialog${
+          initialSection === 'general' ? '' : ' harnesses-focused'
+        }`}
         ref={dialog}
         role="dialog"
         aria-modal="true"

@@ -469,7 +469,9 @@ Keep these commits local until the user finishes the expanded acceptance pass.
       configuration merely because the executable is absent from the active host.
 - [x] Make the Harnesses settings surface use its intended wide responsive dialog and verify
       the complete editor, previews, row actions, and footer at the minimum supported window
-      size. Do not solve overflow by shrinking controls or truncating editable values.
+      size. `Configure harnesses…` aligns the Harnesses section to the top after its async
+      profile content settles. Do not solve overflow by shrinking controls or truncating
+      editable values.
 - [x] Keep harness-profile persistence explicit, distinguish `Save harness profile` from
       `Save app settings`, and show a semantic unsaved indicator. Closing Settings, saving app
       settings, selecting another profile, adding a harness, duplicating, or confirming delete
@@ -757,10 +759,11 @@ required structured session and usage/context feed may be disclosed in Settings 
   and recovery without a Shell probe.
 - `npm run smoke` returned `HVIR_SMOKE_OK`, including fresh-store Shell-only enumeration,
   catalog-ordered opt-in materialization, structured Custom preview/PTY launch, recovery, and
-  cleanup. The profile-editor path also duplicates, renames, parses same-line argv, closes with
-  a dirty draft, and persists through the nested guard. `npm run smoke:capacity` returned
-  `HVIR_SMOKE_OK` with 12 live/restored terminals, 75 measured interactions, 17.7 ms p99 /
-  17.8 ms maximum frame gap, and +22 MiB net / +44 MiB peak memory growth.
+  cleanup. The profile-editor path opens through `Configure harnesses…`, verifies top
+  alignment, duplicates, renames, parses same-line argv, closes with a dirty draft, and
+  persists through the nested guard. `npm run smoke:capacity` returned `HVIR_SMOKE_OK` with
+  12 live/restored terminals, 75 measured interactions, 17.7 ms p99 / 17.8 ms maximum frame
+  gap, and +22 MiB net / +44 MiB peak memory growth.
 - Local acceptance found that Claude accepts a preassigned UUID before it persists a resumable
   transcript. Recovery now performs a provider-owned, artifact-qualified preflight: one exact
   non-empty transcript resumes, a definitively missing zero-turn transcript starts fresh in the

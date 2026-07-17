@@ -3027,7 +3027,9 @@ async function runSmoke(): Promise<number> {
       win.webContents.executeJavaScript(`
         new Promise((resolve, reject) => {
           const deadline = Date.now() + 10000;
-          document.querySelector('.settings-toggle')?.click();
+          document.querySelector(
+            '.terminal-icon-button[aria-label="New terminal"]'
+          )?.click();
           const waitForProfile = () => {
             const rows = [...document.querySelectorAll('.settings-profile-list button')];
             const source = rows.find((row) =>
@@ -3036,6 +3038,20 @@ async function runSmoke(): Promise<number> {
             if (!source) {
               if (Date.now() > deadline) return reject(new Error('smoke harness profile missing'));
               return setTimeout(waitForProfile, 50);
+            }
+            const dialog = document.querySelector('.settings-dialog');
+            const heading = document.querySelector('#settings-harnesses-title');
+            const alignment = dialog && heading
+              ? heading.getBoundingClientRect().top -
+                dialog.getBoundingClientRect().top -
+                Number.parseFloat(getComputedStyle(dialog).paddingTop)
+              : Number.NaN;
+            if (!dialog || !heading || Math.abs(alignment) > 2) {
+              return reject(new Error(
+                'configure harnesses did not align its section: delta=' + alignment +
+                ', scroll=' + dialog?.scrollTop +
+                ', max=' + ((dialog?.scrollHeight || 0) - (dialog?.clientHeight || 0))
+              ));
             }
             source.click();
             requestAnimationFrame(() => {
@@ -3088,7 +3104,7 @@ async function runSmoke(): Promise<number> {
                           const waitForGuardedSave = () => {
                             if (!document.querySelector('.settings-dialog')) {
                               return resolve(
-                                'duplicate + rename + same-line argv + guarded save'
+                                'top-aligned + duplicate + rename + same-line argv + guarded save'
                               );
                             }
                             if (Date.now() > deadline) {
@@ -3115,7 +3131,19 @@ async function runSmoke(): Promise<number> {
               waitForDuplicate();
             });
           };
-          waitForProfile();
+          const waitForConfigure = () => {
+            const configure = [...document.querySelectorAll('.terminal-new-menu button')]
+              .find((button) => button.textContent?.trim() === 'Configure harnesses…');
+            if (configure) {
+              configure.click();
+              return waitForProfile();
+            }
+            if (Date.now() > deadline) {
+              return reject(new Error('configure harnesses action missing'));
+            }
+            requestAnimationFrame(waitForConfigure);
+          };
+          waitForConfigure();
         })
       `),
       'harness profile editor smoke timed out',
