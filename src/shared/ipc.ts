@@ -224,6 +224,17 @@ export interface HarnessProbeProfilesRequest {
   readonly force?: boolean
 }
 
+export interface HarnessProbeTemplatesRequest {
+  readonly root: HostPath
+  readonly providerIds?: readonly HarnessProviderId[]
+  readonly force?: boolean
+}
+
+export interface MaterializeHarnessProfilesRequest {
+  readonly root: HostPath
+  readonly providerIds: readonly HarnessProviderId[]
+}
+
 interface SaveHarnessProfileRequestBase {
   readonly root: HostPath
   readonly input: HarnessProfileInput
@@ -436,6 +447,14 @@ export interface IpcInvokeMap {
     request: HarnessProbeProfilesRequest
     response: readonly HarnessProfileProbe[]
   }
+  'harness:probe-templates': {
+    request: HarnessProbeTemplatesRequest
+    response: readonly HarnessProfileProbe[]
+  }
+  'harness:profile-materialize': {
+    request: MaterializeHarnessProfilesRequest
+    response: readonly HarnessProfile[]
+  }
   'harness:profile-save': {
     request: SaveHarnessProfileRequest
     response: HarnessProfile
@@ -566,6 +585,8 @@ export const INVOKE_CHANNELS = [
   'harness:catalog',
   'harness:profiles',
   'harness:probe-profiles',
+  'harness:probe-templates',
+  'harness:profile-materialize',
   'harness:profile-save',
   'harness:profile-duplicate',
   'harness:profile-delete',

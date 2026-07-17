@@ -13,7 +13,7 @@ interface SettingsDialogProps {
   readonly onClose: () => void
   readonly workspaceRoot?: HostPath
   readonly projectRoot?: HostPath
-  readonly initialSection?: 'general' | 'harnesses'
+  readonly initialSection?: 'general' | 'harnesses' | 'harnesses-add'
 }
 
 export function SettingsDialog({
@@ -40,7 +40,7 @@ export function SettingsDialog({
 
   useEffect(() => {
     const frame = requestAnimationFrame(() => {
-      if (initialSection === 'harnesses') {
+      if (initialSection !== 'general') {
         const heading = document.getElementById('settings-harnesses-title')
         heading?.scrollIntoView({ block: 'start' })
         heading?.focus()
@@ -49,6 +49,7 @@ export function SettingsDialog({
       }
     })
     const keydown = (event: KeyboardEvent): void => {
+      if (dialog.current?.querySelector('.modal-backdrop.nested')) return
       if (event.key === 'Escape' && !(event.target instanceof HTMLTextAreaElement)) {
         onClose()
       }
@@ -184,6 +185,7 @@ export function SettingsDialog({
         <HarnessProfilesSettings
           workspaceRoot={workspaceRoot}
           projectRoot={projectRoot}
+          initialAddOpen={initialSection === 'harnesses-add'}
         />
         {error ? <p className="dialog-error">{error}</p> : null}
         <div className="dialog-actions">

@@ -1,4 +1,11 @@
-import { useEffect, useMemo, useState, type ReactElement } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactElement,
+} from 'react'
 
 import {
   asHarnessProviderId,
@@ -12,13 +19,17 @@ import {
   type HarnessProfileArgument,
   type HarnessProfileExecutable,
   type HarnessProfileInput,
+  type HarnessProfileId,
+  type HarnessProfileProbe,
   type HarnessProviderDescriptor,
+  type HarnessProviderId,
   type HostPath,
 } from '../../../shared'
 
 interface HarnessProfilesSettingsProps {
   readonly workspaceRoot?: HostPath
   readonly projectRoot?: HostPath
+  readonly initialAddOpen?: boolean
 }
 
 interface ProfileDraft {
@@ -35,6 +46,7 @@ type PickerTarget = { readonly kind: 'binding'; readonly index: number }
 export function HarnessProfilesSettings({
   workspaceRoot,
   projectRoot,
+  initialAddOpen = false,
 }: HarnessProfilesSettingsProps): ReactElement {
   const [providers, setProviders] = useState<readonly HarnessProviderDescriptor[]>([])
   const [profiles, setProfiles] = useState<readonly HarnessProfile[]>([])
@@ -45,6 +57,48 @@ export function HarnessProfilesSettings({
   const [error, setError] = useState<string>()
   const [deleteArmed, setDeleteArmed] = useState(false)
   const [picker, setPicker] = useState<PickerTarget>()
+  const [profileProbes, setProfileProbes] = useState<readonly HarnessProfileProbe[]>([])
+  const [pendingProbeIds, setPendingProbeIds] = useState<ReadonlySet<HarnessProfileId>>(
+    new Set(),
+  )
+  const [addOpen, setAddOpen] = useState(initialAddOpen)
+  const workspaceKey = workspaceRoot
+    ? `${workspaceRoot.hostId}\u0000${workspaceRoot.path}`
+    : ''
+  const workspaceKeyRef = useRef(workspaceKey)
+  workspaceKeyRef.current = workspaceKey
+
+  const probeAvailability = useCallback(
+    (launchProfiles: readonly HarnessProfile[], force = false): void => {
+      if (!workspaceRoot) return
+      const requestedWorkspaceKey = `${workspaceRoot.hostId}\u0000${workspaceRoot.path}`
+      const candidates = launchProfiles.filter((profile) => !profile.builtIn)
+      setPendingProbeIds(new Set(candidates.map(({ id }) => id)))
+      for (const profile of candidates) {
+        void window.hvir
+          .invoke('harness:probe-profiles', {
+            root: workspaceRoot,
+            profileIds: [profile.id],
+            force,
+          })
+          .then(([probe]) => {
+            if (probe && workspaceKeyRef.current === requestedWorkspaceKey) {
+              setProfileProbes((current) => mergeProbe(current, probe))
+            }
+          })
+          .catch(() => undefined)
+          .finally(() =>
+            setPendingProbeIds((current) => {
+              if (workspaceKeyRef.current !== requestedWorkspaceKey) return current
+              const next = new Set(current)
+              next.delete(profile.id)
+              return next
+            }),
+          )
+      }
+    },
+    [workspaceRoot],
+  )
 
   const refresh = async (selectId?: HarnessProfile['id']): Promise<void> => {
     if (!workspaceRoot) return
@@ -54,6 +108,7 @@ export function HarnessProfilesSettings({
     ])
     setProviders(catalog)
     setProfiles(launchProfiles)
+    probeAvailability(launchProfiles)
     const selected =
       launchProfiles.find((profile) => profile.id === selectId) ??
       launchProfiles.find((profile) => profile.id === draft?.id) ??
@@ -68,6 +123,8 @@ export function HarnessProfilesSettings({
   useEffect(() => {
     let cancelled = false
     if (!workspaceRoot) return
+    setProfileProbes([])
+    setPendingProbeIds(new Set())
     void Promise.all([
       window.hvir.invoke('harness:catalog', undefined),
       window.hvir.invoke('harness:profiles', { root: workspaceRoot }),
@@ -76,6 +133,7 @@ export function HarnessProfilesSettings({
         if (cancelled) return
         setProviders(catalog)
         setProfiles(launchProfiles)
+        probeAvailability(launchProfiles)
         const selected = launchProfiles[0]
         setDraft(
           selected
@@ -90,7 +148,7 @@ export function HarnessProfilesSettings({
     return () => {
       cancelled = true
     }
-  }, [projectRoot, workspaceRoot])
+  }, [probeAvailability, projectRoot, workspaceRoot])
 
   const serializedInput = useMemo(
     () => (draft ? JSON.stringify([draft.input, draft.argvText]) : ''),
@@ -235,6 +293,12 @@ export function HarnessProfilesSettings({
   }
 
   const provider = providers.find((candidate) => candidate.id === draft?.input.providerId)
+  const selectedProfile = profiles.find((profile) => profile.id === draft?.id)
+  const selectedProbe = selectedProfile
+    ? profileProbe(profileProbes, selectedProfile, workspaceRoot.hostId)
+    : undefined
+  const providerProbe =
+    selectedProbe?.providerId === provider?.id ? selectedProbe : undefined
   return (
     <section className="settings-harnesses" aria-labelledby="settings-harnesses-title">
       <header>
@@ -247,16 +311,22 @@ export function HarnessProfilesSettings({
             structured.
           </p>
         </div>
-        <button
-          type="button"
-          disabled={busy || providers.length === 0}
-          onClick={() => {
-            setDraft(newDraft(providers, profiles, projectRoot))
-            setDeleteArmed(false)
-          }}
-        >
-          New profile
-        </button>
+        <div className="settings-harness-actions">
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => probeAvailability(profiles, true)}
+          >
+            Refresh availability
+          </button>
+          <button
+            type="button"
+            disabled={busy || providers.length === 0}
+            onClick={() => setAddOpen(true)}
+          >
+            Add a harness…
+          </button>
+        </div>
       </header>
       <div className="settings-harness-layout">
         <nav className="settings-profile-list" aria-label="Harness profiles">
@@ -275,6 +345,14 @@ export function HarnessProfilesSettings({
                 {providers.find((candidate) => candidate.id === profile.providerId)
                   ?.displayName ?? profile.providerId}
                 {profile.risk === 'standard' ? '' : ` · ${riskLabel(profile.risk)}`}
+                {' · '}
+                {profile.builtIn
+                  ? 'Always available'
+                  : pendingProbeIds.has(profile.id)
+                    ? 'Checking…'
+                    : settingsProbeLabel(
+                        profileProbe(profileProbes, profile, workspaceRoot.hostId),
+                      )}
               </small>
             </button>
           ))}
@@ -283,7 +361,8 @@ export function HarnessProfilesSettings({
           <div className="settings-profile-editor">
             {draft.builtIn ? (
               <p className="settings-profile-note">
-                Built-in defaults are immutable. Duplicate this profile to customize it.
+                Bare Shell is permanent and immutable. Duplicate it to create an
+                additional named shell profile.
               </p>
             ) : null}
             <div className="settings-profile-grid">
@@ -307,13 +386,15 @@ export function HarnessProfilesSettings({
                   disabled={draft.builtIn}
                   onChange={(event) => {
                     const providerId = asHarnessProviderId(event.currentTarget.value)
+                    const selectedProvider = providers.find(
+                      (candidate) => candidate.id === providerId,
+                    )
                     updateInput((input) => ({
                       ...input,
                       providerId,
-                      executable:
-                        providerId === 'custom'
-                          ? { kind: 'command', command: '' }
-                          : { kind: 'provider-default' },
+                      executable: selectedProvider?.profileTemplate
+                        ? { kind: 'provider-default' }
+                        : { kind: 'command', command: '' },
                     }))
                   }}
                 >
@@ -425,6 +506,10 @@ export function HarnessProfilesSettings({
               }
               onPick={(index) => setPicker({ kind: 'binding', index })}
             />
+            <div className="settings-profile-capabilities">
+              <strong>Host capabilities</strong>
+              <small>{detailedCapabilityLabel(provider, providerProbe)}</small>
+            </div>
             <div className="settings-profile-risk">
               <strong>
                 Risk: {previews[0] ? riskLabel(previews[0].risk) : 'Pending validation'}
@@ -519,7 +604,240 @@ export function HarnessProfilesSettings({
           }}
         />
       ) : null}
+      {addOpen ? (
+        <AddHarnessDialog
+          providers={providers}
+          root={workspaceRoot}
+          onCancel={() => setAddOpen(false)}
+          onMaterialized={async (created) => {
+            setAddOpen(false)
+            await refresh(created.at(-1)?.id)
+            window.dispatchEvent(new Event('hvir:harness-profiles-changed'))
+          }}
+          onManual={(providerId) => {
+            setDraft(newDraft(providers, profiles, projectRoot, providerId))
+            setDeleteArmed(false)
+            setAddOpen(false)
+          }}
+        />
+      ) : null}
     </section>
+  )
+}
+
+function AddHarnessDialog({
+  providers,
+  root,
+  onCancel,
+  onMaterialized,
+  onManual,
+}: {
+  readonly providers: readonly HarnessProviderDescriptor[]
+  readonly root: HostPath
+  readonly onCancel: () => void
+  readonly onMaterialized: (profiles: readonly HarnessProfile[]) => Promise<void>
+  readonly onManual: (providerId: HarnessProviderId) => void
+}): ReactElement {
+  const dialogRef = useRef<HTMLElement>(null)
+  const onCancelRef = useRef(onCancel)
+  const busyRef = useRef(false)
+  const [generation, setGeneration] = useState(0)
+  const [pending, setPending] = useState<ReadonlySet<HarnessProviderId>>(new Set())
+  const [probes, setProbes] = useState<readonly HarnessProfileProbe[]>([])
+  const [selected, setSelected] = useState<ReadonlySet<HarnessProviderId>>(new Set())
+  const [manualProviderId, setManualProviderId] = useState<HarnessProviderId>(
+    () =>
+      providers.find(({ profileTemplate }) => !profileTemplate)?.id ??
+      providers.find(({ default: isDefault }) => isDefault)?.id ??
+      providers[0]!.id,
+  )
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string>()
+  const templates = useMemo(
+    () => providers.filter((provider) => provider.profileTemplate && !provider.default),
+    [providers],
+  )
+  onCancelRef.current = onCancel
+  busyRef.current = busy
+
+  useEffect(() => {
+    const frame = window.requestAnimationFrame(() => dialogRef.current?.focus())
+    const keydown = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        event.stopImmediatePropagation()
+        if (!busyRef.current) onCancelRef.current()
+        return
+      }
+      if (event.key !== 'Tab') return
+      const focusable = dialogRef.current?.querySelectorAll<HTMLElement>(
+        'button:not(:disabled), input:not(:disabled), select:not(:disabled)',
+      )
+      if (!focusable || focusable.length === 0) return
+      const first = focusable[0]
+      const last = focusable[focusable.length - 1]
+      if (
+        event.shiftKey &&
+        (document.activeElement === first || document.activeElement === dialogRef.current)
+      ) {
+        event.preventDefault()
+        last?.focus()
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault()
+        first?.focus()
+      }
+    }
+    window.addEventListener('keydown', keydown)
+    return () => {
+      window.cancelAnimationFrame(frame)
+      window.removeEventListener('keydown', keydown)
+    }
+  }, [])
+
+  useEffect(() => {
+    let cancelled = false
+    setProbes([])
+    setSelected(new Set())
+    setPending(new Set(templates.map(({ id }) => id)))
+    for (const provider of templates) {
+      void window.hvir
+        .invoke('harness:probe-templates', {
+          root,
+          providerIds: [provider.id],
+          force: generation > 0,
+        })
+        .then(([probe]) => {
+          if (cancelled || !probe) return
+          setProbes((current) => mergeProbe(current, probe))
+        })
+        .catch(() => undefined)
+        .finally(() => {
+          if (cancelled) return
+          setPending((current) => {
+            const next = new Set(current)
+            next.delete(provider.id)
+            return next
+          })
+        })
+    }
+    return () => {
+      cancelled = true
+    }
+  }, [generation, root, templates])
+
+  const detected = templates.filter((provider) => {
+    const probe = probes.find((candidate) => candidate.providerId === provider.id)
+    return pending.has(provider.id) || probe?.status === 'available'
+  })
+
+  return (
+    <div className="modal-backdrop nested">
+      <section
+        className="project-dialog add-harness-dialog"
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="add-harness-title"
+        tabIndex={-1}
+      >
+        <div className="add-harness-heading">
+          <div>
+            <h3 id="add-harness-title">Add a harness</h3>
+            <p>Choose installed harnesses to add as editable global profiles.</p>
+          </div>
+          <button
+            type="button"
+            disabled={busy || pending.size > 0}
+            onClick={() => setGeneration((value) => value + 1)}
+          >
+            Refresh
+          </button>
+        </div>
+        <div className="add-harness-candidates" aria-live="polite">
+          {detected.map((provider) => {
+            const checking = pending.has(provider.id)
+            return (
+              <label key={provider.id}>
+                <input
+                  type="checkbox"
+                  disabled={checking || busy}
+                  checked={selected.has(provider.id)}
+                  onChange={(event) => {
+                    const checked = event.currentTarget.checked
+                    setSelected((current) => {
+                      const next = new Set(current)
+                      if (checked) next.add(provider.id)
+                      else next.delete(provider.id)
+                      return next
+                    })
+                  }}
+                />
+                <span>
+                  <strong>{provider.profileTemplate?.displayName}</strong>
+                  <small>{checking ? 'Checking…' : 'Installed on this host'}</small>
+                </span>
+              </label>
+            )
+          })}
+          {detected.length === 0 && pending.size === 0 ? (
+            <p>No bundled harnesses were detected on this host.</p>
+          ) : null}
+        </div>
+        <div className="add-harness-manual">
+          <label>
+            <span>Manual profile</span>
+            <select
+              value={manualProviderId}
+              disabled={busy}
+              onChange={(event) =>
+                setManualProviderId(event.currentTarget.value as HarnessProviderId)
+              }
+            >
+              {providers.map((provider) => (
+                <option key={provider.id} value={provider.id}>
+                  {provider.default
+                    ? 'Additional shell'
+                    : !provider.profileTemplate
+                      ? 'Custom command'
+                      : `${provider.displayName} with custom settings`}
+                </option>
+              ))}
+            </select>
+          </label>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => onManual(manualProviderId)}
+          >
+            Configure manually…
+          </button>
+        </div>
+        {error ? <p className="dialog-error">{error}</p> : null}
+        <div className="dialog-actions">
+          <button type="button" disabled={busy} onClick={onCancel}>
+            Cancel
+          </button>
+          <button
+            type="button"
+            disabled={busy || selected.size === 0}
+            onClick={() => {
+              setBusy(true)
+              setError(undefined)
+              void window.hvir
+                .invoke('harness:profile-materialize', {
+                  root,
+                  providerIds: [...selected],
+                })
+                .then(onMaterialized)
+                .catch((reason: unknown) => setError(message(reason)))
+                .finally(() => setBusy(false))
+            }}
+          >
+            Add selected
+          </button>
+        </div>
+      </section>
+    </div>
   )
 }
 
@@ -791,9 +1109,45 @@ function HarnessFolderPicker({
   readonly onCancel: () => void
   readonly onSelect: (path: HostPath) => Promise<void>
 }): ReactElement {
+  const dialogRef = useRef<HTMLElement>(null)
+  const onCancelRef = useRef(onCancel)
   const [current, setCurrent] = useState(root)
   const [directories, setDirectories] = useState<readonly { readonly name: string }[]>([])
   const [error, setError] = useState<string>()
+  onCancelRef.current = onCancel
+  useEffect(() => {
+    const frame = window.requestAnimationFrame(() => dialogRef.current?.focus())
+    const keydown = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        event.stopImmediatePropagation()
+        onCancelRef.current()
+        return
+      }
+      if (event.key !== 'Tab') return
+      const focusable = dialogRef.current?.querySelectorAll<HTMLElement>(
+        'button:not(:disabled)',
+      )
+      if (!focusable || focusable.length === 0) return
+      const first = focusable[0]
+      const last = focusable[focusable.length - 1]
+      if (
+        event.shiftKey &&
+        (document.activeElement === first || document.activeElement === dialogRef.current)
+      ) {
+        event.preventDefault()
+        last?.focus()
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault()
+        first?.focus()
+      }
+    }
+    window.addEventListener('keydown', keydown)
+    return () => {
+      window.cancelAnimationFrame(frame)
+      window.removeEventListener('keydown', keydown)
+    }
+  }, [])
   useEffect(() => {
     let cancelled = false
     void window.hvir
@@ -819,9 +1173,11 @@ function HarnessFolderPicker({
     <div className="modal-backdrop nested">
       <section
         className="project-dialog harness-folder-picker"
+        ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby="harness-folder-title"
+        tabIndex={-1}
       >
         <h3 id="harness-folder-title">Choose folder on {root.hostId}</h3>
         <code>{current.path}</code>
@@ -889,16 +1245,26 @@ function newDraft(
   providers: readonly HarnessProviderDescriptor[],
   profiles: readonly HarnessProfile[],
   _projectRoot?: HostPath,
+  preferredProviderId?: HarnessProviderId,
 ): ProfileDraft | undefined {
-  const provider = providers.find((candidate) => candidate.default) ?? providers[0]
+  const provider =
+    providers.find((candidate) => candidate.id === preferredProviderId) ??
+    providers.find((candidate) => candidate.default) ??
+    providers[0]
   if (!provider) return undefined
   return {
     builtIn: false,
     input: {
-      displayName: `${provider.displayName} profile`,
+      displayName: provider.default
+        ? 'Additional shell'
+        : !provider.profileTemplate
+          ? 'Custom command'
+          : `${provider.displayName} profile`,
       providerId: provider.id,
       scope: { kind: 'global' },
-      executable: { kind: 'provider-default' },
+      executable: provider.profileTemplate
+        ? { kind: 'provider-default' }
+        : { kind: 'command', command: '' },
       args: [],
       environment: [],
       pathBindings: [],
@@ -972,6 +1338,80 @@ function riskLabel(value: HarnessProfile['risk']): string {
     : value === 'elevated'
       ? 'Elevated'
       : 'Unclassified'
+}
+
+function profileProbe(
+  probes: readonly HarnessProfileProbe[],
+  profile: HarnessProfile,
+  hostId?: HostPath['hostId'],
+): HarnessProfileProbe | undefined {
+  return probes.find(
+    (probe) =>
+      probe.profileId === profile.id &&
+      probe.launchRevision === profile.launchRevision &&
+      (hostId === undefined || probe.hostId === hostId),
+  )
+}
+
+function mergeProbe(
+  probes: readonly HarnessProfileProbe[],
+  next: HarnessProfileProbe,
+): readonly HarnessProfileProbe[] {
+  return [
+    ...probes.filter(
+      (probe) =>
+        probe.profileId !== next.profileId ||
+        probe.launchRevision !== next.launchRevision ||
+        probe.hostId !== next.hostId,
+    ),
+    next,
+  ]
+}
+
+function settingsProbeLabel(probe: HarnessProfileProbe | undefined): string {
+  if (!probe) return 'Not checked'
+  switch (probe.status) {
+    case 'available':
+      return probe.version ?? 'Available'
+    case 'executable-missing':
+      return 'Executable missing on this host'
+    case 'version-unsupported':
+      return 'Version incompatible on this host'
+    case 'capability-absent':
+      return 'Required capability unavailable'
+    case 'authentication-required':
+      return 'Authentication required'
+    case 'disconnected':
+      return 'Host disconnected'
+    case 'timeout':
+      return 'Availability check timed out'
+    case 'malformed-output':
+      return 'Version output not understood'
+    case 'probe-failed':
+      return probe.detail ?? 'Availability check failed'
+    case 'unchecked':
+      return 'Not checked'
+  }
+}
+
+function detailedCapabilityLabel(
+  provider: HarnessProviderDescriptor | undefined,
+  probe: HarnessProfileProbe | undefined,
+): string {
+  if (!provider) return 'Provider unavailable'
+  if (provider.default) {
+    return 'Plain terminal lifecycle; harness integration is inapplicable'
+  }
+  const capabilities = probe?.capabilities ?? provider.capabilities
+  return [
+    capabilities.exactResume ? 'Exact recovery' : 'No exact recovery',
+    capabilities.contextPresentation === 'none'
+      ? 'No structured telemetry'
+      : capabilities.contextPresentation === 'pressure'
+        ? 'Structured context pressure'
+        : 'Structured context usage',
+    settingsProbeLabel(probe),
+  ].join(' · ')
 }
 
 function message(reason: unknown): string {

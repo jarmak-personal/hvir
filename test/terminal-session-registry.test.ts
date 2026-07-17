@@ -327,6 +327,11 @@ describe('TerminalSessionRegistry', () => {
       }),
     )
     expect(await host.readTextFile(file)).not.toContain('"adapterId"')
+    expect(migrated.profileReferences()).toContainEqual({
+      providerId: CODEX_PROVIDER_ID,
+      profileId: CODEX_PROFILE_ID,
+      launchRevision: 1,
+    })
   })
 
   it('preserves a syntactically valid provider record unknown to this build', async () => {

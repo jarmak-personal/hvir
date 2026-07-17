@@ -41,7 +41,10 @@ import {
 } from '../shared'
 import { harnessProvider, harnessProviderCatalog } from './harness/harness-provider'
 import { commandPreview, resolveHarnessLaunch } from './harness/harness-launch'
-import type { HarnessProfileStoreContract } from './harness/harness-profile-store'
+import {
+  providerTemplateProfiles,
+  type HarnessProfileStoreContract,
+} from './harness/harness-profile-store'
 import type { HarnessProbeManager } from './harness/harness-probe'
 import type { ProjectHost } from './project-host'
 import type { HtmlPreviewProtocol } from './html-preview-protocol'
@@ -157,6 +160,29 @@ export function registerIpcHandlers(deps: IpcDeps): void {
       store: deps.harnessProfiles,
       force: req.force === true,
     })
+  })
+  handle('harness:probe-templates', async (req) => {
+    const root = registeredWorkspaceRoot(req.root, deps)
+    const projectRoot = registeredProjectRoot(root, deps)
+    const { host } = deps.getProject()
+    const requested = new Set(req.providerIds ?? [])
+    if (requested.size > 200) throw new Error('Too many harness templates to probe')
+    const profiles = providerTemplateProfiles().filter(
+      (profile) => requested.size === 0 || requested.has(profile.providerId),
+    )
+    return deps.harnessProbes.probeProfiles({
+      host,
+      projectRoot,
+      workspaceRoot: root,
+      profiles,
+      store: deps.harnessProfiles,
+      force: req.force === true,
+    })
+  })
+  handle('harness:profile-materialize', (req) => {
+    registeredWorkspaceRoot(req.root, deps)
+    if (req.providerIds.length > 200) throw new Error('Too many harness templates')
+    return deps.harnessProfiles.materializeTemplates(req.providerIds)
   })
   handle('harness:profile-save', (req) => {
     const workspaceRoot = registeredWorkspaceRoot(req.root, deps)

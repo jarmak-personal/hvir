@@ -267,6 +267,11 @@ async function startup(): Promise<void> {
     metadataHost,
     localPath(join(app.getPath('userData'), 'harness-profiles.json')),
   )
+  await harnessProfileStore
+    .importLegacyDefaults(terminalSessionRegistry.profileReferences())
+    .catch((error) =>
+      console.warn('[harness] legacy recovery profile import failed', error),
+    )
   echoWorker = createWorkerClient<EchoWorkerProtocol>(
     workerPath('echo-worker.js'),
     'hvir-echo',
@@ -1100,6 +1105,19 @@ async function runSmoke(): Promise<number> {
         (async () => {
           const root = ${JSON.stringify(smokeRoot)};
           const defaults = await window.hvir.invoke('harness:profiles', { root });
+          const catalog = await window.hvir.invoke('harness:catalog', undefined);
+          const requestedProviderIds = catalog
+            .filter((provider) => provider.profileTemplate && !provider.default)
+            .slice(0, 2)
+            .map((provider) => provider.id);
+          const customProviderId = catalog.find(
+            (provider) => !provider.profileTemplate
+          )?.id;
+          if (!customProviderId) throw new Error('Custom provider was missing');
+          const materialized = await window.hvir.invoke('harness:profile-materialize', {
+            root,
+            providerIds: [...requestedProviderIds].reverse()
+          });
           const grant = await window.hvir.invoke('harness:authorize-path', {
             root,
             path: root
@@ -1108,7 +1126,7 @@ async function runSmoke(): Promise<number> {
             root,
             input: {
               displayName: 'Smoke custom harness',
-              providerId: 'custom',
+              providerId: customProviderId,
               scope: { kind: 'project', projectRoot: root },
               executable: { kind: 'command', command: 'sh' },
               args: [
@@ -1166,6 +1184,13 @@ async function runSmoke(): Promise<number> {
           stopOutput();
           return {
             defaultIds: defaults.map((candidate) => candidate.id),
+            requestedProviderIds,
+            materialized: materialized.map((candidate) => ({
+              id: candidate.id,
+              providerId: candidate.providerId,
+              builtIn: candidate.builtIn,
+              scope: candidate.scope.kind
+            })),
             profile: acknowledgedProfile,
             preview,
             started,
@@ -1176,6 +1201,13 @@ async function runSmoke(): Promise<number> {
       'structured harness profile smoke timed out',
     )) as {
       defaultIds: readonly string[]
+      requestedProviderIds: readonly string[]
+      materialized: readonly {
+        id: string
+        providerId: string
+        builtIn: boolean
+        scope: string
+      }[]
       profile: {
         id: string
         risk: string
@@ -1187,10 +1219,15 @@ async function runSmoke(): Promise<number> {
       output: string
     }
     if (
-      !profileSmoke.defaultIds.includes('claude-code-default') ||
-      !profileSmoke.defaultIds.includes('codex-default')
+      profileSmoke.defaultIds.join(',') !== 'plain-shell-default' ||
+      profileSmoke.materialized.map(({ providerId }) => providerId).join(',') !==
+        profileSmoke.requestedProviderIds.join(',') ||
+      profileSmoke.materialized.some(
+        ({ id, builtIn, scope }) =>
+          id.endsWith('-default') || builtIn || scope !== 'global',
+      )
     ) {
-      throw new Error('migrated Claude/Codex default profiles were missing')
+      throw new Error('opt-in harness profile materialization was incorrect')
     }
     if (
       profileSmoke.profile.risk !== 'unclassified' ||

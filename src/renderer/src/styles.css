@@ -1072,9 +1072,15 @@ button {
 
 .terminal-new-menu-actions {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(3, 1fr);
   padding-top: 4px;
   border-top: 1px solid #343a45;
+}
+
+.terminal-new-menu-checking {
+  padding: 7px 8px;
+  color: #7f8997;
+  font-size: 9px;
 }
 
 .harness-risk-dialog small {
@@ -1110,8 +1116,8 @@ button {
   margin: 0;
 }
 
-.settings-dialog {
-  width: min(1040px, calc(100vw - 48px));
+.project-dialog.settings-dialog {
+  width: min(1120px, calc(100vw - 32px));
   max-height: min(760px, calc(100vh - 48px));
   overflow: auto;
 }
@@ -1130,6 +1136,11 @@ button {
   align-items: center;
   justify-content: space-between;
   gap: 10px;
+}
+
+.settings-harness-actions {
+  display: flex;
+  gap: 8px;
 }
 
 .settings-harnesses h3,
@@ -1282,6 +1293,24 @@ button {
   gap: 8px;
 }
 
+.settings-profile-capabilities {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 9px;
+  border: 1px solid #303640;
+  border-radius: 4px;
+  color: #aeb6c2;
+  font-size: 10px;
+}
+
+.settings-profile-capabilities small {
+  color: #7f8997;
+  font-size: 9px;
+  text-align: right;
+}
+
 .settings-profile-argv small {
   color: #737d8b;
   font-size: 9px;
@@ -1353,13 +1382,93 @@ button {
 
 .settings-profile-actions {
   justify-content: flex-end;
+  flex-wrap: wrap;
 }
 
 .modal-backdrop.nested {
   z-index: 12;
 }
 
-.harness-folder-picker {
+.project-dialog.add-harness-dialog {
+  width: min(620px, calc(100vw - 48px));
+  max-height: min(680px, calc(100vh - 48px));
+}
+
+.add-harness-heading,
+.add-harness-manual {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.add-harness-heading h3,
+.add-harness-heading p,
+.add-harness-candidates p {
+  margin: 0;
+}
+
+.add-harness-heading p,
+.add-harness-candidates p {
+  margin-top: 4px;
+  color: #7f8997;
+  font-size: 10px;
+}
+
+.add-harness-candidates {
+  min-height: 190px;
+  max-height: min(330px, 42vh);
+  overflow: auto;
+  border: 1px solid #303640;
+  border-radius: 5px;
+  background: #12151a;
+}
+
+.add-harness-candidates label {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  align-items: center;
+  gap: 9px;
+  padding: 10px 11px;
+  border-bottom: 1px solid #252a32;
+}
+
+.add-harness-candidates label:last-child {
+  border-bottom: 0;
+}
+
+.add-harness-candidates label > span,
+.add-harness-manual label {
+  display: grid;
+  gap: 3px;
+}
+
+.add-harness-candidates small,
+.add-harness-manual label > span {
+  color: #7f8997;
+  font-size: 9px;
+}
+
+.add-harness-candidates p {
+  padding: 12px;
+}
+
+.add-harness-manual {
+  padding: 10px;
+  border: 1px solid #303640;
+  border-radius: 5px;
+  background: #15181e;
+}
+
+.add-harness-manual label {
+  flex: 1;
+}
+
+.add-harness-manual select {
+  min-width: 250px;
+}
+
+.project-dialog.harness-folder-picker {
   width: min(560px, calc(100vw - 48px));
   max-height: min(620px, calc(100vh - 48px));
 }
@@ -1406,6 +1515,19 @@ button {
   .settings-profile-row.path,
   .settings-profile-executable {
     grid-template-columns: 1fr;
+  }
+
+  .settings-harnesses > header,
+  .settings-harness-actions,
+  .add-harness-heading,
+  .add-harness-manual {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .add-harness-manual select {
+    min-width: 0;
+    width: 100%;
   }
 }
 

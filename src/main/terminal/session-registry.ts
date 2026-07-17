@@ -13,6 +13,7 @@ import {
 } from '../../shared'
 import type { ProjectHost } from '../project-host'
 import { harnessProvider } from '../harness/harness-provider'
+import type { HarnessRecoveryProfileReference } from '../harness/harness-profile-store'
 
 const FILE_VERSION = 3
 const LEGACY_PROVIDER_FILE_VERSION = 2
@@ -155,6 +156,14 @@ export class TerminalSessionRegistry implements TerminalSessionStore {
           left.position - right.position || left.updatedAt - right.updatedAt,
       )
       .map(({ projectRoot: _projectRoot, ...session }) => session)
+  }
+
+  profileReferences(): readonly HarnessRecoveryProfileReference[] {
+    return [...this.sessions.values()].map((session) => ({
+      providerId: session.providerId,
+      profileId: session.profileId,
+      launchRevision: session.launchRevision,
+    }))
   }
 
   recordSpawn(spawn: RecordTerminalSpawn): Promise<void> {

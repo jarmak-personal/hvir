@@ -39,7 +39,9 @@ export function profileRiskAcknowledged(profile: HarnessProfile): boolean {
 export function probeAllowsAutoRestore(
   probes: readonly HarnessProfileProbe[],
   record: TerminalRecoverySession,
+  profile?: HarnessProfile,
 ): boolean {
+  if (profile?.builtIn) return record.harnessSessionId === undefined
   const probe = probes.find(
     (candidate) =>
       candidate.providerId === record.providerId &&

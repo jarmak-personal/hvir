@@ -50,11 +50,20 @@ export interface SaveHarnessProfile {
   readonly input: HarnessProfileInput
 }
 
+export interface HarnessRecoveryProfileReference {
+  readonly providerId: HarnessProfile['providerId']
+  readonly profileId: HarnessProfileId
+  readonly launchRevision: number
+}
+
 export interface HarnessProfileStoreContract {
   list(projectRoot?: HostPath): readonly HarnessProfile[]
   get(id: HarnessProfileId): HarnessProfile | undefined
   prepare(request: SaveHarnessProfile): HarnessProfile
   save(request: SaveHarnessProfile): Promise<HarnessProfile>
+  materializeTemplates(
+    providerIds: readonly HarnessProfile['providerId'][],
+  ): Promise<readonly HarnessProfile[]>
   acknowledgeRisk(id: HarnessProfileId, launchRevision: number): Promise<HarnessProfile>
   duplicate(id: HarnessProfileId): Promise<HarnessProfile>
   delete(id: HarnessProfileId): Promise<void>
@@ -118,6 +127,73 @@ export class HarnessProfileStore implements HarnessProfileStoreContract {
     return store
   }
 
+  async importLegacyDefaults(
+    references: readonly HarnessRecoveryProfileReference[],
+  ): Promise<readonly HarnessProfile[]> {
+    const grouped = new Map<
+      HarnessProfileId,
+      { providerId: HarnessProfile['providerId']; revisions: Set<number> }
+    >()
+    for (const reference of references) {
+      const current = grouped.get(reference.profileId)
+      if (current) {
+        if (current.providerId !== reference.providerId) current.revisions.add(-1)
+        current.revisions.add(reference.launchRevision)
+      } else {
+        grouped.set(reference.profileId, {
+          providerId: reference.providerId,
+          revisions: new Set([reference.launchRevision]),
+        })
+      }
+    }
+
+    const imported: HarnessProfile[] = []
+    for (const [profileId, reference] of grouped) {
+      if (this.get(profileId) || reference.revisions.size !== 1) continue
+      const [launchRevision] = reference.revisions
+      if (!launchRevision || launchRevision < 1) continue
+      let provider: HarnessProvider
+      try {
+        provider = harnessProvider(reference.providerId)
+      } catch {
+        continue
+      }
+      const template = provider.profile.defaultProfile
+      if (
+        provider.manifest.default ||
+        !template ||
+        template.id !== profileId ||
+        provider.profile.version !== launchRevision ||
+        this.userProfiles.size + imported.length >= MAX_PROFILES
+      ) {
+        continue
+      }
+      const input = templateInput(provider, nextProfileOrder(this.userProfiles, imported))
+      imported.push({
+        ...input,
+        id: profileId,
+        launchRevision,
+        metadataRevision: 1,
+        providerContractVersion: provider.profile.version,
+        builtIn: false,
+        risk: classifyProfileRisk(provider, input),
+      })
+    }
+    if (imported.length === 0) return imported
+    for (const profile of imported) this.userProfiles.set(profile.id, profile)
+    try {
+      await this.persist()
+      return imported
+    } catch (reason) {
+      for (const profile of imported) {
+        if (this.userProfiles.get(profile.id) === profile) {
+          this.userProfiles.delete(profile.id)
+        }
+      }
+      throw reason
+    }
+  }
+
   list(projectRoot?: HostPath): readonly HarnessProfile[] {
     return [...builtInProfiles(), ...this.userProfiles.values()]
       .filter(
@@ -128,6 +204,7 @@ export class HarnessProfileStore implements HarnessProfileStoreContract {
       )
       .sort(
         (left, right) =>
+          Number(right.builtIn) - Number(left.builtIn) ||
           left.order - right.order ||
           left.displayName.localeCompare(right.displayName) ||
           left.id.localeCompare(right.id),
@@ -161,6 +238,50 @@ export class HarnessProfileStore implements HarnessProfileStoreContract {
         throw reason
       },
     )
+  }
+
+  async materializeTemplates(
+    providerIds: readonly HarnessProfile['providerId'][],
+  ): Promise<readonly HarnessProfile[]> {
+    const requested = new Set(providerIds)
+    if (requested.size !== providerIds.length) {
+      throw new Error('Duplicate harness provider template')
+    }
+    const providers = harnessProviders
+      .all()
+      .filter(
+        (provider) =>
+          requested.has(provider.manifest.id) &&
+          !provider.manifest.default &&
+          provider.profile.defaultProfile !== undefined,
+      )
+    if (providers.length !== requested.size) {
+      throw new Error('Unknown or non-materializable harness provider template')
+    }
+    if (this.userProfiles.size + providers.length > MAX_PROFILES) {
+      throw new Error(`Harness profiles are limited to ${MAX_PROFILES}`)
+    }
+    const created: HarnessProfile[] = []
+    try {
+      for (const provider of providers) {
+        const input = templateInput(
+          provider,
+          nextProfileOrder(this.userProfiles, created),
+        )
+        const profile = this.prepare({ input })
+        this.userProfiles.set(profile.id, profile)
+        created.push(profile)
+      }
+      await this.persist()
+      return created
+    } catch (reason) {
+      for (const profile of created) {
+        if (this.userProfiles.get(profile.id) === profile) {
+          this.userProfiles.delete(profile.id)
+        }
+      }
+      throw reason
+    }
   }
 
   prepare(request: SaveHarnessProfile): HarnessProfile {
@@ -322,24 +443,32 @@ function parsePathGrant(value: unknown): HarnessPathGrant | undefined {
 }
 
 export function builtInProfiles(): readonly HarnessProfile[] {
+  const provider = harnessProviders.all().find(({ manifest }) => manifest.default)
+  if (!provider?.profile.defaultProfile) return []
+  const input = templateInput(provider, 0)
+  return [
+    {
+      ...input,
+      id: provider.profile.defaultProfile.id,
+      launchRevision: provider.profile.version,
+      metadataRevision: 1,
+      providerContractVersion: provider.profile.version,
+      builtIn: true,
+      risk: classifyProfileRisk(provider, input),
+    },
+  ]
+}
+
+/** Ephemeral provider-owned defaults used only for detection and migration. */
+export function providerTemplateProfiles(): readonly HarnessProfile[] {
   return harnessProviders.all().flatMap((provider, order) => {
-    const defaults = provider.profile.defaultProfile
-    if (!defaults) return []
-    const input: HarnessProfileInput = {
-      displayName: defaults.displayName,
-      description: defaults.description,
-      providerId: provider.manifest.id,
-      scope: { kind: 'global' },
-      executable: { kind: 'provider-default' },
-      args: [],
-      environment: [],
-      pathBindings: [],
-      order,
-    }
+    const template = provider.profile.defaultProfile
+    if (!template || provider.manifest.default) return []
+    const input = templateInput(provider, order)
     return [
       {
         ...input,
-        id: defaults.id,
+        id: template.id,
         launchRevision: provider.profile.version,
         metadataRevision: 1,
         providerContractVersion: provider.profile.version,
@@ -348,6 +477,33 @@ export function builtInProfiles(): readonly HarnessProfile[] {
       },
     ]
   })
+}
+
+function templateInput(provider: HarnessProvider, order: number): HarnessProfileInput {
+  const template = provider.profile.defaultProfile
+  if (!template)
+    throw new Error(`Harness provider '${provider.manifest.id}' has no template`)
+  return {
+    displayName: template.displayName,
+    description: template.description,
+    providerId: provider.manifest.id,
+    scope: { kind: 'global' },
+    executable: { kind: 'provider-default' },
+    args: [],
+    environment: [],
+    pathBindings: [],
+    order,
+  }
+}
+
+function nextProfileOrder(
+  profiles: ReadonlyMap<HarnessProfileId, HarnessProfile>,
+  pending: readonly HarnessProfile[],
+): number {
+  return Math.min(
+    MAX_PROFILES - 1,
+    Math.max(0, ...[...profiles.values(), ...pending].map(({ order }) => order + 1)),
+  )
 }
 
 export function validateProfileInput(value: HarnessProfileInput): HarnessProfileInput {

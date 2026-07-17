@@ -4,7 +4,10 @@ import { join } from 'node:path'
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { HarnessProfileStore } from '../src/main/harness/harness-profile-store'
+import {
+  HarnessProfileStore,
+  providerTemplateProfiles,
+} from '../src/main/harness/harness-profile-store'
 import { LocalHost } from '../src/main/project-host/local-host'
 import {
   asHarnessProfileId,
@@ -34,9 +37,9 @@ describe('HarnessProfileStore', () => {
     await rm(directory, { recursive: true, force: true })
   })
 
-  it('ships immutable deterministic defaults and excludes Custom until configured', () => {
-    expect(store.list().map(({ id }) => id)).toEqual([
-      'plain-shell-default',
+  it('computes only immutable bare Shell and keeps harness defaults as templates', () => {
+    expect(store.list().map(({ id }) => id)).toEqual(['plain-shell-default'])
+    expect(providerTemplateProfiles().map(({ id }) => id)).toEqual([
       'claude-code-default',
       'codex-default',
       'pi-default',
@@ -46,10 +49,54 @@ describe('HarnessProfileStore', () => {
     ])
     expect(() =>
       store.save({
-        id: asHarnessProfileId('codex-default'),
-        input: input({ displayName: 'Changed' }),
+        id: asHarnessProfileId('plain-shell-default'),
+        input: input({
+          displayName: 'Changed',
+          providerId: asHarnessProviderId('plain-shell'),
+        }),
       }),
     ).toThrow(/immutable/)
+  })
+
+  it('materializes selected templates as editable global profiles in catalog order', async () => {
+    const created = await store.materializeTemplates([
+      asHarnessProviderId('codex'),
+      asHarnessProviderId('claude-code'),
+    ])
+    expect(created.map(({ providerId }) => providerId)).toEqual(['claude-code', 'codex'])
+    expect(
+      created.every(({ builtIn, scope }) => !builtIn && scope.kind === 'global'),
+    ).toBe(true)
+    expect(store.list()[0]?.id).toBe('plain-shell-default')
+
+    const another = await store.materializeTemplates([asHarnessProviderId('claude-code')])
+    expect(another[0]?.id).not.toBe(created[0]?.id)
+    expect(
+      store.list().filter(({ providerId }) => providerId === 'claude-code'),
+    ).toHaveLength(2)
+  })
+
+  it('imports only exact legacy default ids and launch revisions', async () => {
+    const imported = await store.importLegacyDefaults([
+      {
+        providerId: asHarnessProviderId('claude-code'),
+        profileId: asHarnessProfileId('claude-code-default'),
+        launchRevision: 1,
+      },
+      {
+        providerId: asHarnessProviderId('codex'),
+        profileId: asHarnessProfileId('codex-default'),
+        launchRevision: 2,
+      },
+    ])
+    expect(imported).toHaveLength(1)
+    expect(imported[0]).toMatchObject({
+      id: 'claude-code-default',
+      providerId: 'claude-code',
+      launchRevision: 1,
+      builtIn: false,
+    })
+    expect(store.get(asHarnessProfileId('codex-default'))).toBeUndefined()
   })
 
   it('keeps cosmetic metadata separate from launch revision', async () => {

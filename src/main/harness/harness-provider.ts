@@ -361,6 +361,12 @@ export class HarnessProviderRegistry {
         exactResume: provider.supportsResume,
         contextPresentation: provider.manifest.contextPresentation,
       },
+      profileTemplate: provider.profile.defaultProfile
+        ? {
+            displayName: provider.profile.defaultProfile.displayName,
+            description: provider.profile.defaultProfile.description,
+          }
+        : undefined,
       profileGuidance: {
         reservedArguments: provider.profile.reservedArguments,
         riskClassification: 'best-effort',

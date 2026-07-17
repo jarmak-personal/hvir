@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest'
 
-import { builtInProfiles } from '../src/main/harness/harness-profile-store'
+import {
+  builtInProfiles,
+  providerTemplateProfiles,
+} from '../src/main/harness/harness-profile-store'
 import {
   autoRecoverableProfile,
   profileRiskAcknowledged,
@@ -11,7 +14,7 @@ import { asHostId, hostPath, type TerminalRecoverySession } from '../src/shared'
 
 describe('profile-bound terminal recovery', () => {
   const root = hostPath(asHostId('recovery-host'), '/project')
-  const profile = builtInProfiles().find(
+  const profile = providerTemplateProfiles().find(
     (candidate) => candidate.id === 'claude-code-default',
   )!
   const record: TerminalRecoverySession = {
@@ -27,6 +30,23 @@ describe('profile-bound terminal recovery', () => {
     active: true,
     updatedAt: 1,
   }
+
+  it('restores computed bare Shell without requiring a probe', () => {
+    const shell = builtInProfiles()[0]!
+    expect(
+      probeAllowsAutoRestore(
+        [],
+        {
+          ...record,
+          providerId: shell.providerId,
+          profileId: shell.id,
+          launchRevision: shell.launchRevision,
+          harnessSessionId: undefined,
+        },
+        shell,
+      ),
+    ).toBe(true)
+  })
 
   it('ignores cosmetic metadata but rejects launch revision drift', () => {
     expect(

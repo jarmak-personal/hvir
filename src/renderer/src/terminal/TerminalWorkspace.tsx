@@ -37,6 +37,14 @@ import {
   probeAllowsAutoRestore,
   recoverableProfile,
 } from './terminal-profile-recovery'
+import {
+  bareShellLaunchChoice,
+  compactHarnessCapabilityLabel,
+  harnessLaunchMenuState,
+} from './harness-launch-menu'
+
+const LAST_KNOWN_PROBE_LIMIT = 500
+const lastKnownAvailableProbes = new Map<string, HarnessProfileProbe>()
 
 interface TerminalSession {
   readonly id: string
@@ -72,6 +80,7 @@ interface TerminalWorkspaceProps {
   readonly terminalTheme: TerminalThemeOverride
   readonly onOpenSettings: () => void
   readonly onOpenHarnessSettings: () => void
+  readonly onAddHarness: () => void
 }
 
 export interface TerminalWorkspaceRollup {
@@ -93,6 +102,7 @@ export function TerminalWorkspace({
   terminalTheme,
   onOpenSettings,
   onOpenHarnessSettings,
+  onAddHarness,
 }: TerminalWorkspaceProps): ReactElement {
   const appTheme = useAppTheme()
   const effectiveTerminalTheme = terminalTheme === 'app' ? appTheme : terminalTheme
@@ -109,6 +119,9 @@ export function TerminalWorkspace({
   const [providers, setProviders] = useState<readonly HarnessProviderDescriptor[]>([])
   const [profiles, setProfiles] = useState<readonly HarnessProfile[]>([])
   const [probes, setProbes] = useState<readonly HarnessProfileProbe[]>([])
+  const [pendingProbeIds, setPendingProbeIds] = useState<ReadonlySet<HarnessProfileId>>(
+    new Set(),
+  )
   const [sessions, setSessions] = useState<readonly TerminalSession[]>([])
   const [activeId, setActiveId] = useState<string>()
   const [menuOpen, setMenuOpen] = useState(false)
@@ -138,12 +151,9 @@ export function TerminalWorkspace({
   visibleRef.current = visible
   availableRef.current = available
   recoveryModeRef.current = recoveryMode
-  const defaultProvider = providers.find((provider) => provider.default)
-  const defaultProfile = defaultProvider
-    ? profiles.find(
-        (profile) => profile.builtIn && profile.providerId === defaultProvider.id,
-      )
-    : undefined
+  const bareShell = bareShellLaunchChoice(providers, profiles)
+  const defaultProvider = bareShell?.provider
+  const defaultProfile = bareShell?.profile
 
   useEffect(() => {
     const timers = idleTimers.current
@@ -211,14 +221,39 @@ export function TerminalWorkspace({
   }, [workspaceRoot])
 
   const refreshProbes = (force = false): void => {
-    void window.hvir
-      .invoke('harness:probe-profiles', {
-        root: workspaceRoot,
-        profileIds: profiles.map((profile) => profile.id),
-        force,
-      })
-      .then(setProbes)
-      .catch(() => undefined)
+    const now = Date.now()
+    const candidates = profiles.filter((profile) => {
+      if (profile.builtIn) return false
+      const current = profileProbe(probes, profile)
+      return force || !current?.expiresAt || current.expiresAt <= now
+    })
+    if (candidates.length === 0) return
+    setPendingProbeIds((current) => {
+      const next = new Set(current)
+      for (const profile of candidates) next.add(profile.id)
+      return next
+    })
+    for (const profile of candidates) {
+      void window.hvir
+        .invoke('harness:probe-profiles', {
+          root: workspaceRoot,
+          profileIds: [profile.id],
+          force,
+        })
+        .then(([probe]) => {
+          if (!probe) return
+          setProbes((current) => mergeProbe(current, probe))
+          if (probe.status === 'available') rememberAvailableProbe(workspaceRoot, probe)
+        })
+        .catch(() => undefined)
+        .finally(() =>
+          setPendingProbeIds((current) => {
+            const next = new Set(current)
+            next.delete(profile.id)
+            return next
+          }),
+        )
+    }
   }
 
   useEffect(() => {
@@ -226,6 +261,13 @@ export function TerminalWorkspace({
     // Probe refresh is intentionally menu-driven and never part of first paint.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [menuOpen])
+
+  useEffect(() => {
+    if (menuOpen) refreshProbes(true)
+    // Reconnect changes the main-owned cache generation. Keep last-known-good
+    // rows visible while the fresh host result resolves.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [connectionState])
 
   useEffect(() => {
     let cancelled = false
@@ -238,6 +280,7 @@ export function TerminalWorkspace({
     setRecoveryCandidates([])
     setProfiles([])
     setProbes([])
+    setPendingProbeIds(new Set())
     setSessions([])
     setActiveId(undefined)
     activePaneRef.current = 'primary'
@@ -253,13 +296,8 @@ export function TerminalWorkspace({
         if (cancelled) return
         setProviders(catalog)
         setProfiles(launchProfiles)
-        const defaultHarness = catalog.find((provider) => provider.default)
-        const defaultLaunchProfile = defaultHarness
-          ? launchProfiles.find(
-              (profile) => profile.builtIn && profile.providerId === defaultHarness.id,
-            )
-          : undefined
-        if (!defaultHarness || !defaultLaunchProfile) {
+        const defaultLaunch = bareShellLaunchChoice(catalog, launchProfiles)
+        if (!defaultLaunch) {
           setRecoveryReady(true)
           return
         }
@@ -267,8 +305,8 @@ export function TerminalWorkspace({
           shouldCreateDefault.current = availableRef.current
           if (visibleRef.current && availableRef.current) {
             const session = createSession(
-              defaultLaunchProfile,
-              defaultHarness,
+              defaultLaunch.profile,
+              defaultLaunch.provider,
               workspaceRoot,
               'primary',
             )
@@ -302,15 +340,26 @@ export function TerminalWorkspace({
       return
     }
     let cancelled = false
+    const profileIds = recoveryCandidates.flatMap((candidate) => {
+      const profile = recoverableProfile(profiles, candidate)
+      return profile?.builtIn ? [] : [candidate.profileId]
+    })
+    if (profileIds.length === 0) {
+      setRecoveryProbesReady(true)
+      return
+    }
     void window.hvir
       .invoke('harness:probe-profiles', {
         root: workspaceRoot,
-        profileIds: recoveryCandidates.map((candidate) => candidate.profileId),
+        profileIds,
       })
       .then(
         (values) => {
           if (cancelled) return
           setProbes(values)
+          for (const probe of values) {
+            if (probe.status === 'available') rememberAvailableProbe(workspaceRoot, probe)
+          }
           setRecoveryProbesReady(true)
         },
         () => {
@@ -320,7 +369,14 @@ export function TerminalWorkspace({
     return () => {
       cancelled = true
     }
-  }, [available, recoveryCandidates, recoveryProbesReady, visible, workspaceRoot])
+  }, [
+    available,
+    profiles,
+    recoveryCandidates,
+    recoveryProbesReady,
+    visible,
+    workspaceRoot,
+  ])
 
   useEffect(() => {
     if (
@@ -333,12 +389,14 @@ export function TerminalWorkspace({
       return
     if (recoveryCandidates.length > 0 && recoveryMode === 'auto' && recoveryProbesReady) {
       if (
-        recoveryCandidates.some(
-          (candidate) =>
+        recoveryCandidates.some((candidate) => {
+          const profile = autoRecoverableProfile(profiles, candidate)
+          return (
             !providerDescriptor(providers, candidate.providerId) ||
-            !autoRecoverableProfile(profiles, candidate) ||
-            !probeAllowsAutoRestore(probes, candidate),
-        )
+            !profile ||
+            !probeAllowsAutoRestore(probes, candidate, profile)
+          )
+        })
       ) {
         return
       }
@@ -640,6 +698,24 @@ export function TerminalWorkspace({
         '--terminal-primary-track': `${restoredSplitLayout.current.primaryWidth}px`,
       } as CSSProperties)
     : undefined
+  const launchMenuEntries = profiles.map((profile) => {
+    const probe = profileProbe(probes, profile)
+    const needsCheck =
+      !profile.builtIn && (!probe?.expiresAt || probe.expiresAt <= Date.now())
+    return {
+      profile,
+      provider: providerDescriptor(providers, profile.providerId),
+      state: harnessLaunchMenuState(
+        profile,
+        probe,
+        lastKnownAvailableProbe(workspaceRoot, profile),
+        pendingProbeIds.has(profile.id) || (menuOpen && needsCheck),
+      ),
+    }
+  })
+  const checkingHiddenProfiles = launchMenuEntries.some(
+    ({ state }) => !state.visible && state.checking,
+  )
 
   return (
     <>
@@ -802,16 +878,25 @@ export function TerminalWorkspace({
               </button>
               {menuOpen ? (
                 <div className="terminal-new-menu" role="menu">
-                  {profiles.map((profile) => {
-                    const provider = providerDescriptor(providers, profile.providerId)
-                    const probe = profileProbe(probes, profile)
+                  {launchMenuEntries.flatMap(({ profile, provider, state }) => {
+                    if (!state.visible) return []
+                    const capability = compactHarnessCapabilityLabel(
+                      provider?.default === true,
+                      state.probe?.capabilities ?? provider?.capabilities,
+                    )
+                    const details = [
+                      provider && provider.displayName !== profile.displayName
+                        ? provider.displayName
+                        : undefined,
+                      capability,
+                      state.checking ? 'Checking…' : undefined,
+                    ].filter((value): value is string => Boolean(value))
                     return (
                       <button
                         key={profile.id}
                         type="button"
                         role="menuitem"
-                        disabled={probeLaunchUnavailable(probe)}
-                        title={probe?.detail}
+                        title={launchMenuDescription(profile, provider, state.probe)}
                         onClick={() => addSession(profile.id)}
                       >
                         <span>
@@ -822,15 +907,26 @@ export function TerminalWorkspace({
                             </em>
                           )}
                         </span>
-                        <small>
-                          {provider?.displayName ?? profile.providerId} ·{' '}
-                          {probeLabel(probe)} ·{' '}
-                          {capabilityLabel(probe?.capabilities ?? provider?.capabilities)}
-                        </small>
+                        {details.length > 0 ? <small>{details.join(' · ')}</small> : null}
                       </button>
                     )
                   })}
+                  {checkingHiddenProfiles ? (
+                    <div className="terminal-new-menu-checking" role="status">
+                      Checking configured harnesses…
+                    </div>
+                  ) : null}
                   <div className="terminal-new-menu-actions">
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        setMenuOpen(false)
+                        onAddHarness()
+                      }}
+                    >
+                      Add a harness…
+                    </button>
                     <button
                       type="button"
                       role="menuitem"
@@ -1251,7 +1347,7 @@ function TerminalRecoveryDialog({
                       `Unavailable provider (${session.providerId})`}{' '}
                     · {basenameHostPath(session.cwd)} ·{' '}
                     {provider && profile
-                      ? `${restoreActionLabel(session, probe?.capabilities ?? provider.capabilities)} · ${probeLabel(probe)}${profile.risk === 'standard' ? '' : ` · acknowledge ${riskLabel(profile.risk)}`}`
+                      ? `${profile.builtIn ? 'New shell' : `${restoreActionLabel(session, probe?.capabilities ?? provider.capabilities)} · ${probeLabel(probe)}`}${profile.risk === 'standard' ? '' : ` · acknowledge ${riskLabel(profile.risk)}`}`
                       : recoveryIssue(session, provider, profiles)}
                   </small>
                   {provider && !profile && sameProviderProfiles.length > 0 ? (
@@ -1572,16 +1668,6 @@ function probeLabel(probe: HarnessProfileProbe | undefined): string {
   }
 }
 
-function capabilityLabel(capabilities: HarnessProviderCapabilities | undefined): string {
-  if (!capabilities) return 'Launch status unknown'
-  if (capabilities.exactResume && capabilities.contextPresentation !== 'none') {
-    return 'Exact recovery + telemetry'
-  }
-  if (capabilities.exactResume) return 'Exact recovery'
-  if (capabilities.contextPresentation !== 'none') return 'Telemetry'
-  return 'Launch only'
-}
-
 function recoveryIssue(
   session: TerminalRecoverySession,
   provider: HarnessProviderDescriptor | undefined,
@@ -1595,6 +1681,69 @@ function recoveryIssue(
     return `Launch revision changed (${session.launchRevision} → ${current.launchRevision})`
   }
   return 'Cannot restore'
+}
+
+function mergeProbe(
+  probes: readonly HarnessProfileProbe[],
+  next: HarnessProfileProbe,
+): readonly HarnessProfileProbe[] {
+  return [
+    ...probes.filter(
+      (probe) =>
+        probe.profileId !== next.profileId ||
+        probe.launchRevision !== next.launchRevision ||
+        probe.hostId !== next.hostId,
+    ),
+    next,
+  ]
+}
+
+function probeMemoryKey(
+  root: HostPath,
+  profile: Pick<HarnessProfile, 'id' | 'launchRevision'>,
+): string {
+  return JSON.stringify([root.hostId, root.path, profile.id, profile.launchRevision])
+}
+
+function rememberAvailableProbe(root: HostPath, probe: HarnessProfileProbe): void {
+  const key = probeMemoryKey(root, {
+    id: probe.profileId,
+    launchRevision: probe.launchRevision,
+  })
+  lastKnownAvailableProbes.delete(key)
+  lastKnownAvailableProbes.set(key, probe)
+  while (lastKnownAvailableProbes.size > LAST_KNOWN_PROBE_LIMIT) {
+    const oldest = lastKnownAvailableProbes.keys().next().value
+    if (oldest === undefined) break
+    lastKnownAvailableProbes.delete(oldest)
+  }
+}
+
+function lastKnownAvailableProbe(
+  root: HostPath,
+  profile: HarnessProfile,
+): HarnessProfileProbe | undefined {
+  return lastKnownAvailableProbes.get(probeMemoryKey(root, profile))
+}
+
+function launchMenuDescription(
+  profile: HarnessProfile,
+  provider: HarnessProviderDescriptor | undefined,
+  probe: HarnessProfileProbe | undefined,
+): string {
+  const capability = compactHarnessCapabilityLabel(
+    provider?.default === true,
+    probe?.capabilities ?? provider?.capabilities,
+  )
+  return [
+    profile.displayName,
+    provider?.displayName ?? profile.providerId,
+    capability,
+    probe ? probeLabel(probe) : undefined,
+    probe?.detail,
+  ]
+    .filter((value): value is string => Boolean(value))
+    .join(' · ')
 }
 
 function message(reason: unknown): string {

@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { HarnessProbeManager } from '../src/main/harness/harness-probe'
 import {
   builtInProfiles,
+  providerTemplateProfiles,
   type HarnessProfileStoreContract,
 } from '../src/main/harness/harness-profile-store'
 import type { ProjectHost } from '../src/main/project-host'
@@ -171,7 +172,7 @@ function probeRequest(
   providerId = 'claude-code',
   workspacePath = '/project',
 ) {
-  const profile = builtInProfiles().find(
+  const profile = [...builtInProfiles(), ...providerTemplateProfiles()].find(
     (candidate) => candidate.providerId === providerId,
   )!
   const root = hostPath(host.hostId, '/project')
@@ -185,6 +186,7 @@ function probeRequest(
       get: () => profile,
       prepare: () => profile,
       save: () => Promise.resolve(profile),
+      materializeTemplates: () => Promise.resolve([]),
       acknowledgeRisk: () => Promise.resolve(profile),
       duplicate: () => Promise.resolve(profile),
       delete: () => Promise.resolve(),

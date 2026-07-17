@@ -127,7 +127,7 @@ export function App(): ReactElement {
   const [showAddProject, setShowAddProject] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
   const [settingsInitialSection, setSettingsInitialSection] = useState<
-    'general' | 'harnesses'
+    'general' | 'harnesses' | 'harnesses-add'
   >('general')
   const [sessionBusy, setSessionBusy] = useState(false)
   const [sessionError, setSessionError] = useState<string>()
@@ -1518,6 +1518,10 @@ export function App(): ReactElement {
               }}
               onOpenHarnessSettings={() => {
                 setSettingsInitialSection('harnesses')
+                setShowSettings(true)
+              }}
+              onAddHarness={() => {
+                setSettingsInitialSection('harnesses-add')
                 setShowSettings(true)
               }}
             />

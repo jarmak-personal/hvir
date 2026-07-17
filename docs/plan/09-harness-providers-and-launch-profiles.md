@@ -1,8 +1,8 @@
 # Phase 9 — Harness providers & launch profiles
 
-**Status:** Milestone 9a acceptance refinement planned; original implementation complete,
-with real-host and Milestone 0 soak acceptance still pending. Milestone 9b provider upgrades
-are independent follow-ups and do not block Phase 9 completion.
+**Status:** Milestone 9a implemented with automated verification complete; local/SSH UX
+acceptance and the Milestone 0 soak remain pending. Milestone 9b provider upgrades are
+independent follow-ups and do not block Phase 9 completion.
 
 Implementation proceeded on an explicitly authorized feature branch while the Phase 8 gate
 remains open. The exception permits implementation and automated verification only; it does
@@ -47,7 +47,8 @@ without making the launch-row label flicker.
   Shell is the deliberate exception:** it is the terminal primitive every host supplies, not
   an opt-in harness. Its immutable default is always item 0, cannot be disabled in this
   phase, needs no probe, and carries no `Launch only` deficiency label. Users may still add
-  custom shell profiles without replacing the bare fallback.
+  custom shell profiles without replacing the bare fallback; every profile backed by the
+  Shell provider omits the capability label because integration is inapplicable.
 - A fresh user-profile store contains no opt-in harness profiles. The New terminal menu
   therefore begins with bare Shell and an `Add a harness…` action rather than materializing
   every registered harness provider automatically. Opening a workspace creates one bare
@@ -57,8 +58,9 @@ without making the launch-row label flicker.
   initially unchecked multi-select, excluding the already-present bare Shell. Candidate rows
   populate progressively with their own checking state under the per-host probe bound;
   the dialog never waits for the whole catalog. `Add manually…` can create a known-provider
-  profile with a custom executable, an additional shell, or a Custom command profile. This
-  discovery flow never installs, updates, authenticates, or downloads a harness.
+  profile with a custom executable, an additional shell, or a Custom command profile. Detected
+  selections default to global scope and append in catalog order. This discovery flow never
+  installs, updates, authenticates, or downloads a harness.
 - Selecting a provider template creates an ordinary user-owned launch profile. A provider
   describes a harness; a profile describes how this user wants to launch it. Multiple
   editable, renameable, and deleteable profiles may reference one provider, such as
@@ -85,7 +87,8 @@ without making the launch-row label flicker.
   telemetry.
 - Main probes availability and effective capabilities per host/profile launch revision. The
   launch menu always shows bare Shell, then same-host last-known-good configured profiles
-  immediately with a subtle `Checking…` state while stale/reconnect probes refresh. A
+  immediately from a renderer-memory-only last-known-good cache with a subtle `Checking…`
+  state while stale/reconnect probes refresh. A
   never-probed profile stays suppressed until its first positive result, while one aggregate
   non-blocking checking row keeps Refresh/configuration actions interactive. A later negative
   result removes the launch row but never the configuration. Settings retains
@@ -98,8 +101,9 @@ without making the launch-row label flicker.
   probe status. `Integrated` requires exact host/project/session correlation plus a live
   structured `HarnessSnapshot` with at least one meaningful session-state facet and one
   trustworthy usage, cost, token, or context-pressure facet. Unsupported and stale data
-  remain explicit; terminal-screen scraping never qualifies. Bare Shell omits the capability
-  label because provider integration is inapplicable rather than deficient.
+  remain explicit; terminal-screen scraping never qualifies. Every Shell-backed profile
+  omits the capability label because provider integration is inapplicable rather than
+  deficient.
 - Profiles that request a provider-known permission/sandbox bypass are marked **Elevated**;
   Custom profiles and provider options whose risk is not understood are **Unclassified**.
   Their warning and auto-restore choice are explicit and tied to the launch revision.
@@ -434,44 +438,44 @@ This bounded milestone supersedes those product choices without weakening the pr
 the one intentional built-in because it is terminal infrastructure, not an opt-in harness.
 Keep these commits local until the user finishes the expanded acceptance pass.
 
-- [ ] Retain one immutable, non-disableable bare Shell profile as menu item 0 on every host.
+- [x] Retain one immutable, non-disableable bare Shell profile as menu item 0 on every host.
       It requires no detection and shows no `Launch only` label. A fresh store contains no
       other profiles, but users may create additional named shell/custom-command profiles.
-- [ ] Specify all implicit default-terminal actions: opening a workspace with no restorable
+- [x] Specify all implicit default-terminal actions: opening a workspace with no restorable
       terminal creates bare Shell, Split creates bare Shell in the new pane, and neither
       action selects the first configured harness or depends on menu order.
-- [ ] Replace automatically materialized harness profiles with provider-owned templates.
+- [x] Replace automatically materialized harness profiles with provider-owned templates.
       Registry enumeration alone never creates a user-visible opt-in harness action.
-- [ ] Keep bare Shell first and make `Add a harness…` the primary configuration action. The
+- [x] Keep bare Shell first and make `Add a harness…` the primary configuration action. The
       add flow probes the active host, offers detected templates as an initially unchecked
       multi-select, and provides known-provider executable override, additional shell, and
       Custom command paths. Candidate rows resolve progressively with individual pending
       states under the existing two-probe host bound; the dialog never waits for all probes.
-- [ ] Materialize each selection as a normal user-owned profile. Permit any number of named
+- [x] Materialize each selection as a normal user-owned profile. Permit any number of named
       profiles per provider with independent argv, environment, path, executable, scope,
       risk acknowledgment, and revisions. Remove the immutable-harness duplication detour.
-- [ ] Preserve upgrade recovery through a dedicated migration path, not normal profile Save.
+- [x] Preserve upgrade recovery through a dedicated migration path, not normal profile Save.
       Imported non-Shell defaults keep the exact IDs and launch revisions referenced by
       existing recovery records. If exact import validation fails, retain the record for an
       explicit same-provider rebind; never mint a replacement ID silently, discard the
       record, or launch a different session.
-- [ ] Define the cold/stale menu state explicitly. Show bare Shell and same-host
+- [x] Define the cold/stale menu state explicitly. Show bare Shell and same-host
       last-known-good profiles immediately; mark stale/reconnect results `Checking…` while
       refreshing in the background. Suppress only never-probed profiles until their first
       positive result, with one non-blocking aggregate checking row. Remove a row after a
       current negative result while retaining its Settings entry and launch-failure refresh.
-- [ ] Keep unavailable configured profiles in Settings with their current-host reason,
+- [x] Keep unavailable configured profiles in Settings with their current-host reason,
       Refresh, edit, and delete actions; support local/SSH availability skew. Never hide
       configuration merely because the executable is absent from the active host.
-- [ ] Make the Harnesses settings surface use its intended wide responsive dialog and verify
+- [x] Make the Harnesses settings surface use its intended wide responsive dialog and verify
       the complete editor, previews, row actions, and footer at the minimum supported window
       size. Do not solve overflow by shrinking controls or truncating editable values.
-- [ ] Replace verbose harness-row prose with `Launch only` and `Integrated`, omit redundant
-      provider names, omit the capability label for bare Shell, and retain complete
-      capability/probe details in Settings and accessible descriptions. Treat Integrated as
-      a probed provider/version/profile capability; runtime snapshot freshness belongs to
-      each launched terminal and never flickers the launch-row label.
-- [ ] Add fixtures and tests for Shell item 0, workspace-open and Split defaults, batch and
+- [x] Replace verbose harness-row prose with `Launch only` and `Integrated`, omit redundant
+      provider names, omit the capability label for every Shell-backed profile, and retain
+      complete capability/probe details in Settings and accessible descriptions. Treat
+      Integrated as a probed provider/version/profile capability; runtime snapshot freshness
+      belongs to each launched terminal and never flickers the launch-row label.
+- [x] Add fixtures and tests for Shell item 0, workspace-open and Split defaults, batch and
       progressive add, manual add, multiple same-provider profiles, exact legacy ID/revision
       import, last-known-good cold menus, never-probed suppression, local/SSH skew, compact
       labels, responsive settings width, and keyboard/screen-reader behavior.
@@ -517,27 +521,27 @@ candidate CLIs.
 
 ## Acceptance criteria
 
-- [ ] Bare Shell is always launch-menu item 0, cannot be disabled, needs no probe, and has no
+- [x] Bare Shell is always launch-menu item 0, cannot be disabled, needs no probe, and has no
       capability label. With no restorable terminal, workspace open creates bare Shell;
       Split always creates bare Shell. A fresh store contains no other launch profiles.
-- [ ] `Add a harness…` progressively offers detected current-host suggestions plus an
+- [x] `Add a harness…` progressively offers detected current-host suggestions plus an
       explicit manual/additional-shell path and creates user-owned profiles only for the
       user's selections; slow candidates never hold the whole dialog open.
-- [ ] Users can create, name, edit, reorder, and delete multiple profiles for one provider.
+- [x] Users can create, name, edit, reorder, and delete multiple profiles for one provider.
       A configured executable missing on the active host is absent from the launch menu but
       remains repairable in Settings, including when local and SSH hosts differ.
-- [ ] On a cold or stale cache, bare Shell and same-host last-known-good profiles render
+- [x] On a cold or stale cache, bare Shell and same-host last-known-good profiles render
       immediately with non-blocking checking state. Never-probed rows wait for a positive
       result, and Refresh/configuration/menu interaction remains available throughout.
-- [ ] The settings surface is wide enough to show the full profile editor without the generic
+- [x] The settings surface is wide enough to show the full profile editor without the generic
       project-dialog width overriding it, while remaining responsive at the supported minimum
       window size.
-- [ ] Harness rows use only `Launch only` or `Integrated`; bare Shell omits the label.
-      Integrated is a stable probed capability of the provider/version/profile, not current
-      live state. Every launched Integrated terminal can produce an exact project/session
-      association and a provenance-bearing structured feed with meaningful session state and
-      usage/context information; runtime freshness is shown separately without relabeling the
-      launch choice.
+- [x] Harness rows use only `Launch only` or `Integrated`; Shell-backed profiles omit the
+      label. Integrated is a stable probed capability of the provider/version/profile, not
+      current live state. Every launched Integrated terminal can produce an exact
+      project/session association and a provenance-bearing structured feed with meaningful
+      session state and usage/context information; runtime freshness is shown separately
+      without relabeling the launch choice.
 
 - [ ] Bare Shell retains its existing effective launch on every host. Claude Code and Codex
       launch the same effective defaults after the user selects their templates, and a
@@ -713,6 +717,40 @@ required structured session and usage/context feed may be disclosed in Settings 
   legacy profile IDs collision-resistant and always valid. Its focused two-file regression
   run passed 35 tests, the full 358-test verification passed, and the pre-push production
   smoke returned `HVIR_SMOKE_OK`.
+
+### Milestone 9a — Shell-first opt-in refinement
+
+- Bare Shell is computed rather than persisted, sorted before every user profile, excluded
+  from ordinary and recovery probing, immutable, and selected explicitly for workspace-open
+  and Split defaults. Additional Shell profiles remain ordinary user-owned configuration and
+  omit the compact capability label.
+- Provider defaults are data-only catalog templates. New typed template-probe and atomic
+  materialization IPC keeps provider behavior in main; detected selections become editable
+  global profiles in registry order, and repeated materialization supports multiple profiles
+  for one provider. The manual route covers a known-provider executable override, another
+  shell, and the Custom command provider without enumerating provider IDs in React.
+- Startup imports only recovery-referenced legacy defaults whose provider, exact default ID,
+  launch revision, and current provider contract all agree. Import bypasses normal UUID/revision
+  assignment, rolls memory back on persistence failure, and otherwise leaves an unresolvable
+  record available for same-provider rebind.
+- Launch rows use the in-memory, host/workspace-qualified last-known-good result while a stale
+  or reconnect probe runs. Never-probed and currently negative profiles remain out of the menu;
+  Settings always retains them with progressive host-specific status and repair controls.
+- The focused Add Harness dialog probes candidates progressively under the main-owned two-slot
+  host bound, starts unchecked, traps focus, handles Escape, and exposes manual configuration.
+  The Settings selector now has sufficient specificity to override the generic 430 px project
+  dialog and uses a responsive 1120 px maximum without shrinking the structured editor.
+- `npm run verify` passed seam enforcement, lint, both TypeScript builds, all 366 tests across
+  50 files, and launcher validation. Focused coverage includes Shell item 0/default choice,
+  template ordering and repeated provider materialization, exact legacy import, cold/negative
+  menu policy, compact labels, responsive width, typed IPC, and recovery without a Shell probe.
+- `npm run smoke` returned `HVIR_SMOKE_OK`, including fresh-store Shell-only enumeration,
+  catalog-ordered opt-in materialization, structured Custom preview/PTY launch, recovery, and
+  cleanup. `npm run smoke:capacity` returned `HVIR_SMOKE_OK` with 12 live/restored terminals,
+  75 measured interactions, 17.7 ms p99 / 17.8 ms maximum frame gap, and +22 MiB net / +44 MiB
+  peak memory growth.
+- The expanded user-owned local/SSH UX acceptance pass remains open. These implementation
+  commits stay local and unpushed; Milestone 9b was not started.
 
 The original acceptance-only items remain open: the isolated Milestone 0 real local/SSH
 Claude/Codex restore soak, the shipped-provider real-host matrix, the three user-example

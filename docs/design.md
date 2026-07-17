@@ -860,17 +860,24 @@ provider-owned `--version`, help, or machine-readable surfaces, but there is no 
 parser that guesses semantics from arbitrary help text. Probe latency changes menu
 freshness, never first paint or terminal availability.
 
-**Launch profiles are configuration layered over providers.** hvir ships immutable default
-profiles for the plain shell and each bundled provider. Users may add global or
-project-scoped profiles such as `Claude Code — bypass permissions`, `Codex — monorepo`, or
-`My agent`. A profile contains a stable ID and a monotonic **launch revision** covering only
-launch-relevant identity: provider ID and launch-contract version, scope, executable, argv,
-environment/path bindings, and derived risk. It increments only when that normalized
-identity changes, including a bundled provider contract/risk-rule upgrade. Cosmetic
-metadata—display name, description, and menu order—is stored separately, with an independent
-metadata revision if concurrency requires one, and never invalidates recovery or risk
-acknowledgment. Saves compare both expected revisions so a launch-only edit cannot be
-silently overwritten by an editor holding a still-current cosmetic revision.
+**Launch profiles are configuration layered over providers.** Bare Shell is the one computed,
+immutable built-in: it is always menu item 0, needs no probe, and remains the default for an
+empty workspace and Split. Bundled harness providers expose data-only templates, but catalog
+enumeration never materializes them into a fresh user's launch menu. The user selects detected
+templates or starts a manual profile, producing ordinary editable global profiles in catalog
+order; any number may reference one provider. Existing recovery records that reference the old
+defaults use a dedicated import path that preserves their exact profile IDs and launch
+revisions. Users may add global or project-scoped profiles such as `Claude Code — bypass
+permissions`, `Codex — monorepo`, or `My agent`.
+
+A profile contains a stable ID and a monotonic **launch revision** covering only launch-relevant
+identity: provider ID and launch-contract version, scope, executable, argv, environment/path
+bindings, and derived risk. It increments only when that normalized identity changes, including
+a bundled provider contract/risk-rule upgrade. Cosmetic metadata—display name, description, and
+menu order—is stored separately, with an independent metadata revision if concurrency requires
+one, and never invalidates recovery or risk acknowledgment. Saves compare both expected
+revisions so a launch-only edit cannot be silently overwritten by an editor holding a
+still-current cosmetic revision.
 Project/workspace placeholders resolve only through a fixed vocabulary;
 every stored path is a `HostPath`, and arbitrary `$variable` or shell interpolation is not
 supported. A named binding outside the registered project requires an explicit main-owned

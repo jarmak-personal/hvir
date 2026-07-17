@@ -72,6 +72,11 @@ describe('Harness providers', () => {
       { id: 'custom', displayName: 'Custom' },
     ])
     expect(catalog.find(({ id }) => id === 'plain-shell')?.default).toBe(true)
+    expect(catalog.find(({ id }) => id === 'claude-code')?.profileTemplate).toEqual({
+      displayName: 'Claude Code',
+      description: 'Claude Code with exact hvir-managed session recovery.',
+    })
+    expect(catalog.find(({ id }) => id === 'custom')?.profileTemplate).toBeUndefined()
     expect(catalog.find(({ id }) => id === 'claude-code')?.capabilities).toEqual({
       sessionIdentity: 'preassigned',
       exactResume: true,
