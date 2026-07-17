@@ -823,6 +823,149 @@ platform (wasted bandwidth); a postinstall download from a separate release host
 version/integrity authority between npm and another service); macOS x64 (explicitly outside
 the supported hardware target).
 
+### ADR-012 — Harness providers and launch profiles, not an extension host
+
+**Decision:** After v1, evolve `HarnessAdapter` into a main-owned **harness provider
+registry**. A provider is a trusted, bundled module that owns one harness's executable
+conventions, launch/resume composition, exact-session strategy, title normalization,
+runtime capability probe, and optional structured observers. This evolves the existing
+ADR-006 seam rather than adding a parallel launch path: every interactive process still
+flows through the PTY supervisor and `ProjectHost`, and `TerminalPane` remains unaware of
+which harness produced the bytes.
+
+The renderer receives a serializable provider catalog from main and treats provider IDs as
+opaque, bounded strings. Labels, availability, effective capabilities, and configured
+launch choices come from that catalog; shared IPC, React, and persisted-session parsing do
+not enumerate known providers. Persisted records for a provider that is temporarily missing
+or removed remain visible as unavailable records instead of being discarded, but cannot
+resume until the exact provider and session identity are available again.
+
+Provider support is capability-based, not boolean. The common capability vocabulary covers:
+
+- interactive launch;
+- session identity (`none`, `preassigned`, or fail-closed post-launch discovery) and exact
+  resume;
+- title normalization;
+- structured telemetry facets; and
+- provider/version compatibility on one host.
+
+Each provider performs a bounded asynchronous probe through `ProjectHost`, cached per
+`(host, provider, profile ID, launch revision)` and invalidated by connection or
+launch-configuration changes. Cached results also expire: available results after ten
+minutes and missing, incompatible, or failed results after two minutes. Opening the launch
+menu re-probes stale entries in the background; a provider-classified executable/version
+launch failure invalidates the entry immediately. Different local and SSH hosts may
+legitimately expose different executable versions and capabilities. Probes may inspect
+provider-owned `--version`, help, or machine-readable surfaces, but there is no global
+parser that guesses semantics from arbitrary help text. Probe latency changes menu
+freshness, never first paint or terminal availability.
+
+**Launch profiles are configuration layered over providers.** hvir ships immutable default
+profiles for the plain shell and each bundled provider. Users may add global or
+project-scoped profiles such as `Claude Code — bypass permissions`, `Codex — monorepo`, or
+`My agent`. A profile contains a stable ID and a monotonic **launch revision** covering only
+launch-relevant identity: provider ID and launch-contract version, scope, executable, argv,
+environment/path bindings, and derived risk. It increments only when that normalized
+identity changes, including a bundled provider contract/risk-rule upgrade. Cosmetic
+metadata—display name, description, and menu order—is stored separately, with an independent
+metadata revision if concurrency requires one, and never invalidates recovery or risk
+acknowledgment. Project/workspace placeholders resolve only through a fixed vocabulary;
+every stored path is a `HostPath`, and arbitrary `$variable` or shell interpolation is not
+supported. A named binding outside the registered project requires an explicit main-owned
+folder-selection gesture on that host.
+It grants that path only to the composed harness invocation; it does not expand the
+renderer's normal active-workspace filesystem authority. If a global profile is evaluated
+without the active project/workspace required by one of its tokens, it remains listed as
+unavailable with that reason and launch is rejected before PTY creation.
+
+Main owns profile persistence, validation, command composition, and value-aware command
+preview. Arguments always remain an argv array and environment changes remain structured
+set/reference/unset operations. Profiles never supply an opaque shell command. The provider
+owns session-selection arguments and their position, so user arguments cannot accidentally
+replace `--session-id`, `--resume`, `resume <id>`, or another provider invariant while hvir
+still claims exact recovery. Provider defaults are overlaid by profile environment changes,
+then hvir's protected `TERM`, `COLORTERM`, and `TERM_PROGRAM` values win. Executable lookup
+may use the host's interactive shell environment as it does today, but the shell only
+resolves the already-quoted executable and argv before `exec`; it does not evaluate user
+command text.
+
+A built-in **custom command provider** is the escape hatch for a fast-moving ecosystem. It
+can launch any explicitly configured executable, argv, and non-secret environment values
+through the same supervisor/host path, but advertises no session recovery or structured
+telemetry unless a real provider later adopts that command. hvir therefore never blocks a
+new harness on a release, while “first-class” continues to mean exact identity plus
+trustworthy capabilities rather than a logo in a menu.
+
+Environment values stored directly in a profile are visibly treated as plaintext
+non-secrets. Secret values are reference-only (for example, an explicitly selected process
+environment name or future OS credential handle); they are never copied into renderer
+storage, command previews, logs, or the terminal recovery registry. Preview displays
+non-secret literals as entered and redacts only reference-sourced secret values; “redacted”
+does not imply that stored literals are encrypted or protected. Remote forwarding is
+explicit because a local environment value and a target-host environment value are not the
+same authority. An explicit unset removes an inherited variable before the harness's
+interactive shell starts, subject to that shell's own startup files setting it again.
+
+The terminal recovery registry stores provider ID, profile ID, and launch revision beside
+the existing exact harness identity and host-qualified cwd/project. Fresh launches, resume,
+reconnect, and restart use the same launch revision. A missing provider/profile or changed
+launch revision blocks automatic restoration and asks the user to review/rebind it; cosmetic
+edits do not. Rebinding is permitted only to another profile of the same provider because an
+exact harness session ID has no meaning across providers. hvir does not silently resume with
+changed flags or permissions.
+
+Providers classify resolved launch configuration as `standard`, `elevated`, or
+`unclassified` using a provider-owned exact rule set. Rules cover known aliases,
+`--flag=value` forms, environment keys, and embedded config overrides such as `-c
+key=value`; classification is a best-effort warning, not a security boundary. A Custom
+profile and any extra token a provider cannot classify are never assumed standard.
+Elevated and unclassified profiles are visibly marked and may auto-restore only after an
+explicit acknowledgment tied to the launch revision.
+
+Providers also declare the executable, environment/config keys, and path bindings that can
+change their session-artifact location. Main derives a bounded **artifact identity** from
+only those resolved inputs and supplies it to discovery and telemetry. Artifact-relevant
+changes reconcile the subscription; cosmetic or artifact-irrelevant launch changes do not
+restart the shared `(host, provider)` hub. If a profile uses a provider-reserved environment
+or config key whose artifact effect the provider has not declared, validation warns and
+structured discovery/telemetry fails closed for that profile instead of observing a
+possibly wrong artifact tree.
+
+**Harness-tab data uses optional, provenance-bearing facets.** The normalized snapshot has a
+version, observation time, source, freshness, and optional facets for session, model, context
+pressure, usage/cost, turn/approval state, and loaded capabilities such as skills or MCP
+servers. Providers may also expose bounded namespaced data that has no honest common
+meaning. Unsupported, unavailable, and stale are distinct states. Existing generic terminal
+signals (input boundary, output, idle, bell, title, exit) remain provider-independent and are
+never inferred from a provider facet. Structured observers remain provider-owned,
+off-renderer, and multiplexed per `(host, provider)` where practical, preserving the Phase
+7.5 channel model. Terminal-screen scraping remains rejected.
+
+This registry is **plugin-shaped internally but is not a public plugin platform**. New
+first-class providers are reviewed and bundled with hvir. No arbitrary JavaScript/native
+module loading, provider-contributed renderer UI, marketplace, install lifecycle, or remote
+helper is introduced. A future declarative provider package or out-of-process provider SDK
+requires its own ADR after the internal contract has real evidence from multiple harnesses.
+
+**Why:** the existing adapter already proves the hard seams—exact recovery, local/SSH
+composition, and adapter-owned telemetry—but its closed ID unions, duplicated renderer
+labels, and hard-coded persistence parser make even launch-only additions cross-cutting.
+Separating provider behavior from user launch policy lets hvir keep pace with new CLIs and
+one-off flags without weakening deterministic recovery. Capability negotiation reflects the
+real world: harness versions differ between hosts, and launch, resume, context, cost, and
+skills/MCP visibility evolve independently. The generic provider preserves immediate access;
+trusted providers add depth incrementally.
+
+**Rejected:** keeping a closed built-in adapter union (every harness addition leaks across
+IPC, UI, and persistence); treating a raw command line as the profile format (quoting,
+injection, remote composition, and resume-flag ambiguity); appending user args blindly after
+provider args (subcommand CLIs require provider-owned placement); falling back to ambient
+`latest` session state (can resume the wrong conversation); parsing TUI contents for session
+or telemetry state (fragile and contaminates the terminal seam); making every provider fit
+one lowest-common-denominator telemetry object (hides useful truthful differences); loading
+third-party code in main or renderer (an extension host by another name); and making hvir an
+ACP/RPC agent frontend instead of continuing to host the user's native terminal harness.
+
 ---
 
 ## 5. Architecture
@@ -866,7 +1009,8 @@ filesystem directly.
 | Git engine | system `git` binary (simple-git / thin wrapper) | ADR-005; off-thread |
 | Terminals | ghostty-web → libghostty | ADR-003, swappable |
 | PTY | node-pty behind the **PTY supervisor** | spawned off-renderer; ADR-006 |
-| Session recovery | harness resume via **`HarnessAdapter`** | ADR-006 |
+| Harness integration | main-owned **harness provider registry** + launch profiles | ADR-006/012 |
+| Session recovery | exact harness resume via the active provider | ADR-006/012 |
 | Remote projects | **`ProjectHost`**: `LocalHost` / `SshHost` (`ssh2`) | ADR-010; every path is `(host, path)` |
 
 ### UI layout
