@@ -88,24 +88,32 @@ describe('LocalHost', () => {
 
   it('applies explicit environment values and unsets inherited names', async () => {
     const inheritedName = 'HVIR_LOCAL_HOST_UNSET_TEST'
+    const overriddenName = 'HVIR_LOCAL_HOST_UNSET_OVERRIDE_TEST'
     const previous = process.env[inheritedName]
+    const previousOverride = process.env[overriddenName]
     process.env[inheritedName] = 'inherited'
+    process.env[overriddenName] = 'inherited'
     try {
       const result = await host.exec(
         process.execPath,
         [
           '-e',
-          `process.stdout.write(JSON.stringify([process.env.${inheritedName}, process.env.HVIR_LOCAL_HOST_SET_TEST]))`,
+          `process.stdout.write(JSON.stringify([process.env.${inheritedName}, process.env.HVIR_LOCAL_HOST_SET_TEST, process.env.${overriddenName}]))`,
         ],
         {
-          env: { HVIR_LOCAL_HOST_SET_TEST: 'profile value' },
-          unsetEnv: [inheritedName],
+          env: {
+            HVIR_LOCAL_HOST_SET_TEST: 'profile value',
+            [overriddenName]: 'explicit value',
+          },
+          unsetEnv: [inheritedName, overriddenName],
         },
       )
-      expect(JSON.parse(result.stdout)).toEqual([null, 'profile value'])
+      expect(JSON.parse(result.stdout)).toEqual([null, 'profile value', 'explicit value'])
     } finally {
       if (previous === undefined) delete process.env[inheritedName]
       else process.env[inheritedName] = previous
+      if (previousOverride === undefined) delete process.env[overriddenName]
+      else process.env[overriddenName] = previousOverride
     }
   })
 
@@ -153,6 +161,36 @@ describe('LocalHost', () => {
 
     expect(stdout).toBe('😀')
     stream.dispose()
+  })
+
+  it('applies streaming environment values after inherited unsets', async () => {
+    const name = 'HVIR_LOCAL_HOST_STREAM_OVERRIDE_TEST'
+    const previous = process.env[name]
+    process.env[name] = 'inherited'
+    try {
+      const stream = host.execStream(
+        process.execPath,
+        ['-e', `process.stdout.write(process.env.${name} ?? 'missing')`],
+        {
+          env: { [name]: 'explicit value' },
+          unsetEnv: [name],
+        },
+      )
+      let stdout = ''
+      stream.onStdout((chunk) => {
+        stdout += chunk
+      })
+      await new Promise<void>((resolve, reject) => {
+        stream.onError(reject)
+        stream.onExit(() => resolve())
+      })
+
+      expect(stdout).toBe('explicit value')
+      stream.dispose()
+    } finally {
+      if (previous === undefined) delete process.env[name]
+      else process.env[name] = previous
+    }
   })
 
   it('closes stdin when buffered exec has no input', async () => {

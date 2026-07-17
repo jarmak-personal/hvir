@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto'
+
 import {
   asHostId,
   asHarnessProfileId,
@@ -403,7 +405,14 @@ function legacyProfileId(providerId: HarnessProviderId): HarnessProfileId {
   } catch {
     // Missing providers remain as unavailable records with a stable synthetic profile id.
   }
-  return asHarnessProfileId(`legacy-${providerId}`.slice(0, 80))
+  const candidate = `legacy-${providerId}`
+  if (candidate.length <= 80) return asHarnessProfileId(candidate)
+
+  const digest = createHash('sha256').update(providerId).digest('hex').slice(0, 16)
+  const providerPrefixLength = 80 - 'legacy-'.length - 1 - digest.length
+  return asHarnessProfileId(
+    `legacy-${providerId.slice(0, providerPrefixLength)}-${digest}`,
+  )
 }
 
 function cleanTitle(value: string): string {

@@ -83,8 +83,7 @@ export class LocalHost implements ProjectHost {
     args: readonly string[],
     opts: ExecOptions = {},
   ): Promise<ExecResult> {
-    const environment = opts.env ? { ...process.env, ...opts.env } : { ...process.env }
-    for (const name of opts.unsetEnv ?? []) delete environment[name]
+    const environment = childEnvironment(opts.env, opts.unsetEnv)
     return new Promise<ExecResult>((resolve, reject) => {
       const child = spawn(command, [...args], {
         cwd: opts.cwd ? this.resolve(opts.cwd) : undefined,
@@ -165,8 +164,7 @@ export class LocalHost implements ProjectHost {
     args: readonly string[],
     opts: ExecOptions = {},
   ): ExecStreamHandle {
-    const environment = opts.env ? { ...process.env, ...opts.env } : { ...process.env }
-    for (const name of opts.unsetEnv ?? []) delete environment[name]
+    const environment = childEnvironment(opts.env, opts.unsetEnv)
     const child = spawn(command, [...args], {
       cwd: opts.cwd ? this.resolve(opts.cwd) : undefined,
       env: environment,
@@ -296,8 +294,7 @@ export class LocalHost implements ProjectHost {
   async spawnPty(opts: SpawnPtyOptions): Promise<PtyProcess> {
     // Lazy native import — see file header.
     const pty = await import('node-pty')
-    const env = opts.env ? { ...process.env, ...opts.env } : { ...process.env }
-    for (const name of opts.unsetEnv ?? []) delete env[name]
+    const env = childEnvironment(opts.env, opts.unsetEnv)
     const proc = pty.spawn(opts.file, [...(opts.args ?? [])], {
       cwd: this.resolve(opts.cwd),
       env,
@@ -512,6 +509,15 @@ export class LocalHost implements ProjectHost {
   private wrap(rawPath: string): HostPath {
     return hostPath(this.hostId, rawPath)
   }
+}
+
+function childEnvironment(
+  explicit: Readonly<Record<string, string>> | undefined,
+  inheritedUnsets: readonly string[] | undefined,
+): NodeJS.ProcessEnv {
+  const environment = { ...process.env }
+  for (const name of inheritedUnsets ?? []) delete environment[name]
+  return Object.assign(environment, explicit)
 }
 
 function asError(reason: unknown): Error {

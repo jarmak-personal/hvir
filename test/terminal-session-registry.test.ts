@@ -6,7 +6,12 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 import { LocalHost } from '../src/main/project-host/local-host'
 import { TerminalSessionRegistry } from '../src/main/terminal/session-registry'
-import { asHarnessProfileId, asHarnessProviderId, localPath } from '../src/shared'
+import {
+  asHarnessProfileId,
+  asHarnessProviderId,
+  isHarnessProfileId,
+  localPath,
+} from '../src/shared'
 
 const SESSION_ID = 'terminal-1'
 const HARNESS_ID = '019ab123-4567-7890-abcd-ef0123456789'
@@ -354,5 +359,38 @@ describe('TerminalSessionRegistry', () => {
         harnessSessionId: HARNESS_ID,
       }),
     ])
+  })
+
+  it('gives long unknown legacy providers a valid stable profile id', async () => {
+    const root = localPath('/tmp/project')
+    const providerId = asHarnessProviderId(`${'a'.repeat(72)}-z`)
+    await host.writeFile(
+      file,
+      JSON.stringify({
+        version: 2,
+        sessions: [
+          {
+            id: SESSION_ID,
+            providerId,
+            harnessSessionId: HARNESS_ID,
+            hostId: root.hostId,
+            projectRoot: root,
+            cwd: root,
+            title: 'Future long harness',
+            position: 0,
+            active: true,
+            updatedAt: 42,
+          },
+        ],
+      }),
+    )
+
+    const restored = await TerminalSessionRegistry.load(host, file)
+    const session = restored.list(root)[0]
+    expect(session?.providerId).toBe(providerId)
+    expect(session?.profileId).toMatch(/^legacy-/)
+    expect(session?.profileId.length).toBeLessThanOrEqual(80)
+    expect(isHarnessProfileId(session?.profileId)).toBe(true)
+    expect(session?.harnessSessionId).toBe(HARNESS_ID)
   })
 })
