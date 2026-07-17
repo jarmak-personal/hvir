@@ -2,7 +2,7 @@
 
 import type { HarnessTelemetry } from '../../shared'
 import type { Disposer, ProjectHost } from '../project-host'
-import type { HarnessTelemetryContext } from './harness-adapter'
+import type { HarnessTelemetryContext } from './harness-provider'
 import {
   buildTelemetryHubScript,
   HarnessTelemetryHubRegistry,
@@ -101,7 +101,7 @@ function isNonNegativeFiniteNumber(value: unknown): value is number {
 }
 
 const claudeHubs = new HarnessTelemetryHubRegistry({
-  adapterId: 'claude-code',
+  providerId: 'claude-code',
   remoteScript: FOLLOW_USAGE_SCRIPT,
   parse: parseClaudeUsage,
 })

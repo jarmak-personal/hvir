@@ -3,7 +3,7 @@
 import type { HarnessTelemetry, HostPath } from '../../shared'
 import { hostPath } from '../../shared'
 import type { Disposer, ProjectHost } from '../project-host'
-import type { HarnessTelemetryContext } from './harness-adapter'
+import type { HarnessTelemetryContext } from './harness-provider'
 import {
   buildTelemetryHubScript,
   HarnessTelemetryHubRegistry,
@@ -119,7 +119,7 @@ function sessionDataPath(value: unknown, host: ProjectHost): HostPath | undefine
 }
 
 const codexHubs = new HarnessTelemetryHubRegistry({
-  adapterId: 'codex',
+  providerId: 'codex',
   remoteScript: FOLLOW_TOKEN_COUNTS_SCRIPT,
   parse: parseCodexTokenCount,
 })

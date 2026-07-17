@@ -20,6 +20,7 @@ import { ProjectRegistry, RendererSshPrompter } from './project-registry'
 import { PtySupervisor } from './pty/pty-supervisor'
 import { isSafeExternalUrl, isWorkbenchDocument } from './navigation-policy'
 import { AttentionBadge } from './attention-badge'
+import { harnessProviderCatalog } from './harness/harness-provider'
 import {
   canonicalProjectWatchInterests,
   ProjectWatchController,
@@ -64,6 +65,9 @@ protocol.registerSchemesAsPrivileged([
 ])
 
 const htmlPreviews = new HtmlPreviewProtocol()
+const defaultHarnessProviderId = harnessProviderCatalog().find(
+  (provider) => provider.default,
+)!.id
 
 let echoWorker: WorkerClient<EchoWorkerProtocol> | null = null
 let gitWorker: WorkerClient<GitWorkerProtocol> | null = null
@@ -1393,7 +1397,7 @@ async function runSmoke(): Promise<number> {
       await runCapacityLoadSmoke(win, supervisor, host, liveReloadPath)
       smokeRecoverySessions = supervisor.list().map((terminal, position) => ({
         id: terminal.id,
-        adapterId: 'plain-shell',
+        providerId: defaultHarnessProviderId,
         hostId: terminal.hostId,
         cwd: terminal.cwd,
         title: `Recovered capacity shell ${position + 1}`,
@@ -2918,7 +2922,7 @@ async function runSmoke(): Promise<number> {
     smokeRecoverySessions = [
       {
         id: 'smoke-recovery-shell',
-        adapterId: 'plain-shell',
+        providerId: defaultHarnessProviderId,
         hostId: smokeRoot.hostId,
         cwd: smokeRoot,
         title: 'Recovered smoke shell',

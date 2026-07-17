@@ -24,7 +24,7 @@ interface LiveSubscription extends HarnessTelemetrySubscription {
 }
 
 export interface HarnessTelemetryHubOptions {
-  readonly adapterId: string
+  readonly providerId: string
   readonly remoteScript: string
   readonly parse: (record: string) => HarnessTelemetry | null
 }
@@ -64,7 +64,7 @@ export class HarnessTelemetryHubRegistry {
  *
  * The protocol sends complete versioned subscription sets over stdin. The
  * temporary remote process owns adapter followers and emits bounded base64
- * frames; neither it nor this class escapes the HarnessAdapter seam.
+ * frames; neither it nor this class escapes the HarnessProvider seam.
  */
 export class HarnessTelemetryHub {
   private readonly subscriptions = new Map<string, LiveSubscription>()
@@ -133,7 +133,7 @@ export class HarnessTelemetryHub {
       [
         '-c',
         this.options.remoteScript,
-        `hvir-${this.options.adapterId}-telemetry`,
+        `hvir-${this.options.providerId}-telemetry`,
         epoch,
       ],
       { keepStdinOpen: true },
@@ -152,7 +152,7 @@ export class HarnessTelemetryHub {
       stream.onStderr((chunk) => {
         if (this.stream === stream && chunk.trim()) {
           console.warn(
-            `[harness:${this.options.adapterId}] telemetry helper`,
+            `[harness:${this.options.providerId}] telemetry helper`,
             chunk.trim(),
           )
         }
@@ -254,7 +254,7 @@ export class HarnessTelemetryHub {
     for (const subscription of this.subscriptions.values()) {
       subscription.emit(undefined)
     }
-    console.warn(`[harness:${this.options.adapterId}] telemetry hub unavailable`, error)
+    console.warn(`[harness:${this.options.providerId}] telemetry hub unavailable`, error)
     if (!this.restartTimer) {
       this.restartTimer = setTimeout(() => {
         this.restartTimer = undefined

@@ -2,10 +2,11 @@ import { useEffect, useRef, useState, type CSSProperties, type ReactElement } fr
 
 import {
   basenameHostPath,
+  type HarnessProviderDescriptor,
   type HarnessTelemetry,
   type HostConnectionState,
   type HostPath,
-  type TerminalAdapterId,
+  type HarnessProviderId,
   type TerminalIdentityStatus,
   type TerminalRecoverySession,
 } from '../../../shared'
@@ -29,7 +30,7 @@ import { TerminalView } from './TerminalView'
 
 interface TerminalSession {
   readonly id: string
-  readonly adapterId: TerminalAdapterId
+  readonly providerId: HarnessProviderId
   readonly fallbackTitle: string
   readonly title: string
   readonly status: string
@@ -63,12 +64,6 @@ export interface TerminalWorkspaceRollup {
   readonly actionable: number
 }
 
-const adapterLabels: Record<TerminalAdapterId, string> = {
-  'plain-shell': 'Shell',
-  'claude-code': 'Claude Code',
-  codex: 'Codex',
-}
-
 export function TerminalWorkspace({
   cwd,
   workspaceId,
@@ -95,6 +90,7 @@ export function TerminalWorkspace({
   const workspaceRoot = workspaceRootRef.current
   const terminalDeckRef = useRef<HTMLDivElement>(null)
   const restoredSplitLayout = useRef(readTerminalSplitLayout(workspaceRoot))
+  const [providers, setProviders] = useState<readonly HarnessProviderDescriptor[]>([])
   const [sessions, setSessions] = useState<readonly TerminalSession[]>([])
   const [activeId, setActiveId] = useState<string>()
   const [menuOpen, setMenuOpen] = useState(false)
@@ -122,6 +118,7 @@ export function TerminalWorkspace({
   visibleRef.current = visible
   availableRef.current = available
   recoveryModeRef.current = recoveryMode
+  const defaultProvider = providers.find((provider) => provider.default)
 
   useEffect(() => {
     const timers = idleTimers.current
@@ -188,13 +185,24 @@ export function TerminalWorkspace({
     setActiveId(undefined)
     activePaneRef.current = 'primary'
     activeByPaneRef.current = { primary: undefined, secondary: undefined }
-    void window.hvir.invoke('terminal:recovery', { root: workspaceRoot }).then(
-      (candidates) => {
+    void Promise.all([
+      window.hvir.invoke('harness:catalog', undefined),
+      window.hvir
+        .invoke('terminal:recovery', { root: workspaceRoot })
+        .catch(() => [] as readonly TerminalRecoverySession[]),
+    ]).then(
+      ([catalog, candidates]) => {
         if (cancelled) return
+        setProviders(catalog)
+        const defaultHarness = catalog.find((provider) => provider.default)
+        if (!defaultHarness) {
+          setRecoveryReady(true)
+          return
+        }
         if (candidates.length === 0) {
           shouldCreateDefault.current = availableRef.current
           if (visibleRef.current && availableRef.current) {
-            const session = createSession('plain-shell', workspaceRoot, 'primary')
+            const session = createSession(defaultHarness, workspaceRoot, 'primary')
             shouldCreateDefault.current = false
             setSessions([session])
             setActiveId(session.id)
@@ -202,9 +210,17 @@ export function TerminalWorkspace({
           setRecoveryReady(true)
           return
         }
-        if (recoveryModeRef.current === 'auto' && visibleRef.current) {
+        const hasUnavailableProvider = candidates.some(
+          (candidate) => !providerDescriptor(catalog, candidate.providerId),
+        )
+        if (
+          recoveryModeRef.current === 'auto' &&
+          visibleRef.current &&
+          !hasUnavailableProvider
+        ) {
           restoreSessions(
             candidates,
+            catalog,
             restoredSplitLayout.current,
             setSessions,
             setActiveId,
@@ -216,11 +232,6 @@ export function TerminalWorkspace({
       },
       () => {
         if (cancelled) return
-        if (availableRef.current) {
-          const session = createSession('plain-shell', workspaceRoot, 'primary')
-          setSessions([session])
-          setActiveId(session.id)
-        }
         setRecoveryReady(true)
       },
     )
@@ -230,10 +241,18 @@ export function TerminalWorkspace({
   }, [workspaceRoot])
 
   useEffect(() => {
-    if (!available || !visible || sessions.length > 0) return
+    if (!available || !visible || sessions.length > 0 || !defaultProvider) return
     if (recoveryCandidates.length > 0 && recoveryMode === 'auto') {
+      if (
+        recoveryCandidates.some(
+          (candidate) => !providerDescriptor(providers, candidate.providerId),
+        )
+      ) {
+        return
+      }
       restoreSessions(
         recoveryCandidates,
+        providers,
         restoredSplitLayout.current,
         setSessions,
         setActiveId,
@@ -245,7 +264,7 @@ export function TerminalWorkspace({
     if (!recoveryReady) return
     if (!shouldCreateDefault.current || recoveryCandidates.length > 0) return
     shouldCreateDefault.current = false
-    const session = createSession('plain-shell', workspaceRoot, 'primary')
+    const session = createSession(defaultProvider, workspaceRoot, 'primary')
     setSessions([session])
     setActiveId(session.id)
   }, [
@@ -253,6 +272,8 @@ export function TerminalWorkspace({
     recoveryMode,
     recoveryReady,
     available,
+    defaultProvider,
+    providers,
     sessions.length,
     visible,
     workspaceRoot,
@@ -343,11 +364,13 @@ export function TerminalWorkspace({
     )
   }
 
-  const addSession = (adapterId: TerminalAdapterId): void => {
+  const addSession = (providerId: HarnessProviderId): void => {
     if (!available) return
+    const provider = providerDescriptor(providers, providerId)
+    if (!provider) return
     const split = sessionsRef.current.some((session) => session.pane === 'secondary')
     const pane = split ? activePaneRef.current : 'primary'
-    const session = createSession(adapterId, workspaceRoot, pane)
+    const session = createSession(provider, workspaceRoot, pane)
     setSessions((current) => [...current, session])
     activeByPaneRef.current[pane] = session.id
     setActiveId(session.id)
@@ -355,14 +378,14 @@ export function TerminalWorkspace({
   }
 
   const splitTerminal = (): void => {
-    if (!available) return
+    if (!available || !defaultProvider) return
     const split = sessionsRef.current.some((session) => session.pane === 'secondary')
     const pane: TerminalSplitPane = split
       ? activePaneRef.current === 'primary'
         ? 'secondary'
         : 'primary'
       : 'secondary'
-    const session = createSession('plain-shell', workspaceRoot, pane)
+    const session = createSession(defaultProvider, workspaceRoot, pane)
     activePaneRef.current = pane
     activeByPaneRef.current[pane] = session.id
     setSessions((current) => [...current, session])
@@ -501,8 +524,8 @@ export function TerminalWorkspace({
       >
         {recoveryReady && sessions.length === 0 ? (
           <div className="terminal-empty">
-            {available ? (
-              <button type="button" onClick={() => addSession('plain-shell')}>
+            {available && defaultProvider ? (
+              <button type="button" onClick={() => addSession(defaultProvider.id)}>
                 New terminal
               </button>
             ) : (
@@ -510,58 +533,63 @@ export function TerminalWorkspace({
             )}
           </div>
         ) : null}
-        {sessions.map((session, position) => (
-          <TerminalView
-            key={session.id}
-            sessionId={session.id}
-            adapterId={session.adapterId}
-            fallbackTitle={session.fallbackTitle}
-            harnessSessionId={session.harnessSessionId}
-            resumeOnStart={session.resumeOnStart}
-            position={position}
-            slot={session.pane}
-            visible={
-              visible &&
-              session.id ===
-                (session.pane === 'primary' ? primaryActiveId : secondaryActiveId)
-            }
-            active={visible && session.id === activeId}
-            themeOverride={terminalTheme}
-            cwd={workspaceRoot}
-            connectionState={connectionState}
-            onTitle={(title) =>
-              updateSession(session.id, (current) => ({ ...current, title }))
-            }
-            onStatus={(status) =>
-              updateSession(session.id, (current) => ({ ...current, status }))
-            }
-            onTelemetry={(telemetry) =>
-              updateSession(session.id, (current) =>
-                current.telemetry === telemetry ? current : { ...current, telemetry },
-              )
-            }
-            onIdentity={(harnessSessionId, identityStatus) =>
-              updateSession(session.id, (current) => ({
-                ...current,
-                harnessSessionId: harnessSessionId ?? current.harnessSessionId,
-                identityStatus,
-              }))
-            }
-            onStarted={() =>
-              updateSession(session.id, (current) =>
-                current.resumeOnStart ? { ...current, resumeOnStart: false } : current,
-              )
-            }
-            onInput={(data) => recordInput(session.id, data)}
-            onOutput={() => recordOutput(session.id)}
-            onBell={() => raiseAttention(session.id, 'bell')}
-            onFocus={() => focusSession(session.id)}
-            onLink={(target) => {
-              const resolved = resolveTerminalFileTarget(target, workspaceRoot)
-              if (resolved) onOpenPath(resolved)
-            }}
-          />
-        ))}
+        {sessions.map((session, position) => {
+          const provider = providerDescriptor(providers, session.providerId)
+          if (!provider) return null
+          return (
+            <TerminalView
+              key={session.id}
+              sessionId={session.id}
+              providerId={session.providerId}
+              supportsResume={provider.capabilities.exactResume}
+              fallbackTitle={session.fallbackTitle}
+              harnessSessionId={session.harnessSessionId}
+              resumeOnStart={session.resumeOnStart}
+              position={position}
+              slot={session.pane}
+              visible={
+                visible &&
+                session.id ===
+                  (session.pane === 'primary' ? primaryActiveId : secondaryActiveId)
+              }
+              active={visible && session.id === activeId}
+              themeOverride={terminalTheme}
+              cwd={workspaceRoot}
+              connectionState={connectionState}
+              onTitle={(title) =>
+                updateSession(session.id, (current) => ({ ...current, title }))
+              }
+              onStatus={(status) =>
+                updateSession(session.id, (current) => ({ ...current, status }))
+              }
+              onTelemetry={(telemetry) =>
+                updateSession(session.id, (current) =>
+                  current.telemetry === telemetry ? current : { ...current, telemetry },
+                )
+              }
+              onIdentity={(harnessSessionId, identityStatus) =>
+                updateSession(session.id, (current) => ({
+                  ...current,
+                  harnessSessionId: harnessSessionId ?? current.harnessSessionId,
+                  identityStatus,
+                }))
+              }
+              onStarted={() =>
+                updateSession(session.id, (current) =>
+                  current.resumeOnStart ? { ...current, resumeOnStart: false } : current,
+                )
+              }
+              onInput={(data) => recordInput(session.id, data)}
+              onOutput={() => recordOutput(session.id)}
+              onBell={() => raiseAttention(session.id, 'bell')}
+              onFocus={() => focusSession(session.id)}
+              onLink={(target) => {
+                const resolved = resolveTerminalFileTarget(target, workspaceRoot)
+                if (resolved) onOpenPath(resolved)
+              }}
+            />
+          )
+        })}
         {terminalSplit ? (
           <PaneResizer
             orientation="vertical"
@@ -637,14 +665,14 @@ export function TerminalWorkspace({
               </button>
               {menuOpen ? (
                 <div className="terminal-new-menu" role="menu">
-                  {(Object.keys(adapterLabels) as TerminalAdapterId[]).map((id) => (
+                  {providers.map((provider) => (
                     <button
-                      key={id}
+                      key={provider.id}
                       type="button"
                       role="menuitem"
-                      onClick={() => addSession(id)}
+                      onClick={() => addSession(provider.id)}
                     >
-                      {adapterLabels[id]}
+                      {provider.displayName}
                     </button>
                   ))}
                 </div>
@@ -668,13 +696,20 @@ export function TerminalWorkspace({
                 <span className="terminal-list-copy">
                   <span className="terminal-list-title">{session.title}</span>
                   <span className="terminal-list-meta">
-                    {adapterLabels[session.adapterId]} · {session.status}
+                    {providerDisplayName(providers, session.providerId)} ·{' '}
+                    {session.status}
                     {identityLabel(session.identityStatus)}
                   </span>
-                  {session.adapterId !== 'plain-shell' ? (
+                  {providerDescriptor(providers, session.providerId)?.capabilities
+                    .contextPresentation === 'count' ||
+                  providerDescriptor(providers, session.providerId)?.capabilities
+                    .contextPresentation === 'pressure' ? (
                     <ContextMeter
                       telemetry={session.telemetry}
-                      countOnly={session.adapterId === 'claude-code'}
+                      countOnly={
+                        providerDescriptor(providers, session.providerId)?.capabilities
+                          .contextPresentation === 'count'
+                      }
                     />
                   ) : null}
                 </span>
@@ -716,27 +751,33 @@ export function TerminalWorkspace({
           ))}
         </div>
       </aside>
-      {visible && recoveryCandidates.length > 0 ? (
+      {visible && recoveryCandidates.length > 0 && defaultProvider ? (
         <TerminalRecoveryDialog
           sessions={recoveryCandidates}
+          providers={providers}
           onCancel={() => {
-            const session = createSession('plain-shell', workspaceRoot, 'primary')
+            const session = createSession(defaultProvider, workspaceRoot, 'primary')
             setSessions([session])
             setActiveId(session.id)
             setRecoveryCandidates([])
             setRecoveryReady(true)
           }}
           onResume={(ids) => {
-            const selected = recoveryCandidates.filter((session) => ids.has(session.id))
+            const selected = recoveryCandidates.filter(
+              (session) =>
+                ids.has(session.id) &&
+                providerDescriptor(providers, session.providerId) !== undefined,
+            )
             if (selected.length > 0) {
               restoreSessions(
                 selected,
+                providers,
                 restoredSplitLayout.current,
                 setSessions,
                 setActiveId,
               )
             } else {
-              const session = createSession('plain-shell', workspaceRoot, 'primary')
+              const session = createSession(defaultProvider, workspaceRoot, 'primary')
               setSessions([session])
               setActiveId(session.id)
             }
@@ -751,17 +792,26 @@ export function TerminalWorkspace({
 
 function TerminalRecoveryDialog({
   sessions,
+  providers,
   onCancel,
   onResume,
 }: {
   readonly sessions: readonly TerminalRecoverySession[]
+  readonly providers: readonly HarnessProviderDescriptor[]
   readonly onCancel: () => void
   readonly onResume: (ids: ReadonlySet<string>) => void
 }): ReactElement {
   const dialogRef = useRef<HTMLElement>(null)
   const onCancelRef = useRef(onCancel)
   const [selected, setSelected] = useState<ReadonlySet<string>>(
-    () => new Set(sessions.map((session) => session.id)),
+    () =>
+      new Set(
+        sessions
+          .filter(
+            (session) => providerDescriptor(providers, session.providerId) !== undefined,
+          )
+          .map((session) => session.id),
+      ),
   )
   onCancelRef.current = onCancel
 
@@ -810,31 +860,37 @@ function TerminalRecoveryDialog({
       >
         <h2 id="terminal-recovery-title">Restore terminals</h2>
         <div className="terminal-recovery-list">
-          {sessions.map((session) => (
-            <label key={session.id} className="terminal-recovery-option">
-              <input
-                type="checkbox"
-                checked={selected.has(session.id)}
-                onChange={(event) => {
-                  const checked = event.currentTarget.checked
-                  setSelected((current) => {
-                    const next = new Set(current)
-                    if (checked) next.add(session.id)
-                    else next.delete(session.id)
-                    return next
-                  })
-                }}
-              />
-              <span>
-                <strong>{session.title}</strong>
-                <small>
-                  {adapterLabels[session.adapterId]} · {basenameHostPath(session.cwd)}
-                  {' · '}
-                  {restoreActionLabel(session)}
-                </small>
-              </span>
-            </label>
-          ))}
+          {sessions.map((session) => {
+            const provider = providerDescriptor(providers, session.providerId)
+            return (
+              <label key={session.id} className="terminal-recovery-option">
+                <input
+                  type="checkbox"
+                  disabled={!provider}
+                  checked={selected.has(session.id)}
+                  onChange={(event) => {
+                    const checked = event.currentTarget.checked
+                    setSelected((current) => {
+                      const next = new Set(current)
+                      if (checked) next.add(session.id)
+                      else next.delete(session.id)
+                      return next
+                    })
+                  }}
+                />
+                <span>
+                  <strong>{session.title}</strong>
+                  <small>
+                    {provider?.displayName ??
+                      `Unavailable provider (${session.providerId})`}{' '}
+                    · {basenameHostPath(session.cwd)}
+                    {' · '}
+                    {provider ? restoreActionLabel(session, provider) : 'Cannot restore'}
+                  </small>
+                </span>
+              </label>
+            )
+          })}
         </div>
         <div className="dialog-actions">
           <button type="button" onClick={onCancel}>
@@ -934,20 +990,23 @@ function identityLabel(status: TerminalIdentityStatus | undefined): string {
   return ''
 }
 
-function restoreActionLabel(session: TerminalRecoverySession): string {
-  if (session.adapterId === 'plain-shell') return 'New shell'
+function restoreActionLabel(
+  session: TerminalRecoverySession,
+  provider: HarnessProviderDescriptor,
+): string {
+  if (provider.capabilities.sessionIdentity === 'none') return 'New shell'
   return session.harnessSessionId ? 'Resume' : 'New session'
 }
 
 function createSession(
-  adapterId: TerminalAdapterId,
+  provider: HarnessProviderDescriptor,
   cwd: HostPath,
   pane: TerminalSplitPane,
 ): TerminalSession {
-  const fallbackTitle = `${adapterLabels[adapterId]} · ${basenameHostPath(cwd)}`
+  const fallbackTitle = `${provider.displayName} · ${basenameHostPath(cwd)}`
   return {
     id: crypto.randomUUID(),
-    adapterId,
+    providerId: provider.id,
     fallbackTitle,
     title: fallbackTitle,
     status: 'Starting…',
@@ -958,6 +1017,7 @@ function createSession(
 
 function restoreSessions(
   records: readonly TerminalRecoverySession[],
+  providers: readonly HarnessProviderDescriptor[],
   splitLayout: StoredTerminalSplitLayout,
   setSessions: (sessions: readonly TerminalSession[]) => void,
   setActiveId: (id: string | undefined) => void,
@@ -965,27 +1025,28 @@ function restoreSessions(
   const ordered = [...records].sort(
     (left, right) => left.position - right.position || left.updatedAt - right.updatedAt,
   )
-  const sessions = ordered.map<TerminalSession>((record) => {
+  const sessions = ordered.flatMap<TerminalSession>((record) => {
+    const provider = providerDescriptor(providers, record.providerId)
+    if (!provider) return []
     const resumable =
-      record.adapterId !== 'plain-shell' && Boolean(record.harnessSessionId)
+      provider.capabilities.exactResume && Boolean(record.harnessSessionId)
+    const hasHarnessIdentity = provider.capabilities.sessionIdentity !== 'none'
     return {
       id: record.id,
-      adapterId: record.adapterId,
+      providerId: record.providerId,
       fallbackTitle: record.title,
       title: record.title,
-      status:
-        record.adapterId === 'plain-shell'
-          ? 'Ready to restore'
-          : resumable
-            ? 'Ready to resume'
-            : 'Ready to restart',
+      status: !hasHarnessIdentity
+        ? 'Ready to restore'
+        : resumable
+          ? 'Ready to resume'
+          : 'Ready to restart',
       harnessSessionId: record.harnessSessionId,
-      identityStatus:
-        record.adapterId === 'plain-shell'
-          ? 'none'
-          : resumable
-            ? 'identified'
-            : 'unavailable',
+      identityStatus: !hasHarnessIdentity
+        ? 'none'
+        : resumable
+          ? 'identified'
+          : 'unavailable',
       resumeOnStart: resumable,
       pane: splitLayout.secondaryIds.includes(record.id) ? 'secondary' : 'primary',
     }
@@ -995,6 +1056,20 @@ function restoreSessions(
     ordered.find((record) => record.active && sessions.some(({ id }) => id === record.id))
       ?.id ?? sessions[0]?.id,
   )
+}
+
+function providerDescriptor(
+  providers: readonly HarnessProviderDescriptor[],
+  id: HarnessProviderId,
+): HarnessProviderDescriptor | undefined {
+  return providers.find((provider) => provider.id === id)
+}
+
+function providerDisplayName(
+  providers: readonly HarnessProviderDescriptor[],
+  id: HarnessProviderId,
+): string {
+  return providerDescriptor(providers, id)?.displayName ?? `Unavailable (${id})`
 }
 
 interface StoredTerminalSplitLayout {

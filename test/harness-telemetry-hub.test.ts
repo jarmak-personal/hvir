@@ -165,7 +165,7 @@ describe('HarnessTelemetryHub', () => {
       `,
     })
     const hub = new HarnessTelemetryHub(host, {
-      adapterId: 'lock-test',
+      providerId: 'lock-test',
       remoteScript: script,
       parse: (record) => {
         const value = JSON.parse(record) as { used: number }
@@ -211,7 +211,7 @@ function telemetryHub(execStream: ProjectHost['execStream']): HarnessTelemetryHu
     execStream,
   } as unknown as ProjectHost
   return new HarnessTelemetryHub(host, {
-    adapterId: 'test',
+    providerId: 'test',
     remoteScript: 'test helper',
     parse: (record) => {
       try {

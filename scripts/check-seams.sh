@@ -37,6 +37,13 @@ hits=$(grep -rnE '\.spawnPty\(' "$SRC" --include='*.ts' --include='*.tsx' \
   | grep -v '^src/main/pty/pty-supervisor.ts' || true)
 report "host.spawnPty() called only in pty-supervisor.ts" "$hits"
 
+# 4. Bundled harness identities stay inside provider-owned main modules. Shared
+# IPC, persistence, and renderer code treat provider ids as opaque catalog data.
+hits=$(grep -rnE "['\"](plain-shell|claude-code|codex)['\"]" \
+  "$SRC" --include='*.ts' --include='*.tsx' \
+  | grep -v '^src/main/harness/' || true)
+report "bundled harness ids used only in src/main/harness/" "$hits"
+
 if [[ "$fail" -ne 0 ]]; then
   printf '\n\033[31mseam check failed\033[0m\n'
   exit 1

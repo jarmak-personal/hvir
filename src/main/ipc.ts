@@ -38,7 +38,7 @@ import {
   type ConnectedHost,
   type BrowseHostResponse,
 } from '../shared'
-import { harnessAdapter } from './harness/harness-adapter'
+import { harnessProvider, harnessProviderCatalog } from './harness/harness-provider'
 import type { ProjectHost } from './project-host'
 import type { HtmlPreviewProtocol } from './html-preview-protocol'
 import type { PtySupervisor } from './pty/pty-supervisor'
@@ -128,6 +128,8 @@ export function registerIpcHandlers(deps: IpcDeps): void {
     nodeVersion: process.versions.node,
     platform: process.platform,
   }))
+
+  handle('harness:catalog', () => harnessProviderCatalog())
 
   handle('demo:echo', async (req) => {
     const result = await deps.echoWorker.request(ECHO_REQUEST_TYPE, {
@@ -449,7 +451,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
     const cwd = await projectPath(req.cwd, root, host)
     const cols = terminalDimension(req.cols)
     const rows = terminalDimension(req.rows)
-    const adapter = harnessAdapter(req.adapterId)
+    const provider = harnessProvider(req.providerId)
     if (
       !isTerminalTitle(req.title) ||
       !Number.isSafeInteger(req.position) ||
@@ -462,11 +464,11 @@ export function registerIpcHandlers(deps: IpcDeps): void {
     }
     if (req.resume) {
       if (
-        !adapter.supportsResume ||
+        !provider.supportsResume ||
         !isHarnessSessionId(req.harnessSessionId) ||
         !deps.terminalSessions.authorizeResume({
           id: req.sessionId,
-          adapterId: req.adapterId,
+          providerId: req.providerId,
           harnessSessionId: req.harnessSessionId,
           projectRoot: root,
           cwd,
@@ -477,7 +479,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
     }
     const managed = await deps.ptySupervisor.spawn({
       host,
-      adapter,
+      provider,
       cwd,
       ownerId: event.sender.id,
       sessionId: req.sessionId,
@@ -489,7 +491,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
     void deps.terminalSessions
       .recordSpawn({
         id: managed.id,
-        adapterId: req.adapterId,
+        providerId: req.providerId,
         harnessSessionId: managed.harnessSessionId,
         projectRoot: root,
         cwd,

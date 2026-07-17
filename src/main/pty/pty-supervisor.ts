@@ -12,16 +12,20 @@ import { randomUUID } from 'node:crypto'
 
 import type {
   HarnessTelemetry,
+  HarnessProviderId,
   HostId,
   HostPath,
   TerminalIdentityStatus,
 } from '../../shared'
 import type { Disposer, ProjectHost, PtyExit, PtyProcess } from '../project-host'
-import type { HarnessAdapter, HarnessSessionDiscovery } from '../harness/harness-adapter'
+import type {
+  HarnessProvider,
+  HarnessSessionDiscovery,
+} from '../harness/harness-provider'
 
 export interface PtySpawnRequest {
   readonly host: ProjectHost
-  readonly adapter: HarnessAdapter
+  readonly provider: HarnessProvider
   readonly cwd: HostPath
   /** Electron webContents id that owns and may control this PTY. */
   readonly ownerId: number
@@ -29,7 +33,7 @@ export interface PtySpawnRequest {
   readonly sessionId?: string
   /** Exact harness-owned session id, when distinct from the PTY id. */
   readonly harnessSessionId?: string
-  /** Resume `harnessSessionId` via the adapter rather than launching fresh. */
+  /** Resume `harnessSessionId` via the provider rather than launching fresh. */
   readonly resume?: boolean
   readonly cols?: number
   readonly rows?: number
@@ -41,7 +45,7 @@ export interface ManagedPty {
   readonly ownerId: number
   readonly hostId: HostId
   readonly cwd: HostPath
-  readonly adapterId: string
+  readonly providerId: HarnessProviderId
   readonly pid: number
   readonly startedAt: number
   readonly resumed: boolean
@@ -76,7 +80,7 @@ interface Entry {
 
 interface IdentityRetry {
   readonly host: ProjectHost
-  readonly adapter: HarnessAdapter
+  readonly provider: HarnessProvider
   readonly discovery: HarnessSessionDiscovery
   readonly snapshot: unknown
   readonly cwd: HostPath
@@ -121,21 +125,23 @@ export class PtySupervisor {
     const generation = this.generation
     this.pendingIds.set(sessionId, pending)
 
-    const resumed = req.resume === true && req.adapter.supportsResume
+    const resumed = req.resume === true && req.provider.supportsResume
     const harnessSessionId = resumed
       ? (req.harnessSessionId ??
-        (req.adapter.sessionIdentity === 'preassigned' ? sessionId : undefined))
-      : req.adapter.sessionIdentity === 'preassigned'
+        (req.provider.sessionIdentity === 'preassigned' ? sessionId : undefined))
+      : req.provider.sessionIdentity === 'preassigned'
         ? sessionId
         : undefined
     if (resumed && !harnessSessionId) {
       this.pendingIds.delete(sessionId)
-      throw new Error(`Harness '${req.adapter.id}' resume requires an exact session id`)
+      throw new Error(
+        `Harness '${req.provider.manifest.id}' resume requires an exact session id`,
+      )
     }
 
     const discovery =
-      !resumed && req.adapter.sessionIdentity === 'discovered'
-        ? req.adapter.sessionDiscovery
+      !resumed && req.provider.sessionIdentity === 'discovered'
+        ? req.provider.sessionDiscovery
         : undefined
     let discoverySnapshot: unknown
     let discoveryReady = false
@@ -145,7 +151,7 @@ export class PtySupervisor {
     try {
       if (discovery) {
         releaseDiscoveryLaunch = await this.reserveDiscoveryLaunch(
-          `${req.host.hostId}:${req.adapter.id}`,
+          `${req.host.hostId}:${req.provider.manifest.id}`,
         )
         this.assertPending(sessionId, pending, generation)
         try {
@@ -153,7 +159,7 @@ export class PtySupervisor {
           discoveryReady = true
         } catch (error) {
           console.warn(
-            `[pty] ${req.adapter.id} session discovery snapshot unavailable`,
+            `[pty] ${req.provider.manifest.id} session discovery snapshot unavailable`,
             error,
           )
           void releaseDiscoveryLaunch()
@@ -170,7 +176,7 @@ export class PtySupervisor {
         rows: req.rows,
         defaultShell,
       }
-      const spec = resumed ? req.adapter.resume(ctx) : req.adapter.launch(ctx)
+      const spec = resumed ? req.provider.resume(ctx) : req.provider.launch(ctx)
       const launch = spec.shellEnvironment
         ? interactiveShellLaunch(defaultShell, spec.file, spec.args)
         : spec
@@ -188,7 +194,7 @@ export class PtySupervisor {
         cols: req.cols,
         rows: req.rows,
       })
-      // Keep same-adapter baselines ordered through PTY creation, but never
+      // Keep same-provider baselines ordered through PTY creation, but never
       // hold a later terminal behind the bounded post-launch identity scan.
       void releaseDiscoveryLaunch?.()
       releaseDiscoveryLaunch = undefined
@@ -211,12 +217,12 @@ export class PtySupervisor {
       ownerId: req.ownerId,
       hostId: req.host.hostId,
       cwd: req.cwd,
-      adapterId: req.adapter.id,
+      providerId: req.provider.manifest.id,
       pid: pty.pid,
       startedAt: launchedAtMs,
       resumed,
       harnessSessionId,
-      identityStatus: identityStatus(req.adapter, harnessSessionId, discoveryReady),
+      identityStatus: identityStatus(req.provider, harnessSessionId, discoveryReady),
     }
 
     const entry: Entry = {
@@ -272,7 +278,7 @@ export class PtySupervisor {
       entry.identityDiscoveryActive = true
       entry.identityRetry = {
         host: req.host,
-        adapter: req.adapter,
+        provider: req.provider,
         discovery,
         snapshot: discoverySnapshot,
         cwd: req.cwd,
@@ -281,7 +287,7 @@ export class PtySupervisor {
       void this.identifySession(
         entry,
         req.host,
-        req.adapter,
+        req.provider,
         discovery,
         discoverySnapshot,
         req.cwd,
@@ -290,7 +296,7 @@ export class PtySupervisor {
         controller,
       )
     } else if (harnessSessionId) {
-      this.startTelemetry(entry, req.host, req.adapter, harnessSessionId)
+      this.startTelemetry(entry, req.host, req.provider, harnessSessionId)
     }
 
     return info
@@ -494,7 +500,7 @@ export class PtySupervisor {
   private async identifySession(
     entry: Entry,
     host: ProjectHost,
-    adapter: HarnessAdapter,
+    provider: HarnessProvider,
     discovery: HarnessSessionDiscovery,
     snapshot: unknown,
     cwd: HostPath,
@@ -520,7 +526,7 @@ export class PtySupervisor {
           : { ...entry.info, identityStatus: result.status }
       if (result.status === 'identified') {
         entry.identityRetry = undefined
-        this.startTelemetry(entry, host, adapter, result.sessionId, result.sessionData)
+        this.startTelemetry(entry, host, provider, result.sessionId, result.sessionData)
       } else if (result.status === 'ambiguous') {
         entry.identityRetry = undefined
       }
@@ -529,7 +535,10 @@ export class PtySupervisor {
         entry.info = { ...entry.info, identityStatus: 'unavailable' }
       }
       if (!controller.signal.aborted) {
-        console.warn(`[pty] ${entry.info.adapterId} session discovery unavailable`, error)
+        console.warn(
+          `[pty] ${entry.info.providerId} session discovery unavailable`,
+          error,
+        )
       }
     } finally {
       entry.identityDiscoveryActive = false
@@ -560,7 +569,7 @@ export class PtySupervisor {
     void this.identifySession(
       entry,
       retry.host,
-      retry.adapter,
+      retry.provider,
       retry.discovery,
       retry.snapshot,
       retry.cwd,
@@ -573,11 +582,11 @@ export class PtySupervisor {
   private startTelemetry(
     entry: Entry,
     host: ProjectHost,
-    adapter: HarnessAdapter,
+    provider: HarnessProvider,
     sessionId: string,
     sessionData?: unknown,
   ): void {
-    const observer = adapter.telemetry
+    const observer = provider.telemetry
     if (!observer || entry.telemetryStarted) return
     entry.telemetryStarted = true
     const controller = new AbortController()
@@ -616,7 +625,7 @@ export class PtySupervisor {
         },
         (error: unknown) => {
           if (!controller.signal.aborted) {
-            console.warn(`[pty] ${adapter.id} telemetry unavailable`, error)
+            console.warn(`[pty] ${provider.manifest.id} telemetry unavailable`, error)
           }
         },
       )
@@ -637,11 +646,11 @@ function shellQuote(value: string): string {
 }
 
 function identityStatus(
-  adapter: HarnessAdapter,
+  provider: HarnessProvider,
   harnessSessionId: string | undefined,
   discoveryReady: boolean,
 ): HarnessSessionIdentityStatus {
-  if (adapter.sessionIdentity === 'none') return 'none'
+  if (provider.sessionIdentity === 'none') return 'none'
   if (harnessSessionId) return 'identified'
   return discoveryReady ? 'discovering' : 'unavailable'
 }

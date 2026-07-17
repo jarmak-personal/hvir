@@ -40,6 +40,7 @@ import type {
 } from './git-types'
 import type { HostConnectionState, HostWatchTier } from './fs-types'
 import type { HarnessTelemetry } from './harness-telemetry'
+import type { HarnessProviderDescriptor, HarnessProviderId } from './harness-provider'
 import type { RegisteredProjectState } from './workspace-types'
 
 /** Basic app/runtime info — the trivial round-trip that proves the contract. */
@@ -191,7 +192,7 @@ export interface ReadAssetResponse {
 
 export interface StartPtyRequest {
   readonly sessionId: string
-  readonly adapterId: TerminalAdapterId
+  readonly providerId: HarnessProviderId
   readonly cwd: HostPath
   readonly cols: number
   readonly rows: number
@@ -201,8 +202,6 @@ export interface StartPtyRequest {
   readonly resume?: boolean
   readonly harnessSessionId?: string
 }
-
-export type TerminalAdapterId = 'plain-shell' | 'claude-code' | 'codex'
 
 export interface StartPtyResponse {
   readonly id: string
@@ -216,7 +215,7 @@ export type TerminalIdentityStatus =
 
 export interface TerminalRecoverySession {
   readonly id: string
-  readonly adapterId: TerminalAdapterId
+  readonly providerId: HarnessProviderId
   readonly harnessSessionId?: string
   readonly hostId: string
   readonly cwd: HostPath
@@ -338,6 +337,7 @@ export interface IpcInvokeMap {
     request: CreateHtmlPreviewRequest
     response: CreateHtmlPreviewResponse
   }
+  'harness:catalog': { request: void; response: readonly HarnessProviderDescriptor[] }
   'terminal:recovery': {
     request: TerminalRecoveryRequest
     response: readonly TerminalRecoverySession[]
@@ -440,6 +440,7 @@ export const INVOKE_CHANNELS = [
   'git:pull',
   'git:switch-branch',
   'html-preview:create',
+  'harness:catalog',
   'terminal:recovery',
   'terminal:update-layout',
   'terminal:forget',
