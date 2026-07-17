@@ -3138,10 +3138,11 @@ async function runSmoke(): Promise<number> {
             if (!addHarness) return reject(new Error('add harness action missing'));
             addHarness.click();
             const waitForConfiguredTemplate = () => {
-              const candidate = [...document.querySelectorAll(
+              const candidates = [...document.querySelectorAll(
                 '.add-harness-candidates label'
-              )].find((label) =>
-                label.querySelector('strong')?.textContent?.trim() === 'Claude Code'
+              )];
+              const candidate = candidates.find((label) =>
+                (label.querySelector('small')?.textContent || '').includes('Already added')
               );
               if (candidate) {
                 const checkbox = candidate.querySelector('input[type="checkbox"]');
@@ -3153,8 +3154,15 @@ async function runSmoke(): Promise<number> {
                   .find((button) => button.textContent?.trim() === 'Cancel')?.click();
                 return requestAnimationFrame(beginProfileEdit);
               }
+              const refresh = [...document.querySelectorAll('.add-harness-dialog button')]
+                .find((button) => button.textContent?.trim() === 'Refresh');
+              if (refresh && !refresh.disabled) {
+                [...document.querySelectorAll('.add-harness-dialog button')]
+                  .find((button) => button.textContent?.trim() === 'Cancel')?.click();
+                return requestAnimationFrame(beginProfileEdit);
+              }
               if (Date.now() > deadline) {
-                return reject(new Error('configured template annotation missing'));
+                return reject(new Error('configured template detection did not settle'));
               }
               setTimeout(waitForConfiguredTemplate, 50);
             };
