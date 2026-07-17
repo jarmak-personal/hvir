@@ -1,5 +1,4 @@
 import {
-  FitAddon,
   Terminal as GhosttyTerminal,
   init,
   type ILink,
@@ -15,7 +14,10 @@ import type {
   TerminalColorTheme,
 } from './terminal-pane'
 import { detectTerminalFileLinks, isFileUri } from './terminal-file-link'
+import { TerminalFitController } from './ghostty-terminal-fit'
 import { TerminalSignalParser } from './terminal-signals'
+import { writePreservingViewport } from './terminal-viewport'
+import { TerminalWheelController } from './terminal-wheel'
 
 let initializeGhostty: Promise<void> | undefined
 
@@ -49,7 +51,7 @@ class ListenerSet<T> {
 
 class GhosttyTerminalPane implements TerminalPane {
   private readonly terminal: GhosttyTerminal
-  private readonly fit = new FitAddon()
+  private readonly fit: TerminalFitController
 
   constructor(theme: TerminalColorTheme) {
     this.terminal = new GhosttyTerminal({
@@ -61,6 +63,7 @@ class GhosttyTerminalPane implements TerminalPane {
       scrollback: 10_000,
       theme,
     })
+    this.fit = new TerminalFitController(this.terminal)
   }
 
   private readonly dataListeners = new ListenerSet<string>()
@@ -73,6 +76,7 @@ class GhosttyTerminalPane implements TerminalPane {
   private mounted = false
   private disposed = false
   private readonly signalParser = new TerminalSignalParser()
+  private readonly wheel = new TerminalWheelController()
   private lastTitle = ''
 
   readonly events: TerminalPaneEvents = {
@@ -88,7 +92,6 @@ class GhosttyTerminalPane implements TerminalPane {
     if (this.disposed) throw new Error('Cannot mount a disposed terminal pane')
     if (this.mounted) throw new Error('Terminal pane is already mounted')
     this.mounted = true
-    this.terminal.loadAddon(this.fit)
     this.engineDisposers.push(
       this.terminal.onData((data) => this.dataListeners.emit(data)),
       this.terminal.onResize((size) => this.resizeListeners.emit(size)),
@@ -98,6 +101,7 @@ class GhosttyTerminalPane implements TerminalPane {
     this.terminal.registerLinkProvider(
       new FileLinkProvider(this.terminal, (target) => this.linkListeners.emit(target)),
     )
+    this.terminal.attachCustomWheelEventHandler((event) => this.handleWheel(event))
     const canvas = this.terminal.renderer?.getCanvas()
     if (canvas) canvas.style.visibility = 'hidden'
     this.fit.fit()
@@ -123,7 +127,7 @@ class GhosttyTerminalPane implements TerminalPane {
   write(data: string): void {
     if (this.disposed) return
     this.inspectSignals(data)
-    this.terminal.write(data)
+    writePreservingViewport(this.terminal, data)
   }
 
   resize(cols: number, rows: number): void {
@@ -153,6 +157,7 @@ class GhosttyTerminalPane implements TerminalPane {
   dispose(): void {
     if (this.disposed) return
     this.disposed = true
+    this.fit.dispose()
     for (const disposer of this.engineDisposers) disposer.dispose()
     this.engineDisposers.length = 0
     const renderer = this.terminal.renderer
@@ -183,6 +188,24 @@ class GhosttyTerminalPane implements TerminalPane {
     if (title === this.lastTitle) return
     this.lastTitle = title
     this.titleListeners.emit(title)
+  }
+
+  private handleWheel(event: WheelEvent): boolean {
+    const term = this.terminal.wasmTerm
+    const renderer = this.terminal.renderer
+    const result = this.wheel.handle(event, {
+      alternateScreen: term?.isAlternateScreen() ?? false,
+      mouseTracking: term?.hasMouseTracking() ?? false,
+      sgrMouse: term?.getMode(1006) ?? false,
+      cols: this.terminal.cols,
+      rows: this.terminal.rows,
+      cellWidth: renderer?.charWidth ?? 1,
+      cellHeight: renderer?.charHeight ?? 16,
+    })
+    for (const data of result.data) {
+      this.dataListeners.emit(data)
+    }
+    return result.handled
   }
 }
 

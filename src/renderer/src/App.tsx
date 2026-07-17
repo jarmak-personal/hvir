@@ -462,7 +462,10 @@ export function App(): ReactElement {
         workbench.style.removeProperty('--tree-track')
       }
       if (layout.terminalHeight) {
-        workbench.style.setProperty('--terminal-track', `${layout.terminalHeight}px`)
+        workbench.style.setProperty(
+          '--terminal-track',
+          `${fitTerminalHeight(layout.terminalHeight, workbench.clientHeight)}px`,
+        )
       } else {
         workbench.style.removeProperty('--terminal-track')
       }
@@ -479,6 +482,23 @@ export function App(): ReactElement {
       }
     }
   }, [loadFile, root])
+
+  useEffect(() => {
+    const workbench = workbenchRef.current
+    if (!workbench) return
+    const observer = new ResizeObserver(() => {
+      const terminalTrack = Number.parseFloat(
+        workbench.style.getPropertyValue('--terminal-track'),
+      )
+      if (!Number.isFinite(terminalTrack)) return
+      const next = fitTerminalHeight(terminalTrack, workbench.clientHeight)
+      if (Math.abs(next - terminalTrack) > 0.5) {
+        workbench.style.setProperty('--terminal-track', `${next}px`)
+      }
+    })
+    observer.observe(workbench)
+    return () => observer.disconnect()
+  }, [root])
 
   useEffect(() => {
     if (
@@ -1095,11 +1115,7 @@ export function App(): ReactElement {
   const setTerminalHeight = (height: number): void => {
     const workbench = workbenchRef.current
     if (!workbench) return
-    const max = Math.max(
-      TERMINAL_MIN_HEIGHT,
-      workbench.clientHeight - DIVIDER_SIZE - VIEWER_MIN_HEIGHT,
-    )
-    const next = clamp(height, TERMINAL_MIN_HEIGHT, max)
+    const next = fitTerminalHeight(height, workbench.clientHeight)
     workbench.style.setProperty('--terminal-track', `${next}px`)
     if (rootRef.current) persistLayout(rootRef.current, { terminalHeight: next })
   }
@@ -2264,4 +2280,12 @@ function reorderTabs(
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value))
+}
+
+function fitTerminalHeight(height: number, workbenchHeight: number): number {
+  const max = Math.max(
+    TERMINAL_MIN_HEIGHT,
+    workbenchHeight - DIVIDER_SIZE - VIEWER_MIN_HEIGHT,
+  )
+  return clamp(height, TERMINAL_MIN_HEIGHT, max)
 }
