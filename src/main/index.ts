@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { app, BrowserWindow, dialog, protocol, shell } from 'electron'
 
 import { registerIpcHandlers } from './ipc'
+import { GitMutationCoordinator } from './git/mutation-coordinator'
 import { GitMutationAuthorization } from './git/mutation-authorization'
 import { GitWorkerHostRouter } from './git/worker-host-router'
 import { HtmlPreviewProtocol } from './html-preview-protocol'
@@ -22,21 +23,17 @@ import { createElectronWindowManager } from './window/electron-window-manager'
 import { WorkbenchRuntime } from './workbench-runtime'
 import {
   GIT_CHANGED_FILE_COUNT_TYPE,
-  GIT_PRUNE_WORKTREES_TYPE,
-  GIT_WORKTREES_TYPE,
   GIT_FETCH_TYPE,
+  GIT_PRUNE_WORKTREES_TYPE,
   GIT_PULL_TYPE,
   GIT_SWITCH_BRANCH_TYPE,
-  hostPathEquals,
+  GIT_WORKTREES_TYPE,
   localPath,
   LOCAL_HOST_ID,
   type EchoWorkerProtocol,
   type GitWorkerProtocol,
-  type HostPath,
   type IpcEventChannel,
   type IpcEventPayload,
-  type ProjectState,
-  type WorktreeDiscovery,
   HTML_PREVIEW_SCHEME,
 } from '../shared'
 
@@ -102,7 +99,6 @@ function createWorkbenchEntry(): void {
     'Electron window manager',
     createElectronWindowManager({
       htmlPreviews,
-      discardRendererResources: () => undefined,
       activateRenderer: (ownerId) =>
         installRendererPresentation(rendererScopes.activateOwner(ownerId)),
       rolloverRenderer: (owner) => {
@@ -268,6 +264,36 @@ function createWorkbenchEntry(): void {
       },
       onError: (message, error) => console.error(message, error),
     })
+    const gitMutations = new GitMutationCoordinator({
+      registry: projectRegistry,
+      worker: {
+        pruneWorktrees: (root) => gitWorker!.request(GIT_PRUNE_WORKTREES_TYPE, { root }),
+        switchBranch: (root, branch, relatedWorktreeRoots) =>
+          gitWorker!.request(GIT_SWITCH_BRANCH_TYPE, {
+            root,
+            branch,
+            relatedWorktreeRoots,
+          }),
+        fetch: (root) => gitWorker!.request(GIT_FETCH_TYPE, { root }),
+        pull: (root, relatedWorktreeRoots) =>
+          gitWorker!.request(GIT_PULL_TYPE, { root, relatedWorktreeRoots }),
+      },
+      workspaces: workspaceCoordinator,
+      authorizations: gitMutationAuthorizations,
+      cleanup: {
+        forgetWorkspaceSessions: async (root) => {
+          await Promise.all(
+            terminalSessionRegistry!
+              .list(root)
+              .map((session) => terminalSessionRegistry!.forget(root, session.id)),
+          )
+        },
+        revokeWorkspace: (root) => rendererScopes.revokeWorkspace(root),
+        closeWorkspace: (root) => webPaneRoutes.closeWorkspace(root),
+        clearHtmlPreviews: () => htmlPreviews.clear(),
+      },
+      onError: (message, error) => console.error(message, error),
+    })
     ptySupervisor = runtime.own('PTY supervisor', new PtySupervisor(), (supervisor) =>
       supervisor.disposeAllAndWait(),
     )
@@ -356,14 +382,14 @@ function createWorkbenchEntry(): void {
           if (!projectCoordinator) throw new Error('Project coordinator is unavailable')
           return projectCoordinator.closeProject(projectId)
         },
-        pruneWorktrees: (projectId) => requestProjectWorktreePrune(projectId),
+        pruneWorktrees: (projectId) => gitMutations.pruneWorktrees(projectId),
         dismissWorkspace: (projectId, workspaceId) => {
           if (!projectCoordinator) throw new Error('Project coordinator is unavailable')
           return projectCoordinator.dismissWorkspace(projectId, workspaceId)
         },
-        switchGitBranch: (root, branch) => requestGitBranchSwitch(root, branch),
-        fetchGit: (root) => requestGitFetch(root),
-        pullGit: (root) => requestGitPull(root),
+        switchGitBranch: (root, branch) => gitMutations.switchBranch(root, branch),
+        fetchGit: (root) => gitMutations.fetch(root),
+        pullGit: (root) => gitMutations.pull(root),
         respondSshPrompt: (owner, id, answers) =>
           sshPrompter?.respond(owner, id, answers),
         rendererResources: rendererScopes,
@@ -405,204 +431,6 @@ function createWorkbenchEntry(): void {
         .catch((error) => console.error('[workspace] watch reopen failed', error))
     }
     createWindow()
-  }
-
-  function requestProjectWorktreePrune(projectId: string): Promise<ProjectState> {
-    const coordinator = workspaceCoordinator
-    if (!coordinator) throw new Error('Workspace pruning is unavailable')
-    coordinator.invalidateProject(projectId)
-    const settled = coordinator.settleProject(projectId)
-    return coordinator.coalesceProjectOperation(projectId, async () => {
-      await settled
-      return pruneProjectWorktrees(projectId)
-    })
-  }
-
-  async function pruneProjectWorktrees(projectId: string): Promise<ProjectState> {
-    const registry = projectRegistry
-    const worker = gitWorker
-    const sessions = terminalSessionRegistry
-    if (!registry || !worker || !sessions) {
-      throw new Error('Workspace pruning is unavailable')
-    }
-    const project = registry.projectById(projectId)
-    if (!project) throw new Error('Unknown project')
-    if (project.connectionState !== 'connected') {
-      throw new Error('Connect to the project host before pruning worktrees')
-    }
-    const targets = project.workspaces.filter(
-      (workspace) => workspace.missing && workspace.prunableReason !== undefined,
-    )
-    if (targets.length === 0) throw new Error('Git reports no prunable worktrees')
-    const prunesActiveWorkspace = targets.some(
-      (workspace) => workspace.id === registry.active.workspaceId,
-    )
-
-    const grant = gitMutationAuthorizations.grant({
-      kind: 'worktree-prune',
-      projectId,
-      root: project.registeredRoot,
-    })
-    let discovery: WorktreeDiscovery
-    try {
-      discovery = await worker.request(GIT_PRUNE_WORKTREES_TYPE, {
-        root: project.registeredRoot,
-      })
-    } finally {
-      grant.revoke()
-    }
-
-    await registry.reconcileWorktrees(projectId, discovery)
-    for (const target of targets) {
-      if (
-        discovery.worktrees.some((worktree) => hostPathEquals(worktree.root, target.root))
-      ) {
-        continue
-      }
-      await Promise.all(
-        sessions
-          .list(target.root)
-          .map((session) => sessions.forget(target.root, session.id)),
-      )
-      await registry.dismissWorkspace(projectId, target.id)
-      await Promise.all([
-        rendererScopes.revokeWorkspace(target.root),
-        webPaneRoutes.closeWorkspace(target.root),
-      ])
-    }
-    if (prunesActiveWorkspace) {
-      await workspaceCoordinator?.stopWatch()
-      htmlPreviews.clear()
-      await workspaceCoordinator?.replaceWatch(registry.active)
-    }
-    return registry.state()
-  }
-
-  function requestGitBranchSwitch(root: HostPath, branch: string): Promise<ProjectState> {
-    if (!workspaceCoordinator) throw new Error('Branch switching is unavailable')
-    return workspaceCoordinator.serialize(async () => {
-      const registry = projectRegistry
-      const worker = gitWorker
-      const coordinator = workspaceCoordinator
-      if (!registry || !worker || !coordinator) {
-        throw new Error('Branch switching is unavailable')
-      }
-      if (!hostPathEquals(root, registry.active.root)) {
-        throw new Error('Branch switch belongs to another workspace')
-      }
-      if (registry.active.host.connectionState !== 'connected') {
-        throw new Error('Reconnect before switching branches')
-      }
-      if (
-        typeof branch !== 'string' ||
-        branch.length === 0 ||
-        branch.length > 1_024 ||
-        branch.includes('\0')
-      ) {
-        throw new Error('Invalid branch target')
-      }
-
-      const projectId = registry.active.projectId
-      coordinator.invalidateProject(projectId)
-      await coordinator.settleProject(projectId)
-      const grant = gitMutationAuthorizations.grant({
-        kind: 'branch-switch',
-        projectId,
-        root,
-        target: branch,
-      })
-      try {
-        const relatedWorktreeRoots =
-          registry
-            .projectById(projectId)
-            ?.workspaces.filter((workspace) => !workspace.missing)
-            .map((workspace) => workspace.root) ?? []
-        await worker.request(GIT_SWITCH_BRANCH_TYPE, {
-          root,
-          branch,
-          relatedWorktreeRoots,
-        })
-      } finally {
-        grant.revoke()
-      }
-      try {
-        return await coordinator.refresh(projectId)
-      } catch (error) {
-        console.error('[git] workspace refresh after branch switch failed', error)
-        coordinator.scheduleRefresh(projectId)
-        return registry.state()
-      }
-    })
-  }
-
-  function requestGitFetch(root: HostPath): Promise<ProjectState> {
-    if (!workspaceCoordinator) throw new Error('Git fetch is unavailable')
-    return workspaceCoordinator.serialize(async () => {
-      const registry = projectRegistry
-      const worker = gitWorker
-      if (!registry || !worker) throw new Error('Git fetch is unavailable')
-      assertActiveGitWorkspace(root, registry, 'fetching')
-      const grant = gitMutationAuthorizations.grant({
-        kind: 'fetch',
-        projectId: registry.active.projectId,
-        root,
-      })
-      try {
-        await worker.request(GIT_FETCH_TYPE, { root })
-      } finally {
-        grant.revoke()
-      }
-      return registry.state()
-    })
-  }
-
-  function requestGitPull(root: HostPath): Promise<ProjectState> {
-    if (!workspaceCoordinator) throw new Error('Git pull is unavailable')
-    return workspaceCoordinator.serialize(async () => {
-      const registry = projectRegistry
-      const worker = gitWorker
-      const coordinator = workspaceCoordinator
-      if (!registry || !worker || !coordinator) throw new Error('Git pull is unavailable')
-      assertActiveGitWorkspace(root, registry, 'pulling')
-      const projectId = registry.active.projectId
-      coordinator.invalidateProject(projectId)
-      await coordinator.settleProject(projectId)
-      const grant = gitMutationAuthorizations.grant({
-        kind: 'pull',
-        projectId,
-        root,
-      })
-      try {
-        const relatedWorktreeRoots =
-          registry
-            .projectById(projectId)
-            ?.workspaces.filter((workspace) => !workspace.missing)
-            .map((workspace) => workspace.root) ?? []
-        await worker.request(GIT_PULL_TYPE, { root, relatedWorktreeRoots })
-      } finally {
-        grant.revoke()
-      }
-      try {
-        return await coordinator.refresh(projectId)
-      } catch (error) {
-        console.error('[git] workspace refresh after pull failed', error)
-        coordinator.scheduleRefresh(projectId)
-        return registry.state()
-      }
-    })
-  }
-
-  function assertActiveGitWorkspace(
-    root: HostPath,
-    registry: ProjectRegistry,
-    operation: string,
-  ): void {
-    if (!hostPathEquals(root, registry.active.root)) {
-      throw new Error(`Git ${operation} belongs to another workspace`)
-    }
-    if (registry.active.host.connectionState !== 'connected') {
-      throw new Error(`Reconnect before ${operation}`)
-    }
   }
 
   function projectRootArgument(): string | undefined {

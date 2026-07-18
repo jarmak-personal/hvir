@@ -64,6 +64,8 @@ export function registerWebPaneIpc(ipc: IpcRegistrar, deps: WebPaneIpcDeps): voi
           owner,
           { lifetime: 'workspace', type: 'web-pane', root, id: route.paneId },
           () => deps.webPanes.close(route.paneId, owner.id, owner.generation),
+          // Reopening the same workspace/origin intentionally returns the same route.
+          { duplicate: 'reuse' },
         )
         return route
       } catch (error) {

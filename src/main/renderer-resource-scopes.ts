@@ -24,6 +24,11 @@ export interface RendererResourceLease {
   readonly dispose: () => Promise<void>
 }
 
+export interface RendererResourceRegistrationOptions {
+  /** Reuse an equivalent existing registration for an intentionally idempotent resource. */
+  readonly duplicate?: 'reuse'
+}
+
 export interface RendererOwnerTransition {
   readonly owner: RendererOwner
   readonly cleanup: Promise<void>
@@ -96,11 +101,15 @@ export class RendererResourceScopes {
     owner: RendererOwner,
     qualifier: RendererResourceQualifier,
     dispose: () => void | Promise<void>,
+    options: RendererResourceRegistrationOptions = {},
   ): RendererResourceLease {
     this.assertCurrent(owner)
     const key = resourceKey(owner, qualifier)
     const existing = this.resources.get(key)
-    if (existing) return this.lease(existing)
+    if (existing) {
+      if (options.duplicate === 'reuse') return this.lease(existing)
+      throw new Error(`Renderer ${qualifier.type} resource is already registered`)
+    }
     const record: ResourceRecord = { key, owner, qualifier, dispose, active: true }
     this.resources.set(key, record)
     return this.lease(record)
@@ -194,8 +203,16 @@ function sameOwner(left: RendererOwner, right: RendererOwner): boolean {
 }
 
 function resourceKey(owner: RendererOwner, qualifier: RendererResourceQualifier): string {
-  const prefix = `${owner.id}:${owner.generation}:${qualifier.type}`
-  return qualifier.lifetime === 'renderer'
-    ? prefix
-    : `${prefix}:${qualifier.root.hostId}:${qualifier.root.path}:${qualifier.id}`
+  return JSON.stringify(
+    qualifier.lifetime === 'renderer'
+      ? [owner.id, owner.generation, qualifier.type]
+      : [
+          owner.id,
+          owner.generation,
+          qualifier.type,
+          qualifier.root.hostId,
+          qualifier.root.path,
+          qualifier.id,
+        ],
+  )
 }

@@ -29,7 +29,6 @@ import {
 
 export interface ElectronWindowManagerDependencies {
   readonly htmlPreviews: HtmlPreviewProtocol
-  readonly discardRendererResources: (ownerId: number) => void
   readonly activateRenderer: (ownerId: number) => RendererOwner
   readonly rolloverRenderer: (owner: RendererOwner) => RendererOwner
   readonly revokeRenderer: (owner: RendererOwner) => void
@@ -219,7 +218,8 @@ export function createElectronWindowManager(
   }
 
   function createWindow(
-    discardExternalResources = dependencies.discardRendererResources,
+    // Electron smoke injects an observer for resources outside the production scopes.
+    discardExternalResources: (ownerId: number) => void = () => undefined,
   ): BrowserWindow {
     const win = new BrowserWindow(
       workbenchWindowOptions(join(__dirname, '../preload/index.js')),

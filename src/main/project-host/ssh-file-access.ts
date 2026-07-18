@@ -21,7 +21,7 @@ export interface SshFileAccessOwner {
   openSftp(): Promise<SFTPWrapper>
 }
 
-/** Generation-scoped SFTP session, remote file cache, and save authority. */
+/** Transport-scoped SFTP/cache state plus content-scoped optimistic save authority. */
 export class SshFileAccess {
   private generation = 0
   private sftpSession?: Promise<SFTPWrapper>
@@ -48,7 +48,6 @@ export class SshFileAccess {
     const session = this.sftpSession
     this.sftpSession = undefined
     this.cache.clear()
-    this.readDigests.clear()
     this.fingerprintObservations.clear()
     void session?.then(
       (value) => value.end(),
@@ -59,6 +58,7 @@ export class SshFileAccess {
   dispose(): void {
     this.advanceGeneration()
     this.pollingFiles.clear()
+    this.readDigests.clear()
   }
 
   async readFile(path: HostPath, opts: ReadFileOptions = {}): Promise<Buffer> {

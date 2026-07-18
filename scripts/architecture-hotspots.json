@@ -19,9 +19,9 @@
   "legacyHotspots": [
     {
       "path": "src/main/index.ts",
-      "maxLines": 690,
+      "maxLines": 520,
       "owner": "architecture epic #33",
-      "rationale": "Bootstrap, lifecycle, workflows, and the Electron smoke harness accumulated in one entry point.",
+      "rationale": "The composition root wires runtime owners, window presentation, coordinators, worker adapters, and IPC; this strict cap prevents product workflows from returning.",
       "removalIssue": "#35-#40",
       "expiresOn": "2026-09-30"
     },
@@ -29,7 +29,7 @@
       "path": "src/renderer/src/App.tsx",
       "maxLines": 686,
       "owner": "architecture epic #33",
-      "rationale": "Project, viewer, layout, prompt, navigation, and feature state share the renderer root.",
+      "rationale": "The renderer root is now a composition shell for feature-owned models and views; this strict cap prevents it from reabsorbing feature state and policy.",
       "removalIssue": "#43-#45",
       "expiresOn": "2026-09-30"
     },
@@ -37,7 +37,7 @@
       "path": "src/main/project-host/ssh-host.ts",
       "maxLines": 1192,
       "owner": "architecture epic #33",
-      "rationale": "One public ProjectHost currently implements several private SSH resource lifecycles directly.",
+      "rationale": "The public SshHost owns one authentication, connection, cache, and capacity policy while delegating file, watch, and transport-pool mechanics to private collaborators.",
       "removalIssue": "#41",
       "expiresOn": "2026-09-30"
     },
@@ -45,7 +45,7 @@
       "path": "src/renderer/src/terminal/TerminalWorkspace.tsx",
       "maxLines": 422,
       "owner": "architecture epic #33",
-      "rationale": "Terminal policy, effects, persistence, recovery, and presentation are still colocated.",
+      "rationale": "TerminalWorkspace is now the feature composition view over extracted policy, effects, persistence, recovery, and presentation modules; the named cap preserves that boundary.",
       "removalIssue": "#46",
       "expiresOn": "2026-09-30"
     },
@@ -53,7 +53,7 @@
       "path": "src/renderer/src/settings/HarnessProfilesSettings.tsx",
       "maxLines": 220,
       "owner": "architecture epic #33",
-      "rationale": "Harness-profile draft policy, async workflows, fields, and dialogs share one form component.",
+      "rationale": "HarnessProfilesSettings composes extracted profile policy, controller, fields, and dialogs; the named cap prevents those responsibilities from moving back into the view.",
       "removalIssue": "#48",
       "expiresOn": "2026-09-30"
     },
@@ -61,7 +61,7 @@
       "path": "src/main/git/git-engine.ts",
       "maxLines": 128,
       "owner": "architecture epic #33",
-      "rationale": "The stable GitEngine facade still directly implements every Git capability.",
+      "rationale": "GitEngine is the stable facade over capability modules and the shared command context; its lower named cap prevents the facade from reabsorbing capability implementations.",
       "removalIssue": "#42",
       "expiresOn": "2026-09-30"
     },
@@ -69,7 +69,7 @@
       "path": "src/renderer/src/styles.css",
       "maxLines": 100,
       "owner": "architecture epic #33",
-      "rationale": "All feature styles currently share one global cascade file.",
+      "rationale": "The root stylesheet is an explicit ordered import manifest; its lower named cap prevents feature rules from returning to the global composition surface.",
       "removalIssue": "#49",
       "expiresOn": "2026-09-30"
     },
@@ -77,7 +77,7 @@
       "path": "test/ssh-host.test.ts",
       "maxLines": 1685,
       "owner": "architecture epic #33",
-      "rationale": "The SSH facade's adapter characterization accumulated in one legacy test module.",
+      "rationale": "Legacy end-to-end SshHost adapter characterization remains in one test module while new collaborator policy is tested in focused modules.",
       "removalIssue": "#41",
       "expiresOn": "2026-09-30"
     },
@@ -85,7 +85,7 @@
       "path": "src/main/smoke/index.ts",
       "maxLines": 3272,
       "owner": "architecture epic #33",
-      "rationale": "The first mechanical extraction preserves one high-altitude workflow while removing it from production bootstrap; lower-altitude policy is tested outside this file.",
+      "rationale": "The Electron smoke remains one intentionally high-altitude workflow suite; feature policy and resource semantics are tested in focused modules outside it.",
       "removalIssue": "#49",
       "expiresOn": "2026-09-30"
     }

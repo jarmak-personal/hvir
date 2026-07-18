@@ -95,4 +95,71 @@ describe('RendererResourceScopes', () => {
 
     expect(calls).toEqual(['second', 'first'])
   })
+
+  it('rejects accidental duplicate registrations', () => {
+    const scopes = new RendererResourceScopes()
+    const owner = scopes.activateOwner(10)
+    scopes.register(owner, { lifetime: 'renderer', type: 'attention' }, vi.fn())
+
+    expect(() =>
+      scopes.register(owner, { lifetime: 'renderer', type: 'attention' }, vi.fn()),
+    ).toThrow('Renderer attention resource is already registered')
+  })
+
+  it('reuses an explicitly equivalent idempotent registration', async () => {
+    const scopes = new RendererResourceScopes()
+    const owner = scopes.activateOwner(10)
+    const dispose = vi.fn()
+    const duplicateDispose = vi.fn()
+    const qualifier = {
+      lifetime: 'workspace' as const,
+      type: 'web-pane' as const,
+      root: firstRoot,
+      id: 'pane',
+    }
+    const first = scopes.register(owner, qualifier, dispose)
+    const duplicate = scopes.register(owner, qualifier, duplicateDispose, {
+      duplicate: 'reuse',
+    })
+
+    await duplicate.dispose()
+    await first.dispose()
+
+    expect(dispose).toHaveBeenCalledOnce()
+    expect(duplicateDispose).not.toHaveBeenCalled()
+  })
+
+  it('uses collision-proof tuple keys for host paths and resource ids', async () => {
+    const calls: string[] = []
+    const scopes = new RendererResourceScopes()
+    const owner = scopes.activateOwner(10)
+    scopes.register(
+      owner,
+      {
+        lifetime: 'workspace',
+        type: 'web-pane',
+        root: localPath('/project:a'),
+        id: 'b',
+      },
+      () => {
+        calls.push('first')
+      },
+    )
+    scopes.register(
+      owner,
+      {
+        lifetime: 'workspace',
+        type: 'web-pane',
+        root: localPath('/project'),
+        id: 'a:b',
+      },
+      () => {
+        calls.push('second')
+      },
+    )
+
+    await scopes.revokeOwner(owner.id)
+
+    expect(calls).toEqual(['second', 'first'])
+  })
 })
