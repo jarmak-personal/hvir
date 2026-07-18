@@ -303,81 +303,88 @@ function createWorkbenchEntry(): void {
       return sshPrompter.runForOwner(owner, operation)
     }
 
-    registerIpcHandlers({
-      echoWorker,
-      gitWorker,
-      getProject: () => {
-        if (!projectRegistry) throw new Error('Project registry is unavailable')
-        return projectRegistry.active
-      },
-      getRegisteredWorkspaceRoot: (root) =>
-        projectRegistry?.registeredWorkspaceRoot(root),
-      getProjectState: () => {
-        if (!projectRegistry) throw new Error('Project registry is unavailable')
-        return projectRegistry.state()
-      },
-      listHosts: () => projectRegistry?.listHosts() ?? [],
-      connectHost: (hostId, owner) =>
-        withSshPresentation(owner, () => {
+    runtime.own(
+      'IPC authority router',
+      registerIpcHandlers({
+        echoWorker,
+        gitWorker,
+        getProject: () => {
+          if (!projectRegistry) throw new Error('Project registry is unavailable')
+          return projectRegistry.active
+        },
+        getRegisteredWorkspaceRoot: (root) =>
+          projectRegistry?.registeredWorkspaceRoot(root),
+        getProjectState: () => {
+          if (!projectRegistry) throw new Error('Project registry is unavailable')
+          return projectRegistry.state()
+        },
+        listHosts: () => projectRegistry?.listHosts() ?? [],
+        connectHost: (hostId, owner) =>
+          withSshPresentation(owner, () => {
+            if (!projectCoordinator) throw new Error('Project coordinator is unavailable')
+            return projectCoordinator.connectHost(hostId)
+          }),
+        disconnectHost: (hostId) => {
           if (!projectCoordinator) throw new Error('Project coordinator is unavailable')
-          return projectCoordinator.connectHost(hostId)
-        }),
-      disconnectHost: (hostId) => {
-        if (!projectCoordinator) throw new Error('Project coordinator is unavailable')
-        return projectCoordinator.disconnectHost(hostId)
-      },
-      browseHost: (hostId, path, owner) =>
-        withSshPresentation(owner, async () => {
+          return projectCoordinator.disconnectHost(hostId)
+        },
+        browseHost: (hostId, path, owner) =>
+          withSshPresentation(owner, async () => {
+            if (!projectCoordinator) throw new Error('Project coordinator is unavailable')
+            return projectCoordinator.browseHost(hostId, path)
+          }),
+        openProject: (hostId, path, owner) =>
+          withSshPresentation(owner, () => {
+            if (!projectCoordinator) throw new Error('Project coordinator is unavailable')
+            return projectCoordinator.openProject(hostId, path)
+          }),
+        switchWorkspace: (projectId, workspaceId) => {
           if (!projectCoordinator) throw new Error('Project coordinator is unavailable')
-          return projectCoordinator.browseHost(hostId, path)
-        }),
-      openProject: (hostId, path, owner) =>
-        withSshPresentation(owner, () => {
+          return projectCoordinator.switchWorkspace(projectId, workspaceId)
+        },
+        refreshProject: (projectId) => {
+          if (!workspaceCoordinator)
+            throw new Error('Workspace coordinator is unavailable')
+          return workspaceCoordinator.refresh(projectId)
+        },
+        updateWatchInterests: (paths) => {
+          if (!workspaceCoordinator)
+            throw new Error('Workspace coordinator is unavailable')
+          return workspaceCoordinator.updateWatchInterests(paths)
+        },
+        closeProject: (projectId) => {
           if (!projectCoordinator) throw new Error('Project coordinator is unavailable')
-          return projectCoordinator.openProject(hostId, path)
-        }),
-      switchWorkspace: (projectId, workspaceId) => {
-        if (!projectCoordinator) throw new Error('Project coordinator is unavailable')
-        return projectCoordinator.switchWorkspace(projectId, workspaceId)
-      },
-      refreshProject: (projectId) => {
-        if (!workspaceCoordinator) throw new Error('Workspace coordinator is unavailable')
-        return workspaceCoordinator.refresh(projectId)
-      },
-      updateWatchInterests: (paths) => {
-        if (!workspaceCoordinator) throw new Error('Workspace coordinator is unavailable')
-        return workspaceCoordinator.updateWatchInterests(paths)
-      },
-      closeProject: (projectId) => {
-        if (!projectCoordinator) throw new Error('Project coordinator is unavailable')
-        return projectCoordinator.closeProject(projectId)
-      },
-      pruneWorktrees: (projectId) => requestProjectWorktreePrune(projectId),
-      dismissWorkspace: (projectId, workspaceId) => {
-        if (!projectCoordinator) throw new Error('Project coordinator is unavailable')
-        return projectCoordinator.dismissWorkspace(projectId, workspaceId)
-      },
-      switchGitBranch: (root, branch) => requestGitBranchSwitch(root, branch),
-      fetchGit: (root) => requestGitFetch(root),
-      pullGit: (root) => requestGitPull(root),
-      respondSshPrompt: (owner, id, answers) => sshPrompter?.respond(owner, id, answers),
-      rendererResources: rendererScopes,
-      rendererReady: (owner) => sshPrompter?.activateOwner(owner),
-      ptySupervisor,
-      terminalSessions: terminalSessionRegistry,
-      harnessProfiles: harnessProfileStore,
-      harnessProbes: harnessProbeManager,
-      updateAttention: (owner, count) =>
-        attentionBadge?.update(owner.id, count, owner.generation),
-      updateWebPaneBindings: (owner, bindings) =>
-        windowManager.updateWebPaneBindings(owner.id, bindings),
-      updateWebPaneFullPage: (owner, paneId) =>
-        windowManager.updateWebPaneFullPage(owner.id, paneId),
-      htmlPreviews,
-      webPanes: webPaneRoutes,
-      openExternal: (url) => shell.openExternal(url),
-      emit,
-    })
+          return projectCoordinator.closeProject(projectId)
+        },
+        pruneWorktrees: (projectId) => requestProjectWorktreePrune(projectId),
+        dismissWorkspace: (projectId, workspaceId) => {
+          if (!projectCoordinator) throw new Error('Project coordinator is unavailable')
+          return projectCoordinator.dismissWorkspace(projectId, workspaceId)
+        },
+        switchGitBranch: (root, branch) => requestGitBranchSwitch(root, branch),
+        fetchGit: (root) => requestGitFetch(root),
+        pullGit: (root) => requestGitPull(root),
+        respondSshPrompt: (owner, id, answers) =>
+          sshPrompter?.respond(owner, id, answers),
+        rendererResources: rendererScopes,
+        rendererReady: (owner) => sshPrompter?.activateOwner(owner),
+        ptySupervisor,
+        terminalSessions: terminalSessionRegistry,
+        harnessProfiles: harnessProfileStore,
+        harnessProbes: harnessProbeManager,
+        updateAttention: (owner, count) =>
+          attentionBadge?.update(owner.id, count, owner.generation),
+        updateWebPaneBindings: (owner, bindings) =>
+          windowManager.updateWebPaneBindings(owner.id, bindings),
+        updateWebPaneFullPage: (owner, paneId) =>
+          windowManager.updateWebPaneFullPage(owner.id, paneId),
+        htmlPreviews,
+        webPanes: webPaneRoutes,
+        openExternal: (url) => shell.openExternal(url),
+        emit,
+      }),
+      (router) => router.dispose(),
+    )
     // Paint the workbench before background watch and Git discovery can touch a
     // slow or unexpectedly broad directory.
     createWindow()

@@ -50,6 +50,18 @@ hits=$(grep -rnE '\.connectLoopback\(' "$SRC" --include='*.ts' --include='*.tsx'
   | grep -v '^src/main/web-pane/loopback-http-proxy.ts' || true)
 report "host.connectLoopback() called only in the web-pane proxy" "$hits"
 
+# 6. ipcMain is a single transport choke point. Feature registrars receive the
+# narrow IpcRegistrar capability and cannot install handlers directly.
+hits=$(grep -rnw 'ipcMain' "$SRC" --include='*.ts' --include='*.tsx' \
+  | grep -v '^src/main/ipc/authority-router.ts' || true)
+report "ipcMain used only in the IPC authority router" "$hits"
+
+# 7. Feature registrars cannot bypass central renderer-owner or canonical-path
+# authority resolution.
+hits=$(grep -rnE '\.currentOwner\(|\.realpath\(|getRegisteredWorkspaceRoot|\basHostId\b|\bdirnameHostPath\b' \
+  'src/main/ipc/features' --include='*.ts' --include='*.tsx' || true)
+report "IPC features use central owner/path authority" "$hits"
+
 if [[ "$fail" -ne 0 ]]; then
   printf '\n\033[31mseam check failed\033[0m\n'
   exit 1

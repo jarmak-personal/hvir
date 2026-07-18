@@ -213,7 +213,7 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
     }
     const smokeHarnessProfiles = await HarnessProfileStore.load(host, harnessProfilesPath)
     let smokeIpcProjectState = smokeProjectState()
-    registerIpcHandlers({
+    const ipcRouter = registerIpcHandlers({
       echoWorker: worker,
       gitWorker: git,
       getProject: () => ({ host, root: smokeRoot }),
@@ -293,6 +293,7 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
       openExternal,
       emit,
     })
+    cleanup.defer('IPC authority router', () => ipcRouter.dispose())
     stopSmokeWatch = host.watch(smokeRoot, (event) => emit('project:watch', event), {
       recursive: true,
       excludeDirectoryNames: ['.git', 'node_modules', 'out', 'dist'],
@@ -2953,7 +2954,6 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
     console.log(
       '[smoke] renderer generation reload + webContents destruction owner cleanup OK',
     )
-
     console.log('HVIR_SMOKE_OK')
     return 0
   } catch (err) {
