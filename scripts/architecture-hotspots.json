@@ -19,7 +19,7 @@
   "legacyHotspots": [
     {
       "path": "src/main/index.ts",
-      "maxLines": 4394,
+      "maxLines": 690,
       "owner": "architecture epic #33",
       "rationale": "Bootstrap, lifecycle, workflows, and the Electron smoke harness accumulated in one entry point.",
       "removalIssue": "#35-#40",
@@ -27,7 +27,7 @@
     },
     {
       "path": "src/renderer/src/App.tsx",
-      "maxLines": 2609,
+      "maxLines": 686,
       "owner": "architecture epic #33",
       "rationale": "Project, viewer, layout, prompt, navigation, and feature state share the renderer root.",
       "removalIssue": "#43-#45",
@@ -35,7 +35,7 @@
     },
     {
       "path": "src/main/project-host/ssh-host.ts",
-      "maxLines": 2116,
+      "maxLines": 1192,
       "owner": "architecture epic #33",
       "rationale": "One public ProjectHost currently implements several private SSH resource lifecycles directly.",
       "removalIssue": "#41",
@@ -43,7 +43,7 @@
     },
     {
       "path": "src/renderer/src/terminal/TerminalWorkspace.tsx",
-      "maxLines": 1839,
+      "maxLines": 422,
       "owner": "architecture epic #33",
       "rationale": "Terminal policy, effects, persistence, recovery, and presentation are still colocated.",
       "removalIssue": "#46",
@@ -51,7 +51,7 @@
     },
     {
       "path": "src/renderer/src/settings/HarnessProfilesSettings.tsx",
-      "maxLines": 1580,
+      "maxLines": 220,
       "owner": "architecture epic #33",
       "rationale": "Harness-profile draft policy, async workflows, fields, and dialogs share one form component.",
       "removalIssue": "#48",
@@ -59,7 +59,7 @@
     },
     {
       "path": "src/main/git/git-engine.ts",
-      "maxLines": 1479,
+      "maxLines": 128,
       "owner": "architecture epic #33",
       "rationale": "The stable GitEngine facade still directly implements every Git capability.",
       "removalIssue": "#42",
@@ -67,7 +67,7 @@
     },
     {
       "path": "src/renderer/src/styles.css",
-      "maxLines": 4452,
+      "maxLines": 100,
       "owner": "architecture epic #33",
       "rationale": "All feature styles currently share one global cascade file.",
       "removalIssue": "#49",
@@ -75,7 +75,7 @@
     },
     {
       "path": "test/ssh-host.test.ts",
-      "maxLines": 1710,
+      "maxLines": 1685,
       "owner": "architecture epic #33",
       "rationale": "The SSH facade's adapter characterization accumulated in one legacy test module.",
       "removalIssue": "#41",
@@ -83,7 +83,7 @@
     },
     {
       "path": "src/main/smoke/index.ts",
-      "maxLines": 3280,
+      "maxLines": 3272,
       "owner": "architecture epic #33",
       "rationale": "The first mechanical extraction preserves one high-altitude workflow while removing it from production bootstrap; lower-altitude policy is tested outside this file.",
       "removalIssue": "#49",

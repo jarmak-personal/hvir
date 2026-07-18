@@ -1,0 +1,238 @@
+.tree-scroll {
+  flex: 1;
+  overflow: auto;
+  padding: 6px 0 14px;
+  background: #13161b;
+}
+
+.tree-row {
+  width: 100%;
+  height: 25px;
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding-top: 0;
+  padding-right: 8px;
+  padding-bottom: 0;
+  border: 0;
+  color: #aeb4bf;
+  background: transparent;
+  font-size: 12px;
+  text-align: left;
+  cursor: default;
+}
+
+.directory-row {
+  position: sticky;
+  top: 0;
+  background: #13161b;
+}
+
+.tree-row:hover {
+  background: #20242c;
+}
+
+.tree-row.selected {
+  color: #eef0f4;
+  background: #29303b;
+}
+
+.tree-row.gitignored:not(.selected) {
+  color: #68717e;
+}
+
+.tree-row.gitignored:not(.selected) .tree-chevron,
+.tree-row.gitignored:not(.selected) .tree-symlink {
+  color: #59626f;
+}
+
+.tree-row:disabled {
+  color: #59616e;
+}
+
+.tree-chevron {
+  width: 9px;
+  flex: 0 0 9px;
+  color: #737d8c;
+  font-size: 15px;
+  line-height: 1;
+}
+
+.tree-name {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tree-file-name {
+  display: flex;
+}
+
+.tree-file-stem {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tree-file-extension {
+  flex: 0 0 auto;
+  color: #7c8592;
+}
+
+.tree-row.gitignored:not(.selected) .tree-file-extension {
+  color: #59626f;
+}
+
+.tree-row.selected .tree-file-extension {
+  color: #a5afbc;
+}
+
+.file-row.git-status-untracked:not(.selected) .tree-file-stem,
+.directory-row[aria-expanded='false'].git-status-untracked:not(.selected) .tree-name {
+  color: #67ae77;
+}
+
+.file-row.git-status-modified:not(.selected) .tree-file-stem,
+.directory-row[aria-expanded='false'].git-status-modified:not(.selected) .tree-name {
+  color: #d4a85f;
+}
+
+.file-row.git-status-conflict:not(.selected) .tree-file-stem,
+.directory-row[aria-expanded='false'].git-status-conflict:not(.selected) .tree-name {
+  color: #d76d76;
+}
+
+.file-row.selected .tree-file-stem,
+.directory-row.selected .tree-name {
+  color: #eef0f4;
+}
+
+.tree-git-status {
+  flex: 0 0 auto;
+  font-variant-numeric: tabular-nums;
+}
+
+.tree-git-status.file {
+  width: 11px;
+  font-size: 9px;
+  font-weight: 700;
+  text-align: center;
+}
+
+.tree-git-status.directory {
+  width: 9px;
+  height: 9px;
+  display: grid;
+  place-items: center;
+}
+
+.tree-git-status.directory > span {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.tree-git-status.untracked {
+  color: #67ae77;
+}
+
+.tree-git-status.modified {
+  color: #d4a85f;
+}
+
+.tree-git-status.conflict {
+  color: #d76d76;
+}
+
+.tree-depth-guides {
+  height: 100%;
+  position: absolute;
+  top: 0;
+  left: 16px;
+  display: flex;
+  pointer-events: none;
+}
+
+.tree-depth-guide {
+  width: 14px;
+  height: 100%;
+  flex: 0 0 14px;
+  border-left: 1px solid #242a32;
+}
+
+.tree-row:hover .tree-depth-guide,
+.tree-row.selected .tree-depth-guide {
+  border-color: #39414d;
+}
+
+.tree-gitignored {
+  flex: 0 0 auto;
+  color: #626d7b;
+  font-size: 8px;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.tree-row.selected .tree-gitignored {
+  color: #8994a3;
+}
+
+.tree-loading {
+  margin-left: auto;
+  color: #737d8c;
+}
+
+.tree-symlink {
+  width: 9px;
+  flex: 0 0 9px;
+  color: #778b9f;
+  font-size: 10px;
+}
+
+.tree-error {
+  padding-top: 3px;
+  padding-bottom: 6px;
+  color: #dc7b82;
+  font-size: 11px;
+}
+
+.tree-scope-notice {
+  margin: 8px 10px;
+  padding: 7px 9px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.workspace-missing-notice {
+  min-width: 0;
+  min-height: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 24px;
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.45;
+  text-align: center;
+}
+
+.workspace-missing-notice strong {
+  color: var(--text-strong);
+  font-size: 13px;
+}
+
+.workspace-missing-path {
+  max-width: 100%;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}

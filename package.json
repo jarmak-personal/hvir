@@ -46,7 +46,7 @@
     "check-seams": "bash scripts/check-seams.sh",
     "architecture:report": "node scripts/architecture-hotspots.mjs",
     "architecture:check": "node scripts/architecture-hotspots.mjs --enforce",
-    "verify": "npm run check-seams && npm run architecture:report && npm run lint && npm run typecheck && npm test && node npm/launcher/hvir.mjs --help",
+    "verify": "npm run check-seams && npm run architecture:check && npm run lint && npm run typecheck && npm test && node npm/launcher/hvir.mjs --help",
     "smoke": "electron-vite build && bash scripts/run-smoke.sh",
     "smoke:packaged": "bash scripts/run-packaged-smoke.sh",
     "smoke:capacity": "electron-vite build && cross-env HVIR_CAPACITY_SMOKE=1 bash scripts/run-smoke.sh",

@@ -32,10 +32,11 @@ describe('renderer filesystem contract', () => {
   })
 
   it('keeps the Harnesses editor wide and the add flow keyboard-addressable', () => {
-    const styles = readFileSync(
-      join(process.cwd(), 'src/renderer/src/styles.css'),
-      'utf8',
-    )
+    const styles = ['settings.css', 'terminal-list.css']
+      .map((file) =>
+        readFileSync(join(process.cwd(), 'src/renderer/src/styles', file), 'utf8'),
+      )
+      .join('\n')
     const dialogs = readFileSync(
       join(process.cwd(), 'src/renderer/src/settings/HarnessProfileDialogs.tsx'),
       'utf8',

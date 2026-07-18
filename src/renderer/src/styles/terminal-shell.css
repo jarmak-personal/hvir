@@ -1,0 +1,234 @@
+.terminal-deck {
+  --terminal-primary-track: minmax(220px, 1fr);
+
+  position: relative;
+  grid-column: 3;
+  grid-row: 3;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: #111318;
+}
+
+.terminal-deck.split {
+  display: grid;
+  grid-template-columns: var(--terminal-primary-track) 5px minmax(220px, 1fr);
+}
+
+.terminal-deck[hidden],
+.terminal-rail[hidden] {
+  display: none;
+}
+
+.terminal-surface {
+  position: absolute;
+  inset: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.terminal-surface.visible {
+  visibility: visible;
+  pointer-events: auto;
+}
+
+.terminal-deck.split .terminal-surface {
+  position: relative;
+  inset: auto;
+  grid-row: 1;
+}
+
+.terminal-deck.split .terminal-surface[data-terminal-slot='primary'] {
+  grid-column: 1;
+}
+
+.terminal-deck.split .terminal-surface[data-terminal-slot='secondary'] {
+  grid-column: 3;
+}
+
+.terminal-deck.split .terminal-surface.active {
+  box-shadow: inset 0 2px #4d8fd8;
+}
+
+.terminal-rail {
+  grid-column: 4;
+  grid-row: 3;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: #12151a;
+}
+
+.terminal-rail-header {
+  position: relative;
+  z-index: 7;
+  flex: 0 0 36px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 8px 0 11px;
+  border-bottom: 1px solid #282d36;
+  box-shadow: inset 1px 0 var(--border-subtle);
+  background: #181b21;
+  color: #c9ced6;
+  font-size: 10px;
+  font-weight: 650;
+}
+
+.terminal-new-control {
+  position: relative;
+}
+
+.terminal-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 1px;
+}
+
+.terminal-icon-button,
+.terminal-close-button,
+.terminal-move-button {
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: #99a2af;
+  line-height: 1;
+}
+
+.terminal-icon-button {
+  font-size: 19px;
+}
+
+.terminal-icon-button:disabled {
+  opacity: 0.38;
+}
+
+.terminal-settings-button {
+  font-size: 13px;
+}
+
+.terminal-split-button,
+.terminal-move-button {
+  font-size: 13px;
+}
+
+.terminal-icon-button:hover,
+.terminal-icon-button:focus-visible,
+.terminal-move-button:hover,
+.terminal-move-button:focus-visible,
+.terminal-close-button:hover,
+.terminal-close-button:focus-visible {
+  outline: none;
+  background: #252b34;
+  color: #edf0f5;
+}
+
+.terminal-new-menu {
+  position: absolute;
+  top: 29px;
+  right: 0;
+  width: 285px;
+  max-height: min(460px, calc(100vh - 90px));
+  overflow: auto;
+  padding: 4px;
+  border: 1px solid #3a424e;
+  border-radius: 4px;
+  background: #1b1f26;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 38%);
+}
+
+.terminal-new-menu button {
+  width: 100%;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: #cbd1da;
+  font-size: 10px;
+  text-align: left;
+}
+
+.terminal-new-menu button > span,
+.terminal-new-menu button > small {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.terminal-new-menu button > small {
+  margin-top: 3px;
+  overflow: hidden;
+  color: #7f8997;
+  font-size: 8px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.terminal-new-menu button:disabled {
+  opacity: 0.48;
+}
+
+.harness-risk {
+  padding: 2px 4px;
+  border: 1px solid currentColor;
+  border-radius: 3px;
+  color: #d8b36f;
+  font-size: 7px;
+  font-style: normal;
+  text-transform: uppercase;
+}
+
+.harness-risk.unclassified {
+  color: #bf91ce;
+}
+
+.terminal-new-menu-actions {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  padding-top: 4px;
+  border-top: 1px solid #343a45;
+}
+
+.terminal-new-menu-checking {
+  padding: 7px 8px;
+  color: #7f8997;
+  font-size: 9px;
+}
+
+.harness-risk-dialog small {
+  color: #8b95a3;
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.terminal-new-menu button:hover,
+.terminal-new-menu button:focus-visible {
+  outline: none;
+  background: #293240;
+  color: #f0f2f5;
+}
+
+.terminal-settings-menu {
+  width: 184px;
+}
+
+.terminal-settings-menu label {
+  display: grid;
+  grid-template-columns: 14px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  padding: 6px 7px;
+  color: #cbd1da;
+  font-size: 10px;
+}
+
+.terminal-settings-menu input {
+  width: 14px;
+  height: 14px;
+  margin: 0;
+}

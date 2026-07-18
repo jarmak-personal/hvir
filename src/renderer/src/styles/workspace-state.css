@@ -1,0 +1,63 @@
+.remote-connection-badge {
+  max-width: 180px;
+  height: 17px;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  overflow: hidden;
+  padding: 0 6px 0 4px;
+  border-radius: 8px;
+  background: #252c36;
+  color: #8fa6c2;
+  font-size: 8px;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.remote-connection-mark {
+  width: 10px;
+  flex: 0 0 10px;
+  color: #75bd84;
+  font-size: 9px;
+  font-weight: 800;
+  text-align: center;
+}
+
+.remote-connection-host {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.remote-connection-badge.connecting .remote-connection-mark,
+.remote-connection-badge.reconnecting .remote-connection-mark {
+  color: #d4a85f;
+}
+
+.remote-connection-badge.failed .remote-connection-mark {
+  color: #df7b83;
+}
+
+.remote-connection-badge.disconnected .remote-connection-mark {
+  color: #8993a0;
+}
+
+.session-host-option .remote-connection-badge {
+  height: 20px;
+  font-size: 10px;
+}
+
+.project-stale .viewer-body::after {
+  content: 'Disconnected · cached content may be stale';
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  padding: 5px 8px;
+  border: 1px solid #6e4e2e;
+  border-radius: 4px;
+  background: #211b15;
+  color: #d4a85f;
+  font-size: 10px;
+  pointer-events: none;
+}

@@ -1,0 +1,259 @@
+.git-rail-history-row {
+  position: absolute;
+  right: 0;
+  left: 0;
+}
+
+.git-rail-history-row.commit {
+  border-bottom: 1px solid #1e232b;
+}
+
+.git-rail-history-row.commit:hover,
+.git-rail-history-row.commit:focus-within {
+  background: #1b2027;
+}
+
+.git-rail-commit {
+  width: 100%;
+  height: 100%;
+  display: grid;
+  align-items: center;
+  padding: 0 28px 0 0;
+  overflow: hidden;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: #b9c0ca;
+  text-align: left;
+}
+
+.git-rail-commit:focus-visible {
+  box-shadow: inset 0 0 0 1px #4d8fd8;
+}
+
+.git-rail-commit-copy {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 0 3px;
+}
+
+.git-rail-commit-copy strong,
+.git-rail-commit-copy small,
+.git-rail-commit-copy strong > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.git-rail-commit-copy strong {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.git-rail-commit-copy strong > i {
+  width: 8px;
+  flex: 0 0 8px;
+  color: #788392;
+  font-size: 9px;
+  font-style: normal;
+}
+
+.git-rail-commit-copy small {
+  color: #727c8a;
+  font-size: 9px;
+}
+
+.git-rail-open-full {
+  width: 23px;
+  height: 23px;
+  position: absolute;
+  top: 8px;
+  right: 3px;
+  padding: 0;
+  border: 0;
+  border-radius: 3px;
+  background: #1b2027;
+  color: #8e98a7;
+  font-size: 13px;
+  opacity: 0;
+}
+
+.git-rail-history-row:hover .git-rail-open-full,
+.git-rail-open-full:focus-visible {
+  opacity: 1;
+}
+
+.git-rail-open-full:hover {
+  background: #303844;
+  color: #eef1f5;
+}
+
+.git-rail-history-row.child {
+  display: flex;
+  align-items: stretch;
+  background: #111419;
+}
+
+.git-rail-history-row.child.error {
+  color: #dc7b82;
+}
+
+.git-rail-history-state,
+.git-rail-history-summary,
+.git-rail-history-tree {
+  min-width: 0;
+  flex: 1;
+}
+
+.git-rail-history-state {
+  align-self: center;
+  overflow: hidden;
+  padding: 0 7px 0 4px;
+  color: #747e8d;
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.git-rail-history-row.child.error .git-rail-history-state {
+  color: #dc7b82;
+}
+
+.git-rail-history-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 0 8px 0 4px;
+  color: #8d96a4;
+  font-size: 9px;
+  text-transform: uppercase;
+}
+
+.git-rail-history-summary small,
+.git-rail-history-tree small {
+  flex: 0 0 auto;
+  font-size: 9px;
+  font-variant-numeric: tabular-nums;
+}
+
+.git-rail-history-summary b,
+.git-rail-history-tree b {
+  color: #67ae77;
+}
+
+.git-rail-history-summary i,
+.git-rail-history-tree i {
+  color: #d76d76;
+  font-style: normal;
+}
+
+.git-rail-history-tree {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding-top: 0;
+  padding-right: 8px;
+  padding-bottom: 0;
+  overflow: hidden;
+  border: 0;
+  background: transparent;
+  color: #aeb5c0;
+  font-size: 9px;
+  text-align: left;
+}
+
+.git-rail-history-tree:hover,
+.git-rail-history-tree:focus-visible {
+  background: #20242c;
+}
+
+.git-rail-history-tree.directory > i {
+  width: 8px;
+  flex: 0 0 8px;
+  color: #77818f;
+  font-style: normal;
+}
+
+.git-rail-history-tree.directory > strong,
+.git-rail-history-tree.file > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.git-rail-history-tree.file > span {
+  flex: 1;
+}
+
+.git-scroll.history-active {
+  overflow: hidden;
+  padding-bottom: 0;
+}
+
+.git-history {
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.git-open-graph {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 8px;
+  padding: 7px 9px;
+  border: 1px solid #3b4654;
+  border-radius: 4px;
+  background: #1a1f26;
+  color: #c2c9d3;
+  font-size: 11px;
+  text-align: left;
+}
+
+.git-open-graph:hover {
+  border-color: #4d8fd8;
+  background: #202630;
+  color: #eef1f5;
+}
+
+.git-history-viewport {
+  min-height: 80px;
+  flex: 1;
+  overflow: auto;
+}
+
+.git-history-window,
+.git-change-files-window {
+  position: relative;
+}
+
+.git-change-files-window .git-file {
+  height: 100%;
+}
+
+.git-change-files {
+  position: relative;
+  overflow: auto;
+}
+
+.git-change-files .git-file {
+  position: absolute;
+  right: 0;
+  left: 0;
+}
+
+.git-load-more {
+  margin: 8px 10px;
+  padding: 5px 8px;
+}
