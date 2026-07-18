@@ -12,6 +12,10 @@ import {
 } from '../../../shared'
 import type { ViewerNavigationPosition, ViewerPaneId } from './tab-state'
 import {
+  persistWorkspaceLayout,
+  restoreWorkspaceLayout,
+} from '../layout/workspace-layout-persistence'
+import {
   initialViewerWorkspaceModel,
   viewerWorkspaceReducer,
   type ViewerWorkspaceAction,
@@ -25,9 +29,7 @@ import {
 } from './viewer-workspace-selectors'
 import {
   persistViewerTabs,
-  persistWorkspaceLayout,
   restoreViewerTabs,
-  restoreWorkspaceLayout,
   viewerStorageKey,
   viewerTabId,
   type RestoredViewerTabs,

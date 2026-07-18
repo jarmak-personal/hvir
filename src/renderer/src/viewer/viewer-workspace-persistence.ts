@@ -34,16 +34,6 @@ export interface RestoredViewerTabs {
   readonly activeId?: string
 }
 
-export interface WorkspaceLayout {
-  readonly version: 1
-  readonly treeWidth?: number
-  readonly terminalHeight?: number
-  readonly viewerSplit?: boolean
-  readonly viewerPrimaryWidth?: number
-}
-
-export type WorkspaceLayoutUpdate = Omit<Partial<WorkspaceLayout>, 'version'>
-
 export function decodeViewerTabs(root: HostPath, raw: string | null): RestoredViewerTabs {
   try {
     if (!raw) return { tabs: [] }
@@ -161,60 +151,12 @@ export function persistViewerTabs(
   }
 }
 
-export function restoreWorkspaceLayout(root: HostPath): WorkspaceLayout {
-  try {
-    return decodeWorkspaceLayout(
-      localStorage.getItem(`hvir:layout:${root.hostId}:${root.path}`),
-    )
-  } catch {
-    return { version: 1 }
-  }
-}
-
-export function persistWorkspaceLayout(
-  root: HostPath,
-  update: WorkspaceLayoutUpdate,
-): void {
-  try {
-    localStorage.setItem(
-      `hvir:layout:${root.hostId}:${root.path}`,
-      JSON.stringify({ ...restoreWorkspaceLayout(root), ...update }),
-    )
-  } catch {
-    // Layout recovery is best effort and never blocks the live workbench.
-  }
-}
-
-export function decodeWorkspaceLayout(raw: string | null): WorkspaceLayout {
-  try {
-    const parsed: unknown = JSON.parse(raw ?? 'null')
-    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-      return { version: 1 }
-    }
-    const layout = parsed as Record<string, unknown>
-    return {
-      version: 1,
-      treeWidth: finiteNumber(layout['treeWidth']),
-      terminalHeight: finiteNumber(layout['terminalHeight']),
-      viewerSplit:
-        typeof layout['viewerSplit'] === 'boolean' ? layout['viewerSplit'] : undefined,
-      viewerPrimaryWidth: finiteNumber(layout['viewerPrimaryWidth']),
-    }
-  } catch {
-    return { version: 1 }
-  }
-}
-
 export function viewerStorageKey(root: HostPath): string {
   return `hvir:tabs:${root.hostId}:${root.path}`
 }
 
 export function viewerTabId(path: HostPath): string {
   return `${path.hostId}:${path.path}`
-}
-
-function finiteNumber(value: unknown): number | undefined {
-  return typeof value === 'number' && Number.isFinite(value) ? value : undefined
 }
 
 function insideRoot(path: string, root: string): boolean {
