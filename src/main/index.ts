@@ -8,17 +8,14 @@ import { dispatchWorkerHostCall } from './git/worker-host-broker'
 import { GIT_FETCH_ARGS, GIT_PULL_ARGS } from './git/git-engine'
 import { HtmlPreviewProtocol } from './html-preview-protocol'
 import { createWorkerClient, workerPath, type WorkerClient } from './worker-host'
-import type { ProjectHost } from './project-host'
 import { ProjectRegistry, RendererSshPrompter } from './project-registry'
+import { ProjectCoordinator } from './project-coordinator'
 import { PtySupervisor } from './pty/pty-supervisor'
 import { AttentionBadge } from './attention-badge'
 import { HarnessProfileStore } from './harness/harness-profile-store'
 import { HarnessProbeManager } from './harness/harness-probe'
-import {
-  canonicalProjectWatchInterests,
-  ProjectWatchController,
-  type ProjectWatchInterestCache,
-} from './project-watch'
+import { ProjectWatchController } from './project-watch'
+import { WorkspaceCoordinator } from './workspace-coordinator'
 import { TerminalSessionRegistry } from './terminal/session-registry'
 import { RendererResourceScopes, type RendererOwner } from './renderer-resource-scopes'
 import { createElectronWindowManager } from './window/electron-window-manager'
@@ -30,7 +27,6 @@ import {
   GIT_FETCH_TYPE,
   GIT_PULL_TYPE,
   GIT_SWITCH_BRANCH_TYPE,
-  MAX_PROJECT_WATCH_INTERESTS,
   hostPathEquals,
   localPath,
   LOCAL_HOST_ID,
@@ -82,18 +78,12 @@ function createWorkbenchEntry(): void {
   let terminalSessionRegistry: TerminalSessionRegistry | null = null
   let harnessProfileStore: HarnessProfileStore | null = null
   let attentionBadge: AttentionBadge | null = null
-  let projectWatchController: ProjectWatchController | null = null
-  let projectWatchInterestCache: ProjectWatchInterestCache = new Map()
-  let projectWatchInterestGeneration = 0
-  let workspacePoll: ReturnType<typeof setInterval> | null = null
-  const workspaceRefreshes = new Map<string, Promise<ProjectState>>()
-  const workspaceRefreshTimers = new Map<string, ReturnType<typeof setTimeout>>()
-  const workspacePrunes = new Map<string, Promise<ProjectState>>()
+  let workspaceCoordinator: WorkspaceCoordinator | null = null
+  let projectCoordinator: ProjectCoordinator | null = null
   const worktreePruneAuthorizations = new Set<string>()
   const branchSwitchAuthorizations = new Set<string>()
   const gitFetchAuthorizations = new Set<string>()
   const gitPullAuthorizations = new Set<string>()
-  let sessionOperation: Promise<void> = Promise.resolve()
 
   const installRendererPresentation = (owner: RendererOwner): RendererOwner => {
     rendererScopes.register(owner, { lifetime: 'renderer', type: 'attention' }, () =>
@@ -273,6 +263,42 @@ function createWorkbenchEntry(): void {
       ),
       (worker) => worker.dispose(),
     )
+    workspaceCoordinator = runtime.own(
+      'workspace coordinator',
+      new WorkspaceCoordinator({
+        registry: projectRegistry,
+        discovery: {
+          discover: (root) => gitWorker!.request(GIT_WORKTREES_TYPE, { root }),
+          changedFileCount: (root, relatedWorktreeRoots) =>
+            gitWorker!.request(GIT_CHANGED_FILE_COUNT_TYPE, {
+              root,
+              relatedWorktreeRoots,
+            }),
+        },
+        emitWatch: (event) => emit('project:watch', event),
+        createWatch: (target, callbacks) => new ProjectWatchController(target, callbacks),
+        shouldPoll: () =>
+          !runtime.isShuttingDown && BrowserWindow.getAllWindows().length > 0,
+        onError: (message, error) => console.error(message, error),
+      }),
+      (coordinator) => coordinator.dispose(),
+    )
+    projectCoordinator = new ProjectCoordinator({
+      registry: projectRegistry,
+      workspaces: workspaceCoordinator,
+      cleanup: {
+        revokeWorkspace: (root) => rendererScopes.revokeWorkspace(root),
+        closeWorkspace: (root) => webPaneRoutes.closeWorkspace(root),
+        forgetWorkspaceSessions: async (root) => {
+          await Promise.all(
+            terminalSessionRegistry!
+              .list(root)
+              .map((session) => terminalSessionRegistry!.forget(root, session.id)),
+          )
+        },
+      },
+      onError: (message, error) => console.error(message, error),
+    })
     ptySupervisor = runtime.own('PTY supervisor', new PtySupervisor(), (supervisor) =>
       supervisor.disposeAllAndWait(),
     )
@@ -323,129 +349,45 @@ function createWorkbenchEntry(): void {
       },
       listHosts: () => projectRegistry?.listHosts() ?? [],
       connectHost: (hostId, owner) =>
-        withSshPresentation(owner, () =>
-          serializeSession(async () => {
-            if (!projectRegistry) throw new Error('Project registry is unavailable')
-            const connected = await projectRegistry.connectHost(hostId)
-            if (projectRegistry.active.host.hostId === hostId) {
-              await stopProjectWatch()
-              startProjectWatch(projectRegistry.active, emit)
-            }
-            for (const project of projectRegistry.state().projects) {
-              if (project.registeredRoot.hostId === hostId) {
-                void refreshProjectWorkspaces(project.id).catch((error) =>
-                  console.error('[workspace] refresh after connect failed', error),
-                )
-              }
-            }
-            return connected
-          }),
-        ),
-      disconnectHost: (hostId) =>
-        serializeSession(async () => {
-          if (!projectRegistry) throw new Error('Project registry is unavailable')
-          if (projectRegistry.active.host.hostId === hostId) {
-            await stopProjectWatch()
-          }
-          const roots = projectRegistry
-            .state()
-            .projects.filter((project) => project.registeredRoot.hostId === hostId)
-            .flatMap((project) => project.workspaces.map((workspace) => workspace.root))
-          await Promise.all(roots.map((root) => rendererScopes.revokeWorkspace(root)))
-          return projectRegistry.disconnectHost(hostId)
+        withSshPresentation(owner, () => {
+          if (!projectCoordinator) throw new Error('Project coordinator is unavailable')
+          return projectCoordinator.connectHost(hostId)
         }),
+      disconnectHost: (hostId) => {
+        if (!projectCoordinator) throw new Error('Project coordinator is unavailable')
+        return projectCoordinator.disconnectHost(hostId)
+      },
       browseHost: (hostId, path, owner) =>
         withSshPresentation(owner, async () => {
-          if (!projectRegistry) throw new Error('Project registry is unavailable')
-          return projectRegistry.browseHost(hostId, path)
+          if (!projectCoordinator) throw new Error('Project coordinator is unavailable')
+          return projectCoordinator.browseHost(hostId, path)
         }),
       openProject: (hostId, path, owner) =>
-        withSshPresentation(owner, () =>
-          serializeSession(async () => {
-            if (!projectRegistry) throw new Error('Project registry is unavailable')
-            await projectRegistry.open(hostId, path)
-            await stopProjectWatch()
-            const state = await refreshProjectWorkspaces(
-              projectRegistry.active.projectId,
-            ).catch((error) => {
-              console.error('[workspace] discovery after registration failed', error)
-              return projectRegistry!.state()
-            })
-            startProjectWatch(projectRegistry.active, emit)
-            return state
-          }),
-        ),
-      switchWorkspace: (projectId, workspaceId) =>
-        serializeSession(async () => {
-          if (!projectRegistry) throw new Error('Project registry is unavailable')
-          const state = await projectRegistry.activate(projectId, workspaceId)
-          await stopProjectWatch()
-          startProjectWatch(projectRegistry.active, emit)
-          return state
+        withSshPresentation(owner, () => {
+          if (!projectCoordinator) throw new Error('Project coordinator is unavailable')
+          return projectCoordinator.openProject(hostId, path)
         }),
-      refreshProject: (projectId) => refreshProjectWorkspaces(projectId),
-      updateWatchInterests: (paths) => updateProjectWatchInterests(paths),
-      closeProject: (projectId) =>
-        serializeSession(async () => {
-          if (!projectRegistry) throw new Error('Project registry is unavailable')
-          const wasActive = projectRegistry.active.projectId === projectId
-          const closingRoots =
-            projectRegistry.projectById(projectId)?.workspaces.map(({ root }) => root) ??
-            []
-          if (wasActive) await stopProjectWatch()
-          try {
-            await workspaceRefreshes.get(projectId)?.catch(() => undefined)
-            workspaceRefreshes.delete(projectId)
-            const refreshTimer = workspaceRefreshTimers.get(projectId)
-            if (refreshTimer) clearTimeout(refreshTimer)
-            workspaceRefreshTimers.delete(projectId)
-            const state = await projectRegistry.closeProject(projectId)
-            await Promise.all(
-              closingRoots.flatMap((root) => [
-                rendererScopes.revokeWorkspace(root),
-                webPaneRoutes.closeWorkspace(root),
-              ]),
-            )
-            return state
-          } finally {
-            if (
-              wasActive &&
-              projectRegistry.active.host.connectionState === 'connected'
-            ) {
-              startProjectWatch(projectRegistry.active, emit)
-            }
-          }
-        }),
-      pruneWorktrees: (projectId) => requestProjectWorktreePrune(projectId, emit),
-      dismissWorkspace: (projectId, workspaceId) =>
-        serializeSession(async () => {
-          if (!projectRegistry) throw new Error('Project registry is unavailable')
-          const workspace = projectRegistry
-            .projectById(projectId)
-            ?.workspaces.find((candidate) => candidate.id === workspaceId)
-          if (workspace?.missing) {
-            await Promise.all(
-              terminalSessionRegistry
-                ?.list(workspace.root)
-                .map((session) =>
-                  terminalSessionRegistry!.forget(workspace.root, session.id),
-                ) ?? [],
-            )
-          }
-          const wasActive = projectRegistry.active.workspaceId === workspaceId
-          const state = await projectRegistry.dismissWorkspace(projectId, workspaceId)
-          if (workspace) {
-            await Promise.all([
-              rendererScopes.revokeWorkspace(workspace.root),
-              webPaneRoutes.closeWorkspace(workspace.root),
-            ])
-          }
-          if (wasActive) {
-            await stopProjectWatch()
-            startProjectWatch(projectRegistry.active, emit)
-          }
-          return state
-        }),
+      switchWorkspace: (projectId, workspaceId) => {
+        if (!projectCoordinator) throw new Error('Project coordinator is unavailable')
+        return projectCoordinator.switchWorkspace(projectId, workspaceId)
+      },
+      refreshProject: (projectId) => {
+        if (!workspaceCoordinator) throw new Error('Workspace coordinator is unavailable')
+        return workspaceCoordinator.refresh(projectId)
+      },
+      updateWatchInterests: (paths) => {
+        if (!workspaceCoordinator) throw new Error('Workspace coordinator is unavailable')
+        return workspaceCoordinator.updateWatchInterests(paths)
+      },
+      closeProject: (projectId) => {
+        if (!projectCoordinator) throw new Error('Project coordinator is unavailable')
+        return projectCoordinator.closeProject(projectId)
+      },
+      pruneWorktrees: (projectId) => requestProjectWorktreePrune(projectId),
+      dismissWorkspace: (projectId, workspaceId) => {
+        if (!projectCoordinator) throw new Error('Project coordinator is unavailable')
+        return projectCoordinator.dismissWorkspace(projectId, workspaceId)
+      },
       switchGitBranch: (root, branch) => requestGitBranchSwitch(root, branch),
       fetchGit: (root) => requestGitFetch(root),
       pullGit: (root) => requestGitPull(root),
@@ -471,123 +413,42 @@ function createWorkbenchEntry(): void {
     // slow or unexpectedly broad directory.
     createWindow()
     if (projectRegistry.active.host.connectionState === 'connected') {
-      startProjectWatch(projectRegistry.active, emit)
-      void refreshProjectWorkspaces(projectRegistry.active.projectId).catch((error) =>
-        console.error('[workspace] initial discovery failed', error),
-      )
+      void workspaceCoordinator
+        .replaceWatch(projectRegistry.active)
+        .then(() => workspaceCoordinator?.refresh(projectRegistry!.active.projectId))
+        .catch((error) => console.error('[workspace] initial discovery failed', error))
     }
-    workspacePoll = setInterval(() => {
-      if (runtime.isShuttingDown || BrowserWindow.getAllWindows().length === 0) return
-      const registry = projectRegistry
-      if (!registry) return
-      for (const project of registry.state().projects) {
-        if (project.connectionState !== 'connected') continue
-        if (project.workspaces.every((workspace) => workspace.repository === false)) {
-          continue
-        }
-        void refreshProjectWorkspaces(project.id).catch((error) =>
-          console.error(`[workspace] periodic refresh failed for ${project.id}`, error),
-        )
-      }
-    }, 5_000)
+    workspaceCoordinator.startPolling()
   }
 
   function reopenWorkbench(): void {
     if (!projectRegistry || BrowserWindow.getAllWindows().length > 0) return
     if (projectRegistry.active.host.connectionState === 'connected') {
-      startProjectWatch(projectRegistry.active, emitToWindows)
+      void workspaceCoordinator
+        ?.replaceWatch(projectRegistry.active)
+        .catch((error) => console.error('[workspace] watch reopen failed', error))
     }
     createWindow()
   }
 
-  async function stopProjectWatch(): Promise<void> {
-    projectWatchInterestGeneration++
-    projectWatchInterestCache.clear()
-    const controller = projectWatchController
-    projectWatchController = null
-    await controller?.dispose()
+  function requestProjectWorktreePrune(projectId: string): Promise<ProjectState> {
+    const coordinator = workspaceCoordinator
+    if (!coordinator) throw new Error('Workspace pruning is unavailable')
+    coordinator.invalidateProject(projectId)
+    const settled = coordinator.settleProject(projectId)
+    return coordinator.coalesceProjectOperation(projectId, async () => {
+      await settled
+      return pruneProjectWorktrees(projectId)
+    })
   }
 
-  function refreshProjectWorkspaces(projectId: string): Promise<ProjectState> {
-    const pruning = workspacePrunes.get(projectId)
-    if (pruning) return pruning
-    const existing = workspaceRefreshes.get(projectId)
-    if (existing) return existing
-    const refresh = (async (): Promise<ProjectState> => {
-      const registry = projectRegistry
-      const worker = gitWorker
-      if (!registry || !worker) throw new Error('Workspace discovery is unavailable')
-      const project = registry.projectById(projectId)
-      if (!project) throw new Error('Unknown project')
-      if (project.connectionState !== 'connected') return registry.state()
-      const discovery = await worker.request(GIT_WORKTREES_TYPE, {
-        root: project.registeredRoot,
-      })
-      await registry.reconcileWorktrees(projectId, discovery)
-      const refreshed = registry.projectById(projectId)
-      if (!refreshed || !discovery.repository) return registry.state()
-      const present = refreshed.workspaces.filter((workspace) => !workspace.missing)
-      const relatedWorktreeRoots = present.map((workspace) => workspace.root)
-      const counts = new Map<string, number>()
-      for (let index = 0; index < present.length; index += 3) {
-        await Promise.all(
-          present.slice(index, index + 3).map(async (workspace) => {
-            counts.set(
-              workspace.id,
-              await worker.request(GIT_CHANGED_FILE_COUNT_TYPE, {
-                root: workspace.root,
-                relatedWorktreeRoots,
-              }),
-            )
-          }),
-        )
-      }
-      return registry.updateChangedCounts(projectId, counts)
-    })()
-    workspaceRefreshes.set(projectId, refresh)
-    void refresh.then(
-      () => {
-        if (workspaceRefreshes.get(projectId) === refresh)
-          workspaceRefreshes.delete(projectId)
-      },
-      () => {
-        if (workspaceRefreshes.get(projectId) === refresh)
-          workspaceRefreshes.delete(projectId)
-      },
-    )
-    return refresh
-  }
-
-  function requestProjectWorktreePrune(
-    projectId: string,
-    emit: <E extends IpcEventChannel>(channel: E, payload: IpcEventPayload<E>) => void,
-  ): Promise<ProjectState> {
-    const existing = workspacePrunes.get(projectId)
-    if (existing) return existing
-    const prune = serializeSession(() => pruneProjectWorktrees(projectId, emit))
-    workspacePrunes.set(projectId, prune)
-    void prune.then(
-      () => {
-        if (workspacePrunes.get(projectId) === prune) workspacePrunes.delete(projectId)
-      },
-      () => {
-        if (workspacePrunes.get(projectId) === prune) workspacePrunes.delete(projectId)
-      },
-    )
-    return prune
-  }
-
-  async function pruneProjectWorktrees(
-    projectId: string,
-    emit: <E extends IpcEventChannel>(channel: E, payload: IpcEventPayload<E>) => void,
-  ): Promise<ProjectState> {
+  async function pruneProjectWorktrees(projectId: string): Promise<ProjectState> {
     const registry = projectRegistry
     const worker = gitWorker
     const sessions = terminalSessionRegistry
     if (!registry || !worker || !sessions) {
       throw new Error('Workspace pruning is unavailable')
     }
-    await workspaceRefreshes.get(projectId)?.catch(() => undefined)
     const project = registry.projectById(projectId)
     if (!project) throw new Error('Unknown project')
     if (project.connectionState !== 'connected') {
@@ -637,18 +498,22 @@ function createWorkbenchEntry(): void {
       ])
     }
     if (prunesActiveWorkspace) {
-      await stopProjectWatch()
+      await workspaceCoordinator?.stopWatch()
       htmlPreviews.clear()
-      startProjectWatch(registry.active, emit)
+      await workspaceCoordinator?.replaceWatch(registry.active)
     }
     return registry.state()
   }
 
   function requestGitBranchSwitch(root: HostPath, branch: string): Promise<ProjectState> {
-    return serializeSession(async () => {
+    if (!workspaceCoordinator) throw new Error('Branch switching is unavailable')
+    return workspaceCoordinator.serialize(async () => {
       const registry = projectRegistry
       const worker = gitWorker
-      if (!registry || !worker) throw new Error('Branch switching is unavailable')
+      const coordinator = workspaceCoordinator
+      if (!registry || !worker || !coordinator) {
+        throw new Error('Branch switching is unavailable')
+      }
       if (!hostPathEquals(root, registry.active.root)) {
         throw new Error('Branch switch belongs to another workspace')
       }
@@ -665,8 +530,8 @@ function createWorkbenchEntry(): void {
       }
 
       const projectId = registry.active.projectId
-      await workspaceRefreshes.get(projectId)?.catch(() => undefined)
-      workspaceRefreshes.delete(projectId)
+      coordinator.invalidateProject(projectId)
+      await coordinator.settleProject(projectId)
       const authorization = gitMutationKey(root.hostId, root.path, branch)
       if (branchSwitchAuthorizations.has(authorization)) {
         throw new Error('A branch switch is already running for this workspace')
@@ -687,17 +552,18 @@ function createWorkbenchEntry(): void {
         branchSwitchAuthorizations.delete(authorization)
       }
       try {
-        return await refreshProjectWorkspaces(projectId)
+        return await coordinator.refresh(projectId)
       } catch (error) {
         console.error('[git] workspace refresh after branch switch failed', error)
-        scheduleWorkspaceRefresh(projectId)
+        coordinator.scheduleRefresh(projectId)
         return registry.state()
       }
     })
   }
 
   function requestGitFetch(root: HostPath): Promise<ProjectState> {
-    return serializeSession(async () => {
+    if (!workspaceCoordinator) throw new Error('Git fetch is unavailable')
+    return workspaceCoordinator.serialize(async () => {
       const registry = projectRegistry
       const worker = gitWorker
       if (!registry || !worker) throw new Error('Git fetch is unavailable')
@@ -717,12 +583,16 @@ function createWorkbenchEntry(): void {
   }
 
   function requestGitPull(root: HostPath): Promise<ProjectState> {
-    return serializeSession(async () => {
+    if (!workspaceCoordinator) throw new Error('Git pull is unavailable')
+    return workspaceCoordinator.serialize(async () => {
       const registry = projectRegistry
       const worker = gitWorker
-      if (!registry || !worker) throw new Error('Git pull is unavailable')
+      const coordinator = workspaceCoordinator
+      if (!registry || !worker || !coordinator) throw new Error('Git pull is unavailable')
       assertActiveGitWorkspace(root, registry, 'pulling')
       const projectId = registry.active.projectId
+      coordinator.invalidateProject(projectId)
+      await coordinator.settleProject(projectId)
       const authorization = gitMutationKey(root.hostId, root.path)
       if (gitPullAuthorizations.has(authorization)) {
         throw new Error('A pull is already running for this workspace')
@@ -739,10 +609,10 @@ function createWorkbenchEntry(): void {
         gitPullAuthorizations.delete(authorization)
       }
       try {
-        return await refreshProjectWorkspaces(projectId)
+        return await coordinator.refresh(projectId)
       } catch (error) {
         console.error('[git] workspace refresh after pull failed', error)
-        scheduleWorkspaceRefresh(projectId)
+        coordinator.scheduleRefresh(projectId)
         return registry.state()
       }
     })
@@ -766,84 +636,6 @@ function createWorkbenchEntry(): void {
       actual.length === expected.length &&
       actual.every((arg, index) => arg === expected[index])
     )
-  }
-
-  function scheduleWorkspaceRefresh(projectId: string): void {
-    if (runtime.isShuttingDown) return
-    const existing = workspaceRefreshTimers.get(projectId)
-    if (existing) clearTimeout(existing)
-    workspaceRefreshTimers.set(
-      projectId,
-      setTimeout(() => {
-        workspaceRefreshTimers.delete(projectId)
-        void refreshProjectWorkspaces(projectId).catch((error) =>
-          console.error('[workspace] watch refresh failed', error),
-        )
-      }, 350),
-    )
-  }
-
-  function startProjectWatch(
-    project: {
-      readonly host: ProjectHost
-      readonly root: HostPath
-      readonly projectId: string
-    },
-    emit: <E extends IpcEventChannel>(channel: E, payload: IpcEventPayload<E>) => void,
-  ): void {
-    projectWatchInterestGeneration++
-    projectWatchInterestCache = new Map()
-    projectWatchController = new ProjectWatchController(project, {
-      emit: (event) => emit('project:watch', event),
-      refreshGit: () => scheduleWorkspaceRefresh(project.projectId),
-      repositoryEnabled: () => {
-        const workspace = projectRegistry
-          ?.projectById(project.projectId)
-          ?.workspaces.find(
-            (candidate) => candidate.id === projectRegistry?.active.workspaceId,
-          )
-        return workspace?.repository === true
-      },
-    })
-  }
-
-  async function updateProjectWatchInterests(
-    requestedPaths: readonly HostPath[],
-  ): Promise<{ readonly accepted: number; readonly limited: boolean }> {
-    const registry = projectRegistry
-    const controller = projectWatchController
-    if (!registry || !controller) throw new Error('Project watch is unavailable')
-    const generation = ++projectWatchInterestGeneration
-    const { host, root } = registry.active
-    if (!hostPathEquals(controller.target.root, root)) {
-      throw new Error('Project watch changed while interests were being updated')
-    }
-    const canonical = await canonicalProjectWatchInterests(
-      host,
-      root,
-      requestedPaths,
-      MAX_PROJECT_WATCH_INTERESTS,
-      projectWatchInterestCache,
-    )
-    if (
-      generation !== projectWatchInterestGeneration ||
-      projectWatchController !== controller ||
-      !projectRegistry ||
-      !hostPathEquals(projectRegistry.active.root, root)
-    ) {
-      throw new Error('Project watch changed while interests were being updated')
-    }
-    controller.updateInterests(canonical.paths)
-    return { accepted: canonical.paths.length, limited: canonical.limited }
-  }
-
-  function serializeSession<T>(operation: () => Promise<T>): Promise<T> {
-    const result = sessionOperation.then(operation, operation)
-    sessionOperation = result.then(
-      () => undefined,
-      () => undefined,
-    )
-    return result
   }
 
   function gitMutationKey(hostId: string, path: string, target?: string): string {
@@ -903,8 +695,8 @@ function createWorkbenchEntry(): void {
   })
 
   async function suspendWorkbenchSessions(): Promise<void> {
-    await stopProjectWatch()
-    await settleWorkspaceRefreshes()
+    await workspaceCoordinator?.stopWatch()
+    await workspaceCoordinator?.settle()
     const roots =
       projectRegistry
         ?.state()
@@ -924,18 +716,11 @@ function createWorkbenchEntry(): void {
   }
 
   async function shutdown(): Promise<void> {
-    if (workspacePoll) clearInterval(workspacePoll)
-    workspacePoll = null
-    for (const timer of workspaceRefreshTimers.values()) clearTimeout(timer)
-    workspaceRefreshTimers.clear()
-    await stopProjectWatch().catch((error) =>
-      console.error('[shutdown] watcher cleanup failed', error),
-    )
-    await settleWorkspaceRefreshes()
-  }
-
-  async function settleWorkspaceRefreshes(): Promise<void> {
-    await Promise.allSettled([...workspaceRefreshes.values()])
+    workspaceCoordinator?.stopPolling()
+    await workspaceCoordinator
+      ?.stopWatch()
+      .catch((error) => console.error('[shutdown] watcher cleanup failed', error))
+    await workspaceCoordinator?.settle()
   }
 }
 
