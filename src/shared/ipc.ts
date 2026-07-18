@@ -341,6 +341,21 @@ export interface ForgetTerminalRequest {
   readonly id: string
 }
 
+export interface OpenTunnelRequest {
+  /** TCP port on the active project's host, reached via its loopback. */
+  readonly remotePort: number
+}
+
+export interface OpenTunnelResponse {
+  readonly tunnelId: string
+  /** Loopback port on this machine that reaches the remote service. */
+  readonly localPort: number
+}
+
+export interface CloseTunnelRequest {
+  readonly tunnelId: string
+}
+
 export interface RebindTerminalProfileRequest {
   readonly root: HostPath
   readonly id: string
@@ -489,6 +504,11 @@ export interface IpcInvokeMap {
     response: TerminalRecoverySession
   }
   'pty:start': { request: StartPtyRequest; response: StartPtyResponse }
+  'tunnel:open': {
+    request: OpenTunnelRequest
+    response: OperationResult<OpenTunnelResponse>
+  }
+  'tunnel:close': { request: CloseTunnelRequest; response: void }
 }
 
 /**
@@ -600,6 +620,8 @@ export const INVOKE_CHANNELS = [
   'terminal:forget',
   'terminal:rebind-profile',
   'pty:start',
+  'tunnel:open',
+  'tunnel:close',
 ] as const satisfies readonly IpcInvokeChannel[]
 
 export const SEND_CHANNELS = [

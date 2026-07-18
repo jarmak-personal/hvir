@@ -14,11 +14,16 @@ import { registerIpcHandlers } from './ipc'
 import { dispatchWorkerHostCall } from './git/worker-host-broker'
 import { GIT_FETCH_ARGS, GIT_PULL_ARGS } from './git/git-engine'
 import { HtmlPreviewProtocol } from './html-preview-protocol'
+import { TunnelRegistry } from './tunnel-registry'
 import { createWorkerClient, workerPath, type WorkerClient } from './worker-host'
 import { LocalHost, type ProjectHost } from './project-host'
 import { ProjectRegistry, RendererSshPrompter } from './project-registry'
 import { PtySupervisor } from './pty/pty-supervisor'
-import { isSafeExternalUrl, isWorkbenchDocument } from './navigation-policy'
+import {
+  isLoopbackHttpUrl,
+  isSafeExternalUrl,
+  isWorkbenchDocument,
+} from './navigation-policy'
 import { AttentionBadge } from './attention-badge'
 import { harnessProviderCatalog } from './harness/harness-provider'
 import { HarnessProfileStore } from './harness/harness-profile-store'
@@ -68,6 +73,13 @@ protocol.registerSchemesAsPrivileged([
 ])
 
 const htmlPreviews = new HtmlPreviewProtocol()
+const tunnelRegistry = new TunnelRegistry()
+
+function closeTunnels(): void {
+  void tunnelRegistry
+    .closeAll()
+    .catch((error) => console.error('[tunnel] cleanup failed', error))
+}
 const harnessProbeManager = new HarnessProbeManager()
 const defaultHarnessProviderId = harnessProviderCatalog().find(
   (provider) => provider.default,
@@ -103,6 +115,7 @@ function createWindow(
     attentionBadge?.update(ownerId, 0)
     sshPrompter?.cancelAll()
     htmlPreviews.clear()
+    closeTunnels()
   },
 ): BrowserWindow {
   const win = new BrowserWindow({
@@ -117,6 +130,10 @@ function createWindow(
       sandbox: true,
       contextIsolation: true,
       nodeIntegration: false,
+      // Dashboard web panes render in <webview> guests: their servers may
+      // legitimately send X-Frame-Options/frame-ancestors, which would blank
+      // an iframe. Guests are confined to loopback URLs below.
+      webviewTag: true,
     },
   })
   // electron-vite sets ELECTRON_RENDERER_URL in dev (Vite dev server); in a
@@ -206,6 +223,30 @@ function createWindow(
   win.webContents.setWindowOpenHandler(({ url }) => {
     if (isSafeExternalUrl(url)) void shell.openExternal(url)
     return { action: 'deny' }
+  })
+
+  // Web-pane guests: loopback-only, no preload, no node, fully sandboxed.
+  win.webContents.on('will-attach-webview', (event, webPreferences, params) => {
+    delete webPreferences.preload
+    webPreferences.nodeIntegration = false
+    webPreferences.contextIsolation = true
+    webPreferences.sandbox = true
+    if (!isLoopbackHttpUrl(params['src'] ?? '')) {
+      console.warn(`[webview] blocked non-loopback guest: ${params['src']}`)
+      event.preventDefault()
+    }
+  })
+  win.webContents.on('did-attach-webview', (_event, guest) => {
+    guest.setWindowOpenHandler(({ url }) => {
+      if (isSafeExternalUrl(url)) void shell.openExternal(url)
+      return { action: 'deny' }
+    })
+    guest.on('will-navigate', (navigation, url) => {
+      if (!isLoopbackHttpUrl(url)) {
+        navigation.preventDefault()
+        if (isSafeExternalUrl(url)) void shell.openExternal(url)
+      }
+    })
   })
 
   if (rendererUrl) {
@@ -372,6 +413,7 @@ async function startup(): Promise<void> {
           await stopProjectWatch()
           htmlPreviews.clear()
         }
+        closeTunnels()
         return projectRegistry.disconnectHost(hostId)
       }),
     browseHost: async (hostId, path) => {
@@ -384,6 +426,7 @@ async function startup(): Promise<void> {
         await projectRegistry.open(hostId, path)
         await stopProjectWatch()
         htmlPreviews.clear()
+        closeTunnels()
         const state = await refreshProjectWorkspaces(
           projectRegistry.active.projectId,
         ).catch((error) => {
@@ -399,6 +442,7 @@ async function startup(): Promise<void> {
         const state = await projectRegistry.activate(projectId, workspaceId)
         await stopProjectWatch()
         htmlPreviews.clear()
+        closeTunnels()
         startProjectWatch(projectRegistry.active, emit)
         return state
       }),
@@ -416,7 +460,10 @@ async function startup(): Promise<void> {
           if (refreshTimer) clearTimeout(refreshTimer)
           workspaceRefreshTimers.delete(projectId)
           const state = await projectRegistry.closeProject(projectId)
-          if (wasActive) htmlPreviews.clear()
+          if (wasActive) {
+            htmlPreviews.clear()
+            closeTunnels()
+          }
           return state
         } finally {
           if (wasActive && projectRegistry.active.host.connectionState === 'connected') {
@@ -458,6 +505,7 @@ async function startup(): Promise<void> {
     harnessProbes: harnessProbeManager,
     updateAttention: (ownerId, count) => attentionBadge?.update(ownerId, count),
     htmlPreviews,
+    tunnels: tunnelRegistry,
     emit,
   })
   // Paint the workbench before background watch and Git discovery can touch a
@@ -1051,6 +1099,7 @@ async function runSmoke(): Promise<number> {
       harnessProbes: harnessProbeManager,
       updateAttention: () => undefined,
       htmlPreviews,
+      tunnels: tunnelRegistry,
       emit,
     })
     stopSmokeWatch = host.watch(smokeRoot, (event) => emit('project:watch', event), {
@@ -1264,6 +1313,92 @@ async function runSmoke(): Promise<number> {
       )
     }
     console.log('[smoke] expected session errors stay contained')
+
+    // Web pane slice: a loopback HTTP server stands in for an agent-started
+    // server. It sends the anti-framing headers real apps send, so this proves
+    // the whole happy path — a printed localhost link surfaced via window.open
+    // becomes a tunneled <webview> pane (which an iframe would blank on) with
+    // the link's path preserved, then closes back through tunnel:close.
+    const { createServer: createHttpServer } = await import('node:http')
+    let dashboardRequests = 0
+    const dashboardServer = createHttpServer((_request, response) => {
+      dashboardRequests++
+      response.writeHead(200, {
+        'content-type': 'text/html',
+        'x-frame-options': 'DENY',
+        'content-security-policy': "frame-ancestors 'none'",
+      })
+      response.end('<!doctype html><title>smoke dashboard</title>smoke-dashboard-ok')
+    })
+    await new Promise<void>((resolve, reject) => {
+      dashboardServer.once('error', reject)
+      dashboardServer.listen(0, '127.0.0.1', () => resolve())
+    })
+    const dashboardAddress = dashboardServer.address()
+    if (!dashboardAddress || typeof dashboardAddress === 'string') {
+      throw new Error('smoke dashboard server reported no port')
+    }
+    const dashboardPort = dashboardAddress.port
+    try {
+      const linkPaneStatus = (await withTimeout(
+        win.webContents.executeJavaScript(`
+          new Promise((resolve, reject) => {
+            window.open('http://localhost:${dashboardPort}/reef?tab=1')
+            const deadline = Date.now() + 8000
+            const poll = () => {
+              const tab = document.querySelector('.web-pane-tab')
+              const guest = document.querySelector('webview.web-pane-frame')
+              const path = document.querySelector('.web-pane-path input')
+              if (tab && guest && path) {
+                if (path.value !== '/reef?tab=1') {
+                  return reject(new Error('web pane lost the link path: ' + path.value))
+                }
+                return resolve('opened')
+              }
+              if (Date.now() > deadline) {
+                return reject(new Error('web pane never opened from the link'))
+              }
+              setTimeout(poll, 50)
+            }
+            poll()
+          })
+        `),
+        'link-to-pane smoke timed out',
+      )) as string
+      await withTimeout(
+        (async () => {
+          while (dashboardRequests === 0) {
+            await new Promise((resolve) => setTimeout(resolve, 50))
+          }
+        })(),
+        'web pane never reached the dashboard server',
+      )
+      const linkPaneClosed = (await withTimeout(
+        win.webContents.executeJavaScript(`
+          new Promise((resolve, reject) => {
+            const close = document.querySelector('.web-pane-tab .tab-close')
+            if (!close) return reject(new Error('web pane tab close missing'))
+            close.click()
+            const deadline = Date.now() + 5000
+            const poll = () => {
+              if (!document.querySelector('.web-pane-tab')) return resolve('closed')
+              if (Date.now() > deadline) {
+                return reject(new Error('web pane tab did not close'))
+              }
+              setTimeout(poll, 50)
+            }
+            poll()
+          })
+        `),
+        'web pane close smoke timed out',
+      )) as string
+      if (linkPaneStatus !== 'opened' || linkPaneClosed !== 'closed') {
+        throw new Error('web pane link flow did not complete')
+      }
+      console.log('[smoke] localhost link opened an anti-framing server as a web pane OK')
+    } finally {
+      await new Promise<void>((resolve) => dashboardServer.close(() => resolve()))
+    }
 
     emit('ssh:prompt', {
       id: 9001,
@@ -2558,9 +2693,12 @@ async function runSmoke(): Promise<number> {
     const railNavigationStatus = (await withTimeout(
       win.webContents.executeJavaScript(`
         new Promise((resolve, reject) => {
-          const files = document.querySelector('.rail-nav button:nth-child(1)');
-          const git = document.querySelector('.rail-nav button:nth-child(2)');
-          const harness = document.querySelector('.rail-nav button:nth-child(3)');
+          const railButtons = [...document.querySelectorAll('.rail-nav button')];
+          const byLabel = (label) =>
+            railButtons.find((node) => node.textContent?.trim().startsWith(label));
+          const files = byLabel('Files');
+          const git = byLabel('Git');
+          const harness = byLabel('Harness');
           const directory = [...document.querySelectorAll('[aria-label="Files"] .tree-directory')]
             .find((node) => node.querySelector(':scope > .directory-row')
               ?.getAttribute('title')?.endsWith('/src'));
@@ -3769,6 +3907,7 @@ async function suspendWorkbenchSessions(): Promise<void> {
   await settleWorkspaceRefreshes()
   ptySupervisor?.disposeSessions()
   htmlPreviews.clear()
+  closeTunnels()
   sshPrompter?.cancelAll()
   await terminalSessionRegistry?.flush()
   await harnessProfileStore?.flush()
@@ -3811,6 +3950,9 @@ async function shutdown(): Promise<void> {
   gitWorker?.dispose()
   gitWorker = null
   htmlPreviews.dispose()
+  await tunnelRegistry
+    .closeAll()
+    .catch((error) => console.error('[shutdown] tunnel cleanup failed', error))
   harnessProbeManager.dispose()
 }
 

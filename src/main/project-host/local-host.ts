@@ -41,10 +41,11 @@ import type {
   PtyProcess,
   ReadFileOptions,
   SpawnPtyOptions,
+  TunnelHandle,
   WatchOptions,
   WriteFileOptions,
 } from './project-host'
-import { MAX_EXEC_STREAM_WRITE_BYTES } from './project-host'
+import { assertTunnelPort, MAX_EXEC_STREAM_WRITE_BYTES } from './project-host'
 
 const DEFAULT_MAX_BUFFER = 10 * 1024 * 1024 // 10 MiB
 
@@ -328,6 +329,13 @@ export class LocalHost implements ProjectHost {
         proc.kill(signal)
       },
     }
+  }
+
+  forwardLocalPort(remotePort: number): Promise<TunnelHandle> {
+    assertTunnelPort(remotePort)
+    // The service already listens on this machine's loopback; the identity
+    // forward keeps local and remote hosts interchangeable for callers.
+    return Promise.resolve({ localPort: remotePort, close: () => Promise.resolve() })
   }
 
   async readFile(path: HostPath, _opts: ReadFileOptions = {}): Promise<Buffer> {

@@ -32,6 +32,7 @@ import {
   type WatchEvent,
 } from '../../shared'
 import { PaneResizer } from './layout/PaneResizer'
+import { EXTERNAL_OPEN_TARGET, WebPane, type WebViewState } from './dashboards/WebPane'
 import { TerminalWorkspace } from './terminal/TerminalWorkspace'
 import type { TerminalWorkspaceRollup } from './terminal/TerminalWorkspace'
 import { ProjectsBar } from './workspaces/ProjectsBar'
@@ -120,6 +121,12 @@ export function App(): ReactElement {
   }>({ serial: 0 })
   const [restored, setRestored] = useState(false)
   const [railMode, setRailMode] = useState<'files' | 'git' | 'harness'>('files')
+  const [webViews, setWebViews] = useState<readonly WebViewState[]>([])
+  const [activeWebViewId, setActiveWebViewId] = useState<string>()
+  const [webViewActive, setWebViewActive] = useState(false)
+  const [webViewFocused, setWebViewFocused] = useState(false)
+  const webViewsRef = useRef<readonly WebViewState[]>([])
+  const webViewActiveRef = useRef(false)
   const [gitChanges, setGitChanges] = useState<GitChanges>()
   const [connectionState, setConnectionState] = useState<HostConnectionState>('connected')
   const [watchTier, setWatchTier] = useState<HostWatchTier>('native')
@@ -144,6 +151,8 @@ export function App(): ReactElement {
   rootRef.current = root
   activeIdRef.current = activeId
   gitGraphActiveRef.current = gitGraphActive
+  webViewsRef.current = webViews
+  webViewActiveRef.current = webViewActive
   const changedCount = gitChanges?.workingTree.length ?? 0
   const changedCountLabel = gitChanges?.workingTreeLimited
     ? `${GIT_CHANGE_DISPLAY_LIMIT.toLocaleString()}+`
@@ -178,6 +187,12 @@ export function App(): ReactElement {
     setViewerSplit(false)
     setGitGraphOpen(false)
     setGitGraphActive(false)
+    // Web views ride tunnels owned by the previous workspace's host; main
+    // closes those tunnels on switch, so the panes cannot outlive them.
+    setWebViews([])
+    setActiveWebViewId(undefined)
+    setWebViewActive(false)
+    setWebViewFocused(false)
     setGitChanges(undefined)
     setSessionError(undefined)
     setTerminalFocused(false)
@@ -583,7 +598,7 @@ export function App(): ReactElement {
       }
       event.preventDefault()
       if (action === 'cycleViewMode') {
-        if (gitGraphActiveRef.current) return
+        if (gitGraphActiveRef.current || webViewActiveRef.current) return
         const id = activeIdRef.current
         if (!id) return
         setTabs((current) =>
@@ -649,7 +664,114 @@ export function App(): ReactElement {
     }
     setActiveId(id)
     setGitGraphActive(false)
+    setWebViewActive(false)
     setTerminalFocused(false)
+  }
+
+  const openWebView = (view: Omit<WebViewState, 'id'>): void => {
+    setTerminalFocused(false)
+    setGitGraphActive(false)
+    const existing = webViewsRef.current.find(
+      (candidate) => candidate.linkKey === view.linkKey,
+    )
+    if (existing) {
+      setWebViews((current) =>
+        current.map((candidate) =>
+          candidate.id === existing.id
+            ? {
+                ...candidate,
+                url: view.url,
+                tunnelId: view.tunnelId,
+              }
+            : candidate,
+        ),
+      )
+      setActiveWebViewId(existing.id)
+    } else {
+      const created: WebViewState = { id: crypto.randomUUID(), ...view }
+      setWebViews((current) => [...current, created])
+      setActiveWebViewId(created.id)
+    }
+    activePaneRef.current = 'primary'
+    setWebViewActive(true)
+  }
+
+  /**
+   * The happy path: an agent starts a server in a terminal and prints its
+   * URL. Loopback links route through an SSH tunnel on the project host into
+   * a web pane; everything else goes to the OS browser.
+   */
+  const openWebLink = (rawUrl: string): void => {
+    let parsed: URL
+    try {
+      parsed = new URL(rawUrl)
+    } catch {
+      return
+    }
+    const remotePort = parsed.port ? Number(parsed.port) : 80
+    void (async () => {
+      try {
+        const opened = unwrapOperation(
+          await window.hvir.invoke('tunnel:open', { remotePort }),
+        )
+        openWebView({
+          linkKey: `port:${remotePort}`,
+          title: `${parsed.hostname}:${remotePort}`,
+          url: `http://127.0.0.1:${opened.localPort}${parsed.pathname}${parsed.search}${parsed.hash}`,
+          tunnelId: opened.tunnelId,
+        })
+      } catch (reason) {
+        setSessionError(reason instanceof Error ? reason.message : String(reason))
+      }
+    })()
+  }
+  const openWebLinkRef = useRef(openWebLink)
+  openWebLinkRef.current = openWebLink
+
+  // Terminal link providers (and anything else in the workbench) surface URLs
+  // via window.open. Claim loopback http URLs for in-app web panes; let main
+  // route every other target to the OS browser as before.
+  useEffect(() => {
+    const nativeOpen = window.open.bind(window)
+    window.open = (
+      url?: string | URL,
+      target?: string,
+      features?: string,
+    ): Window | null => {
+      const raw = url === undefined ? '' : String(url)
+      if (target !== EXTERNAL_OPEN_TARGET && isLoopbackHttpLink(raw)) {
+        openWebLinkRef.current(raw)
+        return null
+      }
+      return nativeOpen(url, target, features)
+    }
+    return () => {
+      window.open = nativeOpen
+    }
+  }, [])
+
+  const activateWebView = (id: string): void => {
+    activePaneRef.current = 'primary'
+    setActiveWebViewId(id)
+    setWebViewActive(true)
+    setGitGraphActive(false)
+    setTerminalFocused(false)
+  }
+
+  const closeWebView = (id: string): void => {
+    const closing = webViewsRef.current.find((candidate) => candidate.id === id)
+    if (closing?.tunnelId) {
+      void window.hvir
+        .invoke('tunnel:close', { tunnelId: closing.tunnelId })
+        .catch(() => undefined)
+    }
+    const remaining = webViewsRef.current.filter((candidate) => candidate.id !== id)
+    setWebViews(remaining)
+    if (activeWebViewId === id) {
+      const fallback = remaining.at(-1)
+      setActiveWebViewId(fallback?.id)
+      if (!fallback) setWebViewActive(false)
+    }
   }
 
   const openFile = (
@@ -871,6 +993,7 @@ export function App(): ReactElement {
     activePaneRef.current = 'primary'
     setGitGraphOpen(true)
     setGitGraphActive(true)
+    setWebViewActive(false)
     setGitGraphRequest((current) => ({
       serial: current.serial + 1,
       ...(hash ? { hash } : {}),
@@ -1146,7 +1269,11 @@ export function App(): ReactElement {
       tabIndex={-1}
       onPointerDownCapture={() => {
         activePaneRef.current = pane
-        if (paneTab && !(graphPane && gitGraphActive)) {
+        if (
+          paneTab &&
+          !(graphPane && gitGraphActive) &&
+          !(pane === 'primary' && webViewActive)
+        ) {
           activeByPaneRef.current[pane] = paneTab.id
           setActiveId(paneTab.id)
         }
@@ -1155,7 +1282,11 @@ export function App(): ReactElement {
       <TabStrip
         tabs={paneTabs}
         pane={pane}
-        activeId={graphPane && gitGraphActive ? undefined : paneTab?.id}
+        activeId={
+          (graphPane && gitGraphActive) || (pane === 'primary' && webViewActive)
+            ? undefined
+            : paneTab?.id
+        }
         onActivate={(id) => activateTab(id, pane)}
         onClose={closeTab}
         onPin={(id) =>
@@ -1176,11 +1307,20 @@ export function App(): ReactElement {
           activePaneRef.current = 'primary'
           setTerminalFocused(false)
           setGitGraphActive(true)
+          setWebViewActive(false)
         }}
         onCloseGraph={() => {
           setGitGraphOpen(false)
           setGitGraphActive(false)
         }}
+        webTabs={
+          pane === 'primary'
+            ? webViews.map((view) => ({ id: view.id, title: view.title }))
+            : undefined
+        }
+        activeWebId={pane === 'primary' && webViewActive ? activeWebViewId : undefined}
+        onActivateWeb={activateWebView}
+        onCloseWeb={closeWebView}
       />
       {graphPane && gitGraphOpen ? (
         <div className="workspace-view" hidden={!gitGraphActive}>
@@ -1194,7 +1334,37 @@ export function App(): ReactElement {
           />
         </div>
       ) : null}
-      <div className="workspace-view" hidden={graphPane && gitGraphActive}>
+      {pane === 'primary'
+        ? webViews.map((view) => (
+            // Visibility-based hiding: display:none breaks <webview> guests,
+            // so inactive panes collapse to zero height instead.
+            <div
+              className={`workspace-view${
+                webViewActive && activeWebViewId === view.id ? '' : ' web-view-hidden'
+              }`}
+              key={view.id}
+            >
+              <WebPane
+                view={view}
+                focused={webViewFocused}
+                onToggleFocus={() => setWebViewFocused((focused) => !focused)}
+                onTitle={(title) =>
+                  setWebViews((current) =>
+                    current.map((candidate) =>
+                      candidate.id === view.id && candidate.title !== title
+                        ? { ...candidate, title }
+                        : candidate,
+                    ),
+                  )
+                }
+              />
+            </div>
+          ))
+        : null}
+      <div
+        className="workspace-view"
+        hidden={(graphPane && gitGraphActive) || (pane === 'primary' && webViewActive)}
+      >
         {activeWorkspace?.missing ? (
           <MissingWorkspaceNotice root={root} />
         ) : (
@@ -1290,7 +1460,7 @@ export function App(): ReactElement {
         />
       ) : null}
       <main
-        className={`workbench${connectionState === 'connected' ? '' : ' project-stale'}${terminalFocused ? ' terminal-focused' : ''}${treeCollapsed ? ' tree-collapsed' : ''}`}
+        className={`workbench${connectionState === 'connected' ? '' : ' project-stale'}${terminalFocused ? ' terminal-focused' : ''}${treeCollapsed ? ' tree-collapsed' : ''}${webViewFocused && webViewActive ? ' web-focused' : ''}`}
         ref={workbenchRef}
       >
         <aside className="tree-panel" aria-label="Project rail" tabIndex={-1}>
@@ -2280,6 +2450,18 @@ function reorderTabs(
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value))
+}
+
+const LOOPBACK_HOSTNAMES = new Set(['localhost', '127.0.0.1', '0.0.0.0', '::1', '[::1]'])
+
+/** An http URL whose host is this-machine loopback from the server's view. */
+function isLoopbackHttpLink(rawUrl: string): boolean {
+  try {
+    const parsed = new URL(rawUrl)
+    return parsed.protocol === 'http:' && LOOPBACK_HOSTNAMES.has(parsed.hostname)
+  } catch {
+    return false
+  }
 }
 
 function fitTerminalHeight(height: number, workbenchHeight: number): number {

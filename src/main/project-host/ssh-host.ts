@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto'
+import { createServer, type Server, type Socket } from 'node:net'
 import { StringDecoder } from 'node:string_decoder'
 
 import {
@@ -31,10 +32,11 @@ import type {
   PtyProcess,
   ReadFileOptions,
   SpawnPtyOptions,
+  TunnelHandle,
   WatchOptions,
   WriteFileOptions,
 } from './project-host'
-import { MAX_EXEC_STREAM_WRITE_BYTES } from './project-host'
+import { assertTunnelPort, MAX_EXEC_STREAM_WRITE_BYTES } from './project-host'
 import type { SshAliasConfig } from './ssh-config'
 
 export interface SshIdentity {
@@ -90,11 +92,19 @@ export const SSH_MAX_CONTROL_TRANSPORTS = 2
 export const SSH_CONTROL_CHANNEL_BUDGET = 6
 export const SSH_TERMINAL_CHANNEL_BUDGET = 8
 export const SSH_DEFAULT_MAX_CONCURRENT_EXECS = 4
+/**
+ * Tunnel data connections ride dedicated transports so a dashboard holding
+ * many sockets (keep-alive pools, websockets, event streams) can never starve
+ * git/exec channels on the control transports. Two transports of sixteen
+ * channels bound a dashboard-heavy session at 32 concurrent sockets.
+ */
+export const SSH_TUNNEL_CHANNEL_BUDGET = 16
+export const SSH_MAX_TUNNEL_TRANSPORTS = 2
 export const SSH_TRANSPORT_IDLE_GRACE_MS = 5 * 60_000
 export const SSH_MAX_KEYBOARD_INTERACTIVE_ROUNDS = 4
 const SSH_CHANNEL_OPEN_ATTEMPTS = 5
 
-type SshTransportRole = 'control' | 'terminal'
+type SshTransportRole = 'control' | 'terminal' | 'tunnel'
 
 interface SshTransport {
   readonly id: number
@@ -181,6 +191,10 @@ export class SshHost implements ProjectHost {
     string,
     { metadata: string; digest: string; observeUntil: number }
   >()
+  private readonly tunnels = new Set<{
+    readonly server: Server
+    readonly sockets: Set<Socket>
+  }>()
 
   constructor(private readonly options: SshHostOptions) {
     this.hostId = asHostId(options.config.alias)
@@ -257,6 +271,11 @@ export class SshHost implements ProjectHost {
       if (waiter.abort) waiter.signal?.removeEventListener('abort', waiter.abort)
       waiter.reject(new Error('SSH connection cancelled'))
     }
+    for (const tunnel of this.tunnels) {
+      tunnel.server.close()
+      for (const socket of tunnel.sockets) socket.destroy()
+    }
+    this.tunnels.clear()
     const transports = [...this.transports]
     const clients = new Set<Client>([
       ...transports.map((transport) => transport.client),
@@ -536,6 +555,86 @@ export class SshHost implements ProjectHost {
         rejectPendingReady(new Error('Exec stream is disposed'))
         stream?.close()
       },
+    }
+  }
+
+  async forwardLocalPort(remotePort: number): Promise<TunnelHandle> {
+    assertTunnelPort(remotePort)
+    await this.connected()
+    const sockets = new Set<Socket>()
+    const server = createServer((socket) => {
+      sockets.add(socket)
+      socket.once('close', () => sockets.delete(socket))
+      socket.on('error', () => socket.destroy())
+      void this.pipeTunnelConnection(socket, remotePort)
+    })
+    await new Promise<void>((resolve, reject) => {
+      server.once('error', reject)
+      server.listen(0, '127.0.0.1', () => {
+        server.removeListener('error', reject)
+        resolve()
+      })
+    })
+    const address = server.address()
+    if (!address || typeof address === 'string') {
+      server.close()
+      throw new Error('SSH tunnel listener reported no local port')
+    }
+    const tunnel = { server, sockets }
+    this.tunnels.add(tunnel)
+    let closed = false
+    return {
+      localPort: address.port,
+      close: async () => {
+        if (closed) return
+        closed = true
+        this.tunnels.delete(tunnel)
+        for (const socket of sockets) socket.destroy()
+        await new Promise<void>((resolve) => server.close(() => resolve()))
+      },
+    }
+  }
+
+  private async pipeTunnelConnection(socket: Socket, remotePort: number): Promise<void> {
+    let channel: ClientChannel
+    try {
+      channel = await this.openTunnelChannel(remotePort)
+    } catch {
+      socket.destroy()
+      return
+    }
+    if (socket.destroyed) {
+      channel.close()
+      return
+    }
+    channel.on('error', () => socket.destroy())
+    channel.once('close', () => socket.destroy())
+    socket.once('close', () => channel.close())
+    socket.pipe(channel)
+    channel.pipe(socket)
+  }
+
+  private async openTunnelChannel(remotePort: number): Promise<ClientChannel> {
+    const reservation = await this.reserveTransport('tunnel')
+    try {
+      const channel = await new Promise<ClientChannel>((resolve, reject) => {
+        try {
+          reservation.transport.client.forwardOut(
+            '127.0.0.1',
+            0,
+            '127.0.0.1',
+            remotePort,
+            (error, stream) => (error ? reject(error) : resolve(stream)),
+          )
+        } catch (error) {
+          reject(asError(error))
+        }
+      })
+      this.activateChannel(reservation, channel)
+      return channel
+    } catch (error) {
+      reservation.release()
+      throw error
     }
   }
 
@@ -1138,7 +1237,11 @@ export class SshHost implements ProjectHost {
       failureListeners: new Set(),
       pendingChannels: 0,
       channelBudget:
-        role === 'control' ? SSH_CONTROL_CHANNEL_BUDGET : SSH_TERMINAL_CHANNEL_BUDGET,
+        role === 'control'
+          ? SSH_CONTROL_CHANNEL_BUDGET
+          : role === 'tunnel'
+            ? SSH_TUNNEL_CHANNEL_BUDGET
+            : SSH_TERMINAL_CHANNEL_BUDGET,
       sftpActive: false,
       closed: false,
     }
@@ -1217,7 +1320,8 @@ export class SshHost implements ProjectHost {
         const roleCount = live.filter((transport) => transport.role === role).length
         if (
           live.length >= SSH_MAX_PHYSICAL_TRANSPORTS ||
-          (role === 'control' && roleCount >= SSH_MAX_CONTROL_TRANSPORTS)
+          (role === 'control' && roleCount >= SSH_MAX_CONTROL_TRANSPORTS) ||
+          (role === 'tunnel' && roleCount >= SSH_MAX_TUNNEL_TRANSPORTS)
         ) {
           throw sshCapacityError(role)
         }

@@ -50,7 +50,8 @@ import {
   type HarnessProfileStoreContract,
 } from './harness/harness-profile-store'
 import type { HarnessProbeManager } from './harness/harness-probe'
-import type { ProjectHost } from './project-host'
+import { assertTunnelPort, type ProjectHost } from './project-host'
+import type { TunnelRegistry } from './tunnel-registry'
 import type { HtmlPreviewProtocol } from './html-preview-protocol'
 import type { PtySupervisor } from './pty/pty-supervisor'
 import type { TerminalSessionStore } from './terminal/session-registry'
@@ -130,6 +131,7 @@ export interface IpcDeps {
   readonly harnessProbes: HarnessProbeManager
   readonly updateAttention: (ownerId: number, count: number) => void
   readonly htmlPreviews: HtmlPreviewProtocol
+  readonly tunnels: TunnelRegistry
   readonly emit: EmitRendererEvent
 }
 
@@ -539,6 +541,25 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 
   handle('html-preview:create', (req) => deps.htmlPreviews.create(req.content))
 
+  handle('tunnel:open', (req) =>
+    operationResult(async () => {
+      const { host } = deps.getProject()
+      assertRequestedTunnelPort(req.remotePort)
+      return deps.tunnels.open(host, req.remotePort)
+    }),
+  )
+
+  handle('tunnel:close', async (req) => {
+    if (
+      typeof req.tunnelId !== 'string' ||
+      req.tunnelId.length === 0 ||
+      req.tunnelId.length > 200
+    ) {
+      throw new Error('Invalid tunnel id')
+    }
+    await deps.tunnels.close(req.tunnelId)
+  })
+
   handle('terminal:recovery', (req) => {
     const root = registeredWorkspaceRoot(req.root, deps)
     return deps.terminalSessions.list(root)
@@ -871,6 +892,11 @@ function projectWorktreeRoots(root: HostPath, deps: IpcDeps): readonly HostPath[
 
 function isTerminalId(value: unknown): value is string {
   return typeof value === 'string' && /^[a-zA-Z0-9-]{1,80}$/.test(value)
+}
+
+function assertRequestedTunnelPort(value: unknown): asserts value is number {
+  if (typeof value !== 'number') throw new Error('Invalid tunnel port')
+  assertTunnelPort(value)
 }
 
 function isTerminalTitle(value: unknown): value is string {

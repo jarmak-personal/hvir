@@ -21,6 +21,10 @@ interface TabStripProps {
   readonly graphActive: boolean
   readonly onActivateGraph: () => void
   readonly onCloseGraph: () => void
+  readonly webTabs?: readonly { readonly id: string; readonly title: string }[]
+  readonly activeWebId?: string
+  readonly onActivateWeb?: (id: string) => void
+  readonly onCloseWeb?: (id: string) => void
 }
 
 export function TabStrip({
@@ -39,6 +43,10 @@ export function TabStrip({
   graphActive,
   onActivateGraph,
   onCloseGraph,
+  webTabs = [],
+  activeWebId,
+  onActivateWeb,
+  onCloseWeb,
 }: TabStripProps): ReactElement {
   return (
     <div
@@ -124,7 +132,35 @@ export function TabStrip({
           </button>
         </div>
       ) : null}
-      {tabs.length === 0 && !graphOpen ? (
+      {webTabs.map((webTab) => (
+        <div
+          className={`viewer-tab web-pane-tab${webTab.id === activeWebId ? ' active' : ''}`}
+          key={webTab.id}
+          role="tab"
+          aria-selected={webTab.id === activeWebId}
+        >
+          <button
+            className="tab-main"
+            type="button"
+            onClick={() => onActivateWeb?.(webTab.id)}
+            title={webTab.title}
+          >
+            <span className="tab-status" aria-hidden="true">
+              ◍
+            </span>
+            <span className="tab-name">{webTab.title}</span>
+          </button>
+          <button
+            className="tab-close"
+            type="button"
+            aria-label={`Close ${webTab.title}`}
+            onClick={() => onCloseWeb?.(webTab.id)}
+          >
+            ×
+          </button>
+        </div>
+      ))}
+      {tabs.length === 0 && !graphOpen && webTabs.length === 0 ? (
         <span className="tab-strip-empty">{split ? 'Drop a tab here' : 'Viewer'}</span>
       ) : null}
       <span className="tab-strip-spacer" />

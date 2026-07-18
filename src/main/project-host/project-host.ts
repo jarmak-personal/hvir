@@ -114,6 +114,19 @@ export interface PtyProcess {
   kill(signal?: string): void
 }
 
+export function assertTunnelPort(value: number): void {
+  if (!Number.isInteger(value) || value < 1 || value > 65_535) {
+    throw new Error(`Invalid tunnel port: ${value}`)
+  }
+}
+
+/** A live localhost listener that forwards TCP connections to the project host. */
+export interface TunnelHandle {
+  /** Loopback port on this machine that reaches the remote service. */
+  readonly localPort: number
+  close(): Promise<void>
+}
+
 export interface ProjectHost {
   readonly hostId: HostId
   readonly connectionState: HostConnectionState
@@ -147,6 +160,14 @@ export interface ProjectHost {
    * shape.
    */
   spawnPty(opts: SpawnPtyOptions): Promise<PtyProcess>
+
+  /**
+   * Expose `127.0.0.1:<remotePort>` on the project host as a loopback listener
+   * on this machine. On LocalHost the service is already reachable, so the
+   * handle is the identity forward; on SshHost each connection rides a
+   * `direct-tcpip` channel over the existing transport pool.
+   */
+  forwardLocalPort(remotePort: number): Promise<TunnelHandle>
 
   readFile(path: HostPath, opts?: ReadFileOptions): Promise<Buffer>
   readTextFile(

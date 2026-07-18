@@ -197,6 +197,9 @@ class ProxyGitHost implements ProjectHost {
   spawnPty(): never {
     throw new Error('git worker cannot spawn PTYs')
   }
+  forwardLocalPort(): never {
+    throw new Error('git worker does not forward ports')
+  }
   readFile(): never {
     throw new Error('git worker reads text only')
   }

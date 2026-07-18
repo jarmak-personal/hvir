@@ -102,6 +102,44 @@ export function isFileUri(target: string): boolean {
   return target.startsWith('file://')
 }
 
+// Loopback web targets agents print without a scheme ("localhost:5174/dash").
+// Schemed URLs are ghostty-web's built-in link detector's job; these are not.
+const WEB_HOST_TOKEN =
+  /(?:^|[\s<>"'`|([{])((?:localhost|127\.0\.0\.1|0\.0\.0\.0):\d{2,5}(?:\/[^\s<>"'`|]*)?)/g
+const WEB_TRAILING_PUNCTUATION = /[.,;!?)\]}]+$/
+
+export interface TerminalWebLink {
+  readonly target: string
+  readonly start: number
+  readonly end: number
+}
+
+/** Detect scheme-less loopback server links ("localhost:8082/reef") in one line. */
+export function detectTerminalWebLinks(text: string): readonly TerminalWebLink[] {
+  const links: TerminalWebLink[] = []
+  WEB_HOST_TOKEN.lastIndex = 0
+  let match = WEB_HOST_TOKEN.exec(text)
+  while (match) {
+    const captured = match[1] ?? ''
+    const target = captured.replace(WEB_TRAILING_PUNCTUATION, '')
+    if (target) {
+      const start = match.index + match[0].length - captured.length
+      links.push({ target, start, end: start + target.length - 1 })
+    }
+    match = WEB_HOST_TOKEN.exec(text)
+  }
+  return links
+}
+
+/** Turn a clicked terminal target into an http URL when it is a loopback web link. */
+export function normalizeTerminalWebTarget(rawTarget: string): string | undefined {
+  const target = rawTarget.trim().replace(WEB_TRAILING_PUNCTUATION, '')
+  if (!/^(?:localhost|127\.0\.0\.1|0\.0\.0\.0):\d{2,5}(?:\/|$)/.test(target)) {
+    return undefined
+  }
+  return `http://${target}`
+}
+
 function isPlainPathCandidate(path: string): boolean {
   return (
     path.startsWith('/') ||

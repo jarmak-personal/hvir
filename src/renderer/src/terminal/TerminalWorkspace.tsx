@@ -27,6 +27,7 @@ import { PaneResizer } from '../layout/PaneResizer'
 import type { TerminalRecoveryMode, TerminalThemeOverride } from '../settings/settings'
 import { useAppTheme } from '../theme'
 import {
+  normalizeTerminalWebTarget,
   resolveTerminalFileTarget,
   type ResolvedTerminalFileTarget,
 } from './terminal-file-link'
@@ -794,15 +795,22 @@ export function TerminalWorkspace({
               }
               onInput={(data) => recordInput(session.id, data)}
               onOutput={() => recordOutput(session.id)}
-              onBell={() => raiseAttention(session.id, 'bell')}
-              onFocus={() => focusSession(session.id)}
-              onLink={(target) => {
-                const resolved = resolveTerminalFileTarget(target, workspaceRoot)
-                if (resolved) onOpenPath(resolved)
-              }}
-            />
-          )
-        })}
+               onBell={() => raiseAttention(session.id, 'bell')}
+               onFocus={() => focusSession(session.id)}
+               onLink={(target) => {
+                 const resolved = resolveTerminalFileTarget(target, workspaceRoot)
+                 if (resolved) {
+                   onOpenPath(resolved)
+                   return
+                 }
+                 // Scheme-less loopback server links; the workbench's window.open
+                 // routing turns these into tunneled web panes.
+                 const webUrl = normalizeTerminalWebTarget(target)
+                 if (webUrl) window.open(webUrl)
+               }}
+             />
+           )
+         })}
         {terminalSplit ? (
           <PaneResizer
             orientation="vertical"

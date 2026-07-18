@@ -13,7 +13,11 @@ import type {
   TerminalSize,
   TerminalColorTheme,
 } from './terminal-pane'
-import { detectTerminalFileLinks, isFileUri } from './terminal-file-link'
+import {
+  detectTerminalFileLinks,
+  detectTerminalWebLinks,
+  isFileUri,
+} from './terminal-file-link'
 import { TerminalFitController } from './ghostty-terminal-fit'
 import { TerminalSignalParser } from './terminal-signals'
 import { writePreservingViewport } from './terminal-viewport'
@@ -244,7 +248,13 @@ class FileLinkProvider implements ILinkProvider {
       links.push(this.link(target, y, start, end))
     }
 
-    for (const candidate of detectTerminalFileLinks(text.join(''))) {
+    const lineText = text.join('')
+    for (const candidate of detectTerminalFileLinks(lineText)) {
+      links.push(this.link(candidate.target, y, candidate.start, candidate.end))
+    }
+    // Scheme-less loopback server links ("localhost:5174") — schemed URLs are
+    // already handled by ghostty's built-in detector.
+    for (const candidate of detectTerminalWebLinks(lineText)) {
       links.push(this.link(candidate.target, y, candidate.start, candidate.end))
     }
     callback(links.length > 0 ? links : undefined)

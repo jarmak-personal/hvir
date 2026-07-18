@@ -7,10 +7,11 @@ export type {
   PtyProcess,
   ReadFileOptions,
   SpawnPtyOptions,
+  TunnelHandle,
   WatchOptions,
   WriteFileOptions,
 } from './project-host'
-export { MAX_EXEC_STREAM_WRITE_BYTES } from './project-host'
+export { assertTunnelPort, MAX_EXEC_STREAM_WRITE_BYTES } from './project-host'
 export { LocalHost } from './local-host'
 export { SshHost } from './ssh-host'
 export {
