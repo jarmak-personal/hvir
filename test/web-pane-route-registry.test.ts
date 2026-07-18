@@ -22,10 +22,15 @@ function registry() {
 function open(
   routes: WebPaneRouteRegistry,
   url: string,
-  overrides: { readonly ownerId?: number; readonly terminalId?: string } = {},
+  overrides: {
+    readonly ownerId?: number
+    readonly ownerGeneration?: number
+    readonly terminalId?: string
+  } = {},
 ) {
   return routes.open({
     ownerId: overrides.ownerId ?? 41,
+    ownerGeneration: overrides.ownerGeneration,
     sourceTerminalId: overrides.terminalId ?? 'terminal-1',
     workspaceRoot: root,
     host: new LocalHost(),
@@ -114,6 +119,25 @@ describe('WebPaneRouteRegistry', () => {
     } finally {
       await routes.closeAll()
     }
+  })
+
+  it('isolates reused webContents ids by document generation', async () => {
+    const { routes } = registry()
+    const previous = await open(routes, 'http://localhost:5173/', {
+      ownerGeneration: 1,
+    })
+    const current = await open(routes, 'http://localhost:5173/', {
+      ownerGeneration: 2,
+    })
+
+    expect(current.paneId).not.toBe(previous.paneId)
+    expect(routes.has(previous.paneId, 41, 2)).toBe(false)
+    expect(routes.has(current.paneId, 41, 2)).toBe(true)
+
+    await routes.closeOwner(41, 1)
+    expect(routes.has(previous.paneId, 41, 1)).toBe(false)
+    expect(routes.has(current.paneId, 41, 2)).toBe(true)
+    await routes.closeAll()
   })
 
   it('gates attachment once and binds the resulting guest by its partition', async () => {

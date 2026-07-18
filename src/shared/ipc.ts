@@ -545,6 +545,7 @@ export interface IpcInvokeMap {
  * round trip is never inserted into the typing hot path.
  */
 export interface IpcSendMap {
+  'app:renderer-ready': void
   'html-preview:release': ReleaseHtmlPreviewRequest
   'pty:write': { readonly id: string; readonly data: string }
   'pty:resize': { readonly id: string; readonly cols: number; readonly rows: number }
@@ -667,6 +668,7 @@ export const INVOKE_CHANNELS = [
 ] as const satisfies readonly IpcInvokeChannel[]
 
 export const SEND_CHANNELS = [
+  'app:renderer-ready',
   'html-preview:release',
   'pty:write',
   'pty:resize',

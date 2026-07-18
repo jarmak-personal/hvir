@@ -298,7 +298,7 @@ function HtmlPreview({
     let previewId: string | undefined
     setPreview(undefined)
     setError(undefined)
-    void window.hvir.invoke('html-preview:create', { content }).then(
+    void window.hvir.invoke('html-preview:create', { path, content }).then(
       (created) => {
         previewId = created.id
         if (cancelled) {
@@ -316,7 +316,7 @@ function HtmlPreview({
       cancelled = true
       if (previewId) window.hvir.send('html-preview:release', { id: previewId })
     }
-  }, [content, renderGeneration])
+  }, [content, path, renderGeneration])
 
   if (error) return <div className="viewer-empty error">{error}</div>
   if (!preview) return <div className="viewer-empty">Preparing HTML preview…</div>

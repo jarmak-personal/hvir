@@ -32,6 +32,17 @@ describe('AttentionBadge', () => {
     expect(setBadgeCount).toHaveBeenCalledWith(99)
   })
 
+  it('does not let stale generation cleanup erase current attention', () => {
+    const setBadgeCount = vi.fn<(count: number) => boolean>(() => true)
+    const badge = new AttentionBadge(setBadgeCount)
+    badge.update(1, 4, 1)
+    badge.update(1, 2, 2)
+
+    badge.remove(1, 1)
+
+    expect(setBadgeCount).toHaveBeenLastCalledWith(2)
+  })
+
   it('stops quietly when the desktop has no badge implementation', () => {
     const setBadgeCount = vi.fn<(count: number) => boolean>(() => false)
     const badge = new AttentionBadge(setBadgeCount)

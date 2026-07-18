@@ -59,6 +59,7 @@ import type { HtmlPreviewProtocol } from './html-preview-protocol'
 import type { PtySupervisor } from './pty/pty-supervisor'
 import type { TerminalSessionStore } from './terminal/session-registry'
 import type { WorkerClient } from './worker-host'
+import { RendererResourceScopes, type RendererOwner } from './renderer-resource-scopes'
 
 type Handler<C extends IpcInvokeChannel> = (
   req: IpcRequest<C>,
@@ -106,10 +107,18 @@ export interface IpcDeps {
   readonly getRegisteredWorkspaceRoot: (root: HostPath) => HostPath | undefined
   readonly getProjectState: () => ProjectState
   readonly listHosts: () => readonly ProjectHostOption[]
-  readonly connectHost: (hostId: string) => Promise<ConnectedHost>
+  readonly connectHost: (hostId: string, owner: RendererOwner) => Promise<ConnectedHost>
   readonly disconnectHost: (hostId: string) => Promise<ProjectHostOption>
-  readonly browseHost: (hostId: string, path: string) => Promise<BrowseHostResponse>
-  readonly openProject: (hostId: string, path: string) => Promise<ProjectState>
+  readonly browseHost: (
+    hostId: string,
+    path: string,
+    owner: RendererOwner,
+  ) => Promise<BrowseHostResponse>
+  readonly openProject: (
+    hostId: string,
+    path: string,
+    owner: RendererOwner,
+  ) => Promise<ProjectState>
   readonly switchWorkspace: (
     projectId: string,
     workspaceId: string,
@@ -127,14 +136,20 @@ export interface IpcDeps {
   readonly switchGitBranch: (root: HostPath, branch: string) => Promise<ProjectState>
   readonly fetchGit: (root: HostPath) => Promise<ProjectState>
   readonly pullGit: (root: HostPath) => Promise<ProjectState>
-  readonly respondSshPrompt: (id: number, answers?: readonly string[]) => void
+  readonly respondSshPrompt: (
+    owner: RendererOwner,
+    id: number,
+    answers?: readonly string[],
+  ) => void
+  readonly rendererResources: RendererResourceScopes
+  readonly rendererReady: (owner: RendererOwner) => void
   readonly ptySupervisor: PtySupervisor
   readonly terminalSessions: TerminalSessionStore
   readonly harnessProfiles: HarnessProfileStoreContract
   readonly harnessProbes: HarnessProbeManager
-  readonly updateAttention: (ownerId: number, count: number) => void
-  readonly updateWebPaneBindings: (ownerId: number, bindings: KeybindingMap) => void
-  readonly updateWebPaneFullPage: (ownerId: number, paneId?: string) => void
+  readonly updateAttention: (owner: RendererOwner, count: number) => void
+  readonly updateWebPaneBindings: (owner: RendererOwner, bindings: KeybindingMap) => void
+  readonly updateWebPaneFullPage: (owner: RendererOwner, paneId?: string) => void
   readonly htmlPreviews: HtmlPreviewProtocol
   readonly webPanes: WebPaneRouteRegistry
   readonly openExternal: (url: string) => Promise<void>
@@ -285,17 +300,31 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 
   handle('project:root', () => deps.getProjectState())
   handle('project:hosts', () => deps.listHosts())
-  handle('project:connect-host', (req) =>
-    operationResult(() => deps.connectHost(req.hostId)),
+  handle('project:connect-host', (req, event) =>
+    operationResult(() =>
+      deps.connectHost(req.hostId, deps.rendererResources.currentOwner(event.sender.id)),
+    ),
   )
   handle('project:disconnect-host', (req) =>
     operationResult(() => deps.disconnectHost(req.hostId)),
   )
-  handle('project:browse-host', (req) =>
-    operationResult(() => deps.browseHost(req.hostId, req.path)),
+  handle('project:browse-host', (req, event) =>
+    operationResult(() =>
+      deps.browseHost(
+        req.hostId,
+        req.path,
+        deps.rendererResources.currentOwner(event.sender.id),
+      ),
+    ),
   )
-  handle('project:open', (req) =>
-    operationResult(() => deps.openProject(req.hostId, req.path)),
+  handle('project:open', (req, event) =>
+    operationResult(() =>
+      deps.openProject(
+        req.hostId,
+        req.path,
+        deps.rendererResources.currentOwner(event.sender.id),
+      ),
+    ),
   )
   handle('project:switch', (req) =>
     operationResult(() => deps.switchWorkspace(req.projectId, req.workspaceId)),
@@ -321,7 +350,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
   handle('workspace:dismiss', (req) =>
     operationResult(() => deps.dismissWorkspace(req.projectId, req.workspaceId)),
   )
-  handle('ssh:prompt-response', (req) => {
+  handle('ssh:prompt-response', (req, event) => {
     if (!Number.isSafeInteger(req?.id) || req.id <= 0) {
       throw new Error('Invalid SSH prompt id')
     }
@@ -335,7 +364,11 @@ export function registerIpcHandlers(deps: IpcDeps): void {
     ) {
       throw new Error('Invalid SSH prompt answers')
     }
-    deps.respondSshPrompt(req.id, req.answers)
+    deps.respondSshPrompt(
+      deps.rendererResources.currentOwner(event.sender.id),
+      req.id,
+      req.answers,
+    )
   })
 
   handle('fs:readdir', (req) =>
@@ -545,10 +578,28 @@ export function registerIpcHandlers(deps: IpcDeps): void {
     }),
   )
 
-  handle('html-preview:create', (req) => deps.htmlPreviews.create(req.content))
+  handle('html-preview:create', async (req, event) => {
+    const owner = deps.rendererResources.currentOwner(event.sender.id)
+    const { root, host } = deps.getProject()
+    await projectPath(req.path, root, host)
+    deps.rendererResources.assertCurrent(owner)
+    const preview = deps.htmlPreviews.create(req.content, owner, root)
+    try {
+      deps.rendererResources.register(
+        owner,
+        { lifetime: 'workspace', type: 'html-preview', root, id: preview.id },
+        () => deps.htmlPreviews.release(preview.id, owner),
+      )
+      return preview
+    } catch (error) {
+      deps.htmlPreviews.release(preview.id, owner)
+      throw error
+    }
+  })
 
-  handle('web-pane:open', (req, event) =>
-    operationResult(async () => {
+  handle('web-pane:open', (req, event) => {
+    const owner = deps.rendererResources.currentOwner(event.sender.id)
+    return operationResult(async () => {
       const active = deps.getProject()
       let root: HostPath
       let terminalId: string
@@ -559,7 +610,8 @@ export function registerIpcHandlers(deps: IpcDeps): void {
         const terminal = deps.ptySupervisor.get(terminalId)
         if (
           !terminal ||
-          terminal.ownerId !== event.sender.id ||
+          terminal.ownerId !== owner.id ||
+          terminal.ownerGeneration !== owner.generation ||
           terminal.hostId !== root.hostId ||
           !hostPathEquals(terminal.cwd, root)
         ) {
@@ -567,7 +619,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
         }
       } else {
         if (!isWebPaneId(req.paneId)) throw new Error('Invalid source web pane')
-        const source = deps.webPanes.source(req.paneId, event.sender.id)
+        const source = deps.webPanes.source(req.paneId, owner.id, owner.generation)
         if (!source) throw new Error('Source web pane is no longer live')
         root = registeredWorkspaceRoot(source.workspaceRoot, deps)
         terminalId = source.terminalId
@@ -575,32 +627,65 @@ export function registerIpcHandlers(deps: IpcDeps): void {
       if (!hostPathEquals(root, active.root) || root.hostId !== active.host.hostId) {
         throw new Error('Web panes may be opened only from the active workspace')
       }
-      return deps.webPanes.open({
-        ownerId: event.sender.id,
+      deps.rendererResources.assertCurrent(owner)
+      const route = await deps.webPanes.open({
+        ownerId: owner.id,
+        ownerGeneration: owner.generation,
         sourceTerminalId: terminalId,
         workspaceRoot: root,
         host: active.host,
         url: req.url,
       })
-    }),
-  )
+      try {
+        deps.rendererResources.register(
+          owner,
+          { lifetime: 'workspace', type: 'web-pane', root, id: route.paneId },
+          () => deps.webPanes.close(route.paneId, owner.id, owner.generation),
+        )
+        return route
+      } catch (error) {
+        await deps.webPanes.close(route.paneId, owner.id, owner.generation)
+        throw error
+      }
+    })
+  })
 
   handle('web-pane:close', async (req, event) => {
     if (!isWebPaneId(req.paneId)) throw new Error('Invalid web pane id')
-    await deps.webPanes.close(req.paneId, event.sender.id)
+    const owner = deps.rendererResources.currentOwner(event.sender.id)
+    const disposed = await deps.rendererResources.disposeResource(
+      owner,
+      'web-pane',
+      req.paneId,
+    )
+    if (!disposed) {
+      await deps.webPanes.close(req.paneId, owner.id, owner.generation)
+    }
   })
 
   handle('web-pane:open-external', async (req, event) => {
     if (!isWebPaneId(req.paneId)) throw new Error('Invalid web pane id')
-    const decision = deps.webPanes.navigationForPane(req.paneId, event.sender.id, req.url)
+    const owner = deps.rendererResources.currentOwner(event.sender.id)
+    const decision = deps.webPanes.navigationForPane(
+      req.paneId,
+      owner.id,
+      req.url,
+      owner.generation,
+    )
     if (decision.kind !== 'external') throw new Error('External URL is not authorized')
     await deps.openExternal(decision.url)
   })
 
   handle('web-pane:open-browser', async (req, event) => {
     if (!isWebPaneId(req.paneId)) throw new Error('Invalid web pane id')
-    const source = deps.webPanes.source(req.paneId, event.sender.id)
-    const decision = deps.webPanes.navigationForPane(req.paneId, event.sender.id, req.url)
+    const owner = deps.rendererResources.currentOwner(event.sender.id)
+    const source = deps.webPanes.source(req.paneId, owner.id, owner.generation)
+    const decision = deps.webPanes.navigationForPane(
+      req.paneId,
+      owner.id,
+      req.url,
+      owner.generation,
+    )
     if (!source || decision.kind !== 'allow') {
       throw new Error('Browser URL is not authorized by this web pane')
     }
@@ -686,6 +771,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
     if (!isTerminalId(req.sessionId)) {
       throw new Error('Invalid PTY session id')
     }
+    const owner = deps.rendererResources.currentOwner(event.sender.id)
     const { root, host } = deps.getProject()
     const projectRoot = registeredProjectRoot(root, deps)
     const cwd = await projectPath(req.cwd, root, host)
@@ -787,6 +873,16 @@ export function registerIpcHandlers(deps: IpcDeps): void {
         },
       })
     }
+    const ptyLease = deps.rendererResources.register(
+      owner,
+      {
+        lifetime: 'workspace',
+        type: 'pty-session',
+        root,
+        id: req.sessionId,
+      },
+      () => deps.ptySupervisor.disposeSession(req.sessionId, owner.id, owner.generation),
+    )
     let managed
     try {
       managed = await deps.ptySupervisor.spawn({
@@ -797,7 +893,8 @@ export function registerIpcHandlers(deps: IpcDeps): void {
         artifact: resolved.artifact,
         effectiveCapabilities,
         cwd,
-        ownerId: event.sender.id,
+        ownerId: owner.id,
+        ownerGeneration: owner.generation,
         sessionId: req.sessionId,
         harnessSessionId: launchMode === 'resume' ? req.harnessSessionId : undefined,
         resume: launchMode === 'resume',
@@ -816,6 +913,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
         },
       })
     } catch (reason) {
+      await ptyLease.dispose()
       if (isClassifiedHarnessLaunchFailure(reason)) {
         deps.harnessProbes.invalidate(host, profile)
         void deps.harnessProbes.probeProfiles({
@@ -828,6 +926,12 @@ export function registerIpcHandlers(deps: IpcDeps): void {
         })
       }
       throw reason
+    }
+    try {
+      deps.rendererResources.assertCurrent(owner)
+    } catch (error) {
+      await ptyLease.dispose()
+      throw error
     }
     void deps.terminalSessions
       .recordSpawn({
@@ -847,21 +951,31 @@ export function registerIpcHandlers(deps: IpcDeps): void {
       })
       .catch((error) => console.error('[terminal] session persistence failed', error))
     let detach: () => void | Promise<void> = () => undefined
-    const owner = event.sender
-    detach = deps.ptySupervisor.attach(managed.id, owner.id, {
-      onData: (data) => {
-        if (!owner.isDestroyed()) owner.send('pty:data', { id: managed.id, data })
+    const sender = event.sender
+    detach = deps.ptySupervisor.attach(
+      managed.id,
+      owner.id,
+      {
+        onData: (data) => {
+          if (deps.rendererResources.isCurrent(owner) && !sender.isDestroyed()) {
+            sender.send('pty:data', { id: managed.id, data })
+          }
+        },
+        onExit: (exit) => {
+          void detach()
+          ptyLease.release()
+          if (deps.rendererResources.isCurrent(owner) && !sender.isDestroyed()) {
+            sender.send('pty:exit', { id: managed.id, ...exit })
+          }
+        },
+        onTelemetry: (telemetry) => {
+          if (deps.rendererResources.isCurrent(owner) && !sender.isDestroyed()) {
+            sender.send('pty:telemetry', { id: managed.id, telemetry })
+          }
+        },
       },
-      onExit: (exit) => {
-        void detach()
-        if (!owner.isDestroyed()) owner.send('pty:exit', { id: managed.id, ...exit })
-      },
-      onTelemetry: (telemetry) => {
-        if (!owner.isDestroyed()) {
-          owner.send('pty:telemetry', { id: managed.id, telemetry })
-        }
-      },
-    })
+      owner.generation,
+    )
     return {
       id: managed.id,
       pid: managed.pid,
@@ -872,42 +986,58 @@ export function registerIpcHandlers(deps: IpcDeps): void {
     }
   })
 
+  handleSend('app:renderer-ready', (_payload, event) => {
+    deps.rendererReady(deps.rendererResources.currentOwner(event.sender.id))
+  })
   handleSend('pty:write', ({ id, data }, event) => {
-    if (deps.ptySupervisor.isOwnedBy(id, event.sender.id)) {
-      deps.ptySupervisor.write(id, event.sender.id, data)
+    const owner = deps.rendererResources.currentOwner(event.sender.id)
+    if (deps.ptySupervisor.isOwnedBy(id, owner.id, owner.generation)) {
+      deps.ptySupervisor.write(id, owner.id, data, owner.generation)
     }
   })
-  handleSend('html-preview:release', ({ id }) => deps.htmlPreviews.release(id))
+  handleSend('html-preview:release', ({ id }, event) => {
+    const owner = deps.rendererResources.currentOwner(event.sender.id)
+    void deps.rendererResources
+      .disposeResource(owner, 'html-preview', id)
+      .catch((error) => console.error('[html-preview] release failed', error))
+  })
   handleSend('pty:resize', ({ id, cols, rows }, event) => {
-    if (deps.ptySupervisor.isOwnedBy(id, event.sender.id)) {
+    const owner = deps.rendererResources.currentOwner(event.sender.id)
+    if (deps.ptySupervisor.isOwnedBy(id, owner.id, owner.generation)) {
       deps.ptySupervisor.resize(
         id,
-        event.sender.id,
+        owner.id,
         terminalDimension(cols),
         terminalDimension(rows),
+        owner.generation,
       )
     }
   })
   handleSend('pty:kill', ({ id }, event) => {
-    if (deps.ptySupervisor.isOwnedBy(id, event.sender.id)) {
-      deps.ptySupervisor.kill(id, event.sender.id)
+    const owner = deps.rendererResources.currentOwner(event.sender.id)
+    if (deps.ptySupervisor.isOwnedBy(id, owner.id, owner.generation)) {
+      deps.ptySupervisor.kill(id, owner.id, undefined, owner.generation)
     }
   })
   handleSend('app:attention', ({ count }, event) => {
     const safeCount = Number.isSafeInteger(count) ? Math.max(0, Math.min(99, count)) : 0
-    deps.updateAttention(event.sender.id, safeCount)
+    deps.updateAttention(deps.rendererResources.currentOwner(event.sender.id), safeCount)
   })
   handleSend('web-pane:reserved-bindings', (bindings, event) => {
-    deps.updateWebPaneBindings(event.sender.id, parseKeybindingOverrides(bindings))
+    deps.updateWebPaneBindings(
+      deps.rendererResources.currentOwner(event.sender.id),
+      parseKeybindingOverrides(bindings),
+    )
   })
   handleSend('web-pane:full-page', ({ paneId }, event) => {
+    const owner = deps.rendererResources.currentOwner(event.sender.id)
     if (
       paneId !== undefined &&
-      (!isWebPaneId(paneId) || !deps.webPanes.has(paneId, event.sender.id))
+      (!isWebPaneId(paneId) || !deps.webPanes.has(paneId, owner.id, owner.generation))
     ) {
       throw new Error('Invalid full-page web pane')
     }
-    deps.updateWebPaneFullPage(event.sender.id, paneId)
+    deps.updateWebPaneFullPage(owner, paneId)
   })
 }
 

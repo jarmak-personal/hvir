@@ -20,6 +20,7 @@ import {
   type ProjectWatchInterestCache,
 } from './project-watch'
 import { TerminalSessionRegistry } from './terminal/session-registry'
+import { RendererResourceScopes, type RendererOwner } from './renderer-resource-scopes'
 import { createElectronWindowManager } from './window/electron-window-manager'
 import { WorkbenchRuntime } from './workbench-runtime'
 import {
@@ -67,6 +68,11 @@ function createWorkbenchEntry(): void {
     new HarnessProbeManager(),
     (probes) => probes.dispose(),
   )
+  const rendererScopes = runtime.own(
+    'renderer resource scopes',
+    new RendererResourceScopes(),
+    (scopes) => scopes.dispose(),
+  )
 
   let echoWorker: WorkerClient<EchoWorkerProtocol> | null = null
   let gitWorker: WorkerClient<GitWorkerProtocol> | null = null
@@ -89,17 +95,40 @@ function createWorkbenchEntry(): void {
   const gitPullAuthorizations = new Set<string>()
   let sessionOperation: Promise<void> = Promise.resolve()
 
+  const installRendererPresentation = (owner: RendererOwner): RendererOwner => {
+    rendererScopes.register(owner, { lifetime: 'renderer', type: 'attention' }, () =>
+      attentionBadge?.remove(owner.id, owner.generation),
+    )
+    rendererScopes.register(
+      owner,
+      { lifetime: 'renderer', type: 'ssh-prompt-presentation' },
+      () => sshPrompter?.revokeOwner(owner),
+    )
+    return owner
+  }
+
   const windowManager = runtime.own(
     'Electron window manager',
     createElectronWindowManager({
       htmlPreviews,
-      discardRendererResources: (ownerId) => {
-        ptySupervisor?.disposeOwner(ownerId)
-        attentionBadge?.update(ownerId, 0)
-        sshPrompter?.cancelAll()
+      discardRendererResources: () => undefined,
+      activateRenderer: (ownerId) =>
+        installRendererPresentation(rendererScopes.activateOwner(ownerId)),
+      rolloverRenderer: (owner) => {
+        const transition = rendererScopes.rolloverOwner(owner.id)
+        void transition.cleanup.catch((error) =>
+          console.error('[renderer] generation cleanup failed', error),
+        )
+        return installRendererPresentation(transition.owner)
       },
-      setOwnerFocused: (ownerId, focused) => attentionBadge?.setFocused(ownerId, focused),
-      removeOwner: (ownerId) => attentionBadge?.remove(ownerId),
+      revokeRenderer: (owner) => {
+        void rendererScopes
+          .revokeOwner(owner.id)
+          .catch((error) => console.error('[renderer] owner cleanup failed', error))
+      },
+      isRendererCurrent: (owner) => rendererScopes.isCurrent(owner),
+      setOwnerFocused: (owner, focused) =>
+        attentionBadge?.setFocused(owner.id, focused, owner.generation),
       onLastWindowClosed: () => {
         void runtime
           .suspend()
@@ -123,14 +152,26 @@ function createWorkbenchEntry(): void {
     }
   }
 
+  function emitToRenderer<E extends IpcEventChannel>(
+    owner: RendererOwner,
+    channel: E,
+    payload: IpcEventPayload<E>,
+  ): void {
+    if (!rendererScopes.isCurrent(owner)) return
+    const window = BrowserWindow.getAllWindows().find(
+      (candidate) => candidate.webContents.id === owner.id,
+    )
+    if (window && !window.isDestroyed()) window.webContents.send(channel, payload)
+  }
+
   async function startup(): Promise<void> {
     htmlPreviews.register()
     const emit = emitToWindows
     sshPrompter = runtime.own(
       'SSH prompter',
       new RendererSshPrompter(
-        (prompt) => emit('ssh:prompt', prompt),
-        (hostId) => emit('ssh:prompt-cancel', { hostId }),
+        (owner, prompt) => emitToRenderer(owner, 'ssh:prompt', prompt),
+        (owner, hostId) => emitToRenderer(owner, 'ssh:prompt-cancel', { hostId }),
       ),
       (prompter) => prompter.cancelAll(),
     )
@@ -251,12 +292,21 @@ function createWorkbenchEntry(): void {
             console.error('[terminal] identity persistence failed', error),
           )
       }
-      emit('pty:identity', {
-        id: info.id,
-        harnessSessionId: info.harnessSessionId,
-        identityStatus: info.identityStatus,
-      })
+      emitToRenderer(
+        { id: info.ownerId, generation: info.ownerGeneration },
+        'pty:identity',
+        {
+          id: info.id,
+          harnessSessionId: info.harnessSessionId,
+          identityStatus: info.identityStatus,
+        },
+      )
     })
+
+    const withSshPresentation = <T>(owner: RendererOwner, operation: () => T): T => {
+      if (!sshPrompter) throw new Error('SSH prompting is unavailable')
+      return sshPrompter.runForOwner(owner, operation)
+    }
 
     registerIpcHandlers({
       echoWorker,
@@ -272,57 +322,64 @@ function createWorkbenchEntry(): void {
         return projectRegistry.state()
       },
       listHosts: () => projectRegistry?.listHosts() ?? [],
-      connectHost: (hostId) =>
-        serializeSession(async () => {
-          if (!projectRegistry) throw new Error('Project registry is unavailable')
-          const connected = await projectRegistry.connectHost(hostId)
-          if (projectRegistry.active.host.hostId === hostId) {
-            await stopProjectWatch()
-            startProjectWatch(projectRegistry.active, emit)
-          }
-          for (const project of projectRegistry.state().projects) {
-            if (project.registeredRoot.hostId === hostId) {
-              void refreshProjectWorkspaces(project.id).catch((error) =>
-                console.error('[workspace] refresh after connect failed', error),
-              )
+      connectHost: (hostId, owner) =>
+        withSshPresentation(owner, () =>
+          serializeSession(async () => {
+            if (!projectRegistry) throw new Error('Project registry is unavailable')
+            const connected = await projectRegistry.connectHost(hostId)
+            if (projectRegistry.active.host.hostId === hostId) {
+              await stopProjectWatch()
+              startProjectWatch(projectRegistry.active, emit)
             }
-          }
-          return connected
-        }),
+            for (const project of projectRegistry.state().projects) {
+              if (project.registeredRoot.hostId === hostId) {
+                void refreshProjectWorkspaces(project.id).catch((error) =>
+                  console.error('[workspace] refresh after connect failed', error),
+                )
+              }
+            }
+            return connected
+          }),
+        ),
       disconnectHost: (hostId) =>
         serializeSession(async () => {
           if (!projectRegistry) throw new Error('Project registry is unavailable')
           if (projectRegistry.active.host.hostId === hostId) {
             await stopProjectWatch()
-            htmlPreviews.clear()
           }
+          const roots = projectRegistry
+            .state()
+            .projects.filter((project) => project.registeredRoot.hostId === hostId)
+            .flatMap((project) => project.workspaces.map((workspace) => workspace.root))
+          await Promise.all(roots.map((root) => rendererScopes.revokeWorkspace(root)))
           return projectRegistry.disconnectHost(hostId)
         }),
-      browseHost: async (hostId, path) => {
-        if (!projectRegistry) throw new Error('Project registry is unavailable')
-        return projectRegistry.browseHost(hostId, path)
-      },
-      openProject: (hostId, path) =>
-        serializeSession(async () => {
+      browseHost: (hostId, path, owner) =>
+        withSshPresentation(owner, async () => {
           if (!projectRegistry) throw new Error('Project registry is unavailable')
-          await projectRegistry.open(hostId, path)
-          await stopProjectWatch()
-          htmlPreviews.clear()
-          const state = await refreshProjectWorkspaces(
-            projectRegistry.active.projectId,
-          ).catch((error) => {
-            console.error('[workspace] discovery after registration failed', error)
-            return projectRegistry!.state()
-          })
-          startProjectWatch(projectRegistry.active, emit)
-          return state
+          return projectRegistry.browseHost(hostId, path)
         }),
+      openProject: (hostId, path, owner) =>
+        withSshPresentation(owner, () =>
+          serializeSession(async () => {
+            if (!projectRegistry) throw new Error('Project registry is unavailable')
+            await projectRegistry.open(hostId, path)
+            await stopProjectWatch()
+            const state = await refreshProjectWorkspaces(
+              projectRegistry.active.projectId,
+            ).catch((error) => {
+              console.error('[workspace] discovery after registration failed', error)
+              return projectRegistry!.state()
+            })
+            startProjectWatch(projectRegistry.active, emit)
+            return state
+          }),
+        ),
       switchWorkspace: (projectId, workspaceId) =>
         serializeSession(async () => {
           if (!projectRegistry) throw new Error('Project registry is unavailable')
           const state = await projectRegistry.activate(projectId, workspaceId)
           await stopProjectWatch()
-          htmlPreviews.clear()
           startProjectWatch(projectRegistry.active, emit)
           return state
         }),
@@ -344,11 +401,11 @@ function createWorkbenchEntry(): void {
             workspaceRefreshTimers.delete(projectId)
             const state = await projectRegistry.closeProject(projectId)
             await Promise.all(
-              closingRoots.map((root) => webPaneRoutes.closeWorkspace(root)),
+              closingRoots.flatMap((root) => [
+                rendererScopes.revokeWorkspace(root),
+                webPaneRoutes.closeWorkspace(root),
+              ]),
             )
-            if (wasActive) {
-              htmlPreviews.clear()
-            }
             return state
           } finally {
             if (
@@ -377,7 +434,12 @@ function createWorkbenchEntry(): void {
           }
           const wasActive = projectRegistry.active.workspaceId === workspaceId
           const state = await projectRegistry.dismissWorkspace(projectId, workspaceId)
-          if (workspace) await webPaneRoutes.closeWorkspace(workspace.root)
+          if (workspace) {
+            await Promise.all([
+              rendererScopes.revokeWorkspace(workspace.root),
+              webPaneRoutes.closeWorkspace(workspace.root),
+            ])
+          }
           if (wasActive) {
             await stopProjectWatch()
             startProjectWatch(projectRegistry.active, emit)
@@ -387,14 +449,19 @@ function createWorkbenchEntry(): void {
       switchGitBranch: (root, branch) => requestGitBranchSwitch(root, branch),
       fetchGit: (root) => requestGitFetch(root),
       pullGit: (root) => requestGitPull(root),
-      respondSshPrompt: (id, answers) => sshPrompter?.respond(id, answers),
+      respondSshPrompt: (owner, id, answers) => sshPrompter?.respond(owner, id, answers),
+      rendererResources: rendererScopes,
+      rendererReady: (owner) => sshPrompter?.activateOwner(owner),
       ptySupervisor,
       terminalSessions: terminalSessionRegistry,
       harnessProfiles: harnessProfileStore,
       harnessProbes: harnessProbeManager,
-      updateAttention: (ownerId, count) => attentionBadge?.update(ownerId, count),
-      updateWebPaneBindings: windowManager.updateWebPaneBindings,
-      updateWebPaneFullPage: windowManager.updateWebPaneFullPage,
+      updateAttention: (owner, count) =>
+        attentionBadge?.update(owner.id, count, owner.generation),
+      updateWebPaneBindings: (owner, bindings) =>
+        windowManager.updateWebPaneBindings(owner.id, bindings),
+      updateWebPaneFullPage: (owner, paneId) =>
+        windowManager.updateWebPaneFullPage(owner.id, paneId),
       htmlPreviews,
       webPanes: webPaneRoutes,
       openExternal: (url) => shell.openExternal(url),
@@ -564,7 +631,10 @@ function createWorkbenchEntry(): void {
           .map((session) => sessions.forget(target.root, session.id)),
       )
       await registry.dismissWorkspace(projectId, target.id)
-      await webPaneRoutes.closeWorkspace(target.root)
+      await Promise.all([
+        rendererScopes.revokeWorkspace(target.root),
+        webPaneRoutes.closeWorkspace(target.root),
+      ])
     }
     if (prunesActiveWorkspace) {
       await stopProjectWatch()
@@ -796,6 +866,7 @@ function createWorkbenchEntry(): void {
           createWindow,
           harnessProbeManager,
           htmlPreviews,
+          rendererResources: rendererScopes,
           webPaneRoutes,
           updateWebPaneBindings: windowManager.updateWebPaneBindings,
           updateWebPaneFullPage: windowManager.updateWebPaneFullPage,
@@ -834,6 +905,13 @@ function createWorkbenchEntry(): void {
   async function suspendWorkbenchSessions(): Promise<void> {
     await stopProjectWatch()
     await settleWorkspaceRefreshes()
+    const roots =
+      projectRegistry
+        ?.state()
+        .projects.flatMap((project) =>
+          project.workspaces.map((workspace) => workspace.root),
+        ) ?? []
+    await Promise.all(roots.map((root) => rendererScopes.revokeWorkspace(root)))
     ptySupervisor?.disposeSessions()
     htmlPreviews.clear()
     await webPaneRoutes

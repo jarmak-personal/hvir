@@ -13,6 +13,7 @@ import {
 
 import type { HtmlPreviewProtocol } from '../html-preview-protocol'
 import { isSafeExternalUrl, isWorkbenchDocument } from '../navigation-policy'
+import type { RendererOwner } from '../renderer-resource-scopes'
 import { workbenchWindowOptions } from './window-policy'
 import {
   WEB_PANE_PARTITION_PREFIX,
@@ -21,7 +22,6 @@ import {
 import {
   DEFAULT_KEYBINDINGS,
   matchesKeybinding,
-  type HostPath,
   type KeybindingAction,
   type KeybindingMap,
   type WebPaneCommandAction,
@@ -30,8 +30,11 @@ import {
 export interface ElectronWindowManagerDependencies {
   readonly htmlPreviews: HtmlPreviewProtocol
   readonly discardRendererResources: (ownerId: number) => void
-  readonly setOwnerFocused: (ownerId: number, focused: boolean) => void
-  readonly removeOwner: (ownerId: number) => void
+  readonly activateRenderer: (ownerId: number) => RendererOwner
+  readonly rolloverRenderer: (owner: RendererOwner) => RendererOwner
+  readonly revokeRenderer: (owner: RendererOwner) => void
+  readonly isRendererCurrent: (owner: RendererOwner) => boolean
+  readonly setOwnerFocused: (owner: RendererOwner, focused: boolean) => void
   readonly onLastWindowClosed: () => void
   readonly isShuttingDown: () => boolean
 }
@@ -59,7 +62,9 @@ export function createElectronWindowManager(
       const guest = webContents.fromId(guestId)
       if (guest && !guest.isDestroyed()) guest.close({ waitForBeforeUnload: false })
     },
-    emitDiagnostic: (ownerId, paneId, event) => {
+    emitDiagnostic: (ownerId, ownerGeneration, paneId, event) => {
+      const rendererOwner = { id: ownerId, generation: ownerGeneration }
+      if (!dependencies.isRendererCurrent(rendererOwner)) return
       const owner = webContents.fromId(ownerId)
       if (owner && !owner.isDestroyed()) {
         owner.send('web-pane:diagnostic', { paneId, event })
@@ -67,17 +72,6 @@ export function createElectronWindowManager(
     },
   })
 
-  function closeWebPanes(
-    scope: 'all' | { readonly ownerId: number } | { readonly root: HostPath },
-  ): void {
-    const closing =
-      scope === 'all'
-        ? webPaneRoutes.closeAll()
-        : 'ownerId' in scope
-          ? webPaneRoutes.closeOwner(scope.ownerId)
-          : webPaneRoutes.closeWorkspace(scope.root)
-    void closing.catch((error) => console.error('[web-pane] cleanup failed', error))
-  }
   async function prepareWebPaneSession({
     partition,
     proxyPort,
@@ -146,11 +140,13 @@ export function createElectronWindowManager(
   }
 
   function configureWebPaneGuest(
-    ownerId: number,
+    rendererOwner: RendererOwner,
     paneId: string,
     guest: WebContents,
   ): void {
+    const ownerId = rendererOwner.id
     const notifyBlocked = (kind: 'loopback' | 'external', url: string): void => {
+      if (!dependencies.isRendererCurrent(rendererOwner)) return
       const owner = webContents.fromId(ownerId)
       if (!owner || owner.isDestroyed()) return
       owner.send('web-pane:navigation-blocked', { paneId, kind, url })
@@ -214,6 +210,7 @@ export function createElectronWindowManager(
       }
       if (!action) return
       event.preventDefault()
+      if (!dependencies.isRendererCurrent(rendererOwner)) return
       const owner = webContents.fromId(ownerId)
       if (owner && !owner.isDestroyed()) {
         owner.send('web-pane:command', { paneId, action })
@@ -224,13 +221,6 @@ export function createElectronWindowManager(
   function createWindow(
     discardExternalResources = dependencies.discardRendererResources,
   ): BrowserWindow {
-    const discardRendererResources = (ownerId: number): void => {
-      discardExternalResources(ownerId)
-      htmlPreviews.clear()
-      webPaneBindings.delete(ownerId)
-      fullPageWebPanes.delete(ownerId)
-      closeWebPanes({ ownerId })
-    }
     const win = new BrowserWindow(
       workbenchWindowOptions(join(__dirname, '../preload/index.js')),
     )
@@ -238,15 +228,43 @@ export function createElectronWindowManager(
     const packagedEntry = join(__dirname, '../renderer/index.html')
     const entryUrl = rendererUrl ?? pathToFileURL(packagedEntry).href
     const ownerId = win.webContents.id
+    let rendererOwner = dependencies.activateRenderer(ownerId)
+    let rendererRevoked = false
+    let committedDocument = false
 
-    win.on('focus', () => dependencies.setOwnerFocused(ownerId, true))
-    win.on('blur', () => dependencies.setOwnerFocused(ownerId, false))
+    win.on('focus', () => dependencies.setOwnerFocused(rendererOwner, true))
+    win.on('blur', () => dependencies.setOwnerFocused(rendererOwner, false))
 
     win.on('ready-to-show', () => win.show())
+    win.webContents.on('did-finish-load', () => {
+      committedDocument = true
+    })
+    const revokeRendererResources = (reopen: boolean): void => {
+      if (rendererRevoked) return
+      discardExternalResources(ownerId)
+      htmlPreviews.releaseOwner(rendererOwner)
+      webPaneBindings.delete(ownerId)
+      fullPageWebPanes.delete(ownerId)
+      void webPaneRoutes
+        .closeOwner(rendererOwner.id, rendererOwner.generation)
+        .catch((error) => console.error('[web-pane] renderer cleanup failed', error))
+      if (reopen) {
+        rendererOwner = dependencies.rolloverRenderer(rendererOwner)
+        committedDocument = false
+      } else {
+        rendererRevoked = true
+        dependencies.revokeRenderer(rendererOwner)
+      }
+    }
     // Renderer reload/crash cannot run React cleanup for its main-owned resources.
     win.webContents.on('did-start-navigation', (_event, url, isInPlace, isMainFrame) => {
-      if (isMainFrame && !isInPlace && isWorkbenchDocument(url, entryUrl)) {
-        discardRendererResources(ownerId)
+      if (
+        committedDocument &&
+        isMainFrame &&
+        !isInPlace &&
+        isWorkbenchDocument(url, entryUrl)
+      ) {
+        revokeRendererResources(true)
       }
     })
     win.webContents.on('will-navigate', (event, url) => {
@@ -264,7 +282,7 @@ export function createElectronWindowManager(
     })
     let rendererRecoveryRequested = false
     win.webContents.on('render-process-gone', (_event, details) => {
-      discardRendererResources(ownerId)
+      revokeRendererResources(true)
       console.error(`[window] renderer process gone: ${JSON.stringify(details)}`)
       if (rendererRecoveryRequested) {
         rendererRecoveryRequested = false
@@ -273,7 +291,7 @@ export function createElectronWindowManager(
         win.webContents.reload()
       }
     })
-    win.webContents.once('destroyed', () => discardRendererResources(ownerId))
+    win.webContents.once('destroyed', () => revokeRendererResources(false))
     let handlingUnresponsive = false
     win.webContents.on('unresponsive', () => {
       if (handlingUnresponsive || win.isDestroyed()) return
@@ -302,8 +320,7 @@ export function createElectronWindowManager(
         })
     })
     win.on('closed', () => {
-      discardRendererResources(ownerId)
-      dependencies.removeOwner(ownerId)
+      revokeRendererResources(false)
       if (
         process.platform === 'darwin' &&
         BrowserWindow.getAllWindows().length === 0 &&
@@ -329,6 +346,7 @@ export function createElectronWindowManager(
           : '')
       const route = webPaneRoutes.claimAttachment({
         ownerId,
+        ownerGeneration: rendererOwner.generation,
         paneId,
         partition,
         initialUrl: params['src'] ?? '',
@@ -353,14 +371,19 @@ export function createElectronWindowManager(
     win.webContents.on('did-attach-webview', (_event, guest) => {
       const partition = webPaneSessionPartitions.get(guest.session)
       const paneId = partition
-        ? webPaneRoutes.bindGuestForPartition(ownerId, partition, guest.id)
+        ? webPaneRoutes.bindGuestForPartition(
+            ownerId,
+            partition,
+            guest.id,
+            rendererOwner.generation,
+          )
         : undefined
       if (!paneId) {
         console.warn('[web-pane] destroying a guest without an authorized route')
         guest.close({ waitForBeforeUnload: false })
         return
       }
-      configureWebPaneGuest(ownerId, paneId, guest)
+      configureWebPaneGuest(rendererOwner, paneId, guest)
     })
 
     if (rendererUrl) {

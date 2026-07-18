@@ -6,12 +6,14 @@ import { harnessProviderCatalog } from '../harness/harness-provider'
 import type { HarnessProbeManager } from '../harness/harness-probe'
 import type { HtmlPreviewProtocol } from '../html-preview-protocol'
 import { registerIpcHandlers } from '../ipc'
+import type { RendererResourceScopes } from '../renderer-resource-scopes'
 import { LocalHost } from '../project-host'
 import { PtySupervisor } from '../pty/pty-supervisor'
 import type { TerminalSessionStore } from '../terminal/session-registry'
 import type { WebPaneRouteRegistry } from '../web-pane/web-pane-route-registry'
 import { createWorkerClient, workerPath } from '../worker-host'
 import { SmokeCleanup } from './cleanup'
+import { verifyRendererLifecycleCleanup } from './renderer-lifecycle'
 import {
   ECHO_REQUEST_TYPE,
   HTML_PREVIEW_SCHEME,
@@ -42,6 +44,7 @@ export interface ElectronSmokeDependencies {
   ) => BrowserWindow
   readonly harnessProbeManager: HarnessProbeManager
   readonly htmlPreviews: HtmlPreviewProtocol
+  readonly rendererResources: RendererResourceScopes
   readonly webPaneRoutes: WebPaneRouteRegistry
   readonly updateWebPaneBindings: (ownerId: number, bindings: KeybindingMap) => void
   readonly updateWebPaneFullPage: (ownerId: number, paneId?: string) => void
@@ -54,6 +57,7 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
     createWindow,
     harnessProbeManager,
     htmlPreviews,
+    rendererResources,
     mode,
     openExternal,
     updateWebPaneBindings,
@@ -274,13 +278,16 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
       fetchGit: () => Promise.resolve(smokeProjectState()),
       pullGit: () => Promise.resolve(smokeProjectState()),
       respondSshPrompt: () => undefined,
+      rendererResources,
+      rendererReady: () => undefined,
       ptySupervisor: supervisor,
       terminalSessions: smokeTerminalSessions,
       harnessProfiles: smokeHarnessProfiles,
       harnessProbes: harnessProbeManager,
       updateAttention: () => undefined,
-      updateWebPaneBindings,
-      updateWebPaneFullPage,
+      updateWebPaneBindings: (owner, bindings) =>
+        updateWebPaneBindings(owner.id, bindings),
+      updateWebPaneFullPage: (owner, paneId) => updateWebPaneFullPage(owner.id, paneId),
       htmlPreviews,
       webPanes: webPaneRoutes,
       openExternal,
@@ -298,18 +305,15 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
     await host.stat(localPath(process.cwd()))
     console.log('[smoke] LocalHost.stat OK')
 
-    const win = createWindow((ownerId) => {
-      supervisor.disposeOwner(ownerId)
-      htmlPreviews.clear()
-      void webPaneRoutes
-        .closeOwner(ownerId)
-        .catch((error) => console.error('[smoke] renderer route cleanup failed', error))
-    })
+    const win = createWindow()
     smokeWindow = win
     await withTimeout(
       new Promise<void>((resolve) => win.once('ready-to-show', resolve)),
       'window never became ready',
     )
+    const initialRendererGeneration = rendererResources.currentOwner(
+      win.webContents.id,
+    ).generation
     console.log('[smoke] window ready-to-show OK')
 
     // A real preload round-trip establishes more than ready-to-show paint.
@@ -2937,30 +2941,18 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
       }
     }
     console.log(`[smoke] terminal recovery picker OK (${recoveryStatus})`)
-    const rendererOwnerId = win.webContents.id
-    const rendererOwnedRoute = await webPaneRoutes.open({
-      ownerId: rendererOwnerId,
-      sourceTerminalId: supervisor.list()[0]?.id ?? 'smoke-recovery-shell',
-      workspaceRoot: smokeRoot,
+    await verifyRendererLifecycleCleanup({
+      win,
+      initialGeneration: initialRendererGeneration,
+      resources: rendererResources,
+      routes: webPaneRoutes,
+      supervisor,
+      root: smokeRoot,
       host,
-      url: 'http://localhost:61337/renderer-destruction',
     })
-    if (!webPaneRoutes.has(rendererOwnedRoute.paneId, rendererOwnerId)) {
-      throw new Error('renderer-owned web route was not registered')
-    }
-    const rendererDestroyed = new Promise<void>((resolve) =>
-      win.webContents.once('destroyed', () => resolve()),
+    console.log(
+      '[smoke] renderer generation reload + webContents destruction owner cleanup OK',
     )
-    win.destroy()
-    await withTimeout(rendererDestroyed, 'window webContents was not destroyed')
-    await smokeWaitFor(
-      () => !webPaneRoutes.has(rendererOwnedRoute.paneId, rendererOwnerId),
-      'webContents destruction left an owner web route alive',
-    )
-    if (supervisor.list().length !== 0) {
-      throw new Error('window close left an orphaned PTY')
-    }
-    console.log('[smoke] webContents destruction owner cleanup + window PTY cleanup OK')
 
     console.log('HVIR_SMOKE_OK')
     return 0

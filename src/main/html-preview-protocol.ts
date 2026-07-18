@@ -4,8 +4,11 @@ import { protocol } from 'electron'
 import {
   HTML_PREVIEW_CSP,
   HTML_PREVIEW_SCHEME,
+  hostPathEquals,
   type CreateHtmlPreviewResponse,
+  type HostPath,
 } from '../shared'
+import type { RendererOwner } from './renderer-resource-scopes'
 
 const MAX_DOCUMENT_BYTES = 64 * 1024 * 1024
 const MAX_LIVE_DOCUMENTS = 64
@@ -16,7 +19,10 @@ const MAX_LIVE_DOCUMENTS = 64
  * opaque origin even though the scheme itself is registered as standard.
  */
 export class HtmlPreviewProtocol {
-  private readonly documents = new Map<string, string>()
+  private readonly documents = new Map<
+    string,
+    { readonly content: string; readonly owner?: RendererOwner; readonly root?: HostPath }
+  >()
   private registered = false
 
   register(): void {
@@ -25,7 +31,11 @@ export class HtmlPreviewProtocol {
     this.registered = true
   }
 
-  create(content: string): CreateHtmlPreviewResponse {
+  create(
+    content: string,
+    owner?: RendererOwner,
+    root?: HostPath,
+  ): CreateHtmlPreviewResponse {
     if (typeof content !== 'string') throw new Error('HTML preview content must be text')
     if (Buffer.byteLength(content, 'utf8') > MAX_DOCUMENT_BYTES) {
       throw new Error('HTML previews are limited to 64 MiB')
@@ -36,12 +46,27 @@ export class HtmlPreviewProtocol {
       this.documents.delete(oldest)
     }
     const id = randomUUID()
-    this.documents.set(id, content)
+    this.documents.set(id, { content, owner, root })
     return { id, url: `${HTML_PREVIEW_SCHEME}://document/${id}/index.html` }
   }
 
-  release(id: string): void {
-    if (/^[0-9a-f-]{36}$/i.test(id)) this.documents.delete(id)
+  release(id: string, owner?: RendererOwner): void {
+    if (!/^[0-9a-f-]{36}$/i.test(id)) return
+    const document = this.documents.get(id)
+    if (!document || (owner && !sameOwner(document.owner, owner))) return
+    this.documents.delete(id)
+  }
+
+  releaseOwner(owner: RendererOwner): void {
+    for (const [id, document] of this.documents) {
+      if (sameOwner(document.owner, owner)) this.documents.delete(id)
+    }
+  }
+
+  releaseWorkspace(root: HostPath): void {
+    for (const [id, document] of this.documents) {
+      if (document.root && hostPathEquals(document.root, root)) this.documents.delete(id)
+    }
   }
 
   clear(): void {
@@ -60,11 +85,11 @@ export class HtmlPreviewProtocol {
     if (url.hostname !== 'document' || !id || leaf !== 'index.html' || extra) {
       return response('Not found', 404, 'text/plain; charset=utf-8')
     }
-    const content = this.documents.get(id)
-    if (content === undefined) {
+    const document = this.documents.get(id)
+    if (!document) {
       return response('Preview expired', 404, 'text/plain; charset=utf-8')
     }
-    return new Response(content, {
+    return new Response(document.content, {
       status: 200,
       headers: {
         'Content-Type': 'text/html; charset=utf-8',
@@ -75,6 +100,10 @@ export class HtmlPreviewProtocol {
       },
     })
   }
+}
+
+function sameOwner(left: RendererOwner | undefined, right: RendererOwner): boolean {
+  return left?.id === right.id && left.generation === right.generation
 }
 
 function response(body: string, status: number, contentType: string): Response {

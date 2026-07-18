@@ -27,6 +27,7 @@ export interface WebPaneRouteRegistryOptions {
   readonly destroyGuest: (guestId: number) => void
   readonly emitDiagnostic?: (
     ownerId: number,
+    ownerGeneration: number,
     paneId: string,
     event: WebPaneDiagnosticEvent,
   ) => void
@@ -34,6 +35,7 @@ export interface WebPaneRouteRegistryOptions {
 
 export interface OpenWebPaneRouteRequest {
   readonly ownerId: number
+  readonly ownerGeneration?: number
   readonly sourceTerminalId: string
   readonly workspaceRoot: HostPath
   readonly host: ProjectHost
@@ -55,6 +57,7 @@ export type WebPaneNavigationDecision =
 
 interface WebPaneRouteEntry extends OpenWebPaneRoute {
   readonly ownerId: number
+  readonly ownerGeneration: number
   readonly sourceTerminalId: string
   readonly workspaceRoot: HostPath
   readonly hostId: string
@@ -71,7 +74,8 @@ export class WebPaneRouteRegistry {
   private readonly entries = new Map<string, WebPaneRouteEntry>()
   private readonly pending = new Map<string, Promise<WebPaneRouteEntry>>()
   private readonly pendingHostCounts = new Map<string, number>()
-  private readonly ownerGenerations = new Map<number, number>()
+  private readonly ownerAllGenerations = new Map<number, number>()
+  private readonly ownerGenerations = new Map<string, number>()
   private readonly workspaceGenerations = new Map<string, number>()
   private globalGeneration = 0
 
@@ -83,7 +87,13 @@ export class WebPaneRouteRegistry {
     if (request.host.hostId !== request.workspaceRoot.hostId) {
       throw new Error('Web pane host does not own its workspace')
     }
-    const key = routeKey(request.ownerId, request.workspaceRoot, target.origin)
+    const ownerGeneration = request.ownerGeneration ?? 0
+    const key = routeKey(
+      request.ownerId,
+      ownerGeneration,
+      request.workspaceRoot,
+      target.origin,
+    )
     const existing = this.entryByKey(key)
     if (existing) {
       if (!existing.attachmentClaimed) existing.attachmentUrl = target.url
@@ -108,14 +118,20 @@ export class WebPaneRouteRegistry {
       )
     }
 
-    const ownerGeneration = this.ownerGeneration(request.ownerId)
+    const ownerRevocationGeneration = this.ownerGeneration(
+      request.ownerId,
+      ownerGeneration,
+    )
+    const ownerAllGeneration = this.ownerAllGeneration(request.ownerId)
     const workspaceKey = hostPathKey(request.workspaceRoot)
     const workspaceGeneration = this.workspaceGeneration(workspaceKey)
     const globalGeneration = this.globalGeneration
     const create = this.createEntry(request, target).then(async (entry) => {
       if (
         globalGeneration !== this.globalGeneration ||
-        ownerGeneration !== this.ownerGeneration(request.ownerId) ||
+        ownerRevocationGeneration !==
+          this.ownerGeneration(request.ownerId, ownerGeneration) ||
+        ownerAllGeneration !== this.ownerAllGeneration(request.ownerId) ||
         workspaceGeneration !== this.workspaceGeneration(workspaceKey)
       ) {
         await disposeEntry(entry, this.options.destroyGuest)
@@ -138,6 +154,7 @@ export class WebPaneRouteRegistry {
 
   claimAttachment(request: {
     readonly ownerId: number
+    readonly ownerGeneration?: number
     readonly paneId: string
     readonly partition: string
     readonly initialUrl: string
@@ -147,6 +164,8 @@ export class WebPaneRouteRegistry {
     if (
       !entry ||
       entry.ownerId !== request.ownerId ||
+      (request.ownerGeneration !== undefined &&
+        entry.ownerGeneration !== request.ownerGeneration) ||
       entry.partition !== request.partition ||
       entry.attachmentClaimed ||
       !target ||
@@ -162,9 +181,14 @@ export class WebPaneRouteRegistry {
     ownerId: number,
     partition: string,
     guestId: number,
+    ownerGeneration?: number,
   ): string | undefined {
     const entry = [...this.entries.values()].find(
-      (candidate) => candidate.ownerId === ownerId && candidate.partition === partition,
+      (candidate) =>
+        candidate.ownerId === ownerId &&
+        (ownerGeneration === undefined ||
+          candidate.ownerGeneration === ownerGeneration) &&
+        candidate.partition === partition,
     )
     if (!entry || !entry.attachmentClaimed || entry.guestId !== undefined) {
       return undefined
@@ -204,9 +228,12 @@ export class WebPaneRouteRegistry {
     paneId: string,
     ownerId: number,
     rawUrl: string,
+    ownerGeneration?: number,
   ): WebPaneNavigationDecision {
     const entry = this.entries.get(paneId)
-    return entry && entry.ownerId === ownerId
+    return entry &&
+      entry.ownerId === ownerId &&
+      (ownerGeneration === undefined || entry.ownerGeneration === ownerGeneration)
       ? navigationDecision(entry, rawUrl)
       : { kind: 'block' }
   }
@@ -218,6 +245,7 @@ export class WebPaneRouteRegistry {
   source(
     paneId: string,
     ownerId: number,
+    ownerGeneration?: number,
   ):
     | {
         readonly terminalId: string
@@ -226,7 +254,13 @@ export class WebPaneRouteRegistry {
       }
     | undefined {
     const entry = this.entries.get(paneId)
-    if (!entry || entry.ownerId !== ownerId) return undefined
+    if (
+      !entry ||
+      entry.ownerId !== ownerId ||
+      (ownerGeneration !== undefined && entry.ownerGeneration !== ownerGeneration)
+    ) {
+      return undefined
+    }
     return {
       terminalId: entry.sourceTerminalId,
       workspaceRoot: entry.workspaceRoot,
@@ -234,16 +268,31 @@ export class WebPaneRouteRegistry {
     }
   }
 
-  async close(paneId: string, ownerId: number): Promise<void> {
+  async close(paneId: string, ownerId: number, ownerGeneration?: number): Promise<void> {
     const entry = this.entries.get(paneId)
-    if (!entry || entry.ownerId !== ownerId) return
+    if (
+      !entry ||
+      entry.ownerId !== ownerId ||
+      (ownerGeneration !== undefined && entry.ownerGeneration !== ownerGeneration)
+    ) {
+      return
+    }
     this.entries.delete(paneId)
     await disposeEntry(entry, this.options.destroyGuest)
   }
 
-  async closeOwner(ownerId: number): Promise<void> {
-    this.ownerGenerations.set(ownerId, this.ownerGeneration(ownerId) + 1)
-    await this.closeWhere((entry) => entry.ownerId === ownerId)
+  async closeOwner(ownerId: number, ownerGeneration?: number): Promise<void> {
+    if (ownerGeneration === undefined) {
+      this.ownerAllGenerations.set(ownerId, this.ownerAllGeneration(ownerId) + 1)
+    } else {
+      const key = ownerKey(ownerId, ownerGeneration)
+      this.ownerGenerations.set(key, this.ownerGeneration(ownerId, ownerGeneration) + 1)
+    }
+    await this.closeWhere(
+      (entry) =>
+        entry.ownerId === ownerId &&
+        (ownerGeneration === undefined || entry.ownerGeneration === ownerGeneration),
+    )
   }
 
   async closeWorkspace(root: HostPath): Promise<void> {
@@ -258,8 +307,12 @@ export class WebPaneRouteRegistry {
     await this.closeWhere(() => true)
   }
 
-  has(paneId: string, ownerId: number): boolean {
-    return this.entries.get(paneId)?.ownerId === ownerId
+  has(paneId: string, ownerId: number, ownerGeneration?: number): boolean {
+    const entry = this.entries.get(paneId)
+    return (
+      entry?.ownerId === ownerId &&
+      (ownerGeneration === undefined || entry.ownerGeneration === ownerGeneration)
+    )
   }
 
   private async createEntry(
@@ -272,7 +325,12 @@ export class WebPaneRouteRegistry {
       host: request.host,
       endpoint: target.endpoint,
       onDiagnostic: (event) =>
-        this.options.emitDiagnostic?.(request.ownerId, paneId, event),
+        this.options.emitDiagnostic?.(
+          request.ownerId,
+          request.ownerGeneration ?? 0,
+          paneId,
+          event,
+        ),
     })
     await proxy.open()
     let disposeSession: (() => Promise<void>) | undefined
@@ -288,6 +346,7 @@ export class WebPaneRouteRegistry {
         url: target.url,
         origin: target.origin,
         ownerId: request.ownerId,
+        ownerGeneration: request.ownerGeneration ?? 0,
         sourceTerminalId: request.sourceTerminalId,
         workspaceRoot: request.workspaceRoot,
         hostId: request.host.hostId,
@@ -306,7 +365,13 @@ export class WebPaneRouteRegistry {
 
   private entryByKey(key: string): WebPaneRouteEntry | undefined {
     return [...this.entries.values()].find(
-      (entry) => routeKey(entry.ownerId, entry.workspaceRoot, entry.origin) === key,
+      (entry) =>
+        routeKey(
+          entry.ownerId,
+          entry.ownerGeneration,
+          entry.workspaceRoot,
+          entry.origin,
+        ) === key,
     )
   }
 
@@ -314,8 +379,12 @@ export class WebPaneRouteRegistry {
     return [...this.entries.values()].find((entry) => entry.guestId === guestId)
   }
 
-  private ownerGeneration(ownerId: number): number {
-    return this.ownerGenerations.get(ownerId) ?? 0
+  private ownerGeneration(ownerId: number, generation: number): number {
+    return this.ownerGenerations.get(ownerKey(ownerId, generation)) ?? 0
+  }
+
+  private ownerAllGeneration(ownerId: number): number {
+    return this.ownerAllGenerations.get(ownerId) ?? 0
   }
 
   private workspaceGeneration(key: string): number {
@@ -371,8 +440,17 @@ async function disposeEntry(
   await entry.disposeSession().catch(() => undefined)
 }
 
-function routeKey(ownerId: number, root: HostPath, origin: string): string {
-  return `${ownerId}:${hostPathKey(root)}:${origin}`
+function routeKey(
+  ownerId: number,
+  ownerGeneration: number,
+  root: HostPath,
+  origin: string,
+): string {
+  return `${ownerId}:${ownerGeneration}:${hostPathKey(root)}:${origin}`
+}
+
+function ownerKey(ownerId: number, ownerGeneration: number): string {
+  return `${ownerId}:${ownerGeneration}`
 }
 
 function hostPathKey(root: HostPath): string {
