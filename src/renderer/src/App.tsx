@@ -10,14 +10,10 @@ import {
 
 import {
   asHostId,
-  basenameHostPath,
-  defaultViewMode,
   GIT_CHANGE_DISPLAY_LIMIT,
   hostPath,
   hostPathEquals,
   unwrapOperation,
-  type DiffBase,
-  type FileOpenContext,
   type GitChanges,
   type HostPath,
   type ProjectHostOption,
@@ -25,8 +21,6 @@ import {
   type BrowseHostResponse,
   type ProjectState,
   type SshPromptRequest,
-  type ViewMode,
-  type WatchEvent,
   type WebPaneCommandAction,
 } from '../../shared'
 import { PaneResizer } from './layout/PaneResizer'
@@ -49,11 +43,13 @@ import { workspaceGitEnabled } from './git/git-capability'
 import { GitGraphView } from './git/GitGraphView'
 import { FileViewer } from './viewer/FileViewer'
 import { TabStrip } from './viewer/TabStrip'
-import type {
-  ViewerNavigationPosition,
-  ViewerPaneId,
-  ViewerTab,
-} from './viewer/tab-state'
+import type { ViewerPaneId, ViewerTab } from './viewer/tab-state'
+import { useViewerWorkspace } from './viewer/use-viewer-workspace'
+import {
+  persistWorkspaceLayout,
+  restoreWorkspaceLayout,
+  viewerStorageKey,
+} from './viewer/viewer-workspace-persistence'
 import { setAppTheme, useAppTheme } from './theme'
 import { SettingsDialog } from './settings/SettingsDialog'
 import { matchesKeybinding, type KeybindingAction } from './settings/keybindings'
@@ -65,56 +61,21 @@ const MAIN_MIN_WIDTH = 420
 const VIEWER_MIN_HEIGHT = 180
 const TERMINAL_MIN_HEIGHT = 160
 const DIVIDER_SIZE = 5
-const TAB_STORAGE_VERSION = 1
-const DRAFT_STORAGE_CHARACTER_LIMIT = 2 * 1024 * 1024
 
 export function App(): ReactElement {
   const theme = useAppTheme()
   const settings = useAppSettings()
   const workbenchRef = useRef<HTMLElement>(null)
   const viewerGroupsRef = useRef<HTMLDivElement>(null)
-  const tabsRef = useRef<readonly ViewerTab[]>([])
   const rootRef = useRef<HostPath | undefined>(undefined)
-  const warmTabs = useRef(
-    new Map<
-      string,
-      { readonly tabs: readonly ViewerTab[]; readonly activeId?: string }
-    >(),
-  )
-  const activeIdRef = useRef<string | undefined>(undefined)
-  const activePaneRef = useRef<ViewerPaneId>('primary')
-  const activeByPaneRef = useRef<Record<ViewerPaneId, string | undefined>>({
-    primary: undefined,
-    secondary: undefined,
-  })
   const gitGraphActiveRef = useRef(false)
   const workspaceSwitchRef = useRef<(direction: -1 | 1) => void>(() => undefined)
-  const fileReadGenerations = useRef(new Map<string, number>())
-  const nextViewerNavigation = useRef(0)
-  const discardDirtyOnUnload = useRef(false)
-  const watchHandler = useRef<(event: WatchEvent) => void>(() => undefined)
-  const pendingScroll = useRef<
-    { readonly id: string; readonly scrollTop: number } | undefined
-  >(undefined)
-  const scrollFrame = useRef<number | undefined>(undefined)
-  const persistedState = useRef<
-    | {
-        readonly root: HostPath
-        readonly tabs: readonly ViewerTab[]
-        readonly activeId?: string
-      }
-    | undefined
-  >(undefined)
-  const [tabs, setTabs] = useState<readonly ViewerTab[]>([])
-  const [activeId, setActiveId] = useState<string>()
-  const [viewerSplit, setViewerSplit] = useState(false)
   const [gitGraphOpen, setGitGraphOpen] = useState(false)
   const [gitGraphActive, setGitGraphActive] = useState(false)
   const [gitGraphRequest, setGitGraphRequest] = useState<{
     readonly serial: number
     readonly hash?: string
   }>({ serial: 0 })
-  const [restored, setRestored] = useState(false)
   const [railMode, setRailMode] = useState<'files' | 'git' | 'harness'>('files')
   const [webViews, setWebViews] = useState<readonly WebViewState[]>([])
   const [activeWebViewId, setActiveWebViewId] = useState<string>()
@@ -135,8 +96,43 @@ export function App(): ReactElement {
   const [terminalRollups, setTerminalRollups] = useState<WorkspaceAttentionRollups>({})
   const [terminalFocused, setTerminalFocused] = useState(false)
   const [treeCollapsed, setTreeCollapsed] = useState(false)
-  tabsRef.current = tabs
-  activeIdRef.current = activeId
+  const viewer = useViewerWorkspace({
+    onActivateFile: () => {
+      setGitGraphActive(false)
+      setWebViewActive(false)
+      setTerminalFocused(false)
+    },
+  })
+  const {
+    tabs,
+    activeTab,
+    primaryTabs,
+    secondaryTabs,
+    primaryActiveTab,
+    secondaryActiveTab,
+    split: viewerSplit,
+    switchWorkspace: switchViewerWorkspace,
+    openFile,
+    activateTab,
+    closeTab,
+    pinTab,
+    setMode: setViewerMode,
+    cycleActiveMode,
+    setDiffBase: setViewerDiffBase,
+    setContent: setViewerContent,
+    navigationHandled,
+    scheduleScroll,
+    reloadTab,
+    saveTab,
+    handleWatchEvent,
+    reloadCleanFiles,
+    focusPane: focusViewerPane,
+    getActivePane,
+    openSplit: openViewerSplit,
+    closeSplit: closeViewerSplit,
+    moveTab: moveTabToPane,
+    reorderTabs: reorderViewerTabs,
+  } = viewer
   gitGraphActiveRef.current = gitGraphActive
   webViewsRef.current = webViews
   activeWebViewIdRef.current = activeWebViewId
@@ -189,49 +185,44 @@ export function App(): ReactElement {
     })
   }, [activeWebViewId, webViewActive, webViewFocused])
 
-  const applyProjectViewState = useCallback((state: ProjectState): void => {
-    const liveWorkspaceKeys = new Set(
-      state.projects.flatMap((project) =>
-        project.workspaces.map((workspace) => storageKey(workspace.root)),
-      ),
-    )
-    setWebViews((current) =>
-      current.filter((view) => liveWorkspaceKeys.has(storageKey(view.workspaceRoot))),
-    )
-    const currentRoot = rootRef.current
-    if (currentRoot && hostPathEquals(currentRoot, state.root)) return
-    if (currentRoot) {
-      persistTabs(currentRoot, tabsRef.current, activeIdRef.current)
-      warmTabs.current.set(storageKey(currentRoot), {
-        tabs: tabsRef.current,
-        activeId: activeIdRef.current,
-      })
-      webViewSelection.current.set(storageKey(currentRoot), {
-        id: activeWebViewIdRef.current,
-        active: webViewActiveRef.current,
-      })
-    }
-    const nextWebSelection = webViewSelection.current.get(storageKey(state.root))
-    const selectedWebView = webViewsRef.current.find(
-      (view) =>
-        view.id === nextWebSelection?.id &&
-        hostPathEquals(view.workspaceRoot, state.root),
-    )
-    setRestored(false)
-    setTabs([])
-    setActiveId(undefined)
-    activePaneRef.current = 'primary'
-    activeByPaneRef.current = { primary: undefined, secondary: undefined }
-    setViewerSplit(false)
-    setGitGraphOpen(false)
-    setGitGraphActive(false)
-    setActiveWebViewId(selectedWebView?.id)
-    setWebViewActive(Boolean(selectedWebView && nextWebSelection?.active))
-    setWebViewFocused(false)
-    setGitChanges(undefined)
-    setTerminalFocused(false)
-    setTreeCollapsed(false)
-  }, [])
+  const applyProjectViewState = useCallback(
+    (state: ProjectState): void => {
+      const liveWorkspaceKeys = new Set(
+        state.projects.flatMap((project) =>
+          project.workspaces.map((workspace) => viewerStorageKey(workspace.root)),
+        ),
+      )
+      setWebViews((current) =>
+        current.filter((view) =>
+          liveWorkspaceKeys.has(viewerStorageKey(view.workspaceRoot)),
+        ),
+      )
+      const currentRoot = rootRef.current
+      if (currentRoot && hostPathEquals(currentRoot, state.root)) return
+      if (currentRoot) {
+        webViewSelection.current.set(viewerStorageKey(currentRoot), {
+          id: activeWebViewIdRef.current,
+          active: webViewActiveRef.current,
+        })
+      }
+      const nextWebSelection = webViewSelection.current.get(viewerStorageKey(state.root))
+      const selectedWebView = webViewsRef.current.find(
+        (view) =>
+          view.id === nextWebSelection?.id &&
+          hostPathEquals(view.workspaceRoot, state.root),
+      )
+      switchViewerWorkspace(state.root)
+      setGitGraphOpen(false)
+      setGitGraphActive(false)
+      setActiveWebViewId(selectedWebView?.id)
+      setWebViewActive(Boolean(selectedWebView && nextWebSelection?.active))
+      setWebViewFocused(false)
+      setGitChanges(undefined)
+      setTerminalFocused(false)
+      setTreeCollapsed(false)
+    },
+    [switchViewerWorkspace],
+  )
 
   const updateTerminalRollup = useCallback(
     (workspaceId: string, rollup: WorkspaceAttentionRollup): void => {
@@ -249,72 +240,10 @@ export function App(): ReactElement {
     [],
   )
 
-  const loadFile = useCallback((path: HostPath): void => {
-    const id = tabId(path)
-    const generation = (fileReadGenerations.current.get(id) ?? 0) + 1
-    fileReadGenerations.current.set(id, generation)
-    setTabs((current) =>
-      current.map((tab) =>
-        tab.id === id ? { ...tab, loading: !tab.file, error: undefined } : tab,
-      ),
-    )
-    void window.hvir
-      .invoke('fs:read', { path })
-      .then(unwrapOperation)
-      .then(
-        (file) => {
-          if (fileReadGenerations.current.get(id) !== generation) return
-          setTabs((current) =>
-            current.map((tab) =>
-              tab.id === id
-                ? tab.dirty
-                  ? tab
-                  : {
-                      ...tab,
-                      file,
-                      loading: false,
-                      error: undefined,
-                      conflict: false,
-                    }
-                : tab,
-            ),
-          )
-        },
-        (reason: unknown) => {
-          if (fileReadGenerations.current.get(id) !== generation) return
-          const error = reason instanceof Error ? reason.message : String(reason)
-          setTabs((current) =>
-            current.map((tab) =>
-              tab.id === id
-                ? tab.dirty
-                  ? tab
-                  : tab.diffRevision
-                    ? {
-                        ...tab,
-                        file: {
-                          path: tab.path,
-                          content: '',
-                          size: 0,
-                          mtimeMs: 0,
-                          binary: false,
-                        },
-                        loading: false,
-                        error: undefined,
-                      }
-                    : { ...tab, file: undefined, loading: false, error }
-                : tab,
-            ),
-          )
-        },
-      )
-  }, [])
-
   const session = useProjectSession({
     onProjectState: applyProjectViewState,
-    onReloadFiles: () => {
-      for (const tab of tabsRef.current) if (!tab.dirty) loadFile(tab.path)
-    },
-    onWatchEvent: (event) => watchHandler.current(event),
+    onReloadFiles: reloadCleanFiles,
+    onWatchEvent: handleWatchEvent,
     isIgnoreRulePath: isGitIgnoreRulePath,
   })
   const {
@@ -345,30 +274,7 @@ export function App(): ReactElement {
 
   useEffect(() => {
     if (!root) return
-    const restoredState = warmTabs.current.get(storageKey(root)) ?? restoreTabs(root)
-    setTabs(restoredState.tabs)
-    setActiveId(restoredState.activeId)
-    const restoredActive = restoredState.tabs.find(
-      (tab) => tab.id === restoredState.activeId,
-    )
-    activePaneRef.current = restoredActive?.pane ?? 'primary'
-    activeByPaneRef.current = {
-      primary:
-        restoredState.tabs.find(
-          (tab) => tab.pane === 'primary' && tab.id === restoredState.activeId,
-        )?.id ?? restoredState.tabs.find((tab) => tab.pane === 'primary')?.id,
-      secondary:
-        restoredState.tabs.find(
-          (tab) => tab.pane === 'secondary' && tab.id === restoredState.activeId,
-        )?.id ?? restoredState.tabs.find((tab) => tab.pane === 'secondary')?.id,
-    }
-    setRestored(true)
-    for (const tab of restoredState.tabs) if (!tab.dirty) loadFile(tab.path)
-    const layout = restoreLayout(root)
-    setViewerSplit(
-      Boolean(layout.viewerSplit) ||
-        restoredState.tabs.some((tab) => tab.pane === 'secondary'),
-    )
+    const layout = restoreWorkspaceLayout(root)
     const workbench = workbenchRef.current
     if (workbench) {
       if (layout.treeWidth) {
@@ -396,7 +302,7 @@ export function App(): ReactElement {
         viewerGroups.style.removeProperty('--viewer-primary-track')
       }
     }
-  }, [loadFile, root])
+  }, [root])
 
   useEffect(() => {
     const workbench = workbenchRef.current
@@ -438,48 +344,6 @@ export function App(): ReactElement {
   useEffect(() => () => window.hvir.send('app:attention', { count: 0 }), [])
 
   useEffect(() => {
-    if (!root || !restored) return
-    persistedState.current = { root, tabs, activeId }
-    const timer = window.setTimeout(() => persistTabs(root, tabs, activeId), 250)
-    return () => window.clearTimeout(timer)
-  }, [activeId, restored, root, tabs])
-
-  useEffect(() => {
-    const flushPersistence = (): void => {
-      const state = persistedState.current
-      if (state) {
-        persistTabs(state.root, state.tabs, state.activeId, !discardDirtyOnUnload.current)
-      }
-    }
-    const protectDirtyBuffers = (event: BeforeUnloadEvent): void => {
-      const dirtyCount = tabsRef.current.filter((tab) => tab.dirty).length
-      if (
-        dirtyCount === 0 ||
-        window.confirm(
-          `${dirtyCount} tab${dirtyCount === 1 ? ' has' : 's have'} unsaved changes. Close hvir and discard them?`,
-        )
-      ) {
-        discardDirtyOnUnload.current = dirtyCount > 0
-        return
-      }
-      discardDirtyOnUnload.current = false
-      event.preventDefault()
-      // Electron silently cancels a close when beforeunload sets returnValue;
-      // the explicit confirmation above supplies the UI it does not provide.
-      event.returnValue = 'Unsaved changes'
-    }
-    window.addEventListener('pagehide', flushPersistence)
-    window.addEventListener('beforeunload', protectDirtyBuffers)
-    return () => {
-      window.removeEventListener('pagehide', flushPersistence)
-      window.removeEventListener('beforeunload', protectDirtyBuffers)
-      if (scrollFrame.current !== undefined) {
-        window.cancelAnimationFrame(scrollFrame.current)
-      }
-    }
-  }, [])
-
-  useEffect(() => {
     const perform = (action: WebPaneCommandAction, paneId?: string): void => {
       if (document.querySelector('[aria-modal="true"]')) return
       if (action === 'closeWebPane') {
@@ -488,13 +352,7 @@ export function App(): ReactElement {
         setWebViewFocused(false)
       } else if (action === 'cycleViewMode') {
         if (gitGraphActiveRef.current || webViewActiveRef.current) return
-        const id = activeIdRef.current
-        if (!id) return
-        setTabs((current) =>
-          current.map((tab) =>
-            tab.id === id ? { ...tab, mode: nextMode(tab.mode) } : tab,
-          ),
-        )
+        cycleActiveMode()
       } else if (action === 'toggleTerminalFocus') {
         setTerminalFocused((focused) => !focused)
       } else if (action === 'focusTerminal') {
@@ -509,7 +367,7 @@ export function App(): ReactElement {
         setTerminalFocused(false)
         requestAnimationFrame(() =>
           document
-            .querySelector<HTMLElement>(`[data-viewer-pane="${activePaneRef.current}"]`)
+            .querySelector<HTMLElement>(`[data-viewer-pane="${getActivePane()}"]`)
             ?.focus(),
         )
       } else if (action === 'focusTree') {
@@ -553,35 +411,7 @@ export function App(): ReactElement {
       window.removeEventListener('keydown', keydown, true)
       void disposeCommand()
     }
-  }, [settings.keybindings])
-
-  watchHandler.current = (event): void => {
-    const tab = tabsRef.current.find((candidate) =>
-      hostPathEquals(candidate.path, event.path),
-    )
-    if (!tab) return
-    if (tab.dirty) {
-      setTabs((current) =>
-        current.map((candidate) =>
-          candidate.id === tab.id ? { ...candidate, conflict: true } : candidate,
-        ),
-      )
-    } else {
-      loadFile(tab.path)
-    }
-  }
-
-  const activateTab = (id: string, pane?: ViewerPaneId): void => {
-    const targetPane = pane ?? tabsRef.current.find((tab) => tab.id === id)?.pane
-    if (targetPane) {
-      activePaneRef.current = targetPane
-      activeByPaneRef.current[targetPane] = id
-    }
-    setActiveId(id)
-    setGitGraphActive(false)
-    setWebViewActive(false)
-    setTerminalFocused(false)
-  }
+  }, [cycleActiveMode, getActivePane, settings.keybindings])
 
   const openWebView = (view: WebViewState): void => {
     setTerminalFocused(false)
@@ -604,7 +434,7 @@ export function App(): ReactElement {
       setWebViews((current) => [...current, view])
       setActiveWebViewId(view.id)
     }
-    activePaneRef.current = 'primary'
+    focusViewerPane('primary')
     setWebViewActive(true)
   }
 
@@ -680,7 +510,7 @@ export function App(): ReactElement {
   }
 
   const activateWebView = (id: string): void => {
-    activePaneRef.current = 'primary'
+    focusViewerPane('primary')
     setActiveWebViewId(id)
     setWebViewActive(true)
     setGitGraphActive(false)
@@ -703,223 +533,8 @@ export function App(): ReactElement {
     }
   }
 
-  const openFile = (
-    path: HostPath,
-    pinned: boolean,
-    context: FileOpenContext = 'file-tree',
-    diffBase: DiffBase = 'head',
-    diffRevision?: string,
-    position?: Omit<ViewerNavigationPosition, 'serial'>,
-  ): void => {
-    setTerminalFocused(false)
-    setGitGraphActive(false)
-    const id = tabId(path)
-    const existing = tabsRef.current.find((tab) => tab.id === id)
-    const targetPane = existing?.pane ?? (viewerSplit ? activePaneRef.current : 'primary')
-    const navigation = position
-      ? { ...position, serial: (nextViewerNavigation.current += 1) }
-      : undefined
-    setTabs((current) => {
-      const existing = current.find((tab) => tab.id === id)
-      if (existing) {
-        return current.map((tab) =>
-          tab.id === id
-            ? {
-                ...tab,
-                pinned: pinned || tab.pinned,
-                mode: position
-                  ? 'source'
-                  : context === 'file-tree'
-                    ? tab.mode
-                    : defaultViewMode(path, context),
-                diffBase: context === 'git' ? diffBase : tab.diffBase,
-                diffRevision: context === 'git' ? diffRevision : undefined,
-                navigation,
-              }
-            : tab,
-        )
-      }
-      const created: ViewerTab = {
-        id,
-        path,
-        pane: targetPane,
-        pinned,
-        mode: position ? 'source' : defaultViewMode(path, context),
-        diffBase,
-        diffRevision,
-        scrollTop: 0,
-        navigation,
-        loading: true,
-        dirty: false,
-        conflict: false,
-      }
-      const previewIndex = current.findIndex(
-        (tab) => tab.pane === targetPane && !tab.pinned && !tab.dirty,
-      )
-      if (previewIndex < 0) return [...current, created]
-      const next = [...current]
-      next[previewIndex] = created
-      return next
-    })
-    activateTab(id, targetPane)
-    // Reopening a dirty tab is navigation, not a reload. Its in-memory buffer
-    // is authoritative until the user saves or explicitly chooses reload.
-    if (!existing?.dirty) loadFile(path)
-  }
-
-  const closeTab = (id: string): void => {
-    const closing = tabsRef.current.find((tab) => tab.id === id)
-    if (
-      closing?.dirty &&
-      !window.confirm(`Close ${basenameHostPath(closing.path)} without saving?`)
-    ) {
-      return
-    }
-    const closesLastSecondary =
-      closing?.pane === 'secondary' &&
-      !tabsRef.current.some((tab) => tab.pane === 'secondary' && tab.id !== id)
-    if (closesLastSecondary) {
-      if (activePaneRef.current === 'secondary') activePaneRef.current = 'primary'
-      activeByPaneRef.current.secondary = undefined
-      setViewerSplit(false)
-      if (rootRef.current) persistLayout(rootRef.current, { viewerSplit: false })
-    }
-    fileReadGenerations.current.set(id, (fileReadGenerations.current.get(id) ?? 0) + 1)
-    setTabs((current) => {
-      const index = current.findIndex((tab) => tab.id === id)
-      if (index < 0) return current
-      const pane = current[index]?.pane ?? 'primary'
-      const next = current.filter((tab) => tab.id !== id)
-      const nextInPane =
-        next.slice(index).find((tab) => tab.pane === pane) ??
-        [...next].reverse().find((tab) => tab.pane === pane)
-      if (activeByPaneRef.current[pane] === id) {
-        activeByPaneRef.current[pane] = nextInPane?.id
-      }
-      if (activeIdRef.current === id) {
-        const nextActive = nextInPane ?? next[Math.min(index, next.length - 1)]
-        if (nextActive) {
-          activePaneRef.current = nextActive.pane
-          activeByPaneRef.current[nextActive.pane] = nextActive.id
-        }
-        setActiveId(nextActive?.id)
-      }
-      return next
-    })
-  }
-
-  const updateTab = (id: string, update: (tab: ViewerTab) => ViewerTab): void => {
-    setTabs((current) => current.map((tab) => (tab.id === id ? update(tab) : tab)))
-  }
-
-  const scheduleScrollPersistence = (id: string, scrollTop: number): void => {
-    pendingScroll.current = { id, scrollTop }
-    if (scrollFrame.current !== undefined) return
-    scrollFrame.current = window.requestAnimationFrame(() => {
-      scrollFrame.current = undefined
-      const pending = pendingScroll.current
-      pendingScroll.current = undefined
-      if (pending) {
-        updateTab(pending.id, (tab) => ({ ...tab, scrollTop: pending.scrollTop }))
-      }
-    })
-  }
-
-  const saveTab = (id: string): void => {
-    const tab = tabsRef.current.find((candidate) => candidate.id === id)
-    if (!tab?.file || tab.file.binary || tab.conflict) return
-    const savedContent = tab.file.content
-    updateTab(tab.id, (candidate) => ({ ...candidate, error: undefined }))
-    void window.hvir
-      .invoke('fs:write', {
-        path: tab.path,
-        content: savedContent,
-        ...(tab.file.mtimeMs > 0 ? { expectedMtimeMs: tab.file.mtimeMs } : {}),
-      })
-      .then(unwrapOperation)
-      .then(
-        (written) => {
-          setTabs((current) =>
-            current.map((candidate) => {
-              if (candidate.id !== tab.id || !candidate.file) return candidate
-              const unchangedSinceSave = candidate.file.content === savedContent
-              return {
-                ...candidate,
-                error: undefined,
-                dirty: unchangedSinceSave ? false : candidate.dirty,
-                conflict: unchangedSinceSave ? false : candidate.conflict,
-                file: {
-                  ...candidate.file,
-                  size: unchangedSinceSave ? written.size : candidate.file.size,
-                  mtimeMs: written.mtimeMs,
-                },
-              }
-            }),
-          )
-        },
-        (reason: unknown) => {
-          const error = reason instanceof Error ? reason.message : String(reason)
-          setTabs((current) =>
-            current.map((candidate) =>
-              candidate.id === tab.id
-                ? {
-                    ...candidate,
-                    error,
-                    conflict: candidate.conflict || /file changed/i.test(error),
-                  }
-                : candidate,
-            ),
-          )
-        },
-      )
-  }
-
-  const activeTab = tabs.find((tab) => tab.id === activeId)
-  const primaryTabs = tabs.filter((tab) => tab.pane === 'primary')
-  const secondaryTabs = tabs.filter((tab) => tab.pane === 'secondary')
-  const primaryActiveTab =
-    primaryTabs.find((tab) => tab.id === activeByPaneRef.current.primary) ??
-    primaryTabs[0]
-  const secondaryActiveTab =
-    secondaryTabs.find((tab) => tab.id === activeByPaneRef.current.secondary) ??
-    secondaryTabs[0]
-
-  const openViewerSplit = (): void => {
-    setViewerSplit(true)
-    if (rootRef.current) persistLayout(rootRef.current, { viewerSplit: true })
-  }
-
-  const closeViewerSplit = (): void => {
-    setTabs((current) =>
-      current.map((tab) =>
-        tab.pane === 'secondary' ? { ...tab, pane: 'primary' } : tab,
-      ),
-    )
-    if (activePaneRef.current === 'secondary') activePaneRef.current = 'primary'
-    if (activeIdRef.current) activeByPaneRef.current.primary = activeIdRef.current
-    activeByPaneRef.current.secondary = undefined
-    setViewerSplit(false)
-    if (rootRef.current) persistLayout(rootRef.current, { viewerSplit: false })
-  }
-
-  const moveTabToPane = (id: string, pane: ViewerPaneId): void => {
-    const moving = tabsRef.current.find((tab) => tab.id === id)
-    if (!moving || moving.pane === pane) return
-    setTabs((current) => current.map((tab) => (tab.id === id ? { ...tab, pane } : tab)))
-    if (activeByPaneRef.current[moving.pane] === id) {
-      activeByPaneRef.current[moving.pane] = tabsRef.current.find(
-        (tab) => tab.pane === moving.pane && tab.id !== id,
-      )?.id
-    }
-    activeByPaneRef.current[pane] = id
-    activePaneRef.current = pane
-    setActiveId(id)
-    setGitGraphActive(false)
-    if (pane === 'secondary') openViewerSplit()
-  }
-
   const openGitGraph = (hash?: string): void => {
-    activePaneRef.current = 'primary'
+    focusViewerPane('primary')
     setGitGraphOpen(true)
     setGitGraphActive(true)
     setWebViewActive(false)
@@ -938,7 +553,7 @@ export function App(): ReactElement {
   const switchGitBranch = async (branch: string): Promise<void> => {
     const workspaceRoot = rootRef.current
     if (!workspaceRoot) throw new Error('No active workspace')
-    if (tabsRef.current.some((tab) => tab.dirty)) {
+    if (tabs.some((tab) => tab.dirty)) {
       throw new Error('Save or close unsaved viewer tabs before switching')
     }
     const state = unwrapOperation(
@@ -967,7 +582,7 @@ export function App(): ReactElement {
   const pullGit = async (): Promise<void> => {
     const workspaceRoot = rootRef.current
     if (!workspaceRoot) throw new Error('No active workspace')
-    if (tabsRef.current.some((tab) => tab.dirty)) {
+    if (tabs.some((tab) => tab.dirty)) {
       throw new Error('Save or close unsaved viewer tabs before pulling')
     }
     session.acceptProjectState(
@@ -1018,7 +633,7 @@ export function App(): ReactElement {
     )
     const next = clamp(width, TREE_MIN_WIDTH, max)
     workbench.style.setProperty('--tree-track', `${next}px`)
-    if (rootRef.current) persistLayout(rootRef.current, { treeWidth: next })
+    if (rootRef.current) persistWorkspaceLayout(rootRef.current, { treeWidth: next })
   }
 
   const setTerminalHeight = (height: number): void => {
@@ -1026,7 +641,9 @@ export function App(): ReactElement {
     if (!workbench) return
     const next = fitTerminalHeight(height, workbench.clientHeight)
     workbench.style.setProperty('--terminal-track', `${next}px`)
-    if (rootRef.current) persistLayout(rootRef.current, { terminalHeight: next })
+    if (rootRef.current) {
+      persistWorkspaceLayout(rootRef.current, { terminalHeight: next })
+    }
   }
 
   const setViewerPrimaryWidth = (width: number): void => {
@@ -1035,7 +652,7 @@ export function App(): ReactElement {
     const next = clamp(width, 240, Math.max(240, groups.clientWidth - 245))
     groups.style.setProperty('--viewer-primary-track', `${next}px`)
     if (rootRef.current) {
-      persistLayout(rootRef.current, { viewerPrimaryWidth: next })
+      persistWorkspaceLayout(rootRef.current, { viewerPrimaryWidth: next })
     }
   }
 
@@ -1058,14 +675,14 @@ export function App(): ReactElement {
       data-viewer-pane={pane}
       tabIndex={-1}
       onPointerDownCapture={() => {
-        activePaneRef.current = pane
         if (
           paneTab &&
           !(graphPane && gitGraphActive) &&
           !(pane === 'primary' && webViewActive)
         ) {
-          activeByPaneRef.current[pane] = paneTab.id
-          setActiveId(paneTab.id)
+          focusViewerPane(pane, paneTab.id)
+        } else {
+          focusViewerPane(pane)
         }
       }}
     >
@@ -1079,14 +696,8 @@ export function App(): ReactElement {
         }
         onActivate={(id) => activateTab(id, pane)}
         onClose={closeTab}
-        onPin={(id) =>
-          setTabs((current) =>
-            current.map((tab) => (tab.id === id ? { ...tab, pinned: true } : tab)),
-          )
-        }
-        onReorder={(draggedId, targetId) => {
-          setTabs((current) => reorderTabs(current, draggedId, targetId))
-        }}
+        onPin={pinTab}
+        onReorder={reorderViewerTabs}
         onMoveToPane={moveTabToPane}
         split={viewerSplit}
         onSplit={openViewerSplit}
@@ -1094,7 +705,7 @@ export function App(): ReactElement {
         graphOpen={graphPane && gitGraphOpen}
         graphActive={graphPane && gitGraphActive}
         onActivateGraph={() => {
-          activePaneRef.current = 'primary'
+          focusViewerPane('primary')
           setTerminalFocused(false)
           setGitGraphActive(true)
           setWebViewActive(false)
@@ -1177,55 +788,18 @@ export function App(): ReactElement {
           <FileViewer
             key={`${pane}:${paneTab?.id ?? 'empty'}`}
             tab={paneTab}
-            onMode={(mode) =>
-              paneTab && updateTab(paneTab.id, (tab) => ({ ...tab, mode }))
-            }
-            onDiffBase={(diffBase) =>
-              paneTab && updateTab(paneTab.id, (tab) => ({ ...tab, diffBase }))
-            }
-            onContent={(content) =>
-              paneTab &&
-              updateTab(paneTab.id, (tab) =>
-                tab.file
-                  ? {
-                      ...tab,
-                      pinned: true,
-                      dirty: true,
-                      file: {
-                        ...tab.file,
-                        content,
-                        size: new TextEncoder().encode(content).byteLength,
-                      },
-                    }
-                  : tab,
-              )
-            }
+            onMode={(mode) => paneTab && setViewerMode(paneTab.id, mode)}
+            onDiffBase={(diffBase) => paneTab && setViewerDiffBase(paneTab.id, diffBase)}
+            onContent={(content) => paneTab && setViewerContent(paneTab.id, content)}
             onSave={() => paneTab && saveTab(paneTab.id)}
-            onReload={() => {
-              if (!paneTab) return
-              updateTab(paneTab.id, (tab) => ({
-                ...tab,
-                dirty: false,
-                conflict: false,
-              }))
-              loadFile(paneTab.path)
-            }}
-            onScroll={(scrollTop) =>
-              paneTab && scheduleScrollPersistence(paneTab.id, scrollTop)
-            }
+            onReload={() => paneTab && reloadTab(paneTab.id)}
+            onScroll={(scrollTop) => paneTab && scheduleScroll(paneTab.id, scrollTop)}
             onNavigationHandled={(serial) =>
-              paneTab &&
-              updateTab(paneTab.id, (tab) =>
-                tab.navigation?.serial === serial
-                  ? { ...tab, navigation: undefined }
-                  : tab,
-              )
+              paneTab && navigationHandled(paneTab.id, serial)
             }
             onOpenPath={(path) => {
-              activePaneRef.current = pane
-              if (paneTab) {
-                updateTab(paneTab.id, (tab) => ({ ...tab, pinned: true }))
-              }
+              focusViewerPane(pane)
+              if (paneTab) pinTab(paneTab.id)
               openFile(path, true)
             }}
             refreshVersion={contentVersion}
@@ -1372,7 +946,9 @@ export function App(): ReactElement {
           }}
           onReset={() => {
             workbenchRef.current?.style.removeProperty('--tree-track')
-            if (rootRef.current) persistLayout(rootRef.current, { treeWidth: 0 })
+            if (rootRef.current) {
+              persistWorkspaceLayout(rootRef.current, { treeWidth: 0 })
+            }
           }}
           action={
             <button
@@ -1429,7 +1005,9 @@ export function App(): ReactElement {
                       '--viewer-primary-track',
                     )
                     if (rootRef.current) {
-                      persistLayout(rootRef.current, { viewerPrimaryWidth: 0 })
+                      persistWorkspaceLayout(rootRef.current, {
+                        viewerPrimaryWidth: 0,
+                      })
                     }
                   }}
                 />
@@ -1453,7 +1031,9 @@ export function App(): ReactElement {
           }}
           onReset={() => {
             workbenchRef.current?.style.removeProperty('--terminal-track')
-            if (rootRef.current) persistLayout(rootRef.current, { terminalHeight: 0 })
+            if (rootRef.current) {
+              persistWorkspaceLayout(rootRef.current, { terminalHeight: 0 })
+            }
           }}
           action={
             <button
@@ -2000,230 +1580,6 @@ function rememberFolder(hostId: string, path: string): void {
     5,
   )
   localStorage.setItem(`hvir:recent-folders:${hostId}`, JSON.stringify(next))
-}
-
-interface StoredTabs {
-  readonly version: number
-  readonly activeId?: string
-  readonly tabs: readonly {
-    readonly hostId: string
-    readonly path: string
-    readonly pane?: ViewerPaneId
-    readonly pinned: boolean
-    readonly mode: ViewMode
-    readonly diffBase: DiffBase
-    readonly diffRevision?: string
-    readonly scrollTop: number
-    readonly draft?: string
-    readonly mtimeMs?: number
-  }[]
-}
-
-function restoreTabs(root: HostPath): { tabs: readonly ViewerTab[]; activeId?: string } {
-  try {
-    const raw = localStorage.getItem(storageKey(root))
-    if (!raw) return { tabs: [] }
-    const parsed: unknown = JSON.parse(raw)
-    if (!isStoredTabs(parsed)) return { tabs: [] }
-    const stored = parsed
-    const tabs = stored.tabs.flatMap((item): ViewerTab[] => {
-      if (
-        item.hostId !== root.hostId ||
-        typeof item.path !== 'string' ||
-        !insideRoot(item.path, root.path) ||
-        !isViewMode(item.mode) ||
-        !isDiffBase(item.diffBase)
-      ) {
-        return []
-      }
-      const path = hostPath(asHostId(item.hostId), item.path)
-      const draft =
-        typeof item.draft === 'string' &&
-        item.draft.length <= DRAFT_STORAGE_CHARACTER_LIMIT
-          ? item.draft
-          : undefined
-      return [
-        {
-          id: tabId(path),
-          path,
-          pane: item.pane === 'secondary' ? 'secondary' : 'primary',
-          pinned: Boolean(item.pinned),
-          mode: item.mode,
-          diffBase: item.diffBase,
-          diffRevision:
-            typeof item.diffRevision === 'string' ? item.diffRevision : undefined,
-          scrollTop: Number.isFinite(item.scrollTop) ? item.scrollTop : 0,
-          file:
-            draft === undefined
-              ? undefined
-              : {
-                  path,
-                  content: draft,
-                  size: new TextEncoder().encode(draft).byteLength,
-                  mtimeMs:
-                    typeof item.mtimeMs === 'number' &&
-                    Number.isFinite(item.mtimeMs) &&
-                    item.mtimeMs > 0
-                      ? item.mtimeMs
-                      : 0,
-                  binary: false,
-                },
-          loading: draft === undefined,
-          dirty: draft !== undefined,
-          conflict: false,
-        },
-      ]
-    })
-    const activeId = tabs.some((tab) => tab.id === stored.activeId)
-      ? stored.activeId
-      : tabs[0]?.id
-    return { tabs, activeId }
-  } catch {
-    return { tabs: [] }
-  }
-}
-
-function persistTabs(
-  root: HostPath,
-  tabs: readonly ViewerTab[],
-  activeId?: string,
-  includeDrafts = true,
-): void {
-  let remainingDraftCharacters = includeDrafts ? DRAFT_STORAGE_CHARACTER_LIMIT : 0
-  const stored: StoredTabs = {
-    version: TAB_STORAGE_VERSION,
-    activeId,
-    tabs: tabs.map((tab) => {
-      const draft = tab.dirty ? tab.file?.content : undefined
-      const draftCharacters = draft?.length ?? 0
-      const storedDraft = draftCharacters <= remainingDraftCharacters ? draft : undefined
-      remainingDraftCharacters -= storedDraft === undefined ? 0 : draftCharacters
-      return {
-        hostId: tab.path.hostId,
-        path: tab.path.path,
-        pane: tab.pane,
-        pinned: tab.pinned,
-        mode: tab.mode,
-        diffBase: tab.diffBase,
-        diffRevision: tab.diffRevision,
-        scrollTop: tab.scrollTop,
-        draft: storedDraft,
-        mtimeMs: storedDraft === undefined ? undefined : tab.file?.mtimeMs,
-      }
-    }),
-  }
-  try {
-    localStorage.setItem(storageKey(root), JSON.stringify(stored))
-  } catch {
-    // Storage is a recovery aid, never a reason to make the live viewer fail.
-  }
-}
-
-function storageKey(root: HostPath): string {
-  return `hvir:tabs:${root.hostId}:${root.path}`
-}
-
-interface StoredLayout {
-  readonly version: 1
-  readonly treeWidth?: number
-  readonly terminalHeight?: number
-  readonly viewerSplit?: boolean
-  readonly viewerPrimaryWidth?: number
-}
-
-function restoreLayout(root: HostPath): StoredLayout {
-  try {
-    const parsed: unknown = JSON.parse(
-      localStorage.getItem(`hvir:layout:${root.hostId}:${root.path}`) ?? 'null',
-    )
-    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-      return { version: 1 }
-    }
-    const layout = parsed as Record<string, unknown>
-    return {
-      version: 1,
-      treeWidth:
-        typeof layout['treeWidth'] === 'number' && Number.isFinite(layout['treeWidth'])
-          ? layout['treeWidth']
-          : undefined,
-      terminalHeight:
-        typeof layout['terminalHeight'] === 'number' &&
-        Number.isFinite(layout['terminalHeight'])
-          ? layout['terminalHeight']
-          : undefined,
-      viewerSplit:
-        typeof layout['viewerSplit'] === 'boolean' ? layout['viewerSplit'] : undefined,
-      viewerPrimaryWidth:
-        typeof layout['viewerPrimaryWidth'] === 'number' &&
-        Number.isFinite(layout['viewerPrimaryWidth'])
-          ? layout['viewerPrimaryWidth']
-          : undefined,
-    }
-  } catch {
-    return { version: 1 }
-  }
-}
-
-function persistLayout(
-  root: HostPath,
-  update: {
-    readonly treeWidth?: number
-    readonly terminalHeight?: number
-    readonly viewerSplit?: boolean
-    readonly viewerPrimaryWidth?: number
-  },
-): void {
-  try {
-    localStorage.setItem(
-      `hvir:layout:${root.hostId}:${root.path}`,
-      JSON.stringify({ ...restoreLayout(root), ...update }),
-    )
-  } catch {
-    // Layout recovery is best effort and never blocks the live workbench.
-  }
-}
-
-function tabId(path: HostPath): string {
-  return `${path.hostId}:${path.path}`
-}
-
-function insideRoot(path: string, root: string): boolean {
-  return path === root || path.startsWith(root === '/' ? '/' : `${root}/`)
-}
-
-function nextMode(mode: ViewMode): ViewMode {
-  if (mode === 'rendered') return 'source'
-  if (mode === 'source') return 'diff'
-  return 'rendered'
-}
-
-function isViewMode(value: unknown): value is ViewMode {
-  return value === 'rendered' || value === 'source' || value === 'diff'
-}
-
-function isDiffBase(value: unknown): value is DiffBase {
-  return value === 'working-tree' || value === 'head' || value === 'branch-point'
-}
-
-function isStoredTabs(value: unknown): value is StoredTabs {
-  if (!value || typeof value !== 'object') return false
-  const candidate = value as { version?: unknown; tabs?: unknown }
-  return candidate.version === TAB_STORAGE_VERSION && Array.isArray(candidate.tabs)
-}
-
-function reorderTabs(
-  tabs: readonly ViewerTab[],
-  draggedId: string,
-  targetId: string,
-): readonly ViewerTab[] {
-  const from = tabs.findIndex((tab) => tab.id === draggedId)
-  const to = tabs.findIndex((tab) => tab.id === targetId)
-  if (from < 0 || to < 0 || from === to) return tabs
-  const next = [...tabs]
-  const [dragged] = next.splice(from, 1)
-  if (!dragged) return tabs
-  next.splice(to, 0, dragged)
-  return next
 }
 
 function clamp(value: number, min: number, max: number): number {
