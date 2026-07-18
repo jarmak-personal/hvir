@@ -36,32 +36,32 @@ describe('renderer filesystem contract', () => {
       join(process.cwd(), 'src/renderer/src/styles.css'),
       'utf8',
     )
-    const settings = readFileSync(
-      join(process.cwd(), 'src/renderer/src/settings/HarnessProfilesSettings.tsx'),
+    const dialogs = readFileSync(
+      join(process.cwd(), 'src/renderer/src/settings/HarnessProfileDialogs.tsx'),
       'utf8',
     )
     expect(styles).toMatch(
       /\.project-dialog\.settings-dialog\s*\{[^}]*width:\s*min\(1120px,/s,
     )
-    expect(settings).toContain('aria-labelledby="add-harness-title"')
-    expect(settings).toContain('Already added · use Manual profile for another')
-    expect(settings).toContain('checking || busy || alreadyConfigured')
-    expect(settings).toContain("event.key === 'Escape'")
-    expect(settings).toContain("event.key !== 'Tab'")
+    expect(dialogs).toContain('aria-labelledby="add-harness-title"')
+    expect(dialogs).toContain('Already added · use Manual profile for another')
+    expect(dialogs).toContain('checking || busy || alreadyConfigured')
+    expect(dialogs).toContain("event.key === 'Escape'")
+    expect(dialogs).toContain("event.key !== 'Tab'")
     expect(styles).toMatch(/\.terminal-list-profile\.elevated\s*\{[^}]*#d8b36f/s)
   })
 
   it('captures form values before scheduling profile state updates', () => {
-    const settings = readFileSync(
-      join(process.cwd(), 'src/renderer/src/settings/HarnessProfilesSettings.tsx'),
+    const editor = readFileSync(
+      join(process.cwd(), 'src/renderer/src/settings/HarnessProfileEditor.tsx'),
       'utf8',
     )
     const terminalWorkspace = readFileSync(
       join(process.cwd(), 'src/renderer/src/terminal/TerminalWorkspace.tsx'),
       'utf8',
     )
-    expect(settings).not.toMatch(/displayName:\s*event\.currentTarget\.value/)
-    expect(settings).not.toMatch(/description:\s*event\.currentTarget\.value/)
+    expect(editor).not.toMatch(/displayName:\s*event\.currentTarget\.value/)
+    expect(editor).not.toMatch(/description:\s*event\.currentTarget\.value/)
     expect(terminalWorkspace).not.toMatch(
       /\[session\.id\]:\s*event\.currentTarget\.value/,
     )
