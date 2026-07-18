@@ -49,13 +49,23 @@ export function SettingsDialog({
       },
     )
   }, [onClose])
+  // Held in a ref so the alignment effect below can run once per open instead of
+  // re-running on every parent render (onClose is a fresh closure each time),
+  // which would re-arm the aligner and steal focus from the field being edited.
+  const requestCloseRef = useRef(requestClose)
+  requestCloseRef.current = requestClose
 
   useEffect(() => {
+    const container = dialog.current
     let frame = 0
     let sectionObserver: ResizeObserver | undefined
+    // Focus the heading only on the first alignment. Async harness content
+    // (probe results, the live preview, the draft form) resizes the section
+    // repeatedly; re-focusing on every resize would steal focus from whatever
+    // field the user is typing in and yank the view back to the top.
+    let headingFocused = false
     const alignHarnesses = (): boolean => {
       const heading = document.getElementById('settings-harnesses-title')
-      const container = dialog.current
       if (!heading || !container) return false
       const containerBox = container.getBoundingClientRect()
       const headingBox = heading.getBoundingClientRect()
@@ -64,16 +74,34 @@ export function SettingsDialog({
         0,
         container.scrollTop + headingBox.top - containerBox.top - paddingTop,
       )
-      heading.focus({ preventScroll: true })
+      if (!headingFocused) {
+        heading.focus({ preventScroll: true })
+        headingFocused = true
+      }
       return (
         Math.abs(heading.getBoundingClientRect().top - containerBox.top - paddingTop) <= 2
       )
     }
+    const stopAligning = (): void => {
+      cancelAnimationFrame(frame)
+      sectionObserver?.disconnect()
+      sectionObserver = undefined
+    }
     const scheduleAlignment = (): void => {
       cancelAnimationFrame(frame)
       frame = requestAnimationFrame(() => {
-        if (alignHarnesses()) sectionObserver?.disconnect()
+        if (alignHarnesses()) stopAligning()
       })
+    }
+    // The moment the user focuses anything other than the heading, stop
+    // realigning so we never fight them for focus or scroll position.
+    const stopOnInteraction = (event: FocusEvent): void => {
+      if (
+        event.target instanceof HTMLElement &&
+        event.target.id !== 'settings-harnesses-title'
+      ) {
+        stopAligning()
+      }
     }
     frame = requestAnimationFrame(() => {
       if (initialSection !== 'general') {
@@ -84,22 +112,23 @@ export function SettingsDialog({
           sectionObserver.observe(section)
         }
       } else {
-        dialog.current?.focus()
+        container?.focus()
       }
     })
     const keydown = (event: KeyboardEvent): void => {
       if (dialog.current?.querySelector('.modal-backdrop.nested')) return
       if (event.key === 'Escape' && !(event.target instanceof HTMLTextAreaElement)) {
-        requestClose()
+        requestCloseRef.current()
       }
     }
+    container?.addEventListener('focusin', stopOnInteraction)
     window.addEventListener('keydown', keydown)
     return () => {
-      cancelAnimationFrame(frame)
-      sectionObserver?.disconnect()
+      stopAligning()
+      container?.removeEventListener('focusin', stopOnInteraction)
       window.removeEventListener('keydown', keydown)
     }
-  }, [initialSection, requestClose])
+  }, [initialSection])
 
   const save = async (): Promise<void> => {
     try {
