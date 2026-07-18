@@ -80,6 +80,14 @@
       "rationale": "The SSH facade's adapter characterization accumulated in one legacy test module.",
       "removalIssue": "#41",
       "expiresOn": "2026-09-30"
+    },
+    {
+      "path": "src/main/smoke/index.ts",
+      "maxLines": 3280,
+      "owner": "architecture epic #33",
+      "rationale": "The first mechanical extraction preserves one high-altitude workflow while removing it from production bootstrap; lower-altitude policy is tested outside this file.",
+      "removalIssue": "#49",
+      "expiresOn": "2026-09-30"
     }
   ]
 }
