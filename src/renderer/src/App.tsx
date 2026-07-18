@@ -533,6 +533,10 @@ export function App(): ReactElement {
       Boolean(layout.viewerSplit) ||
         restoredState.tabs.some((tab) => tab.pane === 'secondary'),
     )
+    // Restore per-workspace layout toggles that applyProjectState reset above,
+    // so a maximized terminal / collapsed explorer survives navigating away.
+    setTerminalFocused(Boolean(layout.terminalFocused))
+    setTreeCollapsed(Boolean(layout.treeCollapsed))
     const workbench = workbenchRef.current
     if (workbench) {
       if (layout.treeWidth) {
@@ -561,6 +565,15 @@ export function App(): ReactElement {
       }
     }
   }, [loadFile, root])
+
+  // Persist the layout toggles whenever they change so the last maximized /
+  // collapsed state is remembered per workspace. Gated on `restored` so the
+  // reset-then-restore transition on a workspace switch never clobbers the
+  // stored value with the transient `false` applyProjectState sets.
+  useEffect(() => {
+    if (!root || !restored) return
+    persistLayout(root, { terminalFocused, treeCollapsed })
+  }, [root, restored, terminalFocused, treeCollapsed])
 
   useEffect(() => {
     const workbench = workbenchRef.current
@@ -2488,6 +2501,10 @@ interface StoredLayout {
   readonly terminalHeight?: number
   readonly viewerSplit?: boolean
   readonly viewerPrimaryWidth?: number
+  /** Terminal maximized (terminal-focus mode). */
+  readonly terminalFocused?: boolean
+  /** File explorer collapsed. */
+  readonly treeCollapsed?: boolean
 }
 
 function restoreLayout(root: HostPath): StoredLayout {
@@ -2517,6 +2534,14 @@ function restoreLayout(root: HostPath): StoredLayout {
         Number.isFinite(layout['viewerPrimaryWidth'])
           ? layout['viewerPrimaryWidth']
           : undefined,
+      terminalFocused:
+        typeof layout['terminalFocused'] === 'boolean'
+          ? layout['terminalFocused']
+          : undefined,
+      treeCollapsed:
+        typeof layout['treeCollapsed'] === 'boolean'
+          ? layout['treeCollapsed']
+          : undefined,
     }
   } catch {
     return { version: 1 }
@@ -2530,6 +2555,8 @@ function persistLayout(
     readonly terminalHeight?: number
     readonly viewerSplit?: boolean
     readonly viewerPrimaryWidth?: number
+    readonly terminalFocused?: boolean
+    readonly treeCollapsed?: boolean
   },
 ): void {
   try {
