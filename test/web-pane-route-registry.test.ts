@@ -194,6 +194,62 @@ describe('WebPaneRouteRegistry', () => {
     expect(disposeSession).toHaveBeenCalledOnce()
   })
 
+  it('revokes a late open when its renderer owner closes', async () => {
+    let finishPreparation: ((dispose: () => Promise<void>) => void) | undefined
+    const prepared = new Promise<() => Promise<void>>((resolve) => {
+      finishPreparation = resolve
+    })
+    const disposeSession = vi.fn(() => Promise.resolve())
+    const routes = new WebPaneRouteRegistry({
+      prepareSession: () => prepared,
+      destroyGuest: vi.fn(),
+    })
+
+    const opening = open(routes, 'http://localhost:5173/')
+    await vi.waitFor(() => expect(finishPreparation).toBeTypeOf('function'))
+    await routes.closeOwner(41)
+    finishPreparation!(disposeSession)
+
+    await expect(opening).rejects.toThrow('revoked while opening')
+    expect(disposeSession).toHaveBeenCalledOnce()
+  })
+
+  it('tears down every route for one owner without touching another owner', async () => {
+    const { routes, disposeSession, destroyGuest } = registry()
+    const first = await open(routes, 'http://localhost:5173/')
+    const second = await open(routes, 'http://localhost:5174/')
+    const other = await open(routes, 'http://localhost:5175/', { ownerId: 99 })
+    for (const [route, guestId] of [
+      [first, 801],
+      [second, 802],
+      [other, 803],
+    ] as const) {
+      const ownerId = route === other ? 99 : 41
+      expect(
+        routes.claimAttachment({
+          ownerId,
+          paneId: route.paneId,
+          partition: route.partition,
+          initialUrl: route.url,
+        }),
+      ).toEqual(route)
+      expect(routes.bindGuestForPartition(ownerId, route.partition, guestId)).toBe(
+        route.paneId,
+      )
+    }
+
+    await routes.closeOwner(41)
+
+    expect(routes.has(first.paneId, 41)).toBe(false)
+    expect(routes.has(second.paneId, 41)).toBe(false)
+    expect(routes.has(other.paneId, 99)).toBe(true)
+    expect(destroyGuest).toHaveBeenCalledWith(801)
+    expect(destroyGuest).toHaveBeenCalledWith(802)
+    expect(destroyGuest).not.toHaveBeenCalledWith(803)
+    expect(disposeSession).toHaveBeenCalledTimes(2)
+    await routes.closeAll()
+  })
+
   it('refuses host capacity without silently evicting an existing pane', async () => {
     const { routes } = registry()
     try {

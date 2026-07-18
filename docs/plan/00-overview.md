@@ -59,7 +59,7 @@ done until its outstanding acceptance evidence is recorded.
 
 - **Hard constraints** from AGENTS.md are non-negotiable: no real editing beyond
   minor-edit-and-save; nothing blocks the paint (heavy work off the render thread);
-  respect the seams (`TerminalPane`, PTY supervisor, `HarnessAdapter`/harness provider,
+  respect the seams (`TerminalPane`, PTY supervisor, harness provider registry/providers,
   `ProjectHost`);
   every path is a `(host, path)` pair — no bare string paths, even in local-only code.
 - **Definition of done** for any task that touches code: typecheck passes, lint passes,

@@ -1,0 +1,85 @@
+{
+  "version": 1,
+  "baselineCommit": "ea1c157",
+  "extensions": [".ts", ".tsx", ".css"],
+  "productionRoots": [
+    "src/main",
+    "src/preload",
+    "src/renderer/src",
+    "src/shared",
+    "src/workers"
+  ],
+  "testRoots": ["test", "src/main/smoke"],
+  "generatedFiles": [],
+  "limits": {
+    "newProductionModule": 500,
+    "testModule": 1200,
+    "generatedModule": 5000
+  },
+  "legacyHotspots": [
+    {
+      "path": "src/main/index.ts",
+      "maxLines": 4394,
+      "owner": "architecture epic #33",
+      "rationale": "Bootstrap, lifecycle, workflows, and the Electron smoke harness accumulated in one entry point.",
+      "removalIssue": "#35-#40",
+      "expiresOn": "2026-09-30"
+    },
+    {
+      "path": "src/renderer/src/App.tsx",
+      "maxLines": 2609,
+      "owner": "architecture epic #33",
+      "rationale": "Project, viewer, layout, prompt, navigation, and feature state share the renderer root.",
+      "removalIssue": "#43-#45",
+      "expiresOn": "2026-09-30"
+    },
+    {
+      "path": "src/main/project-host/ssh-host.ts",
+      "maxLines": 2116,
+      "owner": "architecture epic #33",
+      "rationale": "One public ProjectHost currently implements several private SSH resource lifecycles directly.",
+      "removalIssue": "#41",
+      "expiresOn": "2026-09-30"
+    },
+    {
+      "path": "src/renderer/src/terminal/TerminalWorkspace.tsx",
+      "maxLines": 1839,
+      "owner": "architecture epic #33",
+      "rationale": "Terminal policy, effects, persistence, recovery, and presentation are still colocated.",
+      "removalIssue": "#46",
+      "expiresOn": "2026-09-30"
+    },
+    {
+      "path": "src/renderer/src/settings/HarnessProfilesSettings.tsx",
+      "maxLines": 1580,
+      "owner": "architecture epic #33",
+      "rationale": "Harness-profile draft policy, async workflows, fields, and dialogs share one form component.",
+      "removalIssue": "#48",
+      "expiresOn": "2026-09-30"
+    },
+    {
+      "path": "src/main/git/git-engine.ts",
+      "maxLines": 1479,
+      "owner": "architecture epic #33",
+      "rationale": "The stable GitEngine facade still directly implements every Git capability.",
+      "removalIssue": "#42",
+      "expiresOn": "2026-09-30"
+    },
+    {
+      "path": "src/renderer/src/styles.css",
+      "maxLines": 4452,
+      "owner": "architecture epic #33",
+      "rationale": "All feature styles currently share one global cascade file.",
+      "removalIssue": "#49",
+      "expiresOn": "2026-09-30"
+    },
+    {
+      "path": "test/ssh-host.test.ts",
+      "maxLines": 1710,
+      "owner": "architecture epic #33",
+      "rationale": "The SSH facade's adapter characterization accumulated in one legacy test module.",
+      "removalIssue": "#41",
+      "expiresOn": "2026-09-30"
+    }
+  ]
+}

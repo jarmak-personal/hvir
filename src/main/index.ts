@@ -1,10 +1,4 @@
-/**
- * Main process entry.
- *
- * Wires the process model: creates the window, registers the typed IPC
- * contract, and spawns the echo utility process. Phase 1 ships an empty window;
- * every later feature plugs into the seams instantiated here.
- */
+/** Electron main-process entry and current application composition root. */
 
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -304,14 +298,10 @@ function createWindow(
       sandbox: true,
       contextIsolation: true,
       nodeIntegration: false,
-      // Web panes render in <webview> guests: their servers may
-      // legitimately send X-Frame-Options/frame-ancestors, which would blank
-      // an iframe. Guests are confined to loopback URLs below.
+      // Webview guests support anti-framing pages and are confined below.
       webviewTag: true,
     },
   })
-  // electron-vite sets ELECTRON_RENDERER_URL in dev (Vite dev server); in a
-  // packaged build we load the built HTML from disk.
   const rendererUrl = process.env['ELECTRON_RENDERER_URL']
   const packagedEntry = join(__dirname, '../renderer/index.html')
   const entryUrl = rendererUrl ?? pathToFileURL(packagedEntry).href
@@ -321,8 +311,7 @@ function createWindow(
   win.on('blur', () => attentionBadge?.setFocused(ownerId, false))
 
   win.on('ready-to-show', () => win.show())
-  // Phase 2 has one renderer-owned terminal set. A renderer reload/crash cannot
-  // run React cleanup, so main must end those PTYs rather than orphan shells.
+  // Renderer reload/crash cannot run React cleanup for its main-owned resources.
   win.webContents.on('did-start-navigation', (_event, url, isInPlace, isMainFrame) => {
     if (isMainFrame && !isInPlace && isWorkbenchDocument(url, entryUrl)) {
       discardRendererResources(ownerId)
@@ -348,11 +337,11 @@ function createWindow(
     if (rendererRecoveryRequested) {
       rendererRecoveryRequested = false
     } else if (!win.isDestroyed() && details.reason !== 'clean-exit') {
-      // A crashed renderer cannot paint a React recovery screen. Reloading
-      // creates a fresh renderer process and restores persisted tabs.
+      // Reload into a fresh renderer that can restore persisted tabs.
       win.webContents.reload()
     }
   })
+  win.webContents.once('destroyed', () => discardRendererResources(ownerId))
   let handlingUnresponsive = false
   win.webContents.on('unresponsive', () => {
     if (handlingUnresponsive || win.isDestroyed()) return
@@ -399,8 +388,7 @@ function createWindow(
     return { action: 'deny' }
   })
 
-  // A renderer may request a guest only through a one-use, main-owned pane
-  // capability. Main replaces every security-sensitive preference and source.
+  // A one-use main-owned route controls each guest and its security preferences.
   win.webContents.on('will-attach-webview', (event, webPreferences, params) => {
     const partition = params['partition'] ?? ''
     const paneId =
@@ -1104,12 +1092,7 @@ function projectRootArgument(): string | undefined {
   return fromFlag?.slice('--project-root='.length) || process.env.HVIR_PROJECT_ROOT
 }
 
-/**
- * Headless self-check (HVIR_SMOKE=1): stands up the full process model without
- * a human — echo utility process, the typed IPC handlers, LocalHost.exec/stat,
- * and a real window whose renderer round-trips `app:info` back through main —
- * then exits. Run under a display (or `xvfb-run`) so the window can paint.
- */
+/** Production-composed Electron acceptance workflow selected by `HVIR_SMOKE=1`. */
 async function runSmoke(): Promise<number> {
   const worker = createWorkerClient<EchoWorkerProtocol>(
     workerPath('echo-worker.js'),
@@ -1160,8 +1143,7 @@ async function runSmoke(): Promise<number> {
   })
   const smokeRemoteRoot = hostPath(asHostId('smoke-remote'), '/srv/hvir')
   const smokeRemoteProjectState = (): ProjectState => ({
-    // Keep the real local workspace mounted while presenting remote project chrome.
-    // This isolates the connection-control smoke from ProjectHost authority checks.
+    // Present remote chrome without widening the mounted local host authority.
     root: smokeRoot,
     connectionState: 'connected',
     watchTier: 'polling',
@@ -1199,8 +1181,7 @@ async function runSmoke(): Promise<number> {
     if (echo.workerPid === process.pid) throw new Error('echo ran in the main process')
     console.log(`[smoke] echo worker OK (pid ${echo.workerPid})`)
 
-    // Register the real IPC handlers so the renderer's app:info resolves — this
-    // exercises the whole renderer→main→worker path, not just the seams alone.
+    // Exercise the real renderer → main → worker path.
     await host.connect()
     const liveReloadBefore = `${Array.from({ length: 240 }, (_, index) => `line ${index}`).join('\n')}\n`
     await host.writeFile(liveReloadPath, liveReloadBefore)
@@ -1331,6 +1312,9 @@ async function runSmoke(): Promise<number> {
     const win = createWindow((ownerId) => {
       supervisor.disposeOwner(ownerId)
       htmlPreviews.clear()
+      void webPaneRoutes
+        .closeOwner(ownerId)
+        .catch((error) => console.error('[smoke] renderer route cleanup failed', error))
     })
     smokeWindow = win
     await withTimeout(
@@ -1339,9 +1323,7 @@ async function runSmoke(): Promise<number> {
     )
     console.log('[smoke] window ready-to-show OK')
 
-    // Execute through the isolated renderer's real preload bridge. Waiting for
-    // these results proves the IPC calls completed; ready-to-show alone only
-    // proves paint, not the round-trip claimed by this smoke check.
+    // A real preload round-trip establishes more than ready-to-show paint.
     const rendererResult = (await withTimeout(
       win.webContents.executeJavaScript(`
         Promise.all([
@@ -1528,9 +1510,7 @@ async function runSmoke(): Promise<number> {
     }
     console.log('[smoke] expected session errors stay contained')
 
-    // Web pane slice: a loopback HTTP server stands in for an agent-started
-    // server. The URL is printed into a real supervised terminal and activated
-    // through its rendered link provider; global window.open is not authority.
+    // Activate an agent-like server through a real rendered terminal link.
     const { createServer: createHttpServer } = await import('node:http')
     let dashboardRequests = 0
     const dashboardServer = createHttpServer((request, response) => {
@@ -1692,8 +1672,7 @@ async function runSmoke(): Promise<number> {
         `),
         'web pane workspace-hide smoke timed out',
       )
-      // Let the newly mounted (but unavailable) workspace finish its ordinary
-      // profile/recovery reads before removing the synthetic smoke workspace.
+      // Let the unavailable synthetic workspace finish ordinary recovery reads.
       await new Promise<void>((resolve) => setTimeout(resolve, 100))
       smokeIpcProjectState = smokeProjectState()
       emit('project:state', smokeIpcProjectState)
@@ -1866,8 +1845,7 @@ async function runSmoke(): Promise<number> {
     )) as string
     console.log(`[smoke] SSH host-key prompt OK (${hostKeyPromptStatus})`)
 
-    // Wait for the actual Phase 2 vertical slice: Ghostty WASM mounted, the
-    // native node-pty process spawned, and the lazy tree populated.
+    // Wait for Ghostty WASM, native node-pty, and the lazy tree.
     const terminalStatus = (await withTimeout(
       win.webContents.executeJavaScript(`
         new Promise((resolve, reject) => {
@@ -2139,10 +2117,7 @@ async function runSmoke(): Promise<number> {
     supervisor.write(
       secondTerminal.id,
       secondTerminal.ownerId,
-      // Keep the command active while the renderer observes the OSC title. CI
-      // shells commonly reset their title from PROMPT_COMMAND as soon as the
-      // next prompt is drawn, which can otherwise overwrite this fixture while
-      // leaving its bell badge intact.
+      // Keep the OSC-title fixture ahead of CI shells resetting at their prompt.
       "printf '\\033]0;Smoke agent\\007\\007'; sleep 10\n",
     )
     const terminalSignalStatus = (await withTimeout(
@@ -2195,7 +2170,9 @@ async function runSmoke(): Promise<number> {
           const deadline = Date.now() + 15000;
           const poll = () => {
             const file = [...document.querySelectorAll('.file-row')]
-              .find((node) => node.textContent?.trim() === 'AGENTS.md');
+              .find((node) =>
+                node.querySelector('.tree-file-name')?.textContent?.trim() === 'AGENTS.md'
+              );
             if (!file) {
               if (Date.now() > deadline) return reject(new Error('AGENTS.md missing from tree'));
               return setTimeout(poll, 50);
@@ -3971,11 +3948,30 @@ async function runSmoke(): Promise<number> {
       }
     }
     console.log(`[smoke] terminal recovery picker OK (${recoveryStatus})`)
+    const rendererOwnerId = win.webContents.id
+    const rendererOwnedRoute = await webPaneRoutes.open({
+      ownerId: rendererOwnerId,
+      sourceTerminalId: supervisor.list()[0]?.id ?? 'smoke-recovery-shell',
+      workspaceRoot: smokeRoot,
+      host,
+      url: 'http://localhost:61337/renderer-destruction',
+    })
+    if (!webPaneRoutes.has(rendererOwnedRoute.paneId, rendererOwnerId)) {
+      throw new Error('renderer-owned web route was not registered')
+    }
+    const rendererDestroyed = new Promise<void>((resolve) =>
+      win.webContents.once('destroyed', () => resolve()),
+    )
     win.destroy()
+    await withTimeout(rendererDestroyed, 'window webContents was not destroyed')
+    await smokeWaitFor(
+      () => !webPaneRoutes.has(rendererOwnedRoute.paneId, rendererOwnerId),
+      'webContents destruction left an owner web route alive',
+    )
     if (supervisor.list().length !== 0) {
       throw new Error('window close left an orphaned PTY')
     }
-    console.log('[smoke] window close PTY cleanup OK')
+    console.log('[smoke] webContents destruction owner cleanup + window PTY cleanup OK')
 
     console.log('HVIR_SMOKE_OK')
     return 0

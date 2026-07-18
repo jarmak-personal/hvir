@@ -1269,6 +1269,92 @@ connections, SSH channels, or diagnostic logs; full DevTools, device emulation, 
 bookmarks, and general browser navigation; and automatically injecting page failures into an
 agent terminal.
 
+### ADR-014 — Modular monolith ownership and dependency discipline
+
+**Status:** Accepted.
+
+**Decision:** hvir remains a modular monolith inside its existing Electron renderer, main,
+and worker process boundaries. Within each process, code is organized by product capability.
+State, effects, and resource lifetimes have explicit owners; entry points construct, wire,
+start, and dispose those owners but do not implement workflows.
+
+Dependency direction is inward toward stable policy and ports:
+
+- Shared contracts and host-qualified value types import no main, renderer, or worker code.
+- Main bootstrap and Electron adapters depend on application coordinators; coordinators
+  depend on narrow capability ports; concrete `ProjectHost`, PTY, harness-provider, Git-worker,
+  preview, and web-pane adapters implement those ports at the edge.
+- Feature IPC registrars are transport adapters behind one authority router. They validate
+  and translate one feature's messages, then call application services; they do not coordinate
+  sibling features or import `ipcMain` directly.
+- The renderer shell composes feature models/controllers and views. Pure reducers, selectors,
+  recovery planners, and policy modules do not import React or the preload API; effect hooks
+  own subscriptions and invoke narrow typed ports; views receive state and events.
+- Worker entry points dispatch typed messages to stable facades. Capability modules share the
+  facade's runner, root validation, cancellation, and error policy rather than acquiring host
+  or renderer authority independently.
+
+Resource ownership is hierarchical and typed, not a blanket “renderer owns everything” rule.
+Application, renderer owner/generation, project, host-qualified workspace, tab/pane/session,
+and request generation are distinct qualifiers. Revocation rejects late async completion,
+and disposal is idempotent and deterministic in reverse ownership order.
+
+| Resource | Owner and qualifier | Survival and invalidation contract | Responsible disposer |
+|---|---|---|---|
+| Live PTY attachment/process | Main PTY supervisor; renderer owner/generation + terminal/session ID; host-qualified cwd | Survives workspace/project navigation. Ends on session close, renderer reload/destruction, workspace dismissal, project close, host failure, or shutdown. | PTY supervisor |
+| Durable terminal recovery record | Local metadata; host-qualified project/workspace + terminal ID + provider/profile launch revision | Survives renderer/window/app restart and navigation. Explicit forget/dismissal or deliberate rebind invalidates it; missing dependencies remain visible. | Terminal session registry |
+| Logical web pane and route | Main route registry; renderer owner/generation + pane ID + source terminal + host-qualified workspace + exact endpoint | Survives ordinary navigation and remains logically visible across SSH disconnect. Ends on pane/workspace/project close, renderer reload/destruction, or shutdown; unusable streams die on disconnect. | Web-pane route, session, and proxy disposers |
+| HTML preview | Main in-memory protocol; renderer presentation owner + preview ID | Survives tab/layout selection. Ends on release, renderer reload/destruction, project close/suspend, or shutdown. | HTML preview protocol registry |
+| Terminal attention | Renderer terminal/workspace/project hierarchy; main OS badge by renderer owner | Survives navigation until terminal focus. Renderer destruction ends presentation state; app focus clears only the OS aggregate. | Terminal attention controller and attention badge |
+| SSH authentication attempt | One logical `SshHost` connection generation | May outlive one renderer prompt presentation. Ends on success, bounded failure/cancellation, explicit disconnect, or disposal. | `SshHost` authentication coordinator |
+| SSH prompt lease | Renderer owner/generation + host/challenge ID | Presentation-only; response or owner/attempt invalidation ends it without transferring ownership of the host attempt. | Main SSH prompter |
+| Filesystem/worktree watch | Project host + host-qualified registered root + watch generation + bounded interest set | Survives selection changes covered by the same interests. Replacement, close, reconnect generation, suspend, or shutdown invalidates it. | Project watch controller/host disposer |
+| Workspace refresh/poll | Registered project + transition generation | Equivalent work may share an in-flight result. Close/switch generation, replacement by a newer result, or shutdown invalidates publication. | Project/workspace coordinator |
+
+Cross-feature workflows belong in explicitly named coordinators. A coordinator may depend on
+several narrow ports because sequencing them is its responsibility; it must not become a
+service locator or expose its dependencies ambiently. Public facades—`ProjectHost`,
+`TerminalPane`, the PTY supervisor, the harness registry/providers, and `GitEngine`—remain
+stable while consumers may receive narrower internal ports.
+
+The repository prohibits generic `utils`, catch-all `services`, feature policy in IPC or
+bootstrap, renderer feature state in the root component, and adapter details leaking into
+consumers. A module split is justified by one owner and one reason to change, not line count.
+The generated hotspot budget is a non-growth ratchet and review signal: report-only during
+the migration, blocking at the epic's finish, with separate production, test/smoke, and
+generated-code policies plus owned, expiring exceptions.
+
+Tests run at the seam owned by the code under test. Pure policy receives direct unit tests;
+feature consumers fake their narrow owned port; adapters may fake only their immediate
+external dependency and assert public security/failure/resource semantics. Electron,
+Chromium, cross-process, renderer-destruction, and real transport behavior stays at
+integration, smoke, or real-host altitude. The characterization baseline covers these
+contracts without treating one high-altitude suite as the whole safety net:
+
+| Contract | Fast or seam coverage | Electron/environment coverage |
+|---|---|---|
+| Startup, secure window, preload/typed IPC, workers, cleanup/failure exit | Renderer hardening, navigation, and IPC suites | Production `HVIR_SMOKE` workflow |
+| Exact provider recovery, profile/revision policy, PTY ownership | Provider, profile store, recovery, registry, and supervisor suites | Recovery workflow and 12-terminal capacity smoke |
+| Project/workspace switch, persistence, missing worktrees, watches | Project registry/watch, host-path, and rollup suites | Workspace and live-pane smoke workflows |
+| SSH auth/reconnect and shared channel capacity | `SshHost` and transport-pool seam suites | Capacity smoke plus the real-host Phase 7.5 matrix |
+| Navigation, previews, and hostile content | Renderer hardening, sandbox, link, and web-pane seam suites | Secure-window, guest/session, and reserved-shortcut smoke workflows |
+| Web-pane authority, origin/proxy isolation, owner revocation | Route registry, proxy/`ProjectHost`, and surface suites | Real terminal-link activation, renderer destruction, and real-SSH route matrix |
+
+**Why:** hvir's architectural intent already lives in good public seams, but entry points and
+large feature components accumulated unrelated coordination and resource lifecycles. Making
+ownership and dependency direction explicit lets those seams keep carrying product policy
+without importing a framework or creating new processes. Pure policy becomes cheap to test,
+while effectful behavior remains covered where Electron, Chromium, SSH, Git, or PTY lifecycle
+is real.
+
+**Rejected:** Redux/Zustand or another global renderer store (ownership remains feature- and
+workspace-specific); a dependency-injection framework or service locator (hides construction
+and authority); generic `utils`/`services` buckets (move coupling without naming an owner); a
+plugin system or new process boundary (outside this behavior-preserving pass); splitting only
+to satisfy line counts (does not fix dependencies or lifetimes); testing Electron lifecycle
+through mocks alone (cannot establish the cross-process contract); and a long-lived big-bang
+rewrite (prevents independent review and weakens the characterization safety net).
+
 ---
 
 ## 5. Architecture

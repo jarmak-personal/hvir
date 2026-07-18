@@ -36,7 +36,8 @@ complete them.
   `TerminalPane` interface. Never bet the project on an unstable libghostty API.
 - **Respect the seams.** All PTY spawning goes through the **PTY supervisor**; all
   harness-specific behavior (launch flags, resume commands, title conventions) stays
-  behind **`HarnessAdapter`**; the terminal stays behind **`TerminalPane`**; every
+  behind the main-owned **harness provider registry/providers** (the evolved
+  `HarnessAdapter` seam); the terminal stays behind **`TerminalPane`**; every
   filesystem/git/PTY/watch operation goes through **`ProjectHost`**
   (`LocalHost`/`SshHost`). Harness quirks never leak past their adapter.
   (ADR-003, ADR-006, ADR-010)
@@ -54,7 +55,8 @@ complete them.
 - **Code viewer:** CodeMirror 6 + Shiki (Monaco fallback)
 - **Git engine:** system `git` binary, off-thread (ADR-005)
 - **Terminals:** ghostty-web → libghostty (swappable)
-- **Session recovery:** harness resume with pre-assigned session ids, no daemon (ADR-006)
+- **Harness integration:** main-owned provider registry + launch profiles (ADR-006/012)
+- **Session recovery:** exact provider-owned harness resume, no daemon (ADR-006/012)
 - **Workspaces:** project (registered) → worktrees (discovered) (ADR-008)
 - **Remote projects:** SSH via `ssh2` behind `ProjectHost`; no remote server (ADR-010)
 - **Targets:** Linux (primary), modern macOS (primary). Windows only if incidental.
