@@ -195,6 +195,7 @@ jobs:
       - prepare
       - build-platforms
     runs-on: ubuntu-24.04
+    environment: npm-publish
     permissions:
       contents: write
       id-token: write
