@@ -4,8 +4,8 @@ import { join } from 'node:path'
 import { app, BrowserWindow, dialog, protocol, shell } from 'electron'
 
 import { registerIpcHandlers } from './ipc'
-import { dispatchWorkerHostCall } from './git/worker-host-broker'
-import { GIT_FETCH_ARGS, GIT_PULL_ARGS } from './git/git-engine'
+import { GitMutationAuthorization } from './git/mutation-authorization'
+import { GitWorkerHostRouter } from './git/worker-host-router'
 import { HtmlPreviewProtocol } from './html-preview-protocol'
 import { createWorkerClient, workerPath, type WorkerClient } from './worker-host'
 import { ProjectRegistry, RendererSshPrompter } from './project-registry'
@@ -69,6 +69,11 @@ function createWorkbenchEntry(): void {
     new RendererResourceScopes(),
     (scopes) => scopes.dispose(),
   )
+  const gitMutationAuthorizations = runtime.own(
+    'Git mutation authorizations',
+    new GitMutationAuthorization(),
+    (authorizations) => authorizations.dispose(),
+  )
 
   let echoWorker: WorkerClient<EchoWorkerProtocol> | null = null
   let gitWorker: WorkerClient<GitWorkerProtocol> | null = null
@@ -80,10 +85,6 @@ function createWorkbenchEntry(): void {
   let attentionBadge: AttentionBadge | null = null
   let workspaceCoordinator: WorkspaceCoordinator | null = null
   let projectCoordinator: ProjectCoordinator | null = null
-  const worktreePruneAuthorizations = new Set<string>()
-  const branchSwitchAuthorizations = new Set<string>()
-  const gitFetchAuthorizations = new Set<string>()
-  const gitPullAuthorizations = new Set<string>()
 
   const installRendererPresentation = (owner: RendererOwner): RendererOwner => {
     rendererScopes.register(owner, { lifetime: 'renderer', type: 'attention' }, () =>
@@ -218,48 +219,16 @@ function createWorkbenchEntry(): void {
       createWorkerClient<EchoWorkerProtocol>(workerPath('echo-worker.js'), 'hvir-echo'),
       (worker) => worker.dispose(),
     )
+    const gitHostRouter = new GitWorkerHostRouter({
+      authority: projectRegistry,
+      authorizations: gitMutationAuthorizations,
+    })
     gitWorker = runtime.own(
       'Git worker',
       createWorkerClient<GitWorkerProtocol>(
         workerPath('git-worker.js'),
         'hvir-git',
-        (call) => {
-          const path =
-            call.operation === 'readTextFile' ? call.path.path : (call.args[1] ?? '')
-          const authorization = gitMutationKey(call.hostId, path)
-          const pruneArgs = ['worktree', 'prune', '--expire', 'now', '--verbose']
-          const requestsWorktreePrune =
-            call.operation === 'exec' &&
-            call.args.length === pruneArgs.length + 2 &&
-            pruneArgs.every((arg, index) => call.args[index + 2] === arg)
-          const allowWorktreePrune =
-            requestsWorktreePrune && worktreePruneAuthorizations.delete(authorization)
-          const requestedBranch =
-            call.operation === 'exec' &&
-            call.args.length === 5 &&
-            call.args[2] === 'switch' &&
-            call.args[3] === '--no-guess'
-              ? call.args[4]
-              : undefined
-          const allowBranchSwitch = requestedBranch
-            ? branchSwitchAuthorizations.delete(
-                gitMutationKey(call.hostId, path, requestedBranch),
-              )
-              ? requestedBranch
-              : undefined
-            : undefined
-          const requestsFetch =
-            call.operation === 'exec' && sameGitArgs(call.args.slice(2), GIT_FETCH_ARGS)
-          const requestsPull =
-            call.operation === 'exec' && sameGitArgs(call.args.slice(2), GIT_PULL_ARGS)
-          const allowFetch = requestsFetch && gitFetchAuthorizations.delete(authorization)
-          const allowPull = requestsPull && gitPullAuthorizations.delete(authorization)
-          return dispatchWorkerHostCall(
-            call,
-            projectRegistry?.authorityForPath(call.hostId, path) ?? null,
-            { allowWorktreePrune, allowBranchSwitch, allowFetch, allowPull },
-          )
-        },
+        (call) => gitHostRouter.route(call),
       ),
       (worker) => worker.dispose(),
     )
@@ -462,21 +431,18 @@ function createWorkbenchEntry(): void {
       (workspace) => workspace.id === registry.active.workspaceId,
     )
 
-    const authorization = gitMutationKey(
-      project.registeredRoot.hostId,
-      project.registeredRoot.path,
-    )
-    if (worktreePruneAuthorizations.has(authorization)) {
-      throw new Error('A worktree prune is already running for this project')
-    }
-    worktreePruneAuthorizations.add(authorization)
+    const grant = gitMutationAuthorizations.grant({
+      kind: 'worktree-prune',
+      projectId,
+      root: project.registeredRoot,
+    })
     let discovery: WorktreeDiscovery
     try {
       discovery = await worker.request(GIT_PRUNE_WORKTREES_TYPE, {
         root: project.registeredRoot,
       })
     } finally {
-      worktreePruneAuthorizations.delete(authorization)
+      grant.revoke()
     }
 
     await registry.reconcileWorktrees(projectId, discovery)
@@ -532,11 +498,12 @@ function createWorkbenchEntry(): void {
       const projectId = registry.active.projectId
       coordinator.invalidateProject(projectId)
       await coordinator.settleProject(projectId)
-      const authorization = gitMutationKey(root.hostId, root.path, branch)
-      if (branchSwitchAuthorizations.has(authorization)) {
-        throw new Error('A branch switch is already running for this workspace')
-      }
-      branchSwitchAuthorizations.add(authorization)
+      const grant = gitMutationAuthorizations.grant({
+        kind: 'branch-switch',
+        projectId,
+        root,
+        target: branch,
+      })
       try {
         const relatedWorktreeRoots =
           registry
@@ -549,7 +516,7 @@ function createWorkbenchEntry(): void {
           relatedWorktreeRoots,
         })
       } finally {
-        branchSwitchAuthorizations.delete(authorization)
+        grant.revoke()
       }
       try {
         return await coordinator.refresh(projectId)
@@ -568,15 +535,15 @@ function createWorkbenchEntry(): void {
       const worker = gitWorker
       if (!registry || !worker) throw new Error('Git fetch is unavailable')
       assertActiveGitWorkspace(root, registry, 'fetching')
-      const authorization = gitMutationKey(root.hostId, root.path)
-      if (gitFetchAuthorizations.has(authorization)) {
-        throw new Error('A fetch is already running for this workspace')
-      }
-      gitFetchAuthorizations.add(authorization)
+      const grant = gitMutationAuthorizations.grant({
+        kind: 'fetch',
+        projectId: registry.active.projectId,
+        root,
+      })
       try {
         await worker.request(GIT_FETCH_TYPE, { root })
       } finally {
-        gitFetchAuthorizations.delete(authorization)
+        grant.revoke()
       }
       return registry.state()
     })
@@ -593,11 +560,11 @@ function createWorkbenchEntry(): void {
       const projectId = registry.active.projectId
       coordinator.invalidateProject(projectId)
       await coordinator.settleProject(projectId)
-      const authorization = gitMutationKey(root.hostId, root.path)
-      if (gitPullAuthorizations.has(authorization)) {
-        throw new Error('A pull is already running for this workspace')
-      }
-      gitPullAuthorizations.add(authorization)
+      const grant = gitMutationAuthorizations.grant({
+        kind: 'pull',
+        projectId,
+        root,
+      })
       try {
         const relatedWorktreeRoots =
           registry
@@ -606,7 +573,7 @@ function createWorkbenchEntry(): void {
             .map((workspace) => workspace.root) ?? []
         await worker.request(GIT_PULL_TYPE, { root, relatedWorktreeRoots })
       } finally {
-        gitPullAuthorizations.delete(authorization)
+        grant.revoke()
       }
       try {
         return await coordinator.refresh(projectId)
@@ -629,17 +596,6 @@ function createWorkbenchEntry(): void {
     if (registry.active.host.connectionState !== 'connected') {
       throw new Error(`Reconnect before ${operation}`)
     }
-  }
-
-  function sameGitArgs(actual: readonly string[], expected: readonly string[]): boolean {
-    return (
-      actual.length === expected.length &&
-      actual.every((arg, index) => arg === expected[index])
-    )
-  }
-
-  function gitMutationKey(hostId: string, path: string, target?: string): string {
-    return JSON.stringify(target === undefined ? [hostId, path] : [hostId, path, target])
   }
 
   function projectRootArgument(): string | undefined {
