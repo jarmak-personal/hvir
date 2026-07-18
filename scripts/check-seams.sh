@@ -81,6 +81,18 @@ hits=$(grep -nE 'Ssh(FileAccess|TransportPool|WatchService)' \
   src/main/project-host/index.ts || true)
 report "only SshHost is exported as the remote host façade" "$hits"
 
+# 11. Git capability modules share one command/cancellation/root policy. No
+# capability constructs a git invocation against the host directly.
+hits=$(grep -rnF ".exec('git'" src/main/git --include='*.ts' \
+  | grep -vE '^src/main/git/(git-command-context|worker-host-broker)\.ts' || true)
+report "Git commands use the shared command context" "$hits"
+
+# 12. The utility-process proxy implements only Git's exact exec/read port,
+# rather than pretending to be a complete ProjectHost with never placeholders.
+hits=$(grep -nE 'implements ProjectHost|execStream\(\): never|spawnPty\(\): never|connectLoopback\(\): never|readFile\(\): never|writeFile\(\): never|readdir\(\): never|stat\(\): never|realpath\(\): never|watch\(\): never' \
+  src/workers/git-worker.ts || true)
+report "Git worker proxy exposes only exec and text-read operations" "$hits"
+
 if [[ "$fail" -ne 0 ]]; then
   printf '\n\033[31mseam check failed\033[0m\n'
   exit 1

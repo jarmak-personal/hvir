@@ -23,11 +23,9 @@ import {
   type WorkerHostCallInput,
   type WorkerHostResult,
   type HostId,
-  type HostConnectionState,
-  type HostWatchTier,
 } from '../shared'
+import type { GitHostPort } from '../main/git/git-command-context'
 import { GitEngine } from '../main/git/git-engine'
-import type { ProjectHost } from '../main/project-host'
 
 interface ParentPort {
   on(
@@ -150,23 +148,8 @@ function decodeRelatedWorktreeRoots(value: unknown, root: HostPath): readonly Ho
   })
 }
 
-class ProxyGitHost implements ProjectHost {
-  readonly connectionState: HostConnectionState = 'connected'
-  readonly watchTier: HostWatchTier = 'native'
+class ProxyGitHost implements GitHostPort {
   constructor(readonly hostId: HostId) {}
-  connect(): Promise<void> {
-    return Promise.resolve()
-  }
-  dispose(): Promise<void> {
-    return Promise.resolve()
-  }
-  onConnectionState(cb: (state: HostConnectionState) => void): () => void {
-    cb('connected')
-    return () => undefined
-  }
-  defaultShell(): Promise<string> {
-    return Promise.reject(new Error('git worker does not resolve interactive shells'))
-  }
   exec(
     command: string,
     args: readonly string[],
@@ -190,33 +173,6 @@ class ProxyGitHost implements ProjectHost {
       hostId: this.hostId,
       path,
     }) as Promise<string>
-  }
-  execStream(): never {
-    throw new Error('git worker does not stream host commands')
-  }
-  spawnPty(): never {
-    throw new Error('git worker cannot spawn PTYs')
-  }
-  connectLoopback(): never {
-    throw new Error('git worker does not open loopback streams')
-  }
-  readFile(): never {
-    throw new Error('git worker reads text only')
-  }
-  writeFile(): never {
-    throw new Error('git worker is read-only')
-  }
-  readdir(): never {
-    throw new Error('git worker does not list directories')
-  }
-  stat(): never {
-    throw new Error('git worker does not stat files')
-  }
-  realpath(): never {
-    throw new Error('git worker does not canonicalize paths')
-  }
-  watch(): never {
-    throw new Error('git worker does not watch paths')
   }
 }
 
