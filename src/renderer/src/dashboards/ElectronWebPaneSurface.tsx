@@ -8,7 +8,11 @@ import {
   type Ref,
 } from 'react'
 
-import type { WebPaneSurfaceHandle, WebPaneSurfaceProps } from './web-pane-surface'
+import type {
+  WebPaneSurface,
+  WebPaneSurfaceHandle,
+  WebPaneSurfaceProps,
+} from './web-pane-surface'
 
 interface WebViewElement extends HTMLElement {
   src: string
@@ -28,9 +32,9 @@ const WebViewTag = 'webview' as unknown as ComponentType<{
 }>
 
 /** The only renderer module allowed to know that v1 uses Electron <webview>. */
-export const ElectronWebPaneSurface = forwardRef<
+export const ElectronWebPaneSurface: WebPaneSurface = forwardRef<
   WebPaneSurfaceHandle,
-  Omit<WebPaneSurfaceProps, 'ref'>
+  WebPaneSurfaceProps
 >(function ElectronWebPaneSurface(
   { paneId, partition, initialUrl, onNavigate, onTitle, onDiagnostic },
   forwardedRef,

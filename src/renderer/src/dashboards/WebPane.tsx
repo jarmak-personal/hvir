@@ -7,6 +7,7 @@ import type {
 } from '../../../shared'
 import { ElectronWebPaneSurface } from './ElectronWebPaneSurface'
 import type { WebPaneSurface, WebPaneSurfaceHandle } from './web-pane-surface'
+import { webPaneUrlFromInput } from './web-pane-url'
 
 const MAX_DIAGNOSTICS = 50
 const MAX_DIAGNOSTIC_TEXT = 1_000
@@ -81,11 +82,9 @@ export function WebPane({
   }, [view.routeDiagnostic])
 
   const navigate = (): void => {
-    const trimmed = pathInput.trim()
-    const target = trimmed.startsWith('/') ? trimmed : `/${trimmed}`
-    surfaceRef.current?.navigate(`${view.origin}${target}`)
+    surfaceRef.current?.navigate(webPaneUrlFromInput(view.origin, pathInput))
   }
-  const currentUrl = `${view.origin}${pathInput || '/'}`
+  const currentUrl = webPaneUrlFromInput(view.origin, pathInput)
 
   return (
     <div className="web-pane">

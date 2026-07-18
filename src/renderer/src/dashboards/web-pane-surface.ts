@@ -1,4 +1,4 @@
-import type { ComponentType, Ref } from 'react'
+import type { ForwardRefExoticComponent, RefAttributes } from 'react'
 import type { WebPaneDiagnosticEvent } from '../../../shared'
 
 export interface WebPaneSurfaceHandle {
@@ -9,7 +9,6 @@ export interface WebPaneSurfaceHandle {
 }
 
 export interface WebPaneSurfaceProps {
-  readonly ref?: Ref<WebPaneSurfaceHandle>
   readonly paneId: string
   readonly partition: string
   readonly initialUrl: string
@@ -19,4 +18,6 @@ export interface WebPaneSurfaceProps {
 }
 
 /** Swappable guest boundary; product state never depends on a webview element. */
-export type WebPaneSurface = ComponentType<WebPaneSurfaceProps>
+export type WebPaneSurface = ForwardRefExoticComponent<
+  WebPaneSurfaceProps & RefAttributes<WebPaneSurfaceHandle>
+>

@@ -79,6 +79,13 @@ describe('terminal web links', () => {
     ])
     expect(detectTerminalWebLinks('ratio 12:34 and time 08:15:00')).toEqual([])
     expect(detectTerminalWebLinks('remote-host:8080/path')).toEqual([])
+    expect(detectTerminalWebLinks('invalid localhost:65536')).toEqual([])
+    expect(detectTerminalWebLinks('claimed http://localhost:65536')).toEqual([
+      { target: 'http://localhost:65536', start: 8, end: 29 },
+    ])
+    expect(detectTerminalWebLinks('claimed http://user:pass@localhost:5173/')).toEqual([
+      { target: 'http://user:pass@localhost:5173/', start: 8, end: 39 },
+    ])
     expect(detectTerminalFileLinks('see http://localhost:8082/reef')).toEqual([])
   })
 

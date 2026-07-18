@@ -1,18 +1,24 @@
-import { createElement } from 'react'
+import { createElement, forwardRef } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it, vi } from 'vitest'
 
 import { WebPane, type WebViewState } from '../src/renderer/src/dashboards/WebPane'
-import type { WebPaneSurfaceProps } from '../src/renderer/src/dashboards/web-pane-surface'
+import type {
+  WebPaneSurfaceHandle,
+  WebPaneSurfaceProps,
+} from '../src/renderer/src/dashboards/web-pane-surface'
+import { webPaneUrlFromInput } from '../src/renderer/src/dashboards/web-pane-url'
 import { localPath } from '../src/shared'
 
 describe('WebPaneSurface seam', () => {
   it('renders product chrome against a fake surface without an Electron webview', () => {
     let received: WebPaneSurfaceProps | undefined
-    const FakeSurface = (props: WebPaneSurfaceProps) => {
-      received = props
-      return createElement('div', { 'data-fake-web-pane-surface': props.paneId })
-    }
+    const FakeSurface = forwardRef<WebPaneSurfaceHandle, WebPaneSurfaceProps>(
+      function FakeSurface(props, _ref) {
+        received = props
+        return createElement('div', { 'data-fake-web-pane-surface': props.paneId })
+      },
+    )
     const view: WebViewState = {
       id: 'c53b63f6-28bd-43ee-a6a6-fd4fdba0f9c8',
       title: 'Agent dashboard',
@@ -45,6 +51,18 @@ describe('WebPaneSurface seam', () => {
         partition: view.partition,
         initialUrl: view.url,
       }),
+    )
+  })
+
+  it('normalizes an edited path for both pane navigation and browser handoff', () => {
+    expect(webPaneUrlFromInput('http://localhost:5173', 'reef?tab=1')).toBe(
+      'http://localhost:5173/reef?tab=1',
+    )
+    expect(webPaneUrlFromInput('http://localhost:5173', '  /reef#logs  ')).toBe(
+      'http://localhost:5173/reef#logs',
+    )
+    expect(webPaneUrlFromInput('http://localhost:5173', '')).toBe(
+      'http://localhost:5173/',
     )
   })
 })

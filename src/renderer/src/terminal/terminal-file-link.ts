@@ -131,7 +131,14 @@ export function detectTerminalWebLinks(text: string): readonly TerminalWebLink[]
   while (match) {
     const captured = match[1] ?? ''
     const target = captured.replace(WEB_TRAILING_PUNCTUATION, '')
-    if (target) {
+    // Schemed lookalikes are still claimed so Ghostty's built-in provider
+    // cannot send malformed or userinfo-bearing loopback URLs to window.open.
+    // Scheme-less output has no competing provider, so surface it only when
+    // activation can produce an authorized URL.
+    if (
+      target &&
+      (/^http:\/\//i.test(target) || normalizeTerminalWebTarget(target) !== undefined)
+    ) {
       const start = match.index + match[0].length - captured.length
       links.push({ target, start, end: start + target.length - 1 })
     }
