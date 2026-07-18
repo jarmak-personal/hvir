@@ -19,6 +19,7 @@ import {
   type HostId,
   type HostPath,
   type HostWatchTier,
+  type LoopbackEndpoint,
   type Stat,
   type WatchEvent,
   type WatchEventType,
@@ -34,7 +35,7 @@ import type {
   WatchOptions,
   WriteFileOptions,
 } from './project-host'
-import { MAX_EXEC_STREAM_WRITE_BYTES } from './project-host'
+import { assertLoopbackEndpoint, MAX_EXEC_STREAM_WRITE_BYTES } from './project-host'
 import type { SshAliasConfig } from './ssh-config'
 
 export interface SshIdentity {
@@ -90,11 +91,19 @@ export const SSH_MAX_CONTROL_TRANSPORTS = 2
 export const SSH_CONTROL_CHANNEL_BUDGET = 6
 export const SSH_TERMINAL_CHANNEL_BUDGET = 8
 export const SSH_DEFAULT_MAX_CONCURRENT_EXECS = 4
+/**
+ * Tunnel data connections ride dedicated transports so a dashboard holding
+ * many sockets (keep-alive pools, websockets, event streams) can never starve
+ * git/exec channels on the control transports. Two transports of sixteen
+ * channels bound a dashboard-heavy session at 32 concurrent sockets.
+ */
+export const SSH_TUNNEL_CHANNEL_BUDGET = 16
+export const SSH_MAX_TUNNEL_TRANSPORTS = 2
 export const SSH_TRANSPORT_IDLE_GRACE_MS = 5 * 60_000
 export const SSH_MAX_KEYBOARD_INTERACTIVE_ROUNDS = 4
 const SSH_CHANNEL_OPEN_ATTEMPTS = 5
 
-type SshTransportRole = 'control' | 'terminal'
+type SshTransportRole = 'control' | 'terminal' | 'tunnel'
 
 interface SshTransport {
   readonly id: number
@@ -181,7 +190,6 @@ export class SshHost implements ProjectHost {
     string,
     { metadata: string; digest: string; observeUntil: number }
   >()
-
   constructor(private readonly options: SshHostOptions) {
     this.hostId = asHostId(options.config.alias)
     const requestedExecs = options.maxConcurrentExecs ?? SSH_DEFAULT_MAX_CONCURRENT_EXECS
@@ -536,6 +544,38 @@ export class SshHost implements ProjectHost {
         rejectPendingReady(new Error('Exec stream is disposed'))
         stream?.close()
       },
+    }
+  }
+
+  async connectLoopback(
+    endpoint: LoopbackEndpoint,
+  ): Promise<import('node:stream').Duplex> {
+    assertLoopbackEndpoint(endpoint)
+    await this.connected()
+    return this.openTunnelChannel(endpoint)
+  }
+
+  private async openTunnelChannel(endpoint: LoopbackEndpoint): Promise<ClientChannel> {
+    const reservation = await this.reserveTransport('tunnel')
+    try {
+      const channel = await new Promise<ClientChannel>((resolve, reject) => {
+        try {
+          reservation.transport.client.forwardOut(
+            '127.0.0.1',
+            0,
+            endpoint.hostname,
+            endpoint.port,
+            (error, stream) => (error ? reject(error) : resolve(stream)),
+          )
+        } catch (error) {
+          reject(asError(error))
+        }
+      })
+      this.activateChannel(reservation, channel)
+      return channel
+    } catch (error) {
+      reservation.release()
+      throw error
     }
   }
 
@@ -1138,7 +1178,11 @@ export class SshHost implements ProjectHost {
       failureListeners: new Set(),
       pendingChannels: 0,
       channelBudget:
-        role === 'control' ? SSH_CONTROL_CHANNEL_BUDGET : SSH_TERMINAL_CHANNEL_BUDGET,
+        role === 'control'
+          ? SSH_CONTROL_CHANNEL_BUDGET
+          : role === 'tunnel'
+            ? SSH_TUNNEL_CHANNEL_BUDGET
+            : SSH_TERMINAL_CHANNEL_BUDGET,
       sftpActive: false,
       closed: false,
     }
@@ -1217,7 +1261,8 @@ export class SshHost implements ProjectHost {
         const roleCount = live.filter((transport) => transport.role === role).length
         if (
           live.length >= SSH_MAX_PHYSICAL_TRANSPORTS ||
-          (role === 'control' && roleCount >= SSH_MAX_CONTROL_TRANSPORTS)
+          (role === 'control' && roleCount >= SSH_MAX_CONTROL_TRANSPORTS) ||
+          (role === 'tunnel' && roleCount >= SSH_MAX_TUNNEL_TRANSPORTS)
         ) {
           throw sshCapacityError(role)
         }

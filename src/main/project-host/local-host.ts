@@ -15,6 +15,7 @@ import { spawn } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { realpathSync } from 'node:fs'
 import { promises as fsp } from 'node:fs'
+import { connect } from 'node:net'
 import { basename, dirname, join, relative, sep } from 'node:path'
 import { StringDecoder } from 'node:string_decoder'
 import chokidar from 'chokidar'
@@ -28,6 +29,7 @@ import type {
   HostConnectionState,
   HostWatchTier,
   HostPath,
+  LoopbackEndpoint,
   Stat,
   WatchEvent,
   WatchEventType,
@@ -44,7 +46,7 @@ import type {
   WatchOptions,
   WriteFileOptions,
 } from './project-host'
-import { MAX_EXEC_STREAM_WRITE_BYTES } from './project-host'
+import { assertLoopbackEndpoint, MAX_EXEC_STREAM_WRITE_BYTES } from './project-host'
 
 const DEFAULT_MAX_BUFFER = 10 * 1024 * 1024 // 10 MiB
 
@@ -328,6 +330,22 @@ export class LocalHost implements ProjectHost {
         proc.kill(signal)
       },
     }
+  }
+
+  connectLoopback(endpoint: LoopbackEndpoint): Promise<import('node:stream').Duplex> {
+    assertLoopbackEndpoint(endpoint)
+    return new Promise((resolve, reject) => {
+      const socket = connect({ host: endpoint.hostname, port: endpoint.port })
+      const fail = (error: Error): void => {
+        socket.destroy()
+        reject(error)
+      }
+      socket.once('error', fail)
+      socket.once('connect', () => {
+        socket.removeListener('error', fail)
+        resolve(socket)
+      })
+    })
   }
 
   async readFile(path: HostPath, _opts: ReadFileOptions = {}): Promise<Buffer> {

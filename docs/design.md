@@ -995,6 +995,280 @@ one lowest-common-denominator telemetry object (hides useful truthful difference
 third-party code in main or renderer (an extension host by another name); and making hvir an
 ACP/RPC agent frontend instead of continuing to host the user's native terminal harness.
 
+### ADR-013 — User-activated loopback web panes over `ProjectHost` routes
+
+**Status:** Accepted.
+
+**Decision:** hvir may open an ordinary HTTP loopback link printed in a terminal as a
+transient **web pane** in that terminal's host-qualified workspace. This is a native view of
+live agent output, not a dashboard registry, browser, server manager, task runner, or
+deployment surface. The agent or user starts the server through the ordinary terminal; hvir
+does not infer commands, probe ports, own the process, or attempt to stop it when the viewer
+closes.
+
+Opening the initial pane is an explicit user gesture on a terminal link. `TerminalPane`
+recognizes both schemed and scheme-less loopback links before file-and-line parsing and emits
+one typed activation carrying the exact terminal ID, renderer owner, and host-qualified
+project and workspace roots. Generic `window.open` interception is not an activation source.
+A later hvir-owned affordance for a blocked different-loopback navigation may open or select
+another pane while inheriting that exact provenance; the guest navigation itself is never
+authorization.
+
+V1 accepts `http://` on `localhost`, `127.0.0.1`, `[::1]`, and the commonly printed
+unspecified bind addresses `0.0.0.0` and `[::]`, with ports 1–65535. URLs containing a
+username or password are rejected before normalization or routing rather than having their
+userinfo silently stripped. An unspecified bind address is not a client origin, so hvir
+visibly canonicalizes it to `localhost`; all other accepted hosts retain their
+browser-visible spelling. `https://` is deferred because certificate and trust policy
+require a separate decision. `ws://` is supported only as page traffic ancillary to an
+authorized HTTP pane, including ordinary development-server HMR.
+
+One pane is reused per `(host-qualified workspace, canonical loopback origin)`. Activating a
+second path on that origin selects the existing pane and navigates it; browser history
+retains the prior path. The pane appears as an ordinary viewer pseudo-tab with a bounded,
+sanitized page title, its pinned origin, editable path/query/fragment, back, forward, reload,
+full-page, and explicit **Open in browser** controls. Full-page mode hides hvir chrome without
+unmounting the guest and is not persisted. Page errors render in place instead of becoming a
+modal or blank tab.
+
+If a development server restarts on a different port, the old pane remains at its old origin
+and shows its in-place connection error. Activating the newly printed link opens or selects
+the pane for the new origin. hvir never silently retargets an existing pane, because doing so
+would change both its authority and browser state.
+
+**Lifetime follows workspace ownership, not visibility.** A web pane belongs to its
+host-qualified workspace and originating terminal, not to the currently selected project or
+workspace. Switching projects or workspaces hides the pane without destroying its guest
+contents, in-memory browser session, or route. Returning restores the live page without a
+reload. This mirrors ADR-008's preservation of live terminals across navigation.
+
+The pane and route end when the user explicitly closes the pane, dismisses its workspace,
+closes its project, reloads its owning renderer, or quits hvir. Teardown never signals or
+kills the server process. A host disconnect destroys unusable network streams but retains
+the logical pane in a visible disconnected state; reconnect does not silently reload the
+page, and an explicit reload establishes a fresh route. Web panes, routes, browser history,
+cookies, and page state are not persisted or restored after app relaunch. Capacity is
+bounded globally and per host, but hvir never silently evicts an inactive pane: reaching a
+limit produces an explicit management/error surface naming what must be closed.
+
+**Remote routing preserves the application's origin.** For an SSH workspace,
+`http://localhost:5173/path` remains exactly that URL inside the guest. Main creates a unique
+in-memory Electron session for the pane and configures a hvir-owned, loopback-bound transport
+proxy for that session. Connections to the authorized endpoint are carried as bounded TCP
+streams through the pane's `ProjectHost`; `SshHost` uses SSH direct-TCP forwarding and
+`LocalHost` uses the identity/direct route. hvir does not rewrite HTML, JavaScript, response
+bodies, cookies, headers, redirects, or application URLs. Preserving the origin retains Host
+headers, absolute same-origin URLs, cookies and web storage, service-worker scope, and
+WebSocket/HMR behavior. Per-pane sessions also allow two SSH projects to use the apparent
+origin `http://localhost:5173` without sharing routing or browser state.
+
+The loopback listener is authenticated, not merely hard to discover. Every pane receives a
+high-entropy, memory-only proxy username and password that never enter the workbench renderer
+or guest. A main-owned handler for the guest `webContents` `login` event supplies them only
+for a proxy-authentication challenge whose listener, realm, guest, and live route record all
+match; every other basic-auth request remains guest content and is not answered by hvir. The
+proxy validates credentials on every absolute-form HTTP request and `CONNECT` before opening
+a `ProjectHost` stream, strips proxy credentials rather than forwarding them, and rejects
+unauthenticated or stale-generation connections. Credentials and the listener die with the
+pane. A different local process may discover the loopback port, but cannot use it as a route
+to the remote host without that per-pane secret.
+
+Per-pane isolation intentionally differs from one general-purpose browser session. Cookies
+are scoped by host rather than port, so a frontend on `:5173` and an explicitly authorized
+API on `:3000` share host cookies when used through the same pane session, but opening those
+origins as two independent panes does not share cookies or storage. Likewise, `localhost`
+and `127.0.0.1` remain distinct origins, pane identities, and sessions even when they reach
+the same server. hvir does not merge those aliases or silently trade isolation for ambient
+browser state.
+
+The proxy is a transport, not open network authority. Main authorizes only the endpoint the
+user activated. A request for another loopback host or port is blocked before it can fall
+through to the user's local machine; the pane may offer an explicit action to authorize that
+additional loopback endpoint on the same `ProjectHost`, after which normal browser CORS rules
+still apply. Public-internet subresources use normal browser networking.
+
+Top-level navigation and server redirects remain confined to the pane's primary origin, with
+three explicit outcomes. A same-origin navigation stays in the pane, and a same-origin
+new-window request may be converted into current-pane navigation. A different loopback
+origin is prevented and produces a hvir-owned affordance to open or select the pane for that
+origin on the same `ProjectHost`, subject to the same parsing, capacity, and main-owned
+authorization as a terminal activation. An external HTTP or HTTPS origin is prevented and
+produces an affordance such as **Open example.com in your browser**; only clicking that hvir
+chrome invokes the trusted external-open path. Other schemes are blocked without an
+external-open action. No different origin is ever authorized for top-level in-pane
+navigation, and no guest click, script, redirect chain, or `window.open` automatically
+launches the system browser. OAuth redirects therefore leave hvir through this explicit
+browser affordance in v1 rather than expanding the pane into general browsing.
+
+An external browser cannot inherit hvir's pane-scoped session proxy. For a local workspace,
+**Open in browser** opens the direct origin. For an SSH workspace, the same explicit control
+may create a conventional loopback forward and open its ephemeral local origin, visibly
+describing that this compatibility path changes the browser origin. That lease is bounded and
+ends with the pane. Guest content can never invoke this control or call `shell.openExternal`.
+
+**The embedded guest is hostile project content.** The React surface depends only on a
+narrow, swappable `WebPaneSurface`, paralleling `TerminalPane`; web-pane state, commands, and
+tests do not depend directly on a `<webview>` DOM element. V1 may implement that surface with
+Electron `<webview>` because it handles anti-framing pages and React layout without turning
+the main process into a geometry manager. The implementation must isolate all webview-specific
+event translation and lifecycle behavior behind the seam, including tests that run against a
+fake surface. Electron's warning that `<webview>` navigation and event routing may change is
+accepted only behind this replacement boundary; moving to `WebContentsView` must not alter
+the product or `ProjectHost` contracts.
+
+Main denies `will-attach-webview` unless the sender, opaque pane ID, initial URL, partition,
+and one unused attachment slot correspond to an exact live `WebPaneRouteRegistry` record.
+The authorized URL and partition come from that record rather than renderer-supplied
+attributes; after validation, main atomically binds the resulting guest `webContents` to the
+record. Missing, duplicate, mismatched, revoked, or renderer-invented attachments call
+`preventDefault()` and never create a guest. Main then validates and overrides all guest
+preferences before the one allowed attachment.
+
+Node integration is off; context isolation, sandboxing, and web security remain on; no guest
+preload, hvir IPC bridge, renderer integration, or guest DevTools is available. Permission
+request and permission check handlers deny every browser permission by default, including
+media, geolocation, notifications, display capture, device access, filesystem access,
+fullscreen, and clipboard reads. Downloads are denied in v1. Pane sessions are unique,
+non-persistent, and never shared with hvir or another pane. Navigation policy covers initial
+attachment, `will-navigate`, redirects, in-page new-window requests, and renderer replacement;
+allowing any `127.0.0.1` port is not equivalent to authorizing the exact pane route.
+
+New browser windows and popups are denied, but ordinary application interaction remains
+functional. Text fields, forms, in-page HTML dialogs, and JavaScript `alert`, `confirm`, and
+`prompt` are allowed inside the guest. Browser-style consecutive-dialog protection is on.
+Guest dialogs may pause that page's JavaScript but cannot block hvir paint, project/workspace
+switching, pane close, or app shutdown; a guest `beforeunload` handler cannot veto hvir
+lifecycle. File selection and any future clipboard-write or download affordance are separate,
+explicit user capabilities rather than consequences of popup permission.
+
+Reserved hvir shortcuts take precedence while the guest is focused. Main and
+`WebPaneSurface` intercept the centrally defined workbench bindings—including project and
+workspace switching, pane close, and escape from full-page—before guest dispatch, prevent the
+guest from swallowing or remapping them, and forward only a typed hvir command. Ordinary
+unreserved typing and application shortcuts continue to reach the page.
+
+**Native value is provenance plus bounded diagnostics, not browser chrome.** Every pane
+retains the exact terminal provenance that opened it for as long as that terminal exists.
+It offers **Back to terminal** and a small, read-only diagnostics surface containing bounded
+recent navigation/tunnel failures, failed HTTP requests, console warnings/errors, and guest
+crashes. This state stays in memory, is bounded by count and byte size, and is collected
+outside the render hot path. hvir does not record request or response bodies, cookies,
+headers, form values, DOM contents, or ambient browsing activity. Credentials are removed
+from URLs and query/fragment values are omitted from diagnostic exports by default; console
+text is potentially sensitive and is always previewed before export.
+
+V1 provides **Copy report** and **Reveal source terminal**. A typed diagnostic report may
+later be delivered directly only through an explicit harness-provider capability and the PTY
+supervisor's exact terminal ownership; generic web-pane code never formats a harness prompt
+or writes directly to a PTY. If the source terminal has closed or its provider cannot safely
+accept feedback, copy/reveal remains the honest fallback. Guest content cannot create,
+modify, or submit a report, and hvir never sends diagnostics to an agent automatically.
+
+Page and route failures remain pane-scoped because they do not imply that a project is
+unavailable. Host-wide SSH loss also participates in the existing project connection
+surface, while each affected pane derives its disconnected state from that same host event.
+Diagnostics may therefore move back toward the originating agent without conflating an app
+bug, a refused port, and a failed project connection.
+
+**Authority and responsiveness:** `ProjectHost` gains a narrow loopback-stream operation,
+not an arbitrary destination or renderer socket API. Main owns a `WebPaneRouteRegistry`
+keyed by renderer owner, opaque pane ID, host-qualified workspace root, and authorized
+endpoint set. Creation is allowed only from an exact live terminal activation in the active
+workspace or from a hvir-owned different-loopback affordance carrying an existing live
+pane's exact provenance. Once created, the registry record—not continued active-workspace
+selection—is the capability that keeps the route alive while the user navigates elsewhere.
+An ordinary workspace switch therefore does not widen inactive-workspace filesystem IPC.
+Closing or dismissing the owning workspace/project revokes the record; late opens,
+redirects, proxy authentication, proxy connections, and teardown callbacks carry an
+ownership generation and fail closed after revocation. Duplicate opens and closes are atomic
+and idempotent.
+
+Web traffic never crosses renderer IPC. Main streams bytes between the local proxy and
+`ProjectHost` with backpressure, bounded headers/handshakes, connection timeouts, and
+per-pane/per-host admission limits; response bodies remain in Chromium and the network
+stream. SSH web routes use bounded auxiliary transport capacity and never occupy the
+reserved control path or borrow terminal transports. Capacity refusal fails visibly inside
+the pane and does not delay first paint, Git, filesystem browsing, terminal input, or harness
+telemetry. Exact numerical defaults belong to the implementation plan and must be justified
+by multi-pane local and real-SSH evidence; changing them does not change this ADR's bounded,
+no-silent-eviction contract.
+
+**Acceptance:** unit and integration coverage must establish:
+
+- terminal parsing for schemed, scheme-less, IPv4, IPv6, unspecified-bind, malformed,
+  out-of-range, userinfo-bearing, file-and-line, and lookalike links, with strict userinfo
+  rejection and web recognition before file parsing;
+- typed provenance, main-side workspace/terminal ownership, survival across project and
+  workspace switches, revocation on explicit close/dismissal, stale-generation rejection,
+  idempotent teardown, bounded admission under rapid repeated activation, and explicit
+  old-error/new-pane behavior when a development server changes ports;
+- preserved URL, Host header, cookies/storage, same-origin redirects, WebSocket/HMR, and two
+  SSH projects using the same apparent loopback origin through isolated sessions, plus the
+  intentional cookie/storage split between separate ports and host aliases opened as panes;
+- refusal of other loopback endpoints without explicit authorization and proof that no
+  remote request can fall through to the user's local service on the same port; authenticated
+  rejection of local processes that connect directly to a pane proxy; and proof that proxy
+  credentials never reach the project host;
+- exact-origin navigation and redirect enforcement; denied permissions, downloads, guest
+  preload/Node/IPC/DevTools, popups, guest-initiated external opens, and `beforeunload` vetoes;
+  isolated cookies/storage; working text input, `confirm`, and `prompt` with dialog-abuse
+  bounds; registry-gated one-time webview attachment; the three
+  same-origin/different-loopback/external navigation outcomes; HTTP(S)-only external
+  affordances with no URL credentials; and reserved hvir shortcuts that remain effective
+  under hostile guest handlers;
+- bounded, redacted diagnostics, source-terminal reveal/copy behavior, and no guest-created
+  or automatic agent feedback; and
+- guest crash, port refusal, SSH disconnect/reconnect, renderer reload, pane close, workspace
+  dismissal, project close, and app shutdown without leaked listeners, sessions, streams, or
+  proxy leases.
+
+The Electron smoke must activate the pane through a real rendered terminal link, not a
+global `window.open` shortcut. Real-SSH acceptance covers an ordinary remote HTTP server,
+WebSocket/HMR, a deep link, concurrent panes, two projects with the same apparent origin,
+disconnect and explicit reload, blocked local fallthrough, capacity refusal, workspace
+switch-and-return without reload, and complete route teardown.
+
+The focused transport spike is pinned to the packaged Electron/Chromium version and is
+falsifiable on each primary platform. It must set the per-session `<-loopback>` bypass
+subtraction, verify with `session.resolveProxy()` that every accepted loopback spelling uses
+the pane proxy, and prove that neither Chromium's implicit loopback bypass nor an Electron
+upgrade silently restores a direct local route. The proxy must authenticate and correctly
+handle both absolute-form HTTP requests and the `CONNECT` form Chromium uses for proxied
+WebSockets, including HMR traffic. A service worker must install, fetch, and reconnect through
+the same pane session and authenticated route. The spike also covers proxy-auth challenge
+scoping, credential stripping, IPv4/IPv6 listener behavior, redirects, cookies, multiple
+simultaneous apparent-identical origins, and teardown. Failure of any exit criterion reopens
+this ADR rather than silently falling back to origin rewriting; future Electron upgrades must
+rerun the transport contract.
+
+**Why:** live applications are high-value agent output. Seeing them beside the exact code,
+workspace, and conversation that produced them shortens the observe/respond loop without
+making hvir an IDE. A browser alone lacks host/workspace/terminal provenance and cannot hand
+bounded failures back toward the responsible agent. Explicit link activation keeps setup at
+zero, preserving the remote origin avoids surprising development-app breakage, and the
+`WebPaneSurface`/`ProjectHost` seams keep embedded content and SSH transport out of React and
+harness code. Read-only diagnostics extend hvir's view-first thesis; server orchestration,
+DevTools, and automatic agent control do not.
+
+**Rejected:** a persisted dashboard/app registry (creates configuration and restart policy);
+starting or stopping servers through special hvir tasks (duplicates the terminal and becomes
+orchestration); treating global `window.open` as authorization (loses terminal/workspace
+provenance); iframe embedding (fails on ordinary anti-framing policy); exposing `<webview>`
+throughout React (locks the product to an unstable Electron surface); rewriting the remote
+origin to an ephemeral local port inside hvir (breaks Host, cookies, absolute redirects,
+storage, and WebSockets); rewriting HTML/headers or installing a remote proxy (large,
+content-sensitive machinery); a shared persistent guest partition (cross-project state and
+permission leakage); allowing every local port or arbitrary remote destination (turns one
+gesture into a network capability); an unauthenticated local proxy listener; silent local
+fallthrough; stripping URL userinfo and continuing; merging `localhost` and IP aliases;
+authorizing external origins in-pane; guest popups or automatic external opens; silent
+retargeting when a development server changes ports; automatic port discovery; HTTPS without
+an explicit certificate policy; persisting or automatically restoring web panes; killing
+panes on ordinary navigation; silently evicting inactive panes; unbounded guests, proxy
+connections, SSH channels, or diagnostic logs; full DevTools, device emulation, extensions,
+bookmarks, and general browser navigation; and automatically injecting page failures into an
+agent terminal.
+
 ---
 
 ## 5. Architecture
@@ -1169,3 +1443,8 @@ worktree = a place an agent is working, with notification rollups at each tier.
 - Ghostling (embed example) — https://github.com/ghostty-org/ghostling
 - Embedded apprt / Linux support discussion — https://github.com/ghostty-org/ghostty/discussions/11722
 - parallel-code (prior art) — https://github.com/johannesjo/parallel-code
+- Electron `<webview>` API and stability warning — https://www.electronjs.org/docs/latest/api/webview-tag
+- Electron `webContents` navigation, attachment, input, and proxy-auth events — https://www.electronjs.org/docs/latest/api/web-contents
+- Electron security guidance for remote content — https://www.electronjs.org/docs/latest/tutorial/security
+- Electron session and proxy API — https://www.electronjs.org/docs/latest/api/session
+- Chromium proxy behavior for loopback origins — https://chromium.googlesource.com/chromium/src/+/312b6bf/net/docs/proxy.md

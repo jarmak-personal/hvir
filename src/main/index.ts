@@ -8,12 +8,26 @@
 
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { app, BrowserWindow, dialog, protocol, shell } from 'electron'
+import {
+  app,
+  BrowserWindow,
+  dialog,
+  protocol,
+  session,
+  shell,
+  webContents,
+  type Session,
+  type WebContents,
+} from 'electron'
 
 import { registerIpcHandlers } from './ipc'
 import { dispatchWorkerHostCall } from './git/worker-host-broker'
 import { GIT_FETCH_ARGS, GIT_PULL_ARGS } from './git/git-engine'
 import { HtmlPreviewProtocol } from './html-preview-protocol'
+import {
+  WEB_PANE_PARTITION_PREFIX,
+  WebPaneRouteRegistry,
+} from './web-pane/web-pane-route-registry'
 import { createWorkerClient, workerPath, type WorkerClient } from './worker-host'
 import { LocalHost, type ProjectHost } from './project-host'
 import { ProjectRegistry, RendererSshPrompter } from './project-registry'
@@ -34,6 +48,7 @@ import {
 } from './terminal/session-registry'
 import {
   ECHO_REQUEST_TYPE,
+  DEFAULT_KEYBINDINGS,
   GIT_CHANGED_FILE_COUNT_TYPE,
   GIT_PRUNE_WORKTREES_TYPE,
   GIT_WORKTREES_TYPE,
@@ -46,6 +61,7 @@ import {
   hostPath,
   hostPathEquals,
   joinHostPath,
+  matchesKeybinding,
   localPath,
   LOCAL_HOST_ID,
   type Disposer,
@@ -54,8 +70,11 @@ import {
   type HostPath,
   type IpcEventChannel,
   type IpcEventPayload,
+  type KeybindingAction,
+  type KeybindingMap,
   type TerminalRecoverySession,
   type ProjectState,
+  type WebPaneCommandAction,
   type WorktreeDiscovery,
   HTML_PREVIEW_SCHEME,
 } from '../shared'
@@ -68,6 +87,34 @@ protocol.registerSchemesAsPrivileged([
 ])
 
 const htmlPreviews = new HtmlPreviewProtocol()
+const webPaneSessionPartitions = new WeakMap<Session, string>()
+const webPaneBindings = new Map<number, KeybindingMap>()
+const fullPageWebPanes = new Map<number, string>()
+const webPaneRoutes = new WebPaneRouteRegistry({
+  prepareSession: prepareWebPaneSession,
+  destroyGuest: (guestId) => {
+    const guest = webContents.fromId(guestId)
+    if (guest && !guest.isDestroyed()) guest.close({ waitForBeforeUnload: false })
+  },
+  emitDiagnostic: (ownerId, paneId, event) => {
+    const owner = webContents.fromId(ownerId)
+    if (owner && !owner.isDestroyed()) {
+      owner.send('web-pane:diagnostic', { paneId, event })
+    }
+  },
+})
+
+function closeWebPanes(
+  scope: 'all' | { readonly ownerId: number } | { readonly root: HostPath },
+): void {
+  const closing =
+    scope === 'all'
+      ? webPaneRoutes.closeAll()
+      : 'ownerId' in scope
+        ? webPaneRoutes.closeOwner(scope.ownerId)
+        : webPaneRoutes.closeWorkspace(scope.root)
+  void closing.catch((error) => console.error('[web-pane] cleanup failed', error))
+}
 const harnessProbeManager = new HarnessProbeManager()
 const defaultHarnessProviderId = harnessProviderCatalog().find(
   (provider) => provider.default,
@@ -97,12 +144,152 @@ let suspendSessions: Promise<void> = Promise.resolve()
 let shutdownStarted = false
 let shutdownComplete = false
 
+async function prepareWebPaneSession({
+  partition,
+  proxyPort,
+  primaryUrl,
+}: {
+  readonly partition: string
+  readonly proxyPort: number
+  readonly primaryUrl: string
+}): Promise<() => Promise<void>> {
+  const paneSession = session.fromPartition(partition, { cache: true })
+  webPaneSessionPartitions.set(paneSession, partition)
+  paneSession.setPermissionCheckHandler(() => false)
+  paneSession.setPermissionRequestHandler((_contents, _permission, callback) => {
+    callback(false)
+  })
+  paneSession.setDevicePermissionHandler(() => false)
+  paneSession.setDisplayMediaRequestHandler((_request, callback) => callback({}))
+  const denyDownload = (event: Electron.Event): void => event.preventDefault()
+  paneSession.on('will-download', denyDownload)
+  await paneSession.setProxy({
+    mode: 'fixed_servers',
+    proxyRules: `http://127.0.0.1:${proxyPort}`,
+    proxyBypassRules: '<-loopback>',
+  })
+  await paneSession.forceReloadProxyConfig()
+  const resolvedProxy = await paneSession.resolveProxy(primaryUrl)
+  if (
+    !resolvedProxy
+      .split(';')
+      .some((rule) => rule.trim() === `PROXY 127.0.0.1:${proxyPort}`)
+  ) {
+    paneSession.off('will-download', denyDownload)
+    await paneSession.setProxy({ mode: 'direct' })
+    throw new Error(`Chromium did not select the pane proxy (${resolvedProxy})`)
+  }
+  return async () => {
+    paneSession.off('will-download', denyDownload)
+    paneSession.setPermissionCheckHandler(null)
+    paneSession.setPermissionRequestHandler(null)
+    paneSession.setDevicePermissionHandler(null)
+    paneSession.setDisplayMediaRequestHandler(null)
+    await paneSession.closeAllConnections()
+    await paneSession.clearStorageData()
+    await paneSession.clearCache()
+    await paneSession.setProxy({ mode: 'direct' })
+  }
+}
+
+app.on('login', (event, contents, _details, authInfo, callback) => {
+  const credentials = webPaneRoutes.proxyCredentials(contents.id, authInfo)
+  if (credentials) {
+    event.preventDefault()
+    callback(credentials.username, credentials.password)
+    return
+  }
+  if (authInfo.isProxy && webPaneRoutes.paneIdForGuest(contents.id)) {
+    event.preventDefault()
+    callback()
+  }
+})
+
+function configureWebPaneGuest(
+  ownerId: number,
+  paneId: string,
+  guest: WebContents,
+): void {
+  const notifyBlocked = (kind: 'loopback' | 'external', url: string): void => {
+    const owner = webContents.fromId(ownerId)
+    if (!owner || owner.isDestroyed()) return
+    owner.send('web-pane:navigation-blocked', { paneId, kind, url })
+  }
+  const enforceNavigation = (event: Electron.Event, url: string): void => {
+    const decision = webPaneRoutes.navigation(guest.id, url)
+    if (decision.kind === 'allow') return
+    event.preventDefault()
+    if (decision.kind === 'loopback' || decision.kind === 'external') {
+      notifyBlocked(decision.kind, decision.url)
+    }
+  }
+
+  guest.setWindowOpenHandler(({ url }) => {
+    const decision = webPaneRoutes.navigation(guest.id, url)
+    if (decision.kind === 'allow') {
+      void guest
+        .loadURL(decision.url)
+        .catch((error) =>
+          console.warn('[web-pane] same-origin window navigation failed', error),
+        )
+    } else if (decision.kind === 'loopback' || decision.kind === 'external') {
+      notifyBlocked(decision.kind, decision.url)
+    }
+    return { action: 'deny' }
+  })
+  guest.on('will-navigate', enforceNavigation)
+  guest.on('will-redirect', enforceNavigation)
+  guest.on('will-prevent-unload', (event) => event.preventDefault())
+  guest.on('devtools-opened', () => guest.closeDevTools())
+  guest.on('before-input-event', (event, input) => {
+    if (input.type !== 'keyDown' || input.isAutoRepeat) return
+    const bindings = webPaneBindings.get(ownerId) ?? DEFAULT_KEYBINDINGS
+    const primaryModifier = process.platform === 'darwin' ? input.meta : input.control
+    let action: WebPaneCommandAction | undefined
+    if (
+      input.key.toLowerCase() === 'w' &&
+      primaryModifier &&
+      !input.alt &&
+      !input.shift
+    ) {
+      action = 'closeWebPane'
+    } else if (input.key === 'Escape' && fullPageWebPanes.get(ownerId) === paneId) {
+      action = 'escapeWebPaneFocus'
+    } else {
+      action = (Object.entries(bindings) as [KeybindingAction, string][]).find(
+        ([, binding]) =>
+          matchesKeybinding(
+            {
+              key: input.key,
+              code: input.code,
+              ctrlKey: input.control,
+              metaKey: input.meta,
+              altKey: input.alt,
+              shiftKey: input.shift,
+            },
+            binding,
+            process.platform === 'darwin',
+          ),
+      )?.[0]
+    }
+    if (!action) return
+    event.preventDefault()
+    const owner = webContents.fromId(ownerId)
+    if (owner && !owner.isDestroyed()) {
+      owner.send('web-pane:command', { paneId, action })
+    }
+  })
+}
+
 function createWindow(
   discardRendererResources: (ownerId: number) => void = (ownerId) => {
     ptySupervisor?.disposeOwner(ownerId)
     attentionBadge?.update(ownerId, 0)
     sshPrompter?.cancelAll()
     htmlPreviews.clear()
+    webPaneBindings.delete(ownerId)
+    fullPageWebPanes.delete(ownerId)
+    closeWebPanes({ ownerId })
   },
 ): BrowserWindow {
   const win = new BrowserWindow({
@@ -117,6 +304,10 @@ function createWindow(
       sandbox: true,
       contextIsolation: true,
       nodeIntegration: false,
+      // Web panes render in <webview> guests: their servers may
+      // legitimately send X-Frame-Options/frame-ancestors, which would blank
+      // an iframe. Guests are confined to loopback URLs below.
+      webviewTag: true,
     },
   })
   // electron-vite sets ELECTRON_RENDERER_URL in dev (Vite dev server); in a
@@ -206,6 +397,51 @@ function createWindow(
   win.webContents.setWindowOpenHandler(({ url }) => {
     if (isSafeExternalUrl(url)) void shell.openExternal(url)
     return { action: 'deny' }
+  })
+
+  // A renderer may request a guest only through a one-use, main-owned pane
+  // capability. Main replaces every security-sensitive preference and source.
+  win.webContents.on('will-attach-webview', (event, webPreferences, params) => {
+    const partition = params['partition'] ?? ''
+    const paneId =
+      params['name'] ||
+      (partition.startsWith(WEB_PANE_PARTITION_PREFIX)
+        ? partition.slice(WEB_PANE_PARTITION_PREFIX.length)
+        : '')
+    const route = webPaneRoutes.claimAttachment({
+      ownerId,
+      paneId,
+      partition,
+      initialUrl: params['src'] ?? '',
+    })
+    if (!route) {
+      console.warn('[web-pane] blocked unregistered or duplicate guest attachment')
+      event.preventDefault()
+      return
+    }
+    delete webPreferences.preload
+    webPreferences.nodeIntegration = false
+    webPreferences.contextIsolation = true
+    webPreferences.sandbox = true
+    webPreferences.webSecurity = true
+    webPreferences.devTools = false
+    webPreferences.safeDialogs = true
+    webPreferences.safeDialogsMessage =
+      'hvir stopped this page from opening additional dialogs.'
+    params['src'] = route.url
+    params['partition'] = route.partition
+  })
+  win.webContents.on('did-attach-webview', (_event, guest) => {
+    const partition = webPaneSessionPartitions.get(guest.session)
+    const paneId = partition
+      ? webPaneRoutes.bindGuestForPartition(ownerId, partition, guest.id)
+      : undefined
+    if (!paneId) {
+      console.warn('[web-pane] destroying a guest without an authorized route')
+      guest.close({ waitForBeforeUnload: false })
+      return
+    }
+    configureWebPaneGuest(ownerId, paneId, guest)
   })
 
   if (rendererUrl) {
@@ -408,6 +644,8 @@ async function startup(): Promise<void> {
       serializeSession(async () => {
         if (!projectRegistry) throw new Error('Project registry is unavailable')
         const wasActive = projectRegistry.active.projectId === projectId
+        const closingRoots =
+          projectRegistry.projectById(projectId)?.workspaces.map(({ root }) => root) ?? []
         if (wasActive) await stopProjectWatch()
         try {
           await workspaceRefreshes.get(projectId)?.catch(() => undefined)
@@ -416,7 +654,12 @@ async function startup(): Promise<void> {
           if (refreshTimer) clearTimeout(refreshTimer)
           workspaceRefreshTimers.delete(projectId)
           const state = await projectRegistry.closeProject(projectId)
-          if (wasActive) htmlPreviews.clear()
+          await Promise.all(
+            closingRoots.map((root) => webPaneRoutes.closeWorkspace(root)),
+          )
+          if (wasActive) {
+            htmlPreviews.clear()
+          }
           return state
         } finally {
           if (wasActive && projectRegistry.active.host.connectionState === 'connected') {
@@ -442,6 +685,7 @@ async function startup(): Promise<void> {
         }
         const wasActive = projectRegistry.active.workspaceId === workspaceId
         const state = await projectRegistry.dismissWorkspace(projectId, workspaceId)
+        if (workspace) await webPaneRoutes.closeWorkspace(workspace.root)
         if (wasActive) {
           await stopProjectWatch()
           startProjectWatch(projectRegistry.active, emit)
@@ -457,7 +701,14 @@ async function startup(): Promise<void> {
     harnessProfiles: harnessProfileStore,
     harnessProbes: harnessProbeManager,
     updateAttention: (ownerId, count) => attentionBadge?.update(ownerId, count),
+    updateWebPaneBindings: (ownerId, bindings) => webPaneBindings.set(ownerId, bindings),
+    updateWebPaneFullPage: (ownerId, paneId) => {
+      if (paneId) fullPageWebPanes.set(ownerId, paneId)
+      else fullPageWebPanes.delete(ownerId)
+    },
     htmlPreviews,
+    webPanes: webPaneRoutes,
+    openExternal: (url) => shell.openExternal(url),
     emit,
   })
   // Paint the workbench before background watch and Git discovery can touch a
@@ -632,6 +883,7 @@ async function pruneProjectWorktrees(
         .map((session) => sessions.forget(target.root, session.id)),
     )
     await registry.dismissWorkspace(projectId, target.id)
+    await webPaneRoutes.closeWorkspace(target.root)
   }
   if (prunesActiveWorkspace) {
     await stopProjectWatch()
@@ -874,6 +1126,7 @@ async function runSmoke(): Promise<number> {
   let stopSmokeWatch: Disposer | undefined
   const smokeRoot = localPath(process.cwd())
   const smokeCloseableRoot = joinHostPath(smokeRoot, '.hvir-smoke-closed-project')
+  const smokeWebSwitchRoot = joinHostPath(smokeRoot, 'docs')
   const smokeProjectState = (
     connectionState = host.connectionState,
     missing = false,
@@ -987,7 +1240,9 @@ async function runSmoke(): Promise<number> {
       gitWorker: git,
       getProject: () => ({ host, root: smokeRoot }),
       getRegisteredWorkspaceRoot: (root) =>
-        hostPathEquals(root, smokeRoot) || hostPathEquals(root, smokeCloseableRoot)
+        hostPathEquals(root, smokeRoot) ||
+        hostPathEquals(root, smokeCloseableRoot) ||
+        hostPathEquals(root, smokeWebSwitchRoot)
           ? root
           : undefined,
       getProjectState: () => smokeIpcProjectState,
@@ -1050,7 +1305,15 @@ async function runSmoke(): Promise<number> {
       harnessProfiles: smokeHarnessProfiles,
       harnessProbes: harnessProbeManager,
       updateAttention: () => undefined,
+      updateWebPaneBindings: (ownerId, bindings) =>
+        webPaneBindings.set(ownerId, bindings),
+      updateWebPaneFullPage: (ownerId, paneId) => {
+        if (paneId) fullPageWebPanes.set(ownerId, paneId)
+        else fullPageWebPanes.delete(ownerId)
+      },
       htmlPreviews,
+      webPanes: webPaneRoutes,
+      openExternal: (url) => shell.openExternal(url),
       emit,
     })
     stopSmokeWatch = host.watch(smokeRoot, (event) => emit('project:watch', event), {
@@ -1264,6 +1527,309 @@ async function runSmoke(): Promise<number> {
       )
     }
     console.log('[smoke] expected session errors stay contained')
+
+    // Web pane slice: a loopback HTTP server stands in for an agent-started
+    // server. The URL is printed into a real supervised terminal and activated
+    // through its rendered link provider; global window.open is not authority.
+    const { createServer: createHttpServer } = await import('node:http')
+    let dashboardRequests = 0
+    const dashboardServer = createHttpServer((request, response) => {
+      dashboardRequests++
+      if (request.url === '/sw.js') {
+        response.writeHead(200, {
+          'content-type': 'text/javascript',
+          'service-worker-allowed': '/',
+        })
+        response.end(
+          `self.addEventListener('install',()=>self.skipWaiting());self.addEventListener('activate',(event)=>event.waitUntil(self.clients.claim()));self.addEventListener('message',(event)=>event.waitUntil(fetch('/sw-origin').then((response)=>response.text()).then((text)=>event.ports[0].postMessage(text))))`,
+        )
+        return
+      }
+      if (request.url === '/sw-origin') {
+        response.writeHead(200, { 'content-type': 'text/plain' })
+        response.end('service-worker-route-ok')
+        return
+      }
+      response.writeHead(200, {
+        'content-type': 'text/html',
+        'x-frame-options': 'DENY',
+        'content-security-policy': "frame-ancestors 'none'",
+      })
+      response.end(
+        `<!doctype html><title>smoke dashboard</title><input aria-label="dashboard input"><script>onbeforeunload=()=>"stay";navigator.serviceWorker.register('/sw.js').then(()=>navigator.serviceWorker.ready).then((registration)=>{const channel=new MessageChannel();channel.port1.onmessage=(event)=>document.body.dataset.serviceWorker=event.data;registration.active.postMessage('probe',[channel.port2])})</script>smoke-dashboard-ok`,
+      )
+    })
+    await new Promise<void>((resolve, reject) => {
+      dashboardServer.once('error', reject)
+      dashboardServer.listen(0, '127.0.0.1', () => resolve())
+    })
+    const dashboardAddress = dashboardServer.address()
+    if (!dashboardAddress || typeof dashboardAddress === 'string') {
+      throw new Error('smoke dashboard server reported no port')
+    }
+    const dashboardPort = dashboardAddress.port
+    try {
+      const sourceTerminal = supervisor
+        .list()
+        .find((terminal) => terminal.ownerId === win.webContents.id)
+      if (!sourceTerminal) throw new Error('web pane source terminal was missing')
+      const dashboardUrl = `http://localhost:${dashboardPort}/reef?tab=1`
+      supervisor.write(
+        sourceTerminal.id,
+        sourceTerminal.ownerId,
+        `printf '\\033[2J\\033[H%s\\n' '${dashboardUrl}'\r`,
+      )
+      const linkPaneStatus = (await withTimeout(
+        win.webContents.executeJavaScript(`
+          new Promise((resolve, reject) => {
+            const deadline = Date.now() + 8000
+            const poll = () => {
+              const tab = document.querySelector('.web-pane-tab')
+              const guest = document.querySelector('webview.web-pane-frame')
+              const path = document.querySelector('.web-pane-path input')
+              if (tab && guest && path) {
+                if (path.value !== '/reef?tab=1') {
+                  return reject(new Error('web pane lost the link path: ' + path.value))
+                }
+                return resolve('opened')
+              }
+              if (Date.now() > deadline) {
+                return reject(new Error('web pane never opened from the link'))
+              }
+              const canvas = document.querySelector(
+                '.terminal-deck:not([hidden]) .terminal-surface.active canvas'
+              )
+              if (canvas instanceof HTMLCanvasElement) {
+                const rect = canvas.getBoundingClientRect()
+                const clientX = rect.left + 24
+                const clientY = rect.top + 8
+                const mac = navigator.platform.includes('Mac')
+                for (const type of ['mousemove', 'mousedown', 'mouseup', 'click']) {
+                  canvas.dispatchEvent(new MouseEvent(type, {
+                    bubbles: true,
+                    cancelable: true,
+                    clientX,
+                    clientY,
+                    button: 0,
+                    buttons: type === 'mousedown' ? 1 : 0,
+                    ctrlKey: !mac,
+                    metaKey: mac
+                  }))
+                }
+              }
+              setTimeout(poll, 100)
+            }
+            setTimeout(poll, 300)
+          })
+        `),
+        'link-to-pane smoke timed out',
+      )) as string
+      await withTimeout(
+        (async () => {
+          while (dashboardRequests === 0) {
+            await new Promise((resolve) => setTimeout(resolve, 50))
+          }
+        })(),
+        'web pane never reached the dashboard server',
+      )
+      const dashboardGuest = webContents
+        .getAllWebContents()
+        .find((contents) => contents.getType() === 'webview' && !contents.isDestroyed())
+      if (!dashboardGuest) throw new Error('authorized web pane guest was missing')
+      await withTimeout(
+        (async () => {
+          for (;;) {
+            const ready: unknown = await dashboardGuest
+              .executeJavaScript(
+                `document.body?.dataset.serviceWorker === 'service-worker-route-ok' && Boolean(document.querySelector('[aria-label="dashboard input"]'))`,
+              )
+              .catch(() => false)
+            if (ready) return
+            await new Promise<void>((resolve) => setTimeout(resolve, 25))
+          }
+        })(),
+        'web pane guest or service-worker route did not finish loading',
+      )
+      await dashboardGuest.executeJavaScript(`window.__hvirPaneState = 'preserved'`)
+      const requestsBeforeSwitch = dashboardRequests
+      const switchedState = smokeProjectState()
+      smokeIpcProjectState = {
+        ...switchedState,
+        root: smokeWebSwitchRoot,
+        activeWorkspaceId: 'smoke-web-switch',
+        projects: switchedState.projects.map((project) => ({
+          ...project,
+          activeWorkspaceId: 'smoke-web-switch',
+          workspaces: [
+            ...project.workspaces,
+            {
+              id: 'smoke-web-switch',
+              root: smokeWebSwitchRoot,
+              name: 'docs',
+              main: false,
+              missing: true,
+              repository: true,
+              changedFiles: 0,
+            },
+          ],
+        })),
+      }
+      emit('project:state', smokeIpcProjectState)
+      await withTimeout(
+        win.webContents.executeJavaScript(`
+          new Promise((resolve, reject) => {
+            const deadline = Date.now() + 5000
+            const poll = () => {
+              const guest = document.querySelector('webview.web-pane-frame')
+              if (guest && !document.querySelector('.web-pane-tab')) return resolve()
+              if (Date.now() > deadline) {
+                return reject(new Error('inactive workspace did not hide its web pane'))
+              }
+              setTimeout(poll, 25)
+            }
+            poll()
+          })
+        `),
+        'web pane workspace-hide smoke timed out',
+      )
+      // Let the newly mounted (but unavailable) workspace finish its ordinary
+      // profile/recovery reads before removing the synthetic smoke workspace.
+      await new Promise<void>((resolve) => setTimeout(resolve, 100))
+      smokeIpcProjectState = smokeProjectState()
+      emit('project:state', smokeIpcProjectState)
+      await withTimeout(
+        win.webContents.executeJavaScript(`
+          new Promise((resolve, reject) => {
+            const deadline = Date.now() + 5000
+            const poll = () => {
+              if (document.querySelector('.web-pane-tab')) return resolve()
+              if (Date.now() > deadline) {
+                return reject(new Error('web pane did not return with its workspace'))
+              }
+              setTimeout(poll, 25)
+            }
+            poll()
+          })
+        `),
+        'web pane workspace-return smoke timed out',
+      )
+      const preservedPaneState = (await dashboardGuest.executeJavaScript(
+        `window.__hvirPaneState`,
+      )) as string
+      if (
+        preservedPaneState !== 'preserved' ||
+        dashboardRequests !== requestsBeforeSwitch
+      ) {
+        throw new Error('workspace switching reloaded or replaced the web pane guest')
+      }
+      await dashboardGuest.executeJavaScript(
+        `document.querySelector('[aria-label="dashboard input"]').focus()`,
+      )
+      await dashboardGuest.insertText('typed-in-web-pane')
+      const typedValue = (await dashboardGuest.executeJavaScript(
+        `document.querySelector('[aria-label="dashboard input"]').value`,
+      )) as string
+      if (typedValue !== 'typed-in-web-pane') {
+        throw new Error('ordinary web-pane text input was blocked')
+      }
+      await win.webContents.executeJavaScript(`
+        (() => {
+          const focus = [...document.querySelectorAll('.web-pane-toolbar button')]
+            .find((button) => button.title === 'Full page')
+          if (!focus) throw new Error('web pane full-page control was missing')
+          focus.click()
+        })()
+      `)
+      await withTimeout(
+        (async () => {
+          for (;;) {
+            const focused = (await win.webContents.executeJavaScript(
+              `Boolean(document.querySelector('.workbench.web-focused'))`,
+            )) as boolean
+            if (focused) return
+            await new Promise<void>((resolve) => setTimeout(resolve, 25))
+          }
+        })(),
+        'web pane did not enter full-page mode',
+      )
+      await new Promise<void>((resolve) => setTimeout(resolve, 100))
+      dashboardGuest.sendInputEvent({ type: 'keyDown', keyCode: 'Escape' })
+      dashboardGuest.sendInputEvent({ type: 'keyUp', keyCode: 'Escape' })
+      await withTimeout(
+        (async () => {
+          for (;;) {
+            const focused = (await win.webContents.executeJavaScript(
+              `Boolean(document.querySelector('.workbench.web-focused'))`,
+            )) as boolean
+            if (!focused) return
+            await new Promise<void>((resolve) => setTimeout(resolve, 25))
+          }
+        })(),
+        'reserved Escape did not leave web-pane full-page mode',
+      )
+      await dashboardGuest
+        .executeJavaScript(`location.assign('https://example.com/leave-hvir'); true`)
+        .catch(() => undefined)
+      const blockedNavigation = (await withTimeout(
+        win.webContents.executeJavaScript(`
+          new Promise((resolve, reject) => {
+            const deadline = Date.now() + 5000
+            const poll = () => {
+              const action = document.querySelector('.web-pane-navigation-blocked button')
+              if (action?.textContent?.includes('Open in system browser')) {
+                return resolve(action.textContent.trim())
+              }
+              if (Date.now() > deadline) {
+                return reject(new Error('external navigation affordance was missing'))
+              }
+              setTimeout(poll, 50)
+            }
+            poll()
+          })
+        `),
+        'blocked web navigation smoke timed out',
+      )) as string
+      const closeModifier = process.platform === 'darwin' ? 'meta' : 'control'
+      dashboardGuest.sendInputEvent({
+        type: 'keyDown',
+        keyCode: 'W',
+        modifiers: [closeModifier],
+      })
+      dashboardGuest.sendInputEvent({
+        type: 'keyUp',
+        keyCode: 'W',
+        modifiers: [closeModifier],
+      })
+      const linkPaneClosed = (await withTimeout(
+        win.webContents.executeJavaScript(`
+          new Promise((resolve, reject) => {
+            const deadline = Date.now() + 5000
+            const poll = () => {
+              if (!document.querySelector('.web-pane-tab')) return resolve('closed')
+              if (Date.now() > deadline) {
+                return reject(new Error('web pane tab did not close'))
+              }
+              setTimeout(poll, 50)
+            }
+            poll()
+          })
+        `),
+        'web pane close smoke timed out',
+      )) as string
+      if (
+        linkPaneStatus !== 'opened' ||
+        typedValue !== 'typed-in-web-pane' ||
+        blockedNavigation !== 'Open in system browser' ||
+        linkPaneClosed !== 'closed'
+      ) {
+        throw new Error('web pane link flow did not complete')
+      }
+      console.log(
+        '[smoke] terminal link → isolated web pane → workspace preserve → blocked external affordance → reserved close OK',
+      )
+    } finally {
+      await new Promise<void>((resolve) => dashboardServer.close(() => resolve()))
+    }
 
     emit('ssh:prompt', {
       id: 9001,
@@ -2558,9 +3124,12 @@ async function runSmoke(): Promise<number> {
     const railNavigationStatus = (await withTimeout(
       win.webContents.executeJavaScript(`
         new Promise((resolve, reject) => {
-          const files = document.querySelector('.rail-nav button:nth-child(1)');
-          const git = document.querySelector('.rail-nav button:nth-child(2)');
-          const harness = document.querySelector('.rail-nav button:nth-child(3)');
+          const railButtons = [...document.querySelectorAll('.rail-nav button')];
+          const byLabel = (label) =>
+            railButtons.find((node) => node.textContent?.trim().startsWith(label));
+          const files = byLabel('Files');
+          const git = byLabel('Git');
+          const harness = byLabel('Harness');
           const directory = [...document.querySelectorAll('[aria-label="Files"] .tree-directory')]
             .find((node) => node.querySelector(':scope > .directory-row')
               ?.getAttribute('title')?.endsWith('/src'));
@@ -3769,6 +4338,9 @@ async function suspendWorkbenchSessions(): Promise<void> {
   await settleWorkspaceRefreshes()
   ptySupervisor?.disposeSessions()
   htmlPreviews.clear()
+  await webPaneRoutes
+    .closeAll()
+    .catch((error) => console.error('[web-pane] suspend cleanup failed', error))
   sshPrompter?.cancelAll()
   await terminalSessionRegistry?.flush()
   await harnessProfileStore?.flush()
@@ -3811,6 +4383,9 @@ async function shutdown(): Promise<void> {
   gitWorker?.dispose()
   gitWorker = null
   htmlPreviews.dispose()
+  await webPaneRoutes
+    .closeAll()
+    .catch((error) => console.error('[shutdown] web-pane cleanup failed', error))
   harnessProbeManager.dispose()
 }
 

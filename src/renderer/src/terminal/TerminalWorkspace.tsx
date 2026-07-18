@@ -27,6 +27,7 @@ import { PaneResizer } from '../layout/PaneResizer'
 import type { TerminalRecoveryMode, TerminalThemeOverride } from '../settings/settings'
 import { useAppTheme } from '../theme'
 import {
+  normalizeTerminalWebTarget,
   resolveTerminalFileTarget,
   type ResolvedTerminalFileTarget,
 } from './terminal-file-link'
@@ -75,6 +76,11 @@ interface TerminalWorkspaceProps {
   readonly label: string
   readonly onRollup: (workspaceId: string, rollup: TerminalWorkspaceRollup) => void
   readonly onOpenPath: (target: ResolvedTerminalFileTarget) => void
+  readonly onOpenWebLink: (activation: {
+    readonly terminalId: string
+    readonly workspaceRoot: HostPath
+    readonly url: string
+  }) => void
   readonly idleThresholdMs: number
   readonly recoveryMode: TerminalRecoveryMode
   readonly terminalTheme: TerminalThemeOverride
@@ -97,6 +103,7 @@ export function TerminalWorkspace({
   label,
   onRollup,
   onOpenPath,
+  onOpenWebLink,
   idleThresholdMs,
   recoveryMode,
   terminalTheme,
@@ -796,9 +803,17 @@ export function TerminalWorkspace({
               onOutput={() => recordOutput(session.id)}
               onBell={() => raiseAttention(session.id, 'bell')}
               onFocus={() => focusSession(session.id)}
-              onLink={(target) => {
-                const resolved = resolveTerminalFileTarget(target, workspaceRoot)
-                if (resolved) onOpenPath(resolved)
+              onLink={(activation) => {
+                if (activation.kind === 'file') {
+                  const resolved = resolveTerminalFileTarget(
+                    activation.target,
+                    workspaceRoot,
+                  )
+                  if (resolved) onOpenPath(resolved)
+                  return
+                }
+                const url = normalizeTerminalWebTarget(activation.target)
+                if (url) onOpenWebLink({ terminalId: session.id, workspaceRoot, url })
               }}
             />
           )

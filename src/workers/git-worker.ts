@@ -197,6 +197,9 @@ class ProxyGitHost implements ProjectHost {
   spawnPty(): never {
     throw new Error('git worker cannot spawn PTYs')
   }
+  connectLoopback(): never {
+    throw new Error('git worker does not open loopback streams')
+  }
   readFile(): never {
     throw new Error('git worker reads text only')
   }

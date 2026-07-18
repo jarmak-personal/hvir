@@ -44,6 +44,12 @@ hits=$(grep -rnE "['\"](plain-shell|claude-code|codex)['\"]" \
   | grep -v '^src/main/harness/' || true)
 report "bundled harness ids used only in src/main/harness/" "$hits"
 
+# 5. Raw loopback streams are transport for the main-owned pane proxy, never a
+# renderer, IPC, harness, or feature-level socket API.
+hits=$(grep -rnE '\.connectLoopback\(' "$SRC" --include='*.ts' --include='*.tsx' \
+  | grep -v '^src/main/web-pane/loopback-http-proxy.ts' || true)
+report "host.connectLoopback() called only in the web-pane proxy" "$hits"
+
 if [[ "$fail" -ne 0 ]]; then
   printf '\n\033[31mseam check failed\033[0m\n'
   exit 1

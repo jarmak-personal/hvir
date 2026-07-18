@@ -8,6 +8,8 @@
  * server. All paths are host-qualified `HostPath`s.
  */
 
+import type { Duplex } from 'node:stream'
+
 import type {
   HostId,
   HostPath,
@@ -18,6 +20,7 @@ import type {
   HostConnectionState,
   HostWatchTier,
   Disposer,
+  LoopbackEndpoint,
 } from '../../shared'
 
 export type { Disposer }
@@ -114,6 +117,17 @@ export interface PtyProcess {
   kill(signal?: string): void
 }
 
+export function assertLoopbackEndpoint(endpoint: LoopbackEndpoint): void {
+  if (
+    !Number.isInteger(endpoint.port) ||
+    endpoint.port < 1 ||
+    endpoint.port > 65_535 ||
+    !['localhost', '127.0.0.1', '::1'].includes(endpoint.hostname)
+  ) {
+    throw new Error('Invalid loopback endpoint')
+  }
+}
+
 export interface ProjectHost {
   readonly hostId: HostId
   readonly connectionState: HostConnectionState
@@ -147,6 +161,9 @@ export interface ProjectHost {
    * shape.
    */
   spawnPty(opts: SpawnPtyOptions): Promise<PtyProcess>
+
+  /** Open one bounded TCP stream to an exact loopback endpoint on this host. */
+  connectLoopback(endpoint: LoopbackEndpoint): Promise<Duplex>
 
   readFile(path: HostPath, opts?: ReadFileOptions): Promise<Buffer>
   readTextFile(
