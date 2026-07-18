@@ -4,8 +4,8 @@
 work on 2026-07-13, after real-host verification of remote browsing, tree refresh,
 terminal rendering, blame, and a 400+ commit history.
 
-This queue is part of the Plan of Record. It excludes already-recorded work such as the
-Git topology graph, GitHub/GitLab alerts, the macOS cold-dev/white-renderer investigation,
+This queue was part of the historical implementation plan. It excludes already-recorded
+work such as the Git topology graph, GitHub/GitLab alerts, the macOS cold-dev/white-renderer investigation,
 and the remaining real-host auth/network acceptance matrix. Check items in the same
 commit that implements and verifies them.
 

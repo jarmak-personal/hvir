@@ -16,12 +16,13 @@ lightly, **respond**. VSCode is more than we want; tmux is too hands-off. hvir s
 between them.
 
 **Read [`docs/design.md`](docs/design.md) before doing substantive work** — it holds the
-philosophy, the ADRs (with rejected alternatives), the architecture, and the one real
-technical risk (Ghostty embedding).
+product philosophy, guardrails, architecture, risk posture, and the linked ADR index.
+Read the relevant canonical decision records under [`docs/adr/`](docs/adr/README.md).
 
-**Implementation work follows the Plan of Record in [`docs/plan/`](docs/plan/00-overview.md)**
-— start at `00-overview.md`, pick the first unfinished phase, and check off tasks as you
-complete them.
+**Implementation and acceptance work is tracked in GitHub issues, commits, and pull
+requests.** Do not add progress checklists, status logs, or test-run evidence to ADRs.
+[`docs/plan/`](docs/plan/00-overview.md) is frozen historical implementation context, not
+an active tracker; do not update its checkboxes or status tables to record new work.
 
 ## Hard constraints (do not violate without explicit sign-off)
 
@@ -48,7 +49,7 @@ complete them.
   notifications (focus clears, parents aggregate) follow fixed, visible rules — no
   hidden magic, no special-casing. (ADR-007, ADR-009)
 
-## Stack (see ADRs in design.md)
+## Stack (see the ADR index in design.md)
 
 - **Shell:** Electron + electron-vite
 - **Render layer:** React
@@ -64,6 +65,8 @@ complete them.
 ## Conventions
 
 - Prefer leveraging mature OSS over rebuilding.
-- When making an architectural decision, record it as an ADR in `docs/design.md` (with the
-  rejected alternatives and *why*) rather than deciding silently.
+- When making an architectural decision, add one decision-only record under `docs/adr/`
+  using its template, then add it to the index in `docs/design.md`. Keep context, decision,
+  consequences, and rejected alternatives in the ADR; keep implementation tracking in the
+  issue/commit/PR history.
 - Keep the non-goals in §2 of the design doc in view — resist "just one more thing."

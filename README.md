@@ -84,8 +84,9 @@ Build the npm payload for the current supported platform with the matching
 
 | Document | Purpose |
 | --- | --- |
-| [Design and ADRs](docs/design.md) | Product philosophy, hard boundaries, architecture, and decisions |
-| [Plan of Record](docs/plan/00-overview.md) | Phased implementation status and acceptance criteria |
+| [Design and ADR index](docs/design.md) | Product philosophy, hard boundaries, architecture, and decision index |
+| [Architecture decisions](docs/adr/README.md) | Canonical decision-only ADR records and template |
+| [Historical implementation plan](docs/plan/00-overview.md) | Frozen early implementation context; active work lives in GitHub issues |
 | [AGENTS.md](AGENTS.md) | Repository rules for AI collaborators |
 
 The deliberate boundary remains: hvir may surface rich read-only information and permit

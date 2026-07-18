@@ -1,23 +1,23 @@
-# hvir — Plan of Record (overview)
+# hvir — Historical implementation plan
 
-This directory is the engineering implementation plan for hvir. The PRD is
-[`docs/design.md`](../design.md) — it holds the philosophy, the ADRs, the
-architecture, and the risks. **Nothing in this plan overrides it.** If plan and design
-conflict, the design doc wins; if you must deviate, record why (see Ground rules).
+This directory preserves the phased plan used during hvir's early implementation. It is
+not an active work tracker: do not update its checkboxes, queues, or status snapshots for
+new work. GitHub issues, commits, and pull requests own implementation and acceptance.
 
-## How to work this plan (read this first, low-context agent)
+Current product and architecture guidance lives in [`docs/design.md`](../design.md) and
+the canonical decision records under [`docs/adr/`](../adr/README.md). Nothing in this
+historical plan overrides them.
 
-1. Read [`AGENTS.md`](../../AGENTS.md) (hard constraints) and [`docs/design.md`](../design.md)
-   (at minimum §2, §3, and every ADR referenced by your phase).
-2. Phases run in order. Pick the first phase whose status below isn't `done`. Within a
-   phase, tasks are roughly ordered but not strictly sequential.
-3. Check boxes (`- [ ]` → `- [x]`) as you complete tasks, in the same commit as the work.
-4. A phase is done only when **all acceptance criteria** in its doc are checked.
-   Update the status table below when a phase changes state.
-5. Architectural decisions made during implementation get recorded as ADRs in
-   `docs/design.md` (with rejected alternatives), not decided silently.
+## How to use this history
 
-## Phases
+1. Read [`AGENTS.md`](../../AGENTS.md), [`docs/design.md`](../design.md), and the canonical
+   ADR linked by any historical `ADR-NNN` reference.
+2. Use phase documents to understand original intent and constraints, not to infer current
+   status or create new repository-side implementation tracking.
+3. Put current work and acceptance in GitHub issues; put a new durable architecture choice
+   in one decision-only ADR and the design index.
+
+## Historical phase snapshot
 
 | # | Phase | Doc | Status |
 |---|-------|-----|--------|
@@ -41,7 +41,7 @@ packaging gate. Phase 9 implementation proceeded on an explicitly authorized fea
 while the Phase 8 and real-host acceptance gates remain open; neither phase is represented as
 done until its outstanding acceptance evidence is recorded.
 
-## Active review queue
+## Historical review queue snapshot
 
 - [Project-scope resilience](08-project-scope-resilience.md) — first-run folder
   selection, demand-driven file watching, plain-directory behavior, and bounded Git
