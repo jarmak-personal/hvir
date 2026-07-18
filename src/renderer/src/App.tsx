@@ -30,9 +30,10 @@ import {
   type SshPromptRequest,
   type ViewMode,
   type WatchEvent,
+  type WebPaneCommandAction,
 } from '../../shared'
 import { PaneResizer } from './layout/PaneResizer'
-import { EXTERNAL_OPEN_TARGET, WebPane, type WebViewState } from './dashboards/WebPane'
+import { WebPane, type WebViewState } from './dashboards/WebPane'
 import { TerminalWorkspace } from './terminal/TerminalWorkspace'
 import type { TerminalWorkspaceRollup } from './terminal/TerminalWorkspace'
 import { ProjectsBar } from './workspaces/ProjectsBar'
@@ -126,6 +127,10 @@ export function App(): ReactElement {
   const [webViewActive, setWebViewActive] = useState(false)
   const [webViewFocused, setWebViewFocused] = useState(false)
   const webViewsRef = useRef<readonly WebViewState[]>([])
+  const activeWebViewIdRef = useRef<string | undefined>(undefined)
+  const webViewSelection = useRef(
+    new Map<string, { readonly id?: string; readonly active: boolean }>(),
+  )
   const webViewActiveRef = useRef(false)
   const [gitChanges, setGitChanges] = useState<GitChanges>()
   const [connectionState, setConnectionState] = useState<HostConnectionState>('connected')
@@ -152,6 +157,7 @@ export function App(): ReactElement {
   activeIdRef.current = activeId
   gitGraphActiveRef.current = gitGraphActive
   webViewsRef.current = webViews
+  activeWebViewIdRef.current = activeWebViewId
   webViewActiveRef.current = webViewActive
   const changedCount = gitChanges?.workingTree.length ?? 0
   const changedCountLabel = gitChanges?.workingTreeLimited
@@ -165,10 +171,61 @@ export function App(): ReactElement {
   )
   const gitEnabled = workspaceGitEnabled(activeWorkspace)
 
+  useEffect(() => {
+    const disposeNavigation = window.hvir.on(
+      'web-pane:navigation-blocked',
+      (navigation) => {
+        setWebViews((current) =>
+          current.map((view) =>
+            view.id === navigation.paneId
+              ? { ...view, blockedNavigation: navigation }
+              : view,
+          ),
+        )
+      },
+    )
+    const disposeDiagnostic = window.hvir.on(
+      'web-pane:diagnostic',
+      ({ paneId, event }) => {
+        setWebViews((current) =>
+          current.map((view) =>
+            view.id === paneId
+              ? {
+                  ...view,
+                  routeDiagnostic: {
+                    revision: (view.routeDiagnostic?.revision ?? 0) + 1,
+                    event,
+                  },
+                }
+              : view,
+          ),
+        )
+      },
+    )
+    return () => {
+      void disposeNavigation()
+      void disposeDiagnostic()
+    }
+  }, [])
+
+  useEffect(() => {
+    window.hvir.send('web-pane:full-page', {
+      paneId: webViewFocused && webViewActive ? activeWebViewId : undefined,
+    })
+  }, [activeWebViewId, webViewActive, webViewFocused])
+
   const applyProjectState = useCallback((state: ProjectState): void => {
     setProjectState(state)
     setConnectionState(state.connectionState)
     setWatchTier(state.watchTier)
+    const liveWorkspaceKeys = new Set(
+      state.projects.flatMap((project) =>
+        project.workspaces.map((workspace) => storageKey(workspace.root)),
+      ),
+    )
+    setWebViews((current) =>
+      current.filter((view) => liveWorkspaceKeys.has(storageKey(view.workspaceRoot))),
+    )
     const currentRoot = rootRef.current
     if (currentRoot && hostPathEquals(currentRoot, state.root)) return
     if (currentRoot) {
@@ -177,7 +234,17 @@ export function App(): ReactElement {
         tabs: tabsRef.current,
         activeId: activeIdRef.current,
       })
+      webViewSelection.current.set(storageKey(currentRoot), {
+        id: activeWebViewIdRef.current,
+        active: webViewActiveRef.current,
+      })
     }
+    const nextWebSelection = webViewSelection.current.get(storageKey(state.root))
+    const selectedWebView = webViewsRef.current.find(
+      (view) =>
+        view.id === nextWebSelection?.id &&
+        hostPathEquals(view.workspaceRoot, state.root),
+    )
     setRestored(false)
     setRoot(state.root)
     setTabs([])
@@ -187,11 +254,8 @@ export function App(): ReactElement {
     setViewerSplit(false)
     setGitGraphOpen(false)
     setGitGraphActive(false)
-    // Web views ride tunnels owned by the previous workspace's host; main
-    // closes those tunnels on switch, so the panes cannot outlive them.
-    setWebViews([])
-    setActiveWebViewId(undefined)
-    setWebViewActive(false)
+    setActiveWebViewId(selectedWebView?.id)
+    setWebViewActive(Boolean(selectedWebView && nextWebSelection?.active))
     setWebViewFocused(false)
     setGitChanges(undefined)
     setSessionError(undefined)
@@ -580,24 +644,13 @@ export function App(): ReactElement {
   }, [])
 
   useEffect(() => {
-    const keydown = (event: KeyboardEvent): void => {
-      if (event.defaultPrevented) return
-      // Modal dialogs own the keyboard even when the browser reports body as
-      // the target (for example after clicking their backdrop).
+    const perform = (action: WebPaneCommandAction, paneId?: string): void => {
       if (document.querySelector('[aria-modal="true"]')) return
-      const action = (
-        Object.entries(settings.keybindings) as [KeybindingAction, string][]
-      ).find(([, binding]) => matchesKeybinding(event, binding))?.[0]
-      if (!action) return
-      if (
-        action === 'cycleViewMode' &&
-        event.target instanceof Element &&
-        event.target.closest('.terminal-panel')
-      ) {
-        return
-      }
-      event.preventDefault()
-      if (action === 'cycleViewMode') {
+      if (action === 'closeWebPane') {
+        if (paneId) closeWebView(paneId)
+      } else if (action === 'escapeWebPaneFocus') {
+        setWebViewFocused(false)
+      } else if (action === 'cycleViewMode') {
         if (gitGraphActiveRef.current || webViewActiveRef.current) return
         const id = activeIdRef.current
         if (!id) return
@@ -636,8 +689,34 @@ export function App(): ReactElement {
         workspaceSwitchRef.current(-1)
       }
     }
+    const keydown = (event: KeyboardEvent): void => {
+      if (event.defaultPrevented) return
+      // Modal dialogs own the keyboard even when the browser reports body as
+      // the target (for example after clicking their backdrop).
+      if (document.querySelector('[aria-modal="true"]')) return
+      const action = (
+        Object.entries(settings.keybindings) as [KeybindingAction, string][]
+      ).find(([, binding]) => matchesKeybinding(event, binding))?.[0]
+      if (!action) return
+      if (
+        action === 'cycleViewMode' &&
+        event.target instanceof Element &&
+        event.target.closest('.terminal-panel')
+      ) {
+        return
+      }
+      event.preventDefault()
+      perform(action)
+    }
+    window.hvir.send('web-pane:reserved-bindings', settings.keybindings)
+    const disposeCommand = window.hvir.on('web-pane:command', ({ action, paneId }) =>
+      perform(action, paneId),
+    )
     window.addEventListener('keydown', keydown, true)
-    return () => window.removeEventListener('keydown', keydown, true)
+    return () => {
+      window.removeEventListener('keydown', keydown, true)
+      void disposeCommand()
+    }
   }, [settings.keybindings])
 
   watchHandler.current = (event): void => {
@@ -668,12 +747,10 @@ export function App(): ReactElement {
     setTerminalFocused(false)
   }
 
-  const openWebView = (view: Omit<WebViewState, 'id'>): void => {
+  const openWebView = (view: WebViewState): void => {
     setTerminalFocused(false)
     setGitGraphActive(false)
-    const existing = webViewsRef.current.find(
-      (candidate) => candidate.linkKey === view.linkKey,
-    )
+    const existing = webViewsRef.current.find((candidate) => candidate.id === view.id)
     if (existing) {
       setWebViews((current) =>
         current.map((candidate) =>
@@ -681,74 +758,90 @@ export function App(): ReactElement {
             ? {
                 ...candidate,
                 url: view.url,
-                tunnelId: view.tunnelId,
+                blockedNavigation: undefined,
               }
             : candidate,
         ),
       )
       setActiveWebViewId(existing.id)
     } else {
-      const created: WebViewState = { id: crypto.randomUUID(), ...view }
-      setWebViews((current) => [...current, created])
-      setActiveWebViewId(created.id)
+      setWebViews((current) => [...current, view])
+      setActiveWebViewId(view.id)
     }
     activePaneRef.current = 'primary'
     setWebViewActive(true)
   }
 
-  /**
-   * The happy path: an agent starts a server in a terminal and prints its
-   * URL. Loopback links route through an SSH tunnel on the project host into
-   * a web pane; everything else goes to the OS browser.
-   */
-  const openWebLink = (rawUrl: string): void => {
-    let parsed: URL
-    try {
-      parsed = new URL(rawUrl)
-    } catch {
-      return
-    }
-    const remotePort = parsed.port ? Number(parsed.port) : 80
+  const openWebLink = (activation: {
+    readonly terminalId: string
+    readonly workspaceRoot: HostPath
+    readonly url: string
+  }): void => {
     void (async () => {
       try {
         const opened = unwrapOperation(
-          await window.hvir.invoke('tunnel:open', { remotePort }),
+          await window.hvir.invoke('web-pane:open', {
+            source: 'terminal',
+            root: activation.workspaceRoot,
+            terminalId: activation.terminalId,
+            url: activation.url,
+          }),
         )
         openWebView({
-          linkKey: `port:${remotePort}`,
-          title: `${parsed.hostname}:${remotePort}`,
-          url: `http://127.0.0.1:${opened.localPort}${parsed.pathname}${parsed.search}${parsed.hash}`,
-          tunnelId: opened.tunnelId,
+          id: opened.paneId,
+          title: new URL(opened.origin).host,
+          url: opened.url,
+          origin: opened.origin,
+          partition: opened.partition,
+          workspaceRoot: activation.workspaceRoot,
+          sourceTerminalId: activation.terminalId,
         })
       } catch (reason) {
         setSessionError(reason instanceof Error ? reason.message : String(reason))
       }
     })()
   }
-  const openWebLinkRef = useRef(openWebLink)
-  openWebLinkRef.current = openWebLink
 
-  // Terminal link providers (and anything else in the workbench) surface URLs
-  // via window.open. Claim loopback http URLs for in-app web panes; let main
-  // route every other target to the OS browser as before.
-  useEffect(() => {
-    const nativeOpen = window.open.bind(window)
-    window.open = (
-      url?: string | URL,
-      target?: string,
-      features?: string,
-    ): Window | null => {
-      const raw = url === undefined ? '' : String(url)
-      if (target !== EXTERNAL_OPEN_TARGET && isLoopbackHttpLink(raw)) {
-        openWebLinkRef.current(raw)
-        return null
+  const followBlockedNavigation = (id: string): void => {
+    const view = webViewsRef.current.find((candidate) => candidate.id === id)
+    const navigation = view?.blockedNavigation
+    if (!view || !navigation) return
+    setWebViews((current) =>
+      current.map((candidate) =>
+        candidate.id === id ? { ...candidate, blockedNavigation: undefined } : candidate,
+      ),
+    )
+    if (navigation.kind === 'external') {
+      void window.hvir
+        .invoke('web-pane:open-external', { paneId: id, url: navigation.url })
+        .catch((reason) =>
+          setSessionError(reason instanceof Error ? reason.message : String(reason)),
+        )
+      return
+    }
+    void (async () => {
+      try {
+        const opened = unwrapOperation(
+          await window.hvir.invoke('web-pane:open', {
+            source: 'pane',
+            paneId: id,
+            url: navigation.url,
+          }),
+        )
+        openWebView({
+          id: opened.paneId,
+          title: new URL(opened.origin).host,
+          url: opened.url,
+          origin: opened.origin,
+          partition: opened.partition,
+          workspaceRoot: view.workspaceRoot,
+          sourceTerminalId: view.sourceTerminalId,
+        })
+      } catch (reason) {
+        setSessionError(reason instanceof Error ? reason.message : String(reason))
       }
-      return nativeOpen(url, target, features)
-    }
-    return () => {
-      window.open = nativeOpen
-    }
-  }, [])
+    })()
+  }
 
   const activateWebView = (id: string): void => {
     activePaneRef.current = 'primary'
@@ -759,16 +852,16 @@ export function App(): ReactElement {
   }
 
   const closeWebView = (id: string): void => {
-    const closing = webViewsRef.current.find((candidate) => candidate.id === id)
-    if (closing?.tunnelId) {
-      void window.hvir
-        .invoke('tunnel:close', { tunnelId: closing.tunnelId })
-        .catch(() => undefined)
-    }
+    void window.hvir.invoke('web-pane:close', { paneId: id }).catch(() => undefined)
     const remaining = webViewsRef.current.filter((candidate) => candidate.id !== id)
     setWebViews(remaining)
-    if (activeWebViewId === id) {
-      const fallback = remaining.at(-1)
+    if (activeWebViewIdRef.current === id) {
+      const fallback = remaining
+        .filter(
+          (view) =>
+            rootRef.current && hostPathEquals(view.workspaceRoot, rootRef.current),
+        )
+        .at(-1)
       setActiveWebViewId(fallback?.id)
       if (!fallback) setWebViewActive(false)
     }
@@ -1217,6 +1310,29 @@ export function App(): ReactElement {
     }
   }
 
+  const revealSourceTerminal = async (view: WebViewState): Promise<void> => {
+    const target = projectState?.projects
+      .flatMap((project) =>
+        project.workspaces.map((workspace) => ({ project, workspace })),
+      )
+      .find(({ workspace }) => hostPathEquals(workspace.root, view.workspaceRoot))
+    if (!target) {
+      setSessionError('The source workspace is no longer registered')
+      return
+    }
+    if (!rootRef.current || !hostPathEquals(rootRef.current, view.workspaceRoot)) {
+      await switchWorkspace(target.project.id, target.workspace.id)
+    }
+    window.requestAnimationFrame(() => {
+      const source = [
+        ...document.querySelectorAll<HTMLElement>('[data-terminal-session]'),
+      ].find((element) => element.dataset['terminalSession'] === view.sourceTerminalId)
+      source?.click()
+      source?.focus()
+      if (!source) setSessionError('The source terminal has closed')
+    })
+  }
+
   const setTreeWidth = (width: number): void => {
     const workbench = workbenchRef.current
     if (!workbench) return
@@ -1255,6 +1371,10 @@ export function App(): ReactElement {
 
   if (rootError) return <div className="startup-error">{rootError}</div>
   if (!root) return <div className="startup-loading">Starting hvir…</div>
+
+  const workspaceWebViews = webViews.filter((view) =>
+    hostPathEquals(view.workspaceRoot, root),
+  )
 
   const renderViewerPane = (
     pane: ViewerPaneId,
@@ -1315,7 +1435,7 @@ export function App(): ReactElement {
         }}
         webTabs={
           pane === 'primary'
-            ? webViews.map((view) => ({ id: view.id, title: view.title }))
+            ? workspaceWebViews.map((view) => ({ id: view.id, title: view.title }))
             : undefined
         }
         activeWebId={pane === 'primary' && webViewActive ? activeWebViewId : undefined}
@@ -1340,23 +1460,39 @@ export function App(): ReactElement {
             // so inactive panes collapse to zero height instead.
             <div
               className={`workspace-view${
-                webViewActive && activeWebViewId === view.id ? '' : ' web-view-hidden'
+                hostPathEquals(view.workspaceRoot, root) &&
+                webViewActive &&
+                activeWebViewId === view.id
+                  ? ''
+                  : ' web-view-hidden'
               }`}
               key={view.id}
             >
               <WebPane
                 view={view}
-                focused={webViewFocused}
+                focused={hostPathEquals(view.workspaceRoot, root) && webViewFocused}
                 onToggleFocus={() => setWebViewFocused((focused) => !focused)}
-                onTitle={(title) =>
+                onTitle={(title) => {
+                  const sanitized = sanitizedWebPaneTitle(title)
                   setWebViews((current) =>
                     current.map((candidate) =>
-                      candidate.id === view.id && candidate.title !== title
-                        ? { ...candidate, title }
+                      candidate.id === view.id && candidate.title !== sanitized
+                        ? { ...candidate, title: sanitized }
                         : candidate,
                     ),
                   )
-                }
+                }}
+                onBlockedNavigation={() => followBlockedNavigation(view.id)}
+                onOpenBrowser={(url) => {
+                  void window.hvir
+                    .invoke('web-pane:open-browser', { paneId: view.id, url })
+                    .catch((reason) =>
+                      setSessionError(
+                        reason instanceof Error ? reason.message : String(reason),
+                      ),
+                    )
+                }}
+                onRevealTerminal={() => void revealSourceTerminal(view)}
               />
             </div>
           ))
@@ -1695,6 +1831,7 @@ export function App(): ReactElement {
                     : { line: target.line, column: target.column },
                 )
               }
+              onOpenWebLink={openWebLink}
               idleThresholdMs={settings.idleThresholdMs}
               recoveryMode={settings.terminalRecoveryMode}
               terminalTheme={settings.terminalTheme}
@@ -2452,16 +2589,15 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value))
 }
 
-const LOOPBACK_HOSTNAMES = new Set(['localhost', '127.0.0.1', '0.0.0.0', '::1', '[::1]'])
-
-/** An http URL whose host is this-machine loopback from the server's view. */
-function isLoopbackHttpLink(rawUrl: string): boolean {
-  try {
-    const parsed = new URL(rawUrl)
-    return parsed.protocol === 'http:' && LOOPBACK_HOSTNAMES.has(parsed.hostname)
-  } catch {
-    return false
-  }
+function sanitizedWebPaneTitle(title: string): string {
+  const normalized = [...title]
+    .map((character) => {
+      const codepoint = character.codePointAt(0) ?? 0
+      return codepoint < 32 || codepoint === 127 ? ' ' : character
+    })
+    .join('')
+    .trim()
+  return normalized.slice(0, 120) || 'Web pane'
 }
 
 function fitTerminalHeight(height: number, workbenchHeight: number): number {

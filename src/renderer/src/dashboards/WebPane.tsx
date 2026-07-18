@@ -1,103 +1,113 @@
-import { useEffect, useMemo, useRef, useState, type ReactElement } from 'react'
+import { useEffect, useRef, useState, type ReactElement } from 'react'
+
+import type {
+  HostPath,
+  WebPaneBlockedNavigation,
+  WebPaneDiagnosticEvent,
+} from '../../../shared'
+import { ElectronWebPaneSurface } from './ElectronWebPaneSurface'
+import type { WebPaneSurface, WebPaneSurfaceHandle } from './web-pane-surface'
+
+const MAX_DIAGNOSTICS = 50
+const MAX_DIAGNOSTIC_TEXT = 1_000
 
 export interface WebViewState {
   readonly id: string
-  /** Dedupe key — one pane per forwarded server port. */
-  readonly linkKey: string
   readonly title: string
   readonly url: string
-  readonly tunnelId?: string
+  readonly origin: string
+  readonly partition: string
+  readonly workspaceRoot: HostPath
+  readonly sourceTerminalId: string
+  readonly blockedNavigation?: WebPaneBlockedNavigation
+  readonly routeDiagnostic?: {
+    readonly revision: number
+    readonly event: WebPaneDiagnosticEvent
+  }
 }
 
-/**
- * `window.open` targets that must reach the OS browser instead of a web pane.
- * The workbench routes loopback `window.open` calls into panes; this named
- * target is the escape hatch for the pane's own "open in browser" button.
- */
-export const EXTERNAL_OPEN_TARGET = 'hvir-external'
+interface DiagnosticRow {
+  readonly at: number
+  readonly kind: string
+  readonly message: string
+  readonly url?: string
+}
 
-/**
- * A server view rendered inside the viewer pane. The guest is an Electron
- * <webview> — a top-level page, so apps that (rightly) send
- * X-Frame-Options/frame-ancestors still render — pointed at a loopback URL
- * (the SSH tunnel's local end). Main confines guests to `http://127.0.0.1`
- * and strips preload/node access via will-attach-webview.
- *
- * The toolbar's path field is editable so endpoints without in-app
- * navigation (for example an experimental `/reef` route) stay reachable;
- * the origin is pinned to the tunnel.
- */
+/** Product chrome around the swappable, hostile-content guest surface. */
 export function WebPane({
   view,
   focused,
   onToggleFocus,
   onTitle,
+  onBlockedNavigation,
+  onOpenBrowser,
+  onRevealTerminal,
+  Surface = ElectronWebPaneSurface,
 }: {
   readonly view: WebViewState
   readonly focused: boolean
   readonly onToggleFocus: () => void
   readonly onTitle: (title: string) => void
+  readonly onBlockedNavigation: (navigation: WebPaneBlockedNavigation) => void
+  readonly onOpenBrowser: (url: string) => void
+  readonly onRevealTerminal: () => void
+  readonly Surface?: WebPaneSurface
 }): ReactElement {
-  const [reloadGeneration, setReloadGeneration] = useState(0)
-  const guestRef = useRef<(HTMLElement & { src?: string }) | null>(null)
+  const surfaceRef = useRef<WebPaneSurfaceHandle>(null)
   const editingRef = useRef(false)
-  const onTitleRef = useRef(onTitle)
-  onTitleRef.current = onTitle
-  const origin = useMemo(() => new URL(view.url).origin, [view.url])
   const [pathInput, setPathInput] = useState(() => pathOf(view.url))
+  const [diagnostics, setDiagnostics] = useState<readonly DiagnosticRow[]>([])
+  const [diagnosticsOpen, setDiagnosticsOpen] = useState(false)
+  const browserHandoffAvailable = view.workspaceRoot.hostId === 'local'
 
-  // Re-clicking a link for this pane's port with a different path updates
-  // view.url; navigate the live guest imperatively rather than trusting
-  // attribute diffing on the custom element.
   useEffect(() => {
     setPathInput(pathOf(view.url))
-    const guest = guestRef.current
-    if (guest && guest.src !== view.url) guest.src = view.url
+    surfaceRef.current?.navigate(view.url)
   }, [view.url])
 
-  // Follow the guest's own navigation so the field always shows where it is,
-  // and let the page title name the pane's tab.
   useEffect(() => {
-    const guest = guestRef.current
-    if (!guest) return
-    const followNavigation = (event: Event): void => {
-      const url = (event as Event & { url?: string }).url
-      if (!url || editingRef.current) return
-      try {
-        const parsed = new URL(url)
-        if (parsed.origin === origin) {
-          setPathInput(parsed.pathname + parsed.search + parsed.hash)
-        }
-      } catch {
-        // Non-URL navigation targets never reach the guest; ignore.
-      }
+    if (!view.blockedNavigation) return
+    appendDiagnostic(setDiagnostics, {
+      kind: 'blocked-navigation',
+      message: `Blocked ${view.blockedNavigation.kind} navigation`,
+      url: view.blockedNavigation.url,
+    })
+  }, [view.blockedNavigation])
+
+  useEffect(() => {
+    if (view.routeDiagnostic) {
+      appendDiagnostic(setDiagnostics, view.routeDiagnostic.event)
     }
-    const followTitle = (event: Event): void => {
-      const title = (event as Event & { title?: string }).title?.trim()
-      if (title) onTitleRef.current(title)
-    }
-    guest.addEventListener('did-navigate', followNavigation)
-    guest.addEventListener('did-navigate-in-page', followNavigation)
-    guest.addEventListener('page-title-updated', followTitle)
-    return () => {
-      guest.removeEventListener('did-navigate', followNavigation)
-      guest.removeEventListener('did-navigate-in-page', followNavigation)
-      guest.removeEventListener('page-title-updated', followTitle)
-    }
-  }, [origin, reloadGeneration])
+  }, [view.routeDiagnostic])
 
   const navigate = (): void => {
     const trimmed = pathInput.trim()
     const target = trimmed.startsWith('/') ? trimmed : `/${trimmed}`
-    const guest = guestRef.current
-    if (guest) guest.src = `${origin}${target}`
+    surfaceRef.current?.navigate(`${view.origin}${target}`)
   }
+  const currentUrl = `${view.origin}${pathInput || '/'}`
 
   return (
     <div className="web-pane">
       <div className="web-pane-toolbar">
-        <span className="web-pane-origin" title={origin}>
-          {origin}
+        <button
+          type="button"
+          aria-label="Back"
+          title="Back"
+          onClick={() => surfaceRef.current?.back()}
+        >
+          ←
+        </button>
+        <button
+          type="button"
+          aria-label="Forward"
+          title="Forward"
+          onClick={() => surfaceRef.current?.forward()}
+        >
+          →
+        </button>
+        <span className="web-pane-origin" title={view.origin}>
+          {view.origin}
         </span>
         <form
           className="web-pane-path"
@@ -125,9 +135,26 @@ export function WebPane({
           type="button"
           aria-label={`Reload ${view.title}`}
           title="Reload"
-          onClick={() => setReloadGeneration((generation) => generation + 1)}
+          onClick={() => surfaceRef.current?.reload()}
         >
           ⟳
+        </button>
+        <button
+          type="button"
+          aria-label="Reveal source terminal"
+          title="Back to terminal"
+          onClick={onRevealTerminal}
+        >
+          &gt;_
+        </button>
+        <button
+          type="button"
+          aria-label="Web pane diagnostics"
+          aria-pressed={diagnosticsOpen}
+          title="Diagnostics"
+          onClick={() => setDiagnosticsOpen((open) => !open)}
+        >
+          {diagnostics.length > 0 ? `!${diagnostics.length}` : 'ⓘ'}
         </button>
         <button
           type="button"
@@ -145,23 +172,100 @@ export function WebPane({
         <button
           type="button"
           aria-label={`Open ${view.title} in the browser`}
-          title="Open in browser"
-          onClick={() =>
-            window.open(`${origin}${pathInput || '/'}`, EXTERNAL_OPEN_TARGET)
+          title={
+            browserHandoffAvailable
+              ? 'Open in browser'
+              : 'Browser handoff for SSH panes needs a compatibility route'
           }
+          disabled={!browserHandoffAvailable}
+          onClick={() => onOpenBrowser(currentUrl)}
         >
           ↗
         </button>
       </div>
-      <webview
-        key={reloadGeneration}
-        ref={guestRef}
-        className="web-pane-frame"
-        src={view.url}
-        partition="persist:hvir-dashboards"
-        allowpopups
+      {view.blockedNavigation ? (
+        <div className="web-pane-navigation-blocked" role="status">
+          <span>
+            {view.blockedNavigation.kind === 'external'
+              ? `This link leaves hvir for ${hostnameOf(view.blockedNavigation.url)}.`
+              : `This link uses another local server (${originOf(view.blockedNavigation.url)}).`}
+          </span>
+          <button
+            type="button"
+            onClick={() => onBlockedNavigation(view.blockedNavigation!)}
+          >
+            {view.blockedNavigation.kind === 'external'
+              ? 'Open in system browser'
+              : 'Open as web pane'}
+          </button>
+        </div>
+      ) : null}
+      {diagnosticsOpen ? (
+        <section className="web-pane-diagnostics" aria-label="Web pane diagnostics">
+          <div>
+            <strong>Recent pane events</strong>
+            <button
+              type="button"
+              disabled={diagnostics.length === 0}
+              onClick={() =>
+                void navigator.clipboard.writeText(diagnosticReport(view, diagnostics))
+              }
+            >
+              Copy report
+            </button>
+          </div>
+          {diagnostics.length === 0 ? (
+            <p>No failures or console warnings recorded.</p>
+          ) : (
+            <ol>
+              {diagnostics.map((row, index) => (
+                <li key={`${row.at}:${index}`}>
+                  <code>{row.kind}</code> {row.message}
+                  {row.url ? ` — ${redactedDiagnosticUrl(row.url)}` : ''}
+                </li>
+              ))}
+            </ol>
+          )}
+        </section>
+      ) : null}
+      <Surface
+        ref={surfaceRef}
+        paneId={view.id}
+        partition={view.partition}
+        initialUrl={view.url}
+        onNavigate={(url) => {
+          try {
+            const parsed = new URL(url)
+            if (parsed.origin === view.origin && !editingRef.current) {
+              setPathInput(parsed.pathname + parsed.search + parsed.hash)
+            }
+          } catch {
+            // Main blocks invalid top-level targets before they reach this seam.
+          }
+        }}
+        onTitle={onTitle}
+        onDiagnostic={(event) => appendDiagnostic(setDiagnostics, event)}
       />
     </div>
+  )
+}
+
+function appendDiagnostic(
+  update: (
+    value: (current: readonly DiagnosticRow[]) => readonly DiagnosticRow[],
+  ) => void,
+  event: WebPaneDiagnosticEvent | Omit<DiagnosticRow, 'at'>,
+): void {
+  update((current) =>
+    [
+      ...current,
+      {
+        at: Date.now(),
+        kind: event.kind,
+        message: event.message.slice(0, MAX_DIAGNOSTIC_TEXT),
+        url: 'url' in event ? event.url : undefined,
+      },
+    ].slice(-MAX_DIAGNOSTICS),
   )
 }
 
@@ -172,4 +276,44 @@ function pathOf(url: string): string {
   } catch {
     return '/'
   }
+}
+
+function originOf(url: string): string {
+  try {
+    return new URL(url).origin
+  } catch {
+    return 'unknown origin'
+  }
+}
+
+function hostnameOf(url: string): string {
+  try {
+    return new URL(url).hostname
+  } catch {
+    return 'another site'
+  }
+}
+
+function redactedDiagnosticUrl(url: string): string {
+  try {
+    const parsed = new URL(url)
+    return `${parsed.origin}${parsed.pathname}`
+  } catch {
+    return '[invalid URL]'
+  }
+}
+
+function diagnosticReport(
+  view: WebViewState,
+  diagnostics: readonly DiagnosticRow[],
+): string {
+  return [
+    `hvir web pane: ${view.origin}`,
+    `workspace host: ${view.workspaceRoot.hostId}`,
+    `source terminal: ${view.sourceTerminalId}`,
+    ...diagnostics.map(
+      (row) =>
+        `${new Date(row.at).toISOString()} ${row.kind}: ${row.message}${row.url ? ` (${redactedDiagnosticUrl(row.url)})` : ''}`,
+    ),
+  ].join('\n')
 }

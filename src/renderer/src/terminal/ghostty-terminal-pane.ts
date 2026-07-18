@@ -12,11 +12,13 @@ import type {
   TerminalPaneEvents,
   TerminalSize,
   TerminalColorTheme,
+  TerminalLinkActivation,
 } from './terminal-pane'
 import {
   detectTerminalFileLinks,
   detectTerminalWebLinks,
   isFileUri,
+  isTerminalWebTarget,
 } from './terminal-file-link'
 import { TerminalFitController } from './ghostty-terminal-fit'
 import { TerminalSignalParser } from './terminal-signals'
@@ -75,7 +77,7 @@ class GhosttyTerminalPane implements TerminalPane {
   private readonly bellListeners = new ListenerSet<void>()
   private readonly oscListeners = new ListenerSet<OscEvent>()
   private readonly resizeListeners = new ListenerSet<TerminalSize>()
-  private readonly linkListeners = new ListenerSet<string>()
+  private readonly linkListeners = new ListenerSet<TerminalLinkActivation>()
   private readonly engineDisposers: Array<{ dispose(): void }> = []
   private mounted = false
   private disposed = false
@@ -217,7 +219,7 @@ class GhosttyTerminalPane implements TerminalPane {
 class FileLinkProvider implements ILinkProvider {
   constructor(
     private readonly terminal: GhosttyTerminal,
-    private readonly activateTarget: (target: string) => void,
+    private readonly activateTarget: (activation: TerminalLinkActivation) => void,
   ) {}
 
   provideLinks(y: number, callback: (links: ILink[] | undefined) => void): void {
@@ -238,34 +240,60 @@ class FileLinkProvider implements ILinkProvider {
       if (id <= 0 || hyperlinkIds.has(id)) continue
       hyperlinkIds.add(id)
       const target = this.terminal.wasmTerm?.getHyperlinkUri(id)
-      if (!target || !isFileUri(target)) continue
+      if (!target || (!isFileUri(target) && !isTerminalWebTarget(target))) continue
       let start = x
       let end = x
       while (start > 0 && line.getCell(start - 1)?.getHyperlinkId() === id) start -= 1
       while (end + 1 < line.length && line.getCell(end + 1)?.getHyperlinkId() === id) {
         end += 1
       }
-      links.push(this.link(target, y, start, end))
+      links.push(
+        this.link(
+          { kind: isFileUri(target) ? 'file' : 'loopback-http', target },
+          y,
+          start,
+          end,
+        ),
+      )
     }
 
     const lineText = text.join('')
     for (const candidate of detectTerminalFileLinks(lineText)) {
-      links.push(this.link(candidate.target, y, candidate.start, candidate.end))
+      links.push(
+        this.link(
+          { kind: 'file', target: candidate.target },
+          y,
+          candidate.start,
+          candidate.end,
+        ),
+      )
     }
-    // Scheme-less loopback server links ("localhost:5174") — schemed URLs are
-    // already handled by ghostty's built-in detector.
+    // Registered after Ghostty's built-in URL detector, so these exact ranges
+    // replace its global window.open activations with typed terminal provenance.
     for (const candidate of detectTerminalWebLinks(lineText)) {
-      links.push(this.link(candidate.target, y, candidate.start, candidate.end))
+      links.push(
+        this.link(
+          { kind: 'loopback-http', target: candidate.target },
+          y,
+          candidate.start,
+          candidate.end,
+        ),
+      )
     }
     callback(links.length > 0 ? links : undefined)
   }
 
-  private link(target: string, y: number, start: number, end: number): ILink {
+  private link(
+    activation: TerminalLinkActivation,
+    y: number,
+    start: number,
+    end: number,
+  ): ILink {
     return {
-      text: target,
+      text: activation.target,
       range: { start: { x: start, y }, end: { x: end, y } },
       activate: (event) => {
-        if (event.ctrlKey || event.metaKey) this.activateTarget(target)
+        if (event.ctrlKey || event.metaKey) this.activateTarget(activation)
       },
     }
   }

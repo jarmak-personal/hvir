@@ -1,5 +1,4 @@
 import { createHash, randomUUID } from 'node:crypto'
-import { createServer, type Server, type Socket } from 'node:net'
 import { StringDecoder } from 'node:string_decoder'
 
 import {
@@ -20,6 +19,7 @@ import {
   type HostId,
   type HostPath,
   type HostWatchTier,
+  type LoopbackEndpoint,
   type Stat,
   type WatchEvent,
   type WatchEventType,
@@ -32,11 +32,10 @@ import type {
   PtyProcess,
   ReadFileOptions,
   SpawnPtyOptions,
-  TunnelHandle,
   WatchOptions,
   WriteFileOptions,
 } from './project-host'
-import { assertTunnelPort, MAX_EXEC_STREAM_WRITE_BYTES } from './project-host'
+import { assertLoopbackEndpoint, MAX_EXEC_STREAM_WRITE_BYTES } from './project-host'
 import type { SshAliasConfig } from './ssh-config'
 
 export interface SshIdentity {
@@ -191,11 +190,6 @@ export class SshHost implements ProjectHost {
     string,
     { metadata: string; digest: string; observeUntil: number }
   >()
-  private readonly tunnels = new Set<{
-    readonly server: Server
-    readonly sockets: Set<Socket>
-  }>()
-
   constructor(private readonly options: SshHostOptions) {
     this.hostId = asHostId(options.config.alias)
     const requestedExecs = options.maxConcurrentExecs ?? SSH_DEFAULT_MAX_CONCURRENT_EXECS
@@ -271,11 +265,6 @@ export class SshHost implements ProjectHost {
       if (waiter.abort) waiter.signal?.removeEventListener('abort', waiter.abort)
       waiter.reject(new Error('SSH connection cancelled'))
     }
-    for (const tunnel of this.tunnels) {
-      tunnel.server.close()
-      for (const socket of tunnel.sockets) socket.destroy()
-    }
-    this.tunnels.clear()
     const transports = [...this.transports]
     const clients = new Set<Client>([
       ...transports.map((transport) => transport.client),
@@ -558,63 +547,15 @@ export class SshHost implements ProjectHost {
     }
   }
 
-  async forwardLocalPort(remotePort: number): Promise<TunnelHandle> {
-    assertTunnelPort(remotePort)
+  async connectLoopback(
+    endpoint: LoopbackEndpoint,
+  ): Promise<import('node:stream').Duplex> {
+    assertLoopbackEndpoint(endpoint)
     await this.connected()
-    const sockets = new Set<Socket>()
-    const server = createServer((socket) => {
-      sockets.add(socket)
-      socket.once('close', () => sockets.delete(socket))
-      socket.on('error', () => socket.destroy())
-      void this.pipeTunnelConnection(socket, remotePort)
-    })
-    await new Promise<void>((resolve, reject) => {
-      server.once('error', reject)
-      server.listen(0, '127.0.0.1', () => {
-        server.removeListener('error', reject)
-        resolve()
-      })
-    })
-    const address = server.address()
-    if (!address || typeof address === 'string') {
-      server.close()
-      throw new Error('SSH tunnel listener reported no local port')
-    }
-    const tunnel = { server, sockets }
-    this.tunnels.add(tunnel)
-    let closed = false
-    return {
-      localPort: address.port,
-      close: async () => {
-        if (closed) return
-        closed = true
-        this.tunnels.delete(tunnel)
-        for (const socket of sockets) socket.destroy()
-        await new Promise<void>((resolve) => server.close(() => resolve()))
-      },
-    }
+    return this.openTunnelChannel(endpoint)
   }
 
-  private async pipeTunnelConnection(socket: Socket, remotePort: number): Promise<void> {
-    let channel: ClientChannel
-    try {
-      channel = await this.openTunnelChannel(remotePort)
-    } catch {
-      socket.destroy()
-      return
-    }
-    if (socket.destroyed) {
-      channel.close()
-      return
-    }
-    channel.on('error', () => socket.destroy())
-    channel.once('close', () => socket.destroy())
-    socket.once('close', () => channel.close())
-    socket.pipe(channel)
-    channel.pipe(socket)
-  }
-
-  private async openTunnelChannel(remotePort: number): Promise<ClientChannel> {
+  private async openTunnelChannel(endpoint: LoopbackEndpoint): Promise<ClientChannel> {
     const reservation = await this.reserveTransport('tunnel')
     try {
       const channel = await new Promise<ClientChannel>((resolve, reject) => {
@@ -622,8 +563,8 @@ export class SshHost implements ProjectHost {
           reservation.transport.client.forwardOut(
             '127.0.0.1',
             0,
-            '127.0.0.1',
-            remotePort,
+            endpoint.hostname,
+            endpoint.port,
             (error, stream) => (error ? reject(error) : resolve(stream)),
           )
         } catch (error) {

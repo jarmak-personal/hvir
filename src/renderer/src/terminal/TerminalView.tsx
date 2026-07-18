@@ -10,7 +10,7 @@ import type {
 } from '../../../shared'
 import { createGhosttyTerminalPane } from './ghostty-terminal-pane'
 import { SynchronizedOutputWriter } from './synchronized-output'
-import type { TerminalPane } from './terminal-pane'
+import type { TerminalLinkActivation, TerminalPane } from './terminal-pane'
 import type { TerminalColorTheme } from './terminal-pane'
 import { useAppTheme, type AppTheme } from '../theme'
 import type { TerminalThemeOverride } from '../settings/settings'
@@ -44,7 +44,7 @@ interface TerminalViewProps {
   readonly onOutput: () => void
   readonly onBell: () => void
   readonly onFocus: () => void
-  readonly onLink: (target: string) => void
+  readonly onLink: (activation: TerminalLinkActivation) => void
 }
 
 const PTY_RESIZE_DEBOUNCE_MS = 75

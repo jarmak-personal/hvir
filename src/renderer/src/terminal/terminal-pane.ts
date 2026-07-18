@@ -37,6 +37,10 @@ export interface TerminalColorTheme {
   readonly white: string
 }
 
+export type TerminalLinkActivation =
+  | { readonly kind: 'file'; readonly target: string }
+  | { readonly kind: 'loopback-http'; readonly target: string }
+
 export interface TerminalPaneEvents {
   /** User keystrokes / paste — data the pane wants written to the PTY. */
   onData(cb: (data: string) => void): Disposer
@@ -48,8 +52,8 @@ export interface TerminalPaneEvents {
   onOsc(cb: (osc: OscEvent) => void): Disposer
   /** The pane's own resize (cols/rows), e.g. from a layout change. */
   onResize(cb: (size: TerminalSize) => void): Disposer
-  /** A user activated an inert link target rendered by the terminal. */
-  onLink(cb: (target: string) => void): Disposer
+  /** A user explicitly activated a typed link rendered by the terminal. */
+  onLink(cb: (activation: TerminalLinkActivation) => void): Disposer
 }
 
 export interface TerminalPane {

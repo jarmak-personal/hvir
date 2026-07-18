@@ -8,6 +8,8 @@
  * server. All paths are host-qualified `HostPath`s.
  */
 
+import type { Duplex } from 'node:stream'
+
 import type {
   HostId,
   HostPath,
@@ -18,6 +20,7 @@ import type {
   HostConnectionState,
   HostWatchTier,
   Disposer,
+  LoopbackEndpoint,
 } from '../../shared'
 
 export type { Disposer }
@@ -114,17 +117,15 @@ export interface PtyProcess {
   kill(signal?: string): void
 }
 
-export function assertTunnelPort(value: number): void {
-  if (!Number.isInteger(value) || value < 1 || value > 65_535) {
-    throw new Error(`Invalid tunnel port: ${value}`)
+export function assertLoopbackEndpoint(endpoint: LoopbackEndpoint): void {
+  if (
+    !Number.isInteger(endpoint.port) ||
+    endpoint.port < 1 ||
+    endpoint.port > 65_535 ||
+    !['localhost', '127.0.0.1', '::1'].includes(endpoint.hostname)
+  ) {
+    throw new Error('Invalid loopback endpoint')
   }
-}
-
-/** A live localhost listener that forwards TCP connections to the project host. */
-export interface TunnelHandle {
-  /** Loopback port on this machine that reaches the remote service. */
-  readonly localPort: number
-  close(): Promise<void>
 }
 
 export interface ProjectHost {
@@ -161,13 +162,8 @@ export interface ProjectHost {
    */
   spawnPty(opts: SpawnPtyOptions): Promise<PtyProcess>
 
-  /**
-   * Expose `127.0.0.1:<remotePort>` on the project host as a loopback listener
-   * on this machine. On LocalHost the service is already reachable, so the
-   * handle is the identity forward; on SshHost each connection rides a
-   * `direct-tcpip` channel over the existing transport pool.
-   */
-  forwardLocalPort(remotePort: number): Promise<TunnelHandle>
+  /** Open one bounded TCP stream to an exact loopback endpoint on this host. */
+  connectLoopback(endpoint: LoopbackEndpoint): Promise<Duplex>
 
   readFile(path: HostPath, opts?: ReadFileOptions): Promise<Buffer>
   readTextFile(

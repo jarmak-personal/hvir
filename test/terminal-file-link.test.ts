@@ -59,22 +59,41 @@ describe('terminal web links', () => {
     expect(detectTerminalWebLinks('bound to 0.0.0.0:3000.')).toEqual([
       { target: '0.0.0.0:3000', start: 9, end: 20 },
     ])
+    expect(detectTerminalWebLinks('IPv6 [::1]:4173/app')).toEqual([
+      { target: '[::1]:4173/app', start: 5, end: 18 },
+    ])
+    expect(detectTerminalWebLinks('all interfaces [::]:4173')).toEqual([
+      { target: '[::]:4173', start: 15, end: 23 },
+    ])
+    expect(detectTerminalWebLinks('query localhost:5173?mode=agent')).toEqual([
+      { target: 'localhost:5173?mode=agent', start: 6, end: 30 },
+    ])
   })
 
-  it('leaves schemed URLs to the built-in detector and skips lookalikes', () => {
-    expect(detectTerminalWebLinks('see http://localhost:8082/reef')).toEqual([])
+  it('claims schemed loopback URLs before the built-in detector and skips lookalikes', () => {
+    expect(detectTerminalWebLinks('see http://localhost:8082/reef')).toEqual([
+      { target: 'http://localhost:8082/reef', start: 4, end: 29 },
+    ])
+    expect(detectTerminalWebLinks('see http://localhost/reef')).toEqual([
+      { target: 'http://localhost/reef', start: 4, end: 24 },
+    ])
     expect(detectTerminalWebLinks('ratio 12:34 and time 08:15:00')).toEqual([])
     expect(detectTerminalWebLinks('remote-host:8080/path')).toEqual([])
+    expect(detectTerminalFileLinks('see http://localhost:8082/reef')).toEqual([])
   })
 
   it('normalizes clicked loopback targets to http URLs', () => {
     expect(normalizeTerminalWebTarget('localhost:8082/reef')).toBe(
       'http://localhost:8082/reef',
     )
-    expect(normalizeTerminalWebTarget('127.0.0.1:5174')).toBe('http://127.0.0.1:5174')
+    expect(normalizeTerminalWebTarget('127.0.0.1:5174')).toBe('http://127.0.0.1:5174/')
     expect(normalizeTerminalWebTarget('localhost:8082/reef).')).toBe(
       'http://localhost:8082/reef',
     )
+    expect(normalizeTerminalWebTarget('[::1]:4173/app')).toBe('http://[::1]:4173/app')
+    expect(normalizeTerminalWebTarget('0.0.0.0:3000')).toBe('http://localhost:3000/')
+    expect(normalizeTerminalWebTarget('http://user:pass@localhost:5173/')).toBeUndefined()
+    expect(normalizeTerminalWebTarget('localhost:65536')).toBeUndefined()
     expect(normalizeTerminalWebTarget('src/main.ts:9')).toBeUndefined()
     expect(normalizeTerminalWebTarget('example.com:8080/x')).toBeUndefined()
   })

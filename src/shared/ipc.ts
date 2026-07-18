@@ -50,6 +50,11 @@ import type {
   HarnessProfileInput,
 } from './harness-profile'
 import type { RegisteredProjectState } from './workspace-types'
+import type { KeybindingAction, KeybindingMap } from './keybindings'
+import type { WebPaneDiagnosticEvent } from './web-pane'
+
+export type WebPaneCommandAction =
+  KeybindingAction | 'closeWebPane' | 'escapeWebPaneFocus'
 
 /** Basic app/runtime info — the trivial round-trip that proves the contract. */
 export interface AppInfo {
@@ -341,19 +346,41 @@ export interface ForgetTerminalRequest {
   readonly id: string
 }
 
-export interface OpenTunnelRequest {
-  /** TCP port on the active project's host, reached via its loopback. */
-  readonly remotePort: number
+export type OpenWebPaneRequest =
+  | {
+      readonly source: 'terminal'
+      readonly root: HostPath
+      readonly terminalId: string
+      readonly url: string
+    }
+  | {
+      readonly source: 'pane'
+      readonly paneId: string
+      readonly url: string
+    }
+
+export interface OpenWebPaneResponse {
+  readonly paneId: string
+  readonly partition: string
+  readonly url: string
+  readonly origin: string
 }
 
-export interface OpenTunnelResponse {
-  readonly tunnelId: string
-  /** Loopback port on this machine that reaches the remote service. */
-  readonly localPort: number
+export interface CloseWebPaneRequest {
+  readonly paneId: string
 }
 
-export interface CloseTunnelRequest {
-  readonly tunnelId: string
+export interface OpenWebPaneExternalRequest {
+  readonly paneId: string
+  readonly url: string
+}
+
+export type OpenWebPaneBrowserRequest = OpenWebPaneExternalRequest
+
+export interface WebPaneBlockedNavigation {
+  readonly paneId: string
+  readonly kind: 'loopback' | 'external'
+  readonly url: string
 }
 
 export interface RebindTerminalProfileRequest {
@@ -504,11 +531,13 @@ export interface IpcInvokeMap {
     response: TerminalRecoverySession
   }
   'pty:start': { request: StartPtyRequest; response: StartPtyResponse }
-  'tunnel:open': {
-    request: OpenTunnelRequest
-    response: OperationResult<OpenTunnelResponse>
+  'web-pane:open': {
+    request: OpenWebPaneRequest
+    response: OperationResult<OpenWebPaneResponse>
   }
-  'tunnel:close': { request: CloseTunnelRequest; response: void }
+  'web-pane:close': { request: CloseWebPaneRequest; response: void }
+  'web-pane:open-external': { request: OpenWebPaneExternalRequest; response: void }
+  'web-pane:open-browser': { request: OpenWebPaneBrowserRequest; response: void }
 }
 
 /**
@@ -521,6 +550,8 @@ export interface IpcSendMap {
   'pty:resize': { readonly id: string; readonly cols: number; readonly rows: number }
   'pty:kill': { readonly id: string }
   'app:attention': { readonly count: number }
+  'web-pane:reserved-bindings': KeybindingMap
+  'web-pane:full-page': { readonly paneId?: string }
 }
 
 /** Main -> renderer push channels. */
@@ -539,6 +570,15 @@ export interface IpcEventMap {
     readonly id: string
     readonly harnessSessionId?: string
     readonly identityStatus: TerminalIdentityStatus
+  }
+  'web-pane:navigation-blocked': WebPaneBlockedNavigation
+  'web-pane:command': {
+    readonly paneId: string
+    readonly action: WebPaneCommandAction
+  }
+  'web-pane:diagnostic': {
+    readonly paneId: string
+    readonly event: WebPaneDiagnosticEvent
   }
 }
 
@@ -620,8 +660,10 @@ export const INVOKE_CHANNELS = [
   'terminal:forget',
   'terminal:rebind-profile',
   'pty:start',
-  'tunnel:open',
-  'tunnel:close',
+  'web-pane:open',
+  'web-pane:close',
+  'web-pane:open-external',
+  'web-pane:open-browser',
 ] as const satisfies readonly IpcInvokeChannel[]
 
 export const SEND_CHANNELS = [
@@ -630,6 +672,8 @@ export const SEND_CHANNELS = [
   'pty:resize',
   'pty:kill',
   'app:attention',
+  'web-pane:reserved-bindings',
+  'web-pane:full-page',
 ] as const satisfies readonly IpcSendChannel[]
 
 export const EVENT_CHANNELS = [
@@ -641,6 +685,9 @@ export const EVENT_CHANNELS = [
   'pty:exit',
   'pty:telemetry',
   'pty:identity',
+  'web-pane:navigation-blocked',
+  'web-pane:command',
+  'web-pane:diagnostic',
 ] as const satisfies readonly IpcEventChannel[]
 
 // Compile-time proof that INVOKE_CHANNELS stays in sync with IpcInvokeMap.

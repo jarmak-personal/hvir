@@ -997,7 +997,7 @@ ACP/RPC agent frontend instead of continuing to host the user's native terminal 
 
 ### ADR-013 — User-activated loopback web panes over `ProjectHost` routes
 
-**Status:** Proposed; pending product-owner sign-off before implementation is aligned.
+**Status:** Accepted.
 
 **Decision:** hvir may open an ordinary HTTP loopback link printed in a terminal as a
 transient **web pane** in that terminal's host-qualified workspace. This is a native view of

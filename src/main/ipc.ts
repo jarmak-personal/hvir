@@ -21,9 +21,11 @@ import {
   GIT_IGNORED_ENTRIES_TYPE,
   GIT_COMMIT_DETAIL_TYPE,
   GIT_BRANCHES_TYPE,
+  LOCAL_HOST_ID,
   repositoryImageMimeType,
   type GitWorkerProtocol,
   type HostPath,
+  type KeybindingMap,
   type HarnessProviderCapabilities,
   type IpcEventChannel,
   type IpcEventPayload,
@@ -38,6 +40,7 @@ import {
   type OperationResult,
   type ConnectedHost,
   type BrowseHostResponse,
+  parseKeybindingOverrides,
 } from '../shared'
 import {
   harnessProvider,
@@ -50,8 +53,8 @@ import {
   type HarnessProfileStoreContract,
 } from './harness/harness-profile-store'
 import type { HarnessProbeManager } from './harness/harness-probe'
-import { assertTunnelPort, type ProjectHost } from './project-host'
-import type { TunnelRegistry } from './tunnel-registry'
+import type { ProjectHost } from './project-host'
+import type { WebPaneRouteRegistry } from './web-pane/web-pane-route-registry'
 import type { HtmlPreviewProtocol } from './html-preview-protocol'
 import type { PtySupervisor } from './pty/pty-supervisor'
 import type { TerminalSessionStore } from './terminal/session-registry'
@@ -130,8 +133,11 @@ export interface IpcDeps {
   readonly harnessProfiles: HarnessProfileStoreContract
   readonly harnessProbes: HarnessProbeManager
   readonly updateAttention: (ownerId: number, count: number) => void
+  readonly updateWebPaneBindings: (ownerId: number, bindings: KeybindingMap) => void
+  readonly updateWebPaneFullPage: (ownerId: number, paneId?: string) => void
   readonly htmlPreviews: HtmlPreviewProtocol
-  readonly tunnels: TunnelRegistry
+  readonly webPanes: WebPaneRouteRegistry
+  readonly openExternal: (url: string) => Promise<void>
   readonly emit: EmitRendererEvent
 }
 
@@ -541,23 +547,67 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 
   handle('html-preview:create', (req) => deps.htmlPreviews.create(req.content))
 
-  handle('tunnel:open', (req) =>
+  handle('web-pane:open', (req, event) =>
     operationResult(async () => {
-      const { host } = deps.getProject()
-      assertRequestedTunnelPort(req.remotePort)
-      return deps.tunnels.open(host, req.remotePort)
+      const active = deps.getProject()
+      let root: HostPath
+      let terminalId: string
+      if (req.source === 'terminal') {
+        root = registeredWorkspaceRoot(req.root, deps)
+        terminalId = req.terminalId
+        if (!isTerminalId(terminalId)) throw new Error('Invalid source terminal')
+        const terminal = deps.ptySupervisor.get(terminalId)
+        if (
+          !terminal ||
+          terminal.ownerId !== event.sender.id ||
+          terminal.hostId !== root.hostId ||
+          !hostPathEquals(terminal.cwd, root)
+        ) {
+          throw new Error('Web pane source terminal is not live in this workspace')
+        }
+      } else {
+        if (!isWebPaneId(req.paneId)) throw new Error('Invalid source web pane')
+        const source = deps.webPanes.source(req.paneId, event.sender.id)
+        if (!source) throw new Error('Source web pane is no longer live')
+        root = registeredWorkspaceRoot(source.workspaceRoot, deps)
+        terminalId = source.terminalId
+      }
+      if (!hostPathEquals(root, active.root) || root.hostId !== active.host.hostId) {
+        throw new Error('Web panes may be opened only from the active workspace')
+      }
+      return deps.webPanes.open({
+        ownerId: event.sender.id,
+        sourceTerminalId: terminalId,
+        workspaceRoot: root,
+        host: active.host,
+        url: req.url,
+      })
     }),
   )
 
-  handle('tunnel:close', async (req) => {
-    if (
-      typeof req.tunnelId !== 'string' ||
-      req.tunnelId.length === 0 ||
-      req.tunnelId.length > 200
-    ) {
-      throw new Error('Invalid tunnel id')
+  handle('web-pane:close', async (req, event) => {
+    if (!isWebPaneId(req.paneId)) throw new Error('Invalid web pane id')
+    await deps.webPanes.close(req.paneId, event.sender.id)
+  })
+
+  handle('web-pane:open-external', async (req, event) => {
+    if (!isWebPaneId(req.paneId)) throw new Error('Invalid web pane id')
+    const decision = deps.webPanes.navigationForPane(req.paneId, event.sender.id, req.url)
+    if (decision.kind !== 'external') throw new Error('External URL is not authorized')
+    await deps.openExternal(decision.url)
+  })
+
+  handle('web-pane:open-browser', async (req, event) => {
+    if (!isWebPaneId(req.paneId)) throw new Error('Invalid web pane id')
+    const source = deps.webPanes.source(req.paneId, event.sender.id)
+    const decision = deps.webPanes.navigationForPane(req.paneId, event.sender.id, req.url)
+    if (!source || decision.kind !== 'allow') {
+      throw new Error('Browser URL is not authorized by this web pane')
     }
-    await deps.tunnels.close(req.tunnelId)
+    if (source.hostId !== LOCAL_HOST_ID) {
+      throw new Error('Open in browser for SSH panes needs a compatibility route')
+    }
+    await deps.openExternal(decision.url)
   })
 
   handle('terminal:recovery', (req) => {
@@ -847,6 +897,18 @@ export function registerIpcHandlers(deps: IpcDeps): void {
     const safeCount = Number.isSafeInteger(count) ? Math.max(0, Math.min(99, count)) : 0
     deps.updateAttention(event.sender.id, safeCount)
   })
+  handleSend('web-pane:reserved-bindings', (bindings, event) => {
+    deps.updateWebPaneBindings(event.sender.id, parseKeybindingOverrides(bindings))
+  })
+  handleSend('web-pane:full-page', ({ paneId }, event) => {
+    if (
+      paneId !== undefined &&
+      (!isWebPaneId(paneId) || !deps.webPanes.has(paneId, event.sender.id))
+    ) {
+      throw new Error('Invalid full-page web pane')
+    }
+    deps.updateWebPaneFullPage(event.sender.id, paneId)
+  })
 }
 
 function registeredWorkspaceRoot(candidate: HostPath, deps: IpcDeps): HostPath {
@@ -894,9 +956,8 @@ function isTerminalId(value: unknown): value is string {
   return typeof value === 'string' && /^[a-zA-Z0-9-]{1,80}$/.test(value)
 }
 
-function assertRequestedTunnelPort(value: unknown): asserts value is number {
-  if (typeof value !== 'number') throw new Error('Invalid tunnel port')
-  assertTunnelPort(value)
+function isWebPaneId(value: unknown): value is string {
+  return typeof value === 'string' && /^[a-f0-9-]{36}$/.test(value)
 }
 
 function isTerminalTitle(value: unknown): value is string {

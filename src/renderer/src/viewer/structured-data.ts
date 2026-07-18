@@ -12,8 +12,8 @@ export function parseStructuredData(
   if (errors.length > 0) {
     throw new Error(errors.map((error) => error.message).join('\n'))
   }
-  const values = documents.map((document) =>
-    document.toJS({ mapAsMap: false, maxAliasCount: 100 }) as unknown,
+  const values = documents.map(
+    (document) => document.toJS({ mapAsMap: false, maxAliasCount: 100 }) as unknown,
   )
   if (values.length <= 1) return values[0] ?? null
   return Object.fromEntries(

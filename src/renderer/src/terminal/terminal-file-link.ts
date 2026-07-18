@@ -1,4 +1,9 @@
-import { hostPath, joinHostPath, type HostPath } from '../../../shared'
+import {
+  hostPath,
+  joinHostPath,
+  parseLoopbackHttpTarget,
+  type HostPath,
+} from '../../../shared'
 
 export interface TerminalFileLink {
   readonly target: string
@@ -35,6 +40,10 @@ export function detectTerminalFileLinks(text: string): readonly TerminalFileLink
     const withoutLeading = original.slice(leading)
     const trailing = withoutLeading.match(TRAILING_PUNCTUATION)?.[0].length ?? 0
     const target = withoutLeading.slice(0, withoutLeading.length - trailing)
+    if (isTerminalWebTarget(target)) {
+      match = TOKEN.exec(text)
+      continue
+    }
     const parsed = parseTerminalFileTarget(target)
     if (parsed && isPlainPathCandidate(parsed.path)) {
       const start = match.index + leading
@@ -102,10 +111,10 @@ export function isFileUri(target: string): boolean {
   return target.startsWith('file://')
 }
 
-// Loopback web targets agents print without a scheme ("localhost:5174/dash").
-// Schemed URLs are ghostty-web's built-in link detector's job; these are not.
+// Match both forms so this provider overrides ghostty-web's global window.open
+// handler for schemed loopback URLs as well as detecting scheme-less output.
 const WEB_HOST_TOKEN =
-  /(?:^|[\s<>"'`|([{])((?:localhost|127\.0\.0\.1|0\.0\.0\.0):\d{2,5}(?:\/[^\s<>"'`|]*)?)/g
+  /(?:^|[\s<>"'`|([{])((?:http:\/\/(?:[^\s<>"'`|/@]+(?::[^\s<>"'`|/@]*)?@)?(?:localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\]|\[::\])(?::\d{1,6})?|(?:localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\]|\[::\]):\d{1,6})(?:[/?#][^\s<>"'`|]*)?)/gi
 const WEB_TRAILING_PUNCTUATION = /[.,;!?)\]}]+$/
 
 export interface TerminalWebLink {
@@ -114,7 +123,7 @@ export interface TerminalWebLink {
   readonly end: number
 }
 
-/** Detect scheme-less loopback server links ("localhost:8082/reef") in one line. */
+/** Detect loopback server links in one terminal line. */
 export function detectTerminalWebLinks(text: string): readonly TerminalWebLink[] {
   const links: TerminalWebLink[] = []
   WEB_HOST_TOKEN.lastIndex = 0
@@ -134,10 +143,24 @@ export function detectTerminalWebLinks(text: string): readonly TerminalWebLink[]
 /** Turn a clicked terminal target into an http URL when it is a loopback web link. */
 export function normalizeTerminalWebTarget(rawTarget: string): string | undefined {
   const target = rawTarget.trim().replace(WEB_TRAILING_PUNCTUATION, '')
-  if (!/^(?:localhost|127\.0\.0\.1|0\.0\.0\.0):\d{2,5}(?:\/|$)/.test(target)) {
-    return undefined
+  const url = /^http:\/\//i.test(target) ? target : `http://${target}`
+  return parseLoopbackHttpTarget(url)?.url
+}
+
+/** Include invalid-userinfo lookalikes so our provider overrides global window.open. */
+export function isTerminalWebTarget(rawTarget: string): boolean {
+  if (normalizeTerminalWebTarget(rawTarget)) return true
+  try {
+    const candidate = new URL(rawTarget)
+    return (
+      candidate.protocol === 'http:' &&
+      ['localhost', '127.0.0.1', '0.0.0.0', '[::1]', '[::]'].includes(
+        candidate.hostname.toLowerCase(),
+      )
+    )
+  } catch {
+    return false
   }
-  return `http://${target}`
 }
 
 function isPlainPathCandidate(path: string): boolean {

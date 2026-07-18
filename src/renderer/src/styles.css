@@ -4341,7 +4341,7 @@ body.pane-resizing-row * {
   min-height: 0;
   width: 100%;
   border: 0;
-  background: #fff;
+  background: transparent;
 }
 
 .workspace-view.web-view-hidden {
@@ -4396,4 +4396,57 @@ webview.web-pane-frame {
 .web-pane-path input:focus {
   border-color: var(--accent);
   outline: none;
+}
+
+.web-pane-navigation-blocked {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--border-subtle);
+  background: color-mix(in srgb, var(--accent) 12%, var(--surface-2));
+  color: var(--text);
+  font-size: 12px;
+}
+
+.web-pane-navigation-blocked button,
+.web-pane-diagnostics button {
+  flex: 0 0 auto;
+  padding: 3px 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: 4px;
+  background: var(--surface-raised);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.web-pane-diagnostics {
+  max-height: 180px;
+  overflow: auto;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--surface-1);
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.web-pane-diagnostics > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.web-pane-diagnostics p,
+.web-pane-diagnostics ol {
+  margin: 7px 0 0;
+}
+
+.web-pane-diagnostics ol {
+  padding-left: 20px;
+}
+
+.web-pane-diagnostics code {
+  color: var(--text);
 }
