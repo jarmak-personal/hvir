@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type ReactElement,
@@ -11,18 +12,14 @@ import {
   asHostId,
   basenameHostPath,
   defaultViewMode,
-  dirnameHostPath,
   GIT_CHANGE_DISPLAY_LIMIT,
   hostPath,
   hostPathEquals,
-  MAX_PROJECT_WATCH_INTERESTS,
   unwrapOperation,
   type DiffBase,
   type FileOpenContext,
   type GitChanges,
   type HostPath,
-  type HostConnectionState,
-  type HostWatchTier,
   type ProjectHostOption,
   type ConnectedHost,
   type BrowseHostResponse,
@@ -35,11 +32,15 @@ import {
 import { PaneResizer } from './layout/PaneResizer'
 import { WebPane, type WebViewState } from './dashboards/WebPane'
 import { TerminalWorkspace } from './terminal/TerminalWorkspace'
-import type { TerminalWorkspaceRollup } from './terminal/TerminalWorkspace'
 import { ProjectsBar } from './workspaces/ProjectsBar'
 import { RemoteConnectionBadge } from './workspaces/ConnectionStatus'
 import { MissingWorkspaceNotice } from './workspaces/MissingWorkspaceNotice'
-import { initialHostConnectionTarget } from './workspaces/initial-host-connection'
+import { useProjectSession } from './workspaces/project-session'
+import type {
+  WorkspaceAttentionRollup,
+  WorkspaceAttentionRollups,
+} from './workspaces/project-session-model'
+import { useProjectWatchInterests } from './workspaces/project-watch-interests'
 import { FileTree } from './tree/FileTree'
 import { DirectoryTree } from './tree/DirectoryTree'
 import { isGitIgnoreRulePath } from './tree/git-ignore-refresh'
@@ -104,13 +105,6 @@ export function App(): ReactElement {
       }
     | undefined
   >(undefined)
-  const [root, setRoot] = useState<HostPath>()
-  const [projectState, setProjectState] = useState<ProjectState>()
-  const [rootError, setRootError] = useState<string>()
-  const [watchVersion, setWatchVersion] = useState(0)
-  const [ignoredRefreshVersion, setIgnoredRefreshVersion] = useState(0)
-  const [contentVersion, setContentVersion] = useState(0)
-  const [gitVersion, setGitVersion] = useState(0)
   const [tabs, setTabs] = useState<readonly ViewerTab[]>([])
   const [activeId, setActiveId] = useState<string>()
   const [viewerSplit, setViewerSplit] = useState(false)
@@ -133,27 +127,15 @@ export function App(): ReactElement {
   )
   const webViewActiveRef = useRef(false)
   const [gitChanges, setGitChanges] = useState<GitChanges>()
-  const [connectionState, setConnectionState] = useState<HostConnectionState>('connected')
-  const [watchTier, setWatchTier] = useState<HostWatchTier>('native')
-  const [hosts, setHosts] = useState<readonly ProjectHostOption[]>([])
   const [showAddProject, setShowAddProject] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
   const [settingsInitialSection, setSettingsInitialSection] = useState<
     'general' | 'harnesses' | 'harnesses-add'
   >('general')
-  const [sessionBusy, setSessionBusy] = useState(false)
-  const [sessionError, setSessionError] = useState<string>()
-  const [sshPrompts, setSshPrompts] = useState<readonly SshPromptRequest[]>([])
-  const [terminalRollups, setTerminalRollups] = useState<
-    Readonly<Record<string, TerminalWorkspaceRollup>>
-  >({})
+  const [terminalRollups, setTerminalRollups] = useState<WorkspaceAttentionRollups>({})
   const [terminalFocused, setTerminalFocused] = useState(false)
   const [treeCollapsed, setTreeCollapsed] = useState(false)
-  const expandedWatchPaths = useRef(new Map<string, HostPath>())
-  const [watchInterestVersion, setWatchInterestVersion] = useState(0)
-  const [watchInterestsLimited, setWatchInterestsLimited] = useState(false)
   tabsRef.current = tabs
-  rootRef.current = root
   activeIdRef.current = activeId
   gitGraphActiveRef.current = gitGraphActive
   webViewsRef.current = webViews
@@ -163,13 +145,6 @@ export function App(): ReactElement {
   const changedCountLabel = gitChanges?.workingTreeLimited
     ? `${GIT_CHANGE_DISPLAY_LIMIT.toLocaleString()}+`
     : changedCount.toLocaleString()
-  const activeProject = projectState?.projects.find(
-    (project) => project.id === projectState.activeProjectId,
-  )
-  const activeWorkspace = activeProject?.workspaces.find(
-    (workspace) => workspace.id === projectState?.activeWorkspaceId,
-  )
-  const gitEnabled = workspaceGitEnabled(activeWorkspace)
 
   useEffect(() => {
     const disposeNavigation = window.hvir.on(
@@ -214,10 +189,7 @@ export function App(): ReactElement {
     })
   }, [activeWebViewId, webViewActive, webViewFocused])
 
-  const applyProjectState = useCallback((state: ProjectState): void => {
-    setProjectState(state)
-    setConnectionState(state.connectionState)
-    setWatchTier(state.watchTier)
+  const applyProjectViewState = useCallback((state: ProjectState): void => {
     const liveWorkspaceKeys = new Set(
       state.projects.flatMap((project) =>
         project.workspaces.map((workspace) => storageKey(workspace.root)),
@@ -246,7 +218,6 @@ export function App(): ReactElement {
         hostPathEquals(view.workspaceRoot, state.root),
     )
     setRestored(false)
-    setRoot(state.root)
     setTabs([])
     setActiveId(undefined)
     activePaneRef.current = 'primary'
@@ -258,65 +229,12 @@ export function App(): ReactElement {
     setWebViewActive(Boolean(selectedWebView && nextWebSelection?.active))
     setWebViewFocused(false)
     setGitChanges(undefined)
-    setSessionError(undefined)
     setTerminalFocused(false)
     setTreeCollapsed(false)
-    expandedWatchPaths.current.clear()
-    setWatchInterestVersion((version) => version + 1)
-    setWatchInterestsLimited(false)
   }, [])
 
-  const updateExpandedWatchPath = useCallback(
-    (path: HostPath, expanded: boolean): void => {
-      const key = `${path.hostId}:${path.path}`
-      const current = expandedWatchPaths.current
-      if (expanded) {
-        if (current.has(key)) return
-        current.set(key, path)
-      } else {
-        if (!current.delete(key)) return
-      }
-      setWatchInterestVersion((version) => version + 1)
-    },
-    [],
-  )
-
-  useEffect(() => {
-    if (!root || connectionState !== 'connected' || activeWorkspace?.missing) {
-      setWatchInterestsLimited(false)
-      return
-    }
-    const unique = new Map<string, HostPath>()
-    // Open files take priority because their viewer contents must stay fresh.
-    for (const tab of tabs) {
-      const parent = dirnameHostPath(tab.path)
-      unique.set(`${parent.hostId}:${parent.path}`, parent)
-    }
-    for (const path of expandedWatchPaths.current.values()) {
-      unique.set(`${path.hostId}:${path.path}`, path)
-    }
-    const allPaths = [...unique.values()].filter((path) => !hostPathEquals(path, root))
-    const locallyLimited = allPaths.length > MAX_PROJECT_WATCH_INTERESTS
-    setWatchInterestsLimited(locallyLimited)
-    let cancelled = false
-    void window.hvir
-      .invoke('project:watch-interests', {
-        root,
-        paths: allPaths.slice(0, MAX_PROJECT_WATCH_INTERESTS),
-      })
-      .then((result) => {
-        if (!cancelled && result.ok) {
-          setWatchInterestsLimited(locallyLimited || result.value.limited)
-        }
-      })
-      .catch(() => undefined)
-    return () => {
-      cancelled = true
-    }
-  }, [activeWorkspace?.missing, connectionState, root, tabs, watchInterestVersion])
-
   const updateTerminalRollup = useCallback(
-    (workspaceId: string, rollup: TerminalWorkspaceRollup): void => {
+    (workspaceId: string, rollup: WorkspaceAttentionRollup): void => {
       setTerminalRollups((current) => {
         const existing = current[workspaceId]
         if (
@@ -391,121 +309,39 @@ export function App(): ReactElement {
       )
   }, [])
 
-  useEffect(() => {
-    let cancelled = false
-    let watchRefreshTimer: number | undefined
-    let ignoredRefreshTimer: number | undefined
-    let contentRefreshTimer: number | undefined
-    let gitRefreshTimer: number | undefined
-    const initializeProject = async (): Promise<void> => {
-      let state: ProjectState
-      try {
-        state = await window.hvir.invoke('project:root', undefined)
-      } catch (error) {
-        if (!cancelled)
-          setRootError(error instanceof Error ? error.message : String(error))
-        return
-      }
-      if (cancelled) return
-      applyProjectState(state)
-
-      const hostId = initialHostConnectionTarget(state)
-      if (!hostId) return
-      setSessionBusy(true)
-      setSessionError(undefined)
-      try {
-        const connected = unwrapOperation(
-          await window.hvir.invoke('project:connect-host', { hostId }),
-        )
-        if (cancelled) return
-        setConnectionState(connected.host.connectionState)
-        setWatchTier(connected.host.watchTier)
-        for (const tab of tabsRef.current) {
-          if (!tab.dirty) loadFile(tab.path)
-        }
-      } catch (error) {
-        if (!cancelled)
-          setSessionError(error instanceof Error ? error.message : String(error))
-      } finally {
-        if (!cancelled) setSessionBusy(false)
-      }
-    }
-    void initializeProject()
-    const stopWatch = window.hvir.on('project:watch', (event) => {
-      const gitMetadataEvent =
-        event.synthetic !== 'refresh' && /(^|\/)\.git(?:\/|$)/.test(event.path.path)
-      const ignoreRulesEvent =
-        event.synthetic !== 'refresh' && isGitIgnoreRulePath(event.path.path)
-      if (gitMetadataEvent && gitRefreshTimer === undefined) {
-        gitRefreshTimer = window.setTimeout(() => {
-          gitRefreshTimer = undefined
-          setGitVersion((version) => version + 1)
-        }, 250)
-      }
-      if (ignoreRulesEvent && ignoredRefreshTimer === undefined) {
-        ignoredRefreshTimer = window.setTimeout(() => {
-          ignoredRefreshTimer = undefined
-          setIgnoredRefreshVersion((version) => version + 1)
-        }, 250)
-      }
-      if (watchRefreshTimer === undefined) {
-        watchRefreshTimer = window.setTimeout(() => {
-          watchRefreshTimer = undefined
-          setWatchVersion((version) => version + 1)
-        }, 250)
-      }
-      if (event.synthetic !== 'refresh' && contentRefreshTimer === undefined) {
-        contentRefreshTimer = window.setTimeout(() => {
-          contentRefreshTimer = undefined
-          setContentVersion((version) => version + 1)
-        }, 250)
-      }
-      watchHandler.current(event)
-    })
-    const stopState = window.hvir.on('project:state', (state) => {
-      applyProjectState(state)
-      if (state.connectionState === 'connected') setSessionError(undefined)
-      if (state.connectionState === 'disconnected') {
-        setSshPrompts((current) =>
-          current.filter((prompt) => prompt.hostId !== state.root.hostId),
-        )
-      }
-    })
-    const stopPrompt = window.hvir.on('ssh:prompt', (prompt) => {
-      setSshPrompts((current) =>
-        current.some((candidate) => candidate.id === prompt.id)
-          ? current
-          : [...current, prompt],
-      )
-    })
-    const stopPromptCancel = window.hvir.on('ssh:prompt-cancel', ({ hostId }) => {
-      setSshPrompts((current) => current.filter((prompt) => prompt.hostId !== hostId))
-    })
-    return () => {
-      cancelled = true
-      if (watchRefreshTimer !== undefined) window.clearTimeout(watchRefreshTimer)
-      if (ignoredRefreshTimer !== undefined) window.clearTimeout(ignoredRefreshTimer)
-      if (contentRefreshTimer !== undefined) window.clearTimeout(contentRefreshTimer)
-      if (gitRefreshTimer !== undefined) window.clearTimeout(gitRefreshTimer)
-      void stopWatch()
-      void stopState()
-      void stopPrompt()
-      void stopPromptCancel()
-    }
-  }, [applyProjectState, loadFile])
+  const session = useProjectSession({
+    onProjectState: applyProjectViewState,
+    onReloadFiles: () => {
+      for (const tab of tabsRef.current) if (!tab.dirty) loadFile(tab.path)
+    },
+    onWatchEvent: (event) => watchHandler.current(event),
+    isIgnoreRulePath: isGitIgnoreRulePath,
+  })
+  const {
+    projectState,
+    root,
+    activeProject,
+    activeWorkspace,
+    connectionState,
+    watchTier,
+    rootError,
+    refreshHosts,
+  } = session
+  const { watch: watchVersion, ignored: ignoredRefreshVersion } = session.versions
+  const { content: contentVersion, git: gitVersion } = session.versions
+  const openWatchPaths = useMemo(() => tabs.map((tab) => tab.path), [tabs])
+  const watchInterests = useProjectWatchInterests({
+    root,
+    connected: connectionState === 'connected',
+    missing: activeWorkspace?.missing,
+    openPaths: openWatchPaths,
+  })
+  rootRef.current = root
+  const gitEnabled = workspaceGitEnabled(activeWorkspace)
 
   useEffect(() => {
-    let cancelled = false
-    void window.hvir.invoke('project:hosts', undefined).then(
-      (nextHosts) => {
-        if (!cancelled) setHosts(nextHosts)
-      },
-      () => undefined,
-    )
-    return () => {
-      cancelled = true
-    }
-  }, [showAddProject])
+    if (showAddProject) void refreshHosts()
+  }, [refreshHosts, showAddProject])
 
   useEffect(() => {
     if (!root) return
@@ -797,7 +633,7 @@ export function App(): ReactElement {
           sourceTerminalId: activation.terminalId,
         })
       } catch (reason) {
-        setSessionError(reason instanceof Error ? reason.message : String(reason))
+        session.reportError(reason instanceof Error ? reason.message : String(reason))
       }
     })()
   }
@@ -815,7 +651,7 @@ export function App(): ReactElement {
       void window.hvir
         .invoke('web-pane:open-external', { paneId: id, url: navigation.url })
         .catch((reason) =>
-          setSessionError(reason instanceof Error ? reason.message : String(reason)),
+          session.reportError(reason instanceof Error ? reason.message : String(reason)),
         )
       return
     }
@@ -838,7 +674,7 @@ export function App(): ReactElement {
           sourceTerminalId: view.sourceTerminalId,
         })
       } catch (reason) {
-        setSessionError(reason instanceof Error ? reason.message : String(reason))
+        session.reportError(reason instanceof Error ? reason.message : String(reason))
       }
     })()
   }
@@ -1097,118 +933,7 @@ export function App(): ReactElement {
     setShowAddProject(true)
   }
 
-  const switchWorkspace = async (
-    projectId: string,
-    workspaceId: string,
-  ): Promise<void> => {
-    if (
-      projectId === projectState?.activeProjectId &&
-      workspaceId === projectState.activeWorkspaceId
-    ) {
-      return
-    }
-    setSessionBusy(true)
-    setSessionError(undefined)
-    try {
-      const targetProject = projectState?.projects.find(
-        (project) => project.id === projectId,
-      )
-      if (
-        targetProject &&
-        targetProject.registeredRoot.hostId !== 'local' &&
-        targetProject.connectionState !== 'connected'
-      ) {
-        unwrapOperation(
-          await window.hvir.invoke('project:connect-host', {
-            hostId: targetProject.registeredRoot.hostId,
-          }),
-        )
-      }
-      const state = unwrapOperation(
-        await window.hvir.invoke('project:switch', { projectId, workspaceId }),
-      )
-      applyProjectState(state)
-    } catch (reason) {
-      setSessionError(reason instanceof Error ? reason.message : String(reason))
-    } finally {
-      setSessionBusy(false)
-    }
-  }
-
-  workspaceSwitchRef.current = (direction): void => {
-    const project = projectState?.projects.find(
-      (candidate) => candidate.id === projectState.activeProjectId,
-    )
-    const available = project?.workspaces.filter((workspace) => !workspace.missing) ?? []
-    if (!project || available.length < 2) return
-    const currentIndex = available.findIndex(
-      (workspace) => workspace.id === projectState?.activeWorkspaceId,
-    )
-    const target =
-      available[(currentIndex + direction + available.length) % available.length]
-    if (target) void switchWorkspace(project.id, target.id)
-  }
-
-  const refreshProject = async (projectId: string): Promise<void> => {
-    setSessionBusy(true)
-    setSessionError(undefined)
-    try {
-      applyProjectState(
-        unwrapOperation(await window.hvir.invoke('project:refresh', { projectId })),
-      )
-    } catch (reason) {
-      setSessionError(reason instanceof Error ? reason.message : String(reason))
-    } finally {
-      setSessionBusy(false)
-    }
-  }
-
-  const closeProject = async (projectId: string): Promise<void> => {
-    setSessionBusy(true)
-    setSessionError(undefined)
-    try {
-      applyProjectState(
-        unwrapOperation(await window.hvir.invoke('project:close', { projectId })),
-      )
-    } catch (reason) {
-      setSessionError(reason instanceof Error ? reason.message : String(reason))
-    } finally {
-      setSessionBusy(false)
-    }
-  }
-
-  const pruneWorktrees = async (projectId: string): Promise<void> => {
-    setSessionBusy(true)
-    setSessionError(undefined)
-    try {
-      applyProjectState(
-        unwrapOperation(await window.hvir.invoke('workspace:prune', { projectId })),
-      )
-    } catch (reason) {
-      setSessionError(reason instanceof Error ? reason.message : String(reason))
-    } finally {
-      setSessionBusy(false)
-    }
-  }
-
-  const dismissWorkspace = async (
-    projectId: string,
-    workspaceId: string,
-  ): Promise<void> => {
-    setSessionBusy(true)
-    setSessionError(undefined)
-    try {
-      applyProjectState(
-        unwrapOperation(
-          await window.hvir.invoke('workspace:dismiss', { projectId, workspaceId }),
-        ),
-      )
-    } catch (reason) {
-      setSessionError(reason instanceof Error ? reason.message : String(reason))
-    } finally {
-      setSessionBusy(false)
-    }
-  }
+  workspaceSwitchRef.current = session.switchRelativeWorkspace
 
   const switchGitBranch = async (branch: string): Promise<void> => {
     const workspaceRoot = rootRef.current
@@ -1222,27 +947,21 @@ export function App(): ReactElement {
         branch,
       }),
     )
-    applyProjectState(state)
-    setWatchVersion((version) => version + 1)
-    setIgnoredRefreshVersion((version) => version + 1)
-    setContentVersion((version) => version + 1)
-    setGitVersion((version) => version + 1)
-    for (const tab of tabsRef.current) {
-      if (!tab.dirty) loadFile(tab.path)
-    }
+    session.acceptProjectState(state)
+    session.refreshWorkspaceContent()
   }
 
   const fetchGit = async (): Promise<void> => {
     const workspaceRoot = rootRef.current
     if (!workspaceRoot) throw new Error('No active workspace')
-    applyProjectState(
+    session.acceptProjectState(
       unwrapOperation(
         await window.hvir.invoke('git:fetch', {
           root: workspaceRoot,
         }),
       ),
     )
-    setGitVersion((version) => version + 1)
+    session.refreshGit()
   }
 
   const pullGit = async (): Promise<void> => {
@@ -1251,63 +970,14 @@ export function App(): ReactElement {
     if (tabsRef.current.some((tab) => tab.dirty)) {
       throw new Error('Save or close unsaved viewer tabs before pulling')
     }
-    applyProjectState(
+    session.acceptProjectState(
       unwrapOperation(
         await window.hvir.invoke('git:pull', {
           root: workspaceRoot,
         }),
       ),
     )
-    setWatchVersion((version) => version + 1)
-    setIgnoredRefreshVersion((version) => version + 1)
-    setContentVersion((version) => version + 1)
-    setGitVersion((version) => version + 1)
-    for (const tab of tabsRef.current) {
-      if (!tab.dirty) loadFile(tab.path)
-    }
-  }
-
-  const disconnectSession = async (): Promise<void> => {
-    if (!root || root.hostId === 'local') return
-    setSessionBusy(true)
-    setSessionError(undefined)
-    try {
-      const host = unwrapOperation(
-        await window.hvir.invoke('project:disconnect-host', {
-          hostId: root.hostId,
-        }),
-      )
-      setSshPrompts((current) =>
-        current.filter((prompt) => prompt.hostId !== root.hostId),
-      )
-      setConnectionState(host.connectionState)
-    } catch (reason) {
-      setSessionError(reason instanceof Error ? reason.message : String(reason))
-    } finally {
-      setSessionBusy(false)
-    }
-  }
-
-  const reconnectSession = async (): Promise<void> => {
-    if (!root || root.hostId === 'local') return
-    setSessionBusy(true)
-    setSessionError(undefined)
-    try {
-      const connected = unwrapOperation(
-        await window.hvir.invoke('project:connect-host', {
-          hostId: root.hostId,
-        }),
-      )
-      setConnectionState(connected.host.connectionState)
-      setWatchTier(connected.host.watchTier)
-      for (const tab of tabsRef.current) {
-        if (!tab.dirty) loadFile(tab.path)
-      }
-    } catch (reason) {
-      setSessionError(reason instanceof Error ? reason.message : String(reason))
-    } finally {
-      setSessionBusy(false)
-    }
+    session.refreshWorkspaceContent()
   }
 
   const revealSourceTerminal = async (view: WebViewState): Promise<void> => {
@@ -1317,11 +987,11 @@ export function App(): ReactElement {
       )
       .find(({ workspace }) => hostPathEquals(workspace.root, view.workspaceRoot))
     if (!target) {
-      setSessionError('The source workspace is no longer registered')
+      session.reportError('The source workspace is no longer registered')
       return
     }
     if (!rootRef.current || !hostPathEquals(rootRef.current, view.workspaceRoot)) {
-      await switchWorkspace(target.project.id, target.workspace.id)
+      await session.switchWorkspace(target.project.id, target.workspace.id)
     }
     window.requestAnimationFrame(() => {
       const source = [
@@ -1329,7 +999,7 @@ export function App(): ReactElement {
       ].find((element) => element.dataset['terminalSession'] === view.sourceTerminalId)
       source?.click()
       source?.focus()
-      if (!source) setSessionError('The source terminal has closed')
+      if (!source) session.reportError('The source terminal has closed')
     })
   }
 
@@ -1487,7 +1157,7 @@ export function App(): ReactElement {
                   void window.hvir
                     .invoke('web-pane:open-browser', { paneId: view.id, url })
                     .catch((reason) =>
-                      setSessionError(
+                      session.reportError(
                         reason instanceof Error ? reason.message : String(reason),
                       ),
                     )
@@ -1571,22 +1241,22 @@ export function App(): ReactElement {
         <ProjectsBar
           state={projectState}
           rollups={terminalRollups}
-          busy={sessionBusy}
+          busy={session.busy}
           onAdd={changeSession}
           onSwitch={(projectId, workspaceId) =>
-            void switchWorkspace(projectId, workspaceId)
+            void session.switchWorkspace(projectId, workspaceId)
           }
-          onRefresh={(projectId) => void refreshProject(projectId)}
-          onCloseProject={(projectId) => void closeProject(projectId)}
-          onPrune={(projectId) => void pruneWorktrees(projectId)}
+          onRefresh={(projectId) => void session.refreshProject(projectId)}
+          onCloseProject={(projectId) => void session.closeProject(projectId)}
+          onPrune={(projectId) => void session.pruneWorktrees(projectId)}
           onDismiss={(projectId, workspaceId) =>
-            void dismissWorkspace(projectId, workspaceId)
+            void session.dismissWorkspace(projectId, workspaceId)
           }
           watchTier={watchTier}
-          statusError={sessionError}
+          statusError={session.error}
           onChangeConnection={changeSession}
-          onDisconnect={() => void disconnectSession()}
-          onReconnect={() => void reconnectSession()}
+          onDisconnect={() => void session.disconnect()}
+          onReconnect={() => void session.reconnect()}
           theme={theme}
           onTheme={(nextTheme) => setAppTheme(nextTheme)}
           onSettings={() => {
@@ -1642,8 +1312,8 @@ export function App(): ReactElement {
               missing={activeWorkspace?.missing}
               hidden={railMode !== 'files'}
               gitEnabled={gitEnabled}
-              watchInterestsLimited={watchInterestsLimited}
-              onExpandedChange={updateExpandedWatchPath}
+              watchInterestsLimited={watchInterests.limited}
+              onExpandedChange={watchInterests.updateExpandedPath}
             />
             {gitEnabled ? (
               <GitPanel
@@ -1853,18 +1523,15 @@ export function App(): ReactElement {
       </main>
       {showAddProject ? (
         <SessionDialog
-          hosts={hosts}
+          hosts={session.hosts}
           currentRoot={root}
-          suspended={sshPrompts.length > 0}
+          suspended={session.prompts.length > 0}
           onCancel={() => setShowAddProject(false)}
-          onConnect={connectProjectHost}
-          onBrowse={browseProjectHost}
-          onDisconnect={disconnectProjectHost}
-          onOpen={openProjectHost}
-          onOpened={(state) => {
-            applyProjectState(state)
-            setShowAddProject(false)
-          }}
+          onConnect={session.connectHost}
+          onBrowse={session.browseHost}
+          onDisconnect={session.disconnectHost}
+          onOpen={session.openHost}
+          onOpened={() => setShowAddProject(false)}
         />
       ) : null}
       {showSettings ? (
@@ -1882,21 +1549,11 @@ export function App(): ReactElement {
           }}
         />
       ) : null}
-      {sshPrompts[0] ? (
+      {session.prompts[0] ? (
         <SshPromptDialog
-          key={sshPrompts[0].id}
-          prompt={sshPrompts[0]}
-          onAnswer={(answers) => {
-            const answered = sshPrompts[0]
-            if (!answered) return
-            void window.hvir.invoke('ssh:prompt-response', {
-              id: answered.id,
-              answers,
-            })
-            setSshPrompts((current) =>
-              current.filter((candidate) => candidate.id !== answered.id),
-            )
-          }}
+          key={session.prompts[0].id}
+          prompt={session.prompts[0]}
+          onAnswer={session.answerPrompt}
         />
       ) : null}
     </div>
@@ -2322,22 +1979,6 @@ function useModalKeyboard(
       }
     }
   }, [dialogRef])
-}
-
-function connectProjectHost(hostId: string): Promise<ConnectedHost> {
-  return window.hvir.invoke('project:connect-host', { hostId }).then(unwrapOperation)
-}
-
-function browseProjectHost(hostId: string, path: string): Promise<BrowseHostResponse> {
-  return window.hvir.invoke('project:browse-host', { hostId, path }).then(unwrapOperation)
-}
-
-function disconnectProjectHost(hostId: string): Promise<ProjectHostOption> {
-  return window.hvir.invoke('project:disconnect-host', { hostId }).then(unwrapOperation)
-}
-
-function openProjectHost(hostId: string, path: string): Promise<ProjectState> {
-  return window.hvir.invoke('project:open', { hostId, path }).then(unwrapOperation)
 }
 
 function recentFolders(hostId: string): readonly string[] {
