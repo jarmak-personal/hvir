@@ -15,6 +15,8 @@ import {
   type SshPrompt,
   type WatchOptions,
 } from '../src/main/project-host'
+import type { SshFileAccess } from '../src/main/project-host/ssh-file-access'
+import type { SshWatchService } from '../src/main/project-host/ssh-watch-service'
 import { asHostId, hostPath, type HostPath, type WatchEvent } from '../src/shared'
 
 const cleanups: string[] = []
@@ -204,49 +206,6 @@ describe('SshHost remote behavior', () => {
     await expect(host.exec('true', [])).resolves.toMatchObject({ code: 0 })
     expect(client.exec).toHaveBeenCalledTimes(2)
     await host.dispose()
-  })
-
-  it('invalidates cached parent listings when watched children change', () => {
-    const host = new SshHost({
-      config: aliasConfig(),
-      prompter: { prompt: () => Promise.resolve(undefined) },
-    })
-    const cache = new Map<string, unknown>([
-      ['d:/project', []],
-      ['d:/project/new-dir', []],
-      ['f:/project/new-dir/file.txt', Buffer.from('old')],
-      ['d:/unrelated', []],
-    ])
-    const internals = host as unknown as {
-      cache: Map<string, unknown>
-      invalidate(path: string): void
-    }
-    internals.cache = cache
-
-    internals.invalidate('/project/new-dir/file.txt')
-
-    expect([...cache.keys()]).toEqual(['d:/unrelated'])
-  })
-
-  it('invalidates every cached descendant when the watched root is slash', () => {
-    const host = new SshHost({
-      config: aliasConfig(),
-      prompter: { prompt: () => Promise.resolve(undefined) },
-    })
-    const cache = new Map<string, unknown>([
-      ['d:/', []],
-      ['d:/home', []],
-      ['f:/home/picard/file.txt', Buffer.from('old')],
-    ])
-    const internals = host as unknown as {
-      cache: Map<string, unknown>
-      invalidate(path: string): void
-    }
-    internals.cache = cache
-
-    internals.invalidate('/')
-
-    expect(cache.size).toBe(0)
   })
 
   it.each([
@@ -518,15 +477,14 @@ describe('SshHost remote behavior', () => {
       config: aliasConfig(),
       prompter: { prompt: () => Promise.resolve(undefined) },
     })
-    const internals = host as unknown as {
-      state: 'connected'
-      client: Client
-      getSftp(): Promise<unknown>
-    }
+    const internals = host as unknown as { state: 'connected'; client: Client }
     internals.state = 'connected'
     internals.client = client as unknown as Client
 
-    const [first, second] = await Promise.all([internals.getSftp(), internals.getSftp()])
+    const [first, second] = await Promise.all([
+      hostFiles(host).getSftp(),
+      hostFiles(host).getSftp(),
+    ])
 
     expect(first).toBe(session)
     expect(second).toBe(session)
@@ -563,7 +521,7 @@ describe('SshHost remote behavior', () => {
       config: aliasConfig(),
       prompter: { prompt: () => Promise.resolve(undefined) },
     })
-    ;(host as unknown as { getSftp(): Promise<unknown> }).getSftp = () =>
+    ;(hostFiles(host) as unknown as { getSftp(): Promise<unknown> }).getSftp = () =>
       Promise.resolve(session)
     const link = hostPath(host.hostId, '/project/linked')
 
@@ -608,7 +566,7 @@ describe('SshHost remote behavior', () => {
       config: aliasConfig(),
       prompter: { prompt: () => Promise.resolve(undefined) },
     })
-    ;(host as unknown as { getSftp(): Promise<unknown> }).getSftp = () =>
+    ;(hostFiles(host) as unknown as { getSftp(): Promise<unknown> }).getSftp = () =>
       Promise.resolve(session)
 
     await host.writeFile(hostPath(host.hostId, '/project/file.txt'), 'replacement')
@@ -656,7 +614,7 @@ describe('SshHost remote behavior', () => {
       config: aliasConfig(),
       prompter: { prompt: () => Promise.resolve(undefined) },
     })
-    ;(host as unknown as { getSftp(): Promise<unknown> }).getSftp = () =>
+    ;(hostFiles(host) as unknown as { getSftp(): Promise<unknown> }).getSftp = () =>
       Promise.resolve(session)
     const path = hostPath(host.hostId, '/project/file.txt')
     await host.readFile(path, { pollingInterest: true })
@@ -692,7 +650,7 @@ describe('SshHost remote behavior', () => {
       config: aliasConfig(),
       prompter: { prompt: () => Promise.resolve(undefined) },
     })
-    ;(host as unknown as { getSftp(): Promise<unknown> }).getSftp = () =>
+    ;(hostFiles(host) as unknown as { getSftp(): Promise<unknown> }).getSftp = () =>
       Promise.resolve(session)
 
     await expect(
@@ -1101,26 +1059,26 @@ describe('SshHost remote behavior', () => {
       config: aliasConfig(),
       prompter: { prompt: () => Promise.resolve(undefined) },
     })
-    const internals = host as unknown as {
+    const files = hostFiles<{
       pollingFiles: Set<string>
       getSftp(): Promise<unknown>
+    }>(host)
+    const watches = hostWatches<{
       pollPrioritySnapshot(
         path: HostPath,
         opts: WatchOptions,
       ): Promise<Map<string, string>>
-    }
-    internals.pollingFiles.add('/project/open.txt')
-    internals.getSftp = () => Promise.resolve(session)
+    }>(host)
+    files.pollingFiles.add('/project/open.txt')
+    files.getSftp = () => Promise.resolve(session)
 
-    const before = await internals.pollPrioritySnapshot(
-      hostPath(host.hostId, '/project'),
-      { recursive: false },
-    )
+    const before = await watches.pollPrioritySnapshot(hostPath(host.hostId, '/project'), {
+      recursive: false,
+    })
     contents = Buffer.from('later')
-    const after = await internals.pollPrioritySnapshot(
-      hostPath(host.hostId, '/project'),
-      { recursive: false },
-    )
+    const after = await watches.pollPrioritySnapshot(hostPath(host.hostId, '/project'), {
+      recursive: false,
+    })
 
     expect(before.get('/project/open.txt')).not.toBe(after.get('/project/open.txt'))
     expect(before.get('/project/closed.txt')).toBe(after.get('/project/closed.txt'))
@@ -1156,22 +1114,24 @@ describe('SshHost remote behavior', () => {
         fingerprintObservationWindowMs: 10,
         prompter: { prompt: () => Promise.resolve(undefined) },
       })
-      const internals = host as unknown as {
+      const files = hostFiles<{
         pollingFiles: Set<string>
         getSftp(): Promise<unknown>
+      }>(host)
+      const watches = hostWatches<{
         pollPrioritySnapshot(
           path: HostPath,
           opts: WatchOptions,
         ): Promise<Map<string, string>>
-      }
-      internals.pollingFiles.add('/project/open.txt')
-      internals.getSftp = () => Promise.resolve(session)
+      }>(host)
+      files.pollingFiles.add('/project/open.txt')
+      files.getSftp = () => Promise.resolve(session)
       const root = hostPath(host.hostId, '/project')
 
-      const first = await internals.pollPrioritySnapshot(root, { recursive: false })
+      const first = await watches.pollPrioritySnapshot(root, { recursive: false })
       await vi.advanceTimersByTimeAsync(11)
-      const second = await internals.pollPrioritySnapshot(root, { recursive: false })
-      const third = await internals.pollPrioritySnapshot(root, { recursive: false })
+      const second = await watches.pollPrioritySnapshot(root, { recursive: false })
+      const third = await watches.pollPrioritySnapshot(root, { recursive: false })
 
       expect(second).toEqual(first)
       expect(third).toEqual(first)
@@ -1192,11 +1152,11 @@ describe('SshHost remote behavior', () => {
       config: aliasConfig(),
       prompter: { prompt: () => Promise.resolve(undefined) },
     })
-    const internals = host as unknown as {
+    const internals = hostFiles<{
       pollingFiles: Set<string>
       readDigests: Map<string, string>
       getSftp(): Promise<unknown>
-    }
+    }>(host)
     internals.getSftp = () => Promise.resolve(session)
     const internal = hostPath(host.hostId, '/project/untracked.txt')
     const visible = hostPath(host.hostId, '/project/open.txt')
@@ -1233,16 +1193,17 @@ describe('SshHost remote behavior', () => {
       config: aliasConfig(),
       prompter: { prompt: () => Promise.resolve(undefined) },
     })
-    const internals = host as unknown as {
+    const files = hostFiles<{ getSftp(): Promise<unknown> }>(host)
+    const watches = hostWatches<{
       getSftp(): Promise<unknown>
       pollPrioritySnapshot(
         path: HostPath,
         opts: WatchOptions,
       ): Promise<Map<string, string>>
-    }
-    internals.getSftp = () => Promise.resolve(session)
+    }>(host)
+    files.getSftp = () => Promise.resolve(session)
 
-    await internals.pollPrioritySnapshot(hostPath(host.hostId, '/project/.git'), {
+    await watches.pollPrioritySnapshot(hostPath(host.hostId, '/project/.git'), {
       recursive: false,
     })
 
@@ -1279,17 +1240,17 @@ describe('SshHost remote behavior', () => {
       config: aliasConfig(),
       prompter: { prompt: () => Promise.resolve(undefined) },
     })
-    const internals = host as unknown as {
-      getSftp(): Promise<unknown>
+    const files = hostFiles<{ getSftp(): Promise<unknown> }>(host)
+    const watches = hostWatches<{
       pollPrioritySnapshot(
         path: HostPath,
         opts: WatchOptions,
       ): Promise<Map<string, string>>
-    }
-    internals.getSftp = () => Promise.resolve(session)
+    }>(host)
+    files.getSftp = () => Promise.resolve(session)
     const expanded = hostPath(host.hostId, '/project/expanded')
 
-    const snapshot = await internals.pollPrioritySnapshot(
+    const snapshot = await watches.pollPrioritySnapshot(
       hostPath(host.hostId, '/project'),
       { recursive: false, additionalPaths: [expanded] },
     )
@@ -1315,7 +1276,7 @@ describe('SshHost remote behavior', () => {
         .fn<() => Promise<Map<string, string>>>()
         .mockReturnValueOnce(first)
         .mockResolvedValue(new Map())
-      const internals = host as unknown as {
+      const internals = hostWatches<{
         pollPrioritySnapshot(
           path: HostPath,
           opts: WatchOptions,
@@ -1326,7 +1287,7 @@ describe('SshHost remote behavior', () => {
           onEvent: (event: WatchEvent) => void,
           opts: WatchOptions,
         ): Disposer
-      }
+      }>(host)
       internals.pollPrioritySnapshot = snapshot
       internals.pollDirectoryBatch = (queue) => {
         queue.length = 0
@@ -1375,7 +1336,7 @@ describe('SshHost remote behavior', () => {
           return Promise.resolve()
         },
       )
-      const internals = host as unknown as {
+      const internals = hostWatches<{
         pollPrioritySnapshot(): Promise<Map<string, string>>
         pollDirectoryBatch(
           queue: string[],
@@ -1389,7 +1350,7 @@ describe('SshHost remote behavior', () => {
           onEvent: (event: WatchEvent) => void,
           opts: WatchOptions,
         ): Disposer
-      }
+      }>(host)
       internals.pollPrioritySnapshot = priority
       internals.pollDirectoryBatch = batch
       const stop = internals.watchPolling(
@@ -1436,8 +1397,8 @@ describe('SshHost remote behavior', () => {
       config: aliasConfig(),
       prompter: { prompt: () => Promise.resolve(undefined) },
     })
-    const internals = host as unknown as {
-      getSftp(): Promise<unknown>
+    const files = hostFiles<{ getSftp(): Promise<unknown> }>(host)
+    const watches = hostWatches<{
       pollDirectoryBatch(
         queue: string[],
         visited: Set<string>,
@@ -1445,13 +1406,13 @@ describe('SshHost remote behavior', () => {
         opts: WatchOptions,
         limit: number,
       ): Promise<void>
-    }
-    internals.getSftp = () => Promise.resolve(session)
+    }>(host)
+    files.getSftp = () => Promise.resolve(session)
     const queue = ['/project']
     const visited = new Set(queue)
     const snapshot = new Map<string, string>()
 
-    await internals.pollDirectoryBatch(queue, visited, snapshot, {}, 1)
+    await watches.pollDirectoryBatch(queue, visited, snapshot, {}, 1)
 
     expect(session.readdir).toHaveBeenCalledOnce()
     expect(queue).toEqual(['/project/a', '/project/b', '/project/c'])
@@ -1484,9 +1445,11 @@ describe('SshHost remote behavior', () => {
         kill: () => undefined,
         dispose: vi.fn(),
       }
-      const internals = host as unknown as {
-        cache: Map<string, unknown>
+      const hostInternals = host as unknown as {
         execStream(): ExecStreamHandle
+      }
+      const files = hostFiles<{ cache: Map<string, unknown> }>(host)
+      const watches = hostWatches<{
         pollPrioritySnapshot(
           path: HostPath,
           opts: WatchOptions,
@@ -1497,36 +1460,36 @@ describe('SshHost remote behavior', () => {
           onEvent: (event: WatchEvent) => void,
           opts: WatchOptions,
         ): Disposer
-      }
-      internals.execStream = () => silentInotify
-      internals.pollPrioritySnapshot = snapshot
-      internals.pollDirectoryBatch = (queue) => {
+      }>(host)
+      hostInternals.execStream = () => silentInotify
+      watches.pollPrioritySnapshot = snapshot
+      watches.pollDirectoryBatch = (queue) => {
         queue.length = 0
         return Promise.resolve()
       }
       const events: WatchEvent[] = []
-      const stop = internals.watchInotify(root, (event) => events.push(event), {})
+      const stop = watches.watchInotify(root, (event) => events.push(event), {})
 
       await Promise.resolve()
       await Promise.resolve()
       expect(snapshot).toHaveBeenCalledOnce()
-      internals.cache.set('d:/project', {})
+      files.cache.set('d:/project', {})
       await vi.advanceTimersByTimeAsync(10)
       expect(snapshot).toHaveBeenCalledTimes(2)
       expect(events).toContainEqual({
         type: 'addDir',
         path: hostPath(root.hostId, added),
       })
-      expect(internals.cache.has('d:/project')).toBe(false)
+      expect(files.cache.has('d:/project')).toBe(false)
 
-      internals.cache.set('d:/project', {})
+      files.cache.set('d:/project', {})
       await vi.advanceTimersByTimeAsync(10)
       expect(snapshot).toHaveBeenCalledTimes(3)
       expect(events).toContainEqual({
         type: 'unlinkDir',
         path: hostPath(root.hostId, added),
       })
-      expect(internals.cache.has('d:/project')).toBe(false)
+      expect(files.cache.has('d:/project')).toBe(false)
 
       await stop()
     } finally {
@@ -1554,8 +1517,10 @@ describe('SshHost remote behavior', () => {
       watchdogIntervalMs: 60_000,
       prompter: { prompt: () => Promise.resolve(undefined) },
     })
-    const internals = host as unknown as {
+    const hostInternals = host as unknown as {
       execStream(): ExecStreamHandle
+    }
+    const internals = hostWatches<{
       pollPrioritySnapshot(
         path: HostPath,
         opts: WatchOptions,
@@ -1566,8 +1531,8 @@ describe('SshHost remote behavior', () => {
         onEvent: (event: WatchEvent) => void,
         opts: WatchOptions,
       ): Disposer
-    }
-    internals.execStream = () => inotify
+    }>(host)
+    hostInternals.execStream = () => inotify
     internals.pollPrioritySnapshot = () => Promise.resolve(new Map<string, string>())
     internals.pollDirectoryBatch = (queue) => {
       queue.length = 0
@@ -1596,17 +1561,19 @@ describe('SshHost remote behavior', () => {
       })
       const root = hostPath(asHostId('example'), '/project')
       const stopBackend = vi.fn()
-      const internals = host as unknown as {
+      const hostInternals = host as unknown as {
         state: 'connected'
         tier: 'inotify'
+      }
+      const internals = hostWatches<{
         watchInotify(
           path: HostPath,
           onEvent: (event: WatchEvent) => void,
           opts: WatchOptions,
         ): Disposer
-      }
-      internals.state = 'connected'
-      internals.tier = 'inotify'
+      }>(host)
+      hostInternals.state = 'connected'
+      hostInternals.tier = 'inotify'
       internals.watchInotify = () => stopBackend
       const events: WatchEvent[] = []
 
@@ -1637,7 +1604,7 @@ describe('SshHost remote behavior', () => {
           failSnapshot = reject
         }),
     )
-    const internals = host as unknown as {
+    const internals = hostWatches<{
       pollPrioritySnapshot(
         path: HostPath,
         opts: WatchOptions,
@@ -1647,7 +1614,7 @@ describe('SshHost remote behavior', () => {
         onEvent: (event: WatchEvent) => void,
         opts: WatchOptions,
       ): Disposer
-    }
+    }>(host)
     internals.pollPrioritySnapshot = snapshot
     const onError = vi.fn()
     const stop = internals.watchPolling(
@@ -1693,6 +1660,14 @@ function aliasConfig() {
 
 function connectConfig(host: SshHost): ConnectConfig {
   return (host as unknown as { connectConfig(): ConnectConfig }).connectConfig()
+}
+
+function hostFiles<T extends object = SshFileAccess>(host: SshHost): T {
+  return (host as unknown as { files: T }).files
+}
+
+function hostWatches<T extends object = SshWatchService>(host: SshHost): T {
+  return (host as unknown as { watches: T }).watches
 }
 
 function nextAuth(

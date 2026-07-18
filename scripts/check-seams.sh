@@ -62,6 +62,25 @@ hits=$(grep -rnE '\.currentOwner\(|\.realpath\(|getRegisteredWorkspaceRoot|\basH
   'src/main/ipc/features' --include='*.ts' --include='*.tsx' || true)
 report "IPC features use central owner/path authority" "$hits"
 
+# 8. ssh2 is an implementation detail of the remote ProjectHost adapter. Main
+# consumers continue to depend on ProjectHost and host-qualified paths only.
+hits=$(grep -rnE "from ['\"]ssh2['\"]|import\(['\"]ssh2['\"]\)" \
+  "$SRC" --include='*.ts' --include='*.tsx' \
+  | grep -vE '^src/main/project-host/ssh-(host|file-access|transport-pool|watch-service)\.ts' || true)
+report "ssh2 details stay inside the SshHost adapter" "$hits"
+
+# 9. Host-local collaborators share SshHost's authentication lifecycle. They
+# receive authenticated clients through narrow ports and never construct one.
+hits=$(grep -rnE '\bnew Client\(|clientFactory' \
+  src/main/project-host/ssh-{file-access,transport-pool,watch-service}.ts || true)
+report "SSH collaborators do not create independent clients" "$hits"
+
+# 10. The collaborators are private composition details, not parallel
+# ProjectHost façades exposed to consumers through the package barrel.
+hits=$(grep -nE 'Ssh(FileAccess|TransportPool|WatchService)' \
+  src/main/project-host/index.ts || true)
+report "only SshHost is exported as the remote host façade" "$hits"
+
 if [[ "$fail" -ne 0 ]]; then
   printf '\n\033[31mseam check failed\033[0m\n'
   exit 1
