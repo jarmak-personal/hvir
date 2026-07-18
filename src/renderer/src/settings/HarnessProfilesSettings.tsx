@@ -696,7 +696,7 @@ export const HarnessProfilesSettings = forwardRef<
           }}
         />
       ) : null}
-      {addOpen ? (
+      {addOpen && providers.length > 0 ? (
         <AddHarnessDialog
           providers={providers}
           configuredProviderIds={new Set(profiles.map((profile) => profile.providerId))}
