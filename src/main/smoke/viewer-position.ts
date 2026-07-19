@@ -155,13 +155,12 @@ export function verifyViewerPositions(
         () => document.querySelector('.source-shell .cm-scroller'),
         'clean diff source missing'
       );
-      cleanSource.scrollTop = Math.min(
-        cleanSource.scrollHeight - cleanSource.clientHeight,
-        cleanSource.clientHeight * 0.75
-      );
-      cleanSource.dispatchEvent(new Event('scroll'));
-      await settle();
       const cleanLine = await waitFor(() => {
+        cleanSource.scrollTop = Math.min(
+          cleanSource.scrollHeight - cleanSource.clientHeight,
+          cleanSource.clientHeight * 0.75
+        );
+        cleanSource.dispatchEvent(new Event('scroll'));
         const line = visibleCodeLine(cleanSource, '.cm-lineNumbers .cm-gutterElement');
         return line !== undefined && line > 1 ? line : undefined;
       }, 'clean diff source did not scroll');
