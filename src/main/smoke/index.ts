@@ -2287,6 +2287,98 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
     )) as string
     console.log(`[smoke] pane dividers OK (${resizeStatus})`)
 
+    const resizerActionStatus = (await withTimeout(
+      win.webContents.executeJavaScript(`
+        new Promise((resolve, reject) => {
+          const frames = () => new Promise((done) =>
+            requestAnimationFrame(() => requestAnimationFrame(done))
+          );
+          const pointer = (target, type, id, x, y) => target.dispatchEvent(
+            new PointerEvent(type, {
+              bubbles: true,
+              cancelable: true,
+              pointerId: id,
+              isPrimary: true,
+              button: 0,
+              buttons: type === 'pointerup' ? 0 : 1,
+              clientX: x,
+              clientY: y
+            })
+          );
+          const run = async () => {
+            const workbench = document.querySelector('.workbench');
+            const terminal = document.querySelector('.terminal-panel');
+            const terminalDivider = document.querySelector('.terminal-resizer');
+            const terminalToggle = document.querySelector('.terminal-focus-toggle');
+            const tree = document.querySelector('.tree-panel');
+            const treeToggle = document.querySelector('.tree-collapse-toggle');
+            if (
+              !workbench || !terminal || !terminalDivider || !terminalToggle ||
+              !tree || !treeToggle
+            ) {
+              throw new Error('resizer action controls missing');
+            }
+
+            terminalToggle.click();
+            await frames();
+            if (!workbench.classList.contains('terminal-focused')) {
+              throw new Error('terminal did not maximize before action drag');
+            }
+            const terminalButtonRect = terminalToggle.getBoundingClientRect();
+            const workbenchRect = workbench.getBoundingClientRect();
+            const terminalTargetY = workbenchRect.bottom - 280;
+            const terminalStartX = terminalButtonRect.left + terminalButtonRect.width / 2;
+            const terminalStartY = terminalButtonRect.top + terminalButtonRect.height / 2;
+            pointer(terminalToggle, 'pointerdown', 41, terminalStartX, terminalStartY);
+            pointer(terminalToggle, 'pointermove', 41, terminalStartX, terminalTargetY);
+            pointer(terminalToggle, 'pointerup', 41, terminalStartX, terminalTargetY);
+            terminalToggle.click();
+            await frames();
+            const terminalHeight = terminal.getBoundingClientRect().height;
+            if (
+              workbench.classList.contains('terminal-focused') ||
+              workbench.classList.contains('terminal-collapsed') ||
+              Math.abs(terminalHeight - 280) > 2
+            ) {
+              throw new Error(
+                'terminal action drag toggled instead of resizing: ' + terminalHeight
+              );
+            }
+
+            treeToggle.click();
+            await frames();
+            if (!workbench.classList.contains('tree-collapsed')) {
+              throw new Error('tree did not collapse before action drag');
+            }
+            const treeButtonRect = treeToggle.getBoundingClientRect();
+            const treeTargetX = workbenchRect.left + 260;
+            const treeStartX = treeButtonRect.left + treeButtonRect.width / 2;
+            const treeStartY = treeButtonRect.top + treeButtonRect.height / 2;
+            pointer(treeToggle, 'pointerdown', 42, treeStartX, treeStartY);
+            pointer(treeToggle, 'pointermove', 42, treeTargetX, treeStartY);
+            pointer(treeToggle, 'pointerup', 42, treeTargetX, treeStartY);
+            treeToggle.click();
+            await frames();
+            const treeWidth = tree.getBoundingClientRect().width;
+            if (
+              workbench.classList.contains('tree-collapsed') ||
+              Math.abs(treeWidth - 260) > 2 ||
+              document.body.classList.contains('pane-resizing')
+            ) {
+              throw new Error('tree action drag toggled instead of resizing: ' + treeWidth);
+            }
+            resolve(
+              Math.round(terminalHeight) + 'px terminal; ' +
+              Math.round(treeWidth) + 'px tree; action drags suppressed clicks'
+            );
+          };
+          void run().catch(reject);
+        })
+      `),
+      'pane action drag smoke timed out',
+    )) as string
+    console.log(`[smoke] pane action drags OK (${resizerActionStatus})`)
+
     const splitStatus = (await withTimeout(
       win.webContents.executeJavaScript(`
         new Promise((resolve, reject) => {

@@ -501,9 +501,11 @@ export function App(): ReactElement {
           orientation="vertical"
           className="tree-resizer"
           label="Resize file tree"
+          onDragStart={() => {
+            if (treeCollapsed) setTreeCollapsed(false)
+          }}
           onDrag={(clientX) => {
             const left = workbenchRef.current?.getBoundingClientRect().left ?? 0
-            if (treeCollapsed) setTreeCollapsed(false)
             setTreeWidth(clientX - left)
           }}
           onNudge={(delta) => {
@@ -577,9 +579,11 @@ export function App(): ReactElement {
           orientation="horizontal"
           className="terminal-resizer"
           label="Resize terminal"
+          onDragStart={() => {
+            if (terminalMode !== 'restored') setTerminalMode('restored')
+          }}
           onDrag={(clientY) => {
             const bottom = workbenchRef.current?.getBoundingClientRect().bottom ?? 0
-            if (terminalMode !== 'restored') setTerminalMode('restored')
             setTerminalHeight(bottom - clientY)
           }}
           onNudge={(delta) => {
