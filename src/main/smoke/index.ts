@@ -2153,9 +2153,11 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
           const terminalDivider = document.querySelector('.terminal-resizer');
           const treeToggle = document.querySelector('.tree-collapse-toggle');
           const terminalToggle = document.querySelector('.terminal-focus-toggle');
+          const terminalCollapse = document.querySelector('.terminal-collapse-toggle');
           if (
             !tree || !workbench || !viewer || !terminal || !terminalRail ||
-            !treeDivider || !terminalDivider || !treeToggle || !terminalToggle
+            !treeDivider || !terminalDivider || !treeToggle || !terminalToggle ||
+            !terminalCollapse
           ) {
             return reject(new Error('pane dividers missing'));
           }
@@ -2236,23 +2238,44 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
                   ) {
                     return reject(new Error('pane focus modes did not compose'));
                   }
-                  terminalToggle.click();
-                  treeToggle.click();
+                  terminalCollapse.click();
                   requestAnimationFrame(() => requestAnimationFrame(() => {
-                    const finalTreeWidth = tree.getBoundingClientRect().width;
                     if (
-                      workbench.classList.contains('tree-collapsed') ||
                       workbench.classList.contains('terminal-focused') ||
-                      Math.abs(finalTreeWidth - restoredTreeWidth) > 1 ||
-                      getComputedStyle(tree).visibility === 'hidden'
+                      !workbench.classList.contains('terminal-collapsed') ||
+                      getComputedStyle(viewer).visibility === 'hidden' ||
+                      getComputedStyle(terminalRail).visibility !== 'hidden'
                     ) {
-                      return reject(new Error('pane focus modes did not restore'));
+                      return reject(new Error('terminal did not collapse from maximized state'));
                     }
-                    resolve(
-                      Math.round(treeBefore) + '→' + Math.round(treeAfter) + 'px tree; ' +
-                      Math.round(terminalBefore) + '→' + Math.round(terminalAfter) +
-                      'px terminal; collapse composed and restored'
-                    );
+                    terminalToggle.click();
+                    requestAnimationFrame(() => requestAnimationFrame(() => {
+                      if (
+                        !workbench.classList.contains('terminal-focused') ||
+                        workbench.classList.contains('terminal-collapsed')
+                      ) {
+                        return reject(new Error('terminal did not maximize from collapsed state'));
+                      }
+                      terminalToggle.click();
+                      treeToggle.click();
+                      requestAnimationFrame(() => requestAnimationFrame(() => {
+                        const finalTreeWidth = tree.getBoundingClientRect().width;
+                        if (
+                          workbench.classList.contains('tree-collapsed') ||
+                          workbench.classList.contains('terminal-focused') ||
+                          workbench.classList.contains('terminal-collapsed') ||
+                          Math.abs(finalTreeWidth - restoredTreeWidth) > 1 ||
+                          getComputedStyle(tree).visibility === 'hidden'
+                        ) {
+                          return reject(new Error('pane focus modes did not restore'));
+                        }
+                        resolve(
+                          Math.round(treeBefore) + '→' + Math.round(treeAfter) + 'px tree; ' +
+                          Math.round(terminalBefore) + '→' + Math.round(terminalAfter) +
+                          'px terminal; three-state controls composed and restored'
+                        );
+                      }));
+                    }));
                   }));
                 }));
               }));

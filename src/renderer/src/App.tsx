@@ -42,6 +42,7 @@ import { setAppSettings, useAppSettings } from './settings/settings'
 import { useWorkbenchCommands } from './workbench/use-workbench-commands'
 import { useWorkbenchLayout } from './workbench/use-workbench-layout'
 import { useWorkbenchOverlays } from './workbench/use-workbench-overlays'
+import { TerminalLayoutControls } from './workbench/TerminalLayoutControls'
 
 export function App(): ReactElement {
   const theme = useAppTheme()
@@ -49,11 +50,10 @@ export function App(): ReactElement {
   const rootRef = useRef<HostPath | undefined>(undefined)
   const workspaceSwitchRef = useRef<(direction: -1 | 1) => void>(() => undefined)
   const sessionErrorRef = useRef<(message: string) => void>(() => undefined)
-  const resetWorkspaceViewRef = useRef<() => void>(() => undefined)
+  const restoreViewerRef = useRef<() => void>(() => undefined)
   const resetGitGraphRef = useRef<() => void>(() => undefined)
   const deactivateGitGraphRef = useRef<() => void>(() => undefined)
   const deactivateWebPaneRef = useRef<() => void>(() => undefined)
-  const setTerminalFocusedRef = useRef<(focused: boolean) => void>(() => undefined)
   const [gitChanges, setGitChanges] = useState<GitChanges>()
   const overlays = useWorkbenchOverlays()
   const terminalAttention = useTerminalAttention()
@@ -61,7 +61,7 @@ export function App(): ReactElement {
     onActivateFile: () => {
       deactivateGitGraphRef.current()
       deactivateWebPaneRef.current()
-      setTerminalFocusedRef.current(false)
+      restoreViewerRef.current()
     },
   })
   const {
@@ -98,7 +98,7 @@ export function App(): ReactElement {
     onActivate: () => {
       focusViewerPane('primary')
       deactivateGitGraphRef.current()
-      setTerminalFocusedRef.current(false)
+      restoreViewerRef.current()
     },
     onError: (message) => sessionErrorRef.current(message),
   })
@@ -130,7 +130,6 @@ export function App(): ReactElement {
       switchViewerWorkspace(state.root)
       resetGitGraphRef.current()
       setGitChanges(undefined)
-      resetWorkspaceViewRef.current()
     },
     [applyWebProjectState, switchViewerWorkspace],
   )
@@ -172,12 +171,12 @@ export function App(): ReactElement {
     viewerGroupsRef,
     railMode,
     setRailMode,
-    terminalFocused,
-    setTerminalFocused,
+    terminalMode,
+    setTerminalMode,
     toggleTerminalFocus,
+    restoreViewer,
     treeCollapsed,
     setTreeCollapsed,
-    resetWorkspaceView,
     setTreeWidth,
     resetTreeWidth,
     setTerminalHeight,
@@ -196,7 +195,7 @@ export function App(): ReactElement {
     refreshGit: session.refreshGit,
     activateViewer: () => {
       focusViewerPane('primary')
-      setTerminalFocused(false)
+      restoreViewer()
     },
     deactivateWebPane: () => setWebViewActive(false),
   })
@@ -218,11 +217,10 @@ export function App(): ReactElement {
   rootRef.current = root
   sessionErrorRef.current = session.reportError
   workspaceSwitchRef.current = session.switchRelativeWorkspace
-  resetWorkspaceViewRef.current = resetWorkspaceView
+  restoreViewerRef.current = restoreViewer
   resetGitGraphRef.current = resetGitGraph
   deactivateGitGraphRef.current = deactivateGitGraph
   deactivateWebPaneRef.current = () => setWebViewActive(false)
-  setTerminalFocusedRef.current = setTerminalFocused
 
   useEffect(() => {
     if (overlays.projectPickerOpen) void refreshHosts()
@@ -413,7 +411,7 @@ export function App(): ReactElement {
         />
       ) : null}
       <main
-        className={`workbench${connectionState === 'connected' ? '' : ' project-stale'}${terminalFocused ? ' terminal-focused' : ''}${treeCollapsed ? ' tree-collapsed' : ''}${webViewFocused && webViewActive ? ' web-focused' : ''}`}
+        className={`workbench${connectionState === 'connected' ? '' : ' project-stale'}${terminalMode === 'maximized' ? ' terminal-focused' : ''}${terminalMode === 'collapsed' ? ' terminal-collapsed' : ''}${treeCollapsed ? ' tree-collapsed' : ''}${webViewFocused && webViewActive ? ' web-focused' : ''}`}
         ref={workbenchRef}
       >
         <aside className="tree-panel" aria-label="Project rail" tabIndex={-1}>
@@ -581,36 +579,25 @@ export function App(): ReactElement {
           label="Resize terminal"
           onDrag={(clientY) => {
             const bottom = workbenchRef.current?.getBoundingClientRect().bottom ?? 0
+            if (terminalMode !== 'restored') setTerminalMode('restored')
             setTerminalHeight(bottom - clientY)
           }}
           onNudge={(delta) => {
+            if (terminalMode !== 'restored') {
+              if (
+                (terminalMode === 'maximized' && delta < 0) ||
+                (terminalMode === 'collapsed' && delta > 0)
+              ) {
+                setTerminalMode('restored')
+              }
+              return
+            }
             const current =
               workbenchRef.current?.querySelector<HTMLElement>('.terminal-panel')
             if (current) setTerminalHeight(current.getBoundingClientRect().height + delta)
           }}
           onReset={resetTerminalHeight}
-          action={
-            <button
-              type="button"
-              className="terminal-focus-toggle"
-              data-resizer-action
-              aria-label={terminalFocused ? 'Restore file viewer' : 'Expand terminal'}
-              aria-pressed={terminalFocused}
-              title={terminalFocused ? 'Restore file viewer' : 'Expand terminal'}
-              onDoubleClick={(event) => event.stopPropagation()}
-              onClick={toggleTerminalFocus}
-            >
-              <svg aria-hidden="true" viewBox="0 0 16 16">
-                <path
-                  d={
-                    terminalFocused
-                      ? 'M3 4.5 8 9l5-4.5M3 8.5 8 13l5-4.5'
-                      : 'M3 11.5 8 7l5 4.5M3 7.5 8 3l5 4.5'
-                  }
-                />
-              </svg>
-            </button>
-          }
+          action={<TerminalLayoutControls mode={terminalMode} onMode={setTerminalMode} />}
         />
         {projectState?.projects.flatMap((project) =>
           project.workspaces.map((workspace) => (

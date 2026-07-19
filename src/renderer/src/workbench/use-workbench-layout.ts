@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type SetStateAction,
+} from 'react'
 
 import type { HostPath } from '../../../shared'
 import {
@@ -7,6 +14,11 @@ import {
 } from '../layout/workspace-layout-persistence'
 import type { ViewerPaneId } from '../viewer/tab-state'
 import { clamp, fitTerminalHeight } from './workbench-layout-policy'
+import {
+  DEFAULT_WORKSPACE_PANE_STATE,
+  WorkspacePaneStateSession,
+  type TerminalLayoutMode,
+} from './workspace-pane-state'
 
 const TREE_MIN_WIDTH = 160
 const TREE_MAX_WIDTH = 520
@@ -27,10 +39,57 @@ export function useWorkbenchLayout({
   const workbenchRef = useRef<HTMLElement>(null)
   const viewerGroupsRef = useRef<HTMLDivElement>(null)
   const rootRef = useRef(root)
+  const paneStateSessionRef = useRef<WorkspacePaneStateSession | undefined>(undefined)
+  if (!paneStateSessionRef.current) {
+    paneStateSessionRef.current = new WorkspacePaneStateSession()
+  }
   const [railMode, setRailMode] = useState<WorkbenchRailMode>('files')
-  const [terminalFocused, setTerminalFocused] = useState(false)
-  const [treeCollapsed, setTreeCollapsed] = useState(false)
+  const [terminalModeState, setTerminalModeState] =
+    useState<TerminalLayoutMode>('restored')
+  const [treeCollapsedState, setTreeCollapsedState] = useState(false)
+  const terminalModeRef = useRef<TerminalLayoutMode>('restored')
+  const treeCollapsedRef = useRef(false)
   rootRef.current = root
+
+  useLayoutEffect(() => {
+    const state = root
+      ? paneStateSessionRef.current?.read(root)
+      : DEFAULT_WORKSPACE_PANE_STATE
+    const next = state ?? DEFAULT_WORKSPACE_PANE_STATE
+    terminalModeRef.current = next.terminalMode
+    treeCollapsedRef.current = next.treeCollapsed
+    setTerminalModeState(next.terminalMode)
+    setTreeCollapsedState(next.treeCollapsed)
+  }, [root])
+
+  const setTerminalMode = useCallback(
+    (update: SetStateAction<TerminalLayoutMode>): void => {
+      const next = resolveStateUpdate(update, terminalModeRef.current)
+      terminalModeRef.current = next
+      setTerminalModeState(next)
+      const activeRoot = rootRef.current
+      if (activeRoot) {
+        paneStateSessionRef.current?.write(activeRoot, {
+          terminalMode: next,
+          treeCollapsed: treeCollapsedRef.current,
+        })
+      }
+    },
+    [],
+  )
+
+  const setTreeCollapsed = useCallback((update: SetStateAction<boolean>): void => {
+    const next = resolveStateUpdate(update, treeCollapsedRef.current)
+    treeCollapsedRef.current = next
+    setTreeCollapsedState(next)
+    const activeRoot = rootRef.current
+    if (activeRoot) {
+      paneStateSessionRef.current?.write(activeRoot, {
+        terminalMode: terminalModeRef.current,
+        treeCollapsed: next,
+      })
+    }
+  }, [])
 
   useEffect(() => {
     if (!root) return
@@ -74,11 +133,6 @@ export function useWorkbenchLayout({
       setRailMode('files')
     }
   }, [gitAvailable, railMode, workspaceMissing])
-
-  const resetWorkspaceView = useCallback((): void => {
-    setTerminalFocused(false)
-    setTreeCollapsed(false)
-  }, [])
 
   const setTreeWidth = useCallback((width: number): void => {
     const workbench = workbenchRef.current
@@ -136,10 +190,11 @@ export function useWorkbenchLayout({
   }, [])
 
   const toggleTerminalFocus = useCallback(
-    () => setTerminalFocused((focused) => !focused),
-    [],
+    () => setTerminalMode((mode) => (mode === 'maximized' ? 'restored' : 'maximized')),
+    [setTerminalMode],
   )
   const focusTerminal = useCallback((): void => {
+    setTerminalMode((mode) => (mode === 'collapsed' ? 'restored' : mode))
     requestAnimationFrame(() =>
       document
         .querySelector<HTMLElement>(
@@ -147,33 +202,40 @@ export function useWorkbenchLayout({
         )
         ?.focus(),
     )
-  }, [])
-  const focusViewer = useCallback((pane: ViewerPaneId): void => {
-    setTerminalFocused(false)
-    requestAnimationFrame(() =>
-      document.querySelector<HTMLElement>(`[data-viewer-pane="${pane}"]`)?.focus(),
-    )
-  }, [])
+  }, [setTerminalMode])
+  const focusViewer = useCallback(
+    (pane: ViewerPaneId): void => {
+      setTerminalMode((mode) => (mode === 'maximized' ? 'restored' : mode))
+      requestAnimationFrame(() =>
+        document.querySelector<HTMLElement>(`[data-viewer-pane="${pane}"]`)?.focus(),
+      )
+    },
+    [setTerminalMode],
+  )
   const focusTree = useCallback((): void => {
-    setTerminalFocused(false)
+    setTerminalMode((mode) => (mode === 'maximized' ? 'restored' : mode))
     setTreeCollapsed(false)
     setRailMode('files')
     requestAnimationFrame(() =>
       document.querySelector<HTMLElement>('.tree-panel')?.focus(),
     )
-  }, [])
+  }, [setTerminalMode, setTreeCollapsed])
+
+  const restoreViewer = useCallback((): void => {
+    setTerminalMode((mode) => (mode === 'maximized' ? 'restored' : mode))
+  }, [setTerminalMode])
 
   return {
     workbenchRef,
     viewerGroupsRef,
     railMode,
     setRailMode,
-    terminalFocused,
-    setTerminalFocused,
+    terminalMode: terminalModeState,
+    setTerminalMode,
     toggleTerminalFocus,
-    treeCollapsed,
+    restoreViewer,
+    treeCollapsed: treeCollapsedState,
     setTreeCollapsed,
-    resetWorkspaceView,
     setTreeWidth,
     resetTreeWidth,
     setTerminalHeight,
@@ -184,6 +246,10 @@ export function useWorkbenchLayout({
     focusViewer,
     focusTree,
   }
+}
+
+function resolveStateUpdate<T>(update: SetStateAction<T>, current: T): T {
+  return typeof update === 'function' ? (update as (value: T) => T)(current) : update
 }
 
 function setTrack(

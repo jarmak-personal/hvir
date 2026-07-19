@@ -63,42 +63,79 @@
   inset: -2px 0;
 }
 
-.terminal-focus-toggle,
+.terminal-mode-controls,
 .tree-collapse-toggle {
   position: absolute;
   z-index: 3;
   top: 50%;
   left: 50%;
-  border: 1px solid #3b424d;
-  border-radius: 4px;
-  background: #181c22;
-  color: #8f99a7;
-  cursor: pointer;
   transform: translate(-50%, -50%);
 }
 
-.terminal-focus-toggle {
-  width: 30px;
-  height: 20px;
-  padding: 2px 7px;
+.terminal-mode-controls {
+  display: flex;
+  border: 1px solid #3b424d;
+  border-radius: 5px;
+  overflow: hidden;
+  background: #181c22;
+}
+
+.terminal-focus-toggle,
+.terminal-collapse-toggle,
+.tree-collapse-toggle {
+  border: 0;
+  background: #181c22;
+  color: #8f99a7;
+  cursor: pointer;
+}
+
+.terminal-focus-toggle,
+.terminal-collapse-toggle {
+  width: 28px;
+  height: 22px;
+  padding: 3px 6px;
+}
+
+.terminal-collapse-toggle {
+  border-left: 1px solid #3b424d;
 }
 
 .tree-collapse-toggle {
   width: 20px;
   height: 30px;
   padding: 7px 2px;
+  border: 1px solid #3b424d;
+  border-radius: 4px;
 }
 
 .terminal-focus-toggle:hover,
 .terminal-focus-toggle:focus-visible,
+.terminal-collapse-toggle:hover,
+.terminal-collapse-toggle:focus-visible,
 .tree-collapse-toggle:hover,
 .tree-collapse-toggle:focus-visible {
   outline: none;
-  border-color: #4d8fd8;
+  background: #222831;
   color: #e6ebf2;
 }
 
+.terminal-focus-toggle:focus-visible,
+.terminal-collapse-toggle:focus-visible {
+  box-shadow: inset 0 0 0 1px #4d8fd8;
+}
+
+.terminal-mode-controls:has(:focus-visible),
+.terminal-mode-controls:hover {
+  border-color: #4d8fd8;
+}
+
+.tree-collapse-toggle:hover,
+.tree-collapse-toggle:focus-visible {
+  border-color: #4d8fd8;
+}
+
 .terminal-focus-toggle svg,
+.terminal-collapse-toggle svg,
 .tree-collapse-toggle svg {
   display: block;
   width: 100%;

@@ -312,7 +312,9 @@
   background: var(--surface-hover);
 }
 
+:root[data-theme='light'] .terminal-mode-controls,
 :root[data-theme='light'] .terminal-focus-toggle,
+:root[data-theme='light'] .terminal-collapse-toggle,
 :root[data-theme='light'] .tree-collapse-toggle {
   border-color: var(--border-strong);
   background: var(--surface-1);

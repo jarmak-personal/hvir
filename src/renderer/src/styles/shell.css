@@ -21,6 +21,16 @@
   overflow: hidden;
 }
 
+.workbench.terminal-collapsed {
+  grid-template-rows: minmax(0, 1fr) 5px 0;
+}
+
+.workbench.terminal-collapsed :is(.terminal-deck, .terminal-rail) {
+  visibility: hidden;
+  pointer-events: none;
+  overflow: hidden;
+}
+
 .workbench.tree-collapsed {
   grid-template-columns: 0 5px minmax(0, 1fr) var(--terminal-rail-track);
 }
