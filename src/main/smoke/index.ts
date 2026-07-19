@@ -186,6 +186,7 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
 
     // Exercise the real renderer → main → worker path.
     await host.connect()
+    await host.exec('rm', ['-f', '--', harnessProfilesPath.path])
     const liveReloadBefore = `${Array.from({ length: 240 }, (_, index) => `line ${index}`).join('\n')}\n`
     await host.writeFile(liveReloadPath, liveReloadBefore)
     await host.writeFile(
@@ -479,7 +480,13 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
           id.endsWith('-default') || builtIn || scope !== 'global',
       )
     ) {
-      throw new Error('opt-in harness profile materialization was incorrect')
+      throw new Error(
+        `opt-in harness profile materialization was incorrect (${JSON.stringify({
+          defaultIds: profileSmoke.defaultIds,
+          requestedProviderIds: profileSmoke.requestedProviderIds,
+          materialized: profileSmoke.materialized,
+        })})`,
+      )
     }
     if (
       profileSmoke.profile.risk !== 'unclassified' ||
