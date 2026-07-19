@@ -51,11 +51,12 @@ export function SettingsDialog({
   }, [onClose])
 
   useEffect(() => {
+    const container = dialog.current
     let frame = 0
     let sectionObserver: ResizeObserver | undefined
+    let headingFocused = false
     const alignHarnesses = (): boolean => {
       const heading = document.getElementById('settings-harnesses-title')
-      const container = dialog.current
       if (!heading || !container) return false
       const containerBox = container.getBoundingClientRect()
       const headingBox = heading.getBoundingClientRect()
@@ -64,16 +65,32 @@ export function SettingsDialog({
         0,
         container.scrollTop + headingBox.top - containerBox.top - paddingTop,
       )
-      heading.focus({ preventScroll: true })
+      if (!headingFocused) {
+        heading.focus({ preventScroll: true })
+        headingFocused = true
+      }
       return (
         Math.abs(heading.getBoundingClientRect().top - containerBox.top - paddingTop) <= 2
       )
     }
+    const stopAligning = (): void => {
+      cancelAnimationFrame(frame)
+      sectionObserver?.disconnect()
+      sectionObserver = undefined
+    }
     const scheduleAlignment = (): void => {
       cancelAnimationFrame(frame)
       frame = requestAnimationFrame(() => {
-        if (alignHarnesses()) sectionObserver?.disconnect()
+        if (alignHarnesses()) stopAligning()
       })
+    }
+    const stopOnInteraction = (event: FocusEvent): void => {
+      if (
+        event.target instanceof HTMLElement &&
+        event.target.id !== 'settings-harnesses-title'
+      ) {
+        stopAligning()
+      }
     }
     frame = requestAnimationFrame(() => {
       if (initialSection !== 'general') {
@@ -84,9 +101,20 @@ export function SettingsDialog({
           sectionObserver.observe(section)
         }
       } else {
-        dialog.current?.focus()
+        container?.focus()
       }
     })
+
+    if (initialSection !== 'general') {
+      container?.addEventListener('focusin', stopOnInteraction)
+    }
+    return () => {
+      stopAligning()
+      container?.removeEventListener('focusin', stopOnInteraction)
+    }
+  }, [initialSection])
+
+  useEffect(() => {
     const keydown = (event: KeyboardEvent): void => {
       if (dialog.current?.querySelector('.modal-backdrop.nested')) return
       if (event.key === 'Escape' && !(event.target instanceof HTMLTextAreaElement)) {
@@ -95,11 +123,9 @@ export function SettingsDialog({
     }
     window.addEventListener('keydown', keydown)
     return () => {
-      cancelAnimationFrame(frame)
-      sectionObserver?.disconnect()
       window.removeEventListener('keydown', keydown)
     }
-  }, [initialSection, requestClose])
+  }, [requestClose])
 
   const save = async (): Promise<void> => {
     try {
