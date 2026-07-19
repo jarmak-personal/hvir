@@ -5,7 +5,7 @@ import { useEffect, useRef, useState, type ReactElement } from 'react'
 
 import type { DiffBase, GitDiffResponse, HostPath } from '../../../shared'
 import { captureTopLine, restoreTopLine } from './code-scroll-anchor'
-import { usesUnsavedContent } from './diff-policy'
+import { shouldPublishDiffPosition, usesUnsavedContent } from './diff-policy'
 import type { ViewerDocumentPosition } from './tab-state'
 import type { ViewerPositionCapture } from './viewer-position'
 
@@ -80,16 +80,34 @@ export function DiffView({
       gutter: true,
     })
     const restorePosition = positionRef.current
-    const capturePosition = (): ViewerDocumentPosition => ({
+    const hasChanges = merge.chunks.length > 0
+    let userNavigated = false
+    const captureVisiblePosition = (): ViewerDocumentPosition => ({
       mode: 'diff',
       line: captureTopLine(merge.b, merge.dom),
       scrollTop: merge.dom.scrollTop,
     })
+    const capturePosition = (): ViewerDocumentPosition =>
+      shouldPublishDiffPosition(hasChanges, userNavigated)
+        ? captureVisiblePosition()
+        : positionRef.current
     positionCapture.current = capturePosition
     const captureScroll = (): void => {
-      onPositionRef.current(capturePosition())
+      if (shouldPublishDiffPosition(hasChanges, userNavigated)) {
+        onPositionRef.current(captureVisiblePosition())
+      }
+    }
+    const markNavigation = (): void => {
+      userNavigated = true
+    }
+    const markKeyboardNavigation = (event: KeyboardEvent): void => {
+      if (DIFF_NAVIGATION_KEYS.has(event.key)) markNavigation()
     }
     merge.dom.addEventListener('scroll', captureScroll, { passive: true })
+    merge.dom.addEventListener('pointerdown', markNavigation)
+    merge.dom.addEventListener('touchstart', markNavigation, { passive: true })
+    merge.dom.addEventListener('wheel', markNavigation, { passive: true })
+    merge.dom.addEventListener('keydown', markKeyboardNavigation)
     const restoreFrame = requestAnimationFrame(() => {
       if (restorePosition.mode === 'diff') merge.dom.scrollTop = restorePosition.scrollTop
       else restoreTopLine(merge.b, merge.dom, restorePosition.line)
@@ -97,6 +115,10 @@ export function DiffView({
     return () => {
       cancelAnimationFrame(restoreFrame)
       merge.dom.removeEventListener('scroll', captureScroll)
+      merge.dom.removeEventListener('pointerdown', markNavigation)
+      merge.dom.removeEventListener('touchstart', markNavigation)
+      merge.dom.removeEventListener('wheel', markNavigation)
+      merge.dom.removeEventListener('keydown', markKeyboardNavigation)
       if (positionCapture.current === capturePosition) {
         positionCapture.current = undefined
       }
@@ -133,3 +155,15 @@ const diffTheme = EditorView.theme({
     color: 'var(--viewer-gutter-text)',
   },
 })
+
+const DIFF_NAVIGATION_KEYS = new Set([
+  'ArrowDown',
+  'ArrowLeft',
+  'ArrowRight',
+  'ArrowUp',
+  'End',
+  'Home',
+  'PageDown',
+  'PageUp',
+  ' ',
+])

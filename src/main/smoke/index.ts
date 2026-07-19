@@ -1540,7 +1540,11 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
     console.log('[smoke] sandboxed HTML blocked node, navigation, and popups')
 
     const viewerPositions = await withTimeout(
-      verifyViewerPositions(win, viewerPositionPath),
+      verifyViewerPositions(
+        win,
+        viewerPositionPath,
+        joinHostPath(smokeRoot, 'package.json'),
+      ),
       'viewer mode position matrix timed out',
       25_000,
     )
@@ -1808,6 +1812,7 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
                 const maxScroll = candidate.scrollHeight - candidate.clientHeight;
                 const targetScroll = Math.min(120, maxScroll);
                 attempts += 1;
+                candidate.dispatchEvent(new WheelEvent('wheel', { deltaY: 120, bubbles: true }));
                 candidate.scrollTop = targetScroll;
                 candidate.dispatchEvent(new Event('scroll'));
                 let stableSamples = 0;

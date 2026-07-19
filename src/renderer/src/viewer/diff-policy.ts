@@ -12,3 +12,15 @@ export function usesUnsavedContent(
 ): boolean {
   return dirty && revision === undefined && base !== 'branch-point'
 }
+
+/**
+ * A collapsed diff is only an approximation of the document location. Keep the
+ * incoming canonical line until the user deliberately navigates this diff, and
+ * never derive a location from an empty diff.
+ */
+export function shouldPublishDiffPosition(
+  hasChanges: boolean,
+  userNavigated: boolean,
+): boolean {
+  return hasChanges && userNavigated
+}

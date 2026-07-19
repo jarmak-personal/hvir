@@ -2,7 +2,10 @@ import { describe, expect, it } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
-import { usesUnsavedContent } from '../src/renderer/src/viewer/diff-policy'
+import {
+  shouldPublishDiffPosition,
+  usesUnsavedContent,
+} from '../src/renderer/src/viewer/diff-policy'
 import { INVOKE_CHANNELS } from '../src/shared'
 
 describe('renderer diff policy', () => {
@@ -15,6 +18,12 @@ describe('renderer diff policy', () => {
   it('keeps branch-point and historical diffs immutable', () => {
     expect(usesUnsavedContent(true, 'branch-point')).toBe(false)
     expect(usesUnsavedContent(true, 'head', 'deadbeef')).toBe(false)
+  })
+
+  it('publishes a diff location only after deliberate navigation', () => {
+    expect(shouldPublishDiffPosition(true, false)).toBe(false)
+    expect(shouldPublishDiffPosition(true, true)).toBe(true)
+    expect(shouldPublishDiffPosition(false, true)).toBe(false)
   })
 })
 

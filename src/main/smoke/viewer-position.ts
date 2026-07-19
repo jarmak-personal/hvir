@@ -6,6 +6,7 @@ import type { HostPath } from '../../shared'
 export function verifyViewerPositions(
   win: BrowserWindow,
   path: HostPath,
+  cleanPath: HostPath,
 ): Promise<string> {
   return win.webContents.executeJavaScript(`
     (async () => {
@@ -137,7 +138,56 @@ export function verifyViewerPositions(
       await changeMode('rendered', 'source');
       await changeMode('source', 'diff');
       await changeMode('diff', 'source');
-      return 'keyboard isolated · line ' + targetLine + ' · ' + transitions.join(', ');
+
+      const cleanFile = await waitFor(
+        () => [...document.querySelectorAll('.file-row')]
+          .find((node) => node.getAttribute('title') === ${JSON.stringify(cleanPath.path)}),
+        'clean diff fixture missing'
+      );
+      cleanFile.click();
+      await waitFor(
+        () => document.querySelector('.viewer-title')?.textContent
+          ?.includes(${JSON.stringify(cleanPath.path.split('/').at(-1))}),
+        'clean diff fixture did not open'
+      );
+      modeButton('source')?.click();
+      const cleanSource = await waitFor(
+        () => document.querySelector('.source-shell .cm-scroller'),
+        'clean diff source missing'
+      );
+      cleanSource.scrollTop = Math.min(
+        cleanSource.scrollHeight - cleanSource.clientHeight,
+        cleanSource.clientHeight * 0.75
+      );
+      cleanSource.dispatchEvent(new Event('scroll'));
+      await settle();
+      const cleanLine = await waitFor(() => {
+        const line = visibleCodeLine(cleanSource, '.cm-lineNumbers .cm-gutterElement');
+        return line !== undefined && line > 1 ? line : undefined;
+      }, 'clean diff source did not scroll');
+      modeButton('diff')?.click();
+      const emptyDiff = await waitFor(
+        () => document.querySelector('.cm-mergeView'),
+        'empty diff did not render'
+      );
+      if (emptyDiff.querySelector('.cm-changedLine')) {
+        throw new Error('clean diff unexpectedly contained changes');
+      }
+      modeButton('source')?.click();
+      const restoredCleanSource = await waitFor(
+        () => document.querySelector('.source-shell .cm-scroller'),
+        'source missing after empty diff'
+      );
+      await waitFor(() => {
+        const line = visibleCodeLine(
+          restoredCleanSource,
+          '.cm-lineNumbers .cm-gutterElement'
+        );
+        return line !== undefined && Math.abs(line - cleanLine) <= 2 ? line : undefined;
+      }, 'empty diff reset the source position');
+
+      return 'keyboard isolated · line ' + targetLine + ' · ' + transitions.join(', ') +
+        ' · empty diff preserved line ' + cleanLine;
     })()
   `) as Promise<string>
 }
