@@ -37,9 +37,9 @@ class TestResizeObserver implements ResizeObserver {
     TestResizeObserver.instances.push(this)
   }
 
-  observe(): void {}
+  observe(_target: Element, _options?: ResizeObserverOptions): void {}
 
-  unobserve(): void {}
+  unobserve(_target: Element): void {}
 
   disconnect(): void {
     this.disconnected = true
