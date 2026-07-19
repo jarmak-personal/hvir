@@ -2149,6 +2149,7 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
           const viewer = document.querySelector('.viewer-panel');
           const terminal = document.querySelector('.terminal-panel');
           const terminalRail = document.querySelector('.terminal-rail');
+          const terminalControls = document.querySelector('.terminal-mode-controls');
           const treeDivider = document.querySelector('.tree-resizer');
           const terminalDivider = document.querySelector('.terminal-resizer');
           const treeToggle = document.querySelector('.tree-collapse-toggle');
@@ -2157,7 +2158,7 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
           if (
             !tree || !workbench || !viewer || !terminal || !terminalRail ||
             !treeDivider || !terminalDivider || !treeToggle || !terminalToggle ||
-            !terminalCollapse
+            !terminalCollapse || !terminalControls
           ) {
             return reject(new Error('pane dividers missing'));
           }
@@ -2240,11 +2241,14 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
                   }
                   terminalCollapse.click();
                   requestAnimationFrame(() => requestAnimationFrame(() => {
+                    const controlsRect = terminalControls.getBoundingClientRect();
+                    const collapsedWorkbenchRect = workbench.getBoundingClientRect();
                     if (
                       workbench.classList.contains('terminal-focused') ||
                       !workbench.classList.contains('terminal-collapsed') ||
                       getComputedStyle(viewer).visibility === 'hidden' ||
-                      getComputedStyle(terminalRail).visibility !== 'hidden'
+                      getComputedStyle(terminalRail).visibility !== 'hidden' ||
+                      controlsRect.bottom > collapsedWorkbenchRect.bottom + 1
                     ) {
                       return reject(new Error('terminal did not collapse from maximized state'));
                     }

@@ -124,6 +124,12 @@
   background: #181c22;
 }
 
+.workbench.terminal-collapsed .terminal-mode-controls {
+  top: auto;
+  bottom: 0;
+  transform: translateX(-50%);
+}
+
 .terminal-focus-toggle,
 .terminal-collapse-toggle,
 .tree-collapse-toggle {
