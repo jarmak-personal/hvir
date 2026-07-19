@@ -4,6 +4,7 @@ import {
   clamp,
   fitTerminalHeight,
 } from '../src/renderer/src/workbench/workbench-layout-policy'
+import { fitSplitPrimaryWidth } from '../src/renderer/src/layout/split-layout-policy'
 import {
   WorkspacePaneStateSession,
   type WorkspacePaneState,
@@ -14,8 +15,10 @@ describe('workbench layout policy', () => {
   it('clamps tracks to the usable shell area', () => {
     expect(clamp(100, 160, 520)).toBe(160)
     expect(clamp(700, 160, 520)).toBe(520)
-    expect(fitTerminalHeight(900, 800)).toBe(615)
+    expect(fitTerminalHeight(900, 800)).toBe(619)
     expect(fitTerminalHeight(20, 800)).toBe(160)
+    expect(fitSplitPrimaryWidth(900, 800, 240)).toBe(559)
+    expect(fitSplitPrimaryWidth(20, 800, 240)).toBe(240)
   })
 })
 

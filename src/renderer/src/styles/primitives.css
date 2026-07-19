@@ -4,7 +4,7 @@
   padding: 0;
   border: 0;
   outline: none;
-  background: #282d36;
+  background: var(--border-subtle);
   touch-action: none;
 }
 
@@ -38,8 +38,23 @@
   cursor: col-resize;
 }
 
-.tree-resizer::before {
-  inset: 0 -2px;
+/* The track is a hairline; the ::before pseudo keeps a wide invisible grab
+ * zone and paints a soft lens that swells mid-span, echoing the tapered
+ * focus highlight that appears on hover/drag. */
+.tree-resizer::before,
+.viewer-split-resizer::before,
+.terminal-split-resizer::before {
+  inset: 0 -3px;
+  background:
+    linear-gradient(
+        to bottom,
+        transparent,
+        color-mix(in srgb, var(--border-strong) 65%, transparent) 30%,
+        var(--border-strong) 50%,
+        color-mix(in srgb, var(--border-strong) 65%, transparent) 70%,
+        transparent
+      )
+      center / 3px min(42%, 360px) no-repeat;
 }
 
 .tree-resizer::after,
@@ -62,23 +77,15 @@
 
 .viewer-split-resizer {
   grid-column: 2;
-  min-width: 5px;
+  min-width: 1px;
   cursor: col-resize;
-}
-
-.viewer-split-resizer::before {
-  inset: 0 -2px;
 }
 
 .terminal-split-resizer {
   grid-column: 2;
   grid-row: 1;
-  min-width: 5px;
+  min-width: 1px;
   cursor: col-resize;
-}
-
-.terminal-split-resizer::before {
-  inset: 0 -2px;
 }
 
 .terminal-resizer {
@@ -88,7 +95,17 @@
 }
 
 .terminal-resizer::before {
-  inset: -2px 0;
+  inset: -3px 0;
+  background:
+    linear-gradient(
+        to right,
+        transparent,
+        color-mix(in srgb, var(--border-strong) 65%, transparent) 24%,
+        var(--border-strong) 50%,
+        color-mix(in srgb, var(--border-strong) 65%, transparent) 76%,
+        transparent
+      )
+      center / min(42%, 440px) 3px no-repeat;
 }
 
 .terminal-resizer::after {

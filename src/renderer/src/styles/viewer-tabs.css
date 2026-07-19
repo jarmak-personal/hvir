@@ -16,7 +16,7 @@
 }
 
 .viewer-groups.split {
-  grid-template-columns: var(--viewer-primary-track) 5px minmax(240px, 1fr);
+  grid-template-columns: var(--viewer-primary-track) 1px minmax(240px, 1fr);
 }
 
 .viewer-group {
@@ -48,19 +48,29 @@
 }
 
 .tab-strip {
-  flex: 0 0 34px;
+  flex: 0 0 28px;
   display: flex;
   min-width: 0;
   overflow-x: auto;
   overflow-y: hidden;
-  border-bottom: 1px solid #282d36;
   background: #111419;
   scrollbar-width: thin;
 }
 
+/* Leading inset that still carries the baseline, like the rail-nav's padding. */
+.tab-strip::before {
+  content: '';
+  flex: 0 0 6px;
+  border-bottom: 1px solid var(--border-strong);
+}
+
+/* The strip baseline lives on each child so the active tab can open its own
+ * segment into the viewer below, mirroring the rail-nav folder tabs. */
 .tab-strip-empty {
-  align-self: center;
+  display: flex;
+  align-items: center;
   padding: 0 12px;
+  border-bottom: 1px solid var(--border-strong);
   color: #687180;
   font-size: 12px;
 }
@@ -68,12 +78,14 @@
 .tab-strip-spacer {
   min-width: 8px;
   flex: 1 1 auto;
+  border-bottom: 1px solid var(--border-strong);
 }
 
 .viewer-pane-action {
   width: 31px;
   flex: 0 0 31px;
   border: 0;
+  border-bottom: 1px solid var(--border-strong);
   border-left: 1px solid #282d36;
   background: #111419;
   color: #8993a1;
@@ -88,20 +100,29 @@
 }
 
 .viewer-tab {
+  height: 24px;
   flex: 0 0 auto;
+  align-self: end;
   min-width: 116px;
   max-width: 220px;
   display: flex;
   align-items: stretch;
-  border-right: 1px solid #282d36;
-  border-top: 2px solid transparent;
-  background: #171a20;
+  overflow: hidden;
+  border: 1px solid transparent;
+  border-bottom-color: var(--border-strong);
+  border-radius: 5px 5px 0 0;
+  background: transparent;
   color: #969eaa;
 }
 
+.viewer-tab:hover {
+  background: #171b21;
+}
+
 .viewer-tab.active {
-  border-top-color: #4d8fd8;
-  background: #1d2128;
+  border-color: var(--border-strong);
+  border-bottom-color: var(--viewer-bg);
+  background: var(--viewer-bg);
   color: #e2e5ea;
 }
 
@@ -114,6 +135,12 @@
   border: 0;
   color: inherit;
   background: transparent;
+}
+
+.tab-main:focus-visible,
+.tab-close:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 1px var(--accent);
 }
 
 .tab-main {
@@ -170,13 +197,14 @@
   position: absolute;
   z-index: 4;
   top: 8px;
-  right: 8px;
+  /* Clear the overlay scrollbar that draws along the viewer's right edge. */
+  right: 18px;
   display: flex;
   align-items: center;
   justify-content: flex-end;
   flex-wrap: wrap;
   gap: 6px;
-  max-width: calc(100% - 16px);
+  max-width: calc(100% - 26px);
   filter: drop-shadow(0 2px 5px rgb(0 0 0 / 38%));
 }
 
@@ -187,6 +215,15 @@
   justify-content: flex-end;
   gap: 6px;
   font-size: 11px;
+  /* Recede while reading; conflict/save badges beside this group stay at
+   * full strength because they demand attention. */
+  opacity: 0.5;
+  transition: opacity 120ms ease-out;
+}
+
+.view-controls:hover,
+.view-controls:focus-within {
+  opacity: 1;
 }
 
 .viewer-body:has(.source-meta, .diff-labels) .viewer-floating-controls {
@@ -241,6 +278,16 @@
 }
 
 .mode-control button:last-child {
+  border-right: 0;
+}
+
+/* A click or keyboard focus deliberately expands the full toggle. Keeping
+ * hover from changing its geometry prevents the pointer target from moving. */
+.mode-control:not(.expanded) button:not(.active) {
+  display: none;
+}
+
+.mode-control:not(.expanded) button.active {
   border-right: 0;
 }
 

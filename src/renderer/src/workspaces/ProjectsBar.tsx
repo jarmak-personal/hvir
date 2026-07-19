@@ -81,6 +81,13 @@ export function ProjectsBar({
     activeProject?.workspaces.filter(
       (workspace) => workspace.prunableReason !== undefined,
     ) ?? []
+  // A single-checkout project has nothing to switch between; reclaim the row.
+  // Errors and prune prompts still force the bar because it is their only home.
+  const showWorkspacesBar =
+    activeProject !== undefined &&
+    (activeProject.workspaces.length > 1 ||
+      Boolean(statusError) ||
+      prunable.length > 0)
   const pruneProject = state.projects.find((project) => project.id === pruneProjectId)
   const closeProject = state.projects.find((project) => project.id === closeProjectId)
   const pruneTargets =
@@ -232,8 +239,9 @@ export function ProjectsBar({
           >
             <span aria-hidden="true">⚙</span>
           </button>
+          <span className="projects-bar-spacer" />
         </nav>
-        {activeProject ? (
+        {activeProject && showWorkspacesBar ? (
           <nav className="workspaces-bar" aria-label="Workspaces">
             {activeProject.workspaces.map((workspace) => (
               <div

@@ -11,7 +11,6 @@
 
 .projects-shell {
   min-width: 0;
-  border-bottom: 1px solid #303641;
   background: #101318;
 }
 
@@ -27,7 +26,13 @@
 
 .projects-bar {
   height: 38px;
-  padding-left: 5px;
+}
+
+/* Leading inset that still carries the baseline, like the rail-nav's padding. */
+.projects-bar::before {
+  content: '';
+  flex: 0 0 6px;
+  border-bottom: 1px solid var(--border-strong);
 }
 
 .project-tab,
@@ -41,12 +46,16 @@
 }
 
 .project-tab {
+  height: 31px;
   max-width: 260px;
   flex: 0 0 auto;
+  align-self: end;
   display: flex;
   align-items: center;
-  border-right: 1px solid #282e37;
-  border-top: 2px solid transparent;
+  overflow: hidden;
+  border: 1px solid transparent;
+  border-bottom-color: var(--border-strong);
+  border-radius: 5px 5px 0 0;
 }
 
 .project-tab-main {
@@ -60,6 +69,13 @@
   border: 0;
   background: transparent;
   color: inherit;
+}
+
+.project-tab-main:focus-visible,
+.project-connection-trigger:focus-visible,
+.project-close:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 1px var(--accent);
 }
 
 .project-close {
@@ -121,14 +137,23 @@
   font-size: 7px;
 }
 
-.project-tab:hover,
-.project-tab.active {
-  background: #191d24;
+.project-tab:hover {
+  background: #171b21;
   color: #e3e7ed;
 }
 
 .project-tab.active {
-  border-top-color: #5b9be6;
+  border-color: var(--border-strong);
+  border-bottom-color: #111419;
+  background: #111419;
+  color: #e3e7ed;
+}
+
+/* Open into the row actually below: the workspaces bar when present,
+ * otherwise the rail-nav / tab-strip band. */
+.projects-shell:has(.workspaces-bar) .project-tab.active {
+  border-bottom-color: #14171c;
+  background: #14171c;
 }
 
 .project-tab strong {
@@ -157,6 +182,7 @@
 .project-add {
   width: 34px;
   flex: 0 0 34px;
+  border-bottom: 1px solid var(--border-strong);
   font-size: 20px;
 }
 
@@ -172,12 +198,18 @@
   font-size: 12px;
 }
 
+.projects-bar-spacer {
+  min-width: 0;
+  flex: 1 1 auto;
+  border-bottom: 1px solid var(--border-strong);
+}
+
 .workspaces-bar {
   height: 32px;
   align-items: center;
   gap: 3px;
   padding: 3px 7px 4px;
-  border-top: 1px solid #242a33;
+  border-bottom: 1px solid #303641;
   background: #14171c;
 }
 

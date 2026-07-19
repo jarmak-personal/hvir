@@ -115,6 +115,8 @@ export function FileViewer({
   const [showBlame, setShowBlame] = useState(false)
   const [blame, setBlame] = useState<readonly GitBlameRun[]>([])
   const [blameStatus, setBlameStatus] = useState('')
+  const [modeControlExpanded, setModeControlExpanded] = useState(false)
+  const modeControlRef = useRef<HTMLDivElement>(null)
   const currentPath = tab?.path
   const blameMode = tab?.mode
   const positionCapture = useRef<(() => ViewerDocumentPosition) | undefined>(undefined)
@@ -147,6 +149,20 @@ export function FileViewer({
       cancelled = true
     }
   }, [blameMode, currentPath, refreshVersion, showBlame])
+
+  useEffect(() => {
+    if (!modeControlExpanded) return
+    const collapseOutside = (event: PointerEvent): void => {
+      if (
+        event.target instanceof Node &&
+        !modeControlRef.current?.contains(event.target)
+      ) {
+        setModeControlExpanded(false)
+      }
+    }
+    document.addEventListener('pointerdown', collapseOutside, true)
+    return () => document.removeEventListener('pointerdown', collapseOutside, true)
+  }, [modeControlExpanded])
 
   return (
     <div className="viewer-body">
@@ -185,22 +201,51 @@ export function FileViewer({
                 Blame
               </button>
             ) : null}
-            <div className="mode-control" role="group" aria-label="View mode">
+            <div
+              ref={modeControlRef}
+              className={`mode-control${modeControlExpanded ? ' expanded' : ''}`}
+              role="group"
+              aria-label="View mode"
+              onFocus={(event) => {
+                if (
+                  event.target instanceof HTMLElement &&
+                  event.target.matches(':focus-visible')
+                ) {
+                  setModeControlExpanded(true)
+                }
+              }}
+              onBlur={(event) => {
+                if (
+                  !(event.relatedTarget instanceof Node) ||
+                  !event.currentTarget.contains(event.relatedTarget)
+                ) {
+                  setModeControlExpanded(false)
+                }
+              }}
+            >
               {(['rendered', 'source', 'diff'] as const).map((mode) => (
                 <button
                   type="button"
                   className={tab.mode === mode ? 'active' : ''}
                   aria-pressed={tab.mode === mode}
+                  aria-expanded={tab.mode === mode ? modeControlExpanded : undefined}
                   title={
                     tab.file?.binary && mode !== 'rendered'
                       ? 'Binary repository assets are available in rendered view only'
                       : mode === 'rendered' && !canRender(tab.path)
                         ? 'No renderer registered for this file type'
-                        : `${mode} view · Ctrl/Cmd+Shift+M cycles modes`
+                        : tab.mode === mode && !modeControlExpanded
+                          ? 'Choose view mode · Ctrl/Cmd+Shift+M cycles modes'
+                          : `${mode} view · Ctrl/Cmd+Shift+M cycles modes`
                   }
                   disabled={Boolean(tab.file?.binary && mode !== 'rendered')}
                   key={mode}
                   onClick={() => {
+                    if (tab.mode === mode && !modeControlExpanded) {
+                      setModeControlExpanded(true)
+                      return
+                    }
+                    setModeControlExpanded(false)
                     onMode(mode, positionCapture.current?.())
                   }}
                 >

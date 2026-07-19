@@ -44,8 +44,15 @@ describe('FileViewer controls', () => {
     ])
     expect(modeButtons[0]?.classList.contains('active')).toBe(true)
 
+    act(() => modeButtons[0]?.click())
+    expect(onMode).not.toHaveBeenCalled()
+    expect(host.querySelector('.mode-control')?.classList.contains('expanded')).toBe(true)
+
     act(() => modeButtons[1]?.click())
     expect(onMode).toHaveBeenCalledWith('source', undefined)
+    expect(host.querySelector('.mode-control')?.classList.contains('expanded')).toBe(
+      false,
+    )
 
     const compactMode = host.querySelector<HTMLSelectElement>('.mode-select')
     act(() => {

@@ -12,6 +12,7 @@ import {
   persistWorkspaceLayout,
   restoreWorkspaceLayout,
 } from '../layout/workspace-layout-persistence'
+import { fitSplitPrimaryWidth, PANE_DIVIDER_SIZE } from '../layout/split-layout-policy'
 import type { ViewerPaneId } from '../viewer/tab-state'
 import { clamp, fitTerminalHeight } from './workbench-layout-policy'
 import {
@@ -23,7 +24,7 @@ import {
 const TREE_MIN_WIDTH = 160
 const TREE_MAX_WIDTH = 520
 const MAIN_MIN_WIDTH = 420
-const DIVIDER_SIZE = 5
+const VIEWER_PANE_MIN_WIDTH = 240
 
 export type WorkbenchRailMode = 'files' | 'git' | 'harness'
 
@@ -144,7 +145,7 @@ export function useWorkbenchLayout({
       TREE_MIN_WIDTH,
       Math.min(
         TREE_MAX_WIDTH,
-        workbench.clientWidth - DIVIDER_SIZE - MAIN_MIN_WIDTH - terminalRailWidth,
+        workbench.clientWidth - PANE_DIVIDER_SIZE - MAIN_MIN_WIDTH - terminalRailWidth,
       ),
     )
     const next = clamp(width, TREE_MIN_WIDTH, max)
@@ -175,7 +176,7 @@ export function useWorkbenchLayout({
   const setViewerPrimaryWidth = useCallback((width: number): void => {
     const groups = viewerGroupsRef.current
     if (!groups) return
-    const next = clamp(width, 240, Math.max(240, groups.clientWidth - 245))
+    const next = fitSplitPrimaryWidth(width, groups.clientWidth, VIEWER_PANE_MIN_WIDTH)
     groups.style.setProperty('--viewer-primary-track', `${next}px`)
     if (rootRef.current) {
       persistWorkspaceLayout(rootRef.current, { viewerPrimaryWidth: next })

@@ -230,6 +230,12 @@
   background: var(--surface-active);
 }
 
+/* The active project tab joins the chrome band below it (best effort). */
+:root[data-theme='light'] .project-tab.active {
+  background: var(--surface-0);
+  border-bottom-color: var(--surface-0);
+}
+
 :root[data-theme='light'] .terminal-list-row.active,
 :root[data-theme='light'] .terminal-list-row.active:hover {
   border-top-color: var(--terminal-active-border);
@@ -455,6 +461,7 @@
   width: 34px;
   flex: 0 0 34px;
   border: 0;
+  border-bottom: 1px solid var(--border-strong);
   border-left: 1px solid var(--border-subtle);
   background: transparent;
   color: var(--text-muted);
