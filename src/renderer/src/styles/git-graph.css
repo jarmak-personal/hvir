@@ -1,0 +1,276 @@
+.git-graph-tab .tab-status {
+  color: #69a7ff;
+  font-size: 12px;
+}
+
+.git-graph-view {
+  container-type: inline-size;
+  min-width: 0;
+  min-height: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  background: #15181e;
+}
+
+.git-graph-toolbar {
+  flex: 0 0 38px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 12px;
+  border-bottom: 1px solid #282d36;
+  background: #181b21;
+  color: #cbd0d8;
+  font-size: 11px;
+}
+
+.git-graph-toolbar > div {
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+}
+
+.git-graph-toolbar > div span,
+.git-graph-count {
+  overflow: hidden;
+  color: #747e8d;
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.git-graph-workspace {
+  min-width: 0;
+  min-height: 0;
+  flex: 1;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.git-graph-workspace.inspector-open {
+  grid-template-columns: minmax(360px, 42%) minmax(360px, 1fr);
+}
+
+.git-graph-table-shell {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid #282d36;
+}
+
+.git-graph-columns {
+  height: 27px;
+  flex: 0 0 27px;
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) minmax(100px, 0.28fr) 92px 70px;
+  align-items: center;
+  padding-right: 8px;
+  border-bottom: 1px solid #242933;
+  background: #13161b;
+  color: #697383;
+  font-size: 9px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.git-graph-columns.details-open {
+  grid-template-columns: minmax(180px, 1fr);
+}
+
+.git-graph-viewport {
+  min-width: 0;
+  min-height: 0;
+  flex: 1;
+  position: relative;
+  overflow: auto;
+  outline: none;
+}
+
+.git-graph-viewport:focus-visible {
+  box-shadow: inset 0 0 0 1px #4d8fd8;
+}
+
+.git-graph-window {
+  min-width: 620px;
+  position: relative;
+}
+
+.git-graph-workspace.inspector-open .git-graph-window {
+  min-width: 360px;
+}
+
+.git-graph-row {
+  width: 100%;
+  position: absolute;
+  right: 0;
+  left: 0;
+  display: grid;
+  align-items: center;
+  padding: 0 8px 0 0;
+  overflow: hidden;
+  border: 0;
+  border-bottom: 1px solid #1e232b;
+  background: transparent;
+  color: #b9c0ca;
+  font-size: 11px;
+  text-align: left;
+}
+
+.git-graph-row:hover {
+  background: #1b2027;
+}
+
+.git-graph-row.active {
+  background: #242b35;
+  box-shadow: inset 2px 0 #4d8fd8;
+  color: #eef1f5;
+}
+
+.git-graph-row > span,
+.git-graph-row > time,
+.git-graph-row > code {
+  min-width: 0;
+  overflow: hidden;
+  padding-right: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.git-graph-row > time,
+.git-graph-row > code,
+.git-graph-author {
+  color: #7f8897;
+  font-size: 10px;
+}
+
+.git-graph-row > code {
+  font-family: 'JetBrains Mono', 'SFMono-Regular', Consolas, monospace;
+}
+
+.git-graph-subject {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.git-graph-workspace.inspector-open .git-graph-subject {
+  display: grid;
+  grid-template-columns: 9px minmax(0, 1fr);
+  grid-auto-rows: min-content;
+  align-content: center;
+  column-gap: 5px;
+  row-gap: 1px;
+}
+
+.git-graph-workspace.inspector-open .git-graph-subject > .git-graph-disclosure {
+  grid-column: 1;
+  grid-row: 1;
+}
+
+.git-graph-workspace.inspector-open .git-graph-subject > span:not(.git-ref-list) {
+  grid-column: 2;
+  grid-row: 1;
+}
+
+.git-graph-workspace.inspector-open .git-graph-subject > .git-ref-list {
+  grid-column: 2;
+  grid-row: 2;
+}
+
+.git-graph-subject > span:not(.git-ref-list) {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.git-graph-disclosure {
+  width: 9px;
+  flex: 0 0 9px;
+  color: #788392;
+  font-size: 12px;
+  font-style: normal;
+}
+
+.git-graph-lanes {
+  overflow: visible;
+}
+
+.git-graph-lanes line,
+.git-graph-lanes path {
+  fill: none;
+  stroke-width: 1.5;
+  vector-effect: non-scaling-stroke;
+}
+
+.git-ref-list {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  overflow: hidden;
+}
+
+.git-ref {
+  max-width: 130px;
+  flex: 0 1 auto;
+  overflow: hidden;
+  padding: 1px 5px;
+  border: 1px solid #365a75;
+  border-radius: 8px;
+  background: #172532;
+  color: #8fc3e8;
+  font-size: 9px;
+  line-height: 14px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.git-ref.tag {
+  border-color: #6b5530;
+  background: #292215;
+  color: #d8b56e;
+}
+
+.git-ref.head {
+  border-color: #39704b;
+  background: #17291e;
+  color: #8bd49d;
+}
+
+.git-graph-load-more {
+  width: calc(100% - 20px);
+  margin: 8px 10px;
+  padding: 6px 8px;
+  border: 1px solid #343a45;
+  border-radius: 4px;
+  background: #171b21;
+  color: #9ba4b1;
+  font-size: 10px;
+}
+
+.git-graph-banner {
+  padding: 5px 10px;
+  border-bottom: 1px solid #67383e;
+  background: #25171a;
+  color: #d98289;
+  font-size: 10px;
+}
+
+.git-graph-empty {
+  min-height: 80px;
+  flex: 1;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  color: #747e8d;
+  font-size: 11px;
+  text-align: center;
+}
+
+.git-graph-empty.error {
+  color: #dc7b82;
+}

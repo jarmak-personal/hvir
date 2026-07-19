@@ -22,10 +22,15 @@ function registry() {
 function open(
   routes: WebPaneRouteRegistry,
   url: string,
-  overrides: { readonly ownerId?: number; readonly terminalId?: string } = {},
+  overrides: {
+    readonly ownerId?: number
+    readonly ownerGeneration?: number
+    readonly terminalId?: string
+  } = {},
 ) {
   return routes.open({
     ownerId: overrides.ownerId ?? 41,
+    ownerGeneration: overrides.ownerGeneration,
     sourceTerminalId: overrides.terminalId ?? 'terminal-1',
     workspaceRoot: root,
     host: new LocalHost(),
@@ -116,6 +121,25 @@ describe('WebPaneRouteRegistry', () => {
     }
   })
 
+  it('isolates reused webContents ids by document generation', async () => {
+    const { routes } = registry()
+    const previous = await open(routes, 'http://localhost:5173/', {
+      ownerGeneration: 1,
+    })
+    const current = await open(routes, 'http://localhost:5173/', {
+      ownerGeneration: 2,
+    })
+
+    expect(current.paneId).not.toBe(previous.paneId)
+    expect(routes.has(previous.paneId, 41, 2)).toBe(false)
+    expect(routes.has(current.paneId, 41, 2)).toBe(true)
+
+    await routes.closeOwner(41, 1)
+    expect(routes.has(previous.paneId, 41, 1)).toBe(false)
+    expect(routes.has(current.paneId, 41, 2)).toBe(true)
+    await routes.closeAll()
+  })
+
   it('gates attachment once and binds the resulting guest by its partition', async () => {
     const { routes, destroyGuest } = registry()
     const route = await open(routes, 'http://localhost:5173/')
@@ -192,6 +216,62 @@ describe('WebPaneRouteRegistry', () => {
 
     await expect(opening).rejects.toThrow('revoked while opening')
     expect(disposeSession).toHaveBeenCalledOnce()
+  })
+
+  it('revokes a late open when its renderer owner closes', async () => {
+    let finishPreparation: ((dispose: () => Promise<void>) => void) | undefined
+    const prepared = new Promise<() => Promise<void>>((resolve) => {
+      finishPreparation = resolve
+    })
+    const disposeSession = vi.fn(() => Promise.resolve())
+    const routes = new WebPaneRouteRegistry({
+      prepareSession: () => prepared,
+      destroyGuest: vi.fn(),
+    })
+
+    const opening = open(routes, 'http://localhost:5173/')
+    await vi.waitFor(() => expect(finishPreparation).toBeTypeOf('function'))
+    await routes.closeOwner(41)
+    finishPreparation!(disposeSession)
+
+    await expect(opening).rejects.toThrow('revoked while opening')
+    expect(disposeSession).toHaveBeenCalledOnce()
+  })
+
+  it('tears down every route for one owner without touching another owner', async () => {
+    const { routes, disposeSession, destroyGuest } = registry()
+    const first = await open(routes, 'http://localhost:5173/')
+    const second = await open(routes, 'http://localhost:5174/')
+    const other = await open(routes, 'http://localhost:5175/', { ownerId: 99 })
+    for (const [route, guestId] of [
+      [first, 801],
+      [second, 802],
+      [other, 803],
+    ] as const) {
+      const ownerId = route === other ? 99 : 41
+      expect(
+        routes.claimAttachment({
+          ownerId,
+          paneId: route.paneId,
+          partition: route.partition,
+          initialUrl: route.url,
+        }),
+      ).toEqual(route)
+      expect(routes.bindGuestForPartition(ownerId, route.partition, guestId)).toBe(
+        route.paneId,
+      )
+    }
+
+    await routes.closeOwner(41)
+
+    expect(routes.has(first.paneId, 41)).toBe(false)
+    expect(routes.has(second.paneId, 41)).toBe(false)
+    expect(routes.has(other.paneId, 99)).toBe(true)
+    expect(destroyGuest).toHaveBeenCalledWith(801)
+    expect(destroyGuest).toHaveBeenCalledWith(802)
+    expect(destroyGuest).not.toHaveBeenCalledWith(803)
+    expect(disposeSession).toHaveBeenCalledTimes(2)
+    await routes.closeAll()
   })
 
   it('refuses host capacity without silently evicting an existing pane', async () => {

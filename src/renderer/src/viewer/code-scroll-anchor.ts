@@ -1,13 +1,5 @@
 import type { EditorView } from '@codemirror/view'
 
-export interface CodeScrollAnchor {
-  current: number | undefined
-}
-
-export interface CodeScrollCapture {
-  current: (() => number) | undefined
-}
-
 export function captureTopLine(view: EditorView, scrollRoot: HTMLElement): number {
   const rootBounds = scrollRoot.getBoundingClientRect()
   const visibleMarker = [

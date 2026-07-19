@@ -1,0 +1,356 @@
+.modal-backdrop {
+  position: fixed;
+  z-index: 1000;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: rgb(5 7 10 / 72%);
+}
+
+.project-dialog {
+  width: min(430px, calc(100vw - 32px));
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 20px;
+  border: 1px solid #343a45;
+  border-radius: 7px;
+  background: #181b21;
+  box-shadow: 0 18px 60px #000a;
+}
+
+.project-dialog h2,
+.project-dialog p {
+  margin: 0;
+}
+
+.project-dialog .dialog-error {
+  color: #dc7b82;
+}
+
+.close-project-dialog > code {
+  overflow-wrap: anywhere;
+  padding: 9px 10px;
+  border: 1px solid #303640;
+  border-radius: 4px;
+  background: #12151a;
+  color: #c5cbd4;
+  font-size: 10px;
+}
+
+.project-dialog .dialog-note {
+  color: #747e8d;
+  font-size: 10px;
+}
+
+.worktree-prune-dialog {
+  width: min(560px, calc(100vw - 32px));
+}
+
+.worktree-prune-list {
+  max-height: min(280px, 42vh);
+  overflow: auto;
+  border: 1px solid #303640;
+  border-radius: 4px;
+  background: #12151a;
+}
+
+.worktree-prune-list > div {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 9px 10px;
+  border-bottom: 1px solid #252a32;
+}
+
+.worktree-prune-list > div:last-child {
+  border-bottom: 0;
+}
+
+.worktree-prune-list code,
+.worktree-prune-list small {
+  overflow-wrap: anywhere;
+}
+
+.worktree-prune-list code {
+  color: #c5cbd4;
+  font-size: 10px;
+}
+
+.worktree-prune-list small {
+  color: #828c9a;
+  font-size: 9px;
+}
+
+.project-dialog .worktree-prune-warning {
+  color: #d6b16e;
+}
+
+.project-dialog .danger-action {
+  border-color: #75434a;
+  background: #4b292f;
+  color: #f0c2c6;
+}
+
+.project-dialog .danger-action:hover {
+  background: #60333a;
+}
+
+.terminal-recovery-dialog {
+  max-height: min(560px, calc(100vh - 32px));
+}
+
+.terminal-recovery-list {
+  min-height: 0;
+  overflow: auto;
+  border: 1px solid #303640;
+  border-radius: 4px;
+  background: #12151a;
+}
+
+.project-dialog .terminal-recovery-option {
+  display: grid;
+  grid-template-columns: 14px minmax(0, 1fr);
+  align-items: center;
+  gap: 9px;
+  padding: 8px 10px;
+  border-bottom: 1px solid #252a32;
+}
+
+.project-dialog .terminal-recovery-option:last-child {
+  border-bottom: 0;
+}
+
+.project-dialog .terminal-recovery-option:hover {
+  background: #191e25;
+}
+
+.project-dialog .terminal-recovery-option input {
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  padding: 0;
+}
+
+.terminal-recovery-option > span {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.terminal-recovery-rebind {
+  display: flex;
+  gap: 6px;
+  margin-top: 5px;
+}
+
+.terminal-recovery-rebind select,
+.terminal-recovery-rebind button {
+  min-width: 0;
+  padding: 4px 6px;
+  border: 1px solid #343a45;
+  border-radius: 3px;
+  background: #15181e;
+  color: #aeb8c5;
+  font-size: 9px;
+}
+
+.terminal-recovery-option strong,
+.terminal-recovery-option small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.terminal-recovery-option strong {
+  color: #d4d9e0;
+  font-size: 11px;
+}
+
+.terminal-recovery-option small {
+  color: #7f8997;
+  font-size: 9px;
+}
+
+.ssh-host-fingerprint {
+  display: block;
+  max-width: 100%;
+  padding: 9px 10px;
+  overflow-wrap: anywhere;
+  border: 1px solid #303743;
+  border-radius: 5px;
+  background: #101318;
+  color: #b9c7d8;
+  font-size: 11px;
+  line-height: 1.5;
+  user-select: text;
+  white-space: normal;
+  word-break: break-all;
+}
+
+.ssh-host-key-changed {
+  border: 1px solid #c35a5a;
+  border-radius: 6px;
+  background: rgb(195 90 90 / 10%);
+  padding: 12px;
+}
+
+.ssh-host-key-changed label {
+  display: grid;
+  gap: 5px;
+  margin-bottom: 10px;
+}
+
+.ssh-host-key-confirm {
+  grid-template-columns: auto 1fr !important;
+  align-items: center;
+  color: #f1c4c4;
+}
+
+.ssh-host-key-confirm input {
+  width: auto;
+  margin: 0;
+  padding: 0;
+}
+
+.session-dialog {
+  max-height: min(680px, calc(100vh - 32px));
+}
+
+.session-hosts,
+.folder-browser {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  overflow: auto;
+}
+
+.session-hosts {
+  max-height: 360px;
+}
+
+.session-host-option {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 8px 9px;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  background: #12151a;
+  color: #b8bec8;
+  text-align: left;
+}
+
+.session-host-option:hover {
+  background: #20242c;
+}
+
+.session-host-option.selected {
+  border-color: #4d8fd8;
+  background: #1b2632;
+}
+
+.session-host-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.session-host-option small {
+  color: #747e8d;
+  font-size: 10px;
+}
+
+.folder-path-form {
+  display: flex;
+  gap: 6px;
+}
+
+.folder-path-form input {
+  flex: 1;
+}
+
+.folder-path-form button {
+  padding: 5px 10px;
+}
+
+.recent-folders {
+  display: flex;
+  gap: 5px;
+  overflow-x: auto;
+}
+
+.recent-folders button {
+  max-width: 180px;
+  flex: 0 0 auto;
+  overflow: hidden;
+  padding: 3px 7px;
+  border: 1px solid #343a45;
+  border-radius: 10px;
+  background: #14181e;
+  color: #8c96a4;
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.folder-browser {
+  min-height: 260px;
+  flex: 1;
+  padding: 5px;
+  border: 1px solid #2b3039;
+  border-radius: 5px;
+  background: #101318;
+}
+
+.folder-selection {
+  position: sticky;
+  z-index: 1;
+  top: -5px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 7px;
+  border-bottom: 1px solid #272d36;
+  background: #101318;
+}
+
+.folder-selection small {
+  color: #747e8d;
+  font-size: 9px;
+}
+
+.folder-selection code {
+  overflow: hidden;
+  color: #b8c0cb;
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.project-dialog p {
+  color: #949dab;
+  font-size: 12px;
+}
+.project-dialog label {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-size: 11px;
+}
+.project-dialog input,
+.project-dialog select {
+  width: 100%;
+  padding: 7px 8px;
+}
+.dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 7px;
+}
+.dialog-actions button {
+  padding: 5px 10px;
+}

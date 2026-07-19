@@ -1,25 +1,33 @@
 /** Quiet OS-level aggregation for actionable terminal attention. */
 export class AttentionBadge {
-  private readonly owners = new Map<number, { count: number; focused: boolean }>()
+  private readonly owners = new Map<string, { count: number; focused: boolean }>()
   private lastRendered = -1
   private failed = false
 
   constructor(private readonly setBadgeCount: (count: number) => boolean | void) {}
 
-  update(ownerId: number, count: number): void {
-    const current = this.owners.get(ownerId) ?? { count: 0, focused: false }
-    this.owners.set(ownerId, { ...current, count: cleanCount(count) })
+  update(ownerId: number, count: number, ownerGeneration = 0): void {
+    const key = ownerKey(ownerId, ownerGeneration)
+    const current = this.owners.get(key) ?? { count: 0, focused: false }
+    this.owners.set(key, { ...current, count: cleanCount(count) })
     this.render()
   }
 
-  setFocused(ownerId: number, focused: boolean): void {
-    const current = this.owners.get(ownerId) ?? { count: 0, focused: false }
-    this.owners.set(ownerId, { ...current, focused })
+  setFocused(ownerId: number, focused: boolean, ownerGeneration = 0): void {
+    const key = ownerKey(ownerId, ownerGeneration)
+    const current = this.owners.get(key) ?? { count: 0, focused: false }
+    this.owners.set(key, { ...current, focused })
     this.render()
   }
 
-  remove(ownerId: number): void {
-    this.owners.delete(ownerId)
+  remove(ownerId: number, ownerGeneration?: number): void {
+    if (ownerGeneration === undefined) {
+      for (const key of this.owners.keys()) {
+        if (key.startsWith(`${ownerId}:`)) this.owners.delete(key)
+      }
+    } else {
+      this.owners.delete(ownerKey(ownerId, ownerGeneration))
+    }
     this.render()
   }
 
@@ -46,6 +54,10 @@ export class AttentionBadge {
       console.warn('[attention] OS badge unavailable', error)
     }
   }
+}
+
+function ownerKey(ownerId: number, ownerGeneration: number): string {
+  return `${ownerId}:${ownerGeneration}`
 }
 
 function cleanCount(value: number): number {

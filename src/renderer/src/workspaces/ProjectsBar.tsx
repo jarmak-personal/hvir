@@ -8,15 +8,15 @@ import {
   type HostWatchTier,
   type WorkspaceState,
 } from '../../../shared'
-import type { TerminalWorkspaceRollup } from '../terminal/TerminalWorkspace'
 import { RemoteConnectionBadge } from './ConnectionStatus'
 import { connectionStateLabel } from './connection-status'
+import type { WorkspaceAttentionRollups } from './project-session-model'
 import { aggregateWorkspaceAttention } from './workspace-attention'
 import type { AppTheme } from '../theme'
 
 interface ProjectsBarProps {
   readonly state: ProjectState
-  readonly rollups: Readonly<Record<string, TerminalWorkspaceRollup>>
+  readonly rollups: WorkspaceAttentionRollups
   readonly busy: boolean
   readonly onAdd: () => void
   readonly onSwitch: (projectId: string, workspaceId: string) => void

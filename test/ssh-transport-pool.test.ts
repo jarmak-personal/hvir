@@ -10,6 +10,7 @@ import type {
 import { describe, expect, it, vi } from 'vitest'
 
 import { plainShellProvider } from '../src/main/harness/harness-provider'
+import type { SshFileAccess } from '../src/main/project-host/ssh-file-access'
 import {
   SSH_CONTROL_CHANNEL_BUDGET,
   SSH_MAX_KEYBOARD_INTERACTIVE_ROUNDS,
@@ -72,9 +73,7 @@ describe('SshHost transport pool', () => {
 
   it('accounts for the shared SFTP subsystem as a control session channel', async () => {
     const fixture = await poolFixture()
-    const session = await (
-      fixture.host as unknown as { getSftp(): Promise<SFTPWrapper> }
-    ).getSftp()
+    const session = await hostFiles(fixture.host).getSftp()
 
     expect(fixture.host.transportDiagnostics()).toEqual([
       expect.objectContaining({ role: 'control', channels: 1 }),
@@ -613,6 +612,10 @@ function connectConfig(
       ): ConnectConfig
     }
   ).connectConfig(purpose, undefined, undefined, credentialAttempt)
+}
+
+function hostFiles(host: SshHost): SshFileAccess {
+  return (host as unknown as { files: SshFileAccess }).files
 }
 
 interface TestCredentialAttempt {

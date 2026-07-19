@@ -1,5 +1,6 @@
 import type MarkdownIt from 'markdown-it'
 import type StateCore from 'markdown-it/lib/rules_core/state_core.mjs'
+import type Token from 'markdown-it/lib/token.mjs'
 import taskLists from 'markdown-it-task-lists'
 
 /** GFM task lists are display-only in hvir; source mode owns all mutation. */
@@ -16,6 +17,33 @@ export function enableTaskLists(markdown: MarkdownIt): MarkdownIt {
     renderGitLabTasks,
   )
   return markdown
+}
+
+const SOURCE_LINE_ATTRIBUTE = 'data-source-line'
+
+/** Mark rendered block starts so rendered/source/diff transitions share a document line. */
+export function enableSourceLineAnchors(markdown: MarkdownIt): MarkdownIt {
+  markdown.core.ruler.after('block', 'hvir-source-line-anchors', (state) => {
+    for (const token of state.tokens) {
+      const sourceLine = tokenSourceLine(token)
+      if (sourceLine !== undefined)
+        token.attrSet(SOURCE_LINE_ATTRIBUTE, String(sourceLine))
+    }
+  })
+  return markdown
+}
+
+/** Custom renderers must retain the source anchor that MarkdownIt attrs normally carry. */
+export function wrapSourceLine(token: Token, html: string): string {
+  const sourceLine = tokenSourceLine(token)
+  return sourceLine === undefined
+    ? html
+    : `<div ${SOURCE_LINE_ATTRIBUTE}="${sourceLine}">${html}</div>`
+}
+
+function tokenSourceLine(token: Token): number | undefined {
+  if (!token.map || token.type === 'inline' || token.nesting === -1) return undefined
+  return token.map[0] + 1
 }
 
 const TASK_STATE_ATTRIBUTE = 'data-hvir-task-state'

@@ -1,0 +1,42 @@
+.terminal-container {
+  position: relative;
+  overflow: hidden;
+  padding: 3px 2px;
+  background: #111318;
+  /* ghostty-web focuses this contenteditable host for keyboard input. Hide the
+     browser caret; the terminal cursor is painted independently on the canvas. */
+  caret-color: transparent;
+}
+
+.terminal-container canvas {
+  display: block;
+}
+
+.terminal-container textarea {
+  caret-color: transparent;
+}
+
+.terminal-restart {
+  position: absolute;
+  z-index: 4;
+  top: 8px;
+  right: 8px;
+  padding: 4px 8px;
+  border: 1px solid #3b4654;
+  border-radius: 3px;
+  background: #191e25;
+  color: #aeb7c3;
+  font-size: 9px;
+}
+
+.terminal-restart:hover {
+  border-color: #4d8fd8;
+  color: #edf0f5;
+}
+
+@media (max-width: 1000px) {
+  .workbench {
+    --tree-track: 210px;
+    --terminal-rail-track: 180px;
+  }
+}

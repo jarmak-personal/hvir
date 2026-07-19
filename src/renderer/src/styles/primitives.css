@@ -1,0 +1,162 @@
+.pane-resizer {
+  position: relative;
+  z-index: 5;
+  padding: 0;
+  border: 0;
+  outline: none;
+  background: #282d36;
+  touch-action: none;
+}
+
+.pane-resizer::after {
+  content: '';
+  position: absolute;
+  z-index: 1;
+  background: transparent;
+  transition: background 100ms ease;
+}
+
+.pane-resizer:hover::after,
+.pane-resizer:focus-visible::after,
+.pane-resizer.dragging::after {
+  background: #4d8fd8;
+}
+
+.tree-resizer {
+  grid-column: 2;
+  grid-row: 1 / -1;
+  cursor: col-resize;
+}
+
+.tree-resizer::after {
+  inset: 0 -2px;
+}
+
+.viewer-split-resizer {
+  grid-column: 2;
+  min-width: 5px;
+  cursor: col-resize;
+}
+
+.viewer-split-resizer::after {
+  inset: 0 -2px;
+}
+
+.terminal-split-resizer {
+  grid-column: 2;
+  grid-row: 1;
+  min-width: 5px;
+  cursor: col-resize;
+}
+
+.terminal-split-resizer::after {
+  inset: 0 -2px;
+}
+
+.terminal-resizer {
+  grid-column: 3 / 5;
+  grid-row: 2;
+  cursor: row-resize;
+}
+
+.terminal-resizer::after {
+  inset: -2px 0;
+}
+
+.terminal-focus-toggle,
+.tree-collapse-toggle {
+  position: absolute;
+  z-index: 3;
+  top: 50%;
+  left: 50%;
+  border: 1px solid #3b424d;
+  border-radius: 4px;
+  background: #181c22;
+  color: #8f99a7;
+  cursor: pointer;
+  transform: translate(-50%, -50%);
+}
+
+.terminal-focus-toggle {
+  width: 30px;
+  height: 20px;
+  padding: 2px 7px;
+}
+
+.tree-collapse-toggle {
+  width: 20px;
+  height: 30px;
+  padding: 7px 2px;
+}
+
+.terminal-focus-toggle:hover,
+.terminal-focus-toggle:focus-visible,
+.tree-collapse-toggle:hover,
+.tree-collapse-toggle:focus-visible {
+  outline: none;
+  border-color: #4d8fd8;
+  color: #e6ebf2;
+}
+
+.terminal-focus-toggle svg,
+.tree-collapse-toggle svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.5;
+}
+
+body.pane-resizing {
+  user-select: none;
+}
+
+body.pane-resizing-column,
+body.pane-resizing-column * {
+  cursor: col-resize !important;
+}
+
+body.pane-resizing-row,
+body.pane-resizing-row * {
+  cursor: row-resize !important;
+}
+
+.panel-header {
+  flex: 0 0 36px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 12px;
+  border-bottom: 1px solid #282d36;
+  background: #181b21;
+  color: #d9dce2;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+}
+
+.panel-meta {
+  min-width: 0;
+  overflow: hidden;
+  color: #7f8898;
+  font-size: 11px;
+  font-weight: 400;
+  text-overflow: ellipsis;
+}
+
+.git-tabs button,
+.git-file,
+.git-load-more,
+.project-dialog button,
+.project-dialog select,
+.project-dialog input {
+  border: 1px solid #343a45;
+  border-radius: 4px;
+  background: #15181e;
+  color: #aeb5c0;
+}

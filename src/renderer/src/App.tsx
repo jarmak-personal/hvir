@@ -1,1314 +1,250 @@
 import {
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type ReactElement,
-  type RefObject,
 } from 'react'
 
 import {
-  asHostId,
-  basenameHostPath,
-  defaultViewMode,
-  dirnameHostPath,
   GIT_CHANGE_DISPLAY_LIMIT,
-  hostPath,
   hostPathEquals,
-  MAX_PROJECT_WATCH_INTERESTS,
-  unwrapOperation,
-  type DiffBase,
-  type FileOpenContext,
   type GitChanges,
   type HostPath,
-  type HostConnectionState,
-  type HostWatchTier,
-  type ProjectHostOption,
-  type ConnectedHost,
-  type BrowseHostResponse,
   type ProjectState,
-  type SshPromptRequest,
-  type ViewMode,
-  type WatchEvent,
-  type WebPaneCommandAction,
 } from '../../shared'
 import { PaneResizer } from './layout/PaneResizer'
-import { WebPane, type WebViewState } from './dashboards/WebPane'
+import type { WebViewState } from './dashboards/WebPane'
+import { WebPaneStack } from './dashboards/WebPaneStack'
+import { useWebPaneWorkspace } from './dashboards/use-web-pane-workspace'
 import { TerminalWorkspace } from './terminal/TerminalWorkspace'
-import type { TerminalWorkspaceRollup } from './terminal/TerminalWorkspace'
+import { useTerminalAttention } from './terminal/use-terminal-attention'
 import { ProjectsBar } from './workspaces/ProjectsBar'
-import { RemoteConnectionBadge } from './workspaces/ConnectionStatus'
 import { MissingWorkspaceNotice } from './workspaces/MissingWorkspaceNotice'
-import { initialHostConnectionTarget } from './workspaces/initial-host-connection'
+import { useProjectSession } from './workspaces/project-session'
+import { useProjectWatchInterests } from './workspaces/project-watch-interests'
+import { SessionDialog } from './workspaces/SessionDialog'
+import { SshPromptDialog } from './workspaces/SshPromptDialog'
 import { FileTree } from './tree/FileTree'
-import { DirectoryTree } from './tree/DirectoryTree'
 import { isGitIgnoreRulePath } from './tree/git-ignore-refresh'
 import { GitPanel } from './git/GitPanel'
 import { workspaceGitEnabled } from './git/git-capability'
 import { GitGraphView } from './git/GitGraphView'
+import { useGitWorkspace } from './git/use-git-workspace'
 import { FileViewer } from './viewer/FileViewer'
 import { TabStrip } from './viewer/TabStrip'
-import type {
-  ViewerNavigationPosition,
-  ViewerPaneId,
-  ViewerTab,
-} from './viewer/tab-state'
+import type { ViewerPaneId, ViewerTab } from './viewer/tab-state'
+import { useViewerWorkspace } from './viewer/use-viewer-workspace'
 import { setAppTheme, useAppTheme } from './theme'
 import { SettingsDialog } from './settings/SettingsDialog'
-import { matchesKeybinding, type KeybindingAction } from './settings/keybindings'
 import { setAppSettings, useAppSettings } from './settings/settings'
-
-const TREE_MIN_WIDTH = 160
-const TREE_MAX_WIDTH = 520
-const MAIN_MIN_WIDTH = 420
-const VIEWER_MIN_HEIGHT = 180
-const TERMINAL_MIN_HEIGHT = 160
-const DIVIDER_SIZE = 5
-const TAB_STORAGE_VERSION = 1
-const DRAFT_STORAGE_CHARACTER_LIMIT = 2 * 1024 * 1024
+import { useWorkbenchCommands } from './workbench/use-workbench-commands'
+import { useWorkbenchLayout } from './workbench/use-workbench-layout'
+import { useWorkbenchOverlays } from './workbench/use-workbench-overlays'
 
 export function App(): ReactElement {
   const theme = useAppTheme()
   const settings = useAppSettings()
-  const workbenchRef = useRef<HTMLElement>(null)
-  const viewerGroupsRef = useRef<HTMLDivElement>(null)
-  const tabsRef = useRef<readonly ViewerTab[]>([])
   const rootRef = useRef<HostPath | undefined>(undefined)
-  const warmTabs = useRef(
-    new Map<
-      string,
-      { readonly tabs: readonly ViewerTab[]; readonly activeId?: string }
-    >(),
-  )
-  const activeIdRef = useRef<string | undefined>(undefined)
-  const activePaneRef = useRef<ViewerPaneId>('primary')
-  const activeByPaneRef = useRef<Record<ViewerPaneId, string | undefined>>({
-    primary: undefined,
-    secondary: undefined,
-  })
-  const gitGraphActiveRef = useRef(false)
   const workspaceSwitchRef = useRef<(direction: -1 | 1) => void>(() => undefined)
-  const fileReadGenerations = useRef(new Map<string, number>())
-  const nextViewerNavigation = useRef(0)
-  const discardDirtyOnUnload = useRef(false)
-  const watchHandler = useRef<(event: WatchEvent) => void>(() => undefined)
-  const pendingScroll = useRef<
-    { readonly id: string; readonly scrollTop: number } | undefined
-  >(undefined)
-  const scrollFrame = useRef<number | undefined>(undefined)
-  const persistedState = useRef<
-    | {
-        readonly root: HostPath
-        readonly tabs: readonly ViewerTab[]
-        readonly activeId?: string
-      }
-    | undefined
-  >(undefined)
-  const [root, setRoot] = useState<HostPath>()
-  const [projectState, setProjectState] = useState<ProjectState>()
-  const [rootError, setRootError] = useState<string>()
-  const [watchVersion, setWatchVersion] = useState(0)
-  const [ignoredRefreshVersion, setIgnoredRefreshVersion] = useState(0)
-  const [contentVersion, setContentVersion] = useState(0)
-  const [gitVersion, setGitVersion] = useState(0)
-  const [tabs, setTabs] = useState<readonly ViewerTab[]>([])
-  const [activeId, setActiveId] = useState<string>()
-  const [viewerSplit, setViewerSplit] = useState(false)
-  const [gitGraphOpen, setGitGraphOpen] = useState(false)
-  const [gitGraphActive, setGitGraphActive] = useState(false)
-  const [gitGraphRequest, setGitGraphRequest] = useState<{
-    readonly serial: number
-    readonly hash?: string
-  }>({ serial: 0 })
-  const [restored, setRestored] = useState(false)
-  const [railMode, setRailMode] = useState<'files' | 'git' | 'harness'>('files')
-  const [webViews, setWebViews] = useState<readonly WebViewState[]>([])
-  const [activeWebViewId, setActiveWebViewId] = useState<string>()
-  const [webViewActive, setWebViewActive] = useState(false)
-  const [webViewFocused, setWebViewFocused] = useState(false)
-  const webViewsRef = useRef<readonly WebViewState[]>([])
-  const activeWebViewIdRef = useRef<string | undefined>(undefined)
-  const webViewSelection = useRef(
-    new Map<string, { readonly id?: string; readonly active: boolean }>(),
-  )
-  const webViewActiveRef = useRef(false)
+  const sessionErrorRef = useRef<(message: string) => void>(() => undefined)
+  const resetWorkspaceViewRef = useRef<() => void>(() => undefined)
+  const resetGitGraphRef = useRef<() => void>(() => undefined)
+  const deactivateGitGraphRef = useRef<() => void>(() => undefined)
+  const deactivateWebPaneRef = useRef<() => void>(() => undefined)
+  const setTerminalFocusedRef = useRef<(focused: boolean) => void>(() => undefined)
   const [gitChanges, setGitChanges] = useState<GitChanges>()
-  const [connectionState, setConnectionState] = useState<HostConnectionState>('connected')
-  const [watchTier, setWatchTier] = useState<HostWatchTier>('native')
-  const [hosts, setHosts] = useState<readonly ProjectHostOption[]>([])
-  const [showAddProject, setShowAddProject] = useState(false)
-  const [showSettings, setShowSettings] = useState(false)
-  const [settingsInitialSection, setSettingsInitialSection] = useState<
-    'general' | 'harnesses' | 'harnesses-add'
-  >('general')
-  const [sessionBusy, setSessionBusy] = useState(false)
-  const [sessionError, setSessionError] = useState<string>()
-  const [sshPrompts, setSshPrompts] = useState<readonly SshPromptRequest[]>([])
-  const [terminalRollups, setTerminalRollups] = useState<
-    Readonly<Record<string, TerminalWorkspaceRollup>>
-  >({})
-  const [terminalFocused, setTerminalFocused] = useState(false)
-  const [treeCollapsed, setTreeCollapsed] = useState(false)
-  const expandedWatchPaths = useRef(new Map<string, HostPath>())
-  const [watchInterestVersion, setWatchInterestVersion] = useState(0)
-  const [watchInterestsLimited, setWatchInterestsLimited] = useState(false)
-  tabsRef.current = tabs
-  rootRef.current = root
-  activeIdRef.current = activeId
-  gitGraphActiveRef.current = gitGraphActive
-  webViewsRef.current = webViews
-  activeWebViewIdRef.current = activeWebViewId
-  webViewActiveRef.current = webViewActive
+  const overlays = useWorkbenchOverlays()
+  const terminalAttention = useTerminalAttention()
+  const viewer = useViewerWorkspace({
+    onActivateFile: () => {
+      deactivateGitGraphRef.current()
+      deactivateWebPaneRef.current()
+      setTerminalFocusedRef.current(false)
+    },
+  })
+  const {
+    tabs,
+    activeTab,
+    primaryTabs,
+    secondaryTabs,
+    primaryActiveTab,
+    secondaryActiveTab,
+    split: viewerSplit,
+    switchWorkspace: switchViewerWorkspace,
+    openFile,
+    activateTab,
+    closeTab,
+    pinTab,
+    setMode: setViewerMode,
+    cycleActiveMode,
+    setDiffBase: setViewerDiffBase,
+    setContent: setViewerContent,
+    navigationHandled,
+    schedulePosition,
+    reloadTab,
+    saveTab,
+    handleWatchEvent,
+    reloadCleanFiles,
+    focusPane: focusViewerPane,
+    getActivePane,
+    openSplit: openViewerSplit,
+    closeSplit: closeViewerSplit,
+    moveTab: moveTabToPane,
+    reorderTabs: reorderViewerTabs,
+  } = viewer
+  const web = useWebPaneWorkspace({
+    onActivate: () => {
+      focusViewerPane('primary')
+      deactivateGitGraphRef.current()
+      setTerminalFocusedRef.current(false)
+    },
+    onError: (message) => sessionErrorRef.current(message),
+  })
+  const {
+    views: webViews,
+    activeId: activeWebViewId,
+    active: webViewActive,
+    activeRef: webViewActiveRef,
+    focused: webViewFocused,
+    setFocused: setWebViewFocused,
+    setActive: setWebViewActive,
+    applyProjectState: applyWebProjectState,
+    setWorkspaceRoot: setWebWorkspaceRoot,
+    openLink: openWebLink,
+    activateView: activateWebView,
+    closeView: closeWebView,
+    followBlockedNavigation,
+    setTitle: setWebViewTitle,
+    openBrowser: openWebViewInBrowser,
+  } = web
   const changedCount = gitChanges?.workingTree.length ?? 0
   const changedCountLabel = gitChanges?.workingTreeLimited
     ? `${GIT_CHANGE_DISPLAY_LIMIT.toLocaleString()}+`
     : changedCount.toLocaleString()
-  const activeProject = projectState?.projects.find(
-    (project) => project.id === projectState.activeProjectId,
+
+  const applyProjectViewState = useCallback(
+    (state: ProjectState): void => {
+      if (!applyWebProjectState(state, rootRef.current)) return
+      switchViewerWorkspace(state.root)
+      resetGitGraphRef.current()
+      setGitChanges(undefined)
+      resetWorkspaceViewRef.current()
+    },
+    [applyWebProjectState, switchViewerWorkspace],
   )
-  const activeWorkspace = activeProject?.workspaces.find(
-    (workspace) => workspace.id === projectState?.activeWorkspaceId,
-  )
+
+  const session = useProjectSession({
+    onProjectState: applyProjectViewState,
+    onReloadFiles: reloadCleanFiles,
+    onWatchEvent: handleWatchEvent,
+    isIgnoreRulePath: isGitIgnoreRulePath,
+  })
+  const {
+    projectState,
+    root,
+    activeProject,
+    activeWorkspace,
+    connectionState,
+    watchTier,
+    rootError,
+    refreshHosts,
+  } = session
+  const { watch: watchVersion, ignored: ignoredRefreshVersion } = session.versions
+  const { content: contentVersion, git: gitVersion } = session.versions
+  const openWatchPaths = useMemo(() => tabs.map((tab) => tab.path), [tabs])
+  const watchInterests = useProjectWatchInterests({
+    root,
+    connected: connectionState === 'connected',
+    missing: activeWorkspace?.missing,
+    openPaths: openWatchPaths,
+  })
   const gitEnabled = workspaceGitEnabled(activeWorkspace)
 
-  useEffect(() => {
-    const disposeNavigation = window.hvir.on(
-      'web-pane:navigation-blocked',
-      (navigation) => {
-        setWebViews((current) =>
-          current.map((view) =>
-            view.id === navigation.paneId
-              ? { ...view, blockedNavigation: navigation }
-              : view,
-          ),
-        )
-      },
-    )
-    const disposeDiagnostic = window.hvir.on(
-      'web-pane:diagnostic',
-      ({ paneId, event }) => {
-        setWebViews((current) =>
-          current.map((view) =>
-            view.id === paneId
-              ? {
-                  ...view,
-                  routeDiagnostic: {
-                    revision: (view.routeDiagnostic?.revision ?? 0) + 1,
-                    event,
-                  },
-                }
-              : view,
-          ),
-        )
-      },
-    )
-    return () => {
-      void disposeNavigation()
-      void disposeDiagnostic()
-    }
-  }, [])
-
-  useEffect(() => {
-    window.hvir.send('web-pane:full-page', {
-      paneId: webViewFocused && webViewActive ? activeWebViewId : undefined,
-    })
-  }, [activeWebViewId, webViewActive, webViewFocused])
-
-  const applyProjectState = useCallback((state: ProjectState): void => {
-    setProjectState(state)
-    setConnectionState(state.connectionState)
-    setWatchTier(state.watchTier)
-    const liveWorkspaceKeys = new Set(
-      state.projects.flatMap((project) =>
-        project.workspaces.map((workspace) => storageKey(workspace.root)),
-      ),
-    )
-    setWebViews((current) =>
-      current.filter((view) => liveWorkspaceKeys.has(storageKey(view.workspaceRoot))),
-    )
-    const currentRoot = rootRef.current
-    if (currentRoot && hostPathEquals(currentRoot, state.root)) return
-    if (currentRoot) {
-      persistTabs(currentRoot, tabsRef.current, activeIdRef.current)
-      warmTabs.current.set(storageKey(currentRoot), {
-        tabs: tabsRef.current,
-        activeId: activeIdRef.current,
-      })
-      webViewSelection.current.set(storageKey(currentRoot), {
-        id: activeWebViewIdRef.current,
-        active: webViewActiveRef.current,
-      })
-    }
-    const nextWebSelection = webViewSelection.current.get(storageKey(state.root))
-    const selectedWebView = webViewsRef.current.find(
-      (view) =>
-        view.id === nextWebSelection?.id &&
-        hostPathEquals(view.workspaceRoot, state.root),
-    )
-    setRestored(false)
-    setRoot(state.root)
-    setTabs([])
-    setActiveId(undefined)
-    activePaneRef.current = 'primary'
-    activeByPaneRef.current = { primary: undefined, secondary: undefined }
-    setViewerSplit(false)
-    setGitGraphOpen(false)
-    setGitGraphActive(false)
-    setActiveWebViewId(selectedWebView?.id)
-    setWebViewActive(Boolean(selectedWebView && nextWebSelection?.active))
-    setWebViewFocused(false)
-    setGitChanges(undefined)
-    setSessionError(undefined)
-    setTerminalFocused(false)
-    setTreeCollapsed(false)
-    expandedWatchPaths.current.clear()
-    setWatchInterestVersion((version) => version + 1)
-    setWatchInterestsLimited(false)
-  }, [])
-
-  const updateExpandedWatchPath = useCallback(
-    (path: HostPath, expanded: boolean): void => {
-      const key = `${path.hostId}:${path.path}`
-      const current = expandedWatchPaths.current
-      if (expanded) {
-        if (current.has(key)) return
-        current.set(key, path)
-      } else {
-        if (!current.delete(key)) return
-      }
-      setWatchInterestVersion((version) => version + 1)
+  const layout = useWorkbenchLayout({
+    root,
+    gitAvailable: gitEnabled,
+    workspaceMissing: Boolean(activeWorkspace?.missing),
+  })
+  const {
+    workbenchRef,
+    viewerGroupsRef,
+    railMode,
+    setRailMode,
+    terminalFocused,
+    setTerminalFocused,
+    toggleTerminalFocus,
+    treeCollapsed,
+    setTreeCollapsed,
+    resetWorkspaceView,
+    setTreeWidth,
+    resetTreeWidth,
+    setTerminalHeight,
+    resetTerminalHeight,
+    setViewerPrimaryWidth,
+    resetViewerPrimaryWidth,
+    focusTerminal,
+    focusViewer,
+    focusTree,
+  } = layout
+  const git = useGitWorkspace({
+    root,
+    hasDirtyViewerTabs: () => tabs.some((tab) => tab.dirty),
+    acceptProjectState: session.acceptProjectState,
+    refreshContent: session.refreshWorkspaceContent,
+    refreshGit: session.refreshGit,
+    activateViewer: () => {
+      focusViewerPane('primary')
+      setTerminalFocused(false)
     },
-    [],
-  )
+    deactivateWebPane: () => setWebViewActive(false),
+  })
+  const {
+    graphOpen: gitGraphOpen,
+    graphActive: gitGraphActive,
+    graphActiveRef: gitGraphActiveRef,
+    graphRequest: gitGraphRequest,
+    openGraph: openGitGraph,
+    activateGraph: activateGitGraph,
+    closeGraph: closeGitGraph,
+    resetGraph: resetGitGraph,
+    deactivateGraph: deactivateGitGraph,
+    switchBranch: switchGitBranch,
+    fetch: fetchGit,
+    pull: pullGit,
+  } = git
+
+  rootRef.current = root
+  sessionErrorRef.current = session.reportError
+  workspaceSwitchRef.current = session.switchRelativeWorkspace
+  resetWorkspaceViewRef.current = resetWorkspaceView
+  resetGitGraphRef.current = resetGitGraph
+  deactivateGitGraphRef.current = deactivateGitGraph
+  deactivateWebPaneRef.current = () => setWebViewActive(false)
+  setTerminalFocusedRef.current = setTerminalFocused
 
   useEffect(() => {
-    if (!root || connectionState !== 'connected' || activeWorkspace?.missing) {
-      setWatchInterestsLimited(false)
-      return
-    }
-    const unique = new Map<string, HostPath>()
-    // Open files take priority because their viewer contents must stay fresh.
-    for (const tab of tabs) {
-      const parent = dirnameHostPath(tab.path)
-      unique.set(`${parent.hostId}:${parent.path}`, parent)
-    }
-    for (const path of expandedWatchPaths.current.values()) {
-      unique.set(`${path.hostId}:${path.path}`, path)
-    }
-    const allPaths = [...unique.values()].filter((path) => !hostPathEquals(path, root))
-    const locallyLimited = allPaths.length > MAX_PROJECT_WATCH_INTERESTS
-    setWatchInterestsLimited(locallyLimited)
-    let cancelled = false
-    void window.hvir
-      .invoke('project:watch-interests', {
-        root,
-        paths: allPaths.slice(0, MAX_PROJECT_WATCH_INTERESTS),
-      })
-      .then((result) => {
-        if (!cancelled && result.ok) {
-          setWatchInterestsLimited(locallyLimited || result.value.limited)
-        }
-      })
-      .catch(() => undefined)
-    return () => {
-      cancelled = true
-    }
-  }, [activeWorkspace?.missing, connectionState, root, tabs, watchInterestVersion])
-
-  const updateTerminalRollup = useCallback(
-    (workspaceId: string, rollup: TerminalWorkspaceRollup): void => {
-      setTerminalRollups((current) => {
-        const existing = current[workspaceId]
-        if (
-          existing?.unseen === rollup.unseen &&
-          existing.actionable === rollup.actionable
-        ) {
-          return current
-        }
-        return { ...current, [workspaceId]: rollup }
-      })
-    },
-    [],
-  )
-
-  const loadFile = useCallback((path: HostPath): void => {
-    const id = tabId(path)
-    const generation = (fileReadGenerations.current.get(id) ?? 0) + 1
-    fileReadGenerations.current.set(id, generation)
-    setTabs((current) =>
-      current.map((tab) =>
-        tab.id === id ? { ...tab, loading: !tab.file, error: undefined } : tab,
-      ),
-    )
-    void window.hvir
-      .invoke('fs:read', { path })
-      .then(unwrapOperation)
-      .then(
-        (file) => {
-          if (fileReadGenerations.current.get(id) !== generation) return
-          setTabs((current) =>
-            current.map((tab) =>
-              tab.id === id
-                ? tab.dirty
-                  ? tab
-                  : {
-                      ...tab,
-                      file,
-                      loading: false,
-                      error: undefined,
-                      conflict: false,
-                    }
-                : tab,
-            ),
-          )
-        },
-        (reason: unknown) => {
-          if (fileReadGenerations.current.get(id) !== generation) return
-          const error = reason instanceof Error ? reason.message : String(reason)
-          setTabs((current) =>
-            current.map((tab) =>
-              tab.id === id
-                ? tab.dirty
-                  ? tab
-                  : tab.diffRevision
-                    ? {
-                        ...tab,
-                        file: {
-                          path: tab.path,
-                          content: '',
-                          size: 0,
-                          mtimeMs: 0,
-                          binary: false,
-                        },
-                        loading: false,
-                        error: undefined,
-                      }
-                    : { ...tab, file: undefined, loading: false, error }
-                : tab,
-            ),
-          )
-        },
-      )
-  }, [])
-
+    if (overlays.projectPickerOpen) void refreshHosts()
+  }, [overlays.projectPickerOpen, refreshHosts])
   useEffect(() => {
-    let cancelled = false
-    let watchRefreshTimer: number | undefined
-    let ignoredRefreshTimer: number | undefined
-    let contentRefreshTimer: number | undefined
-    let gitRefreshTimer: number | undefined
-    const initializeProject = async (): Promise<void> => {
-      let state: ProjectState
-      try {
-        state = await window.hvir.invoke('project:root', undefined)
-      } catch (error) {
-        if (!cancelled)
-          setRootError(error instanceof Error ? error.message : String(error))
-        return
-      }
-      if (cancelled) return
-      applyProjectState(state)
-
-      const hostId = initialHostConnectionTarget(state)
-      if (!hostId) return
-      setSessionBusy(true)
-      setSessionError(undefined)
-      try {
-        const connected = unwrapOperation(
-          await window.hvir.invoke('project:connect-host', { hostId }),
-        )
-        if (cancelled) return
-        setConnectionState(connected.host.connectionState)
-        setWatchTier(connected.host.watchTier)
-        for (const tab of tabsRef.current) {
-          if (!tab.dirty) loadFile(tab.path)
-        }
-      } catch (error) {
-        if (!cancelled)
-          setSessionError(error instanceof Error ? error.message : String(error))
-      } finally {
-        if (!cancelled) setSessionBusy(false)
-      }
-    }
-    void initializeProject()
-    const stopWatch = window.hvir.on('project:watch', (event) => {
-      const gitMetadataEvent =
-        event.synthetic !== 'refresh' && /(^|\/)\.git(?:\/|$)/.test(event.path.path)
-      const ignoreRulesEvent =
-        event.synthetic !== 'refresh' && isGitIgnoreRulePath(event.path.path)
-      if (gitMetadataEvent && gitRefreshTimer === undefined) {
-        gitRefreshTimer = window.setTimeout(() => {
-          gitRefreshTimer = undefined
-          setGitVersion((version) => version + 1)
-        }, 250)
-      }
-      if (ignoreRulesEvent && ignoredRefreshTimer === undefined) {
-        ignoredRefreshTimer = window.setTimeout(() => {
-          ignoredRefreshTimer = undefined
-          setIgnoredRefreshVersion((version) => version + 1)
-        }, 250)
-      }
-      if (watchRefreshTimer === undefined) {
-        watchRefreshTimer = window.setTimeout(() => {
-          watchRefreshTimer = undefined
-          setWatchVersion((version) => version + 1)
-        }, 250)
-      }
-      if (event.synthetic !== 'refresh' && contentRefreshTimer === undefined) {
-        contentRefreshTimer = window.setTimeout(() => {
-          contentRefreshTimer = undefined
-          setContentVersion((version) => version + 1)
-        }, 250)
-      }
-      watchHandler.current(event)
-    })
-    const stopState = window.hvir.on('project:state', (state) => {
-      applyProjectState(state)
-      if (state.connectionState === 'connected') setSessionError(undefined)
-      if (state.connectionState === 'disconnected') {
-        setSshPrompts((current) =>
-          current.filter((prompt) => prompt.hostId !== state.root.hostId),
-        )
-      }
-    })
-    const stopPrompt = window.hvir.on('ssh:prompt', (prompt) => {
-      setSshPrompts((current) =>
-        current.some((candidate) => candidate.id === prompt.id)
-          ? current
-          : [...current, prompt],
-      )
-    })
-    const stopPromptCancel = window.hvir.on('ssh:prompt-cancel', ({ hostId }) => {
-      setSshPrompts((current) => current.filter((prompt) => prompt.hostId !== hostId))
-    })
-    return () => {
-      cancelled = true
-      if (watchRefreshTimer !== undefined) window.clearTimeout(watchRefreshTimer)
-      if (ignoredRefreshTimer !== undefined) window.clearTimeout(ignoredRefreshTimer)
-      if (contentRefreshTimer !== undefined) window.clearTimeout(contentRefreshTimer)
-      if (gitRefreshTimer !== undefined) window.clearTimeout(gitRefreshTimer)
-      void stopWatch()
-      void stopState()
-      void stopPrompt()
-      void stopPromptCancel()
-    }
-  }, [applyProjectState, loadFile])
-
+    if (root) setWebWorkspaceRoot(root)
+  }, [root, setWebWorkspaceRoot])
   useEffect(() => {
-    let cancelled = false
-    void window.hvir.invoke('project:hosts', undefined).then(
-      (nextHosts) => {
-        if (!cancelled) setHosts(nextHosts)
-      },
-      () => undefined,
-    )
-    return () => {
-      cancelled = true
-    }
-  }, [showAddProject])
+    if (activeWorkspace?.missing) resetGitGraph()
+  }, [activeWorkspace?.missing, resetGitGraph])
 
-  useEffect(() => {
-    if (!root) return
-    const restoredState = warmTabs.current.get(storageKey(root)) ?? restoreTabs(root)
-    setTabs(restoredState.tabs)
-    setActiveId(restoredState.activeId)
-    const restoredActive = restoredState.tabs.find(
-      (tab) => tab.id === restoredState.activeId,
-    )
-    activePaneRef.current = restoredActive?.pane ?? 'primary'
-    activeByPaneRef.current = {
-      primary:
-        restoredState.tabs.find(
-          (tab) => tab.pane === 'primary' && tab.id === restoredState.activeId,
-        )?.id ?? restoredState.tabs.find((tab) => tab.pane === 'primary')?.id,
-      secondary:
-        restoredState.tabs.find(
-          (tab) => tab.pane === 'secondary' && tab.id === restoredState.activeId,
-        )?.id ?? restoredState.tabs.find((tab) => tab.pane === 'secondary')?.id,
-    }
-    setRestored(true)
-    for (const tab of restoredState.tabs) if (!tab.dirty) loadFile(tab.path)
-    const layout = restoreLayout(root)
-    setViewerSplit(
-      Boolean(layout.viewerSplit) ||
-        restoredState.tabs.some((tab) => tab.pane === 'secondary'),
-    )
-    const workbench = workbenchRef.current
-    if (workbench) {
-      if (layout.treeWidth) {
-        workbench.style.setProperty('--tree-track', `${layout.treeWidth}px`)
-      } else {
-        workbench.style.removeProperty('--tree-track')
-      }
-      if (layout.terminalHeight) {
-        workbench.style.setProperty(
-          '--terminal-track',
-          `${fitTerminalHeight(layout.terminalHeight, workbench.clientHeight)}px`,
-        )
-      } else {
-        workbench.style.removeProperty('--terminal-track')
-      }
-    }
-    const viewerGroups = viewerGroupsRef.current
-    if (viewerGroups) {
-      if (layout.viewerPrimaryWidth) {
-        viewerGroups.style.setProperty(
-          '--viewer-primary-track',
-          `${layout.viewerPrimaryWidth}px`,
-        )
-      } else {
-        viewerGroups.style.removeProperty('--viewer-primary-track')
-      }
-    }
-  }, [loadFile, root])
-
-  useEffect(() => {
-    const workbench = workbenchRef.current
-    if (!workbench) return
-    const observer = new ResizeObserver(() => {
-      const terminalTrack = Number.parseFloat(
-        workbench.style.getPropertyValue('--terminal-track'),
-      )
-      if (!Number.isFinite(terminalTrack)) return
-      const next = fitTerminalHeight(terminalTrack, workbench.clientHeight)
-      if (Math.abs(next - terminalTrack) > 0.5) {
-        workbench.style.setProperty('--terminal-track', `${next}px`)
-      }
-    })
-    observer.observe(workbench)
-    return () => observer.disconnect()
-  }, [root])
-
-  useEffect(() => {
-    if (
-      (activeWorkspace?.repository === false || activeWorkspace?.missing) &&
-      railMode === 'git'
-    ) {
-      setRailMode('files')
-    }
-    if (activeWorkspace?.missing) {
-      setGitGraphOpen(false)
-      setGitGraphActive(false)
-    }
-  }, [activeWorkspace?.missing, activeWorkspace?.repository, railMode])
-
-  useEffect(() => {
-    const actionable = Object.values(terminalRollups).reduce(
-      (total, rollup) => total + rollup.actionable,
-      0,
-    )
-    window.hvir.send('app:attention', { count: actionable })
-  }, [terminalRollups])
-  useEffect(() => () => window.hvir.send('app:attention', { count: 0 }), [])
-
-  useEffect(() => {
-    if (!root || !restored) return
-    persistedState.current = { root, tabs, activeId }
-    const timer = window.setTimeout(() => persistTabs(root, tabs, activeId), 250)
-    return () => window.clearTimeout(timer)
-  }, [activeId, restored, root, tabs])
-
-  useEffect(() => {
-    const flushPersistence = (): void => {
-      const state = persistedState.current
-      if (state) {
-        persistTabs(state.root, state.tabs, state.activeId, !discardDirtyOnUnload.current)
-      }
-    }
-    const protectDirtyBuffers = (event: BeforeUnloadEvent): void => {
-      const dirtyCount = tabsRef.current.filter((tab) => tab.dirty).length
-      if (
-        dirtyCount === 0 ||
-        window.confirm(
-          `${dirtyCount} tab${dirtyCount === 1 ? ' has' : 's have'} unsaved changes. Close hvir and discard them?`,
-        )
-      ) {
-        discardDirtyOnUnload.current = dirtyCount > 0
-        return
-      }
-      discardDirtyOnUnload.current = false
-      event.preventDefault()
-      // Electron silently cancels a close when beforeunload sets returnValue;
-      // the explicit confirmation above supplies the UI it does not provide.
-      event.returnValue = 'Unsaved changes'
-    }
-    window.addEventListener('pagehide', flushPersistence)
-    window.addEventListener('beforeunload', protectDirtyBuffers)
-    return () => {
-      window.removeEventListener('pagehide', flushPersistence)
-      window.removeEventListener('beforeunload', protectDirtyBuffers)
-      if (scrollFrame.current !== undefined) {
-        window.cancelAnimationFrame(scrollFrame.current)
-      }
-    }
-  }, [])
-
-  useEffect(() => {
-    const perform = (action: WebPaneCommandAction, paneId?: string): void => {
-      if (document.querySelector('[aria-modal="true"]')) return
-      if (action === 'closeWebPane') {
-        if (paneId) closeWebView(paneId)
-      } else if (action === 'escapeWebPaneFocus') {
-        setWebViewFocused(false)
-      } else if (action === 'cycleViewMode') {
-        if (gitGraphActiveRef.current || webViewActiveRef.current) return
-        const id = activeIdRef.current
-        if (!id) return
-        setTabs((current) =>
-          current.map((tab) =>
-            tab.id === id ? { ...tab, mode: nextMode(tab.mode) } : tab,
-          ),
-        )
-      } else if (action === 'toggleTerminalFocus') {
-        setTerminalFocused((focused) => !focused)
-      } else if (action === 'focusTerminal') {
-        requestAnimationFrame(() =>
-          document
-            .querySelector<HTMLElement>(
-              '.terminal-deck:not([hidden]) .terminal-surface.active textarea',
-            )
-            ?.focus(),
-        )
-      } else if (action === 'focusViewer') {
-        setTerminalFocused(false)
-        requestAnimationFrame(() =>
-          document
-            .querySelector<HTMLElement>(`[data-viewer-pane="${activePaneRef.current}"]`)
-            ?.focus(),
-        )
-      } else if (action === 'focusTree') {
-        setTerminalFocused(false)
-        setTreeCollapsed(false)
-        setRailMode('files')
-        requestAnimationFrame(() =>
-          document.querySelector<HTMLElement>('.tree-panel')?.focus(),
-        )
-      } else if (action === 'nextWorkspace') {
-        workspaceSwitchRef.current(1)
-      } else if (action === 'previousWorkspace') {
-        workspaceSwitchRef.current(-1)
-      }
-    }
-    const keydown = (event: KeyboardEvent): void => {
-      if (event.defaultPrevented) return
-      // Modal dialogs own the keyboard even when the browser reports body as
-      // the target (for example after clicking their backdrop).
-      if (document.querySelector('[aria-modal="true"]')) return
-      const action = (
-        Object.entries(settings.keybindings) as [KeybindingAction, string][]
-      ).find(([, binding]) => matchesKeybinding(event, binding))?.[0]
-      if (!action) return
-      if (
-        action === 'cycleViewMode' &&
-        event.target instanceof Element &&
-        event.target.closest('.terminal-panel')
-      ) {
-        return
-      }
-      event.preventDefault()
-      perform(action)
-    }
-    window.hvir.send('web-pane:reserved-bindings', settings.keybindings)
-    const disposeCommand = window.hvir.on('web-pane:command', ({ action, paneId }) =>
-      perform(action, paneId),
-    )
-    window.addEventListener('keydown', keydown, true)
-    return () => {
-      window.removeEventListener('keydown', keydown, true)
-      void disposeCommand()
-    }
-  }, [settings.keybindings])
-
-  watchHandler.current = (event): void => {
-    const tab = tabsRef.current.find((candidate) =>
-      hostPathEquals(candidate.path, event.path),
-    )
-    if (!tab) return
-    if (tab.dirty) {
-      setTabs((current) =>
-        current.map((candidate) =>
-          candidate.id === tab.id ? { ...candidate, conflict: true } : candidate,
-        ),
-      )
-    } else {
-      loadFile(tab.path)
-    }
-  }
-
-  const activateTab = (id: string, pane?: ViewerPaneId): void => {
-    const targetPane = pane ?? tabsRef.current.find((tab) => tab.id === id)?.pane
-    if (targetPane) {
-      activePaneRef.current = targetPane
-      activeByPaneRef.current[targetPane] = id
-    }
-    setActiveId(id)
-    setGitGraphActive(false)
-    setWebViewActive(false)
-    setTerminalFocused(false)
-  }
-
-  const openWebView = (view: WebViewState): void => {
-    setTerminalFocused(false)
-    setGitGraphActive(false)
-    const existing = webViewsRef.current.find((candidate) => candidate.id === view.id)
-    if (existing) {
-      setWebViews((current) =>
-        current.map((candidate) =>
-          candidate.id === existing.id
-            ? {
-                ...candidate,
-                url: view.url,
-                blockedNavigation: undefined,
-              }
-            : candidate,
-        ),
-      )
-      setActiveWebViewId(existing.id)
-    } else {
-      setWebViews((current) => [...current, view])
-      setActiveWebViewId(view.id)
-    }
-    activePaneRef.current = 'primary'
-    setWebViewActive(true)
-  }
-
-  const openWebLink = (activation: {
-    readonly terminalId: string
-    readonly workspaceRoot: HostPath
-    readonly url: string
-  }): void => {
-    void (async () => {
-      try {
-        const opened = unwrapOperation(
-          await window.hvir.invoke('web-pane:open', {
-            source: 'terminal',
-            root: activation.workspaceRoot,
-            terminalId: activation.terminalId,
-            url: activation.url,
-          }),
-        )
-        openWebView({
-          id: opened.paneId,
-          title: new URL(opened.origin).host,
-          url: opened.url,
-          origin: opened.origin,
-          partition: opened.partition,
-          workspaceRoot: activation.workspaceRoot,
-          sourceTerminalId: activation.terminalId,
-        })
-      } catch (reason) {
-        setSessionError(reason instanceof Error ? reason.message : String(reason))
-      }
-    })()
-  }
-
-  const followBlockedNavigation = (id: string): void => {
-    const view = webViewsRef.current.find((candidate) => candidate.id === id)
-    const navigation = view?.blockedNavigation
-    if (!view || !navigation) return
-    setWebViews((current) =>
-      current.map((candidate) =>
-        candidate.id === id ? { ...candidate, blockedNavigation: undefined } : candidate,
-      ),
-    )
-    if (navigation.kind === 'external') {
-      void window.hvir
-        .invoke('web-pane:open-external', { paneId: id, url: navigation.url })
-        .catch((reason) =>
-          setSessionError(reason instanceof Error ? reason.message : String(reason)),
-        )
-      return
-    }
-    void (async () => {
-      try {
-        const opened = unwrapOperation(
-          await window.hvir.invoke('web-pane:open', {
-            source: 'pane',
-            paneId: id,
-            url: navigation.url,
-          }),
-        )
-        openWebView({
-          id: opened.paneId,
-          title: new URL(opened.origin).host,
-          url: opened.url,
-          origin: opened.origin,
-          partition: opened.partition,
-          workspaceRoot: view.workspaceRoot,
-          sourceTerminalId: view.sourceTerminalId,
-        })
-      } catch (reason) {
-        setSessionError(reason instanceof Error ? reason.message : String(reason))
-      }
-    })()
-  }
-
-  const activateWebView = (id: string): void => {
-    activePaneRef.current = 'primary'
-    setActiveWebViewId(id)
-    setWebViewActive(true)
-    setGitGraphActive(false)
-    setTerminalFocused(false)
-  }
-
-  const closeWebView = (id: string): void => {
-    void window.hvir.invoke('web-pane:close', { paneId: id }).catch(() => undefined)
-    const remaining = webViewsRef.current.filter((candidate) => candidate.id !== id)
-    setWebViews(remaining)
-    if (activeWebViewIdRef.current === id) {
-      const fallback = remaining
-        .filter(
-          (view) =>
-            rootRef.current && hostPathEquals(view.workspaceRoot, rootRef.current),
-        )
-        .at(-1)
-      setActiveWebViewId(fallback?.id)
-      if (!fallback) setWebViewActive(false)
-    }
-  }
-
-  const openFile = (
-    path: HostPath,
-    pinned: boolean,
-    context: FileOpenContext = 'file-tree',
-    diffBase: DiffBase = 'head',
-    diffRevision?: string,
-    position?: Omit<ViewerNavigationPosition, 'serial'>,
-  ): void => {
-    setTerminalFocused(false)
-    setGitGraphActive(false)
-    const id = tabId(path)
-    const existing = tabsRef.current.find((tab) => tab.id === id)
-    const targetPane = existing?.pane ?? (viewerSplit ? activePaneRef.current : 'primary')
-    const navigation = position
-      ? { ...position, serial: (nextViewerNavigation.current += 1) }
-      : undefined
-    setTabs((current) => {
-      const existing = current.find((tab) => tab.id === id)
-      if (existing) {
-        return current.map((tab) =>
-          tab.id === id
-            ? {
-                ...tab,
-                pinned: pinned || tab.pinned,
-                mode: position
-                  ? 'source'
-                  : context === 'file-tree'
-                    ? tab.mode
-                    : defaultViewMode(path, context),
-                diffBase: context === 'git' ? diffBase : tab.diffBase,
-                diffRevision: context === 'git' ? diffRevision : undefined,
-                navigation,
-              }
-            : tab,
-        )
-      }
-      const created: ViewerTab = {
-        id,
-        path,
-        pane: targetPane,
-        pinned,
-        mode: position ? 'source' : defaultViewMode(path, context),
-        diffBase,
-        diffRevision,
-        scrollTop: 0,
-        navigation,
-        loading: true,
-        dirty: false,
-        conflict: false,
-      }
-      const previewIndex = current.findIndex(
-        (tab) => tab.pane === targetPane && !tab.pinned && !tab.dirty,
-      )
-      if (previewIndex < 0) return [...current, created]
-      const next = [...current]
-      next[previewIndex] = created
-      return next
-    })
-    activateTab(id, targetPane)
-    // Reopening a dirty tab is navigation, not a reload. Its in-memory buffer
-    // is authoritative until the user saves or explicitly chooses reload.
-    if (!existing?.dirty) loadFile(path)
-  }
-
-  const closeTab = (id: string): void => {
-    const closing = tabsRef.current.find((tab) => tab.id === id)
-    if (
-      closing?.dirty &&
-      !window.confirm(`Close ${basenameHostPath(closing.path)} without saving?`)
-    ) {
-      return
-    }
-    const closesLastSecondary =
-      closing?.pane === 'secondary' &&
-      !tabsRef.current.some((tab) => tab.pane === 'secondary' && tab.id !== id)
-    if (closesLastSecondary) {
-      if (activePaneRef.current === 'secondary') activePaneRef.current = 'primary'
-      activeByPaneRef.current.secondary = undefined
-      setViewerSplit(false)
-      if (rootRef.current) persistLayout(rootRef.current, { viewerSplit: false })
-    }
-    fileReadGenerations.current.set(id, (fileReadGenerations.current.get(id) ?? 0) + 1)
-    setTabs((current) => {
-      const index = current.findIndex((tab) => tab.id === id)
-      if (index < 0) return current
-      const pane = current[index]?.pane ?? 'primary'
-      const next = current.filter((tab) => tab.id !== id)
-      const nextInPane =
-        next.slice(index).find((tab) => tab.pane === pane) ??
-        [...next].reverse().find((tab) => tab.pane === pane)
-      if (activeByPaneRef.current[pane] === id) {
-        activeByPaneRef.current[pane] = nextInPane?.id
-      }
-      if (activeIdRef.current === id) {
-        const nextActive = nextInPane ?? next[Math.min(index, next.length - 1)]
-        if (nextActive) {
-          activePaneRef.current = nextActive.pane
-          activeByPaneRef.current[nextActive.pane] = nextActive.id
-        }
-        setActiveId(nextActive?.id)
-      }
-      return next
-    })
-  }
-
-  const updateTab = (id: string, update: (tab: ViewerTab) => ViewerTab): void => {
-    setTabs((current) => current.map((tab) => (tab.id === id ? update(tab) : tab)))
-  }
-
-  const scheduleScrollPersistence = (id: string, scrollTop: number): void => {
-    pendingScroll.current = { id, scrollTop }
-    if (scrollFrame.current !== undefined) return
-    scrollFrame.current = window.requestAnimationFrame(() => {
-      scrollFrame.current = undefined
-      const pending = pendingScroll.current
-      pendingScroll.current = undefined
-      if (pending) {
-        updateTab(pending.id, (tab) => ({ ...tab, scrollTop: pending.scrollTop }))
-      }
-    })
-  }
-
-  const saveTab = (id: string): void => {
-    const tab = tabsRef.current.find((candidate) => candidate.id === id)
-    if (!tab?.file || tab.file.binary || tab.conflict) return
-    const savedContent = tab.file.content
-    updateTab(tab.id, (candidate) => ({ ...candidate, error: undefined }))
-    void window.hvir
-      .invoke('fs:write', {
-        path: tab.path,
-        content: savedContent,
-        ...(tab.file.mtimeMs > 0 ? { expectedMtimeMs: tab.file.mtimeMs } : {}),
-      })
-      .then(unwrapOperation)
-      .then(
-        (written) => {
-          setTabs((current) =>
-            current.map((candidate) => {
-              if (candidate.id !== tab.id || !candidate.file) return candidate
-              const unchangedSinceSave = candidate.file.content === savedContent
-              return {
-                ...candidate,
-                error: undefined,
-                dirty: unchangedSinceSave ? false : candidate.dirty,
-                conflict: unchangedSinceSave ? false : candidate.conflict,
-                file: {
-                  ...candidate.file,
-                  size: unchangedSinceSave ? written.size : candidate.file.size,
-                  mtimeMs: written.mtimeMs,
-                },
-              }
-            }),
-          )
-        },
-        (reason: unknown) => {
-          const error = reason instanceof Error ? reason.message : String(reason)
-          setTabs((current) =>
-            current.map((candidate) =>
-              candidate.id === tab.id
-                ? {
-                    ...candidate,
-                    error,
-                    conflict: candidate.conflict || /file changed/i.test(error),
-                  }
-                : candidate,
-            ),
-          )
-        },
-      )
-  }
-
-  const activeTab = tabs.find((tab) => tab.id === activeId)
-  const primaryTabs = tabs.filter((tab) => tab.pane === 'primary')
-  const secondaryTabs = tabs.filter((tab) => tab.pane === 'secondary')
-  const primaryActiveTab =
-    primaryTabs.find((tab) => tab.id === activeByPaneRef.current.primary) ??
-    primaryTabs[0]
-  const secondaryActiveTab =
-    secondaryTabs.find((tab) => tab.id === activeByPaneRef.current.secondary) ??
-    secondaryTabs[0]
-
-  const openViewerSplit = (): void => {
-    setViewerSplit(true)
-    if (rootRef.current) persistLayout(rootRef.current, { viewerSplit: true })
-  }
-
-  const closeViewerSplit = (): void => {
-    setTabs((current) =>
-      current.map((tab) =>
-        tab.pane === 'secondary' ? { ...tab, pane: 'primary' } : tab,
-      ),
-    )
-    if (activePaneRef.current === 'secondary') activePaneRef.current = 'primary'
-    if (activeIdRef.current) activeByPaneRef.current.primary = activeIdRef.current
-    activeByPaneRef.current.secondary = undefined
-    setViewerSplit(false)
-    if (rootRef.current) persistLayout(rootRef.current, { viewerSplit: false })
-  }
-
-  const moveTabToPane = (id: string, pane: ViewerPaneId): void => {
-    const moving = tabsRef.current.find((tab) => tab.id === id)
-    if (!moving || moving.pane === pane) return
-    setTabs((current) => current.map((tab) => (tab.id === id ? { ...tab, pane } : tab)))
-    if (activeByPaneRef.current[moving.pane] === id) {
-      activeByPaneRef.current[moving.pane] = tabsRef.current.find(
-        (tab) => tab.pane === moving.pane && tab.id !== id,
-      )?.id
-    }
-    activeByPaneRef.current[pane] = id
-    activePaneRef.current = pane
-    setActiveId(id)
-    setGitGraphActive(false)
-    if (pane === 'secondary') openViewerSplit()
-  }
-
-  const openGitGraph = (hash?: string): void => {
-    activePaneRef.current = 'primary'
-    setGitGraphOpen(true)
-    setGitGraphActive(true)
-    setWebViewActive(false)
-    setGitGraphRequest((current) => ({
-      serial: current.serial + 1,
-      ...(hash ? { hash } : {}),
-    }))
-  }
-
-  const changeSession = (): void => {
-    setShowAddProject(true)
-  }
-
-  const switchWorkspace = async (
-    projectId: string,
-    workspaceId: string,
-  ): Promise<void> => {
-    if (
-      projectId === projectState?.activeProjectId &&
-      workspaceId === projectState.activeWorkspaceId
-    ) {
-      return
-    }
-    setSessionBusy(true)
-    setSessionError(undefined)
-    try {
-      const targetProject = projectState?.projects.find(
-        (project) => project.id === projectId,
-      )
-      if (
-        targetProject &&
-        targetProject.registeredRoot.hostId !== 'local' &&
-        targetProject.connectionState !== 'connected'
-      ) {
-        unwrapOperation(
-          await window.hvir.invoke('project:connect-host', {
-            hostId: targetProject.registeredRoot.hostId,
-          }),
-        )
-      }
-      const state = unwrapOperation(
-        await window.hvir.invoke('project:switch', { projectId, workspaceId }),
-      )
-      applyProjectState(state)
-    } catch (reason) {
-      setSessionError(reason instanceof Error ? reason.message : String(reason))
-    } finally {
-      setSessionBusy(false)
-    }
-  }
-
-  workspaceSwitchRef.current = (direction): void => {
-    const project = projectState?.projects.find(
-      (candidate) => candidate.id === projectState.activeProjectId,
-    )
-    const available = project?.workspaces.filter((workspace) => !workspace.missing) ?? []
-    if (!project || available.length < 2) return
-    const currentIndex = available.findIndex(
-      (workspace) => workspace.id === projectState?.activeWorkspaceId,
-    )
-    const target =
-      available[(currentIndex + direction + available.length) % available.length]
-    if (target) void switchWorkspace(project.id, target.id)
-  }
-
-  const refreshProject = async (projectId: string): Promise<void> => {
-    setSessionBusy(true)
-    setSessionError(undefined)
-    try {
-      applyProjectState(
-        unwrapOperation(await window.hvir.invoke('project:refresh', { projectId })),
-      )
-    } catch (reason) {
-      setSessionError(reason instanceof Error ? reason.message : String(reason))
-    } finally {
-      setSessionBusy(false)
-    }
-  }
-
-  const closeProject = async (projectId: string): Promise<void> => {
-    setSessionBusy(true)
-    setSessionError(undefined)
-    try {
-      applyProjectState(
-        unwrapOperation(await window.hvir.invoke('project:close', { projectId })),
-      )
-    } catch (reason) {
-      setSessionError(reason instanceof Error ? reason.message : String(reason))
-    } finally {
-      setSessionBusy(false)
-    }
-  }
-
-  const pruneWorktrees = async (projectId: string): Promise<void> => {
-    setSessionBusy(true)
-    setSessionError(undefined)
-    try {
-      applyProjectState(
-        unwrapOperation(await window.hvir.invoke('workspace:prune', { projectId })),
-      )
-    } catch (reason) {
-      setSessionError(reason instanceof Error ? reason.message : String(reason))
-    } finally {
-      setSessionBusy(false)
-    }
-  }
-
-  const dismissWorkspace = async (
-    projectId: string,
-    workspaceId: string,
-  ): Promise<void> => {
-    setSessionBusy(true)
-    setSessionError(undefined)
-    try {
-      applyProjectState(
-        unwrapOperation(
-          await window.hvir.invoke('workspace:dismiss', { projectId, workspaceId }),
-        ),
-      )
-    } catch (reason) {
-      setSessionError(reason instanceof Error ? reason.message : String(reason))
-    } finally {
-      setSessionBusy(false)
-    }
-  }
-
-  const switchGitBranch = async (branch: string): Promise<void> => {
-    const workspaceRoot = rootRef.current
-    if (!workspaceRoot) throw new Error('No active workspace')
-    if (tabsRef.current.some((tab) => tab.dirty)) {
-      throw new Error('Save or close unsaved viewer tabs before switching')
-    }
-    const state = unwrapOperation(
-      await window.hvir.invoke('git:switch-branch', {
-        root: workspaceRoot,
-        branch,
-      }),
-    )
-    applyProjectState(state)
-    setWatchVersion((version) => version + 1)
-    setIgnoredRefreshVersion((version) => version + 1)
-    setContentVersion((version) => version + 1)
-    setGitVersion((version) => version + 1)
-    for (const tab of tabsRef.current) {
-      if (!tab.dirty) loadFile(tab.path)
-    }
-  }
-
-  const fetchGit = async (): Promise<void> => {
-    const workspaceRoot = rootRef.current
-    if (!workspaceRoot) throw new Error('No active workspace')
-    applyProjectState(
-      unwrapOperation(
-        await window.hvir.invoke('git:fetch', {
-          root: workspaceRoot,
-        }),
-      ),
-    )
-    setGitVersion((version) => version + 1)
-  }
-
-  const pullGit = async (): Promise<void> => {
-    const workspaceRoot = rootRef.current
-    if (!workspaceRoot) throw new Error('No active workspace')
-    if (tabsRef.current.some((tab) => tab.dirty)) {
-      throw new Error('Save or close unsaved viewer tabs before pulling')
-    }
-    applyProjectState(
-      unwrapOperation(
-        await window.hvir.invoke('git:pull', {
-          root: workspaceRoot,
-        }),
-      ),
-    )
-    setWatchVersion((version) => version + 1)
-    setIgnoredRefreshVersion((version) => version + 1)
-    setContentVersion((version) => version + 1)
-    setGitVersion((version) => version + 1)
-    for (const tab of tabsRef.current) {
-      if (!tab.dirty) loadFile(tab.path)
-    }
-  }
-
-  const disconnectSession = async (): Promise<void> => {
-    if (!root || root.hostId === 'local') return
-    setSessionBusy(true)
-    setSessionError(undefined)
-    try {
-      const host = unwrapOperation(
-        await window.hvir.invoke('project:disconnect-host', {
-          hostId: root.hostId,
-        }),
-      )
-      setSshPrompts((current) =>
-        current.filter((prompt) => prompt.hostId !== root.hostId),
-      )
-      setConnectionState(host.connectionState)
-    } catch (reason) {
-      setSessionError(reason instanceof Error ? reason.message : String(reason))
-    } finally {
-      setSessionBusy(false)
-    }
-  }
-
-  const reconnectSession = async (): Promise<void> => {
-    if (!root || root.hostId === 'local') return
-    setSessionBusy(true)
-    setSessionError(undefined)
-    try {
-      const connected = unwrapOperation(
-        await window.hvir.invoke('project:connect-host', {
-          hostId: root.hostId,
-        }),
-      )
-      setConnectionState(connected.host.connectionState)
-      setWatchTier(connected.host.watchTier)
-      for (const tab of tabsRef.current) {
-        if (!tab.dirty) loadFile(tab.path)
-      }
-    } catch (reason) {
-      setSessionError(reason instanceof Error ? reason.message : String(reason))
-    } finally {
-      setSessionBusy(false)
-    }
-  }
+  useWorkbenchCommands(settings.keybindings, {
+    closeWebPane: closeWebView,
+    escapeWebPaneFocus: () => setWebViewFocused(false),
+    canCycleViewMode: () => !gitGraphActiveRef.current && !webViewActiveRef.current,
+    cycleViewMode: cycleActiveMode,
+    toggleTerminalFocus,
+    focusTerminal,
+    focusViewer: () => focusViewer(getActivePane()),
+    focusTree,
+    switchWorkspace: (direction) => workspaceSwitchRef.current(direction),
+  })
 
   const revealSourceTerminal = async (view: WebViewState): Promise<void> => {
     const target = projectState?.projects
@@ -1317,11 +253,11 @@ export function App(): ReactElement {
       )
       .find(({ workspace }) => hostPathEquals(workspace.root, view.workspaceRoot))
     if (!target) {
-      setSessionError('The source workspace is no longer registered')
+      session.reportError('The source workspace is no longer registered')
       return
     }
     if (!rootRef.current || !hostPathEquals(rootRef.current, view.workspaceRoot)) {
-      await switchWorkspace(target.project.id, target.workspace.id)
+      await session.switchWorkspace(target.project.id, target.workspace.id)
     }
     window.requestAnimationFrame(() => {
       const source = [
@@ -1329,44 +265,8 @@ export function App(): ReactElement {
       ].find((element) => element.dataset['terminalSession'] === view.sourceTerminalId)
       source?.click()
       source?.focus()
-      if (!source) setSessionError('The source terminal has closed')
+      if (!source) session.reportError('The source terminal has closed')
     })
-  }
-
-  const setTreeWidth = (width: number): void => {
-    const workbench = workbenchRef.current
-    if (!workbench) return
-    const terminalRailWidth =
-      workbench.querySelector<HTMLElement>('.terminal-rail')?.getBoundingClientRect()
-        .width ?? 0
-    const max = Math.max(
-      TREE_MIN_WIDTH,
-      Math.min(
-        TREE_MAX_WIDTH,
-        workbench.clientWidth - DIVIDER_SIZE - MAIN_MIN_WIDTH - terminalRailWidth,
-      ),
-    )
-    const next = clamp(width, TREE_MIN_WIDTH, max)
-    workbench.style.setProperty('--tree-track', `${next}px`)
-    if (rootRef.current) persistLayout(rootRef.current, { treeWidth: next })
-  }
-
-  const setTerminalHeight = (height: number): void => {
-    const workbench = workbenchRef.current
-    if (!workbench) return
-    const next = fitTerminalHeight(height, workbench.clientHeight)
-    workbench.style.setProperty('--terminal-track', `${next}px`)
-    if (rootRef.current) persistLayout(rootRef.current, { terminalHeight: next })
-  }
-
-  const setViewerPrimaryWidth = (width: number): void => {
-    const groups = viewerGroupsRef.current
-    if (!groups) return
-    const next = clamp(width, 240, Math.max(240, groups.clientWidth - 245))
-    groups.style.setProperty('--viewer-primary-track', `${next}px`)
-    if (rootRef.current) {
-      persistLayout(rootRef.current, { viewerPrimaryWidth: next })
-    }
   }
 
   if (rootError) return <div className="startup-error">{rootError}</div>
@@ -1388,14 +288,14 @@ export function App(): ReactElement {
       data-viewer-pane={pane}
       tabIndex={-1}
       onPointerDownCapture={() => {
-        activePaneRef.current = pane
         if (
           paneTab &&
           !(graphPane && gitGraphActive) &&
           !(pane === 'primary' && webViewActive)
         ) {
-          activeByPaneRef.current[pane] = paneTab.id
-          setActiveId(paneTab.id)
+          focusViewerPane(pane, paneTab.id)
+        } else {
+          focusViewerPane(pane)
         }
       }}
     >
@@ -1409,30 +309,16 @@ export function App(): ReactElement {
         }
         onActivate={(id) => activateTab(id, pane)}
         onClose={closeTab}
-        onPin={(id) =>
-          setTabs((current) =>
-            current.map((tab) => (tab.id === id ? { ...tab, pinned: true } : tab)),
-          )
-        }
-        onReorder={(draggedId, targetId) => {
-          setTabs((current) => reorderTabs(current, draggedId, targetId))
-        }}
+        onPin={pinTab}
+        onReorder={reorderViewerTabs}
         onMoveToPane={moveTabToPane}
         split={viewerSplit}
         onSplit={openViewerSplit}
         onClosePane={pane === 'secondary' ? closeViewerSplit : undefined}
         graphOpen={graphPane && gitGraphOpen}
         graphActive={graphPane && gitGraphActive}
-        onActivateGraph={() => {
-          activePaneRef.current = 'primary'
-          setTerminalFocused(false)
-          setGitGraphActive(true)
-          setWebViewActive(false)
-        }}
-        onCloseGraph={() => {
-          setGitGraphOpen(false)
-          setGitGraphActive(false)
-        }}
+        onActivateGraph={activateGitGraph}
+        onCloseGraph={closeGitGraph}
         webTabs={
           pane === 'primary'
             ? workspaceWebViews.map((view) => ({ id: view.id, title: view.title }))
@@ -1454,49 +340,20 @@ export function App(): ReactElement {
           />
         </div>
       ) : null}
-      {pane === 'primary'
-        ? webViews.map((view) => (
-            // Visibility-based hiding: display:none breaks <webview> guests,
-            // so inactive panes collapse to zero height instead.
-            <div
-              className={`workspace-view${
-                hostPathEquals(view.workspaceRoot, root) &&
-                webViewActive &&
-                activeWebViewId === view.id
-                  ? ''
-                  : ' web-view-hidden'
-              }`}
-              key={view.id}
-            >
-              <WebPane
-                view={view}
-                focused={hostPathEquals(view.workspaceRoot, root) && webViewFocused}
-                onToggleFocus={() => setWebViewFocused((focused) => !focused)}
-                onTitle={(title) => {
-                  const sanitized = sanitizedWebPaneTitle(title)
-                  setWebViews((current) =>
-                    current.map((candidate) =>
-                      candidate.id === view.id && candidate.title !== sanitized
-                        ? { ...candidate, title: sanitized }
-                        : candidate,
-                    ),
-                  )
-                }}
-                onBlockedNavigation={() => followBlockedNavigation(view.id)}
-                onOpenBrowser={(url) => {
-                  void window.hvir
-                    .invoke('web-pane:open-browser', { paneId: view.id, url })
-                    .catch((reason) =>
-                      setSessionError(
-                        reason instanceof Error ? reason.message : String(reason),
-                      ),
-                    )
-                }}
-                onRevealTerminal={() => void revealSourceTerminal(view)}
-              />
-            </div>
-          ))
-        : null}
+      {pane === 'primary' ? (
+        <WebPaneStack
+          views={webViews}
+          root={root}
+          active={webViewActive}
+          activeId={activeWebViewId}
+          focused={webViewFocused}
+          onToggleFocus={() => setWebViewFocused((focused) => !focused)}
+          onTitle={setWebViewTitle}
+          onBlockedNavigation={followBlockedNavigation}
+          onOpenBrowser={openWebViewInBrowser}
+          onRevealTerminal={(view) => void revealSourceTerminal(view)}
+        />
+      ) : null}
       <div
         className="workspace-view"
         hidden={(graphPane && gitGraphActive) || (pane === 'primary' && webViewActive)}
@@ -1507,55 +364,18 @@ export function App(): ReactElement {
           <FileViewer
             key={`${pane}:${paneTab?.id ?? 'empty'}`}
             tab={paneTab}
-            onMode={(mode) =>
-              paneTab && updateTab(paneTab.id, (tab) => ({ ...tab, mode }))
-            }
-            onDiffBase={(diffBase) =>
-              paneTab && updateTab(paneTab.id, (tab) => ({ ...tab, diffBase }))
-            }
-            onContent={(content) =>
-              paneTab &&
-              updateTab(paneTab.id, (tab) =>
-                tab.file
-                  ? {
-                      ...tab,
-                      pinned: true,
-                      dirty: true,
-                      file: {
-                        ...tab.file,
-                        content,
-                        size: new TextEncoder().encode(content).byteLength,
-                      },
-                    }
-                  : tab,
-              )
-            }
+            onMode={(mode, at) => paneTab && setViewerMode(paneTab.id, mode, at)}
+            onDiffBase={(diffBase) => paneTab && setViewerDiffBase(paneTab.id, diffBase)}
+            onContent={(content) => paneTab && setViewerContent(paneTab.id, content)}
             onSave={() => paneTab && saveTab(paneTab.id)}
-            onReload={() => {
-              if (!paneTab) return
-              updateTab(paneTab.id, (tab) => ({
-                ...tab,
-                dirty: false,
-                conflict: false,
-              }))
-              loadFile(paneTab.path)
-            }}
-            onScroll={(scrollTop) =>
-              paneTab && scheduleScrollPersistence(paneTab.id, scrollTop)
-            }
+            onReload={() => paneTab && reloadTab(paneTab.id)}
+            onPosition={(position) => paneTab && schedulePosition(paneTab.id, position)}
             onNavigationHandled={(serial) =>
-              paneTab &&
-              updateTab(paneTab.id, (tab) =>
-                tab.navigation?.serial === serial
-                  ? { ...tab, navigation: undefined }
-                  : tab,
-              )
+              paneTab && navigationHandled(paneTab.id, serial)
             }
             onOpenPath={(path) => {
-              activePaneRef.current = pane
-              if (paneTab) {
-                updateTab(paneTab.id, (tab) => ({ ...tab, pinned: true }))
-              }
+              focusViewerPane(pane)
+              if (paneTab) pinTab(paneTab.id)
               openFile(path, true)
             }}
             refreshVersion={contentVersion}
@@ -1570,29 +390,26 @@ export function App(): ReactElement {
       {projectState ? (
         <ProjectsBar
           state={projectState}
-          rollups={terminalRollups}
-          busy={sessionBusy}
-          onAdd={changeSession}
+          rollups={terminalAttention.rollups}
+          busy={session.busy}
+          onAdd={overlays.openProjectPicker}
           onSwitch={(projectId, workspaceId) =>
-            void switchWorkspace(projectId, workspaceId)
+            void session.switchWorkspace(projectId, workspaceId)
           }
-          onRefresh={(projectId) => void refreshProject(projectId)}
-          onCloseProject={(projectId) => void closeProject(projectId)}
-          onPrune={(projectId) => void pruneWorktrees(projectId)}
+          onRefresh={(projectId) => void session.refreshProject(projectId)}
+          onCloseProject={(projectId) => void session.closeProject(projectId)}
+          onPrune={(projectId) => void session.pruneWorktrees(projectId)}
           onDismiss={(projectId, workspaceId) =>
-            void dismissWorkspace(projectId, workspaceId)
+            void session.dismissWorkspace(projectId, workspaceId)
           }
           watchTier={watchTier}
-          statusError={sessionError}
-          onChangeConnection={changeSession}
-          onDisconnect={() => void disconnectSession()}
-          onReconnect={() => void reconnectSession()}
+          statusError={session.error}
+          onChangeConnection={overlays.openProjectPicker}
+          onDisconnect={() => void session.disconnect()}
+          onReconnect={() => void session.reconnect()}
           theme={theme}
           onTheme={(nextTheme) => setAppTheme(nextTheme)}
-          onSettings={() => {
-            setSettingsInitialSection('general')
-            setShowSettings(true)
-          }}
+          onSettings={() => overlays.openSettings('general')}
         />
       ) : null}
       <main
@@ -1642,8 +459,8 @@ export function App(): ReactElement {
               missing={activeWorkspace?.missing}
               hidden={railMode !== 'files'}
               gitEnabled={gitEnabled}
-              watchInterestsLimited={watchInterestsLimited}
-              onExpandedChange={updateExpandedWatchPath}
+              watchInterestsLimited={watchInterests.limited}
+              onExpandedChange={watchInterests.updateExpandedPath}
             />
             {gitEnabled ? (
               <GitPanel
@@ -1700,10 +517,7 @@ export function App(): ReactElement {
               workbenchRef.current?.querySelector<HTMLElement>('.tree-panel')
             if (current) setTreeWidth(current.getBoundingClientRect().width + delta)
           }}
-          onReset={() => {
-            workbenchRef.current?.style.removeProperty('--tree-track')
-            if (rootRef.current) persistLayout(rootRef.current, { treeWidth: 0 })
-          }}
+          onReset={resetTreeWidth}
           action={
             <button
               type="button"
@@ -1754,14 +568,7 @@ export function App(): ReactElement {
                       setViewerPrimaryWidth(current.getBoundingClientRect().width + delta)
                     }
                   }}
-                  onReset={() => {
-                    viewerGroupsRef.current?.style.removeProperty(
-                      '--viewer-primary-track',
-                    )
-                    if (rootRef.current) {
-                      persistLayout(rootRef.current, { viewerPrimaryWidth: 0 })
-                    }
-                  }}
+                  onReset={resetViewerPrimaryWidth}
                 />
                 {renderViewerPane('secondary', secondaryTabs, secondaryActiveTab, false)}
               </>
@@ -1781,10 +588,7 @@ export function App(): ReactElement {
               workbenchRef.current?.querySelector<HTMLElement>('.terminal-panel')
             if (current) setTerminalHeight(current.getBoundingClientRect().height + delta)
           }}
-          onReset={() => {
-            workbenchRef.current?.style.removeProperty('--terminal-track')
-            if (rootRef.current) persistLayout(rootRef.current, { terminalHeight: 0 })
-          }}
+          onReset={resetTerminalHeight}
           action={
             <button
               type="button"
@@ -1794,7 +598,7 @@ export function App(): ReactElement {
               aria-pressed={terminalFocused}
               title={terminalFocused ? 'Restore file viewer' : 'Expand terminal'}
               onDoubleClick={(event) => event.stopPropagation()}
-              onClick={() => setTerminalFocused((focused) => !focused)}
+              onClick={toggleTerminalFocus}
             >
               <svg aria-hidden="true" viewBox="0 0 16 16">
                 <path
@@ -1818,7 +622,7 @@ export function App(): ReactElement {
               available={!workspace.missing}
               visible={workspace.id === projectState.activeWorkspaceId}
               connectionState={project.connectionState}
-              onRollup={updateTerminalRollup}
+              onRollup={terminalAttention.updateRollup}
               onOpenPath={(target) =>
                 openFile(
                   target.path,
@@ -1835,775 +639,48 @@ export function App(): ReactElement {
               idleThresholdMs={settings.idleThresholdMs}
               recoveryMode={settings.terminalRecoveryMode}
               terminalTheme={settings.terminalTheme}
-              onOpenSettings={() => {
-                setSettingsInitialSection('general')
-                setShowSettings(true)
-              }}
-              onOpenHarnessSettings={() => {
-                setSettingsInitialSection('harnesses')
-                setShowSettings(true)
-              }}
-              onAddHarness={() => {
-                setSettingsInitialSection('harnesses-add')
-                setShowSettings(true)
-              }}
+              onOpenSettings={() => overlays.openSettings('general')}
+              onOpenHarnessSettings={() => overlays.openSettings('harnesses')}
+              onAddHarness={() => overlays.openSettings('harnesses-add')}
             />
           )),
         )}
       </main>
-      {showAddProject ? (
+      {overlays.projectPickerOpen ? (
         <SessionDialog
-          hosts={hosts}
+          hosts={session.hosts}
           currentRoot={root}
-          suspended={sshPrompts.length > 0}
-          onCancel={() => setShowAddProject(false)}
-          onConnect={connectProjectHost}
-          onBrowse={browseProjectHost}
-          onDisconnect={disconnectProjectHost}
-          onOpen={openProjectHost}
-          onOpened={(state) => {
-            applyProjectState(state)
-            setShowAddProject(false)
-          }}
+          suspended={session.prompts.length > 0}
+          onCancel={overlays.closeProjectPicker}
+          onConnect={session.connectHost}
+          onBrowse={session.browseHost}
+          onDisconnect={session.disconnectHost}
+          onOpen={session.openHost}
+          onOpened={overlays.closeProjectPicker}
         />
       ) : null}
-      {showSettings ? (
+      {overlays.settingsOpen ? (
         <SettingsDialog
           theme={theme}
           settings={settings}
           workspaceRoot={root}
           projectRoot={activeProject?.registeredRoot}
-          initialSection={settingsInitialSection}
-          onClose={() => setShowSettings(false)}
+          initialSection={overlays.settingsSection}
+          onClose={overlays.closeSettings}
           onSave={(nextTheme, nextSettings) => {
             setAppTheme(nextTheme)
             setAppSettings(nextSettings)
-            setShowSettings(false)
+            overlays.closeSettings()
           }}
         />
       ) : null}
-      {sshPrompts[0] ? (
+      {session.prompts[0] ? (
         <SshPromptDialog
-          key={sshPrompts[0].id}
-          prompt={sshPrompts[0]}
-          onAnswer={(answers) => {
-            const answered = sshPrompts[0]
-            if (!answered) return
-            void window.hvir.invoke('ssh:prompt-response', {
-              id: answered.id,
-              answers,
-            })
-            setSshPrompts((current) =>
-              current.filter((candidate) => candidate.id !== answered.id),
-            )
-          }}
+          key={session.prompts[0].id}
+          prompt={session.prompts[0]}
+          onAnswer={session.answerPrompt}
         />
       ) : null}
     </div>
   )
-}
-
-function SessionDialog({
-  hosts,
-  currentRoot,
-  suspended,
-  onCancel,
-  onConnect,
-  onBrowse,
-  onDisconnect,
-  onOpen,
-  onOpened,
-}: {
-  readonly hosts: readonly ProjectHostOption[]
-  readonly currentRoot: HostPath
-  readonly suspended: boolean
-  readonly onCancel: () => void
-  readonly onConnect: (hostId: string) => Promise<ConnectedHost>
-  readonly onBrowse: (hostId: string, path: string) => Promise<BrowseHostResponse>
-  readonly onDisconnect: (hostId: string) => Promise<ProjectHostOption>
-  readonly onOpen: (hostId: string, path: string) => Promise<ProjectState>
-  readonly onOpened: (state: ProjectState) => void
-}): ReactElement {
-  const dialogRef = useRef<HTMLElement>(null)
-  const [stage, setStage] = useState<'host' | 'folder'>('host')
-  const [hostId, setHostId] = useState(
-    hosts.some((host) => host.hostId === currentRoot.hostId)
-      ? currentRoot.hostId
-      : (hosts[0]?.hostId ?? 'local'),
-  )
-  const [connected, setConnected] = useState<ConnectedHost>()
-  const [pathInput, setPathInput] = useState('')
-  const [selectedPath, setSelectedPath] = useState<string>()
-  const [revealedPath, setRevealedPath] = useState<string>()
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string>()
-  const selectedHost = hosts.find((host) => host.hostId === hostId)
-
-  const releaseUnopenedHost = async (): Promise<void> => {
-    if (connected?.host.kind === 'ssh' && connected.host.hostId !== currentRoot.hostId) {
-      await onDisconnect(connected.host.hostId)
-    }
-  }
-
-  const cancel = async (): Promise<void> => {
-    setBusy(true)
-    try {
-      await releaseUnopenedHost()
-    } finally {
-      onCancel()
-    }
-  }
-
-  const back = async (): Promise<void> => {
-    setBusy(true)
-    setError(undefined)
-    try {
-      await releaseUnopenedHost()
-      setStage('host')
-      setConnected(undefined)
-      setPathInput('')
-      setSelectedPath(undefined)
-      setRevealedPath(undefined)
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason))
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  const selectPath = async (targetPath: string): Promise<void> => {
-    if (!connected) return
-    setBusy(true)
-    setError(undefined)
-    try {
-      const result = await onBrowse(connected.host.hostId, targetPath)
-      setPathInput(result.path.path)
-      setSelectedPath(result.path.path)
-      setRevealedPath(result.path.path)
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason))
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  const connect = async (): Promise<void> => {
-    setBusy(true)
-    setError(undefined)
-    try {
-      const result = await onConnect(hostId)
-      setConnected(result)
-      setStage('folder')
-      const listing = await onBrowse(result.host.hostId, result.suggestedPath)
-      setPathInput(listing.path.path)
-      setSelectedPath(listing.path.path)
-      setRevealedPath(listing.path.path)
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason))
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  const open = async (): Promise<void> => {
-    if (!connected || !selectedPath) return
-    setBusy(true)
-    setError(undefined)
-    try {
-      const state = await onOpen(connected.host.hostId, selectedPath)
-      rememberFolder(connected.host.hostId, state.root.path)
-      onOpened(state)
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason))
-      setBusy(false)
-    }
-  }
-
-  const connectedHostId = connected?.host.hostId
-  const loadPickerEntries = useCallback(
-    async (directory: HostPath) => {
-      if (!connectedHostId) return []
-      return (await onBrowse(connectedHostId, directory.path)).directories
-    },
-    [connectedHostId, onBrowse],
-  )
-
-  useModalKeyboard(dialogRef, () => void cancel(), !busy, !suspended)
-
-  return (
-    <div className="modal-backdrop">
-      <section
-        className="project-dialog session-dialog"
-        ref={dialogRef}
-        role="dialog"
-        aria-modal={suspended ? undefined : true}
-        aria-hidden={suspended || undefined}
-        inert={suspended || undefined}
-        aria-labelledby="session-dialog-title"
-        tabIndex={-1}
-      >
-        <h2 id="session-dialog-title">
-          {stage === 'host'
-            ? 'Connect to a host'
-            : `Open folder on ${connected?.host.label ?? hostId}`}
-        </h2>
-        {error ? <p className="dialog-error">{error}</p> : null}
-        {stage === 'host' ? (
-          <div className="session-hosts" role="listbox" aria-label="Hosts">
-            {hosts.map((host) => (
-              <button
-                type="button"
-                role="option"
-                aria-selected={hostId === host.hostId}
-                className={`session-host-option${hostId === host.hostId ? ' selected' : ''}`}
-                key={host.hostId}
-                onClick={() => setHostId(host.hostId)}
-              >
-                <span className="session-host-copy">
-                  {host.kind === 'ssh' ? (
-                    <RemoteConnectionBadge
-                      state={host.connectionState}
-                      hostLabel={`ssh:${host.label}`}
-                    />
-                  ) : (
-                    <strong>Local</strong>
-                  )}
-                  <small>
-                    {host.kind === 'ssh' ? host.connectionState : 'this machine'}
-                  </small>
-                </span>
-              </button>
-            ))}
-          </div>
-        ) : (
-          <>
-            <form
-              className="folder-path-form"
-              onSubmit={(event) => {
-                event.preventDefault()
-                void selectPath(pathInput)
-              }}
-            >
-              <input
-                aria-label="Folder path"
-                autoFocus
-                value={pathInput}
-                onChange={(event) => {
-                  setPathInput(event.target.value)
-                  setSelectedPath(undefined)
-                }}
-              />
-              <button type="submit" disabled={busy}>
-                Go
-              </button>
-            </form>
-            {connected ? (
-              <div className="recent-folders">
-                {recentFolders(connected.host.hostId).map((folder) => (
-                  <button
-                    type="button"
-                    key={folder}
-                    onClick={() => void selectPath(folder)}
-                  >
-                    {folder}
-                  </button>
-                ))}
-              </div>
-            ) : null}
-            <div className="folder-browser" aria-label="Folders">
-              <div className="folder-selection">
-                <small>Selected folder</small>
-                <code>{selectedPath ?? 'Choose a folder from the tree'}</code>
-              </div>
-              {connectedHostId ? (
-                <DirectoryTree
-                  root={hostPath(asHostId(connectedHostId), '/')}
-                  rootLabel="/"
-                  loadEntries={loadPickerEntries}
-                  selected={
-                    selectedPath
-                      ? hostPath(asHostId(connectedHostId), selectedPath)
-                      : undefined
-                  }
-                  expandedPath={
-                    revealedPath
-                      ? hostPath(asHostId(connectedHostId), revealedPath)
-                      : undefined
-                  }
-                  showFiles={false}
-                  onSelectDirectory={(directory) => {
-                    setPathInput(directory.path)
-                    setSelectedPath(directory.path)
-                    setRevealedPath(directory.path)
-                  }}
-                />
-              ) : null}
-            </div>
-          </>
-        )}
-        <div className="dialog-actions">
-          {stage === 'folder' ? (
-            <button type="button" disabled={busy} onClick={() => void back()}>
-              Back
-            </button>
-          ) : null}
-          <button type="button" disabled={busy} onClick={() => void cancel()}>
-            Cancel
-          </button>
-          <button
-            type="button"
-            disabled={busy || (stage === 'folder' && !selectedPath)}
-            onClick={() => void (stage === 'host' ? connect() : open())}
-          >
-            {busy
-              ? 'Working…'
-              : stage === 'host'
-                ? selectedHost?.kind === 'local' ||
-                  selectedHost?.connectionState === 'connected'
-                  ? 'Choose folder'
-                  : 'Connect'
-                : 'Open selected folder'}
-          </button>
-        </div>
-      </section>
-    </div>
-  )
-}
-
-function SshPromptDialog({
-  prompt,
-  onAnswer,
-}: {
-  readonly prompt: SshPromptRequest
-  readonly onAnswer: (answers?: readonly string[]) => void
-}): ReactElement {
-  const dialogRef = useRef<HTMLFormElement>(null)
-  const [answers, setAnswers] = useState(() => prompt.prompts.map(() => ''))
-  const [verifiedChangedKey, setVerifiedChangedKey] = useState(false)
-  const changedKey = prompt.kind === 'host-key-changed'
-  useModalKeyboard(dialogRef, () => onAnswer(undefined))
-  return (
-    <div className="modal-backdrop">
-      <form
-        className="project-dialog"
-        ref={dialogRef}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="ssh-prompt-title"
-        tabIndex={-1}
-        onSubmit={(event) => {
-          event.preventDefault()
-          onAnswer(prompt.kind === 'host-key' || changedKey ? ['yes'] : answers)
-        }}
-      >
-        <h2 id="ssh-prompt-title">{prompt.title}</h2>
-        {prompt.instructions ? <p>{prompt.instructions}</p> : null}
-        {(prompt.kind === 'host-key' || changedKey) && prompt.fingerprint ? (
-          <div className={changedKey ? 'ssh-host-key-changed' : undefined}>
-            {changedKey && prompt.previousFingerprint ? (
-              <label>
-                Saved fingerprint
-                <code className="ssh-host-fingerprint">{prompt.previousFingerprint}</code>
-              </label>
-            ) : null}
-            <label>
-              {changedKey ? 'Presented fingerprint' : 'Fingerprint'}
-              <code className="ssh-host-fingerprint">{prompt.fingerprint}</code>
-            </label>
-            {changedKey ? (
-              <label className="ssh-host-key-confirm">
-                <input
-                  type="checkbox"
-                  checked={verifiedChangedKey}
-                  onChange={(event) => setVerifiedChangedKey(event.target.checked)}
-                />
-                I verified this host key through a trusted channel.
-              </label>
-            ) : null}
-          </div>
-        ) : (
-          prompt.prompts.map((item, index) => (
-            <label key={`${item.text}:${index}`}>
-              {item.text}
-              <input
-                autoFocus={index === 0}
-                type={item.echo ? 'text' : 'password'}
-                value={answers[index]}
-                onChange={(event) =>
-                  setAnswers((current) =>
-                    current.map((answer, at) =>
-                      at === index ? event.target.value : answer,
-                    ),
-                  )
-                }
-              />
-            </label>
-          ))
-        )}
-        <div className="dialog-actions">
-          <button type="button" onClick={() => onAnswer(undefined)}>
-            Cancel
-          </button>
-          <button
-            type="submit"
-            autoFocus={prompt.kind === 'host-key'}
-            disabled={changedKey && !verifiedChangedKey}
-          >
-            {changedKey
-              ? 'Replace Saved Key'
-              : prompt.kind === 'host-key'
-                ? 'Trust Host'
-                : 'Continue'}
-          </button>
-        </div>
-      </form>
-    </div>
-  )
-}
-
-function useModalKeyboard(
-  dialogRef: RefObject<HTMLElement | null>,
-  onDismiss: () => void,
-  dismissEnabled = true,
-  active = true,
-): void {
-  const dismissRef = useRef(onDismiss)
-  const enabledRef = useRef(dismissEnabled)
-  const activeRef = useRef(active)
-  dismissRef.current = onDismiss
-  enabledRef.current = dismissEnabled
-  activeRef.current = active
-
-  useEffect(() => {
-    const dialog = dialogRef.current
-    if (!dialog) return
-    const previousFocus = document.activeElement
-    const focusableSelector =
-      'button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])'
-    const focusFirst = window.requestAnimationFrame(() => {
-      if (!activeRef.current) return
-      const preferred = dialog.querySelector<HTMLElement>('[autofocus]')
-      const first = dialog.querySelector<HTMLElement>(focusableSelector)
-      ;(preferred ?? first ?? dialog).focus()
-    })
-    const handleKeyDown = (event: KeyboardEvent): void => {
-      if (!activeRef.current) return
-      if (event.key === 'Escape' && enabledRef.current) {
-        event.preventDefault()
-        dismissRef.current()
-        return
-      }
-      if (event.key !== 'Tab') return
-      const focusable = [
-        ...dialog.querySelectorAll<HTMLElement>(focusableSelector),
-      ].filter((element) => element.offsetParent !== null)
-      if (focusable.length === 0) {
-        event.preventDefault()
-        dialog.focus()
-        return
-      }
-      const current = focusable.indexOf(document.activeElement as HTMLElement)
-      const next = event.shiftKey
-        ? current <= 0
-          ? focusable.at(-1)
-          : focusable[current - 1]
-        : current < 0 || current === focusable.length - 1
-          ? focusable[0]
-          : focusable[current + 1]
-      event.preventDefault()
-      next?.focus()
-    }
-    document.addEventListener('keydown', handleKeyDown, true)
-    return () => {
-      window.cancelAnimationFrame(focusFirst)
-      document.removeEventListener('keydown', handleKeyDown, true)
-      if (previousFocus instanceof HTMLElement && previousFocus.isConnected) {
-        previousFocus.focus()
-      }
-    }
-  }, [dialogRef])
-}
-
-function connectProjectHost(hostId: string): Promise<ConnectedHost> {
-  return window.hvir.invoke('project:connect-host', { hostId }).then(unwrapOperation)
-}
-
-function browseProjectHost(hostId: string, path: string): Promise<BrowseHostResponse> {
-  return window.hvir.invoke('project:browse-host', { hostId, path }).then(unwrapOperation)
-}
-
-function disconnectProjectHost(hostId: string): Promise<ProjectHostOption> {
-  return window.hvir.invoke('project:disconnect-host', { hostId }).then(unwrapOperation)
-}
-
-function openProjectHost(hostId: string, path: string): Promise<ProjectState> {
-  return window.hvir.invoke('project:open', { hostId, path }).then(unwrapOperation)
-}
-
-function recentFolders(hostId: string): readonly string[] {
-  try {
-    const value: unknown = JSON.parse(
-      localStorage.getItem(`hvir:recent-folders:${hostId}`) ?? '[]',
-    )
-    return Array.isArray(value)
-      ? value.filter((item): item is string => typeof item === 'string').slice(0, 5)
-      : []
-  } catch {
-    return []
-  }
-}
-
-function rememberFolder(hostId: string, path: string): void {
-  const next = [path, ...recentFolders(hostId).filter((folder) => folder !== path)].slice(
-    0,
-    5,
-  )
-  localStorage.setItem(`hvir:recent-folders:${hostId}`, JSON.stringify(next))
-}
-
-interface StoredTabs {
-  readonly version: number
-  readonly activeId?: string
-  readonly tabs: readonly {
-    readonly hostId: string
-    readonly path: string
-    readonly pane?: ViewerPaneId
-    readonly pinned: boolean
-    readonly mode: ViewMode
-    readonly diffBase: DiffBase
-    readonly diffRevision?: string
-    readonly scrollTop: number
-    readonly draft?: string
-    readonly mtimeMs?: number
-  }[]
-}
-
-function restoreTabs(root: HostPath): { tabs: readonly ViewerTab[]; activeId?: string } {
-  try {
-    const raw = localStorage.getItem(storageKey(root))
-    if (!raw) return { tabs: [] }
-    const parsed: unknown = JSON.parse(raw)
-    if (!isStoredTabs(parsed)) return { tabs: [] }
-    const stored = parsed
-    const tabs = stored.tabs.flatMap((item): ViewerTab[] => {
-      if (
-        item.hostId !== root.hostId ||
-        typeof item.path !== 'string' ||
-        !insideRoot(item.path, root.path) ||
-        !isViewMode(item.mode) ||
-        !isDiffBase(item.diffBase)
-      ) {
-        return []
-      }
-      const path = hostPath(asHostId(item.hostId), item.path)
-      const draft =
-        typeof item.draft === 'string' &&
-        item.draft.length <= DRAFT_STORAGE_CHARACTER_LIMIT
-          ? item.draft
-          : undefined
-      return [
-        {
-          id: tabId(path),
-          path,
-          pane: item.pane === 'secondary' ? 'secondary' : 'primary',
-          pinned: Boolean(item.pinned),
-          mode: item.mode,
-          diffBase: item.diffBase,
-          diffRevision:
-            typeof item.diffRevision === 'string' ? item.diffRevision : undefined,
-          scrollTop: Number.isFinite(item.scrollTop) ? item.scrollTop : 0,
-          file:
-            draft === undefined
-              ? undefined
-              : {
-                  path,
-                  content: draft,
-                  size: new TextEncoder().encode(draft).byteLength,
-                  mtimeMs:
-                    typeof item.mtimeMs === 'number' &&
-                    Number.isFinite(item.mtimeMs) &&
-                    item.mtimeMs > 0
-                      ? item.mtimeMs
-                      : 0,
-                  binary: false,
-                },
-          loading: draft === undefined,
-          dirty: draft !== undefined,
-          conflict: false,
-        },
-      ]
-    })
-    const activeId = tabs.some((tab) => tab.id === stored.activeId)
-      ? stored.activeId
-      : tabs[0]?.id
-    return { tabs, activeId }
-  } catch {
-    return { tabs: [] }
-  }
-}
-
-function persistTabs(
-  root: HostPath,
-  tabs: readonly ViewerTab[],
-  activeId?: string,
-  includeDrafts = true,
-): void {
-  let remainingDraftCharacters = includeDrafts ? DRAFT_STORAGE_CHARACTER_LIMIT : 0
-  const stored: StoredTabs = {
-    version: TAB_STORAGE_VERSION,
-    activeId,
-    tabs: tabs.map((tab) => {
-      const draft = tab.dirty ? tab.file?.content : undefined
-      const draftCharacters = draft?.length ?? 0
-      const storedDraft = draftCharacters <= remainingDraftCharacters ? draft : undefined
-      remainingDraftCharacters -= storedDraft === undefined ? 0 : draftCharacters
-      return {
-        hostId: tab.path.hostId,
-        path: tab.path.path,
-        pane: tab.pane,
-        pinned: tab.pinned,
-        mode: tab.mode,
-        diffBase: tab.diffBase,
-        diffRevision: tab.diffRevision,
-        scrollTop: tab.scrollTop,
-        draft: storedDraft,
-        mtimeMs: storedDraft === undefined ? undefined : tab.file?.mtimeMs,
-      }
-    }),
-  }
-  try {
-    localStorage.setItem(storageKey(root), JSON.stringify(stored))
-  } catch {
-    // Storage is a recovery aid, never a reason to make the live viewer fail.
-  }
-}
-
-function storageKey(root: HostPath): string {
-  return `hvir:tabs:${root.hostId}:${root.path}`
-}
-
-interface StoredLayout {
-  readonly version: 1
-  readonly treeWidth?: number
-  readonly terminalHeight?: number
-  readonly viewerSplit?: boolean
-  readonly viewerPrimaryWidth?: number
-}
-
-function restoreLayout(root: HostPath): StoredLayout {
-  try {
-    const parsed: unknown = JSON.parse(
-      localStorage.getItem(`hvir:layout:${root.hostId}:${root.path}`) ?? 'null',
-    )
-    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-      return { version: 1 }
-    }
-    const layout = parsed as Record<string, unknown>
-    return {
-      version: 1,
-      treeWidth:
-        typeof layout['treeWidth'] === 'number' && Number.isFinite(layout['treeWidth'])
-          ? layout['treeWidth']
-          : undefined,
-      terminalHeight:
-        typeof layout['terminalHeight'] === 'number' &&
-        Number.isFinite(layout['terminalHeight'])
-          ? layout['terminalHeight']
-          : undefined,
-      viewerSplit:
-        typeof layout['viewerSplit'] === 'boolean' ? layout['viewerSplit'] : undefined,
-      viewerPrimaryWidth:
-        typeof layout['viewerPrimaryWidth'] === 'number' &&
-        Number.isFinite(layout['viewerPrimaryWidth'])
-          ? layout['viewerPrimaryWidth']
-          : undefined,
-    }
-  } catch {
-    return { version: 1 }
-  }
-}
-
-function persistLayout(
-  root: HostPath,
-  update: {
-    readonly treeWidth?: number
-    readonly terminalHeight?: number
-    readonly viewerSplit?: boolean
-    readonly viewerPrimaryWidth?: number
-  },
-): void {
-  try {
-    localStorage.setItem(
-      `hvir:layout:${root.hostId}:${root.path}`,
-      JSON.stringify({ ...restoreLayout(root), ...update }),
-    )
-  } catch {
-    // Layout recovery is best effort and never blocks the live workbench.
-  }
-}
-
-function tabId(path: HostPath): string {
-  return `${path.hostId}:${path.path}`
-}
-
-function insideRoot(path: string, root: string): boolean {
-  return path === root || path.startsWith(root === '/' ? '/' : `${root}/`)
-}
-
-function nextMode(mode: ViewMode): ViewMode {
-  if (mode === 'rendered') return 'source'
-  if (mode === 'source') return 'diff'
-  return 'rendered'
-}
-
-function isViewMode(value: unknown): value is ViewMode {
-  return value === 'rendered' || value === 'source' || value === 'diff'
-}
-
-function isDiffBase(value: unknown): value is DiffBase {
-  return value === 'working-tree' || value === 'head' || value === 'branch-point'
-}
-
-function isStoredTabs(value: unknown): value is StoredTabs {
-  if (!value || typeof value !== 'object') return false
-  const candidate = value as { version?: unknown; tabs?: unknown }
-  return candidate.version === TAB_STORAGE_VERSION && Array.isArray(candidate.tabs)
-}
-
-function reorderTabs(
-  tabs: readonly ViewerTab[],
-  draggedId: string,
-  targetId: string,
-): readonly ViewerTab[] {
-  const from = tabs.findIndex((tab) => tab.id === draggedId)
-  const to = tabs.findIndex((tab) => tab.id === targetId)
-  if (from < 0 || to < 0 || from === to) return tabs
-  const next = [...tabs]
-  const [dragged] = next.splice(from, 1)
-  if (!dragged) return tabs
-  next.splice(to, 0, dragged)
-  return next
-}
-
-function clamp(value: number, min: number, max: number): number {
-  return Math.min(max, Math.max(min, value))
-}
-
-function sanitizedWebPaneTitle(title: string): string {
-  const normalized = [...title]
-    .map((character) => {
-      const codepoint = character.codePointAt(0) ?? 0
-      return codepoint < 32 || codepoint === 127 ? ' ' : character
-    })
-    .join('')
-    .trim()
-  return normalized.slice(0, 120) || 'Web pane'
-}
-
-function fitTerminalHeight(height: number, workbenchHeight: number): number {
-  const max = Math.max(
-    TERMINAL_MIN_HEIGHT,
-    workbenchHeight - DIVIDER_SIZE - VIEWER_MIN_HEIGHT,
-  )
-  return clamp(height, TERMINAL_MIN_HEIGHT, max)
 }

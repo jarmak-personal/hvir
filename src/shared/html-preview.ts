@@ -1,3 +1,5 @@
+import type { HostPath } from './host-path'
+
 /** HTML previews execute only inside an opaque-origin sandboxed frame. */
 export const HTML_PREVIEW_SCHEME = 'hvir-preview'
 export const HTML_SANDBOX = 'allow-scripts'
@@ -18,6 +20,7 @@ export const HTML_PREVIEW_CSP = [
 ].join('; ')
 
 export interface CreateHtmlPreviewRequest {
+  readonly path: HostPath
   readonly content: string
 }
 

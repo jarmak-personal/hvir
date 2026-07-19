@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactElement } from 'react'
+import { useEffect, useRef, useState, type ReactElement, type RefObject } from 'react'
 
 import {
   HTML_SANDBOX,
@@ -18,6 +18,9 @@ import type {
 import { useAppTheme } from '../theme'
 import type { CsvTableData } from './csv-parser'
 import type { CsvWorkerResponse } from './csv-protocol'
+import type { ViewerDocumentPosition } from './tab-state'
+import { captureRenderedPosition, restoreRenderedPosition } from './rendered-position'
+import { documentLineCount, type ViewerPositionCapture } from './viewer-position'
 
 let jsonWorker: Worker | undefined
 let jsonRequestId = 0
@@ -53,8 +56,9 @@ if (import.meta.hot) {
 interface RenderedViewProps {
   readonly path: HostPath
   readonly content: string
-  readonly scrollTop: number
-  readonly onScroll: (scrollTop: number) => void
+  readonly position: ViewerDocumentPosition
+  readonly onPosition: (position: ViewerDocumentPosition) => void
+  readonly positionCapture: ViewerPositionCapture
   readonly onOpenPath: (path: HostPath) => void
   readonly refreshVersion: number
 }
@@ -62,8 +66,9 @@ interface RenderedViewProps {
 export function RenderedView({
   path,
   content,
-  scrollTop,
-  onScroll,
+  position,
+  onPosition,
+  positionCapture,
   onOpenPath,
   refreshVersion,
 }: RenderedViewProps): ReactElement {
@@ -77,8 +82,9 @@ export function RenderedView({
     return (
       <CsvView
         content={content}
-        scrollTop={scrollTop}
-        onScroll={onScroll}
+        position={position}
+        onPosition={onPosition}
+        positionCapture={positionCapture}
         renderGeneration={renderGeneration}
       />
     )
@@ -94,8 +100,9 @@ export function RenderedView({
         content={content}
         format={type}
         renderGeneration={renderGeneration}
-        scrollTop={scrollTop}
-        onScroll={onScroll}
+        position={position}
+        onPosition={onPosition}
+        positionCapture={positionCapture}
       />
     )
   }
@@ -113,8 +120,9 @@ export function RenderedView({
       <MarkdownView
         path={path}
         content={content}
-        scrollTop={scrollTop}
-        onScroll={onScroll}
+        position={position}
+        onPosition={onPosition}
+        positionCapture={positionCapture}
         onOpenPath={onOpenPath}
         renderGeneration={renderGeneration}
         refreshVersion={refreshVersion}
@@ -194,13 +202,15 @@ function RepositoryImageView({
 
 function CsvView({
   content,
-  scrollTop,
-  onScroll,
+  position,
+  onPosition,
+  positionCapture,
   renderGeneration,
 }: {
   readonly content: string
-  readonly scrollTop: number
-  readonly onScroll: (scrollTop: number) => void
+  readonly position: ViewerDocumentPosition
+  readonly onPosition: (position: ViewerDocumentPosition) => void
+  readonly positionCapture: ViewerPositionCapture
   readonly renderGeneration: number
 }): ReactElement {
   const container = useRef<HTMLDivElement>(null)
@@ -225,9 +235,7 @@ function CsvView({
     }
   }, [content, renderGeneration])
 
-  useEffect(() => {
-    if (table && container.current) container.current.scrollTop = scrollTop
-  }, [scrollTop, table])
+  useRenderedPosition(container, content, position, onPosition, positionCapture, table)
 
   if (error) return <div className="viewer-empty error">Invalid CSV: {error}</div>
   if (!table) return <div className="viewer-empty">Parsing CSV…</div>
@@ -246,15 +254,11 @@ function CsvView({
       : undefined,
   ].filter((note): note is string => Boolean(note))
   return (
-    <div
-      className="rendered-scroll csv-view"
-      ref={container}
-      onScroll={(event) => onScroll(event.currentTarget.scrollTop)}
-    >
+    <div className="rendered-scroll csv-view" ref={container}>
       {notes.length > 0 ? <div className="csv-note">{notes.join(' · ')}</div> : null}
       <table>
         <thead>
-          <tr>
+          <tr data-source-line="1">
             {columnIndexes.map((index) => {
               const heading = headings[index] ?? ''
               return (
@@ -267,7 +271,7 @@ function CsvView({
         </thead>
         <tbody>
           {rows.map((row, rowIndex) => (
-            <tr key={rowIndex}>
+            <tr key={rowIndex} data-source-line={rowIndex + 2}>
               {columnIndexes.map((columnIndex) => (
                 <td key={columnIndex} title={row[columnIndex] ?? ''}>
                   {row[columnIndex] ?? ''}
@@ -298,7 +302,7 @@ function HtmlPreview({
     let previewId: string | undefined
     setPreview(undefined)
     setError(undefined)
-    void window.hvir.invoke('html-preview:create', { content }).then(
+    void window.hvir.invoke('html-preview:create', { path, content }).then(
       (created) => {
         previewId = created.id
         if (cancelled) {
@@ -316,7 +320,7 @@ function HtmlPreview({
       cancelled = true
       if (previewId) window.hvir.send('html-preview:release', { id: previewId })
     }
-  }, [content, renderGeneration])
+  }, [content, path, renderGeneration])
 
   if (error) return <div className="viewer-empty error">{error}</div>
   if (!preview) return <div className="viewer-empty">Preparing HTML preview…</div>
@@ -334,8 +338,9 @@ function HtmlPreview({
 function MarkdownView({
   path,
   content,
-  scrollTop,
-  onScroll,
+  position,
+  onPosition,
+  positionCapture,
   onOpenPath,
   renderGeneration,
   refreshVersion,
@@ -345,10 +350,8 @@ function MarkdownView({
   readonly theme: 'dark' | 'light'
 }): ReactElement {
   const container = useRef<HTMLDivElement>(null)
-  const scrollTopRef = useRef(scrollTop)
   const [html, setHtml] = useState('')
   const [error, setError] = useState<string>()
-  scrollTopRef.current = scrollTop
 
   useEffect(() => {
     let cancelled = false
@@ -375,8 +378,16 @@ function MarkdownView({
     const root = container.current
     if (!root || !html) return
     root.innerHTML = html
-    root.scrollTop = scrollTopRef.current
   }, [html, refreshVersion])
+
+  useRenderedPosition(
+    container,
+    content,
+    position,
+    onPosition,
+    positionCapture,
+    html ? `${refreshVersion}:${html}` : undefined,
+  )
 
   useEffect(() => {
     const root = container.current
@@ -403,7 +414,6 @@ function MarkdownView({
     <div
       className="rendered-scroll markdown-body"
       ref={container}
-      onScroll={(event) => onScroll(event.currentTarget.scrollTop)}
       onClick={(event) => handleRenderedLinkClick(event, path, onOpenPath)}
     />
   )
@@ -516,23 +526,23 @@ function StructuredDataView({
   content,
   format,
   renderGeneration,
-  scrollTop,
-  onScroll,
+  position,
+  onPosition,
+  positionCapture,
 }: {
   readonly content: string
   readonly format: 'json' | 'yaml'
   readonly renderGeneration: number
-  readonly scrollTop: number
-  readonly onScroll: (scrollTop: number) => void
+  readonly position: ViewerDocumentPosition
+  readonly onPosition: (position: ViewerDocumentPosition) => void
+  readonly positionCapture: ViewerPositionCapture
 }): ReactElement {
   const container = useRef<HTMLDivElement>(null)
-  const scrollTopRef = useRef(scrollTop)
   const [document, setDocument] = useState<{
     readonly id: number
     readonly root: JsonNodeDescriptor
   }>()
   const [error, setError] = useState<string>()
-  scrollTopRef.current = scrollTop
 
   useEffect(() => {
     const documentId = ++jsonDocumentId
@@ -556,11 +566,7 @@ function StructuredDataView({
     }
   }, [content, format, renderGeneration])
 
-  useEffect(() => {
-    if (document && container.current) {
-      container.current.scrollTop = scrollTopRef.current
-    }
-  }, [document])
+  useRenderedPosition(container, content, position, onPosition, positionCapture, document)
 
   if (error)
     return (
@@ -571,14 +577,39 @@ function StructuredDataView({
   if (!document)
     return <div className="viewer-empty">Parsing {format.toUpperCase()}…</div>
   return (
-    <div
-      className="rendered-scroll json-tree"
-      ref={container}
-      onScroll={(event) => onScroll(event.currentTarget.scrollTop)}
-    >
+    <div className="rendered-scroll json-tree" ref={container}>
       <JsonNode node={document.root} documentId={document.id} initiallyOpen />
     </div>
   )
+}
+
+function useRenderedPosition(
+  container: RefObject<HTMLElement | null>,
+  content: string,
+  position: ViewerDocumentPosition,
+  onPosition: (position: ViewerDocumentPosition) => void,
+  positionCapture: ViewerPositionCapture,
+  readyKey: unknown,
+): void {
+  const positionRef = useRef(position)
+  const onPositionRef = useRef(onPosition)
+  const lines = documentLineCount(content)
+  positionRef.current = position
+  onPositionRef.current = onPosition
+
+  useEffect(() => {
+    const root = container.current
+    if (!root || readyKey === undefined) return
+    const capture = (): ViewerDocumentPosition => captureRenderedPosition(root, lines)
+    const handleScroll = (): void => onPositionRef.current(capture())
+    positionCapture.current = capture
+    root.addEventListener('scroll', handleScroll, { passive: true })
+    restoreRenderedPosition(root, positionRef.current, lines)
+    return () => {
+      root.removeEventListener('scroll', handleScroll)
+      if (positionCapture.current === capture) positionCapture.current = undefined
+    }
+  }, [container, lines, positionCapture, readyKey])
 }
 
 /** Re-render active previews when their implementation changes during Vite dev HMR. */

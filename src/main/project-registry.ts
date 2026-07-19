@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from 'node:async_hooks'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 
@@ -26,6 +27,7 @@ import {
   type SshAuthPrompter,
   type SshPrompt,
 } from './project-host'
+import type { RendererOwner } from './renderer-resource-scopes'
 
 export interface ActiveProject {
   readonly host: ProjectHost
@@ -643,51 +645,109 @@ export function identityFileCandidates(
 
 export class RendererSshPrompter implements SshAuthPrompter {
   private nextId = 0
+  private readonly ownerContext = new AsyncLocalStorage<RendererOwner>()
+  private readonly activeOwners = new Map<number, RendererOwner>()
   private readonly pending = new Map<
     number,
     {
       readonly hostId: string
+      readonly request: SshPrompt
+      owner: RendererOwner
+      presented: boolean
       readonly resolve: (answers: readonly string[] | undefined) => void
     }
   >()
 
   constructor(
-    private readonly emit: (prompt: SshPromptRequest) => void,
-    private readonly emitCancel: (hostId: string) => void = () => undefined,
+    private readonly emit: (owner: RendererOwner, prompt: SshPromptRequest) => void,
+    private readonly emitCancel: (owner: RendererOwner, hostId: string) => void = () =>
+      undefined,
   ) {}
 
+  runForOwner<T>(owner: RendererOwner, operation: () => T): T {
+    return this.ownerContext.run(owner, operation)
+  }
+
+  activateOwner(owner: RendererOwner): void {
+    this.activeOwners.set(owner.id, owner)
+    for (const [id, pending] of this.pending) {
+      if (pending.owner.id !== owner.id || pending.presented) continue
+      pending.owner = owner
+      pending.presented = true
+      this.emit(owner, { id, ...pending.request })
+    }
+  }
+
+  revokeOwner(owner: RendererOwner): void {
+    const active = this.activeOwners.get(owner.id)
+    if (active?.generation === owner.generation) this.activeOwners.delete(owner.id)
+    for (const pending of this.pending.values()) {
+      if (!sameRendererOwner(pending.owner, owner)) continue
+      pending.presented = false
+    }
+  }
+
   prompt(request: SshPrompt): Promise<readonly string[] | undefined> {
+    const contextualOwner = this.ownerContext.getStore()
+    const activeOwner = contextualOwner
+      ? this.activeOwners.get(contextualOwner.id)
+      : this.activeOwners.values().next().value
+    const owner = activeOwner ?? contextualOwner
+    if (!owner) return Promise.resolve(undefined)
     const id = ++this.nextId
     return new Promise((resolve) => {
-      this.pending.set(id, { hostId: request.hostId, resolve })
-      this.emit({ id, ...request })
+      const presented = activeOwner !== undefined
+      this.pending.set(id, {
+        hostId: request.hostId,
+        request,
+        owner,
+        presented,
+        resolve,
+      })
+      if (presented) this.emit(owner, { id, ...request })
     })
   }
 
-  respond(id: number, answers?: readonly string[]): void {
+  respond(owner: RendererOwner, id: number, answers?: readonly string[]): void {
     const pending = this.pending.get(id)
-    if (!pending) return
+    const activeOwner = this.activeOwners.get(owner.id)
+    if (
+      !pending ||
+      !pending.presented ||
+      !sameRendererOwner(pending.owner, owner) ||
+      !activeOwner ||
+      !sameRendererOwner(activeOwner, owner)
+    ) {
+      return
+    }
     this.pending.delete(id)
     pending.resolve(answers)
   }
 
   cancelAll(): void {
-    const hosts = new Set([...this.pending.values()].map((pending) => pending.hostId))
+    const presentations = new Map<string, RendererOwner>()
+    for (const pending of this.pending.values()) {
+      presentations.set(pending.hostId, pending.owner)
+    }
     for (const pending of this.pending.values()) pending.resolve(undefined)
     this.pending.clear()
-    for (const hostId of hosts) this.emitCancel(hostId)
+    for (const [hostId, owner] of presentations) this.emitCancel(owner, hostId)
   }
 
   cancelHost(hostId: string): void {
-    let cancelled = false
+    const owners = new Map<string, RendererOwner>()
     for (const [id, pending] of this.pending) {
       if (pending.hostId !== hostId) continue
-      cancelled = true
+      owners.set(`${pending.owner.id}:${pending.owner.generation}`, pending.owner)
       pending.resolve(undefined)
       this.pending.delete(id)
     }
-    if (cancelled) this.emitCancel(hostId)
+    for (const owner of owners.values()) this.emitCancel(owner, hostId)
   }
+}
+
+function sameRendererOwner(left: RendererOwner, right: RendererOwner): boolean {
+  return left.id === right.id && left.generation === right.generation
 }
 
 class HostTrustStore {

@@ -1,0 +1,372 @@
+.app-shell {
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  overflow: hidden;
+  background: #0f1115;
+}
+
+.projects-shell {
+  min-width: 0;
+  border-bottom: 1px solid #303641;
+  background: #101318;
+}
+
+.projects-bar,
+.workspaces-bar {
+  min-width: 0;
+  display: flex;
+  align-items: stretch;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+}
+
+.projects-bar {
+  height: 38px;
+  padding-left: 5px;
+}
+
+.project-tab,
+.project-add,
+.workspace-tab > button,
+.workspaces-prune,
+.workspaces-refresh {
+  border: 0;
+  background: transparent;
+  color: #929ba8;
+}
+
+.project-tab {
+  max-width: 260px;
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  border-right: 1px solid #282e37;
+  border-top: 2px solid transparent;
+}
+
+.project-tab-main {
+  min-width: 0;
+  height: 100%;
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 6px 0 11px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+}
+
+.project-close {
+  width: 24px;
+  height: 100%;
+  flex: 0 0 24px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #77808e;
+  opacity: 0;
+}
+
+.project-tab:hover .project-close,
+.project-tab.active .project-close,
+.project-close:focus-visible {
+  opacity: 1;
+}
+
+.project-close:hover:not(:disabled) {
+  background: #2b313a;
+  color: #eef1f5;
+}
+
+.project-close:disabled {
+  cursor: default;
+}
+
+.project-tab.active .project-close:disabled {
+  opacity: 0.3;
+}
+
+.project-connection-trigger {
+  height: 100%;
+  flex: 0 1 auto;
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  overflow: hidden;
+  padding: 0 2px;
+  border: 0;
+  background: transparent;
+  color: #77808e;
+}
+
+.project-connection-trigger:hover:not(:disabled),
+.project-connection-trigger[aria-expanded='true'] {
+  background: #252b34;
+  color: #dce1e8;
+}
+
+.project-connection-trigger:disabled {
+  opacity: 0.6;
+}
+
+.project-connection-chevron {
+  width: 9px;
+  flex: 0 0 9px;
+  font-size: 7px;
+}
+
+.project-tab:hover,
+.project-tab.active {
+  background: #191d24;
+  color: #e3e7ed;
+}
+
+.project-tab.active {
+  border-top-color: #5b9be6;
+}
+
+.project-tab strong {
+  overflow: hidden;
+  font-size: 12px;
+  font-weight: 620;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.project-change-count {
+  flex: 0 0 auto;
+  padding: 2px 5px;
+  border-radius: 8px;
+  background: #252c36;
+  color: #8fa6c2;
+  font-size: 8px;
+  font-weight: 600;
+}
+
+.project-change-count {
+  color: #d6b16e;
+  font-variant-numeric: tabular-nums;
+}
+
+.project-add {
+  width: 34px;
+  flex: 0 0 34px;
+  font-size: 20px;
+}
+
+.project-add:hover,
+.workspaces-prune:hover,
+.workspaces-refresh:hover,
+.workspace-tab > button:hover {
+  background: #20262e;
+  color: #eef1f5;
+}
+
+.settings-toggle {
+  font-size: 12px;
+}
+
+.workspaces-bar {
+  height: 32px;
+  align-items: center;
+  gap: 3px;
+  padding: 3px 7px 4px;
+  border-top: 1px solid #242a33;
+  background: #14171c;
+}
+
+.project-connection-backdrop {
+  position: fixed;
+  z-index: 899;
+  inset: 0;
+}
+
+.project-connection-menu {
+  width: 240px;
+  position: fixed;
+  z-index: 900;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 11px;
+  border: 1px solid #3a424e;
+  border-radius: 6px;
+  outline: 0;
+  background: #181c23;
+  box-shadow: 0 12px 32px #050608b8;
+}
+
+.project-connection-menu header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.project-connection-menu header strong {
+  min-width: 0;
+  overflow: hidden;
+  color: #dce1e8;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.project-connection-menu header span,
+.project-connection-menu > small {
+  color: #8792a1;
+  font-size: 9px;
+}
+
+.project-connection-menu p {
+  margin: 0;
+  color: #d76d76;
+  font-size: 9px;
+  line-height: 1.35;
+}
+
+.project-connection-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.project-connection-actions button {
+  flex: 1 1 0;
+  padding: 5px 7px;
+  border: 1px solid #3a424e;
+  border-radius: 4px;
+  background: #20252d;
+  color: #b9c0ca;
+  font-size: 9px;
+}
+
+.project-connection-actions button:hover:not(:disabled) {
+  border-color: #536174;
+  background: #29313b;
+  color: #eef1f5;
+}
+
+.project-connection-actions button:disabled {
+  opacity: 0.55;
+}
+
+.workspace-tab {
+  height: 25px;
+  flex: 0 0 auto;
+  display: flex;
+  overflow: hidden;
+  border: 1px solid transparent;
+  border-radius: 4px;
+}
+
+.workspace-tab.active {
+  border-color: #3c526c;
+  background: #243142;
+}
+
+.workspace-tab.missing {
+  border-color: #343941;
+  opacity: 0.58;
+  filter: grayscale(0.45);
+}
+
+.workspace-tab > button {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px;
+  border-radius: 3px;
+  font-size: 10px;
+}
+
+.workspace-tab > button span {
+  max-width: 170px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-tab small {
+  color: #687384;
+  font-size: 8px;
+}
+
+.workspace-change-count {
+  padding: 1px 4px;
+  border: 1px solid #594c32;
+  border-radius: 3px;
+  background: #211d16;
+  color: #d6b16e;
+  font-size: 9px;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+
+.workspace-dismiss {
+  width: 23px;
+  padding: 0;
+  border: 0;
+  border-left: 1px solid #343941;
+  background: transparent;
+  color: #a7adb7;
+}
+
+.workspace-dismiss:hover {
+  background: #563238;
+  color: #f1c2c6;
+}
+
+.workspaces-actions {
+  min-width: 0;
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.workspace-status-error {
+  max-width: min(320px, 35vw);
+  overflow: hidden;
+  padding: 0 6px;
+  color: #d76d76;
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspaces-prune,
+.workspaces-refresh {
+  height: 24px;
+  padding: 0 8px;
+  border-radius: 3px;
+  font-size: 9px;
+}
+
+.workspaces-prune {
+  color: #d6b16e;
+}
+
+.terminal-attention-count {
+  min-width: 22px;
+  height: 17px;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  padding: 0 5px;
+  border: 1px solid #71552d;
+  border-radius: 8px;
+  background: #2a2114;
+  color: #efbd67;
+  font-size: 8px;
+  font-weight: 750;
+  font-variant-numeric: tabular-nums;
+}

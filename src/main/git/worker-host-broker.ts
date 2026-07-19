@@ -6,22 +6,12 @@ import {
 } from '../../shared'
 import type { ProjectHost } from '../project-host'
 import { GIT_FETCH_ARGS, GIT_PULL_ARGS } from './git-engine'
+import type { GitHostCallPermissions } from './mutation-authorization'
 
 const canonicalRoots = new WeakMap<ProjectHost, Map<string, Promise<HostPath>>>()
 const MAX_ARGUMENTS = 256
 const MAX_ARGUMENT_LENGTH = 16_384
 const SAFE_GIT_CONFIG = ['-c', 'core.fsmonitor=false'] as const
-
-export interface GitHostCallPermissions {
-  /** One-shot main-process authorization for the explicit workspace prune UI. */
-  readonly allowWorktreePrune?: boolean
-  /** One-shot authorization for one exact existing local branch target. */
-  readonly allowBranchSwitch?: string
-  /** One-shot authorization for the exact non-interactive fetch grammar. */
-  readonly allowFetch?: boolean
-  /** One-shot authorization for the exact fast-forward-only pull grammar. */
-  readonly allowPull?: boolean
-}
 
 /** Main-side enforcement for the untrusted Git utility-process transport. */
 export async function dispatchWorkerHostCall(

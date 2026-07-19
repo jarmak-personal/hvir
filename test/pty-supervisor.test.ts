@@ -346,6 +346,28 @@ describe('PtySupervisor', () => {
     expect(supervisor.get('owned-second')).toBeDefined()
   })
 
+  it('does not let a newer document generation claim an older PTY', async () => {
+    const { supervisor, pty, host, provider } = fixture()
+    await supervisor.spawn({
+      host,
+      provider,
+      cwd: localPath('/tmp/project'),
+      ownerId: OWNER_ID,
+      ownerGeneration: 4,
+      sessionId: 'generation-owned',
+    })
+
+    expect(supervisor.isOwnedBy('generation-owned', OWNER_ID, 5)).toBe(false)
+    expect(() => supervisor.write('generation-owned', OWNER_ID, 'nope', 5)).toThrow(
+      /another renderer/,
+    )
+    supervisor.disposeOwner(OWNER_ID, 5)
+    expect(pty.kill).not.toHaveBeenCalled()
+
+    supervisor.disposeOwner(OWNER_ID, 4)
+    expect(pty.kill).toHaveBeenCalledOnce()
+  })
+
   it('rejects an already-active session id without leaking another PTY', async () => {
     const { supervisor, host, provider, spawnPty } = fixture()
     const request = {

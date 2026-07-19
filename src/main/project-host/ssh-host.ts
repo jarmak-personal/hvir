@@ -1,20 +1,12 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { StringDecoder } from 'node:string_decoder'
 
-import {
-  Client,
-  utils,
-  type ClientChannel,
-  type ConnectConfig,
-  type SFTPWrapper,
-} from 'ssh2'
+import { Client, utils, type ClientChannel, type ConnectConfig } from 'ssh2'
 
 import {
   asHostId,
-  hostPath,
   type DirEntry,
   type ExecResult,
-  type FileType,
   type HostConnectionState,
   type HostId,
   type HostPath,
@@ -22,7 +14,6 @@ import {
   type LoopbackEndpoint,
   type Stat,
   type WatchEvent,
-  type WatchEventType,
 } from '../../shared'
 import type {
   Disposer,
@@ -37,6 +28,22 @@ import type {
 } from './project-host'
 import { assertLoopbackEndpoint, MAX_EXEC_STREAM_WRITE_BYTES } from './project-host'
 import type { SshAliasConfig } from './ssh-config'
+import { SshFileAccess } from './ssh-file-access'
+import {
+  SshTransportPool,
+  type SshTransportDiagnostic,
+  type SshTransportRole,
+} from './ssh-transport-pool'
+import { SshWatchService } from './ssh-watch-service'
+
+export {
+  SSH_CONTROL_CHANNEL_BUDGET,
+  SSH_MAX_CONTROL_TRANSPORTS,
+  SSH_MAX_PHYSICAL_TRANSPORTS,
+  SSH_TERMINAL_CHANNEL_BUDGET,
+  SSH_TRANSPORT_IDLE_GRACE_MS,
+  type SshTransportDiagnostic,
+} from './ssh-transport-pool'
 
 export interface SshIdentity {
   readonly path: string
@@ -86,61 +93,15 @@ export interface SshHostOptions {
   readonly clientFactory?: () => Client
 }
 
-export const SSH_MAX_PHYSICAL_TRANSPORTS = 8
-export const SSH_MAX_CONTROL_TRANSPORTS = 2
-export const SSH_CONTROL_CHANNEL_BUDGET = 6
-export const SSH_TERMINAL_CHANNEL_BUDGET = 8
 export const SSH_DEFAULT_MAX_CONCURRENT_EXECS = 4
-/**
- * Tunnel data connections ride dedicated transports so a dashboard holding
- * many sockets (keep-alive pools, websockets, event streams) can never starve
- * git/exec channels on the control transports. Two transports of sixteen
- * channels bound a dashboard-heavy session at 32 concurrent sockets.
- */
-export const SSH_TUNNEL_CHANNEL_BUDGET = 16
-export const SSH_MAX_TUNNEL_TRANSPORTS = 2
-export const SSH_TRANSPORT_IDLE_GRACE_MS = 5 * 60_000
 export const SSH_MAX_KEYBOARD_INTERACTIVE_ROUNDS = 4
-const SSH_CHANNEL_OPEN_ATTEMPTS = 5
-
-type SshTransportRole = 'control' | 'terminal' | 'tunnel'
-
-interface SshTransport {
-  readonly id: number
-  readonly role: SshTransportRole
-  readonly client: Client
-  readonly primary: boolean
-  readonly channels: Set<ClientChannel>
-  readonly failureListeners: Set<() => void>
-  pendingChannels: number
-  readonly channelBudget: number
-  sftpActive: boolean
-  closed: boolean
-  idleTimer?: ReturnType<typeof setTimeout>
-}
-
-interface SshTransportReservation {
-  readonly transport: SshTransport
-  release(): void
-}
 
 interface SshCredentialAttempt {
   password?: string
   readonly passphrases: Map<string, string>
 }
 
-export interface SshTransportDiagnostic {
-  readonly id: number
-  readonly role: SshTransportRole
-  readonly primary: boolean
-  readonly channels: number
-  readonly pendingChannels: number
-  readonly channelBudget: number
-  readonly refusedChannels: number
-}
-
 let nextRemotePid = -1
-const GIT_PRIORITY_FILES = new Set(['HEAD', 'index', 'packed-refs'])
 
 export class SshHost implements ProjectHost {
   readonly hostId: HostId
@@ -156,15 +117,9 @@ export class SshHost implements ProjectHost {
   private reconnectSuppressed = false
   private promptedDuringConnect = false
   private resolvedShell?: string
-  private sftpSession?: Promise<SFTPWrapper>
   private readonly listeners = new Set<(state: HostConnectionState) => void>()
-  private readonly channels = new Set<ClientChannel>()
-  private readonly transports = new Set<SshTransport>()
   private readonly pendingClients = new Set<Client>()
-  private nextTransportId = 1
-  private transportGrowthTail: Promise<void> = Promise.resolve()
   private promptTail: Promise<void> = Promise.resolve()
-  private readonly refusedChannels = new Map<number, number>()
   private cachedPassword?: string
   private readonly cachedPassphrases = new Map<string, string>()
   private acceptedHostFingerprint?: string
@@ -178,20 +133,39 @@ export class SshHost implements ProjectHost {
     signal?: AbortSignal
     abort?: () => void
   }> = []
-  private readonly cache = new Map<
-    string,
-    { expires: number; value: Buffer | DirEntry[] }
-  >()
-  /** Files fetched by the viewer and worth content-fingerprinting while polling. */
-  private readonly pollingFiles = new Set<string>()
-  /** Last content actually delivered to a reader, for optimistic remote saves. */
-  private readonly readDigests = new Map<string, string>()
-  private readonly fingerprintObservations = new Map<
-    string,
-    { metadata: string; digest: string; observeUntil: number }
-  >()
+  private readonly transportPool: SshTransportPool
+  private readonly files: SshFileAccess
+  private readonly watches: SshWatchService
   constructor(private readonly options: SshHostOptions) {
     this.hostId = asHostId(options.config.alias)
+    this.transportPool = new SshTransportPool({
+      connected: () => this.connected(),
+      assertTransportGrowthAllowed: (role) => this.assertTransportGrowthAllowed(role),
+      openAuxiliaryTransport: (role) => this.openAuxiliaryTransport(role),
+      lifecycleSignal: () => this.lifecycleAbort.signal,
+    })
+    this.files = new SshFileAccess(
+      {
+        hostId: this.hostId,
+        openSftp: () => this.transportPool.openSftp(),
+      },
+      options,
+    )
+    this.watches = new SshWatchService(
+      {
+        hostId: this.hostId,
+        connectionState: () => this.state,
+        watchTier: () => this.tier,
+        setWatchTier: (tier) => {
+          this.tier = tier
+          this.notifyState()
+        },
+        onConnectionState: (callback) => this.onConnectionState(callback),
+        execStream: (command, args) => this.execStream(command, args),
+      },
+      this.files,
+      options,
+    )
     const requestedExecs = options.maxConcurrentExecs ?? SSH_DEFAULT_MAX_CONCURRENT_EXECS
     this.maxConcurrentExecs = Math.max(
       1,
@@ -210,18 +184,7 @@ export class SshHost implements ProjectHost {
     return this.tier
   }
   transportDiagnostics(): readonly SshTransportDiagnostic[] {
-    return [...this.transports]
-      .filter((transport) => !transport.closed)
-      .map((transport) => ({
-        id: transport.id,
-        role: transport.role,
-        primary: transport.primary,
-        channels: transport.channels.size + (transport.sftpActive ? 1 : 0),
-        pendingChannels: transport.pendingChannels,
-        channelBudget: transport.channelBudget,
-        refusedChannels: this.refusedChannels.get(transport.id) ?? 0,
-      }))
-      .sort((a, b) => a.id - b.id)
+    return this.transportPool.diagnostics()
   }
   onConnectionState(cb: (state: HostConnectionState) => void): Disposer {
     this.listeners.add(cb)
@@ -265,40 +228,20 @@ export class SshHost implements ProjectHost {
       if (waiter.abort) waiter.signal?.removeEventListener('abort', waiter.abort)
       waiter.reject(new Error('SSH connection cancelled'))
     }
-    const transports = [...this.transports]
     const clients = new Set<Client>([
-      ...transports.map((transport) => transport.client),
+      ...this.transportPool.dispose(),
       ...this.pendingClients,
     ])
     if (this.client) clients.add(this.client)
-    for (const transport of transports) {
-      transport.closed = true
-      if (transport.idleTimer) clearTimeout(transport.idleTimer)
-      for (const fail of transport.failureListeners) fail()
-      transport.failureListeners.clear()
-    }
-    this.transports.clear()
     this.pendingClients.clear()
-    for (const channel of this.channels) channel.close()
-    this.channels.clear()
     this.client = undefined
-    const sftp = this.sftpSession
-    this.sftpSession = undefined
-    this.cache.clear()
-    this.pollingFiles.clear()
-    this.readDigests.clear()
-    this.fingerprintObservations.clear()
+    this.files.dispose()
     this.resolvedShell = undefined
     this.cachedPassword = undefined
     this.cachedPassphrases.clear()
     this.acceptedHostFingerprint = undefined
     this.poolGrowthPromptBlocked = false
-    this.refusedChannels.clear()
     this.setState('disconnected')
-    void sftp?.then(
-      (session) => session.end(),
-      () => undefined,
-    )
     await Promise.all([...clients].map((client) => closeSshClient(client)))
   }
 
@@ -324,12 +267,12 @@ export class SshHost implements ProjectHost {
     // not reserve a buffered slot until that handshake has completed.
     const release = await this.acquireExecSlot(opts.signal)
     try {
-      const { value: stream, reservation } = await this.openWithChannelRetry(
+      const stream = await this.transportPool.openChannel(
         'control',
-        (transport) =>
+        (client) =>
           new Promise<ClientChannel>((resolve, reject) => {
             try {
-              transport.client.exec(
+              client.exec(
                 remoteBufferedCommand(command, args, opts, statusMarker),
                 (error, value) => (error ? reject(error) : resolve(value)),
               )
@@ -339,7 +282,6 @@ export class SshHost implements ProjectHost {
           }),
         opts.signal,
       )
-      this.activateChannel(reservation, stream)
       return await new Promise((resolve, reject) => {
         let stdout = '',
           stderr = '',
@@ -556,31 +498,29 @@ export class SshHost implements ProjectHost {
   }
 
   private async openTunnelChannel(endpoint: LoopbackEndpoint): Promise<ClientChannel> {
-    const reservation = await this.reserveTransport('tunnel')
-    try {
-      const channel = await new Promise<ClientChannel>((resolve, reject) => {
-        try {
-          reservation.transport.client.forwardOut(
-            '127.0.0.1',
-            0,
-            endpoint.hostname,
-            endpoint.port,
-            (error, stream) => (error ? reject(error) : resolve(stream)),
-          )
-        } catch (error) {
-          reject(asError(error))
-        }
-      })
-      this.activateChannel(reservation, channel)
-      return channel
-    } catch (error) {
-      reservation.release()
-      throw error
-    }
+    return this.transportPool.openChannel(
+      'tunnel',
+      (client) =>
+        new Promise<ClientChannel>((resolve, reject) => {
+          try {
+            client.forwardOut(
+              '127.0.0.1',
+              0,
+              endpoint.hostname,
+              endpoint.port,
+              (error, stream) => (error ? reject(error) : resolve(stream)),
+            )
+          } catch (error) {
+            reject(asError(error))
+          }
+        }),
+      undefined,
+      1,
+    )
   }
 
   async spawnPty(opts: SpawnPtyOptions): Promise<PtyProcess> {
-    const { channel, transport } = await this.openTerminalPtyChannel(opts)
+    const channel = await this.openTerminalPtyChannel(opts)
     const data = new Set<(v: string) => void>(),
       exits = new Set<(v: { exitCode: number; signal: number | undefined }) => void>()
     const decoder = new StringDecoder('utf8')
@@ -591,7 +531,10 @@ export class SshHost implements ProjectHost {
       for (const cb of exits) cb({ exitCode, signal: undefined })
     }
     const transportFailure = (): void => reportExit(255)
-    transport.failureListeners.add(transportFailure)
+    const stopTransportFailure = this.transportPool.onChannelTransportFailure(
+      channel,
+      transportFailure,
+    )
     channel.on('data', (b: Buffer) => {
       const value = decoder.write(b)
       if (value) for (const cb of data) cb(value)
@@ -600,7 +543,7 @@ export class SshHost implements ProjectHost {
       reportExit(code ?? 0)
     })
     channel.on('close', () => {
-      transport.failureListeners.delete(transportFailure)
+      void stopTransportFailure()
       const final = decoder.end()
       if (final) for (const cb of data) cb(final)
       // Some SSH servers close a PTY channel without sending exit-status.
@@ -618,106 +561,30 @@ export class SshHost implements ProjectHost {
   }
 
   async readFile(path: HostPath, opts: ReadFileOptions = {}): Promise<Buffer> {
-    this.assertPath(path)
-    if (opts.pollingInterest) this.pollingFiles.add(path.path)
-    const key = `f:${path.path}`,
-      cached = this.cached<Buffer>(key)
-    if (cached) {
-      if (opts.pollingInterest) this.readDigests.set(path.path, contentDigest(cached))
-      return Buffer.from(cached)
-    }
-    const value = await this.sftp<Buffer>((s, done) => s.readFile(path.path, done))
-    this.cache.set(key, { expires: Date.now() + 2_000, value })
-    if (opts.pollingInterest) this.readDigests.set(path.path, contentDigest(value))
-    return Buffer.from(value)
+    return this.files.readFile(path, opts)
   }
   async readTextFile(
     path: HostPath,
     encoding: BufferEncoding = 'utf8',
     opts: ReadFileOptions = {},
   ): Promise<string> {
-    return (await this.readFile(path, opts)).toString(encoding)
+    return this.files.readTextFile(path, encoding, opts)
   }
   async writeFile(
     path: HostPath,
     value: Uint8Array | string,
     opts: WriteFileOptions = {},
   ): Promise<void> {
-    this.assertPath(path)
-    const data = Buffer.from(value)
-    const parent = remoteParent(path.path)
-    const basename = path.path.slice(parent === '/' ? 1 : parent.length + 1)
-    const temporary = `${parent === '/' ? '' : parent}/.${basename}.hvir-${randomUUID()}.tmp`
-    let mode: number | undefined
-    try {
-      const attrs = await this.sftp<import('ssh2').Stats>((s, done) =>
-        s.lstat(path.path, done),
-      )
-      mode = attrs.mode & 0o777
-    } catch (reason) {
-      if (!isNoSuchFile(reason)) throw reason
-    }
-    const expectedDigest = this.readDigests.get(path.path)
-    try {
-      await this.sftp<void>((s, done) =>
-        s.writeFile(temporary, data, mode === undefined ? {} : { mode }, done),
-      )
-      // Revalidate after uploading the sibling temporary so an external edit
-      // during a slow transfer cannot be silently replaced by the rename.
-      if (opts.expectedMtimeMs !== undefined) {
-        const currentAttrs = await this.sftp<import('ssh2').Stats>((s, done) =>
-          s.lstat(path.path, done),
-        )
-        if (currentAttrs.mtime * 1_000 !== opts.expectedMtimeMs) {
-          throw fileChangedError(true)
-        }
-      }
-      if (expectedDigest !== undefined) {
-        const current = await this.sftp<Buffer>((s, done) => s.readFile(path.path, done))
-        if (contentDigest(current) !== expectedDigest) throw fileChangedError(true)
-      }
-      try {
-        // OpenSSH's extension has POSIX replacement semantics. Standard SFTP
-        // rename is retained as a fallback for non-OpenSSH servers.
-        await this.sftp<void>((s, done) =>
-          s.ext_openssh_rename(temporary, path.path, done),
-        )
-      } catch {
-        await this.sftp<void>((s, done) => s.rename(temporary, path.path, done))
-      }
-    } catch (reason) {
-      await this.sftp<void>((s, done) => s.unlink(temporary, done)).catch(() => undefined)
-      throw reason
-    }
-    this.readDigests.set(path.path, contentDigest(data))
-    this.fingerprintObservations.delete(path.path)
-    this.invalidate(path.path)
+    return this.files.writeFile(path, value, opts)
   }
   async readdir(path: HostPath): Promise<DirEntry[]> {
-    this.assertPath(path)
-    const key = `d:${path.path}`,
-      cached = this.cached<DirEntry[]>(key)
-    if (cached) return [...cached]
-    const raw = await this.sftp<import('ssh2').FileEntry[]>((s, done) =>
-      s.readdir(path.path, done),
-    )
-    const value = raw
-      .filter((e) => e.filename !== '.' && e.filename !== '..')
-      .map((e) => ({ name: e.filename, type: fileType(e.attrs.mode) }))
-    this.cache.set(key, { expires: Date.now() + 2_000, value })
-    return [...value]
+    return this.files.readdir(path)
   }
   async stat(path: HostPath): Promise<Stat> {
-    this.assertPath(path)
-    const a = await this.sftp<import('ssh2').Stats>((s, done) => s.lstat(path.path, done))
-    return { type: fileType(a.mode), size: a.size, mtimeMs: a.mtime * 1000, mode: a.mode }
+    return this.files.stat(path)
   }
   async realpath(path: HostPath): Promise<HostPath> {
-    this.assertPath(path)
-    return hostPath(
-      this.hostId,
-      await this.sftp<string>((s, done) => s.realpath(path.path, done)),
-    )
+    return this.files.realpath(path)
   }
 
   watch(
@@ -725,53 +592,7 @@ export class SshHost implements ProjectHost {
     onEvent: (e: WatchEvent) => void,
     opts: WatchOptions = {},
   ): Disposer {
-    this.assertPath(path)
-    if ((opts.additionalPaths?.length ?? 0) > 256) {
-      throw new Error('Too many additional watch paths')
-    }
-    for (const candidate of opts.additionalPaths ?? []) this.assertPath(candidate)
-    const watchedPaths = [path, ...(opts.additionalPaths ?? [])].filter(
-      (candidate, index, values) =>
-        values.findIndex((value) => value.path === candidate.path) === index,
-    )
-    let stopped = false
-    let stopBackend: Disposer | undefined
-    const start = (): void => {
-      if (stopped || stopBackend || this.state !== 'connected') return
-      const stopWatch =
-        this.tier === 'inotify'
-          ? this.watchInotify(path, onEvent, opts)
-          : this.watchPolling(path, onEvent, opts)
-      const pulseIntervalMs =
-        this.options.refreshPulseIntervalMs ?? this.options.pollIntervalMs ?? 2_000
-      let pulseTimer: ReturnType<typeof setTimeout> | undefined
-      const pulse = (): void => {
-        if (stopped || this.state !== 'connected') return
-        for (const watchedPath of watchedPaths) {
-          this.invalidate(watchedPath.path)
-          onEvent({ type: 'change', path: watchedPath, synthetic: 'refresh' })
-        }
-        pulseTimer = setTimeout(pulse, pulseIntervalMs)
-      }
-      pulseTimer = setTimeout(pulse, pulseIntervalMs)
-      stopBackend = () => {
-        if (pulseTimer) clearTimeout(pulseTimer)
-        return stopWatch()
-      }
-    }
-    const stopState = this.onConnectionState((state) => {
-      if (state === 'connected') start()
-      else {
-        void stopBackend?.()
-        stopBackend = undefined
-      }
-    })
-    return () => {
-      stopped = true
-      void stopState()
-      void stopBackend?.()
-      stopBackend = undefined
-    }
+    return this.watches.watch(path, onEvent, opts)
   }
 
   private async open(): Promise<void> {
@@ -780,13 +601,10 @@ export class SshHost implements ProjectHost {
     this.pendingClients.add(client)
     const generation = ++this.clientGeneration
     const previousClient = this.client
-    const previousTransport = previousClient
-      ? this.transportForClient(previousClient)
-      : undefined
     this.client = client
-    this.sftpSession = undefined
+    this.files.advanceGeneration()
     if (previousClient && previousClient !== client) {
-      if (previousTransport) this.retireTransport(previousTransport)
+      this.transportPool.retireClient(previousClient)
       try {
         previousClient.destroy()
       } catch {
@@ -802,7 +620,6 @@ export class SshHost implements ProjectHost {
         !this.disposed && this.client === client && this.clientGeneration === generation,
       credentialAttempt,
     )
-    const transportRef: { current?: SshTransport } = {}
     await new Promise<void>((resolve, reject) => {
       let ready = false
       let settled = false
@@ -830,11 +647,11 @@ export class SshHost implements ProjectHost {
         if (!ready) finish(error)
       })
       client.on('close', () => {
-        if (transportRef.current) this.handleTransportClose(transportRef.current)
+        this.transportPool.retireClient(client)
         const current = this.client === client && this.clientGeneration === generation
         if (current) {
           this.client = undefined
-          this.sftpSession = undefined
+          this.files.advanceGeneration()
         }
         if (!ready) {
           finish(new Error('SSH connection closed before authentication completed'))
@@ -854,7 +671,7 @@ export class SshHost implements ProjectHost {
     if (this.client !== client || this.clientGeneration !== generation) {
       throw new Error('SSH connection was replaced before it became ready')
     }
-    transportRef.current = this.registerTransport('control', client, true)
+    this.transportPool.registerPrimary(client)
     this.reconnectAttempt = 0
     this.setState('connected')
     const probe = new AbortController()
@@ -1064,13 +881,13 @@ export class SshHost implements ProjectHost {
     command: string,
     args: readonly string[],
     opts: ExecOptions,
-  ): Promise<{ channel: ClientChannel; transport: SshTransport }> {
-    const { value: channel, reservation } = await this.openWithChannelRetry(
+  ): Promise<{ channel: ClientChannel }> {
+    const channel = await this.transportPool.openChannel(
       'control',
-      (transport) =>
+      (client) =>
         new Promise<ClientChannel>((resolve, reject) => {
           try {
-            transport.client.exec(remoteCommand(command, args, opts), (error, stream) =>
+            client.exec(remoteCommand(command, args, opts), (error, stream) =>
               error ? reject(error) : resolve(stream),
             )
           } catch (error) {
@@ -1079,19 +896,16 @@ export class SshHost implements ProjectHost {
         }),
       opts.signal,
     )
-    this.activateChannel(reservation, channel)
-    return { channel, transport: reservation.transport }
+    return { channel }
   }
 
-  private async openTerminalPtyChannel(
-    opts: SpawnPtyOptions,
-  ): Promise<{ channel: ClientChannel; transport: SshTransport }> {
-    const { value: channel, reservation } = await this.openWithChannelRetry(
+  private async openTerminalPtyChannel(opts: SpawnPtyOptions): Promise<ClientChannel> {
+    return this.transportPool.openChannel(
       'terminal',
-      (transport) =>
+      (client) =>
         new Promise<ClientChannel>((resolve, reject) => {
           try {
-            transport.client.exec(
+            client.exec(
               remoteCommand(opts.file, opts.args ?? [], {
                 cwd: opts.cwd,
                 env: opts.env,
@@ -1111,35 +925,6 @@ export class SshHost implements ProjectHost {
           }
         }),
     )
-    this.activateChannel(reservation, channel)
-    return { channel, transport: reservation.transport }
-  }
-
-  private async openWithChannelRetry<T>(
-    role: SshTransportRole,
-    open: (transport: SshTransport) => Promise<T>,
-    signal?: AbortSignal,
-  ): Promise<{ value: T; reservation: SshTransportReservation }> {
-    const excluded = new Set<number>()
-    for (let attempt = 0; attempt < SSH_CHANNEL_OPEN_ATTEMPTS; attempt++) {
-      throwIfAborted(signal, this.lifecycleAbort.signal)
-      const reservation = await this.reserveTransport(role, excluded)
-      try {
-        const value = await open(reservation.transport)
-        return { value, reservation }
-      } catch (error) {
-        reservation.release()
-        if (!isChannelOpenFailure(error) || attempt + 1 >= SSH_CHANNEL_OPEN_ATTEMPTS) {
-          throw error
-        }
-        this.noteChannelRefusal(reservation.transport)
-        // Retry one transient refusal on the same transport. A second refusal
-        // spills to another healthy/new transport for the rest of this open.
-        if (attempt > 0) excluded.add(reservation.transport.id)
-        await abortableDelay(25 * 2 ** attempt, signal, this.lifecycleAbort.signal)
-      }
-    }
-    throw sshCapacityError(role)
   }
 
   private serializedPrompt<T>(work: () => Promise<T>): Promise<T> {
@@ -1162,144 +947,12 @@ export class SshHost implements ProjectHost {
     }
   }
 
-  private registerTransport(
-    role: SshTransportRole,
-    client: Client,
-    primary: boolean,
-  ): SshTransport {
-    const existing = this.transportForClient(client)
-    if (existing) return existing
-    const transport: SshTransport = {
-      id: this.nextTransportId++,
-      role,
-      client,
-      primary,
-      channels: new Set(),
-      failureListeners: new Set(),
-      pendingChannels: 0,
-      channelBudget:
-        role === 'control'
-          ? SSH_CONTROL_CHANNEL_BUDGET
-          : role === 'tunnel'
-            ? SSH_TUNNEL_CHANNEL_BUDGET
-            : SSH_TERMINAL_CHANNEL_BUDGET,
-      sftpActive: false,
-      closed: false,
-    }
-    this.transports.add(transport)
-    return transport
-  }
-
-  private transportForClient(client: Client): SshTransport | undefined {
-    return [...this.transports].find(
-      (transport) => transport.client === client && !transport.closed,
-    )
-  }
-
-  private transportLoad(transport: SshTransport): number {
-    return (
-      transport.channels.size + transport.pendingChannels + (transport.sftpActive ? 1 : 0)
-    )
-  }
-
-  private availableTransport(
-    role: SshTransportRole,
-    excluded: ReadonlySet<number>,
-  ): SshTransport | undefined {
-    return [...this.transports]
-      .filter(
-        (transport) =>
-          !transport.closed &&
-          transport.role === role &&
-          !excluded.has(transport.id) &&
-          this.transportLoad(transport) < transport.channelBudget,
-      )
-      .sort((a, b) => this.transportLoad(a) - this.transportLoad(b) || a.id - b.id)[0]
-  }
-
-  private reserveOnTransport(transport: SshTransport): SshTransportReservation {
-    if (transport.idleTimer) {
-      clearTimeout(transport.idleTimer)
-      transport.idleTimer = undefined
-    }
-    transport.pendingChannels++
-    let released = false
-    return {
-      transport,
-      release: () => {
-        if (released) return
-        released = true
-        transport.pendingChannels = Math.max(0, transport.pendingChannels - 1)
-        this.scheduleTransportIdle(transport)
-      },
-    }
-  }
-
-  private async reserveTransport(
-    role: SshTransportRole,
-    excluded: ReadonlySet<number> = new Set(),
-  ): Promise<SshTransportReservation> {
-    const primary = await this.connected()
-    this.registerTransport('control', primary, true)
-    const available = this.availableTransport(role, excluded)
-    if (available) return this.reserveOnTransport(available)
-
-    let resolveResult!: (reservation: SshTransportReservation) => void
-    let rejectResult!: (error: Error) => void
-    const result = new Promise<SshTransportReservation>((resolve, reject) => {
-      resolveResult = resolve
-      rejectResult = reject
-    })
-    const grow = async (): Promise<void> => {
-      try {
-        const reused = this.availableTransport(role, excluded)
-        if (reused) {
-          resolveResult(this.reserveOnTransport(reused))
-          return
-        }
-        const live = [...this.transports].filter((transport) => !transport.closed)
-        const roleCount = live.filter((transport) => transport.role === role).length
-        if (
-          live.length >= SSH_MAX_PHYSICAL_TRANSPORTS ||
-          (role === 'control' && roleCount >= SSH_MAX_CONTROL_TRANSPORTS) ||
-          (role === 'tunnel' && roleCount >= SSH_MAX_TUNNEL_TRANSPORTS)
-        ) {
-          throw sshCapacityError(role)
-        }
-        if (this.poolGrowthPromptBlocked) {
-          throw new Error(
-            `SSH ${role} capacity is unavailable after authentication was cancelled or refused`,
-          )
-        }
-        let transport: SshTransport
-        try {
-          transport = await this.openAuxiliaryTransport(role)
-        } catch (error) {
-          throw new Error(
-            `SSH ${role} capacity could not grow; existing sessions remain connected: ${asError(error).message}`,
-            { cause: error },
-          )
-        }
-        resolveResult(this.reserveOnTransport(transport))
-      } catch (error) {
-        rejectResult(asError(error))
-      }
-    }
-    const queued = this.transportGrowthTail.then(grow, grow)
-    this.transportGrowthTail = queued.then(
-      () => undefined,
-      () => undefined,
-    )
-    return result
-  }
-
-  private async openAuxiliaryTransport(role: SshTransportRole): Promise<SshTransport> {
+  private async openAuxiliaryTransport(_role: SshTransportRole): Promise<Client> {
     const client = this.options.clientFactory?.() ?? new Client()
     this.pendingClients.add(client)
     let ready = false
     let closed = false
     let prompted = false
-    let transport: SshTransport | undefined
     const credentialAttempt = this.createCredentialAttempt()
     const config = this.connectConfig(
       'pool',
@@ -1329,7 +982,7 @@ export class SshHost implements ProjectHost {
         })
         client.on('close', () => {
           closed = true
-          if (transport) this.handleTransportClose(transport)
+          this.transportPool.retireClient(client)
           if (!ready) {
             finish(new Error('SSH pool transport closed before authentication completed'))
           }
@@ -1343,8 +996,7 @@ export class SshHost implements ProjectHost {
       if (this.disposed || closed) {
         throw new Error('SSH pool transport closed before it became available')
       }
-      transport = this.registerTransport(role, client, false)
-      return transport
+      return client
     } catch (error) {
       if (prompted) this.poolGrowthPromptBlocked = true
       if (!closed) {
@@ -1360,75 +1012,12 @@ export class SshHost implements ProjectHost {
     }
   }
 
-  private activateChannel(
-    reservation: SshTransportReservation,
-    channel: ClientChannel,
-  ): void {
-    reservation.release()
-    const { transport } = reservation
-    if (transport.closed) {
-      channel.close()
-      return
+  private assertTransportGrowthAllowed(role: SshTransportRole): void {
+    if (this.poolGrowthPromptBlocked) {
+      throw new Error(
+        `SSH ${role} capacity is unavailable after authentication was cancelled or refused`,
+      )
     }
-    if (transport.idleTimer) {
-      clearTimeout(transport.idleTimer)
-      transport.idleTimer = undefined
-    }
-    transport.channels.add(channel)
-    this.channels.add(channel)
-    let released = false
-    channel.once('close', () => {
-      if (released) return
-      released = true
-      transport.channels.delete(channel)
-      this.channels.delete(channel)
-      this.scheduleTransportIdle(transport)
-    })
-  }
-
-  private noteChannelRefusal(transport: SshTransport): void {
-    this.refusedChannels.set(
-      transport.id,
-      Math.min(1_000, (this.refusedChannels.get(transport.id) ?? 0) + 1),
-    )
-  }
-
-  private scheduleTransportIdle(transport: SshTransport): void {
-    if (
-      transport.primary ||
-      transport.closed ||
-      transport.idleTimer ||
-      this.transportLoad(transport) !== 0
-    ) {
-      return
-    }
-    transport.idleTimer = setTimeout(() => {
-      transport.idleTimer = undefined
-      if (transport.closed || this.transportLoad(transport) !== 0) return
-      this.retireTransport(transport)
-      try {
-        transport.client.end()
-      } catch {
-        // Idle retirement is best-effort; the transport is already unregistered.
-      }
-    }, SSH_TRANSPORT_IDLE_GRACE_MS)
-  }
-
-  private handleTransportClose(transport: SshTransport): void {
-    this.retireTransport(transport)
-  }
-
-  private retireTransport(transport: SshTransport): void {
-    if (transport.closed) return
-    transport.closed = true
-    if (transport.idleTimer) clearTimeout(transport.idleTimer)
-    transport.idleTimer = undefined
-    transport.sftpActive = false
-    this.transports.delete(transport)
-    for (const fail of transport.failureListeners) fail()
-    transport.failureListeners.clear()
-    for (const channel of transport.channels) this.channels.delete(channel)
-    transport.channels.clear()
   }
 
   private async connected(): Promise<Client> {
@@ -1517,416 +1106,6 @@ export class SshHost implements ProjectHost {
   private notifyState(): void {
     for (const cb of this.listeners) cb(this.state)
   }
-  private sftp<T>(
-    op: (s: SFTPWrapper, done: (e: Error | null | undefined, value: T) => void) => void,
-  ): Promise<T> {
-    return this.getSftp().then(
-      (s) =>
-        new Promise<T>((resolve, reject) =>
-          op(s, (reason, value) => {
-            if (reason) reject(reason)
-            else resolve(value)
-          }),
-        ),
-    )
-  }
-
-  private getSftp(): Promise<SFTPWrapper> {
-    if (this.sftpSession) return this.sftpSession
-    const pending = this.openSftpSession()
-    this.sftpSession = pending
-    void pending.then(
-      (session) => {
-        session.once('close', () => {
-          if (this.sftpSession === pending) this.sftpSession = undefined
-        })
-      },
-      () => {
-        if (this.sftpSession === pending) this.sftpSession = undefined
-      },
-    )
-    return pending
-  }
-
-  private async openSftpSession(): Promise<SFTPWrapper> {
-    const { value: session, reservation } = await this.openWithChannelRetry(
-      'control',
-      (transport) =>
-        new Promise<SFTPWrapper>((resolve, reject) => {
-          try {
-            transport.client.sftp((error, value) =>
-              error ? reject(error) : resolve(value),
-            )
-          } catch (error) {
-            reject(asError(error))
-          }
-        }),
-    )
-    reservation.release()
-    const { transport } = reservation
-    if (transport.idleTimer) clearTimeout(transport.idleTimer)
-    transport.idleTimer = undefined
-    transport.sftpActive = true
-    session.once('close', () => {
-      transport.sftpActive = false
-      this.scheduleTransportIdle(transport)
-    })
-    return session
-  }
-
-  private watchInotify(
-    path: HostPath,
-    onEvent: (e: WatchEvent) => void,
-    opts: WatchOptions,
-  ): Disposer {
-    let stopped = false
-    const args = ['-m', '-e', 'modify,create,delete,move', '--format', '%e|%w%f']
-    if (opts.recursive !== false) args.push('-r')
-    if (opts.excludeDirectoryNames?.length) {
-      const names = opts.excludeDirectoryNames.map(escapeRegex).join('|')
-      args.push('--exclude', `(^|/)(${names})(/|$)`)
-    }
-    args.push(
-      path.path,
-      ...(opts.additionalPaths ?? []).map((candidate) => candidate.path),
-    )
-    const handle = this.execStream('inotifywait', args)
-    let pending = ''
-    handle.onStdout((chunk) => {
-      pending += chunk
-      const lines = pending.split('\n')
-      pending = lines.pop() ?? ''
-      for (const line of lines) {
-        const at = line.indexOf('|')
-        if (at < 0) continue
-        const flags = line.slice(0, at),
-          changed = line.slice(at + 1)
-        const type = inotifyEventType(flags)
-        this.invalidate(changed)
-        onEvent({ type, path: hostPath(this.hostId, changed) })
-      }
-    })
-    let pollingStop: Disposer | undefined
-    let watchdogStop: Disposer | undefined = this.watchPolling(
-      path,
-      onEvent,
-      opts,
-      this.options.watchdogIntervalMs ??
-        Math.max(10_000, this.options.pollIntervalMs ?? 2_000),
-    )
-    let fallingBack = false
-    const fallback = (error?: Error): void => {
-      if (stopped || pollingStop || fallingBack) return
-      fallingBack = true
-      if (error) opts.onError?.(error)
-      handle.dispose()
-      void watchdogStop?.()
-      watchdogStop = undefined
-      this.tier = 'polling'
-      pollingStop = this.watchPolling(path, onEvent, opts)
-      this.notifyState()
-      fallingBack = false
-    }
-    handle.onError((e) => fallback(e))
-    handle.onExit(({ code }) => {
-      if (!stopped) fallback(new Error(`inotifywait exited (${String(code)})`))
-    })
-    return () => {
-      stopped = true
-      handle.dispose()
-      void watchdogStop?.()
-      void pollingStop?.()
-    }
-  }
-  private watchPolling(
-    path: HostPath,
-    onEvent: (e: WatchEvent) => void,
-    opts: WatchOptions,
-    requestedIntervalMs?: number,
-  ): Disposer {
-    let stopped = false,
-      priorityInitialized = false,
-      previousPriority = new Map<string, string>(),
-      slowInitialized = false,
-      previousSlow = new Map<string, string>(),
-      timer: ReturnType<typeof setTimeout> | undefined,
-      retryMs = requestedIntervalMs ?? this.options.pollIntervalMs ?? 2_000,
-      lastError: string | undefined
-    const intervalMs = requestedIntervalMs ?? this.options.pollIntervalMs ?? 2_000
-    const slowBaseMs = this.options.slowScanIntervalMs ?? Math.max(30_000, intervalMs * 5)
-    const slowMaxMs =
-      this.options.maxSlowScanIntervalMs ?? Math.max(5 * 60_000, slowBaseMs)
-    const directoryBatchSize = Math.max(
-      1,
-      Math.min(64, this.options.pollDirectoryBatchSize ?? 4),
-    )
-    let slowDelayMs = slowBaseMs
-    let nextSlowCycleAt = 0
-    let slowCycleActive = false
-    let slowQueue: string[] = []
-    let slowVisited = new Set<string>()
-    let slowSnapshot = new Map<string, string>()
-    let slowError: string | undefined
-    const schedule = (delay: number): void => {
-      if (stopped) return
-      timer = setTimeout(() => void poll(), delay)
-    }
-    const emitChanges = (
-      previous: Map<string, string>,
-      current: Map<string, string>,
-      initialized: boolean,
-    ): boolean => {
-      if (!initialized) return false
-      let changed = false
-      for (const [file, stamp] of current) {
-        if (previous.get(file) === stamp) continue
-        changed = true
-        this.invalidate(file)
-        onEvent({
-          type: previous.has(file)
-            ? 'change'
-            : stamp.startsWith('dir:')
-              ? 'addDir'
-              : 'add',
-          path: hostPath(this.hostId, file),
-        })
-      }
-      for (const [file, stamp] of previous) {
-        if (current.has(file)) continue
-        changed = true
-        this.fingerprintObservations.delete(file)
-        this.invalidate(file)
-        onEvent({
-          type: stamp.startsWith('dir:') ? 'unlinkDir' : 'unlink',
-          path: hostPath(this.hostId, file),
-        })
-      }
-      return changed
-    }
-    const poll = async (): Promise<void> => {
-      try {
-        const current = await this.pollPrioritySnapshot(path, opts)
-        if (stopped) return
-        if (!priorityInitialized) {
-          this.invalidate(path.path)
-          onEvent({ type: 'change', path, synthetic: 'refresh' })
-        }
-        emitChanges(previousPriority, current, priorityInitialized)
-        previousPriority = current
-        priorityInitialized = true
-        retryMs = intervalMs
-        lastError = undefined
-
-        // Recursive safety coverage advances in small directory batches. The
-        // fast path above keeps fetched/open files and the root responsive;
-        // this cycle is only a backstop for silent/missed deep-tree events.
-        if (
-          opts.recursive !== false &&
-          (slowCycleActive || Date.now() >= nextSlowCycleAt)
-        ) {
-          if (!slowCycleActive) {
-            slowCycleActive = true
-            slowQueue = [path.path]
-            slowVisited = new Set([path.path])
-            slowSnapshot = new Map()
-          }
-          try {
-            await this.pollDirectoryBatch(
-              slowQueue,
-              slowVisited,
-              slowSnapshot,
-              opts,
-              directoryBatchSize,
-            )
-            if (!slowQueue.length) {
-              // Root entries and fetched files already belong to the priority
-              // map, so omit them from the slow diff to avoid duplicate events.
-              for (const file of current.keys()) slowSnapshot.delete(file)
-              for (const file of this.pollingFiles) {
-                slowSnapshot.delete(file)
-                previousSlow.delete(file)
-              }
-              const changed = emitChanges(previousSlow, slowSnapshot, slowInitialized)
-              previousSlow = slowSnapshot
-              slowInitialized = true
-              slowCycleActive = false
-              slowDelayMs = changed ? slowBaseMs : Math.min(slowMaxMs, slowDelayMs * 2)
-              nextSlowCycleAt = Date.now() + slowDelayMs
-              slowError = undefined
-            }
-          } catch (reason) {
-            const error = asError(reason)
-            if (error.message !== slowError) opts.onError?.(error)
-            slowError = error.message
-            slowCycleActive = false
-            slowDelayMs = Math.min(slowMaxMs, Math.max(slowBaseMs, slowDelayMs * 2))
-            nextSlowCycleAt = Date.now() + slowDelayMs
-          }
-        }
-      } catch (e) {
-        if (stopped) return
-        const error = asError(e)
-        if (error.message !== lastError) opts.onError?.(error)
-        lastError = error.message
-        retryMs = Math.min(30_000, Math.max(intervalMs, retryMs * 2))
-      } finally {
-        schedule(retryMs)
-      }
-    }
-    void poll()
-    return () => {
-      stopped = true
-      if (timer) clearTimeout(timer)
-    }
-  }
-  private async pollPrioritySnapshot(
-    root: HostPath,
-    opts: WatchOptions,
-  ): Promise<Map<string, string>> {
-    const sftp = await this.getSftp()
-    const result = new Map<string, string>()
-    const roots = [root, ...(opts.additionalPaths ?? [])].filter(
-      (candidate, index, values) =>
-        values.findIndex((value) => value.path === candidate.path) === index,
-    )
-    for (const watchedRoot of roots) {
-      let rootAttrs: import('ssh2').Attributes
-      try {
-        rootAttrs = await sftpLstat(sftp, watchedRoot.path)
-      } catch (reason) {
-        if (!isNoSuchFile(reason)) throw reason
-        continue
-      }
-      if (fileType(rootAttrs.mode) !== 'dir') {
-        result.set(
-          watchedRoot.path,
-          await this.pollStamp(
-            sftp,
-            watchedRoot.path,
-            rootAttrs,
-            this.pollingFiles.has(watchedRoot.path),
-          ),
-        )
-        continue
-      }
-
-      const entries = await sftpReaddir(sftp, watchedRoot.path)
-      const entryNames = new Set(entries.map((entry) => entry.filename))
-      const gitMetadataDirectory =
-        opts.recursive === false &&
-        entryNames.has('HEAD') &&
-        (entryNames.has('index') ||
-          entryNames.has('objects') ||
-          entryNames.has('commondir'))
-      for (const entry of entries) {
-        if (entry.filename === '.' || entry.filename === '..') continue
-        const child = remoteChild(watchedRoot.path, entry.filename)
-        const fingerprint =
-          this.pollingFiles.has(child) ||
-          (gitMetadataDirectory && GIT_PRIORITY_FILES.has(entry.filename))
-        result.set(child, await this.pollStamp(sftp, child, entry.attrs, fingerprint))
-      }
-    }
-
-    if (opts.recursive !== false) {
-      const prefix = root.path === '/' ? '/' : `${root.path}/`
-      for (const file of this.pollingFiles) {
-        if (!file.startsWith(prefix) || result.has(file)) continue
-        try {
-          const attrs = await sftpLstat(sftp, file)
-          result.set(file, await this.pollStamp(sftp, file, attrs, true))
-        } catch (reason) {
-          if (!isNoSuchFile(reason)) throw reason
-          // Omission is the deletion signal against the previous priority map.
-        }
-      }
-    }
-    return result
-  }
-  private async pollDirectoryBatch(
-    queue: string[],
-    visited: Set<string>,
-    result: Map<string, string>,
-    opts: WatchOptions,
-    limit: number,
-  ): Promise<void> {
-    const sftp = await this.getSftp()
-    const excluded = new Set(opts.excludeDirectoryNames ?? [])
-    for (let count = 0; count < limit && queue.length; count++) {
-      const directory = queue.shift()
-      if (!directory) break
-      const entries = await sftpReaddir(sftp, directory)
-      for (const entry of entries) {
-        if (entry.filename === '.' || entry.filename === '..') continue
-        const child = remoteChild(directory, entry.filename)
-        const type = fileType(entry.attrs.mode)
-        result.set(child, metadataStamp(entry.attrs))
-        if (type === 'dir' && !excluded.has(entry.filename) && !visited.has(child)) {
-          visited.add(child)
-          queue.push(child)
-        }
-      }
-    }
-  }
-  private async pollStamp(
-    sftp: SFTPWrapper,
-    path: string,
-    attrs: import('ssh2').Attributes,
-    fingerprint: boolean,
-  ): Promise<string> {
-    const metadata = metadataStamp(attrs)
-    if (fileType(attrs.mode) !== 'file' || !fingerprint) return metadata
-
-    const now = Date.now()
-    const previous = this.fingerprintObservations.get(path)
-    const metadataChanged = previous?.metadata !== metadata
-    if (!previous || metadataChanged || now <= previous.observeUntil) {
-      const digest = contentDigest(await sftpReadFile(sftp, path))
-      const observeUntil =
-        !previous || metadataChanged
-          ? now + (this.options.fingerprintObservationWindowMs ?? 5_000)
-          : previous.observeUntil
-      this.fingerprintObservations.set(path, { metadata, digest, observeUntil })
-      return `${metadata}:${digest}`
-    }
-    return `${metadata}:${previous.digest}`
-  }
-  private cached<T extends Buffer | DirEntry[]>(key: string): T | undefined {
-    const v = this.cache.get(key)
-    if (!v || v.expires < Date.now()) {
-      this.cache.delete(key)
-      return undefined
-    }
-    return v.value as T
-  }
-  private invalidate(path: string): void {
-    const normalized = path.length > 1 ? path.replace(/\/+$/, '') : path
-    const descendantPrefix = normalized === '/' ? '/' : `${normalized}/`
-    for (const key of this.cache.keys()) {
-      if (
-        key === `f:${normalized}` ||
-        key === `d:${normalized}` ||
-        key.startsWith(`f:${descendantPrefix}`) ||
-        key.startsWith(`d:${descendantPrefix}`)
-      ) {
-        this.cache.delete(key)
-      }
-    }
-    // A create/delete/rename changes every cached directory listing between
-    // the entry and the watched root. Without parent invalidation an inotify
-    // burst can trigger a refresh inside the listing TTL, re-read stale cache,
-    // and then remain stale forever because no later event arrives.
-    let parent = remoteParent(normalized)
-    for (;;) {
-      this.cache.delete(`d:${parent}`)
-      if (parent === '/') break
-      parent = remoteParent(parent)
-    }
-  }
-  private assertPath(path: HostPath): void {
-    if (path.hostId !== this.hostId)
-      throw new Error(`SshHost expected ${this.hostId}, got ${path.hostId}`)
-  }
 }
 
 function remoteCommand(
@@ -1967,64 +1146,11 @@ function recoverBufferedExecStatus(
 function quote(value: string): string {
   return `'${value.replaceAll("'", `'"'"'`)}'`
 }
-function escapeRegex(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-}
-function remoteParent(path: string): string {
-  const at = path.lastIndexOf('/')
-  return at <= 0 ? '/' : path.slice(0, at)
-}
-function remoteChild(parent: string, name: string): string {
-  return parent === '/' ? `/${name}` : `${parent.replace(/\/$/, '')}/${name}`
-}
-function metadataStamp(attrs: import('ssh2').Attributes): string {
-  return `${fileType(attrs.mode)}:${attrs.mtime}:${attrs.size}:${attrs.mode}`
-}
-function sftpLstat(sftp: SFTPWrapper, path: string): Promise<import('ssh2').Stats> {
-  return new Promise((resolve, reject) =>
-    sftp.lstat(path, (error, value) => (error ? reject(error) : resolve(value))),
-  )
-}
-function sftpReaddir(
-  sftp: SFTPWrapper,
-  path: string,
-): Promise<import('ssh2').FileEntry[]> {
-  return new Promise((resolve, reject) =>
-    sftp.readdir(path, (error, value) => (error ? reject(error) : resolve(value))),
-  )
-}
-function sftpReadFile(sftp: SFTPWrapper, path: string): Promise<Buffer> {
-  return new Promise((resolve, reject) =>
-    sftp.readFile(path, (error, value) => (error ? reject(error) : resolve(value))),
-  )
-}
-function inotifyEventType(flags: string): WatchEventType {
-  const directory = flags.includes('ISDIR')
-  if (flags.includes('DELETE') || flags.includes('MOVED_FROM')) {
-    return directory ? 'unlinkDir' : 'unlink'
-  }
-  if (flags.includes('CREATE') || flags.includes('MOVED_TO')) {
-    return directory ? 'addDir' : 'add'
-  }
-  return 'change'
-}
 function isRecoverableAuthenticationError(error: Error): boolean {
   const level = (error as Error & { level?: string }).level
   return (
     level === 'agent' ||
     (level === 'client-authentication' && /\bsign(?:ing|ature)?\b/i.test(error.message))
-  )
-}
-function isNoSuchFile(reason: unknown): boolean {
-  const code = (reason as { code?: unknown } | undefined)?.code
-  return code === 2 || code === 'ENOENT'
-}
-function contentDigest(value: Buffer): string {
-  return createHash('sha256').update(value).digest('base64')
-}
-function fileChangedError(remote: boolean): Error {
-  return new Error(
-    `File changed${remote ? ' on the remote host' : ''} since it was opened; reload before saving`,
   )
 }
 function subscribe<T>(set: Set<(v: T) => void>, cb: (v: T) => void): Disposer {
@@ -2035,14 +1161,6 @@ function subscribe<T>(set: Set<(v: T) => void>, cb: (v: T) => void): Disposer {
 }
 function asError(value: unknown): Error {
   return value instanceof Error ? value : new Error(String(value))
-}
-function isChannelOpenFailure(value: unknown): boolean {
-  return value instanceof Error && /\bchannel open failure\b/i.test(value.message)
-}
-function sshCapacityError(role: SshTransportRole): Error {
-  return new Error(
-    `SSH ${role} capacity is full (${SSH_MAX_PHYSICAL_TRANSPORTS} transport limit); existing sessions remain connected`,
-  )
 }
 function closeSshClient(client: Client): Promise<void> {
   return new Promise<void>((resolve) => {
@@ -2069,48 +1187,6 @@ function closeSshClient(client: Client): Promise<void> {
     }
   })
 }
-function abortableDelay(
-  ms: number,
-  ...signals: Array<AbortSignal | undefined>
-): Promise<void> {
-  const activeSignals = signals.filter(
-    (signal): signal is AbortSignal => signal !== undefined,
-  )
-  if (activeSignals.some((signal) => signal.aborted)) {
-    return Promise.reject(abortError())
-  }
-  return new Promise((resolve, reject) => {
-    const cleanup = (): void => {
-      for (const signal of activeSignals) signal.removeEventListener('abort', abort)
-    }
-    const finish = (): void => {
-      cleanup()
-      resolve()
-    }
-    const abort = (): void => {
-      clearTimeout(timer)
-      cleanup()
-      reject(abortError())
-    }
-    const timer = setTimeout(finish, ms)
-    for (const signal of activeSignals) {
-      signal.addEventListener('abort', abort, { once: true })
-    }
-  })
-}
-function throwIfAborted(...signals: Array<AbortSignal | undefined>): void {
-  if (signals.some((signal) => signal?.aborted)) throw abortError()
-}
 function abortError(): Error {
   return new DOMException('The operation was aborted', 'AbortError')
-}
-function fileType(mode: number): FileType {
-  const type = mode & 0o170000
-  return type === 0o100000
-    ? 'file'
-    : type === 0o040000
-      ? 'dir'
-      : type === 0o120000
-        ? 'symlink'
-        : 'other'
 }

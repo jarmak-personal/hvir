@@ -57,3 +57,4 @@ const api: HvirApi = {
 }
 
 contextBridge.exposeInMainWorld('hvir', api)
+ipcRenderer.send('app:renderer-ready', undefined)
