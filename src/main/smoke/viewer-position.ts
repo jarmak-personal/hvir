@@ -146,7 +146,7 @@ export function verifyViewerPositions(
       );
       cleanFile.click();
       await waitFor(
-        () => document.querySelector('.viewer-title')?.textContent
+        () => document.querySelector('.viewer-tab.active .tab-name')?.textContent
           ?.includes(${JSON.stringify(cleanPath.path.split('/').at(-1))}),
         'clean diff fixture did not open'
       );

@@ -115,6 +115,8 @@ export function FileViewer({
   const [showBlame, setShowBlame] = useState(false)
   const [blame, setBlame] = useState<readonly GitBlameRun[]>([])
   const [blameStatus, setBlameStatus] = useState('')
+  const [modeControlExpanded, setModeControlExpanded] = useState(false)
+  const modeControlRef = useRef<HTMLDivElement>(null)
   const currentPath = tab?.path
   const blameMode = tab?.mode
   const positionCapture = useRef<(() => ViewerDocumentPosition) | undefined>(undefined)
@@ -148,23 +150,34 @@ export function FileViewer({
     }
   }, [blameMode, currentPath, refreshVersion, showBlame])
 
+  useEffect(() => {
+    if (!modeControlExpanded) return
+    const collapseOutside = (event: PointerEvent): void => {
+      if (
+        event.target instanceof Node &&
+        !modeControlRef.current?.contains(event.target)
+      ) {
+        setModeControlExpanded(false)
+      }
+    }
+    document.addEventListener('pointerdown', collapseOutside, true)
+    return () => document.removeEventListener('pointerdown', collapseOutside, true)
+  }, [modeControlExpanded])
+
   return (
-    <>
-      <header className="viewer-toolbar">
-        <div className="viewer-title">
-          {tab ? basenameHostPath(tab.path) : 'No file open'}
-          {tab?.conflict ? (
+    <div className="viewer-body">
+      {tab ? (
+        <div className="viewer-floating-controls" role="toolbar" aria-label="Viewer">
+          {tab.conflict ? (
             <button className="conflict-badge" type="button" onClick={onReload}>
               Changed on disk · reload
             </button>
           ) : null}
-          {tab?.error && tab.file ? (
+          {tab.error && tab.file ? (
             <span className="viewer-operation-error" role="status" title={tab.error}>
               Save failed
             </span>
           ) : null}
-        </div>
-        {tab ? (
           <div className="view-controls">
             {tab.mode === 'diff' && !tab.diffRevision ? (
               <select
@@ -188,22 +201,51 @@ export function FileViewer({
                 Blame
               </button>
             ) : null}
-            <div className="mode-control" aria-label="View mode">
+            <div
+              ref={modeControlRef}
+              className={`mode-control${modeControlExpanded ? ' expanded' : ''}`}
+              role="group"
+              aria-label="View mode"
+              onFocus={(event) => {
+                if (
+                  event.target instanceof HTMLElement &&
+                  event.target.matches(':focus-visible')
+                ) {
+                  setModeControlExpanded(true)
+                }
+              }}
+              onBlur={(event) => {
+                if (
+                  !(event.relatedTarget instanceof Node) ||
+                  !event.currentTarget.contains(event.relatedTarget)
+                ) {
+                  setModeControlExpanded(false)
+                }
+              }}
+            >
               {(['rendered', 'source', 'diff'] as const).map((mode) => (
                 <button
                   type="button"
                   className={tab.mode === mode ? 'active' : ''}
                   aria-pressed={tab.mode === mode}
+                  aria-expanded={tab.mode === mode ? modeControlExpanded : undefined}
                   title={
                     tab.file?.binary && mode !== 'rendered'
                       ? 'Binary repository assets are available in rendered view only'
                       : mode === 'rendered' && !canRender(tab.path)
                         ? 'No renderer registered for this file type'
-                        : `${mode} view · Ctrl/Cmd+Shift+M cycles modes`
+                        : tab.mode === mode && !modeControlExpanded
+                          ? 'Choose view mode · Ctrl/Cmd+Shift+M cycles modes'
+                          : `${mode} view · Ctrl/Cmd+Shift+M cycles modes`
                   }
                   disabled={Boolean(tab.file?.binary && mode !== 'rendered')}
                   key={mode}
                   onClick={() => {
+                    if (tab.mode === mode && !modeControlExpanded) {
+                      setModeControlExpanded(true)
+                      return
+                    }
+                    setModeControlExpanded(false)
                     onMode(mode, positionCapture.current?.())
                   }}
                 >
@@ -211,33 +253,50 @@ export function FileViewer({
                 </button>
               ))}
             </div>
+            <select
+              className="mode-select"
+              aria-label="View mode"
+              value={tab.mode}
+              onChange={(event) => {
+                onMode(event.currentTarget.value as ViewMode, positionCapture.current?.())
+              }}
+            >
+              {(['rendered', 'source', 'diff'] as const).map((mode) => (
+                <option
+                  value={mode}
+                  disabled={Boolean(tab.file?.binary && mode !== 'rendered')}
+                  key={mode}
+                >
+                  {mode[0]?.toUpperCase()}
+                  {mode.slice(1)}
+                </option>
+              ))}
+            </select>
           </div>
-        ) : null}
-      </header>
-      <div className="viewer-body">
-        {!tab ? <EmptyViewer text="Choose a file from the tree" /> : null}
-        {tab?.loading ? <EmptyViewer text="Opening…" /> : null}
-        {tab?.error && !tab.file ? <EmptyViewer text={tab.error} error /> : null}
-        {tab && !tab.loading && tab.file?.binary && !binaryImage ? (
-          <BinaryFileView path={tab.path} size={tab.file.size} />
-        ) : null}
-        {tab && !tab.loading && tab.file && (!tab.file.binary || binaryImage) ? (
-          <ActiveView
-            tab={tab}
-            file={tab.file}
-            onContent={onContent}
-            onSave={onSave}
-            onPosition={onPosition}
-            blame={showBlame ? blame : []}
-            blameStatus={showBlame ? blameStatus : ''}
-            onOpenPath={onOpenPath}
-            refreshVersion={refreshVersion}
-            positionCapture={positionCapture}
-            onNavigationHandled={onNavigationHandled}
-          />
-        ) : null}
-      </div>
-    </>
+        </div>
+      ) : null}
+      {!tab ? <EmptyViewer text="Choose a file from the tree" /> : null}
+      {tab?.loading ? <EmptyViewer text="Opening…" /> : null}
+      {tab?.error && !tab.file ? <EmptyViewer text={tab.error} error /> : null}
+      {tab && !tab.loading && tab.file?.binary && !binaryImage ? (
+        <BinaryFileView path={tab.path} size={tab.file.size} />
+      ) : null}
+      {tab && !tab.loading && tab.file && (!tab.file.binary || binaryImage) ? (
+        <ActiveView
+          tab={tab}
+          file={tab.file}
+          onContent={onContent}
+          onSave={onSave}
+          onPosition={onPosition}
+          blame={showBlame ? blame : []}
+          blameStatus={showBlame ? blameStatus : ''}
+          onOpenPath={onOpenPath}
+          refreshVersion={refreshVersion}
+          positionCapture={positionCapture}
+          onNavigationHandled={onNavigationHandled}
+        />
+      ) : null}
+    </div>
   )
 }
 

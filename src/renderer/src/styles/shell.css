@@ -4,15 +4,15 @@
   --terminal-rail-track: 220px;
 
   display: grid;
-  grid-template-columns: var(--tree-track) 5px minmax(0, 1fr) var(--terminal-rail-track);
-  grid-template-rows: minmax(180px, 4fr) 5px var(--terminal-track);
+  grid-template-columns: var(--tree-track) 1px minmax(0, 1fr) var(--terminal-rail-track);
+  grid-template-rows: minmax(180px, 4fr) 1px var(--terminal-track);
   width: 100%;
   min-height: 0;
   background: #0f1115;
 }
 
 .workbench.terminal-focused {
-  grid-template-rows: 0 5px minmax(0, 1fr);
+  grid-template-rows: 0 1px minmax(0, 1fr);
 }
 
 .workbench.terminal-focused .viewer-panel {
@@ -22,7 +22,7 @@
 }
 
 .workbench.terminal-collapsed {
-  grid-template-rows: minmax(0, 1fr) 5px 0;
+  grid-template-rows: minmax(0, 1fr) 1px 0;
 }
 
 .workbench.terminal-collapsed :is(.terminal-deck, .terminal-rail) {
@@ -32,7 +32,7 @@
 }
 
 .workbench.tree-collapsed {
-  grid-template-columns: 0 5px minmax(0, 1fr) var(--terminal-rail-track);
+  grid-template-columns: 0 1px minmax(0, 1fr) var(--terminal-rail-track);
 }
 
 .workbench.tree-collapsed .tree-panel {
@@ -62,7 +62,7 @@
 
 .rail-nav {
   z-index: 1;
-  flex: 0 0 34px;
+  flex: 0 0 28px;
   display: flex;
   align-items: end;
   padding: 4px 6px 0;
@@ -71,7 +71,7 @@
 }
 
 .rail-nav button {
-  height: 30px;
+  height: 24px;
   flex: 1 1 0;
   margin-bottom: -1px;
   padding: 0 5px;

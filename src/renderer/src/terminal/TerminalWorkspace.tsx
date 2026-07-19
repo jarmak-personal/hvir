@@ -6,7 +6,6 @@ import {
   useState,
   type ReactElement,
 } from 'react'
-
 import {
   type HarnessProviderDescriptor,
   type HarnessProfile,
@@ -15,6 +14,7 @@ import {
   type HostPath,
   type HarnessProviderId,
 } from '../../../shared'
+import { fitSplitPrimaryWidth } from '../layout/split-layout-policy'
 import type { TerminalRecoveryMode, TerminalThemeOverride } from '../settings/settings'
 import { useAppTheme } from '../theme'
 import {
@@ -268,7 +268,7 @@ export function TerminalWorkspace({
   const setTerminalPrimaryWidth = (width: number): void => {
     const deck = terminalDeckRef.current
     if (!deck) return
-    const next = Math.min(Math.max(220, width), Math.max(220, deck.clientWidth - 225))
+    const next = fitSplitPrimaryWidth(width, deck.clientWidth, 220)
     deck.style.setProperty('--terminal-primary-track', `${next}px`)
     const layout = readTerminalSplitLayout(workspaceRoot)
     const updated = { ...layout, primaryWidth: next }

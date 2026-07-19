@@ -8,6 +8,7 @@
 
 .viewer-body {
   position: relative;
+  container-type: inline-size;
   overflow: hidden;
   background: #15181e;
 }

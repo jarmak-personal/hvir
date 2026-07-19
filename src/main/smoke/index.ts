@@ -1404,7 +1404,7 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
             .find((node) => node.querySelector('.tab-name')?.textContent?.trim() === 'rendered.md');
           renderedTab?.querySelector('.tab-main')?.click();
           const waitForYaml = () => {
-            const title = document.querySelector('.viewer-title')?.textContent || '';
+            const title = document.querySelector('.viewer-tab.active .tab-name')?.textContent || '';
             const keys = [...document.querySelectorAll('.json-key')]
               .map((node) => node.textContent || '');
             const fixturesOpen = [...document.querySelectorAll('.directory-row')]
@@ -1442,7 +1442,7 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
             }
             if (Date.now() > deadline) return reject(new Error(
               'missing internal link escaped the viewer: ' +
-              (document.querySelector('.viewer-title')?.textContent || 'no title')
+              (document.querySelector('.viewer-tab.active .tab-name')?.textContent || 'no title')
             ));
             setTimeout(waitForContainedError, 50);
           };
@@ -1888,7 +1888,7 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
             }
             tracked.click();
             const activateTracked = () => {
-              const title = document.querySelector('.viewer-title')?.textContent || '';
+              const title = document.querySelector('.viewer-tab.active .tab-name')?.textContent || '';
               if (!title.includes('package-lock.json')) {
                 if (Date.now() > deadline) return reject(new Error('large blame fixture did not activate'));
                 return setTimeout(activateTracked, 50);
@@ -2078,14 +2078,18 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
         if (activeProject?.querySelector('.remote-connection-badge')) {
           return reject(new Error('local project shows a remote connection badge'));
         }
-        const workspaceBar = document.querySelector('.workspaces-bar');
-        const workspaceTabs = workspaceBar?.querySelectorAll('.workspace-tab') || [];
-        if (
-          workspaceTabs.length !== 1 ||
-          !workspaceTabs[0]?.classList.contains('active') ||
-          !workspaceTabs[0]?.textContent?.includes('project root')
-        ) {
-          return reject(new Error('single-checkout workspace context is missing'));
+        const projectMain = activeProject?.querySelector('.project-tab-main');
+        const viewerMain = document.querySelector('.viewer-tab.active .tab-main');
+        projectMain?.focus();
+        if (!projectMain || getComputedStyle(projectMain).boxShadow === 'none') {
+          return reject(new Error('project tab focus ring is missing'));
+        }
+        viewerMain?.focus();
+        if (!viewerMain || getComputedStyle(viewerMain).boxShadow === 'none') {
+          return reject(new Error('viewer tab focus ring is missing'));
+        }
+        if (document.querySelector('.workspaces-bar')) {
+          return reject(new Error('single-checkout project should hide the workspaces bar'));
         }
         const addProject = document.querySelector('.project-add');
         if (!(addProject instanceof HTMLButtonElement)) {
@@ -2413,6 +2417,9 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
                 const secondaryTab = document.querySelector('.viewer-group-secondary .viewer-tab');
                 const divider = document.querySelector('.viewer-split-resizer');
                 if (secondaryTab && divider) {
+                  if (divider.getBoundingClientRect().width > 1.5) {
+                    return reject(new Error('viewer split divider is wider than its hairline'));
+                  }
                   const before = document.querySelector('.viewer-group-primary')?.getBoundingClientRect().width || 0;
                   divider.dispatchEvent(new KeyboardEvent('keydown', {
                     key: 'ArrowRight', bubbles: true
@@ -2450,6 +2457,9 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
               if (deck?.classList.contains('split') && rows.length === before + 1 && visible === 2) {
                 const divider = deck.querySelector('.terminal-split-resizer');
                 if (!divider) return reject(new Error('terminal split divider missing'));
+                if (divider.getBoundingClientRect().width > 1.5) {
+                  return reject(new Error('terminal split divider is wider than its hairline'));
+                }
                 const left = deck.querySelector('[data-terminal-slot="primary"].visible');
                 const widthBefore = left?.getBoundingClientRect().width || 0;
                 divider.dispatchEvent(new KeyboardEvent('keydown', {

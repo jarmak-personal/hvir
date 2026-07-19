@@ -109,7 +109,7 @@ export function verifyGitDiffBehavior(
         );
         file.click();
         await waitFor(
-          () => document.querySelector('.viewer-title')?.textContent
+          () => document.querySelector('.viewer-tab.active .tab-name')?.textContent
             ?.includes('package.json'),
           'package.json did not become active'
         );
@@ -146,7 +146,7 @@ export function verifyGitDiffBehavior(
         );
         longFile.click();
         await waitFor(
-          () => document.querySelector('.viewer-title')?.textContent
+          () => document.querySelector('.viewer-tab.active .tab-name')?.textContent
             ?.includes('.hvir-smoke-live.txt'),
           'long diff fixture did not become active'
         );

@@ -12,7 +12,7 @@
 
 .terminal-deck.split {
   display: grid;
-  grid-template-columns: var(--terminal-primary-track) 5px minmax(220px, 1fr);
+  grid-template-columns: var(--terminal-primary-track) 1px minmax(220px, 1fr);
 }
 
 .terminal-deck[hidden],
