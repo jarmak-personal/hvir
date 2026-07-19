@@ -180,7 +180,7 @@ function HarnessProfileOverlays({
           onSelect={editor.authorizeBinding}
         />
       ) : null}
-      {editor.addOpen ? (
+      {editor.addOpen && editor.providers.length > 0 ? (
         <AddHarnessDialog
           providers={editor.providers}
           configuredProviderIds={add.configuredProviderIds}
