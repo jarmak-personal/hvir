@@ -20,19 +20,20 @@ import {
   type HostPath,
 } from '../../../shared'
 import { DiffView } from './DiffView'
-import {
-  captureTopLine,
-  restoreTopLine,
-  type CodeScrollAnchor,
-  type CodeScrollCapture,
-} from './code-scroll-anchor'
+import { captureTopLine, restoreTopLine } from './code-scroll-anchor'
 import {
   languageForPath,
   type HighlightResponse,
   type HighlightToken,
 } from './highlight-protocol'
 import { RenderedView } from './RenderedView'
-import type { ViewerTab } from './tab-state'
+import type { ViewerDocumentPosition, ViewerTab } from './tab-state'
+import {
+  approximateLineAtScroll,
+  approximateScrollForLine,
+  documentLineCount,
+  type ViewerPositionCapture,
+} from './viewer-position'
 import { useAppTheme } from '../theme'
 
 export const HIGHLIGHT_SIZE_LIMIT = 1024 * 1024
@@ -88,12 +89,12 @@ const tokenDecorations = StateField.define<DecorationSet>({
 
 interface FileViewerProps {
   readonly tab?: ViewerTab
-  readonly onMode: (mode: ViewMode) => void
+  readonly onMode: (mode: ViewMode, position?: ViewerDocumentPosition) => void
   readonly onDiffBase: (base: DiffBase) => void
   readonly onContent: (content: string) => void
   readonly onSave: () => void
   readonly onReload: () => void
-  readonly onScroll: (scrollTop: number) => void
+  readonly onPosition: (position: ViewerDocumentPosition) => void
   readonly onNavigationHandled: (serial: number) => void
   readonly onOpenPath: (path: HostPath) => void
   readonly refreshVersion: number
@@ -106,7 +107,7 @@ export function FileViewer({
   onContent,
   onSave,
   onReload,
-  onScroll,
+  onPosition,
   onNavigationHandled,
   onOpenPath,
   refreshVersion,
@@ -116,8 +117,7 @@ export function FileViewer({
   const [blameStatus, setBlameStatus] = useState('')
   const currentPath = tab?.path
   const blameMode = tab?.mode
-  const codeScrollAnchor = useRef<number | undefined>(undefined)
-  const codeScrollCapture = useRef<(() => number) | undefined>(undefined)
+  const positionCapture = useRef<(() => ViewerDocumentPosition) | undefined>(undefined)
   const binaryImage = Boolean(tab?.file?.binary && renderedFileType(tab.path) === 'image')
 
   useEffect(() => {
@@ -204,9 +204,7 @@ export function FileViewer({
                   disabled={Boolean(tab.file?.binary && mode !== 'rendered')}
                   key={mode}
                   onClick={() => {
-                    const line = codeScrollCapture.current?.()
-                    if (line !== undefined) codeScrollAnchor.current = line
-                    onMode(mode)
+                    onMode(mode, positionCapture.current?.())
                   }}
                 >
                   {mode}
@@ -229,13 +227,12 @@ export function FileViewer({
             file={tab.file}
             onContent={onContent}
             onSave={onSave}
-            onScroll={onScroll}
+            onPosition={onPosition}
             blame={showBlame ? blame : []}
             blameStatus={showBlame ? blameStatus : ''}
             onOpenPath={onOpenPath}
             refreshVersion={refreshVersion}
-            codeScrollAnchor={codeScrollAnchor}
-            codeScrollCapture={codeScrollCapture}
+            positionCapture={positionCapture}
             onNavigationHandled={onNavigationHandled}
           />
         ) : null}
@@ -266,26 +263,24 @@ function ActiveView({
   file,
   onContent,
   onSave,
-  onScroll,
+  onPosition,
   blame,
   blameStatus,
   onOpenPath,
   refreshVersion,
-  codeScrollAnchor,
-  codeScrollCapture,
+  positionCapture,
   onNavigationHandled,
 }: {
   readonly tab: ViewerTab
   readonly file: NonNullable<ViewerTab['file']>
   readonly onContent: (content: string) => void
   readonly onSave: () => void
-  readonly onScroll: (scrollTop: number) => void
+  readonly onPosition: (position: ViewerDocumentPosition) => void
   readonly blame: readonly GitBlameRun[]
   readonly blameStatus: string
   readonly onOpenPath: (path: HostPath) => void
   readonly refreshVersion: number
-  readonly codeScrollAnchor: CodeScrollAnchor
-  readonly codeScrollCapture: CodeScrollCapture
+  readonly positionCapture: ViewerPositionCapture
   readonly onNavigationHandled: (serial: number) => void
 }): ReactElement {
   if (tab.mode === 'rendered') {
@@ -293,8 +288,9 @@ function ActiveView({
       <RenderedView
         path={tab.path}
         content={file.content}
-        scrollTop={tab.scrollTop}
-        onScroll={onScroll}
+        position={tab.position}
+        onPosition={onPosition}
+        positionCapture={positionCapture}
         onOpenPath={onOpenPath}
         refreshVersion={refreshVersion}
       />
@@ -305,8 +301,10 @@ function ActiveView({
       <LargeFileView
         content={file.content}
         size={file.size}
-        scrollTop={tab.scrollTop}
-        onScroll={onScroll}
+        mode={tab.mode}
+        position={tab.position}
+        onPosition={onPosition}
+        positionCapture={positionCapture}
       />
     )
   }
@@ -319,10 +317,9 @@ function ActiveView({
         dirty={tab.dirty}
         revision={tab.diffRevision}
         refreshVersion={refreshVersion}
-        scrollTop={tab.scrollTop}
-        onScroll={onScroll}
-        codeScrollAnchor={codeScrollAnchor}
-        codeScrollCapture={codeScrollCapture}
+        position={tab.position}
+        onPosition={onPosition}
+        positionCapture={positionCapture}
       />
     )
   }
@@ -331,14 +328,13 @@ function ActiveView({
       pathKey={`${tab.path.hostId}:${tab.path.path}`}
       content={file.content}
       size={file.size}
-      scrollTop={tab.scrollTop}
+      position={tab.position}
       onContent={onContent}
       onSave={onSave}
-      onScroll={onScroll}
+      onPosition={onPosition}
       blame={blame}
       blameStatus={blameStatus}
-      codeScrollAnchor={codeScrollAnchor}
-      codeScrollCapture={codeScrollCapture}
+      positionCapture={positionCapture}
       navigation={tab.navigation}
       onNavigationHandled={onNavigationHandled}
     />
@@ -348,31 +344,66 @@ function ActiveView({
 function LargeFileView({
   content,
   size,
-  scrollTop,
-  onScroll,
+  mode,
+  position,
+  onPosition,
+  positionCapture,
 }: {
   readonly content: string
   readonly size: number
-  readonly scrollTop: number
-  readonly onScroll: (scrollTop: number) => void
+  readonly mode: ViewMode
+  readonly position: ViewerDocumentPosition
+  readonly onPosition: (position: ViewerDocumentPosition) => void
+  readonly positionCapture: ViewerPositionCapture
 }): ReactElement {
   const container = useRef<HTMLPreElement>(null)
-  const initialScrollTop = useRef(scrollTop)
+  const positionRef = useRef(position)
+  const onPositionRef = useRef(onPosition)
   const preview = content.slice(0, LARGE_FILE_PREVIEW_LIMIT)
+  const lines = documentLineCount(preview)
+  positionRef.current = position
+  onPositionRef.current = onPosition
   useEffect(() => {
-    if (container.current) container.current.scrollTop = initialScrollTop.current
-  }, [])
+    const root = container.current
+    if (!root) return
+    const capture = (): ViewerDocumentPosition => ({
+      mode,
+      line: approximateLineAtScroll(
+        root.scrollTop,
+        root.scrollHeight,
+        root.clientHeight,
+        lines,
+      ),
+      scrollTop: root.scrollTop,
+    })
+    const handleScroll = (): void => onPositionRef.current(capture())
+    positionCapture.current = capture
+    root.addEventListener('scroll', handleScroll, { passive: true })
+    const restoreFrame = requestAnimationFrame(() => {
+      const restorePosition = positionRef.current
+      root.scrollTop =
+        restorePosition.mode === mode
+          ? restorePosition.scrollTop
+          : approximateScrollForLine(
+              restorePosition.line,
+              root.scrollHeight,
+              root.clientHeight,
+              lines,
+            )
+    })
+    return () => {
+      cancelAnimationFrame(restoreFrame)
+      root.removeEventListener('scroll', handleScroll)
+      if (positionCapture.current === capture) positionCapture.current = undefined
+    }
+  }, [lines, mode, positionCapture])
   return (
     <div className="large-file-shell">
       <div className="source-meta">
         <span>{formatBytes(size)}</span>
         <span>read-only preview · first {formatBytes(preview.length)}</span>
       </div>
-      <pre
-        ref={container}
-        className="large-file-preview"
-        onScroll={(event) => onScroll(event.currentTarget.scrollTop)}
-      >
+      <pre ref={container} className="large-file-preview">
         {preview}
       </pre>
     </div>
@@ -383,28 +414,26 @@ function SourceView({
   pathKey,
   content,
   size,
-  scrollTop,
+  position,
   onContent,
   onSave,
-  onScroll,
+  onPosition,
   blame,
   blameStatus,
-  codeScrollAnchor,
-  codeScrollCapture,
+  positionCapture,
   navigation,
   onNavigationHandled,
 }: {
   readonly pathKey: string
   readonly content: string
   readonly size: number
-  readonly scrollTop: number
+  readonly position: ViewerDocumentPosition
   readonly onContent: (content: string) => void
   readonly onSave: () => void
-  readonly onScroll: (scrollTop: number) => void
+  readonly onPosition: (position: ViewerDocumentPosition) => void
   readonly blame: readonly GitBlameRun[]
   readonly blameStatus: string
-  readonly codeScrollAnchor: CodeScrollAnchor
-  readonly codeScrollCapture: CodeScrollCapture
+  readonly positionCapture: ViewerPositionCapture
   readonly navigation?: ViewerTab['navigation']
   readonly onNavigationHandled: (serial: number) => void
 }): ReactElement {
@@ -413,10 +442,10 @@ function SourceView({
   const view = useRef<EditorView | undefined>(undefined)
   const applyingExternal = useRef(false)
   const lastUserContent = useRef<string | undefined>(undefined)
-  const callbacks = useRef({ onContent, onSave, onScroll })
+  const callbacks = useRef({ onContent, onSave, onPosition })
   const [highlightStatus, setHighlightStatus] = useState('')
   const blameCompartment = useRef(new Compartment())
-  callbacks.current = { onContent, onSave, onScroll }
+  callbacks.current = { onContent, onSave, onPosition }
 
   useEffect(() => {
     const parent = container.current
@@ -450,27 +479,27 @@ function SourceView({
         ],
       }),
     })
-    const restoreLine = codeScrollAnchor.current
-    const captureLine = (): number => captureTopLine(editor, editor.scrollDOM)
-    codeScrollCapture.current = captureLine
+    const restorePosition = position
+    const capturePosition = (): ViewerDocumentPosition => ({
+      mode: 'source',
+      line: captureTopLine(editor, editor.scrollDOM),
+      scrollTop: editor.scrollDOM.scrollTop,
+    })
+    positionCapture.current = capturePosition
     const captureScroll = (): void => {
-      codeScrollAnchor.current = captureLine()
-      callbacks.current.onScroll(editor.scrollDOM.scrollTop)
+      callbacks.current.onPosition(capturePosition())
     }
     editor.scrollDOM.addEventListener('scroll', captureScroll, { passive: true })
     view.current = editor
     requestAnimationFrame(() => {
-      if (restoreLine === undefined) {
-        editor.scrollDOM.scrollTop = scrollTop
-      } else {
-        restoreTopLine(editor, editor.scrollDOM, restoreLine)
-      }
+      if (restorePosition.mode === 'source') {
+        editor.scrollDOM.scrollTop = restorePosition.scrollTop
+      } else restoreTopLine(editor, editor.scrollDOM, restorePosition.line)
     })
     return () => {
-      callbacks.current.onScroll(editor.scrollDOM.scrollTop)
       editor.scrollDOM.removeEventListener('scroll', captureScroll)
-      if (codeScrollCapture.current === captureLine) {
-        codeScrollCapture.current = undefined
+      if (positionCapture.current === capturePosition) {
+        positionCapture.current = undefined
       }
       view.current = undefined
       editor.destroy()
@@ -489,7 +518,6 @@ function SourceView({
       )
       const columnOffset = Math.max(0, Math.floor((navigation.column ?? 1) - 1))
       const position = Math.min(line.to, line.from + columnOffset)
-      codeScrollAnchor.current = line.number
       editor.dispatch({
         selection: { anchor: position },
         effects: EditorView.scrollIntoView(position, { y: 'center' }),
@@ -497,7 +525,7 @@ function SourceView({
       onNavigationHandled(navigation.serial)
     })
     return () => cancelAnimationFrame(frame)
-  }, [codeScrollAnchor, navigation, onNavigationHandled])
+  }, [navigation, onNavigationHandled])
 
   useEffect(() => {
     view.current?.dispatch({

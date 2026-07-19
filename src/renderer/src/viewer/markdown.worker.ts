@@ -7,7 +7,11 @@ import {
   type MarkdownRenderRequest,
   type MarkdownRenderResponse,
 } from './render-protocol'
-import { enableTaskLists } from './markdown-extensions'
+import {
+  enableSourceLineAnchors,
+  enableTaskLists,
+  wrapSourceLine,
+} from './markdown-extensions'
 
 const highlighterPromise = createHighlighterCore({
   themes: [
@@ -41,21 +45,32 @@ async function render(request: MarkdownRenderRequest): Promise<void> {
     // Bare repository filenames such as `design.md` are not web hosts. The
     // linkifier turns them into http://design.md and can navigate Electron's
     // main frame; authored Markdown links still render normally.
-    const markdown = enableTaskLists(new MarkdownIt(MARKDOWN_OPTIONS))
+    const markdown = enableSourceLineAnchors(
+      enableTaskLists(new MarkdownIt(MARKDOWN_OPTIONS)),
+    )
     markdown.renderer.rules.fence = (tokens, index) => {
       const token = tokens[index]
       if (!token) return ''
       const language = token.info.trim().split(/\s+/)[0]?.toLowerCase() ?? ''
       if (language === 'mermaid') {
-        return `<div class="mermaid-diagram"><pre>${escapeHtml(token.content)}</pre></div>`
+        return wrapSourceLine(
+          token,
+          `<div class="mermaid-diagram"><pre>${escapeHtml(token.content)}</pre></div>`,
+        )
       }
       try {
-        return highlighter.codeToHtml(token.content, {
-          lang: language || 'text',
-          theme: request.theme === 'light' ? 'github-light-default' : 'dark-plus',
-        })
+        return wrapSourceLine(
+          token,
+          highlighter.codeToHtml(token.content, {
+            lang: language || 'text',
+            theme: request.theme === 'light' ? 'github-light-default' : 'dark-plus',
+          }),
+        )
       } catch {
-        return `<pre><code>${escapeHtml(token.content)}</code></pre>`
+        return wrapSourceLine(
+          token,
+          `<pre><code>${escapeHtml(token.content)}</code></pre>`,
+        )
       }
     }
     post({ id: request.id, ok: true, html: markdown.render(request.markdown) })

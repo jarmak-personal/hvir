@@ -4,13 +4,10 @@ import { MergeView } from '@codemirror/merge'
 import { useEffect, useRef, useState, type ReactElement } from 'react'
 
 import type { DiffBase, GitDiffResponse, HostPath } from '../../../shared'
-import {
-  captureTopLine,
-  restoreTopLine,
-  type CodeScrollAnchor,
-  type CodeScrollCapture,
-} from './code-scroll-anchor'
+import { captureTopLine, restoreTopLine } from './code-scroll-anchor'
 import { usesUnsavedContent } from './diff-policy'
+import type { ViewerDocumentPosition } from './tab-state'
+import type { ViewerPositionCapture } from './viewer-position'
 
 interface DiffViewProps {
   readonly path: HostPath
@@ -19,10 +16,9 @@ interface DiffViewProps {
   readonly dirty: boolean
   readonly revision?: string
   readonly refreshVersion: number
-  readonly scrollTop: number
-  readonly onScroll: (scrollTop: number) => void
-  readonly codeScrollAnchor: CodeScrollAnchor
-  readonly codeScrollCapture: CodeScrollCapture
+  readonly position: ViewerDocumentPosition
+  readonly onPosition: (position: ViewerDocumentPosition) => void
+  readonly positionCapture: ViewerPositionCapture
 }
 
 export function DiffView({
@@ -32,18 +28,17 @@ export function DiffView({
   dirty,
   revision,
   refreshVersion,
-  scrollTop,
-  onScroll,
-  codeScrollAnchor,
-  codeScrollCapture,
+  position,
+  onPosition,
+  positionCapture,
 }: DiffViewProps): ReactElement {
   const host = useRef<HTMLDivElement>(null)
-  const scrollTopRef = useRef(scrollTop)
-  const onScrollRef = useRef(onScroll)
+  const positionRef = useRef(position)
+  const onPositionRef = useRef(onPosition)
   const [inputs, setInputs] = useState<GitDiffResponse>()
   const [error, setError] = useState<string>()
-  scrollTopRef.current = scrollTop
-  onScrollRef.current = onScroll
+  positionRef.current = position
+  onPositionRef.current = onPosition
 
   useEffect(() => {
     let cancelled = false
@@ -84,31 +79,30 @@ export function DiffView({
       highlightChanges: true,
       gutter: true,
     })
-    const restoreLine = codeScrollAnchor.current
-    const captureLine = (): number => captureTopLine(merge.b, merge.dom)
-    codeScrollCapture.current = captureLine
+    const restorePosition = positionRef.current
+    const capturePosition = (): ViewerDocumentPosition => ({
+      mode: 'diff',
+      line: captureTopLine(merge.b, merge.dom),
+      scrollTop: merge.dom.scrollTop,
+    })
+    positionCapture.current = capturePosition
     const captureScroll = (): void => {
-      codeScrollAnchor.current = captureLine()
-      onScrollRef.current(merge.dom.scrollTop)
+      onPositionRef.current(capturePosition())
     }
     merge.dom.addEventListener('scroll', captureScroll, { passive: true })
     const restoreFrame = requestAnimationFrame(() => {
-      if (restoreLine === undefined) {
-        merge.dom.scrollTop = scrollTopRef.current
-      } else {
-        restoreTopLine(merge.b, merge.dom, restoreLine)
-      }
+      if (restorePosition.mode === 'diff') merge.dom.scrollTop = restorePosition.scrollTop
+      else restoreTopLine(merge.b, merge.dom, restorePosition.line)
     })
     return () => {
       cancelAnimationFrame(restoreFrame)
-      onScrollRef.current(merge.dom.scrollTop)
       merge.dom.removeEventListener('scroll', captureScroll)
-      if (codeScrollCapture.current === captureLine) {
-        codeScrollCapture.current = undefined
+      if (positionCapture.current === capturePosition) {
+        positionCapture.current = undefined
       }
       merge.destroy()
     }
-  }, [base, codeScrollAnchor, codeScrollCapture, currentContent, dirty, inputs, revision])
+  }, [base, currentContent, dirty, inputs, positionCapture, revision])
 
   if (error) return <div className="viewer-empty error">{error}</div>
   if (!inputs) return <div className="viewer-empty">Preparing diff…</div>

@@ -10,7 +10,11 @@ import {
   type ViewMode,
   type WatchEvent,
 } from '../../../shared'
-import type { ViewerNavigationPosition, ViewerPaneId } from './tab-state'
+import type {
+  ViewerDocumentPosition,
+  ViewerNavigationPosition,
+  ViewerPaneId,
+} from './tab-state'
 import {
   persistWorkspaceLayout,
   restoreWorkspaceLayout,
@@ -19,7 +23,6 @@ import {
   initialViewerWorkspaceModel,
   viewerWorkspaceReducer,
   type ViewerWorkspaceAction,
-  type ViewerWorkspaceModel,
 } from './viewer-workspace-model'
 import {
   sameViewerWorkspace,
@@ -52,18 +55,8 @@ export function useViewerWorkspace(options: UseViewerWorkspaceOptions) {
   const workspaceGeneration = useRef(0)
   const readGenerations = useRef(new Map<string, number>())
   const navigationSerial = useRef(0)
-  const pendingScroll = useRef<
-    { readonly id: string; readonly scrollTop: number } | undefined
-  >(undefined)
+  const pendingPositions = useRef(new Map<string, ViewerDocumentPosition>())
   const scrollFrame = useRef<number | undefined>(undefined)
-  const persistedState = useRef<
-    | {
-        readonly root: HostPath
-        readonly tabs: ViewerWorkspaceModel['tabs']
-        readonly activeId?: string
-      }
-    | undefined
-  >(undefined)
   const discardDirtyOnUnload = useRef(false)
   modelRef.current = model
   optionsRef.current = options
@@ -72,6 +65,18 @@ export function useViewerWorkspace(options: UseViewerWorkspaceOptions) {
     modelRef.current = viewerWorkspaceReducer(modelRef.current, action)
     dispatch(action)
   }, [])
+
+  const flushPendingPositions = useCallback((): void => {
+    if (scrollFrame.current !== undefined) {
+      window.cancelAnimationFrame(scrollFrame.current)
+      scrollFrame.current = undefined
+    }
+    const pending = [...pendingPositions.current]
+    pendingPositions.current.clear()
+    for (const [id, position] of pending) {
+      send({ type: 'set-position', id, position })
+    }
+  }, [send])
 
   const loadFileAt = useCallback(
     (path: HostPath, generation = modelRef.current.generation): void => {
@@ -111,6 +116,7 @@ export function useViewerWorkspace(options: UseViewerWorkspaceOptions) {
 
   const switchWorkspace = useCallback(
     (root: HostPath): void => {
+      flushPendingPositions()
       const current = modelRef.current
       if (sameViewerWorkspace(current, root)) return
       if (current.root) {
@@ -135,15 +141,16 @@ export function useViewerWorkspace(options: UseViewerWorkspaceOptions) {
         if (!tab.dirty) loadFileAt(tab.path, generation)
       }
     },
-    [loadFileAt, send],
+    [flushPendingPositions, loadFileAt, send],
   )
 
   const activateTab = useCallback(
     (id: string, pane?: ViewerPaneId): void => {
+      flushPendingPositions()
       send({ type: 'activate', id, pane })
       optionsRef.current.onActivateFile()
     },
-    [send],
+    [flushPendingPositions, send],
   )
 
   const openFile = useCallback(
@@ -155,6 +162,7 @@ export function useViewerWorkspace(options: UseViewerWorkspaceOptions) {
       diffRevision?: string,
       position?: Omit<ViewerNavigationPosition, 'serial'>,
     ): void => {
+      flushPendingPositions()
       const existing = modelRef.current.tabs.find((tab) => tab.id === viewerTabId(path))
       send({
         type: 'open',
@@ -174,7 +182,7 @@ export function useViewerWorkspace(options: UseViewerWorkspaceOptions) {
       // is authoritative until the user saves or explicitly chooses reload.
       if (!existing?.dirty) loadFileAt(path)
     },
-    [loadFileAt, send],
+    [flushPendingPositions, loadFileAt, send],
   )
 
   const closeTab = useCallback(
@@ -187,6 +195,7 @@ export function useViewerWorkspace(options: UseViewerWorkspaceOptions) {
       ) {
         return
       }
+      pendingPositions.current.delete(id)
       readGenerations.current.set(id, (readGenerations.current.get(id) ?? 0) + 1)
       const closesLastSecondary =
         closing?.pane === 'secondary' &&
@@ -200,14 +209,19 @@ export function useViewerWorkspace(options: UseViewerWorkspaceOptions) {
   )
 
   const setMode = useCallback(
-    (id: string, mode: ViewMode): void => send({ type: 'set-mode', id, mode }),
+    (id: string, mode: ViewMode, position?: ViewerDocumentPosition): void => {
+      pendingPositions.current.delete(id)
+      send({ type: 'set-mode', id, mode, position })
+    },
     [send],
   )
 
   const setDiffBase = useCallback(
-    (id: string, diffBase: DiffBase): void =>
-      send({ type: 'set-diff-base', id, diffBase }),
-    [send],
+    (id: string, diffBase: DiffBase): void => {
+      flushPendingPositions()
+      send({ type: 'set-diff-base', id, diffBase })
+    },
+    [flushPendingPositions, send],
   )
 
   const setContent = useCallback(
@@ -218,8 +232,9 @@ export function useViewerWorkspace(options: UseViewerWorkspaceOptions) {
   const pinTab = useCallback((id: string): void => send({ type: 'pin', id }), [send])
 
   const cycleActiveMode = useCallback((): void => {
+    flushPendingPositions()
     send({ type: 'cycle-active-mode' })
-  }, [send])
+  }, [flushPendingPositions, send])
 
   const navigationHandled = useCallback(
     (id: string, serial: number): void =>
@@ -227,18 +242,16 @@ export function useViewerWorkspace(options: UseViewerWorkspaceOptions) {
     [send],
   )
 
-  const scheduleScroll = useCallback(
-    (id: string, scrollTop: number): void => {
-      pendingScroll.current = { id, scrollTop }
+  const schedulePosition = useCallback(
+    (id: string, position: ViewerDocumentPosition): void => {
+      if (!modelRef.current.tabs.some((tab) => tab.id === id)) return
+      pendingPositions.current.set(id, position)
       if (scrollFrame.current !== undefined) return
       scrollFrame.current = window.requestAnimationFrame(() => {
-        scrollFrame.current = undefined
-        const pending = pendingScroll.current
-        pendingScroll.current = undefined
-        if (pending) send({ type: 'set-scroll', ...pending })
+        flushPendingPositions()
       })
     },
-    [send],
+    [flushPendingPositions],
   )
 
   const reloadTab = useCallback(
@@ -307,13 +320,15 @@ export function useViewerWorkspace(options: UseViewerWorkspaceOptions) {
   }, [send])
 
   const closeSplit = useCallback((): void => {
+    flushPendingPositions()
     const root = modelRef.current.root
     send({ type: 'split-closed' })
     if (root) persistWorkspaceLayout(root, { viewerSplit: false })
-  }, [send])
+  }, [flushPendingPositions, send])
 
   const moveTab = useCallback(
     (id: string, pane: ViewerPaneId): void => {
+      flushPendingPositions()
       const current = modelRef.current
       const moving = current.tabs.find((tab) => tab.id === id)
       if (!moving || moving.pane === pane) return
@@ -323,7 +338,7 @@ export function useViewerWorkspace(options: UseViewerWorkspaceOptions) {
       }
       optionsRef.current.onActivateFile()
     },
-    [send],
+    [flushPendingPositions, send],
   )
 
   const reorderTabs = useCallback(
@@ -335,11 +350,6 @@ export function useViewerWorkspace(options: UseViewerWorkspaceOptions) {
 
   useEffect(() => {
     if (!model.root || !model.restored) return
-    persistedState.current = {
-      root: model.root,
-      tabs: model.tabs,
-      activeId: model.activeId,
-    }
     const timer = window.setTimeout(
       () => persistViewerTabs(model.root!, model.tabs, model.activeId),
       250,
@@ -349,12 +359,13 @@ export function useViewerWorkspace(options: UseViewerWorkspaceOptions) {
 
   useEffect(() => {
     const flushPersistence = (): void => {
-      const state = persistedState.current
-      if (state) {
+      flushPendingPositions()
+      const current = modelRef.current
+      if (current.root) {
         persistViewerTabs(
-          state.root,
-          state.tabs,
-          state.activeId,
+          current.root,
+          current.tabs,
+          current.activeId,
           !discardDirtyOnUnload.current,
         )
       }
@@ -383,7 +394,7 @@ export function useViewerWorkspace(options: UseViewerWorkspaceOptions) {
         window.cancelAnimationFrame(scrollFrame.current)
       }
     }
-  }, [])
+  }, [flushPendingPositions])
 
   return {
     model,
@@ -405,7 +416,7 @@ export function useViewerWorkspace(options: UseViewerWorkspaceOptions) {
     setDiffBase,
     setContent,
     navigationHandled,
-    scheduleScroll,
+    schedulePosition,
     reloadTab,
     saveTab,
     handleWatchEvent,

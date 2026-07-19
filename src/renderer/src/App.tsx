@@ -82,7 +82,7 @@ export function App(): ReactElement {
     setDiffBase: setViewerDiffBase,
     setContent: setViewerContent,
     navigationHandled,
-    scheduleScroll,
+    schedulePosition,
     reloadTab,
     saveTab,
     handleWatchEvent,
@@ -364,12 +364,12 @@ export function App(): ReactElement {
           <FileViewer
             key={`${pane}:${paneTab?.id ?? 'empty'}`}
             tab={paneTab}
-            onMode={(mode) => paneTab && setViewerMode(paneTab.id, mode)}
+            onMode={(mode, at) => paneTab && setViewerMode(paneTab.id, mode, at)}
             onDiffBase={(diffBase) => paneTab && setViewerDiffBase(paneTab.id, diffBase)}
             onContent={(content) => paneTab && setViewerContent(paneTab.id, content)}
             onSave={() => paneTab && saveTab(paneTab.id)}
             onReload={() => paneTab && reloadTab(paneTab.id)}
-            onScroll={(scrollTop) => paneTab && scheduleScroll(paneTab.id, scrollTop)}
+            onPosition={(position) => paneTab && schedulePosition(paneTab.id, position)}
             onNavigationHandled={(serial) =>
               paneTab && navigationHandled(paneTab.id, serial)
             }

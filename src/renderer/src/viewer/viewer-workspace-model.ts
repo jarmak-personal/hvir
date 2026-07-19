@@ -7,8 +7,14 @@ import {
   type ViewMode,
   type WriteFileResponse,
 } from '../../../shared'
-import type { ViewerNavigationPosition, ViewerPaneId, ViewerTab } from './tab-state'
+import type {
+  ViewerDocumentPosition,
+  ViewerNavigationPosition,
+  ViewerPaneId,
+  ViewerTab,
+} from './tab-state'
 import { viewerTabId } from './viewer-workspace-persistence'
+import { initialViewerPosition, nextViewerMode } from './viewer-position'
 
 export interface ViewerWorkspaceModel {
   readonly root?: HostPath
@@ -45,11 +51,20 @@ export type ViewerWorkspaceAction =
   | { readonly type: 'focus-pane'; readonly pane: ViewerPaneId; readonly id?: string }
   | { readonly type: 'close'; readonly id: string }
   | { readonly type: 'pin'; readonly id: string }
-  | { readonly type: 'set-mode'; readonly id: string; readonly mode: ViewMode }
+  | {
+      readonly type: 'set-mode'
+      readonly id: string
+      readonly mode: ViewMode
+      readonly position?: ViewerDocumentPosition
+    }
   | { readonly type: 'cycle-active-mode' }
   | { readonly type: 'set-diff-base'; readonly id: string; readonly diffBase: DiffBase }
   | { readonly type: 'set-content'; readonly id: string; readonly content: string }
-  | { readonly type: 'set-scroll'; readonly id: string; readonly scrollTop: number }
+  | {
+      readonly type: 'set-position'
+      readonly id: string
+      readonly position: ViewerDocumentPosition
+    }
   | { readonly type: 'navigation-handled'; readonly id: string; readonly serial: number }
   | { readonly type: 'reload-requested'; readonly id: string }
   | { readonly type: 'watch-conflict'; readonly id: string }
@@ -146,7 +161,11 @@ export function viewerWorkspaceReducer(
               : defaultViewMode(action.request.path, context),
             diffBase: action.request.diffBase ?? 'head',
             diffRevision: action.request.diffRevision,
-            scrollTop: 0,
+            position: initialViewerPosition(
+              action.request.position
+                ? 'source'
+                : defaultViewMode(action.request.path, context),
+            ),
             navigation: action.request.position,
             loading: true,
             dirty: false,
@@ -175,12 +194,16 @@ export function viewerWorkspaceReducer(
     case 'pin':
       return mapTab(model, action.id, (tab) => ({ ...tab, pinned: true }))
     case 'set-mode':
-      return mapTab(model, action.id, (tab) => ({ ...tab, mode: action.mode }))
+      return mapTab(model, action.id, (tab) => ({
+        ...tab,
+        mode: action.mode,
+        position: action.position ?? tab.position,
+      }))
     case 'cycle-active-mode':
       return model.activeId
         ? mapTab(model, model.activeId, (tab) => ({
             ...tab,
-            mode: nextMode(tab.mode),
+            mode: nextViewerMode(tab.mode),
           }))
         : model
     case 'set-diff-base':
@@ -203,10 +226,10 @@ export function viewerWorkspaceReducer(
             }
           : tab,
       )
-    case 'set-scroll':
+    case 'set-position':
       return mapTab(model, action.id, (tab) => ({
         ...tab,
-        scrollTop: action.scrollTop,
+        position: action.position,
       }))
     case 'navigation-handled':
       return mapTab(model, action.id, (tab) =>
@@ -470,10 +493,4 @@ function currentRead(
     action.workspaceGeneration === model.generation &&
     model.readGenerations[action.id] === action.readGeneration
   )
-}
-
-function nextMode(mode: ViewMode): ViewMode {
-  if (mode === 'rendered') return 'source'
-  if (mode === 'source') return 'diff'
-  return 'rendered'
 }

@@ -5,13 +5,14 @@ import {
   type HostPath,
   type ViewMode,
 } from '../../../shared'
-import type { ViewerPaneId, ViewerTab } from './tab-state'
+import type { ViewerDocumentPosition, ViewerPaneId, ViewerTab } from './tab-state'
+import { initialViewerPosition } from './viewer-position'
 
-const TAB_STORAGE_VERSION = 1
+const TAB_STORAGE_VERSION = 2
 export const DRAFT_STORAGE_CHARACTER_LIMIT = 2 * 1024 * 1024
 
 interface StoredTabs {
-  readonly version: number
+  readonly version: 1 | 2
   readonly activeId?: string
   readonly tabs: readonly StoredTab[]
 }
@@ -24,7 +25,9 @@ interface StoredTab {
   readonly mode: ViewMode
   readonly diffBase: DiffBase
   readonly diffRevision?: string
-  readonly scrollTop: number
+  readonly position?: ViewerDocumentPosition
+  /** Version 1 migration field. */
+  readonly scrollTop?: number
   readonly draft?: string
   readonly mtimeMs?: number
 }
@@ -65,7 +68,7 @@ export function decodeViewerTabs(root: HostPath, raw: string | null): RestoredVi
           diffBase: item.diffBase,
           diffRevision:
             typeof item.diffRevision === 'string' ? item.diffRevision : undefined,
-          scrollTop: Number.isFinite(item.scrollTop) ? item.scrollTop : 0,
+          position: storedPosition(item),
           file:
             draft === undefined
               ? undefined
@@ -118,7 +121,7 @@ export function encodeViewerTabs(
         mode: tab.mode,
         diffBase: tab.diffBase,
         diffRevision: tab.diffRevision,
-        scrollTop: tab.scrollTop,
+        position: tab.position,
         draft: storedDraft,
         mtimeMs: storedDraft === undefined ? undefined : tab.file?.mtimeMs,
       }
@@ -174,5 +177,33 @@ function isDiffBase(value: unknown): value is DiffBase {
 function isStoredTabs(value: unknown): value is StoredTabs {
   if (!value || typeof value !== 'object') return false
   const candidate = value as { version?: unknown; tabs?: unknown }
-  return candidate.version === TAB_STORAGE_VERSION && Array.isArray(candidate.tabs)
+  return (
+    (candidate.version === 1 || candidate.version === TAB_STORAGE_VERSION) &&
+    Array.isArray(candidate.tabs)
+  )
+}
+
+function storedPosition(item: StoredTab): ViewerDocumentPosition {
+  const position = item.position
+  if (
+    position &&
+    isViewMode(position.mode) &&
+    Number.isFinite(position.line) &&
+    position.line >= 1 &&
+    Number.isFinite(position.scrollTop) &&
+    position.scrollTop >= 0
+  ) {
+    return {
+      mode: position.mode,
+      line: Math.floor(position.line),
+      scrollTop: position.scrollTop,
+    }
+  }
+  return {
+    ...initialViewerPosition(item.mode),
+    scrollTop:
+      typeof item.scrollTop === 'number' && Number.isFinite(item.scrollTop)
+        ? Math.max(0, item.scrollTop)
+        : 0,
+  }
 }

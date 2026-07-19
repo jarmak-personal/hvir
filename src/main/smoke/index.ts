@@ -14,6 +14,7 @@ import type { WebPaneRouteRegistry } from '../web-pane/web-pane-route-registry'
 import { createWorkerClient, workerPath } from '../worker-host'
 import { SmokeCleanup } from './cleanup'
 import { verifyRendererLifecycleCleanup } from './renderer-lifecycle'
+import { verifyViewerPositions } from './viewer-position'
 import {
   ECHO_REQUEST_TYPE,
   HTML_PREVIEW_SCHEME,
@@ -99,6 +100,9 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
   cleanup.defer('live reload fixture', () =>
     host.exec('rm', ['-f', '--', liveReloadPath.path]).then(() => undefined),
   )
+  cleanup.defer('viewer position fixture', () =>
+    host.exec('rm', ['-f', '--', viewerPositionPath.path]).then(() => undefined),
+  )
   cleanup.defer('project watch', async () => stopSmokeWatch?.())
   cleanup.defer('supervised terminals', () => supervisor.disposeAllAndWait())
   cleanup.defer('smoke window', async () => {
@@ -169,6 +173,7 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
     ],
   })
   const liveReloadPath = joinHostPath(smokeRoot, '.hvir-smoke-live.txt')
+  const viewerPositionPath = joinHostPath(smokeRoot, '.hvir-smoke-position.md')
   const largeJsonPath = joinHostPath(smokeRoot, '.hvir-smoke-large.json')
   const largeTextPath = joinHostPath(smokeRoot, '.hvir-smoke-large.txt')
   const harnessProfilesPath = joinHostPath(smokeRoot, '.hvir-smoke-harness-profiles.json')
@@ -182,6 +187,13 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
     await host.connect()
     const liveReloadBefore = `${Array.from({ length: 240 }, (_, index) => `line ${index}`).join('\n')}\n`
     await host.writeFile(liveReloadPath, liveReloadBefore)
+    await host.writeFile(
+      viewerPositionPath,
+      Array.from(
+        { length: 80 },
+        (_, index) => `## Position ${index + 1}\n\nParagraph ${index + 1}\n`,
+      ).join('\n'),
+    )
     await host.writeFile(
       largeJsonPath,
       JSON.stringify(
@@ -1527,30 +1539,12 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
     }
     console.log('[smoke] sandboxed HTML blocked node, navigation, and popups')
 
-    const modeBinding = (await win.webContents.executeJavaScript(`
-      new Promise((resolve, reject) => {
-        const activeMode = () => document.querySelector('.mode-control button.active')?.textContent?.trim();
-        const before = activeMode();
-        const terminal = document.querySelector('.terminal-panel');
-        const mac = /Mac/.test(navigator.platform);
-        terminal?.dispatchEvent(new KeyboardEvent('keydown', {
-          key: 'M', ctrlKey: !mac, metaKey: mac, shiftKey: true, bubbles: true
-        }));
-        if (activeMode() !== before) return reject(new Error('terminal chord changed viewer mode'));
-        window.dispatchEvent(new KeyboardEvent('keydown', {
-          key: 'M', ctrlKey: !mac, metaKey: mac, shiftKey: true, bubbles: true
-        }));
-        requestAnimationFrame(() => {
-          const after = activeMode();
-          if (!after || after === before) return reject(new Error('mode chord did not cycle'));
-          const rendered = [...document.querySelectorAll('.mode-control button')]
-            .find((node) => node.textContent?.trim() === 'rendered');
-          rendered?.click();
-          resolve(before + '→' + after);
-        });
-      })
-    `)) as string
-    console.log(`[smoke] mode keybinding avoids terminal paste (${modeBinding})`)
+    const viewerPositions = await withTimeout(
+      verifyViewerPositions(win, viewerPositionPath),
+      'viewer mode position matrix timed out',
+      25_000,
+    )
+    console.log(`[smoke] viewer mode positions OK (${viewerPositions})`)
 
     const jsonStatus = (await withTimeout(
       win.webContents.executeJavaScript(`
