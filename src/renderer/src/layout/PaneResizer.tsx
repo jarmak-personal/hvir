@@ -155,11 +155,12 @@ export function PaneResizer({
       onPointerMove={(event) => {
         const session = pointerSessionRef.current
         if (!session || session.id !== event.pointerId) return
-        if (
-          !session.dragging &&
-          Math.hypot(event.clientX - session.startX, event.clientY - session.startY) <
-            ACTION_DRAG_THRESHOLD
-        ) {
+        const movement = Math.abs(
+          orientation === 'vertical'
+            ? event.clientX - session.startX
+            : event.clientY - session.startY,
+        )
+        if (!session.dragging && movement < ACTION_DRAG_THRESHOLD) {
           return
         }
         if (!session.dragging) beginDrag(session)

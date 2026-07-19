@@ -321,6 +321,10 @@
   color: var(--text-muted);
 }
 
+:root[data-theme='light'] .terminal-collapse-toggle {
+  border-left-color: var(--border-strong);
+}
+
 .terminal-container[data-terminal-theme='dark'] {
   background: #111318;
 }

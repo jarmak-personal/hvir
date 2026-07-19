@@ -61,6 +61,49 @@ describe('PaneResizer action gestures', () => {
     expect(document.body.classList.contains('pane-resizing')).toBe(false)
   })
 
+  it.each([
+    ['horizontal', 112, 100],
+    ['vertical', 100, 112],
+  ] as const)(
+    'ignores movement along the non-resize axis for a %s divider',
+    (orientation, clientX, clientY) => {
+      const action = vi.fn()
+      const onDrag = vi.fn()
+      const onDragStart = vi.fn()
+      renderResizer({ action, onDrag, onDragStart, orientation })
+      const button = actionButton()
+
+      pointer(button, 'pointerdown', 5, 100, 100)
+      pointer(button, 'pointermove', 5, clientX, clientY)
+      pointer(button, 'pointerup', 5, clientX, clientY)
+      act(() => button.click())
+
+      expect(action).toHaveBeenCalledOnce()
+      expect(onDragStart).not.toHaveBeenCalled()
+      expect(onDrag).not.toHaveBeenCalled()
+    },
+  )
+
+  it('uses horizontal movement to start a vertical divider drag', () => {
+    const action = vi.fn()
+    const onDrag = vi.fn()
+    renderResizer({
+      action,
+      onDrag,
+      onDragStart: vi.fn(),
+      orientation: 'vertical',
+    })
+    const button = actionButton()
+
+    pointer(button, 'pointerdown', 6, 100, 100)
+    pointer(button, 'pointermove', 6, 106, 100)
+    pointer(button, 'pointerup', 6, 106, 100)
+    act(() => button.click())
+
+    expect(onDrag).toHaveBeenLastCalledWith(106)
+    expect(action).not.toHaveBeenCalled()
+  })
+
   it('cleans up an immediately started divider drag on cancellation', () => {
     renderResizer({ action: vi.fn(), onDrag: vi.fn(), onDragStart: vi.fn() })
     const divider = host.querySelector<HTMLElement>('.pane-resizer')
@@ -93,15 +136,17 @@ function renderResizer({
   action,
   onDrag,
   onDragStart,
+  orientation = 'horizontal',
 }: {
   readonly action: () => void
   readonly onDrag: (position: number) => void
   readonly onDragStart: () => void
+  readonly orientation?: 'horizontal' | 'vertical'
 }): void {
   act(() => {
     root.render(
       createElement(PaneResizer, {
-        orientation: 'horizontal',
+        orientation,
         label: 'Resize terminal',
         className: 'terminal-resizer',
         onDrag,
