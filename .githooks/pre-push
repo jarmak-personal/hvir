@@ -3,6 +3,9 @@ set -euo pipefail
 
 cd "$(git rev-parse --show-toplevel)"
 
+echo "[pre-push] Running TypeScript checks..."
+npm run typecheck
+
 echo "[pre-push] Running hvir's local-platform Electron smoke test..."
 
 if [[ "$(uname -s)" == "Linux" && -z "${DISPLAY:-}" ]]; then
