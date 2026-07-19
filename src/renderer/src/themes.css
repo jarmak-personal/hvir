@@ -83,7 +83,6 @@
     .workspaces-bar,
     .rail-nav,
     .panel-header,
-    .viewer-toolbar,
     .viewer-tabs,
     .tab-strip,
     .terminal-rail-header,
@@ -146,15 +145,25 @@
 
 :root[data-theme='light']
   :is(
+    .mode-control,
     .mode-control button,
     .blame-toggle,
     .diff-base-select,
+    .mode-select,
     .git-tabs button,
     .git-load-more
   ) {
   color: var(--text-muted);
   background: var(--surface-2);
   border-color: var(--border-strong);
+}
+
+:root[data-theme='light'] .viewer-floating-controls {
+  filter: drop-shadow(0 2px 5px var(--shadow));
+}
+
+:root[data-theme='light'] :is(.conflict-badge, .viewer-operation-error) {
+  background: #fff7f7;
 }
 
 :root[data-theme='light']
@@ -249,6 +258,7 @@
     .git-branch-control,
     .git-branch-control select,
     .diff-base-select,
+    .mode-select,
     .large-file-preview,
     .json-more,
     .markdown-image-unavailable
@@ -265,7 +275,6 @@
 :root[data-theme='light']
   :is(
     .project-tab strong,
-    .viewer-title,
     .terminal-list-title,
     .markdown-body h1,
     .markdown-body h2,

@@ -1404,7 +1404,7 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
             .find((node) => node.querySelector('.tab-name')?.textContent?.trim() === 'rendered.md');
           renderedTab?.querySelector('.tab-main')?.click();
           const waitForYaml = () => {
-            const title = document.querySelector('.viewer-title')?.textContent || '';
+            const title = document.querySelector('.viewer-tab.active .tab-name')?.textContent || '';
             const keys = [...document.querySelectorAll('.json-key')]
               .map((node) => node.textContent || '');
             const fixturesOpen = [...document.querySelectorAll('.directory-row')]
@@ -1442,7 +1442,7 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
             }
             if (Date.now() > deadline) return reject(new Error(
               'missing internal link escaped the viewer: ' +
-              (document.querySelector('.viewer-title')?.textContent || 'no title')
+              (document.querySelector('.viewer-tab.active .tab-name')?.textContent || 'no title')
             ));
             setTimeout(waitForContainedError, 50);
           };
@@ -1888,7 +1888,7 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
             }
             tracked.click();
             const activateTracked = () => {
-              const title = document.querySelector('.viewer-title')?.textContent || '';
+              const title = document.querySelector('.viewer-tab.active .tab-name')?.textContent || '';
               if (!title.includes('package-lock.json')) {
                 if (Date.now() > deadline) return reject(new Error('large blame fixture did not activate'));
                 return setTimeout(activateTracked, 50);

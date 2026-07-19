@@ -149,22 +149,19 @@ export function FileViewer({
   }, [blameMode, currentPath, refreshVersion, showBlame])
 
   return (
-    <>
-      <header className="viewer-toolbar">
-        <div className="viewer-title">
-          {tab ? basenameHostPath(tab.path) : 'No file open'}
-          {tab?.conflict ? (
+    <div className="viewer-body">
+      {tab ? (
+        <div className="viewer-floating-controls" role="toolbar" aria-label="Viewer">
+          {tab.conflict ? (
             <button className="conflict-badge" type="button" onClick={onReload}>
               Changed on disk · reload
             </button>
           ) : null}
-          {tab?.error && tab.file ? (
+          {tab.error && tab.file ? (
             <span className="viewer-operation-error" role="status" title={tab.error}>
               Save failed
             </span>
           ) : null}
-        </div>
-        {tab ? (
           <div className="view-controls">
             {tab.mode === 'diff' && !tab.diffRevision ? (
               <select
@@ -188,7 +185,7 @@ export function FileViewer({
                 Blame
               </button>
             ) : null}
-            <div className="mode-control" aria-label="View mode">
+            <div className="mode-control" role="group" aria-label="View mode">
               {(['rendered', 'source', 'diff'] as const).map((mode) => (
                 <button
                   type="button"
@@ -211,33 +208,50 @@ export function FileViewer({
                 </button>
               ))}
             </div>
+            <select
+              className="mode-select"
+              aria-label="View mode"
+              value={tab.mode}
+              onChange={(event) => {
+                onMode(event.currentTarget.value as ViewMode, positionCapture.current?.())
+              }}
+            >
+              {(['rendered', 'source', 'diff'] as const).map((mode) => (
+                <option
+                  value={mode}
+                  disabled={Boolean(tab.file?.binary && mode !== 'rendered')}
+                  key={mode}
+                >
+                  {mode[0]?.toUpperCase()}
+                  {mode.slice(1)}
+                </option>
+              ))}
+            </select>
           </div>
-        ) : null}
-      </header>
-      <div className="viewer-body">
-        {!tab ? <EmptyViewer text="Choose a file from the tree" /> : null}
-        {tab?.loading ? <EmptyViewer text="Opening…" /> : null}
-        {tab?.error && !tab.file ? <EmptyViewer text={tab.error} error /> : null}
-        {tab && !tab.loading && tab.file?.binary && !binaryImage ? (
-          <BinaryFileView path={tab.path} size={tab.file.size} />
-        ) : null}
-        {tab && !tab.loading && tab.file && (!tab.file.binary || binaryImage) ? (
-          <ActiveView
-            tab={tab}
-            file={tab.file}
-            onContent={onContent}
-            onSave={onSave}
-            onPosition={onPosition}
-            blame={showBlame ? blame : []}
-            blameStatus={showBlame ? blameStatus : ''}
-            onOpenPath={onOpenPath}
-            refreshVersion={refreshVersion}
-            positionCapture={positionCapture}
-            onNavigationHandled={onNavigationHandled}
-          />
-        ) : null}
-      </div>
-    </>
+        </div>
+      ) : null}
+      {!tab ? <EmptyViewer text="Choose a file from the tree" /> : null}
+      {tab?.loading ? <EmptyViewer text="Opening…" /> : null}
+      {tab?.error && !tab.file ? <EmptyViewer text={tab.error} error /> : null}
+      {tab && !tab.loading && tab.file?.binary && !binaryImage ? (
+        <BinaryFileView path={tab.path} size={tab.file.size} />
+      ) : null}
+      {tab && !tab.loading && tab.file && (!tab.file.binary || binaryImage) ? (
+        <ActiveView
+          tab={tab}
+          file={tab.file}
+          onContent={onContent}
+          onSave={onSave}
+          onPosition={onPosition}
+          blame={showBlame ? blame : []}
+          blameStatus={showBlame ? blameStatus : ''}
+          onOpenPath={onOpenPath}
+          refreshVersion={refreshVersion}
+          positionCapture={positionCapture}
+          onNavigationHandled={onNavigationHandled}
+        />
+      ) : null}
+    </div>
   )
 }
 
