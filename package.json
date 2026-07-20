@@ -47,6 +47,7 @@
     "check-adrs": "node scripts/check-adrs.mjs",
     "architecture:report": "node scripts/architecture-hotspots.mjs",
     "architecture:check": "node scripts/architecture-hotspots.mjs --enforce",
+    "project:kind": "node scripts/project-management/sync-kind.ts",
     "verify": "npm run check-seams && npm run check-adrs && npm run architecture:check && npm run lint && npm run typecheck && npm test && node npm/launcher/hvir.mjs --help",
     "smoke": "electron-vite build && bash scripts/run-smoke.sh",
     "smoke:packaged": "bash scripts/run-packaged-smoke.sh",
