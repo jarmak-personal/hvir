@@ -1,0 +1,4 @@
+interface:
+  display_name: 'hvir Implement Issue'
+  short_description: 'Implement hvir issues with architectural care'
+  default_prompt: 'Use $hvir-implement-issue to implement this aligned hvir issue with architectural diligence.'
