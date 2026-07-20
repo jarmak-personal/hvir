@@ -45,6 +45,18 @@ another supported release path; see [docs/packaging.md](docs/packaging.md).
 hvir expects the system `git` binary. Claude Code and Codex launch options use those CLIs
 from the selected host's login-shell environment; plain shells work without either.
 
+## Feedback and project tracking
+
+Public questions and problem reports belong in the
+[Q&A Discussions](https://github.com/jarmak-personal/hvir/discussions/categories/q-a), while
+proposals belong in [Ideas](https://github.com/jarmak-personal/hvir/discussions/categories/ideas).
+GitHub Issues remain the canonical maintainer planning tracker. New, reopened, or unlocked
+issue and pull-request conversations are locked automatically; repository collaborators can
+still comment for the create, review, and feedback workflow.
+
+Conversation locking does not make an external pull-request title or body trusted input. Agent
+workflows should continue to use the trust-boundary guidance in [CONTRIBUTING.md](CONTRIBUTING.md).
+
 ## Development
 
 Node 24 is used by release CI.
