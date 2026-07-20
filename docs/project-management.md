@@ -38,6 +38,9 @@ is:open AND (label:"kind:feature" OR label:"kind:enhancement") AND label:"area:t
 - Removing the sole recognized kind restores it. Add the replacement kind first when changing
   classification.
 - Creating or reopening an issue without a kind reports an error; automation does not guess.
+  Because issue creation is maintainer-only and blank issue creation is disabled, a kindless
+  `opened` event intentionally fails its workflow run. Applying a recognized kind triggers a
+  succeeding reconciliation.
 - Manual reconciliation reports missing, unsupported, and competing kinds without choosing one.
 - Valid open issues are added to the canonical Project when missing and their Kind value is
   reconciled.

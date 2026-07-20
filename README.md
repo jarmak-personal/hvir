@@ -59,7 +59,7 @@ workflows should continue to use the trust-boundary guidance in [CONTRIBUTING.md
 
 ## Development
 
-Node 24 is used by release CI.
+Development requires Node 24 or newer; release CI uses Node 24.
 
 Start with the [contributor guide](CONTRIBUTING.md). Substantive implementation is discussed in
 a governing issue before code or a pull request; the repository also includes optional,

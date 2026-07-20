@@ -70,7 +70,7 @@ Never commit agent credentials, personal MCP configuration, or machine-local har
 
 ## Develop locally
 
-Release CI uses Node 24.
+Development requires Node 24 or newer; release CI uses Node 24.
 
 ```sh
 npm ci

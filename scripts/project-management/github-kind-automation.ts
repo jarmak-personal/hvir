@@ -216,7 +216,7 @@ export class GitHubKindAutomation implements KindAutomationPort {
     const optionId = context.optionIds.get(option)
     if (optionId === undefined) {
       throw new Error(
-        `Project field "Kind" is missing the expected "${option}" option. Reconcile the documented schema before retrying.`,
+        `Unexpected Project Kind option after schema validation: "${option}".`,
       )
     }
 
