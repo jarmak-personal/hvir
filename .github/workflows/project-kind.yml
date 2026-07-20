@@ -1,0 +1,97 @@
+name: Reconcile project kind
+
+on:
+  issues:
+    types: [opened, reopened, labeled, unlabeled]
+  workflow_dispatch:
+    inputs:
+      issue_number:
+        description: Issue number; leave empty to reconcile every open issue
+        required: false
+        type: string
+      apply:
+        description: Apply deterministic label and Project mutations
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: project-kind-${{ github.event.issue.number || inputs.issue_number || github.run_id }}
+  cancel-in-progress: false
+
+jobs:
+  issue-event:
+    if: >-
+      github.event_name == 'issues' &&
+      (github.event.action == 'opened' ||
+       github.event.action == 'reopened' ||
+       startsWith(github.event.label.name, 'kind:'))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    environment:
+      name: project-automation
+      deployment: false
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: Check out repository automation
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: main
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 24
+          package-manager-cache: false
+
+      - name: Reconcile the affected issue
+        env:
+          HVIR_REPO_TOKEN: ${{ github.token }}
+          HVIR_PROJECT_TOKEN: ${{ secrets.HVIR_PROJECT_TOKEN }}
+          HVIR_REPOSITORY: ${{ github.repository }}
+          HVIR_ISSUE_NUMBER: ${{ github.event.issue.number }}
+          HVIR_APPLY: 'true'
+          HVIR_EVENT_ACTION: ${{ github.event.action }}
+          HVIR_EVENT_LABEL: ${{ github.event.label.name }}
+          HVIR_EVENT_UPDATED_AT: ${{ github.event.issue.updated_at }}
+        run: npm run project:kind
+
+  manual-reconciliation:
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment:
+      name: project-automation
+      deployment: false
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: Check out repository automation
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: main
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 24
+          package-manager-cache: false
+
+      - name: Reconcile issue kinds
+        env:
+          HVIR_REPO_TOKEN: ${{ github.token }}
+          HVIR_PROJECT_TOKEN: ${{ secrets.HVIR_PROJECT_TOKEN }}
+          HVIR_REPOSITORY: ${{ github.repository }}
+          HVIR_ISSUE_NUMBER: ${{ inputs.issue_number }}
+          HVIR_APPLY: ${{ inputs.apply }}
+        run: npm run project:kind

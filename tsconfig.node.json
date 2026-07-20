@@ -1,6 +1,7 @@
 {
   "extends": "./tsconfig.base.json",
   "compilerOptions": {
+    "allowImportingTsExtensions": true,
     "composite": false,
     "lib": ["ES2023"],
     "types": ["node"]
@@ -10,6 +11,7 @@
     "src/preload/**/*.ts",
     "src/workers/**/*.ts",
     "src/shared/**/*.ts",
+    "scripts/project-management/**/*.ts",
     "test/**/*.ts",
     "electron.vite.config.ts",
     "vitest.config.ts"
