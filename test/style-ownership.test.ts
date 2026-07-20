@@ -10,6 +10,7 @@ const expectedOrder = [
   'viewer-tabs.css',
   'terminal-shell.css',
   'settings.css',
+  'composer-submit.css',
   'terminal-list.css',
   'primitives.css',
   'workspace-state.css',

@@ -38,7 +38,7 @@ import type { ViewerPaneId, ViewerTab } from './viewer/tab-state'
 import { useViewerWorkspace } from './viewer/use-viewer-workspace'
 import { setAppTheme, useAppTheme } from './theme'
 import { SettingsDialog } from './settings/SettingsDialog'
-import { setAppSettings, useAppSettings } from './settings/settings'
+import { setAppSettings, terminalPreferences, useAppSettings } from './settings/settings'
 import { useWorkbenchCommands } from './workbench/use-workbench-commands'
 import { useWorkbenchLayout } from './workbench/use-workbench-layout'
 import { useWorkbenchOverlays } from './workbench/use-workbench-overlays'
@@ -135,6 +135,7 @@ export function App(): ReactElement {
   )
 
   const session = useProjectSession({
+    composerSubmitMode: settings.composerSubmitMode,
     onProjectState: applyProjectViewState,
     onReloadFiles: reloadCleanFiles,
     onWatchEvent: handleWatchEvent,
@@ -627,9 +628,7 @@ export function App(): ReactElement {
                 )
               }
               onOpenWebLink={openWebLink}
-              idleThresholdMs={settings.idleThresholdMs}
-              recoveryMode={settings.terminalRecoveryMode}
-              terminalTheme={settings.terminalTheme}
+              preferences={terminalPreferences(settings)}
               onOpenSettings={() => overlays.openSettings('general')}
               onOpenHarnessSettings={() => overlays.openSettings('harnesses')}
               onAddHarness={() => overlays.openSettings('harnesses-add')}

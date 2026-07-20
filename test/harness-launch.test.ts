@@ -79,6 +79,19 @@ describe('harness launch composition', () => {
     ])
   })
 
+  it('applies intentional submit through the Codex provider on fresh and resume', async () => {
+    const profile = await store.save({ input: input() })
+    const fresh = await resolve(profile, 'fresh', localPath(project), 'ctrl-enter')
+    const resumed = await resolve(profile, 'resume', localPath(project), 'ctrl-enter')
+    expect(fresh.spec.args).toEqual([
+      '--config',
+      'tui.terminal_title=["thread-title"]',
+      '--config',
+      'tui.keymap.composer.submit=["ctrl-enter"]',
+    ])
+    expect(resumed.spec.args).toEqual([...fresh.spec.args, 'resume', 'test-session-id'])
+  })
+
   it('shares preview/spawn composition and redacts only reference values', async () => {
     process.env['HVIR_PROFILE_TEST_SECRET'] = 'forwarded-secret'
     const profile = await store.save({
@@ -232,6 +245,7 @@ describe('harness launch composition', () => {
     profile: Awaited<ReturnType<HarnessProfileStore['save']>>,
     mode: 'fresh' | 'resume',
     launchWorkspace = localPath(project),
+    composerSubmitMode?: 'enter' | 'ctrl-enter',
   ) {
     return resolveHarnessLaunch({
       profile,
@@ -245,6 +259,7 @@ describe('harness launch composition', () => {
         sessionId: 'test-session-id',
         cwd: launchWorkspace,
         defaultShell: '/bin/zsh',
+        composerSubmitMode,
       },
     })
   }

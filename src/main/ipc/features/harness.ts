@@ -1,11 +1,17 @@
 import { hostPathEquals } from '../../../shared'
 import { commandPreview, resolveHarnessLaunch } from '../../harness/harness-launch'
-import { harnessProviderCatalog } from '../../harness/harness-provider'
+import {
+  configureHarnessComposerSubmit,
+  harnessProviderCatalog,
+} from '../../harness/harness-provider'
 import { providerTemplateProfiles } from '../../harness/harness-profile-store'
 import type { IpcRegistrar } from '../authority-router'
 import type { IpcDeps } from '../deps'
 
-type HarnessIpcDeps = Pick<IpcDeps, 'getProject' | 'harnessProfiles' | 'harnessProbes'>
+type HarnessIpcDeps = Pick<
+  IpcDeps,
+  'getProject' | 'getHost' | 'connectedHosts' | 'harnessProfiles' | 'harnessProbes'
+>
 
 export function registerHarnessIpc(ipc: IpcRegistrar, deps: HarnessIpcDeps): void {
   ipc.handle('harness:catalog', () => harnessProviderCatalog())
@@ -118,6 +124,51 @@ export function registerHarnessIpc(ipc: IpcRegistrar, deps: HarnessIpcDeps): voi
     const { host } = deps.getProject()
     const canonical = await ipc.authority.canonicalHostPath(req.path, root.hostId, host)
     return deps.harnessProfiles.authorizePath(canonical)
+  })
+  ipc.handle('harness:configure-composer-submit', async (req) => {
+    if (req.mode !== 'enter' && req.mode !== 'ctrl-enter') {
+      throw new Error('Invalid composer submit mode')
+    }
+    if (req.scope === 'host') {
+      if (
+        typeof req.hostId !== 'string' ||
+        req.hostId.length === 0 ||
+        req.hostId.length > 240 ||
+        /[\0\r\n]/.test(req.hostId)
+      ) {
+        throw new Error('Invalid host id')
+      }
+      const host = deps.getHost(req.hostId)
+      if (!host || host.connectionState !== 'connected') {
+        throw new Error(`Host '${req.hostId}' is not connected`)
+      }
+      await configureHarnessComposerSubmit(host, req.mode)
+      return
+    }
+    if (
+      req.scope !== 'all-connected' ||
+      (req.previousMode !== 'enter' && req.previousMode !== 'ctrl-enter')
+    ) {
+      throw new Error('Invalid composer submit scope')
+    }
+    const configured = []
+    let currentHostId: string | undefined
+    try {
+      for (const host of deps.connectedHosts()) {
+        currentHostId = host.hostId
+        await configureHarnessComposerSubmit(host, req.mode)
+        configured.push(host)
+      }
+    } catch (reason) {
+      await Promise.allSettled(
+        configured.map((host) => configureHarnessComposerSubmit(host, req.previousMode)),
+      )
+      const detail = reason instanceof Error ? reason.message : String(reason)
+      throw new Error(
+        `Could not configure message submission on host '${currentHostId ?? 'unknown'}': ${detail}`,
+        { cause: reason },
+      )
+    }
   })
 }
 

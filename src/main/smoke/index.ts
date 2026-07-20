@@ -231,6 +231,8 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
       echoWorker: worker,
       gitWorker: git,
       getProject: () => ({ host, root: smokeRoot }),
+      getHost: () => host,
+      connectedHosts: () => [host],
       getRegisteredWorkspaceRoot: (root) =>
         hostPathEquals(root, smokeRoot) ||
         hostPathEquals(root, smokeCloseableRoot) ||
@@ -421,6 +423,7 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
             title: 'Smoke custom harness',
             position: 20,
             active: false,
+            composerSubmitMode: 'enter',
             acknowledgeRisk: true
           });
           await new Promise((resolve, reject) => {

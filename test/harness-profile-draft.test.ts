@@ -88,6 +88,10 @@ describe('harness profile draft state', () => {
           sessionIdentity: 'none',
           contextPresentation: 'none',
         },
+        terminalInput: {
+          modifiedKeyProtocol: 'none',
+          metaEnterAliasesControl: false,
+        },
         profileTemplate: {
           displayName: 'Opaque',
           description: 'Opaque template',
@@ -99,7 +103,11 @@ describe('harness profile draft state', () => {
       },
     ]
     const created = newHarnessProfileDraft(providers, [
-      { ...profile, order: 199, scope: { kind: 'project', projectRoot: localPath('/repo') } },
+      {
+        ...profile,
+        order: 199,
+        scope: { kind: 'project', projectRoot: localPath('/repo') },
+      },
     ])
     expect(created?.input.providerId).toBe(asHarnessProviderId('opaque-provider'))
     expect(created?.input.order).toBe(199)

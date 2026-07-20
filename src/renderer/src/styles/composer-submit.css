@@ -1,0 +1,23 @@
+.settings-fields .settings-checkbox-copy {
+  display: grid;
+  gap: 4px;
+}
+
+.settings-fields .settings-checkbox-control {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #cdd2da;
+}
+
+.settings-fields .settings-checkbox-copy small {
+  color: #737d8b;
+  font-size: 9px;
+}
+
+.settings-fields .settings-checkbox-control input {
+  width: auto;
+  margin: 0;
+  padding: 0;
+  accent-color: #4d8fd8;
+}

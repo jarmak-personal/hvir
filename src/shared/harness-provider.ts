@@ -19,12 +19,22 @@ export interface HarnessProviderCapabilities {
   readonly contextPresentation: HarnessContextPresentation
 }
 
+export type HarnessModifiedKeyProtocol = 'none' | 'modify-other-keys' | 'csi-u'
+
+export interface HarnessTerminalInputCapabilities {
+  /** Wire format used by the foreground TUI for otherwise ambiguous modified keys. */
+  readonly modifiedKeyProtocol: HarnessModifiedKeyProtocol
+  /** Whether hvir should encode Meta+Enter as Control+Enter in intentional-submit mode. */
+  readonly metaEnterAliasesControl: boolean
+}
+
 /** Bounded data-only description safe to expose to the renderer. */
 export interface HarnessProviderDescriptor {
   readonly id: HarnessProviderId
   readonly displayName: string
   readonly default: boolean
   readonly capabilities: HarnessProviderCapabilities
+  readonly terminalInput: HarnessTerminalInputCapabilities
   /** Data-only suggestion; catalog membership never materializes a launch profile. */
   readonly profileTemplate?: {
     readonly displayName: string

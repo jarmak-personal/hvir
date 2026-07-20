@@ -25,6 +25,10 @@ describe('terminal recovery planner', () => {
       exactResume: false,
       contextPresentation: 'none',
     },
+    terminalInput: {
+      modifiedKeyProtocol: 'none',
+      metaEnterAliasesControl: false,
+    },
     profileGuidance: { reservedArguments: [], riskClassification: 'best-effort' },
   }
   const root = hostPath(asHostId('recovery-plan'), '/repo')

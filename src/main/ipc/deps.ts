@@ -30,6 +30,8 @@ export interface IpcDeps {
   readonly echoWorker: WorkerClient<EchoWorkerProtocol>
   readonly gitWorker: WorkerClient<GitWorkerProtocol>
   readonly getProject: () => { readonly host: ProjectHost; readonly root: HostPath }
+  readonly getHost: (hostId: string) => ProjectHost | undefined
+  readonly connectedHosts: () => readonly ProjectHost[]
   readonly getRegisteredWorkspaceRoot: (root: HostPath) => HostPath | undefined
   readonly getProjectState: () => ProjectState
   readonly listHosts: () => readonly ProjectHostOption[]

@@ -52,6 +52,10 @@ describe('harness launch-menu policy', () => {
           exactResume: false,
           contextPresentation: 'none',
         },
+        terminalInput: {
+          modifiedKeyProtocol: 'none',
+          metaEnterAliasesControl: false,
+        },
         profileGuidance: {
           reservedArguments: [],
           riskClassification: 'best-effort',
@@ -62,6 +66,10 @@ describe('harness launch-menu policy', () => {
         displayName: 'Claude Code',
         default: false,
         capabilities: available.capabilities,
+        terminalInput: {
+          modifiedKeyProtocol: 'modify-other-keys',
+          metaEnterAliasesControl: false,
+        },
         profileGuidance: {
           reservedArguments: [],
           riskClassification: 'best-effort',

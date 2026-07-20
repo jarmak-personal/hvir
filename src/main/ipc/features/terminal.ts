@@ -109,6 +109,7 @@ export function registerTerminalIpc(ipc: IpcRegistrar, deps: TerminalIpcDeps): v
       req.position < 0 ||
       req.position >= 500 ||
       typeof req.active !== 'boolean' ||
+      (req.composerSubmitMode !== 'enter' && req.composerSubmitMode !== 'ctrl-enter') ||
       (req.resume !== undefined && typeof req.resume !== 'boolean') ||
       (req.acknowledgeRisk !== undefined && typeof req.acknowledgeRisk !== 'boolean')
     ) {
@@ -163,6 +164,7 @@ export function registerTerminalIpc(ipc: IpcRegistrar, deps: TerminalIpcDeps): v
         cols,
         rows,
         defaultShell,
+        composerSubmitMode: req.composerSubmitMode,
         effectiveCapabilities,
       },
     })
@@ -185,6 +187,7 @@ export function registerTerminalIpc(ipc: IpcRegistrar, deps: TerminalIpcDeps): v
           cols,
           rows,
           defaultShell,
+          composerSubmitMode: req.composerSubmitMode,
           effectiveCapabilities,
         },
       })

@@ -55,6 +55,24 @@ describe('Harness providers', () => {
     expect(codexProvider.sessionDiscovery).toBeDefined()
   })
 
+  it('lets Codex own intentional-submit behavior inside its composer', () => {
+    const intentional = { ...context, composerSubmitMode: 'ctrl-enter' as const }
+    expect(codexProvider.launch(intentional).args).toEqual([
+      '--config',
+      'tui.terminal_title=["thread-title"]',
+      '--config',
+      'tui.keymap.composer.submit=["ctrl-enter"]',
+    ])
+    expect(codexProvider.resume(intentional).args).toEqual([
+      '--config',
+      'tui.terminal_title=["thread-title"]',
+      '--config',
+      'tui.keymap.composer.submit=["ctrl-enter"]',
+      'resume',
+      context.sessionId,
+    ])
+  })
+
   it('resolves only registered providers and emits their serializable catalog', () => {
     expect(harnessProvider('plain-shell')).toBe(plainShellProvider)
     expect(harnessProvider('claude-code')).toBe(claudeCodeProvider)
@@ -86,6 +104,18 @@ describe('Harness providers', () => {
       sessionIdentity: 'discovered',
       exactResume: true,
       contextPresentation: 'pressure',
+    })
+    expect(catalog.find(({ id }) => id === 'plain-shell')?.terminalInput).toEqual({
+      modifiedKeyProtocol: 'none',
+      metaEnterAliasesControl: false,
+    })
+    expect(catalog.find(({ id }) => id === 'claude-code')?.terminalInput).toEqual({
+      modifiedKeyProtocol: 'modify-other-keys',
+      metaEnterAliasesControl: false,
+    })
+    expect(catalog.find(({ id }) => id === 'codex')?.terminalInput).toEqual({
+      modifiedKeyProtocol: 'csi-u',
+      metaEnterAliasesControl: true,
     })
     expect(
       catalog.every(
