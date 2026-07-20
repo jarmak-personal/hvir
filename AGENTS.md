@@ -24,6 +24,20 @@ requests.** Do not add progress checklists, status logs, or test-run evidence to
 [`docs/plan/`](docs/plan/00-overview.md) is frozen historical implementation context, not
 an active tracker; do not update its checkboxes or status tables to record new work.
 
+**Start substantive implementation from a governing GitHub issue.** Align on the problem,
+product fit, architecture questions, and acceptance there before editing, then link the pull
+request with `Closes #N`. Broad epics should be decomposed into independently reviewable child
+issues; see [`CONTRIBUTING.md`](CONTRIBUTING.md).
+
+**Do not spend effort drafting or creating an issue without the user's go-ahead.** An agent may
+briefly propose using `hvir-create-issue`, but must wait for explicit approval before invoking
+it. After drafting, it must show the exact issue and receive separate approval before publishing.
+
+**Do not publish a pull request that fails locally runnable checks.** After the final changes,
+run `npm run verify` before committing. Push without `--no-verify` so `.githooks/pre-push` runs;
+if hooks are not installed, run that hook directly before pushing. Fix failures locally or
+report an environment blocker instead of spending CI minutes on a known-bad branch.
+
 ## Hard constraints (do not violate without explicit sign-off)
 
 - **No real editing.** "Minor edit + save" only. No LSP, debugger, refactors, extension
@@ -65,6 +79,9 @@ an active tracker; do not update its checkboxes or status tables to record new w
 ## Conventions
 
 - Prefer leveraging mature OSS over rebuilding.
+- Before adding behavior, trace the current owner and search for equivalent policy or helpers.
+  Share stable concepts through narrow, domain-named modules; do not create generic `utils`,
+  catch-all `services`, service locators, or new responsibilities in composition roots.
 - When making an architectural decision, add one decision-only record under `docs/adr/`
   using its template, then add it to the index in `docs/design.md`. Keep context, decision,
   consequences, and rejected alternatives in the ADR; keep implementation tracking in the

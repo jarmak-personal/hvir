@@ -1,0 +1,6 @@
+interface:
+  display_name: 'hvir Create Issue'
+  short_description: 'Evaluate and draft an aligned hvir issue'
+  default_prompt: 'Use $hvir-create-issue to evaluate this proposal and draft a focused hvir issue for my review.'
+policy:
+  allow_implicit_invocation: false

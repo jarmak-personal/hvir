@@ -1,0 +1,5 @@
+{
+  "skillOverrides": {
+    "hvir-create-issue": "user-invocable-only"
+  }
+}
