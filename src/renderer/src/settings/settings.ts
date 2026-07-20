@@ -1,5 +1,6 @@
 import { useSyncExternalStore } from 'react'
 
+import type { ComposerSubmitMode } from '../../../shared'
 import {
   DEFAULT_KEYBINDINGS,
   parseKeybindingOverrides,
@@ -14,7 +15,15 @@ export interface AppSettings {
   readonly gitAutoFetchIntervalMs: number
   readonly terminalRecoveryMode: TerminalRecoveryMode
   readonly terminalTheme: TerminalThemeOverride
+  readonly composerSubmitMode: ComposerSubmitMode
   readonly keybindings: KeybindingMap
+}
+
+export interface TerminalPreferences {
+  readonly idleThresholdMs: number
+  readonly terminalRecoveryMode: TerminalRecoveryMode
+  readonly terminalTheme: TerminalThemeOverride
+  readonly composerSubmitMode: ComposerSubmitMode
 }
 
 const STORAGE_KEY = 'hvir:settings:v1'
@@ -77,6 +86,8 @@ function normalizeSettings(value: Partial<AppSettings>): AppSettings {
       value.terminalTheme === 'dark' || value.terminalTheme === 'light'
         ? value.terminalTheme
         : 'app',
+    composerSubmitMode:
+      value.composerSubmitMode === 'ctrl-enter' ? 'ctrl-enter' : 'enter',
     keybindings: parseKeybindingOverrides(value.keybindings ?? DEFAULT_KEYBINDINGS),
   }
 }
@@ -87,6 +98,16 @@ function defaults(): AppSettings {
     gitAutoFetchIntervalMs: 5 * 60_000,
     terminalRecoveryMode: 'prompt',
     terminalTheme: 'app',
+    composerSubmitMode: 'enter',
     keybindings: DEFAULT_KEYBINDINGS,
+  }
+}
+
+export function terminalPreferences(settings: AppSettings): TerminalPreferences {
+  return {
+    idleThresholdMs: settings.idleThresholdMs,
+    terminalRecoveryMode: settings.terminalRecoveryMode,
+    terminalTheme: settings.terminalTheme,
+    composerSubmitMode: settings.composerSubmitMode,
   }
 }

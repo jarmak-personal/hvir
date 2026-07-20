@@ -1,7 +1,9 @@
 import type { ReactElement } from 'react'
 
 import type {
+  ComposerSubmitMode,
   HarnessTelemetry,
+  HarnessModifiedKeyProtocol,
   HarnessProfileId,
   HarnessProviderCapabilities,
   HostConnectionState,
@@ -26,7 +28,10 @@ interface TerminalViewProps {
   readonly slot: 'primary' | 'secondary'
   readonly visible: boolean
   readonly active: boolean
+  readonly modifiedKeyProtocol: HarnessModifiedKeyProtocol
+  readonly metaEnterAliasesControl: boolean
   readonly themeOverride: TerminalThemeOverride
+  readonly composerSubmitMode: ComposerSubmitMode
   readonly cwd: HostPath
   readonly connectionState: HostConnectionState
   readonly onTitle: (title: string) => void

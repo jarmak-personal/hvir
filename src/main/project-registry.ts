@@ -265,6 +265,12 @@ export class ProjectRegistry {
     return this.hosts.get(hostId)
   }
 
+  connectedHosts(): readonly ProjectHost[] {
+    return [...this.hosts.values()].filter(
+      ({ connectionState }) => connectionState === 'connected',
+    )
+  }
+
   async connectHost(hostId: string): Promise<ConnectedHost> {
     const host = await this.host(hostId)
     await host.connect()

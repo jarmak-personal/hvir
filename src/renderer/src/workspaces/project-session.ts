@@ -3,6 +3,7 @@ import { useCallback, useEffect, useReducer, useRef, useState } from 'react'
 import {
   unwrapOperation,
   type BrowseHostResponse,
+  type ComposerSubmitMode,
   type ConnectedHost,
   type ProjectHostOption,
   type ProjectState,
@@ -28,6 +29,7 @@ interface ProjectSessionVersions {
 }
 
 interface UseProjectSessionOptions {
+  readonly composerSubmitMode: ComposerSubmitMode
   readonly onProjectState: (state: ProjectState) => void
   readonly onReloadFiles: () => void
   readonly onWatchEvent: (event: WatchEvent) => void
@@ -102,9 +104,33 @@ export function useProjectSession(options: UseProjectSessionOptions) {
     [],
   )
 
-  const connectHost = useCallback(async (hostId: string): Promise<ConnectedHost> => {
-    return unwrapOperation(await window.hvir.invoke('project:connect-host', { hostId }))
+  const configureComposerSubmit = useCallback(async (hostId: string): Promise<void> => {
+    await window.hvir.invoke('harness:configure-composer-submit', {
+      scope: 'host',
+      hostId,
+      mode: callbacks.current.composerSubmitMode,
+    })
   }, [])
+
+  const configureComposerSubmitNonfatal = useCallback(
+    async (hostId: string): Promise<void> => {
+      await configureComposerSubmit(hostId).catch((reason) =>
+        dispatch({ type: 'reported-error', error: errorMessage(reason) }),
+      )
+    },
+    [configureComposerSubmit],
+  )
+
+  const connectHost = useCallback(
+    async (hostId: string): Promise<ConnectedHost> => {
+      const connected = unwrapOperation(
+        await window.hvir.invoke('project:connect-host', { hostId }),
+      )
+      await configureComposerSubmitNonfatal(hostId)
+      return connected
+    },
+    [configureComposerSubmitNonfatal],
+  )
 
   const browseHost = useCallback(
     async (hostId: string, path: string): Promise<BrowseHostResponse> => {
@@ -129,10 +155,11 @@ export function useProjectSession(options: UseProjectSessionOptions) {
       const state = unwrapOperation(
         await window.hvir.invoke('project:open', { hostId, path }),
       )
+      await configureComposerSubmitNonfatal(hostId)
       acceptProjectState(state)
       return state
     },
-    [acceptProjectState],
+    [acceptProjectState, configureComposerSubmitNonfatal],
   )
 
   const switchWorkspace = useCallback(
@@ -297,6 +324,9 @@ export function useProjectSession(options: UseProjectSessionOptions) {
         if (disposed || generation.current !== currentGeneration) return
         dispatch({ type: 'transition-project', generation: currentGeneration, state })
         callbacks.current.onProjectState(state)
+        if (state.connectionState === 'connected') {
+          await configureComposerSubmitNonfatal(state.root.hostId)
+        }
         const hostId = initialHostConnectionTarget(state)
         if (!hostId) {
           dispatch({ type: 'transition-finished', generation: currentGeneration })
@@ -357,7 +387,7 @@ export function useProjectSession(options: UseProjectSessionOptions) {
       }
       stopEvents()
     }
-  }, [acceptProjectState, bumpVersions, connectHost])
+  }, [acceptProjectState, bumpVersions, configureComposerSubmitNonfatal, connectHost])
 
   const projectState = model.projectState
   return {

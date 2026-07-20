@@ -338,6 +338,8 @@ function createWorkbenchEntry(): void {
           if (!projectRegistry) throw new Error('Project registry is unavailable')
           return projectRegistry.active
         },
+        getHost: (hostId) => projectRegistry?.hostById(hostId),
+        connectedHosts: () => projectRegistry?.connectedHosts() ?? [],
         getRegisteredWorkspaceRoot: (root) =>
           projectRegistry?.registeredWorkspaceRoot(root),
         getProjectState: () => {

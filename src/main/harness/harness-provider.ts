@@ -8,9 +8,11 @@
 import {
   asHarnessProviderId,
   asHarnessProfileId,
+  type ComposerSubmitMode,
   type HarnessContextPresentation,
   type HarnessEnvironmentBinding,
   type HarnessLaunchRisk,
+  type HarnessModifiedKeyProtocol,
   type HarnessProfileId,
   type HarnessProviderCapabilities,
   type HarnessProviderDescriptor,
@@ -20,6 +22,7 @@ import {
   type HostPath,
 } from '../../shared'
 import type { Disposer, ProjectHost } from '../project-host'
+import { configureClaudeComposerSubmit } from './claude-keybindings'
 import { observeClaudeContext } from './claude-context-telemetry'
 import { claudeResumeAvailability } from './claude-session-recovery'
 import { observeCodexContext } from './codex-context-telemetry'
@@ -39,6 +42,7 @@ export interface HarnessLaunchContext {
   readonly rows?: number
   /** Interactive shell resolved by the owning ProjectHost. */
   readonly defaultShell: string
+  readonly composerSubmitMode?: ComposerSubmitMode
   readonly effectiveCapabilities?: HarnessProviderCapabilities
 }
 
@@ -48,6 +52,10 @@ export interface HarnessLaunchSpec {
   readonly env?: Record<string, string>
   /** Resolve the command in the user's interactive shell environment. */
   readonly shellEnvironment?: boolean
+}
+
+export interface HarnessComposerConfiguration {
+  configure(host: ProjectHost, mode: ComposerSubmitMode): Promise<void>
 }
 
 export type HarnessSessionDiscoveryResult =
@@ -122,6 +130,10 @@ export interface HarnessManifest {
   readonly displayName: string
   readonly default?: boolean
   readonly contextPresentation: HarnessContextPresentation
+  /** Opt in only when the harness understands a specific modified-key wire format. */
+  readonly modifiedKeyProtocol?: Exclude<HarnessModifiedKeyProtocol, 'none'>
+  /** Compatibility shim for harness keymaps that cannot bind Command/Super. */
+  readonly metaEnterAliasesControl?: boolean
 }
 
 export interface HarnessDefaultProfile {
@@ -180,6 +192,7 @@ export interface HarnessProvider {
   /** Fail-closed check that the exact provider artifact can actually resume. */
   readonly resumeValidation?: HarnessResumeValidation
   readonly probe: HarnessProbeContract
+  readonly composerConfiguration?: HarnessComposerConfiguration
 
   /** Command to start a fresh session. */
   launch(ctx: HarnessLaunchContext): HarnessLaunchSpec
@@ -234,6 +247,7 @@ export const claudeCodeProvider: HarnessProvider = {
     id: asHarnessProviderId('claude-code'),
     displayName: 'Claude Code',
     contextPresentation: 'count',
+    modifiedKeyProtocol: 'modify-other-keys',
   },
   profile: {
     version: 1,
@@ -255,6 +269,7 @@ export const claudeCodeProvider: HarnessProvider = {
   telemetry: { observe: observeClaudeContext },
   resumeValidation: { availability: claudeResumeAvailability },
   probe: versionProbe('preassigned', true, 'count'),
+  composerConfiguration: { configure: configureClaudeComposerSubmit },
 
   launch(ctx): HarnessLaunchSpec {
     return {
@@ -278,6 +293,8 @@ export const codexProvider: HarnessProvider = {
     id: asHarnessProviderId('codex'),
     displayName: 'Codex',
     contextPresentation: 'pressure',
+    modifiedKeyProtocol: 'csi-u',
+    metaEnterAliasesControl: true,
   },
   profile: {
     version: 1,
@@ -310,10 +327,10 @@ export const codexProvider: HarnessProvider = {
   telemetry: { observe: observeCodexContext },
   probe: versionProbe('discovered', true, 'pressure'),
 
-  launch(): HarnessLaunchSpec {
+  launch(ctx): HarnessLaunchSpec {
     return {
       file: 'codex',
-      args: ['--config', CODEX_THREAD_TITLE_CONFIG],
+      args: ['--config', CODEX_THREAD_TITLE_CONFIG, ...codexComposerArgs(ctx)],
       shellEnvironment: true,
     }
   },
@@ -321,7 +338,13 @@ export const codexProvider: HarnessProvider = {
   resume(ctx): HarnessLaunchSpec {
     return {
       file: 'codex',
-      args: ['--config', CODEX_THREAD_TITLE_CONFIG, 'resume', ctx.sessionId],
+      args: [
+        '--config',
+        CODEX_THREAD_TITLE_CONFIG,
+        ...codexComposerArgs(ctx),
+        'resume',
+        ctx.sessionId,
+      ],
       shellEnvironment: true,
     }
   },
@@ -378,6 +401,11 @@ export class HarnessProviderRegistry {
         sessionIdentity: provider.sessionIdentity,
         exactResume: provider.supportsResume,
         contextPresentation: provider.manifest.contextPresentation,
+      },
+      terminalInput: {
+        modifiedKeyProtocol: provider.manifest.modifiedKeyProtocol ?? 'none',
+        metaEnterAliasesControl:
+          provider.manifest.metaEnterAliasesControl === true,
       },
       profileTemplate: provider.profile.defaultProfile
         ? {
@@ -452,6 +480,15 @@ export function harnessProviderCatalog(): readonly HarnessProviderDescriptor[] {
   return harnessProviders.catalog()
 }
 
+export async function configureHarnessComposerSubmit(
+  host: ProjectHost,
+  mode: ComposerSubmitMode,
+): Promise<void> {
+  for (const provider of harnessProviders.all()) {
+    await provider.composerConfiguration?.configure(host, mode)
+  }
+}
+
 export async function selectHarnessLaunchMode(
   host: ProjectHost,
   provider: HarnessProvider,
@@ -490,6 +527,12 @@ export function harnessProviderDiagnostics(): readonly {
     },
     probeInvokesVersion: provider.probe.versionArgs !== undefined,
   }))
+}
+
+function codexComposerArgs(ctx: HarnessLaunchContext): readonly string[] {
+  return ctx.composerSubmitMode === 'ctrl-enter'
+    ? ['--config', 'tui.keymap.composer.submit=["ctrl-enter"]']
+    : []
 }
 
 function classifyClaudeRisk(input: HarnessRiskInput): HarnessLaunchRisk {

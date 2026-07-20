@@ -1,6 +1,7 @@
 import type { CSSProperties, ReactElement, RefObject } from 'react'
 
 import type {
+  ComposerSubmitMode,
   HarnessProviderDescriptor,
   HostConnectionState,
   HostPath,
@@ -25,6 +26,7 @@ export function TerminalDeck({
   split,
   primaryWidth,
   terminalTheme,
+  composerSubmitMode,
   workspaceRoot,
   connectionState,
   onCreateDefault,
@@ -50,6 +52,7 @@ export function TerminalDeck({
   readonly split: boolean
   readonly primaryWidth?: number
   readonly terminalTheme: TerminalThemeOverride
+  readonly composerSubmitMode: ComposerSubmitMode
   readonly workspaceRoot: HostPath
   readonly connectionState: HostConnectionState
   readonly onCreateDefault?: () => void
@@ -111,7 +114,12 @@ export function TerminalDeck({
                 (session.pane === 'primary' ? primaryActiveId : secondaryActiveId)
             }
             active={visible && session.id === activeId}
+            modifiedKeyProtocol={provider.terminalInput.modifiedKeyProtocol}
+            metaEnterAliasesControl={
+              provider.terminalInput.metaEnterAliasesControl
+            }
             themeOverride={terminalTheme}
+            composerSubmitMode={composerSubmitMode}
             cwd={workspaceRoot}
             connectionState={connectionState}
             onTitle={(title) =>

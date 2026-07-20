@@ -6,6 +6,7 @@ import {
   HarnessProfilesSettings,
   type HarnessProfilesSettingsHandle,
 } from './HarnessProfilesSettings'
+import { ComposerSubmitConsentDialog } from './ComposerSubmitConsentDialog'
 import { keybindingOverridesJson, parseKeybindingOverrides } from './keybindings'
 import type { AppSettings } from './settings'
 
@@ -37,6 +38,10 @@ export function SettingsDialog({
   )
   const [recoveryMode, setRecoveryMode] = useState(settings.terminalRecoveryMode)
   const [terminalTheme, setTerminalTheme] = useState(settings.terminalTheme)
+  const [composerSubmitMode, setComposerSubmitMode] = useState(
+    settings.composerSubmitMode,
+  )
+  const [composerConsentOpen, setComposerConsentOpen] = useState(false)
   const [keybindings, setKeybindings] = useState(
     keybindingOverridesJson(settings.keybindings),
   )
@@ -142,11 +147,19 @@ export function SettingsDialog({
       const confirmed = await (harnessProfiles.current?.confirmSafeToLeave() ??
         Promise.resolve(true))
       if (!confirmed) return
+      if (composerSubmitMode !== settings.composerSubmitMode) {
+        await window.hvir.invoke('harness:configure-composer-submit', {
+          scope: 'all-connected',
+          mode: composerSubmitMode,
+          previousMode: settings.composerSubmitMode,
+        })
+      }
       onSave(nextTheme, {
         idleThresholdMs: parsedIdleSeconds * 1000,
         gitAutoFetchIntervalMs: Number(gitAutoFetchIntervalMs),
         terminalRecoveryMode: recoveryMode,
         terminalTheme,
+        composerSubmitMode,
         keybindings: parseKeybindingOverrides(parsed),
       })
     } catch (reason) {
@@ -192,6 +205,26 @@ export function SettingsDialog({
               <option value="dark">Always dark</option>
               <option value="light">Always light</option>
             </select>
+          </label>
+          <label className="settings-checkbox">
+            <span>Message submission</span>
+            <span className="settings-checkbox-copy">
+              <span className="settings-checkbox-control">
+                <input
+                  type="checkbox"
+                  checked={composerSubmitMode === 'ctrl-enter'}
+                  onChange={(event) => {
+                    if (event.currentTarget.checked) setComposerConsentOpen(true)
+                    else setComposerSubmitMode('enter')
+                  }}
+                />
+                Send messages with Ctrl+Enter or Command+Enter; Enter inserts a new line
+              </span>
+              <small>
+                Claude updates live. Restart open Codex sessions after changing this
+                setting.
+              </small>
+            </span>
           </label>
           <label>
             <span>Idle-after-output threshold</span>
@@ -269,6 +302,15 @@ export function SettingsDialog({
           </button>
         </div>
       </section>
+      {composerConsentOpen ? (
+        <ComposerSubmitConsentDialog
+          onCancel={() => setComposerConsentOpen(false)}
+          onConfirm={() => {
+            setComposerSubmitMode('ctrl-enter')
+            setComposerConsentOpen(false)
+          }}
+        />
+      ) : null}
     </div>
   )
 }

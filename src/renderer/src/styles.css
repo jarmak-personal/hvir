@@ -7,6 +7,7 @@
 @import './styles/viewer-tabs.css';
 @import './styles/terminal-shell.css';
 @import './styles/settings.css';
+@import './styles/composer-submit.css';
 @import './styles/terminal-list.css';
 @import './styles/primitives.css';
 @import './styles/workspace-state.css';

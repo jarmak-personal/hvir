@@ -10,21 +10,23 @@ import { DEFAULT_KEYBINDINGS, localPath } from '../src/shared'
 vi.mock('../src/renderer/src/settings/HarnessProfilesSettings', async () => {
   const { createElement, forwardRef, useImperativeHandle } = await import('react')
   return {
-    HarnessProfilesSettings: forwardRef(function MockHarnessProfilesSettings(_props, ref) {
-      useImperativeHandle(ref, () => ({
-        confirmSafeToLeave: () => Promise.resolve(true),
-      }))
-      return createElement(
-        'section',
-        { className: 'settings-harnesses' },
-        createElement(
-          'h3',
-          { id: 'settings-harnesses-title', tabIndex: -1 },
-          'Harnesses',
-        ),
-        createElement('input', { 'aria-label': 'Harness profile name' }),
-      )
-    }),
+    HarnessProfilesSettings: forwardRef(
+      function MockHarnessProfilesSettings(_props, ref) {
+        useImperativeHandle(ref, () => ({
+          confirmSafeToLeave: () => Promise.resolve(true),
+        }))
+        return createElement(
+          'section',
+          { className: 'settings-harnesses' },
+          createElement(
+            'h3',
+            { id: 'settings-harnesses-title', tabIndex: -1 },
+            'Harnesses',
+          ),
+          createElement('input', { 'aria-label': 'Harness profile name' }),
+        )
+      },
+    ),
   }
 })
 
@@ -106,6 +108,7 @@ describe('SettingsDialog harness alignment', () => {
               gitAutoFetchIntervalMs: 5 * 60_000,
               terminalRecoveryMode: 'prompt',
               terminalTheme: 'app',
+              composerSubmitMode: 'enter',
               keybindings: DEFAULT_KEYBINDINGS,
             },
             workspaceRoot: localPath('/tmp/hvir'),
@@ -147,7 +150,71 @@ describe('SettingsDialog harness alignment', () => {
     expect(input?.selectionStart).toBe(7)
     expect(headingFocusCount(focus)).toBe(1)
   })
+
+  it('requires explicit consent and waits for Save before changing Claude config', async () => {
+    const invoke = vi.fn(() => Promise.resolve(undefined))
+    const onSave = vi.fn()
+    vi.stubGlobal('hvir', { invoke, send: vi.fn(), on: vi.fn() })
+    act(() => {
+      root?.render(
+        createElement(SettingsDialog, {
+          theme: 'dark',
+          settings: {
+            idleThresholdMs: 4_000,
+            gitAutoFetchIntervalMs: 5 * 60_000,
+            terminalRecoveryMode: 'prompt',
+            terminalTheme: 'app',
+            composerSubmitMode: 'enter',
+            keybindings: DEFAULT_KEYBINDINGS,
+          },
+          workspaceRoot: localPath('/tmp/hvir'),
+          projectRoot: localPath('/tmp/hvir'),
+          onClose: vi.fn(),
+          onSave,
+        }),
+      )
+    })
+
+    const checkbox = document.querySelector<HTMLInputElement>(
+      '.settings-checkbox input[type="checkbox"]',
+    )
+    expect(checkbox?.checked).toBe(false)
+    act(() => checkbox?.click())
+    expect(document.querySelector('#composer-submit-consent-title')).toBeTruthy()
+    expect(invoke).not.toHaveBeenCalled()
+
+    act(() => button('Cancel').click())
+    expect(checkbox?.checked).toBe(false)
+    expect(document.querySelector('#composer-submit-consent-title')).toBeFalsy()
+
+    act(() => checkbox?.click())
+    act(() => button('Allow this change').click())
+    expect(checkbox?.checked).toBe(true)
+    expect(invoke).not.toHaveBeenCalled()
+
+    await act(async () => {
+      button('Save app settings').click()
+      await Promise.resolve()
+    })
+    expect(invoke).toHaveBeenCalledWith('harness:configure-composer-submit', {
+      scope: 'all-connected',
+      mode: 'ctrl-enter',
+      previousMode: 'enter',
+    })
+    expect(onSave).toHaveBeenCalledWith(
+      'dark',
+      expect.objectContaining({ composerSubmitMode: 'ctrl-enter' }),
+    )
+  })
 })
+
+function button(label: string): HTMLButtonElement {
+  const match = [...document.querySelectorAll<HTMLButtonElement>('button')].find(
+    (candidate) => candidate.textContent?.trim() === label,
+  )
+  if (!match) throw new Error(`Missing button '${label}'`)
+  return match
+}
 
 function flushFrames(): void {
   act(() => {
@@ -163,7 +230,8 @@ function headingFocusCount(focus: {
   readonly mock: { readonly instances: readonly unknown[] }
 }): number {
   return focus.mock.instances.filter(
-    (instance) => instance instanceof HTMLElement && instance.id === 'settings-harnesses-title',
+    (instance) =>
+      instance instanceof HTMLElement && instance.id === 'settings-harnesses-title',
   ).length
 }
 
