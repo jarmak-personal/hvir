@@ -105,10 +105,27 @@ state first, and no-op label or Project mutations are skipped.
 
 The workflow's repository-scoped `GITHUB_TOKEN` receives only `contents: read` and
 `issues: write`. GitHub does not allow that token to access a user-owned Project, so Project
-access uses the repository secret `HVIR_PROJECT_TOKEN`. Create a classic personal access token
-owned by the Project owner with the GitHub-documented `project` and `repo` scopes, store it as
-that Actions secret, and rotate it through the repository's Actions secrets settings. Do not
-reuse a broader interactive maintainer token as the secret.
+access uses the `HVIR_PROJECT_TOKEN` secret from the `project-automation` environment. That
+environment accepts only the `main` branch. Create a classic personal access token owned by the
+Project owner with the GitHub-documented `project` and `repo` scopes, then store it as an
+environment secret:
+
+```sh
+gh secret set HVIR_PROJECT_TOKEN --env project-automation --repo jarmak-personal/hvir
+```
+
+After confirming the environment secret exists, remove any repository-scoped copy so a workflow
+on another ref cannot bypass the environment boundary:
+
+```sh
+gh secret list --env project-automation --repo jarmak-personal/hvir
+gh secret delete HVIR_PROJECT_TOKEN --repo jarmak-personal/hvir
+```
+
+Rotate the token through the environment's Actions secrets settings. Do not reuse a broader
+interactive maintainer token as the secret.
 
 Issue titles, bodies, comments, and label text are treated as data. Event values enter the
-command through environment variables rather than generated shell source.
+command through environment variables rather than generated shell source. Third-party actions
+are pinned to full commit SHAs. Both jobs check out `main` explicitly without persisting the
+`GITHUB_TOKEN`; manual dispatches from any other ref are rejected.
