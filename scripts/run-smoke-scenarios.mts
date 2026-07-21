@@ -1,11 +1,17 @@
 import { spawn } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { dirname, join, resolve } from 'node:path'
+import {
+  parseElectronSmokeScenario,
+  type ElectronSmokeScenario,
+} from '../src/main/smoke/scenario-selection.ts'
 
-export const SMOKE_SCENARIOS = ['pty-native', 'legacy-workflow', 'capacity'] as const
-export const DEFAULT_SMOKE_SCENARIOS = ['pty-native', 'legacy-workflow'] as const
+export const DEFAULT_SMOKE_SCENARIOS = [
+  'pty-native',
+  'legacy-workflow',
+] as const satisfies readonly ElectronSmokeScenario[]
 
-export type SmokeScenarioName = (typeof SMOKE_SCENARIOS)[number]
+export type SmokeScenarioName = ElectronSmokeScenario
 
 export interface SmokeScenarioResult {
   readonly scenario: SmokeScenarioName
@@ -23,12 +29,7 @@ export function selectedSmokeScenarios(
   value: string | undefined,
 ): readonly SmokeScenarioName[] {
   if (value === undefined || value === '') return DEFAULT_SMOKE_SCENARIOS
-  if (SMOKE_SCENARIOS.includes(value as SmokeScenarioName)) {
-    return [value as SmokeScenarioName]
-  }
-  throw new Error(
-    `Unknown Electron smoke scenario '${value}'. Expected one of: ${SMOKE_SCENARIOS.join(', ')}`,
-  )
+  return [parseElectronSmokeScenario(value)]
 }
 
 export async function runSmokeScenarioGroups(

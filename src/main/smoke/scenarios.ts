@@ -1,43 +1,29 @@
-import type { BrowserWindow } from 'electron'
-
-import type { HostPath, KeybindingMap } from '../../shared'
-import type { HarnessProbeManager } from '../harness/harness-probe'
-import type { HtmlPreviewProtocol } from '../html-preview-protocol'
-import type { RendererResourceScopes } from '../renderer-resource-scopes'
-import type { WebPaneRouteRegistry } from '../web-pane/web-pane-route-registry'
-import { runSmoke } from '.'
+import { runSmoke, type ElectronSmokeDependencies } from '.'
 import { runNativePtySmoke } from './native-pty'
 import {
   parseElectronSmokeScenario,
   type ElectronSmokeScenario,
 } from './scenario-selection'
 
-export interface ElectronSmokeScenarioDependencies {
+export type ElectronSmokeScenarioDependencies = Omit<
+  ElectronSmokeDependencies,
+  'mode'
+> & {
   readonly scenario: string | undefined
-  readonly projectRoot: HostPath
-  readonly createWindow: (
-    discardRendererResources?: (ownerId: number) => void,
-  ) => BrowserWindow
-  readonly harnessProbeManager: HarnessProbeManager
-  readonly htmlPreviews: HtmlPreviewProtocol
-  readonly rendererResources: RendererResourceScopes
-  readonly webPaneRoutes: WebPaneRouteRegistry
-  readonly updateWebPaneBindings: (ownerId: number, bindings: KeybindingMap) => void
-  readonly updateWebPaneFullPage: (ownerId: number, paneId?: string) => void
-  readonly openExternal: (url: string) => Promise<void>
 }
 
 export async function runElectronSmokeScenario(
   dependencies: ElectronSmokeScenarioDependencies,
 ): Promise<number> {
-  const scenario = parseElectronSmokeScenario(dependencies.scenario)
+  const { scenario: requestedScenario, ...rendererDependencies } = dependencies
+  const scenario = parseElectronSmokeScenario(requestedScenario)
   if (scenario === 'pty-native') {
-    return runNativePtySmoke(dependencies.projectRoot)
+    return runNativePtySmoke(rendererDependencies.projectRoot)
   }
 
-  dependencies.htmlPreviews.register()
+  rendererDependencies.htmlPreviews.register()
   return runSmoke({
-    ...dependencies,
+    ...rendererDependencies,
     mode: rendererMode(scenario),
   })
 }

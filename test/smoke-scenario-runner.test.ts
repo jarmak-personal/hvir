@@ -7,7 +7,6 @@ import {
   formatSmokeScenarioResults,
   runSmokeScenarioGroups,
   selectedSmokeScenarios,
-  SMOKE_SCENARIOS,
   type SmokeScenarioName,
 } from '../scripts/run-smoke-scenarios.mts'
 import {
@@ -38,7 +37,6 @@ describe('Electron smoke scenario selection', () => {
   })
 
   it('schedules only the small native and legacy groups by default', () => {
-    expect(SMOKE_SCENARIOS).toEqual(ELECTRON_SMOKE_SCENARIOS)
     expect(selectedSmokeScenarios(undefined)).toEqual(DEFAULT_SMOKE_SCENARIOS)
     expect(DEFAULT_SMOKE_SCENARIOS).toEqual(['pty-native', 'legacy-workflow'])
   })
