@@ -106,7 +106,7 @@ function projectFetch(
                         number: 10,
                         repository: { nameWithOwner: 'jarmak-personal/hvir' },
                       },
-                      fieldValueByName:
+                      kind:
                         options.currentOption === undefined
                           ? null
                           : {
@@ -129,7 +129,7 @@ function projectFetch(
         }),
       )
     }
-    if (body.query.includes('SetProjectKind')) {
+    if (body.query.includes('SetProjectSingleSelect')) {
       return Promise.resolve(
         graphqlData({
           updateProjectV2ItemFieldValue: { projectV2Item: { id: 'item-id' } },
@@ -232,7 +232,7 @@ describe('GitHub project kind adapter', () => {
       .mocked(fetchImplementation)
       .mock.calls.map((call) => requestBody(call[1]).query)
     expect(queries.some((query) => query.includes('AddProjectItem'))).toBe(true)
-    expect(queries.some((query) => query.includes('SetProjectKind'))).toBe(true)
+    expect(queries.some((query) => query.includes('SetProjectSingleSelect'))).toBe(true)
   })
 
   it('reports a missing Kind field without attempting mutation', async () => {

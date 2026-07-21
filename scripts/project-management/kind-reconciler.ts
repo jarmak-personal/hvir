@@ -1,12 +1,7 @@
 import { planKindLabels, type KindEvent, type KindPlan } from './kind-policy.ts'
+import type { IssueSnapshot } from './issue-planning.ts'
 
-export interface IssueSnapshot {
-  id: string
-  number: number
-  state: 'OPEN' | 'CLOSED'
-  updatedAt: string
-  labels: string[]
-}
+export type { IssueSnapshot } from './issue-planning.ts'
 
 export interface ProjectKindSyncResult {
   action:

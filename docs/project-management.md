@@ -50,7 +50,9 @@ is:open AND (label:"kind:feature" OR label:"kind:enhancement") AND label:"area:t
 
 ## Repository interface
 
-The repository-owned command defaults to a dry run:
+### Kind reconciliation
+
+The repository-owned kind command defaults to a dry run:
 
 ```sh
 npm run project:kind -- --issue 83
@@ -79,10 +81,70 @@ The command exits nonzero after printing its JSON report when any issue is missi
 ambiguous kind metadata. GitHub API failures, missing fields/options, archived items, permission
 errors, and exhausted bounded retries also fail visibly.
 
+### Normalized planning records
+
+An agent or maintainer can read one issue and its canonical Project state without knowing
+GitHub node IDs, Project item IDs, field IDs, option IDs, or GraphQL unions:
+
+```sh
+npm run project:record -- --issue 85
+```
+
+The structured JSON record contains only repository and issue identity, open/closed state,
+recognized kind metadata, sorted multi-valued `area:*` labels, native parent/sub-issue
+relationships, native linked pull requests, Project membership, and named `Kind` and `Status`
+values. It deliberately omits issue and pull-request titles, bodies, comments, and internal
+GitHub IDs. Native pull-request relationships are reported as `closing` unless GitHub reports
+them as manually `linked`; closed and merged pull requests remain visible.
+
+Project membership has three explicit states:
+
+- `missing`: the issue has no item in the canonical Project;
+- `archived`: its canonical item exists but is archived; and
+- `present`: its canonical item exists and is active.
+
+A read never changes membership. Add or restore an eligible open issue only by requesting the
+named operation; it remains a dry run unless `--apply` is also present:
+
+```sh
+npm run project:record -- --issue 85 --ensure-project
+npm run project:record -- --issue 85 --ensure-project --apply
+```
+
+`Status` is the only writable planning value. The command accepts the canonical option names
+`Todo`, `In Progress`, and `Done`, skips an existing value, and reports its operation as
+`would-update`, `updated`, or `unchanged`:
+
+```sh
+npm run project:record -- --issue 85 --status 'In Progress'
+npm run project:record -- --issue 85 --status 'In Progress' --apply
+```
+
+Setting Status on a missing or archived item requires `--ensure-project`, so membership intent
+cannot be inferred from a field update. Missing or archived closed issues cannot be added or
+restored. Direct Project `Kind` writes are rejected because repository labels remain its owner.
+Apply operations are sequential, not transactional: if add/restore succeeds and a later Status
+write fails, the membership change remains and a retry resumes idempotently from current state.
+
+On a successful apply, the command re-reads the item and `record` reflects the confirmed Project
+values. In dry-run output, `record` remains the observed state and `operations` describes the
+proposed changes. A valid read, dry run, applied update, or no-op exits 0. Invalid input, missing
+repository/Project access, schema drift, archived/missing mutation intent, GraphQL failures, and
+exhausted bounded retries exit 1 with an actionable diagnostic.
+
+The planning-record and kind commands share the same bounded GitHub request, pagination,
+canonical Project lookup, schema-validation, item-lookup, and token-redaction mechanics. Each
+command remains one process per consumer operation; lookup and mutation steps are not separate
+runner jobs.
+
+Both commands use `HVIR_REPO_TOKEN`, `HVIR_PROJECT_TOKEN`, `HVIR_REPOSITORY`,
+`HVIR_PROJECT_OWNER`, and `HVIR_PROJECT_NUMBER` as documented above. Credentials are read only
+from the environment and are never accepted as command-line values.
+
 ## Project schema provisioning
 
-The canonical schema has one single-select field named exactly `Kind`, with the seven options
-listed above. A maintainer with Project write access can provision it once with:
+The custom categorical schema has one single-select field named exactly `Kind`, with the seven
+options listed above. A maintainer with Project write access can provision it once with:
 
 ```sh
 gh project field-create 1 \
@@ -94,6 +156,10 @@ gh project field-create 1 \
 
 Runtime automation does not create or silently repair schema. A missing field, wrong field type,
 or renamed/missing option is an actionable failure so schema drift is reviewed deliberately.
+The planning-record command also expects the canonical Project's `Status` single-select field to
+contain `Todo`, `In Progress`, and `Done`; it does not create or rename those options.
+Duplicate items for one repository issue fail both planning-record and kind commands visibly
+rather than allowing an arbitrary item to win.
 
 ## Actions authentication and usage
 
