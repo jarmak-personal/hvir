@@ -6,7 +6,7 @@ CLI used to launch the completing agent.
 | Reviewer | Family | Model | Effort |
 | --- | --- | --- | --- |
 | GitHub Copilot CLI | Google | `gemini-3.5-flash` | Provider default; omit `--effort` |
-| Claude Code | Anthropic | `claude-opus-4.8` | `medium` |
+| Claude Code | Anthropic | `claude-opus-4-8` | `medium` |
 | Codex | OpenAI | `gpt-5.6-sol` | `medium` |
 
 Select by completing family:
@@ -68,7 +68,7 @@ session persistence.
 
 ```sh
 claude -p '<review-prompt>' \
-  --model claude-opus-4.8 \
+  --model claude-opus-4-8 \
   --effort medium \
   --safe-mode \
   --no-session-persistence \
