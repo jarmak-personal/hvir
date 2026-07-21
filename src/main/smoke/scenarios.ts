@@ -30,6 +30,7 @@ export async function runElectronSmokeScenario(
 
 function rendererMode(
   scenario: Exclude<ElectronSmokeScenario, 'pty-native'>,
-): 'workflow' | 'capacity' {
-  return scenario === 'capacity' ? 'capacity' : 'workflow'
+): 'workflow' | 'viewer-position' | 'capacity' {
+  if (scenario === 'capacity') return 'capacity'
+  return scenario === 'viewer-position' ? 'viewer-position' : 'workflow'
 }

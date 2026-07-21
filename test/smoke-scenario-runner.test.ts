@@ -28,17 +28,21 @@ describe('Electron smoke scenario selection', () => {
   it('rejects unknown groups with the complete reproducible name set', () => {
     expect(() => parseElectronSmokeScenario('unknown')).toThrow(
       "Unknown Electron smoke scenario 'unknown'. Expected one of: " +
-        'pty-native, legacy-workflow, capacity',
+        'pty-native, viewer-position, legacy-workflow, capacity',
     )
     expect(() => selectedSmokeScenarios('unknown')).toThrow(
       "Unknown Electron smoke scenario 'unknown'. Expected one of: " +
-        'pty-native, legacy-workflow, capacity',
+        'pty-native, viewer-position, legacy-workflow, capacity',
     )
   })
 
-  it('schedules only the small native and legacy groups by default', () => {
+  it('schedules the focused native and viewer groups with the legacy workflow', () => {
     expect(selectedSmokeScenarios(undefined)).toEqual(DEFAULT_SMOKE_SCENARIOS)
-    expect(DEFAULT_SMOKE_SCENARIOS).toEqual(['pty-native', 'legacy-workflow'])
+    expect(DEFAULT_SMOKE_SCENARIOS).toEqual([
+      'pty-native',
+      'viewer-position',
+      'legacy-workflow',
+    ])
   })
 })
 
@@ -53,18 +57,20 @@ describe('Electron smoke result aggregation', () => {
 
     const results = await runSmokeScenarioGroups(DEFAULT_SMOKE_SCENARIOS, invoke)
 
-    expect(invoked).toEqual(['pty-native', 'legacy-workflow'])
+    expect(invoked).toEqual(['pty-native', 'viewer-position', 'legacy-workflow'])
     expect(results).toEqual([
       {
         scenario: 'pty-native',
         status: 'failed',
         error: 'native load failed',
       },
+      { scenario: 'viewer-position', status: 'passed', exitCode: 0 },
       { scenario: 'legacy-workflow', status: 'passed', exitCode: 0 },
     ])
     expect(formatSmokeScenarioResults(results)).toBe(
       '[smoke:summary]\n' +
         '- pty-native: failed (native load failed)\n' +
+        '- viewer-position: passed (exit 0)\n' +
         '- legacy-workflow: passed (exit 0)',
     )
   })
@@ -94,6 +100,10 @@ describe('Electron smoke command contracts', () => {
     new URL('../src/main/smoke/capacity.ts', import.meta.url),
     'utf8',
   )
+  const viewerPositionScenario = readFileSync(
+    new URL('../src/main/smoke/viewer-position.ts', import.meta.url),
+    'utf8',
+  )
 
   it('routes default and capacity commands through the named process launcher', () => {
     expect(packageJson.scripts.smoke).toContain('node scripts/run-smoke-scenarios.mts')
@@ -121,6 +131,19 @@ describe('Electron smoke command contracts', () => {
     expect(branch).toBeLessThan(smokeWorkflow.indexOf('const viewerStatus'))
     expect(smokeWorkflow.indexOf("if (mode === 'capacity')", branch + 1)).toBe(-1)
     expect(capacityScenario).toContain('JSON.stringify(snapshot())')
+  })
+
+  it('enters the viewer group before legacy work with semantic diagnostics', () => {
+    const branch = smokeWorkflow.indexOf("if (mode === 'viewer-position')")
+    const focusedScenario = viewerPositionScenario.slice(
+      viewerPositionScenario.indexOf('export function verifySourceDiffPosition'),
+    )
+    expect(branch).toBeGreaterThan(-1)
+    expect(branch).toBeLessThan(smokeWorkflow.indexOf('const profileSmoke'))
+    expect(focusedScenario).toContain('JSON.stringify(snapshot())')
+    expect(focusedScenario).toContain('requestAnimationFrame(painted)')
+    expect(focusedScenario).toContain('root.isConnected')
+    expect(focusedScenario).not.toContain('setTimeout(')
   })
 
   it('documents every selectable group and the aggregate result behavior', () => {
