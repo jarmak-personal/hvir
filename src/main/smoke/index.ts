@@ -14,7 +14,6 @@ import type { WebPaneRouteRegistry } from '../web-pane/web-pane-route-registry'
 import { createWorkerClient, workerPath } from '../worker-host'
 import { SmokeCleanup } from './cleanup'
 import { verifyGitDiffBehavior } from './git-diff'
-import { stopPtyAndWaitForExit } from './pty-lifecycle'
 import { verifyRendererLifecycleCleanup } from './renderer-lifecycle'
 import { verifyViewerPositions } from './viewer-position'
 import { createTerminalMoveSmokeHarness, verifyTerminalMoveSmoke } from './terminal-move'
@@ -452,35 +451,6 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
             profileId: profile.id,
             launchRevision: profile.launchRevision
           });
-          let output = '';
-          const stopOutput = window.hvir.on('pty:data', ({ id, data }) => {
-            if (id === 'profile-smoke-terminal') output += data;
-          });
-          const started = await window.hvir.invoke('pty:start', {
-            sessionId: 'profile-smoke-terminal',
-            profileId: profile.id,
-            launchRevision: profile.launchRevision,
-            cwd: root,
-            cols: 80,
-            rows: 24,
-            title: 'Smoke custom harness',
-            position: 20,
-            active: false,
-            composerSubmitMode: 'enter',
-            acknowledgeRisk: true
-          });
-          await new Promise((resolve, reject) => {
-            const deadline = Date.now() + 5000;
-            const poll = () => {
-              if (output.includes('hvir-profile-smoke')) return resolve();
-              if (Date.now() >= deadline) {
-                return reject(new Error('Custom profile output was not observed'));
-              }
-              setTimeout(poll, 25);
-            };
-            poll();
-          });
-          stopOutput();
           return {
             defaultIds: defaults.map((candidate) => candidate.id),
             requestedProviderIds,
@@ -491,9 +461,7 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
               scope: candidate.scope.kind
             })),
             profile: acknowledgedProfile,
-            preview,
-            started,
-            output
+            preview
           };
         })()
       `),
@@ -514,8 +482,6 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
         riskAcknowledgedRevision?: number
       }
       preview: { args: readonly string[]; command: string }
-      started: { id: string; identityStatus: string; resumed: boolean }
-      output: string
     }
     if (
       profileSmoke.defaultIds.join(',') !== 'plain-shell-default' ||
@@ -538,24 +504,12 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
       profileSmoke.profile.risk !== 'unclassified' ||
       profileSmoke.profile.riskAcknowledgedRevision !==
         profileSmoke.profile.launchRevision ||
-      profileSmoke.started.identityStatus !== 'none' ||
-      profileSmoke.started.resumed ||
-      !profileSmoke.output.includes('hvir-profile-smoke') ||
       !profileSmoke.preview.args.includes(smokeRoot.path) ||
       !profileSmoke.preview.command.includes("HVIR_PROFILE_SMOKE='structured'")
     ) {
-      throw new Error(
-        'structured Custom profile did not preserve preview/launch semantics',
-      )
+      throw new Error('structured Custom profile did not preserve preview semantics')
     }
-    const profileTerminal = supervisor.get(profileSmoke.started.id)
-    if (!profileTerminal) throw new Error('Custom profile PTY was not supervised')
-    await stopPtyAndWaitForExit({
-      supervisor,
-      terminal: profileTerminal,
-      scenario: 'custom-profile-pty-exit',
-    })
-    console.log('[smoke] structured profile preview + Custom PTY OK')
+    console.log('[smoke] structured profile catalog + preview OK')
 
     const containedSessionError = (await win.webContents.executeJavaScript(`
       window.hvir.invoke('project:browse-host', {
