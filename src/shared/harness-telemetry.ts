@@ -2,6 +2,7 @@ import type { HarnessProviderId } from './harness-provider'
 
 export type HarnessFacet<T> =
   | { readonly status: 'unsupported' }
+  | { readonly status: 'pending'; readonly reason?: string }
   | { readonly status: 'unavailable'; readonly reason?: string }
   | { readonly status: 'stale'; readonly value: T; readonly observedAt: number }
   | { readonly status: 'available'; readonly value: T }
@@ -117,10 +118,39 @@ export function boundedHarnessProviderData(
 
 export const UNSUPPORTED_HARNESS_FACET = { status: 'unsupported' } as const
 
+export type HarnessContextStatusFacet = Extract<
+  HarnessFacet<HarnessContextFacet>,
+  { readonly status: 'pending' | 'unavailable' }
+>
+
 export function contextHarnessSnapshot(input: {
   readonly providerId: HarnessProviderId
   readonly provenance: string
   readonly context: HarnessContextFacet
+  readonly sessionId?: string
+  readonly modelId?: string
+  readonly observedAt?: number
+}): HarnessSnapshot {
+  return contextFacetHarnessSnapshot({
+    ...input,
+    context: { status: 'available', value: input.context },
+  })
+}
+
+export function contextStatusHarnessSnapshot(input: {
+  readonly providerId: HarnessProviderId
+  readonly provenance: string
+  readonly context: HarnessContextStatusFacet
+  readonly sessionId: string
+  readonly observedAt?: number
+}): HarnessSnapshot {
+  return contextFacetHarnessSnapshot(input)
+}
+
+function contextFacetHarnessSnapshot(input: {
+  readonly providerId: HarnessProviderId
+  readonly provenance: string
+  readonly context: HarnessFacet<HarnessContextFacet>
   readonly sessionId?: string
   readonly modelId?: string
   readonly observedAt?: number
@@ -141,7 +171,7 @@ export function contextHarnessSnapshot(input: {
       model: input.modelId
         ? { status: 'available', value: { id: input.modelId } }
         : UNSUPPORTED_HARNESS_FACET,
-      context: { status: 'available', value: input.context },
+      context: input.context,
       usage: UNSUPPORTED_HARNESS_FACET,
       turn: UNSUPPORTED_HARNESS_FACET,
       integrations: UNSUPPORTED_HARNESS_FACET,

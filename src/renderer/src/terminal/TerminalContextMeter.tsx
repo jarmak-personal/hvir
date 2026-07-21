@@ -10,6 +10,7 @@ export function TerminalContextMeter({
   readonly countOnly?: boolean
 }): ReactElement {
   const contextFacet = telemetry?.facets.context
+  const contextStatus = contextFacet?.status
   const context =
     contextFacet?.status === 'available' || contextFacet?.status === 'stale'
       ? contextFacet.value
@@ -23,24 +24,33 @@ export function TerminalContextMeter({
   const hasCountOnly = context !== undefined && displayPercent === undefined
   const pressure = hasCountOnly
     ? 'count-only'
-    : displayPercent === undefined
-      ? 'unknown'
-      : displayPercent >= 70
-        ? 'critical'
-        : displayPercent >= 40
-          ? 'warning'
-          : 'normal'
+    : contextStatus === 'pending'
+      ? 'pending'
+      : contextStatus === 'unavailable'
+        ? 'unavailable'
+        : displayPercent === undefined
+          ? 'unknown'
+          : displayPercent >= 70
+            ? 'critical'
+            : displayPercent >= 40
+              ? 'warning'
+              : 'normal'
   const label =
-    context && context.windowTokens !== undefined
-      ? `${formatTokenCount(context.usedTokens)} / ${formatTokenCount(context.windowTokens)} context used`
-      : context
-        ? `${formatTokenCount(context.usedTokens)} current context tokens; limit unavailable`
-        : 'Context usage unavailable'
+    contextStatus === 'pending'
+      ? (contextFacet?.reason ?? 'Waiting for context telemetry')
+      : contextStatus === 'unavailable'
+        ? (contextFacet?.reason ?? 'Context telemetry unavailable')
+        : context && context.windowTokens !== undefined
+          ? `${formatTokenCount(context.usedTokens)} / ${formatTokenCount(context.windowTokens)} context used`
+          : context
+            ? `${formatTokenCount(context.usedTokens)} current context tokens; limit unavailable`
+            : 'Context usage unavailable'
 
   return (
     <span
       className={`terminal-context ${pressure}${countOnly ? ' count-display' : ''}`}
       title={label}
+      aria-label={context === undefined ? label : undefined}
     >
       {!countOnly ? (
         displayPercent === undefined ? (
@@ -60,11 +70,15 @@ export function TerminalContextMeter({
         )
       ) : null}
       <span className="terminal-context-value">
-        {hasCountOnly
-          ? formatTokenCount(context.usedTokens)
-          : displayPercent === undefined
-            ? '--'
-            : `${displayPercent}%`}
+        {contextStatus === 'pending'
+          ? '…'
+          : contextStatus === 'unavailable'
+            ? '!'
+            : hasCountOnly
+              ? formatTokenCount(context.usedTokens)
+              : displayPercent === undefined
+                ? '--'
+                : `${displayPercent}%`}
       </span>
     </span>
   )
