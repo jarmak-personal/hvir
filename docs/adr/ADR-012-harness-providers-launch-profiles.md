@@ -1,5 +1,8 @@
 # ADR-012: Harness providers and launch profiles, not an extension host
 
+> [ADR-015](ADR-015-missing-resume-artifact-blocks-fresh-launch.md) supersedes only the
+> missing-artifact fresh-launch fallback in this record. The remaining decisions still apply.
+
 ## Context
 
 Harness CLIs evolve independently across hosts. Launch, exact recovery, title handling,

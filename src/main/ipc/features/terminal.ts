@@ -1,6 +1,6 @@
 import { hostPathEquals, type HarnessProviderCapabilities } from '../../../shared'
 import { resolveHarnessLaunch } from '../../harness/harness-launch'
-import { harnessProvider, selectHarnessLaunchMode } from '../../harness/harness-provider'
+import { harnessProvider, selectHarnessLaunch } from '../../harness/harness-provider'
 import type { IpcRegistrar } from '../authority-router'
 import type { IpcDeps } from '../deps'
 import { operationResult } from '../operation-result'
@@ -166,7 +166,7 @@ export function registerTerminalIpc(ipc: IpcRegistrar, deps: TerminalIpcDeps): v
     }
     const defaultShell = await host.defaultShell()
     const requestedMode = req.resume ? 'resume' : 'fresh'
-    let resolved = await resolveHarnessLaunch({
+    const resolved = await resolveHarnessLaunch({
       profile,
       expectedLaunchRevision: req.launchRevision,
       projectRoot,
@@ -184,30 +184,14 @@ export function registerTerminalIpc(ipc: IpcRegistrar, deps: TerminalIpcDeps): v
         effectiveCapabilities,
       },
     })
-    const launchMode = await selectHarnessLaunchMode(host, provider, requestedMode, {
+    const launchDecision = await selectHarnessLaunch(host, provider, requestedMode, {
       sessionId: req.resume ? req.harnessSessionId! : req.sessionId,
       artifact: resolved.artifact,
     })
-    if (launchMode !== requestedMode) {
-      resolved = await resolveHarnessLaunch({
-        profile,
-        expectedLaunchRevision: req.launchRevision,
-        projectRoot,
-        workspaceRoot: cwd,
-        host,
-        store: deps.harnessProfiles,
-        mode: launchMode,
-        context: {
-          sessionId: req.sessionId,
-          cwd,
-          cols,
-          rows,
-          defaultShell,
-          composerSubmitMode: req.composerSubmitMode,
-          effectiveCapabilities,
-        },
-      })
+    if (launchDecision.outcome === 'resume-unavailable') {
+      return { outcome: 'resume-unavailable', reason: launchDecision.reason }
     }
+    const launchMode = launchDecision.mode
     const ptyLease = deps.rendererResources.register(
       owner,
       {
@@ -313,6 +297,7 @@ export function registerTerminalIpc(ipc: IpcRegistrar, deps: TerminalIpcDeps): v
       owner.generation,
     )
     return {
+      outcome: 'started',
       id: managed.id,
       pid: managed.pid,
       harnessSessionId: managed.harnessSessionId,

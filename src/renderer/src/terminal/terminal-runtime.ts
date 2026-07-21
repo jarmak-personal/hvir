@@ -264,7 +264,17 @@ export class TerminalRuntime {
         acknowledgeRisk: this.options.riskAcknowledged,
       })
       if (!this.isCurrent(generation)) {
-        window.hvir.send('pty:kill', { id: this.options.sessionId })
+        if (result.outcome === 'started') {
+          window.hvir.send('pty:kill', { id: this.options.sessionId })
+        }
+        return
+      }
+      if (result.outcome === 'resume-unavailable') {
+        this.updateSnapshot({
+          ...this.currentSnapshot,
+          status: resumeUnavailableStatus(result.reason),
+          exited: true,
+        })
         return
       }
       this.started = true
@@ -400,6 +410,13 @@ export class TerminalRuntime {
 
   private isCurrent(generation: number): boolean {
     return !this.disposed && generation === this.startGeneration
+  }
+}
+
+function resumeUnavailableStatus(reason: 'artifact-missing'): string {
+  switch (reason) {
+    case 'artifact-missing':
+      return 'Resume unavailable · session data is missing'
   }
 }
 
