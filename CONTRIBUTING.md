@@ -142,13 +142,13 @@ Linux, run Electron smoke tests under `xvfb-run`. Install the optional pre-push 
 npm run hooks:install
 ```
 
-`npm run smoke` runs the small `pty-native` and transitional `legacy-workflow` groups in
-separate Electron processes with fresh project and user-data roots, then reports a result for
-every scheduled group. Select one group locally with
+`npm run smoke` runs the focused `pty-native` and `viewer-position` groups plus the transitional
+`legacy-workflow` group in separate Electron processes with fresh project and user-data roots,
+then reports a result for every scheduled group. Select one group locally with
 `HVIR_SMOKE_SCENARIO=<name> npm run smoke`; the complete name set is `pty-native`,
-`legacy-workflow`, and `capacity`. `npm run smoke:capacity` is the shorthand for the independently
-selected capacity group. A failing group is never retried and does not prevent the launcher from
-reporting its scheduled siblings.
+`viewer-position`, `legacy-workflow`, and `capacity`. `npm run smoke:capacity` is the shorthand for
+the independently selected capacity group. A failing group is never retried and does not prevent
+the launcher from reporting its scheduled siblings.
 
 Use `npm run gauntlet` for the full release gate. Packaging and performance work has additional
 acceptance guidance in [`docs/packaging.md`](docs/packaging.md) and

@@ -1,5 +1,6 @@
 export const ELECTRON_SMOKE_SCENARIOS = [
   'pty-native',
+  'viewer-position',
   'legacy-workflow',
   'capacity',
 ] as const

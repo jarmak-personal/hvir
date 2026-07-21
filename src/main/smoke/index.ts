@@ -13,9 +13,9 @@ import type { TerminalSessionStore } from '../terminal/session-registry'
 import type { WebPaneRouteRegistry } from '../web-pane/web-pane-route-registry'
 import { createWorkerClient, workerPath } from '../worker-host'
 import { SmokeCleanup } from './cleanup'
-import { verifyGitDiffBehavior } from './git-diff'
+import { verifyGitDiffBases } from './git-diff'
 import { verifyRendererLifecycleCleanup } from './renderer-lifecycle'
-import { verifyViewerPositions } from './viewer-position'
+import { verifySourceDiffPosition, verifyViewerPositions } from './viewer-position'
 import { createTerminalMoveSmokeHarness, verifyTerminalMoveSmoke } from './terminal-move'
 import { runCapacityLoadSmoke, runCapacityRecoverySmoke } from './capacity'
 import {
@@ -39,7 +39,7 @@ import {
   type TerminalRecoverySession,
 } from '../../shared'
 
-export type ElectronSmokeMode = 'workflow' | 'capacity'
+export type ElectronSmokeMode = 'workflow' | 'viewer-position' | 'capacity'
 
 export interface ElectronSmokeDependencies {
   readonly mode: ElectronSmokeMode
@@ -377,6 +377,13 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
       throw new Error('renderer echo ran in the main process')
     }
     console.log('[smoke] renderer IPC + echo worker round-trip OK')
+
+    if (mode === 'viewer-position') {
+      const result = await verifySourceDiffPosition(win, liveReloadPath)
+      console.log(`[smoke] source/diff viewer positions OK (${result})`)
+      console.log('HVIR_SMOKE_OK')
+      return 0
+    }
 
     if (mode === 'capacity') {
       await runCapacityLoadSmoke(win, supervisor, host, liveReloadPath)
@@ -1538,11 +1545,7 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
     console.log('[smoke] sandboxed HTML blocked node, navigation, and popups')
 
     const viewerPositions = await withTimeout(
-      verifyViewerPositions(
-        win,
-        viewerPositionPath,
-        joinHostPath(smokeRoot, 'package.json'),
-      ),
+      verifyViewerPositions(win, viewerPositionPath),
       'viewer mode position matrix timed out',
       25_000,
     )
@@ -1726,11 +1729,7 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
     )
     console.log('[smoke] source edit + Ctrl+S save OK')
 
-    const diffBases = await withTimeout(
-      verifyGitDiffBehavior(win, liveReloadPath),
-      'single-file git diff modes did not render',
-      20_000,
-    )
+    const diffBases = await verifyGitDiffBases(win)
     console.log(`[smoke] CodeMirror git diff bases OK (${diffBases})`)
 
     const gitPanelStatus = (await withTimeout(

@@ -8,6 +8,7 @@ import {
 
 export const DEFAULT_SMOKE_SCENARIOS = [
   'pty-native',
+  'viewer-position',
   'legacy-workflow',
 ] as const satisfies readonly ElectronSmokeScenario[]
 
