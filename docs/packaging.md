@@ -44,9 +44,16 @@ npm run pack:npm:mac:arm64    # Apple-silicon Mac
 Tarballs land in `dist/npm/`. Every platform pack command installs its generated tarball
 into a temporary npm prefix and verifies the extracted executable before succeeding.
 After also packing the launcher, `npm run smoke:packaged` installs both tarballs into a
-clean prefix and exercises the complete `hvir` launcher → native application chain. Pull
-request CI repeats that packaged smoke on Linux x64 from a detached checkout; the release
-matrix repeats it on every supported platform.
+clean prefix. It proves the `hvir` launcher selects and starts the expected native payload,
+the executable architecture matches the host, one real node-pty and one worker load, the
+required preview protocol responds, and the retained platform geometry holds. It does not
+replay ordinary product behavior already owned by unpackaged tests.
+
+Pull-request CI runs that packaged contract on Linux x64, Linux arm64, and macOS arm64.
+It also runs `npm run smoke:macos` against the unpackaged build on Apple silicon, covering
+the focused custom-profile PTY lifecycle, source/diff position, and platform contracts.
+Both commands are locally reproducible only on a matching supported platform; CI supplies
+the cross-platform evidence.
 
 ## Dependency and security automation
 
@@ -146,8 +153,8 @@ evidence with the release notes.
 
 On 2026-07-15, `hvir-darwin-arm64@0.1.0` packed to a 160.9 MB npm tarball. A clean
 temporary npm prefix ran the platform package's postinstall extraction, verified the
-arm64 executable, and passed the complete packaged-app smoke workflow through the
-installed `hvir` launcher—including its project-path argument—from that exact payload.
+arm64 executable, and passed the then-current packaged-app workflow through the installed
+`hvir` launcher—including its project-path argument—from that exact payload.
 The launcher tarball also passed `npm publish --dry-run` and its `hvir --version`/help
 contract. Linux x64 and arm64 retain native CI build-and-smoke acceptance before they can
 be published.

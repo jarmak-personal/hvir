@@ -83,9 +83,9 @@
     },
     {
       "path": "src/main/smoke/index.ts",
-      "maxLines": 2944,
+      "maxLines": 2857,
       "owner": "testing epic #72",
-      "rationale": "The remaining transitional renderer workflow stays production-composed while focused terminal, harness, and viewer contracts move to independently runnable groups.",
+      "rationale": "The remaining transitional renderer workflow stays production-composed while focused PTY, viewer-position, and packaged platform contracts run independently.",
       "removalIssue": "#115 and #116",
       "expiresOn": "2026-09-30"
     }

@@ -131,6 +131,7 @@ Development requires Node 24 or newer; release CI uses Node 24.
 npm ci
 npm run verify
 npm run smoke
+npm run smoke:macos        # matching Apple-silicon Mac
 npm run smoke:capacity
 npm run dev
 ```
@@ -146,9 +147,16 @@ npm run hooks:install
 `legacy-workflow` group in separate Electron processes with fresh project and user-data roots,
 then reports a result for every scheduled group. Select one group locally with
 `HVIR_SMOKE_SCENARIO=<name> npm run smoke`; the complete name set is `pty-native`,
-`viewer-position`, `legacy-workflow`, and `capacity`. `npm run smoke:capacity` is the shorthand for
-the independently selected capacity group. A failing group is never retried and does not prevent
-the launcher from reporting its scheduled siblings.
+`viewer-position`, `platform-contracts`, `legacy-workflow`, and `capacity`.
+`npm run smoke:macos` runs the focused PTY and viewer groups plus the retained platform contracts;
+`npm run smoke:capacity` selects the capacity group. Both use the same aggregate launcher, so a
+failing group is never retried and does not prevent reporting its scheduled siblings.
+
+Packaged smoke is a distribution boundary, not a second product workflow. On a matching supported
+host, build the platform tarball and launcher, then run `npm run smoke:packaged`. It installs the
+exact versioned tarballs into a clean prefix and proves launcher selection, executable architecture,
+application/worker/native-PTY loading, preview-protocol handling, and retained platform geometry.
+Ordinary behavior remains in the unpackaged groups.
 
 Use `npm run gauntlet` for the full release gate. Packaging and performance work has additional
 acceptance guidance in [`docs/packaging.md`](docs/packaging.md) and

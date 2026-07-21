@@ -28,7 +28,16 @@ type InvokeSmokeScenario = (
 
 export function selectedSmokeScenarios(
   value: string | undefined,
+  positionalNames: readonly string[] = [],
 ): readonly SmokeScenarioName[] {
+  if (positionalNames.length > 0) {
+    if (value !== undefined && value !== '') {
+      throw new Error(
+        'Select Electron smoke scenarios with positional names or HVIR_SMOKE_SCENARIO, not both',
+      )
+    }
+    return positionalNames.map((name) => parseElectronSmokeScenario(name))
+  }
   if (value === undefined || value === '') return DEFAULT_SMOKE_SCENARIOS
   return [parseElectronSmokeScenario(value)]
 }
@@ -98,7 +107,10 @@ export function formatSmokeScenarioResults(
 }
 
 async function main(): Promise<void> {
-  const scenarios = selectedSmokeScenarios(process.env.HVIR_SMOKE_SCENARIO)
+  const scenarios = selectedSmokeScenarios(
+    process.env.HVIR_SMOKE_SCENARIO,
+    process.argv.slice(2),
+  )
   const results = await runSmokeScenarioGroups(scenarios, invokeSmokeScenario)
   console.log(formatSmokeScenarioResults(results))
   if (results.some((result) => result.status === 'failed')) process.exitCode = 1

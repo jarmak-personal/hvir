@@ -6,6 +6,11 @@ describe('workbench window policy', () => {
   it('keeps every BrowserWindow isolated behind the preload bridge', () => {
     const options = workbenchWindowOptions('/application/preload.js')
 
+    expect(options).toMatchObject({
+      width: 1280,
+      height: 800,
+      useContentSize: true,
+    })
     expect(options.show).toBe(false)
     expect(options.webPreferences).toEqual({
       preload: '/application/preload.js',
