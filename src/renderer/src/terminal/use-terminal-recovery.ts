@@ -12,6 +12,7 @@ import { EffectGeneration } from './effect-generation'
 import { bareShellLaunchChoice } from './harness-launch-menu'
 import { recoverableProfile } from './terminal-profile-recovery'
 import {
+  mergeTerminalRestorations,
   planAutomaticTerminalRecovery,
   planManualTerminalRecovery,
 } from './terminal-recovery-planner'
@@ -72,6 +73,7 @@ export function useTerminalRecovery({
   })
   const generation = useRef(new EffectGeneration())
   const shouldCreateDefault = useRef(false)
+  const recoveryRecords = useRef<readonly TerminalRecoverySession[]>([])
   portsRef.current = ports
   stateRef.current = {
     root,
@@ -94,6 +96,7 @@ export function useTerminalRecovery({
     const generationOwner = generation.current
     const currentGeneration = generationOwner.begin()
     shouldCreateDefault.current = false
+    recoveryRecords.current = []
     portsRef.current.resetAttention()
     setReady(false)
     setProbesReady(false)
@@ -137,6 +140,7 @@ export function useTerminalRecovery({
           setReady(true)
           return
         }
+        recoveryRecords.current = records
         setCandidates(records)
         setReady(true)
       },
@@ -198,7 +202,8 @@ export function useTerminalRecovery({
         sessions: plan.result.sessions,
         activeId: plan.result.activeId,
       })
-      setCandidates([])
+      setCandidates(plan.residual)
+      if (plan.residual.length === 0) recoveryRecords.current = []
       setReady(true)
       return
     }
@@ -234,20 +239,23 @@ export function useTerminalRecovery({
 
   const discard = useCallback((): void => {
     const current = stateRef.current
-    const launch = bareShellLaunchChoice(current.providers, current.profiles)
-    if (!launch) return
-    const session = createTerminalSession(
-      crypto.randomUUID(),
-      launch.profile,
-      launch.provider,
-      current.root,
-      'primary',
-    )
-    portsRef.current.send({
-      type: 'sessions-replaced',
-      sessions: [session],
-      activeId: session.id,
-    })
+    if (current.model.sessions.length === 0) {
+      const launch = bareShellLaunchChoice(current.providers, current.profiles)
+      if (!launch) return
+      const session = createTerminalSession(
+        crypto.randomUUID(),
+        launch.profile,
+        launch.provider,
+        current.root,
+        'primary',
+      )
+      portsRef.current.send({
+        type: 'sessions-replaced',
+        sessions: [session],
+        activeId: session.id,
+      })
+    }
+    recoveryRecords.current = []
     setCandidates([])
     setReady(true)
   }, [])
@@ -266,11 +274,20 @@ export function useTerminalRecovery({
       discardRef.current()
       return
     }
+    const merged = mergeTerminalRestorations(
+      {
+        sessions: current.model.sessions,
+        activeId: current.model.activeId,
+      },
+      plan.result,
+      recoveryRecords.current,
+    )
     portsRef.current.send({
       type: 'sessions-replaced',
-      sessions: plan.result.sessions,
-      activeId: plan.result.activeId,
+      sessions: merged.sessions,
+      activeId: merged.activeId,
     })
+    recoveryRecords.current = []
     setCandidates([])
     setReady(true)
   }, [])
@@ -288,6 +305,9 @@ export function useTerminalRecovery({
         acknowledgeRisk: profile.risk !== 'standard',
       })
       if (!generationOwner.isCurrent(currentGeneration)) return
+      recoveryRecords.current = recoveryRecords.current.map((candidate) =>
+        candidate.id === rebound.id ? rebound : candidate,
+      )
       setCandidates((values) =>
         values.map((candidate) => (candidate.id === rebound.id ? rebound : candidate)),
       )

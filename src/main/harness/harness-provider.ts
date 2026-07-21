@@ -251,7 +251,7 @@ export const claudeCodeProvider: HarnessProvider = {
     metaEnterAliasesControl: true,
   },
   profile: {
-    version: 1,
+    version: 2,
     defaultProfile: {
       id: asHarnessProfileId('claude-code-default'),
       displayName: 'Claude Code',
@@ -544,8 +544,6 @@ function codexComposerArgs(ctx: HarnessLaunchContext): readonly string[] {
 }
 
 function classifyClaudeRisk(input: HarnessRiskInput): HarnessLaunchRisk {
-  if (input.executableOverridden || input.environment.length > 0) return 'unclassified'
-  let unclassified = false
   for (const token of input.args) {
     if (
       token === '--dangerously-skip-permissions' ||
@@ -553,9 +551,12 @@ function classifyClaudeRisk(input: HarnessRiskInput): HarnessLaunchRisk {
     ) {
       return 'elevated'
     }
-    unclassified = true
   }
-  return unclassified ? 'unclassified' : 'standard'
+  return input.executableOverridden ||
+    input.environment.length > 0 ||
+    input.args.length > 0
+    ? 'unclassified'
+    : 'standard'
 }
 
 function classifyCodexRisk(input: HarnessRiskInput): HarnessLaunchRisk {
