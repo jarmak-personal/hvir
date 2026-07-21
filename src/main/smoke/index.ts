@@ -1,4 +1,4 @@
-import { app, webContents, type BrowserWindow } from 'electron'
+import { webContents, type BrowserWindow } from 'electron'
 
 import { dispatchWorkerHostCall } from '../git/worker-host-broker'
 import { HarnessProfileStore } from '../harness/harness-profile-store'
@@ -18,6 +18,7 @@ import { stopPtyAndWaitForExit } from './pty-lifecycle'
 import { verifyRendererLifecycleCleanup } from './renderer-lifecycle'
 import { verifyViewerPositions } from './viewer-position'
 import { createTerminalMoveSmokeHarness, verifyTerminalMoveSmoke } from './terminal-move'
+import { runCapacityLoadSmoke, runCapacityRecoverySmoke } from './capacity'
 import {
   ECHO_REQUEST_TYPE,
   HTML_PREVIEW_SCHEME,
@@ -183,36 +184,40 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
   const largeTextPath = joinHostPath(smokeRoot, '.hvir-smoke-large.txt')
   const harnessProfilesPath = joinHostPath(smokeRoot, '.hvir-smoke-harness-profiles.json')
   try {
-    const echo = await worker.request(ECHO_REQUEST_TYPE, { text: 'ping' })
-    if (echo.text !== 'ping') throw new Error(`echo mismatch: ${echo.text}`)
-    if (echo.workerPid === process.pid) throw new Error('echo ran in the main process')
-    console.log(`[smoke] echo worker OK (pid ${echo.workerPid})`)
+    if (mode === 'workflow') {
+      const echo = await worker.request(ECHO_REQUEST_TYPE, { text: 'ping' })
+      if (echo.text !== 'ping') throw new Error(`echo mismatch: ${echo.text}`)
+      if (echo.workerPid === process.pid) throw new Error('echo ran in the main process')
+      console.log(`[smoke] echo worker OK (pid ${echo.workerPid})`)
+    }
 
     // Exercise the real renderer → main → worker path.
     await host.connect()
     await host.exec('rm', ['-f', '--', harnessProfilesPath.path])
     const liveReloadBefore = `${Array.from({ length: 240 }, (_, index) => `line ${index}`).join('\n')}\n`
     await host.writeFile(liveReloadPath, liveReloadBefore)
-    await host.writeFile(
-      viewerPositionPath,
-      Array.from(
-        { length: 80 },
-        (_, index) => `## Position ${index + 1}\n\nParagraph ${index + 1}\n`,
-      ).join('\n'),
-    )
-    await host.writeFile(
-      largeJsonPath,
-      JSON.stringify(
-        Array.from({ length: 50_000 }, (_, index) => ({
-          id: index,
-          value: `item-${index}`,
-        })),
-      ),
-    )
-    await host.writeFile(
-      largeTextPath,
-      `${'large file responsiveness fixture 0123456789\n'.repeat(135_000)}end\n`,
-    )
+    if (mode === 'workflow') {
+      await host.writeFile(
+        viewerPositionPath,
+        Array.from(
+          { length: 80 },
+          (_, index) => `## Position ${index + 1}\n\nParagraph ${index + 1}\n`,
+        ).join('\n'),
+      )
+      await host.writeFile(
+        largeJsonPath,
+        JSON.stringify(
+          Array.from({ length: 50_000 }, (_, index) => ({
+            id: index,
+            value: `item-${index}`,
+          })),
+        ),
+      )
+      await host.writeFile(
+        largeTextPath,
+        `${'large file responsiveness fixture 0123456789\n'.repeat(135_000)}end\n`,
+      )
+    }
     const emit: EmitSmokeEvent = (channel, payload) => {
       if (smokeWindow && !smokeWindow.isDestroyed()) {
         smokeWindow.webContents.send(channel, payload)
@@ -330,13 +335,16 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
       recursive: true,
       excludeDirectoryNames: ['.git', 'node_modules', 'out', 'dist'],
     })
-    const result = await host.exec('/bin/echo', ['hvir'])
-    if (result.stdout.trim() !== 'hvir')
-      throw new Error(`exec mismatch: ${result.stdout}`)
-    console.log('[smoke] LocalHost.exec OK')
-    // prove host-qualified read works too
-    await host.stat(smokeRoot)
-    console.log('[smoke] LocalHost.stat OK')
+    if (mode === 'workflow') {
+      const result = await host.exec('/bin/echo', ['hvir'])
+      if (result.stdout.trim() !== 'hvir') {
+        throw new Error(`exec mismatch: ${result.stdout}`)
+      }
+      console.log('[smoke] LocalHost.exec OK')
+      // Prove host-qualified read works too.
+      await host.stat(smokeRoot)
+      console.log('[smoke] LocalHost.stat OK')
+    }
 
     const win = createWindow()
     smokeWindow = win
@@ -370,6 +378,25 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
       throw new Error('renderer echo ran in the main process')
     }
     console.log('[smoke] renderer IPC + echo worker round-trip OK')
+
+    if (mode === 'capacity') {
+      await runCapacityLoadSmoke(win, supervisor, host, liveReloadPath)
+      smokeRecoverySessions = supervisor.list().map((terminal, position) => ({
+        id: terminal.id,
+        providerId: defaultHarnessProviderId,
+        profileId: asHarnessProfileId('plain-shell-default'),
+        launchRevision: 1,
+        hostId: terminal.hostId,
+        cwd: terminal.cwd,
+        title: `Recovered capacity shell ${position + 1}`,
+        position,
+        active: position === 0,
+        updatedAt: Date.now(),
+      }))
+      await runCapacityRecoverySmoke(win, supervisor)
+      console.log('HVIR_SMOKE_OK')
+      return 0
+    }
 
     const profileSmoke = (await withTimeout(
       win.webContents.executeJavaScript(`
@@ -1187,25 +1214,6 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
     console.log(
       `[smoke] multi-terminal rail OK (${multiTerminalStatus} · ${terminalSignalStatus})`,
     )
-    if (mode === 'capacity') {
-      await runCapacityLoadSmoke(win, supervisor, host, liveReloadPath)
-      smokeRecoverySessions = supervisor.list().map((terminal, position) => ({
-        id: terminal.id,
-        providerId: defaultHarnessProviderId,
-        profileId: asHarnessProfileId('plain-shell-default'),
-        launchRevision: 1,
-        hostId: terminal.hostId,
-        cwd: terminal.cwd,
-        title: `Recovered capacity shell ${position + 1}`,
-        position,
-        active: position === 0,
-        updatedAt: Date.now(),
-      }))
-      await runCapacityRecoverySmoke(win, supervisor)
-      console.log('HVIR_SMOKE_OK')
-      return 0
-    }
-
     const viewerStatus = (await withTimeout(
       win.webContents.executeJavaScript(`
         new Promise((resolve, reject) => {
@@ -2957,278 +2965,6 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
   } finally {
     await cleanup.run()
   }
-}
-
-interface CapacitySmokeReport {
-  readonly durationMs: number
-  readonly frameGapsMs: readonly number[]
-  readonly clickLatenciesMs: readonly number[]
-  readonly p99Ms: number
-  readonly maxMs: number
-  readonly memoryStartKiB?: number
-  readonly memoryEndKiB?: number
-  readonly memoryPeakKiB?: number
-  readonly memoryGrowthKiB?: number
-}
-
-async function runCapacityRecoverySmoke(
-  win: BrowserWindow,
-  supervisor: PtySupervisor,
-): Promise<void> {
-  await win.webContents.executeJavaScript(
-    `localStorage.setItem('hvir:terminal-recovery-mode', 'prompt')`,
-  )
-  const loaded = new Promise<void>((resolve) =>
-    win.webContents.once('did-finish-load', () => resolve()),
-  )
-  win.webContents.reload()
-  await withTimeout(loaded, 'capacity recovery reload timed out')
-  const status = (await withTimeout(
-    win.webContents.executeJavaScript(`
-      new Promise((resolve, reject) => {
-        const deadline = Date.now() + 20000;
-        const waitForDialog = () => {
-          const dialog = document.querySelector('.terminal-recovery-dialog');
-          const restore = [...(dialog?.querySelectorAll('button') || [])]
-            .find((node) => node.textContent?.trim() === 'Restore selected');
-          if (restore) {
-            restore.click();
-            return waitForTerminals();
-          }
-          if (Date.now() > deadline) return reject(new Error('capacity recovery dialog missing'));
-          setTimeout(waitForDialog, 25);
-        };
-        const waitForTerminals = () => {
-          const rows = [...document.querySelectorAll('.terminal-list-row')];
-          const surfaces = [...document.querySelectorAll('.terminal-surface')];
-          const activeStatus = document.querySelector('.terminal-surface.active')
-            ?.getAttribute('data-terminal-status') || '';
-          if (rows.length === 12 && surfaces.length === 12 && activeStatus.startsWith('pid ')) {
-            const git = document.querySelector('.rail-nav button:nth-child(2)');
-            git?.click();
-            const waitForGit = () => {
-              const changes = [...document.querySelectorAll('.git-tabs button')]
-                .some((node) => /^Changes \\(\\d+\\)$/.test(node.textContent?.trim() || ''));
-              if (git?.classList.contains('active') && changes) {
-                const history = [...document.querySelectorAll('.git-tabs button')]
-                  .find((node) => node.textContent?.trim() === 'History');
-                history?.click();
-                const waitForHistory = () => {
-                  if (document.querySelector('.git-rail-history-row.commit')) {
-                    return resolve(
-                      '12 restored terminals · ' + activeStatus + ' · Changes + History ready'
-                    );
-                  }
-                  if (Date.now() > deadline) return reject(new Error('Git History unavailable after capacity restore'));
-                  setTimeout(waitForHistory, 25);
-                };
-                return waitForHistory();
-              }
-              if (Date.now() > deadline) return reject(new Error('Git unavailable after capacity restore'));
-              setTimeout(waitForGit, 25);
-            };
-            return waitForGit();
-          }
-          if (Date.now() > deadline) return reject(new Error(
-            'capacity terminals did not restore: rows=' + rows.length +
-            ' surfaces=' + surfaces.length + ' status=' + activeStatus
-          ));
-          setTimeout(waitForTerminals, 25);
-        };
-        waitForDialog();
-      })
-    `),
-    'capacity recovery interaction timed out',
-    25_000,
-  )) as string
-  if (supervisor.list().length !== 12) {
-    throw new Error(
-      `capacity recovery expected 12 supervised terminals, found ${supervisor.list().length}`,
-    )
-  }
-  console.log(`[smoke] multi-terminal recovery under load OK (${status})`)
-}
-
-async function runCapacityLoadSmoke(
-  win: BrowserWindow,
-  supervisor: PtySupervisor,
-  host: LocalHost,
-  churnPath: HostPath,
-): Promise<void> {
-  await withTimeout(
-    win.webContents.executeJavaScript(`
-      (async () => {
-        const waitFor = (predicate, message, timeoutMs = 10000) =>
-          new Promise((resolve, reject) => {
-            const deadline = Date.now() + timeoutMs;
-            const poll = () => {
-              const value = predicate();
-              if (value) return resolve(value);
-              if (Date.now() > deadline) return reject(new Error(message));
-              setTimeout(poll, 25);
-            };
-            poll();
-          });
-        for (let target = document.querySelectorAll('.terminal-list-row').length + 1;
-          target <= 12;
-          target++) {
-          const add = await waitFor(
-            () => document.querySelector('button[aria-label="New terminal"]:not(:disabled)'),
-            'new-terminal button unavailable'
-          );
-          add.click();
-          const shell = await waitFor(
-            () => [...document.querySelectorAll('.terminal-new-menu button')]
-              .find((node) => node.querySelector('strong')?.textContent?.trim() === 'Shell'),
-            'shell menu item unavailable'
-          );
-          shell.click();
-          await waitFor(() => {
-            const rows = [...document.querySelectorAll('.terminal-list-row')];
-            const activeStatus = document.querySelector('.terminal-surface.active')
-              ?.getAttribute('data-terminal-status') || '';
-            return rows.length === target && activeStatus.startsWith('pid ');
-          }, 'terminal ' + target + ' did not settle');
-        }
-        return document.querySelectorAll('.terminal-list-row').length;
-      })()
-    `),
-    'capacity terminal setup timed out',
-    30_000,
-  )
-  if (supervisor.list().length !== 12) {
-    throw new Error(
-      `capacity smoke expected 12 terminals, found ${supervisor.list().length}`,
-    )
-  }
-
-  for (const terminal of supervisor.list()) {
-    supervisor.write(
-      terminal.id,
-      terminal.ownerId,
-      'i=0; while [ "$i" -lt 320 ]; do printf \'hvir-load-%04d abcdefghijklmnopqrstuvwxyz\\n\' "$i"; i=$((i+1)); sleep 0.1; done\n',
-    )
-  }
-  let churning = true
-  const watchChurn = (async (): Promise<void> => {
-    let generation = 0
-    while (churning) {
-      await host.writeFile(churnPath, `capacity churn ${generation++}\n`)
-      await new Promise<void>((resolve) => setTimeout(resolve, 200))
-    }
-  })()
-
-  let report: CapacitySmokeReport
-  const memoryStartKiB = appWorkingSetKiB()
-  let memoryPeakKiB = memoryStartKiB
-  const memoryTimer = setInterval(() => {
-    memoryPeakKiB = Math.max(memoryPeakKiB, appWorkingSetKiB())
-  }, 500)
-  try {
-    report = (await withTimeout(
-      win.webContents.executeJavaScript(`
-        new Promise((resolve, reject) => {
-          const durationMs = 30000;
-          const started = performance.now();
-          const frameGapsMs = [];
-          const clickLatenciesMs = [];
-          let previousFrame;
-          let clickPending = false;
-          let clickTimer;
-          const percentile = (values, fraction) => {
-            if (!values.length) return 0;
-            const sorted = [...values].sort((a, b) => a - b);
-            return sorted[Math.min(sorted.length - 1, Math.ceil(sorted.length * fraction) - 1)];
-          };
-          const measureClick = () => {
-            if (clickPending) return;
-            const buttons = [...document.querySelectorAll('.rail-nav button:not(:disabled)')];
-            const current = buttons.find((button) => button.classList.contains('active'));
-            const target = buttons.find((button) => button !== current);
-            if (!target) return;
-            clickPending = true;
-            const clickStarted = performance.now();
-            target.click();
-            const waitForState = (now) => {
-              if (target.classList.contains('active')) {
-                clickLatenciesMs.push(Math.max(0, now - clickStarted));
-                clickPending = false;
-              } else if (now - clickStarted > 1000) {
-                reject(new Error('rail click did not reach visible state within 1s'));
-              } else {
-                requestAnimationFrame(waitForState);
-              }
-            };
-            requestAnimationFrame(waitForState);
-          };
-          clickTimer = setInterval(measureClick, 400);
-          const frame = (now) => {
-            if (previousFrame !== undefined) frameGapsMs.push(now - previousFrame);
-            previousFrame = now;
-            if (now - started < durationMs) {
-              requestAnimationFrame(frame);
-              return;
-            }
-            clearInterval(clickTimer);
-            const finish = () => {
-              const samples = [...frameGapsMs, ...clickLatenciesMs];
-              const rounded = (values) => values.map((value) => Math.round(value * 10) / 10);
-              resolve({
-                durationMs: now - started,
-                frameGapsMs: rounded(frameGapsMs),
-                clickLatenciesMs: rounded(clickLatenciesMs),
-                p99Ms: Math.round(percentile(samples, 0.99) * 10) / 10,
-                maxMs: Math.round(Math.max(0, ...samples) * 10) / 10,
-              });
-            };
-            if (clickPending) requestAnimationFrame(finish);
-            else finish();
-          };
-          requestAnimationFrame(frame);
-        })
-      `),
-      '30-second renderer responsiveness probe timed out',
-      40_000,
-    )) as CapacitySmokeReport
-  } finally {
-    clearInterval(memoryTimer)
-    churning = false
-    await watchChurn
-    for (const terminal of supervisor.list()) {
-      supervisor.write(terminal.id, terminal.ownerId, '\u0003')
-    }
-  }
-
-  const memoryEndKiB = appWorkingSetKiB()
-  report = {
-    ...report,
-    memoryStartKiB,
-    memoryEndKiB,
-    memoryPeakKiB,
-    memoryGrowthKiB: memoryEndKiB - memoryStartKiB,
-  }
-
-  console.log(`[smoke:capacity:raw] ${JSON.stringify(report)}`)
-  if (report.p99Ms >= 100) {
-    throw new Error(`capacity responsiveness p99 ${report.p99Ms}ms exceeded 100ms`)
-  }
-  if (report.maxMs > 500) {
-    throw new Error(`capacity responsiveness max ${report.maxMs}ms exceeded 500ms`)
-  }
-  if ((report.memoryGrowthKiB ?? 0) > 256 * 1024) {
-    throw new Error(
-      `capacity memory grew ${Math.round((report.memoryGrowthKiB ?? 0) / 1024)} MiB in 30s`,
-    )
-  }
-  console.log(
-    `[smoke] 12-terminal responsiveness OK (p99 ${report.p99Ms}ms · max ${report.maxMs}ms · ${report.clickLatenciesMs.length} clicks · memory ${Math.round((report.memoryGrowthKiB ?? 0) / 1024)} MiB net / ${Math.round(((report.memoryPeakKiB ?? 0) - (report.memoryStartKiB ?? 0)) / 1024)} MiB peak growth)`,
-  )
-}
-
-function appWorkingSetKiB(): number {
-  return app
-    .getAppMetrics()
-    .reduce((total, metric) => total + metric.memory.workingSetSize, 0)
 }
 
 type EmitSmokeEvent = <E extends IpcEventChannel>(

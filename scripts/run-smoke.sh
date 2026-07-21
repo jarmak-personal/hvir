@@ -46,7 +46,9 @@ mkdir -p "$user_data_root"
 
 (
   cd "$project_root"
-  HVIR_SMOKE=1 "$source_checkout/node_modules/.bin/electron" "$source_checkout" \
+  HVIR_SMOKE=1 \
+    HVIR_SMOKE_SCENARIO="${HVIR_SMOKE_SCENARIO:-legacy-workflow}" \
+    "$source_checkout/node_modules/.bin/electron" "$source_checkout" \
     --project-root="$project_root" \
     --no-sandbox \
     --user-data-dir="$user_data_root"

@@ -1,7 +1,7 @@
 {
   "version": 1,
   "baselineCommit": "ea1c157",
-  "extensions": [".ts", ".tsx", ".css"],
+  "extensions": [".ts", ".tsx", ".mts", ".css"],
   "productionRoots": [
     "src/main",
     "src/preload",
@@ -83,10 +83,10 @@
     },
     {
       "path": "src/main/smoke/index.ts",
-      "maxLines": 3272,
-      "owner": "architecture epic #33",
-      "rationale": "The Electron smoke remains one intentionally high-altitude workflow suite; feature policy and resource semantics are tested in focused modules outside it.",
-      "removalIssue": "#49",
+      "maxLines": 2991,
+      "owner": "testing epic #72",
+      "rationale": "The transitional legacy Electron workflow remains production-composed while #113 isolates named native, capacity, and renderer-backed groups and follow-up proving slices remove focused behavior.",
+      "removalIssue": "#113, #115, and #116",
       "expiresOn": "2026-09-30"
     }
   ]

@@ -108,7 +108,7 @@ fi
 
 (
   cd "$project_root"
-  HVIR_SMOKE=1 "$launcher" "$project_root" \
+  HVIR_SMOKE=1 HVIR_SMOKE_SCENARIO=legacy-workflow "$launcher" "$project_root" \
     --no-sandbox \
     --user-data-dir="$user_data_root"
 )
