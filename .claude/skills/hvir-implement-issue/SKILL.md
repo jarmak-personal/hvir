@@ -109,6 +109,26 @@ Run the most focused checks during development. Treat `npm run verify` as a mand
 pre-commit gate: run it after the final changes and do not commit, push, or open a pull request
 until it passes. A passing run from before later edits is stale and does not satisfy the gate.
 
+After verification passes, commit the exact candidate. Then apply these review conditions.
+
+Run `$hvir-review-code` one time when any condition applies:
+
+- The change is a nontrivial feature or refactor.
+- The change has architecture, security, concurrency, lifecycle, or cross-seam risk.
+- The candidate is the final cumulative implementation for an epic.
+
+Skip code review by default when any condition applies:
+
+- The change is a small, localized bug.
+- The change contains only routine documentation or tests.
+- The change is mechanical maintenance and has none of the listed risks.
+
+A maintainer can require or skip the review. Evaluate the review response. Correct each valid
+finding. Record concise evidence for a rejected finding. Do not run another review after a
+correction. If the candidate changes, run the relevant focused checks. Run a fresh
+`npm run verify`. Commit the final candidate before the pre-push gate. Integration checks remain
+the final authority.
+
 Push without `--no-verify` so `.githooks/pre-push` runs the typechecks and local-platform
 Electron smoke. If the repository hook is not installed, run `.githooks/pre-push` directly
 before pushing. Do not bypass a failure to spend GitHub Actions minutes discovering the same
@@ -125,7 +145,8 @@ Before handing off:
 2. Re-run `npm run architecture:report`; explain intentional growth even when it is below a
    blocking threshold.
 3. Check every acceptance criterion against code and evidence.
-4. Confirm the mandatory pre-commit and pre-push gates passed after the final changes.
+4. Confirm that the mandatory pre-commit verification and pre-push gates passed after the final
+   changes. Record whether code review ran.
 5. Prepare a concise pull-request summary that links the governing issue with `Closes #N`,
    explains architecture and reuse decisions, lists risks, and records verification.
 

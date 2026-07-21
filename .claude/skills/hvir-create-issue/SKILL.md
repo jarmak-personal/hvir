@@ -62,6 +62,17 @@ the coordinating outcome and split implementation into child issues with clear o
 and dependency order. Do not let a broad issue become permission for one monster pull
 request.
 
+Write the draft in Simplified Technical English. Use short, literal sentences. Prefer active
+voice. Put one requirement in each sentence. Use the same term for the same concept. Avoid
+idioms, rhetorical language, vague modifiers, and unnecessary synonyms.
+
+Keep the draft easy to scan in one pass. Include only the information needed to align on the
+problem, boundaries, and observable completion. Do not repeat a requirement across sections.
+For a bug, treat Expected behavior as the desired outcome and omit a duplicate Desired outcome
+section. Keep Product fit brief when alignment is clear. Record only unresolved architecture
+questions. Do not convert reconnaissance findings into prescribed implementation. Use the
+minimum acceptance criteria needed to prove the outcome and important failure behavior.
+
 Use this structure, omitting sections that truly do not apply:
 
 ```markdown
@@ -98,14 +109,31 @@ the relevant platform or host type. For refactors, name the behavior that must r
 and the ownership or dependency problem being corrected. Do not use line count alone as the
 reason for a refactor.
 
-Acceptance criteria must test the outcome rather than echo a proposed file-by-file design.
-Include local/SSH parity, responsiveness, resource cleanup, and security behavior when the
-affected capability makes them relevant; do not add ceremonial criteria.
+Acceptance criteria must test the outcome. They must not require a file-by-file design. Include
+local and SSH parity, responsiveness, resource cleanup, and security behavior when the affected
+capability creates those risks. Do not add criteria that are unrelated to the identified risks.
 
 ## Review and create
 
-Present the proposed title, body, and any existing repository labels that clearly apply.
-Call out assumptions and open questions separately so the reporter can correct them.
+After you prepare the title, body, and labels, apply these review conditions.
+
+Run `$hvir-review-issue` one time when any condition applies:
+
+- The draft is an epic.
+- The feature can cross a durable product or architecture boundary.
+- The feature can require multiple implementation issues.
+
+Skip issue review by default when any condition applies:
+
+- The issue is a direct child of a reviewed epic.
+- The issue is a small, localized bug.
+- The issue contains routine maintenance or documentation work.
+
+A maintainer can require or skip the review.
+
+Evaluate the review response. Correct each valid finding. Do not run another review after you
+edit the draft. Present the exact title, body, and applicable repository labels. List assumptions
+and open questions separately.
 
 Stop after the preview and request explicit publication approval. Once the user approves the
 exact draft, create it in `jarmak-personal/hvir` when GitHub issue tooling is available;

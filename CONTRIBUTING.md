@@ -44,16 +44,20 @@ explicit product non-goal, close that loop before asking anyone to write code.
 
 ## Use agents deliberately
 
-The repository provides two opinionated contributor skills:
+The repository provides two lifecycle skills and two focused reviewers:
 
 - `hvir-create-issue` evaluates product and ADR alignment, sharpens the problem and outcome,
   and prepares a discussion-ready issue.
 - `hvir-implement-issue` performs architecture reconnaissance, raises design concerns before
   editing, and implements an aligned issue with verification.
+- `hvir-review-issue` critiques broad issue drafts for hvir fit, scope, architecture creep,
+  duplication, and unnecessary machinery.
+- `hvir-review-code` critiques a ready implementation for correctness, issue fidelity,
+  architecture, duplication, scope creep, and overengineering.
 
 Claude discovers them under `.claude/skills/`; `.agents/skills/` exposes the same skills to
-Codex-compatible harnesses. These are workflow aids, not substitutes for reading the governing
-documents or exercising maintainer judgment.
+Codex-compatible harnesses. Read the governing documents before you use a skill. The maintainer
+makes the final product and release decisions.
 
 Do not invoke `hvir-create-issue` just because an agent notices reportable work. The agent may
 briefly offer to use it, then must wait for the user's explicit go-ahead before researching or
@@ -67,6 +71,26 @@ offer filtering or restricted modes; hvir does not prescribe one or treat any in
 guaranteed prompt-injection boundary.
 
 Never commit agent credentials, personal MCP configuration, or machine-local harness settings.
+
+### Select review from the change risk
+
+Run `hvir-review-issue` one time for an epic. Also run it for a feature proposal that can cross a
+durable product or architecture boundary. Skip it by default for a direct child of a reviewed
+epic, a small localized bug, routine maintenance, or routine documentation.
+
+Run `hvir-review-code` one time for a nontrivial feature or refactor. Also run it when the change
+has architecture, security, concurrency, lifecycle, or cross-seam risk. Run it for the final
+cumulative epic candidate. Skip it by default for a small localized bug, routine documentation,
+a test-only change, or mechanical maintenance that has none of the listed risks.
+
+Each review skill selects one fresh model from a family that differs from the caller. The skill
+provides the prompt and the exact `copilot`, `claude`, and `codex exec` commands. Do not run more
+than one reviewer. Do not repeat review after a correction.
+
+The reviewer has read-only access. The reviewer does not run executable checks and cannot change
+GitHub state. The caller evaluates the findings and corrects valid defects. Run a fresh
+`npm run verify` after code changes. The pre-push hook, CI, and epic acceptance tests are the
+final integration gates. Do not use or recommend Ultrareview.
 
 ## Isolate issue implementation
 
@@ -133,11 +157,13 @@ Tests should match the behavior's real boundary:
 - keep Electron, Chromium, cross-process, renderer-destruction, SSH, and real-transport
   contracts at integration, smoke, or real-host altitude.
 
-Run `npm run verify` after the final changes and before committing or opening a pull request.
-This is a required local gate, not optional handoff evidence. Push without `--no-verify` so the
-repository pre-push hook runs typechecks and the local-platform Electron smoke; if hooks are not
-installed, run `.githooks/pre-push` directly before pushing. Fix failures locally or report an
-environment blocker rather than using CI to discover a known failure.
+Run `npm run verify` after the final changes and before committing. This is a required local
+gate. Apply the code review conditions after that ready-to-push commit. If review causes code
+changes, run `npm run verify` again and commit the final candidate.
+Then push without `--no-verify` so the repository pre-push hook runs typechecks and the
+local-platform Electron smoke; if hooks are not installed, run `.githooks/pre-push` directly
+before pushing. Fix failures locally or report an environment blocker rather than using CI to
+discover a known failure.
 
 Use capacity, real-host, packaged, or gauntlet checks when the issue's acceptance criteria call
 for them. Report exact evidence and any environment you could not verify; never imply a check
