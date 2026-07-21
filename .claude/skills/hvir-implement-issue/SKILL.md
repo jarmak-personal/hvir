@@ -28,6 +28,25 @@ issue. Resolve these questions before changing files:
 If an answer could materially change product behavior, ownership, authority, or scope,
 surface it and pause for alignment. Otherwise state the assumption and continue.
 
+## Establish the isolated issue worktree
+
+Obtain the exact agreed base ref from the governing workflow; this skill must not silently
+choose between `main`, an epic branch, or another base. Read
+[`references/worktree-lifecycle.md`](references/worktree-lifecycle.md), then run the
+repository-owned worktree command first as a dry run and review its report before applying it:
+
+```sh
+npm run issue:worktree -- --issue <number> --base <full-ref>
+npm run issue:worktree -- --issue <number> --base <full-ref> --apply
+```
+
+Every invocation fetches/prunes and performs bounded reconciliation before creating or reusing
+the deterministic issue worktree. A retained exceptional record for another issue is not a
+blocker; ambiguity or collision for the selected issue is. After selection, perform all further
+reconnaissance, edits, checks, commits, candidate-review handoff, and push operations from the
+reported worktree path. Never switch, clean, reset, overwrite, or delete state in the invoking
+checkout, and do not improvise worktree cleanup outside the repository-owned capability.
+
 ## Perform architecture reconnaissance
 
 Inspect before planning:

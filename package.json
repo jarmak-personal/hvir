@@ -50,6 +50,7 @@
     "check-adrs": "node scripts/check-adrs.mjs",
     "architecture:report": "node scripts/architecture-hotspots.mjs",
     "architecture:check": "node scripts/architecture-hotspots.mjs --enforce",
+    "issue:worktree": "node scripts/issue-worktree/run.ts",
     "project:kind": "node scripts/project-management/sync-kind.ts",
     "project:record": "node scripts/project-management/read-planning-record.ts",
     "project:pr": "node scripts/project-management/sync-pull-request-planning.ts",
