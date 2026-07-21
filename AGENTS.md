@@ -33,6 +33,13 @@ issues; see [`CONTRIBUTING.md`](CONTRIBUTING.md).
 briefly propose using `hvir-create-issue`, but must wait for explicit approval before invoking
 it. After drafting, it must show the exact issue and receive separate approval before publishing.
 
+**Use `gh` for ordinary issue and pull-request operations.** When work requires the canonical
+Project or repository reconciliation behavior, use the interfaces documented in
+[`docs/project-management.md`](docs/project-management.md): `project:record` for Project
+membership and Status, `project:kind` for label-derived Kind reconciliation, and `project:pr`
+for PR-related issue Status reconciliation. These commands default to dry-run; review the plan
+before passing `--apply`. Invoke only the capability the task needs, not all three ceremonially.
+
 **Do not publish a pull request that fails locally runnable checks.** After the final changes,
 run `npm run verify` before committing. Push without `--no-verify` so `.githooks/pre-push` runs;
 if hooks are not installed, run that hook directly before pushing. Fix failures locally or
