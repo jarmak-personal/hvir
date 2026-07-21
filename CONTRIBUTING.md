@@ -56,8 +56,8 @@ The repository provides two lifecycle skills and two focused reviewers:
   architecture, duplication, scope creep, and overengineering.
 
 Claude discovers them under `.claude/skills/`; `.agents/skills/` exposes the same skills to
-Codex-compatible harnesses. These are workflow aids, not substitutes for reading the governing
-documents or exercising maintainer judgment.
+Codex-compatible harnesses. Read the governing documents before you use a skill. The maintainer
+makes the final product and release decisions.
 
 Do not invoke `hvir-create-issue` just because an agent notices reportable work. The agent may
 briefly offer to use it, then must wait for the user's explicit go-ahead before researching or
@@ -72,23 +72,25 @@ guaranteed prompt-injection boundary.
 
 Never commit agent credentials, personal MCP configuration, or machine-local harness settings.
 
-### Use independent review where it pays
+### Select review from the change risk
 
-Review is a judgment call, not a ceremony. Run `hvir-review-issue` once for epics and feature
-proposals that may conceal epic-sized product or architecture scope. Direct epic children have
-already inherited a reviewed boundary; small localized bugs and routine maintenance or
-documentation ordinarily do not need another issue review.
+Run `hvir-review-issue` one time for an epic. Also run it for a feature proposal that can cross a
+durable product or architecture boundary. Skip it by default for a direct child of a reviewed
+epic, a small localized bug, routine maintenance, or routine documentation.
 
-Run `hvir-review-code` once for nontrivial or high-risk implementations and for the cumulative
-epic candidate. A small localized fix or mechanical change may skip it. One available headless
-model from a different family supplies the outside perspective; do not create triplicate review
-or a fix-and-review loop.
+Run `hvir-review-code` one time for a nontrivial feature or refactor. Also run it when the change
+has architecture, security, concurrency, lifecycle, or cross-seam risk. Run it for the final
+cumulative epic candidate. Skip it by default for a small localized bug, routine documentation,
+a test-only change, or mechanical maintenance that has none of the listed risks.
 
-Reviewers stay read-only and do not run executable checks or receive GitHub mutation tools.
-Ordinary subscription-backed `claude -p`, Copilot CLI, and `codex exec` form the reviewer
-pool; Ultrareview and other hosted or multi-agent review products are not part of this workflow.
-The caller evaluates findings and makes any fixes. Fresh `npm run verify` after code changes,
-the pre-push hook, CI, and epic acceptance testing remain the final integration gates.
+Each review skill selects one fresh model from a family that differs from the caller. The skill
+provides the prompt and the exact `copilot`, `claude`, and `codex exec` commands. Do not run more
+than one reviewer. Do not repeat review after a correction.
+
+The reviewer has read-only access. The reviewer does not run executable checks and cannot change
+GitHub state. The caller evaluates the findings and corrects valid defects. Run a fresh
+`npm run verify` after code changes. The pre-push hook, CI, and epic acceptance tests are the
+final integration gates. Do not use or recommend Ultrareview.
 
 ## Isolate issue implementation
 
@@ -156,8 +158,8 @@ Tests should match the behavior's real boundary:
   contracts at integration, smoke, or real-host altitude.
 
 Run `npm run verify` after the final changes and before committing. This is a required local
-gate, not optional handoff evidence. A risk-based code review may run after that ready-to-push
-commit; if it causes code changes, run `npm run verify` again and commit the final candidate.
+gate. Apply the code review conditions after that ready-to-push commit. If review causes code
+changes, run `npm run verify` again and commit the final candidate.
 Then push without `--no-verify` so the repository pre-push hook runs typechecks and the
 local-platform Electron smoke; if hooks are not installed, run `.githooks/pre-push` directly
 before pushing. Fix failures locally or report an environment blocker rather than using CI to
