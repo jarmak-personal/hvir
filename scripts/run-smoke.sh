@@ -4,6 +4,12 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 source_checkout=$PWD
 
+# A smoke launched by a Git hook must not inherit the invoking repository as
+# implicit authority. Every Git process below must discover the temp project.
+while IFS= read -r variable; do
+  if [[ -n "$variable" ]]; then unset "$variable"; fi
+done < <(git -C "$source_checkout" rev-parse --local-env-vars)
+
 temporary_parent=$(cd "${TMPDIR:-/tmp}" && pwd -P)
 invocation_root=$(mktemp -d "$temporary_parent/hvir-smoke.XXXXXX")
 project_root="$invocation_root/repository"

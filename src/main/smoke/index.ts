@@ -1792,6 +1792,9 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
               return reject(new Error('Branch point is not collapsed by default'));
             }
             const branchSelect = document.querySelector('#git-branch-select');
+            if (!branchSelect || branchSelect.value !== 'smoke/workflow') {
+              return reject(new Error('Hermetic smoke branch is not active'));
+            }
             if (branchSelect && branchSelect.options.length > 1 && branchSelect.disabled) {
               return reject(new Error('Branch menu cannot be inspected while switching is blocked'));
             }

@@ -4,6 +4,12 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 source_checkout=$PWD
 
+# Release and contributor hooks export repository-local Git variables. Do not
+# let them redirect packaged acceptance away from the temp project.
+while IFS= read -r variable; do
+  if [[ -n "$variable" ]]; then unset "$variable"; fi
+done < <(git -C "$source_checkout" rev-parse --local-env-vars)
+
 temporary_parent=$(cd "${TMPDIR:-/tmp}" && pwd -P)
 invocation_root=$(mktemp -d "$temporary_parent/hvir-packaged-smoke.XXXXXX")
 installation_root="$invocation_root/installation"
