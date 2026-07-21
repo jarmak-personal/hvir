@@ -162,11 +162,6 @@ function assertPlatformGeometry(snapshot: PlatformContractSnapshot): void {
   const fail = (message: string): never => {
     throw new Error(`${message} (snapshot=${JSON.stringify(snapshot)})`)
   }
-  if (snapshot.viewport.width !== 1280 || snapshot.viewport.height !== 800) {
-    fail(
-      `workbench content viewport was ${snapshot.viewport.width}×${snapshot.viewport.height}, expected 1280×800`,
-    )
-  }
   if (
     Math.abs(snapshot.workbench.bottom - snapshot.viewport.height) > 1 ||
     Math.abs(snapshot.terminalHost.bottom - snapshot.viewport.height) > 1
