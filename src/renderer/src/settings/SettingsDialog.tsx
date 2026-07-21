@@ -1,14 +1,18 @@
-import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react'
+import { useCallback, useEffect, useRef, type ReactElement } from 'react'
 
-import type { AppTheme } from '../theme'
 import type { HostPath } from '../../../shared'
-import {
-  HarnessProfilesSettings,
-  type HarnessProfilesSettingsHandle,
-} from './HarnessProfilesSettings'
+import type { AppTheme } from '../theme'
 import { ComposerSubmitConsentDialog } from './ComposerSubmitConsentDialog'
-import { keybindingOverridesJson, parseKeybindingOverrides } from './keybindings'
+import type { HarnessProfilesSettingsHandle } from './HarnessProfilesSettings'
+import { SettingsActiveSection } from './SettingsActiveSection'
+import { SettingsSectionNavigation } from './SettingsSectionNavigation'
 import type { AppSettings } from './settings'
+import {
+  DEFAULT_SETTINGS_DESTINATION,
+  settingsSectionHeadingId,
+  type SettingsDestination,
+} from './settings-navigation'
+import { useSettingsController } from './use-settings-controller'
 
 interface SettingsDialogProps {
   readonly theme: AppTheme
@@ -17,7 +21,7 @@ interface SettingsDialogProps {
   readonly onClose: () => void
   readonly workspaceRoot?: HostPath
   readonly projectRoot?: HostPath
-  readonly initialSection?: 'general' | 'harnesses' | 'harnesses-add'
+  readonly initialDestination?: SettingsDestination
 }
 
 export function SettingsDialog({
@@ -27,97 +31,34 @@ export function SettingsDialog({
   onClose,
   workspaceRoot,
   projectRoot,
-  initialSection = 'general',
+  initialDestination = DEFAULT_SETTINGS_DESTINATION,
 }: SettingsDialogProps): ReactElement {
   const dialog = useRef<HTMLElement>(null)
   const harnessProfiles = useRef<HarnessProfilesSettingsHandle>(null)
-  const [nextTheme, setNextTheme] = useState(theme)
-  const [idleSeconds, setIdleSeconds] = useState(String(settings.idleThresholdMs / 1000))
-  const [gitAutoFetchIntervalMs, setGitAutoFetchIntervalMs] = useState(
-    String(settings.gitAutoFetchIntervalMs),
+  const confirmSafeToLeaveHarnesses = useCallback(
+    () => harnessProfiles.current?.confirmSafeToLeave() ?? Promise.resolve(true),
+    [],
   )
-  const [recoveryMode, setRecoveryMode] = useState(settings.terminalRecoveryMode)
-  const [terminalTheme, setTerminalTheme] = useState(settings.terminalTheme)
-  const [composerSubmitMode, setComposerSubmitMode] = useState(
-    settings.composerSubmitMode,
-  )
-  const [composerConsentOpen, setComposerConsentOpen] = useState(false)
-  const [keybindings, setKeybindings] = useState(
-    keybindingOverridesJson(settings.keybindings),
-  )
-  const [error, setError] = useState<string>()
-
-  const requestClose = useCallback((): void => {
-    void (harnessProfiles.current?.confirmSafeToLeave() ?? Promise.resolve(true)).then(
-      (confirmed) => {
-        if (confirmed) onClose()
-      },
-    )
-  }, [onClose])
+  const controller = useSettingsController({
+    theme,
+    settings,
+    initialDestination,
+    confirmSafeToLeaveHarnesses,
+    onSave,
+    onClose,
+  })
+  const requestClose = controller.requestClose
 
   useEffect(() => {
-    const container = dialog.current
-    let frame = 0
-    let sectionObserver: ResizeObserver | undefined
-    let headingFocused = false
-    const alignHarnesses = (): boolean => {
-      const heading = document.getElementById('settings-harnesses-title')
-      if (!heading || !container) return false
-      const containerBox = container.getBoundingClientRect()
-      const headingBox = heading.getBoundingClientRect()
-      const paddingTop = Number.parseFloat(getComputedStyle(container).paddingTop) || 0
-      container.scrollTop = Math.max(
-        0,
-        container.scrollTop + headingBox.top - containerBox.top - paddingTop,
-      )
-      if (!headingFocused) {
-        heading.focus({ preventScroll: true })
-        headingFocused = true
-      }
-      return (
-        Math.abs(heading.getBoundingClientRect().top - containerBox.top - paddingTop) <= 2
-      )
-    }
-    const stopAligning = (): void => {
-      cancelAnimationFrame(frame)
-      sectionObserver?.disconnect()
-      sectionObserver = undefined
-    }
-    const scheduleAlignment = (): void => {
-      cancelAnimationFrame(frame)
-      frame = requestAnimationFrame(() => {
-        if (alignHarnesses()) stopAligning()
-      })
-    }
-    const stopOnInteraction = (event: FocusEvent): void => {
-      if (
-        event.target instanceof HTMLElement &&
-        event.target.id !== 'settings-harnesses-title'
-      ) {
-        stopAligning()
-      }
-    }
-    frame = requestAnimationFrame(() => {
-      if (initialSection !== 'general') {
-        const heading = document.getElementById('settings-harnesses-title')
-        const section = heading?.closest('.settings-harnesses')
-        if (section && !alignHarnesses()) {
-          sectionObserver = new ResizeObserver(scheduleAlignment)
-          sectionObserver.observe(section)
-        }
-      } else {
-        container?.focus()
-      }
+    const frame = window.requestAnimationFrame(() => {
+      if (initialDestination.section === 'appearance') dialog.current?.focus()
+      else
+        document
+          .getElementById(settingsSectionHeadingId(initialDestination.section))
+          ?.focus()
     })
-
-    if (initialSection !== 'general') {
-      container?.addEventListener('focusin', stopOnInteraction)
-    }
-    return () => {
-      stopAligning()
-      container?.removeEventListener('focusin', stopOnInteraction)
-    }
-  }, [initialSection])
+    return () => window.cancelAnimationFrame(frame)
+  }, [initialDestination])
 
   useEffect(() => {
     const keydown = (event: KeyboardEvent): void => {
@@ -127,188 +68,71 @@ export function SettingsDialog({
       }
     }
     window.addEventListener('keydown', keydown)
-    return () => {
-      window.removeEventListener('keydown', keydown)
-    }
+    return () => window.removeEventListener('keydown', keydown)
   }, [requestClose])
 
-  const save = async (): Promise<void> => {
-    try {
-      const parsedIdleSeconds = Number(idleSeconds)
-      if (
-        idleSeconds.trim().length === 0 ||
-        !Number.isFinite(parsedIdleSeconds) ||
-        parsedIdleSeconds < 0.5 ||
-        parsedIdleSeconds > 60
-      ) {
-        throw new Error('Idle threshold must be between 0.5 and 60 seconds')
-      }
-      const parsed: unknown = JSON.parse(keybindings)
-      const confirmed = await (harnessProfiles.current?.confirmSafeToLeave() ??
-        Promise.resolve(true))
-      if (!confirmed) return
-      if (composerSubmitMode !== settings.composerSubmitMode) {
-        await window.hvir.invoke('harness:configure-composer-submit', {
-          scope: 'all-connected',
-          mode: composerSubmitMode,
-          previousMode: settings.composerSubmitMode,
-        })
-      }
-      onSave(nextTheme, {
-        idleThresholdMs: parsedIdleSeconds * 1000,
-        gitAutoFetchIntervalMs: Number(gitAutoFetchIntervalMs),
-        terminalRecoveryMode: recoveryMode,
-        terminalTheme,
-        composerSubmitMode,
-        keybindings: parseKeybindingOverrides(parsed),
-      })
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason))
-    }
-  }
+  const statusMessage = controller.validation?.message ?? controller.saveError
 
   return (
     <div className="modal-backdrop">
       <section
-        className={`project-dialog settings-dialog${
-          initialSection === 'general' ? '' : ' harnesses-focused'
-        }`}
+        className="project-dialog settings-dialog"
         ref={dialog}
         role="dialog"
         aria-modal="true"
         aria-labelledby="settings-title"
         tabIndex={-1}
       >
-        <h2 id="settings-title">Settings</h2>
-        <div className="settings-fields">
-          <label>
-            <span>App theme</span>
-            <select
-              value={nextTheme}
-              onChange={(event) => setNextTheme(event.currentTarget.value as AppTheme)}
-            >
-              <option value="dark">Dark</option>
-              <option value="light">Light</option>
-            </select>
-          </label>
-          <label>
-            <span>Terminal colors</span>
-            <select
-              value={terminalTheme}
-              onChange={(event) =>
-                setTerminalTheme(
-                  event.currentTarget.value as AppSettings['terminalTheme'],
-                )
-              }
-            >
-              <option value="app">Follow app theme</option>
-              <option value="dark">Always dark</option>
-              <option value="light">Always light</option>
-            </select>
-          </label>
-          <label className="settings-checkbox">
-            <span>Message submission</span>
-            <span className="settings-checkbox-copy">
-              <span className="settings-checkbox-control">
-                <input
-                  type="checkbox"
-                  checked={composerSubmitMode === 'ctrl-enter'}
-                  onChange={(event) => {
-                    if (event.currentTarget.checked) setComposerConsentOpen(true)
-                    else setComposerSubmitMode('enter')
-                  }}
-                />
-                Send messages with Ctrl+Enter or Command+Enter; Enter inserts a new line
-              </span>
-              <small>
-                Claude updates live; Shift+Enter also submits in supported external
-                terminals. Restart open Codex sessions after changing this setting.
-              </small>
-            </span>
-          </label>
-          <label>
-            <span>Idle-after-output threshold</span>
-            <span className="settings-number">
-              <input
-                type="number"
-                min="0.5"
-                max="60"
-                step="0.5"
-                value={idleSeconds}
-                aria-invalid={Boolean(error && /idle threshold/i.test(error))}
-                onChange={(event) => {
-                  setIdleSeconds(event.currentTarget.value)
-                  setError(undefined)
-                }}
-              />
-              seconds
-            </span>
-          </label>
-          <label>
-            <span>On app start</span>
-            <select
-              value={recoveryMode}
-              onChange={(event) =>
-                setRecoveryMode(
-                  event.currentTarget.value as AppSettings['terminalRecoveryMode'],
-                )
-              }
-            >
-              <option value="prompt">Ask which terminals to restore</option>
-              <option value="auto">Restore all terminals automatically</option>
-            </select>
-          </label>
-          <label>
-            <span>Git auto-fetch</span>
-            <select
-              value={gitAutoFetchIntervalMs}
-              onChange={(event) => setGitAutoFetchIntervalMs(event.currentTarget.value)}
-            >
-              <option value="0">Off</option>
-              <option value={String(60_000)}>Every minute</option>
-              <option value={String(5 * 60_000)}>Every 5 minutes</option>
-              <option value={String(15 * 60_000)}>Every 15 minutes</option>
-              <option value={String(30 * 60_000)}>Every 30 minutes</option>
-            </select>
-          </label>
-          <label className="settings-keybindings">
-            <span>Keybindings (JSON)</span>
-            <textarea
-              spellCheck={false}
-              value={keybindings}
-              onChange={(event) => {
-                setKeybindings(event.currentTarget.value)
-                setError(undefined)
-              }}
+        <header className="settings-shell-heading">
+          <div>
+            <span>Workbench preferences</span>
+            <h2 id="settings-title">Settings</h2>
+          </div>
+          <p>Keep hvir focused, legible, and tuned to the way you work.</p>
+        </header>
+        <div className="settings-shell-body">
+          <SettingsSectionNavigation
+            activeSection={controller.activeSection}
+            onSelect={controller.requestSection}
+          />
+          <div className="settings-content">
+            <SettingsActiveSection
+              activeSection={controller.activeSection}
+              draft={controller.draft}
+              validation={controller.validation}
+              harnessProfiles={harnessProfiles}
+              workspaceRoot={workspaceRoot}
+              projectRoot={projectRoot}
+              initialAddOpen={controller.initialAddOpen}
+              onChange={controller.updateDraft}
+              onComposerSubmitMode={controller.requestComposerSubmitMode}
             />
-            <small>
-              Use Mod for Command on macOS and Ctrl on Linux. Changes apply after Save.
-            </small>
-          </label>
+          </div>
         </div>
-        <HarnessProfilesSettings
-          ref={harnessProfiles}
-          workspaceRoot={workspaceRoot}
-          projectRoot={projectRoot}
-          initialAddOpen={initialSection === 'harnesses-add'}
-        />
-        {error ? <p className="dialog-error">{error}</p> : null}
-        <div className="dialog-actions">
-          <button type="button" onClick={requestClose}>
-            Close settings
-          </button>
-          <button type="button" onClick={() => void save()}>
-            Save app settings
-          </button>
-        </div>
+        <footer className="settings-footer">
+          <div className="settings-footer-status" aria-live="polite">
+            {statusMessage ? (
+              <p className="dialog-error" role="alert">
+                {statusMessage}
+              </p>
+            ) : (
+              <span>App preferences apply together when saved.</span>
+            )}
+          </div>
+          <div className="dialog-actions">
+            <button type="button" onClick={controller.requestClose}>
+              Close settings
+            </button>
+            <button type="button" onClick={() => void controller.save()}>
+              Save app settings
+            </button>
+          </div>
+        </footer>
       </section>
-      {composerConsentOpen ? (
+      {controller.composerConsentOpen ? (
         <ComposerSubmitConsentDialog
-          onCancel={() => setComposerConsentOpen(false)}
-          onConfirm={() => {
-            setComposerSubmitMode('ctrl-enter')
-            setComposerConsentOpen(false)
-          }}
+          onCancel={controller.cancelComposerConsent}
+          onConfirm={controller.confirmComposerConsent}
         />
       ) : null}
     </div>

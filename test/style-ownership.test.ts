@@ -11,6 +11,7 @@ const expectedOrder = [
   'terminal-shell.css',
   'terminal-move.css',
   'settings.css',
+  'harness-settings.css',
   'composer-submit.css',
   'terminal-list.css',
   'primitives.css',

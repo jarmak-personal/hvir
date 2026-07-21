@@ -5,56 +5,37 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { SettingsDialog } from '../src/renderer/src/settings/SettingsDialog'
+import type { SettingsDestination } from '../src/renderer/src/settings/settings-navigation'
 import { DEFAULT_KEYBINDINGS, localPath } from '../src/shared'
 
+const confirmSafeToLeave = vi.fn(() => Promise.resolve(true))
+
 vi.mock('../src/renderer/src/settings/HarnessProfilesSettings', async () => {
-  const { createElement, forwardRef, useImperativeHandle } = await import('react')
+  const { createElement, forwardRef, useImperativeHandle, useState } =
+    await import('react')
   return {
-    HarnessProfilesSettings: forwardRef(
-      function MockHarnessProfilesSettings(_props, ref) {
-        useImperativeHandle(ref, () => ({
-          confirmSafeToLeave: () => Promise.resolve(true),
-        }))
-        return createElement(
-          'section',
-          { className: 'settings-harnesses' },
-          createElement(
-            'h3',
-            { id: 'settings-harnesses-title', tabIndex: -1 },
-            'Harnesses',
-          ),
-          createElement('input', { 'aria-label': 'Harness profile name' }),
-        )
-      },
-    ),
+    HarnessProfilesSettings: forwardRef<
+      { readonly confirmSafeToLeave: () => Promise<boolean> },
+      { readonly initialAddOpen?: boolean }
+    >(function MockHarnessProfilesSettings({ initialAddOpen }, ref) {
+      const [addOpen] = useState(initialAddOpen)
+      useImperativeHandle(ref, () => ({ confirmSafeToLeave }))
+      return createElement(
+        'section',
+        {
+          className: 'settings-section settings-harnesses',
+          'data-initial-add-open': String(addOpen),
+        },
+        createElement(
+          'h3',
+          { id: 'settings-harnesses-title', tabIndex: -1 },
+          'Harnesses',
+        ),
+        createElement('input', { 'aria-label': 'Harness profile name' }),
+      )
+    }),
   }
 })
-
-class TestResizeObserver implements ResizeObserver {
-  static instances: TestResizeObserver[] = []
-
-  private disconnected = false
-
-  constructor(private readonly callback: ResizeObserverCallback) {
-    TestResizeObserver.instances.push(this)
-  }
-
-  observe(_target: Element, _options?: ResizeObserverOptions): void {}
-
-  unobserve(_target: Element): void {}
-
-  disconnect(): void {
-    this.disconnected = true
-  }
-
-  takeRecords(): ResizeObserverEntry[] {
-    return []
-  }
-
-  fire(): void {
-    if (!this.disconnected) this.callback([], this)
-  }
-}
 
 const frameCallbacks = new Map<number, FrameRequestCallback>()
 let nextFrame = 1
@@ -62,10 +43,11 @@ let root: Root | undefined
 let host: HTMLDivElement | undefined
 
 beforeEach(() => {
-  TestResizeObserver.instances = []
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true)
+  confirmSafeToLeave.mockReset()
+  confirmSafeToLeave.mockResolvedValue(true)
   frameCallbacks.clear()
   nextFrame = 1
-  vi.stubGlobal('ResizeObserver', TestResizeObserver)
   vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
     const id = nextFrame++
     frameCallbacks.set(id, callback)
@@ -74,20 +56,14 @@ beforeEach(() => {
   vi.stubGlobal('cancelAnimationFrame', (id: number) => {
     frameCallbacks.delete(id)
   })
-  vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(
-    function getBoundingClientRect(this: HTMLElement) {
-      return domRect(this.id === 'settings-harnesses-title' ? 100 : 0)
-    },
-  )
+  vi.stubGlobal('hvir', { invoke: vi.fn(() => Promise.resolve(undefined)) })
   host = document.createElement('div')
   document.body.append(host)
   root = createRoot(host)
 })
 
 afterEach(() => {
-  if (root) {
-    act(() => root?.unmount())
-  }
+  if (root) act(() => root?.unmount())
   host?.remove()
   root = undefined
   host = undefined
@@ -95,102 +71,73 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
-describe('SettingsDialog harness alignment', () => {
-  it('does not reclaim field focus after a resize or parent render', () => {
-    const focus = vi.spyOn(HTMLElement.prototype, 'focus')
-    const render = (parentRevision: number): void => {
-      act(() => {
-        root?.render(
-          createElement(SettingsDialog, {
-            theme: 'dark',
-            settings: {
-              idleThresholdMs: 4_000,
-              gitAutoFetchIntervalMs: 5 * 60_000,
-              terminalRecoveryMode: 'prompt',
-              terminalTheme: 'app',
-              composerSubmitMode: 'enter',
-              keybindings: DEFAULT_KEYBINDINGS,
-            },
-            workspaceRoot: localPath('/tmp/hvir'),
-            projectRoot: localPath('/tmp/hvir'),
-            initialSection: 'harnesses',
-            onClose: () => void parentRevision,
-            onSave: vi.fn(),
-          }),
-        )
-      })
-    }
-
-    render(0)
+describe('SettingsDialog section workflow', () => {
+  it('targets Harnesses without scroll alignment and preserves app drafts across sections', async () => {
+    renderDialog({ section: 'harnesses' })
     flushFrames()
 
     const heading = document.querySelector<HTMLElement>('#settings-harnesses-title')
-    const input = document.querySelector<HTMLInputElement>(
-      '[aria-label="Harness profile name"]',
-    )
     expect(heading).toBeTruthy()
-    expect(input).toBeTruthy()
     expect(document.activeElement).toBe(heading)
-    expect(headingFocusCount(focus)).toBe(1)
-    expect(TestResizeObserver.instances).toHaveLength(1)
+    expect(navButton('Harnesses').getAttribute('aria-current')).toBe('page')
 
-    TestResizeObserver.instances[0]?.fire()
-    input?.focus()
-    input?.setRangeText('profile', 0, 0, 'end')
-    flushFrames()
-
-    expect(document.activeElement).toBe(input)
-    expect(input?.selectionStart).toBe(7)
-    expect(headingFocusCount(focus)).toBe(1)
-
-    render(1)
-    flushFrames()
-
-    expect(document.activeElement).toBe(input)
-    expect(input?.selectionStart).toBe(7)
-    expect(headingFocusCount(focus)).toBe(1)
+    await selectSection('Terminal')
+    const idle = document.querySelector<HTMLInputElement>('#settings-idle-threshold')
+    expect(idle).toBeTruthy()
+    changeValue(idle!, '9')
+    await selectSection('Appearance')
+    await selectSection('Terminal')
+    expect(
+      document.querySelector<HTMLInputElement>('#settings-idle-threshold')?.value,
+    ).toBe('9')
   })
 
-  it('requires explicit consent and waits for Save before changing Claude config', async () => {
-    const invoke = vi.fn(() => Promise.resolve(undefined))
-    const onSave = vi.fn()
-    vi.stubGlobal('hvir', { invoke, send: vi.fn(), on: vi.fn() })
-    act(() => {
-      root?.render(
-        createElement(SettingsDialog, {
-          theme: 'dark',
-          settings: {
-            idleThresholdMs: 4_000,
-            gitAutoFetchIntervalMs: 5 * 60_000,
-            terminalRecoveryMode: 'prompt',
-            terminalTheme: 'app',
-            composerSubmitMode: 'enter',
-            keybindings: DEFAULT_KEYBINDINGS,
-          },
-          workspaceRoot: localPath('/tmp/hvir'),
-          projectRoot: localPath('/tmp/hvir'),
-          onClose: vi.fn(),
-          onSave,
-        }),
-      )
-    })
+  it('changes section only after the dirty-profile guard allows it', async () => {
+    confirmSafeToLeave.mockResolvedValueOnce(false).mockResolvedValueOnce(true)
+    renderDialog({ section: 'harnesses' })
 
-    const checkbox = document.querySelector<HTMLInputElement>(
-      '.settings-checkbox input[type="checkbox"]',
+    await selectSection('Appearance')
+    expect(document.querySelector('#settings-harnesses-title')).toBeTruthy()
+    expect(navButton('Harnesses').getAttribute('aria-current')).toBe('page')
+
+    await selectSection('Appearance')
+    expect(document.querySelector('#settings-appearance-title')).toBeTruthy()
+    expect(confirmSafeToLeave).toHaveBeenCalledTimes(2)
+  })
+
+  it('reveals and focuses the section containing an invalid app setting', async () => {
+    renderDialog()
+    await selectSection('Terminal')
+    changeValue(document.querySelector<HTMLInputElement>('#settings-idle-threshold')!, '')
+    await selectSection('Appearance')
+
+    await act(async () => {
+      button('Save app settings').click()
+      await Promise.resolve()
+    })
+    flushFrames()
+
+    const idle = document.querySelector<HTMLInputElement>('#settings-idle-threshold')
+    expect(idle?.getAttribute('aria-invalid')).toBe('true')
+    expect(document.activeElement).toBe(idle)
+    expect(document.body.textContent).toContain(
+      'Idle threshold must be between 0.5 and 60 seconds',
     )
-    expect(checkbox?.checked).toBe(false)
+    expect(navButton('Terminal').getAttribute('aria-current')).toBe('page')
+  })
+
+  it('requires consent and waits for Save before changing Claude config', async () => {
+    const invoke = vi.fn(() => Promise.resolve(undefined))
+    vi.stubGlobal('hvir', { invoke })
+    const onSave = vi.fn()
+    renderDialog(undefined, onSave)
+    await selectSection('Terminal')
+
+    const checkbox = document.querySelector<HTMLInputElement>('#settings-composer-submit')
     act(() => checkbox?.click())
     expect(document.querySelector('#composer-submit-consent-title')).toBeTruthy()
-    expect(document.body.textContent).toContain(
-      'Shift+Enter submits in supported terminals outside hvir',
-    )
     expect(invoke).not.toHaveBeenCalled()
 
-    act(() => button('Cancel').click())
-    expect(checkbox?.checked).toBe(false)
-    expect(document.querySelector('#composer-submit-consent-title')).toBeFalsy()
-
-    act(() => checkbox?.click())
     act(() => button('Allow this change').click())
     expect(checkbox?.checked).toBe(true)
     expect(invoke).not.toHaveBeenCalled()
@@ -209,7 +156,103 @@ describe('SettingsDialog harness alignment', () => {
       expect.objectContaining({ composerSubmitMode: 'ctrl-enter' }),
     )
   })
+
+  it('contains focus and Escape inside the nested composer consent dialog', async () => {
+    const onClose = vi.fn()
+    renderDialog(undefined, vi.fn(), onClose)
+    await selectSection('Terminal')
+
+    act(() =>
+      document.querySelector<HTMLInputElement>('#settings-composer-submit')?.click(),
+    )
+    flushFrames()
+
+    const cancel = button('Cancel')
+    const allow = button('Allow this change')
+    expect(document.activeElement).toBe(cancel)
+
+    act(() => {
+      allow.focus()
+      window.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true }),
+      )
+    })
+    expect(document.activeElement).toBe(cancel)
+
+    act(() => {
+      window.dispatchEvent(
+        new KeyboardEvent('keydown', {
+          key: 'Escape',
+          bubbles: true,
+          cancelable: true,
+        }),
+      )
+    })
+    expect(document.querySelector('#composer-submit-consent-title')).toBeNull()
+    expect(document.querySelector('#settings-title')).toBeTruthy()
+    expect(onClose).not.toHaveBeenCalled()
+  })
+
+  it('consumes the add-harness intent the first time Harnesses mounts', async () => {
+    renderDialog({ section: 'harnesses', intent: 'add-harness' })
+    expect(
+      document
+        .querySelector('.settings-harnesses')
+        ?.getAttribute('data-initial-add-open'),
+    ).toBe('true')
+
+    await act(async () => Promise.resolve())
+    await selectSection('Appearance')
+    await selectSection('Harnesses')
+    expect(
+      document
+        .querySelector('.settings-harnesses')
+        ?.getAttribute('data-initial-add-open'),
+    ).toBe('false')
+  })
 })
+
+function renderDialog(
+  initialDestination?: SettingsDestination,
+  onSave = vi.fn(),
+  onClose = vi.fn(),
+): void {
+  act(() => {
+    root?.render(
+      createElement(SettingsDialog, {
+        theme: 'dark',
+        settings: {
+          idleThresholdMs: 4_000,
+          gitAutoFetchIntervalMs: 5 * 60_000,
+          terminalRecoveryMode: 'prompt',
+          terminalTheme: 'app',
+          composerSubmitMode: 'enter',
+          keybindings: DEFAULT_KEYBINDINGS,
+        },
+        workspaceRoot: localPath('/tmp/hvir'),
+        projectRoot: localPath('/tmp/hvir'),
+        initialDestination,
+        onClose,
+        onSave,
+      }),
+    )
+  })
+}
+
+async function selectSection(label: string): Promise<void> {
+  await act(async () => {
+    navButton(label).click()
+    await Promise.resolve()
+  })
+}
+
+function navButton(label: string): HTMLButtonElement {
+  const match = [
+    ...document.querySelectorAll<HTMLButtonElement>('.settings-section-index button'),
+  ].find((candidate) => candidate.textContent?.trim() === label)
+  if (!match) throw new Error(`Missing settings section '${label}'`)
+  return match
+}
 
 function button(label: string): HTMLButtonElement {
   const match = [...document.querySelectorAll<HTMLButtonElement>('button')].find(
@@ -217,6 +260,20 @@ function button(label: string): HTMLButtonElement {
   )
   if (!match) throw new Error(`Missing button '${label}'`)
   return match
+}
+
+function changeValue(
+  control: HTMLInputElement | HTMLTextAreaElement,
+  value: string,
+): void {
+  act(() => {
+    const prototype =
+      control instanceof HTMLTextAreaElement
+        ? HTMLTextAreaElement.prototype
+        : HTMLInputElement.prototype
+    Object.getOwnPropertyDescriptor(prototype, 'value')?.set?.call(control, value)
+    control.dispatchEvent(new Event('input', { bubbles: true }))
+  })
 }
 
 function flushFrames(): void {
@@ -227,27 +284,4 @@ function flushFrames(): void {
       for (const callback of callbacks) callback(performance.now())
     }
   })
-}
-
-function headingFocusCount(focus: {
-  readonly mock: { readonly instances: readonly unknown[] }
-}): number {
-  return focus.mock.instances.filter(
-    (instance) =>
-      instance instanceof HTMLElement && instance.id === 'settings-harnesses-title',
-  ).length
-}
-
-function domRect(top: number): DOMRect {
-  return {
-    x: 0,
-    y: top,
-    top,
-    right: 100,
-    bottom: top + 20,
-    left: 0,
-    width: 100,
-    height: 20,
-    toJSON: () => ({}),
-  }
 }

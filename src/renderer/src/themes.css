@@ -20,6 +20,10 @@
   --viewer-gutter-text: #5f6877;
   --code-border: #242933;
   --shadow: rgb(0 0 0 / 38%);
+  --danger-text: #dc7b82;
+  --warning-border: #544632;
+  --warning-surface: #211d16;
+  --warning-text: #d8bd83;
 }
 
 :root[data-theme='light'] {
@@ -44,6 +48,10 @@
   --viewer-gutter-text: #778391;
   --code-border: #d8dee6;
   --shadow: rgb(31 43 55 / 18%);
+  --danger-text: #a53f49;
+  --warning-border: #d4b16a;
+  --warning-surface: #fff7e8;
+  --warning-text: #80520d;
 }
 
 :root[data-theme='light'],

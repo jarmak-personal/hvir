@@ -1,0 +1,449 @@
+.settings-harness-actions,
+.settings-profile-rows > header,
+.settings-profile-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.settings-harness-actions {
+  flex: 0 0 auto;
+  gap: 8px;
+}
+
+.settings-harness-state {
+  display: grid;
+  justify-items: start;
+  gap: 10px;
+}
+
+.settings-dialog .settings-harness-state p,
+.settings-harness-empty {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 10px;
+}
+
+.settings-harness-layout {
+  min-width: 0;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 205px minmax(0, 1fr);
+  margin: 0 24px 24px;
+  overflow: hidden;
+  border: 1px solid var(--border-subtle);
+  border-radius: 4px;
+  background: var(--surface-1);
+}
+
+.settings-profile-list {
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  border-right: 1px solid var(--border-subtle);
+  background: var(--surface-0);
+}
+
+.settings-profile-list button {
+  width: 100%;
+  display: grid;
+  gap: 3px;
+  padding: 9px 10px;
+  border: 0;
+  border-bottom: 1px solid var(--border-subtle);
+  border-radius: 0;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+}
+
+.settings-profile-list button.active,
+.settings-profile-list button:hover,
+.settings-profile-list button:focus-visible {
+  outline: none;
+  background: var(--accent-soft);
+}
+
+.settings-profile-list strong,
+.settings-profile-list small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-profile-list strong {
+  font-size: 10px;
+}
+
+.settings-profile-list small,
+.settings-profile-note,
+.settings-profile-risk small,
+.settings-profile-previews small {
+  color: var(--text-muted);
+  font-size: 9px;
+}
+
+.settings-profile-editor {
+  min-width: 0;
+  min-height: 0;
+  display: grid;
+  align-content: start;
+  gap: 12px;
+  padding: 14px;
+  overflow: auto;
+}
+
+.settings-profile-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 9px 12px;
+}
+
+.settings-dialog .settings-profile-grid label,
+.settings-profile-argv,
+.settings-dialog .settings-profile-executable label {
+  min-width: 0;
+  display: grid;
+  gap: 5px;
+  color: var(--text);
+  font-size: 10px;
+}
+
+.settings-profile-description {
+  grid-column: 1 / -1;
+}
+
+.settings-dialog .settings-profile-editor :is(input, select, textarea) {
+  min-width: 0;
+  padding: 6px 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: 4px;
+  outline: none;
+  background: var(--surface-2);
+  color: var(--text);
+  font: inherit;
+}
+
+.settings-dialog .settings-profile-editor :is(input, select, textarea):focus {
+  border-color: var(--accent);
+}
+
+.settings-profile-editor :disabled {
+  opacity: 0.6;
+}
+
+.settings-profile-executable {
+  display: grid;
+  grid-template-columns: minmax(170px, 0.55fr) minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 8px;
+}
+
+.settings-profile-executable code,
+.settings-profile-row code {
+  min-width: 0;
+  overflow: hidden;
+  padding: 7px 8px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 4px;
+  color: var(--text);
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-profile-argv textarea {
+  min-height: 76px;
+  resize: vertical;
+  font-family: 'JetBrains Mono', 'SFMono-Regular', Consolas, monospace;
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.settings-profile-argv span,
+.settings-profile-risk {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.settings-profile-capabilities {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 9px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 4px;
+  color: var(--text);
+  font-size: 10px;
+}
+
+.settings-profile-capabilities small {
+  color: var(--text-muted);
+  font-size: 9px;
+  text-align: right;
+}
+
+.settings-profile-argv small {
+  color: var(--text-muted);
+  font-size: 9px;
+}
+
+.settings-profile-rows {
+  display: grid;
+  gap: 6px;
+}
+
+.settings-profile-rows > header {
+  color: var(--text);
+  font-size: 10px;
+}
+
+.settings-profile-row {
+  display: grid;
+  grid-template-columns:
+    minmax(90px, 0.7fr) minmax(110px, 0.85fr) minmax(110px, 1fr)
+    minmax(90px, 0.75fr) 28px;
+  gap: 6px;
+}
+
+.settings-profile-row.path {
+  grid-template-columns: minmax(100px, 0.7fr) minmax(150px, 1fr) auto 28px;
+}
+
+.settings-profile-row > button:last-child {
+  padding: 0;
+}
+
+.settings-profile-risk {
+  align-items: baseline;
+  padding: 8px 9px;
+  border: 1px solid var(--warning-border);
+  border-radius: 4px;
+  background: var(--warning-surface);
+  color: var(--warning-text);
+  font-size: 10px;
+}
+
+.settings-profile-previews {
+  display: grid;
+  gap: 7px;
+}
+
+.settings-profile-previews > div {
+  display: grid;
+  gap: 4px;
+}
+
+.settings-profile-previews strong {
+  color: var(--text);
+  font-size: 9px;
+  text-transform: uppercase;
+}
+
+.settings-profile-previews code {
+  display: block;
+  overflow-x: auto;
+  padding: 8px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 4px;
+  background: var(--surface-0);
+  color: var(--text);
+  font-size: 9px;
+  white-space: nowrap;
+}
+
+.settings-profile-actions {
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+
+.settings-profile-unsaved {
+  margin-right: auto;
+  color: var(--warning-text);
+  font-size: 10px;
+}
+
+.modal-backdrop.nested {
+  z-index: 12;
+}
+
+.project-dialog.unsaved-harness-dialog {
+  width: min(460px, calc(100vw - 48px));
+}
+
+.unsaved-harness-dialog h3,
+.unsaved-harness-dialog p {
+  margin: 0;
+}
+
+.unsaved-harness-dialog strong {
+  color: var(--text-strong);
+}
+
+.project-dialog.add-harness-dialog {
+  width: min(620px, calc(100vw - 48px));
+  max-height: min(680px, calc(100vh - 48px));
+}
+
+.add-harness-heading,
+.add-harness-manual {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.add-harness-heading h3,
+.add-harness-dialog .add-harness-heading p,
+.add-harness-dialog .add-harness-candidates p {
+  margin: 0;
+}
+
+.add-harness-dialog .add-harness-heading p,
+.add-harness-dialog .add-harness-candidates p {
+  margin-top: 4px;
+  color: var(--text-muted);
+  font-size: 10px;
+}
+
+.add-harness-candidates {
+  min-height: 190px;
+  max-height: min(330px, 42vh);
+  overflow: auto;
+  border: 1px solid var(--border-subtle);
+  border-radius: 4px;
+  background: var(--surface-1);
+}
+
+.add-harness-dialog .add-harness-candidates label {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  align-items: center;
+  gap: 9px;
+  padding: 10px 11px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.add-harness-dialog .add-harness-candidates label:last-child {
+  border-bottom: 0;
+}
+
+.add-harness-dialog .add-harness-candidates label.configured {
+  color: var(--text-muted);
+}
+
+.add-harness-dialog .add-harness-candidates label > span,
+.add-harness-dialog .add-harness-manual label {
+  display: grid;
+  gap: 3px;
+}
+
+.add-harness-dialog .add-harness-candidates small,
+.add-harness-dialog .add-harness-manual label > span {
+  color: var(--text-muted);
+  font-size: 9px;
+}
+
+.add-harness-dialog .add-harness-candidates p {
+  padding: 12px;
+}
+
+.add-harness-manual {
+  padding: 10px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 4px;
+  background: var(--surface-2);
+}
+
+.add-harness-dialog .add-harness-manual label {
+  flex: 1;
+}
+
+.add-harness-manual select {
+  min-width: 250px;
+}
+
+.project-dialog.harness-folder-picker {
+  width: min(560px, calc(100vw - 48px));
+  max-height: min(620px, calc(100vh - 48px));
+}
+
+.harness-folder-picker > code {
+  overflow-wrap: anywhere;
+  color: var(--text);
+  font-size: 10px;
+}
+
+.harness-folder-list {
+  min-height: 220px;
+  display: grid;
+  align-content: start;
+  overflow: auto;
+  border: 1px solid var(--border-subtle);
+  border-radius: 4px;
+  background: var(--surface-1);
+}
+
+.harness-folder-list button {
+  padding: 7px 9px;
+  border: 0;
+  border-bottom: 1px solid var(--border-subtle);
+  border-radius: 0;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+}
+
+@media (max-width: 1000px) {
+  .settings-harness-layout {
+    grid-template-columns: 170px minmax(0, 1fr);
+  }
+
+  .settings-profile-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .settings-profile-description {
+    grid-column: auto;
+  }
+
+  .settings-profile-row,
+  .settings-profile-row.path,
+  .settings-profile-executable {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 800px) {
+  .settings-harness-layout {
+    margin: 0 18px 18px;
+  }
+}
+
+@media (max-width: 640px) {
+  .settings-section-heading,
+  .settings-harness-actions,
+  .add-harness-heading,
+  .add-harness-manual {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .settings-harness-layout {
+    grid-template-columns: 1fr;
+    grid-template-rows: minmax(96px, 24%) minmax(0, 1fr);
+  }
+
+  .settings-profile-list {
+    border-right: 0;
+    border-bottom: 1px solid var(--border-subtle);
+  }
+
+  .add-harness-manual select {
+    min-width: 0;
+    width: 100%;
+  }
+}
