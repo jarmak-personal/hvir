@@ -32,7 +32,7 @@ const linuxChecks = [
     id: 'verify',
     name: 'Verification (Linux)',
     command: 'npm run verify',
-    fetchDepth: undefined,
+    fetchDepth: 0,
   },
   {
     id: 'electron-smoke',
