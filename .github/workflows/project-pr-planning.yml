@@ -28,7 +28,8 @@ jobs:
   relationship-event:
     if: >-
       (github.event_name == 'pull_request_target' &&
-       github.event.pull_request.base.ref == 'main') ||
+       (github.event.pull_request.base.ref == 'main' ||
+        startsWith(github.event.pull_request.base.ref, 'epic/'))) ||
       (github.event_name == 'issues' && github.event.action == 'reopened')
     runs-on: ubuntu-24.04
     timeout-minutes: 10

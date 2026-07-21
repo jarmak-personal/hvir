@@ -113,27 +113,10 @@ Acceptance criteria must test the outcome. They must not require a file-by-file 
 local and SSH parity, responsiveness, resource cleanup, and security behavior when the affected
 capability creates those risks. Do not add criteria that are unrelated to the identified risks.
 
-## Review and create
+## Preview and create
 
-After you prepare the title, body, and labels, apply these review conditions.
-
-Run `$hvir-review-issue` one time when any condition applies:
-
-- The draft is an epic.
-- The feature can cross a durable product or architecture boundary.
-- The feature can require multiple implementation issues.
-
-Skip issue review by default when any condition applies:
-
-- The issue is a direct child of a reviewed epic.
-- The issue is a small, localized bug.
-- The issue contains routine maintenance or documentation work.
-
-A maintainer can require or skip the review.
-
-Evaluate the review response. Correct each valid finding. Do not run another review after you
-edit the draft. Present the exact title, body, and applicable repository labels. List assumptions
-and open questions separately.
+Present the exact title, body, and applicable repository labels. List assumptions and open
+questions separately.
 
 Stop after the preview and request explicit publication approval. Once the user approves the
 exact draft, create it in `jarmak-personal/hvir` when GitHub issue tooling is available;

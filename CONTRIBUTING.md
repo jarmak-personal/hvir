@@ -21,7 +21,7 @@ everything else:
 2. Resolve product and design questions in the issue.
 3. Add or supersede an ADR if the work changes a durable decision.
 4. Implement a focused, independently reviewable outcome.
-5. Link the pull request with `Closes #N`.
+5. Link a PR to `main` with `Closes #N`, or use the epic-child relationships below.
 
 An epic is a coordination container, not permission for a monster pull request. Split broad
 work into child issues with explicit outcomes, ownership, dependencies, and acceptance. Each
@@ -72,32 +72,15 @@ guaranteed prompt-injection boundary.
 
 Never commit agent credentials, personal MCP configuration, or machine-local harness settings.
 
-### Select review from the change risk
-
-Run `hvir-review-issue` one time for an epic. Also run it for a feature proposal that can cross a
-durable product or architecture boundary. Skip it by default for a direct child of a reviewed
-epic, a small localized bug, routine maintenance, or routine documentation.
-
-Run `hvir-review-code` one time for a nontrivial feature or refactor. Also run it when the change
-has architecture, security, concurrency, lifecycle, or cross-seam risk. Run it for the final
-cumulative epic candidate. Skip it by default for a small localized bug, routine documentation,
-a test-only change, or mechanical maintenance that has none of the listed risks.
-
-Each review skill selects one fresh model from a family that differs from the caller. The skill
-provides the prompt and the exact `copilot`, `claude`, and `codex exec` commands. Do not run more
-than one reviewer. Do not repeat review after a correction.
-
-The reviewer has read-only access. The reviewer does not run executable checks and cannot change
-GitHub state. The caller evaluates the findings and corrects valid defects. Run a fresh
-`npm run verify` after code changes. The pre-push hook, CI, and epic acceptance tests are the
-final integration gates. Do not use or recommend Ultrareview.
+The review skills run only when a maintainer invokes them. Lifecycle skills do not invoke or
+suggest review.
 
 ## Isolate issue implementation
 
 `hvir-implement-issue` uses native Git to create or reuse `agent/issue-N` at the deterministic
 sibling path `<primary-repository>-worktrees/issue-N` from an exact base agreed by the governing
-workflow. All implementation, testing, verification, commits, review handoff, pre-push checks,
-and pushes happen there; the invoking checkout and unrelated worktrees stay untouched.
+workflow. All implementation, testing, verification, commits, pre-push checks, and pushes happen
+there; the invoking checkout and unrelated worktrees stay untouched.
 
 Each invocation fetches/prunes and inspects existing worktrees before creation. Cleanup uses
 ordinary `git worktree`, status, and ref commands plus bounded `gh` PR metadata. Remove only when
@@ -108,6 +91,37 @@ a custom worktree registry or an hvir application capability.
 
 This lifecycle belongs only to repository contributor tooling. The hvir application continues
 to discover worktrees without creating, moving, repairing, merging, or removing them.
+
+## Stage epic delivery
+
+An authorized open `kind:epic` uses one `epic/N-slug` integration branch from current `main`.
+Keep its history append-only. Start each direct child's issue worktree at the current epic branch.
+Continue to use `main` for ordinary issues.
+
+Use `project:record` to resolve parent and kind metadata. Reuse one unambiguous epic branch.
+Creating the first branch requires authorization for the epic and its intended child set. Retain
+state and report a blocker when metadata, refs, or worktrees conflict.
+
+An epic-child PR targets the epic branch and has two exact relationships:
+
+```text
+Contributes-to: #<child>
+Contributes-to: #<epic>
+```
+
+Reserve `Closes` for PRs to `main`. Required CI and CodeQL checks run for `epic/**` targets. The
+trusted Project workflow uses the default-branch implementation. It treats PR text as data and
+advances eligible child and epic records to `In Progress`.
+
+After the required checks pass, merge the focused child PR into the epic branch. Verify its base,
+head, merge state, and native parent. Then close the feature-complete child with `gh`. Native
+issue-close automation owns `Done`. Reopen the child for a correction. Use another focused
+contribution PR. No intermediate Project Status is used.
+
+After every intended child closes, merge current `main` into the epic branch. Verify the complete
+`main...epic` candidate. Open one final PR to `main` with `Closes #<epic>`. The maintainer owns
+cumulative acceptance and the final merge. Clean the epic branch and worktree after final merge
+and exact safety checks. Retain uncertain state for maintainer action.
 
 ## Develop locally
 
@@ -157,9 +171,7 @@ Tests should match the behavior's real boundary:
 - keep Electron, Chromium, cross-process, renderer-destruction, SSH, and real-transport
   contracts at integration, smoke, or real-host altitude.
 
-Run `npm run verify` after the final changes and before committing. This is a required local
-gate. Apply the code review conditions after that ready-to-push commit. If review causes code
-changes, run `npm run verify` again and commit the final candidate.
+Run `npm run verify` after the final changes and before committing. This is a required local gate.
 Then push without `--no-verify` so the repository pre-push hook runs typechecks and the
 local-platform Electron smoke; if hooks are not installed, run `.githooks/pre-push` directly
 before pushing. Fix failures locally or report an environment blocker rather than using CI to
