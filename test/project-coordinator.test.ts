@@ -153,6 +153,9 @@ function fixture() {
     dismissWorkspace: vi.fn<ProjectRegistryPort['dismissWorkspace']>(() =>
       Promise.resolve(state),
     ),
+    acknowledgeWorkspace: vi.fn<ProjectRegistryPort['acknowledgeWorkspace']>(() =>
+      Promise.resolve(state),
+    ),
   }
   let serializeCalls = 0
   const workspaces: ProjectWorkspacePort = {

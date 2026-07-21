@@ -75,6 +75,44 @@ describe('RendererResourceScopes', () => {
     expect(attention).toHaveBeenCalledOnce()
   })
 
+  it('reassigns a workspace resource without disposing its live capability', async () => {
+    const scopes = new RendererResourceScopes()
+    const owner = scopes.activateOwner(10)
+    const dispose = vi.fn()
+    scopes.register(
+      owner,
+      {
+        lifetime: 'workspace',
+        type: 'pty-session',
+        root: firstRoot,
+        id: 'terminal-1',
+      },
+      dispose,
+    )
+
+    scopes.reassignWorkspaceResource(
+      owner,
+      'pty-session',
+      'terminal-1',
+      firstRoot,
+      secondRoot,
+    )
+    await scopes.revokeWorkspace(firstRoot)
+    expect(dispose).not.toHaveBeenCalled()
+    expect(() =>
+      scopes.reassignWorkspaceResource(
+        owner,
+        'pty-session',
+        'terminal-1',
+        firstRoot,
+        secondRoot,
+      ),
+    ).toThrow('not owned by the source workspace')
+
+    await scopes.revokeWorkspace(secondRoot)
+    expect(dispose).toHaveBeenCalledOnce()
+  })
+
   it('tears down in reverse registration order and stays idempotent', async () => {
     const calls: string[] = []
     const scopes = new RendererResourceScopes()

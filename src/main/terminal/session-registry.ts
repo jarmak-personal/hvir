@@ -15,7 +15,8 @@ import type { ProjectHost } from '../project-host'
 import { harnessProvider } from '../harness/harness-provider'
 import type { HarnessRecoveryProfileReference } from '../harness/harness-profile-store'
 
-const FILE_VERSION = 3
+const FILE_VERSION = 4
+const LEGACY_WORKSPACE_FILE_VERSION = 3
 const LEGACY_PROVIDER_FILE_VERSION = 2
 const LEGACY_ADAPTER_FILE_VERSION = 1
 const TERMINAL_ID = /^[a-zA-Z0-9-]{1,80}$/
@@ -31,7 +32,7 @@ interface StoredTerminalSession {
   readonly artifactIdentity?: string
   readonly harnessSessionId?: string
   readonly hostId: string
-  readonly projectRoot: HostPath
+  readonly workspaceRoot: HostPath
   readonly cwd: HostPath
   readonly title: string
   readonly position: number
@@ -52,7 +53,7 @@ export interface RecordTerminalSpawn {
   readonly riskAcknowledgedRevision?: number
   readonly artifactIdentity?: string
   readonly harnessSessionId?: string
-  readonly projectRoot: HostPath
+  readonly workspaceRoot: HostPath
   readonly cwd: HostPath
   readonly title: string
   readonly position: number
@@ -65,7 +66,7 @@ export interface AuthorizeTerminalResume {
   readonly profileId: HarnessProfileId
   readonly launchRevision: number
   readonly harnessSessionId: string
-  readonly projectRoot: HostPath
+  readonly workspaceRoot: HostPath
   readonly cwd: HostPath
 }
 
@@ -75,21 +76,36 @@ export interface RebindTerminalProfile {
   readonly profileId: HarnessProfileId
   readonly launchRevision: number
   readonly riskAcknowledgedRevision?: number
-  readonly projectRoot: HostPath
+  readonly workspaceRoot: HostPath
+}
+
+export interface MoveTerminalSession {
+  readonly id: string
+  readonly sourceRoot: HostPath
+  readonly targetRoot: HostPath
+}
+
+export interface OwnedTerminalSession extends TerminalRecoverySession {
+  readonly workspaceRoot: HostPath
 }
 
 export interface TerminalSessionStore {
-  list(projectRoot: HostPath): readonly TerminalRecoverySession[]
+  list(workspaceRoot: HostPath): readonly TerminalRecoverySession[]
   recordSpawn(spawn: RecordTerminalSpawn): Promise<void>
   recordIdentity(id: string, harnessSessionId: string): Promise<void>
   updateLayout(
-    projectRoot: HostPath,
+    workspaceRoot: HostPath,
     layout: readonly TerminalLayoutEntry[],
   ): Promise<void>
-  forget(projectRoot: HostPath, id: string): Promise<void>
+  forget(workspaceRoot: HostPath, id: string): Promise<void>
   rebindProfile(request: RebindTerminalProfile): Promise<TerminalRecoverySession>
   authorizeResume(request: AuthorizeTerminalResume): boolean
   flush(): Promise<void>
+}
+
+export interface TerminalMoveSessionStore {
+  get(id: string): OwnedTerminalSession | undefined
+  move(request: MoveTerminalSession): Promise<TerminalRecoverySession>
 }
 
 export class TerminalSessionRegistry implements TerminalSessionStore {
@@ -116,6 +132,7 @@ export class TerminalSessionRegistry implements TerminalSessionStore {
       if (
         isRecord(value) &&
         (value['version'] === FILE_VERSION ||
+          value['version'] === LEGACY_WORKSPACE_FILE_VERSION ||
           value['version'] === LEGACY_PROVIDER_FILE_VERSION ||
           value['version'] === LEGACY_ADAPTER_FILE_VERSION)
       ) {
@@ -123,7 +140,8 @@ export class TerminalSessionRegistry implements TerminalSessionStore {
         if (Array.isArray(rawSessions)) {
           sessions = rawSessions
             .map((session) =>
-              value['version'] === FILE_VERSION
+              value['version'] === FILE_VERSION ||
+              value['version'] === LEGACY_WORKSPACE_FILE_VERSION
                 ? parseStoredSession(session)
                 : parseLegacyStoredSession(
                     session,
@@ -148,14 +166,19 @@ export class TerminalSessionRegistry implements TerminalSessionStore {
     return registry
   }
 
-  list(projectRoot: HostPath): readonly TerminalRecoverySession[] {
+  list(workspaceRoot: HostPath): readonly TerminalRecoverySession[] {
     return [...this.sessions.values()]
-      .filter((session) => hostPathEquals(session.projectRoot, projectRoot))
+      .filter((session) => hostPathEquals(session.workspaceRoot, workspaceRoot))
       .sort(
         (left, right) =>
           left.position - right.position || left.updatedAt - right.updatedAt,
       )
-      .map(({ projectRoot: _projectRoot, ...session }) => session)
+      .map(({ workspaceRoot: _workspaceRoot, ...session }) => session)
+  }
+
+  get(id: string): OwnedTerminalSession | undefined {
+    const session = this.sessions.get(id)
+    return session ? { ...session } : undefined
   }
 
   profileReferences(): readonly HarnessRecoveryProfileReference[] {
@@ -184,7 +207,7 @@ export class TerminalSessionRegistry implements TerminalSessionStore {
       artifactIdentity: spawn.artifactIdentity,
       harnessSessionId,
       hostId: spawn.cwd.hostId,
-      projectRoot: spawn.projectRoot,
+      workspaceRoot: spawn.workspaceRoot,
       cwd: spawn.cwd,
       title: cleanTitle(spawn.title),
       position: cleanPosition(spawn.position),
@@ -220,13 +243,13 @@ export class TerminalSessionRegistry implements TerminalSessionStore {
   }
 
   updateLayout(
-    projectRoot: HostPath,
+    workspaceRoot: HostPath,
     layout: readonly TerminalLayoutEntry[],
   ): Promise<void> {
     let changed = false
     for (const item of layout.slice(0, MAX_SESSIONS)) {
       const current = this.sessions.get(item.id)
-      if (!current || !hostPathEquals(current.projectRoot, projectRoot)) continue
+      if (!current || !hostPathEquals(current.workspaceRoot, workspaceRoot)) continue
       const next = {
         ...current,
         title: cleanTitle(item.title),
@@ -240,9 +263,9 @@ export class TerminalSessionRegistry implements TerminalSessionStore {
     return changed ? this.persist() : Promise.resolve()
   }
 
-  forget(projectRoot: HostPath, id: string): Promise<void> {
+  forget(workspaceRoot: HostPath, id: string): Promise<void> {
     const current = this.sessions.get(id)
-    if (current && !hostPathEquals(current.projectRoot, projectRoot)) {
+    if (current && !hostPathEquals(current.workspaceRoot, workspaceRoot)) {
       return Promise.resolve()
     }
     this.forgotten.add(id)
@@ -252,9 +275,34 @@ export class TerminalSessionRegistry implements TerminalSessionStore {
     return this.persist()
   }
 
+  async move(request: MoveTerminalSession): Promise<TerminalRecoverySession> {
+    const current = this.sessions.get(request.id)
+    if (!current || !hostPathEquals(current.workspaceRoot, request.sourceRoot)) {
+      throw new Error('Terminal no longer belongs to the source workspace')
+    }
+    if (request.sourceRoot.hostId !== request.targetRoot.hostId) {
+      throw new Error('Terminal cannot move to another host')
+    }
+    const updated: StoredTerminalSession = {
+      ...current,
+      workspaceRoot: request.targetRoot,
+      updatedAt: Date.now(),
+    }
+    this.sessions.set(request.id, updated)
+    try {
+      await this.persist()
+    } catch (error) {
+      if (this.sessions.get(request.id) === updated)
+        this.sessions.set(request.id, current)
+      throw error
+    }
+    const { workspaceRoot: _workspaceRoot, ...result } = updated
+    return result
+  }
+
   async rebindProfile(request: RebindTerminalProfile): Promise<TerminalRecoverySession> {
     const current = this.sessions.get(request.id)
-    if (!current || !hostPathEquals(current.projectRoot, request.projectRoot)) {
+    if (!current || !hostPathEquals(current.workspaceRoot, request.workspaceRoot)) {
       throw new Error('Unknown terminal recovery record')
     }
     if (current.providerId !== request.providerId) {
@@ -270,7 +318,7 @@ export class TerminalSessionRegistry implements TerminalSessionStore {
     }
     this.sessions.set(request.id, updated)
     await this.persist()
-    const { projectRoot: _projectRoot, ...result } = updated
+    const { workspaceRoot: _workspaceRoot, ...result } = updated
     return result
   }
 
@@ -282,7 +330,7 @@ export class TerminalSessionRegistry implements TerminalSessionStore {
       stored.profileId === request.profileId &&
       stored.launchRevision === request.launchRevision &&
       stored.harnessSessionId === request.harnessSessionId &&
-      hostPathEquals(stored.projectRoot, request.projectRoot) &&
+      hostPathEquals(stored.workspaceRoot, request.workspaceRoot) &&
       hostPathEquals(stored.cwd, request.cwd),
     )
   }
@@ -314,7 +362,8 @@ function parseStoredSession(value: unknown): StoredTerminalSession | undefined {
   const artifactIdentity = value['artifactIdentity']
   const harnessSessionId = value['harnessSessionId']
   const hostId = value['hostId']
-  const projectRoot = parsePath(value['projectRoot'])
+  const workspaceRoot =
+    parsePath(value['workspaceRoot']) ?? parsePath(value['projectRoot'])
   const cwd = parsePath(value['cwd'])
   const title = value['title']
   const position = value['position']
@@ -339,9 +388,9 @@ function parseStoredSession(value: unknown): StoredTerminalSession | undefined {
     (harnessSessionId !== undefined &&
       (typeof harnessSessionId !== 'string' || !isHarnessSessionId(harnessSessionId))) ||
     typeof hostId !== 'string' ||
-    !projectRoot ||
+    !workspaceRoot ||
     !cwd ||
-    projectRoot.hostId !== hostId ||
+    workspaceRoot.hostId !== hostId ||
     cwd.hostId !== hostId ||
     typeof title !== 'string' ||
     title.length > MAX_TITLE_LENGTH ||
@@ -365,7 +414,7 @@ function parseStoredSession(value: unknown): StoredTerminalSession | undefined {
     artifactIdentity,
     harnessSessionId,
     hostId,
-    projectRoot,
+    workspaceRoot,
     cwd,
     title,
     position,

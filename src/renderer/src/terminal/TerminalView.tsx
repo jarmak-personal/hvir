@@ -14,6 +14,7 @@ import type { TerminalThemeOverride } from '../settings/settings'
 import { useAppTheme, type AppTheme } from '../theme'
 import type { TerminalLinkActivation } from './terminal-pane'
 import { useTerminalPaneController } from './use-terminal-pane-controller'
+import type { TerminalRuntimeRegistry } from './terminal-runtime'
 
 interface TerminalViewProps {
   readonly sessionId: string
@@ -33,6 +34,8 @@ interface TerminalViewProps {
   readonly themeOverride: TerminalThemeOverride
   readonly composerSubmitMode: ComposerSubmitMode
   readonly cwd: HostPath
+  readonly workspaceRoot: HostPath
+  readonly runtimes: TerminalRuntimeRegistry
   readonly connectionState: HostConnectionState
   readonly onTitle: (title: string) => void
   readonly onStatus: (status: string) => void
@@ -63,9 +66,8 @@ export function TerminalView(props: TerminalViewProps): ReactElement {
   } = props
   const appTheme = useAppTheme()
   const effectiveTheme: AppTheme = themeOverride === 'app' ? appTheme : themeOverride
-  const controller = useTerminalPaneController(props)
-  const { workspaceRoot, containerRef, title, status, exited, restart, focus } =
-    controller
+  const controller = useTerminalPaneController(props, props.runtimes)
+  const { containerRef, title, status, exited, restart, focus } = controller
 
   return (
     <section
@@ -87,7 +89,6 @@ export function TerminalView(props: TerminalViewProps): ReactElement {
         </button>
       ) : null}
       <div
-        key={`${workspaceRoot.hostId}:${workspaceRoot.path}:${connectionState}`}
         className="terminal-container"
         data-terminal-theme={effectiveTheme}
         ref={containerRef}

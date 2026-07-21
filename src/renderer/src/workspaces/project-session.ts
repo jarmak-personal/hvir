@@ -236,6 +236,26 @@ export function useProjectSession(options: UseProjectSessionOptions) {
     [runTransition],
   )
 
+  const acknowledgeWorkspaces = useCallback(
+    async (projectId: string, workspaceIds: readonly string[]): Promise<void> => {
+      if (workspaceIds.length === 0) return
+      await runTransition(async () => {
+        let state = modelRef.current.projectState
+        for (const workspaceId of workspaceIds) {
+          state = unwrapOperation(
+            await window.hvir.invoke('workspace:acknowledge', {
+              projectId,
+              workspaceId,
+            }),
+          )
+        }
+        if (!state) throw new Error('Project state is unavailable')
+        return state
+      })
+    },
+    [runTransition],
+  )
+
   const disconnect = useCallback(async (): Promise<void> => {
     const root = modelRef.current.projectState?.root
     if (!root || root.hostId === 'local') return
@@ -414,6 +434,7 @@ export function useProjectSession(options: UseProjectSessionOptions) {
     closeProject,
     pruneWorktrees,
     dismissWorkspace,
+    acknowledgeWorkspaces,
     disconnect,
     reconnect,
     connectHost,

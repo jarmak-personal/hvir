@@ -158,6 +158,7 @@ export function restoreTerminalSessions(
           : 'unavailable',
       resumeOnStart: resumable,
       pane: splitLayout.secondaryIds.includes(record.id) ? 'secondary' : 'primary',
+      cwd: record.cwd,
     }
   })
   return {

@@ -2,7 +2,7 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { LocalHost } from '../src/main/project-host/local-host'
 import { TerminalSessionRegistry } from '../src/main/terminal/session-registry'
@@ -49,7 +49,7 @@ describe('TerminalSessionRegistry', () => {
       providerId: CODEX_PROVIDER_ID,
       profileId: CODEX_PROFILE_ID,
       launchRevision: 1,
-      projectRoot: root,
+      workspaceRoot: root,
       cwd: root,
       title: 'Codex · project',
       position: 0,
@@ -84,7 +84,7 @@ describe('TerminalSessionRegistry', () => {
       providerId: CODEX_PROVIDER_ID,
       profileId: CODEX_PROFILE_ID,
       launchRevision: 1,
-      projectRoot: root,
+      workspaceRoot: root,
       cwd: root,
       title: 'Codex · project',
       position: 0,
@@ -110,7 +110,7 @@ describe('TerminalSessionRegistry', () => {
         profileId: CODEX_PROFILE_ID,
         launchRevision: 1,
         harnessSessionId: HARNESS_ID,
-        projectRoot: root,
+        workspaceRoot: root,
         cwd: root,
       }),
     ).toBe(false)
@@ -123,7 +123,7 @@ describe('TerminalSessionRegistry', () => {
       providerId: SHELL_PROVIDER_ID,
       profileId: SHELL_PROFILE_ID,
       launchRevision: 1,
-      projectRoot: root,
+      workspaceRoot: root,
       cwd: root,
       title: 'Shell · project',
       position: 1,
@@ -154,7 +154,7 @@ describe('TerminalSessionRegistry', () => {
       providerId: CODEX_PROVIDER_ID,
       profileId: CODEX_PROFILE_ID,
       launchRevision: 1,
-      projectRoot: root,
+      workspaceRoot: root,
       cwd: root,
       title: 'Codex · project',
       position: 0,
@@ -178,7 +178,7 @@ describe('TerminalSessionRegistry', () => {
       providerId: CODEX_PROVIDER_ID,
       profileId: CODEX_PROFILE_ID,
       launchRevision: 1,
-      projectRoot: root,
+      workspaceRoot: root,
       cwd: root,
       title: 'Codex · project',
       position: 0,
@@ -196,7 +196,7 @@ describe('TerminalSessionRegistry', () => {
       profileId: CLAUDE_PROFILE_ID,
       launchRevision: 1,
       harnessSessionId: HARNESS_ID,
-      projectRoot: root,
+      workspaceRoot: root,
       cwd: root,
       title: 'Claude Code · project',
       position: 0,
@@ -210,7 +210,7 @@ describe('TerminalSessionRegistry', () => {
         profileId: CLAUDE_PROFILE_ID,
         launchRevision: 1,
         harnessSessionId: HARNESS_ID,
-        projectRoot: root,
+        workspaceRoot: root,
         cwd: root,
       }),
     ).toBe(true)
@@ -221,13 +221,89 @@ describe('TerminalSessionRegistry', () => {
         profileId: CLAUDE_PROFILE_ID,
         launchRevision: 1,
         harnessSessionId: HARNESS_ID,
-        projectRoot: localPath('/tmp/other'),
+        workspaceRoot: localPath('/tmp/other'),
         cwd: root,
       }),
     ).toBe(false)
 
     await registry.forget(root, SESSION_ID)
     expect(registry.list(root)).toEqual([])
+  })
+
+  it('moves workspace ownership while preserving immutable launch and recovery context', async () => {
+    const sourceRoot = localPath('/tmp/project')
+    const targetRoot = localPath('/tmp/project-worktree')
+    await registry.recordSpawn({
+      id: SESSION_ID,
+      providerId: CLAUDE_PROVIDER_ID,
+      profileId: CLAUDE_PROFILE_ID,
+      launchRevision: 1,
+      harnessSessionId: HARNESS_ID,
+      workspaceRoot: sourceRoot,
+      cwd: sourceRoot,
+      title: 'Claude Code · project',
+      position: 0,
+      active: true,
+    })
+
+    await registry.move({ id: SESSION_ID, sourceRoot, targetRoot })
+    expect(registry.list(sourceRoot)).toEqual([])
+    expect(registry.list(targetRoot)).toEqual([
+      expect.objectContaining({ id: SESSION_ID, cwd: sourceRoot }),
+    ])
+    await registry.flush()
+
+    const restored = await TerminalSessionRegistry.load(host, file)
+    expect(restored.get(SESSION_ID)).toEqual(
+      expect.objectContaining({ workspaceRoot: targetRoot, cwd: sourceRoot }),
+    )
+    expect(
+      restored.authorizeResume({
+        id: SESSION_ID,
+        providerId: CLAUDE_PROVIDER_ID,
+        profileId: CLAUDE_PROFILE_ID,
+        launchRevision: 1,
+        harnessSessionId: HARNESS_ID,
+        workspaceRoot: targetRoot,
+        cwd: sourceRoot,
+      }),
+    ).toBe(true)
+    expect(
+      restored.authorizeResume({
+        id: SESSION_ID,
+        providerId: CLAUDE_PROVIDER_ID,
+        profileId: CLAUDE_PROFILE_ID,
+        launchRevision: 1,
+        harnessSessionId: HARNESS_ID,
+        workspaceRoot: targetRoot,
+        cwd: targetRoot,
+      }),
+    ).toBe(false)
+  })
+
+  it('rolls workspace ownership back when move persistence fails', async () => {
+    const sourceRoot = localPath('/tmp/project')
+    const targetRoot = localPath('/tmp/project-worktree')
+    await registry.recordSpawn({
+      id: SESSION_ID,
+      providerId: SHELL_PROVIDER_ID,
+      profileId: SHELL_PROFILE_ID,
+      launchRevision: 1,
+      workspaceRoot: sourceRoot,
+      cwd: sourceRoot,
+      title: 'Shell · project',
+      position: 0,
+      active: true,
+    })
+    vi.spyOn(host, 'writeFile').mockRejectedValueOnce(new Error('disk unavailable'))
+
+    await expect(
+      registry.move({ id: SESSION_ID, sourceRoot, targetRoot }),
+    ).rejects.toThrow('disk unavailable')
+    expect(registry.list(sourceRoot)).toEqual([
+      expect.objectContaining({ id: SESSION_ID, cwd: sourceRoot }),
+    ])
+    expect(registry.list(targetRoot)).toEqual([])
   })
 
   it('rebinds recovery only within the same provider and revision', async () => {
@@ -239,7 +315,7 @@ describe('TerminalSessionRegistry', () => {
       profileId: CLAUDE_PROFILE_ID,
       launchRevision: 1,
       harnessSessionId: HARNESS_ID,
-      projectRoot: root,
+      workspaceRoot: root,
       cwd: root,
       title: 'Claude Code · project',
       position: 0,
@@ -252,7 +328,7 @@ describe('TerminalSessionRegistry', () => {
       profileId: alternate,
       launchRevision: 4,
       riskAcknowledgedRevision: 4,
-      projectRoot: root,
+      workspaceRoot: root,
     })
     expect(rebound).toMatchObject({
       profileId: alternate,
@@ -267,7 +343,7 @@ describe('TerminalSessionRegistry', () => {
         profileId: alternate,
         launchRevision: 4,
         harnessSessionId: HARNESS_ID,
-        projectRoot: root,
+        workspaceRoot: root,
         cwd: root,
       }),
     ).toBe(true)
@@ -277,12 +353,12 @@ describe('TerminalSessionRegistry', () => {
         providerId: CODEX_PROVIDER_ID,
         profileId: CODEX_PROFILE_ID,
         launchRevision: 1,
-        projectRoot: root,
+        workspaceRoot: root,
       }),
     ).rejects.toThrow(/same provider/)
   })
 
-  it('migrates v1 adapter records to v3 profile records without changing identity', async () => {
+  it('migrates v1 adapter records to current profile records without changing identity', async () => {
     const root = localPath('/tmp/project')
     await host.writeFile(
       file,
@@ -294,7 +370,7 @@ describe('TerminalSessionRegistry', () => {
             adapterId: 'codex',
             harnessSessionId: HARNESS_ID,
             hostId: root.hostId,
-            projectRoot: root,
+            workspaceRoot: root,
             cwd: root,
             title: 'Codex · project',
             position: 0,
@@ -317,7 +393,7 @@ describe('TerminalSessionRegistry', () => {
     ])
     expect(JSON.parse(await host.readTextFile(file))).toEqual(
       expect.objectContaining({
-        version: 3,
+        version: 4,
         sessions: [
           expect.objectContaining({
             providerId: 'codex',
@@ -346,7 +422,7 @@ describe('TerminalSessionRegistry', () => {
             providerId: 'future-harness',
             harnessSessionId: HARNESS_ID,
             hostId: root.hostId,
-            projectRoot: root,
+            workspaceRoot: root,
             cwd: root,
             title: 'Future harness',
             position: 0,
@@ -379,7 +455,7 @@ describe('TerminalSessionRegistry', () => {
             providerId,
             harnessSessionId: HARNESS_ID,
             hostId: root.hostId,
-            projectRoot: root,
+            workspaceRoot: root,
             cwd: root,
             title: 'Future long harness',
             position: 0,

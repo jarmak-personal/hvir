@@ -418,6 +418,104 @@ describe('ProjectRegistry session flow', () => {
     await restored.dispose()
   })
 
+  it('persists newly discovered worktrees until they are acknowledged or opened', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'hvir-registry-discovery-'))
+    const linked = join(root, 'linked')
+    const later = join(root, 'later')
+    const opened = join(root, 'opened')
+    await Promise.all([mkdir(linked), mkdir(later), mkdir(opened)])
+    const canonicalRoot = localPath(await realpath(root))
+    const canonicalLinked = localPath(await realpath(linked))
+    const canonicalLater = localPath(await realpath(later))
+    const canonicalOpened = localPath(await realpath(opened))
+    const projectsFile = join(root, 'projects.json')
+    const trustFile = join(root, 'known-hosts.json')
+    cleanups.push(root)
+    const registry = await ProjectRegistry.create(
+      canonicalRoot,
+      { prompt: () => Promise.resolve(undefined) },
+      trustFile,
+      projectsFile,
+      () => undefined,
+    )
+    const projectId = registry.state().activeProjectId
+
+    await registry.reconcileWorktrees(projectId, {
+      repository: true,
+      worktrees: [
+        { root: canonicalRoot, branch: 'main', detached: false, bare: false },
+        { root: canonicalLinked, branch: 'linked', detached: false, bare: false },
+      ],
+    })
+    expect(registry.projectById(projectId)?.workspaces).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ root: canonicalLinked, newlyDiscovered: false }),
+      ]),
+    )
+
+    await registry.reconcileWorktrees(projectId, {
+      repository: true,
+      worktrees: [
+        { root: canonicalRoot, branch: 'main', detached: false, bare: false },
+        { root: canonicalLinked, branch: 'linked', detached: false, bare: false },
+        { root: canonicalLater, branch: 'later', detached: false, bare: false },
+      ],
+    })
+    const laterId = registry
+      .projectById(projectId)!
+      .workspaces.find((workspace) => workspace.root.path === canonicalLater.path)!.id
+    expect(registry.projectById(projectId)?.workspaces).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: laterId, newlyDiscovered: true }),
+      ]),
+    )
+    await registry.dispose()
+
+    const restored = await ProjectRegistry.create(
+      canonicalRoot,
+      { prompt: () => Promise.resolve(undefined) },
+      trustFile,
+      projectsFile,
+      () => undefined,
+    )
+    expect(restored.projectById(projectId)?.workspaces).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: laterId, newlyDiscovered: true }),
+      ]),
+    )
+    await restored.acknowledgeWorkspace(projectId, laterId)
+    expect(
+      restored
+        .projectById(projectId)
+        ?.workspaces.find((workspace) => workspace.id === laterId)?.newlyDiscovered,
+    ).toBe(false)
+
+    await restored.reconcileWorktrees(projectId, {
+      repository: true,
+      worktrees: [
+        { root: canonicalRoot, branch: 'main', detached: false, bare: false },
+        { root: canonicalLinked, branch: 'linked', detached: false, bare: false },
+        { root: canonicalLater, branch: 'later', detached: false, bare: false },
+        { root: canonicalOpened, branch: 'opened', detached: false, bare: false },
+      ],
+    })
+    const openedId = restored
+      .projectById(projectId)!
+      .workspaces.find((workspace) => workspace.root.path === canonicalOpened.path)!.id
+    expect(
+      restored
+        .projectById(projectId)
+        ?.workspaces.find((workspace) => workspace.id === openedId)?.newlyDiscovered,
+    ).toBe(true)
+    await restored.activate(projectId, openedId)
+    expect(
+      restored
+        .projectById(projectId)
+        ?.workspaces.find((workspace) => workspace.id === openedId)?.newlyDiscovered,
+    ).toBe(false)
+    await restored.dispose()
+  })
+
   it('clears stale Git counts when a project becomes a plain directory', async () => {
     const root = await mkdtemp(join(tmpdir(), 'hvir-registry-plain-'))
     const canonicalRoot = localPath(await realpath(root))

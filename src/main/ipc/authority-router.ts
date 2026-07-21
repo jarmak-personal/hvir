@@ -30,6 +30,8 @@ export const OWNER_SCOPED_INVOKE_CHANNELS = [
   'web-pane:close',
   'web-pane:open-external',
   'web-pane:open-browser',
+  'terminal:plan-move',
+  'terminal:move',
   'pty:start',
 ] as const satisfies readonly IpcInvokeChannel[]
 

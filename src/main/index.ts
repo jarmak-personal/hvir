@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { app, BrowserWindow, dialog, protocol, shell } from 'electron'
 
 import { registerIpcHandlers } from './ipc'
+import { createProjectCommands } from './ipc/project-commands'
 import { GitMutationCoordinator } from './git/mutation-coordinator'
 import { GitMutationAuthorization } from './git/mutation-authorization'
 import { GitWorkerHostRouter } from './git/worker-host-router'
@@ -18,6 +19,7 @@ import { HarnessProbeManager } from './harness/harness-probe'
 import { ProjectWatchController } from './project-watch'
 import { WorkspaceCoordinator } from './workspace-coordinator'
 import { TerminalSessionRegistry } from './terminal/session-registry'
+import { TerminalWorkspaceMoveCoordinator } from './terminal/terminal-workspace-move-coordinator'
 import { RendererResourceScopes, type RendererOwner } from './renderer-resource-scopes'
 import { createElectronWindowManager } from './window/electron-window-manager'
 import { WorkbenchRuntime } from './workbench-runtime'
@@ -297,6 +299,15 @@ function createWorkbenchEntry(): void {
     ptySupervisor = runtime.own('PTY supervisor', new PtySupervisor(), (supervisor) =>
       supervisor.disposeAllAndWait(),
     )
+    const terminalMoves = new TerminalWorkspaceMoveCoordinator({
+      projects: projectRegistry,
+      workspaces: workspaceCoordinator,
+      sessions: terminalSessionRegistry,
+      ptys: ptySupervisor,
+      resources: rendererScopes,
+      webPanes: webPaneRoutes,
+      onError: (message, error) => console.error(message, error),
+    })
     attentionBadge = runtime.own(
       'attention badge',
       new AttentionBadge((count) => {
@@ -328,6 +339,12 @@ function createWorkbenchEntry(): void {
       if (!sshPrompter) throw new Error('SSH prompting is unavailable')
       return sshPrompter.runForOwner(owner, operation)
     }
+    const projectCommands = createProjectCommands({
+      projects: projectCoordinator,
+      workspaces: workspaceCoordinator,
+      git: gitMutations,
+      withSshPresentation,
+    })
 
     runtime.own(
       'IPC authority router',
@@ -347,57 +364,14 @@ function createWorkbenchEntry(): void {
           return projectRegistry.state()
         },
         listHosts: () => projectRegistry?.listHosts() ?? [],
-        connectHost: (hostId, owner) =>
-          withSshPresentation(owner, () => {
-            if (!projectCoordinator) throw new Error('Project coordinator is unavailable')
-            return projectCoordinator.connectHost(hostId)
-          }),
-        disconnectHost: (hostId) => {
-          if (!projectCoordinator) throw new Error('Project coordinator is unavailable')
-          return projectCoordinator.disconnectHost(hostId)
-        },
-        browseHost: (hostId, path, owner) =>
-          withSshPresentation(owner, async () => {
-            if (!projectCoordinator) throw new Error('Project coordinator is unavailable')
-            return projectCoordinator.browseHost(hostId, path)
-          }),
-        openProject: (hostId, path, owner) =>
-          withSshPresentation(owner, () => {
-            if (!projectCoordinator) throw new Error('Project coordinator is unavailable')
-            return projectCoordinator.openProject(hostId, path)
-          }),
-        switchWorkspace: (projectId, workspaceId) => {
-          if (!projectCoordinator) throw new Error('Project coordinator is unavailable')
-          return projectCoordinator.switchWorkspace(projectId, workspaceId)
-        },
-        refreshProject: (projectId) => {
-          if (!workspaceCoordinator)
-            throw new Error('Workspace coordinator is unavailable')
-          return workspaceCoordinator.refresh(projectId)
-        },
-        updateWatchInterests: (paths) => {
-          if (!workspaceCoordinator)
-            throw new Error('Workspace coordinator is unavailable')
-          return workspaceCoordinator.updateWatchInterests(paths)
-        },
-        closeProject: (projectId) => {
-          if (!projectCoordinator) throw new Error('Project coordinator is unavailable')
-          return projectCoordinator.closeProject(projectId)
-        },
-        pruneWorktrees: (projectId) => gitMutations.pruneWorktrees(projectId),
-        dismissWorkspace: (projectId, workspaceId) => {
-          if (!projectCoordinator) throw new Error('Project coordinator is unavailable')
-          return projectCoordinator.dismissWorkspace(projectId, workspaceId)
-        },
-        switchGitBranch: (root, branch) => gitMutations.switchBranch(root, branch),
-        fetchGit: (root) => gitMutations.fetch(root),
-        pullGit: (root) => gitMutations.pull(root),
+        ...projectCommands,
         respondSshPrompt: (owner, id, answers) =>
           sshPrompter?.respond(owner, id, answers),
         rendererResources: rendererScopes,
         rendererReady: (owner) => sshPrompter?.activateOwner(owner),
         ptySupervisor,
         terminalSessions: terminalSessionRegistry,
+        terminalMoves,
         harnessProfiles: harnessProfileStore,
         harnessProbes: harnessProbeManager,
         updateAttention: (owner, count) =>

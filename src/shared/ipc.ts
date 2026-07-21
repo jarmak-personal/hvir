@@ -124,6 +124,7 @@ export interface RefreshProjectRequest {
 export type CloseProjectRequest = RefreshProjectRequest
 export type PruneProjectWorktreesRequest = RefreshProjectRequest
 export type DismissWorkspaceRequest = SwitchWorkspaceRequest
+export type AcknowledgeWorkspaceRequest = SwitchWorkspaceRequest
 
 export interface ConnectHostRequest {
   readonly hostId: string
@@ -360,6 +361,35 @@ export interface ForgetTerminalRequest {
   readonly id: string
 }
 
+export interface PlanTerminalMoveRequest {
+  readonly terminalId: string
+  readonly sourceWorkspaceId: string
+  readonly targetWorkspaceId: string
+}
+
+export interface TerminalMovePlan {
+  readonly terminalId: string
+  readonly terminalTitle: string
+  readonly sourceProjectId: string
+  readonly sourceWorkspaceId: string
+  readonly sourceWorkspaceName: string
+  readonly sourceRoot: HostPath
+  readonly targetWorkspaceId: string
+  readonly targetWorkspaceName: string
+  readonly targetRoot: HostPath
+  readonly webPaneIds: readonly string[]
+}
+
+export interface MoveTerminalRequest extends PlanTerminalMoveRequest {
+  /** Exact route set shown in the confirmation dialog. */
+  readonly expectedWebPaneIds: readonly string[]
+}
+
+export interface MoveTerminalResponse {
+  readonly state: ProjectState
+  readonly workspaceRoot: HostPath
+}
+
 export type OpenWebPaneRequest =
   | {
       readonly source: 'terminal'
@@ -455,6 +485,10 @@ export interface IpcInvokeMap {
     request: DismissWorkspaceRequest
     response: OperationResult<ProjectState>
   }
+  'workspace:acknowledge': {
+    request: AcknowledgeWorkspaceRequest
+    response: OperationResult<ProjectState>
+  }
   'ssh:prompt-response': { request: SshPromptResponse; response: void }
   'fs:readdir': {
     request: ReadDirectoryRequest
@@ -544,6 +578,14 @@ export interface IpcInvokeMap {
   }
   'terminal:update-layout': { request: TerminalLayoutRequest; response: void }
   'terminal:forget': { request: ForgetTerminalRequest; response: void }
+  'terminal:plan-move': {
+    request: PlanTerminalMoveRequest
+    response: OperationResult<TerminalMovePlan>
+  }
+  'terminal:move': {
+    request: MoveTerminalRequest
+    response: OperationResult<MoveTerminalResponse>
+  }
   'terminal:rebind-profile': {
     request: RebindTerminalProfileRequest
     response: TerminalRecoverySession
@@ -646,6 +688,7 @@ export const INVOKE_CHANNELS = [
   'project:close',
   'workspace:prune',
   'workspace:dismiss',
+  'workspace:acknowledge',
   'ssh:prompt-response',
   'fs:readdir',
   'fs:resolve-entry',
@@ -678,6 +721,8 @@ export const INVOKE_CHANNELS = [
   'terminal:recovery',
   'terminal:update-layout',
   'terminal:forget',
+  'terminal:plan-move',
+  'terminal:move',
   'terminal:rebind-profile',
   'pty:start',
   'web-pane:open',
