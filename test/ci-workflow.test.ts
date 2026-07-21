@@ -45,13 +45,13 @@ const linuxChecks = [
     id: 'electron-smoke',
     name: 'Electron smoke (Linux)',
     command: 'xvfb-run -a npm run smoke',
-    fetchDepth: 0,
+    fetchDepth: undefined,
   },
   {
     id: 'capacity-smoke',
     name: 'Capacity smoke (Linux)',
     command: 'xvfb-run -a npm run smoke:capacity',
-    fetchDepth: 0,
+    fetchDepth: undefined,
   },
 ] as const
 
