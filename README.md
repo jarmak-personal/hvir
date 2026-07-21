@@ -104,6 +104,7 @@ Build the npm payload for the current supported platform with the matching
 | [Architecture decisions](docs/adr/README.md) | Canonical decision-only ADR records and template |
 | [Historical implementation plan](docs/plan/00-overview.md) | Frozen early implementation context; active work lives in GitHub issues |
 | [Contributor guide](CONTRIBUTING.md) | Issue-first workflow, architecture discipline, and verification |
+| [GitHub project management](docs/project-management.md) | Canonical labels, normalized planning records, and Project automation commands |
 | [AGENTS.md](AGENTS.md) | Repository rules for AI collaborators |
 | [CLAUDE.md](CLAUDE.md) | Claude entrypoint for the shared repository instructions |
 

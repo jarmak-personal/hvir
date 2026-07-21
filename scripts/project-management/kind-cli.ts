@@ -1,5 +1,6 @@
 import type { KindEvent } from './kind-policy.ts'
 import type { ReconciliationReport } from './kind-reconciler.ts'
+import { parseProjectNumber, parseProjectRepository } from './project-config.ts'
 
 export interface ProjectKindCliOptions {
   help: boolean
@@ -92,17 +93,8 @@ export function parseProjectKindCliOptions(
   }
 }
 
-export function parseProjectKindRepository(value: string): [string, string] {
-  const parts = value.split('/').map((part) => part.trim())
-  if (parts.length !== 2 || parts.some((part) => part === '')) {
-    throw new Error('HVIR_REPOSITORY must use owner/name syntax.')
-  }
-  return [parts[0]!, parts[1]!]
-}
-
-export function parseProjectKindProjectNumber(value: string): number {
-  return parsePositiveInteger(value, 'HVIR_PROJECT_NUMBER')
-}
+export const parseProjectKindRepository = parseProjectRepository
+export const parseProjectKindProjectNumber = parseProjectNumber
 
 export function projectKindExitCode(report: {
   summary: Pick<ReconciliationReport['summary'], 'missing' | 'ambiguous'>
