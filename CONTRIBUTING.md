@@ -131,6 +131,7 @@ Development requires Node 24 or newer; release CI uses Node 24.
 npm ci
 npm run verify
 npm run smoke
+npm run smoke:capacity
 npm run dev
 ```
 
@@ -178,8 +179,9 @@ before pushing. Fix failures locally or report an environment blocker rather tha
 discover a known failure.
 
 Use capacity, real-host, packaged, or gauntlet checks when the issue's acceptance criteria call
-for them. Report exact evidence and any environment you could not verify; never imply a check
-ran when it did not.
+for them. CI reports verification, Electron behavior, and capacity independently;
+`npm run gauntlet` remains the combined local release gate. Report exact evidence and any
+environment you could not verify; never imply a check ran when it did not.
 
 ## Open a focused pull request
 
