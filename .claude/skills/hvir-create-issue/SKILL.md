@@ -104,8 +104,16 @@ affected capability makes them relevant; do not add ceremonial criteria.
 
 ## Review and create
 
-Present the proposed title, body, and any existing repository labels that clearly apply.
-Call out assumptions and open questions separately so the reporter can correct them.
+After preparing the exact proposed title, body, and labels, invoke `$hvir-independent-review` in
+issue mode with the completing model family and trusted reporter outcome. Evaluate both
+independent outputs, correct valid findings, and record concise evidence for rejected false
+positives. Any draft change invalidates both reviews and requires a complete fresh pass. A
+missing, failed, timed-out, malformed, self-family, or permission-widened review blocks the
+publication preview rather than silently weakening it.
+
+After two conforming reviews cover one exact draft, present that exact title, body, and any
+existing repository labels that clearly apply. Call out assumptions and open questions
+separately so the reporter can correct them.
 
 Stop after the preview and request explicit publication approval. Once the user approves the
 exact draft, create it in `jarmak-personal/hvir` when GitHub issue tooling is available;

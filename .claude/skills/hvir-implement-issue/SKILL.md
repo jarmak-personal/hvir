@@ -1,6 +1,6 @@
 ---
 name: hvir-implement-issue
-description: Implement an already-aligned hvir GitHub issue with product and architectural diligence. Use when a governing issue exists and the user wants code or documentation changes, especially work that crosses features, touches established seams, risks duplicating behavior, or could enlarge composition roots and god classes.
+description: Implement an already-aligned hvir GitHub issue with product, architectural, and independent-review diligence. Use when a governing issue exists and the user wants code or documentation changes, especially work that crosses features, touches established seams, risks duplicating behavior, or could enlarge composition roots and god classes.
 ---
 
 # Implement an hvir issue
@@ -109,6 +109,18 @@ Run the most focused checks during development. Treat `npm run verify` as a mand
 pre-commit gate: run it after the final changes and do not commit, push, or open a pull request
 until it passes. A passing run from before later edits is stale and does not satisfy the gate.
 
+After verification passes, commit the exact candidate and confirm the isolated worktree has no
+staged, tracked, or untracked changes. Capture the full base and HEAD commit IDs, then invoke
+`$hvir-independent-review` in candidate mode with the completing model family and the trusted
+acceptance summary. Two other model families must independently review that exact range. A
+missing, failed, timed-out, malformed, self-family, or permission-widened review blocks push.
+
+Evaluate every finding against the code. Make the smallest coherent fix for a valid finding and
+record concise evidence when rejecting a false positive. Any candidate change invalidates the
+verification, commit identity, and both reviews: rerun focused checks, `npm run verify`, commit
+the corrected candidate, and repeat the complete independent review. Do not run the pre-push
+gate until two conforming reviews cover the same current range.
+
 Push without `--no-verify` so `.githooks/pre-push` runs the typechecks and local-platform
 Electron smoke. If the repository hook is not installed, run `.githooks/pre-push` directly
 before pushing. Do not bypass a failure to spend GitHub Actions minutes discovering the same
@@ -125,7 +137,8 @@ Before handing off:
 2. Re-run `npm run architecture:report`; explain intentional growth even when it is below a
    blocking threshold.
 3. Check every acceptance criterion against code and evidence.
-4. Confirm the mandatory pre-commit and pre-push gates passed after the final changes.
+4. Confirm the mandatory pre-commit verification, exact-range independent review, and pre-push
+   gates passed after the final changes.
 5. Prepare a concise pull-request summary that links the governing issue with `Closes #N`,
    explains architecture and reuse decisions, lists risks, and records verification.
 

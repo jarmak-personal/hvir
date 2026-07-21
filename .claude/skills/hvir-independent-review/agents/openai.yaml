@@ -1,0 +1,6 @@
+interface:
+  display_name: 'hvir Independent Review'
+  short_description: 'Review hvir artifacts with two model families'
+  default_prompt: 'Use $hvir-independent-review to review this exact hvir issue draft or implementation candidate.'
+policy:
+  allow_implicit_invocation: false
