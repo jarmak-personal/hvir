@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import { builtInProfiles } from '../src/main/harness/harness-profile-store'
 import {
+  mergeTerminalRestorations,
   planAutomaticTerminalRecovery,
   planManualTerminalRecovery,
   restoreTerminalSessions,
@@ -89,6 +90,78 @@ describe('terminal recovery planner', () => {
     )
     expect(result.sessions.map(({ id }) => id)).toEqual(['first', 'second'])
     expect(result.activeId).toBe('second')
+  })
+
+  it('partitions automatic recovery per record and leaves only blockers for review', () => {
+    const unavailable = {
+      ...record,
+      id: 'unavailable',
+      profileId: 'missing-profile' as typeof record.profileId,
+      position: 0,
+    }
+    const automatic = planAutomaticTerminalRecovery({
+      records: [unavailable, record],
+      providers: [provider],
+      profiles: [profile],
+      probes: [],
+      splitLayout: { secondaryIds: ['second'] },
+      mode: 'auto',
+      probesReady: true,
+    })
+    expect(automatic.kind).toBe('restore')
+    if (automatic.kind === 'restore') {
+      expect(automatic.result.sessions.map(({ id }) => id)).toEqual(['second'])
+      expect(automatic.result.sessions[0]?.pane).toBe('secondary')
+      expect(automatic.residual).toEqual([unavailable])
+      expect(
+        terminalRecoveryCandidateDecision(unavailable, [provider], [profile], []),
+      ).toEqual({
+        action: 'unavailable',
+        reason: "Profile 'missing-profile' is missing",
+      })
+    }
+  })
+
+  it('merges reviewed residuals without replacing live automatic sessions', () => {
+    const firstRecord = {
+      ...record,
+      id: 'first',
+      position: 0,
+      active: false,
+      updatedAt: 1,
+    }
+    const secondRecord = { ...record, position: 1, active: true, updatedAt: 2 }
+    const automatic = restoreTerminalSessions(
+      [firstRecord],
+      [provider],
+      [profile],
+      [],
+      { secondaryIds: [] },
+      false,
+    )
+    const existing = {
+      ...automatic.sessions[0]!,
+      status: 'pid 138',
+      resumeOnStart: false,
+    }
+    const reviewed = restoreTerminalSessions(
+      [secondRecord],
+      [provider],
+      [profile],
+      [],
+      { secondaryIds: ['second'] },
+      true,
+    )
+    const merged = mergeTerminalRestorations(
+      { sessions: [existing], activeId: existing.id },
+      reviewed,
+      [secondRecord, firstRecord],
+    )
+
+    expect(merged.sessions.map(({ id }) => id)).toEqual(['first', 'second'])
+    expect(merged.sessions[0]).toBe(existing)
+    expect(merged.sessions[1]?.pane).toBe('secondary')
+    expect(merged.activeId).toBe('second')
   })
 
   it('makes resume, restart, new-shell, and unavailable decisions explicit', () => {

@@ -22,6 +22,7 @@ export type TerminalAutomaticRecoveryPlan =
   | {
       readonly kind: 'restore'
       readonly result: TerminalRestorationResult
+      readonly residual: readonly TerminalRecoverySession[]
     }
 
 export interface TerminalRestorationResult {
@@ -89,29 +90,67 @@ export function planAutomaticTerminalRecovery({
   if (records.length === 0) return { kind: 'none' }
   if (mode !== 'auto') return { kind: 'manual' }
   if (!probesReady) return { kind: 'wait-for-probes' }
-  if (
-    records.some((record) => {
-      const profile = autoRecoverableProfile(profiles, record)
-      return (
-        !providerDescriptor(providers, record.providerId) ||
-        !profile ||
-        !probeAllowsAutoRestore(probes, record, profile)
-      )
-    })
-  ) {
-    return { kind: 'manual' }
-  }
+  const automatic = records.filter((record) => {
+    const profile = autoRecoverableProfile(profiles, record)
+    return Boolean(
+      providerDescriptor(providers, record.providerId) &&
+      profile &&
+      probeAllowsAutoRestore(probes, record, profile),
+    )
+  })
+  if (automatic.length === 0) return { kind: 'manual' }
+  const automaticIds = new Set(automatic.map(({ id }) => id))
   return {
     kind: 'restore',
     result: restoreTerminalSessions(
-      records,
+      automatic,
       providers,
       profiles,
       probes,
       splitLayout,
       false,
     ),
+    residual: records.filter(({ id }) => !automaticIds.has(id)),
   }
+}
+
+export function mergeTerminalRestorations(
+  existing: TerminalRestorationResult,
+  restored: TerminalRestorationResult,
+  records: readonly TerminalRecoverySession[],
+): TerminalRestorationResult {
+  const sessionsById = new Map(
+    restored.sessions.map((session) => [session.id, session] as const),
+  )
+  for (const session of existing.sessions) sessionsById.set(session.id, session)
+
+  const orderedRecords = [...records].sort(
+    (left, right) => left.position - right.position || left.updatedAt - right.updatedAt,
+  )
+  const sessions = orderedRecords.flatMap<TerminalSession>(({ id }) => {
+    const session = sessionsById.get(id)
+    if (!session) return []
+    sessionsById.delete(id)
+    return [session]
+  })
+  for (const session of [...existing.sessions, ...restored.sessions]) {
+    if (!sessionsById.delete(session.id)) continue
+    sessions.push(session)
+  }
+
+  const intendedActiveId = orderedRecords.find(
+    ({ id, active }) => active && sessions.some((session) => session.id === id),
+  )?.id
+  const availableActiveId = [
+    intendedActiveId,
+    existing.activeId,
+    restored.activeId,
+    sessions[0]?.id,
+  ].find(
+    (id): id is string =>
+      id !== undefined && sessions.some((session) => session.id === id),
+  )
+  return { sessions, activeId: availableActiveId }
 }
 
 export function restoreTerminalSessions(
