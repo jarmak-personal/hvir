@@ -60,6 +60,22 @@ describe('smoke repository fixture', () => {
     ).rejects.toThrow()
   })
 
+  it('does not inherit the invoking Git hook repository', async () => {
+    const root = await makeTemporaryRoot()
+    const repository = join(root, 'repository')
+
+    await execFileAsync('bash', [fixtureScript, sourceCheckout, repository], {
+      env: {
+        ...process.env,
+        GIT_DIR: git(sourceCheckout, 'rev-parse', '--absolute-git-dir'),
+        GIT_WORK_TREE: sourceCheckout,
+      },
+    })
+
+    expect(git(repository, 'branch', '--show-current')).toBe('smoke/workflow')
+    expect(git(repository, 'status', '--short')).toBe('')
+  })
+
   it('rejects a destination that already contains predecessor state', async () => {
     const root = await makeTemporaryRoot()
     const repository = join(root, 'repository')

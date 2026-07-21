@@ -25,6 +25,12 @@ case "$repository" in
   ;;
 esac
 
+# Git exports repository-local variables while running hooks. They must not
+# redirect this constructor's explicit source and destination repositories.
+while IFS= read -r variable; do
+  if [[ -n "$variable" ]]; then unset "$variable"; fi
+done < <(git -C "$source_checkout" rev-parse --local-env-vars)
+
 source_commit=$(git -C "$source_checkout" rev-parse --verify HEAD^{commit})
 
 if [[ -e "$repository" ]]; then
