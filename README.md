@@ -69,6 +69,7 @@ contributor-only agent skills for creating and implementing issues.
 npm ci
 npm run verify
 npm run smoke
+npm run smoke:capacity
 npm run dev
 ```
 
@@ -87,9 +88,9 @@ npm run hooks:install
 ```
 
 The hook runs `npm run smoke` using the machine's installed Electron platform and
-architecture. Headless Linux uses `xvfb-run` when available. The full gauntlet remains
-the authoritative CI gate; use `git push --no-verify` when a deliberate local bypass is
-needed.
+architecture. Headless Linux uses `xvfb-run` when available. CI reports verification,
+Electron behavior, and capacity separately; `npm run gauntlet` remains the combined local
+release gate. Use `git push --no-verify` when a deliberate local bypass is needed.
 
 Build the npm payload for the current supported platform with the matching
 `pack:npm:*` script. See the
