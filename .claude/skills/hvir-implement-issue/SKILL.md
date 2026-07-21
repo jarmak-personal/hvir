@@ -11,9 +11,9 @@ before editing; raise material concerns while they are still cheap to resolve.
 
 ## Require an aligned issue
 
-Start from an issue number plus its current, reviewed problem statement, desired outcome,
+Start from an issue number plus its current, aligned problem statement, desired outcome,
 and acceptance criteria. If no governing issue exists, stop and use `hvir-create-issue`
-before implementation. A large epic should coordinate independently reviewable child
+before implementation. A large epic should coordinate independently deliverable child
 issues, not produce one giant implementation pull request.
 
 Read `AGENTS.md`, `CONTRIBUTING.md`, `docs/design.md`, the relevant ADRs, and the governing
@@ -23,10 +23,49 @@ issue. Resolve these questions before changing files:
 - Is the issue aligned with the current product boundaries and accepted decisions?
 - Which requirements are settled, and which comments are still exploratory?
 - Is a new or superseding ADR required before implementation?
-- Is this issue small enough for one coherent review?
+- Is this issue small enough for one focused pull request?
 
 If an answer could materially change product behavior, ownership, authority, or scope,
 surface it and pause for alignment. Otherwise state the assumption and continue.
+
+## Select the delivery path
+
+Read the issue with `npm run project:record -- --issue <number>`. Supply credentials through the
+environment described in `docs/project-management.md`.
+
+- Use `origin/main` when the issue has no open direct epic parent. Target `main`. Add
+  `Closes #<number>` to the PR.
+- Read the parent record when the issue has an open same-repository parent. If the parent has one
+  valid `kind:epic` label, read [`references/epic-delivery.md`](references/epic-delivery.md)
+  completely and follow it.
+
+Stop when parent, kind, or nesting metadata is ambiguous. Report the conflict. Record the selected
+issue, parent, base, and delivery path before work begins.
+
+## Establish the isolated issue worktree
+
+Use the exact base selected above and keep it fixed for the issue. Use native Git from the
+invoking checkout. Preserve its branch and working state:
+
+```sh
+git fetch --prune origin
+git worktree list --porcelain
+git worktree add -b "agent/issue-<number>" "<primary-root>-worktrees/issue-<number>" "<base-ref>"
+```
+
+Before creating anything, reconcile prior `agent/issue-*` worktrees conservatively with
+`git worktree list`, `git status`, ref/upstream checks, and bounded `gh pr list` metadata. Remove
+one only when it is not current or locked, its tracked and untracked state is clean, any ignored
+content is plainly disposable, its upstream is gone after pruning, and a merged PR records its
+exact local HEAD and expected base with no later commits or open PR. Use exact native Git
+operations without force or recursive filesystem deletion; compare-and-delete a squash- or
+rebase-merged local ref with `git update-ref -d <ref> <expected-head>`. Retain ambiguous state
+with a reason, then continue unrelated work unless the selected branch or path collides.
+
+Reuse an existing worktree only when `agent/issue-<number>` is registered at the exact sibling
+path above. Stop on any mismatched branch, path, detached state, or ambiguous base. After
+selection, perform all reconnaissance, edits, checks, commits, and push operations from that
+worktree.
 
 ## Perform architecture reconnaissance
 
@@ -83,6 +122,9 @@ Run the most focused checks during development. Treat `npm run verify` as a mand
 pre-commit gate: run it after the final changes and do not commit, push, or open a pull request
 until it passes. A passing run from before later edits is stale and does not satisfy the gate.
 
+After verification passes, commit the exact candidate. If the candidate changes, run the relevant
+focused checks and a fresh `npm run verify`. Commit the final candidate before the pre-push gate.
+
 Push without `--no-verify` so `.githooks/pre-push` runs the typechecks and local-platform
 Electron smoke. If the repository hook is not installed, run `.githooks/pre-push` directly
 before pushing. Do not bypass a failure to spend GitHub Actions minutes discovering the same
@@ -92,16 +134,23 @@ Use the capacity, real-host, packaged, or full gauntlet checks when the issue's 
 criteria require those environments. Report exact results and any unverified environment
 honestly.
 
+## Publish and integrate
+
+Use the user's authority for ordinary PR publication and merge operations. For an authorized epic
+build, follow `references/epic-delivery.md` through child integration and cumulative handoff.
+
 Before handing off:
 
-1. Review the complete diff for duplicated policy, misplaced authority, widened public APIs,
+1. Inspect the complete diff for duplicated policy, misplaced authority, widened public APIs,
    missing cleanup, and accidental scope growth.
 2. Re-run `npm run architecture:report`; explain intentional growth even when it is below a
    blocking threshold.
 3. Check every acceptance criterion against code and evidence.
-4. Confirm the mandatory pre-commit and pre-push gates passed after the final changes.
+4. Confirm that the mandatory pre-commit verification and pre-push gates passed after the final
+   changes.
 5. Prepare a concise pull-request summary that links the governing issue with `Closes #N`,
    explains architecture and reuse decisions, lists risks, and records verification.
 
-Open or update a pull request only when the user requests it. Never describe the work as
-complete while architectural concerns or required validation remain unresolved.
+Open or update a pull request when the user requests it or authorizes an epic build run. Reserve
+the final epic merge for the maintainer. Report unresolved architecture or validation concerns as
+blockers.

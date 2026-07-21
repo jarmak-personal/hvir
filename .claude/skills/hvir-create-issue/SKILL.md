@@ -57,10 +57,28 @@ violate it.
 
 ## Shape the issue
 
-Keep one issue to one independently reviewable outcome. If the request is an epic, define
-the coordinating outcome and split implementation into child issues with clear ownership
-and dependency order. Do not let a broad issue become permission for one monster pull
-request.
+Keep one issue to one focused outcome. If the request is an epic, define the coordinating
+outcome and split implementation into child issues with clear ownership and dependency order.
+Give each child one focused pull request.
+
+Use natural prose in Problem and Product fit when it helps readers understand the experience,
+the story, and why the work matters. Natural prose is the default for these two sections. Keep
+factual claims specific. Clearly separate known facts from interpretation.
+
+Use Simplified Technical English for all operational and technical content. This includes
+reproduction steps, Expected behavior, Actual behavior, Desired outcome, implementation details
+and constraints, Design and architecture questions, Acceptance criteria, and Non-goals. Use
+short, literal sentences. Prefer active voice and positive statements or commands. Put one
+requirement in each sentence. Use the same term for the same concept. Use literal terms instead
+of idioms, rhetorical language, vague modifiers, or unnecessary synonyms. Reserve negative
+commands for an essential prohibition, trust boundary, or explicit non-goal.
+
+Keep the draft easy to scan in one pass. Include only the information needed to align on the
+problem, boundaries, and observable completion. Do not repeat a requirement across sections.
+For a bug, treat Expected behavior as the desired outcome and omit a duplicate Desired outcome
+section. Keep Product fit brief when alignment is clear. Record only unresolved architecture
+questions. Do not convert reconnaissance findings into prescribed implementation. Use the
+minimum acceptance criteria needed to prove the outcome and important failure behavior.
 
 Use this structure, omitting sections that truly do not apply:
 
@@ -98,14 +116,14 @@ the relevant platform or host type. For refactors, name the behavior that must r
 and the ownership or dependency problem being corrected. Do not use line count alone as the
 reason for a refactor.
 
-Acceptance criteria must test the outcome rather than echo a proposed file-by-file design.
-Include local/SSH parity, responsiveness, resource cleanup, and security behavior when the
-affected capability makes them relevant; do not add ceremonial criteria.
+Acceptance criteria must test the outcome. They must not require a file-by-file design. Include
+local and SSH parity, responsiveness, resource cleanup, and security behavior when the affected
+capability creates those risks. Do not add criteria that are unrelated to the identified risks.
 
-## Review and create
+## Preview and create
 
-Present the proposed title, body, and any existing repository labels that clearly apply.
-Call out assumptions and open questions separately so the reporter can correct them.
+Present the exact title, body, and applicable repository labels. List assumptions and open
+questions separately.
 
 Stop after the preview and request explicit publication approval. Once the user approves the
 exact draft, create it in `jarmak-personal/hvir` when GitHub issue tooling is available;
