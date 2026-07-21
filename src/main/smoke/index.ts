@@ -14,6 +14,7 @@ import type { WebPaneRouteRegistry } from '../web-pane/web-pane-route-registry'
 import { createWorkerClient, workerPath } from '../worker-host'
 import { SmokeCleanup } from './cleanup'
 import { verifyGitDiffBehavior } from './git-diff'
+import { stopPtyAndWaitForExit } from './pty-lifecycle'
 import { verifyRendererLifecycleCleanup } from './renderer-lifecycle'
 import { verifyViewerPositions } from './viewer-position'
 import { createTerminalMoveSmokeHarness, verifyTerminalMoveSmoke } from './terminal-move'
@@ -520,11 +521,11 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
     }
     const profileTerminal = supervisor.get(profileSmoke.started.id)
     if (!profileTerminal) throw new Error('Custom profile PTY was not supervised')
-    supervisor.kill(profileTerminal.id, profileTerminal.ownerId)
-    await smokeWaitFor(
-      () => supervisor.get(profileTerminal.id) === undefined,
-      'Custom profile PTY did not exit',
-    )
+    await stopPtyAndWaitForExit({
+      supervisor,
+      terminal: profileTerminal,
+      scenario: 'custom-profile-pty-exit',
+    })
     console.log('[smoke] structured profile preview + Custom PTY OK')
 
     const containedSessionError = (await win.webContents.executeJavaScript(`
@@ -3245,17 +3246,5 @@ async function withTimeout<T>(
     ])
   } finally {
     if (timer) clearTimeout(timer)
-  }
-}
-
-async function smokeWaitFor(
-  predicate: () => boolean,
-  message: string,
-  timeoutMs = 5_000,
-): Promise<void> {
-  const deadline = Date.now() + timeoutMs
-  while (!predicate()) {
-    if (Date.now() >= deadline) throw new Error(message)
-    await new Promise<void>((resolve) => setTimeout(resolve, 25))
   }
 }

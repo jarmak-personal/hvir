@@ -5,6 +5,9 @@ import { defineConfig } from 'vitest/config'
 export default defineConfig({
   test: {
     environment: 'node',
+    // Node's experimental global shadows happy-dom's renderer-owned storage.
+    execArgv: ['--no-experimental-webstorage'],
     include: ['test/**/*.test.{ts,tsx}'],
+    setupFiles: ['./test/test-console-output-policy.ts'],
   },
 })
