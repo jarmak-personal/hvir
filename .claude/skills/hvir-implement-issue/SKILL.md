@@ -31,21 +31,28 @@ surface it and pause for alignment. Otherwise state the assumption and continue.
 ## Establish the isolated issue worktree
 
 Obtain the exact agreed base ref from the governing workflow; this skill must not silently
-choose between `main`, an epic branch, or another base. Read
-[`references/worktree-lifecycle.md`](references/worktree-lifecycle.md), then run the
-repository-owned worktree command first as a dry run and review its report before applying it:
+choose between `main`, an epic branch, or another base. Use native Git directly from the
+invoking checkout without switching, cleaning, resetting, or overwriting it:
 
 ```sh
-npm run issue:worktree -- --issue <number> --base <full-ref>
-npm run issue:worktree -- --issue <number> --base <full-ref> --apply
+git fetch --prune origin
+git worktree list --porcelain
+git worktree add -b "agent/issue-<number>" "<primary-root>-worktrees/issue-<number>" "<base-ref>"
 ```
 
-Every invocation fetches/prunes and performs bounded reconciliation before creating or reusing
-the deterministic issue worktree. A retained exceptional record for another issue is not a
-blocker; ambiguity or collision for the selected issue is. After selection, perform all further
-reconnaissance, edits, checks, commits, candidate-review handoff, and push operations from the
-reported worktree path. Never switch, clean, reset, overwrite, or delete state in the invoking
-checkout, and do not improvise worktree cleanup outside the repository-owned capability.
+Before creating anything, reconcile prior `agent/issue-*` worktrees conservatively with
+`git worktree list`, `git status`, ref/upstream checks, and bounded `gh pr list` metadata. Remove
+one only when it is not current or locked, its tracked and untracked state is clean, any ignored
+content is plainly disposable, its upstream is gone after pruning, and a merged PR records its
+exact local HEAD and expected base with no later commits or open PR. Use exact native Git
+operations without force or recursive filesystem deletion; compare-and-delete a squash- or
+rebase-merged local ref with `git update-ref -d <ref> <expected-head>`. Retain ambiguous state
+with a reason, then continue unrelated work unless the selected branch or path collides.
+
+Reuse an existing worktree only when `agent/issue-<number>` is registered at the exact sibling
+path above. Stop on any mismatched branch, path, detached state, or ambiguous base. After
+selection, perform all reconnaissance, edits, checks, commits, candidate-review handoff, and
+push operations from that worktree.
 
 ## Perform architecture reconnaissance
 

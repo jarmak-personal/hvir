@@ -100,15 +100,6 @@ export default tseslint.config(
     },
   },
 
-  // Repository contributor tooling owns its bounded Git/GitHub process adapter.
-  {
-    files: ['scripts/issue-worktree/system-runner.ts'],
-    rules: {
-      'no-restricted-imports': ['error', { paths: [IPC_RENDERER_BAN] }],
-      'no-restricted-syntax': ['error', SPAWN_PTY_BAN],
-    },
-  },
-
   // Seam exemption: the preload bridge owns ipcRenderer (but still not host primitives).
   {
     files: ['src/preload/**/*.ts'],

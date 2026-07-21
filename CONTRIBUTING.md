@@ -70,34 +70,17 @@ Never commit agent credentials, personal MCP configuration, or machine-local har
 
 ## Isolate issue implementation
 
-`hvir-implement-issue` performs each implementation in a repository-owned issue worktree. The
-governing workflow first agrees on an exact full base ref; the worktree layer accepts that ref
-and does not decide whether it represents `main`, an epic integration branch, or another
-delivery topology.
+`hvir-implement-issue` uses native Git to create or reuse `agent/issue-N` at the deterministic
+sibling path `<primary-repository>-worktrees/issue-N` from an exact base agreed by the governing
+workflow. All implementation, testing, verification, commits, review handoff, pre-push checks,
+and pushes happen there; the invoking checkout and unrelated worktrees stay untouched.
 
-Inspect the dry-run report, then explicitly apply it:
-
-```sh
-npm run issue:worktree -- --issue 129 --base refs/remotes/origin/main
-npm run issue:worktree -- --issue 129 --base refs/remotes/origin/main --apply
-```
-
-Each invocation fetches and prunes `origin`, safely reconciles completed worktrees previously
-created by this workflow, and creates or reuses `agent/issue-N` at the deterministic sibling
-path reported by the command. The branch's same-name `origin` upstream is configured before its
-first push. All implementation, testing, verification, commits, review handoff, pre-push checks,
-and pushes occur from that selected worktree. The checkout that invoked the workflow and every
-unrelated worktree remain untouched.
-
-Ownership is recorded in Git-local marker refs and config, not inferred from a broad path glob.
-Do not manually adopt, move, unlock, force-remove, or recursively delete a workflow-owned
-worktree. Cleanup requires a merged PR with the exact recorded head and base, the expected
-pruned upstream, clean tracked and untracked state, only explicitly disposable ignored
-dependency/build/test/cache artifacts, and an attached, unlocked, inactive worktree. It uses an
-unforced Git worktree removal and compare-and-delete branch ref, so merge, squash, and rebase
-strategies do not require unsafe ancestry guesses. Ambiguous or unsafe state is retained with a
-diagnostic and does not block unrelated issue work unless it creates a real branch or path
-collision.
+Each invocation fetches/prunes and inspects existing worktrees before creation. Cleanup uses
+ordinary `git worktree`, status, and ref commands plus bounded `gh` PR metadata. Remove only when
+the worktree is inactive, unlocked, clean except for plainly disposable ignored artifacts, its
+upstream is gone, and a merged PR records the exact local head and expected base. Never force or
+recursively delete; retain uncertain state with a reason. This is a contributor convention, not
+a custom worktree registry or an hvir application capability.
 
 This lifecycle belongs only to repository contributor tooling. The hvir application continues
 to discover worktrees without creating, moving, repairing, merging, or removing them.
