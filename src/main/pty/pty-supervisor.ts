@@ -11,6 +11,7 @@
 import { randomUUID } from 'node:crypto'
 
 import {
+  contextStatusHarnessSnapshot,
   hostPathEquals,
   type HarnessTelemetry,
   type HarnessProviderId,
@@ -732,25 +733,27 @@ export class PtySupervisor {
     entry.telemetryStarted = true
     const controller = new AbortController()
     entry.disposers.push(() => controller.abort())
+    const publishTelemetry = (telemetry: HarnessTelemetry | undefined): void => {
+      if (
+        controller.signal.aborted ||
+        entry.exited ||
+        this.entries.get(entry.info.id) !== entry
+      ) {
+        return
+      }
+      entry.telemetry = telemetry
+      for (const cb of entry.telemetryListeners) cb(telemetry)
+    }
     void Promise.resolve()
       .then(() =>
         observer.observe(host, {
           subscriptionId: entry.info.id,
           sessionId,
+          cwd: entry.info.cwd,
           sessionData,
           artifact,
           signal: controller.signal,
-          emit: (telemetry) => {
-            if (
-              controller.signal.aborted ||
-              entry.exited ||
-              this.entries.get(entry.info.id) !== entry
-            ) {
-              return
-            }
-            entry.telemetry = telemetry
-            for (const cb of entry.telemetryListeners) cb(telemetry)
-          },
+          emit: publishTelemetry,
         }),
       )
       .then(
@@ -768,6 +771,17 @@ export class PtySupervisor {
         (error: unknown) => {
           if (!controller.signal.aborted) {
             console.warn(`[pty] ${provider.manifest.id} telemetry unavailable`, error)
+            publishTelemetry(
+              contextStatusHarnessSnapshot({
+                providerId: provider.manifest.id,
+                provenance: 'Harness telemetry observer lifecycle',
+                sessionId,
+                context: {
+                  status: 'unavailable',
+                  reason: 'Harness telemetry observer unavailable',
+                },
+              }),
+            )
           }
         },
       )

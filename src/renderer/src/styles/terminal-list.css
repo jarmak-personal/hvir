@@ -152,6 +152,10 @@
   background: #d4a84f;
 }
 
+.terminal-context.unavailable {
+  color: #dc6b78;
+}
+
 .terminal-context.critical {
   color: #dc6b78;
 }

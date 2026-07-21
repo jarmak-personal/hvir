@@ -3,6 +3,10 @@ import { randomUUID } from 'node:crypto'
 import type { HarnessTelemetry } from '../../shared'
 import type { Disposer, ExecStreamHandle, ProjectHost } from '../project-host'
 import { BoundedLineReader } from './bounded-line-reader'
+import {
+  parseHarnessTelemetryHubFrame,
+  type HarnessTelemetryFollowerHealth,
+} from './harness-telemetry-protocol'
 
 export const TELEMETRY_RECONCILE_DELAY_MS = 50
 export const MAX_TELEMETRY_SUBSCRIPTIONS = 128
@@ -27,6 +31,10 @@ export interface HarnessTelemetryHubOptions {
   readonly providerId: string
   readonly remoteScript: string
   readonly parse: (record: string) => HarnessTelemetry | null
+  readonly followerHealth?: (
+    sessionId: string,
+    health: HarnessTelemetryFollowerHealth,
+  ) => HarnessTelemetry
 }
 
 export interface TelemetryFollowerScript {
@@ -206,41 +214,31 @@ export class HarnessTelemetryHub {
 
   private acceptFrame(stream: ExecStreamHandle, line: string): void {
     if (this.stream !== stream) return
-    const fields = line.split('\t')
-    if (fields.length !== 6 || fields[0] !== 'E') return
-    const [, epoch, rawGeneration, subscriptionId, sessionId, encoded] = fields
-    const frameGeneration = Number(rawGeneration)
-    if (
-      epoch !== this.epoch ||
-      !Number.isSafeInteger(frameGeneration) ||
-      frameGeneration < 1 ||
-      frameGeneration > this.generation ||
-      !subscriptionId ||
-      !sessionId ||
-      !encoded ||
-      encoded.length > MAX_TELEMETRY_FRAME_LENGTH ||
-      encoded.length % 4 !== 0 ||
-      !/^[A-Za-z0-9+/]+={0,2}$/.test(encoded)
-    ) {
-      return
-    }
-    const subscription = this.subscriptions.get(subscriptionId)
+    const frame = parseHarnessTelemetryHubFrame(line, {
+      epoch: this.epoch,
+      maxGeneration: this.generation,
+      maxEncodedLength: MAX_TELEMETRY_FRAME_LENGTH,
+      maxRecordBytes: MAX_TELEMETRY_RESOURCE_BYTES * 2,
+    })
+    if (!frame) return
+    const subscription = this.subscriptions.get(frame.subscriptionId)
     if (
       !subscription ||
-      subscription.sessionId !== sessionId ||
+      subscription.sessionId !== frame.sessionId ||
       subscription.admittedGeneration === undefined ||
-      frameGeneration < subscription.admittedGeneration
+      frame.generation < subscription.admittedGeneration
     ) {
       return
     }
-    let record: string
-    try {
-      record = Buffer.from(encoded, 'base64').toString('utf8')
-    } catch {
+    if (frame.kind === 'health') {
+      const telemetry = this.options.followerHealth?.(
+        subscription.sessionId,
+        frame.health,
+      )
+      if (telemetry) subscription.emit(telemetry)
       return
     }
-    if (Buffer.byteLength(record, 'utf8') > MAX_TELEMETRY_RESOURCE_BYTES * 2) return
-    const telemetry = this.options.parse(record)
+    const telemetry = this.options.parse(frame.record)
     if (!telemetry) return
     subscription.emit({
       ...telemetry,
@@ -261,7 +259,12 @@ export class HarnessTelemetryHub {
     stream.dispose()
     if (this.subscriptions.size === 0 || this.stopped) return
     for (const subscription of this.subscriptions.values()) {
-      subscription.emit(undefined)
+      subscription.emit(
+        this.options.followerHealth?.(subscription.sessionId, {
+          status: 'unavailable',
+          reason: 'helper-exited',
+        }),
+      )
     }
     console.warn(`[harness:${this.options.providerId}] telemetry hub unavailable`, error)
     if (!this.restartTimer) {
@@ -399,6 +402,22 @@ emit_frame() {
   release_frame_lock
 }
 
+emit_follower_health() {
+  follower_health_status=$1
+  follower_health_reason=$2
+  frame_generation=
+  [ -f "$follower_dir/generation" ] || return 1
+  IFS= read -r frame_generation 2>/dev/null <"$follower_dir/generation" || return 1
+  acquire_frame_lock || return 1
+  printf 'H\t%s\t%s\t%s\t%s\t%s\t%s\n' "$epoch" "$frame_generation" "$follower_subscription" "$follower_session" "$follower_health_status" "$follower_health_reason"
+  release_frame_lock
+}
+
+fail_follower() {
+  emit_follower_health unavailable "$1" && follower_health_reported=1
+  exit 1
+}
+
 start_follower() {
   follower_dir=$1
   follower_subscription=$2
@@ -407,10 +426,14 @@ start_follower() {
   (
     tail_pid=
     write_lock_owned=0
+    follower_health_reported=0
     cleanup_follower_process() {
       trap - EXIT TERM INT HUP
       [ -n "$tail_pid" ] && kill "$tail_pid" 2>/dev/null
       release_frame_lock
+      if [ ! -f "$follower_dir/stopping" ] && [ "$follower_health_reported" != 1 ]; then
+        emit_follower_health unavailable follower-exited || true
+      fi
       rm -f "$follower_dir/events" "$follower_dir/tail-pid"
     }
     trap cleanup_follower_process EXIT TERM INT HUP
@@ -429,6 +452,7 @@ ${follower.acceptRecord}
 
 stop_follower() {
   follower_dir=$1
+  : >"$follower_dir/stopping"
   follower_subscription=
   if [ -f "$follower_dir/subscription" ]; then
     IFS= read -r follower_subscription 2>/dev/null <"$follower_dir/subscription" || true

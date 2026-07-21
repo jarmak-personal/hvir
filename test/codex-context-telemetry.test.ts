@@ -136,6 +136,7 @@ describe('Codex context telemetry', () => {
     const stop = await observeCodexContext(host, {
       subscriptionId: SESSION_ID,
       sessionId: SESSION_ID,
+      cwd: localPath('/tmp/project'),
       sessionData: { rolloutPath },
       artifact: { identity: 'test', environment: {}, unsetEnvironment: [] },
       signal: controller.signal,
@@ -199,6 +200,7 @@ describe('Codex context telemetry', () => {
       stop = await observeCodexContext(host, {
         subscriptionId: SESSION_ID,
         sessionId: SESSION_ID,
+        cwd: localPath(directory),
         sessionData: { rolloutPath: path },
         artifact: { identity: 'test', environment: {}, unsetEnvironment: [] },
         signal: controller.signal,

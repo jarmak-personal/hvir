@@ -4,6 +4,7 @@ import {
   asHarnessProviderId,
   boundedHarnessProviderData,
   contextHarnessSnapshot,
+  contextStatusHarnessSnapshot,
 } from '../src/shared'
 
 describe('HarnessSnapshot envelope', () => {
@@ -51,5 +52,35 @@ describe('HarnessSnapshot envelope', () => {
     let tooDeep: unknown = 'leaf'
     for (let depth = 0; depth < 10; depth++) tooDeep = { child: tooDeep }
     expect(boundedHarnessProviderData({ tooDeep })).toBeUndefined()
+  })
+
+  it('carries pending and unavailable context as replayable snapshots', () => {
+    const pending = contextStatusHarnessSnapshot({
+      providerId: asHarnessProviderId('fixture'),
+      provenance: 'fixture lifecycle',
+      sessionId: 'session-1',
+      context: { status: 'pending', reason: 'Waiting for fixture telemetry' },
+      observedAt: 7,
+    })
+    const unavailable = contextStatusHarnessSnapshot({
+      providerId: asHarnessProviderId('fixture'),
+      provenance: 'fixture lifecycle',
+      sessionId: 'session-1',
+      context: { status: 'unavailable', reason: 'Fixture telemetry unavailable' },
+      observedAt: 8,
+    })
+
+    expect(pending.facets.context).toEqual({
+      status: 'pending',
+      reason: 'Waiting for fixture telemetry',
+    })
+    expect(pending.facets.session).toEqual({
+      status: 'available',
+      value: { id: 'session-1', state: 'active' },
+    })
+    expect(unavailable.facets.context).toEqual({
+      status: 'unavailable',
+      reason: 'Fixture telemetry unavailable',
+    })
   })
 })
