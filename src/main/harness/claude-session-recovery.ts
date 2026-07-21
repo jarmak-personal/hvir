@@ -3,50 +3,56 @@ import type {
   HarnessResumeAvailability,
   HarnessResumeValidationContext,
 } from './harness-provider'
+import { resolveClaudeSessionArtifact } from './claude-session-artifact'
 
 const CLAUDE_RESUME_AVAILABILITY_SCRIPT = `
-root=\${CLAUDE_CONFIG_DIR:-\${HOME}/.claude}/projects
-session_id=$1
-count=0
+root=$1
+project_dir=$2
+transcript=$3
 if [ ! -d "$root" ] || [ ! -r "$root" ] || [ ! -x "$root" ]; then
   printf unknown
-  exit 0
+elif [ ! -e "$project_dir" ]; then
+  printf missing
+elif [ ! -d "$project_dir" ] || [ ! -r "$project_dir" ] || [ ! -x "$project_dir" ]; then
+  printf unknown
+elif [ ! -e "$transcript" ]; then
+  printf missing
+elif [ ! -f "$transcript" ] || [ ! -r "$transcript" ]; then
+  printf unknown
+elif [ -s "$transcript" ]; then
+  printf available
+else
+  printf missing
 fi
-for candidate in "$root"/*/"$session_id.jsonl"; do
-  [ -s "$candidate" ] || continue
-  count=$((count + 1))
-done
-case "$count" in
-  0) printf missing ;;
-  1) printf available ;;
-  *) printf ambiguous ;;
-esac
 `.trim()
 
 const RESUME_CHECK_TIMEOUT_MS = 3_000
 
 /**
  * Claude accepts a caller-supplied UUID before it has persisted any turns.
- * Resume is valid only after exactly one non-empty transcript exists for that
- * UUID in the profile-qualified artifact tree.
+ * Resume is valid only after a non-empty transcript exists at the exact path
+ * Claude derives from this profile and physical launch cwd.
  */
 export async function claudeResumeAvailability(
   host: ProjectHost,
   context: HarnessResumeValidationContext,
 ): Promise<HarnessResumeAvailability> {
+  const signal = AbortSignal.timeout(RESUME_CHECK_TIMEOUT_MS)
   try {
+    const location = await resolveClaudeSessionArtifact(host, context, signal)
+    if (!location) return 'unknown'
     const result = await host.exec(
       'sh',
       [
         '-c',
         CLAUDE_RESUME_AVAILABILITY_SCRIPT,
         'hvir-claude-resume-check',
-        context.sessionId,
+        location.projectsRoot.path,
+        location.projectDirectory.path,
+        location.transcript.path,
       ],
       {
-        env: context.artifact.environment,
-        unsetEnv: context.artifact.unsetEnvironment,
-        signal: AbortSignal.timeout(RESUME_CHECK_TIMEOUT_MS),
+        signal,
         maxBuffer: 4 * 1024,
       },
     )

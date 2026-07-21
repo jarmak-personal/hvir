@@ -186,6 +186,7 @@ export function registerTerminalIpc(ipc: IpcRegistrar, deps: TerminalIpcDeps): v
     })
     const launchDecision = await selectHarnessLaunch(host, provider, requestedMode, {
       sessionId: req.resume ? req.harnessSessionId! : req.sessionId,
+      cwd,
       artifact: resolved.artifact,
     })
     if (launchDecision.outcome === 'resume-unavailable') {

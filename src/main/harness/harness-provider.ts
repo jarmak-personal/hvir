@@ -115,6 +115,7 @@ export type HarnessResumeAvailability = 'available' | 'missing' | 'unknown'
 
 export interface HarnessResumeValidationContext {
   readonly sessionId: string
+  readonly cwd: HostPath
   readonly artifact: HarnessArtifactContext
 }
 
