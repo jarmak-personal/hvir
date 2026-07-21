@@ -44,15 +44,16 @@ explicit product non-goal, close that loop before asking anyone to write code.
 
 ## Use agents deliberately
 
-The repository provides two lifecycle skills and one shared independent reviewer:
+The repository provides two lifecycle skills and two focused reviewers:
 
 - `hvir-create-issue` evaluates product and ADR alignment, sharpens the problem and outcome,
   and prepares a discussion-ready issue.
 - `hvir-implement-issue` performs architecture reconnaissance, raises design concerns before
   editing, and implements an aligned issue with verification.
-- `hvir-independent-review` gives an exact local issue draft or clean committed candidate to
-  two headless model families other than its author. The lifecycle skills remain responsible
-  for corrections and authority boundaries.
+- `hvir-review-issue` critiques broad issue drafts for hvir fit, scope, architecture creep,
+  duplication, and unnecessary machinery.
+- `hvir-review-code` critiques a ready implementation for correctness, issue fidelity,
+  architecture, duplication, scope creep, and overengineering.
 
 Claude discovers them under `.claude/skills/`; `.agents/skills/` exposes the same skills to
 Codex-compatible harnesses. These are workflow aids, not substitutes for reading the governing
@@ -71,25 +72,23 @@ guaranteed prompt-injection boundary.
 
 Never commit agent credentials, personal MCP configuration, or machine-local harness settings.
 
-### Require independent model-family review
+### Use independent review where it pays
 
-Issue drafts are independently reviewed before the maintainer sees the exact publication
-preview. Implementation candidates are independently reviewed after fresh `npm run verify` and
-commit, but before the pre-push gate and push. Both modes use the repository-owned
-`hvir-independent-review` policy and two pinned reviewer families other than the completing
-agent.
+Review is a judgment call, not a ceremony. Run `hvir-review-issue` once for epics and feature
+proposals that may conceal epic-sized product or architecture scope. Direct epic children have
+already inherited a reviewed boundary; small localized bugs and routine maintenance or
+documentation ordinarily do not need another issue review.
 
-Reviewer processes are fresh, bounded, read-only, credential-minimized, and isolated from one
-another. They receive no public GitHub discussion, mutation tools, executable-check authority,
-or other reviewer output. Ordinary subscription-backed `claude -p`, Copilot CLI, and
-`codex exec` provide the reviewer pool; hosted or multi-agent review products are not part of
-this workflow.
+Run `hvir-review-code` once for nontrivial or high-risk implementations and for the cumulative
+epic candidate. A small localized fix or mechanical change may skip it. One available headless
+model from a different family supplies the outside perspective; do not create triplicate review
+or a fix-and-review loop.
 
-A reviewer failure blocks advancement. A correction invalidates the exact artifact identity and
-requires both reviewers again; a candidate correction also requires a fresh commit and
-`npm run verify`. The completing agent validates findings and records concise rationale for
-false positives without committing transcripts. Independent review supplements rather than
-replaces executable verification, CI, maintainer acceptance, or optional human review.
+Reviewers stay read-only and do not run executable checks or receive GitHub mutation tools.
+Ordinary subscription-backed `claude -p`, Copilot CLI, and `codex exec` form the reviewer
+pool; Ultrareview and other hosted or multi-agent review products are not part of this workflow.
+The caller evaluates findings and makes any fixes. Fresh `npm run verify` after code changes,
+the pre-push hook, CI, and epic acceptance testing remain the final integration gates.
 
 ## Isolate issue implementation
 
@@ -157,11 +156,12 @@ Tests should match the behavior's real boundary:
   contracts at integration, smoke, or real-host altitude.
 
 Run `npm run verify` after the final changes and before committing. This is a required local
-gate, not optional handoff evidence. Commit the verified candidate, complete independent review
-of its exact range, then push without `--no-verify` so the repository pre-push hook runs
-typechecks and the local-platform Electron smoke; if hooks are not installed, run
-`.githooks/pre-push` directly before pushing. Fix failures locally or report an environment
-blocker rather than using CI to discover a known failure.
+gate, not optional handoff evidence. A risk-based code review may run after that ready-to-push
+commit; if it causes code changes, run `npm run verify` again and commit the final candidate.
+Then push without `--no-verify` so the repository pre-push hook runs typechecks and the
+local-platform Electron smoke; if hooks are not installed, run `.githooks/pre-push` directly
+before pushing. Fix failures locally or report an environment blocker rather than using CI to
+discover a known failure.
 
 Use capacity, real-host, packaged, or gauntlet checks when the issue's acceptance criteria call
 for them. Report exact evidence and any environment you could not verify; never imply a check

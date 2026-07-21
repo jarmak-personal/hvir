@@ -104,16 +104,17 @@ affected capability makes them relevant; do not add ceremonial criteria.
 
 ## Review and create
 
-After preparing the exact proposed title, body, and labels, invoke `$hvir-independent-review` in
-issue mode with the completing model family and trusted reporter outcome. Evaluate both
-independent outputs, correct valid findings, and record concise evidence for rejected false
-positives. Any draft change invalidates both reviews and requires a complete fresh pass. A
-missing, failed, timed-out, malformed, self-family, or permission-widened review blocks the
-publication preview rather than silently weakening it.
+After preparing the proposed title, body, and labels, decide whether one independent issue
+review is useful. Invoke `$hvir-review-issue` once for an epic or for a feature proposal whose
+scope, product fit, or architecture could reasonably expand into an epic. Skip it by default
+for direct epic children whose boundaries were reviewed with their parent, small localized
+bugs, and routine maintenance or documentation. A maintainer may explicitly request review in
+either direction.
 
-After two conforming reviews cover one exact draft, present that exact title, body, and any
-existing repository labels that clearly apply. Call out assumptions and open questions
-separately so the reporter can correct them.
+Evaluate the single review response and correct valid findings. Do not re-run the reviewer after
+editing the draft. Present the resulting exact title, body, and any existing repository labels
+that clearly apply. Call out assumptions and open questions separately so the reporter can
+correct them.
 
 Stop after the preview and request explicit publication approval. Once the user approves the
 exact draft, create it in `jarmak-personal/hvir` when GitHub issue tooling is available;

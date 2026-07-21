@@ -1,0 +1,6 @@
+interface:
+  display_name: 'hvir Review Issue'
+  short_description: 'Critique broad hvir issue drafts'
+  default_prompt: 'Use $hvir-review-issue to critically review this hvir issue draft once.'
+policy:
+  allow_implicit_invocation: false

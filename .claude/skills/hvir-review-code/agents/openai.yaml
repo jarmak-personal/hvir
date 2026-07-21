@@ -1,0 +1,6 @@
+interface:
+  display_name: 'hvir Review Code'
+  short_description: 'Critique a verified hvir implementation'
+  default_prompt: 'Use $hvir-review-code to critically review this hvir implementation once.'
+policy:
+  allow_implicit_invocation: false
