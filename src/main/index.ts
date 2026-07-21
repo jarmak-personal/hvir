@@ -418,10 +418,9 @@ function createWorkbenchEntry(): void {
     .whenReady()
     .then(async () => {
       if (process.env['HVIR_SMOKE']) {
-        htmlPreviews.register()
-        const { runSmoke } = await import('./smoke')
-        const code = await runSmoke({
-          mode: process.env['HVIR_CAPACITY_SMOKE'] ? 'capacity' : 'workflow',
+        const { runElectronSmokeScenario } = await import('./smoke/scenarios')
+        const code = await runElectronSmokeScenario({
+          scenario: process.env['HVIR_SMOKE_SCENARIO'],
           projectRoot: localPath(projectRootArgument() ?? process.cwd()),
           createWindow,
           harnessProbeManager,

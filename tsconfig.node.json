@@ -12,6 +12,7 @@
     "src/workers/**/*.ts",
     "src/shared/**/*.ts",
     "scripts/project-management/**/*.ts",
+    "scripts/run-smoke-scenarios.mts",
     "test/**/*.ts",
     "electron.vite.config.ts",
     "vitest.config.ts"

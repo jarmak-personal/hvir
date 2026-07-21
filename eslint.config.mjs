@@ -58,7 +58,7 @@ export default tseslint.config(
 
   // Type-aware linting for all TypeScript source.
   {
-    files: ['**/*.{ts,tsx}'],
+    files: ['**/*.{ts,tsx,mts}'],
     extends: [...tseslint.configs.recommendedTypeChecked],
     languageOptions: {
       parserOptions: {
@@ -123,6 +123,15 @@ export default tseslint.config(
     rules: {
       'no-restricted-imports': 'off',
       'no-restricted-syntax': ['error', SPAWN_PTY_BAN],
+    },
+  },
+
+  // Contributor process launchers may use Node host primitives directly; the
+  // ProjectHost boundary governs application source under src/.
+  {
+    files: ['scripts/run-smoke-scenarios.mts'],
+    rules: {
+      'no-restricted-imports': 'off',
     },
   },
 
