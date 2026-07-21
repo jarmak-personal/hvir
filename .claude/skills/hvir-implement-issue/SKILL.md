@@ -11,9 +11,9 @@ before editing; raise material concerns while they are still cheap to resolve.
 
 ## Require an aligned issue
 
-Start from an issue number plus its current, reviewed problem statement, desired outcome,
+Start from an issue number plus its current, aligned problem statement, desired outcome,
 and acceptance criteria. If no governing issue exists, stop and use `hvir-create-issue`
-before implementation. A large epic should coordinate independently reviewable child
+before implementation. A large epic should coordinate independently deliverable child
 issues, not produce one giant implementation pull request.
 
 Read `AGENTS.md`, `CONTRIBUTING.md`, `docs/design.md`, the relevant ADRs, and the governing
@@ -23,7 +23,7 @@ issue. Resolve these questions before changing files:
 - Is the issue aligned with the current product boundaries and accepted decisions?
 - Which requirements are settled, and which comments are still exploratory?
 - Is a new or superseding ADR required before implementation?
-- Is this issue small enough for one coherent review?
+- Is this issue small enough for one focused pull request?
 
 If an answer could materially change product behavior, ownership, authority, or scope,
 surface it and pause for alignment. Otherwise state the assumption and continue.
@@ -141,13 +141,13 @@ build, follow `references/epic-delivery.md` through child integration and cumula
 
 Before handing off:
 
-1. Review the complete diff for duplicated policy, misplaced authority, widened public APIs,
+1. Inspect the complete diff for duplicated policy, misplaced authority, widened public APIs,
    missing cleanup, and accidental scope growth.
 2. Re-run `npm run architecture:report`; explain intentional growth even when it is below a
    blocking threshold.
 3. Check every acceptance criterion against code and evidence.
 4. Confirm that the mandatory pre-commit verification and pre-push gates passed after the final
-   changes. Record whether code review ran.
+   changes.
 5. Prepare a concise pull-request summary that links the governing issue with `Closes #N`,
    explains architecture and reuse decisions, lists risks, and records verification.
 

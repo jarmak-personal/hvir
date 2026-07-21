@@ -57,14 +57,21 @@ violate it.
 
 ## Shape the issue
 
-Keep one issue to one independently reviewable outcome. If the request is an epic, define
-the coordinating outcome and split implementation into child issues with clear ownership
-and dependency order. Do not let a broad issue become permission for one monster pull
-request.
+Keep one issue to one focused outcome. If the request is an epic, define the coordinating
+outcome and split implementation into child issues with clear ownership and dependency order.
+Give each child one focused pull request.
 
-Write the draft in Simplified Technical English. Use short, literal sentences. Prefer active
-voice. Put one requirement in each sentence. Use the same term for the same concept. Avoid
-idioms, rhetorical language, vague modifiers, and unnecessary synonyms.
+Use natural prose in Problem and Product fit when it helps readers understand the experience,
+the story, and why the work matters. Natural prose is the default for these two sections. Keep
+factual claims specific. Clearly separate known facts from interpretation.
+
+Use Simplified Technical English for all operational and technical content. This includes
+reproduction steps, Expected behavior, Actual behavior, Desired outcome, implementation details
+and constraints, Design and architecture questions, Acceptance criteria, and Non-goals. Use
+short, literal sentences. Prefer active voice and positive statements or commands. Put one
+requirement in each sentence. Use the same term for the same concept. Use literal terms instead
+of idioms, rhetorical language, vague modifiers, or unnecessary synonyms. Reserve negative
+commands for an essential prohibition, trust boundary, or explicit non-goal.
 
 Keep the draft easy to scan in one pass. Include only the information needed to align on the
 problem, boundaries, and observable completion. Do not repeat a requirement across sections.
