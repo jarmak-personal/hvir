@@ -20,10 +20,10 @@ function matches(pattern: RegExp): string[] {
 }
 
 describe('PR planning workflow security', () => {
-  it('runs required checks for main and epic integration branches', () => {
+  it('runs required checks for PRs to main and epic integration branches', () => {
     for (const requiredWorkflow of [ciWorkflow, codeqlWorkflow]) {
       expect(requiredWorkflow.match(/- main/g)).toHaveLength(2)
-      expect(requiredWorkflow.match(/- 'epic\/\*\*'/g)).toHaveLength(2)
+      expect(requiredWorkflow.match(/- 'epic\/\*\*'/g)).toHaveLength(1)
     }
   })
 
