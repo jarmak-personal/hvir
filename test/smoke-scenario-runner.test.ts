@@ -5,8 +5,10 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   DEFAULT_SMOKE_SCENARIOS,
   formatSmokeScenarioResults,
+  parseSmokeRepetitionCount,
   runSmokeScenarioGroups,
   selectedSmokeScenarios,
+  smokeScenarioEnvironment,
   type SmokeScenarioName,
 } from '../scripts/run-smoke-scenarios.mts'
 import {
@@ -63,32 +65,117 @@ describe('Electron smoke scenario selection', () => {
 })
 
 describe('Electron smoke result aggregation', () => {
-  it('continues after a sibling failure and returns every group result', async () => {
-    const invoked: SmokeScenarioName[] = []
-    const invoke = vi.fn((scenario: SmokeScenarioName) => {
-      invoked.push(scenario)
-      if (scenario === 'pty-native') throw new Error('native load failed')
-      return Promise.resolve({ status: 'passed' as const, exitCode: 0 })
-    })
+  it('runs every group for every iteration and continues after failures', async () => {
+    const invoked: Array<readonly [SmokeScenarioName, number, number]> = []
+    const invoke = vi.fn(
+      (scenario: SmokeScenarioName, iteration: number, repetitionCount: number) => {
+        invoked.push([scenario, iteration, repetitionCount])
+        if (scenario === 'pty-native' && iteration === 1) {
+          throw new Error('native load failed')
+        }
+        if (scenario === 'viewer-position' && iteration === 2) {
+          return Promise.resolve({ status: 'failed' as const, exitCode: 2 })
+        }
+        return Promise.resolve({ status: 'passed' as const, exitCode: 0 })
+      },
+    )
 
-    const results = await runSmokeScenarioGroups(DEFAULT_SMOKE_SCENARIOS, invoke)
+    const results = await runSmokeScenarioGroups(DEFAULT_SMOKE_SCENARIOS, 2, invoke)
 
-    expect(invoked).toEqual(['pty-native', 'viewer-position', 'legacy-workflow'])
+    expect(invoked).toEqual([
+      ['pty-native', 1, 2],
+      ['viewer-position', 1, 2],
+      ['legacy-workflow', 1, 2],
+      ['pty-native', 2, 2],
+      ['viewer-position', 2, 2],
+      ['legacy-workflow', 2, 2],
+    ])
     expect(results).toEqual([
       {
         scenario: 'pty-native',
+        iteration: 1,
+        repetitionCount: 2,
         status: 'failed',
         error: 'native load failed',
       },
-      { scenario: 'viewer-position', status: 'passed', exitCode: 0 },
-      { scenario: 'legacy-workflow', status: 'passed', exitCode: 0 },
+      {
+        scenario: 'viewer-position',
+        iteration: 1,
+        repetitionCount: 2,
+        status: 'passed',
+        exitCode: 0,
+      },
+      {
+        scenario: 'legacy-workflow',
+        iteration: 1,
+        repetitionCount: 2,
+        status: 'passed',
+        exitCode: 0,
+      },
+      {
+        scenario: 'pty-native',
+        iteration: 2,
+        repetitionCount: 2,
+        status: 'passed',
+        exitCode: 0,
+      },
+      {
+        scenario: 'viewer-position',
+        iteration: 2,
+        repetitionCount: 2,
+        status: 'failed',
+        exitCode: 2,
+      },
+      {
+        scenario: 'legacy-workflow',
+        iteration: 2,
+        repetitionCount: 2,
+        status: 'passed',
+        exitCode: 0,
+      },
     ])
     expect(formatSmokeScenarioResults(results)).toBe(
-      '[smoke:summary]\n' +
-        '- pty-native: failed (native load failed)\n' +
-        '- viewer-position: passed (exit 0)\n' +
-        '- legacy-workflow: passed (exit 0)',
+      '[smoke:summary] attempts=6 iterations=2\n' +
+        '- pty-native iteration 1/2: failed (native load failed)\n' +
+        '- viewer-position iteration 1/2: passed (exit 0)\n' +
+        '- legacy-workflow iteration 1/2: passed (exit 0)\n' +
+        '- pty-native iteration 2/2: passed (exit 0)\n' +
+        '- viewer-position iteration 2/2: failed (exit 2)\n' +
+        '- legacy-workflow iteration 2/2: passed (exit 0)',
     )
+  })
+
+  it('defaults to one iteration and accepts bounded ASCII decimal counts', () => {
+    expect(parseSmokeRepetitionCount(undefined)).toBe(1)
+    expect(parseSmokeRepetitionCount('1')).toBe(1)
+    expect(parseSmokeRepetitionCount('20')).toBe(20)
+    expect(parseSmokeRepetitionCount('100')).toBe(100)
+    expect(parseSmokeRepetitionCount('01')).toBe(1)
+  })
+
+  it.each(['', ' ', ' 1', '1 ', '+1', '-1', '1.0', '1e1', '0', '101', '١'])(
+    'rejects invalid repetition count %j',
+    (value) => {
+      expect(() => parseSmokeRepetitionCount(value)).toThrow(
+        'HVIR_SMOKE_REPEAT must be an ASCII decimal integer from 1 through 100',
+      )
+    },
+  )
+
+  it('does not pass runner repetition control into an Electron attempt', () => {
+    expect(
+      smokeScenarioEnvironment(
+        {
+          HVIR_SMOKE_REPEAT: '20',
+          HVIR_SMOKE_SCENARIO: 'legacy-workflow',
+          KEEP_ME: 'yes',
+        },
+        'pty-native',
+      ),
+    ).toEqual({
+      HVIR_SMOKE_SCENARIO: 'pty-native',
+      KEEP_ME: 'yes',
+    })
   })
 })
 

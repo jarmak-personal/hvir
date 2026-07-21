@@ -150,7 +150,14 @@ then reports a result for every scheduled group. Select one group locally with
 `viewer-position`, `platform-contracts`, `legacy-workflow`, and `capacity`.
 `npm run smoke:macos` runs the focused PTY and viewer groups plus the retained platform contracts;
 `npm run smoke:capacity` selects the capacity group. Both use the same aggregate launcher, so a
-failing group is never retried and does not prevent reporting its scheduled siblings.
+failing group does not prevent reporting its scheduled siblings.
+
+For a bounded local stress run, set `HVIR_SMOKE_REPEAT` to an integer from 1 through 100. For
+example, `HVIR_SMOKE_SCENARIO=pty-native HVIR_SMOKE_REPEAT=20 npm run smoke` schedules 20
+iterations of that group. Each iteration launches a fresh Electron process with fresh project and
+user-data roots. Iterations are fixed stress evidence, not retries: every scheduled iteration runs,
+and any failed iteration makes the aggregate command fail. Pull-request jobs omit the variable and
+therefore run one iteration.
 
 Packaged smoke is a distribution boundary, not a second product workflow. On a matching supported
 host, build the platform tarball and launcher, then run `npm run smoke:packaged`. It installs the

@@ -16,6 +16,8 @@ export type SmokeScenarioName = ElectronSmokeScenario
 
 export interface SmokeScenarioResult {
   readonly scenario: SmokeScenarioName
+  readonly iteration: number
+  readonly repetitionCount: number
   readonly status: 'passed' | 'failed'
   readonly exitCode?: number
   readonly signal?: NodeJS.Signals
@@ -24,7 +26,31 @@ export interface SmokeScenarioResult {
 
 type InvokeSmokeScenario = (
   scenario: SmokeScenarioName,
-) => Promise<Omit<SmokeScenarioResult, 'scenario'>>
+  iteration: number,
+  repetitionCount: number,
+) => Promise<Omit<SmokeScenarioResult, 'scenario' | 'iteration' | 'repetitionCount'>>
+
+const MAX_SMOKE_REPETITIONS = 100
+
+export function parseSmokeRepetitionCount(value: string | undefined): number {
+  if (value === undefined) return 1
+  if (!/^[0-9]+$/.test(value)) {
+    throw new Error(
+      `HVIR_SMOKE_REPEAT must be an ASCII decimal integer from 1 through ${MAX_SMOKE_REPETITIONS}; received ${JSON.stringify(value)}`,
+    )
+  }
+  const repetitionCount = Number(value)
+  if (
+    !Number.isSafeInteger(repetitionCount) ||
+    repetitionCount < 1 ||
+    repetitionCount > MAX_SMOKE_REPETITIONS
+  ) {
+    throw new Error(
+      `HVIR_SMOKE_REPEAT must be an ASCII decimal integer from 1 through ${MAX_SMOKE_REPETITIONS}; received ${JSON.stringify(value)}`,
+    )
+  }
+  return repetitionCount
+}
 
 export function selectedSmokeScenarios(
   value: string | undefined,
@@ -44,32 +70,58 @@ export function selectedSmokeScenarios(
 
 export async function runSmokeScenarioGroups(
   scenarios: readonly SmokeScenarioName[],
+  repetitionCount: number,
   invoke: InvokeSmokeScenario,
 ): Promise<readonly SmokeScenarioResult[]> {
   const results: SmokeScenarioResult[] = []
-  for (const scenario of scenarios) {
-    try {
-      results.push({ scenario, ...(await invoke(scenario)) })
-    } catch (reason) {
-      results.push({
-        scenario,
-        status: 'failed',
-        error: reason instanceof Error ? reason.message : String(reason),
-      })
+  for (let iteration = 1; iteration <= repetitionCount; iteration += 1) {
+    for (const scenario of scenarios) {
+      try {
+        results.push({
+          scenario,
+          iteration,
+          repetitionCount,
+          ...(await invoke(scenario, iteration, repetitionCount)),
+        })
+      } catch (reason) {
+        results.push({
+          scenario,
+          iteration,
+          repetitionCount,
+          status: 'failed',
+          error: reason instanceof Error ? reason.message : String(reason),
+        })
+      }
     }
   }
   return results
 }
 
+export function smokeScenarioEnvironment(
+  environment: NodeJS.ProcessEnv,
+  scenario: SmokeScenarioName,
+): NodeJS.ProcessEnv {
+  const childEnvironment: NodeJS.ProcessEnv = {
+    ...environment,
+    HVIR_SMOKE_SCENARIO: scenario,
+  }
+  delete childEnvironment.HVIR_SMOKE_REPEAT
+  return childEnvironment
+}
+
 function invokeSmokeScenario(
   scenario: SmokeScenarioName,
-): Promise<Omit<SmokeScenarioResult, 'scenario'>> {
+  iteration: number,
+  repetitionCount: number,
+): Promise<Omit<SmokeScenarioResult, 'scenario' | 'iteration' | 'repetitionCount'>> {
   const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
-  console.log(`[smoke:group] ${scenario} starting`)
+  console.log(
+    `[smoke:group] ${scenario} iteration ${iteration}/${repetitionCount} starting`,
+  )
   return new Promise((resolveResult) => {
     const child = spawn('bash', [join(repositoryRoot, 'scripts/run-smoke.sh')], {
       cwd: repositoryRoot,
-      env: { ...process.env, HVIR_SMOKE_SCENARIO: scenario },
+      env: smokeScenarioEnvironment(process.env, scenario),
       stdio: 'inherit',
     })
     let settled = false
@@ -93,15 +145,16 @@ function invokeSmokeScenario(
 export function formatSmokeScenarioResults(
   results: readonly SmokeScenarioResult[],
 ): string {
+  const repetitionCount = results[0]?.repetitionCount ?? 0
   return [
-    '[smoke:summary]',
+    `[smoke:summary] attempts=${results.length} iterations=${repetitionCount}`,
     ...results.map((result) => {
       const detail =
         result.error ??
         (result.signal
           ? `signal ${result.signal}`
           : `exit ${result.exitCode ?? 'unknown'}`)
-      return `- ${result.scenario}: ${result.status} (${detail})`
+      return `- ${result.scenario} iteration ${result.iteration}/${result.repetitionCount}: ${result.status} (${detail})`
     }),
   ].join('\n')
 }
@@ -111,7 +164,12 @@ async function main(): Promise<void> {
     process.env.HVIR_SMOKE_SCENARIO,
     process.argv.slice(2),
   )
-  const results = await runSmokeScenarioGroups(scenarios, invokeSmokeScenario)
+  const repetitionCount = parseSmokeRepetitionCount(process.env.HVIR_SMOKE_REPEAT)
+  const results = await runSmokeScenarioGroups(
+    scenarios,
+    repetitionCount,
+    invokeSmokeScenario,
+  )
   console.log(formatSmokeScenarioResults(results))
   if (results.some((result) => result.status === 'failed')) process.exitCode = 1
 }
