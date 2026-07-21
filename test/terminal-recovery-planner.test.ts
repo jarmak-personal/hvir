@@ -120,6 +120,35 @@ describe('terminal recovery planner', () => {
     ).toEqual({ action: 'restart' })
   })
 
+  it('reconstructs an exact retained identity for retry after a renderer restart', () => {
+    const integrated = {
+      ...provider,
+      capabilities: {
+        sessionIdentity: 'preassigned' as const,
+        exactResume: true,
+        contextPresentation: 'count' as const,
+      },
+    }
+    const configured = { ...profile, builtIn: false }
+    const exact = { ...record, harnessSessionId: 'exact-retained-id' }
+
+    expect(
+      restoreTerminalSessions(
+        [exact],
+        [integrated],
+        [configured],
+        [],
+        { secondaryIds: [] },
+        true,
+      ).sessions[0],
+    ).toMatchObject({
+      harnessSessionId: 'exact-retained-id',
+      identityStatus: 'identified',
+      resumeOnStart: true,
+      status: 'Ready to resume',
+    })
+  })
+
   it('plans an empty manual selection as discard without inventing a launch', () => {
     expect(
       planManualTerminalRecovery({

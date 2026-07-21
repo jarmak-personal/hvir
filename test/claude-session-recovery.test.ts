@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { claudeResumeAvailability } from '../src/main/harness/claude-session-recovery'
 import {
   claudeCodeProvider,
-  selectHarnessLaunchMode,
+  selectHarnessLaunch,
   type HarnessResumeValidationContext,
 } from '../src/main/harness/harness-provider'
 import { LocalHost } from '../src/main/project-host/local-host'
@@ -48,21 +48,27 @@ describe('Claude Code session recovery', () => {
     await writeFile(transcript, '')
     expect(await claudeResumeAvailability(host, context)).toBe('missing')
     expect(
-      await selectHarnessLaunchMode(host, claudeCodeProvider, 'resume', context),
-    ).toBe('fresh')
+      await selectHarnessLaunch(host, claudeCodeProvider, 'resume', context),
+    ).toEqual({ outcome: 'resume-unavailable', reason: 'artifact-missing' })
 
     await writeFile(transcript, '{}\n')
 
     expect(await claudeResumeAvailability(host, context)).toBe('available')
     expect(
-      await selectHarnessLaunchMode(host, claudeCodeProvider, 'resume', context),
-    ).toBe('resume')
+      await selectHarnessLaunch(host, claudeCodeProvider, 'resume', context),
+    ).toEqual({ outcome: 'launch', mode: 'resume' })
+  })
+
+  it('does not validate or relabel an intentional fresh launch', async () => {
+    await expect(
+      selectHarnessLaunch(host, claudeCodeProvider, 'fresh', context),
+    ).resolves.toEqual({ outcome: 'launch', mode: 'fresh' })
   })
 
   it('fails closed while the profile-qualified artifact root is absent', async () => {
     expect(await claudeResumeAvailability(host, context)).toBe('unknown')
     await expect(
-      selectHarnessLaunchMode(host, claudeCodeProvider, 'resume', context),
+      selectHarnessLaunch(host, claudeCodeProvider, 'resume', context),
     ).rejects.toThrow(/could not be verified/)
   })
 
@@ -75,7 +81,7 @@ describe('Claude Code session recovery', () => {
 
     expect(await claudeResumeAvailability(host, context)).toBe('unknown')
     await expect(
-      selectHarnessLaunchMode(host, claudeCodeProvider, 'resume', context),
+      selectHarnessLaunch(host, claudeCodeProvider, 'resume', context),
     ).rejects.toThrow(/could not be verified/)
   })
 })
