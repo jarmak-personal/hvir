@@ -1,7 +1,7 @@
 {
   "version": 1,
   "baselineCommit": "ea1c157",
-  "extensions": [".ts", ".tsx", ".css"],
+  "extensions": [".ts", ".tsx", ".mts", ".css"],
   "productionRoots": [
     "src/main",
     "src/preload",

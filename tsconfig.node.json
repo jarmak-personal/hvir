@@ -8,6 +8,7 @@
   },
   "include": [
     "src/main/**/*.ts",
+    "src/main/**/*.mts",
     "src/preload/**/*.ts",
     "src/workers/**/*.ts",
     "src/shared/**/*.ts",

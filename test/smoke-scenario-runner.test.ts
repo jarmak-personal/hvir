@@ -12,7 +12,7 @@ import {
 import {
   ELECTRON_SMOKE_SCENARIOS,
   parseElectronSmokeScenario,
-} from '../src/main/smoke/scenario-selection'
+} from '../src/main/smoke/scenario-selection.mts'
 
 describe('Electron smoke scenario selection', () => {
   it('keeps bare direct Electron smoke compatible with the legacy workflow', () => {

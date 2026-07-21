@@ -4,7 +4,7 @@ import { dirname, join, resolve } from 'node:path'
 import {
   parseElectronSmokeScenario,
   type ElectronSmokeScenario,
-} from '../src/main/smoke/scenario-selection.ts'
+} from '../src/main/smoke/scenario-selection.mts'
 
 export const DEFAULT_SMOKE_SCENARIOS = [
   'pty-native',

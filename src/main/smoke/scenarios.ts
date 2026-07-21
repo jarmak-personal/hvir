@@ -3,7 +3,7 @@ import { runNativePtySmoke } from './native-pty'
 import {
   parseElectronSmokeScenario,
   type ElectronSmokeScenario,
-} from './scenario-selection'
+} from './scenario-selection.mts'
 
 export type ElectronSmokeScenarioDependencies = Omit<
   ElectronSmokeDependencies,
