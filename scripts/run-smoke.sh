@@ -2,13 +2,52 @@
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
+source_checkout=$PWD
 
-profile=$(mktemp -d "${TMPDIR:-/tmp}/hvir-smoke-profile.XXXXXX")
+# A smoke launched by a Git hook must not inherit the invoking repository as
+# implicit authority. Every Git process below must discover the temp project.
+while IFS= read -r variable; do
+  if [[ -n "$variable" ]]; then unset "$variable"; fi
+done < <(git -C "$source_checkout" rev-parse --local-env-vars)
+
+temporary_parent=$(cd "${TMPDIR:-/tmp}" && pwd -P)
+invocation_root=$(mktemp -d "$temporary_parent/hvir-smoke.XXXXXX")
+project_root="$invocation_root/repository"
+user_data_root="$invocation_root/user-data"
+
 cleanup() {
-  rm -rf "$profile"
+  if [[ -z "${invocation_root:-}" ]]; then return; fi
+  case "$invocation_root" in
+  "$temporary_parent"/hvir-smoke.*)
+    local cleanup_status=0
+    rm -rf -- "$project_root" || cleanup_status=$?
+    rm -rf -- "$user_data_root" || cleanup_status=$?
+    rmdir -- "$invocation_root" 2>/dev/null || {
+      if [[ -e "$invocation_root" ]]; then cleanup_status=1; fi
+    }
+    if [[ "$cleanup_status" -eq 0 ]]; then invocation_root=''; fi
+    return "$cleanup_status"
+    ;;
+  *)
+    echo "Refusing to clean unexpected smoke root: $invocation_root" >&2
+    return 1
+    ;;
+  esac
 }
 trap cleanup EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
-HVIR_SMOKE=1 ./node_modules/.bin/electron . \
-  --no-sandbox \
-  --user-data-dir="$profile"
+mkdir -p "$user_data_root"
+"$source_checkout/scripts/create-smoke-repository.sh" \
+  "$source_checkout" \
+  "$project_root"
+
+(
+  cd "$project_root"
+  HVIR_SMOKE=1 "$source_checkout/node_modules/.bin/electron" "$source_checkout" \
+    --project-root="$project_root" \
+    --no-sandbox \
+    --user-data-dir="$user_data_root"
+)
