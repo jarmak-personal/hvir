@@ -83,10 +83,10 @@
     },
     {
       "path": "src/main/smoke/index.ts",
-      "maxLines": 2991,
+      "maxLines": 2945,
       "owner": "testing epic #72",
-      "rationale": "The transitional legacy Electron workflow remains production-composed while #113 isolates named native, capacity, and renderer-backed groups and follow-up proving slices remove focused behavior.",
-      "removalIssue": "#113, #115, and #116",
+      "rationale": "The remaining transitional renderer workflow stays production-composed while focused terminal, harness, and viewer contracts move to independently runnable groups.",
+      "removalIssue": "#115 and #116",
       "expiresOn": "2026-09-30"
     }
   ]

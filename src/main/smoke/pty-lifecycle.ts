@@ -2,6 +2,9 @@ import type { Disposer } from '../../shared'
 import type { ManagedPty, PtySupervisor } from '../pty/pty-supervisor'
 
 type PtyLifecycleSupervisor = Pick<PtySupervisor, 'get' | 'kill' | 'onExit'>
+type PtyOutputSupervisor = Pick<PtySupervisor, 'attach' | 'get'>
+
+const MAX_RETAINED_OUTPUT = 4_096
 
 export interface StopPtyOptions {
   readonly supervisor: PtyLifecycleSupervisor
@@ -11,6 +14,95 @@ export interface StopPtyOptions {
   readonly timeoutMs?: number
   readonly diagnosticProbeTimeoutMs?: number
   readonly probeChildLiveness?: (pid: number) => string | Promise<string>
+}
+
+export interface WaitForPtyOutputOptions {
+  readonly supervisor: PtyOutputSupervisor
+  readonly terminal: ManagedPty
+  readonly expected: string
+  readonly scenario: string
+  /** Synchronous action that causes the expected output after attachment. */
+  readonly trigger: () => void
+  readonly timeoutMs?: number
+}
+
+/** Await semantic PTY output through the production stream and retain bounded diagnostics. */
+export async function waitForPtyOutput(
+  options: WaitForPtyOutputOptions,
+): Promise<string> {
+  const { supervisor, terminal, expected, scenario, trigger, timeoutMs = 5_000 } = options
+  const startedAt = Date.now()
+  let retainedOutput = ''
+  let outputCallbackFired = false
+  let disposeOutput: Disposer = () => undefined
+  let primaryFailure: unknown
+  let hasPrimaryFailure = false
+
+  try {
+    const outputEvent = new Promise<void>((resolve, reject) => {
+      let settled = false
+      disposeOutput = supervisor.attach(
+        terminal.id,
+        terminal.ownerId,
+        {
+          onData: (data) => {
+            outputCallbackFired = true
+            const combined = `${retainedOutput}${data}`
+            const matched = combined.includes(expected)
+            retainedOutput = combined.slice(-MAX_RETAINED_OUTPUT)
+            if (matched && !settled) {
+              settled = true
+              resolve()
+            }
+          },
+          onExit: (exit) => {
+            if (settled) return
+            settled = true
+            reject(
+              new Error(
+                `${scenario} exited before expected output (` +
+                  `terminalId=${terminal.id}, pid=${terminal.pid}, ` +
+                  `exitCode=${exit.exitCode}, signal=${exit.signal ?? 'none'}, ` +
+                  `retainedOutput=${JSON.stringify(retainedOutput)})`,
+              ),
+            )
+          },
+        },
+        terminal.ownerGeneration,
+      )
+    })
+
+    trigger()
+    if (!(await eventBeforeDeadline(outputEvent, timeoutMs))) {
+      const elapsedMs = Date.now() - startedAt
+      const supervisorMember = supervisor.get(terminal.id) !== undefined
+      throw new Error(
+        `${scenario} timed out (` +
+          `terminalId=${terminal.id}, pid=${terminal.pid}, elapsedMs=${elapsedMs}, ` +
+          `outputCallbackFired=${outputCallbackFired}, ` +
+          `supervisorMember=${supervisorMember}, ` +
+          `retainedOutput=${JSON.stringify(retainedOutput)})`,
+      )
+    }
+  } catch (reason) {
+    hasPrimaryFailure = true
+    primaryFailure = reason
+  }
+
+  let cleanupFailure: unknown
+  try {
+    await disposeOutput()
+  } catch (reason) {
+    cleanupFailure = reason
+  }
+
+  if (hasPrimaryFailure) throw primaryFailure
+  if (cleanupFailure !== undefined) {
+    throw new Error(`${scenario} output subscription cleanup failed`, {
+      cause: cleanupFailure,
+    })
+  }
+  return retainedOutput
 }
 
 /** Stop a smoke PTY through its production supervisor and await its owning exit event. */

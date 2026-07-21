@@ -1,11 +1,117 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { stopPtyAndWaitForExit } from '../src/main/smoke/pty-lifecycle'
+import type { PtyExit } from '../src/main/project-host'
+import { stopPtyAndWaitForExit, waitForPtyOutput } from '../src/main/smoke/pty-lifecycle'
 import type { ManagedPty, PtySupervisor } from '../src/main/pty/pty-supervisor'
 import { asHarnessProviderId, asHostId, localPath } from '../src/shared'
 
 type ExitCallback = Parameters<PtySupervisor['onExit']>[0]
 type LifecycleSupervisor = Pick<PtySupervisor, 'get' | 'kill' | 'onExit'>
+type OutputSupervisor = Pick<PtySupervisor, 'attach' | 'get'>
+
+describe('smoke PTY output', () => {
+  beforeEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('matches semantic output across chunks and releases its production attachment', async () => {
+    const fixture = outputFixture()
+    const pending = waitForPtyOutput({
+      supervisor: fixture.supervisor,
+      terminal: fixture.terminal,
+      expected: 'hvir-profile-smoke:structured',
+      scenario: 'custom profile PTY output',
+      trigger: () => fixture.order.push('trigger'),
+    })
+
+    expect(fixture.order).toEqual(['attach', 'trigger'])
+    fixture.emitData('hvir-profile-')
+    fixture.emitData('smoke:structured')
+
+    await expect(pending).resolves.toBe('hvir-profile-smoke:structured')
+    expect(fixture.order).toEqual(['attach', 'trigger', 'data', 'data', 'detach'])
+    const handlers = fixture.attach.mock.calls[0]?.[2]
+    expect(fixture.attach).toHaveBeenCalledWith(
+      fixture.terminal.id,
+      fixture.terminal.ownerId,
+      handlers,
+      fixture.terminal.ownerGeneration,
+    )
+    expect(typeof handlers?.onData).toBe('function')
+  })
+
+  it('bounds retained output while reporting the last observed production state', async () => {
+    vi.useFakeTimers()
+    const fixture = outputFixture()
+    fixture.get.mockReturnValue(fixture.terminal)
+    const pending = waitForPtyOutput({
+      supervisor: fixture.supervisor,
+      terminal: fixture.terminal,
+      expected: 'missing-output',
+      scenario: 'custom profile PTY output',
+      trigger: () => fixture.order.push('trigger'),
+      timeoutMs: 20,
+    }).catch((reason: unknown) => reason)
+    fixture.emitData(`discarded-prefix${'x'.repeat(5_000)}`)
+
+    await vi.advanceTimersByTimeAsync(20)
+    const reason = await pending
+
+    expect(reason).toBeInstanceOf(Error)
+    const message = (reason as Error).message
+    expect(message).toContain(
+      'custom profile PTY output timed out ' +
+        '(terminalId=profile-smoke-terminal, pid=9102, elapsedMs=20, ' +
+        'outputCallbackFired=true, supervisorMember=true, retainedOutput="',
+    )
+    expect(message).not.toContain('discarded-prefix')
+    expect(message.length).toBeLessThan(4_500)
+    expect(fixture.disposeOutput).toHaveBeenCalledOnce()
+  })
+
+  it('reports an early production exit without obscuring it with detach failure', async () => {
+    const fixture = outputFixture()
+    fixture.disposeOutput.mockImplementation(() => {
+      throw new Error('detach failed')
+    })
+    const pending = waitForPtyOutput({
+      supervisor: fixture.supervisor,
+      terminal: fixture.terminal,
+      expected: 'hvir-profile-smoke:structured',
+      scenario: 'custom profile PTY output',
+      trigger: () => fixture.order.push('trigger'),
+    })
+    fixture.emitData('partial-output')
+    fixture.emitExit(127, 9)
+
+    await expect(pending).rejects.toThrow(
+      'custom profile PTY output exited before expected output ' +
+        '(terminalId=profile-smoke-terminal, pid=9102, exitCode=127, signal=9, ' +
+        'retainedOutput="partial-output")',
+    )
+    expect(fixture.disposeOutput).toHaveBeenCalledOnce()
+  })
+
+  it('detaches immediately when the subscribed output trigger fails', async () => {
+    const fixture = outputFixture()
+
+    await expect(
+      waitForPtyOutput({
+        supervisor: fixture.supervisor,
+        terminal: fixture.terminal,
+        expected: 'hvir-profile-smoke:structured',
+        scenario: 'custom profile PTY output',
+        trigger: () => {
+          fixture.order.push('trigger')
+          throw new Error('write failed')
+        },
+      }),
+    ).rejects.toThrow('write failed')
+
+    expect(fixture.order).toEqual(['attach', 'trigger', 'detach'])
+    expect(fixture.disposeOutput).toHaveBeenCalledOnce()
+  })
+})
 
 describe('smoke PTY lifecycle', () => {
   beforeEach(() => {
@@ -147,6 +253,48 @@ function lifecycleFixture(): {
     emitExit(info) {
       order.push('exit')
       exitCallback?.(info, { exitCode: 0, signal: undefined })
+    },
+    order,
+  }
+}
+
+function outputFixture(): {
+  readonly supervisor: OutputSupervisor
+  readonly terminal: ManagedPty
+  readonly attach: ReturnType<typeof vi.fn<OutputSupervisor['attach']>>
+  readonly get: ReturnType<typeof vi.fn<OutputSupervisor['get']>>
+  readonly disposeOutput: ReturnType<typeof vi.fn<() => void>>
+  readonly emitData: (data: string) => void
+  readonly emitExit: (exitCode: number, signal?: number) => void
+  readonly order: string[]
+} {
+  const order: string[] = []
+  const terminal = managedPty('profile-smoke-terminal', 9102)
+  const get = vi.fn<OutputSupervisor['get']>()
+  const disposeOutput = vi.fn(() => {
+    order.push('detach')
+  })
+  let onData: ((data: string) => void) | undefined
+  let onExit: ((exit: PtyExit) => void) | undefined
+  const attach = vi.fn<OutputSupervisor['attach']>((_id, _ownerId, handlers) => {
+    order.push('attach')
+    onData = handlers.onData
+    onExit = handlers.onExit
+    return disposeOutput
+  })
+  return {
+    supervisor: { attach, get },
+    terminal,
+    attach,
+    get,
+    disposeOutput,
+    emitData(data) {
+      order.push('data')
+      onData?.(data)
+    },
+    emitExit(exitCode, signal) {
+      order.push('exit')
+      onExit?.({ exitCode, signal })
     },
     order,
   }
