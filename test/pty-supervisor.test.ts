@@ -17,6 +17,7 @@ import { PtySupervisor, type ManagedPty } from '../src/main/pty/pty-supervisor'
 import { SshHost } from '../src/main/project-host'
 import {
   LOCAL_HOST_ID,
+  asHostId,
   asHarnessProviderId,
   contextHarnessSnapshot,
   hostPath,
@@ -366,6 +367,42 @@ describe('PtySupervisor', () => {
 
     supervisor.disposeOwner(OWNER_ID, 4)
     expect(pty.kill).toHaveBeenCalledOnce()
+  })
+
+  it('reassigns workspace ownership without changing the PTY launch cwd', async () => {
+    const { supervisor, host, provider } = fixture()
+    const sourceRoot = localPath('/tmp/project')
+    const targetRoot = localPath('/tmp/project-feature')
+    await supervisor.spawn({
+      host,
+      provider,
+      workspaceRoot: sourceRoot,
+      cwd: sourceRoot,
+      ownerId: OWNER_ID,
+      ownerGeneration: 4,
+      sessionId: 'moved-terminal',
+    })
+
+    const moved = supervisor.reassignWorkspace(
+      'moved-terminal',
+      OWNER_ID,
+      sourceRoot,
+      targetRoot,
+      4,
+    )
+    expect(moved).toMatchObject({ cwd: sourceRoot, workspaceRoot: targetRoot })
+    expect(() =>
+      supervisor.reassignWorkspace('moved-terminal', OWNER_ID, sourceRoot, targetRoot, 4),
+    ).toThrow('no longer belongs to the source workspace')
+    expect(() =>
+      supervisor.reassignWorkspace(
+        'moved-terminal',
+        OWNER_ID,
+        targetRoot,
+        hostPath(asHostId('remote'), '/tmp/project-feature'),
+        4,
+      ),
+    ).toThrow('cannot move to another host')
   })
 
   it('rejects an already-active session id without leaking another PTY', async () => {

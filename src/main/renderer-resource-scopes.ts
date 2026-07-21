@@ -35,9 +35,9 @@ export interface RendererOwnerTransition {
 }
 
 interface ResourceRecord {
-  readonly key: string
+  key: string
   readonly owner: RendererOwner
-  readonly qualifier: RendererResourceQualifier
+  qualifier: RendererResourceQualifier
   readonly dispose: () => void | Promise<void>
   active: boolean
 }
@@ -136,6 +136,41 @@ export class RendererResourceScopes {
     )
     await this.disposeRecords(records)
     return records.length > 0
+  }
+
+  reassignWorkspaceResource(
+    owner: RendererOwner,
+    type: Extract<RendererResourceQualifier, { lifetime: 'workspace' }>['type'],
+    id: string,
+    sourceRoot: HostPath,
+    targetRoot: HostPath,
+  ): void {
+    this.assertCurrent(owner)
+    const currentKey = resourceKey(owner, {
+      lifetime: 'workspace',
+      type,
+      root: sourceRoot,
+      id,
+    })
+    const record = this.resources.get(currentKey)
+    if (!record)
+      throw new Error(`Renderer ${type} resource is not owned by the source workspace`)
+    const qualifier: RendererResourceQualifier = {
+      lifetime: 'workspace',
+      type,
+      root: targetRoot,
+      id,
+    }
+    const nextKey = resourceKey(owner, qualifier)
+    if (this.resources.has(nextKey)) {
+      throw new Error(
+        `Renderer ${type} resource is already registered in the target workspace`,
+      )
+    }
+    this.resources.delete(currentKey)
+    record.key = nextKey
+    record.qualifier = qualifier
+    this.resources.set(nextKey, record)
   }
 
   revokeWorkspace(root: HostPath): Promise<void> {

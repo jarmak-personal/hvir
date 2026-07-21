@@ -43,17 +43,19 @@ interface ProjectRecord {
   readonly registeredRoot: HostPath
   readonly displayName: string
   activeWorkspaceId: string
+  discoveryBaselineEstablished: boolean
   workspaces: WorkspaceRecord[]
 }
 
 interface StoredProjectRegistry {
-  readonly version: 1
+  readonly version: 2
   readonly activeProjectId: string
   readonly projects: readonly {
     readonly hostId: string
     readonly path: string
     readonly displayName: string
     readonly activeWorkspacePath: string
+    readonly discoveryBaselineEstablished: boolean
     readonly workspaces: readonly {
       readonly path: string
       readonly head?: string
@@ -63,11 +65,13 @@ interface StoredProjectRegistry {
       readonly prunableReason?: string
       readonly repository: boolean
       readonly changedFiles: number
+      readonly newlyDiscovered?: boolean
     }[]
   }[]
 }
 
-const PROJECT_REGISTRY_VERSION = 1
+const PROJECT_REGISTRY_VERSION = 2
+const LEGACY_PROJECT_REGISTRY_VERSION = 1
 const MAX_PROJECTS = 100
 const MAX_WORKSPACES = 1_000
 
@@ -374,7 +378,11 @@ export class ProjectRegistry {
     return this.state()
   }
 
-  async activate(projectId: string, workspaceId: string): Promise<ProjectState> {
+  async activate(
+    projectId: string,
+    workspaceId: string,
+    options: { readonly emit?: boolean; readonly acknowledge?: boolean } = {},
+  ): Promise<ProjectState> {
     const project = this.projects.find((candidate) => candidate.id === projectId)
     const workspace = project?.workspaces.find(
       (candidate) => candidate.id === workspaceId,
@@ -385,7 +393,18 @@ export class ProjectRegistry {
     if (host.connectionState !== 'connected') {
       throw new Error(`Connect to ${host.hostId} before opening this workspace`)
     }
+    const previousProjectId = this.activeProjectId
+    const previousActive = this.activeProject
+    const previousWorkspaceId = project.activeWorkspaceId
+    const previousNewState = workspace.newlyDiscovered
     project.activeWorkspaceId = workspace.id
+    if (options.acknowledge !== false && workspace.newlyDiscovered) {
+      project.workspaces = project.workspaces.map((candidate) =>
+        candidate.id === workspace.id
+          ? { ...candidate, newlyDiscovered: false }
+          : candidate,
+      )
+    }
     this.activeProjectId = project.id
     this.activeProject = {
       host,
@@ -393,7 +412,46 @@ export class ProjectRegistry {
       projectId: project.id,
       workspaceId: workspace.id,
     }
-    await this.persist()
+    try {
+      await this.persist()
+    } catch (error) {
+      project.activeWorkspaceId = previousWorkspaceId
+      project.workspaces = project.workspaces.map((candidate) =>
+        candidate.id === workspace.id
+          ? { ...candidate, newlyDiscovered: previousNewState }
+          : candidate,
+      )
+      this.activeProjectId = previousProjectId
+      this.activeProject = previousActive
+      throw error
+    }
+    if (options.emit !== false) this.emitState()
+    return this.state()
+  }
+
+  async acknowledgeWorkspace(
+    projectId: string,
+    workspaceId: string,
+  ): Promise<ProjectState> {
+    const project = this.projects.find((candidate) => candidate.id === projectId)
+    const workspace = project?.workspaces.find(
+      (candidate) => candidate.id === workspaceId,
+    )
+    if (!project || !workspace) throw new Error('Unknown project workspace')
+    if (!workspace.newlyDiscovered) return this.state()
+    project.workspaces = project.workspaces.map((candidate) =>
+      candidate.id === workspaceId ? { ...candidate, newlyDiscovered: false } : candidate,
+    )
+    try {
+      await this.persist()
+    } catch (error) {
+      project.workspaces = project.workspaces.map((candidate) =>
+        candidate.id === workspaceId
+          ? { ...candidate, newlyDiscovered: true }
+          : candidate,
+      )
+      throw error
+    }
     this.emitState()
     return this.state()
   }
@@ -405,6 +463,7 @@ export class ProjectRegistry {
     const project = this.projects.find((candidate) => candidate.id === projectId)
     if (!project) throw new Error('Unknown project')
     const before = workspaceSignature(project.workspaces)
+    const baselineEstablished = project.discoveryBaselineEstablished
     const seen = new Set<string>()
     for (const discovered of discovery.worktrees) {
       if (
@@ -433,6 +492,9 @@ export class ProjectRegistry {
           : {}),
         repository: discovery.repository,
         changedFiles: discovery.repository ? (existing?.changedFiles ?? 0) : 0,
+        newlyDiscovered:
+          existing?.newlyDiscovered ??
+          (baselineEstablished && discovered.prunable !== true),
       }
       if (existing) project.workspaces[project.workspaces.indexOf(existing)] = record
       else project.workspaces.push(record)
@@ -444,13 +506,19 @@ export class ProjectRegistry {
           : { ...workspace, missing: true, prunableReason: undefined },
       )
       .sort(compareWorkspaces)
+    project.discoveryBaselineEstablished = true
     if (
       !project.workspaces.some((workspace) => workspace.id === project.activeWorkspaceId)
     ) {
       project.activeWorkspaceId =
         project.workspaces.find((workspace) => !workspace.missing)?.id ?? ''
     }
-    if (before === workspaceSignature(project.workspaces)) return this.state()
+    if (
+      baselineEstablished === project.discoveryBaselineEstablished &&
+      before === workspaceSignature(project.workspaces)
+    ) {
+      return this.state()
+    }
     await this.persist()
     this.emitState()
     return this.state()
@@ -577,6 +645,7 @@ export class ProjectRegistry {
           hostId: project.registeredRoot.hostId,
           path: project.registeredRoot.path,
           displayName: project.displayName,
+          discoveryBaselineEstablished: project.discoveryBaselineEstablished,
           activeWorkspacePath:
             project.workspaces.find(
               (workspace) => workspace.id === project.activeWorkspaceId,
@@ -590,6 +659,7 @@ export class ProjectRegistry {
             prunableReason: workspace.prunableReason,
             repository: workspace.repository,
             changedFiles: workspace.changedFiles,
+            newlyDiscovered: workspace.newlyDiscovered,
           })),
         })),
       }
@@ -846,6 +916,7 @@ function createProject(root: HostPath): ProjectRecord {
     registeredRoot: root,
     displayName: basenameHostPath(root) || root.path,
     activeWorkspaceId: workspace.id,
+    discoveryBaselineEstablished: false,
     workspaces: [workspace],
   }
 }
@@ -874,6 +945,7 @@ function workspaceSignature(workspaces: readonly WorkspaceRecord[]): string {
         prunableReason,
         repository,
         changedFiles,
+        newlyDiscovered,
       }) => ({
         id,
         head,
@@ -883,6 +955,7 @@ function workspaceSignature(workspaces: readonly WorkspaceRecord[]): string {
         prunableReason,
         repository,
         changedFiles,
+        newlyDiscovered,
       }),
     ),
   )
@@ -897,7 +970,8 @@ async function loadProjects(
     if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined
     const stored = value as Record<string, unknown>
     if (
-      stored['version'] !== PROJECT_REGISTRY_VERSION ||
+      (stored['version'] !== PROJECT_REGISTRY_VERSION &&
+        stored['version'] !== LEGACY_PROJECT_REGISTRY_VERSION) ||
       !Array.isArray(stored['projects']) ||
       stored['projects'].length === 0 ||
       stored['projects'].length > MAX_PROJECTS
@@ -913,6 +987,7 @@ async function loadProjects(
       const hostId = item['hostId']
       const path = item['path']
       const displayName = item['displayName']
+      const discoveryBaselineEstablished = item['discoveryBaselineEstablished'] === true
       const rawWorkspaces = item['workspaces']
       if (
         typeof hostId !== 'string' ||
@@ -973,6 +1048,7 @@ async function loadProjects(
             workspace['changedFiles'] >= 0
               ? workspace['changedFiles']
               : 0,
+          newlyDiscovered: workspace['newlyDiscovered'] === true,
         })
         workspaceCount++
       }
@@ -987,6 +1063,10 @@ async function loadProjects(
         registeredRoot: root,
         displayName,
         activeWorkspaceId: activeWorkspace?.id ?? workspaces[0]!.id,
+        discoveryBaselineEstablished:
+          discoveryBaselineEstablished ||
+          (stored['version'] === LEGACY_PROJECT_REGISTRY_VERSION &&
+            workspaces.some((workspace) => workspace.repository)),
         workspaces: workspaces.sort(compareWorkspaces),
       })
     }

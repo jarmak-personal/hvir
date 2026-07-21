@@ -274,6 +274,76 @@ describe('WebPaneRouteRegistry', () => {
     await routes.closeAll()
   })
 
+  it('lists and closes only the routes sourced by one terminal generation', async () => {
+    const { routes } = registry()
+    const first = await open(routes, 'http://localhost:5173/', {
+      ownerGeneration: 2,
+    })
+    const second = await open(routes, 'http://localhost:5174/', {
+      ownerGeneration: 2,
+    })
+    const other = await open(routes, 'http://localhost:5175/', {
+      ownerGeneration: 2,
+      terminalId: 'terminal-2',
+    })
+
+    expect(routes.paneIdsForTerminal('terminal-1', 41, 2, root)).toEqual(
+      [first.paneId, second.paneId].sort(),
+    )
+    await routes.closeTerminal('terminal-1', 41, 2)
+    expect(routes.has(first.paneId, 41, 2)).toBe(false)
+    expect(routes.has(second.paneId, 41, 2)).toBe(false)
+    expect(routes.has(other.paneId, 41, 2)).toBe(true)
+    await routes.closeAll()
+  })
+
+  it('revokes a late open when its source terminal begins moving', async () => {
+    let finishPreparation: ((dispose: () => Promise<void>) => void) | undefined
+    const prepared = new Promise<() => Promise<void>>((resolve) => {
+      finishPreparation = resolve
+    })
+    const disposeSession = vi.fn(() => Promise.resolve())
+    const routes = new WebPaneRouteRegistry({
+      prepareSession: () => prepared,
+      destroyGuest: vi.fn(),
+    })
+
+    const opening = open(routes, 'http://localhost:5173/', {
+      ownerGeneration: 2,
+    })
+    await vi.waitFor(() => expect(finishPreparation).toBeTypeOf('function'))
+    expect(routes.hasPendingForTerminal('terminal-1', 41, 2)).toBe(true)
+    await routes.closeTerminal('terminal-1', 41, 2)
+    finishPreparation!(disposeSession)
+
+    await expect(opening).rejects.toThrow('revoked while opening')
+    expect(disposeSession).toHaveBeenCalledOnce()
+    expect(routes.hasPendingForTerminal('terminal-1', 41, 2)).toBe(false)
+  })
+
+  it('blocks new routes behind an exact terminal-move authority lease', async () => {
+    const { routes } = registry()
+    const existing = await open(routes, 'http://localhost:5173/', {
+      ownerGeneration: 2,
+    })
+    const release = routes.blockTerminalMove('terminal-1', 41, 2, root, [existing.paneId])
+
+    await expect(
+      open(routes, 'http://localhost:5173/reused', { ownerGeneration: 2 }),
+    ).rejects.toThrow('authority is moving')
+    await expect(
+      open(routes, 'http://localhost:5174/', { ownerGeneration: 2 }),
+    ).rejects.toThrow('authority is moving')
+    release()
+    await expect(
+      open(routes, 'http://localhost:5174/', { ownerGeneration: 2 }),
+    ).resolves.toMatchObject({ origin: 'http://localhost:5174' })
+    expect(() =>
+      routes.blockTerminalMove('terminal-1', 41, 2, root, ['stale-pane']),
+    ).toThrow('authority changed')
+    await routes.closeAll()
+  })
+
   it('refuses host capacity without silently evicting an existing pane', async () => {
     const { routes } = registry()
     try {

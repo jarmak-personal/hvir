@@ -11,6 +11,7 @@ import type { TerminalThemeOverride } from '../settings/settings'
 import type { TerminalLinkActivation } from './terminal-pane'
 import { TerminalView } from './TerminalView'
 import type { TerminalSession } from './terminal-workspace-model'
+import type { TerminalRuntimeRegistry } from './terminal-runtime'
 
 export function TerminalDeck({
   deckRef,
@@ -38,6 +39,7 @@ export function TerminalDeck({
   onLink,
   onSetPrimaryWidth,
   onResetPrimaryWidth,
+  runtimes,
 }: {
   readonly deckRef: RefObject<HTMLDivElement | null>
   readonly label: string
@@ -67,6 +69,7 @@ export function TerminalDeck({
   readonly onLink: (session: TerminalSession, activation: TerminalLinkActivation) => void
   readonly onSetPrimaryWidth: (width: number) => void
   readonly onResetPrimaryWidth: () => void
+  readonly runtimes: TerminalRuntimeRegistry
 }): ReactElement {
   const style = primaryWidth
     ? ({ '--terminal-primary-track': `${primaryWidth}px` } as CSSProperties)
@@ -115,12 +118,12 @@ export function TerminalDeck({
             }
             active={visible && session.id === activeId}
             modifiedKeyProtocol={provider.terminalInput.modifiedKeyProtocol}
-            metaEnterAliasesControl={
-              provider.terminalInput.metaEnterAliasesControl
-            }
+            metaEnterAliasesControl={provider.terminalInput.metaEnterAliasesControl}
             themeOverride={terminalTheme}
             composerSubmitMode={composerSubmitMode}
-            cwd={workspaceRoot}
+            cwd={session.cwd}
+            workspaceRoot={workspaceRoot}
+            runtimes={runtimes}
             connectionState={connectionState}
             onTitle={(title) =>
               onUpdateSession(session.id, (current) => ({ ...current, title }))

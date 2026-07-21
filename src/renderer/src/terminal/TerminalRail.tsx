@@ -5,6 +5,7 @@ import type {
   HarnessProfileProbe,
   HarnessProviderDescriptor,
   HarnessProviderId,
+  WorkspaceState,
 } from '../../../shared'
 import { terminalAttentionLabel } from './terminal-attention'
 import {
@@ -27,6 +28,8 @@ export function TerminalRail({
   recoveryReady,
   available,
   menuOpen,
+  moveMenuOpen,
+  moveTargets,
   launchMenuEntries,
   checkingHiddenProfiles,
   split,
@@ -37,6 +40,9 @@ export function TerminalRail({
   onSplit,
   onOpenSettings,
   onToggleMenu,
+  onToggleMoveMenu,
+  onPlanMove,
+  onDismissNewTargets,
   onAddSession,
   onAddHarness,
   onRefreshProbes,
@@ -51,6 +57,8 @@ export function TerminalRail({
   readonly recoveryReady: boolean
   readonly available: boolean
   readonly menuOpen: boolean
+  readonly moveMenuOpen: boolean
+  readonly moveTargets: readonly WorkspaceState[]
   readonly launchMenuEntries: readonly TerminalLaunchMenuEntry[]
   readonly checkingHiddenProfiles: boolean
   readonly split: boolean
@@ -61,6 +69,9 @@ export function TerminalRail({
   readonly onSplit: () => void
   readonly onOpenSettings: () => void
   readonly onToggleMenu: () => void
+  readonly onToggleMoveMenu: () => void
+  readonly onPlanMove: (target: WorkspaceState) => void
+  readonly onDismissNewTargets: () => void
   readonly onAddSession: (profile: HarnessProfile) => void
   readonly onAddHarness: () => void
   readonly onRefreshProbes: () => void
@@ -79,6 +90,61 @@ export function TerminalRail({
       <header className="terminal-rail-header">
         <span>Terminals</span>
         <div className="terminal-header-actions">
+          <div className="terminal-move-control">
+            <button
+              type="button"
+              className={`terminal-icon-button terminal-workspace-move-button${moveTargets.some((target) => target.newlyDiscovered) ? ' has-new-target' : ''}`}
+              aria-label={
+                moveTargets.some((target) => target.newlyDiscovered)
+                  ? 'Move terminal, new worktree available'
+                  : 'Move terminal to another worktree'
+              }
+              title="Move active terminal to another worktree"
+              aria-haspopup="menu"
+              aria-expanded={moveMenuOpen}
+              disabled={
+                !recoveryReady || !available || !activeId || moveTargets.length === 0
+              }
+              onClick={onToggleMoveMenu}
+            >
+              ⇱
+              {moveTargets.some((target) => target.newlyDiscovered) ? (
+                <span className="terminal-new-worktree-badge">new</span>
+              ) : null}
+            </button>
+            {moveMenuOpen && activeId ? (
+              <div className="terminal-move-menu" role="menu">
+                <p>
+                  Move{' '}
+                  <strong>
+                    {sessions.find((session) => session.id === activeId)?.title}
+                  </strong>{' '}
+                  from {label}
+                </p>
+                {moveTargets.map((target) => (
+                  <button
+                    key={target.id}
+                    type="button"
+                    role="menuitem"
+                    onClick={() => onPlanMove(target)}
+                  >
+                    <span>
+                      <strong>{target.name}</strong>
+                      {target.newlyDiscovered ? <em>New</em> : null}
+                    </span>
+                    <small>{target.root.path}</small>
+                  </button>
+                ))}
+                {moveTargets.some((target) => target.newlyDiscovered) ? (
+                  <div className="terminal-move-menu-actions">
+                    <button type="button" role="menuitem" onClick={onDismissNewTargets}>
+                      Dismiss new-worktree indicator
+                    </button>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
           <button
             type="button"
             className="terminal-icon-button terminal-split-button"

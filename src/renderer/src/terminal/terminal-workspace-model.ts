@@ -30,6 +30,8 @@ export interface TerminalSession {
   readonly identityStatus?: TerminalIdentityStatus
   readonly resumeOnStart: boolean
   readonly pane: TerminalSplitPane
+  /** Immutable provider launch/recovery context. */
+  readonly cwd: HostPath
 }
 
 export interface TerminalWorkspaceModel {
@@ -133,6 +135,7 @@ export function createTerminalSession(
     status: 'Starting…',
     resumeOnStart: false,
     pane,
+    cwd,
   }
 }
 

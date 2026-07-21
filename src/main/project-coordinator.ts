@@ -19,6 +19,7 @@ export interface ProjectRegistryPort {
   activate(projectId: string, workspaceId: string): Promise<ProjectState>
   closeProject(projectId: string): Promise<ProjectState>
   dismissWorkspace(projectId: string, workspaceId: string): Promise<ProjectState>
+  acknowledgeWorkspace(projectId: string, workspaceId: string): Promise<ProjectState>
 }
 
 export interface ProjectWorkspacePort {
@@ -214,6 +215,12 @@ export class ProjectCoordinator {
       }
       return state
     })
+  }
+
+  acknowledgeWorkspace(projectId: string, workspaceId: string): Promise<ProjectState> {
+    return this.options.workspaces.serialize(() =>
+      this.options.registry.acknowledgeWorkspace(projectId, workspaceId),
+    )
   }
 
   private beginTransition(): Transition {

@@ -31,6 +31,8 @@ export interface WorkspaceState {
   readonly prunableReason?: string
   readonly repository: boolean
   readonly changedFiles: number
+  /** Successful discovery found this worktree after the project's baseline. */
+  readonly newlyDiscovered?: boolean
 }
 
 /** A registered project owns discovered worktree workspaces. */

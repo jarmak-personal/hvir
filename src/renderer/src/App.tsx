@@ -19,6 +19,7 @@ import type { WebViewState } from './dashboards/WebPane'
 import { WebPaneStack } from './dashboards/WebPaneStack'
 import { useWebPaneWorkspace } from './dashboards/use-web-pane-workspace'
 import { TerminalWorkspace } from './terminal/TerminalWorkspace'
+import { useTerminalWorkspaceRuntime } from './terminal/use-terminal-workspace-runtime'
 import { useTerminalAttention } from './terminal/use-terminal-attention'
 import { ProjectsBar } from './workspaces/ProjectsBar'
 import { MissingWorkspaceNotice } from './workspaces/MissingWorkspaceNotice'
@@ -115,6 +116,7 @@ export function App(): ReactElement {
     openLink: openWebLink,
     activateView: activateWebView,
     closeView: closeWebView,
+    forgetTerminalViews,
     followBlockedNavigation,
     setTitle: setWebViewTitle,
     openBrowser: openWebViewInBrowser,
@@ -161,6 +163,13 @@ export function App(): ReactElement {
     openPaths: openWatchPaths,
   })
   const gitEnabled = workspaceGitEnabled(activeWorkspace)
+  const terminalWorkspaces = useTerminalWorkspaceRuntime({
+    projectState,
+    acceptProjectState: session.acceptProjectState,
+    forgetWebViews: forgetTerminalViews,
+    acknowledgeWorkspaces: session.acknowledgeWorkspaces,
+    onError: session.reportError,
+  })
 
   const layout = useWorkbenchLayout({
     root,
@@ -614,6 +623,7 @@ export function App(): ReactElement {
               available={!workspace.missing}
               visible={workspace.id === projectState.activeWorkspaceId}
               connectionState={project.connectionState}
+              {...terminalWorkspaces.moveProps(project, workspace)}
               onRollup={terminalAttention.updateRollup}
               onOpenPath={(target) =>
                 openFile(

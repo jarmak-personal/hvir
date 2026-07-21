@@ -228,6 +228,27 @@ export function useWebPaneWorkspace({
     }
   }, [])
 
+  const forgetTerminalViews = useCallback((terminalId: string): void => {
+    const removed = new Set(
+      viewsRef.current
+        .filter((view) => view.sourceTerminalId === terminalId)
+        .map((view) => view.id),
+    )
+    if (removed.size === 0) return
+    const remaining = viewsRef.current.filter((view) => !removed.has(view.id))
+    setViews(remaining)
+    if (activeIdRef.current && removed.has(activeIdRef.current)) {
+      const fallback = remaining
+        .filter(
+          (view) =>
+            rootRef.current && hostPathEquals(view.workspaceRoot, rootRef.current),
+        )
+        .at(-1)
+      setActiveId(fallback?.id)
+      if (!fallback) setActive(false)
+    }
+  }, [])
+
   const setWorkspaceRoot = useCallback((root: HostPath): void => {
     rootRef.current = root
   }, [])
@@ -262,6 +283,7 @@ export function useWebPaneWorkspace({
     openLink,
     activateView,
     closeView,
+    forgetTerminalViews,
     followBlockedNavigation,
     setTitle,
     openBrowser,

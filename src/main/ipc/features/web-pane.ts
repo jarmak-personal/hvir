@@ -36,7 +36,7 @@ export function registerWebPaneIpc(ipc: IpcRegistrar, deps: WebPaneIpcDeps): voi
           terminal.ownerId !== owner.id ||
           terminal.ownerGeneration !== owner.generation ||
           terminal.hostId !== root.hostId ||
-          !hostPathEquals(terminal.cwd, root)
+          !hostPathEquals(terminal.workspaceRoot, root)
         ) {
           throw new Error('Web pane source terminal is not live in this workspace')
         }

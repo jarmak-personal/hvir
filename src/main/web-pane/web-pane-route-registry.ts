@@ -77,6 +77,9 @@ export class WebPaneRouteRegistry {
   private readonly ownerAllGenerations = new Map<number, number>()
   private readonly ownerGenerations = new Map<string, number>()
   private readonly workspaceGenerations = new Map<string, number>()
+  private readonly terminalGenerations = new Map<string, number>()
+  private readonly pendingTerminalCounts = new Map<string, number>()
+  private readonly movingTerminals = new Set<string>()
   private globalGeneration = 0
 
   constructor(private readonly options: WebPaneRouteRegistryOptions) {}
@@ -88,6 +91,14 @@ export class WebPaneRouteRegistry {
       throw new Error('Web pane host does not own its workspace')
     }
     const ownerGeneration = request.ownerGeneration ?? 0
+    const terminalKey = sourceTerminalKey(
+      request.ownerId,
+      ownerGeneration,
+      request.sourceTerminalId,
+    )
+    if (this.movingTerminals.has(terminalKey)) {
+      throw new Error('Terminal web-pane authority is moving')
+    }
     const key = routeKey(
       request.ownerId,
       ownerGeneration,
@@ -125,6 +136,7 @@ export class WebPaneRouteRegistry {
     const ownerAllGeneration = this.ownerAllGeneration(request.ownerId)
     const workspaceKey = hostPathKey(request.workspaceRoot)
     const workspaceGeneration = this.workspaceGeneration(workspaceKey)
+    const terminalGeneration = this.terminalGeneration(terminalKey)
     const globalGeneration = this.globalGeneration
     const create = this.createEntry(request, target).then(async (entry) => {
       if (
@@ -132,7 +144,8 @@ export class WebPaneRouteRegistry {
         ownerRevocationGeneration !==
           this.ownerGeneration(request.ownerId, ownerGeneration) ||
         ownerAllGeneration !== this.ownerAllGeneration(request.ownerId) ||
-        workspaceGeneration !== this.workspaceGeneration(workspaceKey)
+        workspaceGeneration !== this.workspaceGeneration(workspaceKey) ||
+        terminalGeneration !== this.terminalGeneration(terminalKey)
       ) {
         await disposeEntry(entry, this.options.destroyGuest)
         throw new Error('Web pane was revoked while opening')
@@ -141,11 +154,21 @@ export class WebPaneRouteRegistry {
       return entry
     })
     this.pending.set(key, create)
+    this.pendingTerminalCounts.set(
+      terminalKey,
+      (this.pendingTerminalCounts.get(terminalKey) ?? 0) + 1,
+    )
     this.pendingHostCounts.set(request.host.hostId, pendingHostCount + 1)
     try {
       return publicRoute(await create, target.url)
     } finally {
       this.pending.delete(key)
+      const terminalPending = (this.pendingTerminalCounts.get(terminalKey) ?? 1) - 1
+      if (terminalPending > 0) {
+        this.pendingTerminalCounts.set(terminalKey, terminalPending)
+      } else {
+        this.pendingTerminalCounts.delete(terminalKey)
+      }
       const remaining = (this.pendingHostCounts.get(request.host.hostId) ?? 1) - 1
       if (remaining > 0) this.pendingHostCounts.set(request.host.hostId, remaining)
       else this.pendingHostCounts.delete(request.host.hostId)
@@ -301,8 +324,79 @@ export class WebPaneRouteRegistry {
     await this.closeWhere((entry) => hostPathEquals(entry.workspaceRoot, root))
   }
 
+  blockTerminalMove(
+    terminalId: string,
+    ownerId: number,
+    ownerGeneration: number,
+    workspaceRoot: HostPath,
+    expectedPaneIds: readonly string[],
+  ): () => void {
+    const key = sourceTerminalKey(ownerId, ownerGeneration, terminalId)
+    if (this.movingTerminals.has(key)) throw new Error('Terminal is already moving')
+    if (this.hasPendingForTerminal(terminalId, ownerId, ownerGeneration)) {
+      throw new Error('A web pane is still opening; wait for it to finish before moving')
+    }
+    const current = this.paneIdsForTerminal(
+      terminalId,
+      ownerId,
+      ownerGeneration,
+      workspaceRoot,
+    )
+    if (!samePaneIds(current, expectedPaneIds)) {
+      throw new Error('Web pane authority changed; review the move again')
+    }
+    this.movingTerminals.add(key)
+    return () => this.movingTerminals.delete(key)
+  }
+
+  paneIdsForTerminal(
+    terminalId: string,
+    ownerId: number,
+    ownerGeneration: number,
+    workspaceRoot: HostPath,
+  ): readonly string[] {
+    return [...this.entries.values()]
+      .filter(
+        (entry) =>
+          entry.ownerId === ownerId &&
+          entry.ownerGeneration === ownerGeneration &&
+          entry.sourceTerminalId === terminalId &&
+          hostPathEquals(entry.workspaceRoot, workspaceRoot),
+      )
+      .map((entry) => entry.paneId)
+      .sort()
+  }
+
+  hasPendingForTerminal(
+    terminalId: string,
+    ownerId: number,
+    ownerGeneration: number,
+  ): boolean {
+    return (
+      (this.pendingTerminalCounts.get(
+        sourceTerminalKey(ownerId, ownerGeneration, terminalId),
+      ) ?? 0) > 0
+    )
+  }
+
+  async closeTerminal(
+    terminalId: string,
+    ownerId: number,
+    ownerGeneration: number,
+  ): Promise<void> {
+    const key = sourceTerminalKey(ownerId, ownerGeneration, terminalId)
+    this.terminalGenerations.set(key, this.terminalGeneration(key) + 1)
+    await this.closeWhere(
+      (entry) =>
+        entry.ownerId === ownerId &&
+        entry.ownerGeneration === ownerGeneration &&
+        entry.sourceTerminalId === terminalId,
+    )
+  }
+
   async closeAll(): Promise<void> {
     this.globalGeneration++
+    this.movingTerminals.clear()
     await Promise.allSettled([...this.pending.values()])
     await this.closeWhere(() => true)
   }
@@ -391,6 +485,10 @@ export class WebPaneRouteRegistry {
     return this.workspaceGenerations.get(key) ?? 0
   }
 
+  private terminalGeneration(key: string): number {
+    return this.terminalGenerations.get(key) ?? 0
+  }
+
   private async closeWhere(
     predicate: (entry: WebPaneRouteEntry) => boolean,
   ): Promise<void> {
@@ -451,6 +549,20 @@ function routeKey(
 
 function ownerKey(ownerId: number, ownerGeneration: number): string {
   return `${ownerId}:${ownerGeneration}`
+}
+
+function sourceTerminalKey(
+  ownerId: number,
+  ownerGeneration: number,
+  terminalId: string,
+): string {
+  return `${ownerId}:${ownerGeneration}:${terminalId}`
+}
+
+function samePaneIds(left: readonly string[], right: readonly string[]): boolean {
+  if (left.length !== right.length) return false
+  const expected = [...right].sort()
+  return [...left].sort().every((value, index) => value === expected[index])
 }
 
 function hostPathKey(root: HostPath): string {

@@ -10,13 +10,14 @@
 
 import { randomUUID } from 'node:crypto'
 
-import type {
-  HarnessTelemetry,
-  HarnessProviderId,
-  HarnessProviderCapabilities,
-  HostId,
-  HostPath,
-  TerminalIdentityStatus,
+import {
+  hostPathEquals,
+  type HarnessTelemetry,
+  type HarnessProviderId,
+  type HarnessProviderCapabilities,
+  type HostId,
+  type HostPath,
+  type TerminalIdentityStatus,
 } from '../../shared'
 import type { Disposer, ProjectHost, PtyExit, PtyProcess } from '../project-host'
 import type {
@@ -35,6 +36,8 @@ export interface PtySpawnRequest {
   readonly artifact?: HarnessArtifactContext
   readonly effectiveCapabilities?: HarnessProviderCapabilities
   readonly cwd: HostPath
+  /** Mutable presentation/authority owner; launch cwd remains immutable. */
+  readonly workspaceRoot?: HostPath
   /** Electron webContents id that owns and may control this PTY. */
   readonly ownerId: number
   /** Main-owned document generation for the renderer attachment. */
@@ -58,6 +61,7 @@ export interface ManagedPty {
   readonly ownerGeneration: number
   readonly hostId: HostId
   readonly cwd: HostPath
+  readonly workspaceRoot: HostPath
   readonly providerId: HarnessProviderId
   readonly capabilities: HarnessProviderCapabilities
   readonly pid: number
@@ -250,6 +254,7 @@ export class PtySupervisor {
       ownerGeneration: req.ownerGeneration ?? 0,
       hostId: req.host.hostId,
       cwd: req.cwd,
+      workspaceRoot: req.workspaceRoot ?? req.cwd,
       providerId: req.provider.manifest.id,
       capabilities: effectiveCapabilities,
       pid: pty.pid,
@@ -404,6 +409,27 @@ export class PtySupervisor {
 
   get(id: string): ManagedPty | undefined {
     return this.entries.get(id)?.info
+  }
+
+  reassignWorkspace(
+    id: string,
+    ownerId: number,
+    sourceRoot: HostPath,
+    targetRoot: HostPath,
+    ownerGeneration?: number,
+  ): ManagedPty {
+    const entry = this.requireOwned(id, ownerId, ownerGeneration)
+    if (!hostPathEquals(entry.info.workspaceRoot, sourceRoot)) {
+      throw new Error('PTY no longer belongs to the source workspace')
+    }
+    if (
+      sourceRoot.hostId !== targetRoot.hostId ||
+      entry.info.hostId !== targetRoot.hostId
+    ) {
+      throw new Error('PTY cannot move to another host')
+    }
+    entry.info = { ...entry.info, workspaceRoot: targetRoot }
+    return entry.info
   }
 
   list(): ManagedPty[] {

@@ -3,6 +3,7 @@ import { resolveHarnessLaunch } from '../../harness/harness-launch'
 import { harnessProvider, selectHarnessLaunchMode } from '../../harness/harness-provider'
 import type { IpcRegistrar } from '../authority-router'
 import type { IpcDeps } from '../deps'
+import { operationResult } from '../operation-result'
 
 type TerminalIpcDeps = Pick<
   IpcDeps,
@@ -12,6 +13,7 @@ type TerminalIpcDeps = Pick<
   | 'harnessProbes'
   | 'rendererResources'
   | 'ptySupervisor'
+  | 'terminalMoves'
 >
 
 export function registerTerminalIpc(ipc: IpcRegistrar, deps: TerminalIpcDeps): void {
@@ -54,6 +56,14 @@ export function registerTerminalIpc(ipc: IpcRegistrar, deps: TerminalIpcDeps): v
     await deps.terminalSessions.forget(root, req.id)
   })
 
+  ipc.handle('terminal:plan-move', (req, context) =>
+    operationResult(() => Promise.resolve(deps.terminalMoves.plan(req, context.owner()))),
+  )
+
+  ipc.handle('terminal:move', (req, context) =>
+    operationResult(() => deps.terminalMoves.move(req, context.owner())),
+  )
+
   ipc.handle('terminal:rebind-profile', async (req) => {
     const root = ipc.authority.workspaceRoot(req.root)
     const projectRoot = ipc.authority.projectRoot(root)
@@ -81,7 +91,7 @@ export function registerTerminalIpc(ipc: IpcRegistrar, deps: TerminalIpcDeps): v
       launchRevision: profile.launchRevision,
       riskAcknowledgedRevision:
         profile.risk === 'standard' ? undefined : profile.launchRevision,
-      projectRoot: root,
+      workspaceRoot: root,
     })
   })
 
@@ -90,7 +100,13 @@ export function registerTerminalIpc(ipc: IpcRegistrar, deps: TerminalIpcDeps): v
     const owner = context.owner()
     const { root, host } = deps.getProject()
     const projectRoot = ipc.authority.projectRoot(root)
-    const cwd = await ipc.authority.projectPath(req.cwd, root, host)
+    const cwd = ipc.authority.workspaceRoot(req.cwd)
+    if (
+      cwd.hostId !== root.hostId ||
+      !hostPathEquals(ipc.authority.projectRoot(cwd), projectRoot)
+    ) {
+      throw new Error('Terminal launch context belongs to another project')
+    }
     const cols = terminalDimension(req.cols)
     const rows = terminalDimension(req.rows)
     const profile = deps.harnessProfiles.get(req.profileId)
@@ -141,7 +157,7 @@ export function registerTerminalIpc(ipc: IpcRegistrar, deps: TerminalIpcDeps): v
           profileId: profile.id,
           launchRevision: profile.launchRevision,
           harnessSessionId: req.harnessSessionId,
-          projectRoot: root,
+          workspaceRoot: root,
           cwd,
         })
       ) {
@@ -212,6 +228,7 @@ export function registerTerminalIpc(ipc: IpcRegistrar, deps: TerminalIpcDeps): v
         artifact: resolved.artifact,
         effectiveCapabilities,
         cwd,
+        workspaceRoot: root,
         ownerId: owner.id,
         ownerGeneration: owner.generation,
         sessionId: req.sessionId,
@@ -262,7 +279,7 @@ export function registerTerminalIpc(ipc: IpcRegistrar, deps: TerminalIpcDeps): v
           profile.risk === 'standard' ? undefined : profile.launchRevision,
         artifactIdentity: resolved.artifactIdentity,
         harnessSessionId: managed.harnessSessionId,
-        projectRoot: root,
+        workspaceRoot: root,
         cwd,
         title: req.title,
         position: req.position,

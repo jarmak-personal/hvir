@@ -59,6 +59,8 @@ export interface TerminalPaneEvents {
 export interface TerminalPane {
   /** Attach the pane to a DOM container and begin rendering. */
   mount(container: HTMLElement): void
+  /** Move the retained render surface without resetting its VT buffer. */
+  reparent(container: HTMLElement): void
   /** Tear down, releasing the render surface and all listeners. */
   dispose(): void
   /** Write PTY output into the pane. */

@@ -9,6 +9,7 @@ const expectedOrder = [
   'shell.css',
   'viewer-tabs.css',
   'terminal-shell.css',
+  'terminal-move.css',
   'settings.css',
   'composer-submit.css',
   'terminal-list.css',

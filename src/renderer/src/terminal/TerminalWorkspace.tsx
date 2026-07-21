@@ -8,11 +8,11 @@ import {
 } from 'react'
 import {
   type HarnessProviderDescriptor,
-  type HarnessProfile,
-  type HarnessProfileId,
   type HostConnectionState,
   type HostPath,
   type HarnessProviderId,
+  type MoveTerminalResponse,
+  type WorkspaceState,
 } from '../../../shared'
 import { fitSplitPrimaryWidth } from '../layout/split-layout-policy'
 import type { TerminalPreferences } from '../settings/settings'
@@ -22,20 +22,16 @@ import {
   resolveTerminalFileTarget,
   type ResolvedTerminalFileTarget,
 } from './terminal-file-link'
-import { HarnessRiskDialog } from './HarnessRiskDialog'
 import { TerminalDeck } from './TerminalDeck'
 import { TerminalRail } from './TerminalRail'
-import { TerminalRecoveryDialog } from './TerminalRecoveryDialog'
-import { profileRiskAcknowledged } from './terminal-profile-recovery'
+import { TerminalWorkspaceDialogs } from './TerminalWorkspaceDialogs'
 import { profileProbe, terminalProbeMemory } from './terminal-probe-policy'
 import {
   readTerminalSplitLayout,
   writeTerminalSplitLayout,
 } from './terminal-split-persistence'
 import {
-  createTerminalSession,
   initialTerminalWorkspaceModel,
-  nextTerminalSplitPane,
   terminalPaneActiveId,
   terminalWorkspaceReducer,
   terminalWorkspaceSplit,
@@ -50,6 +46,12 @@ import { useTerminalProfiles } from './use-terminal-profiles'
 import { useTerminalPersistence } from './use-terminal-persistence'
 import { useTerminalRecovery } from './use-terminal-recovery'
 import { harnessLaunchMenuState } from './harness-launch-menu'
+import type { TerminalRuntimeRegistry } from './terminal-runtime'
+import {
+  useTerminalWorkspaceMove,
+  type TerminalWorkspaceController,
+} from './use-terminal-workspace-move'
+import { useTerminalSessionCommands } from './use-terminal-session-commands'
 
 interface TerminalWorkspaceProps {
   readonly cwd: HostPath
@@ -69,6 +71,20 @@ interface TerminalWorkspaceProps {
   readonly onOpenSettings: () => void
   readonly onOpenHarnessSettings: () => void
   readonly onAddHarness: () => void
+  readonly runtimes: TerminalRuntimeRegistry
+  readonly moveTargets: readonly WorkspaceState[]
+  readonly onController: (
+    workspaceId: string,
+    controller: TerminalWorkspaceController | undefined,
+  ) => void
+  readonly onTerminalMoved: (
+    sessionId: string,
+    sourceWorkspaceId: string,
+    targetWorkspaceId: string,
+    response: MoveTerminalResponse,
+  ) => void
+  readonly onAcknowledgeMoveTargets: (workspaceIds: readonly string[]) => Promise<void>
+  readonly onError: (message: string) => void
 }
 
 export interface TerminalWorkspaceRollup {
@@ -90,6 +106,12 @@ export function TerminalWorkspace({
   onOpenSettings,
   onOpenHarnessSettings,
   onAddHarness,
+  runtimes,
+  moveTargets,
+  onController,
+  onTerminalMoved,
+  onAcknowledgeMoveTargets,
+  onError,
 }: TerminalWorkspaceProps): ReactElement {
   const appTheme = useAppTheme()
   const effectiveTerminalTheme =
@@ -125,7 +147,6 @@ export function TerminalWorkspace({
     acceptRecoveryProbes,
     refreshProbes,
   } = profileState
-  const [pendingRiskProfile, setPendingRiskProfile] = useState<HarnessProfile>()
   const send = useCallback((action: TerminalWorkspaceAction): void => {
     modelRef.current = terminalWorkspaceReducer(modelRef.current, action)
     dispatch(action)
@@ -181,6 +202,32 @@ export function TerminalWorkspace({
     rebind: rebindRecovery,
   } = recovery
   useTerminalPersistence({ root: workspaceRoot, model, ready: recoveryReady })
+  const commands = useTerminalSessionCommands({
+    available,
+    workspaceRoot,
+    profiles,
+    providers,
+    probes,
+    defaultProfile,
+    defaultProvider,
+    modelRef,
+    send,
+    closeLaunchMenu: () => setMenuOpen(false),
+    focusAttention: focusAttentionSession,
+    forgetAttention: forgetAttentionSession,
+    runtimes,
+  })
+  const moving = useTerminalWorkspaceMove({
+    workspaceId,
+    modelRef,
+    send,
+    forgetAttention: forgetAttentionSession,
+    moveTargets,
+    registerController: onController,
+    onMoved: onTerminalMoved,
+    acknowledgeTargets: onAcknowledgeMoveTargets,
+    onError,
+  })
 
   useEffect(() => {
     if (!menuOpen) return
@@ -191,72 +238,6 @@ export function TerminalWorkspace({
     window.addEventListener('keydown', close)
     return () => window.removeEventListener('keydown', close)
   }, [menuOpen])
-
-  const focusSession = (id: string): void => {
-    focusAttentionSession(id)
-    send({ type: 'session-focused', id })
-  }
-
-  const addSession = (profileId: HarnessProfileId): void => {
-    if (!available) return
-    const profile = profiles.find((candidate) => candidate.id === profileId)
-    const provider = profile
-      ? providerDescriptor(providers, profile.providerId)
-      : undefined
-    if (!provider || !profile) return
-    const riskAcknowledged = profileRiskAcknowledged(profile)
-    if (!riskAcknowledged) {
-      setPendingRiskProfile(profile)
-      setMenuOpen(false)
-      return
-    }
-    launchSession(profile, provider, riskAcknowledged)
-  }
-
-  const launchSession = (
-    profile: HarnessProfile,
-    provider: HarnessProviderDescriptor,
-    riskAcknowledged: boolean,
-  ): void => {
-    const current = modelRef.current
-    const pane = terminalWorkspaceSplit(current) ? current.activePane : 'primary'
-    const session = createTerminalSession(
-      crypto.randomUUID(),
-      profile,
-      provider,
-      workspaceRoot,
-      pane,
-      riskAcknowledged,
-      profileProbe(probes, profile)?.capabilities,
-    )
-    send({ type: 'session-added', session })
-    setMenuOpen(false)
-  }
-
-  const splitTerminal = (): void => {
-    if (!available || !defaultProvider || !defaultProfile) return
-    const pane = nextTerminalSplitPane(modelRef.current)
-    const session = createTerminalSession(
-      crypto.randomUUID(),
-      defaultProfile,
-      defaultProvider,
-      workspaceRoot,
-      pane,
-    )
-    send({ type: 'session-added', session })
-  }
-
-  const moveSessionToOtherPane = (id: string): void => {
-    send({ type: 'session-moved', id })
-  }
-
-  const closeSession = (id: string): void => {
-    forgetAttentionSession(id)
-    void window.hvir
-      .invoke('terminal:forget', { root: workspaceRoot, id })
-      .catch(() => undefined)
-    send({ type: 'session-closed', id })
-  }
 
   const terminalSplit = terminalWorkspaceSplit(model)
   const primaryActiveId = terminalPaneActiveId(model, 'primary')
@@ -322,12 +303,14 @@ export function TerminalWorkspace({
         composerSubmitMode={preferences.composerSubmitMode}
         workspaceRoot={workspaceRoot}
         connectionState={connectionState}
-        onCreateDefault={defaultProfile ? () => addSession(defaultProfile.id) : undefined}
+        onCreateDefault={
+          defaultProfile ? () => commands.add(defaultProfile.id) : undefined
+        }
         onUpdateSession={updateSession}
         onInput={recordInput}
         onOutput={recordOutput}
         onBell={(id) => raiseAttention(id, 'bell')}
-        onFocus={focusSession}
+        onFocus={commands.focus}
         onLink={(session, activation) => {
           if (activation.kind === 'file') {
             const resolved = resolveTerminalFileTarget(activation.target, workspaceRoot)
@@ -339,6 +322,7 @@ export function TerminalWorkspace({
         }}
         onSetPrimaryWidth={setTerminalPrimaryWidth}
         onResetPrimaryWidth={resetTerminalPrimaryWidth}
+        runtimes={runtimes}
       />
       <TerminalRail
         label={label}
@@ -347,6 +331,8 @@ export function TerminalWorkspace({
         recoveryReady={recoveryReady}
         available={available}
         menuOpen={menuOpen}
+        moveMenuOpen={moving.menuOpen}
+        moveTargets={moveTargets}
         launchMenuEntries={launchMenuEntries}
         checkingHiddenProfiles={checkingHiddenProfiles}
         split={terminalSplit}
@@ -354,10 +340,16 @@ export function TerminalWorkspace({
         activeId={activeId}
         providers={providers}
         profiles={profiles}
-        onSplit={splitTerminal}
+        onSplit={commands.split}
         onOpenSettings={onOpenSettings}
         onToggleMenu={() => setMenuOpen((open) => !open)}
-        onAddSession={(profile) => addSession(profile.id)}
+        onToggleMoveMenu={() => {
+          setMenuOpen(false)
+          moving.toggleMenu()
+        }}
+        onPlanMove={moving.plan}
+        onDismissNewTargets={moving.dismissNewTargets}
+        onAddSession={(profile) => commands.add(profile.id)}
         onAddHarness={() => {
           setMenuOpen(false)
           onAddHarness()
@@ -367,47 +359,45 @@ export function TerminalWorkspace({
           setMenuOpen(false)
           onOpenHarnessSettings()
         }}
-        onFocusSession={focusSession}
-        onMoveSession={moveSessionToOtherPane}
-        onCloseSession={closeSession}
+        onFocusSession={commands.focus}
+        onMoveSession={commands.moveToOtherPane}
+        onCloseSession={commands.close}
       />
-      {visible && pendingRiskProfile ? (
-        <HarnessRiskDialog
-          profile={pendingRiskProfile}
-          provider={providerDescriptor(providers, pendingRiskProfile.providerId)}
-          onCancel={() => setPendingRiskProfile(undefined)}
-          onLaunch={async () => {
-            const acknowledged = await window.hvir.invoke('harness:acknowledge-risk', {
-              root: workspaceRoot,
-              id: pendingRiskProfile.id,
-              launchRevision: pendingRiskProfile.launchRevision,
-            })
-            acceptProfiles((current) =>
-              current.map((profile) =>
-                profile.id === acknowledged.id ? acknowledged : profile,
-              ),
-            )
-            const provider = providerDescriptor(providers, acknowledged.providerId)
-            if (provider) launchSession(acknowledged, provider, true)
-            setPendingRiskProfile(undefined)
-          }}
-        />
-      ) : null}
-      {visible &&
-      recoveryCandidates.length > 0 &&
-      recoveryProbesReady &&
-      defaultProvider &&
-      defaultProfile ? (
-        <TerminalRecoveryDialog
-          sessions={recoveryCandidates}
-          providers={providers}
-          profiles={profiles}
-          probes={probes}
-          onRebind={rebindRecovery}
-          onCancel={discardRecovery}
-          onResume={resumeRecovery}
-        />
-      ) : null}
+      <TerminalWorkspaceDialogs
+        visible={visible}
+        risk={
+          commands.pendingRiskProfile
+            ? {
+                profile: commands.pendingRiskProfile,
+                providers,
+                root: workspaceRoot,
+                acceptProfiles,
+                launch: commands.launchAcknowledged,
+                onCancel: commands.cancelRisk,
+              }
+            : undefined
+        }
+        move={
+          moving.pending
+            ? { plan: moving.pending, onCancel: moving.cancel, onMove: moving.confirm }
+            : undefined
+        }
+        recovery={{
+          ready: Boolean(
+            recoveryCandidates.length > 0 &&
+            recoveryProbesReady &&
+            defaultProvider &&
+            defaultProfile,
+          ),
+          sessions: recoveryCandidates,
+          providers,
+          profiles,
+          probes,
+          onRebind: rebindRecovery,
+          onCancel: discardRecovery,
+          onResume: resumeRecovery,
+        }}
+      />
     </>
   )
 }
