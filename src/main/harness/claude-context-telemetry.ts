@@ -3,9 +3,11 @@
 import {
   asHarnessProviderId,
   contextHarnessSnapshot,
+  contextStatusHarnessSnapshot,
   type HarnessTelemetry,
 } from '../../shared'
 import type { Disposer, ProjectHost } from '../project-host'
+import { resolveClaudeSessionArtifact } from './claude-session-artifact'
 import type { HarnessTelemetryContext } from './harness-provider'
 import {
   buildTelemetryHubScript,
@@ -13,26 +15,15 @@ import {
 } from './harness-telemetry-hub'
 
 const SESSION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
-const RESOLVE_TRANSCRIPT_ROOT_SCRIPT =
-  'printf "%s" "${CLAUDE_CONFIG_DIR:-${HOME}/.claude}/projects"'
 const FOLLOW_USAGE_SCRIPT = buildTelemetryHubScript({
   prepareFollower: `
-    [ "$follower_resource" != - ] || exit 1
-    root=$(decode_base64 "$follower_resource") || exit 1
-    follower_source=
-    while :; do
-      if [ -d "$root" ]; then
-        match_count=0
-        for candidate in "$root"/*/"$follower_session.jsonl"; do
-          [ -f "$candidate" ] || continue
-          match_count=$((match_count + 1))
-          follower_source=$candidate
-        done
-        [ "$match_count" -gt 1 ] && exit 2
-        [ "$match_count" -eq 1 ] && break
-      fi
+    [ "$follower_resource" != - ] || fail_follower resource-invalid
+    follower_source=$(decode_base64 "$follower_resource") || fail_follower resource-invalid
+    emit_follower_health pending awaiting-source || true
+    while [ ! -e "$follower_source" ]; do
       sleep 1
     done
+    [ -f "$follower_source" ] && [ -r "$follower_source" ] || fail_follower resource-invalid
   `,
   acceptRecord: `
       case "$line" in
@@ -67,33 +58,38 @@ export async function observeClaudeContext(
   if (!SESSION_ID.test(context.sessionId) || context.signal.aborted) {
     return () => undefined
   }
-  const transcriptRoot = await resolveTranscriptRoot(host, context)
-  if (!transcriptRoot || context.signal.aborted) return () => undefined
+  context.emit(claudeContextHealth(context.sessionId, { status: 'pending' }))
+  const location = await resolveClaudeSessionArtifact(host, context, context.signal)
+  if (context.signal.aborted) return () => undefined
+  if (!location) {
+    context.emit(
+      claudeContextHealth(context.sessionId, {
+        status: 'unavailable',
+        reason: 'locator-unavailable',
+      }),
+    )
+    return () => undefined
+  }
+
+  let suppressInitialFollowerPending = true
 
   return claudeHubs.subscribe(host, {
     subscriptionId: context.subscriptionId,
     sessionId: context.sessionId,
-    resource: transcriptRoot,
+    resource: location.transcript.path,
     signal: context.signal,
-    emit: context.emit,
+    emit: (telemetry) => {
+      if (
+        suppressInitialFollowerPending &&
+        telemetry?.facets.context.status === 'pending'
+      ) {
+        suppressInitialFollowerPending = false
+        return
+      }
+      suppressInitialFollowerPending = false
+      context.emit(telemetry)
+    },
   })
-}
-
-async function resolveTranscriptRoot(
-  host: ProjectHost,
-  context: HarnessTelemetryContext,
-): Promise<string | undefined> {
-  const result = await host.exec('sh', ['-c', RESOLVE_TRANSCRIPT_ROOT_SCRIPT], {
-    signal: context.signal,
-    maxBuffer: 256 * 1024,
-    env: context.artifact.environment,
-    unsetEnv: context.artifact.unsetEnvironment,
-  })
-  if (result.code !== 0) return undefined
-  const root = result.stdout
-  return root.startsWith('/') && !root.includes('\0') && !root.includes('\n')
-    ? root
-    : undefined
 }
 
 export function parseClaudeUsage(value: string): HarnessTelemetry | null {
@@ -141,4 +137,33 @@ const claudeHubs = new HarnessTelemetryHubRegistry({
   providerId: 'claude-code',
   remoteScript: FOLLOW_USAGE_SCRIPT,
   parse: parseClaudeUsage,
+  followerHealth: (sessionId, health) => claudeContextHealth(sessionId, health),
 })
+
+function claudeContextHealth(
+  sessionId: string,
+  health:
+    | { readonly status: 'pending'; readonly reason?: 'awaiting-source' }
+    | {
+        readonly status: 'unavailable'
+        readonly reason:
+          'locator-unavailable' | 'resource-invalid' | 'follower-exited' | 'helper-exited'
+      },
+): HarnessTelemetry {
+  const reason =
+    health.status === 'pending'
+      ? 'Waiting for Claude context telemetry'
+      : health.reason === 'locator-unavailable'
+        ? 'Claude context location unavailable'
+        : health.reason === 'resource-invalid'
+          ? 'Claude context transcript unavailable'
+          : health.reason === 'follower-exited'
+            ? 'Claude context follower unavailable'
+            : 'Claude context helper unavailable'
+  return contextStatusHarnessSnapshot({
+    providerId: asHarnessProviderId('claude-code'),
+    provenance: 'Claude Code context telemetry lifecycle',
+    context: { status: health.status, reason },
+    sessionId,
+  })
+}

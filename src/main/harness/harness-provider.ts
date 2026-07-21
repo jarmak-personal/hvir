@@ -98,6 +98,7 @@ export interface HarnessTelemetryContext {
   /** Stable hvir PTY identity used to route multiplexed provider telemetry. */
   readonly subscriptionId: string
   readonly sessionId: string
+  readonly cwd: HostPath
   readonly sessionData?: unknown
   readonly artifact: HarnessArtifactContext
   readonly signal: AbortSignal

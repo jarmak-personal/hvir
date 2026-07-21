@@ -1,4 +1,4 @@
-import { appendFile, mkdir, mkdtemp, rm } from 'node:fs/promises'
+import { appendFile, mkdir, mkdtemp, realpath, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -8,8 +8,10 @@ import {
   observeClaudeContext,
   parseClaudeUsage,
 } from '../src/main/harness/claude-context-telemetry'
+import { claudeProjectDirectoryName } from '../src/main/harness/claude-session-artifact'
+import type { ProjectHost } from '../src/main/project-host'
 import { LocalHost } from '../src/main/project-host/local-host'
-import type { HarnessTelemetry } from '../src/shared'
+import { LOCAL_HOST_ID, localPath, type HarnessTelemetry } from '../src/shared'
 
 const SESSION_ID = '092bd463-4567-4890-abcd-ef0123456789'
 
@@ -92,12 +94,17 @@ describe('Claude Code context telemetry', () => {
 
   it('waits for and follows the exact preassigned transcript through LocalHost', async () => {
     const configDirectory = await mkdtemp(join(tmpdir(), 'hvir-claude-context-'))
-    const projectDirectory = join(configDirectory, 'projects', '-tmp-project')
+    const cwd = join(configDirectory, 'workspace')
+    await mkdir(cwd)
+    const projectDirectory = join(
+      configDirectory,
+      'projects',
+      claudeProjectDirectoryName(await realpath(cwd)),
+    )
     const transcript = join(projectDirectory, `${SESSION_ID}.jsonl`)
     const host = new LocalHost()
     const emitted: HarnessTelemetry[] = []
     const controller = new AbortController()
-    vi.stubEnv('CLAUDE_CONFIG_DIR', configDirectory)
     await mkdir(projectDirectory, { recursive: true })
     await host.connect()
     let stop: (() => void | Promise<void>) | undefined
@@ -105,11 +112,20 @@ describe('Claude Code context telemetry', () => {
       stop = await observeClaudeContext(host, {
         subscriptionId: SESSION_ID,
         sessionId: SESSION_ID,
-        artifact: { identity: 'test', environment: {}, unsetEnvironment: [] },
+        cwd: localPath(cwd),
+        artifact: {
+          identity: 'test',
+          environment: { CLAUDE_CONFIG_DIR: configDirectory },
+          unsetEnvironment: [],
+        },
         signal: controller.signal,
         emit: (telemetry) => {
           if (telemetry) emitted.push(telemetry)
         },
+      })
+      expect(emitted[0]?.facets.context).toEqual({
+        status: 'pending',
+        reason: 'Waiting for Claude context telemetry',
       })
       await appendFile(
         transcript,
@@ -137,6 +153,9 @@ describe('Claude Code context telemetry', () => {
           timeout: 4_000,
         },
       )
+      expect(
+        emitted.filter((telemetry) => telemetry.facets.context.status === 'pending'),
+      ).toHaveLength(1)
     } finally {
       await stop?.()
       await host.dispose()
@@ -146,10 +165,11 @@ describe('Claude Code context telemetry', () => {
 
   it('stops quietly while a zero-turn transcript has not materialized', async () => {
     const configDirectory = await mkdtemp(join(tmpdir(), 'hvir-claude-context-'))
+    const cwd = join(configDirectory, 'workspace')
     const host = new LocalHost()
     const controller = new AbortController()
     const warning = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
-    vi.stubEnv('CLAUDE_CONFIG_DIR', configDirectory)
+    await mkdir(cwd)
     await mkdir(join(configDirectory, 'projects'), { recursive: true })
     await host.connect()
     let stop: (() => void | Promise<void>) | undefined
@@ -157,7 +177,12 @@ describe('Claude Code context telemetry', () => {
       stop = await observeClaudeContext(host, {
         subscriptionId: SESSION_ID,
         sessionId: SESSION_ID,
-        artifact: { identity: 'test', environment: {}, unsetEnvironment: [] },
+        cwd: localPath(cwd),
+        artifact: {
+          identity: 'test',
+          environment: { CLAUDE_CONFIG_DIR: configDirectory },
+          unsetEnvironment: [],
+        },
         signal: controller.signal,
         emit: () => undefined,
       })
@@ -172,5 +197,32 @@ describe('Claude Code context telemetry', () => {
       warning.mockRestore()
       await rm(configDirectory, { recursive: true, force: true })
     }
+  })
+
+  it('reports a fixed unavailable state when the cwd-qualified locator fails', async () => {
+    const emit = vi.fn<(telemetry: HarnessTelemetry | undefined) => void>()
+    const execStream = vi.fn<ProjectHost['execStream']>()
+    const host = {
+      hostId: LOCAL_HOST_ID,
+      exec: vi.fn(() =>
+        Promise.resolve({ code: 1, signal: null, stdout: '', stderr: '' }),
+      ),
+      execStream,
+    } as unknown as ProjectHost
+
+    await observeClaudeContext(host, {
+      subscriptionId: SESSION_ID,
+      sessionId: SESSION_ID,
+      cwd: localPath('/tmp/project'),
+      artifact: { identity: 'test', environment: {}, unsetEnvironment: [] },
+      signal: new AbortController().signal,
+      emit,
+    })
+
+    expect(emit.mock.calls.map(([telemetry]) => telemetry?.facets.context)).toEqual([
+      { status: 'pending', reason: 'Waiting for Claude context telemetry' },
+      { status: 'unavailable', reason: 'Claude context location unavailable' },
+    ])
+    expect(execStream).not.toHaveBeenCalled()
   })
 })
