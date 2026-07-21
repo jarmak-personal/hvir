@@ -36,12 +36,20 @@ describe('terminal exact-resume IPC', () => {
         ],
         risk: 'unclassified' as const,
       }
-      const exec = vi.fn<ProjectHost['exec']>().mockResolvedValue({
-        code: 0,
-        signal: null,
-        stdout: 'missing',
-        stderr: '',
-      })
+      const exec = vi
+        .fn<ProjectHost['exec']>()
+        .mockResolvedValueOnce({
+          code: 0,
+          signal: null,
+          stdout: `${root.path}\n\0/config/claude`,
+          stderr: '',
+        })
+        .mockResolvedValueOnce({
+          code: 0,
+          signal: null,
+          stdout: 'missing',
+          stderr: '',
+        })
       const host = {
         hostId,
         connectionState: 'connected',
@@ -136,11 +144,25 @@ describe('terminal exact-resume IPC', () => {
           cwd: root,
         }),
       )
-      expect(exec).toHaveBeenCalledWith(
+      expect(exec).toHaveBeenNthCalledWith(
+        1,
         'sh',
         expect.any(Array),
         expect.objectContaining({
+          cwd: root,
           env: { CLAUDE_CONFIG_DIR: '/config/claude' },
+        }),
+      )
+      expect(exec).toHaveBeenNthCalledWith(
+        2,
+        'sh',
+        expect.arrayContaining([
+          '/config/claude/projects',
+          '/config/claude/projects/-repo',
+          `/config/claude/projects/-repo/${HARNESS_SESSION_ID}.jsonl`,
+        ]),
+        expect.objectContaining({
+          signal: exec.mock.calls[0]?.[2]?.signal,
         }),
       )
       expect(register).not.toHaveBeenCalled()
