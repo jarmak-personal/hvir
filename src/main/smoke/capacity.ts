@@ -118,7 +118,7 @@ export async function runCapacityLoadSmoke(
     win.webContents.executeJavaScript(`
       (async () => {
         const deadline = Date.now() + 25000;
-        let target = document.querySelectorAll('.terminal-list-row').length + 1;
+        let target = 1;
         const snapshot = () => ({
           target,
           rows: document.querySelectorAll('.terminal-list-row').length,
@@ -143,9 +143,13 @@ export async function runCapacityLoadSmoke(
             };
             poll();
           });
-        for (target = document.querySelectorAll('.terminal-list-row').length + 1;
-          target <= 12;
-          target++) {
+        await waitFor(() => {
+          const current = snapshot();
+          return current.rows === 1 &&
+            current.surfaces === 1 &&
+            current.activeStatus.startsWith('pid ');
+        }, 'initial terminal did not settle');
+        for (target = 2; target <= 12; target++) {
           const add = await waitFor(
             () => document.querySelector('button[aria-label="New terminal"]:not(:disabled)'),
             'new-terminal button unavailable'
@@ -159,7 +163,9 @@ export async function runCapacityLoadSmoke(
           shell.click();
           await waitFor(() => {
             const current = snapshot();
-            return current.rows === target && current.activeStatus.startsWith('pid ');
+            return current.rows === target &&
+              current.surfaces === target &&
+              current.activeStatus.startsWith('pid ');
           }, 'terminal did not settle');
         }
         return document.querySelectorAll('.terminal-list-row').length;

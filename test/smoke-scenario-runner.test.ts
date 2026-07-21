@@ -247,6 +247,8 @@ describe('Electron smoke command contracts', () => {
     expect(branch).toBeLessThan(smokeWorkflow.indexOf('const viewerStatus'))
     expect(smokeWorkflow.indexOf("if (mode === 'capacity')", branch + 1)).toBe(-1)
     expect(capacityScenario).toContain('JSON.stringify(snapshot())')
+    expect(capacityScenario).toContain("'initial terminal did not settle'")
+    expect(capacityScenario).toContain('current.surfaces === target')
   })
 
   it('enters the viewer group before legacy work with semantic diagnostics', () => {
