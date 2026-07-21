@@ -7,7 +7,6 @@ export interface PullRequestSnapshot {
   number: number
   state: PullRequestState
   isDraft: boolean
-  mergedAt: string | null
   body: string
   closingIssues: IssueReference[]
 }

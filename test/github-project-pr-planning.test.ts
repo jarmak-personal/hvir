@@ -49,7 +49,6 @@ describe('GitHub pull request planning adapter', () => {
                   number: 86,
                   state: 'OPEN',
                   isDraft: true,
-                  mergedAt: null,
                   body: 'Contributes-to: #50',
                   repository: { nameWithOwner: 'jarmak-personal/hvir' },
                 },
@@ -87,7 +86,6 @@ describe('GitHub pull request planning adapter', () => {
       number: 86,
       state: 'OPEN',
       isDraft: true,
-      mergedAt: null,
       body: 'Contributes-to: #50',
       closingIssues: [
         {

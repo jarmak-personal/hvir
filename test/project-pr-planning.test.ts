@@ -31,7 +31,6 @@ function pullRequest(overrides: Partial<PullRequestSnapshot> = {}): PullRequestS
     number: 86,
     state: 'OPEN',
     isDraft: false,
-    mergedAt: null,
     body: '',
     closingIssues: [],
     ...overrides,
@@ -155,7 +154,6 @@ describe('pull request planning lifecycle', () => {
     const pullRequests = pullRequestPort(
       pullRequest({
         state: 'MERGED',
-        mergedAt: '2026-07-21T12:00:00Z',
         body: 'Contributes-to: #11',
         closingIssues: [issueReference(10)],
       }),

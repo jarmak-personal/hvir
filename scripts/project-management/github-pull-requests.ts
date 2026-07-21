@@ -37,7 +37,6 @@ export class GitHubPullRequestRepository {
           number: number
           state: PullRequestState
           isDraft: boolean
-          mergedAt: string | null
           body: string
           repository: { nameWithOwner: string }
         } | null
@@ -46,7 +45,7 @@ export class GitHubPullRequestRepository {
       `query PullRequestPlanning($owner: String!, $name: String!, $number: Int!) {
         repository(owner: $owner, name: $name) {
           pullRequest(number: $number) {
-            number state isDraft mergedAt body
+            number state isDraft body
             repository { nameWithOwner }
           }
         }
@@ -70,7 +69,6 @@ export class GitHubPullRequestRepository {
       number: pullRequest.number,
       state: pullRequest.state,
       isDraft: pullRequest.isDraft,
-      mergedAt: pullRequest.mergedAt,
       body: pullRequest.body,
       closingIssues: relatedIssues
         .filter((issue) => !manuallyLinked.has(issueKey(issue)))
