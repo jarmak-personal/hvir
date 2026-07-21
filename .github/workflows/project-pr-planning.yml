@@ -1,0 +1,100 @@
+name: Reconcile PR planning relationships
+
+on:
+  pull_request_target:
+    types: [opened, reopened, converted_to_draft, ready_for_review, edited, closed]
+  issues:
+    types: [reopened]
+  workflow_dispatch:
+    inputs:
+      pull_request_number:
+        description: Pull request number to reconcile from current GitHub state
+        required: true
+        type: string
+      apply:
+        description: Apply eligible Todo to In Progress transitions
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: project-pr-planning
+  cancel-in-progress: false
+
+jobs:
+  relationship-event:
+    if: >-
+      (github.event_name == 'pull_request_target' &&
+       github.event.pull_request.base.ref == 'main') ||
+      (github.event_name == 'issues' && github.event.action == 'reopened')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment:
+      name: project-automation
+      deployment: false
+    permissions:
+      contents: read
+      issues: read
+      pull-requests: read
+    steps:
+      - name: Check out trusted repository automation
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: main
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 24
+          package-manager-cache: false
+
+      - name: Reconcile linked issue planning state
+        env:
+          HVIR_REPO_TOKEN: ${{ github.token }}
+          HVIR_PROJECT_TOKEN: ${{ secrets.HVIR_PROJECT_TOKEN }}
+          HVIR_REPOSITORY: ${{ github.repository }}
+          HVIR_PULL_REQUEST_NUMBER: ${{ github.event.pull_request.number }}
+          HVIR_ISSUE_NUMBER: ${{ github.event.issue.number }}
+          HVIR_EVENT_ACTION: ${{ github.event.action }}
+          HVIR_PREVIOUS_PR_BODY: ${{ github.event.changes.body.from }}
+          HVIR_APPLY: 'true'
+        run: npm run project:pr
+
+  manual-reconciliation:
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment:
+      name: project-automation
+      deployment: false
+    permissions:
+      contents: read
+      issues: read
+      pull-requests: read
+    steps:
+      - name: Check out trusted repository automation
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: main
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 24
+          package-manager-cache: false
+
+      - name: Reconcile pull request planning state
+        env:
+          HVIR_REPO_TOKEN: ${{ github.token }}
+          HVIR_PROJECT_TOKEN: ${{ secrets.HVIR_PROJECT_TOKEN }}
+          HVIR_REPOSITORY: ${{ github.repository }}
+          HVIR_PULL_REQUEST_NUMBER: ${{ inputs.pull_request_number }}
+          HVIR_APPLY: ${{ inputs.apply }}
+        run: npm run project:pr

@@ -31,6 +31,8 @@ export interface PlanningRecordInput {
   issueNumber: number
   ensureProject: boolean
   status?: ProjectStatus
+  expectedStatus?: ProjectStatus
+  openOnly?: boolean
   apply: boolean
 }
 
@@ -83,7 +85,10 @@ export async function reconcilePlanningRecord(
   project: ProjectPlanningPort,
   input: PlanningRecordInput,
 ): Promise<PlanningRecordReport> {
-  const issue = await issues.getPlanningIssue(input.issueNumber)
+  if (input.expectedStatus !== undefined && input.status === undefined) {
+    throw new Error('A conditional Status update requires a target Status.')
+  }
+  let issue = await issues.getPlanningIssue(input.issueNumber)
   await project.validatePlanningSchema()
   let item = await project.getIssueItem(input.issueNumber)
   const operations: PlanningOperation[] = []
@@ -126,6 +131,13 @@ export async function reconcilePlanningRecord(
         from: item?.status ?? null,
         to: input.status,
       })
+    } else if (input.openOnly === true && issue.state !== 'OPEN') {
+      operations.push({
+        operation: 'set-status',
+        outcome: 'unchanged',
+        from: item.status,
+        to: input.status,
+      })
     } else if (item.status === input.status) {
       operations.push({
         operation: 'set-status',
@@ -133,7 +145,56 @@ export async function reconcilePlanningRecord(
         from: item.status,
         to: input.status,
       })
+    } else if (
+      input.expectedStatus !== undefined &&
+      item.status !== input.expectedStatus
+    ) {
+      operations.push({
+        operation: 'set-status',
+        outcome: 'unchanged',
+        from: item.status,
+        to: input.status,
+      })
     } else if (input.apply) {
+      if (input.openOnly === true) {
+        issue = await issues.getPlanningIssue(input.issueNumber)
+        if (issue.state !== 'OPEN') {
+          operations.push({
+            operation: 'set-status',
+            outcome: 'unchanged',
+            from: item.status,
+            to: input.status,
+          })
+          return {
+            apply: input.apply,
+            applied,
+            record: normalizePlanningRecord(issue, item),
+            operations,
+          }
+        }
+      }
+      if (input.expectedStatus !== undefined) {
+        item = await project.refreshIssueItem(issue.number)
+        if (item === undefined || item.archived) {
+          throw new Error(
+            `Issue #${issue.number} became ${item === undefined ? 'missing from' : 'archived in'} the canonical Project before its conditional Status update.`,
+          )
+        }
+        if (item.status !== input.expectedStatus) {
+          operations.push({
+            operation: 'set-status',
+            outcome: 'unchanged',
+            from: item.status,
+            to: input.status,
+          })
+          return {
+            apply: input.apply,
+            applied,
+            record: normalizePlanningRecord(issue, item),
+            operations,
+          }
+        }
+      }
       const previous = item.status
       await project.setStatus(item, input.status)
       operations.push({

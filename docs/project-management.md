@@ -141,6 +141,72 @@ Both commands use `HVIR_REPO_TOKEN`, `HVIR_PROJECT_TOKEN`, `HVIR_REPOSITORY`,
 `HVIR_PROJECT_OWNER`, and `HVIR_PROJECT_NUMBER` as documented above. Credentials are read only
 from the environment and are never accepted as command-line values.
 
+## Pull request relationships and Status
+
+Issues remain the canonical planning records; pull requests are relationship and lifecycle
+signals and do not need to be Project items. A PR can relate to same-repository issues in two
+explicit ways:
+
+- GitHub's native closing references (`Closes #86`, `Fixes #86`, and their documented keyword
+  equivalents) mean that the PR completes the issue. Automation consumes GitHub's resolved
+  `closingIssuesReferences`; it does not re-parse closing keywords.
+- An exact whole-line `Contributes-to: #N` trailer means that the PR contributes work without
+  completing the issue. Multiple trailers are allowed:
+
+  ```text
+  Contributes-to: #50
+  Contributes-to: #87
+  ```
+
+The contribution spelling and capitalization are deliberate. Up to three leading spaces and
+trailing whitespace are accepted, but the remainder of the line must be exactly
+`Contributes-to: #N`, where `N` is a positive same-repository issue number other than the PR
+number. Free-form prose, fenced or indented code examples, and HTML comments are ignored.
+Malformed, cross-repository, and self-referencing relationships are errors; duplicate trailers
+are deduplicated with a warning. If one issue is both a completion and contribution target,
+completion semantics take precedence.
+
+Status ownership is one-way and monotonic:
+
+| Current event or state | Related issue behavior |
+| --- | --- |
+| PR opened, reopened, draft, or ready for review | An eligible open `Todo` issue advances to `In Progress`. |
+| Relationship added or edited | Current GitHub relationships are recomputed; eligible targets advance. |
+| Completion PR merged | Native issue closure and the Project issue-close workflow own `Done`; custom automation does not race them. |
+| Contribution PR merged | The contributed issue stays open and advances from `Todo` to `In Progress` when needed. |
+| PR closed unmerged or contribution removed | Current relationships are recomputed, but Status is never automatically regressed. |
+| Issue reopened | Current open completion and contribution relationships are recomputed before any advance. |
+
+Automation changes only `Todo` to `In Progress`. It does not overwrite `In Progress`, `Done`, a
+blank Status, or a Status that changed after the job's initial read. It does not demote an issue,
+guess a previous manual Status, add or restore missing Project items, or mutate closed issues.
+Multiple PRs for one issue and one PR for multiple issues are resolved from current GitHub state
+rather than replaying event assumptions.
+
+Inspect a PR relationship reconciliation without mutation:
+
+```sh
+npm run project:pr -- --pull-request 86
+```
+
+Apply the eligible transitions after reviewing the report:
+
+```sh
+npm run project:pr -- --pull-request 86 --apply
+```
+
+A reopened issue can be reconciled directly with `--issue N`. On an edited event, the workflow
+passes the previous body through an environment value only so the command can report a removed
+contribution; it always queries the current PR, issue relationships, open PR bodies, and Project
+record before deciding. Reports contain issue/PR numbers, named states, fixed diagnostics, and
+operation outcomes, but never titles, bodies, comments, tokens, node IDs, or raw API responses.
+
+Valid targets are processed independently and deterministically. A malformed trailer or one
+missing, archived, inaccessible, or cross-repository target does not suppress valid transitions
+from the same event, but the command exits 2 after printing the complete report so the partial
+failure remains visible. Failures before a report can be constructed exit 1. Retrying is
+idempotent.
+
 ## Project schema provisioning
 
 The custom categorical schema has one single-select field named exactly `Kind`, with the seven
@@ -172,6 +238,14 @@ There is no polling and no runner-per-primitive fan-out. Per-issue concurrency s
 overlapping event jobs without cancelling an in-flight reconciliation. Reads resolve current
 state first, and no-op label or Project mutations are skipped.
 
+`.github/workflows/project-pr-planning.yml` has one event job for the relevant PR lifecycle
+events or an issue reopen, plus one manual PR reconciliation job. Event jobs apply automatically;
+manual dispatch is a dry run unless `apply` is selected. A repository-wide concurrency group
+serializes Project Status work without cancelling an in-flight job. Each event uses one runner.
+PR events load the current triggering PR and its paginated native relationships; both PR and
+issue-reopen paths scan paginated open PR bodies once for current contribution trailers and batch
+all issue operations inside that job. There is no polling or runner-per-relationship fan-out.
+
 The workflow's repository-scoped `GITHUB_TOKEN` receives only `contents: read` and
 `issues: write`. GitHub does not allow that token to access a user-owned Project, so Project
 access uses the `HVIR_PROJECT_TOKEN` secret from the `project-automation` environment. That
@@ -198,3 +272,12 @@ Issue titles, bodies, comments, and label text are treated as data. Event values
 command through environment variables rather than generated shell source. Third-party actions
 are pinned to full commit SHAs. Both jobs check out `main` explicitly without persisting the
 `GITHUB_TOKEN`; manual dispatches from any other ref are rejected.
+
+The PR workflow uses `pull_request_target` because a fork-originated PR must be able to trigger
+the user-owned Project mutation. This is a privileged metadata workflow: it checks out only
+trusted `main`, never checks out, fetches, installs, builds, or executes PR code, disables package
+manager caching, and gives `GITHUB_TOKEN` only `contents`, `issues`, and `pull-requests` read
+permissions. The Project credential remains isolated in the main-only `project-automation`
+environment. PR bodies and the prior-body event value are parsed only as data by static
+default-branch automation; event values are passed through environment variables and never
+interpolated into shell source. External actions remain pinned to full commit SHAs.

@@ -253,6 +253,69 @@ describe('planning record operations', () => {
     expect(project.setStatus).not.toHaveBeenCalled()
   })
 
+  it('rechecks a conditional Status source immediately before mutation', async () => {
+    const { issues, project } = ports({ item: projectItem() })
+    vi.mocked(project.refreshIssueItem).mockImplementation(() =>
+      Promise.resolve(projectItem({ status: 'Done' })),
+    )
+
+    const report = await reconcilePlanningRecord(issues, project, {
+      issueNumber: 85,
+      ensureProject: false,
+      status: 'In Progress',
+      expectedStatus: 'Todo',
+      openOnly: true,
+      apply: true,
+    })
+
+    expect(project.setStatus).not.toHaveBeenCalled()
+    expect(report).toMatchObject({
+      applied: false,
+      record: { project: { status: 'Done' } },
+      operations: [
+        {
+          operation: 'set-status',
+          outcome: 'unchanged',
+          from: 'Done',
+          to: 'In Progress',
+        },
+      ],
+    })
+  })
+
+  it('does not conditionally advance an issue that closed before mutation', async () => {
+    const { issues, project } = ports({ item: projectItem() })
+    vi.mocked(issues.getPlanningIssue)
+      .mockResolvedValueOnce(issue())
+      .mockResolvedValueOnce(issue({ state: 'CLOSED' }))
+
+    const report = await reconcilePlanningRecord(issues, project, {
+      issueNumber: 85,
+      ensureProject: false,
+      status: 'In Progress',
+      expectedStatus: 'Todo',
+      openOnly: true,
+      apply: true,
+    })
+
+    expect(project.setStatus).not.toHaveBeenCalled()
+    expect(project.refreshIssueItem).not.toHaveBeenCalled()
+    expect(report.record.issue.state).toBe('CLOSED')
+    expect(report.operations[0]).toMatchObject({ outcome: 'unchanged' })
+  })
+
+  it('requires a target for conditional Status input', async () => {
+    const { issues, project } = ports({ item: projectItem() })
+    await expect(
+      reconcilePlanningRecord(issues, project, {
+        issueNumber: 85,
+        ensureProject: false,
+        expectedStatus: 'Todo',
+        apply: true,
+      }),
+    ).rejects.toThrow('requires a target Status')
+  })
+
   it('requires explicit membership intent before setting a missing item Status', async () => {
     const { issues, project } = ports()
     await expect(

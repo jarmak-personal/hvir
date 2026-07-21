@@ -2,6 +2,11 @@
 
 Closes #
 
+<!--
+If this PR contributes to another issue without completing it, add one exact trailer per issue,
+for example: `Contributes-to: #123`.
+-->
+
 ## Outcome
 
 Describe the user or contributor outcome and why it belongs in hvir.

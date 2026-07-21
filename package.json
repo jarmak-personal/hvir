@@ -52,6 +52,7 @@
     "architecture:check": "node scripts/architecture-hotspots.mjs --enforce",
     "project:kind": "node scripts/project-management/sync-kind.ts",
     "project:record": "node scripts/project-management/read-planning-record.ts",
+    "project:pr": "node scripts/project-management/sync-pull-request-planning.ts",
     "verify": "npm run check-seams && npm run check-adrs && npm run architecture:check && npm run lint && npm run typecheck && npm test && node npm/launcher/hvir.mjs --help",
     "smoke": "electron-vite build && bash scripts/run-smoke.sh",
     "smoke:packaged": "bash scripts/run-packaged-smoke.sh",
