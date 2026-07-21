@@ -422,6 +422,7 @@ function createWorkbenchEntry(): void {
         const { runSmoke } = await import('./smoke')
         const code = await runSmoke({
           mode: process.env['HVIR_CAPACITY_SMOKE'] ? 'capacity' : 'workflow',
+          projectRoot: localPath(projectRootArgument() ?? process.cwd()),
           createWindow,
           harnessProbeManager,
           htmlPreviews,

@@ -43,6 +43,7 @@ export type ElectronSmokeMode = 'workflow' | 'capacity'
 
 export interface ElectronSmokeDependencies {
   readonly mode: ElectronSmokeMode
+  readonly projectRoot: HostPath
   readonly createWindow: (
     discardRendererResources?: (ownerId: number) => void,
   ) => BrowserWindow
@@ -63,6 +64,7 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
     htmlPreviews,
     rendererResources,
     mode,
+    projectRoot,
     openExternal,
     updateWebPaneBindings,
     updateWebPaneFullPage,
@@ -78,13 +80,13 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
   const git = createWorkerClient<GitWorkerProtocol>(
     workerPath('git-worker.js'),
     'hvir-git-smoke',
-    (call) => dispatchWorkerHostCall(call, { host, root: localPath(process.cwd()) }),
+    (call) => dispatchWorkerHostCall(call, { host, root: projectRoot }),
   )
   const host = new LocalHost()
   const supervisor = new PtySupervisor()
   let smokeWindow: BrowserWindow | undefined
   let stopSmokeWatch: Disposer | undefined
-  const smokeRoot = localPath(process.cwd())
+  const smokeRoot = projectRoot
   const smokeCloseableRoot = joinHostPath(smokeRoot, '.hvir-smoke-closed-project')
   const smokeWebSwitchRoot = joinHostPath(smokeRoot, 'docs')
   const cleanup = new SmokeCleanup()
@@ -333,7 +335,7 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
       throw new Error(`exec mismatch: ${result.stdout}`)
     console.log('[smoke] LocalHost.exec OK')
     // prove host-qualified read works too
-    await host.stat(localPath(process.cwd()))
+    await host.stat(smokeRoot)
     console.log('[smoke] LocalHost.stat OK')
 
     const win = createWindow()
