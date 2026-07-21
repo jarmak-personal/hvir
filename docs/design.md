@@ -146,6 +146,11 @@ a hostile isolated web pane while preserving remote loopback origins.
 Feature ownership, inward dependency direction, typed resource lifetimes, explicit style
 order, seam checks, and blocking hotspot ratchets govern the existing process boundaries.
 
+### [ADR-015 — Missing resume artifacts block implicit fresh launches](adr/ADR-015-missing-resume-artifact-blocks-fresh-launch.md)
+
+A requested exact resume whose qualified provider artifact is missing remains visibly
+unavailable without spawning a fresh harness or replacing the retained recovery identity.
+
 ## 5. Architecture
 
 ### Process model
