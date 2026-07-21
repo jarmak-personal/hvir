@@ -81,7 +81,7 @@ describe('HarnessProfileStore', () => {
       {
         providerId: asHarnessProviderId('claude-code'),
         profileId: asHarnessProfileId('claude-code-default'),
-        launchRevision: 1,
+        launchRevision: 2,
       },
       {
         providerId: asHarnessProviderId('codex'),
@@ -93,7 +93,7 @@ describe('HarnessProfileStore', () => {
     expect(imported[0]).toMatchObject({
       id: 'claude-code-default',
       providerId: 'claude-code',
-      launchRevision: 1,
+      launchRevision: 2,
       builtIn: false,
     })
     expect(store.get(asHarnessProfileId('codex-default'))).toBeUndefined()
@@ -181,6 +181,69 @@ describe('HarnessProfileStore', () => {
     )
   })
 
+  it('invalidates Claude v1 recovery and acknowledgment while preserving other providers', async () => {
+    const profileFile = localPath(join(directory, 'profiles.json'))
+    const claudeId = asHarnessProfileId('claude-multi-account')
+    const codexId = asHarnessProfileId('codex-stable')
+    const claudeInput = input({
+      displayName: 'Claude multi-account',
+      providerId: asHarnessProviderId('claude-code'),
+      args: [literal('--dangerously-skip-permissions')],
+      environment: [
+        { kind: 'literal', name: 'CLAUDE_CONFIG_DIR', value: '/tmp/claude-work' },
+      ],
+    })
+    const codexInput = input({
+      displayName: 'Codex stable',
+      args: [literal('--model'), literal('o3')],
+    })
+    await host.writeFile(
+      profileFile,
+      JSON.stringify({
+        version: 1,
+        profiles: [
+          {
+            ...claudeInput,
+            id: claudeId,
+            launchRevision: 4,
+            metadataRevision: 2,
+            providerContractVersion: 1,
+            builtIn: false,
+            risk: 'unclassified',
+            riskAcknowledgedRevision: 4,
+          },
+          {
+            ...codexInput,
+            id: codexId,
+            launchRevision: 7,
+            metadataRevision: 3,
+            providerContractVersion: 1,
+            builtIn: false,
+            risk: 'unclassified',
+            riskAcknowledgedRevision: 7,
+          },
+        ],
+        pathGrants: [],
+      }),
+    )
+
+    const migrated = await HarnessProfileStore.load(host, profileFile)
+    expect(migrated.get(claudeId)).toMatchObject({
+      providerContractVersion: 2,
+      launchRevision: 5,
+      metadataRevision: 2,
+      risk: 'elevated',
+      riskAcknowledgedRevision: undefined,
+    })
+    expect(migrated.get(codexId)).toMatchObject({
+      providerContractVersion: 1,
+      launchRevision: 7,
+      metadataRevision: 3,
+      risk: 'unclassified',
+      riskAcknowledgedRevision: 7,
+    })
+  })
+
   it('does not recreate a concurrently deleted profile', async () => {
     const created = await store.save({ input: input() })
     await store.delete(created.id)
@@ -265,6 +328,9 @@ describe('HarnessProfileStore', () => {
       input: input({
         providerId: asHarnessProviderId('claude-code'),
         args: [literal('--dangerously-skip-permissions=true')],
+        environment: [
+          { kind: 'literal', name: 'CLAUDE_CONFIG_DIR', value: '/tmp/claude-risk' },
+        ],
       }),
     })
     expect(claude.risk).toBe('elevated')
