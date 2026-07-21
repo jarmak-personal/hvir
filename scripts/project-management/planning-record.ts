@@ -24,7 +24,7 @@ export interface ProjectPlanningPort {
     issue: PlanningIssueSnapshot,
     item: ProjectPlanningItem,
   ) => Promise<ProjectPlanningItem>
-  setStatus: (item: ProjectPlanningItem, status: ProjectStatus) => Promise<boolean>
+  setStatus: (item: ProjectPlanningItem, status: ProjectStatus) => Promise<void>
 }
 
 export interface PlanningRecordInput {
@@ -135,14 +135,14 @@ export async function reconcilePlanningRecord(
       })
     } else if (input.apply) {
       const previous = item.status
-      const updated = await project.setStatus(item, input.status)
+      await project.setStatus(item, input.status)
       operations.push({
         operation: 'set-status',
-        outcome: updated ? 'updated' : 'unchanged',
+        outcome: 'updated',
         from: previous,
         to: input.status,
       })
-      applied ||= updated
+      applied = true
     } else {
       operations.push({
         operation: 'set-status',

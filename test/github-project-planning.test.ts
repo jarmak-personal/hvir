@@ -234,6 +234,31 @@ describe('canonical Project adapter', () => {
             }),
           )
         }
+        if (body.query.includes('ProjectItemById')) {
+          expect(body.variables.itemId).toBe('target-item')
+          return Promise.resolve(
+            graphqlData({
+              node: {
+                __typename: 'ProjectV2Item',
+                id: 'target-item',
+                isArchived: false,
+                content: {
+                  __typename: 'Issue',
+                  number: 85,
+                  repository: { nameWithOwner: 'jarmak-personal/hvir' },
+                },
+                kind: {
+                  __typename: 'ProjectV2ItemFieldSingleSelectValue',
+                  name: 'Feature',
+                },
+                status: {
+                  __typename: 'ProjectV2ItemFieldSingleSelectValue',
+                  name: 'In Progress',
+                },
+              },
+            }),
+          )
+        }
         if (body.query.includes('ProjectItems')) {
           const second = body.variables.after === 'items-next'
           return Promise.resolve(
@@ -285,6 +310,16 @@ describe('canonical Project adapter', () => {
       kind: 'Feature',
       status: 'Todo',
     })
+    await expect(project.refreshIssueItem(85)).resolves.toMatchObject({
+      id: 'target-item',
+      archived: false,
+      status: 'In Progress',
+    })
+    const queries = vi
+      .mocked(fetchImplementation)
+      .mock.calls.map((call) => requestBody(call[1]).query)
+    expect(queries.filter((query) => query.includes('ProjectItems'))).toHaveLength(2)
+    expect(queries.filter((query) => query.includes('ProjectItemById'))).toHaveLength(1)
   })
 
   it('reports missing Status schema before scanning Project items', async () => {
@@ -316,6 +351,59 @@ describe('canonical Project adapter', () => {
       canonicalProject(fetchImplementation).validatePlanningSchema(),
     ).rejects.toThrow('Project field "Status" is missing')
     expect(fetchImplementation).toHaveBeenCalledTimes(2)
+  })
+
+  it('rejects duplicate Project items for one repository issue', async () => {
+    const fetchImplementation = vi.fn(
+      (_url: string | URL | Request, init?: RequestInit): Promise<Response> => {
+        const body = requestBody(init)
+        if (body.query.includes('ProjectIdentity')) {
+          return Promise.resolve(
+            graphqlData({ user: { projectV2: { id: 'project-id' } } }),
+          )
+        }
+        if (body.query.includes('ProjectFields')) {
+          return Promise.resolve(
+            graphqlData({
+              node: {
+                fields: {
+                  nodes: [],
+                  pageInfo: { endCursor: null, hasNextPage: false },
+                },
+              },
+            }),
+          )
+        }
+        if (body.query.includes('ProjectItems')) {
+          const duplicate = (id: string): object => ({
+            id,
+            isArchived: false,
+            content: {
+              __typename: 'Issue',
+              number: 85,
+              repository: { nameWithOwner: 'jarmak-personal/hvir' },
+            },
+            kind: null,
+            status: null,
+          })
+          return Promise.resolve(
+            graphqlData({
+              node: {
+                items: {
+                  nodes: [duplicate('first-item'), duplicate('second-item')],
+                  pageInfo: { endCursor: null, hasNextPage: false },
+                },
+              },
+            }),
+          )
+        }
+        throw new Error(`Unexpected query: ${body.query}`)
+      },
+    )
+
+    await expect(canonicalProject(fetchImplementation).getIssueItem(85)).rejects.toThrow(
+      'more than one item for jarmak-personal/hvir#85',
+    )
   })
 
   it('adds, restores, and updates through named idempotent operations', async () => {
@@ -393,8 +481,8 @@ describe('canonical Project adapter', () => {
 
     const added = await project.addIssue(issue)
     expect(await project.addIssue(issue)).toBe(added)
-    expect(await project.setStatus(added, 'In Progress')).toBe(true)
-    expect(await project.setStatus(added, 'In Progress')).toBe(false)
+    await expect(project.setStatus(added, 'In Progress')).resolves.toBeUndefined()
+    await expect(project.setStatus(added, 'In Progress')).resolves.toBeUndefined()
     added.archived = true
     await expect(project.unarchiveIssue(issue, added)).resolves.toMatchObject({
       archived: false,

@@ -36,6 +36,34 @@ interface ProjectContext extends ProjectSchemaContext {
   items: Map<string, CanonicalProjectItem>
 }
 
+interface ProjectItemNode {
+  id: string
+  isArchived: boolean
+  content: null | {
+    __typename: string
+    number?: number
+    repository?: { nameWithOwner: string }
+  }
+  kind: null | { __typename: string; name?: string }
+  status: null | { __typename: string; name?: string }
+}
+
+const PROJECT_ITEM_FIELDS = `
+  id isArchived
+  content {
+    __typename
+    ... on Issue { number repository { nameWithOwner } }
+  }
+  kind: fieldValueByName(name: "Kind") {
+    __typename
+    ... on ProjectV2ItemFieldSingleSelectValue { name }
+  }
+  status: fieldValueByName(name: "Status") {
+    __typename
+    ... on ProjectV2ItemFieldSingleSelectValue { name }
+  }
+`
+
 export class GitHubCanonicalProject {
   readonly #owner: string
   readonly #number: number
@@ -61,11 +89,42 @@ export class GitHubCanonicalProject {
   }
 
   async refreshIssueItem(issueNumber: number): Promise<CanonicalProjectItem | undefined> {
-    const schema = await this.#getSchemaContext()
-    const items = await (this.#items = this.#loadItems(schema.id))
-    return items.get(
-      projectItemKey(this.#repositoryOwner, this.#repositoryName, issueNumber),
+    const context = await this.#getContext()
+    const key = projectItemKey(this.#repositoryOwner, this.#repositoryName, issueNumber)
+    const current = context.items.get(key)
+    if (current === undefined) return undefined
+
+    const data: {
+      node: ({ __typename: string } & Partial<ProjectItemNode>) | null
+    } = await this.#client.graphql(
+      `query ProjectItemById($itemId: ID!) {
+        node(id: $itemId) {
+          __typename
+          ... on ProjectV2Item { ${PROJECT_ITEM_FIELDS} }
+        }
+      }`,
+      { itemId: current.id },
     )
+    if (data.node?.__typename !== 'ProjectV2Item') {
+      context.items.delete(key)
+      return undefined
+    }
+    const refreshed = canonicalProjectItem(data.node)
+    if (refreshed === undefined) {
+      context.items.delete(key)
+      return undefined
+    }
+    const refreshedKey = projectItemKeyFromName(
+      refreshed.repository,
+      refreshed.issueNumber,
+    )
+    if (refreshedKey !== key) {
+      throw new Error(
+        `The refreshed Project item no longer refers to the expected issue #${issueNumber} in ${this.#repositoryOwner}/${this.#repositoryName}.`,
+      )
+    }
+    context.items.set(key, refreshed)
+    return refreshed
   }
 
   async validatePlanningSchema(): Promise<void> {
@@ -161,13 +220,12 @@ export class GitHubCanonicalProject {
     return true
   }
 
-  async setStatus(item: CanonicalProjectItem, status: ProjectStatus): Promise<boolean> {
+  async setStatus(item: CanonicalProjectItem, status: ProjectStatus): Promise<void> {
     const context = await this.#getContext()
     const field = this.#requireField(context, 'Status', PROJECT_STATUS_OPTIONS)
-    if (item.status === status) return false
+    if (item.status === status) return
     await this.#setSingleSelect(context.id, item.id, field.id, field.options, status)
     item.status = status
-    return true
   }
 
   async #getContext(): Promise<ProjectContext> {
@@ -257,17 +315,7 @@ export class GitHubCanonicalProject {
       const data: {
         node: {
           items: {
-            nodes: Array<{
-              id: string
-              isArchived: boolean
-              content: null | {
-                __typename: string
-                number?: number
-                repository?: { nameWithOwner: string }
-              }
-              kind: null | { __typename: string; name?: string }
-              status: null | { __typename: string; name?: string }
-            }>
+            nodes: ProjectItemNode[]
             pageInfo: PageInfo
           }
         } | null
@@ -277,19 +325,7 @@ export class GitHubCanonicalProject {
             ... on ProjectV2 {
               items(first: 100, after: $after) {
                 nodes {
-                  id isArchived
-                  content {
-                    __typename
-                    ... on Issue { number repository { nameWithOwner } }
-                  }
-                  kind: fieldValueByName(name: "Kind") {
-                    __typename
-                    ... on ProjectV2ItemFieldSingleSelectValue { name }
-                  }
-                  status: fieldValueByName(name: "Status") {
-                    __typename
-                    ... on ProjectV2ItemFieldSingleSelectValue { name }
-                  }
+                  ${PROJECT_ITEM_FIELDS}
                 }
                 pageInfo { endCursor hasNextPage }
               }
@@ -303,28 +339,15 @@ export class GitHubCanonicalProject {
         throw new Error('The canonical Project items could not be read.')
       }
       for (const item of connection.nodes) {
-        if (
-          item.content?.__typename !== 'Issue' ||
-          item.content.number === undefined ||
-          item.content.repository === undefined
-        ) {
-          continue
-        }
-        const repository = item.content.repository.nameWithOwner
-        const key = projectItemKeyFromName(repository, item.content.number)
+        const canonical = canonicalProjectItem(item)
+        if (canonical === undefined) continue
+        const key = projectItemKeyFromName(canonical.repository, canonical.issueNumber)
         if (items.has(key)) {
           throw new Error(
-            `The canonical Project contains more than one item for ${repository}#${item.content.number}.`,
+            `The canonical Project contains more than one item for ${canonical.repository}#${canonical.issueNumber}.`,
           )
         }
-        items.set(key, {
-          id: item.id,
-          archived: item.isArchived,
-          repository,
-          issueNumber: item.content.number,
-          kind: singleSelectName(item.kind),
-          status: singleSelectName(item.status),
-        })
+        items.set(key, canonical)
       }
       cursor = nextPageCursor(connection.pageInfo)
     } while (cursor !== null)
@@ -397,6 +420,28 @@ export class GitHubCanonicalProject {
       }`,
       { projectId, itemId, fieldId, optionId },
     )
+  }
+}
+
+function canonicalProjectItem(
+  item: Partial<ProjectItemNode>,
+): CanonicalProjectItem | undefined {
+  if (
+    item.id === undefined ||
+    item.isArchived === undefined ||
+    item.content?.__typename !== 'Issue' ||
+    item.content.number === undefined ||
+    item.content.repository === undefined
+  ) {
+    return undefined
+  }
+  return {
+    id: item.id,
+    archived: item.isArchived,
+    repository: item.content.repository.nameWithOwner,
+    issueNumber: item.content.number,
+    kind: singleSelectName(item.kind ?? null),
+    status: singleSelectName(item.status ?? null),
   }
 }
 

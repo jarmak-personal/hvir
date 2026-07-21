@@ -72,9 +72,8 @@ function ports(
       setStatus: vi
         .fn()
         .mockImplementation((target: CanonicalProjectItem, status: ProjectStatus) => {
-          if (target.status === status) return Promise.resolve(false)
           target.status = status
-          return Promise.resolve(true)
+          return Promise.resolve()
         }),
     },
   }
@@ -220,6 +219,22 @@ describe('planning record operations', () => {
         apply: true,
       }),
     ).rejects.toThrow('was missing from the canonical Project after')
+  })
+
+  it('leaves an explicit membership mutation applied when a later Status write fails', async () => {
+    const { issues, project } = ports()
+    vi.mocked(project.setStatus).mockRejectedValue(new Error('Status mutation failed.'))
+
+    await expect(
+      reconcilePlanningRecord(issues, project, {
+        issueNumber: 85,
+        ensureProject: true,
+        status: 'In Progress',
+        apply: true,
+      }),
+    ).rejects.toThrow('Status mutation failed.')
+    expect(project.addIssue).toHaveBeenCalledOnce()
+    expect(project.refreshIssueItem).not.toHaveBeenCalled()
   })
 
   it('reports a Status no-op without calling the mutation port', async () => {

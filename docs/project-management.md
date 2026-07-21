@@ -123,6 +123,8 @@ npm run project:record -- --issue 85 --status 'In Progress' --apply
 Setting Status on a missing or archived item requires `--ensure-project`, so membership intent
 cannot be inferred from a field update. Missing or archived closed issues cannot be added or
 restored. Direct Project `Kind` writes are rejected because repository labels remain its owner.
+Apply operations are sequential, not transactional: if add/restore succeeds and a later Status
+write fails, the membership change remains and a retry resumes idempotently from current state.
 
 On a successful apply, the command re-reads the item and `record` reflects the confirmed Project
 values. In dry-run output, `record` remains the observed state and `operations` describes the
@@ -156,6 +158,8 @@ Runtime automation does not create or silently repair schema. A missing field, w
 or renamed/missing option is an actionable failure so schema drift is reviewed deliberately.
 The planning-record command also expects the canonical Project's `Status` single-select field to
 contain `Todo`, `In Progress`, and `Done`; it does not create or rename those options.
+Duplicate items for one repository issue fail both planning-record and kind commands visibly
+rather than allowing an arbitrary item to win.
 
 ## Actions authentication and usage
 
