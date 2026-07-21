@@ -136,6 +136,21 @@ export class SshFileAccess {
     this.invalidate(path.path)
   }
 
+  async removeFile(path: HostPath, opts: WriteFileOptions = {}): Promise<void> {
+    this.assertPath(path)
+    if (opts.expectedMtimeMs !== undefined) {
+      const current = await this.sftp<import('ssh2').Stats>((s, done) =>
+        s.lstat(path.path, done),
+      )
+      if (current.mtime * 1_000 !== opts.expectedMtimeMs) throw fileChangedError()
+    }
+    await this.sftp<void>((s, done) => s.unlink(path.path, done))
+    this.pollingFiles.delete(path.path)
+    this.readDigests.delete(path.path)
+    this.fingerprintObservations.delete(path.path)
+    this.invalidate(path.path)
+  }
+
   async readdir(path: HostPath): Promise<DirEntry[]> {
     this.assertPath(path)
     const key = `d:${path.path}`

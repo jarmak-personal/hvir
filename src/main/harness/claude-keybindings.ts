@@ -10,15 +10,21 @@ const KEYBINDINGS_FILE = 'keybindings.json'
 const STATE_FILE = '.hvir-keybindings-state.json'
 const MAX_KEYBINDINGS_BYTES = 1024 * 1024
 const MAX_STATE_BYTES = 32 * 1024
+const KEYBINDINGS_SCHEMA = 'https://www.schemastore.org/claude-code-keybindings.json'
+const KEYBINDINGS_DOCS = 'https://code.claude.com/docs/en/keybindings'
 const MANAGED_ACTIONS = {
   enter: 'chat:newline',
   'ctrl-enter': 'chat:submit',
+  'shift-enter': 'chat:submit',
 } as const
 
 type ManagedKey = keyof typeof MANAGED_ACTIONS
+const MANAGED_KEYS = ['enter', 'ctrl-enter', 'shift-enter'] as const
+const LEGACY_MANAGED_KEYS = ['enter', 'ctrl-enter'] as const
 const FILE_KEYS: Readonly<Record<ManagedKey, string>> = {
   enter: 'enter',
   'ctrl-enter': 'ctrl+enter',
+  'shift-enter': 'shift+enter',
 }
 type BindingValue = string | null
 type JsonObject = Record<string, unknown>
@@ -37,11 +43,19 @@ interface BindingSnapshot {
 }
 
 interface ActiveState {
-  readonly version: 1
+  readonly version: 1 | 2 | 3
   readonly active: true
   readonly createdChatBlock: boolean
+  readonly createdKeybindingsFile: boolean
   readonly snapshots: readonly BindingSnapshot[]
 }
+
+interface InactiveState {
+  readonly version: 1 | 2 | 3
+  readonly active: false
+}
+
+type ConfigurationState = ActiveState | InactiveState
 
 interface OptionalFile {
   readonly content: string
@@ -86,15 +100,22 @@ async function enableIntentionalSubmit(
   const keybindings = await readOptionalFile(host, keybindingsPath, MAX_KEYBINDINGS_BYTES)
   const document = parseKeybindings(keybindings?.content)
   const previousState = await readState(host, statePath)
+  let preservedState: ActiveState | undefined
   if (previousState?.active) {
-    if (matchesState(document, previousState, 'managed')) return
-    if (!matchesState(document, previousState, 'original')) {
+    if (matchesState(document, previousState, 'managed')) {
+      if (previousState.version === 3) return
+      preservedState = previousState
+    } else if (!matchesState(document, previousState, 'original')) {
       throw changedBindingsError()
     }
   }
 
   const { slots, createdChatBlock } = managedSlots(document)
-  const snapshots = (['enter', 'ctrl-enter'] as const).map((target) => {
+  const snapshots = MANAGED_KEYS.map((target) => {
+    const previousSnapshot = preservedState?.snapshots.find(
+      (snapshot) => snapshot.target === target,
+    )
+    if (previousSnapshot) return previousSnapshot
     const slot = slots.get(target)
     if (!slot) throw new Error('Could not prepare Claude keybindings')
     const existed = Object.hasOwn(slot.bindings, slot.key)
@@ -102,6 +123,7 @@ async function enableIntentionalSubmit(
     return { target, key: slot.key, existed, value }
   })
   if (
+    !preservedState &&
     snapshots.every(
       ({ target, existed, value }) => existed && value === MANAGED_ACTIONS[target],
     )
@@ -113,9 +135,11 @@ async function enableIntentionalSubmit(
     if (slot) slot.bindings[slot.key] = MANAGED_ACTIONS[snapshot.target]
   }
   const state: ActiveState = {
-    version: 1,
+    version: 3,
     active: true,
-    createdChatBlock,
+    createdChatBlock: preservedState?.createdChatBlock ?? createdChatBlock,
+    createdKeybindingsFile:
+      preservedState?.createdKeybindingsFile ?? keybindings === undefined,
     snapshots,
   }
   await host.writeFile(statePath, serialize(state))
@@ -125,7 +149,7 @@ async function enableIntentionalSubmit(
     })
   } catch (reason) {
     await host
-      .writeFile(statePath, serialize({ version: 1, active: false }))
+      .writeFile(statePath, serialize(previousState ?? { version: 3, active: false }))
       .catch(() => undefined)
     throw reason
   }
@@ -141,10 +165,20 @@ async function restoreSubmitBindings(
   const keybindings = await readOptionalFile(host, keybindingsPath, MAX_KEYBINDINGS_BYTES)
   const document = parseKeybindings(keybindings?.content)
   if (matchesState(document, state, 'original')) {
-    await host.writeFile(statePath, serialize({ version: 1, active: false }))
+    if (
+      state.createdKeybindingsFile &&
+      keybindings?.content === serialize(document) &&
+      isGeneratedEmptyKeybindings(document)
+    ) {
+      await host.removeFile(keybindingsPath, {
+        expectedMtimeMs: keybindings.mtimeMs,
+      })
+    }
+    await host.writeFile(statePath, serialize({ version: 3, active: false }))
     return
   }
   if (!matchesState(document, state, 'managed')) throw changedBindingsError()
+  const contentUnchanged = keybindings?.content === serialize(document)
 
   const createdBlocks = new Set<JsonObject>()
   for (const snapshot of state.snapshots) {
@@ -166,10 +200,20 @@ async function restoreSubmitBindings(
         ),
     )
   }
-  await host.writeFile(keybindingsPath, serialize(document), {
-    expectedMtimeMs: keybindings?.mtimeMs,
-  })
-  await host.writeFile(statePath, serialize({ version: 1, active: false }))
+  if (
+    state.createdKeybindingsFile &&
+    contentUnchanged &&
+    isGeneratedEmptyKeybindings(document)
+  ) {
+    await host.removeFile(keybindingsPath, {
+      expectedMtimeMs: keybindings?.mtimeMs,
+    })
+  } else {
+    await host.writeFile(keybindingsPath, serialize(document), {
+      expectedMtimeMs: keybindings?.mtimeMs,
+    })
+  }
+  await host.writeFile(statePath, serialize({ version: 3, active: false }))
 }
 
 function managedSlots(document: JsonObject): {
@@ -200,7 +244,7 @@ function managedSlots(document: JsonObject): {
     createdChatBlock = true
   }
   const targetBindings = targetBlock['bindings'] as JsonObject
-  for (const target of ['enter', 'ctrl-enter'] as const) {
+  for (const target of MANAGED_KEYS) {
     if (!slots.has(target)) {
       slots.set(target, {
         block: targetBlock,
@@ -241,13 +285,7 @@ function exactSlot(document: JsonObject, key: string): BindingSlot | undefined {
 }
 
 function parseKeybindings(content: string | undefined): JsonObject {
-  if (content === undefined) {
-    return {
-      $schema: 'https://www.schemastore.org/claude-code-keybindings.json',
-      $docs: 'https://code.claude.com/docs/en/keybindings',
-      bindings: [],
-    }
-  }
+  if (content === undefined) return generatedEmptyKeybindings()
   let value: unknown
   try {
     value = JSON.parse(content)
@@ -265,7 +303,7 @@ function parseKeybindings(content: string | undefined): JsonObject {
 async function readState(
   host: ProjectHost,
   path: HostPath,
-): Promise<ActiveState | { readonly version: 1; readonly active: false } | undefined> {
+): Promise<ConfigurationState | undefined> {
   const file = await readOptionalFile(host, path, MAX_STATE_BYTES)
   if (!file) return undefined
   let value: unknown
@@ -276,37 +314,64 @@ async function readState(
   }
   if (
     !isObject(value) ||
-    value['version'] !== 1 ||
+    (value['version'] !== 1 && value['version'] !== 2 && value['version'] !== 3) ||
     typeof value['active'] !== 'boolean'
   ) {
     throw new Error('hvir Claude keybinding restore state is invalid')
   }
-  if (!value['active']) return { version: 1, active: false }
+  const version = value['version']
+  if (!value['active']) return { version, active: false }
   if (
     !Array.isArray(value['snapshots']) ||
-    typeof value['createdChatBlock'] !== 'boolean'
+    typeof value['createdChatBlock'] !== 'boolean' ||
+    (version === 3 && typeof value['createdKeybindingsFile'] !== 'boolean')
   ) {
     throw new Error('hvir Claude keybinding restore state is invalid')
   }
   const snapshots = value['snapshots'].map(parseSnapshot)
+  const expectedTargets = version === 1 ? LEGACY_MANAGED_KEYS : MANAGED_KEYS
   if (
-    snapshots.length !== 2 ||
-    new Set(snapshots.map(({ target }) => target)).size !== 2
+    snapshots.length !== expectedTargets.length ||
+    expectedTargets.some(
+      (target) => !snapshots.some((snapshot) => snapshot.target === target),
+    )
   ) {
     throw new Error('hvir Claude keybinding restore state is invalid')
   }
   return {
-    version: 1,
+    version,
     active: true,
     createdChatBlock: value['createdChatBlock'],
+    createdKeybindingsFile:
+      version === 3 ? (value['createdKeybindingsFile'] as boolean) : false,
     snapshots,
   }
+}
+
+function generatedEmptyKeybindings(): JsonObject {
+  return {
+    $schema: KEYBINDINGS_SCHEMA,
+    $docs: KEYBINDINGS_DOCS,
+    bindings: [],
+  }
+}
+
+function isGeneratedEmptyKeybindings(document: JsonObject): boolean {
+  return (
+    Object.keys(document).length === 3 &&
+    document['$schema'] === KEYBINDINGS_SCHEMA &&
+    document['$docs'] === KEYBINDINGS_DOCS &&
+    Array.isArray(document['bindings']) &&
+    document['bindings'].length === 0
+  )
 }
 
 function parseSnapshot(value: unknown): BindingSnapshot {
   if (
     !isObject(value) ||
-    (value['target'] !== 'enter' && value['target'] !== 'ctrl-enter') ||
+    (value['target'] !== 'enter' &&
+      value['target'] !== 'ctrl-enter' &&
+      value['target'] !== 'shift-enter') ||
     typeof value['key'] !== 'string' ||
     typeof value['existed'] !== 'boolean' ||
     (value['existed'] && value['value'] !== null && typeof value['value'] !== 'string')
@@ -367,6 +432,9 @@ function managedTarget(key: string): ManagedKey | undefined {
     .replace(/^control\+/, 'ctrl+')
   if (normalized === 'enter' || normalized === 'return') return 'enter'
   if (normalized === 'ctrl+enter' || normalized === 'ctrl+return') return 'ctrl-enter'
+  if (normalized === 'shift+enter' || normalized === 'shift+return') {
+    return 'shift-enter'
+  }
   return undefined
 }
 

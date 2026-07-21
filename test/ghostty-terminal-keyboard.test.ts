@@ -87,6 +87,25 @@ describe('ghostty terminal keyboard compatibility', () => {
     ).toBe(sequence)
   })
 
+  it('encodes Claude Ctrl/Command+Enter as its configured submit chord', () => {
+    const intentional = options('modify-other-keys', {
+      metaEnterAliasesControl: true,
+      composerSubmitMode: 'ctrl-enter',
+    })
+    expect(ghosttyKeyboardOverride(key('Enter', { ctrlKey: true }), intentional)).toBe(
+      '\x1b[27;5;13~',
+    )
+    expect(ghosttyKeyboardOverride(key('Enter', { metaKey: true }), intentional)).toBe(
+      '\x1b[27;5;13~',
+    )
+    expect(
+      ghosttyKeyboardOverride(
+        key('Enter', { ctrlKey: true }),
+        options('modify-other-keys', { metaEnterAliasesControl: true }),
+      ),
+    ).toBeUndefined()
+  })
+
   it('aliases Command+Enter to Codex Ctrl+Enter only in intentional-submit mode', () => {
     const commandEnter = key('Enter', { metaKey: true })
     expect(

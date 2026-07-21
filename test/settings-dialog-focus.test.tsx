@@ -181,6 +181,9 @@ describe('SettingsDialog harness alignment', () => {
     expect(checkbox?.checked).toBe(false)
     act(() => checkbox?.click())
     expect(document.querySelector('#composer-submit-consent-title')).toBeTruthy()
+    expect(document.body.textContent).toContain(
+      'Shift+Enter submits in supported terminals outside hvir',
+    )
     expect(invoke).not.toHaveBeenCalled()
 
     act(() => button('Cancel').click())

@@ -176,6 +176,8 @@ export interface ProjectHost {
     data: Uint8Array | string,
     opts?: WriteFileOptions,
   ): Promise<void>
+  /** Remove one file, optionally only while its observed version is still current. */
+  removeFile(path: HostPath, opts?: WriteFileOptions): Promise<void>
   readdir(path: HostPath): Promise<DirEntry[]>
   stat(path: HostPath): Promise<Stat>
   /** Canonicalize through symlinks on the project host. */

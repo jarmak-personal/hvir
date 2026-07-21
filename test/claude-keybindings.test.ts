@@ -11,12 +11,14 @@ describe('Claude composer keybinding configuration', () => {
   let root: string
   let configDirectory: string
   let keybindingsFile: string
+  let stateFile: string
   let host: LocalHost
 
   beforeEach(async () => {
     root = await mkdtemp(join(tmpdir(), 'hvir-claude-keybindings-'))
     configDirectory = join(root, '.claude')
     keybindingsFile = join(configDirectory, 'keybindings.json')
+    stateFile = join(configDirectory, '.hvir-keybindings-state.json')
     await mkdir(configDirectory)
     vi.stubEnv('CLAUDE_CONFIG_DIR', configDirectory)
     host = new LocalHost()
@@ -29,7 +31,25 @@ describe('Claude composer keybinding configuration', () => {
     await rm(root, { recursive: true, force: true })
   })
 
-  it('changes only the two Chat bindings and restores their previous values', async () => {
+  it('removes a keybindings file that hvir created during exact restoration', async () => {
+    await expect(access(keybindingsFile)).rejects.toBeDefined()
+
+    await configureClaudeComposerSubmit(host, 'ctrl-enter')
+
+    expect(await readStateJson(stateFile)).toMatchObject({
+      version: 3,
+      active: true,
+      createdChatBlock: true,
+      createdKeybindingsFile: true,
+    })
+
+    await configureClaudeComposerSubmit(host, 'enter')
+
+    await expect(access(keybindingsFile)).rejects.toBeDefined()
+    expect(await readStateJson(stateFile)).toEqual({ version: 3, active: false })
+  })
+
+  it('changes only the three Chat bindings and restores their previous values', async () => {
     const original = {
       $docs: 'custom docs',
       bindings: [
@@ -39,6 +59,7 @@ describe('Claude composer keybinding configuration', () => {
           bindings: {
             enter: 'command:review',
             'ctrl+enter': null,
+            'shift+enter': 'command:review',
             'ctrl+e': 'chat:externalEditor',
           },
         },
@@ -58,6 +79,7 @@ describe('Claude composer keybinding configuration', () => {
           bindings: {
             enter: 'chat:newline',
             'ctrl+enter': 'chat:submit',
+            'shift+enter': 'chat:submit',
             'ctrl+e': 'chat:externalEditor',
           },
         },
@@ -80,7 +102,11 @@ describe('Claude composer keybinding configuration', () => {
       { context: 'Global', bindings: { 'ctrl+t': 'app:toggleTodos' } },
       {
         context: 'Chat',
-        bindings: { enter: 'chat:newline', 'ctrl+enter': 'chat:submit' },
+        bindings: {
+          enter: 'chat:newline',
+          'ctrl+enter': 'chat:submit',
+          'shift+enter': 'chat:submit',
+        },
       },
     ])
 
@@ -93,7 +119,11 @@ describe('Claude composer keybinding configuration', () => {
       bindings: [
         {
           context: 'Chat',
-          bindings: { enter: 'chat:newline', 'ctrl+enter': 'chat:submit' },
+          bindings: {
+            enter: 'chat:newline',
+            'ctrl+enter': 'chat:submit',
+            'shift+enter': 'chat:submit',
+          },
         },
       ],
     })
@@ -107,13 +137,100 @@ describe('Claude composer keybinding configuration', () => {
     ).rejects.toBeDefined()
   })
 
+  it('keeps additions made to a keybindings file that hvir created', async () => {
+    await configureClaudeComposerSubmit(host, 'ctrl-enter')
+    const configured = await readJson(keybindingsFile)
+    configured.bindings.push({
+      context: 'Global',
+      bindings: { 'ctrl+t': 'app:toggleTodos' },
+    })
+    await writeFile(keybindingsFile, `${JSON.stringify(configured, null, 2)}\n`)
+
+    await configureClaudeComposerSubmit(host, 'enter')
+
+    expect((await readJson(keybindingsFile)).bindings).toEqual([
+      { context: 'Global', bindings: { 'ctrl+t': 'app:toggleTodos' } },
+    ])
+  })
+
+  it('upgrades active two-binding state without losing its restore snapshot', async () => {
+    await writeFile(
+      keybindingsFile,
+      JSON.stringify({
+        bindings: [
+          {
+            context: 'Chat',
+            bindings: {
+              enter: 'chat:newline',
+              'ctrl+enter': 'chat:submit',
+              'shift+enter': 'command:review',
+            },
+          },
+        ],
+      }),
+    )
+    await writeFile(
+      stateFile,
+      JSON.stringify({
+        version: 1,
+        active: true,
+        createdChatBlock: false,
+        snapshots: [
+          {
+            target: 'enter',
+            key: 'enter',
+            existed: true,
+            value: 'command:review',
+          },
+          { target: 'ctrl-enter', key: 'ctrl+enter', existed: false },
+        ],
+      }),
+    )
+
+    await configureClaudeComposerSubmit(host, 'ctrl-enter')
+
+    expect((await readJson(keybindingsFile)).bindings[0]?.bindings).toEqual({
+      enter: 'chat:newline',
+      'ctrl+enter': 'chat:submit',
+      'shift+enter': 'chat:submit',
+    })
+    expect(await readStateJson(stateFile)).toEqual({
+      version: 3,
+      active: true,
+      createdChatBlock: false,
+      createdKeybindingsFile: false,
+      snapshots: [
+        {
+          target: 'enter',
+          key: 'enter',
+          existed: true,
+          value: 'command:review',
+        },
+        { target: 'ctrl-enter', key: 'ctrl+enter', existed: false },
+        {
+          target: 'shift-enter',
+          key: 'shift+enter',
+          existed: true,
+          value: 'command:review',
+        },
+      ],
+    })
+
+    await configureClaudeComposerSubmit(host, 'enter')
+
+    expect((await readJson(keybindingsFile)).bindings[0]?.bindings).toEqual({
+      enter: 'command:review',
+      'shift+enter': 'command:review',
+    })
+  })
+
   it('refuses to overwrite a targeted binding changed after hvir configured it', async () => {
     await writeFile(keybindingsFile, JSON.stringify({ bindings: [] }))
     await configureClaudeComposerSubmit(host, 'ctrl-enter')
     const manuallyEdited = await readJson(keybindingsFile)
     const chat = manuallyEdited.bindings[0]
     if (!chat) throw new Error('Expected hvir-managed Chat bindings')
-    chat.bindings.enter = 'command:review'
+    chat.bindings['shift+enter'] = 'command:review'
     await writeFile(keybindingsFile, JSON.stringify(manuallyEdited, null, 2))
 
     await expect(configureClaudeComposerSubmit(host, 'enter')).rejects.toThrow(
@@ -131,6 +248,23 @@ interface TestKeybindings {
   }>
 }
 
+interface TestConfigurationState {
+  readonly version: number
+  readonly active: boolean
+  readonly createdChatBlock?: boolean
+  readonly createdKeybindingsFile?: boolean
+  readonly snapshots?: Array<{
+    readonly target: string
+    readonly key: string
+    readonly existed: boolean
+    readonly value?: string | null
+  }>
+}
+
 async function readJson(path: string): Promise<TestKeybindings> {
   return JSON.parse(await readFile(path, 'utf8')) as TestKeybindings
+}
+
+async function readStateJson(path: string): Promise<TestConfigurationState> {
+  return JSON.parse(await readFile(path, 'utf8')) as TestConfigurationState
 }

@@ -390,6 +390,21 @@ export class LocalHost implements ProjectHost {
     }
   }
 
+  async removeFile(path: HostPath, opts: WriteFileOptions = {}): Promise<void> {
+    const destination = this.resolve(path)
+    if (opts.expectedMtimeMs !== undefined) {
+      let current: import('node:fs').Stats
+      try {
+        current = await fsp.lstat(destination)
+      } catch (reason) {
+        if ((reason as NodeJS.ErrnoException).code === 'ENOENT') throw fileChangedError()
+        throw reason
+      }
+      if (current.mtimeMs !== opts.expectedMtimeMs) throw fileChangedError()
+    }
+    await fsp.unlink(destination)
+  }
+
   async readdir(path: HostPath): Promise<DirEntry[]> {
     const entries = await fsp.readdir(this.resolve(path), { withFileTypes: true })
     return entries.map((e) => ({

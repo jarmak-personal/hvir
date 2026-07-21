@@ -221,8 +221,8 @@ export function SettingsDialog({
                 Send messages with Ctrl+Enter or Command+Enter; Enter inserts a new line
               </span>
               <small>
-                Claude updates live. Restart open Codex sessions after changing this
-                setting.
+                Claude updates live; Shift+Enter also submits in supported external
+                terminals. Restart open Codex sessions after changing this setting.
               </small>
             </span>
           </label>

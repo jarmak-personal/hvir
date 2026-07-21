@@ -82,13 +82,12 @@ export function ghosttyKeyboardOverride(
   }
 
   if (
-    options.metaEnterAliasesControl &&
     options.composerSubmitMode === 'ctrl-enter' &&
     event.code === 'Enter' &&
-    event.metaKey &&
-    !event.ctrlKey &&
     !event.altKey &&
-    !event.shiftKey
+    !event.shiftKey &&
+    ((event.ctrlKey && !event.metaKey) ||
+      (options.metaEnterAliasesControl && event.metaKey && !event.ctrlKey))
   ) {
     return controlEnterSequence(options.modifiedKeyProtocol)
   }

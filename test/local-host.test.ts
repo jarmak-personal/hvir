@@ -61,6 +61,23 @@ describe('LocalHost', () => {
     expect(await host.readTextFile(p)).toBe('external')
   })
 
+  it('removes only the observed version of a file', async () => {
+    const p = localPath(join(dir, 'remove.txt'))
+    await host.writeFile(p, 'original')
+    const opened = await host.stat(p)
+    await writeFile(p.path, 'external')
+    const changedTime = new Date(opened.mtimeMs + 10_000)
+    await utimes(p.path, changedTime, changedTime)
+
+    await expect(host.removeFile(p, { expectedMtimeMs: opened.mtimeMs })).rejects.toThrow(
+      'changed since it was opened',
+    )
+    expect(await host.readTextFile(p)).toBe('external')
+
+    await host.removeFile(p, { expectedMtimeMs: changedTime.getTime() })
+    await expect(host.stat(p)).rejects.toThrow()
+  })
+
   it('lists directory entries with types', async () => {
     await writeFile(join(dir, 'a.txt'), 'a')
     await mkdir(join(dir, 'sub'))
