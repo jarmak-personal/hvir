@@ -14,9 +14,11 @@ import type { WebPaneRouteRegistry } from '../web-pane/web-pane-route-registry'
 import { createWorkerClient, workerPath } from '../worker-host'
 import { SmokeCleanup } from './cleanup'
 import { verifyGitDiffBases } from './git-diff'
+import { verifyPlatformContracts } from './platform-contracts'
 import { verifyRendererLifecycleCleanup } from './renderer-lifecycle'
 import { verifySourceDiffPosition, verifyViewerPositions } from './viewer-position'
 import { createTerminalMoveSmokeHarness, verifyTerminalMoveSmoke } from './terminal-move'
+import { verifyLegacyTerminalPresentation } from './terminal-presentation'
 import { runCapacityLoadSmoke, runCapacityRecoverySmoke } from './capacity'
 import {
   ECHO_REQUEST_TYPE,
@@ -39,7 +41,8 @@ import {
   type TerminalRecoverySession,
 } from '../../shared'
 
-export type ElectronSmokeMode = 'workflow' | 'viewer-position' | 'capacity'
+export type ElectronSmokeMode =
+  'workflow' | 'viewer-position' | 'platform-contracts' | 'capacity'
 
 export interface ElectronSmokeDependencies {
   readonly mode: ElectronSmokeMode
@@ -140,7 +143,8 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
             name: 'hvir',
             main: true,
             missing,
-            repository: true,
+            // The platform-only group does not acquire unrelated Git-worker work.
+            repository: mode !== 'platform-contracts',
             changedFiles: 0,
           },
         ],
@@ -377,6 +381,21 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
       throw new Error('renderer echo ran in the main process')
     }
     console.log('[smoke] renderer IPC + echo worker round-trip OK')
+
+    if (mode === 'workflow' || mode === 'platform-contracts') {
+      const result = await verifyPlatformContracts({
+        htmlPreviews,
+        supervisor,
+        win,
+      })
+      console.log(`[smoke] platform contracts OK (${result})`)
+      if (mode === 'platform-contracts') {
+        console.log('HVIR_SMOKE_OK')
+        return 0
+      }
+      const presentation = await verifyLegacyTerminalPresentation(win)
+      console.log(`[smoke] terminal presentation OK (${presentation})`)
+    }
 
     if (mode === 'viewer-position') {
       const result = await verifySourceDiffPosition(win, liveReloadPath)
@@ -865,93 +884,6 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
       'host-key prompt timed out',
     )) as string
     console.log(`[smoke] SSH host-key prompt OK (${hostKeyPromptStatus})`)
-
-    // Wait for Ghostty WASM, native node-pty, and the lazy tree.
-    const terminalStatus = (await withTimeout(
-      win.webContents.executeJavaScript(`
-        new Promise((resolve, reject) => {
-          const poll = () => {
-            const status = document.querySelector('.terminal-panel')?.getAttribute('data-terminal-status') || '';
-            if (status.startsWith('pid ')) return resolve(status);
-            if (status && status !== 'Starting…') return reject(new Error(status));
-            setTimeout(poll, 50);
-          };
-          poll();
-        })
-      `),
-      'terminal pane did not start',
-    )) as string
-    console.log(`[smoke] ghostty-web + PTY OK (${terminalStatus})`)
-
-    const terminalCaretStatus = (await win.webContents.executeJavaScript(`
-      (() => {
-        const host = document.querySelector('.terminal-container');
-        if (!(host instanceof HTMLElement)) throw new Error('terminal input host missing');
-        const panel = host.closest('.terminal-panel');
-        if (!(panel instanceof HTMLElement)) throw new Error('terminal panel missing');
-        if (panel.querySelector(':scope > .panel-header')) {
-          throw new Error('redundant terminal header is still mounted');
-        }
-        if (Math.abs(panel.getBoundingClientRect().top - host.getBoundingClientRect().top) > 1) {
-          throw new Error('terminal canvas does not begin at the deck edge');
-        }
-        const rail = document.querySelector('.terminal-rail');
-        if (!(rail instanceof HTMLElement)) throw new Error('terminal rail missing');
-        if (parseFloat(getComputedStyle(rail).borderLeftWidth) !== 0) {
-          throw new Error('terminal rail divider cannot open at the active entry');
-        }
-        const activeRow = rail.querySelector('.terminal-list-row.active');
-        if (!(activeRow instanceof HTMLElement)) throw new Error('active terminal row missing');
-        if (parseFloat(getComputedStyle(activeRow).borderTopLeftRadius) !== 0) {
-          throw new Error('active terminal row still narrows its opening');
-        }
-        const activeBackground = getComputedStyle(activeRow).backgroundImage;
-        if (!activeBackground.includes('linear-gradient') || !activeBackground.includes('80%')) {
-          throw new Error('active terminal entry does not blend into the canvas');
-        }
-        host.focus();
-        const hostStyle = getComputedStyle(host);
-        const caret = hostStyle.caretColor;
-        if (caret !== 'transparent' && caret !== 'rgba(0, 0, 0, 0)') {
-          throw new Error('browser caret is visible in terminal input host: ' + caret);
-        }
-        const canvas = host.querySelector('canvas');
-        if (!(canvas instanceof HTMLCanvasElement)) throw new Error('terminal canvas missing');
-        const hostRect = host.getBoundingClientRect();
-        const canvasRect = canvas.getBoundingClientRect();
-        const workbench = host.closest('.workbench');
-        if (!(workbench instanceof HTMLElement)) throw new Error('terminal workbench missing');
-        const workbenchRect = workbench.getBoundingClientRect();
-        if (
-          Math.abs(workbenchRect.bottom - window.innerHeight) > 1 ||
-          Math.abs(hostRect.bottom - window.innerHeight) > 1
-        ) {
-          throw new Error(
-            'terminal extends outside the viewport: viewport=' + window.innerHeight +
-            ' workbench=' + workbenchRect.bottom + ' terminal=' + hostRect.bottom
-          );
-        }
-        const paddingRight = parseFloat(hostStyle.paddingRight) || 0;
-        const paddingBottom = parseFloat(hostStyle.paddingBottom) || 0;
-        const rightRemainder = hostRect.right - paddingRight - canvasRect.right;
-        const bottomRemainder = hostRect.bottom - paddingBottom - canvasRect.bottom;
-        if (rightRemainder < -1 || bottomRemainder < -1) {
-          throw new Error(
-            'terminal canvas exceeds its content box: right=' + rightRemainder +
-            ' bottom=' + bottomRemainder
-          );
-        }
-        if (rightRemainder >= 12 || bottomRemainder >= 20) {
-          throw new Error(
-            'terminal fit wastes more than one cell: right=' + rightRemainder +
-            ' bottom=' + bottomRemainder
-          );
-        }
-        return 'headerless · canvas cursor only · fit ' +
-          rightRemainder.toFixed(1) + '×' + bottomRemainder.toFixed(1) + 'px';
-      })()
-    `)) as string
-    console.log(`[smoke] terminal input caret contained (${terminalCaretStatus})`)
 
     const terminalMoveStatus = await verifyTerminalMoveSmoke({
       win,
@@ -2194,25 +2126,6 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
           }
           const treeBefore = tree.getBoundingClientRect().width;
           const terminalBefore = terminal.getBoundingClientRect().height;
-          const defaultTerminalShare = 3.8 / (4 + 3.8);
-          const requiredTerminalHeight = Math.min(
-            325,
-            Math.max(
-              260,
-              Math.floor(
-                (workbenchRect.height - terminalDividerRect.height) *
-                  defaultTerminalShare -
-                  2
-              )
-            )
-          );
-          if (terminalBefore + 1 < requiredTerminalHeight) {
-            return reject(new Error(
-              'default terminal is too short: ' + Math.round(terminalBefore) +
-              'px < ' + requiredTerminalHeight + 'px for a ' +
-              Math.round(workbenchRect.height) + 'px workbench'
-            ));
-          }
           treeDivider.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
           terminalDivider.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true }));
           requestAnimationFrame(() => requestAnimationFrame(() => {

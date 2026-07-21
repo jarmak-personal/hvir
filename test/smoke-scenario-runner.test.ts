@@ -28,11 +28,27 @@ describe('Electron smoke scenario selection', () => {
   it('rejects unknown groups with the complete reproducible name set', () => {
     expect(() => parseElectronSmokeScenario('unknown')).toThrow(
       "Unknown Electron smoke scenario 'unknown'. Expected one of: " +
-        'pty-native, viewer-position, legacy-workflow, capacity',
+        'pty-native, viewer-position, platform-contracts, legacy-workflow, capacity',
     )
     expect(() => selectedSmokeScenarios('unknown')).toThrow(
       "Unknown Electron smoke scenario 'unknown'. Expected one of: " +
-        'pty-native, viewer-position, legacy-workflow, capacity',
+        'pty-native, viewer-position, platform-contracts, legacy-workflow, capacity',
+    )
+  })
+
+  it('selects an explicit ordered scenario set without replacing the single-name API', () => {
+    expect(
+      selectedSmokeScenarios(undefined, [
+        'pty-native',
+        'viewer-position',
+        'platform-contracts',
+      ]),
+    ).toEqual(['pty-native', 'viewer-position', 'platform-contracts'])
+    expect(() => selectedSmokeScenarios('pty-native', ['viewer-position'])).toThrow(
+      'positional names or HVIR_SMOKE_SCENARIO, not both',
+    )
+    expect(() => selectedSmokeScenarios(undefined, ['unknown'])).toThrow(
+      "Unknown Electron smoke scenario 'unknown'",
     )
   })
 
@@ -105,8 +121,11 @@ describe('Electron smoke command contracts', () => {
     'utf8',
   )
 
-  it('routes default and capacity commands through the named process launcher', () => {
+  it('routes default, macOS, and capacity commands through the named process launcher', () => {
     expect(packageJson.scripts.smoke).toContain('node scripts/run-smoke-scenarios.mts')
+    expect(packageJson.scripts['smoke:macos']).toContain(
+      'node scripts/run-smoke-scenarios.mts pty-native viewer-position platform-contracts',
+    )
     expect(packageJson.scripts['smoke:capacity']).toContain(
       'HVIR_SMOKE_SCENARIO=capacity node scripts/run-smoke-scenarios.mts',
     )
@@ -120,8 +139,18 @@ describe('Electron smoke command contracts', () => {
     expect(invocationScript).toContain('create-smoke-repository.sh')
   })
 
-  it('keeps packaged smoke on the explicit transitional workflow until #119', () => {
-    expect(packagedScript).toContain('HVIR_SMOKE=1 HVIR_SMOKE_SCENARIO=legacy-workflow')
+  it('installs exact-version tarballs and runs only the narrow platform contracts', () => {
+    expect(packagedScript).toContain(
+      'tarball="dist/npm/${package_name}-${package_version}.tgz"',
+    )
+    expect(packagedScript).toContain(
+      'launcher_tarball="dist/npm/hvir-workbench-${package_version}.tgz"',
+    )
+    expect(packagedScript).toContain(
+      'HVIR_SMOKE=1 HVIR_SMOKE_SCENARIO=platform-contracts',
+    )
+    expect(packagedScript).not.toContain('HVIR_SMOKE_SCENARIO=legacy-workflow')
+    expect(packagedScript).not.toContain('find dist/npm')
   })
 
   it('enters capacity before unrelated legacy profile and viewer assertions', () => {
@@ -144,6 +173,21 @@ describe('Electron smoke command contracts', () => {
     expect(focusedScenario).toContain('requestAnimationFrame(painted)')
     expect(focusedScenario).toContain('root.isConnected')
     expect(focusedScenario).not.toContain('setTimeout(')
+  })
+
+  it('enters platform contracts before legacy work with bounded semantic snapshots', () => {
+    const branch = smokeWorkflow.indexOf("mode === 'platform-contracts'")
+    const platformScenario = readFileSync(
+      new URL('../src/main/smoke/platform-contracts.ts', import.meta.url),
+      'utf8',
+    )
+    expect(branch).toBeGreaterThan(-1)
+    expect(branch).toBeLessThan(smokeWorkflow.indexOf('const profileSmoke'))
+    expect(platformScenario).toContain('JSON.stringify(lastSnapshot)')
+    expect(platformScenario).toContain('protocol.isProtocolHandled')
+    expect(platformScenario).toContain('net.fetch(preview.url)')
+    expect(platformScenario).toContain('supervisor.list()')
+    expect(platformScenario).not.toContain('requestAnimationFrame')
   })
 
   it('documents every selectable group and the aggregate result behavior', () => {

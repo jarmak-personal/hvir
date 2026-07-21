@@ -62,15 +62,16 @@ Linux:aarch64 | Linux:arm64)
   ;;
 esac
 
-tarball=$(find dist/npm -type f -name "${package_name}-*.tgz" -print -quit)
-if [[ -z "$tarball" ]]; then
-  echo "npm payload for $package_name not found below dist/npm" >&2
+package_version=$(node -p "require('./package.json').version")
+tarball="dist/npm/${package_name}-${package_version}.tgz"
+if [[ ! -f "$tarball" ]]; then
+  echo "npm payload for ${package_name}@${package_version} not found: $tarball" >&2
   exit 1
 fi
 
-launcher_tarball=$(find dist/npm -type f -name 'hvir-workbench-[0-9]*.tgz' -print -quit)
-if [[ -z "$launcher_tarball" ]]; then
-  echo 'hvir-workbench launcher tarball not found below dist/npm' >&2
+launcher_tarball="dist/npm/hvir-workbench-${package_version}.tgz"
+if [[ ! -f "$launcher_tarball" ]]; then
+  echo "hvir-workbench@${package_version} launcher tarball not found: $launcher_tarball" >&2
   exit 1
 fi
 
@@ -108,7 +109,7 @@ fi
 
 (
   cd "$project_root"
-  HVIR_SMOKE=1 HVIR_SMOKE_SCENARIO=legacy-workflow "$launcher" "$project_root" \
+  HVIR_SMOKE=1 HVIR_SMOKE_SCENARIO=platform-contracts "$launcher" "$project_root" \
     --no-sandbox \
     --user-data-dir="$user_data_root"
 )
