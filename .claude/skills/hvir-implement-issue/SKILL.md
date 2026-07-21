@@ -28,11 +28,24 @@ issue. Resolve these questions before changing files:
 If an answer could materially change product behavior, ownership, authority, or scope,
 surface it and pause for alignment. Otherwise state the assumption and continue.
 
+## Select the delivery path
+
+Read the issue with `npm run project:record -- --issue <number>`. Supply credentials through the
+environment described in `docs/project-management.md`.
+
+- Use `origin/main` when the issue has no open direct epic parent. Target `main`. Add
+  `Closes #<number>` to the PR.
+- Read the parent record when the issue has an open same-repository parent. If the parent has one
+  valid `kind:epic` label, read [`references/epic-delivery.md`](references/epic-delivery.md)
+  completely and follow it.
+
+Stop when parent, kind, or nesting metadata is ambiguous. Report the conflict. Record the selected
+issue, parent, base, and delivery path before work begins.
+
 ## Establish the isolated issue worktree
 
-Obtain the exact agreed base ref from the governing workflow; this skill must not silently
-choose between `main`, an epic branch, or another base. Use native Git directly from the
-invoking checkout without switching, cleaning, resetting, or overwriting it:
+Use the exact base selected above and keep it fixed for the issue. Use native Git from the
+invoking checkout. Preserve its branch and working state:
 
 ```sh
 git fetch --prune origin
@@ -51,8 +64,8 @@ with a reason, then continue unrelated work unless the selected branch or path c
 
 Reuse an existing worktree only when `agent/issue-<number>` is registered at the exact sibling
 path above. Stop on any mismatched branch, path, detached state, or ambiguous base. After
-selection, perform all reconnaissance, edits, checks, commits, candidate-review handoff, and
-push operations from that worktree.
+selection, perform all reconnaissance, edits, checks, commits, and push operations from that
+worktree.
 
 ## Perform architecture reconnaissance
 
@@ -109,25 +122,8 @@ Run the most focused checks during development. Treat `npm run verify` as a mand
 pre-commit gate: run it after the final changes and do not commit, push, or open a pull request
 until it passes. A passing run from before later edits is stale and does not satisfy the gate.
 
-After verification passes, commit the exact candidate. Then apply these review conditions.
-
-Run `$hvir-review-code` one time when any condition applies:
-
-- The change is a nontrivial feature or refactor.
-- The change has architecture, security, concurrency, lifecycle, or cross-seam risk.
-- The candidate is the final cumulative implementation for an epic.
-
-Skip code review by default when any condition applies:
-
-- The change is a small, localized bug.
-- The change contains only routine documentation or tests.
-- The change is mechanical maintenance and has none of the listed risks.
-
-A maintainer can require or skip the review. Evaluate the review response. Correct each valid
-finding. Record concise evidence for a rejected finding. Do not run another review after a
-correction. If the candidate changes, run the relevant focused checks. Run a fresh
-`npm run verify`. Commit the final candidate before the pre-push gate. Integration checks remain
-the final authority.
+After verification passes, commit the exact candidate. If the candidate changes, run the relevant
+focused checks and a fresh `npm run verify`. Commit the final candidate before the pre-push gate.
 
 Push without `--no-verify` so `.githooks/pre-push` runs the typechecks and local-platform
 Electron smoke. If the repository hook is not installed, run `.githooks/pre-push` directly
@@ -137,6 +133,11 @@ problem. Fix and rerun the check, or stop and report an environment blocker to t
 Use the capacity, real-host, packaged, or full gauntlet checks when the issue's acceptance
 criteria require those environments. Report exact results and any unverified environment
 honestly.
+
+## Publish and integrate
+
+Use the user's authority for ordinary PR publication and merge operations. For an authorized epic
+build, follow `references/epic-delivery.md` through child integration and cumulative handoff.
 
 Before handing off:
 
@@ -150,5 +151,6 @@ Before handing off:
 5. Prepare a concise pull-request summary that links the governing issue with `Closes #N`,
    explains architecture and reuse decisions, lists risks, and records verification.
 
-Open or update a pull request only when the user requests it. Never describe the work as
-complete while architectural concerns or required validation remain unresolved.
+Open or update a pull request when the user requests it or authorizes an epic build run. Reserve
+the final epic merge for the maintainer. Report unresolved architecture or validation concerns as
+blockers.

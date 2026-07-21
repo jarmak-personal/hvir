@@ -6,12 +6,27 @@ const workflow = readFileSync(
   new URL('../.github/workflows/project-pr-planning.yml', import.meta.url),
   'utf8',
 )
+const ciWorkflow = readFileSync(
+  new URL('../.github/workflows/ci.yml', import.meta.url),
+  'utf8',
+)
+const codeqlWorkflow = readFileSync(
+  new URL('../.github/workflows/codeql.yml', import.meta.url),
+  'utf8',
+)
 
 function matches(pattern: RegExp): string[] {
   return [...workflow.matchAll(pattern)].map((match) => match[0])
 }
 
 describe('PR planning workflow security', () => {
+  it('runs required checks for main and epic integration branches', () => {
+    for (const requiredWorkflow of [ciWorkflow, codeqlWorkflow]) {
+      expect(requiredWorkflow.match(/- main/g)).toHaveLength(2)
+      expect(requiredWorkflow.match(/- 'epic\/\*\*'/g)).toHaveLength(2)
+    }
+  })
+
   it('uses immutable third-party actions and trusted main automation only', () => {
     const actionReferences = matches(/^\s+uses: actions\/[^\s#]+/gm)
     expect(actionReferences).toHaveLength(4)
@@ -45,10 +60,11 @@ describe('PR planning workflow security', () => {
     expect(workflow).not.toMatch(/issues: write|pull-requests: write|contents: write/)
   })
 
-  it('gates every secret-bearing job on the main-only environment', () => {
+  it('gates every secret-bearing job on trusted default-branch automation', () => {
     expect(matches(/^\s+name: project-automation$/gm)).toHaveLength(2)
     expect(matches(/^\s+deployment: false$/gm)).toHaveLength(2)
     expect(workflow).toContain("github.event.pull_request.base.ref == 'main'")
+    expect(workflow).toContain("startsWith(github.event.pull_request.base.ref, 'epic/')")
     expect(workflow).toContain("github.ref == 'refs/heads/main'")
   })
 })

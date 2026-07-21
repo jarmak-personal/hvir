@@ -183,6 +183,14 @@ guess a previous manual Status, add or restore missing Project items, or mutate 
 Multiple PRs for one issue and one PR for multiple issues are resolved from current GitHub state
 rather than replaying event assumptions.
 
+Epic-child PRs target a bounded `epic/**` branch and use one contribution trailer for the direct
+child plus one for its open epic. The same trusted relationship automation advances eligible
+records while the PR is active. After the PR merges, the contributor workflow verifies the PR's
+exact base and head plus the native parent relationship, then closes the feature-complete child
+with ordinary `gh` issue operations. Native issue-close automation owns `Done`. Reopen the child
+if a correction makes its outcome incomplete; a new contribution PR advances eligible reopened
+work normally. No intermediate Project Status is used.
+
 Inspect a PR relationship reconciliation without mutation:
 
 ```sh
@@ -239,12 +247,13 @@ overlapping event jobs without cancelling an in-flight reconciliation. Reads res
 state first, and no-op label or Project mutations are skipped.
 
 `.github/workflows/project-pr-planning.yml` has one event job for the relevant PR lifecycle
-events or an issue reopen, plus one manual PR reconciliation job. Event jobs apply automatically;
-manual dispatch is a dry run unless `apply` is selected. A repository-wide concurrency group
-serializes Project Status work without cancelling an in-flight job. Each event uses one runner.
-PR events load the current triggering PR and its paginated native relationships; both PR and
-issue-reopen paths scan paginated open PR bodies once for current contribution trailers and batch
-all issue operations inside that job. There is no polling or runner-per-relationship fan-out.
+events targeting `main` or `epic/**`, or an issue reopen, plus one manual PR reconciliation job.
+Event jobs apply automatically; manual dispatch is a dry run unless `apply` is selected. A
+repository-wide concurrency group serializes Project Status work without cancelling an in-flight
+job. Each event uses one runner. PR events load the current triggering PR and its paginated native
+relationships; both PR and issue-reopen paths scan paginated open PR bodies once for current
+contribution trailers and batch all issue operations inside that job. There is no polling or
+runner-per-relationship fan-out.
 
 The workflow's repository-scoped `GITHUB_TOKEN` receives only `contents: read` and
 `issues: write`. GitHub does not allow that token to access a user-owned Project, so Project
@@ -274,10 +283,12 @@ are pinned to full commit SHAs. Both jobs check out `main` explicitly without pe
 `GITHUB_TOKEN`; manual dispatches from any other ref are rejected.
 
 The PR workflow uses `pull_request_target` because a fork-originated PR must be able to trigger
-the user-owned Project mutation. This is a privileged metadata workflow: it checks out only
-trusted `main`, never checks out, fetches, installs, builds, or executes PR code, disables package
-manager caching, and gives `GITHUB_TOKEN` only `contents`, `issues`, and `pull-requests` read
-permissions. The Project credential remains isolated in the main-only `project-automation`
-environment. PR bodies and the prior-body event value are parsed only as data by static
-default-branch automation; event values are passed through environment variables and never
-interpolated into shell source. External actions remain pinned to full commit SHAs.
+the user-owned Project mutation. This is a privileged metadata workflow: GitHub loads the
+workflow from the default branch, the job checks out only trusted `main`, and it never checks out,
+fetches, installs, builds, or executes PR code. The job disables package-manager caching and gives
+`GITHUB_TOKEN` only `contents`, `issues`, and `pull-requests` read permissions. The Project
+credential remains isolated in the main-only `project-automation` environment; the event's
+`GITHUB_REF` remains the default branch even when the PR base is `epic/**`. PR bodies and the
+prior-body event value are parsed only as data by static default-branch automation; event values
+are passed through environment variables and never interpolated into shell source. External
+actions remain pinned to full commit SHAs.

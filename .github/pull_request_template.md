@@ -3,8 +3,12 @@
 Closes #
 
 <!--
-If this PR contributes to another issue without completing it, add one exact trailer per issue,
-for example: `Contributes-to: #123`.
+For an ordinary PR to main, keep one native `Closes #N` relationship above.
+
+For an epic-child PR, replace the `Closes` line with two exact whole-line trailers outside this
+comment: one for the child and one for its epic. Example spelling:
+
+Contributes-to: #123
 -->
 
 ## Outcome

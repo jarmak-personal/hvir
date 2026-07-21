@@ -4,9 +4,11 @@ on:
   push:
     branches:
       - main
+      - 'epic/**'
   pull_request:
     branches:
       - main
+      - 'epic/**'
   schedule:
     - cron: '17 8 * * 1'
 
