@@ -66,6 +66,13 @@ Write the draft in Simplified Technical English. Use short, literal sentences. P
 voice. Put one requirement in each sentence. Use the same term for the same concept. Avoid
 idioms, rhetorical language, vague modifiers, and unnecessary synonyms.
 
+Keep the draft easy to scan in one pass. Include only the information needed to align on the
+problem, boundaries, and observable completion. Do not repeat a requirement across sections.
+For a bug, treat Expected behavior as the desired outcome and omit a duplicate Desired outcome
+section. Keep Product fit brief when alignment is clear. Record only unresolved architecture
+questions. Do not convert reconnaissance findings into prescribed implementation. Use the
+minimum acceptance criteria needed to prove the outcome and important failure behavior.
+
 Use this structure, omitting sections that truly do not apply:
 
 ```markdown
