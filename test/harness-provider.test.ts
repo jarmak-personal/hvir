@@ -111,7 +111,7 @@ describe('Harness providers', () => {
     })
     expect(catalog.find(({ id }) => id === 'claude-code')?.terminalInput).toEqual({
       modifiedKeyProtocol: 'modify-other-keys',
-      metaEnterAliasesControl: false,
+      metaEnterAliasesControl: true,
     })
     expect(catalog.find(({ id }) => id === 'codex')?.terminalInput).toEqual({
       modifiedKeyProtocol: 'csi-u',

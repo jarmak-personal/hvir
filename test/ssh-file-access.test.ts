@@ -112,6 +112,59 @@ describe('SshFileAccess', () => {
     expect(secondSession.unlink).toHaveBeenCalledOnce()
     files.dispose()
   })
+
+  it('removes only the observed version of a remote file', async () => {
+    const hostId = asHostId('ssh:test')
+    const path = hostPath(hostId, '/project/keybindings.json')
+    const session = {
+      lstat: vi.fn(
+        (_path: string, callback: (error: Error | undefined, value: unknown) => void) =>
+          callback(undefined, { mode: 0o100600, mtime: 100, size: 5, atime: 100 }),
+      ),
+      unlink: vi.fn((_path: string, callback: (error?: Error) => void) => callback()),
+      once: vi.fn(),
+      end: vi.fn(),
+    }
+    const files = new SshFileAccess(
+      {
+        hostId,
+        openSftp: () => Promise.resolve(session as unknown as SFTPWrapper),
+      },
+      {},
+    )
+
+    await files.removeFile(path, { expectedMtimeMs: 100_000 })
+
+    expect(session.unlink).toHaveBeenCalledWith(path.path, expect.any(Function))
+    files.dispose()
+  })
+
+  it('refuses to remove a stale remote file', async () => {
+    const hostId = asHostId('ssh:test')
+    const path = hostPath(hostId, '/project/keybindings.json')
+    const session = {
+      lstat: vi.fn(
+        (_path: string, callback: (error: Error | undefined, value: unknown) => void) =>
+          callback(undefined, { mode: 0o100600, mtime: 101, size: 5, atime: 100 }),
+      ),
+      unlink: vi.fn(),
+      once: vi.fn(),
+      end: vi.fn(),
+    }
+    const files = new SshFileAccess(
+      {
+        hostId,
+        openSftp: () => Promise.resolve(session as unknown as SFTPWrapper),
+      },
+      {},
+    )
+
+    await expect(files.removeFile(path, { expectedMtimeMs: 100_000 })).rejects.toThrow(
+      'changed on the remote host',
+    )
+    expect(session.unlink).not.toHaveBeenCalled()
+    files.dispose()
+  })
 })
 
 function fileAccess(

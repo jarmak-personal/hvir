@@ -248,6 +248,7 @@ export const claudeCodeProvider: HarnessProvider = {
     displayName: 'Claude Code',
     contextPresentation: 'count',
     modifiedKeyProtocol: 'modify-other-keys',
+    metaEnterAliasesControl: true,
   },
   profile: {
     version: 1,

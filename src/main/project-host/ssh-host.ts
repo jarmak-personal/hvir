@@ -559,7 +559,6 @@ export class SshHost implements ProjectHost {
       kill: () => channel.close(),
     }
   }
-
   async readFile(path: HostPath, opts: ReadFileOptions = {}): Promise<Buffer> {
     return this.files.readFile(path, opts)
   }
@@ -577,6 +576,8 @@ export class SshHost implements ProjectHost {
   ): Promise<void> {
     return this.files.writeFile(path, value, opts)
   }
+  readonly removeFile: ProjectHost['removeFile'] = (...args) =>
+    this.files.removeFile(...args)
   async readdir(path: HostPath): Promise<DirEntry[]> {
     return this.files.readdir(path)
   }
@@ -586,7 +587,6 @@ export class SshHost implements ProjectHost {
   async realpath(path: HostPath): Promise<HostPath> {
     return this.files.realpath(path)
   }
-
   watch(
     path: HostPath,
     onEvent: (e: WatchEvent) => void,
