@@ -68,6 +68,23 @@ guaranteed prompt-injection boundary.
 
 Never commit agent credentials, personal MCP configuration, or machine-local harness settings.
 
+## Isolate issue implementation
+
+`hvir-implement-issue` uses native Git to create or reuse `agent/issue-N` at the deterministic
+sibling path `<primary-repository>-worktrees/issue-N` from an exact base agreed by the governing
+workflow. All implementation, testing, verification, commits, review handoff, pre-push checks,
+and pushes happen there; the invoking checkout and unrelated worktrees stay untouched.
+
+Each invocation fetches/prunes and inspects existing worktrees before creation. Cleanup uses
+ordinary `git worktree`, status, and ref commands plus bounded `gh` PR metadata. Remove only when
+the worktree is inactive, unlocked, clean except for plainly disposable ignored artifacts, its
+upstream is gone, and a merged PR records the exact local head and expected base. Never force or
+recursively delete; retain uncertain state with a reason. This is a contributor convention, not
+a custom worktree registry or an hvir application capability.
+
+This lifecycle belongs only to repository contributor tooling. The hvir application continues
+to discover worktrees without creating, moving, repairing, merging, or removing them.
+
 ## Develop locally
 
 Development requires Node 24 or newer; release CI uses Node 24.
