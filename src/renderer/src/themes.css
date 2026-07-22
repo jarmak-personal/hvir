@@ -213,7 +213,7 @@
   background: var(--surface-2);
 }
 
-:root[data-theme='light'] .close-project-dialog > code {
+:root[data-theme='light'] .close-project-dialog code {
   color: var(--text);
   background: var(--surface-1);
   border-color: var(--border-subtle);

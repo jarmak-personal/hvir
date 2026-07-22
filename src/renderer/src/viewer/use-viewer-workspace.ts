@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useReducer, useRef } from 'react'
 
 import {
-  basenameHostPath,
   hostPathEquals,
   unwrapOperation,
   type DiffBase,
@@ -189,12 +188,6 @@ export function useViewerWorkspace(options: UseViewerWorkspaceOptions) {
     (id: string): void => {
       const current = modelRef.current
       const closing = current.tabs.find((tab) => tab.id === id)
-      if (
-        closing?.dirty &&
-        !window.confirm(`Close ${basenameHostPath(closing.path)} without saving?`)
-      ) {
-        return
-      }
       pendingPositions.current.delete(id)
       readGenerations.current.set(id, (readGenerations.current.get(id) ?? 0) + 1)
       const closesLastSecondary =

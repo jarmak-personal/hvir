@@ -1492,17 +1492,17 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
         new Promise((resolve, reject) => {
           const deadline = Date.now() + 10000;
           const open = () => {
-            const staleTab = [...document.querySelectorAll('.viewer-tab')]
-              .find((node) =>
-                node.querySelector('.tab-main')?.getAttribute('title') ===
-                  ${JSON.stringify(liveReloadPath.path)} &&
-                node.querySelector('.tab-status')?.textContent?.includes('●')
-              );
+            const discard = [...document.querySelectorAll('.dirty-tab-close-dialog button')]
+              .find((node) => node.textContent?.trim() === 'Close without saving');
+            if (discard) {
+              discard.click();
+              return setTimeout(open, 50);
+            }
+            const staleTab = [...document.querySelectorAll('.viewer-tab')].find((node) =>
+              node.querySelector('.tab-main')?.getAttribute('title') === ${JSON.stringify(liveReloadPath.path)} && node.querySelector('.tab-status')?.textContent?.includes('●')
+            );
             if (staleTab) {
-              const confirm = window.confirm;
-              window.confirm = () => true;
               staleTab.querySelector('.tab-close')?.click();
-              window.confirm = confirm;
               return setTimeout(open, 50);
             }
             const file = [...document.querySelectorAll('.file-row')]
