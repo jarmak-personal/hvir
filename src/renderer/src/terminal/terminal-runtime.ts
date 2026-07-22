@@ -12,6 +12,7 @@ import {
 import { createGhosttyTerminalPane } from './ghostty-terminal-pane'
 import { SynchronizedOutputWriter } from './synchronized-output'
 import type { TerminalLinkActivation, TerminalPane } from './terminal-pane'
+import type { TerminalPresentation } from './terminal-pane'
 import {
   baseTerminalTheme,
   resumeUnavailableStatus,
@@ -43,6 +44,7 @@ export interface TerminalRuntimeOptions {
   readonly resumeOnStart: boolean
   readonly position: number
   readonly active: boolean
+  readonly presentation: TerminalPresentation
   readonly modifiedKeyProtocol: HarnessModifiedKeyProtocol
   readonly metaEnterAliasesControl: boolean
   readonly composerSubmitMode: ComposerSubmitMode
@@ -137,7 +139,8 @@ export class TerminalRuntime {
     this.options = options
   }
 
-  synchronizeConnection(): void {
+  synchronizeLifecycle(): void {
+    this.pane?.setPresentation(this.options.presentation)
     const connectionState = this.options.connectionState
     if (this.appliedConnectionState === connectionState) return
     this.appliedConnectionState = connectionState
@@ -168,7 +171,9 @@ export class TerminalRuntime {
   }
 
   detach(container: HTMLElement): void {
-    if (this.container === container) this.container = undefined
+    if (this.container !== container) return
+    this.container = undefined
+    this.pane?.setPresentation('hidden')
   }
 
   focus(): void {
@@ -276,6 +281,7 @@ export class TerminalRuntime {
       }
       this.pane = pane
       this.installPaneListeners(pane)
+      pane.setPresentation(this.options.presentation)
       pane.mount(this.container ?? container)
       pane.redraw()
       this.installPtyListeners(sessionId)
