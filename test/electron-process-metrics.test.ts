@@ -6,7 +6,7 @@ import {
 } from '../src/main/smoke/electron-process-metrics'
 
 describe('Electron process metric aggregation', () => {
-  it('separates renderer, GPU, and main CPU without counting utility processes', () => {
+  it('separates named processes and reports all child-process CPU', () => {
     const metrics = [
       processMetric(10, 'Browser', 2.5),
       processMetric(20, 'Tab', 4),
@@ -19,6 +19,7 @@ describe('Electron process metric aggregation', () => {
       renderer: 4,
       gpu: 2,
       main: 2.5,
+      aggregateChildren: 14,
       rendererPlusGpu: 6,
     })
   })

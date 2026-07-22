@@ -251,10 +251,17 @@ describe('Electron smoke command contracts', () => {
     expect(branch).toBeLessThan(smokeWorkflow.indexOf('const viewerStatus'))
     expect(smokeWorkflow.indexOf("if (mode === 'capacity')", branch + 1)).toBe(-1)
     expect(capacityScenario).toContain('const CPU_SAMPLE_COUNT = 3')
+    expect(capacityScenario).toContain('const TERMINAL_READINESS_SAMPLE_COUNT = 10')
     expect(capacityScenario).toContain('idleCpu.ratio > 1.5')
+    expect(capacityScenario).toContain(
+      'terminalReadiness.ratio > TERMINAL_READINESS_RATIO_LIMIT',
+    )
+    expect(capacityScenario).toContain('cpu.aggregateChildren.toFixed(2)')
     expect(capacityTerminalScenario).toContain('JSON.stringify(current)')
     expect(capacityTerminalScenario).toContain('current.surfaces === expected')
-    expect(capacityTerminalScenario).toContain('loaded-input:load')
+    expect(capacityTerminalScenario).toContain('actionStartedAtMs.push(Date.now())')
+    expect(capacityTerminalScenario).toContain('ready-input:%s')
+    expect(capacityTerminalScenario).toContain('countOccurrences(output, marker) !== 1')
   })
 
   it('enters the viewer group before legacy work with semantic diagnostics', () => {
