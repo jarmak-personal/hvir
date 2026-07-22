@@ -97,6 +97,7 @@ class GhosttyTerminalPane implements TerminalPane {
   private readonly resizeListeners = new ListenerSet<TerminalSize>()
   private readonly linkListeners = new ListenerSet<TerminalLinkActivation>()
   private readonly engineDisposers: Array<{ dispose(): void }> = []
+  private surface?: HTMLDivElement
   private mounted = false
   private disposed = false
   private readonly signalParser = new TerminalSignalParser()
@@ -116,12 +117,16 @@ class GhosttyTerminalPane implements TerminalPane {
     if (this.disposed) throw new Error('Cannot mount a disposed terminal pane')
     if (this.mounted) throw new Error('Terminal pane is already mounted')
     this.mounted = true
+    const surface = document.createElement('div')
+    surface.className = 'terminal-engine-host'
+    container.append(surface)
+    this.surface = surface
     this.engineDisposers.push(
       this.terminal.onData((data) => this.dataListeners.emit(data)),
       this.terminal.onResize((size) => this.resizeListeners.emit(size)),
       this.terminal.onTitleChange((title) => this.emitTitle(title)),
     )
-    this.terminal.open(container)
+    this.terminal.open(surface)
     this.terminal.registerLinkProvider(
       new FileLinkProvider(this.terminal, (target) => this.linkListeners.emit(target)),
     )
@@ -150,10 +155,10 @@ class GhosttyTerminalPane implements TerminalPane {
 
   reparent(container: HTMLElement): void {
     if (this.disposed) throw new Error('Cannot move a disposed terminal pane')
-    if (!this.mounted || !this.terminal.element) {
+    if (!this.mounted || !this.surface) {
       throw new Error('Cannot move a terminal pane before it is mounted')
     }
-    container.append(this.terminal.element)
+    container.append(this.surface)
     this.fit.fit()
     this.redraw()
   }
@@ -196,11 +201,11 @@ class GhosttyTerminalPane implements TerminalPane {
     this.engineDisposers.length = 0
     const renderer = this.terminal.renderer
     const canvas = renderer?.getCanvas()
-    const element = this.terminal.element
     renderer?.clear()
     if (canvas) canvas.style.visibility = 'hidden'
     this.terminal.dispose()
-    element?.remove()
+    this.surface?.remove()
+    this.surface = undefined
     this.dataListeners.clear()
     this.titleListeners.clear()
     this.bellListeners.clear()

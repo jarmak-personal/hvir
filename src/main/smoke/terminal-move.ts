@@ -208,7 +208,7 @@ export async function verifyTerminalMoveSmoke({
     harness.sourceRoot,
   )
   emitState(harness.reset())
-  return `same pid ${terminal.pid} · same canvas · ${originalCount} supervised`
+  return `same pid ${terminal.pid} · same canvas/surface · ${originalCount} supervised`
 }
 
 async function runMoveInteraction(
@@ -218,28 +218,33 @@ async function runMoveInteraction(
   expectNew: boolean,
   waitForTitle?: string,
 ): Promise<void> {
-  await win.webContents.executeJavaScript(`
-    new Promise((resolve, reject) => {
+  const result: unknown = await win.webContents.executeJavaScript(`
+    new Promise((resolve) => {
       const deadline = Date.now() + 8000;
+      const fail = (reason, details = {}) => resolve({ ok: false, reason, ...details });
       if (!window.__hvirSmokeMoveCanvas) {
-        window.__hvirSmokeMoveCanvas = document.querySelector(
-          '.terminal-deck:not([hidden]) .terminal-container canvas'
+        window.__hvirSmokeMoveContainer = document.querySelector(
+          '.terminal-deck:not([hidden]) .terminal-container'
         );
+        window.__hvirSmokeMoveSurface = window.__hvirSmokeMoveContainer?.querySelector(
+          ':scope > .terminal-engine-host'
+        );
+        window.__hvirSmokeMoveCanvas = window.__hvirSmokeMoveSurface?.querySelector('canvas');
       }
       const poll = () => {
         const visibleRail = document.querySelector('.terminal-rail:not([hidden])');
         const title = visibleRail?.querySelector('.terminal-list-title')?.textContent?.trim();
         if (${JSON.stringify(waitForTitle)} && title !== ${JSON.stringify(waitForTitle)}) {
           if (Date.now() <= deadline) return setTimeout(poll, 25);
-          return reject(new Error('moved terminal output title missing: ' + title));
+          return fail('moved terminal output title missing', { title });
         }
         const move = visibleRail?.querySelector('.terminal-workspace-move-button');
         if (!(move instanceof HTMLButtonElement) || move.disabled) {
           if (Date.now() <= deadline) return setTimeout(poll, 25);
-          return reject(new Error('move-terminal control unavailable'));
+          return fail('move-terminal control unavailable');
         }
         if (${expectNew} && !move.getAttribute('aria-label')?.includes('new worktree')) {
-          return reject(new Error('new-worktree move indicator missing'));
+          return fail('new-worktree move indicator missing');
         }
         move.click();
         waitForTarget();
@@ -252,7 +257,7 @@ async function runMoveInteraction(
           return waitForDialog();
         }
         if (Date.now() <= deadline) return setTimeout(waitForTarget, 25);
-        reject(new Error('terminal move target missing'));
+        fail('terminal move target missing');
       };
       const waitForDialog = () => {
         const dialog = document.querySelector('.terminal-move-dialog');
@@ -263,25 +268,42 @@ async function runMoveInteraction(
           return waitForMove();
         }
         if (Date.now() <= deadline) return setTimeout(waitForDialog, 25);
-        reject(new Error('terminal move confirmation missing exact terminal'));
+        fail('terminal move confirmation missing exact terminal');
       };
       const waitForMove = () => {
         const deck = document.querySelector('.terminal-deck:not([hidden])');
-        const canvas = deck?.querySelector('.terminal-container canvas');
+        const container = deck?.querySelector('.terminal-container');
+        const surface = container?.querySelector(':scope > .terminal-engine-host');
+        const canvas = surface?.querySelector('canvas');
         const rows = document.querySelectorAll(
           '.terminal-rail:not([hidden]) .terminal-list-row'
         );
         if (
           deck?.getAttribute('aria-label') === ${JSON.stringify(targetDeckLabel)} &&
           canvas === window.__hvirSmokeMoveCanvas &&
+          surface === window.__hvirSmokeMoveSurface &&
+          surface?.parentElement === container &&
+          container !== window.__hvirSmokeMoveContainer &&
+          !window.__hvirSmokeMoveContainer?.isConnected &&
           rows.length === 1
         ) return resolve(true);
         if (Date.now() <= deadline) return setTimeout(waitForMove, 25);
-        reject(new Error('terminal did not reparent exactly once with its canvas'));
+        fail('terminal did not reparent one adapter surface into the new React container', {
+          deckLabel: deck?.getAttribute('aria-label'),
+          sameCanvas: canvas === window.__hvirSmokeMoveCanvas,
+          sameSurface: surface === window.__hvirSmokeMoveSurface,
+          surfaceOwnedByContainer: surface?.parentElement === container,
+          replacedContainer: container !== window.__hvirSmokeMoveContainer,
+          oldContainerConnected: window.__hvirSmokeMoveContainer?.isConnected,
+          rowCount: rows.length,
+        });
       };
       poll();
     })
   `)
+  if (result !== true) {
+    throw new Error(`Terminal move renderer check failed: ${JSON.stringify(result)}`)
+  }
 }
 
 function assertSameTerminal(

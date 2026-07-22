@@ -230,6 +230,208 @@ describe('TerminalSessionRegistry', () => {
     expect(registry.list(root)).toEqual([])
   })
 
+  it('atomically replaces a retained recovery record with new identities', async () => {
+    const root = localPath('/tmp/project')
+    const replacementId = 'terminal-2'
+    await registry.recordSpawn({
+      id: SESSION_ID,
+      providerId: CLAUDE_PROVIDER_ID,
+      profileId: CLAUDE_PROFILE_ID,
+      launchRevision: 1,
+      harnessSessionId: HARNESS_ID,
+      workspaceRoot: root,
+      cwd: root,
+      title: 'Retained conversation',
+      position: 2,
+      active: true,
+    })
+
+    expect(
+      registry.authorizeReplacement({
+        replacedId: SESSION_ID,
+        replacementId,
+        providerId: CLAUDE_PROVIDER_ID,
+        profileId: CLAUDE_PROFILE_ID,
+        launchRevision: 1,
+        workspaceRoot: root,
+        cwd: root,
+      }),
+    ).toBe(true)
+    await registry.recordReplacement({
+      replacedId: SESSION_ID,
+      spawn: {
+        id: replacementId,
+        providerId: CLAUDE_PROVIDER_ID,
+        profileId: CLAUDE_PROFILE_ID,
+        launchRevision: 1,
+        harnessSessionId: replacementId,
+        workspaceRoot: root,
+        cwd: root,
+        title: 'Retained conversation',
+        position: 2,
+        active: true,
+      },
+    })
+
+    expect(registry.list(root)).toEqual([
+      expect.objectContaining({
+        id: replacementId,
+        harnessSessionId: replacementId,
+        position: 2,
+        active: true,
+      }),
+    ])
+    await registry.recordIdentity(SESSION_ID, HARNESS_ID)
+    await registry.recordSpawn({
+      id: SESSION_ID,
+      providerId: CLAUDE_PROVIDER_ID,
+      profileId: CLAUDE_PROFILE_ID,
+      launchRevision: 1,
+      harnessSessionId: HARNESS_ID,
+      workspaceRoot: root,
+      cwd: root,
+      title: 'Late source callback',
+      position: 0,
+      active: false,
+    })
+    const restored = await TerminalSessionRegistry.load(host, file)
+    expect(restored.list(root)).toEqual([
+      expect.objectContaining({ id: replacementId, harnessSessionId: replacementId }),
+    ])
+  })
+
+  it('consumes a discovered replacement identity that arrives before commit', async () => {
+    const root = localPath('/tmp/project')
+    const replacementId = 'terminal-2'
+    const replacementHarnessId = '019ab123-4567-7890-abcd-ef0123456790'
+    await registry.recordSpawn({
+      id: SESSION_ID,
+      providerId: CODEX_PROVIDER_ID,
+      profileId: CODEX_PROFILE_ID,
+      launchRevision: 1,
+      harnessSessionId: HARNESS_ID,
+      workspaceRoot: root,
+      cwd: root,
+      title: 'Codex · project',
+      position: 0,
+      active: true,
+    })
+    await registry.recordIdentity(replacementId, replacementHarnessId)
+
+    await registry.recordReplacement({
+      replacedId: SESSION_ID,
+      spawn: {
+        id: replacementId,
+        providerId: CODEX_PROVIDER_ID,
+        profileId: CODEX_PROFILE_ID,
+        launchRevision: 1,
+        workspaceRoot: root,
+        cwd: root,
+        title: 'Codex · project',
+        position: 0,
+        active: true,
+      },
+    })
+
+    expect(registry.list(root)).toEqual([
+      expect.objectContaining({
+        id: replacementId,
+        harnessSessionId: replacementHarnessId,
+      }),
+    ])
+  })
+
+  it('rolls a replacement back when its durable commit fails', async () => {
+    const root = localPath('/tmp/project')
+    await registry.recordSpawn({
+      id: SESSION_ID,
+      providerId: CLAUDE_PROVIDER_ID,
+      profileId: CLAUDE_PROFILE_ID,
+      launchRevision: 1,
+      harnessSessionId: HARNESS_ID,
+      workspaceRoot: root,
+      cwd: root,
+      title: 'Retained conversation',
+      position: 0,
+      active: true,
+    })
+    vi.spyOn(host, 'writeFile').mockRejectedValueOnce(new Error('disk unavailable'))
+
+    await expect(
+      registry.recordReplacement({
+        replacedId: SESSION_ID,
+        spawn: {
+          id: 'terminal-2',
+          providerId: CLAUDE_PROVIDER_ID,
+          profileId: CLAUDE_PROFILE_ID,
+          launchRevision: 1,
+          harnessSessionId: 'terminal-2',
+          workspaceRoot: root,
+          cwd: root,
+          title: 'Retained conversation',
+          position: 0,
+          active: true,
+        },
+      }),
+    ).rejects.toThrow('disk unavailable')
+
+    expect(registry.list(root)).toEqual([
+      expect.objectContaining({ id: SESSION_ID, harnessSessionId: HARNESS_ID }),
+    ])
+    const restored = await TerminalSessionRegistry.load(host, file)
+    expect(restored.list(root)).toEqual([
+      expect.objectContaining({ id: SESSION_ID, harnessSessionId: HARNESS_ID }),
+    ])
+  })
+
+  it('does not commit a replacement cancelled while persistence is pending', async () => {
+    const root = localPath('/tmp/project')
+    const replacementId = 'terminal-2'
+    await registry.recordSpawn({
+      id: SESSION_ID,
+      providerId: CLAUDE_PROVIDER_ID,
+      profileId: CLAUDE_PROFILE_ID,
+      launchRevision: 1,
+      harnessSessionId: HARNESS_ID,
+      workspaceRoot: root,
+      cwd: root,
+      title: 'Retained conversation',
+      position: 0,
+      active: true,
+    })
+    let releaseWrite: (() => void) | undefined
+    const pendingWrite = new Promise<void>((resolve) => {
+      releaseWrite = resolve
+    })
+    const write = vi.spyOn(host, 'writeFile').mockReturnValueOnce(pendingWrite)
+    const replacement = registry.recordReplacement({
+      replacedId: SESSION_ID,
+      spawn: {
+        id: replacementId,
+        providerId: CLAUDE_PROVIDER_ID,
+        profileId: CLAUDE_PROFILE_ID,
+        launchRevision: 1,
+        harnessSessionId: replacementId,
+        workspaceRoot: root,
+        cwd: root,
+        title: 'Retained conversation',
+        position: 0,
+        active: true,
+      },
+    })
+    await vi.waitFor(() => expect(write).toHaveBeenCalled())
+
+    const forgetReplacement = registry.forget(root, replacementId)
+    const forgetSource = registry.forget(root, SESSION_ID)
+    releaseWrite?.()
+
+    await expect(replacement).rejects.toThrow('cancelled')
+    await Promise.all([forgetReplacement, forgetSource])
+    expect(registry.list(root)).toEqual([])
+    const restored = await TerminalSessionRegistry.load(host, file)
+    expect(restored.list(root)).toEqual([])
+  })
+
   it('moves workspace ownership while preserving immutable launch and recovery context', async () => {
     const sourceRoot = localPath('/tmp/project')
     const targetRoot = localPath('/tmp/project-worktree')

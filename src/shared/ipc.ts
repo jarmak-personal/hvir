@@ -207,6 +207,11 @@ export interface ReadAssetResponse {
 
 export interface StartPtyRequest {
   readonly sessionId: string
+  /**
+   * Retained recovery record retired only after this fresh session starts and
+   * its replacement record is durably committed.
+   */
+  readonly replacesSessionId?: string
   readonly profileId: HarnessProfileId
   readonly launchRevision: number
   readonly cwd: HostPath
@@ -310,15 +315,20 @@ export type ConfigureComposerSubmitRequest =
       readonly previousMode: ComposerSubmitMode
     }
 
-export interface StartPtyResponse {
-  readonly id: string
-  readonly pid: number
-  /** Actual provider launch mode after fail-closed artifact validation. */
-  readonly resumed: boolean
-  readonly harnessSessionId?: string
-  readonly identityStatus: TerminalIdentityStatus
-  readonly capabilities: import('./harness-provider').HarnessProviderCapabilities
-}
+export type StartPtyResponse =
+  | {
+      readonly outcome: 'started'
+      readonly id: string
+      readonly pid: number
+      readonly resumed: boolean
+      readonly harnessSessionId?: string
+      readonly identityStatus: TerminalIdentityStatus
+      readonly capabilities: import('./harness-provider').HarnessProviderCapabilities
+    }
+  | {
+      readonly outcome: 'resume-unavailable'
+      readonly reason: 'artifact-missing'
+    }
 
 export type TerminalIdentityStatus =
   'none' | 'discovering' | 'identified' | 'ambiguous' | 'unavailable'

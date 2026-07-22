@@ -20,7 +20,7 @@ describe('adapter-owned telemetry multiplexing', () => {
         Promise.resolve({
           code: 0,
           signal: null,
-          stdout: '/tmp/claude-projects',
+          stdout: '/tmp/project\n\0/tmp/claude-config',
           stderr: '',
         }),
       ),
@@ -33,6 +33,7 @@ describe('adapter-owned telemetry multiplexing', () => {
         return observeCodexContext(host, {
           subscriptionId: id,
           sessionId: id,
+          cwd: localPath('/tmp/project'),
           sessionData: { rolloutPath: localPath(`/tmp/codex-${index}.jsonl`) },
           artifact: { identity: 'codex-test', environment: {}, unsetEnvironment: [] },
           signal: controllers[index]!.signal,
@@ -46,6 +47,7 @@ describe('adapter-owned telemetry multiplexing', () => {
         return observeClaudeContext(host, {
           subscriptionId: id,
           sessionId: id,
+          cwd: localPath('/tmp/project'),
           artifact: {
             identity: 'claude-test',
             environment: {},
@@ -62,6 +64,12 @@ describe('adapter-owned telemetry multiplexing', () => {
     expect(execStream).toHaveBeenCalledTimes(2)
     expect(codex.writes[0]).toBe('R\t1\t10\n')
     expect(claude.writes[0]).toBe('R\t1\t10\n')
+    for (const [index, write] of claude.writes.slice(1).entries()) {
+      const encodedResource = write.trim().split('\t')[4]
+      expect(Buffer.from(encodedResource ?? '', 'base64').toString('utf8')).toBe(
+        `/tmp/claude-config/projects/-tmp-project/${sessionId(2, index)}.jsonl`,
+      )
+    }
 
     await disposeAll([...codexStops, ...claudeStops])
     expect(codex.end).toHaveBeenCalledOnce()

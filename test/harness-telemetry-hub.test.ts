@@ -9,12 +9,14 @@ import {
   HarnessTelemetryHub,
   type HarnessTelemetrySubscription,
 } from '../src/main/harness/harness-telemetry-hub'
+import type { HarnessTelemetryFollowerHealth } from '../src/main/harness/harness-telemetry-protocol'
 import {
   asHarnessProviderId,
   contextHarnessSnapshot,
+  contextStatusHarnessSnapshot,
   type HarnessTelemetry,
 } from '../src/shared'
-import type { ExecStreamHandle, ProjectHost } from '../src/main/project-host'
+import type { Disposer, ExecStreamHandle, ProjectHost } from '../src/main/project-host'
 import { LocalHost } from '../src/main/project-host'
 import { LOCAL_HOST_ID } from '../src/shared'
 
@@ -22,8 +24,12 @@ interface FakeStream {
   readonly handle: ExecStreamHandle
   readonly writes: string[]
   readonly end: ReturnType<typeof vi.fn>
+  readonly dispose: ReturnType<typeof vi.fn>
   stdout(value: string): void
   fail(error: Error): void
+  exit(): void
+  failAndExit(error: Error): void
+  snapshotStdout(): (value: string) => void
 }
 
 describe('HarnessTelemetryHub', () => {
@@ -77,6 +83,137 @@ describe('HarnessTelemetryHub', () => {
     expect(secondEmit).not.toHaveBeenCalled()
     void stopFirst()
     void stopSecond()
+  })
+
+  it('routes only admitted, correlated, bounded follower health', async () => {
+    const stream = fakeStream()
+    const execStream = vi.fn<ProjectHost['execStream']>(() => stream.handle)
+    const hub = telemetryHub(execStream, true)
+    const firstEmit = vi.fn<(value: HarnessTelemetry | undefined) => void>()
+    const secondEmit = vi.fn<(value: HarnessTelemetry | undefined) => void>()
+    const first = subscription(20, firstEmit)
+    const second = subscription(21, secondEmit)
+    const stopFirst = hub.subscribe(first)
+    const stopSecond = hub.subscribe(second)
+    await vi.waitFor(() => expect(stream.writes).toHaveLength(3))
+    const epoch = execStream.mock.calls[0]?.[1].at(-1)
+    if (!epoch) throw new Error('Expected telemetry hub epoch argument')
+    const generation = stream.writes[0]?.split('\t')[1]
+
+    stream.stdout(
+      healthFrame(
+        epoch,
+        generation,
+        first.subscriptionId,
+        first.sessionId,
+        'pending',
+        'awaiting-source',
+      ),
+    )
+    stream.stdout(
+      healthFrame(
+        epoch,
+        '0',
+        first.subscriptionId,
+        first.sessionId,
+        'unavailable',
+        'follower-exited',
+      ),
+    )
+    stream.stdout(
+      healthFrame(
+        epoch,
+        generation,
+        first.subscriptionId,
+        second.sessionId,
+        'unavailable',
+        'resource-invalid',
+      ),
+    )
+    stream.stdout(
+      `H\t${epoch}\t${generation}\t${second.subscriptionId}\t${second.sessionId}\tunavailable\tremote-error-text\n`,
+    )
+
+    expect(firstEmit).toHaveBeenCalledOnce()
+    expect(firstEmit.mock.calls[0]?.[0]?.facets.context).toEqual({
+      status: 'pending',
+      reason: 'awaiting-source',
+    })
+    expect(secondEmit).not.toHaveBeenCalled()
+    void stopFirst()
+    void stopSecond()
+  })
+
+  it('handles back-to-back helper error and exit once, then admits restart health', async () => {
+    const streams = [fakeStream(), fakeStream()]
+    const execStream = vi
+      .fn<ProjectHost['execStream']>()
+      .mockReturnValueOnce(streams[0]!.handle)
+      .mockReturnValueOnce(streams[1]!.handle)
+    const hub = telemetryHub(execStream, true)
+    const emit = vi.fn<(value: HarnessTelemetry | undefined) => void>()
+    const live = subscription(22, emit)
+    const stop = hub.subscribe(live)
+    await vi.waitFor(() => expect(streams[0]!.writes).toHaveLength(2))
+    const oldStdout = streams[0]!.snapshotStdout()
+    const oldEpoch = execStream.mock.calls[0]?.[1].at(-1)
+    if (!oldEpoch) throw new Error('Expected initial telemetry hub epoch')
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+
+    streams[0]!.failAndExit(new Error('transport lost'))
+
+    expect(streams[0]!.dispose).toHaveBeenCalledOnce()
+    expect(warning).toHaveBeenCalledOnce()
+    expect(emit).toHaveBeenCalledOnce()
+    expect(emit.mock.calls[0]?.[0]?.facets.context).toEqual({
+      status: 'unavailable',
+      reason: 'helper-exited',
+    })
+    await vi.waitFor(() => expect(execStream).toHaveBeenCalledTimes(2), {
+      timeout: 1_000,
+    })
+    await vi.waitFor(() => expect(streams[1]!.writes).toHaveLength(2))
+    const epoch = execStream.mock.calls[1]?.[1].at(-1)
+    if (!epoch) throw new Error('Expected restarted telemetry hub epoch')
+
+    oldStdout(
+      healthFrame(
+        oldEpoch,
+        '1',
+        live.subscriptionId,
+        live.sessionId,
+        'pending',
+        'awaiting-source',
+      ),
+    )
+    streams[1]!.stdout(
+      healthFrame(
+        epoch,
+        '1',
+        live.subscriptionId,
+        live.sessionId,
+        'pending',
+        'awaiting-source',
+      ),
+    )
+    expect(emit).toHaveBeenCalledOnce()
+    streams[1]!.stdout(
+      healthFrame(
+        epoch,
+        '2',
+        live.subscriptionId,
+        live.sessionId,
+        'pending',
+        'awaiting-source',
+      ),
+    )
+    expect(emit.mock.calls[1]?.[0]?.facets.context).toEqual({
+      status: 'pending',
+      reason: 'awaiting-source',
+    })
+
+    void stop()
+    warning.mockRestore()
   })
 
   it('reconciles unsubscribe without restarting and rehydrates after stream failure', async () => {
@@ -146,6 +283,104 @@ describe('HarnessTelemetryHub', () => {
     void stopSecond()
   })
 
+  it('keeps an unexpected follower failure isolated and stops replacements quietly', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'hvir-telemetry-health-'))
+    const firstPath = join(directory, 'first.jsonl')
+    const secondPath = join(directory, 'second.jsonl')
+    const unrelatedPath = join(directory, 'unrelated.jsonl')
+    await Promise.all([
+      writeFile(firstPath, ''),
+      writeFile(secondPath, ''),
+      writeFile(unrelatedPath, ''),
+    ])
+    const host = new LocalHost()
+    await host.connect()
+    const script = buildTelemetryHubScript({
+      prepareFollower: `
+        [ "$follower_resource" != - ] || fail_follower resource-invalid
+        follower_source=$(decode_base64 "$follower_resource") || fail_follower resource-invalid
+        emit_follower_health pending awaiting-source || true
+        [ "$follower_source" != unexpected ] || exit 7
+      `,
+      acceptRecord: '      emit_frame "$line"',
+    })
+    const hub = new HarnessTelemetryHub(host, {
+      providerId: 'health-test',
+      remoteScript: script,
+      parse: () => null,
+      followerHealth: (sessionId, health) => healthSnapshot(sessionId, health),
+    })
+    const failedEmit = vi.fn<(value: HarnessTelemetry | undefined) => void>()
+    const survivorEmit = vi.fn<(value: HarnessTelemetry | undefined) => void>()
+    const unrelatedEmit = vi.fn<(value: HarnessTelemetry | undefined) => void>()
+    const failed = { ...subscription(23, failedEmit), resource: 'unexpected' }
+    const survivor = { ...subscription(24, survivorEmit), resource: firstPath }
+    const unrelated = { ...subscription(25, unrelatedEmit), resource: unrelatedPath }
+    const stopFailed = hub.subscribe(failed)
+    let stopSurvivor = hub.subscribe(survivor)
+    let stopUnrelated: Disposer | undefined
+    try {
+      await vi.waitFor(
+        () => {
+          expect(failedEmit.mock.calls.map(([value]) => value?.facets.context)).toEqual([
+            { status: 'pending', reason: 'awaiting-source' },
+            { status: 'unavailable', reason: 'follower-exited' },
+          ])
+          expect(survivorEmit.mock.calls[0]?.[0]?.facets.context).toEqual({
+            status: 'pending',
+            reason: 'awaiting-source',
+          })
+        },
+        { timeout: 4_000 },
+      )
+
+      stopUnrelated = hub.subscribe(unrelated)
+      await vi.waitFor(
+        () =>
+          expect(unrelatedEmit.mock.calls[0]?.[0]?.facets.context).toEqual({
+            status: 'pending',
+            reason: 'awaiting-source',
+          }),
+        { timeout: 4_000 },
+      )
+      expect(failedEmit).toHaveBeenCalledTimes(2)
+
+      void stopSurvivor()
+      stopSurvivor = hub.subscribe({ ...survivor, resource: secondPath })
+      await vi.waitFor(
+        () =>
+          expect(
+            survivorEmit.mock.calls.filter(
+              ([value]) => value?.facets.context.status === 'pending',
+            ),
+          ).toHaveLength(2),
+        { timeout: 4_000 },
+      )
+      expect(
+        survivorEmit.mock.calls.filter(
+          ([value]) => value?.facets.context.status === 'unavailable',
+        ),
+      ).toHaveLength(0)
+
+      void stopFailed()
+      void stopSurvivor()
+      void stopUnrelated?.()
+      await vi.waitFor(() => expect(hub.size).toBe(0))
+      await new Promise((resolve) => setTimeout(resolve, 100))
+      expect(
+        [...survivorEmit.mock.calls, ...unrelatedEmit.mock.calls].filter(
+          ([value]) => value?.facets.context.status === 'unavailable',
+        ),
+      ).toHaveLength(0)
+    } finally {
+      void stopFailed()
+      void stopSurvivor()
+      void stopUnrelated?.()
+      await host.dispose()
+      await rm(directory, { recursive: true, force: true })
+    }
+  })
+
   it('releases a killed follower write lock without stalling survivors', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'hvir-telemetry-lock-'))
     const firstPath = join(directory, 'first.jsonl')
@@ -212,7 +447,10 @@ describe('HarnessTelemetryHub', () => {
   })
 })
 
-function telemetryHub(execStream: ProjectHost['execStream']): HarnessTelemetryHub {
+function telemetryHub(
+  execStream: ProjectHost['execStream'],
+  withFollowerHealth = false,
+): HarnessTelemetryHub {
   const host = {
     hostId: LOCAL_HOST_ID,
     execStream,
@@ -228,6 +466,9 @@ function telemetryHub(execStream: ProjectHost['execStream']): HarnessTelemetryHu
         return null
       }
     },
+    followerHealth: withFollowerHealth
+      ? (sessionId, health) => healthSnapshot(sessionId, health)
+      : undefined,
   })
 }
 
@@ -237,6 +478,18 @@ function snapshot(usedTokens: number) {
     provenance: 'test fixture',
     context: { usedTokens },
     observedAt: 1,
+  })
+}
+
+function healthSnapshot(
+  sessionId: string,
+  health: HarnessTelemetryFollowerHealth,
+): HarnessTelemetry {
+  return contextStatusHarnessSnapshot({
+    providerId: asHarnessProviderId('test'),
+    provenance: 'test follower lifecycle',
+    sessionId,
+    context: { status: health.status, reason: health.reason },
   })
 }
 
@@ -281,6 +534,17 @@ function frame(
   return `E\t${epoch}\t${generation}\t${subscriptionId}\t${sessionId}\t${payload}\n`
 }
 
+function healthFrame(
+  epoch: string,
+  generation: string | undefined,
+  subscriptionId: string,
+  sessionId: string,
+  status: HarnessTelemetryFollowerHealth['status'],
+  reason: HarnessTelemetryFollowerHealth['reason'],
+): string {
+  return `H\t${epoch}\t${generation}\t${subscriptionId}\t${sessionId}\t${status}\t${reason}\n`
+}
+
 function fakeStream(): FakeStream {
   const stdoutListeners = new Set<(value: string) => void>()
   const errorListeners = new Set<(error: Error) => void>()
@@ -288,6 +552,7 @@ function fakeStream(): FakeStream {
     (result: { code: number | null; signal: string | null }) => void
   >()
   const writes: string[] = []
+  const dispose = vi.fn()
   const end = vi.fn(() => {
     queueMicrotask(() => {
       for (const callback of exitListeners) callback({ code: 0, signal: null })
@@ -305,17 +570,33 @@ function fakeStream(): FakeStream {
     },
     end,
     kill: () => undefined,
-    dispose: () => undefined,
+    dispose,
   }
   return {
     handle,
     writes,
     end,
+    dispose,
     stdout(value) {
       for (const callback of stdoutListeners) callback(value)
     },
     fail(error) {
       for (const callback of errorListeners) callback(error)
+    },
+    exit() {
+      for (const callback of exitListeners) callback({ code: 1, signal: null })
+    },
+    failAndExit(error) {
+      const errors = [...errorListeners]
+      const exits = [...exitListeners]
+      for (const callback of errors) callback(error)
+      for (const callback of exits) callback({ code: 1, signal: null })
+    },
+    snapshotStdout() {
+      const callbacks = [...stdoutListeners]
+      return (value) => {
+        for (const callback of callbacks) callback(value)
+      }
     },
   }
 }

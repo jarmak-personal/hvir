@@ -6,6 +6,7 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   plainShellProvider,
   type HarnessProvider,
+  type HarnessTelemetryContext,
 } from '../src/main/harness/harness-provider'
 import type {
   ProjectHost,
@@ -19,7 +20,7 @@ import {
   LOCAL_HOST_ID,
   asHostId,
   asHarnessProviderId,
-  contextHarnessSnapshot,
+  contextStatusHarnessSnapshot,
   hostPath,
   localPath,
 } from '../src/shared'
@@ -746,20 +747,27 @@ describe('PtySupervisor', () => {
     finishRetry?.()
   })
 
-  it('caches provider telemetry for attachment and disposes it with the PTY', async () => {
+  it('passes cwd and replays the latest provider telemetry across attachments', async () => {
     const { supervisor, host, provider } = fixture()
-    const telemetry = contextHarnessSnapshot({
+    const pending = contextStatusHarnessSnapshot({
       providerId: asHarnessProviderId('test'),
       provenance: 'test fixture',
-      context: { usedTokens: 80_000, windowTokens: 200_000, usedPercent: 40 },
+      sessionId: 'harness-session',
+      context: { status: 'pending', reason: 'Waiting for test telemetry' },
+    })
+    const unavailable = contextStatusHarnessSnapshot({
+      providerId: asHarnessProviderId('test'),
+      provenance: 'test fixture',
+      sessionId: 'harness-session',
+      context: { status: 'unavailable', reason: 'Test telemetry unavailable' },
     })
     const disposeTelemetry = vi.fn()
-    const observe = vi.fn(
-      (_host: ProjectHost, context: { emit: (value: typeof telemetry) => void }) => {
-        context.emit(telemetry)
-        return disposeTelemetry
-      },
-    )
+    let emitTelemetry: HarnessTelemetryContext['emit'] | undefined
+    const observe = vi.fn((_host: ProjectHost, context: HarnessTelemetryContext) => {
+      emitTelemetry = context.emit
+      context.emit(pending)
+      return disposeTelemetry
+    })
     Object.assign(provider, { telemetry: { observe } })
 
     const info = await supervisor.spawn({
@@ -769,13 +777,70 @@ describe('PtySupervisor', () => {
       ownerId: OWNER_ID,
       sessionId: 'telemetry-session',
     })
-    const onTelemetry = vi.fn()
-    supervisor.attach(info.id, OWNER_ID, { onTelemetry })
+    const firstTelemetry = vi.fn()
+    const detach = supervisor.attach(info.id, OWNER_ID, {
+      onTelemetry: firstTelemetry,
+    })
 
-    expect(onTelemetry).toHaveBeenCalledOnce()
-    expect(onTelemetry).toHaveBeenCalledWith(telemetry)
+    await vi.waitFor(() => expect(firstTelemetry).toHaveBeenCalledWith(pending))
+    expect(observe.mock.calls[0]?.[1].cwd).toEqual(localPath('/tmp/project'))
+
+    void detach()
+    emitTelemetry?.(unavailable)
+    const reattachedTelemetry = vi.fn()
+    supervisor.attach(info.id, OWNER_ID, { onTelemetry: reattachedTelemetry })
+
+    expect(reattachedTelemetry).toHaveBeenCalledOnce()
+    expect(reattachedTelemetry).toHaveBeenCalledWith(unavailable)
     supervisor.disposeOwner(OWNER_ID)
     await vi.waitFor(() => expect(disposeTelemetry).toHaveBeenCalledOnce())
+  })
+
+  it('publishes and replays a fixed unavailable snapshot when observation rejects', async () => {
+    const { supervisor, host, provider } = fixture()
+    Object.assign(provider, {
+      telemetry: {
+        observe: () => Promise.reject(new Error('/private/remote/transcript failed')),
+      },
+    })
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const info = await supervisor.spawn({
+      host,
+      provider,
+      cwd: localPath('/tmp/project'),
+      ownerId: OWNER_ID,
+      sessionId: 'rejected-telemetry',
+    })
+    const firstTelemetry = vi.fn()
+    const detach = supervisor.attach(info.id, OWNER_ID, {
+      onTelemetry: firstTelemetry,
+    })
+
+    await vi.waitFor(() => expect(firstTelemetry).toHaveBeenCalledOnce())
+    expect(firstTelemetry.mock.calls[0]?.[0]).toMatchObject({
+      source: {
+        providerId: 'test',
+        provenance: 'Harness telemetry observer lifecycle',
+      },
+      facets: {
+        session: {
+          status: 'available',
+          value: { id: 'rejected-telemetry', state: 'active' },
+        },
+        context: {
+          status: 'unavailable',
+          reason: 'Harness telemetry observer unavailable',
+        },
+      },
+    })
+    expect(JSON.stringify(firstTelemetry.mock.calls[0]?.[0])).not.toContain('/private')
+
+    void detach()
+    const reattachedTelemetry = vi.fn()
+    supervisor.attach(info.id, OWNER_ID, { onTelemetry: reattachedTelemetry })
+    expect(reattachedTelemetry).toHaveBeenCalledWith(firstTelemetry.mock.calls[0]?.[0])
+    expect(warning).toHaveBeenCalledOnce()
+    warning.mockRestore()
   })
 
   it('retains identity subscriptions when only live sessions are disposed', async () => {

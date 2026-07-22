@@ -1,6 +1,6 @@
 import { hostPathEquals, type HarnessProviderCapabilities } from '../../../shared'
 import { resolveHarnessLaunch } from '../../harness/harness-launch'
-import { harnessProvider, selectHarnessLaunchMode } from '../../harness/harness-provider'
+import { harnessProvider, selectHarnessLaunch } from '../../harness/harness-provider'
 import type { IpcRegistrar } from '../authority-router'
 import type { IpcDeps } from '../deps'
 import { operationResult } from '../operation-result'
@@ -97,6 +97,14 @@ export function registerTerminalIpc(ipc: IpcRegistrar, deps: TerminalIpcDeps): v
 
   ipc.handle('pty:start', async (req, context) => {
     if (!isTerminalId(req.sessionId)) throw new Error('Invalid PTY session id')
+    if (
+      req.replacesSessionId !== undefined &&
+      (!isTerminalId(req.replacesSessionId) ||
+        req.replacesSessionId === req.sessionId ||
+        req.resume === true)
+    ) {
+      throw new Error('Invalid terminal replacement request')
+    }
     const owner = context.owner()
     const { root, host } = deps.getProject()
     const projectRoot = ipc.authority.projectRoot(root)
@@ -164,9 +172,24 @@ export function registerTerminalIpc(ipc: IpcRegistrar, deps: TerminalIpcDeps): v
         throw new Error('Terminal resume is not authorized for this project')
       }
     }
+    if (
+      req.replacesSessionId &&
+      (!effectiveCapabilities.exactResume ||
+        !deps.terminalSessions.authorizeReplacement({
+          replacedId: req.replacesSessionId,
+          replacementId: req.sessionId,
+          providerId: profile.providerId,
+          profileId: profile.id,
+          launchRevision: profile.launchRevision,
+          workspaceRoot: root,
+          cwd,
+        }))
+    ) {
+      throw new Error('Terminal replacement is not authorized for this project')
+    }
     const defaultShell = await host.defaultShell()
     const requestedMode = req.resume ? 'resume' : 'fresh'
-    let resolved = await resolveHarnessLaunch({
+    const resolved = await resolveHarnessLaunch({
       profile,
       expectedLaunchRevision: req.launchRevision,
       projectRoot,
@@ -184,30 +207,15 @@ export function registerTerminalIpc(ipc: IpcRegistrar, deps: TerminalIpcDeps): v
         effectiveCapabilities,
       },
     })
-    const launchMode = await selectHarnessLaunchMode(host, provider, requestedMode, {
+    const launchDecision = await selectHarnessLaunch(host, provider, requestedMode, {
       sessionId: req.resume ? req.harnessSessionId! : req.sessionId,
+      cwd,
       artifact: resolved.artifact,
     })
-    if (launchMode !== requestedMode) {
-      resolved = await resolveHarnessLaunch({
-        profile,
-        expectedLaunchRevision: req.launchRevision,
-        projectRoot,
-        workspaceRoot: cwd,
-        host,
-        store: deps.harnessProfiles,
-        mode: launchMode,
-        context: {
-          sessionId: req.sessionId,
-          cwd,
-          cols,
-          rows,
-          defaultShell,
-          composerSubmitMode: req.composerSubmitMode,
-          effectiveCapabilities,
-        },
-      })
+    if (launchDecision.outcome === 'resume-unavailable') {
+      return { outcome: 'resume-unavailable', reason: launchDecision.reason }
     }
+    const launchMode = launchDecision.mode
     const ptyLease = deps.rendererResources.register(
       owner,
       {
@@ -269,50 +277,65 @@ export function registerTerminalIpc(ipc: IpcRegistrar, deps: TerminalIpcDeps): v
       await ptyLease.dispose()
       throw error
     }
-    void deps.terminalSessions
-      .recordSpawn({
-        id: managed.id,
-        providerId: profile.providerId,
-        profileId: profile.id,
-        launchRevision: profile.launchRevision,
-        riskAcknowledgedRevision:
-          profile.risk === 'standard' ? undefined : profile.launchRevision,
-        artifactIdentity: resolved.artifactIdentity,
-        harnessSessionId: managed.harnessSessionId,
-        workspaceRoot: root,
-        cwd,
-        title: req.title,
-        position: req.position,
-        active: req.active,
-      })
-      .catch((error) => console.error('[terminal] session persistence failed', error))
+    const spawnRecord = {
+      id: managed.id,
+      providerId: profile.providerId,
+      profileId: profile.id,
+      launchRevision: profile.launchRevision,
+      riskAcknowledgedRevision:
+        profile.risk === 'standard' ? undefined : profile.launchRevision,
+      artifactIdentity: resolved.artifactIdentity,
+      harnessSessionId: managed.harnessSessionId,
+      workspaceRoot: root,
+      cwd,
+      title: req.title,
+      position: req.position,
+      active: req.active,
+    }
     let detach: () => void | Promise<void> = () => undefined
     const sender = context.sender
-    detach = deps.ptySupervisor.attach(
-      managed.id,
-      owner.id,
-      {
-        onData: (data) => {
-          if (deps.rendererResources.isCurrent(owner) && !sender.isDestroyed()) {
-            sender.send('pty:data', { id: managed.id, data })
-          }
+    try {
+      detach = deps.ptySupervisor.attach(
+        managed.id,
+        owner.id,
+        {
+          onData: (data) => {
+            if (deps.rendererResources.isCurrent(owner) && !sender.isDestroyed()) {
+              sender.send('pty:data', { id: managed.id, data })
+            }
+          },
+          onExit: (exit) => {
+            void detach()
+            ptyLease.release()
+            if (deps.rendererResources.isCurrent(owner) && !sender.isDestroyed()) {
+              sender.send('pty:exit', { id: managed.id, ...exit })
+            }
+          },
+          onTelemetry: (telemetry) => {
+            if (deps.rendererResources.isCurrent(owner) && !sender.isDestroyed()) {
+              sender.send('pty:telemetry', { id: managed.id, telemetry })
+            }
+          },
         },
-        onExit: (exit) => {
-          void detach()
-          ptyLease.release()
-          if (deps.rendererResources.isCurrent(owner) && !sender.isDestroyed()) {
-            sender.send('pty:exit', { id: managed.id, ...exit })
-          }
-        },
-        onTelemetry: (telemetry) => {
-          if (deps.rendererResources.isCurrent(owner) && !sender.isDestroyed()) {
-            sender.send('pty:telemetry', { id: managed.id, telemetry })
-          }
-        },
-      },
-      owner.generation,
-    )
+        owner.generation,
+      )
+      if (req.replacesSessionId) {
+        await deps.terminalSessions.recordReplacement({
+          replacedId: req.replacesSessionId,
+          spawn: spawnRecord,
+        })
+      } else {
+        void deps.terminalSessions
+          .recordSpawn(spawnRecord)
+          .catch((error) => console.error('[terminal] session persistence failed', error))
+      }
+    } catch (error) {
+      await detach()
+      await ptyLease.dispose()
+      throw error
+    }
     return {
+      outcome: 'started',
       id: managed.id,
       pid: managed.pid,
       harnessSessionId: managed.harnessSessionId,

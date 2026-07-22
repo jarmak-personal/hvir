@@ -98,6 +98,7 @@ export interface HarnessTelemetryContext {
   /** Stable hvir PTY identity used to route multiplexed provider telemetry. */
   readonly subscriptionId: string
   readonly sessionId: string
+  readonly cwd: HostPath
   readonly sessionData?: unknown
   readonly artifact: HarnessArtifactContext
   readonly signal: AbortSignal
@@ -115,6 +116,7 @@ export type HarnessResumeAvailability = 'available' | 'missing' | 'unknown'
 
 export interface HarnessResumeValidationContext {
   readonly sessionId: string
+  readonly cwd: HostPath
   readonly artifact: HarnessArtifactContext
 }
 
@@ -251,7 +253,7 @@ export const claudeCodeProvider: HarnessProvider = {
     metaEnterAliasesControl: true,
   },
   profile: {
-    version: 1,
+    version: 2,
     defaultProfile: {
       id: asHarnessProfileId('claude-code-default'),
       displayName: 'Claude Code',
@@ -405,8 +407,7 @@ export class HarnessProviderRegistry {
       },
       terminalInput: {
         modifiedKeyProtocol: provider.manifest.modifiedKeyProtocol ?? 'none',
-        metaEnterAliasesControl:
-          provider.manifest.metaEnterAliasesControl === true,
+        metaEnterAliasesControl: provider.manifest.metaEnterAliasesControl === true,
       },
       profileTemplate: provider.profile.defaultProfile
         ? {
@@ -490,16 +491,24 @@ export async function configureHarnessComposerSubmit(
   }
 }
 
-export async function selectHarnessLaunchMode(
+export type HarnessLaunchDecision =
+  | { readonly outcome: 'launch'; readonly mode: 'fresh' | 'resume' }
+  | { readonly outcome: 'resume-unavailable'; readonly reason: 'artifact-missing' }
+
+export async function selectHarnessLaunch(
   host: ProjectHost,
   provider: HarnessProvider,
   requestedMode: 'fresh' | 'resume',
   context: HarnessResumeValidationContext,
-): Promise<'fresh' | 'resume'> {
-  if (requestedMode === 'fresh' || !provider.resumeValidation) return requestedMode
+): Promise<HarnessLaunchDecision> {
+  if (requestedMode === 'fresh' || !provider.resumeValidation) {
+    return { outcome: 'launch', mode: requestedMode }
+  }
   const availability = await provider.resumeValidation.availability(host, context)
-  if (availability === 'available') return 'resume'
-  if (availability === 'missing') return 'fresh'
+  if (availability === 'available') return { outcome: 'launch', mode: 'resume' }
+  if (availability === 'missing') {
+    return { outcome: 'resume-unavailable', reason: 'artifact-missing' }
+  }
   throw new Error(
     `${provider.manifest.displayName} session state could not be verified; recovery was not started`,
   )
@@ -537,8 +546,6 @@ function codexComposerArgs(ctx: HarnessLaunchContext): readonly string[] {
 }
 
 function classifyClaudeRisk(input: HarnessRiskInput): HarnessLaunchRisk {
-  if (input.executableOverridden || input.environment.length > 0) return 'unclassified'
-  let unclassified = false
   for (const token of input.args) {
     if (
       token === '--dangerously-skip-permissions' ||
@@ -546,9 +553,12 @@ function classifyClaudeRisk(input: HarnessRiskInput): HarnessLaunchRisk {
     ) {
       return 'elevated'
     }
-    unclassified = true
   }
-  return unclassified ? 'unclassified' : 'standard'
+  return input.executableOverridden ||
+    input.environment.length > 0 ||
+    input.args.length > 0
+    ? 'unclassified'
+    : 'standard'
 }
 
 function classifyCodexRisk(input: HarnessRiskInput): HarnessLaunchRisk {
