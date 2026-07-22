@@ -23,6 +23,7 @@ import { TerminalWorkspaceMoveCoordinator } from './terminal/terminal-workspace-
 import { RendererResourceScopes, type RendererOwner } from './renderer-resource-scopes'
 import { createElectronWindowManager } from './window/electron-window-manager'
 import { WorkbenchRuntime } from './workbench-runtime'
+import { RuntimeDiagnostics } from './diagnostics/runtime-diagnostics'
 import {
   GIT_CHANGED_FILE_COUNT_TYPE,
   GIT_FETCH_TYPE,
@@ -47,6 +48,8 @@ protocol.registerSchemesAsPrivileged([
 ])
 
 function createWorkbenchEntry(): void {
+  const diagnostics = RuntimeDiagnostics.create(app.getPath('userData'), app.isPackaged)
+  diagnostics.recordApplication('application-starting')
   const runtime = new WorkbenchRuntime({
     start: startup,
     suspend: suspendWorkbenchSessions,
@@ -196,6 +199,7 @@ function createWorkbenchEntry(): void {
       await TerminalSessionRegistry.load(
         metadataHost,
         localPath(join(app.getPath('userData'), 'terminal-sessions.json')),
+        (event) => diagnostics.recordSessionRegistry(event),
       ),
       (sessions) => sessions.flush(),
     )
@@ -265,6 +269,7 @@ function createWorkbenchEntry(): void {
         },
       },
       onError: (message, error) => console.error(message, error),
+      onHostControlDiagnostic: (event) => diagnostics.recordHostControl(event),
     })
     const gitMutations = new GitMutationCoordinator({
       registry: projectRegistry,
@@ -296,8 +301,10 @@ function createWorkbenchEntry(): void {
       },
       onError: (message, error) => console.error(message, error),
     })
-    ptySupervisor = runtime.own('PTY supervisor', new PtySupervisor(), (supervisor) =>
-      supervisor.disposeAllAndWait(),
+    ptySupervisor = runtime.own(
+      'PTY supervisor',
+      new PtySupervisor({ onDiagnostic: (event) => diagnostics.recordPty(event) }),
+      (supervisor) => supervisor.disposeAllAndWait(),
     )
     const terminalMoves = new TerminalWorkspaceMoveCoordinator({
       projects: projectRegistry,
@@ -435,8 +442,11 @@ function createWorkbenchEntry(): void {
         return
       }
       await runtime.start()
+      diagnostics.recordApplication('application-ready')
     })
-    .catch((error: unknown) => {
+    .catch(async (error: unknown) => {
+      diagnostics.recordApplication('application-startup-failed')
+      await diagnostics.dispose()
       console.error('HVIR_STARTUP_FAIL', error)
       app.exit(1)
     })
@@ -455,10 +465,18 @@ function createWorkbenchEntry(): void {
     if (runtime.isShutdown) return
     event.preventDefault()
     if (runtime.isShuttingDown) return
+    diagnostics.recordApplication('application-shutdown-starting')
     void runtime
       .shutdown()
-      .catch((error) => console.error('[shutdown] workbench cleanup failed', error))
-      .finally(() => app.quit())
+      .then(() => diagnostics.recordApplication('application-shutdown-completed'))
+      .catch((error) => {
+        diagnostics.recordApplication('application-shutdown-failed')
+        console.error('[shutdown] workbench cleanup failed', error)
+      })
+      .finally(async () => {
+        await diagnostics.dispose()
+        app.quit()
+      })
   })
 
   async function suspendWorkbenchSessions(): Promise<void> {

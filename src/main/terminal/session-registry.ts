@@ -125,6 +125,13 @@ export interface TerminalMoveSessionStore {
   move(request: MoveTerminalSession): Promise<TerminalRecoverySession>
 }
 
+export type TerminalSessionRegistryDiagnostic =
+  | {
+      readonly kind: 'load-failed'
+      readonly reason: 'read-failed' | 'invalid-json' | 'invalid-schema'
+    }
+  | { readonly kind: 'persist-failed' }
+
 export class TerminalSessionRegistry implements TerminalSessionStore {
   private readonly sessions = new Map<string, StoredTerminalSession>()
   private readonly forgotten = new Set<string>()
@@ -135,44 +142,79 @@ export class TerminalSessionRegistry implements TerminalSessionStore {
     private readonly host: ProjectHost,
     private readonly file: HostPath,
     sessions: readonly StoredTerminalSession[],
+    private readonly onDiagnostic?: (event: TerminalSessionRegistryDiagnostic) => void,
   ) {
     for (const session of sessions.slice(-MAX_SESSIONS)) {
       this.sessions.set(session.id, session)
     }
   }
 
-  static async load(host: ProjectHost, file: HostPath): Promise<TerminalSessionRegistry> {
+  static async load(
+    host: ProjectHost,
+    file: HostPath,
+    onDiagnostic?: (event: TerminalSessionRegistryDiagnostic) => void,
+  ): Promise<TerminalSessionRegistry> {
     let sessions: StoredTerminalSession[] = []
     let migrated = false
+    let content: string | undefined
     try {
-      const value: unknown = JSON.parse(await host.readTextFile(file))
-      if (
-        isRecord(value) &&
-        (value['version'] === FILE_VERSION ||
-          value['version'] === LEGACY_WORKSPACE_FILE_VERSION ||
-          value['version'] === LEGACY_PROVIDER_FILE_VERSION ||
-          value['version'] === LEGACY_ADAPTER_FILE_VERSION)
-      ) {
-        const rawSessions = value['sessions']
-        if (Array.isArray(rawSessions)) {
-          sessions = rawSessions
-            .map((session) =>
-              value['version'] === FILE_VERSION ||
-              value['version'] === LEGACY_WORKSPACE_FILE_VERSION
-                ? parseStoredSession(session)
-                : parseLegacyStoredSession(
-                    session,
-                    value['version'] === LEGACY_ADAPTER_FILE_VERSION,
-                  ),
-            )
-            .filter((session): session is StoredTerminalSession => Boolean(session))
-          migrated = value['version'] !== FILE_VERSION
+      content = await host.readTextFile(file)
+    } catch (error) {
+      if (!isMissingFile(error)) {
+        reportDiagnostic(onDiagnostic, { kind: 'load-failed', reason: 'read-failed' })
+      }
+    }
+    if (content !== undefined) {
+      let value: unknown
+      try {
+        value = JSON.parse(content)
+      } catch {
+        reportDiagnostic(onDiagnostic, { kind: 'load-failed', reason: 'invalid-json' })
+      }
+      if (value !== undefined) {
+        if (
+          isRecord(value) &&
+          (value['version'] === FILE_VERSION ||
+            value['version'] === LEGACY_WORKSPACE_FILE_VERSION ||
+            value['version'] === LEGACY_PROVIDER_FILE_VERSION ||
+            value['version'] === LEGACY_ADAPTER_FILE_VERSION)
+        ) {
+          const rawSessions = value['sessions']
+          if (Array.isArray(rawSessions)) {
+            const parsed = rawSessions
+              .map((session) =>
+                value['version'] === FILE_VERSION ||
+                value['version'] === LEGACY_WORKSPACE_FILE_VERSION
+                  ? parseStoredSession(session)
+                  : parseLegacyStoredSession(
+                      session,
+                      value['version'] === LEGACY_ADAPTER_FILE_VERSION,
+                    ),
+              )
+              .filter((session): session is StoredTerminalSession => Boolean(session))
+            sessions = parsed
+            if (parsed.length !== rawSessions.length) {
+              reportDiagnostic(onDiagnostic, {
+                kind: 'load-failed',
+                reason: 'invalid-schema',
+              })
+            }
+            migrated = value['version'] !== FILE_VERSION
+          } else {
+            reportDiagnostic(onDiagnostic, {
+              kind: 'load-failed',
+              reason: 'invalid-schema',
+            })
+          }
+        } else {
+          reportDiagnostic(onDiagnostic, {
+            kind: 'load-failed',
+            reason: 'invalid-schema',
+          })
         }
       }
-    } catch {
-      sessions = []
     }
-    const registry = new TerminalSessionRegistry(host, file, sessions)
+    const registry = new TerminalSessionRegistry(host, file, sessions, onDiagnostic)
     if (migrated) {
       await registry
         .persist()
@@ -437,9 +479,33 @@ export class TerminalSessionRegistry implements TerminalSessionStore {
     const write = this.pendingWrite
       .catch(() => undefined)
       .then(() => this.host.writeFile(this.file, JSON.stringify(snapshot, null, 2)))
+      .catch((error: unknown) => {
+        reportDiagnostic(this.onDiagnostic, { kind: 'persist-failed' })
+        throw error
+      })
     this.pendingWrite = write
     return write
   }
+}
+
+function reportDiagnostic(
+  observer: ((event: TerminalSessionRegistryDiagnostic) => void) | undefined,
+  event: TerminalSessionRegistryDiagnostic,
+): void {
+  try {
+    observer?.(event)
+  } catch {
+    // Diagnostics is best-effort and never owns session recovery or persistence.
+  }
+}
+
+function isMissingFile(value: unknown): boolean {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    'code' in value &&
+    value.code === 'ENOENT'
+  )
 }
 
 function parseStoredSession(value: unknown): StoredTerminalSession | undefined {
