@@ -129,3 +129,7 @@ fi
     --no-sandbox \
     --user-data-dir="$user_data_root"
 )
+
+diagnostic_journal="$user_data_root/runtime-diagnostics.jsonl"
+test -f "$diagnostic_journal"
+grep -q '"kind":"application-starting"' "$diagnostic_journal"

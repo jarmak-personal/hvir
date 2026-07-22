@@ -87,7 +87,7 @@ export function WebPane({
   const currentUrl = webPaneUrlFromInput(view.origin, pathInput)
 
   return (
-    <div className="web-pane">
+    <div className="web-pane" data-diagnostic-capture="web-pane">
       <div className="web-pane-toolbar">
         <button
           type="button"

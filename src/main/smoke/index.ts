@@ -17,6 +17,7 @@ import { verifyGitDiffBases } from './git-diff'
 import { verifyPlatformContracts } from './platform-contracts'
 import { verifyRendererLifecycleCleanup } from './renderer-lifecycle'
 import { verifySourceDiffPosition, verifyViewerPositions } from './viewer-position'
+import { verifyWorkbenchHealthFault } from './workbench-health'
 import { createTerminalMoveSmokeHarness, verifyTerminalMoveSmoke } from './terminal-move'
 import {
   verifyLegacyTerminalPresentation,
@@ -60,6 +61,7 @@ export interface ElectronSmokeDependencies {
   readonly harnessProbeManager: HarnessProbeManager
   readonly htmlPreviews: HtmlPreviewProtocol
   readonly rendererResources: RendererResourceScopes
+  readonly diagnostics: import('../ipc/deps').IpcDeps['diagnostics']
   readonly webPaneRoutes: WebPaneRouteRegistry
   readonly updateWebPaneBindings: (ownerId: number, bindings: KeybindingMap) => void
   readonly updateWebPaneFullPage: (ownerId: number, paneId?: string) => void
@@ -330,6 +332,21 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
       respondSshPrompt: () => undefined,
       rendererResources,
       rendererReady: () => undefined,
+      getWorkbenchHealth: () => ({
+        version: 1,
+        evidence: 'memory-only',
+        items: [],
+        dropped: 0,
+      }),
+      acknowledgeWorkbenchHealth: () => ({
+        version: 1,
+        evidence: 'memory-only',
+        items: [],
+        dropped: 0,
+      }),
+      diagnostics: dependencies.diagnostics,
+      recordIpcContractDiagnostic: () => undefined,
+      recordRenderContainment: () => undefined,
       ptySupervisor: supervisor,
       terminalSessions: smokeTerminalSessions,
       terminalMoves: terminalMoveSmoke.coordinator,
@@ -392,6 +409,10 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
       throw new Error('renderer echo ran in the main process')
     }
     console.log('[smoke] renderer IPC + echo worker round-trip OK')
+    if (mode === 'workflow') {
+      const health = await verifyWorkbenchHealthFault(win)
+      console.log(`[smoke] workbench health fault injection OK (${health})`)
+    }
 
     if (mode === 'workflow' || mode === 'platform-contracts') {
       const result = await verifyPlatformContracts({

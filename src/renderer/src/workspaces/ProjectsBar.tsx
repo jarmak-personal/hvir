@@ -14,6 +14,7 @@ import type { WorkspaceAttentionRollups } from './project-session-model'
 import { aggregateWorkspaceAttention } from './workspace-attention'
 import type { AppTheme } from '../theme'
 import { ConfirmationDialog } from '../workbench/ConfirmationDialog'
+import { WorkbenchHealthControl } from '../health/WorkbenchHealthControl'
 
 interface ProjectsBarProps {
   readonly state: ProjectState
@@ -112,7 +113,11 @@ export function ProjectsBar({
   return (
     <>
       <header className="projects-shell">
-        <nav className="projects-bar" aria-label="Projects">
+        <nav
+          className="projects-bar"
+          aria-label="Projects"
+          data-diagnostic-capture="project-navigation"
+        >
           {state.projects.map((project) => {
             const active = project.id === state.activeProjectId
             const remote = project.registeredRoot.hostId !== 'local'
@@ -220,6 +225,7 @@ export function ProjectsBar({
           >
             +
           </button>
+          <WorkbenchHealthControl />
           <button
             type="button"
             className="theme-toggle"
@@ -241,7 +247,11 @@ export function ProjectsBar({
           <span className="projects-bar-spacer" />
         </nav>
         {activeProject && showWorkspacesBar ? (
-          <nav className="workspaces-bar" aria-label="Workspaces">
+          <nav
+            className="workspaces-bar"
+            aria-label="Workspaces"
+            data-diagnostic-capture="project-navigation"
+          >
             {activeProject.workspaces.map((workspace) => (
               <div
                 className={`workspace-tab${workspace.id === state.activeWorkspaceId ? ' active' : ''}${workspace.missing ? ' missing' : ''}`}

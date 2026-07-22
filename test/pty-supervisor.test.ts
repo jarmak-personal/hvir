@@ -14,7 +14,11 @@ import type {
   PtyProcess,
   SpawnPtyOptions,
 } from '../src/main/project-host'
-import { PtySupervisor, type ManagedPty } from '../src/main/pty/pty-supervisor'
+import {
+  PtySupervisor,
+  type ManagedPty,
+  type PtySupervisorDiagnostic,
+} from '../src/main/pty/pty-supervisor'
 import { SshHost } from '../src/main/project-host'
 import {
   LOCAL_HOST_ID,
@@ -54,7 +58,7 @@ class FakePty implements PtyProcess {
   }
 }
 
-function fixture(): {
+function fixture(onDiagnostic?: (event: PtySupervisorDiagnostic) => void): {
   supervisor: PtySupervisor
   pty: FakePty
   host: ProjectHost
@@ -101,7 +105,14 @@ function fixture(): {
     launch: () => ({ file: 'test-harness', args: ['launch'] }),
     resume: () => ({ file: 'test-harness', args: ['resume'] }),
   }
-  return { supervisor: new PtySupervisor(), pty, host, provider, spawnPty, defaultShell }
+  return {
+    supervisor: new PtySupervisor({ onDiagnostic }),
+    pty,
+    host,
+    provider,
+    spawnPty,
+    defaultShell,
+  }
 }
 
 describe('PtySupervisor', () => {
@@ -420,6 +431,71 @@ describe('PtySupervisor', () => {
     expect(spawnPty).toHaveBeenCalledTimes(1)
   })
 
+  it('emits content-free create and exit diagnostics from the PTY owner', async () => {
+    const events: PtySupervisorDiagnostic[] = []
+    const { supervisor, pty, host, provider } = fixture((event) => events.push(event))
+    await supervisor.spawn({
+      host,
+      provider,
+      cwd: localPath('/private/project-with-secret-name'),
+      ownerId: OWNER_ID,
+      sessionId: 'sensitive-session-id',
+    })
+    pty.emitData('terminal prompt with TOKEN=hvir-private')
+    pty.emitExit({ exitCode: 7, signal: undefined })
+
+    expect(events).toEqual([
+      { kind: 'pty-spawned', hostKind: 'local', launchMode: 'fresh' },
+      {
+        kind: 'pty-exited',
+        hostKind: 'local',
+        launchMode: 'fresh',
+        exitKind: 'error',
+        lifetime: 'under-30s',
+      },
+    ])
+    expect(JSON.stringify(events)).not.toMatch(/secret|TOKEN|prompt|sensitive-session/)
+  })
+
+  it('reports PTY creation failure without retaining the error or request', async () => {
+    const events: PtySupervisorDiagnostic[] = []
+    const { supervisor, host, provider, spawnPty } = fixture((event) =>
+      events.push(event),
+    )
+    spawnPty.mockRejectedValueOnce(
+      new Error('/private/project TOKEN=hvir-private could not spawn'),
+    )
+
+    await expect(
+      supervisor.spawn({
+        host,
+        provider,
+        cwd: localPath('/private/project'),
+        ownerId: OWNER_ID,
+        sessionId: 'failed-session',
+      }),
+    ).rejects.toThrow('could not spawn')
+    expect(events).toEqual([
+      { kind: 'pty-spawn-failed', hostKind: 'local', launchMode: 'fresh' },
+    ])
+    expect(JSON.stringify(events)).not.toMatch(/private|TOKEN|failed-session/)
+  })
+
+  it('does not let a failing diagnostics observer change PTY creation', async () => {
+    const { supervisor, host, provider } = fixture(() => {
+      throw new Error('diagnostics sink failed')
+    })
+
+    await expect(
+      supervisor.spawn({
+        host,
+        provider,
+        cwd: localPath('/tmp/project'),
+        ownerId: OWNER_ID,
+      }),
+    ).resolves.toMatchObject({ providerId: provider.manifest.id })
+  })
+
   it('reserves a session id while its asynchronous host spawn is pending', async () => {
     const { supervisor, pty, host, provider, spawnPty } = fixture()
     let finishSpawn: (() => void) | undefined
@@ -446,7 +522,10 @@ describe('PtySupervisor', () => {
   })
 
   it('kills a pending host spawn that completes after all sessions are disposed', async () => {
-    const { supervisor, pty, host, provider, spawnPty } = fixture()
+    const events: PtySupervisorDiagnostic[] = []
+    const { supervisor, pty, host, provider, spawnPty } = fixture((event) =>
+      events.push(event),
+    )
     let finishSpawn: (() => void) | undefined
     spawnPty.mockImplementationOnce(
       () =>
@@ -469,6 +548,7 @@ describe('PtySupervisor', () => {
     await expect(spawning).rejects.toThrow('cancelled before it started')
     expect(pty.kill).toHaveBeenCalledOnce()
     expect(supervisor.list()).toEqual([])
+    expect(events).toEqual([])
   })
 
   it('drains native PTY exits during final disposal', async () => {

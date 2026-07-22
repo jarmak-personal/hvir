@@ -13,6 +13,7 @@ import { randomUUID } from 'node:crypto'
 import {
   contextStatusHarnessSnapshot,
   hostPathEquals,
+  LOCAL_HOST_ID,
   type HarnessTelemetry,
   type HarnessProviderId,
   type HarnessProviderCapabilities,
@@ -123,6 +124,24 @@ interface PendingPtyExit {
 const MAX_INITIAL_REPLAY_LENGTH = 256 * 1024
 const LAUNCH_FAILURE_WINDOW_MS = 30_000
 
+export type PtySupervisorDiagnostic =
+  | {
+      readonly kind: 'pty-spawned' | 'pty-spawn-failed'
+      readonly hostKind: 'local' | 'ssh'
+      readonly launchMode: 'fresh' | 'resume'
+    }
+  | {
+      readonly kind: 'pty-exited'
+      readonly hostKind: 'local' | 'ssh'
+      readonly launchMode: 'fresh' | 'resume'
+      readonly exitKind: 'clean' | 'error' | 'signal'
+      readonly lifetime: 'under-30s' | 'under-5m' | '5m-or-more'
+    }
+
+export interface PtySupervisorOptions {
+  readonly onDiagnostic?: (event: PtySupervisorDiagnostic) => void
+}
+
 export class PtySupervisor {
   private readonly entries = new Map<string, Entry>()
   private readonly pendingIds = new Map<string, PendingEntry>()
@@ -134,10 +153,23 @@ export class PtySupervisor {
   private readonly discoveryQueues = new Map<string, Promise<void>>()
   private readonly discoveryControllers = new Set<AbortController>()
 
+  constructor(private readonly options: PtySupervisorOptions = {}) {}
+
   /** Spawn a PTY. The one and only site that calls `host.spawnPty`. */
   async spawn(req: PtySpawnRequest): Promise<ManagedPty> {
     const sessionId = req.sessionId ?? randomUUID()
+    const effectiveCapabilities = req.effectiveCapabilities ?? {
+      sessionIdentity: req.provider.sessionIdentity,
+      exactResume: req.provider.supportsResume,
+      contextPresentation: req.provider.manifest.contextPresentation,
+    }
+    const resumed = req.resume === true && effectiveCapabilities.exactResume
+    const diagnosticContext = {
+      hostKind: req.host.hostId === LOCAL_HOST_ID ? ('local' as const) : ('ssh' as const),
+      launchMode: resumed ? ('resume' as const) : ('fresh' as const),
+    }
     if (this.entries.has(sessionId) || this.pendingIds.has(sessionId)) {
+      this.reportDiagnostic({ kind: 'pty-spawn-failed', ...diagnosticContext })
       throw new Error(`PTY session '${sessionId}' is already active`)
     }
     const pending: PendingEntry = {
@@ -147,11 +179,6 @@ export class PtySupervisor {
       cancelled: false,
     }
     const generation = this.generation
-    const effectiveCapabilities = req.effectiveCapabilities ?? {
-      sessionIdentity: req.provider.sessionIdentity,
-      exactResume: req.provider.supportsResume,
-      contextPresentation: req.provider.manifest.contextPresentation,
-    }
     const artifact = req.artifact ?? {
       identity: `${req.host.hostId}:${req.provider.manifest.id}:default`,
       environment: {},
@@ -159,7 +186,6 @@ export class PtySupervisor {
     }
     this.pendingIds.set(sessionId, pending)
 
-    const resumed = req.resume === true && effectiveCapabilities.exactResume
     const harnessSessionId = resumed
       ? (req.harnessSessionId ??
         (effectiveCapabilities.sessionIdentity === 'preassigned' ? sessionId : undefined))
@@ -168,6 +194,7 @@ export class PtySupervisor {
         : undefined
     if (resumed && !harnessSessionId) {
       this.pendingIds.delete(sessionId)
+      this.reportDiagnostic({ kind: 'pty-spawn-failed', ...diagnosticContext })
       throw new Error(
         `Harness '${req.provider.manifest.id}' resume requires an exact session id`,
       )
@@ -237,6 +264,9 @@ export class PtySupervisor {
       releaseDiscoveryLaunch = undefined
     } catch (error) {
       void releaseDiscoveryLaunch?.()
+      if (!pending.cancelled && this.generation === generation) {
+        this.reportDiagnostic({ kind: 'pty-spawn-failed', ...diagnosticContext })
+      }
       throw error
     } finally {
       if (this.pendingIds.get(sessionId)?.token === pending.token) {
@@ -313,6 +343,17 @@ export class PtySupervisor {
         ) {
           req.onClassifiedLaunchFailure?.()
         }
+        this.reportDiagnostic({
+          kind: 'pty-exited',
+          ...diagnosticContext,
+          exitKind:
+            exit.signal !== undefined
+              ? 'signal'
+              : exit.exitCode === 0
+                ? 'clean'
+                : 'error',
+          lifetime: lifetimeBucket(Date.now() - entry.info.startedAt),
+        })
         try {
           for (const cb of entry.exitListeners) cb(exit)
           for (const cb of this.globalExitListeners) cb(entry.info, exit)
@@ -358,6 +399,7 @@ export class PtySupervisor {
       this.startTelemetry(entry, req.host, req.provider, harnessSessionId, artifact)
     }
 
+    this.reportDiagnostic({ kind: 'pty-spawned', ...diagnosticContext })
     return info
   }
 
@@ -516,6 +558,14 @@ export class PtySupervisor {
     }
     this.entries.clear()
     return pendingExits
+  }
+
+  private reportDiagnostic(event: PtySupervisorDiagnostic): void {
+    try {
+      this.options.onDiagnostic?.(event)
+    } catch {
+      // Diagnostics is a droppable observer and never owns PTY behavior.
+    }
   }
 
   private clearLifetimeListeners(): void {
@@ -795,6 +845,12 @@ function interactiveShellLaunch(
 ): { file: string; args: readonly string[] } {
   const command = [file, ...args].map(shellQuote).join(' ')
   return { file: shell, args: ['-ic', `exec ${command}`] }
+}
+
+function lifetimeBucket(elapsedMs: number): 'under-30s' | 'under-5m' | '5m-or-more' {
+  if (elapsedMs < 30_000) return 'under-30s'
+  if (elapsedMs < 5 * 60_000) return 'under-5m'
+  return '5m-or-more'
 }
 
 function classifiedEarlyExit(exit: PtyExit, output: string, elapsedMs: number): boolean {

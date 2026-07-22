@@ -151,6 +151,22 @@ order, seam checks, and blocking hotspot ratchets govern the existing process bo
 A requested exact resume whose qualified provider artifact is missing remains visibly
 unavailable without spawning a fresh harness or replacing the retained recovery identity.
 
+### [ADR-016 — Bounded local runtime diagnostics](adr/ADR-016-bounded-local-runtime-diagnostics.md)
+
+Fixed-schema, content-free diagnostic evidence flows through one bounded local owner while
+feature recovery stays feature-owned, workbench health remains separate from terminal attention,
+and diagnostic sessions stay explicit, droppable, and local. The bounded Long Tasks experiment
+and its opt-in recommendation are recorded in the
+[renderer responsiveness evaluation](renderer-responsiveness-evaluation.md). The owner-by-owner
+[layout-integrity evaluation](layout-integrity-evaluation.md) retains layout postconditions as
+pure or focused Electron conformance and promotes no runtime detector.
+
+### [ADR-017 — Defer direct diagnostic report delivery to harnesses](adr/ADR-017-defer-direct-diagnostic-report-delivery.md)
+
+Preview plus explicit Copy or Save remains the report boundary until a bundled provider can prove
+exact-session semantic submission, truthful host and attachment behavior, and revocable lifecycle
+semantics without generic PTY injection or new persistence.
+
 ## 5. Architecture
 
 ### Process model

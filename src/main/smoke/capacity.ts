@@ -20,6 +20,10 @@ import {
   sampleElectronProcessMetrics,
   type ElectronProcessMetricReport,
 } from './electron-process-metrics'
+import {
+  measureResponsivenessDiagnosticCost,
+  type ResponsivenessDiagnosticCostReport,
+} from './capacity-responsiveness'
 
 const CPU_SAMPLE_DURATION_MS = 30_000
 const CPU_SAMPLE_COUNT = 3
@@ -55,6 +59,7 @@ interface CapacitySmokeReport {
   readonly idleCpu?: CapacityCpuComparison
   readonly terminalReadiness?: CapacityTerminalReadinessComparison
   readonly terminalActivity?: TerminalActivityReport
+  readonly responsivenessDiagnostics?: ResponsivenessDiagnosticCostReport
 }
 
 export async function runCapacityRecoverySmoke(
@@ -184,6 +189,10 @@ export async function runCapacityLoadSmoke(
         `twelve terminals ${idleCpu.twelveTerminalMedianRendererPlusGpu.toFixed(3)}%)`,
     )
   }
+  const responsivenessDiagnostics = await measureResponsivenessDiagnosticCost(win)
+  console.log(
+    `[smoke:capacity:responsiveness-diagnostics] ${JSON.stringify(responsivenessDiagnostics)}`,
+  )
 
   startCapacityOutputFixtures(supervisor)
   let churning = true
@@ -311,6 +320,7 @@ export async function runCapacityLoadSmoke(
       idleCpu,
       terminalReadiness,
       terminalActivity,
+      responsivenessDiagnostics,
       memoryStartKiB: processMetrics.memoryStartKiB,
       memoryEndKiB: processMetrics.memoryEndKiB,
       memoryPeakKiB: processMetrics.memoryPeakKiB,

@@ -20,8 +20,27 @@ import {
   type IpcSendChannel,
   type IpcSendPayload,
 } from '../shared'
+import { RendererDiagnosticsAdapter } from './renderer-diagnostics'
+
+const rendererDiagnostics = new RendererDiagnosticsAdapter({
+  send: (batch) => ipcRenderer.send('diagnostics:render-containment', batch),
+  sendResponsiveness: (batch) =>
+    ipcRenderer.send('diagnostics:responsiveness-observation', batch),
+})
+
+ipcRenderer.on('diagnostics:session', (_event, session: unknown) => {
+  rendererDiagnostics.activate(session)
+})
 
 const api: HvirApi = {
+  diagnostics: {
+    recordRenderContainment: (occurrenceId) =>
+      rendererDiagnostics.recordRenderContainment(occurrenceId),
+    recordResponsivenessObservation: (observation) =>
+      rendererDiagnostics.recordResponsivenessObservation(observation),
+    flushResponsivenessObservations: () =>
+      rendererDiagnostics.flushResponsivenessObservations(),
+  },
   invoke<C extends IpcInvokeChannel>(
     channel: C,
     request: IpcRequest<C>,
