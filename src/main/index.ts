@@ -48,7 +48,10 @@ protocol.registerSchemesAsPrivileged([
 ])
 
 function createWorkbenchEntry(): void {
-  const diagnostics = RuntimeDiagnostics.create(app.getPath('userData'), app.isPackaged)
+  const diagnostics = RuntimeDiagnostics.create(
+    app.getPath('userData'),
+    app.isPackaged || process.env['HVIR_SMOKE'] === '1',
+  )
   diagnostics.recordApplication('application-starting')
   const runtime = new WorkbenchRuntime({
     start: startup,
@@ -76,7 +79,6 @@ function createWorkbenchEntry(): void {
     new GitMutationAuthorization(),
     (authorizations) => authorizations.dispose(),
   )
-
   let echoWorker: WorkerClient<EchoWorkerProtocol> | null = null
   let gitWorker: WorkerClient<GitWorkerProtocol> | null = null
   let projectRegistry: ProjectRegistry | null = null
@@ -107,6 +109,7 @@ function createWorkbenchEntry(): void {
       activateRenderer: (ownerId) =>
         installRendererPresentation(rendererScopes.activateOwner(ownerId)),
       rolloverRenderer: (owner) => {
+        diagnostics.revokeRenderer(owner)
         const transition = rendererScopes.rolloverOwner(owner.id)
         void transition.cleanup.catch((error) =>
           console.error('[renderer] generation cleanup failed', error),
@@ -114,6 +117,7 @@ function createWorkbenchEntry(): void {
         return installRendererPresentation(transition.owner)
       },
       revokeRenderer: (owner) => {
+        diagnostics.revokeRenderer(owner)
         void rendererScopes
           .revokeOwner(owner.id)
           .catch((error) => console.error('[renderer] owner cleanup failed', error))
@@ -121,6 +125,7 @@ function createWorkbenchEntry(): void {
       isRendererCurrent: (owner) => rendererScopes.isCurrent(owner),
       setOwnerFocused: (owner, focused) =>
         attentionBadge?.setFocused(owner.id, focused, owner.generation),
+      startRendererDiagnostics: (owner) => diagnostics.startRenderer(owner),
       onLastWindowClosed: () => {
         void runtime
           .suspend()
@@ -376,6 +381,9 @@ function createWorkbenchEntry(): void {
           sshPrompter?.respond(owner, id, answers),
         rendererResources: rendererScopes,
         rendererReady: (owner) => sshPrompter?.activateOwner(owner),
+        recordIpcContractDiagnostic: (event) => diagnostics.recordIpcContract(event),
+        recordRenderContainment: (owner, batch) =>
+          diagnostics.recordRenderContainment(owner, batch),
         ptySupervisor,
         terminalSessions: terminalSessionRegistry,
         terminalMoves,

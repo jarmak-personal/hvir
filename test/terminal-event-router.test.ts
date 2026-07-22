@@ -238,6 +238,7 @@ interface MockTerminalEventHandlers extends TerminalEventHandlers {
 }
 
 class FakeHvirApi implements HvirApi {
+  readonly diagnostics = { recordRenderContainment: vi.fn() }
   private readonly callbacks = new Map<IpcEventChannel, Set<(payload: unknown) => void>>()
   private readonly subscriptions = new Map<IpcEventChannel, number>()
 

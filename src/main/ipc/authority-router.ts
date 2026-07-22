@@ -83,6 +83,12 @@ export interface IpcSendContext {
   owner(): RendererOwner
 }
 
+export interface IpcContractDiagnostic {
+  readonly channel: IpcInvokeChannel | IpcSendChannel
+  readonly outcome: 'non-main-frame' | 'renderer-revoked'
+  readonly timing: 'under-1ms' | 'under-10ms' | '10ms-or-more'
+}
+
 export type IpcInvokeHandler<C extends IpcInvokeChannel> = (
   req: IpcRequest<C>,
   context: IpcInvokeContext,
@@ -141,6 +147,7 @@ export class IpcAuthorityRouter {
       | 'getProjectState'
       | 'getRegisteredWorkspaceRoot'
       | 'rendererResources'
+      | 'recordIpcContractDiagnostic'
     >,
     private readonly transport: IpcMainRegistrationPort = electronIpcMainPort,
   ) {
@@ -152,8 +159,17 @@ export class IpcAuthorityRouter {
     this.invokeChannels.add(channel)
     const ownerScoped = includes(OWNER_SCOPED_INVOKE_CHANNELS, channel)
     this.transport.handle(channel, (event, request) => {
-      assertMainFrame(event)
-      return handler(request as IpcRequest<C>, this.context(event.sender, ownerScoped))
+      const startedAt = performance.now()
+      try {
+        assertMainFrame(event)
+      } catch (error) {
+        this.reportDiagnostic(channel, 'non-main-frame', startedAt)
+        throw error
+      }
+      return handler(
+        request as IpcRequest<C>,
+        this.context(event.sender, ownerScoped, channel, startedAt),
+      )
     })
   }
 
@@ -162,9 +178,21 @@ export class IpcAuthorityRouter {
     this.sendChannels.add(channel)
     const ownerScoped = includes(OWNER_SCOPED_SEND_CHANNELS, channel)
     const listener = (event: Electron.IpcMainEvent, payload: unknown): void => {
+      const startedAt = performance.now()
       try {
         assertMainFrame(event)
-        handler(payload as IpcSendPayload<C>, this.context(event.sender, ownerScoped))
+      } catch (reason) {
+        this.reportDiagnostic(channel, 'non-main-frame', startedAt)
+        console.warn(
+          `[ipc] ignored invalid ${channel} message: ${reason instanceof Error ? reason.message : String(reason)}`,
+        )
+        return
+      }
+      try {
+        handler(
+          payload as IpcSendPayload<C>,
+          this.context(event.sender, ownerScoped, channel, startedAt),
+        )
       } catch (reason) {
         console.warn(
           `[ipc] ignored invalid ${channel} message: ${reason instanceof Error ? reason.message : String(reason)}`,
@@ -203,6 +231,8 @@ export class IpcAuthorityRouter {
   private context(
     sender: Electron.WebContents,
     ownerScoped: boolean,
+    channel: IpcInvokeChannel | IpcSendChannel,
+    startedAt: number,
   ): IpcInvokeContext & IpcSendContext {
     let owner: RendererOwner | undefined
     return {
@@ -210,10 +240,31 @@ export class IpcAuthorityRouter {
       authority: this.authority,
       owner: () => {
         if (!ownerScoped) throw new Error('IPC channel is not owner-scoped')
-        owner ??= this.deps.rendererResources.currentOwner(sender.id)
-        this.deps.rendererResources.assertCurrent(owner)
-        return owner
+        try {
+          owner ??= this.deps.rendererResources.currentOwner(sender.id)
+          this.deps.rendererResources.assertCurrent(owner)
+          return owner
+        } catch (error) {
+          this.reportDiagnostic(channel, 'renderer-revoked', startedAt)
+          throw error
+        }
       },
+    }
+  }
+
+  private reportDiagnostic(
+    channel: IpcContractDiagnostic['channel'],
+    outcome: IpcContractDiagnostic['outcome'],
+    startedAt: number,
+  ): void {
+    try {
+      this.deps.recordIpcContractDiagnostic({
+        channel,
+        outcome,
+        timing: timingBucket(performance.now() - startedAt),
+      })
+    } catch {
+      // Diagnostics is a droppable observer and never owns IPC behavior.
     }
   }
 
@@ -231,6 +282,12 @@ export class IpcAuthorityRouter {
       throw new Error(`IPC ${direction} channel '${channel}' is already registered`)
     }
   }
+}
+
+function timingBucket(elapsedMs: number): IpcContractDiagnostic['timing'] {
+  if (elapsedMs < 1) return 'under-1ms'
+  if (elapsedMs < 10) return 'under-10ms'
+  return '10ms-or-more'
 }
 
 export class IpcAuthority {

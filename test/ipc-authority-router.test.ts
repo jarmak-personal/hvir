@@ -10,6 +10,7 @@ import {
   IpcAuthorityRouter,
   OWNER_SCOPED_INVOKE_CHANNELS,
   OWNER_SCOPED_SEND_CHANNELS,
+  type IpcContractDiagnostic,
   type IpcMainRegistrationPort,
 } from '../src/main/ipc/authority-router'
 import type { ProjectHost } from '../src/main/project-host'
@@ -101,8 +102,10 @@ function fixture() {
     currentOwner,
     assertCurrent,
   } as unknown as RendererResourceScopes
+  const recordIpcContractDiagnostic = vi.fn<(event: IpcContractDiagnostic) => void>()
   const deps = {
     rendererResources,
+    recordIpcContractDiagnostic,
     getProjectState: () => projectState(),
     getRegisteredWorkspaceRoot: (candidate: typeof root) =>
       candidate.path === root.path && candidate.hostId === root.hostId ? root : undefined,
@@ -116,7 +119,13 @@ function fixture() {
     }),
   } as unknown as IpcDeps
   const transport = new FakeIpcMain()
-  return { deps, transport, currentOwner, assertCurrent }
+  return {
+    deps,
+    transport,
+    currentOwner,
+    assertCurrent,
+    recordIpcContractDiagnostic,
+  }
 }
 
 function ipcEvent(mainFrame = true): Electron.IpcMainInvokeEvent {
@@ -155,7 +164,7 @@ describe('IpcAuthorityRouter', () => {
   })
 
   it('puts every invoke and send handler behind main-frame validation', () => {
-    const { deps, transport } = fixture()
+    const { deps, transport, recordIpcContractDiagnostic } = fixture()
     registerIpcHandlers(deps, transport)
     const invalid = ipcEvent(false)
 
@@ -169,7 +178,39 @@ describe('IpcAuthorityRouter', () => {
       expect(() => listeners[0]!(ipcSendEvent(false), undefined)).not.toThrow()
     }
     expect(warn).toHaveBeenCalledTimes(SEND_CHANNELS.length)
+    expect(recordIpcContractDiagnostic).toHaveBeenCalledTimes(
+      INVOKE_CHANNELS.length + SEND_CHANNELS.length,
+    )
+    for (const [diagnostic] of recordIpcContractDiagnostic.mock.calls) {
+      expect([...INVOKE_CHANNELS, ...SEND_CHANNELS]).toContain(diagnostic.channel)
+      expect(diagnostic.outcome).toBe('non-main-frame')
+      expect(['under-1ms', 'under-10ms', '10ms-or-more']).toContain(diagnostic.timing)
+    }
     warn.mockRestore()
+  })
+
+  it('records revoked-owner rejection without request, error, or payload content', () => {
+    const { deps, transport, assertCurrent, recordIpcContractDiagnostic } = fixture()
+    assertCurrent.mockImplementationOnce(() => {
+      throw new Error('/secret/project TOKEN=hvir-private')
+    })
+    const router = new IpcAuthorityRouter(deps, transport)
+    router.handle('pty:start', (_request, context) => {
+      context.owner()
+      return undefined as never
+    })
+
+    expect(() =>
+      transport.invokes.get('pty:start')?.[0]?.(ipcEvent(), {
+        terminalInput: '/secret/project TOKEN=hvir-private',
+      }),
+    ).toThrow('TOKEN=hvir-private')
+    expect(recordIpcContractDiagnostic).toHaveBeenCalledWith(
+      expect.objectContaining({ channel: 'pty:start', outcome: 'renderer-revoked' }),
+    )
+    expect(JSON.stringify(recordIpcContractDiagnostic.mock.calls)).not.toMatch(
+      /secret|TOKEN|terminalInput/,
+    )
   })
 
   it('centrally validates current owner generation for every owner-scoped channel', () => {

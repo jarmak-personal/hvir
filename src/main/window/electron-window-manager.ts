@@ -24,6 +24,7 @@ import {
   matchesKeybinding,
   type KeybindingAction,
   type KeybindingMap,
+  type RendererDiagnosticSession,
   type WebPaneCommandAction,
 } from '../../shared'
 
@@ -34,6 +35,7 @@ export interface ElectronWindowManagerDependencies {
   readonly revokeRenderer: (owner: RendererOwner) => void
   readonly isRendererCurrent: (owner: RendererOwner) => boolean
   readonly setOwnerFocused: (owner: RendererOwner, focused: boolean) => void
+  readonly startRendererDiagnostics: (owner: RendererOwner) => RendererDiagnosticSession
   readonly onLastWindowClosed: () => void
   readonly isShuttingDown: () => boolean
 }
@@ -238,6 +240,10 @@ export function createElectronWindowManager(
     win.on('ready-to-show', () => win.show())
     win.webContents.on('did-finish-load', () => {
       committedDocument = true
+      win.webContents.send(
+        'diagnostics:session',
+        dependencies.startRendererDiagnostics(rendererOwner),
+      )
     })
     const revokeRendererResources = (reopen: boolean): void => {
       if (rendererRevoked) return
