@@ -58,6 +58,13 @@ import type {
   RendererDiagnosticSession,
 } from './diagnostics'
 import type { WorkbenchHealthSnapshot } from './workbench-health'
+import type {
+  CaptureDiagnosticReportRequest,
+  CreateDiagnosticReportRequest,
+  DiagnosticReportActionResult,
+  DiagnosticReportIdRequest,
+  DiagnosticReportStateResult,
+} from './diagnostic-report'
 
 export type WebPaneCommandAction =
   KeybindingAction | 'closeWebPane' | 'escapeWebPaneFocus'
@@ -461,6 +468,30 @@ export interface IpcInvokeMap {
     request: { readonly occurrenceId: string }
     response: WorkbenchHealthSnapshot
   }
+  'diagnostic-report:create': {
+    request: CreateDiagnosticReportRequest
+    response: DiagnosticReportStateResult
+  }
+  'diagnostic-report:capture': {
+    request: CaptureDiagnosticReportRequest
+    response: DiagnosticReportStateResult
+  }
+  'diagnostic-report:copy': {
+    request: DiagnosticReportIdRequest
+    response: DiagnosticReportActionResult
+  }
+  'diagnostic-report:save': {
+    request: DiagnosticReportIdRequest
+    response: DiagnosticReportActionResult
+  }
+  'diagnostic-report:cancel': {
+    request: DiagnosticReportIdRequest
+    response: DiagnosticReportActionResult
+  }
+  'diagnostic-report:delete': {
+    request: DiagnosticReportIdRequest
+    response: DiagnosticReportActionResult
+  }
   /** Round-trips text through the echo utility process (renderer→main→worker). */
   'demo:echo': { request: EchoRequest; response: EchoResponse }
   'project:root': { request: void; response: ProjectState }
@@ -704,6 +735,12 @@ export const INVOKE_CHANNELS = [
   'app:info',
   'workbench-health:get',
   'workbench-health:acknowledge',
+  'diagnostic-report:create',
+  'diagnostic-report:capture',
+  'diagnostic-report:copy',
+  'diagnostic-report:save',
+  'diagnostic-report:cancel',
+  'diagnostic-report:delete',
   'demo:echo',
   'project:root',
   'project:hosts',

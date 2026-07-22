@@ -273,6 +273,12 @@ describe('IpcAuthorityRouter', () => {
         'terminal:plan-move',
         'terminal:move',
         'pty:start',
+        'diagnostic-report:create',
+        'diagnostic-report:capture',
+        'diagnostic-report:copy',
+        'diagnostic-report:save',
+        'diagnostic-report:cancel',
+        'diagnostic-report:delete',
       ]),
     )
     expect(new Set(OWNER_SCOPED_SEND_CHANNELS)).toEqual(
@@ -326,6 +332,7 @@ describe('IpcAuthorityRouter', () => {
       'project.ts',
       'terminal.ts',
       'web-pane.ts',
+      'diagnostic-report.ts',
     ]
     const source = (
       await Promise.all(

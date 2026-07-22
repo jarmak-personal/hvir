@@ -3,9 +3,11 @@ import { useState, type ReactElement } from 'react'
 import type { WorkbenchHealthItem } from '../../../shared'
 import { ConfirmationDialog } from '../workbench/ConfirmationDialog'
 import { useWorkbenchHealth } from './use-workbench-health'
+import { DiagnosticReportDialog } from '../diagnostics/DiagnosticReportDialog'
 
 export function WorkbenchHealthControl(): ReactElement {
   const [open, setOpen] = useState(false)
+  const [reportOpen, setReportOpen] = useState(false)
   const health = useWorkbenchHealth()
   const unresolved = health.snapshot.items.filter((item) => item.state !== 'resolved')
   const newCount = unresolved.filter((item) => item.state === 'open').length
@@ -64,7 +66,20 @@ export function WorkbenchHealthControl(): ReactElement {
               {health.snapshot.dropped === 1 ? '' : 's'} omitted by the local bound.
             </p>
           ) : null}
+          <button
+            type="button"
+            className="prepare-diagnostic-report"
+            onClick={() => {
+              setOpen(false)
+              setReportOpen(true)
+            }}
+          >
+            Prepare diagnostic report
+          </button>
         </ConfirmationDialog>
+      ) : null}
+      {reportOpen ? (
+        <DiagnosticReportDialog onClose={() => setReportOpen(false)} />
       ) : null}
     </>
   )

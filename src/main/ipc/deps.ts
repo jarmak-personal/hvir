@@ -23,6 +23,7 @@ import type { TerminalWorkspaceMoveCoordinator } from '../terminal/terminal-work
 import type { WebPaneRouteRegistry } from '../web-pane/web-pane-route-registry'
 import type { WorkerClient } from '../worker-host'
 import type { IpcContractDiagnostic } from './authority-router'
+import type { DiagnosticReportCoordinator } from '../diagnostics/diagnostic-report-coordinator'
 
 export type EmitRendererEvent = <E extends IpcEventChannel>(
   channel: E,
@@ -80,6 +81,10 @@ export interface IpcDeps {
   readonly rendererReady: (owner: RendererOwner) => void
   readonly getWorkbenchHealth: () => WorkbenchHealthSnapshot
   readonly acknowledgeWorkbenchHealth: (occurrenceId: string) => WorkbenchHealthSnapshot
+  readonly diagnosticReports: Pick<
+    DiagnosticReportCoordinator,
+    'create' | 'capture' | 'copy' | 'save' | 'cancel' | 'delete'
+  >
   readonly recordIpcContractDiagnostic: (event: IpcContractDiagnostic) => void
   readonly recordRenderContainment: (
     owner: RendererOwner,
