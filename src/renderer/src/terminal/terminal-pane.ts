@@ -37,6 +37,8 @@ export interface TerminalColorTheme {
   readonly white: string
 }
 
+export type TerminalPresentation = 'visible' | 'hidden'
+
 export type TerminalLinkActivation =
   | { readonly kind: 'file'; readonly target: string }
   | { readonly kind: 'loopback-http'; readonly target: string }
@@ -69,6 +71,8 @@ export interface TerminalPane {
   resize(cols: number, rows: number): void
   /** Update colors without remounting or restarting the PTY. */
   setTheme(theme: TerminalColorTheme): void
+  /** Start or stop visible engine work without changing the live terminal state. */
+  setPresentation(presentation: TerminalPresentation): void
   /** Force the current grid to repaint without changing PTY geometry. */
   redraw(): void
   focus(): void

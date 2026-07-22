@@ -103,6 +103,12 @@ describe('terminal workspace move controls', () => {
     })
     const dialog = host.querySelector<HTMLElement>('[role="dialog"]')
     const buttons = [...host.querySelectorAll<HTMLButtonElement>('button')]
+    for (const button of buttons) {
+      Object.defineProperty(button, 'offsetParent', {
+        configurable: true,
+        value: dialog,
+      })
+    }
     expect(dialog?.textContent).toContain('Investigate #140')
     expect(dialog?.textContent).toContain('/repo')
     expect(dialog?.textContent).toContain('/repo-feature')
@@ -117,18 +123,67 @@ describe('terminal workspace move controls', () => {
 
     buttons.at(-1)?.focus()
     act(() => {
-      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab' }))
+      buttons
+        .at(-1)
+        ?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true }))
     })
     expect(document.activeElement).toBe(buttons[0])
     buttons[0]?.focus()
     act(() => {
-      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', shiftKey: true }))
+      buttons[0]?.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, bubbles: true }),
+      )
     })
     expect(document.activeElement).toBe(buttons.at(-1))
     act(() => {
-      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+      buttons[0]?.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }),
+      )
     })
     expect(onCancel).toHaveBeenCalledOnce()
+  })
+
+  it('blocks repeated terminal moves and dismissal while the move is busy', async () => {
+    const onCancel = vi.fn()
+    let finishMove = (): void => undefined
+    const onMove = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          finishMove = resolve
+        }),
+    )
+    act(() => {
+      root.render(
+        <TerminalMoveDialog plan={movePlan()} onCancel={onCancel} onMove={onMove} />,
+      )
+    })
+    const move = [...host.querySelectorAll<HTMLButtonElement>('button')].find(
+      (button) => button.textContent?.trim() === 'Move terminal here and open',
+    )!
+
+    act(() => {
+      move.click()
+      move.click()
+    })
+    expect(onMove).toHaveBeenCalledOnce()
+    expect(host.querySelector('[role="dialog"]')?.getAttribute('aria-busy')).toBe('true')
+    expect(
+      [...host.querySelectorAll<HTMLButtonElement>('button')].every(
+        (button) => button.disabled,
+      ),
+    ).toBe(true)
+
+    act(() => {
+      move.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    })
+    expect(onCancel).not.toHaveBeenCalled()
+
+    await act(async () => {
+      finishMove()
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+    expect(move.disabled).toBe(false)
   })
 })
 

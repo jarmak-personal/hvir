@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState, type ReactElement } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react'
 
 import {
   asHostId,
@@ -35,6 +35,8 @@ export function SessionDialog({
   readonly onOpened: (state: ProjectState) => void
 }): ReactElement {
   const dialogRef = useRef<HTMLElement>(null)
+  const pathInputRef = useRef<HTMLInputElement>(null)
+  const nextRevealToken = useRef(0)
   const [stage, setStage] = useState<'host' | 'folder'>('host')
   const [hostId, setHostId] = useState(
     hosts.some((host) => host.hostId === currentRoot.hostId)
@@ -44,7 +46,10 @@ export function SessionDialog({
   const [connected, setConnected] = useState<ConnectedHost>()
   const [pathInput, setPathInput] = useState('')
   const [selectedPath, setSelectedPath] = useState<string>()
-  const [revealedPath, setRevealedPath] = useState<string>()
+  const [revealRequest, setRevealRequest] = useState<{
+    readonly path: string
+    readonly token: number
+  }>()
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string>()
   const selectedHost = hosts.find((host) => host.hostId === hostId)
@@ -73,7 +78,7 @@ export function SessionDialog({
       setConnected(undefined)
       setPathInput('')
       setSelectedPath(undefined)
-      setRevealedPath(undefined)
+      setRevealRequest(undefined)
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason))
     } finally {
@@ -85,11 +90,17 @@ export function SessionDialog({
     if (!connected) return
     setBusy(true)
     setError(undefined)
+    setPathInput(targetPath)
+    setSelectedPath(undefined)
+    setRevealRequest(undefined)
     try {
       const result = await onBrowse(connected.host.hostId, targetPath)
       setPathInput(result.path.path)
       setSelectedPath(result.path.path)
-      setRevealedPath(result.path.path)
+      setRevealRequest({
+        path: result.path.path,
+        token: ++nextRevealToken.current,
+      })
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason))
     } finally {
@@ -104,10 +115,16 @@ export function SessionDialog({
       const result = await onConnect(hostId)
       setConnected(result)
       setStage('folder')
+      setPathInput(result.suggestedPath)
+      setSelectedPath(undefined)
+      setRevealRequest(undefined)
       const listing = await onBrowse(result.host.hostId, result.suggestedPath)
       setPathInput(listing.path.path)
       setSelectedPath(listing.path.path)
-      setRevealedPath(listing.path.path)
+      setRevealRequest({
+        path: listing.path.path,
+        token: ++nextRevealToken.current,
+      })
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason))
     } finally {
@@ -137,6 +154,10 @@ export function SessionDialog({
     },
     [connectedHostId, onBrowse],
   )
+
+  useEffect(() => {
+    if (stage === 'folder' && !busy) pathInputRef.current?.focus()
+  }, [busy, stage])
 
   useModalKeyboard(dialogRef, () => void cancel(), !busy, !suspended)
 
@@ -195,16 +216,26 @@ export function SessionDialog({
               }}
             >
               <input
+                ref={pathInputRef}
                 aria-label="Folder path"
                 autoFocus
+                disabled={busy}
                 value={pathInput}
                 onChange={(event) => {
                   setPathInput(event.target.value)
                   setSelectedPath(undefined)
+                  setRevealRequest(undefined)
                 }}
               />
               <button type="submit" disabled={busy}>
-                Go
+                Show in tree
+              </button>
+              <button
+                type="button"
+                disabled={busy || !selectedPath}
+                onClick={() => void open()}
+              >
+                Use this folder
               </button>
             </form>
             {connected ? (
@@ -213,6 +244,7 @@ export function SessionDialog({
                   <button
                     type="button"
                     key={folder}
+                    disabled={busy}
                     onClick={() => void selectPath(folder)}
                   >
                     {folder}
@@ -235,16 +267,20 @@ export function SessionDialog({
                       ? hostPath(asHostId(connectedHostId), selectedPath)
                       : undefined
                   }
-                  expandedPath={
-                    revealedPath
-                      ? hostPath(asHostId(connectedHostId), revealedPath)
+                  revealRequest={
+                    revealRequest
+                      ? {
+                          path: hostPath(asHostId(connectedHostId), revealRequest.path),
+                          token: revealRequest.token,
+                        }
                       : undefined
                   }
                   showFiles={false}
                   onSelectDirectory={(directory) => {
+                    if (busy) return
                     setPathInput(directory.path)
                     setSelectedPath(directory.path)
-                    setRevealedPath(directory.path)
+                    setRevealRequest(undefined)
                   }}
                 />
               ) : null}
@@ -260,20 +296,16 @@ export function SessionDialog({
           <button type="button" disabled={busy} onClick={() => void cancel()}>
             Cancel
           </button>
-          <button
-            type="button"
-            disabled={busy || (stage === 'folder' && !selectedPath)}
-            onClick={() => void (stage === 'host' ? connect() : open())}
-          >
-            {busy
-              ? 'Working…'
-              : stage === 'host'
-                ? selectedHost?.kind === 'local' ||
-                  selectedHost?.connectionState === 'connected'
+          {stage === 'host' ? (
+            <button type="button" disabled={busy} onClick={() => void connect()}>
+              {busy
+                ? 'Working…'
+                : selectedHost?.kind === 'local' ||
+                    selectedHost?.connectionState === 'connected'
                   ? 'Choose folder'
-                  : 'Connect'
-                : 'Open selected folder'}
-          </button>
+                  : 'Connect'}
+            </button>
+          ) : null}
         </div>
       </section>
     </div>

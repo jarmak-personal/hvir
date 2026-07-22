@@ -24,6 +24,7 @@ function options(
     resumeOnStart: false,
     position: 0,
     active: true,
+    presentation: 'visible',
     modifiedKeyProtocol: 'csi-u',
     metaEnterAliasesControl: false,
     composerSubmitMode: 'enter',
@@ -65,7 +66,7 @@ describe('TerminalRuntimeRegistry', () => {
     const runtimeOptions = options(localPath('/repo'), 'disconnected')
     const runtime = new TerminalRuntimeRegistry().acquire(runtimeOptions)
 
-    runtime.synchronizeConnection()
+    runtime.synchronizeLifecycle()
 
     expect(runtime.snapshot()).toMatchObject({
       title: 'Codex · repo',

@@ -13,6 +13,7 @@ import { connectionStateLabel } from './connection-status'
 import type { WorkspaceAttentionRollups } from './project-session-model'
 import { aggregateWorkspaceAttention } from './workspace-attention'
 import type { AppTheme } from '../theme'
+import { ConfirmationDialog } from '../workbench/ConfirmationDialog'
 
 interface ProjectsBarProps {
   readonly state: ProjectState
@@ -85,9 +86,7 @@ export function ProjectsBar({
   // Errors and prune prompts still force the bar because it is their only home.
   const showWorkspacesBar =
     activeProject !== undefined &&
-    (activeProject.workspaces.length > 1 ||
-      Boolean(statusError) ||
-      prunable.length > 0)
+    (activeProject.workspaces.length > 1 || Boolean(statusError) || prunable.length > 0)
   const pruneProject = state.projects.find((project) => project.id === pruneProjectId)
   const closeProject = state.projects.find((project) => project.id === closeProjectId)
   const pruneTargets =
@@ -383,6 +382,7 @@ export function ProjectsBar({
         <PruneWorktreesDialog
           project={pruneProject}
           workspaces={pruneTargets}
+          busy={busy}
           onCancel={() => setPruneProjectId(undefined)}
           onConfirm={() => {
             setPruneProjectId(undefined)
@@ -393,6 +393,7 @@ export function ProjectsBar({
       {closeProject ? (
         <CloseProjectDialog
           project={closeProject}
+          busy={busy}
           onCancel={() => setCloseProjectId(undefined)}
           onConfirm={() => {
             setCloseProjectId(undefined)
@@ -406,45 +407,40 @@ export function ProjectsBar({
 
 function CloseProjectDialog({
   project,
+  busy,
   onCancel,
   onConfirm,
 }: {
   readonly project: RegisteredProjectState
+  readonly busy: boolean
   readonly onCancel: () => void
   readonly onConfirm: () => void
 }): ReactElement {
   return (
-    <div className="modal-backdrop">
-      <section
-        className="project-dialog close-project-dialog"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="close-project-title"
-        tabIndex={-1}
-        onKeyDown={(event) => {
-          if (event.key === 'Escape') onCancel()
-        }}
-      >
-        <h2 id="close-project-title">Close {project.displayName}?</h2>
-        <p>
-          This removes the project from hvir and closes its live terminals. Files, Git
-          branches, and worktrees are not changed.
-        </p>
-        <code>{displayHostPath(project.registeredRoot)}</code>
-        <p className="dialog-note">
-          Terminal recovery metadata is retained, so re-registering this project can
-          restore its sessions.
-        </p>
-        <div className="dialog-actions">
-          <button type="button" autoFocus onClick={onCancel}>
-            Cancel
-          </button>
-          <button type="button" className="danger-action" onClick={onConfirm}>
-            Close project
-          </button>
-        </div>
-      </section>
-    </div>
+    <ConfirmationDialog
+      labelledBy="close-project-title"
+      actions={[
+        { label: 'Cancel', kind: 'cancel', onSelect: onCancel },
+        {
+          label: 'Close project',
+          kind: 'destructive',
+          onSelect: onConfirm,
+        },
+      ]}
+      busy={busy}
+      className="close-project-dialog"
+    >
+      <h2 id="close-project-title">Close {project.displayName}?</h2>
+      <p>
+        This removes the project from hvir and closes its live terminals. Files, Git
+        branches, and worktrees are not changed.
+      </p>
+      <code>{displayHostPath(project.registeredRoot)}</code>
+      <p className="dialog-note">
+        Terminal recovery metadata is retained, so re-registering this project can restore
+        its sessions.
+      </p>
+    </ConfirmationDialog>
   )
 }
 
@@ -461,59 +457,54 @@ function AttentionCount({ count }: { readonly count: number }): ReactElement {
 function PruneWorktreesDialog({
   project,
   workspaces,
+  busy,
   onCancel,
   onConfirm,
 }: {
   readonly project: RegisteredProjectState
   readonly workspaces: readonly WorkspaceState[]
+  readonly busy: boolean
   readonly onCancel: () => void
   readonly onConfirm: () => void
 }): ReactElement {
   return (
-    <div className="modal-backdrop">
-      <section
-        className="project-dialog worktree-prune-dialog"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="worktree-prune-title"
-        tabIndex={-1}
-        onKeyDown={(event) => {
-          if (event.key === 'Escape') onCancel()
-        }}
-      >
-        <h2 id="worktree-prune-title">
-          Prune {workspaces.length} stale worktree
-          {workspaces.length === 1 ? '' : 's'}?
-        </h2>
-        <p>
-          Git will remove stale administrative records from {project.displayName}. It will
-          not delete existing worktree directories.
-        </p>
-        <div className="worktree-prune-list">
-          {workspaces.map((workspace) => (
-            <div key={workspace.id}>
-              <code>{displayHostPath(workspace.root)}</code>
-              <small>
-                {workspace.prunableReason}
-                {workspace.head ? ` · HEAD ${workspace.head.slice(0, 8)}` : ''}
-              </small>
-            </div>
-          ))}
-        </div>
-        <p className="worktree-prune-warning">
-          A detached commit without another reference may eventually become eligible for
-          Git garbage collection.
-        </p>
-        <div className="dialog-actions">
-          <button type="button" autoFocus onClick={onCancel}>
-            Cancel
-          </button>
-          <button type="button" className="danger-action" onClick={onConfirm}>
-            Prune stale records
-          </button>
-        </div>
-      </section>
-    </div>
+    <ConfirmationDialog
+      labelledBy="worktree-prune-title"
+      actions={[
+        { label: 'Cancel', kind: 'cancel', onSelect: onCancel },
+        {
+          label: 'Prune stale records',
+          kind: 'destructive',
+          onSelect: onConfirm,
+        },
+      ]}
+      busy={busy}
+      className="worktree-prune-dialog"
+    >
+      <h2 id="worktree-prune-title">
+        Prune {workspaces.length} stale worktree
+        {workspaces.length === 1 ? '' : 's'}?
+      </h2>
+      <p>
+        Git will remove stale administrative records from {project.displayName}. It will
+        not delete existing worktree directories.
+      </p>
+      <div className="worktree-prune-list">
+        {workspaces.map((workspace) => (
+          <div key={workspace.id}>
+            <code>{displayHostPath(workspace.root)}</code>
+            <small>
+              {workspace.prunableReason}
+              {workspace.head ? ` · HEAD ${workspace.head.slice(0, 8)}` : ''}
+            </small>
+          </div>
+        ))}
+      </div>
+      <p className="worktree-prune-warning">
+        A detached commit without another reference may eventually become eligible for Git
+        garbage collection.
+      </p>
+    </ConfirmationDialog>
   )
 }
 

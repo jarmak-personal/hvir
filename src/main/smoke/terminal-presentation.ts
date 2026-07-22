@@ -1,5 +1,7 @@
 import type { BrowserWindow } from 'electron'
 
+import type { PtySupervisor } from '../pty/pty-supervisor'
+
 /** Retain broad terminal presentation assertions only in the legacy workflow. */
 export async function verifyLegacyTerminalPresentation(
   win: BrowserWindow,
@@ -40,4 +42,230 @@ export async function verifyLegacyTerminalPresentation(
       return 'headerless · canvas cursor only · flush active rail';
     })()
   `)) as string
+}
+
+export async function verifyTerminalPresentationLifecycle(
+  win: BrowserWindow,
+  supervisor: PtySupervisor,
+): Promise<string> {
+  const switchStatus = (await withTimeout(
+    win.webContents.executeJavaScript(`
+      new Promise((resolve, reject) => {
+        const deadline = Date.now() + 8000;
+        let menuOpened = false;
+        const waitForSecond = () => {
+          const rows = [...document.querySelectorAll('.terminal-list-row')];
+          const surfaces = [...document.querySelectorAll('.terminal-surface')];
+          const active = document.querySelector('.terminal-surface.active');
+          const status = active?.getAttribute('data-terminal-status') || '';
+          if (rows.length === 2 && surfaces.length === 2 && status.startsWith('pid ')) {
+            const visible = surfaces.filter(
+              (surface) => getComputedStyle(surface).visibility === 'visible'
+            );
+            if (visible.length !== 1 || visible[0] !== active) {
+              return reject(new Error('terminal selection did not isolate one canvas'));
+            }
+            rows[0]?.querySelector('.terminal-list-main')?.click();
+            const waitForSwitch = () => {
+              if (document.querySelector('.terminal-list-row.active') === rows[0]) {
+                return resolve('2 live canvases · switch');
+              }
+              if (Date.now() > deadline) {
+                return reject(new Error('terminal selection did not switch'));
+              }
+              setTimeout(waitForSwitch, 25);
+            };
+            return waitForSwitch();
+          }
+          if (Date.now() > deadline) return reject(new Error(
+            'second terminal did not start: rows=' + rows.length +
+            ' surfaces=' + surfaces.length + ' status=' + status
+          ));
+          setTimeout(waitForSecond, 25);
+        };
+        const waitForMenu = () => {
+          const add = document.querySelector('button[aria-label="New terminal"]');
+          if (!menuOpened && add && !add.disabled) {
+            add.click();
+            menuOpened = true;
+          }
+          const shell = [...document.querySelectorAll('.terminal-new-menu button')]
+            .find((node) => node.querySelector('strong')?.textContent?.trim() === 'Shell');
+          if (shell) {
+            shell.click();
+            return waitForSecond();
+          }
+          if (Date.now() > deadline) return reject(new Error('new-terminal menu did not open'));
+          setTimeout(waitForMenu, 25);
+        };
+        waitForMenu();
+      })
+    `),
+    'multi-terminal interaction timed out',
+    10_000,
+  )) as string
+  const secondTerminal = supervisor
+    .list()
+    .filter((terminal) => terminal.ownerId === win.webContents.id)[1]
+  if (!secondTerminal) throw new Error('second terminal was not registered')
+
+  supervisor.write(
+    secondTerminal.id,
+    secondTerminal.ownerId,
+    "printf '\\033[41m\\033[2J\\033[Hhidden-buffer\\033[0m\\033]0;Hidden buffered\\007\\007'; IFS= read -r hvir_input; printf 'input:%s\\n' \"$hvir_input\"; sleep 10\n",
+  )
+  const revealStatus = (await withTimeout(
+    win.webContents.executeJavaScript(`
+      new Promise((resolve, reject) => {
+        const sessionId = ${JSON.stringify(secondTerminal.id)};
+        const deadline = Date.now() + 5000;
+        const fail = (message) => reject(new Error(message));
+        const waitForHiddenOutput = () => {
+          const button = document.querySelector(
+            '.terminal-list-main[data-terminal-session="' + CSS.escape(sessionId) + '"]'
+          );
+          const row = button?.closest('.terminal-list-row');
+          const surface = document.querySelector(
+            '.terminal-surface[data-terminal-session="' + CSS.escape(sessionId) + '"]'
+          );
+          const title = row?.querySelector('.terminal-list-title')?.textContent || '';
+          const bell = row?.querySelector('.terminal-attention-badge.bell');
+          const engine = surface?.querySelector('.terminal-engine-host');
+          const stats = engine?.__hvirTerminalPerformance;
+          if (
+            button && row && surface && title === 'Hidden buffered' && bell &&
+            getComputedStyle(surface).visibility === 'hidden' && stats &&
+            stats.paused && !stats.pendingFrame && stats.parsedWrites > 0
+          ) {
+            const hiddenFrames = stats.renderFrames;
+            const hiddenFullFrames = stats.fullRenderFrames;
+            return setTimeout(() => {
+              const settled = engine.__hvirTerminalPerformance;
+              if (
+                settled.renderFrames !== hiddenFrames ||
+                !settled.paused ||
+                settled.pendingFrame
+              ) {
+                return fail('hidden terminal continued presentation work');
+              }
+              button.click();
+              waitForReveal(surface, row, hiddenFullFrames);
+            }, 650);
+          }
+          if (Date.now() > deadline) {
+            return fail('hidden terminal output did not settle: title=' + title +
+              ' bell=' + Boolean(bell) + ' surface=' + Boolean(surface));
+          }
+          setTimeout(waitForHiddenOutput, 25);
+        };
+        const waitForReveal = (surface, row, hiddenFullFrames) => {
+          const canvas = surface.querySelector('canvas');
+          const context = canvas?.getContext('2d');
+          const stats = surface.querySelector('.terminal-engine-host')
+            ?.__hvirTerminalPerformance;
+          const pixel = canvas && context
+            ? context.getImageData(
+                Math.floor(canvas.width / 2),
+                Math.floor(canvas.height / 2),
+                1,
+                1
+              ).data
+            : undefined;
+          if (
+            row.classList.contains('active') &&
+            getComputedStyle(surface).visibility === 'visible' &&
+            pixel && pixel[0] > 120 && pixel[1] < 160 && stats &&
+            !stats.paused && !stats.pendingFrame
+          ) {
+            if (stats.fullRenderFrames - hiddenFullFrames !== 1) {
+              return fail(
+                'terminal reveal full repaint count was ' +
+                (stats.fullRenderFrames - hiddenFullFrames)
+              );
+            }
+            return resolve('hidden output + current repaint');
+          }
+          if (Date.now() > deadline) {
+            return fail('revealed terminal did not repaint its hidden buffer');
+          }
+          setTimeout(() => waitForReveal(surface, row, hiddenFullFrames), 25);
+        };
+        waitForHiddenOutput();
+      })
+    `),
+    'hidden terminal reveal timed out',
+  )) as string
+
+  let inputProbe = ''
+  const detachInputProbe = supervisor.attach(secondTerminal.id, secondTerminal.ownerId, {
+    onData: (data) => {
+      inputProbe = (inputProbe + data).slice(-4_096)
+    },
+  })
+  await new Promise<void>((resolve) => setTimeout(resolve, 100))
+  for (const keyCode of ['H', 'V', 'I', 'R']) {
+    win.webContents.sendInputEvent({ type: 'keyDown', keyCode })
+    win.webContents.sendInputEvent({ type: 'keyUp', keyCode })
+  }
+  win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Enter' })
+  win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Enter' })
+  try {
+    await withTimeout(
+      new Promise<void>((resolve) => {
+        const poll = (): void => {
+          if (inputProbe.includes('input:hvir')) return resolve()
+          setTimeout(poll, 25)
+        }
+        poll()
+      }),
+      `revealed terminal input was not echoed: ${JSON.stringify(inputProbe)}`,
+      5_000,
+    )
+  } finally {
+    void detachInputProbe()
+  }
+  const inputStatus = (await withTimeout(
+    win.webContents.executeJavaScript(`
+      new Promise((resolve, reject) => {
+        const sessionId = ${JSON.stringify(secondTerminal.id)};
+        const deadline = Date.now() + 5000;
+        const poll = () => {
+          const button = document.querySelector(
+            '.terminal-list-main[data-terminal-session="' + CSS.escape(sessionId) + '"]'
+          );
+          const row = button?.closest('.terminal-list-row');
+          if (row) {
+            row.querySelector('.terminal-close-button')?.click();
+            return resolve('revealed input echo + close');
+          }
+          if (Date.now() > deadline) {
+            return reject(new Error('revealed terminal row disappeared before close'));
+          }
+          setTimeout(poll, 25);
+        };
+        poll();
+      })
+    `),
+    'revealed terminal close timed out',
+  )) as string
+
+  return `${switchStatus} · ${revealStatus} · ${inputStatus}`
+}
+
+async function withTimeout<T>(
+  promise: Promise<T>,
+  message: string,
+  timeoutMs = 8_000,
+): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(() => reject(new Error(message)), timeoutMs)
+      }),
+    ])
+  } finally {
+    if (timer) clearTimeout(timer)
+  }
 }

@@ -18,7 +18,10 @@ import { verifyPlatformContracts } from './platform-contracts'
 import { verifyRendererLifecycleCleanup } from './renderer-lifecycle'
 import { verifySourceDiffPosition, verifyViewerPositions } from './viewer-position'
 import { createTerminalMoveSmokeHarness, verifyTerminalMoveSmoke } from './terminal-move'
-import { verifyLegacyTerminalPresentation } from './terminal-presentation'
+import {
+  verifyLegacyTerminalPresentation,
+  verifyTerminalPresentationLifecycle,
+} from './terminal-presentation'
 import { runCapacityLoadSmoke, runCapacityRecoverySmoke } from './capacity'
 import {
   ECHO_REQUEST_TYPE,
@@ -42,7 +45,11 @@ import {
 } from '../../shared'
 
 export type ElectronSmokeMode =
-  'workflow' | 'viewer-position' | 'platform-contracts' | 'capacity'
+  | 'workflow'
+  | 'viewer-position'
+  | 'platform-contracts'
+  | 'terminal-presentation'
+  | 'capacity'
 
 export interface ElectronSmokeDependencies {
   readonly mode: ElectronSmokeMode
@@ -239,6 +246,7 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
     }
     const smokeHarnessProfiles = await HarnessProfileStore.load(host, harnessProfilesPath)
     let smokeIpcProjectState = smokeProjectState()
+    const openedFolderSelections: Array<{ hostId: string; path: string }> = []
     const terminalMoveSmoke = createTerminalMoveSmokeHarness({
       sourceState: smokeProjectState,
       targetRoot: smokeWebSwitchRoot,
@@ -298,7 +306,10 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
         )
         return { path: canonical, directories }
       },
-      openProject: () => Promise.resolve(smokeProjectState()),
+      openProject: (hostId, path) => {
+        openedFolderSelections.push({ hostId, path })
+        return Promise.resolve(smokeProjectState())
+      },
       switchWorkspace: () => Promise.resolve(smokeProjectState()),
       refreshProject: () => Promise.resolve(smokeProjectState()),
       updateWatchInterests: (paths) =>
@@ -400,6 +411,13 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
     if (mode === 'viewer-position') {
       const result = await verifySourceDiffPosition(win, liveReloadPath)
       console.log(`[smoke] source/diff viewer positions OK (${result})`)
+      console.log('HVIR_SMOKE_OK')
+      return 0
+    }
+
+    if (mode === 'terminal-presentation') {
+      const presentation = await verifyTerminalPresentationLifecycle(win, supervisor)
+      console.log(`[smoke] terminal presentation lifecycle OK (${presentation})`)
       console.log('HVIR_SMOKE_OK')
       return 0
     }
@@ -925,11 +943,14 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
                   1
                 ).data;
                 const surface = canvas.closest('.terminal-surface');
+                const presentation = canvas.closest('.terminal-engine-host')
+                  ?.__hvirTerminalPerformance;
                 const rect = canvas.getBoundingClientRect();
                 lastState = 'canvas=' + canvas.width + 'x' + canvas.height +
                   ' rect=' + rect.width + 'x' + rect.height +
                   ' visibility=' + getComputedStyle(surface).visibility +
-                  ' pixel=' + [...pixel].join(',');
+                  ' pixel=' + [...pixel].join(',') +
+                  ' presentation=' + JSON.stringify(presentation);
                 if (pixel[0] > 120 && pixel[1] < 140) return resolve(true);
               }
               if (Date.now() > deadline) return reject(new Error(
@@ -1018,95 +1039,11 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
     )
     console.log(`[smoke] terminal reconnect remount OK (${reconnectTerminalStatus})`)
 
-    const multiTerminalStatus = (await withTimeout(
-      win.webContents.executeJavaScript(`
-        new Promise((resolve, reject) => {
-          const deadline = Date.now() + 8000;
-          let menuOpened = false;
-          const waitForSecond = () => {
-            const rows = [...document.querySelectorAll('.terminal-list-row')];
-            const surfaces = [...document.querySelectorAll('.terminal-surface')];
-            const active = document.querySelector('.terminal-surface.active');
-            const status = active?.getAttribute('data-terminal-status') || '';
-            if (rows.length === 2 && surfaces.length === 2 && status.startsWith('pid ')) {
-              const visible = surfaces.filter(
-                (surface) => getComputedStyle(surface).visibility === 'visible'
-              );
-              if (visible.length !== 1 || visible[0] !== active) {
-                return reject(new Error('terminal selection did not isolate one canvas'));
-              }
-              rows[0]?.querySelector('.terminal-list-main')?.click();
-              const waitForSwitch = () => {
-                if (document.querySelector('.terminal-list-row.active') === rows[0]) {
-                  return resolve('2 live canvases · switch');
-                }
-                if (Date.now() > deadline) {
-                  return reject(new Error('terminal selection did not switch'));
-                }
-                setTimeout(waitForSwitch, 25);
-              };
-              return waitForSwitch();
-            }
-            if (Date.now() > deadline) return reject(new Error(
-              'second terminal did not start: rows=' + rows.length +
-              ' surfaces=' + surfaces.length + ' status=' + status
-            ));
-            setTimeout(waitForSecond, 25);
-          };
-          const waitForMenu = () => {
-            const add = document.querySelector('button[aria-label="New terminal"]');
-            if (!menuOpened && add && !add.disabled) {
-              add.click();
-              menuOpened = true;
-            }
-            const shell = [...document.querySelectorAll('.terminal-new-menu button')]
-              .find((node) => node.querySelector('strong')?.textContent?.trim() === 'Shell');
-            if (shell) {
-              shell.click();
-              return waitForSecond();
-            }
-            if (Date.now() > deadline) return reject(new Error('new-terminal menu did not open'));
-            setTimeout(waitForMenu, 25);
-          };
-          waitForMenu();
-        })
-      `),
-      'multi-terminal interaction timed out',
-      10_000,
-    )) as string
-    const secondTerminal = supervisor.list()[1]
-    if (!secondTerminal) throw new Error('second terminal was not registered')
-    supervisor.write(
-      secondTerminal.id,
-      secondTerminal.ownerId,
-      // Keep the OSC-title fixture ahead of CI shells resetting at their prompt.
-      "printf '\\033]0;Smoke agent\\007\\007'; sleep 10\n",
+    const terminalLifecycleStatus = await verifyTerminalPresentationLifecycle(
+      win,
+      supervisor,
     )
-    const terminalSignalStatus = (await withTimeout(
-      win.webContents.executeJavaScript(`
-        new Promise((resolve, reject) => {
-          const deadline = Date.now() + 5000;
-          const poll = () => {
-            const rows = [...document.querySelectorAll('.terminal-list-row')];
-            const title = rows[1]?.querySelector('.terminal-list-title')?.textContent || '';
-            const bell = rows[1]?.querySelector('.terminal-attention-badge.bell');
-            if (title === 'Smoke agent' && bell) {
-              rows[1]?.querySelector('.terminal-close-button')?.click();
-              return resolve('live title · bell badge · close');
-            }
-            if (Date.now() > deadline) return reject(new Error(
-              'terminal signal missing: title=' + title + ' bell=' + Boolean(bell)
-            ));
-            setTimeout(poll, 25);
-          };
-          poll();
-        })
-      `),
-      'terminal signal interaction timed out',
-    )) as string
-    console.log(
-      `[smoke] multi-terminal rail OK (${multiTerminalStatus} · ${terminalSignalStatus})`,
-    )
+    console.log(`[smoke] terminal presentation lifecycle OK (${terminalLifecycleStatus})`)
     const viewerStatus = (await withTimeout(
       win.webContents.executeJavaScript(`
         new Promise((resolve, reject) => {
@@ -1555,17 +1492,17 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
         new Promise((resolve, reject) => {
           const deadline = Date.now() + 10000;
           const open = () => {
-            const staleTab = [...document.querySelectorAll('.viewer-tab')]
-              .find((node) =>
-                node.querySelector('.tab-main')?.getAttribute('title') ===
-                  ${JSON.stringify(liveReloadPath.path)} &&
-                node.querySelector('.tab-status')?.textContent?.includes('●')
-              );
+            const discard = [...document.querySelectorAll('.dirty-tab-close-dialog button')]
+              .find((node) => node.textContent?.trim() === 'Close without saving');
+            if (discard) {
+              discard.click();
+              return setTimeout(open, 50);
+            }
+            const staleTab = [...document.querySelectorAll('.viewer-tab')].find((node) =>
+              node.querySelector('.tab-main')?.getAttribute('title') === ${JSON.stringify(liveReloadPath.path)} && node.querySelector('.tab-status')?.textContent?.includes('●')
+            );
             if (staleTab) {
-              const confirm = window.confirm;
-              window.confirm = () => true;
               staleTab.querySelector('.tab-close')?.click();
-              window.confirm = confirm;
               return setTimeout(open, 50);
             }
             const file = [...document.querySelectorAll('.file-row')]
@@ -2056,27 +1993,60 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
           local.click();
           choose.click();
           const waitForFolder = () => {
-            const path = document.querySelector('.folder-path-form input')?.value || '';
+            const input = document.querySelector('.folder-path-form input');
             const selected = document.querySelector('.folder-selection code')?.textContent || '';
             const selectedRow = document.querySelector('.folder-browser .directory-row.selected');
-            const open = [...document.querySelectorAll('.project-dialog button')]
-              .find((node) => node.textContent?.trim() === 'Open selected folder');
-            const docs = [...document.querySelectorAll('.folder-browser .directory-row')]
-              .find((node) => node.getAttribute('title') === ${JSON.stringify(`${smokeRoot.path}/docs`)});
-            if (path && selected === path && selectedRow?.getAttribute('title') === path && open && docs) {
-              docs.click();
-              const waitForPicked = () => {
-                const picked = document.querySelector('.folder-selection code')?.textContent || '';
-                if (picked.endsWith('/docs')) {
-                  const cancel = [...document.querySelectorAll('.project-dialog button')]
-                    .find((node) => node.textContent?.trim() === 'Cancel');
-                  cancel?.click();
-                  return resolve('Local→connected→tree ' + picked);
-                }
-                if (Date.now() > deadline) return reject(new Error('tree folder selection failed'));
-                setTimeout(waitForPicked, 25);
+            const browser = document.querySelector('.folder-browser');
+            const show = [...document.querySelectorAll('.project-dialog button')]
+              .find((node) => node.textContent?.trim() === 'Show in tree');
+            const use = [...document.querySelectorAll('.project-dialog button')]
+              .find((node) => node.textContent?.trim() === 'Use this folder');
+            const initialVisible = browser && selectedRow && (() => {
+              const bounds = browser.getBoundingClientRect();
+              const row = selectedRow.getBoundingClientRect();
+              return row.top >= bounds.top && row.bottom <= bounds.bottom;
+            })();
+            if (input && input.value && selected === input.value && initialVisible && show && use) {
+              if (input.form !== show.closest('form') || input.form !== use.closest('form')) {
+                return reject(new Error('folder actions are not adjacent to the path field'));
+              }
+              const setPath = (value) => {
+                Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, value);
+                input.dispatchEvent(new Event('input', { bubbles: true }));
               };
-              return waitForPicked();
+              setPath('/tmp/hvir-smoke.missing');
+              input.form.requestSubmit();
+              const waitForInvalid = () => {
+                const error = document.querySelector('.dialog-error')?.textContent || '';
+                if (error.includes('Folder not found') && use.disabled && document.activeElement === input) {
+                  const target = ${JSON.stringify(`${smokeRoot.path}/docs`)};
+                  setPath(target);
+                  browser.scrollTop = browser.scrollHeight;
+                  show.click();
+                  const waitForReveal = () => {
+                    const row = [...document.querySelectorAll('.folder-browser .directory-row')]
+                      .find((node) => node.getAttribute('title') === target);
+                    const bounds = browser.getBoundingClientRect();
+                    const rect = row?.getBoundingClientRect();
+                    const visible = rect && rect.top >= bounds.top && rect.bottom <= bounds.bottom;
+                    if (row?.classList.contains('selected') && visible && !use.disabled && document.activeElement === input) {
+                      use.click();
+                      const waitForClose = () => {
+                        if (!document.querySelector('.project-dialog')) return resolve('Local→invalid→reveal→use ' + target);
+                        if (Date.now() > deadline) return reject(new Error('folder confirmation did not close'));
+                        setTimeout(waitForClose, 25);
+                      };
+                      return waitForClose();
+                    }
+                    if (Date.now() > deadline) return reject(new Error('typed folder was not revealed'));
+                    setTimeout(waitForReveal, 25);
+                  };
+                  return waitForReveal();
+                }
+                if (Date.now() > deadline) return reject(new Error('invalid folder remained confirmable'));
+                setTimeout(waitForInvalid, 25);
+              };
+              return waitForInvalid();
             }
             if (Date.now() > deadline) return reject(new Error('session folder step missing'));
             setTimeout(waitForFolder, 50);
@@ -2088,6 +2058,15 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
     `),
       'session flow timed out',
     )) as string
+    if (
+      openedFolderSelections.length !== 1 ||
+      openedFolderSelections[0]?.hostId !== 'local' ||
+      openedFolderSelections[0]?.path !== `${smokeRoot.path}/docs`
+    ) {
+      throw new Error(
+        `folder selection opened an unexpected target: ${JSON.stringify(openedFolderSelections)}`,
+      )
+    }
     console.log(`[smoke] staged session flow OK (${sessionFlowStatus})`)
 
     const resizeStatus = (await withTimeout(

@@ -10,9 +10,19 @@ import type { TerminalRuntimeOptions } from '../src/renderer/src/terminal/termin
 import { TerminalRuntimeRegistry } from '../src/renderer/src/terminal/terminal-runtime-registry'
 import { asHarnessProfileId, localPath } from '../src/shared'
 
+const ghosttyState = vi.hoisted(() => ({
+  instances: [] as Array<{
+    readonly cursorBlinkValues: boolean[]
+    readonly presentationPausedValues: boolean[]
+    readonly writes: string[]
+    renders: number
+    disposed: boolean
+  }>,
+}))
+
 vi.mock('ghostty-web', () => {
   class MockTerminal {
-    readonly options: { theme?: unknown }
+    readonly options: { theme?: unknown; cursorBlink?: boolean }
     readonly buffer = { active: { getLine: () => undefined } }
     readonly wasmTerm = {}
     readonly viewportY = 0
@@ -28,9 +38,30 @@ vi.mock('ghostty-web', () => {
     }
     private canvas?: HTMLCanvasElement
     private textarea?: HTMLTextAreaElement
+    private readonly state: (typeof ghosttyState.instances)[number]
+    private presentationPaused = false
 
-    constructor(options: { theme?: unknown }) {
-      this.options = options
+    constructor(options: { theme?: unknown; cursorBlink?: boolean }) {
+      this.state = {
+        cursorBlinkValues: [Boolean(options.cursorBlink)],
+        presentationPausedValues: [],
+        writes: [],
+        renders: 0,
+        disposed: false,
+      }
+      ghosttyState.instances.push(this.state)
+      this.options = new Proxy(
+        { ...options },
+        {
+          set: (target, property, value) => {
+            Reflect.set(target, property, value)
+            if (property === 'cursorBlink') {
+              this.state.cursorBlinkValues.push(Boolean(value))
+            }
+            return true
+          },
+        },
+      )
     }
 
     attachCustomKeyEventHandler(): void {}
@@ -59,14 +90,57 @@ vi.mock('ghostty-web', () => {
         clear: () => undefined,
         getCanvas: () => this.canvas!,
         getMetrics: () => ({ width: 8, height: 16 }),
-        render: () => undefined,
+        render: () => {
+          this.state.renders += 1
+        },
         setTheme: () => undefined,
       }
     }
 
     registerLinkProvider(): void {}
 
-    write(): void {}
+    getViewportY(): number {
+      return 0
+    }
+
+    getScrollbackLength(): number {
+      return 0
+    }
+
+    scrollToLine(): void {}
+
+    requestRender(): void {
+      if (!this.presentationPaused) this.state.renders += 1
+    }
+
+    setRenderPaused(paused: boolean): void {
+      if (paused === this.presentationPaused) return
+      this.presentationPaused = paused
+      this.state.presentationPausedValues.push(paused)
+      if (!paused) this.requestRender()
+    }
+
+    getRenderStats(): {
+      parsedWrites: number
+      renderRequests: number
+      renderFrames: number
+      fullRenderFrames: number
+      paused: boolean
+      pendingFrame: boolean
+    } {
+      return {
+        parsedWrites: this.state.writes.length,
+        renderRequests: this.state.renders,
+        renderFrames: this.state.renders,
+        fullRenderFrames: this.state.renders,
+        paused: this.presentationPaused,
+        pendingFrame: false,
+      }
+    }
+
+    write(data: string): void {
+      this.state.writes.push(data)
+    }
 
     resize(cols: number, rows: number): void {
       this.cols = cols
@@ -76,6 +150,7 @@ vi.mock('ghostty-web', () => {
     focus(): void {}
 
     dispose(): void {
+      this.state.disposed = true
       this.canvas?.remove()
       this.textarea?.remove()
       this.element?.removeAttribute('contenteditable')
@@ -94,6 +169,7 @@ vi.mock('ghostty-web', () => {
 
 describe('GhosttyTerminalPane lifecycle', () => {
   beforeEach(() => {
+    ghosttyState.instances.splice(0)
     vi.stubGlobal(
       'ResizeObserver',
       class {
@@ -133,6 +209,124 @@ describe('GhosttyTerminalPane lifecycle', () => {
     pane.dispose()
     expect(secondContainer.isConnected).toBe(true)
     expect(secondContainer.childElementCount).toBe(0)
+  })
+
+  it('stops hidden cursor work and restores a current repaint on reveal', async () => {
+    const container = document.createElement('div')
+    document.body.append(container)
+    const pane = await createGhosttyTerminalPane(theme(), {
+      modifiedKeyProtocol: 'modify-other-keys',
+      metaEnterAliasesControl: true,
+      composerSubmitMode: 'enter',
+    })
+    const state = ghosttyState.instances[0]!
+
+    pane.setPresentation('hidden')
+    pane.mount(container)
+    pane.write('\u001b]0;Hidden output\u0007buffered')
+    const hiddenRenderCount = state.renders
+
+    expect(state.cursorBlinkValues).toEqual([true, false])
+    expect(state.presentationPausedValues).toEqual([true])
+    expect(state.writes).toContain('\u001b]0;Hidden output\u0007buffered')
+
+    pane.setPresentation('visible')
+
+    expect(state.cursorBlinkValues).toEqual([true, false, true])
+    expect(state.presentationPausedValues).toEqual([true, false])
+    expect(state.renders).toBeGreaterThan(hiddenRenderCount)
+
+    pane.setPresentation('hidden')
+    pane.dispose()
+    const transitionsAtDisposal = [...state.cursorBlinkValues]
+    pane.setPresentation('visible')
+
+    expect(state.disposed).toBe(true)
+    expect(state.cursorBlinkValues).toEqual(transitionsAtDisposal)
+  })
+
+  it('follows React presentation independently from keyboard focus', async () => {
+    const invoke = vi.fn(() =>
+      Promise.resolve({
+        outcome: 'started' as const,
+        id: 'terminal-1',
+        pid: 4321,
+        resumed: false,
+        harnessSessionId: undefined,
+        identityStatus: 'unsupported' as const,
+        capabilities: {
+          sessionIdentity: 'none' as const,
+          exactResume: false,
+          contextPresentation: 'none' as const,
+        },
+      }),
+    )
+    const send = vi.fn()
+    Object.defineProperty(window, 'hvir', {
+      configurable: true,
+      value: {
+        invoke,
+        send,
+        on: vi.fn(() => () => undefined),
+      },
+    })
+    const registry = new TerminalRuntimeRegistry()
+    const host = document.createElement('div')
+    document.body.append(host)
+    const root = createRoot(host)
+
+    act(() => {
+      root.render(
+        <TerminalView
+          {...runtimeOptions()}
+          active={false}
+          slot="primary"
+          visible={false}
+          themeOverride="app"
+          runtimes={registry}
+        />,
+      )
+    })
+    await act(async () => {
+      await vi.waitFor(() => expect(invoke).toHaveBeenCalledOnce())
+    })
+    const state = ghosttyState.instances[0]!
+    expect(state.cursorBlinkValues).toEqual([true, false])
+
+    act(() => {
+      root.render(
+        <TerminalView
+          {...runtimeOptions()}
+          active={false}
+          slot="primary"
+          visible
+          themeOverride="app"
+          runtimes={registry}
+        />,
+      )
+    })
+    expect(state.cursorBlinkValues).toEqual([true, false, true])
+
+    act(() => {
+      root.render(
+        <TerminalView
+          {...runtimeOptions()}
+          active={false}
+          slot="primary"
+          visible={false}
+          themeOverride="app"
+          runtimes={registry}
+        />,
+      )
+    })
+    expect(state.cursorBlinkValues).toEqual([true, false, true, false])
+    expect(invoke).toHaveBeenCalledOnce()
+    expect(send).not.toHaveBeenCalledWith('pty:kill', expect.anything())
+
+    act(() => {
+      root.unmount()
+      registry.dispose()
+    })
   })
 
   it('retries unavailable resume without removing the React-owned container', async () => {
@@ -189,6 +383,65 @@ describe('GhosttyTerminalPane lifecycle', () => {
       registry.dispose()
     })
     Reflect.deleteProperty(window, 'hvir')
+  })
+
+  it('reasserts visible presentation after a retained runtime changes React owners', async () => {
+    const invoke = vi.fn(() =>
+      Promise.resolve({
+        outcome: 'started' as const,
+        id: 'terminal-1',
+        pid: 4321,
+        resumed: false,
+        harnessSessionId: undefined,
+        identityStatus: 'unsupported' as const,
+        capabilities: {
+          sessionIdentity: 'none' as const,
+          exactResume: false,
+          contextPresentation: 'none' as const,
+        },
+      }),
+    )
+    Object.defineProperty(window, 'hvir', {
+      configurable: true,
+      value: {
+        invoke,
+        send: vi.fn(),
+        on: vi.fn(() => () => undefined),
+      },
+    })
+    const registry = new TerminalRuntimeRegistry()
+    const host = document.createElement('div')
+    document.body.append(host)
+    const root = createRoot(host)
+    const renderOwner = (owner: string) => (
+      <TerminalView
+        key={owner}
+        {...runtimeOptions()}
+        slot="primary"
+        visible
+        themeOverride="app"
+        runtimes={registry}
+      />
+    )
+
+    act(() => root.render(renderOwner('source')))
+    await act(async () => {
+      await vi.waitFor(() => expect(invoke).toHaveBeenCalledOnce())
+    })
+    const state = ghosttyState.instances[0]!
+
+    await act(async () => {
+      root.render(renderOwner('target'))
+      await Promise.resolve()
+    })
+
+    expect(state.presentationPausedValues).toEqual([true, false])
+    expect(host.querySelectorAll('.terminal-engine-host')).toHaveLength(1)
+
+    act(() => {
+      root.unmount()
+      registry.dispose()
+    })
   })
 
   it('starts fresh once and keeps React ownership through the identity handoff', async () => {
@@ -399,6 +652,7 @@ function runtimeOptions(): TerminalRuntimeOptions {
     resumeOnStart: true,
     position: 0,
     active: true,
+    presentation: 'visible',
     modifiedKeyProtocol: 'modify-other-keys',
     metaEnterAliasesControl: true,
     composerSubmitMode: 'enter',

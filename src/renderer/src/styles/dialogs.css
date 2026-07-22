@@ -7,6 +7,10 @@
   background: rgb(5 7 10 / 72%);
 }
 
+.modal-backdrop.nested {
+  z-index: 12;
+}
+
 .project-dialog {
   width: min(430px, calc(100vw - 32px));
   display: flex;
@@ -25,34 +29,30 @@
 }
 
 .project-dialog .dialog-error {
-  color: #dc7b82;
+  color: var(--danger-text);
 }
 
-.close-project-dialog > code {
+.close-project-dialog code {
   overflow-wrap: anywhere;
   padding: 9px 10px;
-  border: 1px solid #303640;
+  border: 1px solid var(--border-subtle);
   border-radius: 4px;
-  background: #12151a;
-  color: #c5cbd4;
+  background: var(--surface-1);
+  color: var(--text);
   font-size: 10px;
 }
 
 .project-dialog .dialog-note {
-  color: #747e8d;
+  color: var(--text-muted);
   font-size: 10px;
-}
-
-.worktree-prune-dialog {
-  width: min(560px, calc(100vw - 32px));
 }
 
 .worktree-prune-list {
   max-height: min(280px, 42vh);
   overflow: auto;
-  border: 1px solid #303640;
+  border: 1px solid var(--border-subtle);
   border-radius: 4px;
-  background: #12151a;
+  background: var(--surface-1);
 }
 
 .worktree-prune-list > div {
@@ -61,7 +61,7 @@
   flex-direction: column;
   gap: 3px;
   padding: 9px 10px;
-  border-bottom: 1px solid #252a32;
+  border-bottom: 1px solid var(--border-subtle);
 }
 
 .worktree-prune-list > div:last-child {
@@ -74,27 +74,17 @@
 }
 
 .worktree-prune-list code {
-  color: #c5cbd4;
+  color: var(--text);
   font-size: 10px;
 }
 
 .worktree-prune-list small {
-  color: #828c9a;
+  color: var(--text-muted);
   font-size: 9px;
 }
 
 .project-dialog .worktree-prune-warning {
-  color: #d6b16e;
-}
-
-.project-dialog .danger-action {
-  border-color: #75434a;
-  background: #4b292f;
-  color: #f0c2c6;
-}
-
-.project-dialog .danger-action:hover {
-  background: #60333a;
+  color: var(--warning-text);
 }
 
 .terminal-recovery-dialog {
@@ -216,6 +206,7 @@
 }
 
 .session-dialog {
+  width: min(560px, calc(100vw - 32px));
   max-height: min(680px, calc(100vh - 32px));
 }
 
@@ -267,15 +258,18 @@
 
 .folder-path-form {
   display: flex;
+  align-items: stretch;
   gap: 6px;
 }
 
 .folder-path-form input {
+  min-width: 0;
   flex: 1;
 }
 
 .folder-path-form button {
   padding: 5px 10px;
+  white-space: nowrap;
 }
 
 .recent-folders {
@@ -353,4 +347,128 @@
 }
 .dialog-actions button {
   padding: 5px 10px;
+}
+
+.project-dialog.confirmation-dialog {
+  width: min(460px, calc(100vw - 24px));
+  max-height: calc(100dvh - 24px);
+  gap: 0;
+  overflow: hidden;
+  padding: 0;
+  border-color: var(--border-strong);
+  border-radius: 7px;
+  background: var(--surface-raised);
+  box-shadow: 0 20px 64px var(--shadow);
+}
+
+.project-dialog.confirmation-dialog.worktree-prune-dialog {
+  width: min(560px, calc(100vw - 24px));
+}
+
+.confirmation-dialog-content {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  overflow: auto;
+  padding: 20px 21px 18px;
+}
+
+.confirmation-dialog-content h2,
+.confirmation-dialog-content h3 {
+  margin: 0;
+  color: var(--text-strong);
+  font-size: 16px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  line-height: 1.3;
+}
+
+.confirmation-dialog-content p {
+  color: var(--text-muted);
+  line-height: 1.55;
+}
+
+.confirmation-dialog-content small {
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
+.confirmation-dialog-actions {
+  min-height: 56px;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 7px;
+  padding: 12px 16px;
+  border-top: 1px solid var(--border-subtle);
+  background: color-mix(in srgb, var(--surface-0) 76%, transparent);
+}
+
+.confirmation-dialog-actions .confirmation-action {
+  min-height: 32px;
+  padding: 5px 11px;
+  border: 1px solid var(--border-strong);
+  border-radius: 5px;
+  outline: none;
+  background: var(--surface-2);
+  color: var(--text);
+  cursor: pointer;
+  font-size: 10px;
+  font-weight: 560;
+}
+
+.confirmation-dialog-actions .confirmation-action:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--accent) 58%, var(--border-strong));
+  background: var(--surface-hover);
+  color: var(--text-strong);
+}
+
+.confirmation-dialog-actions .confirmation-action:focus-visible {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 35%, transparent);
+}
+
+.confirmation-dialog-actions .confirmation-action-primary {
+  border-color: color-mix(in srgb, var(--accent) 72%, var(--border-strong));
+  background: var(--accent-soft);
+  color: var(--text-strong);
+}
+
+.confirmation-dialog-actions .confirmation-action-destructive {
+  border-color: color-mix(in srgb, var(--danger-text) 55%, var(--border-strong));
+  background: color-mix(in srgb, var(--danger-text) 14%, var(--surface-2));
+  color: var(--danger-text);
+}
+
+.confirmation-dialog-actions .confirmation-action-destructive:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--danger-text) 75%, var(--border-strong));
+  background: color-mix(in srgb, var(--danger-text) 21%, var(--surface-2));
+  color: color-mix(in srgb, var(--danger-text) 86%, var(--text-strong));
+}
+
+.confirmation-dialog-actions .confirmation-action:disabled {
+  cursor: wait;
+  opacity: 0.52;
+}
+
+.terminal-move-dialog .confirmation-dialog-content {
+  gap: 0;
+  padding: 0;
+}
+
+@media (max-width: 420px), (max-height: 360px) {
+  .project-dialog.confirmation-dialog {
+    width: calc(100vw - 16px);
+    max-height: calc(100dvh - 16px);
+  }
+
+  .confirmation-dialog-content {
+    padding: 16px;
+  }
+
+  .confirmation-dialog-actions {
+    min-height: 52px;
+    padding: 9px 12px;
+  }
 }

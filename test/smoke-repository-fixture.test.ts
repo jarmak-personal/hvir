@@ -36,6 +36,8 @@ describe('smoke repository fixture', () => {
     )
     expect(git(repository, 'rev-list', '--count', 'HEAD')).toBe('2')
     expect(git(repository, 'log', '-1', '--format=%s')).toBe('Add smoke workflow history')
+    expect(git(repository, 'config', '--get', 'maintenance.auto')).toBe('false')
+    expect(git(repository, 'config', '--get', 'gc.auto')).toBe('0')
     expect(git(repository, 'check-ignore', '.hvir-smoke-ignored.log')).toBe(
       '.hvir-smoke-ignored.log',
     )

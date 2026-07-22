@@ -11,23 +11,34 @@ npm run gauntlet
 ```
 
 The script runs seam enforcement, lint, both TypeScript builds, all unit/integration
-tests, the default unpackaged Electron groups, and the 30-second capacity smoke. Set
+tests, the default unpackaged Electron groups, and the capacity smoke. Set
 `HVIR_SKIP_CAPACITY=1` only for a quick preflight; that is not release evidence.
 
 `npm run smoke:macos` is the matching Apple-silicon correctness check for the focused PTY,
-viewer-position, and retained platform-contract groups. Packaged correctness remains a separate
-distribution boundary: after building the matching platform and launcher tarballs, run
+viewer-position, retained platform-contract, and terminal-presentation groups. Packaged
+correctness remains a separate distribution boundary: after building the matching platform and launcher tarballs, run
 `npm run smoke:packaged` to verify installation, launcher and native architecture selection,
 application/native-PTY/worker loading, preview-protocol handling, and platform geometry. Neither
 command is a performance measurement, and evidence from one platform does not substitute for
 another.
 
-The capacity smoke mounts 12 real Ghostty panes, produces output in all PTYs, churns a
-watched file, alternates Files/Git, samples animation-frame and click latency, samples
-Electron's total working set, and then reloads. It fails at p99 latency >=100 ms, any
-unexplained stall >500 ms, net 30-second working-set growth >256 MiB, an orphaned PTY,
-or failure to recover all terminals with Changes and History usable. Ghostty scrollback
-is bounded to 10,000 lines per terminal.
+The capacity smoke first compares three 30-second Electron renderer-plus-GPU CPU samples
+for one visible terminal with three matching samples for one visible and eleven hidden
+idle terminals. The loaded interval then mixes continuous plain output, Codex-like
+cursor/ANSI updates, synchronized-output bursts, and idle panes while churning a watched
+file and alternating Files/Git. It reports renderer, GPU, and main-process CPU alongside
+animation-frame, click-latency, and total-working-set evidence; it also verifies hidden
+parse-versus-presentation counters, native data-event versus coalesced-delivery callbacks,
+terminal writes, per-session buffered-byte peaks, and ten action-to-ready-and-exact-echo
+launches under load against ten matching one-terminal baseline launches. Each loaded launch
+must complete within one second and the loaded p95 must be no more than twice the baseline
+p95. CPU evidence includes renderer, GPU, main, and aggregate Electron child-process usage.
+Delivery buffers are capped at 64 KiB; visible output flushes
+on the next frame and hidden output within 40 ms. The smoke fails when delivery is not
+coalesced, a buffer exceeds its cap, the idle CPU median ratio exceeds 1.5, p99 latency is
+>=100 ms, an unexplained stall exceeds 500 ms, net loaded-interval working-set growth exceeds
+256 MiB, hidden presentation advances, a PTY is orphaned, or all terminals cannot recover
+with Changes and History usable. Ghostty scrollback is bounded to 10,000 lines per terminal.
 
 ## Workspace and error matrix
 
@@ -78,14 +89,24 @@ lines per terminal as a failure and retain the sample table with the release evi
 
 ## Latest automated evidence
 
-On 2026-07-15, the full gauntlet passed on the development MacBook Air:
+On 2026-07-22, the terminal-delivery and capacity-acceptance candidate passed its targeted
+gates on the development MacBook Air:
 
-- seam checks, scoped lint, both TypeScript builds, and 39 test files / 272 tests passed;
-- production smoke covered Git, terminal lifecycle/recovery, themes, richer renderers,
-  terminal/viewer splits, settings, file handoff, and a bounded >5 MiB preview;
-- the 12-terminal probe measured **17.7 ms p99 / 17.8 ms max** over 75 UI transitions,
-  with 50 MiB net / 106 MiB peak working-set growth during the 30-second run; and
-- all 12 terminals recovered after reload with Changes and History ready.
+- policy, lint, both TypeScript builds, and 130 test files / 892 tests passed;
+- the focused real-Electron lifecycle preserved hidden ANSI/title/bell parsing, a current
+  one-repaint reveal, exact input echo, and close;
+- ten loaded terminal launches each produced one exact UI-input echo, with a **231 ms p95/max**
+  against a 235 ms one-terminal baseline p95 (0.983 ratio and no launch above one second);
+- the loaded 12-terminal interval routed 6,343 native data events into 3,658 bounded delivery
+  callbacks and 3,665 terminal writes, a 42.3% callback reduction with a 276-byte peak buffer;
+- 11 hidden panes parsed 1,881 writes with zero presentation frames while the visible pane
+  advanced 1,783 frames;
+- the three-window idle renderer-plus-GPU median ratio was 0.987, and the denser loaded interval
+  measured **18.4 ms p99 / 18.7 ms max**, renderer/GPU/main/aggregate-child CPU of
+  2.85%/1.36%/0.85%/4.24%, and 89 MiB net / 90 MiB peak working-set growth; and
+- all 12 terminals recovered with Changes and History ready.
 
-The local teardown audit was empty. This automated result does not replace the live SSH
-topology or two-hour memory protocols above; both remain Phase 8 release acceptance work.
+This separates the mechanisms: the feature router removes per-pane native subscription fan-out,
+delivery coalescing reduces 6,343 routed events to 3,658 callbacks, and the earlier hidden-
+presentation work still holds hidden frames at zero. The automated result does not replace the
+live SSH topology or two-hour memory protocols above; both remain Phase 8 release acceptance work.
