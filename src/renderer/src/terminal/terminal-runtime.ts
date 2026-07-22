@@ -138,10 +138,15 @@ export class TerminalRuntime {
     if (this.appliedConnectionState === connectionState) return
     this.appliedConnectionState = connectionState
     if (connectionState === 'connected') {
-      void this.ensureStarted()
+      if (this.started) this.disconnected = false
+      else {
+        if (this.pane) this.releaseSurface(false)
+        void this.ensureStarted()
+      }
       return
     }
     this.disconnected = true
+    if (this.started && connectionState !== 'disconnected') return
     this.releaseSurface(false)
     this.updateSnapshot({
       title: this.options.fallbackTitle,
