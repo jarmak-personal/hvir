@@ -1,6 +1,8 @@
 import { useSyncExternalStore } from 'react'
 
-export type AppTheme = 'dark' | 'light'
+import type { AppTheme } from './theme-model'
+
+export type { AppTheme } from './theme-model'
 
 const STORAGE_KEY = 'hvir:theme'
 const listeners = new Set<() => void>()

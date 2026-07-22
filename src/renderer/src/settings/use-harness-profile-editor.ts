@@ -13,7 +13,6 @@ import type {
 import { parseHarnessArguments } from './harness-argument-editor'
 import {
   applyExecutableGrant,
-  applyPathBindingGrant,
   editorErrorMessage,
   findProfileProbe,
   mergeProfileProbe,
@@ -26,8 +25,8 @@ import {
   type HarnessProfileDraft,
 } from './harness-profile-draft'
 import { HarnessProfileRequestPolicy } from './harness-profile-request-policy'
-
-export type HarnessPickerTarget = { readonly kind: 'binding'; readonly index: number }
+import { useHarnessBindingAuthorization } from './use-harness-binding-authorization'
+import { useHarnessProfileLoad } from './use-harness-profile-load'
 
 export function useHarnessProfileEditor({
   workspaceRoot,
@@ -46,16 +45,15 @@ export function useHarnessProfileEditor({
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string>()
   const [deleteArmed, setDeleteArmed] = useState(false)
-  const [picker, setPicker] = useState<HarnessPickerTarget>()
   const [profileProbes, setProfileProbes] = useState<readonly HarnessProfileProbe[]>([])
   const [pendingProbeIds, setPendingProbeIds] = useState<ReadonlySet<HarnessProfileId>>(
     new Set(),
   )
   const [addOpen, setAddOpen] = useState(initialAddOpen)
   const [unsavedPromptOpen, setUnsavedPromptOpen] = useState(false)
-  const pendingLeaveResolution = useRef<
-    ((confirmed: boolean) => void) | undefined
-  >(undefined)
+  const pendingLeaveResolution = useRef<((confirmed: boolean) => void) | undefined>(
+    undefined,
+  )
   const policy = useRef(new HarnessProfileRequestPolicy())
   const stateRef = useRef({ workspaceRoot, projectRoot, providers, profiles, draft })
   const dirtyRef = useRef(false)
@@ -69,6 +67,8 @@ export function useHarnessProfileEditor({
     },
     [],
   )
+  const { picker, authorizeBinding, openPicker, closePicker } =
+    useHarnessBindingAuthorization(policy.current, stateRef, updateInput, setError)
 
   const probeAvailability = useCallback(
     (launchProfiles: readonly HarnessProfile[], force = false): void => {
@@ -139,6 +139,15 @@ export function useHarnessProfileEditor({
     [probeAvailability],
   )
 
+  const {
+    loadState,
+    reset: resetCatalogLoad,
+    reload: reloadCatalog,
+  } = useHarnessProfileLoad(workspaceRoot, setError)
+  const reload = useCallback((): void => {
+    reloadCatalog(refresh)
+  }, [refresh, reloadCatalog])
+
   useEffect(() => {
     const policyOwner = policy.current
     policyOwner.switchWorkspace()
@@ -152,21 +161,15 @@ export function useHarnessProfileEditor({
     setBusy(false)
     setDeleteArmed(false)
     setError(undefined)
-    if (!workspaceRoot) return
-    const requestRoot = workspaceRoot
-    void refresh().catch((reason: unknown) => {
-      const activeRoot = stateRef.current.workspaceRoot
-      if (
-        activeRoot?.hostId === requestRoot.hostId &&
-        activeRoot.path === requestRoot.path
-      ) {
-        setError(editorErrorMessage(reason))
-      }
-    })
+    if (!workspaceRoot) {
+      resetCatalogLoad()
+      return
+    }
+    reload()
     return () => {
       policyOwner.switchWorkspace()
     }
-  }, [projectRoot, refresh, workspaceRoot])
+  }, [projectRoot, reload, resetCatalogLoad, workspaceRoot])
 
   const serializedInput = useMemo(
     () => (draft ? JSON.stringify([draft.input, draft.argvText]) : ''),
@@ -392,39 +395,6 @@ export function useHarnessProfileEditor({
     }
   }, [updateInput])
 
-  const authorizeBinding = useCallback(
-    async (path: HostPath): Promise<void> => {
-      const current = stateRef.current
-      const target = picker
-      if (!current.workspaceRoot || !target) return
-      const token = policy.current.start('grant:binding')
-      try {
-        const grant = await window.hvir.invoke('harness:authorize-path', {
-          root: current.workspaceRoot,
-          path,
-        })
-        if (!policy.current.isCurrent(token, true)) return
-        updateInput((input) => applyPathBindingGrant(input, target.index, grant))
-        setPicker(undefined)
-      } catch (reason) {
-        if (policy.current.isCurrent(token, true)) {
-          setError(editorErrorMessage(reason))
-        }
-      }
-    },
-    [picker, updateInput],
-  )
-
-  const openPicker = useCallback((index: number): void => {
-    policy.current.invalidate('grant:binding')
-    setPicker({ kind: 'binding', index })
-  }, [])
-
-  const closePicker = useCallback((): void => {
-    policy.current.invalidate('grant:binding')
-    setPicker(undefined)
-  }, [])
-
   const discardDraft = useCallback((): void => {
     const current = stateRef.current
     const restored =
@@ -458,7 +428,8 @@ export function useHarnessProfileEditor({
     selectedProfile && workspaceRoot
       ? findProfileProbe(profileProbes, selectedProfile, workspaceRoot.hostId)
       : undefined
-  const providerProbe = selectedProbe?.providerId === provider?.id ? selectedProbe : undefined
+  const providerProbe =
+    selectedProbe?.providerId === provider?.id ? selectedProbe : undefined
 
   return {
     providers,
@@ -468,6 +439,7 @@ export function useHarnessProfileEditor({
     previewError,
     busy,
     error,
+    loadState,
     deleteArmed,
     picker,
     profileProbes,
@@ -481,6 +453,7 @@ export function useHarnessProfileEditor({
     confirmSafeToLeave,
     resolveUnsavedPrompt,
     runAfterDraftGuard,
+    reload,
     probeAvailability,
     updateInput,
     setArguments,

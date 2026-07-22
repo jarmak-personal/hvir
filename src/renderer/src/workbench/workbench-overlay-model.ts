@@ -1,21 +1,24 @@
-export type SettingsSection = 'general' | 'harnesses' | 'harnesses-add'
+import {
+  DEFAULT_SETTINGS_DESTINATION,
+  type SettingsDestination,
+} from '../settings/settings-navigation'
 
 export interface WorkbenchOverlayModel {
   readonly projectPickerOpen: boolean
   readonly settingsOpen: boolean
-  readonly settingsSection: SettingsSection
+  readonly settingsDestination: SettingsDestination
 }
 
 export type WorkbenchOverlayAction =
   | { readonly type: 'open-project-picker' }
   | { readonly type: 'close-project-picker' }
-  | { readonly type: 'open-settings'; readonly section: SettingsSection }
+  | { readonly type: 'open-settings'; readonly destination: SettingsDestination }
   | { readonly type: 'close-settings' }
 
 export const initialWorkbenchOverlayModel: WorkbenchOverlayModel = {
   projectPickerOpen: false,
   settingsOpen: false,
-  settingsSection: 'general',
+  settingsDestination: DEFAULT_SETTINGS_DESTINATION,
 }
 
 export function workbenchOverlayReducer(
@@ -28,7 +31,7 @@ export function workbenchOverlayReducer(
     case 'close-project-picker':
       return { ...model, projectPickerOpen: false }
     case 'open-settings':
-      return { ...model, settingsOpen: true, settingsSection: action.section }
+      return { ...model, settingsOpen: true, settingsDestination: action.destination }
     case 'close-settings':
       return { ...model, settingsOpen: false }
   }

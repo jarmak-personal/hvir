@@ -2545,11 +2545,18 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
           document.querySelector('.settings-toggle')?.click();
           requestAnimationFrame(() => {
             const dialog = document.querySelector('.settings-dialog');
-            const keybindings = dialog?.querySelector('.settings-keybindings textarea');
-            const fields = dialog?.querySelectorAll('select, input, textarea').length || 0;
-            if (!dialog || !keybindings || fields < 6 ||
-                !keybindings.value.includes('toggleTerminalFocus')) {
+            const sections = [...(dialog?.querySelectorAll(
+              '.settings-section-index button'
+            ) || [])];
+            const appearance = dialog?.querySelector('#settings-appearance-title');
+            if (!dialog || !appearance || sections.length !== 5) {
               return reject(new Error('settings surface incomplete'));
+            }
+            sections.find((button) => button.textContent?.trim() === 'Keybindings')?.click();
+            requestAnimationFrame(() => {
+            const keybindings = dialog.querySelector('.settings-keybindings textarea');
+            if (!keybindings?.value.includes('toggleTerminalFocus')) {
+              return reject(new Error('keybindings section did not activate'));
             }
             const terminalFocused = document.querySelector('.workbench')
               ?.classList.contains('terminal-focused');
@@ -2567,7 +2574,9 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
                   ?.classList.contains('terminal-focused') !== terminalFocused) {
                 return reject(new Error('settings modal leaked a global shortcut or textarea Escape'));
               }
-              const idle = openDialog.querySelector('input[type="number"]');
+              sections.find((button) => button.textContent?.trim() === 'Terminal')?.click();
+              requestAnimationFrame(() => {
+              const idle = openDialog.querySelector('#settings-idle-threshold');
               if (!idle) return reject(new Error('idle threshold control missing'));
               Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')
                 ?.set?.call(idle, '');
@@ -2576,10 +2585,15 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
                 [...openDialog.querySelectorAll('button')]
                   .find((button) => button.textContent?.trim() === 'Save app settings')?.click();
                 requestAnimationFrame(() => {
+                requestAnimationFrame(() => {
                   const validation = document.querySelector('.settings-dialog .dialog-error')
                     ?.textContent || '';
                   if (!/idle threshold/i.test(validation)) {
                     return reject(new Error('blank idle threshold did not show validation'));
+                  }
+                  if (openDialog.querySelector('[aria-current="page"]')
+                      ?.textContent?.trim() !== 'Terminal' || document.activeElement !== idle) {
+                    return reject(new Error('settings validation did not target its section'));
                   }
                   [...openDialog.querySelectorAll('button')]
                     .find((button) => button.textContent?.trim() === 'Close settings')?.click();
@@ -2587,10 +2601,13 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
                     if (document.querySelector('.settings-dialog')) {
                       return reject(new Error('settings dialog did not close'));
                     }
-                    resolve(fields + ' controls · modal isolation · validation');
+                    resolve('5 sections · modal isolation · validation focus');
                   });
                 });
+                });
               });
+            });
+            });
             });
           });
         })
@@ -2617,18 +2634,12 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
             }
             const dialog = document.querySelector('.settings-dialog');
             const heading = document.querySelector('#settings-harnesses-title');
-            const alignment = dialog && heading
-              ? heading.getBoundingClientRect().top -
-                dialog.getBoundingClientRect().top -
-                Number.parseFloat(getComputedStyle(dialog).paddingTop)
-              : Number.NaN;
-            if (!dialog || !heading || Math.abs(alignment) > 2) {
-              return reject(new Error(
-                'configure harnesses did not align its section: delta=' + alignment +
-                ', scroll=' + dialog?.scrollTop +
-                ', max=' + ((dialog?.scrollHeight || 0) - (dialog?.clientHeight || 0))
-              ));
-            }
+            const active = dialog?.querySelector('[aria-current="page"]')?.textContent?.trim();
+            const profileEditor = dialog?.querySelector('.settings-profile-editor');
+            if (!dialog || !heading || active !== 'Harnesses')
+              return reject(new Error('configure harnesses did not target its section'));
+            if (!profileEditor || profileEditor.scrollHeight > profileEditor.clientHeight + 1)
+              return reject(new Error('default harness profile requires scrolling'));
             const beginProfileEdit = () => {
               source.click();
               requestAnimationFrame(() => {
@@ -2681,7 +2692,7 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
                           const waitForGuardedSave = () => {
                             if (!document.querySelector('.settings-dialog')) {
                               return resolve(
-                                'top-aligned + duplicate-safe add + rename + same-line argv + guarded save'
+                                'section-targeted + duplicate-safe add + rename + same-line argv + guarded save'
                               );
                             }
                             if (Date.now() > deadline) {

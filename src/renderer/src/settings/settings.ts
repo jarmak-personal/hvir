@@ -1,30 +1,14 @@
 import { useSyncExternalStore } from 'react'
 
-import type { ComposerSubmitMode } from '../../../shared'
-import {
-  DEFAULT_KEYBINDINGS,
-  parseKeybindingOverrides,
-  type KeybindingMap,
-} from './keybindings'
+import { DEFAULT_KEYBINDINGS, parseKeybindingOverrides } from './keybindings'
+import type { AppSettings, TerminalPreferences } from './settings-model'
 
-export type TerminalThemeOverride = 'app' | 'dark' | 'light'
-export type TerminalRecoveryMode = 'prompt' | 'auto'
-
-export interface AppSettings {
-  readonly idleThresholdMs: number
-  readonly gitAutoFetchIntervalMs: number
-  readonly terminalRecoveryMode: TerminalRecoveryMode
-  readonly terminalTheme: TerminalThemeOverride
-  readonly composerSubmitMode: ComposerSubmitMode
-  readonly keybindings: KeybindingMap
-}
-
-export interface TerminalPreferences {
-  readonly idleThresholdMs: number
-  readonly terminalRecoveryMode: TerminalRecoveryMode
-  readonly terminalTheme: TerminalThemeOverride
-  readonly composerSubmitMode: ComposerSubmitMode
-}
+export type {
+  AppSettings,
+  TerminalPreferences,
+  TerminalRecoveryMode,
+  TerminalThemeOverride,
+} from './settings-model'
 
 const STORAGE_KEY = 'hvir:settings:v1'
 const listeners = new Set<() => void>()

@@ -41,7 +41,7 @@ describe('renderer filesystem contract', () => {
   })
 
   it('keeps the Harnesses editor wide and the add flow keyboard-addressable', () => {
-    const styles = ['settings.css', 'terminal-list.css']
+    const styles = ['settings.css', 'harness-settings.css', 'terminal-list.css']
       .map((file) =>
         readFileSync(join(process.cwd(), 'src/renderer/src/styles', file), 'utf8'),
       )
@@ -51,7 +51,10 @@ describe('renderer filesystem contract', () => {
       'utf8',
     )
     expect(styles).toMatch(
-      /\.project-dialog\.settings-dialog\s*\{[^}]*width:\s*min\(1120px,/s,
+      /\.project-dialog\.settings-dialog\s*\{[^}]*width:\s*min\(1240px,/s,
+    )
+    expect(styles).toMatch(
+      /@media \(max-width: 800px\)[\s\S]*\.settings-section-selector\s*\{[^}]*display:\s*grid/s,
     )
     expect(dialogs).toContain('aria-labelledby="add-harness-title"')
     expect(dialogs).toContain('Already added · use Manual profile for another')
