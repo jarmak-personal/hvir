@@ -199,6 +199,11 @@ export function DiagnosticReportDialog({
                   src={state.artifact.screenshot.dataUrl}
                   alt="Exact masked diagnostic screenshot"
                 />
+                <p>
+                  Masks are based on the workbench layout measured immediately before
+                  capture. Confirm every sensitive surface is fully covered in this exact
+                  image before Copy or Save.
+                </p>
                 <dl>
                   <dt>Media type</dt>
                   <dd>{state.artifact.screenshot.mediaType}</dd>

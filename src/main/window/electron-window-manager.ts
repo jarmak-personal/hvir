@@ -16,7 +16,7 @@ import type { WindowHealthDiagnostic } from '../health/workbench-health-events'
 import { isSafeExternalUrl, isWorkbenchDocument } from '../navigation-policy'
 import type { RendererOwner } from '../renderer-resource-scopes'
 import { WindowHealthTracker } from './window-health-tracker'
-import { workbenchWindowOptions } from './window-policy'
+import { ownsUnresponsiveRecovery, workbenchWindowOptions } from './window-policy'
 import {
   WEB_PANE_PARTITION_PREFIX,
   WebPaneRouteRegistry,
@@ -322,15 +322,15 @@ export function createElectronWindowManager(
           cancelId: 0,
         })
         .then(({ response }) => {
+          windowHealth.recoverUnresponsive(
+            episode,
+            response === 1 ? 'reload-selected' : 'wait-selected',
+          )
           if (
-            !windowHealth.recoverUnresponsive(
-              episode,
-              response === 1 ? 'reload-selected' : 'wait-selected',
-            )
+            response === 1 &&
+            ownsUnresponsiveRecovery(rendererOwner, episode.owner) &&
+            !win.isDestroyed()
           ) {
-            return
-          }
-          if (response === 1 && !win.isDestroyed()) {
             rendererRecoveryRequested = true
             win.webContents.forcefullyCrashRenderer()
             win.webContents.reload()

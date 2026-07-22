@@ -1,3 +1,5 @@
+import type { RendererOwner } from '../renderer-resource-scopes'
+
 export interface WorkbenchWindowOptions {
   readonly width: number
   readonly height: number
@@ -12,6 +14,14 @@ export interface WorkbenchWindowOptions {
     readonly nodeIntegration: boolean
     readonly webviewTag: boolean
   }
+}
+
+/** A recovery dialog can mutate only the renderer generation that opened it. */
+export function ownsUnresponsiveRecovery(
+  current: RendererOwner,
+  observed: RendererOwner,
+): boolean {
+  return current.id === observed.id && current.generation === observed.generation
 }
 
 /** The single security baseline used for every workbench BrowserWindow. */

@@ -38,7 +38,9 @@ describe('WindowHealthTracker', () => {
         outcome: 'responsive',
       }),
     )
-    expect(tracker.recoverUnresponsive(episode, 'reload-selected')).toBe(false)
+    const before = record.mock.calls.length
+    tracker.recoverUnresponsive(episode, 'reload-selected')
+    expect(record).toHaveBeenCalledTimes(before)
   })
 
   it('keeps a Wait episode active until the renderer becomes responsive', () => {
@@ -46,7 +48,7 @@ describe('WindowHealthTracker', () => {
     const tracker = new WindowHealthTracker((event) => events.push(event))
     const episode = tracker.unresponsive(OWNER)
 
-    expect(tracker.recoverUnresponsive(episode, 'wait-selected')).toBe(true)
+    tracker.recoverUnresponsive(episode, 'wait-selected')
     tracker.responsive()
 
     expect(events.slice(1)).toEqual([
@@ -59,7 +61,9 @@ describe('WindowHealthTracker', () => {
         outcome: 'responsive',
       }),
     ])
-    expect(tracker.recoverUnresponsive(episode, 'reload-selected')).toBe(false)
+    const before = events.length
+    tracker.recoverUnresponsive(episode, 'reload-selected')
+    expect(events).toHaveLength(before)
   })
 
   it('resolves an unresponsive episode before recording an unexpected exit', () => {

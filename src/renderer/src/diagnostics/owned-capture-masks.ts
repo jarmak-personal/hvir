@@ -14,8 +14,6 @@ export function ownedDiagnosticCaptureMasks():
         return isCaptureSurface(surface) ? [[surface, element]] : []
       },
     ),
-    ...elements('viewer', '[data-viewer-pane]'),
-    ...elements('project-navigation', '.tree-panel'),
   ]
   const masks = ownedSurfaces.flatMap(([surface, element]): DiagnosticCaptureMask[] => {
     if (!isVisible(element)) return []
@@ -32,16 +30,6 @@ export function ownedDiagnosticCaptureMasks():
     ]
   })
   return masks.length <= MAX_DIAGNOSTIC_CAPTURE_MASKS ? masks : undefined
-}
-
-function elements(
-  surface: DiagnosticCaptureSurface,
-  selector: string,
-): [DiagnosticCaptureSurface, HTMLElement][] {
-  return [...document.querySelectorAll<HTMLElement>(selector)].map((element) => [
-    surface,
-    element,
-  ])
 }
 
 function isCaptureSurface(value: unknown): value is DiagnosticCaptureSurface {
