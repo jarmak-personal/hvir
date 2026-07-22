@@ -26,19 +26,27 @@ const rootPackage = JSON.parse(
 const outputDirectory = join(repositoryRoot, 'dist', 'npm')
 const stagingRoot = join(repositoryRoot, 'dist', 'npm-stage')
 const launcherPackageName = 'hvir-workbench'
+const thirdPartyNoticesFilename = 'THIRD_PARTY_NOTICES.md'
+const requiredNoticeCopyrights = [
+  'Copyright (c) 2025 Coder',
+  'Copyright (c) 2024 Mitchell Hashimoto, Ghostty contributors',
+]
 
 const platforms = {
   'darwin-arm64': {
     packageName: 'hvir-darwin-arm64',
     executable: 'app/hvir.app/Contents/MacOS/hvir',
+    notices: 'app/hvir.app/Contents/Resources/THIRD_PARTY_NOTICES.md',
   },
   'linux-arm64': {
     packageName: 'hvir-linux-arm64',
     executable: 'app/hvir',
+    notices: 'app/resources/THIRD_PARTY_NOTICES.md',
   },
   'linux-x64': {
     packageName: 'hvir-linux-x64',
     executable: 'app/hvir',
+    notices: 'app/resources/THIRD_PARTY_NOTICES.md',
   },
 }
 
@@ -80,8 +88,14 @@ async function pack(stage) {
   return join(outputDirectory, filename)
 }
 
-async function copyLicense(stage) {
-  await cp(join(repositoryRoot, 'LICENSE'), join(stage, 'LICENSE'))
+async function copyLegalFiles(stage) {
+  await Promise.all([
+    cp(join(repositoryRoot, 'LICENSE'), join(stage, 'LICENSE')),
+    cp(
+      join(repositoryRoot, thirdPartyNoticesFilename),
+      join(stage, thirdPartyNoticesFilename),
+    ),
+  ])
 }
 
 async function packLauncher() {
@@ -99,16 +113,17 @@ async function packLauncher() {
   await writeJson(stagePackagePath(stage), {
     ...packageMetadata(launcherPackageName, rootPackage.description),
     bin: { hvir: 'bin/hvir.mjs' },
-    files: ['bin'],
+    files: ['bin', 'LICENSE', thirdPartyNoticesFilename],
     optionalDependencies,
   })
   await writeFile(
     join(stage, 'README.md'),
-    `# hvir\n\nInstall globally with \`npm install -g ${launcherPackageName}\`, then run \`hvir\`.\n`,
+    `# hvir\n\nInstall globally with \`npm install -g ${launcherPackageName}\`, then run \`hvir\`.\n\nSee [third-party notices](${thirdPartyNoticesFilename}).\n`,
   )
-  await copyLicense(stage)
+  await copyLegalFiles(stage)
   try {
-    await pack(stage)
+    const tarball = await pack(stage)
+    await verifyPackageArchiveIncludesLegalFiles(tarball)
   } finally {
     await rm(stage, { force: true, recursive: true })
   }
@@ -166,16 +181,23 @@ async function packPlatform(platform, arch, buildOutput) {
     ),
     os: [platform],
     cpu: [arch],
-    files: ['install.mjs', 'platform.json', 'payload.tar.gz'],
+    files: [
+      'install.mjs',
+      'platform.json',
+      'payload.tar.gz',
+      'LICENSE',
+      thirdPartyNoticesFilename,
+    ],
     scripts: { postinstall: 'node install.mjs' },
   })
   await writeFile(
     join(stage, 'README.md'),
-    `# hvir platform payload\n\nThis package is installed automatically by \`${launcherPackageName}\`.\n`,
+    `# hvir platform payload\n\nThis package is installed automatically by \`${launcherPackageName}\`.\n\nSee [third-party notices](${thirdPartyNoticesFilename}).\n`,
   )
-  await copyLicense(stage)
+  await copyLegalFiles(stage)
   try {
     const tarball = await pack(stage)
+    await verifyPackageArchiveIncludesLegalFiles(tarball)
     await verifyPlatformPackage(tarball, configuration)
   } finally {
     await rm(stage, { force: true, recursive: true })
@@ -195,18 +217,31 @@ async function verifyPlatformPackage(tarball, configuration) {
       installation,
       tarball,
     ])
-    await access(
-      join(
-        installation,
-        'node_modules',
-        configuration.packageName,
-        configuration.executable,
-      ),
-      constants.X_OK,
-    )
+    const packageRoot = join(installation, 'node_modules', configuration.packageName)
+    await access(join(packageRoot, configuration.executable), constants.X_OK)
+    await verifyThirdPartyNotices(join(packageRoot, thirdPartyNoticesFilename))
+    await verifyThirdPartyNotices(join(packageRoot, configuration.notices))
     process.stdout.write(`Verified npm installation for ${configuration.packageName}\n`)
   } finally {
     await rm(installation, { force: true, recursive: true })
+  }
+}
+
+async function verifyPackageArchiveIncludesLegalFiles(tarball) {
+  const listing = await run('tar', ['-tzf', tarball])
+  for (const filename of ['LICENSE', thirdPartyNoticesFilename]) {
+    if (!listing.split('\n').includes(`package/${filename}`)) {
+      throw new Error(`${tarball} does not contain ${filename}`)
+    }
+  }
+}
+
+async function verifyThirdPartyNotices(path) {
+  const notices = await readFile(path, 'utf8')
+  for (const copyright of requiredNoticeCopyrights) {
+    if (!notices.includes(copyright)) {
+      throw new Error(`${path} does not contain ${copyright}`)
+    }
   }
 }
 
