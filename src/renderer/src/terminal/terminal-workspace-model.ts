@@ -50,6 +50,11 @@ export type TerminalWorkspaceAction =
       readonly activeId?: string
     }
   | { readonly type: 'session-added'; readonly session: TerminalSession }
+  | {
+      readonly type: 'session-replaced'
+      readonly id: string
+      readonly session: TerminalSession
+    }
   | { readonly type: 'session-focused'; readonly id: string }
   | { readonly type: 'session-updated'; readonly session: TerminalSession }
   | { readonly type: 'session-closed'; readonly id: string }
@@ -82,6 +87,8 @@ export function terminalWorkspaceReducer(
           [action.session.pane]: action.session.id,
         },
       }
+    case 'session-replaced':
+      return replaceSession(model, action.id, action.session)
     case 'session-focused': {
       const session = model.sessions.find((candidate) => candidate.id === action.id)
       if (!session) return model
@@ -208,6 +215,33 @@ function closeSession(model: TerminalWorkspaceModel, id: string): TerminalWorksp
     sessions,
     activeId: active?.id,
     activePane: active?.pane ?? 'primary',
+    activeByPane,
+  }
+}
+
+function replaceSession(
+  model: TerminalWorkspaceModel,
+  id: string,
+  replacement: TerminalSession,
+): TerminalWorkspaceModel {
+  const index = model.sessions.findIndex((session) => session.id === id)
+  if (
+    index < 0 ||
+    (replacement.id !== id &&
+      model.sessions.some((session) => session.id === replacement.id))
+  ) {
+    return model
+  }
+  const sessions = [...model.sessions]
+  sessions[index] = replacement
+  const activeByPane = { ...model.activeByPane }
+  for (const pane of ['primary', 'secondary'] as const) {
+    if (activeByPane[pane] === id) activeByPane[pane] = replacement.id
+  }
+  return {
+    ...model,
+    sessions,
+    activeId: model.activeId === id ? replacement.id : model.activeId,
     activeByPane,
   }
 }

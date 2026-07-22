@@ -9,7 +9,8 @@ import type {
 } from '../../../shared'
 import { profileRiskAcknowledged } from './terminal-profile-recovery'
 import { profileProbe } from './terminal-probe-policy'
-import type { TerminalRuntimeRegistry } from './terminal-runtime'
+import type { FreshTerminalStart } from './terminal-runtime'
+import type { TerminalRuntimeRegistry } from './terminal-runtime-registry'
 import {
   createTerminalSession,
   nextTerminalSplitPane,
@@ -92,6 +93,25 @@ export function useTerminalSessionCommands({
     launchAcknowledged: (profile: HarnessProfile, provider: HarnessProviderDescriptor) =>
       launch(profile, provider, true),
     add,
+    acceptFreshStart: (id: string, started: FreshTerminalStart) => {
+      const session = modelRef.current.sessions.find((candidate) => candidate.id === id)
+      if (!session) return
+      send({
+        type: 'session-replaced',
+        id,
+        session: {
+          ...session,
+          id: started.sessionId,
+          status: started.status,
+          telemetry: undefined,
+          attention: undefined,
+          harnessSessionId: started.harnessSessionId,
+          identityStatus: started.identityStatus,
+          capabilities: started.capabilities,
+          resumeOnStart: false,
+        },
+      })
+    },
     focus: (id: string) => {
       focusAttention(id)
       send({ type: 'session-focused', id })
@@ -112,7 +132,12 @@ export function useTerminalSessionCommands({
     moveToOtherPane: (id: string) => send({ type: 'session-moved', id }),
     close: (id: string) => {
       forgetAttention(id)
-      runtimes.disposeSession(id)
+      const pendingReplacementId = runtimes.disposeSession(id)
+      if (pendingReplacementId) {
+        void window.hvir
+          .invoke('terminal:forget', { root: workspaceRoot, id: pendingReplacementId })
+          .catch(() => undefined)
+      }
       void window.hvir
         .invoke('terminal:forget', { root: workspaceRoot, id })
         .catch(() => undefined)

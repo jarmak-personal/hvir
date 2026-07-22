@@ -25,11 +25,27 @@
   caret-color: transparent;
 }
 
-.terminal-restart {
+.terminal-recovery-actions {
   position: absolute;
   z-index: 4;
   top: 8px;
   right: 8px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.terminal-recovery-status {
+  max-width: 280px;
+  overflow: hidden;
+  color: #aeb7c3;
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.terminal-restart,
+.terminal-start-fresh {
   padding: 4px 8px;
   border: 1px solid #3b4654;
   border-radius: 3px;
@@ -38,7 +54,14 @@
   font-size: 9px;
 }
 
-.terminal-restart:hover {
+.terminal-start-fresh {
+  border-color: #3975b7;
+  background: #17304c;
+  color: #edf0f5;
+}
+
+.terminal-restart:hover,
+.terminal-start-fresh:hover {
   border-color: #4d8fd8;
   color: #edf0f5;
 }

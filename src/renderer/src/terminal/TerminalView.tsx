@@ -14,7 +14,8 @@ import type { TerminalThemeOverride } from '../settings/settings'
 import { useAppTheme, type AppTheme } from '../theme'
 import type { TerminalLinkActivation } from './terminal-pane'
 import { useTerminalPaneController } from './use-terminal-pane-controller'
-import type { TerminalRuntimeRegistry } from './terminal-runtime'
+import type { FreshTerminalStart } from './terminal-runtime'
+import type { TerminalRuntimeRegistry } from './terminal-runtime-registry'
 
 interface TerminalViewProps {
   readonly sessionId: string
@@ -45,6 +46,7 @@ interface TerminalViewProps {
     status: TerminalIdentityStatus,
   ) => void
   readonly onStarted: () => void
+  readonly onFreshStarted: (started: FreshTerminalStart) => void
   readonly onCapabilities: (capabilities: HarnessProviderCapabilities) => void
   readonly onInput: (data: string) => void
   readonly onOutput: () => void
@@ -67,7 +69,8 @@ export function TerminalView(props: TerminalViewProps): ReactElement {
   const appTheme = useAppTheme()
   const effectiveTheme: AppTheme = themeOverride === 'app' ? appTheme : themeOverride
   const controller = useTerminalPaneController(props, props.runtimes)
-  const { containerRef, title, status, exited, restart, focus } = controller
+  const { containerRef, title, status, exited, restart, startFresh, focus } = controller
+  const canRecoverHarness = supportsResume && Boolean(harnessSessionId)
 
   return (
     <section
@@ -78,15 +81,34 @@ export function TerminalView(props: TerminalViewProps): ReactElement {
       data-terminal-session={sessionId}
       data-terminal-status={status}
     >
-      {connectionState === 'connected' && exited ? (
-        <button
-          type="button"
-          className="terminal-restart"
-          aria-label={`${supportsResume && harnessSessionId ? 'Resume' : 'Restart'} ${title}`}
-          onClick={restart}
+      {visible && connectionState === 'connected' && exited ? (
+        <div
+          className="terminal-recovery-actions"
+          role="group"
+          aria-label={`Recovery actions for ${title}`}
         >
-          {supportsResume && harnessSessionId ? 'Resume' : 'Restart'}
-        </button>
+          <span className="terminal-recovery-status" role="status">
+            {status}
+          </span>
+          {canRecoverHarness ? (
+            <button
+              type="button"
+              className="terminal-start-fresh"
+              aria-label={`Start fresh ${title}`}
+              onClick={startFresh}
+            >
+              Start fresh
+            </button>
+          ) : null}
+          <button
+            type="button"
+            className="terminal-restart"
+            aria-label={`${canRecoverHarness ? 'Retry recovery' : 'Restart'} ${title}`}
+            onClick={restart}
+          >
+            {canRecoverHarness ? 'Retry recovery' : 'Restart'}
+          </button>
+        </div>
       ) : null}
       <div
         className="terminal-container"

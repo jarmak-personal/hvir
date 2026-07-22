@@ -50,6 +50,45 @@ describe('terminal workspace model', () => {
     expect(model.activeId).toBe('b')
   })
 
+  it('replaces one session in place while preserving split selection', () => {
+    const original = session('a', 'primary')
+    let model = reduce(initialTerminalWorkspaceModel, {
+      type: 'sessions-replaced',
+      sessions: [original, session('b', 'secondary')],
+      activeId: original.id,
+    })
+    const replacement = {
+      ...original,
+      id: 'a-fresh',
+      status: 'New session · pid 42',
+    }
+
+    model = reduce(model, {
+      type: 'session-replaced',
+      id: original.id,
+      session: replacement,
+    })
+
+    expect(model.sessions.map(({ id }) => id)).toEqual(['a-fresh', 'b'])
+    expect(model.activeId).toBe('a-fresh')
+    expect(terminalPaneActiveId(model, 'primary')).toBe('a-fresh')
+    expect(terminalPaneActiveId(model, 'secondary')).toBe('b')
+    expect(
+      reduce(model, {
+        type: 'session-replaced',
+        id: 'missing',
+        session: session('duplicate', 'primary'),
+      }),
+    ).toBe(model)
+    expect(
+      reduce(model, {
+        type: 'session-replaced',
+        id: 'a-fresh',
+        session: session('b', 'primary'),
+      }),
+    ).toBe(model)
+  })
+
   it('bounds persisted split recovery data without accepting malformed widths', () => {
     const ids = Array.from({ length: 510 }, (_, index) => `terminal-${index}`)
     expect(

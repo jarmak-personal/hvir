@@ -5,7 +5,7 @@ import type {
   RegisteredProjectState,
   WorkspaceState,
 } from '../../../shared'
-import { TerminalRuntimeRegistry } from './terminal-runtime'
+import { TerminalRuntimeRegistry } from './terminal-runtime-registry'
 import { useTerminalWorkspaceTransfer } from './use-terminal-workspace-transfer'
 
 export function useTerminalWorkspaceRuntime({

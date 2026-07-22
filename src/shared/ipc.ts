@@ -207,6 +207,11 @@ export interface ReadAssetResponse {
 
 export interface StartPtyRequest {
   readonly sessionId: string
+  /**
+   * Retained recovery record retired only after this fresh session starts and
+   * its replacement record is durably committed.
+   */
+  readonly replacesSessionId?: string
   readonly profileId: HarnessProfileId
   readonly launchRevision: number
   readonly cwd: HostPath

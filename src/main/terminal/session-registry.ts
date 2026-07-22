@@ -70,6 +70,21 @@ export interface AuthorizeTerminalResume {
   readonly cwd: HostPath
 }
 
+export interface AuthorizeTerminalReplacement {
+  readonly replacedId: string
+  readonly replacementId: string
+  readonly providerId: HarnessProviderId
+  readonly profileId: HarnessProfileId
+  readonly launchRevision: number
+  readonly workspaceRoot: HostPath
+  readonly cwd: HostPath
+}
+
+export interface RecordTerminalReplacement {
+  readonly replacedId: string
+  readonly spawn: RecordTerminalSpawn
+}
+
 export interface RebindTerminalProfile {
   readonly id: string
   readonly providerId: HarnessProviderId
@@ -92,6 +107,7 @@ export interface OwnedTerminalSession extends TerminalRecoverySession {
 export interface TerminalSessionStore {
   list(workspaceRoot: HostPath): readonly TerminalRecoverySession[]
   recordSpawn(spawn: RecordTerminalSpawn): Promise<void>
+  recordReplacement(replacement: RecordTerminalReplacement): Promise<void>
   recordIdentity(id: string, harnessSessionId: string): Promise<void>
   updateLayout(
     workspaceRoot: HostPath,
@@ -100,6 +116,7 @@ export interface TerminalSessionStore {
   forget(workspaceRoot: HostPath, id: string): Promise<void>
   rebindProfile(request: RebindTerminalProfile): Promise<TerminalRecoverySession>
   authorizeResume(request: AuthorizeTerminalResume): boolean
+  authorizeReplacement(request: AuthorizeTerminalReplacement): boolean
   flush(): Promise<void>
 }
 
@@ -217,6 +234,64 @@ export class TerminalSessionRegistry implements TerminalSessionStore {
     return this.persist()
   }
 
+  async recordReplacement({
+    replacedId,
+    spawn,
+  }: RecordTerminalReplacement): Promise<void> {
+    if (
+      !this.authorizeReplacement({
+        replacedId,
+        replacementId: spawn.id,
+        providerId: spawn.providerId,
+        profileId: spawn.profileId,
+        launchRevision: spawn.launchRevision,
+        workspaceRoot: spawn.workspaceRoot,
+        cwd: spawn.cwd,
+      })
+    ) {
+      throw new Error('Terminal replacement is no longer authorized')
+    }
+    const replaced = this.sessions.get(replacedId)!
+    const pendingIdentity = this.pendingIdentities.get(spawn.id)
+    const harnessSessionId = spawn.harnessSessionId ?? pendingIdentity
+    const replacement: StoredTerminalSession = {
+      id: spawn.id,
+      providerId: spawn.providerId,
+      profileId: spawn.profileId,
+      launchRevision: spawn.launchRevision,
+      riskAcknowledgedRevision: spawn.riskAcknowledgedRevision,
+      artifactIdentity: spawn.artifactIdentity,
+      harnessSessionId,
+      hostId: spawn.cwd.hostId,
+      workspaceRoot: spawn.workspaceRoot,
+      cwd: spawn.cwd,
+      title: cleanTitle(spawn.title),
+      position: cleanPosition(spawn.position),
+      active: spawn.active,
+      updatedAt: Date.now(),
+    }
+    this.pendingIdentities.delete(spawn.id)
+    this.sessions.delete(replacedId)
+    this.sessions.set(spawn.id, replacement)
+    this.forgotten.add(replacedId)
+    try {
+      await this.persist()
+      if (this.forgotten.has(spawn.id)) {
+        throw new Error('Terminal replacement was cancelled')
+      }
+    } catch (error) {
+      if (this.forgotten.has(spawn.id)) throw error
+      this.sessions.delete(spawn.id)
+      this.sessions.set(replacedId, replaced)
+      this.forgotten.delete(replacedId)
+      this.forgotten.add(spawn.id)
+      // A discovery callback may have queued a replacement snapshot after the
+      // failed write. Persist the rollback last so reload observes the source.
+      await this.persist().catch(() => undefined)
+      throw error
+    }
+  }
+
   recordIdentity(id: string, harnessSessionId: string): Promise<void> {
     if (
       this.forgotten.has(id) ||
@@ -330,6 +405,21 @@ export class TerminalSessionRegistry implements TerminalSessionStore {
       stored.profileId === request.profileId &&
       stored.launchRevision === request.launchRevision &&
       stored.harnessSessionId === request.harnessSessionId &&
+      hostPathEquals(stored.workspaceRoot, request.workspaceRoot) &&
+      hostPathEquals(stored.cwd, request.cwd),
+    )
+  }
+
+  authorizeReplacement(request: AuthorizeTerminalReplacement): boolean {
+    const stored = this.sessions.get(request.replacedId)
+    return Boolean(
+      request.replacedId !== request.replacementId &&
+      !this.sessions.has(request.replacementId) &&
+      !this.forgotten.has(request.replacementId) &&
+      stored?.harnessSessionId &&
+      stored.providerId === request.providerId &&
+      stored.profileId === request.profileId &&
+      stored.launchRevision === request.launchRevision &&
       hostPathEquals(stored.workspaceRoot, request.workspaceRoot) &&
       hostPathEquals(stored.cwd, request.cwd),
     )
