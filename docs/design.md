@@ -157,6 +157,12 @@ Fixed-schema, content-free diagnostic evidence flows through one bounded local o
 feature recovery stays feature-owned, workbench health remains separate from terminal attention,
 and diagnostic sessions stay explicit, droppable, and local.
 
+### [ADR-017 — Defer direct diagnostic report delivery to harnesses](adr/ADR-017-defer-direct-diagnostic-report-delivery.md)
+
+Preview plus explicit Copy or Save remains the report boundary until a bundled provider can prove
+exact-session semantic submission, truthful host and attachment behavior, and revocable lifecycle
+semantics without generic PTY injection or new persistence.
+
 ## 5. Architecture
 
 ### Process model
