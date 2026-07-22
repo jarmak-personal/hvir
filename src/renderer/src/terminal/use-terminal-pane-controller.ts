@@ -1,4 +1,4 @@
-import { useEffect, useRef, useSyncExternalStore } from 'react'
+import { useEffect, useLayoutEffect, useRef, useSyncExternalStore } from 'react'
 
 import type { TerminalRuntimeOptions } from './terminal-runtime'
 import { TerminalRuntimeRegistry } from './terminal-runtime-registry'
@@ -10,6 +10,8 @@ export function useTerminalPaneController(
   runtimes: TerminalRuntimeRegistry,
 ) {
   const containerRef = useRef<HTMLDivElement>(null)
+  const presentationRef = useRef(options.presentation)
+  presentationRef.current = options.presentation
   const runtimeRef = useRef<ReturnType<TerminalRuntimeRegistry['acquire']> | undefined>(
     undefined,
   )
@@ -25,11 +27,17 @@ export function useTerminalPaneController(
   useEffect(() => {
     const container = containerRef.current
     if (!container) return
-    runtime.attach(container)
+    // Passive detach/attach ordering can overlap when a retained runtime moves
+    // between workspace-owned React containers. Reassert the new owner's
+    // current presentation after the old owner has detached.
+    runtime.attach(container, presentationRef.current)
     return () => runtime.detach(container)
   }, [runtime])
 
-  useEffect(() => runtime.synchronizeConnection(), [options.connectionState, runtime])
+  useLayoutEffect(
+    () => runtime.synchronizeLifecycle(),
+    [options.connectionState, options.presentation, runtime],
+  )
 
   useEffect(() => {
     if (!options.active) return

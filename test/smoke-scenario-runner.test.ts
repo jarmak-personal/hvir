@@ -30,11 +30,11 @@ describe('Electron smoke scenario selection', () => {
   it('rejects unknown groups with the complete reproducible name set', () => {
     expect(() => parseElectronSmokeScenario('unknown')).toThrow(
       "Unknown Electron smoke scenario 'unknown'. Expected one of: " +
-        'pty-native, viewer-position, platform-contracts, legacy-workflow, capacity',
+        'pty-native, viewer-position, platform-contracts, terminal-presentation, legacy-workflow, capacity',
     )
     expect(() => selectedSmokeScenarios('unknown')).toThrow(
       "Unknown Electron smoke scenario 'unknown'. Expected one of: " +
-        'pty-native, viewer-position, platform-contracts, legacy-workflow, capacity',
+        'pty-native, viewer-position, platform-contracts, terminal-presentation, legacy-workflow, capacity',
     )
   })
 
@@ -203,6 +203,10 @@ describe('Electron smoke command contracts', () => {
     new URL('../src/main/smoke/capacity.ts', import.meta.url),
     'utf8',
   )
+  const capacityTerminalScenario = readFileSync(
+    new URL('../src/main/smoke/capacity-terminals.ts', import.meta.url),
+    'utf8',
+  )
   const viewerPositionScenario = readFileSync(
     new URL('../src/main/smoke/viewer-position.ts', import.meta.url),
     'utf8',
@@ -211,7 +215,7 @@ describe('Electron smoke command contracts', () => {
   it('routes default, macOS, and capacity commands through the named process launcher', () => {
     expect(packageJson.scripts.smoke).toContain('node scripts/run-smoke-scenarios.mts')
     expect(packageJson.scripts['smoke:macos']).toContain(
-      'node scripts/run-smoke-scenarios.mts pty-native viewer-position platform-contracts',
+      'node scripts/run-smoke-scenarios.mts pty-native viewer-position platform-contracts terminal-presentation',
     )
     expect(packageJson.scripts['smoke:capacity']).toContain(
       'HVIR_SMOKE_SCENARIO=capacity node scripts/run-smoke-scenarios.mts',
@@ -246,9 +250,18 @@ describe('Electron smoke command contracts', () => {
     expect(branch).toBeLessThan(smokeWorkflow.indexOf('const profileSmoke'))
     expect(branch).toBeLessThan(smokeWorkflow.indexOf('const viewerStatus'))
     expect(smokeWorkflow.indexOf("if (mode === 'capacity')", branch + 1)).toBe(-1)
-    expect(capacityScenario).toContain('JSON.stringify(snapshot())')
-    expect(capacityScenario).toContain("'initial terminal did not settle'")
-    expect(capacityScenario).toContain('current.surfaces === target')
+    expect(capacityScenario).toContain('const CPU_SAMPLE_COUNT = 3')
+    expect(capacityScenario).toContain('const TERMINAL_READINESS_SAMPLE_COUNT = 10')
+    expect(capacityScenario).toContain('idleCpu.ratio > 1.5')
+    expect(capacityScenario).toContain(
+      'terminalReadiness.ratio > TERMINAL_READINESS_RATIO_LIMIT',
+    )
+    expect(capacityScenario).toContain('cpu.aggregateChildren.toFixed(2)')
+    expect(capacityTerminalScenario).toContain('JSON.stringify(current)')
+    expect(capacityTerminalScenario).toContain('current.surfaces === expected')
+    expect(capacityTerminalScenario).toContain('actionStartedAtMs.push(Date.now())')
+    expect(capacityTerminalScenario).toContain('ready-input:%s')
+    expect(capacityTerminalScenario).toContain('countOccurrences(output, marker) !== 1')
   })
 
   it('enters the viewer group before legacy work with semantic diagnostics', () => {
