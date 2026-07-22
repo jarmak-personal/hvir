@@ -6,7 +6,11 @@ import {
   MAX_RENDERER_DIAGNOSTIC_BATCH_EVENTS,
   MAX_RENDERER_DIAGNOSTIC_QUEUE_BYTES,
   RENDERER_DIAGNOSTIC_VERSION,
+  RENDERER_RESPONSIVENESS_VERSION,
+  RENDERER_RESPONSIVENESS_BATCH_BYTES,
+  RENDERER_RESPONSIVENESS_QUEUE_BYTES,
   type RenderContainmentDiagnosticBatch,
+  type ResponsivenessObservationBatch,
 } from '../src/shared'
 
 const SESSION_ID = opaqueId(900)
@@ -104,6 +108,52 @@ describe('RendererDiagnosticsAdapter', () => {
     const [batch] = send.mock.calls[0]!
     expect(Array.isArray(batch.events)).toBe(true)
     expect(batch.dropped.rate).toBe(4)
+  })
+
+  it('routes responsiveness through the same bounded droppable preload path', () => {
+    const tasks: Array<() => void> = []
+    const sent: ResponsivenessObservationBatch[] = []
+    let now = 0
+    const adapter = new RendererDiagnosticsAdapter({
+      send: vi.fn(),
+      sendResponsiveness: (batch) => sent.push(batch),
+      now: () => now,
+      schedule: (task) => tasks.push(task),
+    })
+    for (let index = 0; index < 70; index++) {
+      now += 250
+      adapter.recordResponsivenessObservation({
+        version: RENDERER_RESPONSIVENESS_VERSION,
+        diagnosticSessionId: SESSION_ID,
+        observationCount: 1,
+        dropped: 0,
+        timing: '100-199ms',
+        classification: 'unattributed',
+        confounder: 'runtime-or-environment',
+      })
+    }
+    adapter.recordResponsivenessObservation({
+      version: 1,
+      diagnosticSessionId: SESSION_ID,
+      arbitrary: '/secret/path TOKEN=hvir-private',
+    })
+    while (tasks.length > 0) tasks.shift()?.()
+
+    expect(sent.flatMap(({ observations }) => observations)).toHaveLength(64)
+    expect(sent.reduce((total, batch) => total + batch.dropped.queue, 0)).toBe(6)
+    expect(sent.reduce((total, batch) => total + batch.dropped.invalid, 0)).toBe(1)
+    expect(sent.every((batch) => batch.observations.length <= 16)).toBe(true)
+    expect(
+      sent.every(
+        (batch) =>
+          Buffer.byteLength(JSON.stringify(batch), 'utf8') <=
+          RENDERER_RESPONSIVENESS_BATCH_BYTES,
+      ),
+    ).toBe(true)
+    expect(
+      Buffer.byteLength(JSON.stringify(sent.flatMap(({ observations }) => observations))),
+    ).toBeLessThan(RENDERER_RESPONSIVENESS_QUEUE_BYTES)
+    expect(JSON.stringify(sent)).not.toMatch(/secret|TOKEN|path/)
   })
 })
 

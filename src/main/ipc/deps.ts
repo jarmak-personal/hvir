@@ -24,6 +24,7 @@ import type { WebPaneRouteRegistry } from '../web-pane/web-pane-route-registry'
 import type { WorkerClient } from '../worker-host'
 import type { IpcContractDiagnostic } from './authority-router'
 import type { DiagnosticReportCoordinator } from '../diagnostics/diagnostic-report-coordinator'
+import type { RuntimeDiagnostics } from '../diagnostics/runtime-diagnostics'
 
 export type EmitRendererEvent = <E extends IpcEventChannel>(
   channel: E,
@@ -81,10 +82,20 @@ export interface IpcDeps {
   readonly rendererReady: (owner: RendererOwner) => void
   readonly getWorkbenchHealth: () => WorkbenchHealthSnapshot
   readonly acknowledgeWorkbenchHealth: (occurrenceId: string) => WorkbenchHealthSnapshot
-  readonly diagnosticReports: Pick<
-    DiagnosticReportCoordinator,
-    'create' | 'capture' | 'copy' | 'save' | 'cancel' | 'delete'
-  >
+  readonly diagnostics: {
+    readonly reports: Pick<
+      DiagnosticReportCoordinator,
+      'create' | 'capture' | 'copy' | 'save' | 'cancel' | 'delete'
+    >
+    readonly responsiveness: Pick<
+      RuntimeDiagnostics,
+      | 'responsivenessState'
+      | 'startResponsiveness'
+      | 'recordResponsiveness'
+      | 'stopResponsiveness'
+      | 'deleteResponsiveness'
+    >
+  }
   readonly recordIpcContractDiagnostic: (event: IpcContractDiagnostic) => void
   readonly recordRenderContainment: (
     owner: RendererOwner,

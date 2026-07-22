@@ -74,12 +74,14 @@ function createWorkbenchEntry(): void {
     app.getPath('userData'),
     app.isPackaged || process.env['HVIR_SMOKE'] === '1',
     (state) => rendererEvents.toWindows('workbench-health:state', state),
+    !app.isPackaged,
   )
   const diagnosticReports = runtime.own(
     'Diagnostic reports',
     createDiagnosticReportCoordinator(diagnostics, rendererScopes),
     (reports) => reports.dispose(),
   )
+  const diagnosticIpc = { reports: diagnosticReports, responsiveness: diagnostics }
   diagnostics.recordApplication('application-starting')
   const gitMutationAuthorizations = runtime.own(
     'Git mutation authorizations',
@@ -376,7 +378,7 @@ function createWorkbenchEntry(): void {
         rendererReady: (owner) => sshPrompter?.activateOwner(owner),
         getWorkbenchHealth: () => diagnostics.healthSnapshot(),
         acknowledgeWorkbenchHealth: (id) => diagnostics.acknowledgeHealth(id),
-        diagnosticReports,
+        diagnostics: diagnosticIpc,
         recordIpcContractDiagnostic: (event) => diagnostics.recordIpcContract(event),
         recordRenderContainment: (owner, batch) =>
           diagnostics.recordRenderContainment(owner, batch),
@@ -437,7 +439,7 @@ function createWorkbenchEntry(): void {
           harnessProbeManager,
           htmlPreviews,
           rendererResources: rendererScopes,
-          diagnosticReports,
+          diagnostics: diagnosticIpc,
           webPaneRoutes,
           updateWebPaneBindings: windowManager.updateWebPaneBindings,
           updateWebPaneFullPage: windowManager.updateWebPaneFullPage,

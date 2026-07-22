@@ -4,11 +4,17 @@ import type { WorkbenchHealthItem } from '../../../shared'
 import { ConfirmationDialog } from '../workbench/ConfirmationDialog'
 import { useWorkbenchHealth } from './use-workbench-health'
 import { DiagnosticReportDialog } from '../diagnostics/DiagnosticReportDialog'
+import {
+  ResponsivenessDiagnosticsIndicator,
+  ResponsivenessDiagnosticsPanel,
+} from '../diagnostics/ResponsivenessDiagnosticsControls'
+import { useResponsivenessDiagnostics } from '../diagnostics/use-responsiveness-diagnostics'
 
 export function WorkbenchHealthControl(): ReactElement {
   const [open, setOpen] = useState(false)
   const [reportOpen, setReportOpen] = useState(false)
   const health = useWorkbenchHealth()
+  const responsiveness = useResponsivenessDiagnostics()
   const unresolved = health.snapshot.items.filter((item) => item.state !== 'resolved')
   const newCount = unresolved.filter((item) => item.state === 'open').length
   const critical = unresolved.some((item) => item.severity === 'critical')
@@ -22,6 +28,10 @@ export function WorkbenchHealthControl(): ReactElement {
 
   return (
     <>
+      <ResponsivenessDiagnosticsIndicator
+        diagnostics={responsiveness}
+        onOpen={() => setOpen(true)}
+      />
       <button
         type="button"
         className={`workbench-health-toggle${critical ? ' critical' : ''}${newCount > 0 ? ' new' : ''}${health.snapshot.evidence === 'unavailable' ? ' unavailable' : ''}`}
@@ -66,6 +76,7 @@ export function WorkbenchHealthControl(): ReactElement {
               {health.snapshot.dropped === 1 ? '' : 's'} omitted by the local bound.
             </p>
           ) : null}
+          <ResponsivenessDiagnosticsPanel diagnostics={responsiveness} />
           <button
             type="button"
             className="prepare-diagnostic-report"

@@ -35,6 +35,17 @@
   font-variant-numeric: tabular-nums;
 }
 
+.responsiveness-diagnostics-indicator {
+  flex: 0 0 auto;
+  border: 1px solid #8a6937;
+  border-radius: 4px;
+  background: #2a2115;
+  color: #e7bc72;
+  font-size: 9px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.04em;
+}
+
 .workbench-health-dialog {
   width: min(680px, calc(100vw - 32px));
   max-height: min(720px, calc(100vh - 32px));
@@ -137,4 +148,27 @@
 .workbench-health-empty {
   margin: 20px 0 8px;
   color: #a8b1bd;
+}
+
+.responsiveness-diagnostics-panel {
+  margin-top: 14px;
+  padding: 10px;
+  border: 1px solid #4c5662;
+  border-radius: 5px;
+  background: #151b22;
+}
+
+.responsiveness-diagnostics-panel h3,
+.responsiveness-diagnostics-panel p {
+  margin: 0 0 7px;
+}
+
+.responsiveness-diagnostics-panel p {
+  color: #929dab;
+  font-size: 11px;
+}
+
+.responsiveness-diagnostics-actions {
+  display: flex;
+  gap: 8px;
 }

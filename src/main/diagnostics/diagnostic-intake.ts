@@ -176,6 +176,15 @@ export class DiagnosticIntake {
     }
   }
 
+  deleteResponsivenessSession(diagnosticSessionId: string): void {
+    for (let index = this.recent.length - 1; index >= 0; index--) {
+      const item = this.recent[index]
+      if (item?.event['sessionId'] !== diagnosticSessionId) continue
+      this.recent.splice(index, 1)
+      this.recentBytes -= item.bytes
+    }
+  }
+
   private retain(recent: RecentEvent): void {
     this.recent.push(recent)
     this.recentBytes += recent.bytes

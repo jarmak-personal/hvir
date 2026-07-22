@@ -1,8 +1,20 @@
 import { isDiagnosticOpaqueId } from './diagnostics'
 import {
+  DIAGNOSTIC_REPORT_OWNERS,
+  isDiagnosticReportEvent,
+  type DiagnosticReportEvent,
+  type DiagnosticReportOwner,
+} from './diagnostic-report-event'
+import {
   isWorkbenchHealthSnapshot,
   type WorkbenchHealthSnapshot,
 } from './workbench-health'
+
+export type {
+  DiagnosticReportEvent,
+  DiagnosticReportEventKind,
+  DiagnosticReportOwner,
+} from './diagnostic-report-event'
 
 export const DIAGNOSTIC_REPORT_VERSION = 1
 export const DIAGNOSTIC_REPORT_RETENTION_HOURS = 24
@@ -14,44 +26,6 @@ export const MAX_DIAGNOSTIC_REPORT_BYTES = 10 * 1024 * 1024
 export const MAX_DIAGNOSTIC_CAPTURE_MASKS = 32
 export const DIAGNOSTIC_REPORT_NOTICE =
   'UNTRUSTED DIAGNOSTIC MATERIAL — review before using as instructions.'
-
-export type DiagnosticReportEventKind =
-  | 'application-starting'
-  | 'application-ready'
-  | 'application-shutdown-starting'
-  | 'application-shutdown-completed'
-  | 'application-startup-failed'
-  | 'application-shutdown-failed'
-  | 'pty-spawned'
-  | 'pty-spawn-failed'
-  | 'pty-exited'
-  | 'terminal-session-registry-load-failed'
-  | 'terminal-session-registry-persist-failed'
-  | 'host-control-failed'
-  | 'ipc-contract-rejected'
-  | 'react-render-contained'
-  | 'main-document-load-failed'
-  | 'renderer-process-exited'
-  | 'renderer-unresponsive'
-  | 'workbench-health-recovered'
-
-export type DiagnosticReportOwner =
-  | 'application'
-  | 'pty-supervisor'
-  | 'terminal-session-registry'
-  | 'project-coordinator'
-  | 'ipc-authority-router'
-  | 'renderer-error-boundary'
-  | 'window-manager'
-
-export interface DiagnosticReportEvent {
-  readonly kind: DiagnosticReportEventKind
-  readonly owner: DiagnosticReportOwner
-  readonly ownerGeneration: number
-  readonly severity: 'info' | 'warning' | 'error'
-  readonly occurredAt: string
-  readonly correlation: string
-}
 
 export interface DiagnosticReportDroppedCount {
   readonly source: DiagnosticReportOwner | 'diagnostic-writer'
@@ -302,30 +276,10 @@ function isDiagnostics(value: unknown): value is DiagnosticReport['diagnostics']
     value.schemaVersion === 1 &&
     Array.isArray(value.events) &&
     value.events.length <= MAX_DIAGNOSTIC_REPORT_EVENTS &&
-    value.events.every(isReportEvent) &&
+    value.events.every(isDiagnosticReportEvent) &&
     Array.isArray(value.dropped) &&
     value.dropped.length <= MAX_DIAGNOSTIC_REPORT_DROPPED_COUNTS &&
     value.dropped.every(isDroppedCount)
-  )
-}
-
-function isReportEvent(value: unknown): value is DiagnosticReportEvent {
-  return (
-    isRecord(value) &&
-    exactKeys(value, [
-      'kind',
-      'owner',
-      'ownerGeneration',
-      'severity',
-      'occurredAt',
-      'correlation',
-    ]) &&
-    REPORT_EVENT_KINDS.includes(value.kind as DiagnosticReportEventKind) &&
-    REPORT_OWNERS.includes(value.owner as DiagnosticReportOwner) &&
-    isPositiveSafeInteger(value.ownerGeneration) &&
-    ['info', 'warning', 'error'].includes(String(value.severity)) &&
-    isIsoTime(value.occurredAt) &&
-    isDiagnosticOpaqueId(value.correlation)
   )
 }
 
@@ -333,7 +287,7 @@ function isDroppedCount(value: unknown): value is DiagnosticReportDroppedCount {
   return (
     isRecord(value) &&
     exactKeys(value, ['source', 'reason', 'count']) &&
-    [...REPORT_OWNERS, 'diagnostic-writer'].includes(
+    [...DIAGNOSTIC_REPORT_OWNERS, 'diagnostic-writer'].includes(
       value.source as DiagnosticReportDroppedCount['source'],
     ) &&
     [
@@ -460,34 +414,3 @@ function encodedBytes(value: string): number {
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
-
-const REPORT_EVENT_KINDS: readonly DiagnosticReportEventKind[] = [
-  'application-starting',
-  'application-ready',
-  'application-shutdown-starting',
-  'application-shutdown-completed',
-  'application-startup-failed',
-  'application-shutdown-failed',
-  'pty-spawned',
-  'pty-spawn-failed',
-  'pty-exited',
-  'terminal-session-registry-load-failed',
-  'terminal-session-registry-persist-failed',
-  'host-control-failed',
-  'ipc-contract-rejected',
-  'react-render-contained',
-  'main-document-load-failed',
-  'renderer-process-exited',
-  'renderer-unresponsive',
-  'workbench-health-recovered',
-]
-
-const REPORT_OWNERS: readonly DiagnosticReportOwner[] = [
-  'application',
-  'pty-supervisor',
-  'terminal-session-registry',
-  'project-coordinator',
-  'ipc-authority-router',
-  'renderer-error-boundary',
-  'window-manager',
-]

@@ -6,6 +6,7 @@ const SENTINEL = '/secret/project TOKEN=hvir-health-smoke'
 
 /** Real Electron event wiring plus renderer presentation for a console-only load fault. */
 export async function verifyWorkbenchHealthFault(win: BrowserWindow): Promise<string> {
+  const responsiveness = await verifyResponsivenessDiagnostics(win)
   win.webContents.emit('did-fail-load', {}, -105, SENTINEL, `file://${SENTINEL}`, true)
   const opened = (await win.webContents.executeJavaScript(
     waitForHealthLabel('1 unresolved fault'),
@@ -37,7 +38,8 @@ export async function verifyWorkbenchHealthFault(win: BrowserWindow): Promise<st
       const inspectReport = (history) => {
         const dialog = document.querySelector('.diagnostic-report-dialog');
         const preview = dialog?.querySelector('.diagnostic-report-preview')?.textContent || '';
-        if (!dialog || !preview.includes('main-document-load-failed') ||
+        if (!dialog || !preview.includes('renderer-responsiveness-episode') ||
+            !preview.includes('main-document-load-failed') ||
             !preview.includes('workbench-health-recovered')) {
           if (Date.now() > deadline) return reject(new Error('diagnostic report preview missing'));
           return setTimeout(() => inspectReport(history), 20);
@@ -140,8 +142,124 @@ export async function verifyWorkbenchHealthFault(win: BrowserWindow): Promise<st
   if (artifact.screenshot?.dataUrl !== reviewed.src) {
     throw new Error('Clipboard image differed from the exact image preview')
   }
+  const events = (artifact.report as { diagnostics?: { events?: unknown[] } }).diagnostics
+    ?.events
+  const episode = events?.find(
+    (event) =>
+      typeof event === 'object' &&
+      event !== null &&
+      'kind' in event &&
+      event.kind === 'renderer-responsiveness-episode',
+  ) as { count?: number; timing?: string; classification?: string } | undefined
+  if (
+    episode?.count !== 2 ||
+    episode.timing !== '200-499ms' ||
+    episode.classification !== 'unattributed'
+  ) {
+    throw new Error(`Responsiveness aggregate was not exact: ${JSON.stringify(episode)}`)
+  }
   assertMaskedPixel(win, reviewed)
-  return 'resolved fault previewed, masked, copied exactly, and deleted'
+  await deleteResponsivenessEvidence(win)
+  return `${responsiveness}; resolved fault previewed, masked, copied exactly, and deleted`
+}
+
+async function verifyResponsivenessDiagnostics(win: BrowserWindow): Promise<string> {
+  return (await win.webContents.executeJavaScript(`
+    new Promise((resolve, reject) => {
+      const deadline = Date.now() + 8000;
+      if (!PerformanceObserver.supportedEntryTypes?.includes('longtask')) {
+        return reject(new Error('pinned Chromium Long Tasks API unavailable'));
+      }
+      document.querySelector('.workbench-health-toggle')?.click();
+      const waitForStart = () => {
+        const dialog = document.querySelector('.workbench-health-dialog');
+        const start = [...(dialog?.querySelectorAll('button') || [])]
+          .find((button) => button.textContent?.trim() === 'Start responsiveness diagnostics');
+        if (start) {
+          start.click();
+          return waitForIndicator();
+        }
+        if (Date.now() > deadline) return reject(new Error('diagnostic start missing'));
+        setTimeout(waitForStart, 20);
+      };
+      const waitForIndicator = () => {
+        if (document.querySelector('.responsiveness-diagnostics-indicator')) {
+          return setTimeout(firstFault, 1200);
+        }
+        if (Date.now() > deadline) return reject(new Error('diagnostic indicator missing'));
+        setTimeout(waitForIndicator, 20);
+      };
+      const block = (duration) => {
+        const started = performance.now();
+        while (performance.now() - started < duration) { /* deterministic fixture */ }
+      };
+      const firstFault = () => {
+        block(120);
+        setTimeout(() => {
+          block(220);
+          waitForObservation();
+        }, 50);
+      };
+      const waitForObservation = () => {
+        const text = document.querySelector('.responsiveness-diagnostics-panel')?.textContent || '';
+        if (text.includes('2 observations')) {
+          const stop = [...document.querySelectorAll('.responsiveness-diagnostics-panel button')]
+            .find((button) => button.textContent?.trim() === 'Stop and retain evidence');
+          stop?.click();
+          return waitForComplete();
+        }
+        if (Date.now() > deadline) return reject(new Error('Long Tasks observation missing: ' + text));
+        setTimeout(waitForObservation, 20);
+      };
+      const waitForComplete = () => {
+        const text = document.querySelector('.responsiveness-diagnostics-panel')?.textContent || '';
+        const health = document.querySelector('.workbench-health-toggle')
+          ?.getAttribute('aria-label') || '';
+        if (text.includes('1 bounded aggregate retained for Preview')) {
+          if (!health.includes('no unresolved faults')) {
+            return reject(new Error('Long Tasks changed workbench health: ' + health));
+          }
+          [...document.querySelectorAll('.workbench-health-dialog button')]
+            .find((button) => button.textContent?.trim() === 'Close')?.click();
+          return resolve('opt-in Long Tasks aggregate retained without health status');
+        }
+        if (Date.now() > deadline) return reject(new Error('diagnostic stop missing: ' + text));
+        setTimeout(waitForComplete, 20);
+      };
+      waitForStart();
+    })
+  `)) as string
+}
+
+async function deleteResponsivenessEvidence(win: BrowserWindow): Promise<void> {
+  await win.webContents.executeJavaScript(`
+    new Promise((resolve, reject) => {
+      const deadline = Date.now() + 3000;
+      document.querySelector('.workbench-health-toggle')?.click();
+      const inspect = () => {
+        const panel = document.querySelector('.responsiveness-diagnostics-panel');
+        const remove = [...(panel?.querySelectorAll('button') || [])]
+          .find((button) => button.textContent?.trim() === 'Delete evidence');
+        if (remove) {
+          remove.click();
+          return waitForIdle();
+        }
+        if (Date.now() > deadline) return reject(new Error('responsiveness delete missing'));
+        setTimeout(inspect, 20);
+      };
+      const waitForIdle = () => {
+        const text = document.querySelector('.responsiveness-diagnostics-panel')?.textContent || '';
+        if (text.includes('Start responsiveness diagnostics')) {
+          [...document.querySelectorAll('.workbench-health-dialog button')]
+            .find((button) => button.textContent?.trim() === 'Close')?.click();
+          return resolve();
+        }
+        if (Date.now() > deadline) return reject(new Error('responsiveness evidence remained'));
+        setTimeout(waitForIdle, 20);
+      };
+      inspect();
+    })
+  `)
 }
 
 function assertMaskedPixel(

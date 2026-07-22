@@ -369,6 +369,62 @@ function deferred<T>(): {
 }
 
 describe('diagnostic report artifact schema', () => {
+  it('preserves the exact bounded responsiveness aggregate and rejects extensions', () => {
+    const evidence: DiagnosticRecentSnapshot = {
+      version: 1,
+      events: [
+        {
+          version: 1,
+          kind: 'renderer-responsiveness-episode',
+          owner: 'renderer-responsiveness',
+          ownerGeneration: 3,
+          severity: 'info',
+          occurredAt: '2026-07-22T12:00:30.000Z',
+          correlation: opaqueId(52),
+          sessionId: opaqueId(53),
+          count: 2,
+          drop: 0,
+          timing: '200-499ms',
+          classification: 'unattributed',
+          confounder: 'runtime-or-environment',
+          firstAt: '2026-07-22T12:00:00.000Z',
+          lastAt: '2026-07-22T12:00:20.000Z',
+          resolution: 'user-stop',
+        },
+      ],
+      dropped: [],
+    }
+    const diagnosticReport = report(81, evidence)
+    expect(diagnosticReport.diagnostics.events).toEqual([
+      {
+        kind: 'renderer-responsiveness-episode',
+        owner: 'renderer-responsiveness',
+        ownerGeneration: 3,
+        severity: 'info',
+        occurredAt: '2026-07-22T12:00:30.000Z',
+        correlation: opaqueId(52),
+        sessionId: opaqueId(53),
+        count: 2,
+        drop: 0,
+        timing: '200-499ms',
+        classification: 'unattributed',
+        confounder: 'runtime-or-environment',
+        firstAt: '2026-07-22T12:00:00.000Z',
+        lastAt: '2026-07-22T12:00:20.000Z',
+        resolution: 'user-stop',
+      },
+    ])
+    expect(
+      isDiagnosticReport({
+        ...diagnosticReport,
+        diagnostics: {
+          ...diagnosticReport.diagnostics,
+          events: [{ ...diagnosticReport.diagnostics.events[0], futureField: SENTINEL }],
+        },
+      }),
+    ).toBe(false)
+  })
+
   it('requires image byte accounting and the exact optional-image fields', () => {
     const artifact = { report: report(80), screenshot: screenshot(4) }
     expect(isDiagnosticReportArtifact(artifact)).toBe(true)
