@@ -216,6 +216,7 @@
 }
 
 .session-dialog {
+  width: min(560px, calc(100vw - 32px));
   max-height: min(680px, calc(100vh - 32px));
 }
 
@@ -267,15 +268,18 @@
 
 .folder-path-form {
   display: flex;
+  align-items: stretch;
   gap: 6px;
 }
 
 .folder-path-form input {
+  min-width: 0;
   flex: 1;
 }
 
 .folder-path-form button {
   padding: 5px 10px;
+  white-space: nowrap;
 }
 
 .recent-folders {

@@ -1,6 +1,7 @@
 import {
   useEffect,
   useMemo,
+  useRef,
   useState,
   type KeyboardEvent,
   type ReactElement,
@@ -37,17 +38,23 @@ export interface DirectoryTreeProps {
   readonly ignoredRefreshVersion?: number
   readonly gitDecorations?: TreeGitDecorations
   readonly selected?: HostPath
-  readonly expandedPath?: HostPath
+  readonly revealRequest?: DirectoryTreeRevealRequest
   readonly showFiles?: boolean
   readonly onSelectDirectory?: (path: HostPath) => void
   readonly onOpenFile?: (path: HostPath, pinned: boolean) => void
   readonly onExpandedChange?: (path: HostPath, expanded: boolean) => void
 }
 
+export interface DirectoryTreeRevealRequest {
+  readonly path: HostPath
+  readonly token: number
+}
+
 /**
  * Lazy host-qualified tree presentation shared by the active Files rail and
  * the pre-project folder picker. Callers own transport, confinement, and what
- * selecting a node means; the tree owns expansion/loading/error behavior.
+ * selecting a node means; the tree owns expansion/loading/error behavior and
+ * performs scrolling only for an explicit reveal request.
  */
 export function DirectoryTree({
   root,
@@ -59,7 +66,7 @@ export function DirectoryTree({
   ignoredRefreshVersion = 0,
   gitDecorations,
   selected,
-  expandedPath,
+  revealRequest,
   showFiles = true,
   onSelectDirectory,
   onOpenFile,
@@ -79,7 +86,7 @@ export function DirectoryTree({
         ignoredRefreshVersion={ignoredRefreshVersion}
         gitDecorations={gitDecorations}
         selected={selected}
-        expandedPath={expandedPath}
+        revealRequest={revealRequest}
         showFiles={showFiles}
         onSelectDirectory={onSelectDirectory}
         onOpenFile={onOpenFile}
@@ -117,7 +124,7 @@ function DirectoryNode({
   ignoredRefreshVersion,
   gitDecorations,
   selected,
-  expandedPath,
+  revealRequest,
   showFiles,
   onSelectDirectory,
   onOpenFile,
@@ -127,7 +134,9 @@ function DirectoryNode({
     () => hostPath(path.hostId, path.path),
     [path.hostId, path.path],
   )
-  const shouldReveal = Boolean(expandedPath && containsPath(stablePath, expandedPath))
+  const shouldReveal = Boolean(
+    revealRequest && containsPath(stablePath, revealRequest.path),
+  )
   const [open, setOpen] = useState(initiallyOpen || shouldReveal)
   const [entries, setEntries] = useState<readonly DirEntry[]>([])
   const [ignoredNames, setIgnoredNames] = useState<ReadonlySet<string>>(new Set())
@@ -135,12 +144,22 @@ function DirectoryNode({
   const [loadedOnce, setLoadedOnce] = useState(false)
   const [error, setError] = useState<string>()
   const isSelected = Boolean(selected && hostPathEquals(selected, stablePath))
+  const isRevealTarget = Boolean(
+    revealRequest && hostPathEquals(revealRequest.path, stablePath),
+  )
+  const rowRef = useRef<HTMLButtonElement>(null)
   const gitDecoration = gitDecorations?.directories.get(treeGitPathKey(stablePath))
   const entryNames = useMemo(() => entries.map((entry) => entry.name), [entries])
 
   useEffect(() => {
     if (shouldReveal) setOpen(true)
   }, [shouldReveal])
+
+  useEffect(() => {
+    if (isSelected && isRevealTarget) {
+      rowRef.current?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+    }
+  }, [isRevealTarget, isSelected, revealRequest?.token])
 
   useEffect(() => {
     onExpandedChange?.(stablePath, open)
@@ -207,6 +226,7 @@ function DirectoryNode({
   return (
     <div className="tree-directory" role="none">
       <button
+        ref={rowRef}
         type="button"
         role="treeitem"
         aria-expanded={open}
@@ -280,7 +300,7 @@ function DirectoryNode({
                   ignoredRefreshVersion={ignoredRefreshVersion}
                   gitDecorations={gitDecorations}
                   selected={selected}
-                  expandedPath={expandedPath}
+                  revealRequest={revealRequest}
                   showFiles={showFiles}
                   onSelectDirectory={onSelectDirectory}
                   onOpenFile={onOpenFile}
@@ -304,7 +324,7 @@ function DirectoryNode({
                   ignoredRefreshVersion={ignoredRefreshVersion}
                   gitDecorations={gitDecorations}
                   selected={selected}
-                  expandedPath={expandedPath}
+                  revealRequest={revealRequest}
                   showFiles={showFiles}
                   onSelectDirectory={onSelectDirectory}
                   onOpenFile={onOpenFile}
@@ -360,7 +380,7 @@ function SymlinkNode({
   ignoredRefreshVersion,
   gitDecorations,
   selected,
-  expandedPath,
+  revealRequest,
   showFiles,
   onSelectDirectory,
   onOpenFile,
@@ -411,7 +431,7 @@ function SymlinkNode({
         ignoredRefreshVersion={ignoredRefreshVersion}
         gitDecorations={gitDecorations}
         selected={selected}
-        expandedPath={expandedPath}
+        revealRequest={revealRequest}
         showFiles={showFiles}
         onSelectDirectory={onSelectDirectory}
         onOpenFile={onOpenFile}
