@@ -155,7 +155,9 @@ unavailable without spawning a fresh harness or replacing the retained recovery 
 
 Fixed-schema, content-free diagnostic evidence flows through one bounded local owner while
 feature recovery stays feature-owned, workbench health remains separate from terminal attention,
-and diagnostic sessions stay explicit, droppable, and local.
+and diagnostic sessions stay explicit, droppable, and local. The bounded Long Tasks experiment
+and its opt-in recommendation are recorded in the
+[renderer responsiveness evaluation](renderer-responsiveness-evaluation.md).
 
 ### [ADR-017 — Defer direct diagnostic report delivery to harnesses](adr/ADR-017-defer-direct-diagnostic-report-delivery.md)
 

@@ -8,7 +8,7 @@ import {
 import type { IpcRegistrar } from '../authority-router'
 import type { IpcDeps } from '../deps'
 
-type ReportIpcDeps = Pick<IpcDeps, 'diagnosticReports'>
+type ReportIpcDeps = Pick<IpcDeps, 'diagnostics'>
 
 export function registerDiagnosticReportIpc(
   ipc: IpcRegistrar,
@@ -17,13 +17,13 @@ export function registerDiagnosticReportIpc(
   ipc.handle('diagnostic-report:create', (request, context) => {
     const owner = context.owner()
     return isCreateDiagnosticReportRequest(request)
-      ? deps.diagnosticReports.create(owner, request.reportId)
+      ? deps.diagnostics.reports.create(owner, request.reportId)
       : invalidState()
   })
   ipc.handle('diagnostic-report:capture', (request, context) => {
     const owner = context.owner()
     return isCaptureDiagnosticReportRequest(request)
-      ? deps.diagnosticReports.capture(owner, request.reportId, request.masks)
+      ? deps.diagnostics.reports.capture(owner, request.reportId, request.masks)
       : invalidState()
   })
   ipc.handle('diagnostic-report:copy', (request, context) =>
@@ -42,12 +42,12 @@ export function registerDiagnosticReportIpc(
 
 function reportAction(
   request: unknown,
-  owner: Parameters<ReportIpcDeps['diagnosticReports']['copy']>[0],
+  owner: Parameters<ReportIpcDeps['diagnostics']['reports']['copy']>[0],
   deps: ReportIpcDeps,
   action: 'copy' | 'save' | 'cancel' | 'delete',
 ): DiagnosticReportActionResult | Promise<DiagnosticReportActionResult> {
   if (!isDiagnosticReportIdRequest(request)) return invalidAction()
-  return deps.diagnosticReports[action](owner, request.reportId)
+  return deps.diagnostics.reports[action](owner, request.reportId)
 }
 
 function invalidState(): DiagnosticReportStateResult {

@@ -1,9 +1,14 @@
 import {
   INVOKE_CHANNELS,
+  RENDERER_RESPONSIVENESS_MAX_DROPPED,
   SEND_CHANNELS,
   isDiagnosticOpaqueId,
   type IpcInvokeChannel,
   type IpcSendChannel,
+  type ResponsivenessClassification,
+  type ResponsivenessConfounder,
+  type ResponsivenessStopReason,
+  type ResponsivenessTiming,
 } from '../../shared'
 import type { WindowHealthDiagnostic } from '../health/workbench-health-events'
 
@@ -55,6 +60,19 @@ export type RuntimeDiagnosticEvent =
       readonly ownerGeneration: number
       readonly occurrenceId: string
     }
+  | {
+      readonly kind: 'renderer-responsiveness-episode'
+      readonly ownerGeneration: number
+      readonly sessionId: string
+      readonly count: number
+      readonly drop: number
+      readonly timing: ResponsivenessTiming
+      readonly classification: ResponsivenessClassification
+      readonly confounder: ResponsivenessConfounder
+      readonly firstAt: string
+      readonly lastAt: string
+      readonly resolution: ResponsivenessStopReason | 'window-rollover'
+    }
   | WindowHealthDiagnostic
 
 export type DiagnosticSource =
@@ -64,6 +82,7 @@ export type DiagnosticSource =
   | 'project-coordinator'
   | 'ipc-authority-router'
   | 'renderer-error-boundary'
+  | 'renderer-responsiveness'
   | 'window-manager'
 
 interface StoredDiagnosticEventBase {
@@ -138,6 +157,20 @@ export function materializeDiagnosticEvent(
         occurrenceId: event.occurrenceId,
       }
       break
+    case 'renderer-responsiveness-episode':
+      stored = {
+        ...base,
+        sessionId: event.sessionId,
+        count: event.count,
+        drop: event.drop,
+        timing: event.timing,
+        classification: event.classification,
+        confounder: event.confounder,
+        firstAt: event.firstAt,
+        lastAt: event.lastAt,
+        resolution: event.resolution,
+      }
+      break
     case 'main-document-load-failed':
       stored = {
         ...base,
@@ -198,6 +231,7 @@ export function diagnosticSource(kind: RuntimeDiagnosticEvent['kind']): Diagnost
   }
   if (kind === 'host-control-failed') return 'project-coordinator'
   if (kind === 'ipc-contract-rejected') return 'ipc-authority-router'
+  if (kind === 'renderer-responsiveness-episode') return 'renderer-responsiveness'
   if (
     kind === 'main-document-load-failed' ||
     kind === 'renderer-process-exited' ||
@@ -281,6 +315,43 @@ function isStoredDiagnosticEvent(value: unknown): value is StoredDiagnosticEvent
       isDiagnosticOpaqueId(value['occurrenceId'])
     )
   }
+  if (kind === 'renderer-responsiveness-episode') {
+    return (
+      exactFields(keys, [
+        'sessionId',
+        'count',
+        'drop',
+        'timing',
+        'classification',
+        'confounder',
+        'firstAt',
+        'lastAt',
+        'resolution',
+      ]) &&
+      isDiagnosticOpaqueId(value['sessionId']) &&
+      Number.isSafeInteger(value['count']) &&
+      Number(value['count']) > 0 &&
+      Number.isSafeInteger(value['drop']) &&
+      Number(value['drop']) >= 0 &&
+      Number(value['drop']) <= RENDERER_RESPONSIVENESS_MAX_DROPPED &&
+      ['100-199ms', '200-499ms', '500ms-or-more'].includes(String(value['timing'])) &&
+      ['input-paint-delay', 'unattributed'].includes(String(value['classification'])) &&
+      ['none', 'runtime-or-environment'].includes(String(value['confounder'])) &&
+      isIsoTime(value['firstAt']) &&
+      isIsoTime(value['lastAt']) &&
+      Date.parse(String(value['firstAt'])) <= Date.parse(String(value['lastAt'])) &&
+      [
+        'window-rollover',
+        'user-stop',
+        'timeout',
+        'backgrounded',
+        'api-unavailable',
+      ].includes(String(value['resolution'])) &&
+      (value['classification'] === 'input-paint-delay'
+        ? value['confounder'] === 'none'
+        : value['confounder'] === 'runtime-or-environment')
+    )
+  }
   if (kind === 'main-document-load-failed') {
     return (
       exactFields(keys, ['ownerId', 'occurrenceId', 'failure', 'impact']) &&
@@ -346,6 +417,7 @@ const DIAGNOSTIC_KINDS = new Set<RuntimeDiagnosticEvent['kind']>([
   'host-control-failed',
   'ipc-contract-rejected',
   'react-render-contained',
+  'renderer-responsiveness-episode',
   'main-document-load-failed',
   'renderer-process-exited',
   'renderer-unresponsive',
@@ -355,6 +427,7 @@ const DIAGNOSTIC_KINDS = new Set<RuntimeDiagnosticEvent['kind']>([
 function diagnosticOwnerGeneration(event: RuntimeDiagnosticEvent): number {
   switch (event.kind) {
     case 'react-render-contained':
+    case 'renderer-responsiveness-episode':
     case 'main-document-load-failed':
     case 'renderer-process-exited':
     case 'renderer-unresponsive':

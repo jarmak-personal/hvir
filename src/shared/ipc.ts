@@ -65,6 +65,13 @@ import type {
   DiagnosticReportIdRequest,
   DiagnosticReportStateResult,
 } from './diagnostic-report'
+import type {
+  DeleteResponsivenessDiagnosticsRequest,
+  ResponsivenessDiagnosticsState,
+  ResponsivenessObservation,
+  ResponsivenessObservationBatch,
+  StopResponsivenessDiagnosticsRequest,
+} from './renderer-responsiveness'
 
 export type WebPaneCommandAction =
   KeybindingAction | 'closeWebPane' | 'escapeWebPaneFocus'
@@ -468,6 +475,22 @@ export interface IpcInvokeMap {
     request: { readonly occurrenceId: string }
     response: WorkbenchHealthSnapshot
   }
+  'responsiveness-diagnostics:get': {
+    request: void
+    response: ResponsivenessDiagnosticsState
+  }
+  'responsiveness-diagnostics:start': {
+    request: void
+    response: ResponsivenessDiagnosticsState
+  }
+  'responsiveness-diagnostics:stop': {
+    request: StopResponsivenessDiagnosticsRequest
+    response: ResponsivenessDiagnosticsState
+  }
+  'responsiveness-diagnostics:delete': {
+    request: DeleteResponsivenessDiagnosticsRequest
+    response: ResponsivenessDiagnosticsState
+  }
   'diagnostic-report:create': {
     request: CreateDiagnosticReportRequest
     response: DiagnosticReportStateResult
@@ -658,6 +681,7 @@ export interface IpcInvokeMap {
 export interface IpcSendMap {
   'app:renderer-ready': void
   'diagnostics:render-containment': RenderContainmentDiagnosticBatch
+  'diagnostics:responsiveness-observation': ResponsivenessObservationBatch
   'html-preview:release': ReleaseHtmlPreviewRequest
   'pty:write': { readonly id: string; readonly data: string }
   'pty:resize': { readonly id: string; readonly cols: number; readonly rows: number }
@@ -724,6 +748,10 @@ export interface HvirApi {
   readonly diagnostics: {
     /** Domain-owned, content-free evidence. Invalid or overloaded calls are dropped. */
     recordRenderContainment(occurrenceId: string): void
+    /** Content-free responsiveness evidence routed through the bounded preload queue. */
+    recordResponsivenessObservation(observation: ResponsivenessObservation): void
+    /** Flush queued observations before an explicit session transition. */
+    flushResponsivenessObservations(): void
   }
 }
 
@@ -735,6 +763,10 @@ export const INVOKE_CHANNELS = [
   'app:info',
   'workbench-health:get',
   'workbench-health:acknowledge',
+  'responsiveness-diagnostics:get',
+  'responsiveness-diagnostics:start',
+  'responsiveness-diagnostics:stop',
+  'responsiveness-diagnostics:delete',
   'diagnostic-report:create',
   'diagnostic-report:capture',
   'diagnostic-report:copy',
@@ -800,6 +832,7 @@ export const INVOKE_CHANNELS = [
 export const SEND_CHANNELS = [
   'app:renderer-ready',
   'diagnostics:render-containment',
+  'diagnostics:responsiveness-observation',
   'html-preview:release',
   'pty:write',
   'pty:resize',

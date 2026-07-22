@@ -37,7 +37,11 @@ describe('WorkbenchHealthControl', () => {
     const acknowledge = vi.fn(() => acknowledgedSnapshot())
     const listeners = new Set<(snapshot: WorkbenchHealthSnapshot) => void>()
     const api = {
-      diagnostics: { recordRenderContainment: vi.fn() },
+      diagnostics: {
+        recordRenderContainment: vi.fn(),
+        recordResponsivenessObservation: vi.fn(),
+        flushResponsivenessObservations: vi.fn(),
+      },
       invoke: vi.fn((channel: string) =>
         Promise.resolve(
           channel === 'workbench-health:acknowledge' ? acknowledge() : openSnapshot(),
@@ -85,6 +89,99 @@ describe('WorkbenchHealthControl', () => {
       for (const listener of listeners) listener(unavailableSnapshot())
     })
     expect(toggle.getAttribute('aria-label')).toContain('evidence unavailable')
+  })
+
+  it('requires an explicit bounded run and keeps its evidence out of health', async () => {
+    class FakePerformanceObserver {
+      static readonly supportedEntryTypes = ['longtask']
+      constructor(_callback: PerformanceObserverCallback) {}
+      observe(): void {}
+      disconnect(): void {}
+    }
+    vi.stubGlobal('PerformanceObserver', FakePerformanceObserver)
+    const active = {
+      version: 1 as const,
+      available: true as const,
+      status: 'active' as const,
+      diagnosticSessionId: OCCURRENCE,
+      startedAt: new Date(Date.now()).toISOString(),
+      expiresAt: new Date(Date.now() + 15 * 60 * 1_000).toISOString(),
+      observationCount: 0,
+      aggregateCount: 0,
+      dropped: 0,
+    }
+    const idle = {
+      version: 1 as const,
+      available: true as const,
+      status: 'idle' as const,
+    }
+    const invoke = vi.fn((channel: string) => {
+      if (channel === 'responsiveness-diagnostics:get') return Promise.resolve(idle)
+      if (channel === 'responsiveness-diagnostics:start') return Promise.resolve(active)
+      if (channel === 'responsiveness-diagnostics:stop') {
+        return Promise.resolve({
+          version: 1 as const,
+          available: true as const,
+          status: 'complete' as const,
+          diagnosticSessionId: OCCURRENCE,
+          stoppedAt: new Date().toISOString(),
+          stopReason: 'user-stop' as const,
+          observationCount: 0,
+          aggregateCount: 0,
+          dropped: 0,
+        })
+      }
+      if (channel === 'responsiveness-diagnostics:delete') return Promise.resolve(idle)
+      return Promise.resolve({
+        version: 1,
+        evidence: 'memory-only',
+        items: [],
+        dropped: 0,
+      })
+    })
+    Object.defineProperty(window, 'hvir', {
+      configurable: true,
+      value: {
+        diagnostics: {
+          recordRenderContainment: vi.fn(),
+          recordResponsivenessObservation: vi.fn(),
+          flushResponsivenessObservations: vi.fn(),
+        },
+        invoke,
+        send: vi.fn(),
+        on: vi.fn(() => () => undefined),
+      },
+    })
+
+    await act(async () => {
+      root.render(<WorkbenchHealthControl />)
+      await Promise.resolve()
+    })
+    act(() => host.querySelector<HTMLButtonElement>('.workbench-health-toggle')!.click())
+    expect(host.textContent).toContain('Renderer responsiveness experiment')
+    expect(host.querySelector('.responsiveness-diagnostics-indicator')).toBeNull()
+
+    await act(async () => {
+      button('Start responsiveness diagnostics').click()
+      await Promise.resolve()
+    })
+    expect(host.querySelector('.responsiveness-diagnostics-indicator')).not.toBeNull()
+    expect(
+      host.querySelector('.workbench-health-toggle')?.getAttribute('aria-label'),
+    ).toContain('no unresolved faults')
+
+    await act(async () => {
+      button('Stop and retain evidence').click()
+      await Promise.resolve()
+    })
+    expect(host.textContent).toContain('0 bounded aggregates retained for Preview')
+    expect(host.querySelector('.responsiveness-diagnostics-indicator')).toBeNull()
+
+    await act(async () => {
+      button('Delete evidence').click()
+      await Promise.resolve()
+    })
+    expect(host.textContent).toContain('Start responsiveness diagnostics')
   })
 })
 

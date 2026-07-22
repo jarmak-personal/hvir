@@ -4,6 +4,9 @@ import {
   localPath,
   type HostPath,
   type RenderContainmentDiagnosticBatch,
+  type ResponsivenessDiagnosticsState,
+  type ResponsivenessObservationBatch,
+  type ResponsivenessStopReason,
   type RendererDiagnosticSession,
   type WorkbenchHealthSnapshot,
 } from '../../shared'
@@ -26,6 +29,7 @@ import {
   type DiagnosticSegmentMetadata,
 } from './diagnostic-journal'
 import type { StoredDiagnosticEvent } from './diagnostic-event'
+import { ResponsivenessDiagnosticSessions } from './responsiveness-diagnostic-sessions'
 
 const JOURNAL_FILE = 'runtime-diagnostics.jsonl'
 type PublishHealth = (snapshot: WorkbenchHealthSnapshot) => void
@@ -37,6 +41,7 @@ export class RuntimeDiagnostics {
     private readonly health: WorkbenchHealth,
     private readonly persistenceEnabled: boolean,
     private readonly publish: PublishHealth,
+    private readonly responsiveness: ResponsivenessDiagnosticSessions,
     private readonly journal?: DiagnosticJournal,
     private readonly localHost?: LocalHost,
   ) {}
@@ -45,6 +50,7 @@ export class RuntimeDiagnostics {
     userDataPath: string,
     enabled: boolean,
     publish: PublishHealth = () => undefined,
+    responsivenessAvailable = false,
   ): RuntimeDiagnostics {
     const health = new WorkbenchHealth()
     let runtime: RuntimeDiagnostics | undefined
@@ -52,22 +58,30 @@ export class RuntimeDiagnostics {
       if (health.observe(event)) runtime?.publishHealth()
     }
     if (!enabled) {
+      const intake = new DiagnosticIntake({ onAccepted })
       runtime = new RuntimeDiagnostics(
-        new DiagnosticIntake({ onAccepted }),
+        intake,
         health,
         false,
         publish,
+        new ResponsivenessDiagnosticSessions(intake, {
+          available: responsivenessAvailable,
+        }),
       )
       return runtime
     }
     const localHost = new LocalHost()
     const storage = new ProjectHostDiagnosticStorage(localHost, userDataPath)
     const journal = new DiagnosticJournal(storage)
+    const intake = new DiagnosticIntake({ writer: journal, onAccepted })
     runtime = new RuntimeDiagnostics(
-      new DiagnosticIntake({ writer: journal, onAccepted }),
+      intake,
       health,
       true,
       publish,
+      new ResponsivenessDiagnosticSessions(intake, {
+        available: responsivenessAvailable,
+      }),
       journal,
       localHost,
     )
@@ -114,10 +128,12 @@ export class RuntimeDiagnostics {
   }
 
   revokeRenderer(owner: RendererOwner): void {
+    this.responsiveness.revoke(owner)
     this.intake.revokeRenderer(owner)
   }
 
   closeRenderer(owner: RendererOwner): void {
+    this.responsiveness.revoke(owner)
     this.intake.revokeRenderer(owner)
     const recovered = this.health.rendererClosed(owner, nowIso())
     if (recovered.length > 0) this.publishHealth()
@@ -133,6 +149,36 @@ export class RuntimeDiagnostics {
     batch: RenderContainmentDiagnosticBatch,
   ): void {
     this.intake.recordRenderContainment(owner, batch)
+  }
+
+  responsivenessState(owner: RendererOwner): ResponsivenessDiagnosticsState {
+    return this.responsiveness.state(owner)
+  }
+
+  startResponsiveness(owner: RendererOwner): ResponsivenessDiagnosticsState {
+    return this.responsiveness.start(owner)
+  }
+
+  recordResponsiveness(
+    owner: RendererOwner,
+    batch: ResponsivenessObservationBatch,
+  ): void {
+    this.responsiveness.observe(owner, batch)
+  }
+
+  stopResponsiveness(
+    owner: RendererOwner,
+    diagnosticSessionId: string,
+    reason: Exclude<ResponsivenessStopReason, 'timeout'>,
+  ): ResponsivenessDiagnosticsState {
+    return this.responsiveness.stop(owner, diagnosticSessionId, reason)
+  }
+
+  deleteResponsiveness(
+    owner: RendererOwner,
+    diagnosticSessionId: string,
+  ): ResponsivenessDiagnosticsState {
+    return this.responsiveness.delete(owner, diagnosticSessionId)
   }
 
   snapshot(): DiagnosticRecentSnapshot {
@@ -153,6 +199,7 @@ export class RuntimeDiagnostics {
   }
 
   async dispose(): Promise<void> {
+    this.responsiveness.dispose()
     await this.journal?.dispose()
     await this.localHost?.dispose()
   }
