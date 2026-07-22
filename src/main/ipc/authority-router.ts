@@ -21,6 +21,7 @@ import type { RendererOwner } from '../renderer-resource-scopes'
 import type { IpcDeps } from './deps'
 
 export const OWNER_SCOPED_INVOKE_CHANNELS = [
+  'workbench-health:acknowledge',
   'project:connect-host',
   'project:browse-host',
   'project:open',

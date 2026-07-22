@@ -12,8 +12,10 @@ import {
 } from 'electron'
 
 import type { HtmlPreviewProtocol } from '../html-preview-protocol'
+import type { WindowHealthDiagnostic } from '../health/workbench-health-events'
 import { isSafeExternalUrl, isWorkbenchDocument } from '../navigation-policy'
 import type { RendererOwner } from '../renderer-resource-scopes'
+import { WindowHealthTracker } from './window-health-tracker'
 import { workbenchWindowOptions } from './window-policy'
 import {
   WEB_PANE_PARTITION_PREFIX,
@@ -36,6 +38,7 @@ export interface ElectronWindowManagerDependencies {
   readonly isRendererCurrent: (owner: RendererOwner) => boolean
   readonly setOwnerFocused: (owner: RendererOwner, focused: boolean) => void
   readonly startRendererDiagnostics: (owner: RendererOwner) => RendererDiagnosticSession
+  readonly recordWindowHealth: (event: WindowHealthDiagnostic) => void
   readonly onLastWindowClosed: () => void
   readonly isShuttingDown: () => boolean
 }
@@ -233,6 +236,8 @@ export function createElectronWindowManager(
     let rendererOwner = dependencies.activateRenderer(ownerId)
     let rendererRevoked = false
     let committedDocument = false
+    let hadUsableDocument = false
+    const windowHealth = new WindowHealthTracker(dependencies.recordWindowHealth)
 
     win.on('focus', () => dependencies.setOwnerFocused(rendererOwner, true))
     win.on('blur', () => dependencies.setOwnerFocused(rendererOwner, false))
@@ -240,6 +245,8 @@ export function createElectronWindowManager(
     win.on('ready-to-show', () => win.show())
     win.webContents.on('did-finish-load', () => {
       committedDocument = true
+      hadUsableDocument = true
+      windowHealth.documentReady()
       win.webContents.send(
         'diagnostics:session',
         dependencies.startRendererDiagnostics(rendererOwner),
@@ -264,13 +271,9 @@ export function createElectronWindowManager(
     }
     // Renderer reload/crash cannot run React cleanup for its main-owned resources.
     win.webContents.on('did-start-navigation', (_event, url, isInPlace, isMainFrame) => {
-      if (
-        committedDocument &&
-        isMainFrame &&
-        !isInPlace &&
-        isWorkbenchDocument(url, entryUrl)
-      ) {
-        revokeRendererResources(true)
+      if (isMainFrame && !isInPlace && isWorkbenchDocument(url, entryUrl)) {
+        windowHealth.documentStarted()
+        if (committedDocument) revokeRendererResources(true)
       }
     })
     win.webContents.on('will-navigate', (event, url) => {
@@ -281,6 +284,7 @@ export function createElectronWindowManager(
     })
     win.webContents.on('did-fail-load', (_event, code, description, url, isMainFrame) => {
       if (isMainFrame) {
+        windowHealth.documentFailed(rendererOwner, code, hadUsableDocument)
         console.error(
           `[window] main document failed to load (${code}): ${description} ${url}`,
         )
@@ -288,6 +292,8 @@ export function createElectronWindowManager(
     })
     let rendererRecoveryRequested = false
     win.webContents.on('render-process-gone', (_event, details) => {
+      const exitedOwner = rendererOwner
+      windowHealth.rendererGone(exitedOwner, details.reason, rendererRecoveryRequested)
       revokeRendererResources(true)
       console.error(`[window] renderer process gone: ${JSON.stringify(details)}`)
       if (rendererRecoveryRequested) {
@@ -302,6 +308,7 @@ export function createElectronWindowManager(
     win.webContents.on('unresponsive', () => {
       if (handlingUnresponsive || win.isDestroyed()) return
       handlingUnresponsive = true
+      const episode = windowHealth.unresponsive(rendererOwner)
       console.error('[window] renderer became unresponsive')
       void dialog
         .showMessageBox(win, {
@@ -315,6 +322,14 @@ export function createElectronWindowManager(
           cancelId: 0,
         })
         .then(({ response }) => {
+          if (
+            !windowHealth.recoverUnresponsive(
+              episode,
+              response === 1 ? 'reload-selected' : 'wait-selected',
+            )
+          ) {
+            return
+          }
           if (response === 1 && !win.isDestroyed()) {
             rendererRecoveryRequested = true
             win.webContents.forcefullyCrashRenderer()
@@ -325,6 +340,7 @@ export function createElectronWindowManager(
           handlingUnresponsive = false
         })
     })
+    win.webContents.on('responsive', () => windowHealth.responsive())
     win.on('closed', () => {
       revokeRendererResources(false)
       if (

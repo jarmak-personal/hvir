@@ -5,7 +5,10 @@ import {
   type HostPath,
   type RenderContainmentDiagnosticBatch,
   type RendererDiagnosticSession,
+  type WorkbenchHealthSnapshot,
 } from '../../shared'
+import { WorkbenchHealth } from '../health/workbench-health'
+import type { WindowHealthDiagnostic } from '../health/workbench-health-events'
 import type { ProjectHost } from '../project-host'
 import { LocalHost } from '../project-host/local-host'
 import type { ProjectHostControlDiagnostic } from '../project-coordinator'
@@ -22,27 +25,53 @@ import {
   type DiagnosticJournalStorage,
   type DiagnosticSegmentMetadata,
 } from './diagnostic-journal'
+import type { StoredDiagnosticEvent } from './diagnostic-event'
 
 const JOURNAL_FILE = 'runtime-diagnostics.jsonl'
+type PublishHealth = (snapshot: WorkbenchHealthSnapshot) => void
 
 /** App-lifetime diagnostics facade; feature owners can emit only their closed schemas. */
 export class RuntimeDiagnostics {
   private constructor(
     private readonly intake: DiagnosticIntake,
+    private readonly health: WorkbenchHealth,
+    private readonly persistenceEnabled: boolean,
+    private readonly publish: PublishHealth,
     private readonly journal?: DiagnosticJournal,
     private readonly localHost?: LocalHost,
   ) {}
 
-  static create(userDataPath: string, enabled: boolean): RuntimeDiagnostics {
-    if (!enabled) return new RuntimeDiagnostics(new DiagnosticIntake())
+  static create(
+    userDataPath: string,
+    enabled: boolean,
+    publish: PublishHealth = () => undefined,
+  ): RuntimeDiagnostics {
+    const health = new WorkbenchHealth()
+    let runtime: RuntimeDiagnostics | undefined
+    const onAccepted = (event: StoredDiagnosticEvent): void => {
+      if (health.observe(event)) runtime?.publishHealth()
+    }
+    if (!enabled) {
+      runtime = new RuntimeDiagnostics(
+        new DiagnosticIntake({ onAccepted }),
+        health,
+        false,
+        publish,
+      )
+      return runtime
+    }
     const localHost = new LocalHost()
     const storage = new ProjectHostDiagnosticStorage(localHost, userDataPath)
     const journal = new DiagnosticJournal(storage)
-    return new RuntimeDiagnostics(
-      new DiagnosticIntake({ writer: journal }),
+    runtime = new RuntimeDiagnostics(
+      new DiagnosticIntake({ writer: journal, onAccepted }),
+      health,
+      true,
+      publish,
       journal,
       localHost,
     )
+    return runtime
   }
 
   recordApplication(kind: ApplicationDiagnosticKind): void {
@@ -77,11 +106,26 @@ export class RuntimeDiagnostics {
   }
 
   startRenderer(owner: RendererOwner): RendererDiagnosticSession {
-    return this.intake.startRenderer(owner)
+    const session = this.intake.startRenderer(owner)
+    const recovered = this.health.rendererReady(owner, nowIso())
+    if (recovered.length > 0) this.publishHealth()
+    for (const event of recovered) this.intake.record(event)
+    return session
   }
 
   revokeRenderer(owner: RendererOwner): void {
     this.intake.revokeRenderer(owner)
+  }
+
+  closeRenderer(owner: RendererOwner): void {
+    this.intake.revokeRenderer(owner)
+    const recovered = this.health.rendererClosed(owner, nowIso())
+    if (recovered.length > 0) this.publishHealth()
+    for (const event of recovered) this.intake.record(event)
+  }
+
+  recordWindowHealth(event: WindowHealthDiagnostic): void {
+    this.intake.record(event)
   }
 
   recordRenderContainment(
@@ -95,6 +139,15 @@ export class RuntimeDiagnostics {
     return this.intake.snapshot()
   }
 
+  healthSnapshot(): WorkbenchHealthSnapshot {
+    return this.health.snapshot(this.evidenceAvailability())
+  }
+
+  acknowledgeHealth(occurrenceId: string): WorkbenchHealthSnapshot {
+    if (this.health.acknowledge(occurrenceId)) this.publishHealth()
+    return this.healthSnapshot()
+  }
+
   status(): DiagnosticJournalStatus | undefined {
     return this.journal?.status()
   }
@@ -103,6 +156,23 @@ export class RuntimeDiagnostics {
     await this.journal?.dispose()
     await this.localHost?.dispose()
   }
+
+  private publishHealth(): void {
+    try {
+      this.publish(this.healthSnapshot())
+    } catch {
+      // Health presentation never owns diagnostic intake or feature recovery.
+    }
+  }
+
+  private evidenceAvailability(): WorkbenchHealthSnapshot['evidence'] {
+    if (!this.persistenceEnabled) return 'memory-only'
+    return this.journal?.status().sink === 'failed' ? 'unavailable' : 'durable'
+  }
+}
+
+function nowIso(): string {
+  return new Date(Date.now()).toISOString()
 }
 
 class ProjectHostDiagnosticStorage implements DiagnosticJournalStorage {

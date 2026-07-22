@@ -3,6 +3,7 @@
  * shared by multiple feature surfaces. */
 @import './styles/base.css';
 @import './styles/projects.css';
+@import './styles/health.css';
 @import './styles/shell.css';
 @import './styles/viewer-tabs.css';
 @import './styles/terminal-shell.css';

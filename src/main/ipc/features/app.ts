@@ -6,7 +6,12 @@ import type { IpcDeps } from '../deps'
 
 type AppIpcDeps = Pick<
   IpcDeps,
-  'echoWorker' | 'rendererReady' | 'updateAttention' | 'recordRenderContainment'
+  | 'echoWorker'
+  | 'rendererReady'
+  | 'updateAttention'
+  | 'recordRenderContainment'
+  | 'getWorkbenchHealth'
+  | 'acknowledgeWorkbenchHealth'
 >
 
 export function registerAppIpc(ipc: IpcRegistrar, deps: AppIpcDeps): void {
@@ -21,6 +26,11 @@ export function registerAppIpc(ipc: IpcRegistrar, deps: AppIpcDeps): void {
   ipc.handle('demo:echo', async (req) => {
     const result = await deps.echoWorker.request(ECHO_REQUEST_TYPE, { text: req.text })
     return { text: result.text, workerPid: result.workerPid }
+  })
+  ipc.handle('workbench-health:get', () => deps.getWorkbenchHealth())
+  ipc.handle('workbench-health:acknowledge', ({ occurrenceId }, context) => {
+    context.owner()
+    return deps.acknowledgeWorkbenchHealth(occurrenceId)
   })
 
   ipc.handleSend('app:renderer-ready', (_payload, context) => {

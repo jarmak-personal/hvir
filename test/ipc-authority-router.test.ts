@@ -260,6 +260,7 @@ describe('IpcAuthorityRouter', () => {
   it('keeps the reviewed owner and authority channel policies explicit', () => {
     expect(new Set(OWNER_SCOPED_INVOKE_CHANNELS)).toEqual(
       new Set<IpcInvokeChannel>([
+        'workbench-health:acknowledge',
         'project:connect-host',
         'project:browse-host',
         'project:open',

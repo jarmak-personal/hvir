@@ -5,6 +5,7 @@ import {
   type IpcInvokeChannel,
   type IpcSendChannel,
 } from '../../shared'
+import type { WindowHealthDiagnostic } from '../health/workbench-health-events'
 
 export type DiagnosticHostKind = 'local' | 'ssh'
 export type DiagnosticLaunchMode = 'fresh' | 'resume'
@@ -54,6 +55,7 @@ export type RuntimeDiagnosticEvent =
       readonly ownerGeneration: number
       readonly occurrenceId: string
     }
+  | WindowHealthDiagnostic
 
 export type DiagnosticSource =
   | 'application'
@@ -62,6 +64,7 @@ export type DiagnosticSource =
   | 'project-coordinator'
   | 'ipc-authority-router'
   | 'renderer-error-boundary'
+  | 'window-manager'
 
 interface StoredDiagnosticEventBase {
   readonly [key: string]: unknown
@@ -95,7 +98,7 @@ export function materializeDiagnosticEvent(
     occurredAt: new Date(context.occurredAtMs).toISOString(),
     kind: event.kind,
     owner: diagnosticSource(event.kind),
-    ownerGeneration: event.kind === 'react-render-contained' ? event.ownerGeneration : 1,
+    ownerGeneration: diagnosticOwnerGeneration(event),
     severity: severityFor(event.kind),
     correlation: context.correlation,
   }
@@ -135,6 +138,38 @@ export function materializeDiagnosticEvent(
         occurrenceId: event.occurrenceId,
       }
       break
+    case 'main-document-load-failed':
+      stored = {
+        ...base,
+        ownerId: event.ownerId,
+        occurrenceId: event.occurrenceId,
+        failure: event.failure,
+        impact: event.impact,
+      }
+      break
+    case 'renderer-process-exited':
+      stored = {
+        ...base,
+        ownerId: event.ownerId,
+        occurrenceId: event.occurrenceId,
+        reason: event.reason,
+      }
+      break
+    case 'renderer-unresponsive':
+      stored = {
+        ...base,
+        ownerId: event.ownerId,
+        occurrenceId: event.occurrenceId,
+      }
+      break
+    case 'workbench-health-recovered':
+      stored = {
+        ...base,
+        ownerId: event.ownerId,
+        occurrenceId: event.occurrenceId,
+        outcome: event.outcome,
+      }
+      break
     default:
       stored = base
   }
@@ -163,6 +198,14 @@ export function diagnosticSource(kind: RuntimeDiagnosticEvent['kind']): Diagnost
   }
   if (kind === 'host-control-failed') return 'project-coordinator'
   if (kind === 'ipc-contract-rejected') return 'ipc-authority-router'
+  if (
+    kind === 'main-document-load-failed' ||
+    kind === 'renderer-process-exited' ||
+    kind === 'renderer-unresponsive' ||
+    kind === 'workbench-health-recovered'
+  ) {
+    return 'window-manager'
+  }
   return 'renderer-error-boundary'
 }
 
@@ -170,7 +213,14 @@ function severityFor(
   kind: RuntimeDiagnosticEvent['kind'],
 ): StoredDiagnosticEventBase['severity'] {
   if (kind === 'ipc-contract-rejected') return 'warning'
-  if (kind === 'react-render-contained' || kind.endsWith('-failed')) return 'error'
+  if (kind === 'renderer-unresponsive') return 'warning'
+  if (
+    kind === 'react-render-contained' ||
+    kind === 'renderer-process-exited' ||
+    kind.endsWith('-failed')
+  ) {
+    return 'error'
+  }
   return 'info'
 }
 
@@ -231,6 +281,43 @@ function isStoredDiagnosticEvent(value: unknown): value is StoredDiagnosticEvent
       isDiagnosticOpaqueId(value['occurrenceId'])
     )
   }
+  if (kind === 'main-document-load-failed') {
+    return (
+      exactFields(keys, ['ownerId', 'occurrenceId', 'failure', 'impact']) &&
+      isWindowHealthIdentity(value) &&
+      ['not-found', 'connection', 'certificate', 'other'].includes(
+        String(value['failure']),
+      ) &&
+      ['degraded', 'critical'].includes(String(value['impact']))
+    )
+  }
+  if (kind === 'renderer-process-exited') {
+    return (
+      exactFields(keys, ['ownerId', 'occurrenceId', 'reason']) &&
+      isWindowHealthIdentity(value) &&
+      ['crashed', 'killed', 'oom', 'integrity', 'launch', 'other'].includes(
+        String(value['reason']),
+      )
+    )
+  }
+  if (kind === 'renderer-unresponsive') {
+    return exactFields(keys, ['ownerId', 'occurrenceId']) && isWindowHealthIdentity(value)
+  }
+  if (kind === 'workbench-health-recovered') {
+    return (
+      exactFields(keys, ['ownerId', 'occurrenceId', 'outcome']) &&
+      isWindowHealthIdentity(value) &&
+      [
+        'document-loaded',
+        'renderer-reloaded',
+        'responsive',
+        'wait-selected',
+        'reload-selected',
+        'renderer-exited',
+        'window-closed',
+      ].includes(String(value['outcome']))
+    )
+  }
   return value['ownerGeneration'] === 1 && keys.size === 0
 }
 
@@ -259,7 +346,24 @@ const DIAGNOSTIC_KINDS = new Set<RuntimeDiagnosticEvent['kind']>([
   'host-control-failed',
   'ipc-contract-rejected',
   'react-render-contained',
+  'main-document-load-failed',
+  'renderer-process-exited',
+  'renderer-unresponsive',
+  'workbench-health-recovered',
 ])
+
+function diagnosticOwnerGeneration(event: RuntimeDiagnosticEvent): number {
+  switch (event.kind) {
+    case 'react-render-contained':
+    case 'main-document-load-failed':
+    case 'renderer-process-exited':
+    case 'renderer-unresponsive':
+    case 'workbench-health-recovered':
+      return event.ownerGeneration
+    default:
+      return 1
+  }
+}
 
 function exactFields(actual: ReadonlySet<string>, expected: readonly string[]): boolean {
   return actual.size === expected.length && expected.every((key) => actual.has(key))
@@ -280,6 +384,14 @@ function isIpcChannel(value: unknown): value is DiagnosticIpcChannel {
   return (
     typeof value === 'string' &&
     ([...INVOKE_CHANNELS, ...SEND_CHANNELS] as readonly string[]).includes(value)
+  )
+}
+
+function isWindowHealthIdentity(value: Record<string, unknown>): boolean {
+  return (
+    Number.isSafeInteger(value['ownerId']) &&
+    Number(value['ownerId']) > 0 &&
+    isDiagnosticOpaqueId(value['occurrenceId'])
   )
 }
 

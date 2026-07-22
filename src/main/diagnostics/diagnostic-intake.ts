@@ -69,6 +69,7 @@ export interface DiagnosticIntakeOptions {
   readonly writer?: Pick<DiagnosticJournal, 'record' | 'status'>
   readonly now?: () => number
   readonly correlation?: () => string
+  readonly onAccepted?: (event: StoredDiagnosticEvent) => void
 }
 
 /** Main-owned admission policy shared by durable and recent diagnostic evidence. */
@@ -112,6 +113,11 @@ export class DiagnosticIntake {
       bytes: Buffer.byteLength(line, 'utf8'),
       source,
     })
+    try {
+      this.options.onAccepted?.(stored)
+    } catch {
+      // Diagnostic consumers are droppable observers and never own feature behavior.
+    }
   }
 
   startRenderer(owner: RendererOwner): RendererDiagnosticSession {
