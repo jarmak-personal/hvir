@@ -178,11 +178,16 @@ function fixture() {
     ),
   }
   const errors: string[] = []
+  const hostDiagnostics: Array<{
+    operation: 'connect' | 'disconnect'
+    hostKind: 'local' | 'ssh'
+  }> = []
   const coordinator = new ProjectCoordinator({
     registry,
     workspaces,
     cleanup,
     onError: (message) => errors.push(message),
+    onHostControlDiagnostic: (event) => hostDiagnostics.push(event),
   })
   return {
     coordinator,
@@ -197,6 +202,7 @@ function fixture() {
       return serializeCalls
     },
     errors,
+    hostDiagnostics,
   }
 }
 
@@ -249,6 +255,29 @@ describe('ProjectCoordinator', () => {
     expect(registry.disconnectHost).toHaveBeenCalledWith('dev')
     expect(cleanup.revokeWorkspace).toHaveBeenCalledWith(remoteRoot)
     expect(cleanup.revokeWorkspace).toHaveBeenCalledWith(remoteOtherRoot)
+  })
+
+  it('reports closed host-control diagnostics while preserving connect failures', async () => {
+    const { coordinator, registry, hostDiagnostics } = fixture()
+    vi.mocked(registry.connectHost).mockRejectedValueOnce(
+      new Error('ssh password TOKEN=hvir-private rejected'),
+    )
+
+    await expect(coordinator.connectHost('dev')).rejects.toThrow('TOKEN=hvir-private')
+    expect(hostDiagnostics).toEqual([{ operation: 'connect', hostKind: 'ssh' }])
+    expect(JSON.stringify(hostDiagnostics)).not.toContain('TOKEN')
+  })
+
+  it('reports disconnect control failure separately from cleanup', async () => {
+    const { coordinator, registry, hostDiagnostics } = fixture()
+    vi.mocked(registry.disconnectHost).mockRejectedValueOnce(
+      new Error('remote control failed'),
+    )
+
+    await expect(coordinator.disconnectHost('dev')).rejects.toThrow(
+      'remote control failed',
+    )
+    expect(hostDiagnostics).toEqual([{ operation: 'disconnect', hostKind: 'ssh' }])
   })
 
   it('closes one project, cleans its resources, and watches the fallback project', async () => {

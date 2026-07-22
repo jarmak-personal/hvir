@@ -1,10 +1,11 @@
-import type {
-  BrowseHostResponse,
-  ConnectedHost,
-  HostPath,
-  ProjectHostOption,
-  ProjectState,
-  RegisteredProjectState,
+import {
+  LOCAL_HOST_ID,
+  type BrowseHostResponse,
+  type ConnectedHost,
+  type HostPath,
+  type ProjectHostOption,
+  type ProjectState,
+  type RegisteredProjectState,
 } from '../shared'
 import type { ProjectWatchTarget } from './project-watch'
 
@@ -36,11 +37,17 @@ export interface ProjectCleanupPort {
   forgetWorkspaceSessions(root: HostPath): Promise<void>
 }
 
+export interface ProjectHostControlDiagnostic {
+  readonly operation: 'connect' | 'disconnect'
+  readonly hostKind: 'local' | 'ssh'
+}
+
 export interface ProjectCoordinatorOptions {
   readonly registry: ProjectRegistryPort
   readonly workspaces: ProjectWorkspacePort
   readonly cleanup: ProjectCleanupPort
   readonly onError?: (message: string, error: unknown) => void
+  readonly onHostControlDiagnostic?: (event: ProjectHostControlDiagnostic) => void
 }
 
 interface Transition {
@@ -60,7 +67,9 @@ export class ProjectCoordinator {
       this.assertCurrent(transition)
       await this.settleTransition(transition)
       this.assertCurrent(transition)
-      const connected = await this.options.registry.connectHost(hostId)
+      const connected = await this.controlHost('connect', hostId, () =>
+        this.options.registry.connectHost(hostId),
+      )
       this.assertCurrent(transition)
       if (this.options.registry.active.host.hostId === hostId) {
         await this.options.workspaces.replaceWatch(this.options.registry.active)
@@ -96,7 +105,9 @@ export class ProjectCoordinator {
       try {
         await Promise.all(roots.map((root) => this.options.cleanup.revokeWorkspace(root)))
         this.assertCurrent(transition)
-        const disconnected = await this.options.registry.disconnectHost(hostId)
+        const disconnected = await this.controlHost('disconnect', hostId, () =>
+          this.options.registry.disconnectHost(hostId),
+        )
         this.assertCurrent(transition)
         return disconnected
       } finally {
@@ -253,6 +264,26 @@ export class ProjectCoordinator {
   private report(message: string, error: unknown): void {
     if (this.options.onError) this.options.onError(message, error)
     else console.error(message, error)
+  }
+
+  private async controlHost<T>(
+    operation: ProjectHostControlDiagnostic['operation'],
+    hostId: string,
+    control: () => Promise<T>,
+  ): Promise<T> {
+    try {
+      return await control()
+    } catch (error) {
+      try {
+        this.options.onHostControlDiagnostic?.({
+          operation,
+          hostKind: hostId === LOCAL_HOST_ID ? 'local' : 'ssh',
+        })
+      } catch {
+        // Diagnostics is a droppable observer and never owns host control.
+      }
+      throw error
+    }
   }
 }
 

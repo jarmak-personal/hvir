@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { LocalHost } from '../src/main/project-host/local-host'
+import type { ProjectHost } from '../src/main/project-host'
 import { TerminalSessionRegistry } from '../src/main/terminal/session-registry'
 import {
   asHarnessProfileId,
@@ -675,5 +676,67 @@ describe('TerminalSessionRegistry', () => {
     expect(session?.profileId.length).toBeLessThanOrEqual(80)
     expect(isHarnessProfileId(session?.profileId)).toBe(true)
     expect(session?.harnessSessionId).toBe(HARNESS_ID)
+  })
+
+  it('classifies session-registry read and parse failures without error content', async () => {
+    const events: unknown[] = []
+    const unreadable = {
+      readTextFile: () =>
+        Promise.reject(
+          Object.assign(new Error('/secret/path TOKEN=hvir-private'), {
+            code: 'EACCES',
+          }),
+        ),
+    } as unknown as ProjectHost
+
+    await TerminalSessionRegistry.load(unreadable, file, (event) => events.push(event))
+    await host.writeFile(file, '{TOKEN=hvir-private')
+    await TerminalSessionRegistry.load(host, file, (event) => events.push(event))
+
+    expect(events).toEqual([
+      { kind: 'load-failed', reason: 'read-failed' },
+      { kind: 'load-failed', reason: 'invalid-json' },
+    ])
+    expect(JSON.stringify(events)).not.toMatch(/secret|TOKEN|EACCES/)
+  })
+
+  it('reports persistence failure without letting diagnostics replace the error', async () => {
+    const events: unknown[] = []
+    const missing = Object.assign(new Error('missing'), { code: 'ENOENT' })
+    const failingHost = {
+      readTextFile: () => Promise.reject(missing),
+      writeFile: () => Promise.reject(new Error('/secret/path TOKEN=hvir-private')),
+    } as unknown as ProjectHost
+    const failingRegistry = await TerminalSessionRegistry.load(
+      failingHost,
+      file,
+      (event) => events.push(event),
+    )
+    const root = localPath('/tmp/project')
+
+    await expect(
+      failingRegistry.recordSpawn({
+        id: SESSION_ID,
+        providerId: CODEX_PROVIDER_ID,
+        profileId: CODEX_PROFILE_ID,
+        launchRevision: 1,
+        workspaceRoot: root,
+        cwd: root,
+        title: 'Codex',
+        position: 0,
+        active: true,
+      }),
+    ).rejects.toThrow('TOKEN=hvir-private')
+    expect(events).toEqual([{ kind: 'persist-failed' }])
+  })
+
+  it('ignores a failing session-registry diagnostics observer', async () => {
+    await host.writeFile(file, '{invalid')
+
+    await expect(
+      TerminalSessionRegistry.load(host, file, () => {
+        throw new Error('diagnostics sink failed')
+      }),
+    ).resolves.toBeInstanceOf(TerminalSessionRegistry)
   })
 })
