@@ -16,7 +16,13 @@ interface TerminalConstructor {
   readonly prototype: object
 }
 
-type LoadTerminal = () => Promise<TerminalConstructor>
+type LoadTerminal = () => Promise<unknown>
+
+function isTerminalConstructor(value: unknown): value is TerminalConstructor {
+  if (typeof value !== 'function') return false
+  const prototype = Reflect.get(value, 'prototype') as unknown
+  return typeof prototype === 'object' && prototype !== null
+}
 
 export function assertTerminalRuntimePatch(terminal: TerminalConstructor): void {
   const missing = REQUIRED_PRESENTATION_METHODS.filter(
@@ -32,13 +38,18 @@ export function assertTerminalRuntimePatch(terminal: TerminalConstructor): void 
 export async function verifyTerminalRuntimePatch(
   loadTerminal: LoadTerminal = async () => (await import('ghostty-web')).Terminal,
 ): Promise<void> {
-  let terminal: TerminalConstructor
+  let terminal: unknown
   try {
     terminal = await loadTerminal()
   } catch (cause) {
     throw new Error(
       `Installed dependencies do not match this checkout: ghostty-web could not be loaded. ${RECOVERY}`,
       { cause },
+    )
+  }
+  if (!isTerminalConstructor(terminal)) {
+    throw new Error(
+      `Installed dependencies do not match this checkout: ghostty-web does not export the required Terminal constructor. ${RECOVERY}`,
     )
   }
   assertTerminalRuntimePatch(terminal)
