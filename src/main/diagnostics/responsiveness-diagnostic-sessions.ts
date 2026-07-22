@@ -19,7 +19,7 @@ import type { RendererOwner } from '../renderer-resource-scopes'
 import type { RuntimeDiagnosticEvent } from './diagnostic-event'
 
 interface ResponsivenessEvidencePort {
-  record(event: RuntimeDiagnosticEvent): void
+  recordTransient(event: RuntimeDiagnosticEvent): void
   deleteResponsivenessSession(diagnosticSessionId: string): void
 }
 
@@ -167,7 +167,7 @@ export class ResponsivenessDiagnosticSessions {
   stop(
     owner: RendererOwner,
     diagnosticSessionId: string,
-    reason: Exclude<ResponsivenessStopReason, 'timeout' | 'renderer-revoked'>,
+    reason: Exclude<ResponsivenessStopReason, 'timeout'>,
   ): ResponsivenessDiagnosticsState {
     if (!this.options.available) return unavailableState()
     const record = this.sessions.get(ownerKey(owner))
@@ -190,9 +190,6 @@ export class ResponsivenessDiagnosticSessions {
   }
 
   revoke(owner: RendererOwner): void {
-    const record = this.sessions.get(ownerKey(owner))
-    if (!record) return
-    this.complete(record, 'renderer-revoked')
     this.remove(owner)
   }
 
@@ -220,7 +217,7 @@ export class ResponsivenessDiagnosticSessions {
       record.dropped = saturatingDropped(record.dropped, pending.observationCount)
       return
     }
-    this.evidence.record({
+    this.evidence.recordTransient({
       kind: 'renderer-responsiveness-episode',
       ownerGeneration: record.owner.generation,
       sessionId: record.diagnosticSessionId,

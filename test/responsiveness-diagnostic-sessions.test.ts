@@ -62,7 +62,8 @@ describe('ResponsivenessDiagnosticSessions', () => {
       dropped: 0,
       stopReason: 'user-stop',
     })
-    expect(fixture.intake.snapshot().events).toEqual([
+    const snapshot = fixture.intake.snapshot()
+    expect(snapshot.events).toEqual([
       expect.objectContaining({
         kind: 'renderer-responsiveness-episode',
         owner: 'renderer-responsiveness',
@@ -81,8 +82,13 @@ describe('ResponsivenessDiagnosticSessions', () => {
         resolution: 'user-stop',
       }),
     ])
-    expect(JSON.stringify(fixture.intake.snapshot())).not.toContain(SENTINEL)
-    expect(fixture.written.every((line) => Buffer.byteLength(line) <= 512)).toBe(true)
+    expect(JSON.stringify(snapshot)).not.toContain(SENTINEL)
+    expect(
+      snapshot.events.every(
+        (event) => Buffer.byteLength(`${JSON.stringify(event)}\n`) <= 512,
+      ),
+    ).toBe(true)
+    expect(fixture.written).toEqual([])
   })
 
   it('bounds observations, rejects stale generations, times out, and deletes idempotently', () => {
@@ -120,6 +126,7 @@ describe('ResponsivenessDiagnosticSessions', () => {
       status: 'idle',
     })
     expect(fixture.intake.snapshot().events).toEqual([])
+    expect(fixture.written).toEqual([])
   })
 
   it('saturates drop accounting while every accepted aggregate stays within 512 bytes', () => {
@@ -149,8 +156,23 @@ describe('ResponsivenessDiagnosticSessions', () => {
     expect(
       fixture.sessions.stop(owner, active.diagnosticSessionId, 'user-stop'),
     ).toMatchObject({ dropped: 9_999 })
-    expect(fixture.written).toHaveLength(1)
-    expect(Buffer.byteLength(fixture.written[0]!)).toBeLessThanOrEqual(512)
+    expect(fixture.written).toEqual([])
+    const event = fixture.intake.snapshot().events[0]
+    expect(event).toBeDefined()
+    expect(Buffer.byteLength(`${JSON.stringify(event)}\n`)).toBeLessThanOrEqual(512)
+  })
+
+  it('revokes the entire run without retaining an ownerless resolution', () => {
+    const fixture = createFixture()
+    const active = fixture.sessions.start(OWNER)
+    if (active.status !== 'active') return
+    fixture.sessions.observe(OWNER, batch(active.diagnosticSessionId))
+
+    fixture.sessions.revoke(OWNER)
+
+    expect(fixture.sessions.state(OWNER)).toMatchObject({ status: 'idle' })
+    expect(fixture.intake.snapshot().events).toEqual([])
+    expect(fixture.written).toEqual([])
   })
 })
 

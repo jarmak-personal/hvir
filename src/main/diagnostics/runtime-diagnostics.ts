@@ -169,7 +169,7 @@ export class RuntimeDiagnostics {
   stopResponsiveness(
     owner: RendererOwner,
     diagnosticSessionId: string,
-    reason: Exclude<ResponsivenessStopReason, 'timeout' | 'renderer-revoked'>,
+    reason: Exclude<ResponsivenessStopReason, 'timeout'>,
   ): ResponsivenessDiagnosticsState {
     return this.responsiveness.stop(owner, diagnosticSessionId, reason)
   }

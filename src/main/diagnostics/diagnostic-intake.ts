@@ -88,6 +88,14 @@ export class DiagnosticIntake {
   }
 
   record(event: RuntimeDiagnosticEvent): void {
+    this.admit(event, true)
+  }
+
+  recordTransient(event: RuntimeDiagnosticEvent): void {
+    this.admit(event, false)
+  }
+
+  private admit(event: RuntimeDiagnosticEvent, persist: boolean): void {
     const context: DiagnosticEventContext = {
       occurredAtMs: this.now(),
       correlation: this.correlation(),
@@ -107,7 +115,7 @@ export class DiagnosticIntake {
       this.incrementDropped(source, 'invalid')
       return
     }
-    this.options.writer?.record(line)
+    if (persist) this.options.writer?.record(line)
     this.retain({
       event: stored,
       bytes: Buffer.byteLength(line, 'utf8'),

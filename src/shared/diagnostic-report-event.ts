@@ -59,12 +59,7 @@ export type DiagnosticReportEvent =
       readonly firstAt: string
       readonly lastAt: string
       readonly resolution:
-        | 'window-rollover'
-        | 'user-stop'
-        | 'timeout'
-        | 'backgrounded'
-        | 'api-unavailable'
-        | 'renderer-revoked'
+        'window-rollover' | 'user-stop' | 'timeout' | 'backgrounded' | 'api-unavailable'
     }
 
 export const DIAGNOSTIC_REPORT_OWNERS: readonly DiagnosticReportOwner[] = [
@@ -134,7 +129,6 @@ export function isDiagnosticReportEvent(value: unknown): value is DiagnosticRepo
       'timeout',
       'backgrounded',
       'api-unavailable',
-      'renderer-revoked',
     ].includes(String(value.resolution)) &&
     (value.classification === 'input-paint-delay'
       ? value.confounder === 'none'

@@ -15,7 +15,7 @@ export type ResponsivenessTiming = '100-199ms' | '200-499ms' | '500ms-or-more'
 export type ResponsivenessClassification = 'input-paint-delay' | 'unattributed'
 export type ResponsivenessConfounder = 'none' | 'runtime-or-environment'
 export type ResponsivenessStopReason =
-  'user-stop' | 'timeout' | 'backgrounded' | 'api-unavailable' | 'renderer-revoked'
+  'user-stop' | 'timeout' | 'backgrounded' | 'api-unavailable'
 
 export interface ResponsivenessObservation {
   readonly version: typeof RENDERER_RESPONSIVENESS_VERSION
@@ -40,7 +40,7 @@ export interface ResponsivenessObservationBatch {
 
 export interface StopResponsivenessDiagnosticsRequest {
   readonly diagnosticSessionId: string
-  readonly reason: Exclude<ResponsivenessStopReason, 'timeout' | 'renderer-revoked'>
+  readonly reason: Exclude<ResponsivenessStopReason, 'timeout'>
 }
 
 export interface DeleteResponsivenessDiagnosticsRequest {
@@ -217,13 +217,9 @@ export function isResponsivenessDiagnosticsState(
       'dropped',
     ]) &&
     isIsoTime(value.stoppedAt) &&
-    [
-      'user-stop',
-      'timeout',
-      'backgrounded',
-      'api-unavailable',
-      'renderer-revoked',
-    ].includes(String(value.stopReason))
+    ['user-stop', 'timeout', 'backgrounded', 'api-unavailable'].includes(
+      String(value.stopReason),
+    )
   )
 }
 

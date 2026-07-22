@@ -346,7 +346,6 @@ function isStoredDiagnosticEvent(value: unknown): value is StoredDiagnosticEvent
         'timeout',
         'backgrounded',
         'api-unavailable',
-        'renderer-revoked',
       ].includes(String(value['resolution'])) &&
       (value['classification'] === 'input-paint-delay'
         ? value['confounder'] === 'none'
