@@ -26,10 +26,20 @@ const paneState = vi.hoisted(() => ({
 vi.mock('../src/renderer/src/terminal/ghostty-terminal-pane', () => ({
   createGhosttyTerminalPane: vi.fn(() => {
     let titleListener: ((title: string) => void) | undefined
+    let surface: HTMLDivElement | undefined
     const pane = {
-      mount: vi.fn(),
-      reparent: vi.fn(),
-      dispose: vi.fn(),
+      mount: vi.fn((container: HTMLElement) => {
+        surface = document.createElement('div')
+        surface.className = 'terminal-engine-host'
+        container.append(surface)
+      }),
+      reparent: vi.fn((container: HTMLElement) => {
+        if (surface) container.append(surface)
+      }),
+      dispose: vi.fn(() => {
+        surface?.remove()
+        surface = undefined
+      }),
       write: vi.fn(),
       resize: vi.fn(),
       setTheme: vi.fn(),
@@ -120,6 +130,45 @@ describe('terminal resume unavailable state', () => {
     )
     expect(runtimeOptions.onIdentity).not.toHaveBeenCalled()
     expect(send).not.toHaveBeenCalledWith('pty:kill', expect.anything())
+  })
+
+  it('automatically resumes a retained exact session when main starts it', async () => {
+    invoke.mockResolvedValueOnce({
+      outcome: 'started' as const,
+      id: 'terminal-1',
+      pid: 4321,
+      resumed: true,
+      harnessSessionId: '05ea41ff-026f-4ab6-b930-64eb3b497806',
+      identityStatus: 'identified' as const,
+      capabilities: {
+        sessionIdentity: 'preassigned' as const,
+        exactResume: true,
+        contextPresentation: 'count-only' as const,
+      },
+    })
+    const runtimeOptions = options()
+    const runtime = registry.acquire(runtimeOptions)
+    runtime.attach(document.createElement('div'))
+
+    await vi.waitFor(() =>
+      expect(runtime.snapshot()).toEqual({
+        title: 'Claude Code · repo',
+        status: 'Resumed · pid 4321',
+        exited: false,
+      }),
+    )
+    expect(invoke).toHaveBeenCalledWith(
+      'pty:start',
+      expect.objectContaining({
+        resume: true,
+        harnessSessionId: '05ea41ff-026f-4ab6-b930-64eb3b497806',
+      }),
+    )
+    expect(runtimeOptions.onStarted).toHaveBeenCalledOnce()
+    expect(runtimeOptions.onIdentity).toHaveBeenCalledWith(
+      '05ea41ff-026f-4ab6-b930-64eb3b497806',
+      'identified',
+    )
   })
 
   it('shows unavailable recovery distinctly in the terminal rail', () => {
