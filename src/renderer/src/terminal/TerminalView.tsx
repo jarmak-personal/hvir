@@ -68,7 +68,10 @@ export function TerminalView(props: TerminalViewProps): ReactElement {
   } = props
   const appTheme = useAppTheme()
   const effectiveTheme: AppTheme = themeOverride === 'app' ? appTheme : themeOverride
-  const controller = useTerminalPaneController(props, props.runtimes)
+  const controller = useTerminalPaneController(
+    { ...props, presentation: visible ? 'visible' : 'hidden' },
+    props.runtimes,
+  )
   const { containerRef, title, status, exited, restart, startFresh, focus } = controller
   const canRecoverHarness = supportsResume && Boolean(harnessSessionId)
 

@@ -18,7 +18,10 @@ import { verifyPlatformContracts } from './platform-contracts'
 import { verifyRendererLifecycleCleanup } from './renderer-lifecycle'
 import { verifySourceDiffPosition, verifyViewerPositions } from './viewer-position'
 import { createTerminalMoveSmokeHarness, verifyTerminalMoveSmoke } from './terminal-move'
-import { verifyLegacyTerminalPresentation } from './terminal-presentation'
+import {
+  verifyLegacyTerminalPresentation,
+  verifyTerminalPresentationLifecycle,
+} from './terminal-presentation'
 import { runCapacityLoadSmoke, runCapacityRecoverySmoke } from './capacity'
 import {
   ECHO_REQUEST_TYPE,
@@ -1018,95 +1021,11 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
     )
     console.log(`[smoke] terminal reconnect remount OK (${reconnectTerminalStatus})`)
 
-    const multiTerminalStatus = (await withTimeout(
-      win.webContents.executeJavaScript(`
-        new Promise((resolve, reject) => {
-          const deadline = Date.now() + 8000;
-          let menuOpened = false;
-          const waitForSecond = () => {
-            const rows = [...document.querySelectorAll('.terminal-list-row')];
-            const surfaces = [...document.querySelectorAll('.terminal-surface')];
-            const active = document.querySelector('.terminal-surface.active');
-            const status = active?.getAttribute('data-terminal-status') || '';
-            if (rows.length === 2 && surfaces.length === 2 && status.startsWith('pid ')) {
-              const visible = surfaces.filter(
-                (surface) => getComputedStyle(surface).visibility === 'visible'
-              );
-              if (visible.length !== 1 || visible[0] !== active) {
-                return reject(new Error('terminal selection did not isolate one canvas'));
-              }
-              rows[0]?.querySelector('.terminal-list-main')?.click();
-              const waitForSwitch = () => {
-                if (document.querySelector('.terminal-list-row.active') === rows[0]) {
-                  return resolve('2 live canvases · switch');
-                }
-                if (Date.now() > deadline) {
-                  return reject(new Error('terminal selection did not switch'));
-                }
-                setTimeout(waitForSwitch, 25);
-              };
-              return waitForSwitch();
-            }
-            if (Date.now() > deadline) return reject(new Error(
-              'second terminal did not start: rows=' + rows.length +
-              ' surfaces=' + surfaces.length + ' status=' + status
-            ));
-            setTimeout(waitForSecond, 25);
-          };
-          const waitForMenu = () => {
-            const add = document.querySelector('button[aria-label="New terminal"]');
-            if (!menuOpened && add && !add.disabled) {
-              add.click();
-              menuOpened = true;
-            }
-            const shell = [...document.querySelectorAll('.terminal-new-menu button')]
-              .find((node) => node.querySelector('strong')?.textContent?.trim() === 'Shell');
-            if (shell) {
-              shell.click();
-              return waitForSecond();
-            }
-            if (Date.now() > deadline) return reject(new Error('new-terminal menu did not open'));
-            setTimeout(waitForMenu, 25);
-          };
-          waitForMenu();
-        })
-      `),
-      'multi-terminal interaction timed out',
-      10_000,
-    )) as string
-    const secondTerminal = supervisor.list()[1]
-    if (!secondTerminal) throw new Error('second terminal was not registered')
-    supervisor.write(
-      secondTerminal.id,
-      secondTerminal.ownerId,
-      // Keep the OSC-title fixture ahead of CI shells resetting at their prompt.
-      "printf '\\033]0;Smoke agent\\007\\007'; sleep 10\n",
+    const terminalLifecycleStatus = await verifyTerminalPresentationLifecycle(
+      win,
+      supervisor,
     )
-    const terminalSignalStatus = (await withTimeout(
-      win.webContents.executeJavaScript(`
-        new Promise((resolve, reject) => {
-          const deadline = Date.now() + 5000;
-          const poll = () => {
-            const rows = [...document.querySelectorAll('.terminal-list-row')];
-            const title = rows[1]?.querySelector('.terminal-list-title')?.textContent || '';
-            const bell = rows[1]?.querySelector('.terminal-attention-badge.bell');
-            if (title === 'Smoke agent' && bell) {
-              rows[1]?.querySelector('.terminal-close-button')?.click();
-              return resolve('live title · bell badge · close');
-            }
-            if (Date.now() > deadline) return reject(new Error(
-              'terminal signal missing: title=' + title + ' bell=' + Boolean(bell)
-            ));
-            setTimeout(poll, 25);
-          };
-          poll();
-        })
-      `),
-      'terminal signal interaction timed out',
-    )) as string
-    console.log(
-      `[smoke] multi-terminal rail OK (${multiTerminalStatus} · ${terminalSignalStatus})`,
-    )
+    console.log(`[smoke] terminal presentation lifecycle OK (${terminalLifecycleStatus})`)
     const viewerStatus = (await withTimeout(
       win.webContents.executeJavaScript(`
         new Promise((resolve, reject) => {

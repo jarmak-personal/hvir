@@ -42,6 +42,7 @@ vi.mock('../src/renderer/src/terminal/ghostty-terminal-pane', () => ({
       write: vi.fn(),
       resize: vi.fn(),
       setTheme: vi.fn(),
+      setPresentation: vi.fn(),
       redraw: vi.fn(),
       focus: vi.fn(),
       events: {
@@ -445,6 +446,7 @@ function options(): TerminalRuntimeOptions {
     resumeOnStart: true,
     position: 0,
     active: true,
+    presentation: 'visible',
     modifiedKeyProtocol: 'modify-other-keys',
     metaEnterAliasesControl: true,
     composerSubmitMode: 'enter',

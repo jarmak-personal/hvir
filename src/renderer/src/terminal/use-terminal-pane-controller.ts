@@ -1,4 +1,4 @@
-import { useEffect, useRef, useSyncExternalStore } from 'react'
+import { useEffect, useLayoutEffect, useRef, useSyncExternalStore } from 'react'
 
 import type { TerminalRuntimeOptions } from './terminal-runtime'
 import { TerminalRuntimeRegistry } from './terminal-runtime-registry'
@@ -29,7 +29,10 @@ export function useTerminalPaneController(
     return () => runtime.detach(container)
   }, [runtime])
 
-  useEffect(() => runtime.synchronizeConnection(), [options.connectionState, runtime])
+  useLayoutEffect(
+    () => runtime.synchronizeLifecycle(),
+    [options.connectionState, options.presentation, runtime],
+  )
 
   useEffect(() => {
     if (!options.active) return

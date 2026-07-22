@@ -14,6 +14,7 @@ import type {
   OscEvent,
   TerminalPane,
   TerminalPaneEvents,
+  TerminalPresentation,
   TerminalSize,
   TerminalColorTheme,
   TerminalLinkActivation,
@@ -100,6 +101,7 @@ class GhosttyTerminalPane implements TerminalPane {
   private surface?: HTMLDivElement
   private mounted = false
   private disposed = false
+  private presentation: TerminalPresentation = 'visible'
   private readonly signalParser = new TerminalSignalParser()
   private readonly wheel = new TerminalWheelController()
   private lastTitle = ''
@@ -181,6 +183,16 @@ class GhosttyTerminalPane implements TerminalPane {
     // call the renderer's public theme method while upstream support matures.
     this.terminal.renderer?.setTheme(theme)
     this.redraw()
+  }
+
+  setPresentation(presentation: TerminalPresentation): void {
+    if (this.disposed || presentation === this.presentation) return
+    this.presentation = presentation
+    this.terminal.options.cursorBlink = presentation === 'visible'
+    if (presentation === 'visible' && this.mounted) {
+      this.fit.fit()
+      this.redraw()
+    }
   }
 
   redraw(): void {
