@@ -85,6 +85,7 @@ export function TerminalRail({
       className="terminal-rail"
       aria-label={`Open terminals in ${label}`}
       data-terminal-theme={terminalTheme}
+      data-diagnostic-capture="terminal"
       hidden={!visible}
     >
       <header className="terminal-rail-header">

@@ -1,4 +1,6 @@
-import type { BrowserWindow } from 'electron'
+import { clipboard, nativeImage, type BrowserWindow } from 'electron'
+
+import { DIAGNOSTIC_REPORT_NOTICE } from '../../shared'
 
 const SENTINEL = '/secret/project TOKEN=hvir-health-smoke'
 
@@ -13,28 +15,165 @@ export async function verifyWorkbenchHealthFault(win: BrowserWindow): Promise<st
 
   win.webContents.emit('did-finish-load')
   await win.webContents.executeJavaScript(waitForHealthLabel('no unresolved faults'))
-  const history = (await win.webContents.executeJavaScript(`
+  clipboard.clear()
+  const reviewed = (await win.webContents.executeJavaScript(`
     new Promise((resolve, reject) => {
-      const deadline = Date.now() + 3000;
+      const deadline = Date.now() + 5000;
+      let pixelSentinel;
       document.querySelector('.workbench-health-toggle')?.click();
       const inspect = () => {
         const text = document.querySelector('.workbench-health-dialog')?.textContent || '';
         if (text.includes('Workbench document failed to load') && text.includes('resolved')) {
-          const close = [...document.querySelectorAll('.workbench-health-dialog button')]
-            .find((button) => button.textContent?.trim() === 'Close');
-          close?.click();
-          resolve(text);
+          const prepare = [...document.querySelectorAll('.workbench-health-dialog button')]
+            .find((button) => button.textContent?.trim() === 'Prepare diagnostic report');
+          prepare?.click();
+          inspectReport(text);
         } else if (Date.now() > deadline) {
           reject(new Error('resolved workbench health history missing'));
         } else {
           setTimeout(inspect, 20);
         }
       };
+      const inspectReport = (history) => {
+        const dialog = document.querySelector('.diagnostic-report-dialog');
+        const preview = dialog?.querySelector('.diagnostic-report-preview')?.textContent || '';
+        if (!dialog || !preview.includes('main-document-load-failed') ||
+            !preview.includes('workbench-health-recovered')) {
+          if (Date.now() > deadline) return reject(new Error('diagnostic report preview missing'));
+          return setTimeout(() => inspectReport(history), 20);
+        }
+        const noImageInitially = !dialog.querySelector('img');
+        const tree = document.querySelector('.tree-panel');
+        const treeRect = tree?.getBoundingClientRect();
+        if (treeRect) {
+          pixelSentinel = document.createElement('div');
+          pixelSentinel.textContent = ${JSON.stringify(SENTINEL)};
+          pixelSentinel.style.cssText = [
+            'position:fixed',
+            'pointer-events:none',
+            'z-index:2147483647',
+            'background:rgb(237,17,91)',
+            'color:rgb(255,255,255)',
+            'width:24px',
+            'height:24px',
+            'overflow:hidden',
+            'left:' + (treeRect.x + Math.max(0, treeRect.width / 2 - 12)) + 'px',
+            'top:' + (treeRect.y + Math.max(0, treeRect.height / 2 - 12)) + 'px'
+          ].join(';');
+          document.body.append(pixelSentinel);
+        }
+        const sentinelRect = pixelSentinel?.getBoundingClientRect();
+        const rect = sentinelRect ? {
+          x: sentinelRect.x,
+          y: sentinelRect.y,
+          width: sentinelRect.width,
+          height: sentinelRect.height
+        } : undefined;
+        const capture = [...dialog.querySelectorAll('button')]
+          .find((button) => button.textContent?.trim() === 'Capture masked screenshot');
+        capture?.click();
+        inspectCapture(history, preview, noImageInitially, rect);
+      };
+      const inspectCapture = (history, preview, noImageInitially, rect) => {
+        const dialog = document.querySelector('.diagnostic-report-dialog');
+        const image = dialog?.querySelector('img');
+        const status = dialog?.querySelector('[role="status"]')?.textContent || '';
+        if (!image || !status.includes('Screenshot included')) {
+          if (Date.now() > deadline) return reject(new Error('masked screenshot missing'));
+          return setTimeout(
+            () => inspectCapture(history, preview, noImageInitially, rect),
+            20
+          );
+        }
+        pixelSentinel?.remove();
+        const masked = dialog?.querySelector('.diagnostic-report-image dl')?.textContent || '';
+        const copy = [...dialog.querySelectorAll('button')]
+          .find((button) => button.textContent?.trim() === 'Copy exact artifact');
+        copy?.click();
+        inspectCopy({ history, preview, noImageInitially, rect, masked, src: image.src });
+      };
+      const inspectCopy = (result) => {
+        const dialog = document.querySelector('.diagnostic-report-dialog');
+        const status = dialog?.querySelector('[role="status"]')?.textContent || '';
+        if (!status.includes('Exact reviewed artifact copied.')) {
+          if (Date.now() > deadline) return reject(new Error('diagnostic report copy missing'));
+          return setTimeout(() => inspectCopy(result), 20);
+        }
+        const remove = [...dialog.querySelectorAll('button')]
+          .find((button) => button.textContent?.trim() === 'Delete temporary report');
+        remove?.click();
+        const inspectDeleted = () => {
+          if (!document.querySelector('.diagnostic-report-dialog')) return resolve(result);
+          if (Date.now() > deadline) return reject(new Error('temporary report was not deleted'));
+          setTimeout(inspectDeleted, 20);
+        };
+        inspectDeleted();
+      };
       inspect();
     })
-  `)) as string
-  if (history.includes(SENTINEL)) throw new Error('Health history exposed fault context')
-  return 'load fault visible and resolved after document recovery'
+  `)) as {
+    history: string
+    preview: string
+    noImageInitially: boolean
+    rect?: { x: number; y: number; width: number; height: number }
+    masked: string
+    src: string
+  }
+  const copied = clipboard.readText()
+  if (`${reviewed.history}${reviewed.preview}${copied}`.includes(SENTINEL)) {
+    throw new Error('Reviewed diagnostic artifact exposed fault context')
+  }
+  if (!reviewed.noImageInitially) throw new Error('Diagnostic screenshot was automatic')
+  if (!reviewed.masked.includes('project-navigation')) {
+    throw new Error('Project navigation was not included in the capture mask inventory')
+  }
+  const artifact = JSON.parse(copied) as {
+    report?: { notice?: string }
+    screenshot?: { dataUrl?: string }
+  }
+  if (artifact.report?.notice !== DIAGNOSTIC_REPORT_NOTICE) {
+    throw new Error('Clipboard report omitted its untrusted-material delimiter')
+  }
+  if (JSON.stringify(artifact.report, null, 2) !== reviewed.preview) {
+    throw new Error('Clipboard report differed from the exact structured preview')
+  }
+  if (artifact.screenshot?.dataUrl !== reviewed.src) {
+    throw new Error('Clipboard image differed from the exact image preview')
+  }
+  assertMaskedPixel(win, reviewed)
+  return 'resolved fault previewed, masked, copied exactly, and deleted'
+}
+
+function assertMaskedPixel(
+  win: BrowserWindow,
+  reviewed: {
+    rect?: { x: number; y: number; width: number; height: number }
+    src: string
+  },
+): void {
+  if (!reviewed.rect) throw new Error('Project navigation capture target was missing')
+  const image = nativeImage.createFromDataURL(reviewed.src)
+  const size = image.getSize(1)
+  const viewport = win.getContentBounds()
+  const x = Math.floor(
+    (reviewed.rect.x + reviewed.rect.width / 2) * (size.width / viewport.width),
+  )
+  const y = Math.floor(
+    (reviewed.rect.y + reviewed.rect.height / 2) * (size.height / viewport.height),
+  )
+  const offset = (y * size.width + x) * 4
+  const pixel = image.toBitmap({ scaleFactor: 1 }).subarray(offset, offset + 4)
+  if (
+    pixel.length !== 4 ||
+    pixel[0] !== 32 ||
+    pixel[1] !== 32 ||
+    pixel[2] !== 32 ||
+    pixel[3] !== 255
+  ) {
+    throw new Error(
+      `Owned project navigation pixels were not masked (${[...pixel].join(',')} at ${x},${y}; image ${size.width}x${size.height}; viewport ${viewport.width}x${viewport.height}; target ${JSON.stringify(reviewed.rect)})`,
+    )
+  }
 }
 
 function waitForHealthLabel(expected: string): string {

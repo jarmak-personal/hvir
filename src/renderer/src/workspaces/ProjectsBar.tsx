@@ -113,7 +113,11 @@ export function ProjectsBar({
   return (
     <>
       <header className="projects-shell">
-        <nav className="projects-bar" aria-label="Projects">
+        <nav
+          className="projects-bar"
+          aria-label="Projects"
+          data-diagnostic-capture="project-navigation"
+        >
           {state.projects.map((project) => {
             const active = project.id === state.activeProjectId
             const remote = project.registeredRoot.hostId !== 'local'
@@ -243,7 +247,11 @@ export function ProjectsBar({
           <span className="projects-bar-spacer" />
         </nav>
         {activeProject && showWorkspacesBar ? (
-          <nav className="workspaces-bar" aria-label="Workspaces">
+          <nav
+            className="workspaces-bar"
+            aria-label="Workspaces"
+            data-diagnostic-capture="project-navigation"
+          >
             {activeProject.workspaces.map((workspace) => (
               <div
                 className={`workspace-tab${workspace.id === state.activeWorkspaceId ? ' active' : ''}${workspace.missing ? ' missing' : ''}`}

@@ -83,6 +83,7 @@ export function TerminalDeck({
       ref={deckRef}
       style={style}
       aria-label={`${label} terminal workspace`}
+      data-diagnostic-capture="terminal"
       hidden={!visible}
     >
       {ready && sessions.length === 0 ? (

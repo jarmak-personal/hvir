@@ -1,0 +1,93 @@
+.diagnostic-report-dialog {
+  width: min(920px, calc(100vw - 32px));
+  max-height: calc(100vh - 24px);
+}
+
+.diagnostic-report-dialog header h2,
+.diagnostic-report-dialog header p,
+.diagnostic-report-dialog h3,
+.diagnostic-report-dialog p {
+  margin: 0;
+}
+
+.diagnostic-report-dialog header p,
+.diagnostic-report-status,
+.diagnostic-report-storage,
+.diagnostic-report-image > p {
+  color: #929dab;
+  font-size: 11px;
+}
+
+.diagnostic-report-status {
+  min-height: 16px;
+  margin-top: 8px !important;
+}
+
+.diagnostic-report-dialog section {
+  margin-top: 14px;
+}
+
+.diagnostic-report-dialog h3 {
+  margin-bottom: 6px;
+  color: #cbd5df;
+  font-size: 11px;
+  text-transform: uppercase;
+}
+
+.diagnostic-report-preview {
+  max-height: min(300px, 35vh);
+  overflow: auto;
+  margin: 0;
+  padding: 10px;
+  border: 1px solid #344455;
+  border-radius: 5px;
+  background: #10151b;
+  color: #b8c7d7;
+  font-size: 10px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.diagnostic-report-image img {
+  display: block;
+  max-width: 100%;
+  max-height: min(300px, 35vh);
+  margin-bottom: 8px;
+  border: 1px solid #344455;
+  background: #202020;
+  object-fit: contain;
+}
+
+.diagnostic-report-image dl {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 3px 10px;
+  margin: 0 0 8px;
+  color: #9ba9b8;
+  font-size: 10px;
+}
+
+.diagnostic-report-image dt {
+  color: #77889a;
+}
+
+.diagnostic-report-image dd {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.diagnostic-report-storage {
+  margin-top: 14px !important;
+}
+
+.diagnostic-report-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.prepare-diagnostic-report {
+  margin-top: 12px;
+}

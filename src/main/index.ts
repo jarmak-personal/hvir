@@ -24,6 +24,7 @@ import { RendererResourceScopes, type RendererOwner } from './renderer-resource-
 import { createElectronWindowManager } from './window/electron-window-manager'
 import { WorkbenchRuntime } from './workbench-runtime'
 import { RuntimeDiagnostics } from './diagnostics/runtime-diagnostics'
+import { createDiagnosticReportCoordinator } from './diagnostics/diagnostic-report-coordinator'
 import { RendererEventPublisher } from './renderer-event-publisher'
 import {
   GIT_CHANGED_FILE_COUNT_TYPE,
@@ -74,6 +75,11 @@ function createWorkbenchEntry(): void {
     app.isPackaged || process.env['HVIR_SMOKE'] === '1',
     (state) => rendererEvents.toWindows('workbench-health:state', state),
   )
+  const diagnosticReports = runtime.own(
+    'Diagnostic reports',
+    createDiagnosticReportCoordinator(diagnostics, rendererScopes),
+    (reports) => reports.dispose(),
+  )
   diagnostics.recordApplication('application-starting')
   const gitMutationAuthorizations = runtime.own(
     'Git mutation authorizations',
@@ -99,6 +105,11 @@ function createWorkbenchEntry(): void {
       owner,
       { lifetime: 'renderer', type: 'ssh-prompt-presentation' },
       () => sshPrompter?.revokeOwner(owner),
+    )
+    rendererScopes.register(
+      owner,
+      { lifetime: 'renderer', type: 'diagnostic-report' },
+      () => diagnosticReports.revoke(owner),
     )
     return owner
   }
@@ -365,6 +376,7 @@ function createWorkbenchEntry(): void {
         rendererReady: (owner) => sshPrompter?.activateOwner(owner),
         getWorkbenchHealth: () => diagnostics.healthSnapshot(),
         acknowledgeWorkbenchHealth: (id) => diagnostics.acknowledgeHealth(id),
+        diagnosticReports,
         recordIpcContractDiagnostic: (event) => diagnostics.recordIpcContract(event),
         recordRenderContainment: (owner, batch) =>
           diagnostics.recordRenderContainment(owner, batch),
@@ -425,6 +437,7 @@ function createWorkbenchEntry(): void {
           harnessProbeManager,
           htmlPreviews,
           rendererResources: rendererScopes,
+          diagnosticReports,
           webPaneRoutes,
           updateWebPaneBindings: windowManager.updateWebPaneBindings,
           updateWebPaneFullPage: windowManager.updateWebPaneFullPage,

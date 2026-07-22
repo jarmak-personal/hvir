@@ -61,6 +61,7 @@ export interface ElectronSmokeDependencies {
   readonly harnessProbeManager: HarnessProbeManager
   readonly htmlPreviews: HtmlPreviewProtocol
   readonly rendererResources: RendererResourceScopes
+  readonly diagnosticReports: import('../diagnostics/diagnostic-report-coordinator').DiagnosticReportCoordinator
   readonly webPaneRoutes: WebPaneRouteRegistry
   readonly updateWebPaneBindings: (ownerId: number, bindings: KeybindingMap) => void
   readonly updateWebPaneFullPage: (ownerId: number, paneId?: string) => void
@@ -343,6 +344,7 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
         items: [],
         dropped: 0,
       }),
+      diagnosticReports: dependencies.diagnosticReports,
       recordIpcContractDiagnostic: () => undefined,
       recordRenderContainment: () => undefined,
       ptySupervisor: supervisor,
