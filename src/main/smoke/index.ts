@@ -330,6 +330,8 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
       respondSshPrompt: () => undefined,
       rendererResources,
       rendererReady: () => undefined,
+      recordIpcContractDiagnostic: () => undefined,
+      recordRenderContainment: () => undefined,
       ptySupervisor: supervisor,
       terminalSessions: smokeTerminalSessions,
       terminalMoves: terminalMoveSmoke.coordinator,

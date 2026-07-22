@@ -8,8 +8,13 @@ import {
   DiagnosticJournal,
   type DiagnosticJournalStorage,
   type DiagnosticSegmentMetadata,
-  type RuntimeDiagnosticEvent,
 } from '../src/main/diagnostics/diagnostic-journal'
+import {
+  materializeDiagnosticEvent,
+  serializeStoredDiagnosticEvent,
+  type RuntimeDiagnosticEvent,
+} from '../src/main/diagnostics/diagnostic-event'
+import { DiagnosticIntake } from '../src/main/diagnostics/diagnostic-intake'
 import { RuntimeDiagnostics } from '../src/main/diagnostics/runtime-diagnostics'
 
 const NOW = Date.parse('2026-07-22T12:00:00.000Z')
@@ -52,20 +57,22 @@ class MemoryStorage implements DiagnosticJournalStorage {
 describe('DiagnosticJournal', () => {
   it('serializes only closed fields and separates actionable failure kinds', async () => {
     const storage = new MemoryStorage()
-    const journal = new DiagnosticJournal(storage, {
+    const journal = new DiagnosticJournal(storage)
+    const intake = new DiagnosticIntake({
+      writer: journal,
       now: () => NOW,
       correlation: () => CORRELATION,
     })
 
-    journal.record({ kind: 'application-startup-failed' })
-    journal.record({
+    intake.record({ kind: 'application-startup-failed' })
+    intake.record({
       kind: 'pty-spawn-failed',
       hostKind: 'ssh',
       launchMode: 'resume',
       cwd: SENSITIVE,
       error: SENSITIVE,
     } as RuntimeDiagnosticEvent)
-    journal.record({
+    intake.record({
       kind: 'terminal-session-registry-load-failed',
       reason: 'invalid-json',
     })
@@ -110,12 +117,11 @@ describe('DiagnosticJournal', () => {
     })
     const journal = new DiagnosticJournal(storage, {
       now: () => NOW,
-      correlation: () => CORRELATION,
       segmentBytes: 420,
     })
 
     for (let index = 0; index < 20; index++) {
-      journal.record({ kind: 'application-ready' })
+      record(journal, { kind: 'application-ready' })
     }
     await journal.flush()
 
@@ -136,11 +142,10 @@ describe('DiagnosticJournal', () => {
     }
     const journal = new DiagnosticJournal(storage, {
       now: () => NOW,
-      correlation: () => CORRELATION,
       storageTimeoutMs: 10,
     })
 
-    journal.record({ kind: 'application-starting' })
+    record(journal, { kind: 'application-starting' })
     expect(storageStarted).toBe(false)
     const started = performance.now()
     await journal.dispose(40)
@@ -154,13 +159,10 @@ describe('DiagnosticJournal', () => {
 
   it('bounds its admission queue while a sink has not drained', () => {
     const storage = new MemoryStorage()
-    const journal = new DiagnosticJournal(storage, {
-      now: () => NOW,
-      correlation: () => CORRELATION,
-    })
+    const journal = new DiagnosticJournal(storage, { now: () => NOW })
 
     for (let index = 0; index < 70; index++) {
-      journal.record({ kind: 'application-ready' })
+      record(journal, { kind: 'application-ready' })
     }
 
     expect(journal.status().dropped.queue).toBe(6)
@@ -168,12 +170,14 @@ describe('DiagnosticJournal', () => {
 
   it('fails closed when a runtime caller bypasses a diagnostic enum', async () => {
     const storage = new MemoryStorage()
-    const journal = new DiagnosticJournal(storage, {
+    const journal = new DiagnosticJournal(storage)
+    const intake = new DiagnosticIntake({
+      writer: journal,
       now: () => NOW,
       correlation: () => CORRELATION,
     })
 
-    journal.record({
+    intake.record({
       kind: 'pty-spawn-failed',
       hostKind: SENSITIVE,
       launchMode: 'fresh',
@@ -181,7 +185,11 @@ describe('DiagnosticJournal', () => {
     await journal.flush()
 
     expect(storage.segments.size).toBe(0)
-    expect(journal.status().dropped.invalid).toBe(1)
+    expect(intake.snapshot().dropped).toContainEqual({
+      source: 'pty-supervisor',
+      reason: 'invalid',
+      count: 1,
+    })
   })
 
   it('flushes a failure queued behind an active write before disposal', async () => {
@@ -198,14 +206,11 @@ describe('DiagnosticJournal', () => {
       }
       await write(index, content)
     }
-    const journal = new DiagnosticJournal(storage, {
-      now: () => NOW,
-      correlation: () => CORRELATION,
-    })
+    const journal = new DiagnosticJournal(storage, { now: () => NOW })
 
-    journal.record({ kind: 'application-ready' })
+    record(journal, { kind: 'application-ready' })
     await vi.waitFor(() => expect(releaseFirstWrite).toBeTypeOf('function'))
-    journal.record({ kind: 'application-startup-failed' })
+    record(journal, { kind: 'application-startup-failed' })
     const disposing = journal.dispose()
     releaseFirstWrite?.()
     await disposing
@@ -245,6 +250,16 @@ describe('RuntimeDiagnostics local storage', () => {
     expect(content.match(/"hostKind":"ssh"/g)).toHaveLength(2)
   })
 })
+
+function record(journal: DiagnosticJournal, event: RuntimeDiagnosticEvent): void {
+  const stored = materializeDiagnosticEvent(event, {
+    occurredAtMs: NOW,
+    correlation: CORRELATION,
+  })
+  const line = stored ? serializeStoredDiagnosticEvent(stored) : undefined
+  if (!line) throw new Error('Test event must satisfy the diagnostic schema')
+  journal.record(line)
+}
 
 function storedApplicationEvent(occurredAt: string): string {
   return JSON.stringify({

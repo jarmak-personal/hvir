@@ -21,6 +21,7 @@ import type { TerminalSessionStore } from '../terminal/session-registry'
 import type { TerminalWorkspaceMoveCoordinator } from '../terminal/terminal-workspace-move-coordinator'
 import type { WebPaneRouteRegistry } from '../web-pane/web-pane-route-registry'
 import type { WorkerClient } from '../worker-host'
+import type { IpcContractDiagnostic } from './authority-router'
 
 export type EmitRendererEvent = <E extends IpcEventChannel>(
   channel: E,
@@ -76,6 +77,11 @@ export interface IpcDeps {
   ) => void
   readonly rendererResources: RendererResourceScopes
   readonly rendererReady: (owner: RendererOwner) => void
+  readonly recordIpcContractDiagnostic: (event: IpcContractDiagnostic) => void
+  readonly recordRenderContainment: (
+    owner: RendererOwner,
+    batch: import('../../shared').RenderContainmentDiagnosticBatch,
+  ) => void
   readonly ptySupervisor: PtySupervisor
   readonly terminalSessions: TerminalSessionStore
   readonly terminalMoves: Pick<TerminalWorkspaceMoveCoordinator, 'plan' | 'move'>

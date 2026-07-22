@@ -53,6 +53,10 @@ import type {
 import type { RegisteredProjectState } from './workspace-types'
 import type { KeybindingAction, KeybindingMap } from './keybindings'
 import type { WebPaneDiagnosticEvent } from './web-pane'
+import type {
+  RenderContainmentDiagnosticBatch,
+  RendererDiagnosticSession,
+} from './diagnostics'
 
 export type WebPaneCommandAction =
   KeybindingAction | 'closeWebPane' | 'escapeWebPaneFocus'
@@ -616,6 +620,7 @@ export interface IpcInvokeMap {
  */
 export interface IpcSendMap {
   'app:renderer-ready': void
+  'diagnostics:render-containment': RenderContainmentDiagnosticBatch
   'html-preview:release': ReleaseHtmlPreviewRequest
   'pty:write': { readonly id: string; readonly data: string }
   'pty:resize': { readonly id: string; readonly cols: number; readonly rows: number }
@@ -627,6 +632,7 @@ export interface IpcSendMap {
 
 /** Main -> renderer push channels. */
 export interface IpcEventMap {
+  'diagnostics:session': RendererDiagnosticSession
   'project:watch': WatchEvent
   'project:state': ProjectState
   'ssh:prompt': SshPromptRequest
@@ -677,6 +683,10 @@ export interface HvirApi {
     channel: E,
     callback: (payload: IpcEventPayload<E>) => void,
   ): Disposer
+  readonly diagnostics: {
+    /** Domain-owned, content-free evidence. Invalid or overloaded calls are dropped. */
+    recordRenderContainment(occurrenceId: string): void
+  }
 }
 
 /**
@@ -743,6 +753,7 @@ export const INVOKE_CHANNELS = [
 
 export const SEND_CHANNELS = [
   'app:renderer-ready',
+  'diagnostics:render-containment',
   'html-preview:release',
   'pty:write',
   'pty:resize',
@@ -753,6 +764,7 @@ export const SEND_CHANNELS = [
 ] as const satisfies readonly IpcSendChannel[]
 
 export const EVENT_CHANNELS = [
+  'diagnostics:session',
   'project:watch',
   'project:state',
   'ssh:prompt',

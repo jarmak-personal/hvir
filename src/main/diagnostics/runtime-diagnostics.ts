@@ -1,11 +1,19 @@
 import { join } from 'node:path'
 
-import { localPath, type HostPath } from '../../shared'
+import {
+  localPath,
+  type HostPath,
+  type RenderContainmentDiagnosticBatch,
+  type RendererDiagnosticSession,
+} from '../../shared'
 import type { ProjectHost } from '../project-host'
 import { LocalHost } from '../project-host/local-host'
 import type { ProjectHostControlDiagnostic } from '../project-coordinator'
 import type { PtySupervisorDiagnostic } from '../pty/pty-supervisor'
 import type { TerminalSessionRegistryDiagnostic } from '../terminal/session-registry'
+import type { RendererOwner } from '../renderer-resource-scopes'
+import type { IpcContractDiagnostic } from '../ipc/authority-router'
+import { DiagnosticIntake, type DiagnosticRecentSnapshot } from './diagnostic-intake'
 import {
   DiagnosticJournal,
   DIAGNOSTIC_SEGMENT_COUNT,
@@ -20,42 +28,71 @@ const JOURNAL_FILE = 'runtime-diagnostics.jsonl'
 /** App-lifetime diagnostics facade; feature owners can emit only their closed schemas. */
 export class RuntimeDiagnostics {
   private constructor(
+    private readonly intake: DiagnosticIntake,
     private readonly journal?: DiagnosticJournal,
     private readonly localHost?: LocalHost,
   ) {}
 
   static create(userDataPath: string, enabled: boolean): RuntimeDiagnostics {
-    if (!enabled) return new RuntimeDiagnostics()
+    if (!enabled) return new RuntimeDiagnostics(new DiagnosticIntake())
     const localHost = new LocalHost()
     const storage = new ProjectHostDiagnosticStorage(localHost, userDataPath)
-    return new RuntimeDiagnostics(new DiagnosticJournal(storage), localHost)
+    const journal = new DiagnosticJournal(storage)
+    return new RuntimeDiagnostics(
+      new DiagnosticIntake({ writer: journal }),
+      journal,
+      localHost,
+    )
   }
 
   recordApplication(kind: ApplicationDiagnosticKind): void {
-    this.journal?.record({ kind })
+    this.intake.record({ kind })
   }
 
   recordPty(event: PtySupervisorDiagnostic): void {
-    this.journal?.record(event)
+    this.intake.record(event)
   }
 
   recordSessionRegistry(event: TerminalSessionRegistryDiagnostic): void {
     if (event.kind === 'load-failed') {
-      this.journal?.record({
+      this.intake.record({
         kind: 'terminal-session-registry-load-failed',
         reason: event.reason,
       })
     } else {
-      this.journal?.record({ kind: 'terminal-session-registry-persist-failed' })
+      this.intake.record({ kind: 'terminal-session-registry-persist-failed' })
     }
   }
 
   recordHostControl(event: ProjectHostControlDiagnostic): void {
-    this.journal?.record({
+    this.intake.record({
       kind: 'host-control-failed',
       operation: event.operation,
       hostKind: event.hostKind,
     })
+  }
+
+  recordIpcContract(event: IpcContractDiagnostic): void {
+    this.intake.record({ kind: 'ipc-contract-rejected', ...event })
+  }
+
+  startRenderer(owner: RendererOwner): RendererDiagnosticSession {
+    return this.intake.startRenderer(owner)
+  }
+
+  revokeRenderer(owner: RendererOwner): void {
+    this.intake.revokeRenderer(owner)
+  }
+
+  recordRenderContainment(
+    owner: RendererOwner,
+    batch: RenderContainmentDiagnosticBatch,
+  ): void {
+    this.intake.recordRenderContainment(owner, batch)
+  }
+
+  snapshot(): DiagnosticRecentSnapshot {
+    return this.intake.snapshot()
   }
 
   status(): DiagnosticJournalStatus | undefined {

@@ -4,7 +4,10 @@ import { ECHO_REQUEST_TYPE, type AppInfo } from '../../../shared'
 import type { IpcRegistrar } from '../authority-router'
 import type { IpcDeps } from '../deps'
 
-type AppIpcDeps = Pick<IpcDeps, 'echoWorker' | 'rendererReady' | 'updateAttention'>
+type AppIpcDeps = Pick<
+  IpcDeps,
+  'echoWorker' | 'rendererReady' | 'updateAttention' | 'recordRenderContainment'
+>
 
 export function registerAppIpc(ipc: IpcRegistrar, deps: AppIpcDeps): void {
   ipc.handle('app:info', (): AppInfo => ({
@@ -22,6 +25,9 @@ export function registerAppIpc(ipc: IpcRegistrar, deps: AppIpcDeps): void {
 
   ipc.handleSend('app:renderer-ready', (_payload, context) => {
     deps.rendererReady(context.owner())
+  })
+  ipc.handleSend('diagnostics:render-containment', (batch, context) => {
+    deps.recordRenderContainment(context.owner(), batch)
   })
   ipc.handleSend('app:attention', ({ count }, context) => {
     const safeCount = Number.isSafeInteger(count) ? Math.max(0, Math.min(99, count)) : 0
