@@ -27,7 +27,7 @@ export function SettingsSection({
       aria-labelledby={headingId}
     >
       <header className="settings-section-heading">
-        <div>
+        <div className="settings-section-copy">
           <h3 id={headingId} tabIndex={-1}>
             {title}
           </h3>

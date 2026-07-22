@@ -12,6 +12,11 @@
   gap: 8px;
 }
 
+.settings-harness-actions button {
+  padding: 4px 7px;
+  font-size: 10px;
+}
+
 .settings-harness-state {
   display: grid;
   justify-items: start;
@@ -30,7 +35,7 @@
   min-height: 0;
   display: grid;
   grid-template-columns: 205px minmax(0, 1fr);
-  margin: 0 24px 24px;
+  margin: 0 20px 16px;
   overflow: hidden;
   border: 1px solid var(--border-subtle);
   border-radius: 4px;
@@ -84,20 +89,28 @@
   font-size: 9px;
 }
 
+.settings-profile-editor-shell {
+  min-width: 0;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  overflow: hidden;
+}
+
 .settings-profile-editor {
   min-width: 0;
   min-height: 0;
   display: grid;
   align-content: start;
-  gap: 12px;
-  padding: 14px;
+  gap: 8px;
+  padding: 10px;
   overflow: auto;
 }
 
 .settings-profile-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 9px 12px;
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr) minmax(150px, 0.8fr);
+  gap: 7px 10px;
 }
 
 .settings-dialog .settings-profile-grid label,
@@ -154,7 +167,7 @@
 }
 
 .settings-profile-argv textarea {
-  min-height: 76px;
+  min-height: 56px;
   resize: vertical;
   font-family: 'JetBrains Mono', 'SFMono-Regular', Consolas, monospace;
   font-size: 10px;
@@ -258,10 +271,22 @@
 .settings-profile-actions {
   justify-content: flex-end;
   flex-wrap: wrap;
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--surface-0);
+}
+
+.settings-profile-actions button {
+  padding: 4px 7px;
+  font-size: 10px;
+}
+
+.settings-profile-unsaved,
+.settings-profile-actions .settings-profile-note {
+  margin-right: auto;
 }
 
 .settings-profile-unsaved {
-  margin-right: auto;
   color: var(--warning-text);
   font-size: 10px;
 }
@@ -410,6 +435,10 @@
     grid-column: auto;
   }
 
+  .settings-profile-actions .settings-profile-note {
+    display: none;
+  }
+
   .settings-profile-row,
   .settings-profile-row.path,
   .settings-profile-executable {
@@ -419,7 +448,7 @@
 
 @media (max-width: 800px) {
   .settings-harness-layout {
-    margin: 0 18px 18px;
+    margin: 0 16px 14px;
   }
 }
 

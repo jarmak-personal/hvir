@@ -65,50 +65,7 @@ export function HarnessProfileEditor({
   onSave,
 }: HarnessProfileEditorProps): ReactElement {
   return (
-    <div className="settings-profile-editor">
-      {draft.builtIn ? (
-        <p className="settings-profile-note">
-          Bare Shell is permanent and immutable. Duplicate it to create an additional
-          named shell profile.
-        </p>
-      ) : null}
-      <ProfileIdentityFields
-        draft={draft}
-        providers={providers}
-        projectRoot={projectRoot}
-        onUpdateInput={onUpdateInput}
-      />
-      <HarnessProfileCommandFields
-        draft={draft}
-        provider={provider}
-        hostId={workspaceRoot.hostId}
-        onUpdateInput={onUpdateInput}
-        onArguments={onArguments}
-        onAuthorizeExecutable={onAuthorizeExecutable}
-      />
-      <EnvironmentEditor
-        bindings={draft.input.environment}
-        disabled={draft.builtIn}
-        onChange={(environment) =>
-          onUpdateInput((input) => ({ ...input, environment }))
-        }
-      />
-      <PathBindingsEditor
-        bindings={draft.input.pathBindings}
-        disabled={draft.builtIn}
-        hostId={workspaceRoot.hostId}
-        onChange={(pathBindings) =>
-          onUpdateInput((input) => ({ ...input, pathBindings }))
-        }
-        onPick={onPickBinding}
-      />
-      <ProfileStatus
-        provider={provider}
-        probe={providerProbe}
-        previews={previews}
-        previewError={previewError}
-      />
-      {error ? <p className="dialog-error">{error}</p> : null}
+    <div className="settings-profile-editor-shell">
       <ProfileActions
         draft={draft}
         busy={busy}
@@ -119,6 +76,45 @@ export function HarnessProfileEditor({
         onRemove={onRemove}
         onSave={onSave}
       />
+      <div className="settings-profile-editor">
+        <ProfileIdentityFields
+          draft={draft}
+          providers={providers}
+          projectRoot={projectRoot}
+          onUpdateInput={onUpdateInput}
+        />
+        <HarnessProfileCommandFields
+          draft={draft}
+          provider={provider}
+          hostId={workspaceRoot.hostId}
+          onUpdateInput={onUpdateInput}
+          onArguments={onArguments}
+          onAuthorizeExecutable={onAuthorizeExecutable}
+        />
+        <EnvironmentEditor
+          bindings={draft.input.environment}
+          disabled={draft.builtIn}
+          onChange={(environment) =>
+            onUpdateInput((input) => ({ ...input, environment }))
+          }
+        />
+        <PathBindingsEditor
+          bindings={draft.input.pathBindings}
+          disabled={draft.builtIn}
+          hostId={workspaceRoot.hostId}
+          onChange={(pathBindings) =>
+            onUpdateInput((input) => ({ ...input, pathBindings }))
+          }
+          onPick={onPickBinding}
+        />
+        <ProfileStatus
+          provider={provider}
+          probe={providerProbe}
+          previews={previews}
+          previewError={previewError}
+        />
+        {error ? <p className="dialog-error">{error}</p> : null}
+      </div>
     </div>
   )
 }
@@ -171,17 +167,6 @@ function ProfileIdentityFields({
           ))}
         </select>
       </label>
-      <label className="settings-profile-description">
-        <span>Description</span>
-        <input
-          value={draft.input.description ?? ''}
-          disabled={draft.builtIn}
-          onChange={(event) => {
-            const description = event.currentTarget.value || undefined
-            onUpdateInput((input) => ({ ...input, description }))
-          }}
-        />
-      </label>
       <label>
         <span>Scope</span>
         <select
@@ -198,6 +183,17 @@ function ProfileIdentityFields({
           <option value="global">All projects</option>
           <option value="project">This registered project</option>
         </select>
+      </label>
+      <label className="settings-profile-description">
+        <span>Description</span>
+        <input
+          value={draft.input.description ?? ''}
+          disabled={draft.builtIn}
+          onChange={(event) => {
+            const description = event.currentTarget.value || undefined
+            onUpdateInput((input) => ({ ...input, description }))
+          }}
+        />
       </label>
     </div>
   )
@@ -453,7 +449,11 @@ function ProfileActions({
 >): ReactElement {
   return (
     <div className="settings-profile-actions">
-      {dirty && !draft.builtIn ? (
+      {draft.builtIn ? (
+        <span className="settings-profile-note">
+          Permanent built-in · duplicate to customize.
+        </span>
+      ) : dirty ? (
         <span className="settings-profile-unsaved" role="status">
           Unsaved changes
         </span>

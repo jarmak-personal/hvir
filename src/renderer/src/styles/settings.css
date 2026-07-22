@@ -118,17 +118,18 @@
 
 .settings-section-heading {
   display: flex;
-  align-items: start;
+  align-items: center;
   justify-content: space-between;
   gap: 20px;
-  padding: 22px 24px 17px;
+  padding: 12px 20px 11px;
   border-bottom: 1px solid var(--border-subtle);
 }
 
-.settings-section-heading > div {
+.settings-section-copy {
   min-width: 0;
-  display: grid;
-  gap: 4px;
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
 }
 
 .settings-dialog .settings-section-heading h3,
@@ -339,7 +340,7 @@
   }
 
   .settings-section-heading {
-    padding: 16px 18px 13px;
+    padding: 11px 18px 10px;
   }
 
   .settings-section-scroll {
@@ -355,6 +356,12 @@
   .settings-shell-heading p,
   .settings-footer-status {
     display: none;
+  }
+
+  .settings-section-copy {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 2px;
   }
 
   .settings-dialog .settings-fields > label {

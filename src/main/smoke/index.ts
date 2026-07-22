@@ -2634,11 +2634,12 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
             }
             const dialog = document.querySelector('.settings-dialog');
             const heading = document.querySelector('#settings-harnesses-title');
-            const active = dialog?.querySelector('[aria-current="page"]')
-              ?.textContent?.trim();
-            if (!dialog || !heading || active !== 'Harnesses') {
+            const active = dialog?.querySelector('[aria-current="page"]')?.textContent?.trim();
+            const profileEditor = dialog?.querySelector('.settings-profile-editor');
+            if (!dialog || !heading || active !== 'Harnesses')
               return reject(new Error('configure harnesses did not target its section'));
-            }
+            if (!profileEditor || profileEditor.scrollHeight > profileEditor.clientHeight + 1)
+              return reject(new Error('default harness profile requires scrolling'));
             const beginProfileEdit = () => {
               source.click();
               requestAnimationFrame(() => {
