@@ -157,7 +157,9 @@ Fixed-schema, content-free diagnostic evidence flows through one bounded local o
 feature recovery stays feature-owned, workbench health remains separate from terminal attention,
 and diagnostic sessions stay explicit, droppable, and local. The bounded Long Tasks experiment
 and its opt-in recommendation are recorded in the
-[renderer responsiveness evaluation](renderer-responsiveness-evaluation.md).
+[renderer responsiveness evaluation](renderer-responsiveness-evaluation.md). The owner-by-owner
+[layout-integrity evaluation](layout-integrity-evaluation.md) retains layout postconditions as
+pure or focused Electron conformance and promotes no runtime detector.
 
 ### [ADR-017 — Defer direct diagnostic report delivery to harnesses](adr/ADR-017-defer-direct-diagnostic-report-delivery.md)
 
