@@ -38,6 +38,14 @@ describe('terminal runtime patch preflight', () => {
     ).rejects.toThrow(/ghostty-web could not be loaded.*npm ci.*npm run dev/)
   })
 
+  it('reports an install mismatch when the Terminal export is absent', async () => {
+    await expect(
+      verifyTerminalRuntimePatch(() => Promise.resolve(undefined)),
+    ).rejects.toThrow(
+      /ghostty-web does not export the required Terminal constructor.*npm ci.*npm run dev/,
+    )
+  })
+
   it('runs the preflight before the development server', () => {
     const packageJson = JSON.parse(
       readFileSync(new URL('../package.json', import.meta.url), 'utf8'),
