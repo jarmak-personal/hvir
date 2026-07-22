@@ -107,7 +107,9 @@ export class RuntimeDiagnostics {
 
   startRenderer(owner: RendererOwner): RendererDiagnosticSession {
     const session = this.intake.startRenderer(owner)
-    for (const event of this.health.rendererReady(owner)) this.intake.record(event)
+    const recovered = this.health.rendererReady(owner, nowIso())
+    if (recovered.length > 0) this.publishHealth()
+    for (const event of recovered) this.intake.record(event)
     return session
   }
 
@@ -117,7 +119,9 @@ export class RuntimeDiagnostics {
 
   closeRenderer(owner: RendererOwner): void {
     this.intake.revokeRenderer(owner)
-    for (const event of this.health.rendererClosed(owner)) this.intake.record(event)
+    const recovered = this.health.rendererClosed(owner, nowIso())
+    if (recovered.length > 0) this.publishHealth()
+    for (const event of recovered) this.intake.record(event)
   }
 
   recordWindowHealth(event: WindowHealthDiagnostic): void {
@@ -165,6 +169,10 @@ export class RuntimeDiagnostics {
     if (!this.persistenceEnabled) return 'memory-only'
     return this.journal?.status().sink === 'failed' ? 'unavailable' : 'durable'
   }
+}
+
+function nowIso(): string {
+  return new Date(Date.now()).toISOString()
 }
 
 class ProjectHostDiagnosticStorage implements DiagnosticJournalStorage {

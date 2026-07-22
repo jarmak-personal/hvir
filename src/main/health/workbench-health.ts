@@ -74,46 +74,30 @@ export class WorkbenchHealth {
     return true
   }
 
-  rendererReady(owner: RendererOwner): WindowHealthDiagnostic[] {
-    return [...this.items.values()]
-      .filter(
-        (item) =>
-          item.ownerId === owner.id &&
-          item.state !== 'resolved' &&
-          ((item.kind === 'main-document-load-failed' &&
-            item.ownerGeneration <= owner.generation) ||
-            ((item.kind === 'react-render-contained' ||
-              item.kind === 'renderer-process-exited') &&
-              item.ownerGeneration < owner.generation)),
-      )
-      .map((item) => ({
-        kind: 'workbench-health-recovered',
-        ownerId: item.ownerId,
-        ownerGeneration: item.ownerGeneration,
-        occurrenceId: item.occurrenceId,
-        outcome:
-          item.kind === 'main-document-load-failed' &&
-          item.ownerGeneration === owner.generation
-            ? 'document-loaded'
-            : 'renderer-reloaded',
-      }))
+  rendererReady(owner: RendererOwner, occurredAt: string): WindowHealthDiagnostic[] {
+    return this.resolveMatching(
+      (item) =>
+        item.ownerId === owner.id &&
+        ((item.kind === 'main-document-load-failed' &&
+          item.ownerGeneration <= owner.generation) ||
+          ((item.kind === 'react-render-contained' ||
+            item.kind === 'renderer-process-exited') &&
+            item.ownerGeneration < owner.generation)),
+      (item) =>
+        item.kind === 'main-document-load-failed' &&
+        item.ownerGeneration === owner.generation
+          ? 'document-loaded'
+          : 'renderer-reloaded',
+      occurredAt,
+    )
   }
 
-  rendererClosed(owner: RendererOwner): WindowHealthDiagnostic[] {
-    return [...this.items.values()]
-      .filter(
-        (item) =>
-          item.ownerId === owner.id &&
-          item.ownerGeneration <= owner.generation &&
-          item.state !== 'resolved',
-      )
-      .map((item) => ({
-        kind: 'workbench-health-recovered',
-        ownerId: item.ownerId,
-        ownerGeneration: item.ownerGeneration,
-        occurrenceId: item.occurrenceId,
-        outcome: 'window-closed',
-      }))
+  rendererClosed(owner: RendererOwner, occurredAt: string): WindowHealthDiagnostic[] {
+    return this.resolveMatching(
+      (item) => item.ownerId === owner.id && item.ownerGeneration <= owner.generation,
+      () => 'window-closed',
+      occurredAt,
+    )
   }
 
   snapshot(evidence: WorkbenchHealthSnapshot['evidence']): WorkbenchHealthSnapshot {
@@ -195,6 +179,34 @@ export class WorkbenchHealth {
       recoveryOutcome: outcome,
     })
     return true
+  }
+
+  private resolveMatching(
+    matches: (item: WorkbenchHealthItem) => boolean,
+    outcomeFor: (
+      item: WorkbenchHealthItem,
+    ) => NonNullable<WorkbenchHealthItem['recoveryOutcome']>,
+    occurredAt: string,
+  ): WindowHealthDiagnostic[] {
+    const events: WindowHealthDiagnostic[] = []
+    for (const [key, item] of this.items) {
+      if (item.state === 'resolved' || !matches(item)) continue
+      const outcome = outcomeFor(item)
+      this.items.set(key, {
+        ...item,
+        state: 'resolved',
+        lastObservedAt: occurredAt,
+        recoveryOutcome: outcome,
+      })
+      events.push({
+        kind: 'workbench-health-recovered',
+        ownerId: item.ownerId,
+        ownerGeneration: item.ownerGeneration,
+        occurrenceId: item.occurrenceId,
+        outcome,
+      })
+    }
+    return events
   }
 
   private enforceBound(): void {

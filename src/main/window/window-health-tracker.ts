@@ -73,7 +73,7 @@ export class WindowHealthTracker {
     outcome: RecoveryOutcome,
   ): boolean {
     if (this.unresponsiveEpisode !== episode) return false
-    this.unresponsiveEpisode = undefined
+    if (outcome !== 'wait-selected') this.unresponsiveEpisode = undefined
     this.recover(episode, outcome)
     return true
   }

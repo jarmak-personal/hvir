@@ -41,6 +41,27 @@ describe('WindowHealthTracker', () => {
     expect(tracker.recoverUnresponsive(episode, 'reload-selected')).toBe(false)
   })
 
+  it('keeps a Wait episode active until the renderer becomes responsive', () => {
+    const events: WindowHealthDiagnostic[] = []
+    const tracker = new WindowHealthTracker((event) => events.push(event))
+    const episode = tracker.unresponsive(OWNER)
+
+    expect(tracker.recoverUnresponsive(episode, 'wait-selected')).toBe(true)
+    tracker.responsive()
+
+    expect(events.slice(1)).toEqual([
+      expect.objectContaining({
+        occurrenceId: episode.occurrenceId,
+        outcome: 'wait-selected',
+      }),
+      expect.objectContaining({
+        occurrenceId: episode.occurrenceId,
+        outcome: 'responsive',
+      }),
+    ])
+    expect(tracker.recoverUnresponsive(episode, 'reload-selected')).toBe(false)
+  })
+
   it('resolves an unresponsive episode before recording an unexpected exit', () => {
     const events: WindowHealthDiagnostic[] = []
     const tracker = new WindowHealthTracker((event) => events.push(event))

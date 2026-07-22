@@ -52,18 +52,22 @@ describe('WorkbenchHealth', () => {
     })
     expect(recurring).not.toHaveProperty('recoveryOutcome')
 
-    const [recovery] = health.rendererReady({ id: OWNER.id, generation: 3 })
+    const [recovery] = health.rendererReady(
+      { id: OWNER.id, generation: 3 },
+      '2026-07-22T12:00:03.000Z',
+    )
     expect(recovery).toMatchObject({
       kind: 'workbench-health-recovered',
       occurrenceId: opaqueId(1),
       outcome: 'renderer-reloaded',
     })
-    health.observe(stored(recovery!, 3))
     expect(health.snapshot('durable').items[0]).toMatchObject({
       state: 'resolved',
       recoveryOutcome: 'renderer-reloaded',
     })
-    expect(health.rendererClosed({ id: OWNER.id, generation: 3 })).toEqual([])
+    expect(
+      health.rendererClosed({ id: OWNER.id, generation: 3 }, '2026-07-22T12:00:04.000Z'),
+    ).toEqual([])
     expect(health.observe(stored(recovery!, 4))).toBe(false)
   })
 
@@ -79,10 +83,9 @@ describe('WorkbenchHealth', () => {
       }),
     )
 
-    const [closed] = health.rendererClosed(OWNER)
+    const [closed] = health.rendererClosed(OWNER, '2026-07-22T12:00:01.000Z')
     expect(closed).toMatchObject({ occurrenceId, outcome: 'window-closed' })
-    expect(health.observe(stored(closed!, 1))).toBe(true)
-    expect(health.rendererClosed(OWNER)).toEqual([])
+    expect(health.rendererClosed(OWNER, '2026-07-22T12:00:02.000Z')).toEqual([])
     expect(
       health.observe(
         stored(
@@ -98,6 +101,38 @@ describe('WorkbenchHealth', () => {
       ),
     ).toBe(false)
     expect(health.snapshot('durable').items[0]?.recoveryOutcome).toBe('window-closed')
+  })
+
+  it('resolves all window items even when recovery evidence is rate-dropped', () => {
+    let now = Date.parse('2026-07-22T12:00:00.000Z')
+    const nowSpy = vi.spyOn(Date, 'now').mockImplementation(() => now)
+    try {
+      const diagnostics = RuntimeDiagnostics.create('/unused', false)
+      for (let index = 0; index < 20; index++) {
+        if (index >= 16) now += 250
+        diagnostics.recordWindowHealth({
+          kind: 'renderer-process-exited',
+          ownerId: OWNER.id,
+          ownerGeneration: OWNER.generation,
+          occurrenceId: opaqueId(100 + index),
+          reason: 'crashed',
+        })
+      }
+      expect(diagnostics.healthSnapshot().items).toHaveLength(20)
+
+      diagnostics.closeRenderer(OWNER)
+
+      expect(
+        diagnostics.healthSnapshot().items.every((item) => item.state === 'resolved'),
+      ).toBe(true)
+      expect(diagnostics.snapshot().dropped).toContainEqual({
+        source: 'window-manager',
+        reason: 'rate',
+        count: 20,
+      })
+    } finally {
+      nowSpy.mockRestore()
+    }
   })
 
   it('keeps ratified window faults separate and ignores expected IPC evidence', () => {
