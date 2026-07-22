@@ -131,6 +131,8 @@ Development requires Node 24 or newer; release CI uses Node 24.
 npm ci
 npm run verify
 npm run smoke
+npm run smoke:macos        # matching Apple-silicon Mac
+npm run smoke:capacity
 npm run dev
 ```
 
@@ -140,6 +142,28 @@ Linux, run Electron smoke tests under `xvfb-run`. Install the optional pre-push 
 ```sh
 npm run hooks:install
 ```
+
+`npm run smoke` runs the focused `pty-native` and `viewer-position` groups plus the transitional
+`legacy-workflow` group in separate Electron processes with fresh project and user-data roots,
+then reports a result for every scheduled group. Select one group locally with
+`HVIR_SMOKE_SCENARIO=<name> npm run smoke`; the complete name set is `pty-native`,
+`viewer-position`, `platform-contracts`, `legacy-workflow`, and `capacity`.
+`npm run smoke:macos` runs the focused PTY and viewer groups plus the retained platform contracts;
+`npm run smoke:capacity` selects the capacity group. Both use the same aggregate launcher, so a
+failing group does not prevent reporting its scheduled siblings.
+
+For a bounded local stress run, set `HVIR_SMOKE_REPEAT` to an integer from 1 through 100. For
+example, `HVIR_SMOKE_SCENARIO=pty-native HVIR_SMOKE_REPEAT=20 npm run smoke` schedules 20
+iterations of that group. Each iteration launches a fresh Electron process with fresh project and
+user-data roots. Iterations are fixed stress evidence, not retries: every scheduled iteration runs,
+and any failed iteration makes the aggregate command fail. Pull-request jobs omit the variable and
+therefore run one iteration.
+
+Packaged smoke is a distribution boundary, not a second product workflow. On a matching supported
+host, build the platform tarball and launcher, then run `npm run smoke:packaged`. It installs the
+exact versioned tarballs into a clean prefix and proves launcher selection, executable architecture,
+application/worker/native-PTY loading, preview-protocol handling, and retained platform geometry.
+Ordinary behavior remains in the unpackaged groups.
 
 Use `npm run gauntlet` for the full release gate. Packaging and performance work has additional
 acceptance guidance in [`docs/packaging.md`](docs/packaging.md) and
@@ -178,8 +202,9 @@ before pushing. Fix failures locally or report an environment blocker rather tha
 discover a known failure.
 
 Use capacity, real-host, packaged, or gauntlet checks when the issue's acceptance criteria call
-for them. Report exact evidence and any environment you could not verify; never imply a check
-ran when it did not.
+for them. CI reports verification, Electron behavior, and capacity independently;
+`npm run gauntlet` remains the combined local release gate. Report exact evidence and any
+environment you could not verify; never imply a check ran when it did not.
 
 ## Open a focused pull request
 

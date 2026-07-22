@@ -11,8 +11,16 @@ npm run gauntlet
 ```
 
 The script runs seam enforcement, lint, both TypeScript builds, all unit/integration
-tests, the production Electron workflow smoke, and the 30-second capacity smoke. Set
+tests, the default unpackaged Electron groups, and the 30-second capacity smoke. Set
 `HVIR_SKIP_CAPACITY=1` only for a quick preflight; that is not release evidence.
+
+`npm run smoke:macos` is the matching Apple-silicon correctness check for the focused PTY,
+viewer-position, and retained platform-contract groups. Packaged correctness remains a separate
+distribution boundary: after building the matching platform and launcher tarballs, run
+`npm run smoke:packaged` to verify installation, launcher and native architecture selection,
+application/native-PTY/worker loading, preview-protocol handling, and platform geometry. Neither
+command is a performance measurement, and evidence from one platform does not substitute for
+another.
 
 The capacity smoke mounts 12 real Ghostty panes, produces output in all PTYs, churns a
 watched file, alternates Files/Git, samples animation-frame and click latency, samples
