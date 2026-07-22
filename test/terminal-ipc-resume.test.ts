@@ -4,6 +4,7 @@ import { providerTemplateProfiles } from '../src/main/harness/harness-profile-st
 import { registerTerminalIpc } from '../src/main/ipc/features/terminal'
 import type { IpcInvokeContext, IpcRegistrar } from '../src/main/ipc/authority-router'
 import type { ProjectHost } from '../src/main/project-host'
+import type { RecordTerminalReplacement } from '../src/main/terminal/session-registry'
 import {
   LOCAL_HOST_ID,
   asHostId,
@@ -104,6 +105,80 @@ describe('terminal exact-resume IPC', () => {
       }),
     )
   })
+
+  it.each([
+    ['local', LOCAL_HOST_ID],
+    ['SSH', asHostId('ssh-replacement-test')],
+  ])(
+    'commits an intentional fresh replacement with new identities on a %s ProjectHost',
+    async (_kind, hostId) => {
+      const fixture = resumeFixture(hostId, 'missing')
+      const request: StartPtyRequest = {
+        ...fixture.request,
+        sessionId: 'terminal-2',
+        replacesSessionId: 'terminal-1',
+        resume: false,
+        harnessSessionId: undefined,
+      }
+
+      const result = await fixture.start(request, fixture.context)
+
+      expect(result).toMatchObject({
+        outcome: 'started',
+        id: 'terminal-2',
+        resumed: false,
+        harnessSessionId: 'terminal-2',
+      })
+      expect(fixture.authorizeReplacement).toHaveBeenCalledWith({
+        replacedId: 'terminal-1',
+        replacementId: 'terminal-2',
+        providerId: 'claude-code',
+        profileId: request.profileId,
+        launchRevision: request.launchRevision,
+        workspaceRoot: fixture.root,
+        cwd: fixture.root,
+      })
+      expect(fixture.spawn.mock.calls[0]?.[0]).toMatchObject({
+        sessionId: 'terminal-2',
+        launchSpec: {
+          file: 'claude',
+          args: ['--session-id', 'terminal-2'],
+        },
+        resume: false,
+        harnessSessionId: undefined,
+      })
+      expect(fixture.recordReplacement).toHaveBeenCalledOnce()
+      expect(fixture.recordReplacement.mock.calls[0]?.[0]).toMatchObject({
+        replacedId: 'terminal-1',
+        spawn: {
+          id: 'terminal-2',
+          harnessSessionId: 'terminal-2',
+        },
+      })
+      expect(fixture.recordSpawn).not.toHaveBeenCalled()
+    },
+  )
+
+  it('keeps the source record and disposes the fresh PTY when replacement persistence fails', async () => {
+    const fixture = resumeFixture(LOCAL_HOST_ID, 'missing')
+    fixture.recordReplacement.mockRejectedValueOnce(new Error('disk unavailable'))
+
+    await expect(
+      fixture.start(
+        {
+          ...fixture.request,
+          sessionId: 'terminal-2',
+          replacesSessionId: 'terminal-1',
+          resume: false,
+          harnessSessionId: undefined,
+        },
+        fixture.context,
+      ),
+    ).rejects.toThrow('disk unavailable')
+
+    expect(fixture.recordSpawn).not.toHaveBeenCalled()
+    expect(fixture.lease.dispose).toHaveBeenCalledOnce()
+  })
 })
 
 function resumeFixture(
@@ -147,7 +222,11 @@ function resumeFixture(
     exec,
   } as unknown as ProjectHost
   const authorizeResume = vi.fn(() => true)
+  const authorizeReplacement = vi.fn(() => true)
   const recordSpawn = vi.fn(() => Promise.resolve())
+  const recordReplacement = vi.fn((_replacement: RecordTerminalReplacement) =>
+    Promise.resolve(),
+  )
   const lease = { dispose: vi.fn(() => Promise.resolve()), release: vi.fn() }
   const register = vi.fn(() => lease)
   const managed = {
@@ -162,7 +241,18 @@ function resumeFixture(
       contextPresentation: 'count' as const,
     },
   }
-  const spawn = vi.fn((_request: unknown) => Promise.resolve(managed))
+  const spawn = vi.fn((request: { sessionId: string; resume: boolean }) =>
+    Promise.resolve(
+      request.resume
+        ? managed
+        : {
+            ...managed,
+            id: request.sessionId,
+            resumed: false,
+            harnessSessionId: request.sessionId,
+          },
+    ),
+  )
   const handlers = new Map<
     string,
     (request: unknown, context: IpcInvokeContext) => unknown
@@ -180,7 +270,12 @@ function resumeFixture(
   } as unknown as IpcRegistrar
   const deps = {
     getProject: () => ({ root, host }),
-    terminalSessions: { authorizeResume, recordSpawn },
+    terminalSessions: {
+      authorizeResume,
+      authorizeReplacement,
+      recordSpawn,
+      recordReplacement,
+    },
     harnessProfiles: {
       get: () => profile,
       hasPathGrant: () => false,
@@ -233,7 +328,10 @@ function resumeFixture(
     root,
     exec,
     authorizeResume,
+    authorizeReplacement,
     recordSpawn,
+    recordReplacement,
+    lease,
     register,
     spawn,
     start,

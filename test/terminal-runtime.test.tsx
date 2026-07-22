@@ -1,9 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import {
-  TerminalRuntimeRegistry,
-  type TerminalRuntimeOptions,
-} from '../src/renderer/src/terminal/terminal-runtime'
+import type { TerminalRuntimeOptions } from '../src/renderer/src/terminal/terminal-runtime'
+import { TerminalRuntimeRegistry } from '../src/renderer/src/terminal/terminal-runtime-registry'
 import {
   asHarnessProfileId,
   localPath,
@@ -37,6 +35,7 @@ function options(
     onTelemetry: vi.fn(),
     onIdentity: vi.fn(),
     onStarted: vi.fn(),
+    onFreshStarted: vi.fn(),
     onCapabilities: vi.fn(),
     onInput: vi.fn(),
     onOutput: vi.fn(),

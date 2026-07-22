@@ -1,6 +1,7 @@
 import { useEffect, useRef, useSyncExternalStore } from 'react'
 
-import { TerminalRuntimeRegistry, type TerminalRuntimeOptions } from './terminal-runtime'
+import type { TerminalRuntimeOptions } from './terminal-runtime'
+import { TerminalRuntimeRegistry } from './terminal-runtime-registry'
 
 export type TerminalPaneControllerOptions = TerminalRuntimeOptions
 
@@ -41,6 +42,7 @@ export function useTerminalPaneController(
     containerRef,
     ...snapshot,
     restart: () => runtime.restart(),
+    startFresh: () => runtime.startFresh(),
     focus: () => options.onFocus(),
   }
 }

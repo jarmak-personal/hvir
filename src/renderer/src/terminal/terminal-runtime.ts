@@ -11,13 +11,26 @@ import {
 } from '../../../shared'
 import { createGhosttyTerminalPane } from './ghostty-terminal-pane'
 import { SynchronizedOutputWriter } from './synchronized-output'
-import type {
-  TerminalColorTheme,
-  TerminalLinkActivation,
-  TerminalPane,
-} from './terminal-pane'
+import type { TerminalLinkActivation, TerminalPane } from './terminal-pane'
+import {
+  baseTerminalTheme,
+  resumeUnavailableStatus,
+} from './terminal-runtime-presentation'
 
 const PTY_RESIZE_DEBOUNCE_MS = 75
+
+export interface FreshTerminalStart {
+  readonly sessionId: string
+  readonly status: string
+  readonly harnessSessionId?: string
+  readonly identityStatus: TerminalIdentityStatus
+  readonly capabilities: HarnessProviderCapabilities
+}
+
+export type TerminalRecoveryFailure = {
+  readonly kind: 'resume-unavailable'
+  readonly reason: 'artifact-missing'
+}
 
 export interface TerminalRuntimeOptions {
   readonly sessionId: string
@@ -44,6 +57,7 @@ export interface TerminalRuntimeOptions {
     status: TerminalIdentityStatus,
   ) => void
   readonly onStarted: () => void
+  readonly onFreshStarted: (started: FreshTerminalStart) => void
   readonly onCapabilities: (capabilities: HarnessProviderCapabilities) => void
   readonly onInput: (data: string) => void
   readonly onOutput: () => void
@@ -56,41 +70,7 @@ export interface TerminalRuntimeSnapshot {
   readonly title: string
   readonly status: string
   readonly exited: boolean
-}
-
-export class TerminalRuntimeRegistry {
-  private readonly runtimes = new Map<string, TerminalRuntime>()
-
-  acquire(options: TerminalRuntimeOptions): TerminalRuntime {
-    const existing = this.runtimes.get(options.sessionId)
-    if (existing) {
-      existing.update(options)
-      return existing
-    }
-    const runtime = new TerminalRuntime(options)
-    this.runtimes.set(options.sessionId, runtime)
-    return runtime
-  }
-
-  disposeSession(id: string): void {
-    const runtime = this.runtimes.get(id)
-    if (!runtime) return
-    this.runtimes.delete(id)
-    runtime.dispose()
-  }
-
-  disposeMissingWorkspaces(roots: readonly HostPath[]): void {
-    for (const [id, runtime] of this.runtimes) {
-      if (roots.some((root) => hostPathEquals(root, runtime.workspaceRoot))) continue
-      this.runtimes.delete(id)
-      runtime.dispose()
-    }
-  }
-
-  dispose(): void {
-    for (const runtime of this.runtimes.values()) runtime.dispose()
-    this.runtimes.clear()
-  }
+  readonly recoveryFailure?: TerminalRecoveryFailure
 }
 
 export class TerminalRuntime {
@@ -112,9 +92,18 @@ export class TerminalRuntime {
   private disconnected = false
   private appliedConnectionState: HostConnectionState
   private restartRequested = false
+  private pendingReplacementId?: string
+  private activePtyId?: string
   private disposed = false
 
-  constructor(options: TerminalRuntimeOptions) {
+  constructor(
+    options: TerminalRuntimeOptions,
+    private readonly replaceSessionId: (
+      previousId: string,
+      nextId: string,
+      runtime: TerminalRuntime,
+    ) => void,
+  ) {
     this.options = options
     // Connected is the neutral initial value; the first synchronization must still
     // publish a disconnected/connecting state without requiring a mounted pane.
@@ -162,6 +151,7 @@ export class TerminalRuntime {
       title: this.options.fallbackTitle,
       status: connectionState,
       exited: false,
+      recoveryFailure: undefined,
     })
     this.options.onTelemetry(undefined)
   }
@@ -188,15 +178,45 @@ export class TerminalRuntime {
   }
 
   restart(): void {
-    if (this.disposed) return
+    if (this.disposed || this.starting || this.started || !this.currentSnapshot.exited) {
+      return
+    }
     this.restartRequested = true
     this.releaseSurface(true)
     this.updateSnapshot({
       title: this.options.fallbackTitle,
       status: 'Starting…',
       exited: false,
+      recoveryFailure: undefined,
     })
     void this.ensureStarted()
+  }
+
+  startFresh(): void {
+    if (
+      this.disposed ||
+      this.starting ||
+      this.started ||
+      !this.currentSnapshot.exited ||
+      !this.options.supportsResume ||
+      !this.options.harnessSessionId
+    ) {
+      return
+    }
+    const sessionId = crypto.randomUUID()
+    this.pendingReplacementId = sessionId
+    this.restartRequested = false
+    this.releaseSurface(true)
+    this.updateSnapshot({
+      title: this.options.fallbackTitle,
+      status: 'Starting fresh…',
+      exited: false,
+      recoveryFailure: undefined,
+    })
+    void this.ensureStarted({
+      sessionId,
+      replacesSessionId: this.options.sessionId,
+    })
   }
 
   dispose(): void {
@@ -206,7 +226,18 @@ export class TerminalRuntime {
     this.listeners.clear()
   }
 
-  private async ensureStarted(): Promise<void> {
+  cancelPendingReplacement(): string | undefined {
+    const id = this.pendingReplacementId
+    this.pendingReplacementId = undefined
+    return id
+  }
+
+  private async ensureStarted(
+    replacement?: Readonly<{
+      sessionId: string
+      replacesSessionId: string
+    }>,
+  ): Promise<void> {
     if (
       this.disposed ||
       this.starting ||
@@ -220,10 +251,15 @@ export class TerminalRuntime {
     const generation = ++this.startGeneration
     const container = this.container
     const reconnect = this.disconnected && this.hasStarted
-    const manualRestart = this.restartRequested
+    const manualRestart = !replacement && this.restartRequested
+    const sessionId = replacement?.sessionId ?? this.options.sessionId
     this.disconnected = false
     this.restartRequested = false
-    this.updateSnapshot({ ...this.currentSnapshot, exited: false })
+    this.updateSnapshot({
+      ...this.currentSnapshot,
+      exited: false,
+      recoveryFailure: undefined,
+    })
     this.options.onTelemetry(undefined)
     try {
       if (reconnect && this.options.supportsResume && !this.options.harnessSessionId) {
@@ -242,14 +278,16 @@ export class TerminalRuntime {
       this.installPaneListeners(pane)
       pane.mount(this.container ?? container)
       pane.redraw()
-      this.installPtyListeners()
+      this.installPtyListeners(sessionId)
 
       const resume =
+        !replacement &&
         this.options.supportsResume &&
         Boolean(this.options.harnessSessionId) &&
         (this.options.resumeOnStart || reconnect || manualRestart)
       const result = await window.hvir.invoke('pty:start', {
-        sessionId: this.options.sessionId,
+        sessionId,
+        replacesSessionId: replacement?.replacesSessionId,
         profileId: this.options.profileId,
         launchRevision: this.options.launchRevision,
         cwd: this.options.cwd,
@@ -265,7 +303,7 @@ export class TerminalRuntime {
       })
       if (!this.isCurrent(generation)) {
         if (result.outcome === 'started') {
-          window.hvir.send('pty:kill', { id: this.options.sessionId })
+          window.hvir.send('pty:kill', { id: result.id })
         }
         return
       }
@@ -274,33 +312,54 @@ export class TerminalRuntime {
           ...this.currentSnapshot,
           status: resumeUnavailableStatus(result.reason),
           exited: true,
+          recoveryFailure: {
+            kind: 'resume-unavailable',
+            reason: result.reason,
+          },
         })
         return
       }
       this.started = true
       this.hasStarted = true
-      this.options.onIdentity(result.harnessSessionId, result.identityStatus)
-      this.options.onCapabilities(result.capabilities)
-      this.options.onStarted()
-      if (this.pendingInput) {
-        window.hvir.send('pty:write', {
-          id: this.options.sessionId,
-          data: this.pendingInput,
-        })
-        this.pendingInput = ''
-      }
-      this.updateSnapshot({
-        ...this.currentSnapshot,
-        status: result.resumed
-          ? `Resumed · pid ${result.pid}`
+      this.activePtyId = result.id
+      const status = result.resumed
+        ? `Resumed · pid ${result.pid}`
+        : replacement
+          ? `New session · pid ${result.pid}`
           : resume
             ? `New session · pid ${result.pid}`
             : manualRestart
               ? `Restarted · pid ${result.pid}`
               : reconnect
                 ? `New shell · pid ${result.pid}`
-                : `pid ${result.pid}`,
+                : `pid ${result.pid}`
+      if (this.pendingInput) {
+        window.hvir.send('pty:write', {
+          id: result.id,
+          data: this.pendingInput,
+        })
+        this.pendingInput = ''
+      }
+      this.updateSnapshot({
+        ...this.currentSnapshot,
+        status,
+        recoveryFailure: undefined,
       })
+      if (replacement) {
+        this.pendingReplacementId = undefined
+        this.replaceSessionId(replacement.replacesSessionId, result.id, this)
+        this.options.onFreshStarted({
+          sessionId: result.id,
+          status,
+          harnessSessionId: result.harnessSessionId,
+          identityStatus: result.identityStatus,
+          capabilities: result.capabilities,
+        })
+      } else {
+        this.options.onIdentity(result.harnessSessionId, result.identityStatus)
+        this.options.onCapabilities(result.capabilities)
+        this.options.onStarted()
+      }
       if (this.options.active) this.focus()
     } catch (error) {
       if (this.isCurrent(generation)) {
@@ -308,10 +367,16 @@ export class TerminalRuntime {
           ...this.currentSnapshot,
           status: error instanceof Error ? error.message : String(error),
           exited: true,
+          recoveryFailure: undefined,
         })
       }
     } finally {
-      if (generation === this.startGeneration) this.starting = false
+      if (generation === this.startGeneration) {
+        this.starting = false
+        if (replacement && this.pendingReplacementId === replacement.sessionId) {
+          this.pendingReplacementId = undefined
+        }
+      }
     }
   }
 
@@ -323,8 +388,7 @@ export class TerminalRuntime {
     this.paneDisposers = [
       pane.events.onData((data) => {
         this.options.onInput(data)
-        if (this.started)
-          window.hvir.send('pty:write', { id: this.options.sessionId, data })
+        if (this.started) window.hvir.send('pty:write', { id: this.activePtyId!, data })
         else this.pendingInput += data
       }),
       pane.events.onResize(({ cols, rows }) => {
@@ -334,7 +398,7 @@ export class TerminalRuntime {
         this.resizeTimer = window.setTimeout(() => {
           this.resizeTimer = undefined
           window.hvir.send('pty:resize', {
-            id: this.options.sessionId,
+            id: this.activePtyId!,
             ...this.terminalSize,
           })
         }, PTY_RESIZE_DEBOUNCE_MS)
@@ -350,27 +414,29 @@ export class TerminalRuntime {
     ]
   }
 
-  private installPtyListeners(): void {
+  private installPtyListeners(sessionId: string): void {
     this.eventDisposers = [
       window.hvir.on('pty:data', ({ id, data }) => {
-        if (id !== this.options.sessionId) return
+        if (id !== sessionId) return
         this.options.onOutput()
         this.outputWriter?.write(data)
       }),
       window.hvir.on('pty:exit', ({ id, exitCode }) => {
-        if (id !== this.options.sessionId) return
+        if (id !== sessionId) return
         this.started = false
+        this.activePtyId = undefined
         this.updateSnapshot({
           ...this.currentSnapshot,
           status: `Exited (${exitCode})`,
           exited: true,
+          recoveryFailure: undefined,
         })
       }),
       window.hvir.on('pty:telemetry', ({ id, telemetry }) => {
-        if (id === this.options.sessionId) this.options.onTelemetry(telemetry)
+        if (id === sessionId) this.options.onTelemetry(telemetry)
       }),
       window.hvir.on('pty:identity', ({ id, harnessSessionId, identityStatus }) => {
-        if (id === this.options.sessionId) {
+        if (id === sessionId) {
           this.options.onIdentity(harnessSessionId, identityStatus)
         }
       }),
@@ -391,15 +457,22 @@ export class TerminalRuntime {
     this.pendingInput = ''
     this.pane?.dispose()
     this.pane = undefined
-    if (kill && this.started) window.hvir.send('pty:kill', { id: this.options.sessionId })
+    if (kill && this.started && this.activePtyId) {
+      window.hvir.send('pty:kill', { id: this.activePtyId })
+    }
     this.started = false
+    this.activePtyId = undefined
   }
 
   private updateSnapshot(snapshot: TerminalRuntimeSnapshot): void {
     if (
       snapshot.title === this.currentSnapshot.title &&
       snapshot.status === this.currentSnapshot.status &&
-      snapshot.exited === this.currentSnapshot.exited
+      snapshot.exited === this.currentSnapshot.exited &&
+      recoveryFailureEquals(
+        snapshot.recoveryFailure,
+        this.currentSnapshot.recoveryFailure,
+      )
     ) {
       return
     }
@@ -413,26 +486,9 @@ export class TerminalRuntime {
   }
 }
 
-function resumeUnavailableStatus(reason: 'artifact-missing'): string {
-  switch (reason) {
-    case 'artifact-missing':
-      return 'Resume unavailable · session data is missing'
-  }
-}
-
-function baseTerminalTheme(): TerminalColorTheme {
-  return {
-    background: '#111318',
-    foreground: '#d8dee9',
-    cursor: '#d8dee9',
-    selectionBackground: '#39445a',
-    black: '#20242c',
-    red: '#e06c75',
-    green: '#98c379',
-    yellow: '#e5c07b',
-    blue: '#61afef',
-    magenta: '#c678dd',
-    cyan: '#56b6c2',
-    white: '#d8dee9',
-  }
+function recoveryFailureEquals(
+  left: TerminalRecoveryFailure | undefined,
+  right: TerminalRecoveryFailure | undefined,
+): boolean {
+  return left?.kind === right?.kind && left?.reason === right?.reason
 }

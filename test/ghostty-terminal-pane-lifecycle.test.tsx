@@ -6,10 +6,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { createGhosttyTerminalPane } from '../src/renderer/src/terminal/ghostty-terminal-pane'
 import { TerminalView } from '../src/renderer/src/terminal/TerminalView'
-import {
-  TerminalRuntimeRegistry,
-  type TerminalRuntimeOptions,
-} from '../src/renderer/src/terminal/terminal-runtime'
+import type { TerminalRuntimeOptions } from '../src/renderer/src/terminal/terminal-runtime'
+import { TerminalRuntimeRegistry } from '../src/renderer/src/terminal/terminal-runtime-registry'
 import { asHarnessProfileId, localPath } from '../src/shared'
 
 vi.mock('ghostty-web', () => {
@@ -106,6 +104,7 @@ describe('GhosttyTerminalPane lifecycle', () => {
   })
 
   afterEach(() => {
+    vi.restoreAllMocks()
     vi.unstubAllGlobals()
     Reflect.deleteProperty(window, 'hvir')
     document.body.replaceChildren()
@@ -170,7 +169,8 @@ describe('GhosttyTerminalPane lifecycle', () => {
       await vi.waitFor(() => expect(invoke).toHaveBeenCalledOnce())
       await Promise.resolve()
     })
-    expect(host.querySelector('.terminal-restart')?.textContent).toBe('Resume')
+    expect(host.querySelector('.terminal-start-fresh')?.textContent).toBe('Start fresh')
+    expect(host.querySelector('.terminal-restart')?.textContent).toBe('Retry recovery')
     const container = host.querySelector('.terminal-container')
     const firstSurface = container?.querySelector('.terminal-engine-host')
 
@@ -179,7 +179,7 @@ describe('GhosttyTerminalPane lifecycle', () => {
       await vi.waitFor(() => expect(invoke).toHaveBeenCalledTimes(2))
       await Promise.resolve()
     })
-    expect(host.querySelector('.terminal-restart')?.textContent).toBe('Resume')
+    expect(host.querySelector('.terminal-restart')?.textContent).toBe('Retry recovery')
     expect(container?.isConnected).toBe(true)
     expect(host.querySelector('.terminal-container')).toBe(container)
     expect(container?.querySelector('.terminal-engine-host')).not.toBe(firstSurface)
@@ -189,6 +189,184 @@ describe('GhosttyTerminalPane lifecycle', () => {
       registry.dispose()
     })
     Reflect.deleteProperty(window, 'hvir')
+  })
+
+  it('starts fresh once and keeps React ownership through the identity handoff', async () => {
+    vi.spyOn(crypto, 'randomUUID').mockReturnValue('d33b09dd-bf6a-4fab-b198-446017d5f8c9')
+    const invoke = vi
+      .fn()
+      .mockResolvedValueOnce({
+        outcome: 'resume-unavailable' as const,
+        reason: 'artifact-missing' as const,
+      })
+      .mockResolvedValueOnce({
+        outcome: 'started' as const,
+        id: 'd33b09dd-bf6a-4fab-b198-446017d5f8c9',
+        pid: 4321,
+        resumed: false,
+        harnessSessionId: 'd33b09dd-bf6a-4fab-b198-446017d5f8c9',
+        identityStatus: 'identified' as const,
+        capabilities: {
+          sessionIdentity: 'preassigned' as const,
+          exactResume: true,
+          contextPresentation: 'count' as const,
+        },
+      })
+    Object.defineProperty(window, 'hvir', {
+      configurable: true,
+      value: {
+        invoke,
+        send: vi.fn(),
+        on: vi.fn(() => () => undefined),
+      },
+    })
+    const registry = new TerminalRuntimeRegistry()
+    const host = document.createElement('div')
+    document.body.append(host)
+    const root = createRoot(host)
+    const onFreshStarted = vi.fn()
+    act(() => {
+      root.render(
+        <TerminalView
+          {...runtimeOptions()}
+          slot="primary"
+          visible
+          themeOverride="app"
+          runtimes={registry}
+          onFreshStarted={onFreshStarted}
+        />,
+      )
+    })
+    await act(async () => {
+      await vi.waitFor(() => expect(invoke).toHaveBeenCalledOnce())
+    })
+    const container = host.querySelector('.terminal-container')
+    const action = host.querySelector<HTMLButtonElement>('.terminal-start-fresh')
+
+    await act(async () => {
+      action?.click()
+      action?.click()
+      await vi.waitFor(() => expect(invoke).toHaveBeenCalledTimes(2))
+    })
+
+    expect(invoke).toHaveBeenLastCalledWith(
+      'pty:start',
+      expect.objectContaining({
+        sessionId: 'd33b09dd-bf6a-4fab-b198-446017d5f8c9',
+        replacesSessionId: 'terminal-1',
+        resume: false,
+        harnessSessionId: undefined,
+      }),
+    )
+    expect(onFreshStarted).toHaveBeenCalledOnce()
+    expect(container?.isConnected).toBe(true)
+    expect(host.querySelector('.terminal-container')).toBe(container)
+    expect(container?.querySelectorAll('.terminal-engine-host')).toHaveLength(1)
+
+    act(() => {
+      root.unmount()
+      registry.dispose()
+    })
+  })
+
+  it('offers both recovery choices when a retained harness exits', async () => {
+    let emitExit: ((event: { id: string; exitCode: number }) => void) | undefined
+    const invoke = vi.fn(() =>
+      Promise.resolve({
+        outcome: 'started' as const,
+        id: 'terminal-1',
+        pid: 4321,
+        resumed: true,
+        harnessSessionId: '05ea41ff-026f-4ab6-b930-64eb3b497806',
+        identityStatus: 'identified' as const,
+        capabilities: {
+          sessionIdentity: 'preassigned' as const,
+          exactResume: true,
+          contextPresentation: 'count' as const,
+        },
+      }),
+    )
+    Object.defineProperty(window, 'hvir', {
+      configurable: true,
+      value: {
+        invoke,
+        send: vi.fn(),
+        on: vi.fn((channel: string, listener: unknown) => {
+          if (channel === 'pty:exit') {
+            emitExit = listener as typeof emitExit
+          }
+          return () => undefined
+        }),
+      },
+    })
+    const registry = new TerminalRuntimeRegistry()
+    const host = document.createElement('div')
+    document.body.append(host)
+    const root = createRoot(host)
+    act(() => {
+      root.render(
+        <TerminalView
+          {...runtimeOptions()}
+          slot="primary"
+          visible
+          themeOverride="app"
+          runtimes={registry}
+        />,
+      )
+    })
+    await act(async () => {
+      await vi.waitFor(() => expect(invoke).toHaveBeenCalledOnce())
+      emitExit?.({ id: 'terminal-1', exitCode: 1 })
+    })
+
+    expect(host.querySelector('.terminal-start-fresh')?.textContent).toBe('Start fresh')
+    expect(host.querySelector('.terminal-restart')?.textContent).toBe('Retry recovery')
+
+    act(() => {
+      root.unmount()
+      registry.dispose()
+    })
+  })
+
+  it('keeps plain-shell failures on the existing restart path', async () => {
+    const invoke = vi.fn(() => Promise.reject(new Error('shell failed')))
+    Object.defineProperty(window, 'hvir', {
+      configurable: true,
+      value: {
+        invoke,
+        send: vi.fn(),
+        on: vi.fn(() => () => undefined),
+      },
+    })
+    const registry = new TerminalRuntimeRegistry()
+    const host = document.createElement('div')
+    document.body.append(host)
+    const root = createRoot(host)
+    act(() => {
+      root.render(
+        <TerminalView
+          {...runtimeOptions()}
+          supportsResume={false}
+          harnessSessionId={undefined}
+          resumeOnStart={false}
+          slot="primary"
+          visible
+          themeOverride="app"
+          runtimes={registry}
+        />,
+      )
+    })
+    await act(async () => {
+      await vi.waitFor(() => expect(invoke).toHaveBeenCalledOnce())
+    })
+
+    expect(host.querySelector('.terminal-start-fresh')).toBeNull()
+    expect(host.querySelector('.terminal-restart')?.textContent).toBe('Restart')
+
+    act(() => {
+      root.unmount()
+      registry.dispose()
+    })
   })
 })
 
@@ -232,6 +410,7 @@ function runtimeOptions(): TerminalRuntimeOptions {
     onTelemetry: vi.fn(),
     onIdentity: vi.fn(),
     onStarted: vi.fn(),
+    onFreshStarted: vi.fn(),
     onCapabilities: vi.fn(),
     onInput: vi.fn(),
     onOutput: vi.fn(),

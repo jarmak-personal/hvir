@@ -11,7 +11,8 @@ import type { TerminalThemeOverride } from '../settings/settings'
 import type { TerminalLinkActivation } from './terminal-pane'
 import { TerminalView } from './TerminalView'
 import type { TerminalSession } from './terminal-workspace-model'
-import type { TerminalRuntimeRegistry } from './terminal-runtime'
+import type { FreshTerminalStart } from './terminal-runtime'
+import type { TerminalRuntimeRegistry } from './terminal-runtime-registry'
 
 export function TerminalDeck({
   deckRef,
@@ -32,6 +33,7 @@ export function TerminalDeck({
   connectionState,
   onCreateDefault,
   onUpdateSession,
+  onFreshStarted,
   onInput,
   onOutput,
   onBell,
@@ -62,6 +64,7 @@ export function TerminalDeck({
     id: string,
     update: (session: TerminalSession) => TerminalSession,
   ) => void
+  readonly onFreshStarted: (id: string, started: FreshTerminalStart) => void
   readonly onInput: (id: string, data: string) => void
   readonly onOutput: (id: string) => void
   readonly onBell: (id: string) => void
@@ -147,6 +150,9 @@ export function TerminalDeck({
               onUpdateSession(session.id, (current) =>
                 current.resumeOnStart ? { ...current, resumeOnStart: false } : current,
               )
+            }
+            onFreshStarted={(started: FreshTerminalStart) =>
+              onFreshStarted(session.id, started)
             }
             onCapabilities={(capabilities) =>
               onUpdateSession(session.id, (current) =>

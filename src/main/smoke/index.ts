@@ -193,7 +193,6 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
       if (echo.workerPid === process.pid) throw new Error('echo ran in the main process')
       console.log(`[smoke] echo worker OK (pid ${echo.workerPid})`)
     }
-
     // Exercise the real renderer → main → worker path.
     await host.connect()
     await host.exec('rm', ['-f', '--', harnessProfilesPath.path])
@@ -222,19 +221,20 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
       )
     }
     const emit: EmitSmokeEvent = (channel, payload) => {
-      if (smokeWindow && !smokeWindow.isDestroyed()) {
+      if (smokeWindow && !smokeWindow.isDestroyed())
         smokeWindow.webContents.send(channel, payload)
-      }
     }
     let smokeRecoverySessions: readonly TerminalRecoverySession[] = []
     const smokeTerminalSessions: TerminalSessionStore = {
       list: () => smokeRecoverySessions,
       recordSpawn: () => Promise.resolve(),
+      recordReplacement: () => Promise.resolve(),
       recordIdentity: () => Promise.resolve(),
       updateLayout: () => Promise.resolve(),
       forget: () => Promise.resolve(),
       rebindProfile: () => Promise.reject(new Error('Smoke recovery is read-only')),
       authorizeResume: () => false,
+      authorizeReplacement: () => false,
       flush: () => Promise.resolve(),
     }
     const smokeHarnessProfiles = await HarnessProfileStore.load(host, harnessProfilesPath)
