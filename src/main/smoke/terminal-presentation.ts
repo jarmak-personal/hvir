@@ -130,12 +130,27 @@ export async function verifyTerminalPresentationLifecycle(
           );
           const title = row?.querySelector('.terminal-list-title')?.textContent || '';
           const bell = row?.querySelector('.terminal-attention-badge.bell');
+          const engine = surface?.querySelector('.terminal-engine-host');
+          const stats = engine?.__hvirTerminalPerformance;
           if (
             button && row && surface && title === 'Hidden buffered' && bell &&
-            getComputedStyle(surface).visibility === 'hidden'
+            getComputedStyle(surface).visibility === 'hidden' && stats &&
+            stats.paused && !stats.pendingFrame && stats.parsedWrites > 0
           ) {
-            button.click();
-            return waitForReveal(surface, row);
+            const hiddenFrames = stats.renderFrames;
+            const hiddenFullFrames = stats.fullRenderFrames;
+            return setTimeout(() => {
+              const settled = engine.__hvirTerminalPerformance;
+              if (
+                settled.renderFrames !== hiddenFrames ||
+                !settled.paused ||
+                settled.pendingFrame
+              ) {
+                return fail('hidden terminal continued presentation work');
+              }
+              button.click();
+              waitForReveal(surface, row, hiddenFullFrames);
+            }, 650);
           }
           if (Date.now() > deadline) {
             return fail('hidden terminal output did not settle: title=' + title +
@@ -143,9 +158,11 @@ export async function verifyTerminalPresentationLifecycle(
           }
           setTimeout(waitForHiddenOutput, 25);
         };
-        const waitForReveal = (surface, row) => {
+        const waitForReveal = (surface, row, hiddenFullFrames) => {
           const canvas = surface.querySelector('canvas');
           const context = canvas?.getContext('2d');
+          const stats = surface.querySelector('.terminal-engine-host')
+            ?.__hvirTerminalPerformance;
           const pixel = canvas && context
             ? context.getImageData(
                 Math.floor(canvas.width / 2),
@@ -157,14 +174,21 @@ export async function verifyTerminalPresentationLifecycle(
           if (
             row.classList.contains('active') &&
             getComputedStyle(surface).visibility === 'visible' &&
-            pixel && pixel[0] > 120 && pixel[1] < 160
+            pixel && pixel[0] > 120 && pixel[1] < 160 && stats &&
+            !stats.paused && !stats.pendingFrame
           ) {
+            if (stats.fullRenderFrames - hiddenFullFrames !== 1) {
+              return fail(
+                'terminal reveal full repaint count was ' +
+                (stats.fullRenderFrames - hiddenFullFrames)
+              );
+            }
             return resolve('hidden output + current repaint');
           }
           if (Date.now() > deadline) {
             return fail('revealed terminal did not repaint its hidden buffer');
           }
-          setTimeout(() => waitForReveal(surface, row), 25);
+          setTimeout(() => waitForReveal(surface, row, hiddenFullFrames), 25);
         };
         waitForHiddenOutput();
       })

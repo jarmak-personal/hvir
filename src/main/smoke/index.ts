@@ -45,7 +45,11 @@ import {
 } from '../../shared'
 
 export type ElectronSmokeMode =
-  'workflow' | 'viewer-position' | 'platform-contracts' | 'capacity'
+  | 'workflow'
+  | 'viewer-position'
+  | 'platform-contracts'
+  | 'terminal-presentation'
+  | 'capacity'
 
 export interface ElectronSmokeDependencies {
   readonly mode: ElectronSmokeMode
@@ -403,6 +407,13 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
     if (mode === 'viewer-position') {
       const result = await verifySourceDiffPosition(win, liveReloadPath)
       console.log(`[smoke] source/diff viewer positions OK (${result})`)
+      console.log('HVIR_SMOKE_OK')
+      return 0
+    }
+
+    if (mode === 'terminal-presentation') {
+      const presentation = await verifyTerminalPresentationLifecycle(win, supervisor)
+      console.log(`[smoke] terminal presentation lifecycle OK (${presentation})`)
       console.log('HVIR_SMOKE_OK')
       return 0
     }
@@ -928,11 +939,14 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
                   1
                 ).data;
                 const surface = canvas.closest('.terminal-surface');
+                const presentation = canvas.closest('.terminal-engine-host')
+                  ?.__hvirTerminalPerformance;
                 const rect = canvas.getBoundingClientRect();
                 lastState = 'canvas=' + canvas.width + 'x' + canvas.height +
                   ' rect=' + rect.width + 'x' + rect.height +
                   ' visibility=' + getComputedStyle(surface).visibility +
-                  ' pixel=' + [...pixel].join(',');
+                  ' pixel=' + [...pixel].join(',') +
+                  ' presentation=' + JSON.stringify(presentation);
                 if (pixel[0] > 120 && pixel[1] < 140) return resolve(true);
               }
               if (Date.now() > deadline) return reject(new Error(

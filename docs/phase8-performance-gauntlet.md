@@ -11,23 +11,28 @@ npm run gauntlet
 ```
 
 The script runs seam enforcement, lint, both TypeScript builds, all unit/integration
-tests, the default unpackaged Electron groups, and the 30-second capacity smoke. Set
+tests, the default unpackaged Electron groups, and the capacity smoke. Set
 `HVIR_SKIP_CAPACITY=1` only for a quick preflight; that is not release evidence.
 
 `npm run smoke:macos` is the matching Apple-silicon correctness check for the focused PTY,
-viewer-position, and retained platform-contract groups. Packaged correctness remains a separate
-distribution boundary: after building the matching platform and launcher tarballs, run
+viewer-position, retained platform-contract, and terminal-presentation groups. Packaged
+correctness remains a separate distribution boundary: after building the matching platform and launcher tarballs, run
 `npm run smoke:packaged` to verify installation, launcher and native architecture selection,
 application/native-PTY/worker loading, preview-protocol handling, and platform geometry. Neither
 command is a performance measurement, and evidence from one platform does not substitute for
 another.
 
-The capacity smoke mounts 12 real Ghostty panes, produces output in all PTYs, churns a
-watched file, alternates Files/Git, samples animation-frame and click latency, samples
-Electron's total working set, and then reloads. It fails at p99 latency >=100 ms, any
-unexplained stall >500 ms, net 30-second working-set growth >256 MiB, an orphaned PTY,
-or failure to recover all terminals with Changes and History usable. Ghostty scrollback
-is bounded to 10,000 lines per terminal.
+The capacity smoke first compares three 30-second Electron renderer-plus-GPU CPU samples
+for one visible terminal with three matching samples for one visible and eleven hidden
+idle terminals. The loaded interval then mixes continuous plain output, Codex-like
+cursor/ANSI updates, synchronized-output bursts, and idle panes while churning a watched
+file and alternating Files/Git. It reports renderer, GPU, and main-process CPU alongside
+animation-frame, click-latency, and total-working-set evidence; it also verifies hidden
+parse-versus-presentation counters and exact input echo from a thirteenth terminal created
+under load. It fails when the idle CPU median ratio exceeds 1.5, p99 latency is >=100 ms,
+an unexplained stall exceeds 500 ms, net loaded-interval working-set growth exceeds 256
+MiB, hidden presentation advances, a PTY is orphaned, or all terminals cannot recover with
+Changes and History usable. Ghostty scrollback is bounded to 10,000 lines per terminal.
 
 ## Workspace and error matrix
 

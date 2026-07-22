@@ -121,6 +121,12 @@ class GhosttyTerminalPane implements TerminalPane {
     this.mounted = true
     const surface = document.createElement('div')
     surface.className = 'terminal-engine-host'
+    // Read-only smoke/capacity telemetry. Keep it on the concrete adapter so
+    // the engine-neutral TerminalPane seam does not learn ghostty counters.
+    Object.defineProperty(surface, '__hvirTerminalPerformance', {
+      configurable: true,
+      get: () => this.terminal.getRenderStats(),
+    })
     container.append(surface)
     this.surface = surface
     this.engineDisposers.push(
@@ -189,16 +195,17 @@ class GhosttyTerminalPane implements TerminalPane {
     if (this.disposed || presentation === this.presentation) return
     this.presentation = presentation
     this.terminal.options.cursorBlink = presentation === 'visible'
-    if (presentation === 'visible' && this.mounted) {
-      this.fit.fit()
-      this.redraw()
+    if (presentation === 'hidden') {
+      this.terminal.setRenderPaused(true)
+    } else {
+      if (this.mounted) this.fit.fit()
+      this.terminal.setRenderPaused(false)
     }
   }
 
   redraw(): void {
     if (this.disposed) return
-    const { renderer, wasmTerm, viewportY } = this.terminal
-    if (renderer && wasmTerm) renderer.render(wasmTerm, true, viewportY)
+    this.terminal.requestRender(true)
   }
 
   focus(): void {
