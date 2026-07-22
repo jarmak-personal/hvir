@@ -46,7 +46,6 @@ protocol.registerSchemesAsPrivileged([
     privileges: { standard: true, secure: true, bypassCSP: false },
   },
 ])
-
 function createWorkbenchEntry(): void {
   const runtime = new WorkbenchRuntime({
     start: startup,
@@ -81,7 +80,11 @@ function createWorkbenchEntry(): void {
     createDiagnosticReportCoordinator(diagnostics, rendererScopes),
     (reports) => reports.dispose(),
   )
-  const diagnosticIpc = { reports: diagnosticReports, responsiveness: diagnostics, evidence: diagnostics }
+  const diagnosticIpc = {
+    reports: diagnosticReports,
+    responsiveness: diagnostics,
+    evidence: diagnostics,
+  }
   diagnostics.recordApplication('application-starting')
   const gitMutationAuthorizations = runtime.own(
     'Git mutation authorizations',
@@ -98,7 +101,6 @@ function createWorkbenchEntry(): void {
   let attentionBadge: AttentionBadge | null = null
   let workspaceCoordinator: WorkspaceCoordinator | null = null
   let projectCoordinator: ProjectCoordinator | null = null
-
   const installRendererPresentation = (owner: RendererOwner): RendererOwner => {
     rendererScopes.register(owner, { lifetime: 'renderer', type: 'attention' }, () =>
       attentionBadge?.remove(owner.id, owner.generation),
@@ -154,7 +156,6 @@ function createWorkbenchEntry(): void {
   )
   const webPaneRoutes = windowManager.routes
   const createWindow = windowManager.createWindow
-
   async function startup(): Promise<void> {
     htmlPreviews.register()
     const emit = rendererEvents.toWindows
@@ -352,7 +353,6 @@ function createWorkbenchEntry(): void {
       git: gitMutations,
       withSshPresentation,
     })
-
     runtime.own(
       'IPC authority router',
       registerIpcHandlers({

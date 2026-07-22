@@ -10,6 +10,7 @@ import type {
   ProjectHostOption,
   ProjectState,
   ProjectWatchInterestsResponse,
+  RenderContainmentDiagnosticBatch,
   WorkbenchHealthSnapshot,
 } from '../../shared'
 import type { HarnessProfileStoreContract } from '../harness/harness-profile-store'
@@ -100,7 +101,7 @@ export interface IpcDeps {
   readonly recordIpcContractDiagnostic: (event: IpcContractDiagnostic) => void
   readonly recordRenderContainment: (
     owner: RendererOwner,
-    batch: import('../../shared').RenderContainmentDiagnosticBatch,
+    batch: RenderContainmentDiagnosticBatch,
   ) => void
   readonly ptySupervisor: PtySupervisor
   readonly terminalSessions: TerminalSessionStore

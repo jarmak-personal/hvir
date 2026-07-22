@@ -5,10 +5,7 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { DiagnosticReportDialog } from '../src/renderer/src/diagnostics/DiagnosticReportDialog'
-import {
-  DIAGNOSTIC_REPORT_NOTICE,
-  type DiagnosticReportState,
-} from '../src/shared'
+import { DIAGNOSTIC_REPORT_NOTICE, type DiagnosticReportState } from '../src/shared'
 
 const REPORT_ID = '019c0000-0000-7000-8000-000000000091'
 const DATA_URL = 'data:image/png;base64,AQ=='
@@ -50,10 +47,12 @@ describe('DiagnosticReportDialog', () => {
       configurable: true,
       value: { invoke },
     })
-    ownedSurface('project-navigation', '.tree-panel', rectangle(1, 2, 30, 40))
-    ownedSurface('viewer', '[data-viewer-pane]', rectangle(10, 20, 300, 200))
-    ownedSurface('terminal', '[data-diagnostic-capture]', rectangle(0, 220, 320, 80))
-    ownedSurface('web-pane', '[data-diagnostic-capture]', rectangle(320, 0, 100, 300))
+    ownedSurface('terminal', rectangle(0, 220, 320, 80))
+    ownedSurface('web-pane', rectangle(320, 0, 100, 300))
+    ownedSurface('viewer', rectangle(10, 20, 300, 200))
+    ownedSurface('project-navigation', rectangle(1, 2, 30, 40))
+    legacySelectorSurface('viewer', rectangle(400, 20, 20, 20))
+    legacySelectorSurface('project-navigation', rectangle(400, 40, 20, 20))
 
     await act(async () => {
       root.render(<DiagnosticReportDialog onClose={onClose} />)
@@ -95,6 +94,9 @@ describe('DiagnosticReportDialog', () => {
     })
     expect(host.querySelector('img')?.getAttribute('src')).toBe(DATA_URL)
     expect(host.textContent).toContain('terminal, web-pane, viewer, project-navigation')
+    expect(host.textContent).toContain(
+      'Masks are based on the workbench layout measured immediately before capture',
+    )
 
     await act(async () => {
       button('Delete temporary report').click()
@@ -156,13 +158,21 @@ function reportState(withScreenshot = false): DiagnosticReportState {
 
 function ownedSurface(
   surface: 'project-navigation' | 'viewer' | 'terminal' | 'web-pane',
-  selector: string,
   bounds: DOMRect,
 ): void {
   const element = document.createElement('div')
-  if (selector === '.tree-panel') element.className = 'tree-panel'
-  else if (selector === '[data-viewer-pane]') element.dataset['viewerPane'] = 'primary'
-  else element.dataset['diagnosticCapture'] = surface
+  element.dataset['diagnosticCapture'] = surface
+  vi.spyOn(element, 'getBoundingClientRect').mockReturnValue(bounds)
+  document.body.append(element)
+}
+
+function legacySelectorSurface(
+  surface: 'project-navigation' | 'viewer',
+  bounds: DOMRect,
+): void {
+  const element = document.createElement('div')
+  if (surface === 'viewer') element.dataset['viewerPane'] = 'primary'
+  else element.className = 'tree-panel'
   vi.spyOn(element, 'getBoundingClientRect').mockReturnValue(bounds)
   document.body.append(element)
 }

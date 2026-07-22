@@ -396,10 +396,6 @@ function success(artifact: DiagnosticReportArtifact): DiagnosticReportStateResul
 function failure(reason: DiagnosticReportFailure): {
   ok: false
   reason: DiagnosticReportFailure
-}
-function failure(reason: DiagnosticReportFailure): {
-  ok: false
-  reason: DiagnosticReportFailure
 } {
   return { ok: false, reason }
 }
