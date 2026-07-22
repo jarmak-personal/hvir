@@ -149,8 +149,8 @@ export class TerminalEventRouter {
 
 class TerminalEventRouteState implements TerminalEventRoute {
   private readonly chunks: string[] = []
-  private pendingHandle?: number
-  private pendingKind?: 'frame' | 'timer'
+  private frameHandle?: number
+  private timerHandle?: number
   private bufferedBytes = 0
   private nativeDataEvents = 0
   private deliveryCallbacks = 0
@@ -225,7 +225,7 @@ class TerminalEventRouteState implements TerminalEventRoute {
       deliveredBytes: this.deliveredBytes,
       peakBufferedBytes: this.peakBufferedBytes,
       bufferedBytes: this.bufferedBytes,
-      pending: this.pendingHandle !== undefined,
+      pending: this.frameHandle !== undefined || this.timerHandle !== undefined,
       presentation: this.presentation,
     }
   }
@@ -247,14 +247,11 @@ class TerminalEventRouteState implements TerminalEventRoute {
   }
 
   private schedule(): void {
-    if (this.pendingHandle !== undefined) return
+    if (this.frameHandle !== undefined || this.timerHandle !== undefined) return
     if (this.presentation === 'visible') {
-      this.pendingKind = 'frame'
-      this.pendingHandle = this.scheduler.requestFrame(() => this.flush())
-    } else {
-      this.pendingKind = 'timer'
-      this.pendingHandle = this.scheduler.setTimer(() => this.flush(), this.hiddenFlushMs)
+      this.frameHandle = this.scheduler.requestFrame(() => this.flush())
     }
+    this.timerHandle = this.scheduler.setTimer(() => this.flush(), this.hiddenFlushMs)
   }
 
   private flush(): void {
@@ -277,11 +274,10 @@ class TerminalEventRouteState implements TerminalEventRoute {
   }
 
   private cancelPending(): void {
-    if (this.pendingHandle === undefined) return
-    if (this.pendingKind === 'frame') this.scheduler.cancelFrame(this.pendingHandle)
-    else this.scheduler.clearTimer(this.pendingHandle)
-    this.pendingHandle = undefined
-    this.pendingKind = undefined
+    if (this.frameHandle !== undefined) this.scheduler.cancelFrame(this.frameHandle)
+    if (this.timerHandle !== undefined) this.scheduler.clearTimer(this.timerHandle)
+    this.frameHandle = undefined
+    this.timerHandle = undefined
   }
 }
 

@@ -128,7 +128,7 @@ describe('TerminalEventRouter', () => {
     router.dispose()
   })
 
-  it('flushes hidden output by 40 ms and reschedules across visibility changes', () => {
+  it('bounds hidden and frame-suspended output across visibility changes', () => {
     const api = new FakeHvirApi()
     const scheduler = new ManualScheduler()
     const handlers = handlersFixture()
@@ -144,19 +144,25 @@ describe('TerminalEventRouter', () => {
 
     api.emit('pty:data', { id: 'terminal-1', data: 'reveal' })
     route.setPresentation('visible')
-    scheduler.advance(40)
-    expect(handlers.onData).toHaveBeenCalledTimes(1)
     scheduler.flushFrames()
     expect(handlers.onData).toHaveBeenLastCalledWith('reveal')
+
+    api.emit('pty:data', { id: 'terminal-1', data: 'occluded' })
+    scheduler.advance(39)
+    expect(handlers.onData).toHaveBeenCalledTimes(2)
+    scheduler.advance(1)
+    expect(handlers.onData).toHaveBeenLastCalledWith('occluded')
+    scheduler.flushFrames()
+    expect(handlers.onData).toHaveBeenCalledTimes(3)
 
     api.emit('pty:data', { id: 'terminal-1', data: 'hide-again' })
     route.setPresentation('hidden')
     scheduler.flushFrames()
-    expect(handlers.onData).toHaveBeenCalledTimes(2)
+    expect(handlers.onData).toHaveBeenCalledTimes(3)
     scheduler.advance(40)
     expect(handlers.onData).toHaveBeenLastCalledWith('hide-again')
     expect(route.snapshot()).toMatchObject({
-      deliveryCallbacks: 3,
+      deliveryCallbacks: 4,
       presentation: 'hidden',
       pending: false,
     })
