@@ -39,4 +39,10 @@ describe('project kind workflow security', () => {
     expect(matches(/^\s+run: npm run project:kind$/gm)).toHaveLength(2)
     expect(workflow).not.toMatch(/^\s+run:.*\$\{\{/m)
   })
+
+  it('converges issue lifecycle and label events without polling', () => {
+    expect(workflow).toContain('types: [opened, reopened, closed, labeled, unlabeled]')
+    expect(workflow).toContain("github.event.action == 'closed'")
+    expect(workflow).not.toMatch(/^\s+(schedule):/m)
+  })
 })

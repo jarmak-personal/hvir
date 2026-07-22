@@ -49,6 +49,8 @@ describe('GitHub pull request planning adapter', () => {
                   number: 86,
                   state: 'OPEN',
                   isDraft: true,
+                  baseRefName: 'epic/50-project-management',
+                  headRefName: 'agent/issue-86',
                   body: 'Contributes-to: #50',
                   repository: { nameWithOwner: 'jarmak-personal/hvir' },
                 },
@@ -86,6 +88,8 @@ describe('GitHub pull request planning adapter', () => {
       number: 86,
       state: 'OPEN',
       isDraft: true,
+      baseRefName: 'epic/50-project-management',
+      headRefName: 'agent/issue-86',
       body: 'Contributes-to: #50',
       closingIssues: [
         {
@@ -113,6 +117,8 @@ describe('GitHub pull request planning adapter', () => {
                 nodes: [
                   {
                     number: second ? 90 : 89,
+                    baseRefName: 'main',
+                    headRefName: `agent/pr-${second ? 90 : 89}`,
                     body: `Contributes-to: #${second ? 50 : 86}`,
                     repository: { nameWithOwner: 'jarmak-personal/hvir' },
                   },
@@ -134,11 +140,15 @@ describe('GitHub pull request planning adapter', () => {
       {
         repository: 'jarmak-personal/hvir',
         number: 89,
+        baseRefName: 'main',
+        headRefName: 'agent/pr-89',
         body: 'Contributes-to: #86',
       },
       {
         repository: 'jarmak-personal/hvir',
         number: 90,
+        baseRefName: 'main',
+        headRefName: 'agent/pr-90',
         body: 'Contributes-to: #50',
       },
     ])
@@ -153,6 +163,36 @@ describe('GitHub pull request planning adapter', () => {
     await expect(repository(fetchImplementation).getPullRequest(86)).rejects.toThrow(
       'jarmak-personal/hvir',
     )
+  })
+
+  it('paginates and filters branches for one parent epic', async () => {
+    const fetchImplementation = vi.fn(
+      (_url: string | URL | Request, init?: RequestInit): Promise<Response> => {
+        const request = requestBody(init)
+        expect(request.variables.prefix).toBe('refs/heads/epic/')
+        const second = request.variables.after === 'next-ref'
+        return Promise.resolve(
+          graphqlData({
+            repository: {
+              refs: {
+                nodes: second
+                  ? [{ name: 'epic/50-second' }]
+                  : [{ name: 'epic/50-first' }, { name: 'epic/51-unrelated' }],
+                pageInfo: {
+                  endCursor: second ? null : 'next-ref',
+                  hasNextPage: !second,
+                },
+              },
+            },
+          }),
+        )
+      },
+    )
+
+    await expect(repository(fetchImplementation).listEpicBranches(50)).resolves.toEqual([
+      'epic/50-first',
+      'epic/50-second',
+    ])
   })
 })
 

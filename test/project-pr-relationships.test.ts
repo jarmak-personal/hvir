@@ -2,7 +2,10 @@ import { readFileSync } from 'node:fs'
 
 import { describe, expect, it } from 'vitest'
 
-import { parseContributionTrailers } from '../scripts/project-management/pull-request-relationships.ts'
+import {
+  parseCompletingChildTrailer,
+  parseContributionTrailers,
+} from '../scripts/project-management/pull-request-relationships.ts'
 
 describe('pull request contribution trailers', () => {
   it('accepts exact whole-line trailers, normalizes CRLF, and sorts targets', () => {
@@ -88,5 +91,50 @@ describe('pull request contribution trailers', () => {
       warnings: [],
       errors: [],
     })
+    expect(parseCompletingChildTrailer(template, 999)).toEqual({ errors: [] })
+  })
+})
+
+describe('completing-child trailer', () => {
+  it('accepts one exact direct-child relationship', () => {
+    expect(parseCompletingChildTrailer('Completes-child: #168', 200)).toEqual({
+      issueNumber: 168,
+      errors: [],
+    })
+  })
+
+  it('rejects duplicate or competing child declarations', () => {
+    expect(
+      parseCompletingChildTrailer('Completes-child: #168\nCompletes-child: #169', 200),
+    ).toEqual({
+      errors: [
+        {
+          code: 'multiple-completing-children',
+          line: 2,
+          issueNumber: 169,
+        },
+      ],
+    })
+  })
+
+  it.each([
+    'completes-child: #168',
+    'Completes-child:#168',
+    'Completes-child: owner/repository#168',
+    'Completes-child: #0',
+  ])('rejects malformed completion metadata: %s', (line) => {
+    expect(parseCompletingChildTrailer(line, 200)).toEqual({
+      errors: [{ code: 'malformed-completing-child', line: 1 }],
+    })
+  })
+
+  it('ignores examples inside comments and fences', () => {
+    const body = [
+      '<!-- Completes-child: #168 -->',
+      '```text',
+      'Completes-child: #169',
+      '```',
+    ].join('\n')
+    expect(parseCompletingChildTrailer(body, 200)).toEqual({ errors: [] })
   })
 })

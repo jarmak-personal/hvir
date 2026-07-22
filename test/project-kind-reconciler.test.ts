@@ -78,15 +78,23 @@ describe('project kind reconciliation', () => {
 
     expect(report.results[0]).toMatchObject({ state: 'missing', eventWasStale: true })
     expect(adapter.addLabels).not.toHaveBeenCalled()
-    expect(adapter.syncProjectKind).not.toHaveBeenCalled()
+    expect(adapter.syncProjectKind).toHaveBeenCalledWith(
+      expect.objectContaining({ number: 10 }),
+      undefined,
+      true,
+    )
   })
 
-  it('reports missing metadata without touching the Project', async () => {
+  it('reports missing metadata while still converging lifecycle planning', async () => {
     const adapter = port(issue({ labels: ['area:terminal'] }))
     const report = await reconcileKinds(adapter, { issueNumber: 10, apply: true })
 
     expect(report.summary.missing).toBe(1)
-    expect(adapter.syncProjectKind).not.toHaveBeenCalled()
+    expect(adapter.syncProjectKind).toHaveBeenCalledWith(
+      expect.objectContaining({ number: 10 }),
+      undefined,
+      true,
+    )
   })
 
   it('restores a sole removed kind and reports the applied label mutation', async () => {
@@ -131,11 +139,15 @@ describe('project kind reconciliation', () => {
     expect(report.summary).toMatchObject({ total: 3, valid: 1, missing: 1, ambiguous: 1 })
   })
 
-  it('leaves closed issue project metadata unchanged', async () => {
+  it('converges closed issue Project metadata to its lifecycle state', async () => {
     const adapter = port(issue({ state: 'CLOSED' }))
     const report = await reconcileKinds(adapter, { issueNumber: 10, apply: true })
 
     expect(report.summary.closed).toBe(1)
-    expect(adapter.syncProjectKind).not.toHaveBeenCalled()
+    expect(adapter.syncProjectKind).toHaveBeenCalledWith(
+      expect.objectContaining({ number: 10, state: 'CLOSED' }),
+      'Feature',
+      true,
+    )
   })
 })

@@ -1,5 +1,8 @@
 import { parseProjectNumber, parseProjectRepository } from './project-config.ts'
-import type { PullRequestPlanningReport } from './pull-request-planning.ts'
+import type {
+  PullRequestPlanningReport,
+  ReopenedIssuePlanningReport,
+} from './pull-request-planning.ts'
 
 export interface ProjectPullRequestCliOptions {
   help: boolean
@@ -7,17 +10,20 @@ export interface ProjectPullRequestCliOptions {
   issueNumber?: number
   previousBody?: string
   apply: boolean
+  output: 'concise' | 'verbose' | 'json'
 }
 
 export const PROJECT_PULL_REQUEST_HELP = `Usage: npm run project:pr -- (--pull-request <number> | --issue <number>) [options]
 
-Reconcile explicit pull-request relationships into issue planning Status.
+Reconcile explicit pull-request relationships into issue planning and completion.
 Dry-run is the default.
 
 Options:
   --pull-request <number>       Pull request in the configured repository
   --issue <number>              Reconcile one reopened issue from current relationships
-  --apply                       Apply eligible Todo to In Progress transitions
+  --apply                       Apply eligible planning convergence and child closure
+  --verbose                     Emit target and diagnostic details
+  --json                        Emit the structured reconciliation report
   --help                        Show this help
 
 Environment:
@@ -51,10 +57,19 @@ export function parseProjectPullRequestCliOptions(
       ? environment.HVIR_PREVIOUS_PR_BODY
       : undefined
   let apply = parseBoolean(environment.HVIR_APPLY, false)
+  let output: ProjectPullRequestCliOptions['output'] = 'concise'
 
   for (let index = 0; index < args.length; index += 1) {
     const argument = args[index]
-    if (argument === '--help') return { help: true, apply }
+    if (argument === '--help') return { help: true, apply, output }
+    if (argument === '--verbose' || argument === '--json') {
+      const requested = argument === '--json' ? 'json' : 'verbose'
+      if (output !== 'concise' && output !== requested) {
+        throw new Error('--verbose and --json cannot be combined.')
+      }
+      output = requested
+      continue
+    }
     if (argument === '--apply') {
       apply = true
       continue
@@ -89,10 +104,39 @@ export function parseProjectPullRequestCliOptions(
   return {
     help: false,
     apply,
+    output,
     ...(pullRequestNumber === undefined ? {} : { pullRequestNumber }),
     ...(issueNumber === undefined ? {} : { issueNumber }),
     ...(previousBody === undefined ? {} : { previousBody }),
   }
+}
+
+export function formatProjectPullRequestReport(
+  report: PullRequestPlanningReport | ReopenedIssuePlanningReport,
+  output: ProjectPullRequestCliOptions['output'],
+): string {
+  if (output === 'json') return `${JSON.stringify(report, null, 2)}\n`
+  const owner =
+    'pullRequest' in report
+      ? `PR #${report.pullRequest.number}`
+      : `issue #${report.issue.number}`
+  const closure =
+    'completingChild' in report && report.completingChild !== null
+      ? `, child closure ${report.completingChild.closure}`
+      : ''
+  const headline = `${owner}: ${report.summary.advanced} advanced, ${report.summary.unchanged} unchanged, ${report.summary.failed} failed, ${report.summary.errors} errors${closure}`
+  if (output === 'concise') return `${headline}\n`
+  const targets = 'targets' in report ? report.targets : [report.target]
+  return `${[
+    headline,
+    ...targets.map(
+      (target) =>
+        `#${target.issueNumber}: ${target.outcome} (${target.reason}); relationships ${target.relationships.join(', ') || 'none'}`,
+    ),
+    ...report.diagnostics.map(
+      (diagnostic) => `${diagnostic.severity}: ${diagnostic.message}`,
+    ),
+  ].join('\n')}\n`
 }
 
 export const parseProjectPullRequestRepository = parseProjectRepository

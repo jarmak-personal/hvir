@@ -83,6 +83,15 @@ function projectFetch(
                     name,
                   })),
                 },
+                {
+                  __typename: 'ProjectV2SingleSelectField',
+                  id: 'status-field',
+                  name: 'Status',
+                  options: ['Todo', 'In Progress', 'Done'].map((name) => ({
+                    id: `status-${name}`,
+                    name,
+                  })),
+                },
               ],
               pageInfo: { endCursor: null, hasNextPage: false },
             },
@@ -114,6 +123,10 @@ function projectFetch(
                               name: options.currentOption,
                               optionId: `option-${options.currentOption}`,
                             },
+                      status: {
+                        __typename: 'ProjectV2ItemFieldSingleSelectValue',
+                        name: 'Todo',
+                      },
                     },
                   ],
               pageInfo: { endCursor: null, hasNextPage: false },
@@ -133,6 +146,30 @@ function projectFetch(
       return Promise.resolve(
         graphqlData({
           updateProjectV2ItemFieldValue: { projectV2Item: { id: 'item-id' } },
+        }),
+      )
+    }
+    if (body.query.includes('ProjectItemById')) {
+      return Promise.resolve(
+        graphqlData({
+          node: {
+            __typename: 'ProjectV2Item',
+            id: 'new-item',
+            isArchived: false,
+            content: {
+              __typename: 'Issue',
+              number: 10,
+              repository: { nameWithOwner: 'jarmak-personal/hvir' },
+            },
+            kind: {
+              __typename: 'ProjectV2ItemFieldSingleSelectValue',
+              name: 'Feature',
+            },
+            status: {
+              __typename: 'ProjectV2ItemFieldSingleSelectValue',
+              name: 'Todo',
+            },
+          },
         }),
       )
     }

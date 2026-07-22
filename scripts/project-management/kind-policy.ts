@@ -35,7 +35,7 @@ export type KindOption = KindDefinition['option']
 
 export type KindEvent =
   | { action: 'labeled' | 'unlabeled'; label: string }
-  | { action: 'opened' | 'reopened' | 'reconcile' }
+  | { action: 'opened' | 'reopened' | 'closed' | 'reconcile' }
 
 export interface KindPlan {
   state: 'valid' | 'missing' | 'ambiguous'

@@ -2,8 +2,10 @@ import { describe, expect, it, vi } from 'vitest'
 
 import type { CanonicalProjectItem } from '../scripts/project-management/canonical-project.ts'
 import type { PlanningIssueSnapshot } from '../scripts/project-management/issue-planning.ts'
+import type { KindOption } from '../scripts/project-management/kind-policy.ts'
 import type { ProjectStatus } from '../scripts/project-management/planning-fields.ts'
 import {
+  convergePlanningRecord,
   normalizePlanningRecord,
   reconcilePlanningRecord,
   type IssuePlanningPort,
@@ -68,6 +70,13 @@ function ports(
         .mockImplementation((_issue, archived: CanonicalProjectItem) => {
           archived.archived = false
           return Promise.resolve(archived)
+        }),
+      setKind: vi
+        .fn()
+        .mockImplementation((target: CanonicalProjectItem, kind: KindOption) => {
+          const changed = target.kind !== kind
+          target.kind = kind
+          return Promise.resolve(changed)
         }),
       setStatus: vi
         .fn()
@@ -429,5 +438,52 @@ describe('planning record operations', () => {
       }),
     ).rejects.toThrow('Closed issue #85 is not eligible')
     expect(project.addIssue).not.toHaveBeenCalled()
+  })
+
+  it('converges membership, label-derived Kind, and active Status together', async () => {
+    const { issues, project } = ports()
+    vi.mocked(project.getIssueItem).mockResolvedValue(undefined)
+
+    const report = await convergePlanningRecord(issues, project, {
+      issueNumber: 85,
+      active: true,
+      apply: false,
+    })
+
+    expect(report.operations).toEqual([
+      { operation: 'ensure-project', outcome: 'would-add' },
+      {
+        operation: 'set-kind',
+        outcome: 'would-update',
+        from: null,
+        to: 'Feature',
+      },
+      {
+        operation: 'set-status',
+        outcome: 'would-update',
+        from: null,
+        to: 'In Progress',
+      },
+    ])
+  })
+
+  it('derives Done from closed issue state without trying to add a missing item', async () => {
+    const { issues, project } = ports({
+      issue: issue({ state: 'CLOSED' }),
+      item: projectItem({ status: 'In Progress' }),
+    })
+
+    const report = await convergePlanningRecord(issues, project, {
+      issueNumber: 85,
+      active: true,
+      apply: true,
+    })
+
+    expect(project.addIssue).not.toHaveBeenCalled()
+    expect(project.setStatus).toHaveBeenCalledWith(
+      expect.objectContaining({ issueNumber: 85 }),
+      'Done',
+    )
+    expect(report.record.project.status).toBe('Done')
   })
 })

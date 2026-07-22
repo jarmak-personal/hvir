@@ -11,17 +11,24 @@ describe('pull request planning CLI policy', () => {
       help: false,
       pullRequestNumber: 86,
       apply: false,
+      output: 'concise',
     })
     expect(
       parseProjectPullRequestCliOptions([], {
         HVIR_PULL_REQUEST_NUMBER: '86',
         HVIR_APPLY: 'true',
       }),
-    ).toEqual({ help: false, pullRequestNumber: 86, apply: true })
+    ).toEqual({
+      help: false,
+      pullRequestNumber: 86,
+      apply: true,
+      output: 'concise',
+    })
     expect(parseProjectPullRequestCliOptions(['--issue', '50'], {})).toEqual({
       help: false,
       issueNumber: 50,
       apply: false,
+      output: 'concise',
     })
   })
 
@@ -31,14 +38,35 @@ describe('pull request planning CLI policy', () => {
         HVIR_PULL_REQUEST_NUMBER: '86',
         HVIR_APPLY: 'false',
       }),
-    ).toEqual({ help: false, pullRequestNumber: 87, apply: true })
+    ).toEqual({
+      help: false,
+      pullRequestNumber: 87,
+      apply: true,
+      output: 'concise',
+    })
   })
 
   it('returns help without requiring a PR or credentials', () => {
     expect(parseProjectPullRequestCliOptions(['--help'], {})).toEqual({
       help: true,
       apply: false,
+      output: 'concise',
     })
+  })
+
+  it('offers verbose and JSON diagnosis without changing the concise default', () => {
+    expect(
+      parseProjectPullRequestCliOptions(['--pull-request', '86', '--verbose'], {}),
+    ).toMatchObject({ output: 'verbose' })
+    expect(
+      parseProjectPullRequestCliOptions(['--pull-request', '86', '--json'], {}),
+    ).toMatchObject({ output: 'json' })
+    expect(() =>
+      parseProjectPullRequestCliOptions(
+        ['--pull-request', '86', '--verbose', '--json'],
+        {},
+      ),
+    ).toThrow('cannot be combined')
   })
 
   it.each([

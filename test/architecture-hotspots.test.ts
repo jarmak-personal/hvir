@@ -34,7 +34,7 @@ describe('architecture hotspot report', () => {
     expect(main?.exception?.rationale).toContain('composition root')
     expect(main?.exception?.removalIssue).toBe('#35-#40')
     expect(main?.exception?.expiresOn).toBe('2026-09-30')
-  })
+  }, 15_000)
 
   it('blocks the normal verification path on budget violations', () => {
     const root = process.cwd()

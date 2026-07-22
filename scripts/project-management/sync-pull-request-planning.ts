@@ -2,13 +2,14 @@ import { GitHubCanonicalProject } from './canonical-project.ts'
 import { GitHubClient } from './github-client.ts'
 import { GitHubIssueRepository } from './github-issues.ts'
 import { GitHubPullRequestRepository } from './github-pull-requests.ts'
-import { reconcilePlanningRecord } from './planning-record.ts'
+import { convergePlanningRecord, reconcilePlanningRecord } from './planning-record.ts'
 import {
   parseProjectPullRequestCliOptions,
   parseProjectPullRequestProjectNumber,
   parseProjectPullRequestRepository,
   PROJECT_PULL_REQUEST_HELP,
   projectPullRequestExitCode,
+  formatProjectPullRequestReport,
 } from './pull-request-cli.ts'
 import {
   reconcilePullRequestPlanning,
@@ -54,6 +55,8 @@ async function main(): Promise<void> {
   const planningRecords = {
     reconcile: (input: Parameters<typeof reconcilePlanningRecord>[2]) =>
       reconcilePlanningRecord(issues, project, input),
+    converge: (input: Parameters<typeof convergePlanningRecord>[2]) =>
+      convergePlanningRecord(issues, project, input),
   }
   const report =
     options.pullRequestNumber === undefined
@@ -62,14 +65,14 @@ async function main(): Promise<void> {
           issueNumber: requireIssueNumber(options.issueNumber),
           apply: options.apply,
         })
-      : await reconcilePullRequestPlanning(pullRequests, planningRecords, {
+      : await reconcilePullRequestPlanning(pullRequests, planningRecords, issues, {
           pullRequestNumber: options.pullRequestNumber,
           apply: options.apply,
           ...(options.previousBody === undefined
             ? {}
             : { previousBody: options.previousBody }),
         })
-  process.stdout.write(`${JSON.stringify(report, null, 2)}\n`)
+  process.stdout.write(formatProjectPullRequestReport(report, options.output))
   process.exitCode = projectPullRequestExitCode(report)
 }
 

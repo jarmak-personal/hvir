@@ -7,6 +7,7 @@ import type {
   ProjectKindSyncResult,
 } from './kind-reconciler.ts'
 import { KIND_DEFINITIONS, type KindOption } from './kind-policy.ts'
+import { convergeProjectPlanning } from './planning-record.ts'
 
 export interface GitHubKindAutomationOptions {
   repositoryOwner: string
@@ -72,33 +73,36 @@ export class GitHubKindAutomation implements KindAutomationPort {
 
   async syncProjectKind(
     issue: IssueSnapshot,
-    option: string,
+    option: string | undefined,
     apply: boolean,
   ): Promise<ProjectKindSyncResult> {
-    const kind = requireKindOption(option)
-    await this.#project.validateKindSchema()
-    const item = await this.#project.getIssueItem(issue.number)
-    if (item?.archived === true) {
-      throw new Error(
-        `Issue #${issue.number} has an archived item in the canonical Project.`,
-      )
-    }
-    if (item?.kind === kind) {
-      return { action: 'unchanged', issueAdded: false }
-    }
-    if (!apply) {
-      return {
-        action: item === undefined ? 'would-add-item' : 'would-update',
-        issueAdded: false,
-      }
-    }
-
-    const target = item ?? (await this.#project.addIssue(issue))
-    const updated = await this.#project.setKind(target, kind)
+    const kind = option === undefined ? undefined : requireKindOption(option)
+    const report = await convergeProjectPlanning(issue, this.#project, {
+      active: false,
+      apply,
+      ...(kind === undefined ? {} : { derivedKind: kind }),
+    })
+    const membership = report.operations.find(
+      (operation) => operation.operation === 'ensure-project',
+    )
+    const fieldMutations = report.operations.filter(
+      (operation) =>
+        (operation.operation === 'set-kind' || operation.operation === 'set-status') &&
+        operation.outcome !== 'unchanged',
+    )
+    const issueAdded = membership?.outcome === 'added'
     return {
-      action:
-        item === undefined ? 'added-and-updated' : updated ? 'updated' : 'unchanged',
-      issueAdded: item === undefined,
+      action: issueAdded
+        ? 'added-and-updated'
+        : membership?.outcome === 'would-add'
+          ? 'would-add-item'
+          : fieldMutations.some((operation) => operation.outcome === 'updated') ||
+              membership?.outcome === 'restored'
+            ? 'updated'
+            : fieldMutations.length > 0 || membership?.outcome === 'would-restore'
+              ? 'would-update'
+              : 'unchanged',
+      issueAdded,
     }
   }
 }

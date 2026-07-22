@@ -16,7 +16,7 @@ export interface KindAutomationPort {
   removeLabel: (issueNumber: number, label: string) => Promise<void>
   syncProjectKind: (
     issue: IssueSnapshot,
-    option: string,
+    option: string | undefined,
     apply: boolean,
   ) => Promise<ProjectKindSyncResult>
 }
@@ -92,19 +92,6 @@ async function reconcileIssue(
   issue: IssueSnapshot,
   input: ReconcileKindInput,
 ): Promise<KindReconciliation> {
-  if (issue.state === 'CLOSED') {
-    return {
-      issueNumber: issue.number,
-      state: 'closed',
-      labelsToAdd: [],
-      labelsToRemove: [],
-      eventWasStale: false,
-      ignoredEvent: false,
-      detail: 'Closed issues retain their existing Project Kind value.',
-      applied: false,
-    }
-  }
-
   const eventWasStale =
     input.event !== undefined &&
     input.eventUpdatedAt !== undefined &&
@@ -113,6 +100,7 @@ async function reconcileIssue(
   const plan = planKindLabels(issue.labels, event ?? { action: 'reconcile' })
 
   if (plan.state !== 'valid' || plan.kind === undefined) {
+    const project = await port.syncProjectKind(issue, undefined, input.apply)
     return {
       issueNumber: issue.number,
       state: plan.state,
@@ -120,8 +108,9 @@ async function reconcileIssue(
       labelsToRemove: [],
       eventWasStale,
       ignoredEvent: plan.ignoredEvent,
+      projectAction: project.action,
       detail: plan.detail,
-      applied: false,
+      applied: input.apply && project.action === 'updated',
     }
   }
 
@@ -143,7 +132,7 @@ async function reconcileIssue(
       project.action === 'updated')
   return {
     issueNumber: issue.number,
-    state: 'valid',
+    state: issue.state === 'CLOSED' ? 'closed' : 'valid',
     kind: plan.kind.label,
     labelsToAdd: plan.labelsToAdd,
     labelsToRemove: plan.labelsToRemove,

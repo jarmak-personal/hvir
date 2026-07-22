@@ -37,6 +37,8 @@ export class GitHubPullRequestRepository {
           number: number
           state: PullRequestState
           isDraft: boolean
+          baseRefName: string
+          headRefName: string
           body: string
           repository: { nameWithOwner: string }
         } | null
@@ -45,7 +47,7 @@ export class GitHubPullRequestRepository {
       `query PullRequestPlanning($owner: String!, $name: String!, $number: Int!) {
         repository(owner: $owner, name: $name) {
           pullRequest(number: $number) {
-            number state isDraft body
+            number state isDraft baseRefName headRefName body
             repository { nameWithOwner }
           }
         }
@@ -69,6 +71,8 @@ export class GitHubPullRequestRepository {
       number: pullRequest.number,
       state: pullRequest.state,
       isDraft: pullRequest.isDraft,
+      baseRefName: pullRequest.baseRefName,
+      headRefName: pullRequest.headRefName,
       body: pullRequest.body,
       closingIssues: relatedIssues
         .filter((issue) => !manuallyLinked.has(issueKey(issue)))
@@ -85,6 +89,8 @@ export class GitHubPullRequestRepository {
           pullRequests: {
             nodes: Array<{
               number: number
+              baseRefName: string
+              headRefName: string
               body: string
               repository: { nameWithOwner: string }
             }>
@@ -95,7 +101,7 @@ export class GitHubPullRequestRepository {
         `query OpenPullRequestBodies($owner: String!, $name: String!, $after: String) {
           repository(owner: $owner, name: $name) {
             pullRequests(first: 100, after: $after, states: OPEN, orderBy: {field: CREATED_AT, direction: ASC}) {
-              nodes { number body repository { nameWithOwner } }
+              nodes { number baseRefName headRefName body repository { nameWithOwner } }
               pageInfo { endCursor hasNextPage }
             }
           }
@@ -110,6 +116,8 @@ export class GitHubPullRequestRepository {
         ...connection.nodes.map((pullRequest) => ({
           repository: pullRequest.repository.nameWithOwner,
           number: pullRequest.number,
+          baseRefName: pullRequest.baseRefName,
+          headRefName: pullRequest.headRefName,
           body: pullRequest.body,
         })),
       )
@@ -117,6 +125,45 @@ export class GitHubPullRequestRepository {
     } while (cursor !== null)
 
     return pullRequests
+  }
+
+  async listEpicBranches(parentIssueNumber: number): Promise<string[]> {
+    let cursor: string | null = null
+    const branches: string[] = []
+    const prefix = 'refs/heads/epic/'
+    const branchPrefix = `epic/${parentIssueNumber}-`
+    do {
+      const data: {
+        repository: {
+          refs: {
+            nodes: Array<{ name: string }>
+            pageInfo: PageInfo
+          }
+        } | null
+      } = await this.#client.graphql(
+        `query EpicBranches($owner: String!, $name: String!, $prefix: String!, $after: String) {
+          repository(owner: $owner, name: $name) {
+            refs(refPrefix: $prefix, first: 100, after: $after, orderBy: {field: ALPHABETICAL, direction: ASC}) {
+              nodes { name }
+              pageInfo { endCursor hasNextPage }
+            }
+          }
+        }`,
+        { owner: this.#owner, name: this.#name, prefix, after: cursor },
+      )
+      const connection = data.repository?.refs
+      if (connection === undefined) {
+        throw new Error(`Epic branches in ${this.repository} could not be read.`)
+      }
+      branches.push(
+        ...connection.nodes
+          .map((reference) => reference.name)
+          .filter((name) => name.startsWith(branchPrefix)),
+      )
+      cursor = nextPageCursor(connection.pageInfo)
+    } while (cursor !== null)
+
+    return [...new Set(branches)].sort()
   }
 
   get repository(): string {

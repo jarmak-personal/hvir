@@ -53,6 +53,7 @@
     "project:kind": "node scripts/project-management/sync-kind.ts",
     "project:record": "node scripts/project-management/read-planning-record.ts",
     "project:pr": "node scripts/project-management/sync-pull-request-planning.ts",
+    "issue:context": "node scripts/project-management/read-issue-context.ts",
     "verify": "npm run check-seams && npm run check-adrs && npm run architecture:check && npm run lint && npm run typecheck && npm test && node npm/launcher/hvir.mjs --help",
     "smoke": "electron-vite build && node scripts/run-smoke-scenarios.mts",
     "smoke:macos": "electron-vite build && node scripts/run-smoke-scenarios.mts pty-native viewer-position platform-contracts",
