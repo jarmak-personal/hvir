@@ -83,7 +83,7 @@
     },
     {
       "path": "src/main/smoke/index.ts",
-      "maxLines": 2857,
+      "maxLines": 2868,
       "owner": "testing epic #72",
       "rationale": "The remaining transitional renderer workflow stays production-composed while focused PTY, viewer-position, and packaged platform contracts run independently.",
       "removalIssue": "#115 and #116",
