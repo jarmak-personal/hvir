@@ -230,16 +230,20 @@ describe('Electron smoke command contracts', () => {
     expect(invocationScript).toContain('create-smoke-repository.sh')
   })
 
-  it('installs exact-version tarballs and runs only the narrow platform contracts', () => {
+  it('installs exact-version tarballs and exercises script-free first-use preparation', () => {
     expect(packagedScript).toContain(
       'tarball="dist/npm/${package_name}-${package_version}.tgz"',
     )
     expect(packagedScript).toContain(
       'launcher_tarball="dist/npm/hvir-workbench-${package_version}.tgz"',
     )
-    expect(packagedScript).toContain(
-      'HVIR_SMOKE=1 HVIR_SMOKE_SCENARIO=platform-contracts',
-    )
+    expect(packagedScript).toContain('--ignore-scripts')
+    expect(packagedScript).toContain("grep -Eiq 'allow-scripts|install scripts not'")
+    expect(packagedScript).toContain('chmod -R a-w "$installation_root"')
+    expect(packagedScript).toContain('HVIR_SMOKE=1 \\')
+    expect(packagedScript).toContain('HVIR_SMOKE_SCENARIO=platform-contracts \\')
+    expect(packagedScript).toContain('grep -Fq "Preparing hvir $package_version"')
+    expect(packagedScript).toContain('run_launcher >"$second_launch_log"')
     expect(packagedScript).not.toContain('HVIR_SMOKE_SCENARIO=legacy-workflow')
     expect(packagedScript).not.toContain('find dist/npm')
   })

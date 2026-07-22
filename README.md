@@ -39,8 +39,10 @@ hvir
 ```
 
 Pass a local project folder to open it directly (`hvir .`). The npm launcher supports
-Linux x64, Linux arm64, and Apple-silicon macOS. Native installers are deliberately not
-another supported release path; see [docs/packaging.md](docs/packaging.md).
+Linux x64, Linux arm64, and Apple-silicon macOS. Its first launch visibly prepares the
+native application in the user cache and does not write to the npm prefix or require
+elevation. Native installers are deliberately not another supported release path; see
+[docs/packaging.md](docs/packaging.md).
 
 hvir expects the system `git` binary. Claude Code and Codex launch options use those CLIs
 from the selected host's login-shell environment; plain shells work without either.

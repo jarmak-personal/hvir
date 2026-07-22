@@ -12,6 +12,7 @@
     "src/preload/**/*.ts",
     "src/workers/**/*.ts",
     "src/shared/**/*.ts",
+    "npm/**/*.d.mts",
     "scripts/check-terminal-runtime-patch.mts",
     "scripts/project-management/**/*.ts",
     "scripts/run-smoke-scenarios.mts",

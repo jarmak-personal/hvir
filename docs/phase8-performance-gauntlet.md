@@ -16,11 +16,12 @@ tests, the default unpackaged Electron groups, and the capacity smoke. Set
 
 `npm run smoke:macos` is the matching Apple-silicon correctness check for the focused PTY,
 viewer-position, retained platform-contract, and terminal-presentation groups. Packaged
-correctness remains a separate distribution boundary: after building the matching platform and launcher tarballs, run
-`npm run smoke:packaged` to verify installation, launcher and native architecture selection,
-application/native-PTY/worker loading, preview-protocol handling, and platform geometry. Neither
-command is a performance measurement, and evidence from one platform does not substitute for
-another.
+correctness remains a separate distribution boundary: after building the matching platform and
+launcher tarballs, run `npm run smoke:packaged` to verify script-disabled installation,
+first-use preparation from a read-only prefix, subsequent reuse, launcher and native architecture
+selection, application/native-PTY/worker loading, preview-protocol handling, and platform
+geometry. Neither command is a performance measurement, and evidence from one platform does not
+substitute for another.
 
 The capacity smoke first compares three 30-second Electron renderer-plus-GPU CPU samples
 for one visible terminal with three matching samples for one visible and eleven hidden
