@@ -160,7 +160,8 @@ export async function verifyWorkbenchHealthFault(win: BrowserWindow): Promise<st
   }
   assertMaskedPixel(win, reviewed)
   await deleteResponsivenessEvidence(win)
-  return `${responsiveness}; resolved fault previewed, masked, copied exactly, and deleted`
+  await deleteLocalDiagnosticEvidence(win)
+  return `${responsiveness}; resolved fault previewed, masked, copied exactly, and all local evidence deleted`
 }
 
 async function verifyResponsivenessDiagnostics(win: BrowserWindow): Promise<string> {
@@ -256,6 +257,44 @@ async function deleteResponsivenessEvidence(win: BrowserWindow): Promise<void> {
         }
         if (Date.now() > deadline) return reject(new Error('responsiveness evidence remained'));
         setTimeout(waitForIdle, 20);
+      };
+      inspect();
+    })
+  `)
+}
+
+async function deleteLocalDiagnosticEvidence(win: BrowserWindow): Promise<void> {
+  await win.webContents.executeJavaScript(`
+    new Promise((resolve, reject) => {
+      const deadline = Date.now() + 3000;
+      document.querySelector('.workbench-health-toggle')?.click();
+      const inspect = () => {
+        const storage = document.querySelector('.workbench-health-storage');
+        const text = storage?.textContent || '';
+        const remove = [...(storage?.querySelectorAll('button') || [])]
+          .find((button) => button.textContent?.trim() === 'Delete local evidence');
+        if (text.includes('256 events') && text.includes('4 × 1 MiB') &&
+            text.includes('runtime-diagnostics.jsonl') && remove) {
+          remove.click();
+          return waitForDeleted();
+        }
+        if (Date.now() > deadline) {
+          return reject(new Error('local diagnostic evidence controls missing: ' + text));
+        }
+        setTimeout(inspect, 20);
+      };
+      const waitForDeleted = () => {
+        const storage = document.querySelector('.workbench-health-storage');
+        const status = storage?.querySelector('[role="status"]')?.textContent || '';
+        if (status.includes('Local diagnostic evidence deleted')) {
+          [...document.querySelectorAll('.workbench-health-dialog button')]
+            .find((button) => button.textContent?.trim() === 'Close')?.click();
+          return resolve();
+        }
+        if (Date.now() > deadline) {
+          return reject(new Error('local diagnostic evidence remained: ' + status));
+        }
+        setTimeout(waitForDeleted, 20);
       };
       inspect();
     })

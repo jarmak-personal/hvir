@@ -114,6 +114,13 @@ export class WorkbenchHealth {
     }
   }
 
+  clear(): boolean {
+    if (this.items.size === 0 && this.dropped === 0) return false
+    this.items.clear()
+    this.dropped = 0
+    return true
+  }
+
   private open(
     key: string,
     event: StoredDiagnosticEvent,

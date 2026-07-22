@@ -24,6 +24,7 @@ const SENSITIVE = '/secret/project TOKEN=hvir-private terminal prompt text'
 class MemoryStorage implements DiagnosticJournalStorage {
   readonly location = '/local/app-data/runtime-diagnostics.jsonl'
   readonly segments = new Map<number, { content: string; mtimeMs: number }>()
+  removeFailures = 0
 
   inspectSegment(index: number): Promise<DiagnosticSegmentMetadata | undefined> {
     const segment = this.segments.get(index)
@@ -49,6 +50,10 @@ class MemoryStorage implements DiagnosticJournalStorage {
   }
 
   removeSegment(index: number): Promise<void> {
+    if (this.removeFailures > 0) {
+      this.removeFailures--
+      return Promise.reject(new Error('storage unavailable'))
+    }
     this.segments.delete(index)
     return Promise.resolve()
   }
@@ -168,6 +173,41 @@ describe('DiagnosticJournal', () => {
     expect(journal.status().dropped.queue).toBe(6)
   })
 
+  it('deletes every segment and starts a fresh journal generation', async () => {
+    const storage = new MemoryStorage()
+    const journal = new DiagnosticJournal(storage, { now: () => NOW })
+    record(journal, { kind: 'application-starting' })
+    await journal.flush()
+    expect(storage.segments.get(0)?.content).toContain('application-starting')
+
+    await journal.reset()
+
+    expect(storage.segments.size).toBe(0)
+    expect(journal.status()).toMatchObject({
+      sink: 'available',
+      dropped: { queue: 0, storage: 0 },
+    })
+    record(journal, { kind: 'application-ready' })
+    await journal.flush()
+    expect(storage.segments.get(0)?.content).toContain('application-ready')
+    expect(storage.segments.get(0)?.content).not.toContain('application-starting')
+  })
+
+  it('reports failed deletion and permits an idempotent retry', async () => {
+    const storage = new MemoryStorage()
+    const journal = new DiagnosticJournal(storage, { now: () => NOW })
+    record(journal, { kind: 'application-starting' })
+    await journal.flush()
+    storage.removeFailures = 1
+
+    await expect(journal.reset()).rejects.toThrow('storage unavailable')
+    expect(journal.status().sink).toBe('failed')
+    await journal.reset()
+
+    expect(storage.segments.size).toBe(0)
+    expect(journal.status().sink).toBe('available')
+  })
+
   it('fails closed when a runtime caller bypasses a diagnostic enum', async () => {
     const storage = new MemoryStorage()
     const journal = new DiagnosticJournal(storage)
@@ -248,6 +288,48 @@ describe('RuntimeDiagnostics local storage', () => {
     expect(content).toContain('"kind":"pty-spawn-failed"')
     expect(content).toContain('"kind":"host-control-failed"')
     expect(content.match(/"hostKind":"ssh"/g)).toHaveLength(2)
+  })
+
+  it('exposes the local bound and deletes recent, health, and durable evidence', async () => {
+    directory = await mkdtemp(join(tmpdir(), 'hvir-diagnostics-delete-'))
+    const diagnostics = RuntimeDiagnostics.create(directory, true)
+    diagnostics.recordApplication('application-starting')
+    diagnostics.recordWindowHealth({
+      kind: 'renderer-unresponsive',
+      ownerId: 7,
+      ownerGeneration: 2,
+      occurrenceId: '019c0000-0000-7000-8000-000000000021',
+    })
+    await vi.waitFor(async () => {
+      expect(
+        await readFile(join(directory!, 'runtime-diagnostics.jsonl'), 'utf8'),
+      ).toContain('renderer-unresponsive')
+    })
+
+    expect(diagnostics.evidenceState()).toMatchObject({
+      availability: 'durable',
+      recent: { maxEvents: 256, maxBytes: 248 * 1024 },
+      journal: {
+        location: join(directory, 'runtime-diagnostics.jsonl'),
+        maxSegments: 4,
+        maxSegmentBytes: 1024 * 1024,
+        retentionHours: 168,
+      },
+    })
+    expect(diagnostics.snapshot().events).not.toHaveLength(0)
+    expect(diagnostics.healthSnapshot().items).toHaveLength(1)
+
+    expect(await diagnostics.deleteEvidence()).toMatchObject({
+      ok: true,
+      outcome: 'deleted',
+    })
+    expect(diagnostics.snapshot()).toEqual({ version: 1, events: [], dropped: [] })
+    expect(diagnostics.healthSnapshot().items).toEqual([])
+    await expect(
+      readFile(join(directory, 'runtime-diagnostics.jsonl'), 'utf8'),
+    ).rejects.toMatchObject({ code: 'ENOENT' })
+    expect(await diagnostics.deleteEvidence()).toMatchObject({ ok: true })
+    await diagnostics.dispose()
   })
 })
 

@@ -81,7 +81,7 @@ function createWorkbenchEntry(): void {
     createDiagnosticReportCoordinator(diagnostics, rendererScopes),
     (reports) => reports.dispose(),
   )
-  const diagnosticIpc = { reports: diagnosticReports, responsiveness: diagnostics }
+  const diagnosticIpc = { reports: diagnosticReports, responsiveness: diagnostics, evidence: diagnostics }
   diagnostics.recordApplication('application-starting')
   const gitMutationAuthorizations = runtime.own(
     'Git mutation authorizations',

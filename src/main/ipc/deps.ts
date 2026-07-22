@@ -95,6 +95,7 @@ export interface IpcDeps {
       | 'stopResponsiveness'
       | 'deleteResponsiveness'
     >
+    readonly evidence: Pick<RuntimeDiagnostics, 'evidenceState' | 'deleteEvidence'>
   }
   readonly recordIpcContractDiagnostic: (event: IpcContractDiagnostic) => void
   readonly recordRenderContainment: (

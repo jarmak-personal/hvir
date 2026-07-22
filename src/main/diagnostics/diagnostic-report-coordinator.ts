@@ -222,9 +222,15 @@ export class DiagnosticReportCoordinator {
   ): Promise<DiagnosticReportActionResult> {
     const record = this.current(owner, reportId)
     if (!record) {
-      return this.deletedByOwner.get(ownerKey(owner))?.has(reportId)
-        ? { ok: true, outcome: 'deleted' }
-        : failure(this.accepts(owner) ? 'report-not-found' : 'stale-renderer')
+      if (!this.deletedByOwner.get(ownerKey(owner))?.has(reportId)) {
+        return failure(this.accepts(owner) ? 'report-not-found' : 'stale-renderer')
+      }
+      try {
+        await this.storage.remove(reportId)
+        return { ok: true, outcome: 'deleted' }
+      } catch {
+        return failure('storage-unavailable')
+      }
     }
     this.forget(record)
     const deleted = this.deletedByOwner.get(ownerKey(owner)) ?? new Set<string>()

@@ -106,6 +106,25 @@ describe('diagnostic report boundary', () => {
     expect(host.files.size).toBe(0)
   })
 
+  it('retries storage removal before an idempotent delete reports success', async () => {
+    const host = new MemoryReportHost()
+    const coordinator = createCoordinator(host, new FakeActions())
+    const id = opaqueId(11)
+    expect(await coordinator.create(OWNER, id)).toMatchObject({ ok: true })
+    host.failNextRemove()
+
+    expect(await coordinator.delete(OWNER, id)).toEqual({
+      ok: false,
+      reason: 'storage-unavailable',
+    })
+    expect(host.files.size).toBe(1)
+    expect(await coordinator.delete(OWNER, id)).toEqual({
+      ok: true,
+      outcome: 'deleted',
+    })
+    expect(host.files.size).toBe(0)
+  })
+
   it('cannot let late or overlapping capture and save work revive stale state', async () => {
     const host = new MemoryReportHost()
     const actions = new FakeActions()
@@ -225,6 +244,7 @@ class MemoryReportHost {
       }
     | undefined
   private mtime = NOW
+  private removeFailures = 0
 
   readdir(root: HostPath): Promise<DirEntry[]> {
     return Promise.resolve(
@@ -259,7 +279,15 @@ class MemoryReportHost {
   }
 
   removeFile(path: HostPath): Promise<void> {
+    if (this.removeFailures > 0) {
+      this.removeFailures--
+      return Promise.reject(new Error('storage unavailable'))
+    }
     return this.files.delete(path.path) ? Promise.resolve() : Promise.reject(missing())
+  }
+
+  failNextRemove(): void {
+    this.removeFailures++
   }
 
   blockNextWrite(): { started: Promise<void>; release: () => void } {

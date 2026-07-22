@@ -5,7 +5,11 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { WorkbenchHealthControl } from '../src/renderer/src/health/WorkbenchHealthControl'
-import type { HvirApi, WorkbenchHealthSnapshot } from '../src/shared'
+import type {
+  DiagnosticEvidenceState,
+  HvirApi,
+  WorkbenchHealthSnapshot,
+} from '../src/shared'
 
 const OCCURRENCE = '019c0000-0000-7000-8000-000000000090'
 const CORRELATION = '019c0000-0000-7000-8000-000000000091'
@@ -36,17 +40,29 @@ describe('WorkbenchHealthControl', () => {
   it('shows distinct health state and acknowledges only by explicit action', async () => {
     const acknowledge = vi.fn(() => acknowledgedSnapshot())
     const listeners = new Set<(snapshot: WorkbenchHealthSnapshot) => void>()
+    const invoke = vi.fn((channel: string) => {
+      if (channel === 'workbench-health:acknowledge') {
+        return Promise.resolve(acknowledge())
+      }
+      if (channel === 'diagnostic-evidence:get') {
+        return Promise.resolve(diagnosticEvidence())
+      }
+      if (channel === 'diagnostic-evidence:delete') {
+        return Promise.resolve({
+          ok: true,
+          outcome: 'deleted',
+          state: diagnosticEvidence(),
+        })
+      }
+      return Promise.resolve(openSnapshot())
+    })
     const api = {
       diagnostics: {
         recordRenderContainment: vi.fn(),
         recordResponsivenessObservation: vi.fn(),
         flushResponsivenessObservations: vi.fn(),
       },
-      invoke: vi.fn((channel: string) =>
-        Promise.resolve(
-          channel === 'workbench-health:acknowledge' ? acknowledge() : openSnapshot(),
-        ),
-      ),
+      invoke,
       send: vi.fn(),
       on: vi.fn(
         (channel: string, callback: (snapshot: WorkbenchHealthSnapshot) => void) => {
@@ -77,6 +93,12 @@ describe('WorkbenchHealthControl', () => {
     expect(host.querySelector('[role="dialog"]')?.textContent).toContain(
       'Classification: crashed',
     )
+    expect(host.querySelector('[role="dialog"]')?.textContent).toContain(
+      '/local/app-data/runtime-diagnostics.jsonl',
+    )
+    expect(host.querySelector('[role="dialog"]')?.textContent).toContain(
+      '4 × 1 MiB, retained for 7 days',
+    )
 
     await act(async () => {
       button('Acknowledge').click()
@@ -89,6 +111,15 @@ describe('WorkbenchHealthControl', () => {
       for (const listener of listeners) listener(unavailableSnapshot())
     })
     expect(toggle.getAttribute('aria-label')).toContain('evidence unavailable')
+
+    await act(async () => {
+      button('Delete local evidence').click()
+      await Promise.resolve()
+    })
+    expect(invoke).toHaveBeenCalledWith('diagnostic-evidence:delete', undefined)
+    expect(host.querySelector('[role="status"]')?.textContent).toContain(
+      'Local diagnostic evidence deleted',
+    )
   })
 
   it('requires an explicit bounded run and keeps its evidence out of health', async () => {
@@ -195,6 +226,20 @@ function acknowledgedSnapshot(): WorkbenchHealthSnapshot {
 
 function unavailableSnapshot(): WorkbenchHealthSnapshot {
   return { version: 1, evidence: 'unavailable', dropped: 0, items: [] }
+}
+
+function diagnosticEvidence(): DiagnosticEvidenceState {
+  return {
+    version: 1,
+    availability: 'durable',
+    recent: { maxEvents: 256, maxBytes: 248 * 1024 },
+    journal: {
+      location: '/local/app-data/runtime-diagnostics.jsonl',
+      maxSegments: 4,
+      maxSegmentBytes: 1024 * 1024,
+      retentionHours: 168,
+    },
+  }
 }
 
 function snapshot(state: 'open' | 'acknowledged'): WorkbenchHealthSnapshot {

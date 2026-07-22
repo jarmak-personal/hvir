@@ -38,6 +38,14 @@ export function registerAppIpc(ipc: IpcRegistrar, deps: AppIpcDeps): void {
     context.owner()
     return deps.acknowledgeWorkbenchHealth(occurrenceId)
   })
+  ipc.handle('diagnostic-evidence:get', (_request, context) => {
+    context.owner()
+    return deps.diagnostics.evidence.evidenceState()
+  })
+  ipc.handle('diagnostic-evidence:delete', (_request, context) => {
+    context.owner()
+    return deps.diagnostics.evidence.deleteEvidence()
+  })
   ipc.handle('responsiveness-diagnostics:get', (_request, context) =>
     deps.diagnostics.responsiveness.responsivenessState(context.owner()),
   )

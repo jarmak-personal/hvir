@@ -66,6 +66,7 @@ export class DiagnosticJournal {
   private sinkFailed = false
   private scheduled?: ReturnType<typeof setTimeout>
   private draining?: Promise<void>
+  private resetting?: Promise<void>
   private inFlightEvents = 0
 
   constructor(
@@ -128,8 +129,27 @@ export class DiagnosticJournal {
     await this.flush(timeoutMs)
   }
 
+  async reset(): Promise<void> {
+    if (this.resetting) return this.resetting
+    if (this.scheduled) {
+      clearTimeout(this.scheduled)
+      this.scheduled = undefined
+    }
+    this.queue.length = 0
+    const draining = this.draining
+    const operation = this.resetAfterDrain(draining).catch((error: unknown) => {
+      this.failStorage()
+      throw error
+    })
+    this.resetting = operation.finally(() => {
+      this.resetting = undefined
+      if (this.queue.length > 0 && !this.sinkFailed) this.scheduleDrain()
+    })
+    return this.resetting
+  }
+
   private scheduleDrain(): void {
-    if (this.scheduled || this.draining) return
+    if (this.scheduled || this.draining || this.resetting) return
     this.scheduled = setTimeout(() => {
       this.scheduled = undefined
       this.startDrain()
@@ -137,7 +157,8 @@ export class DiagnosticJournal {
   }
 
   private startDrain(): void {
-    if (this.draining || this.sinkFailed || this.queue.length === 0) return
+    if (this.draining || this.resetting || this.sinkFailed || this.queue.length === 0)
+      return
     this.draining = this.drain()
       .catch(() => this.failStorage())
       .finally(() => {
@@ -208,6 +229,18 @@ export class DiagnosticJournal {
       }
     }
     this.activeSegment = ''
+  }
+
+  private async resetAfterDrain(draining: Promise<void> | undefined): Promise<void> {
+    await draining
+    for (let index = 0; index < this.segmentCount; index++) {
+      await this.storageCall(this.storage.removeSegment(index))
+    }
+    this.activeSegment = ''
+    this.initialized = true
+    this.sinkFailed = false
+    this.dropped.queue = 0
+    this.dropped.storage = 0
   }
 
   private async storageCall<T>(operation: Promise<T>): Promise<T> {

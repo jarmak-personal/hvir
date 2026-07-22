@@ -3,6 +3,7 @@ import { useState, type ReactElement } from 'react'
 import type { WorkbenchHealthItem } from '../../../shared'
 import { ConfirmationDialog } from '../workbench/ConfirmationDialog'
 import { useWorkbenchHealth } from './use-workbench-health'
+import { useDiagnosticEvidence } from './use-diagnostic-evidence'
 import { DiagnosticReportDialog } from '../diagnostics/DiagnosticReportDialog'
 import {
   ResponsivenessDiagnosticsIndicator,
@@ -14,6 +15,7 @@ export function WorkbenchHealthControl(): ReactElement {
   const [open, setOpen] = useState(false)
   const [reportOpen, setReportOpen] = useState(false)
   const health = useWorkbenchHealth()
+  const evidence = useDiagnosticEvidence()
   const responsiveness = useResponsivenessDiagnostics()
   const unresolved = health.snapshot.items.filter((item) => item.state !== 'resolved')
   const newCount = unresolved.filter((item) => item.state === 'open').length
@@ -76,6 +78,7 @@ export function WorkbenchHealthControl(): ReactElement {
               {health.snapshot.dropped === 1 ? '' : 's'} omitted by the local bound.
             </p>
           ) : null}
+          <DiagnosticEvidenceDetails evidence={evidence} />
           <ResponsivenessDiagnosticsPanel diagnostics={responsiveness} />
           <button
             type="button"
@@ -93,6 +96,49 @@ export function WorkbenchHealthControl(): ReactElement {
         <DiagnosticReportDialog onClose={() => setReportOpen(false)} />
       ) : null}
     </>
+  )
+}
+
+function DiagnosticEvidenceDetails({
+  evidence,
+}: {
+  readonly evidence: ReturnType<typeof useDiagnosticEvidence>
+}): ReactElement {
+  const state = evidence.state
+  return (
+    <section className="workbench-health-storage" aria-label="Local diagnostic evidence">
+      <h3>Local diagnostic evidence</h3>
+      {state ? (
+        <>
+          <p>
+            Recent memory is bounded to {state.recent.maxEvents} events /{' '}
+            {formatBytes(state.recent.maxBytes)}.
+          </p>
+          {state.journal ? (
+            <>
+              <p>
+                Journal bound: {state.journal.maxSegments} ×{' '}
+                {formatBytes(state.journal.maxSegmentBytes)}, retained for{' '}
+                {state.journal.retentionHours / 24} days.
+              </p>
+              <code>{state.journal.location}</code>
+            </>
+          ) : (
+            <p>Durable journaling is disabled in this build.</p>
+          )}
+        </>
+      ) : (
+        <p>Loading local evidence details…</p>
+      )}
+      <button
+        type="button"
+        disabled={evidence.deleting || !state}
+        onClick={evidence.deleteEvidence}
+      >
+        {evidence.deleting ? 'Deleting evidence…' : 'Delete local evidence'}
+      </button>
+      {evidence.message ? <p role="status">{evidence.message}</p> : null}
+    </section>
   )
 }
 
@@ -163,4 +209,10 @@ function recoveryLabel(
 
 function formatTime(value: string): string {
   return new Date(value).toLocaleString()
+}
+
+function formatBytes(value: number): string {
+  return value >= 1024 * 1024
+    ? `${value / (1024 * 1024)} MiB`
+    : `${Math.round(value / 1024)} KiB`
 }

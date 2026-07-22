@@ -261,6 +261,8 @@ describe('IpcAuthorityRouter', () => {
     expect(new Set(OWNER_SCOPED_INVOKE_CHANNELS)).toEqual(
       new Set<IpcInvokeChannel>([
         'workbench-health:acknowledge',
+        'diagnostic-evidence:get',
+        'diagnostic-evidence:delete',
         'responsiveness-diagnostics:get',
         'responsiveness-diagnostics:start',
         'responsiveness-diagnostics:stop',

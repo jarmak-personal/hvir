@@ -59,6 +59,10 @@ import type {
 } from './diagnostics'
 import type { WorkbenchHealthSnapshot } from './workbench-health'
 import type {
+  DiagnosticEvidenceDeleteResult,
+  DiagnosticEvidenceState,
+} from './diagnostic-evidence'
+import type {
   CaptureDiagnosticReportRequest,
   CreateDiagnosticReportRequest,
   DiagnosticReportActionResult,
@@ -475,6 +479,14 @@ export interface IpcInvokeMap {
     request: { readonly occurrenceId: string }
     response: WorkbenchHealthSnapshot
   }
+  'diagnostic-evidence:get': {
+    request: void
+    response: DiagnosticEvidenceState
+  }
+  'diagnostic-evidence:delete': {
+    request: void
+    response: DiagnosticEvidenceDeleteResult
+  }
   'responsiveness-diagnostics:get': {
     request: void
     response: ResponsivenessDiagnosticsState
@@ -763,6 +775,8 @@ export const INVOKE_CHANNELS = [
   'app:info',
   'workbench-health:get',
   'workbench-health:acknowledge',
+  'diagnostic-evidence:get',
+  'diagnostic-evidence:delete',
   'responsiveness-diagnostics:get',
   'responsiveness-diagnostics:start',
   'responsiveness-diagnostics:stop',

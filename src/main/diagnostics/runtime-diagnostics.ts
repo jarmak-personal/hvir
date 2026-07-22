@@ -1,7 +1,10 @@
 import { join } from 'node:path'
 
 import {
+  DIAGNOSTIC_EVIDENCE_VERSION,
   localPath,
+  type DiagnosticEvidenceDeleteResult,
+  type DiagnosticEvidenceState,
   type HostPath,
   type RenderContainmentDiagnosticBatch,
   type ResponsivenessDiagnosticsState,
@@ -19,9 +22,16 @@ import type { PtySupervisorDiagnostic } from '../pty/pty-supervisor'
 import type { TerminalSessionRegistryDiagnostic } from '../terminal/session-registry'
 import type { RendererOwner } from '../renderer-resource-scopes'
 import type { IpcContractDiagnostic } from '../ipc/authority-router'
-import { DiagnosticIntake, type DiagnosticRecentSnapshot } from './diagnostic-intake'
+import {
+  DiagnosticIntake,
+  MAX_RECENT_DIAGNOSTIC_BYTES,
+  MAX_RECENT_DIAGNOSTIC_EVENTS,
+  type DiagnosticRecentSnapshot,
+} from './diagnostic-intake'
 import {
   DiagnosticJournal,
+  DIAGNOSTIC_RETENTION_MS,
+  DIAGNOSTIC_SEGMENT_BYTES,
   DIAGNOSTIC_SEGMENT_COUNT,
   type ApplicationDiagnosticKind,
   type DiagnosticJournalStatus,
@@ -192,6 +202,46 @@ export class RuntimeDiagnostics {
   acknowledgeHealth(occurrenceId: string): WorkbenchHealthSnapshot {
     if (this.health.acknowledge(occurrenceId)) this.publishHealth()
     return this.healthSnapshot()
+  }
+
+  evidenceState(): DiagnosticEvidenceState {
+    const status = this.journal?.status()
+    return {
+      version: DIAGNOSTIC_EVIDENCE_VERSION,
+      availability: this.evidenceAvailability(),
+      recent: {
+        maxEvents: MAX_RECENT_DIAGNOSTIC_EVENTS,
+        maxBytes: MAX_RECENT_DIAGNOSTIC_BYTES,
+      },
+      ...(status
+        ? {
+            journal: {
+              location: status.location,
+              maxSegments: DIAGNOSTIC_SEGMENT_COUNT,
+              maxSegmentBytes: DIAGNOSTIC_SEGMENT_BYTES,
+              retentionHours: DIAGNOSTIC_RETENTION_MS / (60 * 60 * 1_000),
+            },
+          }
+        : {}),
+    }
+  }
+
+  async deleteEvidence(): Promise<DiagnosticEvidenceDeleteResult> {
+    this.intake.clear()
+    this.health.clear()
+    this.publishHealth()
+    try {
+      await this.journal?.reset()
+      this.publishHealth()
+      return { ok: true, outcome: 'deleted', state: this.evidenceState() }
+    } catch {
+      this.publishHealth()
+      return {
+        ok: false,
+        reason: 'storage-unavailable',
+        state: this.evidenceState(),
+      }
+    }
   }
 
   status(): DiagnosticJournalStatus | undefined {

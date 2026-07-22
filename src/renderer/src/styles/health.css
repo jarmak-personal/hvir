@@ -150,6 +150,41 @@
   color: #a8b1bd;
 }
 
+.workbench-health-storage {
+  display: grid;
+  gap: 5px;
+  margin-top: 12px;
+  padding: 10px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 4px;
+  background: var(--surface-1);
+}
+
+.workbench-health-storage h3,
+.workbench-health-storage p {
+  margin: 0;
+}
+
+.workbench-health-storage h3 {
+  color: var(--text-strong);
+  font-size: 11px;
+}
+
+.workbench-health-storage p,
+.workbench-health-storage code {
+  color: var(--text-muted);
+  font-size: 10px;
+}
+
+.workbench-health-storage code {
+  overflow-wrap: anywhere;
+}
+
+.workbench-health-storage button {
+  width: max-content;
+  margin-top: 3px;
+}
+
 .responsiveness-diagnostics-panel {
   margin-top: 14px;
   padding: 10px;

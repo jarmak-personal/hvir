@@ -24,8 +24,8 @@ import {
   type StoredDiagnosticEvent,
 } from './diagnostic-event'
 
-const MAX_RECENT_EVENTS = 256
-const MAX_RECENT_EVENT_BYTES = 248 * 1024
+export const MAX_RECENT_DIAGNOSTIC_EVENTS = 256
+export const MAX_RECENT_DIAGNOSTIC_BYTES = 248 * 1024
 const SOURCE_RATE_PER_SECOND = 4
 const SOURCE_RATE_BURST = 16
 const SATURATING_COUNT = Number.MAX_SAFE_INTEGER
@@ -184,6 +184,13 @@ export class DiagnosticIntake {
     }
   }
 
+  clear(): void {
+    this.recent.length = 0
+    this.recentBytes = 0
+    this.dropped.clear()
+    this.rates.clear()
+  }
+
   deleteResponsivenessSession(diagnosticSessionId: string): void {
     for (let index = this.recent.length - 1; index >= 0; index--) {
       const item = this.recent[index]
@@ -197,8 +204,8 @@ export class DiagnosticIntake {
     this.recent.push(recent)
     this.recentBytes += recent.bytes
     while (
-      this.recent.length > MAX_RECENT_EVENTS ||
-      this.recentBytes > MAX_RECENT_EVENT_BYTES
+      this.recent.length > MAX_RECENT_DIAGNOSTIC_EVENTS ||
+      this.recentBytes > MAX_RECENT_DIAGNOSTIC_BYTES
     ) {
       const removed = this.recent.shift()
       if (!removed) break
