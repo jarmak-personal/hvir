@@ -1,11 +1,6 @@
-import { randomUUID } from 'node:crypto'
-
 import {
-  materializeDiagnosticEvent,
   parseStoredDiagnosticEvent,
-  serializeStoredDiagnosticEvent,
-  type DiagnosticEventContext,
-  type RuntimeDiagnosticEvent,
+  type SerializedDiagnosticEvent,
 } from './diagnostic-event'
 
 export type {
@@ -41,16 +36,9 @@ export interface DiagnosticJournalStatus {
   readonly location: string
   readonly sink: 'available' | 'failed'
   readonly dropped: Readonly<{
-    invalid: number
     queue: number
-    oversized: number
     storage: number
   }>
-}
-
-interface PendingEvent {
-  readonly event: RuntimeDiagnosticEvent
-  readonly context: DiagnosticEventContext
 }
 
 export interface DiagnosticJournalOptions {
@@ -60,7 +48,6 @@ export interface DiagnosticJournalOptions {
   readonly queueEvents?: number
   readonly storageTimeoutMs?: number
   readonly now?: () => number
-  readonly correlation?: () => string
 }
 
 /** A droppable, asynchronous JSONL sink for closed main-process diagnostic events. */
@@ -71,9 +58,8 @@ export class DiagnosticJournal {
   private readonly queueEvents: number
   private readonly storageTimeoutMs: number
   private readonly now: () => number
-  private readonly correlation: () => string
-  private readonly queue: PendingEvent[] = []
-  private readonly dropped = { invalid: 0, queue: 0, oversized: 0, storage: 0 }
+  private readonly queue: SerializedDiagnosticEvent[] = []
+  private readonly dropped = { queue: 0, storage: 0 }
   private activeSegment = ''
   private initialized = false
   private accepting = true
@@ -92,10 +78,9 @@ export class DiagnosticJournal {
     this.queueEvents = options.queueEvents ?? DIAGNOSTIC_QUEUE_EVENTS
     this.storageTimeoutMs = options.storageTimeoutMs ?? STORAGE_TIMEOUT_MS
     this.now = options.now ?? Date.now
-    this.correlation = options.correlation ?? randomUUID
   }
 
-  record(event: RuntimeDiagnosticEvent, context?: DiagnosticEventContext): boolean {
+  record(line: SerializedDiagnosticEvent): boolean {
     if (!this.accepting) return false
     if (this.sinkFailed) {
       this.incrementDropped('storage')
@@ -105,13 +90,7 @@ export class DiagnosticJournal {
       this.incrementDropped('queue')
       return false
     }
-    this.queue.push({
-      event,
-      context: context ?? {
-        occurredAtMs: this.now(),
-        correlation: this.correlation(),
-      },
-    })
+    this.queue.push(line)
     this.scheduleDrain()
     return true
   }
@@ -173,20 +152,8 @@ export class DiagnosticJournal {
     this.inFlightEvents = pending.length
     let changed = false
 
-    for (const item of pending) {
-      const stored = materializeDiagnosticEvent(item.event, item.context)
-      const line = stored ? serializeStoredDiagnosticEvent(stored) : undefined
-      if (line === undefined) {
-        this.incrementDropped('invalid')
-        this.inFlightEvents--
-        continue
-      }
+    for (const line of pending) {
       const lineBytes = Buffer.byteLength(line, 'utf8')
-      if (lineBytes > DIAGNOSTIC_EVENT_BYTES || lineBytes > this.segmentBytes) {
-        this.incrementDropped('oversized')
-        this.inFlightEvents--
-        continue
-      }
       if (Buffer.byteLength(this.activeSegment, 'utf8') + lineBytes > this.segmentBytes) {
         await this.rotate()
       }

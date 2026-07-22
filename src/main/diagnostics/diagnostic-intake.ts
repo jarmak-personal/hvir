@@ -39,9 +39,7 @@ export type DiagnosticDropReason =
   | 'renderer-queue'
   | 'renderer-rate'
   | 'renderer-unavailable'
-  | 'writer-invalid'
   | 'writer-queue'
-  | 'writer-oversized'
   | 'writer-storage'
 
 export interface DiagnosticDroppedCount {
@@ -108,7 +106,7 @@ export class DiagnosticIntake {
       this.incrementDropped(source, 'invalid')
       return
     }
-    this.options.writer?.record(event, context)
+    this.options.writer?.record(line)
     this.retain({
       event: stored,
       bytes: Buffer.byteLength(line, 'utf8'),

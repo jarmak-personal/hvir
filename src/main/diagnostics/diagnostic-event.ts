@@ -81,6 +81,11 @@ export interface DiagnosticEventContext {
   readonly correlation: string
 }
 
+declare const serializedDiagnosticEvent: unique symbol
+export type SerializedDiagnosticEvent = string & {
+  readonly [serializedDiagnosticEvent]: true
+}
+
 export function materializeDiagnosticEvent(
   event: RuntimeDiagnosticEvent,
   context: DiagnosticEventContext,
@@ -138,8 +143,10 @@ export function materializeDiagnosticEvent(
 
 export function serializeStoredDiagnosticEvent(
   event: StoredDiagnosticEvent,
-): string | undefined {
-  return isStoredDiagnosticEvent(event) ? `${JSON.stringify(event)}\n` : undefined
+): SerializedDiagnosticEvent | undefined {
+  return isStoredDiagnosticEvent(event)
+    ? (`${JSON.stringify(event)}\n` as SerializedDiagnosticEvent)
+    : undefined
 }
 
 export function parseStoredDiagnosticEvent(

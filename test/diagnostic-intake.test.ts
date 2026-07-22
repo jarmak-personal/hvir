@@ -4,11 +4,6 @@ import {
   DiagnosticIntake,
   type DiagnosticIntakeOptions,
 } from '../src/main/diagnostics/diagnostic-intake'
-import {
-  materializeDiagnosticEvent,
-  type DiagnosticEventContext,
-  type RuntimeDiagnosticEvent,
-} from '../src/main/diagnostics/diagnostic-event'
 import type { DiagnosticJournalStatus } from '../src/main/diagnostics/diagnostic-journal'
 import type { RendererOwner } from '../src/main/renderer-resource-scopes'
 
@@ -89,9 +84,7 @@ describe('DiagnosticIntake', () => {
 
   it('shares one event identity with the writer and the recent snapshot', () => {
     const status = writerStatus()
-    const record = vi.fn(
-      (_event: RuntimeDiagnosticEvent, _context?: DiagnosticEventContext) => true,
-    )
+    const record = vi.fn((_line: string) => true)
     const writer = {
       record,
       status: vi.fn(() => status),
@@ -99,11 +92,9 @@ describe('DiagnosticIntake', () => {
     const { intake } = fixture(writer)
     intake.record({ kind: 'application-startup-failed' })
 
-    const [event, context] = record.mock.calls[0]!
-    expect(context).toBeDefined()
-    expect(intake.snapshot().events).toEqual([
-      materializeDiagnosticEvent(event, context!),
-    ])
+    const [line] = record.mock.calls[0]!
+    const [event] = intake.snapshot().events
+    expect(line).toBe(`${JSON.stringify(event)}\n`)
   })
 
   it('rate-limits by closed source and retains at most 256 events and 256 KiB', () => {
@@ -145,7 +136,7 @@ describe('DiagnosticIntake', () => {
   it('reports writer drops without exposing its app-data location', () => {
     const writer = {
       record: () => false,
-      status: () => writerStatus({ storage: 2, queue: 1, invalid: 0, oversized: 0 }),
+      status: () => writerStatus({ storage: 2, queue: 1 }),
     }
     const { intake } = fixture(writer)
     intake.record({ kind: 'application-ready' })
@@ -174,9 +165,7 @@ function fixture(writer?: DiagnosticIntakeOptions['writer']): {
   }
 }
 
-function writerStatus(
-  dropped = { invalid: 0, queue: 0, oversized: 0, storage: 0 },
-): DiagnosticJournalStatus {
+function writerStatus(dropped = { queue: 0, storage: 0 }): DiagnosticJournalStatus {
   return {
     location: '/private/app-data/runtime-diagnostics.jsonl',
     sink: 'available',
