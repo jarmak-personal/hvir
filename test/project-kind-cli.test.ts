@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+  formatProjectKindReport,
   parseProjectKindCliOptions,
   parseProjectKindProjectNumber,
   parseProjectKindRepository,
@@ -9,7 +10,11 @@ import {
 
 describe('project kind CLI policy', () => {
   it('defaults to a full dry-run inspection', () => {
-    expect(parseProjectKindCliOptions([], {})).toEqual({ help: false, apply: false })
+    expect(parseProjectKindCliOptions([], {})).toEqual({
+      help: false,
+      apply: false,
+      output: 'concise',
+    })
   })
 
   it('parses workflow environment values', () => {
@@ -25,6 +30,7 @@ describe('project kind CLI policy', () => {
       help: false,
       issueNumber: 83,
       apply: true,
+      output: 'concise',
       event: { action: 'labeled', label: 'kind:feature' },
       eventUpdatedAt: '2026-07-20T10:00:00Z',
     })
@@ -56,6 +62,7 @@ describe('project kind CLI policy', () => {
       help: false,
       issueNumber: 84,
       apply: true,
+      output: 'concise',
       event: { action: 'unlabeled', label: 'kind:bug' },
       eventUpdatedAt: '2026-07-20T11:00:00Z',
     })
@@ -65,14 +72,47 @@ describe('project kind CLI policy', () => {
     expect(parseProjectKindCliOptions(['--help'], {})).toEqual({
       help: true,
       apply: false,
+      output: 'concise',
     })
   })
 
-  it.each(['opened', 'reopened'] as const)('parses a successful %s event', (action) => {
+  it('offers concise, verbose, and JSON diagnostics explicitly', () => {
+    expect(parseProjectKindCliOptions(['--verbose'], {})).toMatchObject({
+      output: 'verbose',
+    })
+    expect(parseProjectKindCliOptions(['--json'], {})).toMatchObject({
+      output: 'json',
+    })
+    expect(() => parseProjectKindCliOptions(['--verbose', '--json'], {})).toThrow(
+      'cannot be combined',
+    )
     expect(
-      parseProjectKindCliOptions(['--issue', '83', '--event', action], {}),
-    ).toMatchObject({ event: { action } })
+      formatProjectKindReport(
+        {
+          apply: true,
+          results: [],
+          summary: {
+            total: 1,
+            valid: 1,
+            missing: 0,
+            ambiguous: 0,
+            closed: 0,
+            mutations: 0,
+          },
+        },
+        'concise',
+      ),
+    ).toBe('issue planning: 1 reconciled, 0 mutations, 0 conflicts\n')
   })
+
+  it.each(['opened', 'reopened', 'closed'] as const)(
+    'parses a successful %s event',
+    (action) => {
+      expect(
+        parseProjectKindCliOptions(['--issue', '83', '--event', action], {}),
+      ).toMatchObject({ event: { action } })
+    },
+  )
 
   it.each([
     {
@@ -94,11 +134,6 @@ describe('project kind CLI policy', () => {
       args: ['--issue', '83', '--event', 'labeled'],
       environment: {},
       message: 'The labeled event requires an event label.',
-    },
-    {
-      args: ['--issue', '83', '--event', 'closed'],
-      environment: {},
-      message: 'Unsupported issue event action: closed',
     },
     {
       args: ['--event-updated-at', 'not-a-date'],

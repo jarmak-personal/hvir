@@ -5,10 +5,12 @@ Closes #
 <!--
 For an ordinary PR to main, keep one native `Closes #N` relationship above.
 
-For an epic-child PR, replace the `Closes` line with two exact whole-line trailers outside this
-comment: one for the child and one for its epic. Example spelling:
+For an epic-child PR, replace the `Closes` line with one exact whole-line trailer outside this
+comment. Automation derives the direct epic parent. Example spelling:
 
-Contributes-to: #123
+Completes-child: #123
+
+Use `Contributes-to: #N` only for partial work that does not complete an issue.
 -->
 
 ## Outcome

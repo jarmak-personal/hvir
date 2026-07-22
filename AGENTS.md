@@ -38,8 +38,10 @@ it. After drafting, it must show the exact issue and receive separate approval b
 Project or repository reconciliation behavior, use the interfaces documented in
 [`docs/project-management.md`](docs/project-management.md): `project:record` for Project
 membership and Status, `project:kind` for label-derived Kind reconciliation, and `project:pr`
-for PR-related issue Status reconciliation. These commands default to dry-run; review the plan
-before passing `--apply`. Invoke only the capability the task needs, not all three ceremonially.
+for PR relationships and lifecycle reconciliation. Before implementation, use `issue:context` to
+read the normalized issue, parent, base, branch, worktree, planning state, open PRs, and conflicts.
+Mutating commands default to dry-run; review the plan before passing `--apply`. Invoke only the
+capability the task needs, not every command ceremonially.
 
 **Do not publish a pull request that fails locally runnable checks.** After the final changes,
 run `npm run verify` before committing. Push without `--no-verify` so `.githooks/pre-push` runs;

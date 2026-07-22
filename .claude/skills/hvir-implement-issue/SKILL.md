@@ -30,17 +30,20 @@ surface it and pause for alignment. Otherwise state the assumption and continue.
 
 ## Select the delivery path
 
-Read the issue with `npm run project:record -- --issue <number>`. Supply credentials through the
-environment described in `docs/project-management.md`.
+Read the issue with `npm run issue:context -- --issue <number> --json`. Supply credentials through
+the environment described in `docs/project-management.md`. The context is the delivery record for
+the issue, native parent, expected base, deterministic branch and worktree, planning state, open
+PRs, and conflicts.
 
-- Use `origin/main` when the issue has no open direct epic parent. Target `main`. Add
+- Use `origin/main` when context selects ordinary delivery with base `main`. Target `main`. Add
   `Closes #<number>` to the PR.
-- Read the parent record when the issue has an open same-repository parent. If the parent has one
-  valid `kind:epic` label, read [`references/epic-delivery.md`](references/epic-delivery.md)
-  completely and follow it.
+- When context selects epic-child delivery, read
+  [`references/epic-delivery.md`](references/epic-delivery.md) completely and follow it. Use the
+  exact epic base from context.
 
-Stop when parent, kind, or nesting metadata is ambiguous. Report the conflict. Record the selected
-issue, parent, base, and delivery path before work begins.
+Stop on context conflicts. An authorized epic may resolve a missing first epic branch through the
+bounded creation path in `references/epic-delivery.md`; rerun context afterward. Record the
+selected issue, parent, base, and delivery path before work begins.
 
 ## Establish the isolated issue worktree
 

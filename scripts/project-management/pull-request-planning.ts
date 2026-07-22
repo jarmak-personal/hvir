@@ -1,5 +1,11 @@
-import type { PlanningRecordInput, PlanningRecordReport } from './planning-record.ts'
+import type {
+  PlanningConvergenceInput,
+  PlanningRecordInput,
+  PlanningRecordReport,
+} from './planning-record.ts'
+import { resolveIssueDelivery } from './issue-delivery.ts'
 import {
+  parseCompletingChildTrailer,
   parseContributionTrailers,
   type PullRequestBodySnapshot,
   type PullRequestSnapshot,
@@ -8,10 +14,16 @@ import {
 export interface PullRequestPlanningPort {
   getPullRequest: (pullRequestNumber: number) => Promise<PullRequestSnapshot>
   listOpenPullRequestBodies: () => Promise<PullRequestBodySnapshot[]>
+  listEpicBranches: (parentIssueNumber: number) => Promise<string[]>
 }
 
 export interface PlanningRecordReconcilerPort {
   reconcile: (input: PlanningRecordInput) => Promise<PlanningRecordReport>
+  converge: (input: PlanningConvergenceInput) => Promise<PlanningRecordReport>
+}
+
+export interface IssueCompletionPort {
+  closeIssue: (issueNumber: number) => Promise<void>
 }
 
 export interface PullRequestPlanningInput {
@@ -31,17 +43,30 @@ export type PullRequestPlanningDiagnostic = {
   code:
     | 'duplicate-trailer'
     | 'malformed-trailer'
+    | 'malformed-completing-child'
+    | 'multiple-completing-children'
     | 'self-reference'
     | 'cross-repository-completion'
     | 'redundant-relationship'
+    | 'child-not-open'
+    | 'missing-parent'
+    | 'cross-repository-parent'
+    | 'parent-not-open'
+    | 'parent-not-epic'
+    | 'nested-epic'
+    | 'missing-epic-branch'
+    | 'ambiguous-epic-branch'
+    | 'base-mismatch'
     | 'planning-record-failure'
+    | 'child-close-failure'
   message: string
   line?: number
   issueNumber?: number
   repository?: string
 }
 
-type CandidateRelationship = 'closing' | 'contribution' | 'removed-contribution'
+type CandidateRelationship =
+  'closing' | 'child-completion' | 'parent-epic' | 'contribution' | 'removed-contribution'
 
 export interface PullRequestPlanningTarget {
   issueNumber: number
@@ -53,12 +78,17 @@ export interface PullRequestPlanningTarget {
     | 'no-active-relationship'
     | 'issue-closed'
     | 'status-not-todo'
-    | 'missing-project-item'
-    | 'archived-project-item'
-    | 'concurrent-state-change'
     | 'planning-record-failure'
   statusBefore?: string | null
   statusAfter?: string | null
+}
+
+export interface CompletingChildResult {
+  issueNumber?: number
+  parentIssueNumber?: number
+  expectedBase?: string
+  validation: 'valid' | 'failed'
+  closure: 'not-applicable' | 'would-close' | 'closed' | 'unchanged' | 'failed'
 }
 
 export interface PullRequestPlanningReport {
@@ -69,12 +99,16 @@ export interface PullRequestPlanningReport {
     number: number
     state: PullRequestSnapshot['state']
     draft: boolean
+    base: string
+    head: string
   }
   relationships: {
     closing: number[]
+    completingChild: number[]
     contribution: number[]
     removedContribution: number[]
   }
+  completingChild: CompletingChildResult | null
   targets: PullRequestPlanningTarget[]
   diagnostics: PullRequestPlanningDiagnostic[]
   summary: PlanningSummary
@@ -101,9 +135,17 @@ interface PlanningSummary {
   errors: number
 }
 
+interface ValidCompletingChild {
+  issueNumber: number
+  parentIssueNumber: number
+  expectedBase: string
+  childWasClosed: boolean
+}
+
 export async function reconcilePullRequestPlanning(
   pullRequests: PullRequestPlanningPort,
   planningRecords: PlanningRecordReconcilerPort,
+  issues: IssueCompletionPort,
   input: PullRequestPlanningInput,
 ): Promise<PullRequestPlanningReport> {
   const pullRequest = await pullRequests.getPullRequest(input.pullRequestNumber)
@@ -116,8 +158,16 @@ export async function reconcilePullRequestPlanning(
     input.previousBody ?? '',
     pullRequest.number,
   )
-  const diagnostics = contributionDiagnostics(currentContributions)
+  const completingChild = parseCompletingChildTrailer(
+    pullRequest.body,
+    pullRequest.number,
+  )
+  const diagnostics = [
+    ...contributionDiagnostics(currentContributions),
+    ...completingChildDiagnostics(completingChild),
+  ]
   const candidates = new Map<number, Set<CandidateRelationship>>()
+  const directActivity = new Set<number>()
   const closing = new Set<number>()
 
   for (const issue of pullRequest.closingIssues) {
@@ -133,11 +183,15 @@ export async function reconcilePullRequestPlanning(
     }
     closing.add(issue.number)
     addCandidate(candidates, issue.number, 'closing')
+    if (pullRequest.state === 'OPEN') directActivity.add(issue.number)
   }
 
   const contribution = new Set(currentContributions.issueNumbers)
   for (const issueNumber of contribution) {
     addCandidate(candidates, issueNumber, 'contribution')
+    if (pullRequest.state === 'OPEN' || pullRequest.state === 'MERGED') {
+      directActivity.add(issueNumber)
+    }
     if (closing.has(issueNumber)) {
       diagnostics.push({
         severity: 'warning',
@@ -155,56 +209,182 @@ export async function reconcilePullRequestPlanning(
     addCandidate(candidates, issueNumber, 'removed-contribution')
   }
 
-  const openContributions =
+  let validCompletingChild: ValidCompletingChild | undefined
+  let completingChildResult: CompletingChildResult | null =
+    completingChild.issueNumber === undefined && completingChild.errors.length === 0
+      ? null
+      : { validation: 'failed', closure: 'not-applicable' }
+  if (completingChild.issueNumber !== undefined) {
+    const validated = await validateCompletingChild(
+      pullRequests,
+      planningRecords,
+      pullRequest,
+      completingChild.issueNumber,
+    )
+    diagnostics.push(...validated.diagnostics)
+    validCompletingChild = validated.result
+    completingChildResult =
+      validated.result === undefined
+        ? {
+            issueNumber: completingChild.issueNumber,
+            validation: 'failed',
+            closure: 'not-applicable',
+          }
+        : {
+            issueNumber: validated.result.issueNumber,
+            parentIssueNumber: validated.result.parentIssueNumber,
+            expectedBase: validated.result.expectedBase,
+            validation: 'valid',
+            closure: 'not-applicable',
+          }
+  }
+
+  if (validCompletingChild !== undefined) {
+    addCandidate(candidates, validCompletingChild.issueNumber, 'child-completion')
+    addCandidate(candidates, validCompletingChild.parentIssueNumber, 'parent-epic')
+    if (pullRequest.state !== 'CLOSED') {
+      directActivity.add(validCompletingChild.issueNumber)
+      directActivity.add(validCompletingChild.parentIssueNumber)
+    }
+    if (contribution.has(validCompletingChild.issueNumber)) {
+      diagnostics.push({
+        severity: 'warning',
+        code: 'redundant-relationship',
+        message: `Issue #${validCompletingChild.issueNumber} is both a completing-child and contribution relationship; completing-child semantics take precedence.`,
+        issueNumber: validCompletingChild.issueNumber,
+      })
+    }
+  }
+
+  const openRelationships =
     candidates.size === 0
       ? new Map<number, Set<number>>()
-      : indexOpenContributions(
+      : indexOpenRelationships(
           await pullRequests.listOpenPullRequestBodies(),
           pullRequest.repository,
         )
   if (pullRequest.state === 'OPEN') {
     for (const issueNumber of contribution) {
-      addOpenContribution(openContributions, issueNumber, pullRequest.number)
+      addOpenRelationship(openRelationships, issueNumber, pullRequest.number)
+    }
+    if (validCompletingChild !== undefined) {
+      addOpenRelationship(
+        openRelationships,
+        validCompletingChild.issueNumber,
+        pullRequest.number,
+      )
     }
   }
 
   const targets: PullRequestPlanningTarget[] = []
+  let planningApplied = false
   for (const [issueNumber, relationships] of [...candidates].sort(
     ([first], [second]) => first - second,
   )) {
+    if (pullRequest.state === 'MERGED' && relationships.has('closing')) {
+      targets.push({
+        issueNumber,
+        relationships: sortedRelationships(relationships),
+        outcome: 'unchanged',
+        reason: 'completion-merge-deferred',
+      })
+      continue
+    }
     const reconciled = await reconcileTarget(planningRecords, {
       issueNumber,
       relationships,
-      repository,
       apply: input.apply,
-      completionMergeDeferred:
-        pullRequest.state === 'MERGED' && relationships.has('closing'),
-      directlyActive:
-        (pullRequest.state === 'OPEN' && relationships.has('closing')) ||
-        (pullRequest.state === 'MERGED' && relationships.has('contribution')),
-      activeContribution: (openContributions.get(issueNumber)?.size ?? 0) > 0,
+      directlyActive: directActivity.has(issueNumber),
+      activeBodyRelationship: (openRelationships.get(issueNumber)?.size ?? 0) > 0,
+      repository,
     })
     targets.push(reconciled.target)
-    if (reconciled.diagnostic !== undefined) {
-      diagnostics.push(reconciled.diagnostic)
+    planningApplied ||= reconciled.applied
+    if (reconciled.diagnostic !== undefined) diagnostics.push(reconciled.diagnostic)
+  }
+
+  if (
+    validCompletingChild !== undefined &&
+    completingChildResult !== null &&
+    pullRequest.state === 'MERGED'
+  ) {
+    const lateValidation = await validateCompletingChild(
+      pullRequests,
+      planningRecords,
+      pullRequest,
+      validCompletingChild.issueNumber,
+    )
+    if (lateValidation.result === undefined) {
+      diagnostics.push(...lateValidation.diagnostics)
+      completingChildResult.validation = 'failed'
+      completingChildResult.closure = 'not-applicable'
+      validCompletingChild = undefined
+    } else {
+      validCompletingChild = lateValidation.result
+    }
+  }
+
+  if (
+    validCompletingChild !== undefined &&
+    completingChildResult !== null &&
+    pullRequest.state === 'MERGED'
+  ) {
+    if (validCompletingChild.childWasClosed) {
+      completingChildResult.closure = 'unchanged'
+    } else if (!input.apply) {
+      completingChildResult.closure = 'would-close'
+    } else {
+      try {
+        await issues.closeIssue(validCompletingChild.issueNumber)
+        completingChildResult.closure = 'closed'
+      } catch (error) {
+        completingChildResult.closure = 'failed'
+        diagnostics.push({
+          severity: 'error',
+          code: 'child-close-failure',
+          message: `Issue #${validCompletingChild.issueNumber} could not be closed after completing PR #${pullRequest.number}: ${errorMessage(error)}`,
+          issueNumber: validCompletingChild.issueNumber,
+        })
+      }
+      if (completingChildResult.closure === 'closed') {
+        try {
+          await planningRecords.converge({
+            issueNumber: validCompletingChild.issueNumber,
+            active: false,
+            apply: true,
+          })
+        } catch (error) {
+          diagnostics.push({
+            severity: 'error',
+            code: 'planning-record-failure',
+            message: `Issue #${validCompletingChild.issueNumber} closed, but its Project record did not converge: ${errorMessage(error)}`,
+            issueNumber: validCompletingChild.issueNumber,
+          })
+        }
+      }
     }
   }
 
   const summary = summarize(targets, diagnostics)
   return {
     apply: input.apply,
-    applied: summary.advanced > 0,
+    applied: planningApplied || completingChildResult?.closure === 'closed',
     pullRequest: {
       repository: pullRequest.repository,
       number: pullRequest.number,
       state: pullRequest.state,
       draft: pullRequest.isDraft,
+      base: pullRequest.baseRefName,
+      head: pullRequest.headRefName,
     },
     relationships: {
       closing: [...closing].sort((first, second) => first - second),
+      completingChild:
+        completingChild.issueNumber === undefined ? [] : [completingChild.issueNumber],
       contribution: [...contribution].sort((first, second) => first - second),
       removedContribution,
     },
+    completingChild: completingChildResult,
     targets,
     diagnostics,
     summary,
@@ -216,28 +396,127 @@ export async function reconcileReopenedIssuePlanning(
   planningRecords: PlanningRecordReconcilerPort,
   input: ReopenedIssuePlanningInput,
 ): Promise<ReopenedIssuePlanningReport> {
-  const openContributions = indexOpenContributions(
+  const openRelationships = indexOpenRelationships(
     await pullRequests.listOpenPullRequestBodies(),
     input.repository,
+  )
+  const inspected = await planningRecords.reconcile({
+    issueNumber: input.issueNumber,
+    ensureProject: false,
+    apply: false,
+  })
+  const activeClosing = inspected.record.issue.linkedPullRequests.some(
+    (related) =>
+      related.repository.toLowerCase() === input.repository.toLowerCase() &&
+      related.relationship === 'closing' &&
+      related.state === 'OPEN',
   )
   const reconciled = await reconcileTarget(planningRecords, {
     issueNumber: input.issueNumber,
     relationships: new Set<CandidateRelationship>(),
     repository: input.repository.toLowerCase(),
     apply: input.apply,
-    completionMergeDeferred: false,
-    directlyActive: false,
-    activeContribution: (openContributions.get(input.issueNumber)?.size ?? 0) > 0,
+    directlyActive: activeClosing,
+    activeBodyRelationship: (openRelationships.get(input.issueNumber)?.size ?? 0) > 0,
   })
   const diagnostics = reconciled.diagnostic === undefined ? [] : [reconciled.diagnostic]
   const summary = summarize([reconciled.target], diagnostics)
   return {
     apply: input.apply,
-    applied: summary.advanced > 0,
+    applied: reconciled.applied,
     issue: { repository: input.repository, number: input.issueNumber },
     target: reconciled.target,
     diagnostics,
     summary,
+  }
+}
+
+async function validateCompletingChild(
+  pullRequests: Pick<PullRequestPlanningPort, 'listEpicBranches'>,
+  planningRecords: PlanningRecordReconcilerPort,
+  pullRequest: PullRequestSnapshot,
+  issueNumber: number,
+): Promise<{
+  result?: ValidCompletingChild
+  diagnostics: PullRequestPlanningDiagnostic[]
+}> {
+  try {
+    const resolution = await resolveIssueDelivery(
+      {
+        inspectIssue: (number) =>
+          planningRecords.reconcile({
+            issueNumber: number,
+            ensureProject: false,
+            apply: false,
+          }),
+        listEpicBranches: (number) => pullRequests.listEpicBranches(number),
+      },
+      issueNumber,
+    )
+    if (resolution.issue.issue.state === 'CLOSED' && pullRequest.state !== 'MERGED') {
+      return validationFailure(
+        'child-not-open',
+        `Completing child #${issueNumber} is closed; reopen it before opening a correction PR.`,
+        issueNumber,
+      )
+    }
+    if (resolution.conflicts.length > 0) {
+      return {
+        diagnostics: resolution.conflicts.map((conflict) => ({
+          severity: 'error' as const,
+          code:
+            conflict.code === 'parent-closed'
+              ? ('parent-not-open' as const)
+              : conflict.code,
+          message: conflict.message,
+          issueNumber: resolution.parent?.issue.number ?? issueNumber,
+        })),
+      }
+    }
+    if (resolution.path !== 'epic-child' || resolution.parent === null) {
+      return validationFailure(
+        'missing-parent',
+        `Completing child #${issueNumber} has no native parent issue.`,
+        issueNumber,
+      )
+    }
+    const expectedBase = resolution.base
+    if (expectedBase === null) {
+      throw new Error('Epic-child delivery resolved without an exact base.')
+    }
+    if (pullRequest.baseRefName !== expectedBase) {
+      return validationFailure(
+        'base-mismatch',
+        `Completing PR #${pullRequest.number} targets ${pullRequest.baseRefName}; expected ${expectedBase}.`,
+        issueNumber,
+      )
+    }
+
+    return {
+      result: {
+        issueNumber,
+        parentIssueNumber: resolution.parent.issue.number,
+        expectedBase,
+        childWasClosed: resolution.issue.issue.state === 'CLOSED',
+      },
+      diagnostics: [],
+    }
+  } catch (error) {
+    return validationFailure(
+      'planning-record-failure',
+      `Completing child #${issueNumber} could not be validated: ${errorMessage(error)}`,
+      issueNumber,
+    )
+  }
+}
+
+function validationFailure(
+  code: PullRequestPlanningDiagnostic['code'],
+  message: string,
+  issueNumber: number,
+): { diagnostics: PullRequestPlanningDiagnostic[] } {
+  return {
+    diagnostics: [{ severity: 'error', code, message, issueNumber }],
   }
 }
 
@@ -246,9 +525,8 @@ interface ReconcileTargetInput {
   relationships: Set<CandidateRelationship>
   repository: string
   apply: boolean
-  completionMergeDeferred: boolean
   directlyActive: boolean
-  activeContribution: boolean
+  activeBodyRelationship: boolean
 }
 
 async function reconcileTarget(
@@ -256,19 +534,9 @@ async function reconcileTarget(
   input: ReconcileTargetInput,
 ): Promise<{
   target: PullRequestPlanningTarget
+  applied: boolean
   diagnostic?: PullRequestPlanningDiagnostic
 }> {
-  if (input.completionMergeDeferred) {
-    return {
-      target: {
-        issueNumber: input.issueNumber,
-        relationships: sortedRelationships(input.relationships),
-        outcome: 'unchanged',
-        reason: 'completion-merge-deferred',
-      },
-    }
-  }
-
   try {
     const inspected = await planningRecords.reconcile({
       issueNumber: input.issueNumber,
@@ -276,86 +544,48 @@ async function reconcileTarget(
       apply: false,
     })
     const record = inspected.record
-    const targetBase = {
-      issueNumber: input.issueNumber,
-      relationships: sortedRelationships(input.relationships),
-      statusBefore: record.project.status,
-    }
-
-    if (record.issue.state !== 'OPEN') {
-      return {
-        target: {
-          ...targetBase,
-          outcome: 'unchanged',
-          reason: 'issue-closed',
-          statusAfter: record.project.status,
-        },
-      }
-    }
-    if (record.project.membership !== 'present') {
-      const archived = record.project.membership === 'archived'
-      return {
-        target: {
-          ...targetBase,
-          outcome: 'failed',
-          reason: archived ? 'archived-project-item' : 'missing-project-item',
-          statusAfter: record.project.status,
-        },
-        diagnostic: {
-          severity: 'error',
-          code: 'planning-record-failure',
-          message: `Issue #${input.issueNumber} is ${archived ? 'archived in' : 'missing from'} the canonical Project.`,
-          issueNumber: input.issueNumber,
-        },
-      }
-    }
-
     const activeClosing = record.issue.linkedPullRequests.some(
       (related) =>
         related.repository.toLowerCase() === input.repository &&
         related.relationship === 'closing' &&
         related.state === 'OPEN',
     )
-    if (!input.directlyActive && !input.activeContribution && !activeClosing) {
+    const active = input.directlyActive || input.activeBodyRelationship || activeClosing
+    const converged = await planningRecords.converge({
+      issueNumber: input.issueNumber,
+      active,
+      apply: input.apply,
+    })
+    const operation = converged.operations.find(
+      (candidate) => candidate.operation === 'set-status',
+    )
+    const targetBase = {
+      issueNumber: input.issueNumber,
+      relationships: sortedRelationships(input.relationships),
+      statusBefore: record.project.status,
+      statusAfter: converged.record.project.status,
+    }
+
+    if (record.issue.state === 'CLOSED') {
+      return {
+        target: { ...targetBase, outcome: 'unchanged', reason: 'issue-closed' },
+        applied: converged.applied,
+      }
+    }
+    if (!active) {
       return {
         target: {
           ...targetBase,
           outcome: 'unchanged',
           reason: 'no-active-relationship',
-          statusAfter: record.project.status,
         },
+        applied: converged.applied,
       }
     }
-    if (record.project.status !== 'Todo') {
-      return {
-        target: {
-          ...targetBase,
-          outcome: 'unchanged',
-          reason: 'status-not-todo',
-          statusAfter: record.project.status,
-        },
-      }
-    }
-
-    const advanced = await planningRecords.reconcile({
-      issueNumber: input.issueNumber,
-      ensureProject: false,
-      status: 'In Progress',
-      expectedStatus: 'Todo',
-      openOnly: true,
-      apply: input.apply,
-    })
-    const operation = advanced.operations.find(
-      (candidate) => candidate.operation === 'set-status',
-    )
     if (operation?.outcome === 'updated') {
       return {
-        target: {
-          ...targetBase,
-          outcome: 'advanced',
-          reason: 'active-relationship',
-          statusAfter: advanced.record.project.status,
-        },
+        target: { ...targetBase, outcome: 'advanced', reason: 'active-relationship' },
+        applied: converged.applied,
       }
     }
     if (operation?.outcome === 'would-update') {
@@ -364,20 +594,13 @@ async function reconcileTarget(
           ...targetBase,
           outcome: 'would-advance',
           reason: 'active-relationship',
-          statusAfter: advanced.record.project.status,
         },
+        applied: converged.applied,
       }
     }
     return {
-      target: {
-        ...targetBase,
-        outcome: 'unchanged',
-        reason:
-          advanced.record.issue.state === 'CLOSED'
-            ? 'issue-closed'
-            : 'concurrent-state-change',
-        statusAfter: advanced.record.project.status,
-      },
+      target: { ...targetBase, outcome: 'unchanged', reason: 'status-not-todo' },
+      applied: converged.applied,
     }
   } catch (error) {
     return {
@@ -387,39 +610,47 @@ async function reconcileTarget(
         outcome: 'failed',
         reason: 'planning-record-failure',
       },
+      applied: false,
       diagnostic: {
         severity: 'error',
         code: 'planning-record-failure',
-        message: planningFailureMessage(input.issueNumber, error),
+        message: `Issue #${input.issueNumber} could not be reconciled: ${errorMessage(error)}`,
         issueNumber: input.issueNumber,
       },
     }
   }
 }
 
-function indexOpenContributions(
+function indexOpenRelationships(
   pullRequests: PullRequestBodySnapshot[],
   repository: string,
 ): Map<number, Set<number>> {
-  const contributions = new Map<number, Set<number>>()
+  const relationships = new Map<number, Set<number>>()
   for (const pullRequest of pullRequests) {
     if (pullRequest.repository.toLowerCase() !== repository.toLowerCase()) continue
-    const parsed = parseContributionTrailers(pullRequest.body, pullRequest.number)
-    for (const issueNumber of parsed.issueNumbers) {
-      addOpenContribution(contributions, issueNumber, pullRequest.number)
+    const contributions = parseContributionTrailers(pullRequest.body, pullRequest.number)
+    for (const issueNumber of contributions.issueNumbers) {
+      addOpenRelationship(relationships, issueNumber, pullRequest.number)
+    }
+    const completingChild = parseCompletingChildTrailer(
+      pullRequest.body,
+      pullRequest.number,
+    )
+    if (completingChild.issueNumber !== undefined) {
+      addOpenRelationship(relationships, completingChild.issueNumber, pullRequest.number)
     }
   }
-  return contributions
+  return relationships
 }
 
-function addOpenContribution(
-  contributions: Map<number, Set<number>>,
+function addOpenRelationship(
+  relationships: Map<number, Set<number>>,
   issueNumber: number,
   pullRequestNumber: number,
 ): void {
-  const pullRequests = contributions.get(issueNumber) ?? new Set<number>()
+  const pullRequests = relationships.get(issueNumber) ?? new Set<number>()
   pullRequests.add(pullRequestNumber)
-  contributions.set(issueNumber, pullRequests)
+  relationships.set(issueNumber, pullRequests)
 }
 
 function contributionDiagnostics(
@@ -446,6 +677,23 @@ function contributionDiagnostics(
   ]
 }
 
+function completingChildDiagnostics(
+  parsed: ReturnType<typeof parseCompletingChildTrailer>,
+): PullRequestPlanningDiagnostic[] {
+  return parsed.errors.map((error) => ({
+    severity: 'error',
+    code: error.code,
+    message:
+      error.code === 'self-reference'
+        ? `A pull request cannot complete its own number #${error.issueNumber}.`
+        : error.code === 'multiple-completing-children'
+          ? 'An epic-child PR must name exactly one direct child once.'
+          : 'Completes-child trailers must use exactly: Completes-child: #N',
+    line: error.line,
+    ...(error.issueNumber === undefined ? {} : { issueNumber: error.issueNumber }),
+  }))
+}
+
 function addCandidate(
   candidates: Map<number, Set<CandidateRelationship>>,
   issueNumber: number,
@@ -458,6 +706,8 @@ function addCandidate(
 
 const RELATIONSHIP_ORDER: CandidateRelationship[] = [
   'closing',
+  'child-completion',
+  'parent-epic',
   'contribution',
   'removed-contribution',
 ]
@@ -468,9 +718,8 @@ function sortedRelationships(
   return RELATIONSHIP_ORDER.filter((relationship) => relationships.has(relationship))
 }
 
-function planningFailureMessage(issueNumber: number, error: unknown): string {
-  const detail = error instanceof Error ? error.message : 'unknown planning failure'
-  return `Issue #${issueNumber} could not be reconciled: ${detail}`
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : 'unknown planning failure'
 }
 
 function summarize(

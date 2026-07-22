@@ -7,6 +7,8 @@ export interface PullRequestSnapshot {
   number: number
   state: PullRequestState
   isDraft: boolean
+  baseRefName: string
+  headRefName: string
   body: string
   closingIssues: IssueReference[]
 }
@@ -14,6 +16,8 @@ export interface PullRequestSnapshot {
 export interface PullRequestBodySnapshot {
   repository: string
   number: number
+  baseRefName: string
+  headRefName: string
   body: string
 }
 
@@ -35,8 +39,21 @@ export interface ContributionTrailerParseResult {
   errors: ContributionTrailerError[]
 }
 
+export interface CompletingChildTrailerError {
+  code: 'malformed-completing-child' | 'multiple-completing-children' | 'self-reference'
+  line: number
+  issueNumber?: number
+}
+
+export interface CompletingChildTrailerParseResult {
+  issueNumber?: number
+  errors: CompletingChildTrailerError[]
+}
+
 const CONTRIBUTION_PREFIX = /^ {0,3}contributes-to:/i
 const CONTRIBUTION_TRAILER = /^ {0,3}Contributes-to: #([1-9]\d*)[ \t]*$/
+const COMPLETING_CHILD_PREFIX = /^ {0,3}completes-child:/i
+const COMPLETING_CHILD_TRAILER = /^ {0,3}Completes-child: #([1-9]\d*)[ \t]*$/
 const FENCE = /^ {0,3}(`{3,}|~{3,})/
 
 export function parseContributionTrailers(
@@ -46,6 +63,84 @@ export function parseContributionTrailers(
   const issueNumbers = new Set<number>()
   const warnings: ContributionTrailerWarning[] = []
   const errors: ContributionTrailerError[] = []
+  for (const { line, lineNumber } of pullRequestMetadataLines(body)) {
+    const match = CONTRIBUTION_TRAILER.exec(line)
+    if (match === null) {
+      if (CONTRIBUTION_PREFIX.test(line)) {
+        errors.push({ code: 'malformed-trailer', line: lineNumber })
+      }
+      continue
+    }
+
+    const issueNumber = Number(match[1])
+    if (!Number.isSafeInteger(issueNumber)) {
+      errors.push({ code: 'malformed-trailer', line: lineNumber })
+      continue
+    }
+    if (issueNumber === pullRequestNumber) {
+      errors.push({ code: 'self-reference', line: lineNumber, issueNumber })
+      continue
+    }
+    if (issueNumbers.has(issueNumber)) {
+      warnings.push({ code: 'duplicate-trailer', line: lineNumber, issueNumber })
+      continue
+    }
+    issueNumbers.add(issueNumber)
+  }
+
+  return {
+    issueNumbers: [...issueNumbers].sort((first, second) => first - second),
+    warnings,
+    errors,
+  }
+}
+
+export function parseCompletingChildTrailer(
+  body: string,
+  pullRequestNumber: number,
+): CompletingChildTrailerParseResult {
+  let issueNumber: number | undefined
+  const errors: CompletingChildTrailerError[] = []
+
+  for (const { line, lineNumber } of pullRequestMetadataLines(body)) {
+    const match = COMPLETING_CHILD_TRAILER.exec(line)
+    if (match === null) {
+      if (COMPLETING_CHILD_PREFIX.test(line)) {
+        errors.push({ code: 'malformed-completing-child', line: lineNumber })
+      }
+      continue
+    }
+
+    const parsed = Number(match[1])
+    if (!Number.isSafeInteger(parsed)) {
+      errors.push({ code: 'malformed-completing-child', line: lineNumber })
+      continue
+    }
+    if (parsed === pullRequestNumber) {
+      errors.push({ code: 'self-reference', line: lineNumber, issueNumber: parsed })
+      continue
+    }
+    if (issueNumber !== undefined) {
+      errors.push({
+        code: 'multiple-completing-children',
+        line: lineNumber,
+        issueNumber: parsed,
+      })
+      continue
+    }
+    issueNumber = parsed
+  }
+
+  return {
+    ...(issueNumber === undefined || errors.length > 0 ? {} : { issueNumber }),
+    errors,
+  }
+}
+
+function pullRequestMetadataLines(
+  body: string,
+): Array<{ line: string; lineNumber: number }> {
+  const lines: Array<{ line: string; lineNumber: number }> = []
   let comment = false
   let fence: { marker: '`' | '~'; length: number } | undefined
 
@@ -75,34 +170,8 @@ export function parseContributionTrailers(
       fence = { marker: sequence[0] as '`' | '~', length: sequence.length }
       continue
     }
-
-    const match = CONTRIBUTION_TRAILER.exec(line)
-    if (match === null) {
-      if (CONTRIBUTION_PREFIX.test(line)) {
-        errors.push({ code: 'malformed-trailer', line: index + 1 })
-      }
-      continue
-    }
-
-    const issueNumber = Number(match[1])
-    if (!Number.isSafeInteger(issueNumber)) {
-      errors.push({ code: 'malformed-trailer', line: index + 1 })
-      continue
-    }
-    if (issueNumber === pullRequestNumber) {
-      errors.push({ code: 'self-reference', line: index + 1, issueNumber })
-      continue
-    }
-    if (issueNumbers.has(issueNumber)) {
-      warnings.push({ code: 'duplicate-trailer', line: index + 1, issueNumber })
-      continue
-    }
-    issueNumbers.add(issueNumber)
+    lines.push({ line, lineNumber: index + 1 })
   }
 
-  return {
-    issueNumbers: [...issueNumbers].sort((first, second) => first - second),
-    warnings,
-    errors,
-  }
+  return lines
 }

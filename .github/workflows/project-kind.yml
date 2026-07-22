@@ -1,8 +1,8 @@
-name: Reconcile project kind
+name: Reconcile issue planning
 
 on:
   issues:
-    types: [opened, reopened, labeled, unlabeled]
+    types: [opened, reopened, closed, labeled, unlabeled]
   workflow_dispatch:
     inputs:
       issue_number:
@@ -28,7 +28,9 @@ jobs:
       github.event_name == 'issues' &&
       (github.event.action == 'opened' ||
        github.event.action == 'reopened' ||
-       startsWith(github.event.label.name, 'kind:'))
+       github.event.action == 'closed' ||
+       github.event.action == 'labeled' ||
+       github.event.action == 'unlabeled')
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     environment:
@@ -87,7 +89,7 @@ jobs:
           node-version: 24
           package-manager-cache: false
 
-      - name: Reconcile issue kinds
+      - name: Reconcile issue planning
         env:
           HVIR_REPO_TOKEN: ${{ github.token }}
           HVIR_PROJECT_TOKEN: ${{ secrets.HVIR_PROJECT_TOKEN }}

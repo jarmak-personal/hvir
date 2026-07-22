@@ -46,7 +46,7 @@ describe('PR planning workflow security', () => {
     expect(workflow).not.toMatch(/^\s+run:.*\$\{\{/m)
   })
 
-  it('passes event values only through environment variables with read-only permissions', () => {
+  it('passes event values only through environment variables with bounded issue-write permission', () => {
     expect(workflow).toContain(
       'HVIR_PULL_REQUEST_NUMBER: ${{ github.event.pull_request.number }}',
     )
@@ -56,8 +56,8 @@ describe('PR planning workflow security', () => {
     )
     expect(workflow).toContain('HVIR_REPO_TOKEN: ${{ github.token }}')
     expect(workflow).toContain('pull-requests: read')
-    expect(workflow).toContain('issues: read')
-    expect(workflow).not.toMatch(/issues: write|pull-requests: write|contents: write/)
+    expect(matches(/^\s+issues: write$/gm)).toHaveLength(2)
+    expect(workflow).not.toMatch(/pull-requests: write|contents: write/)
   })
 
   it('gates every secret-bearing job on trusted default-branch automation', () => {

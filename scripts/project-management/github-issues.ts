@@ -204,6 +204,26 @@ export class GitHubIssueRepository {
     }
   }
 
+  async closeIssue(issueNumber: number): Promise<void> {
+    const result = await this.#client.rest(
+      `/repos/${encodeURIComponent(this.#owner)}/${encodeURIComponent(this.#name)}/issues/${issueNumber}`,
+      {
+        method: 'PATCH',
+        body: JSON.stringify({ state: 'closed', state_reason: 'completed' }),
+      },
+    )
+    if (
+      typeof result !== 'object' ||
+      result === null ||
+      !('number' in result) ||
+      result.number !== issueNumber ||
+      !('state' in result) ||
+      result.state !== 'closed'
+    ) {
+      throw new Error(`GitHub did not confirm closure of issue #${issueNumber}.`)
+    }
+  }
+
   get repository(): string {
     return `${this.#owner}/${this.#name}`
   }

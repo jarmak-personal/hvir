@@ -3,6 +3,7 @@ import {
   parseProjectKindCliOptions,
   parseProjectKindProjectNumber,
   parseProjectKindRepository,
+  formatProjectKindReport,
   PROJECT_KIND_HELP,
   projectKindExitCode,
 } from './kind-cli.ts'
@@ -37,13 +38,13 @@ async function main(): Promise<void> {
       : { eventUpdatedAt: options.eventUpdatedAt }),
   }
   const report = await reconcileKinds(automation, input)
-  process.stdout.write(`${JSON.stringify(report, null, 2)}\n`)
+  process.stdout.write(formatProjectKindReport(report, options.output))
   process.exitCode = projectKindExitCode(report)
 }
 
 main().catch((error: unknown) => {
   const message =
     error instanceof Error ? error.message : 'Unknown project automation failure.'
-  process.stderr.write(`project kind reconciliation failed: ${message}\n`)
+  process.stderr.write(`issue planning reconciliation failed: ${message}\n`)
   process.exitCode = 1
 })

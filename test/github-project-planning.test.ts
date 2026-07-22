@@ -202,6 +202,28 @@ describe('GitHub issue planning adapter', () => {
 
     await expect(issues.getIssue(85)).rejects.toThrow('wrong-owner/wrong-repository')
   })
+
+  it('closes one issue as completed and requires GitHub confirmation', async () => {
+    const fetchImplementation = vi.fn(
+      (url: string | URL | Request, init?: RequestInit): Promise<Response> => {
+        const target =
+          typeof url === 'string' ? url : url instanceof URL ? url.href : url.url
+        expect(target).toContain('/repos/jarmak-personal/hvir/issues/85')
+        expect(init?.method).toBe('PATCH')
+        expect(init?.body).toBe(
+          JSON.stringify({ state: 'closed', state_reason: 'completed' }),
+        )
+        return Promise.resolve(jsonResponse({ number: 85, state: 'closed' }))
+      },
+    )
+    const issues = new GitHubIssueRepository({
+      owner: 'jarmak-personal',
+      name: 'hvir',
+      client: client('repo-token', fetchImplementation),
+    })
+
+    await expect(issues.closeIssue(85)).resolves.toBeUndefined()
+  })
 })
 
 describe('canonical Project adapter', () => {

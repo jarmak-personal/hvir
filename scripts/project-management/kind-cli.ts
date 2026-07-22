@@ -8,19 +8,22 @@ export interface ProjectKindCliOptions {
   apply: boolean
   event?: KindEvent
   eventUpdatedAt?: string
+  output: 'concise' | 'verbose' | 'json'
 }
 
 export const PROJECT_KIND_HELP = `Usage: npm run project:kind -- [options]
 
-Reconcile repository kind labels into the canonical Project Kind field.
+Reconcile issue labels and lifecycle state into the canonical Project.
 Dry-run is the default.
 
 Options:
   --issue <number>              Reconcile one issue; omit to inspect every open issue
   --apply                       Apply deterministic label and Project mutations
-  --event <action>              labeled, unlabeled, opened, or reopened
+  --event <action>              labeled, unlabeled, opened, reopened, or closed
   --event-label <label>         Label from a labeled or unlabeled event
   --event-updated-at <date>     Issue updated_at captured by the event
+  --verbose                     Emit per-issue human diagnostics
+  --json                        Emit the structured reconciliation report
   --help                        Show this help
 
 Environment:
@@ -47,10 +50,19 @@ export function parseProjectKindCliOptions(
   let eventAction = environment.HVIR_EVENT_ACTION
   let eventLabel = environment.HVIR_EVENT_LABEL
   let eventUpdatedAt = environment.HVIR_EVENT_UPDATED_AT
+  let output: ProjectKindCliOptions['output'] = 'concise'
 
   for (let index = 0; index < args.length; index += 1) {
     const argument = args[index]
-    if (argument === '--help') return { help: true, apply }
+    if (argument === '--help') return { help: true, apply, output }
+    if (argument === '--verbose' || argument === '--json') {
+      const requested = argument === '--json' ? 'json' : 'verbose'
+      if (output !== 'concise' && output !== requested) {
+        throw new Error('--verbose and --json cannot be combined.')
+      }
+      output = requested
+      continue
+    }
     if (argument === '--apply') {
       apply = true
       continue
@@ -87,10 +99,28 @@ export function parseProjectKindCliOptions(
   return {
     help: false,
     apply,
+    output,
     ...(issueNumber === undefined ? {} : { issueNumber }),
     ...(event === undefined ? {} : { event }),
     ...(eventUpdatedAt === undefined ? {} : { eventUpdatedAt }),
   }
+}
+
+export function formatProjectKindReport(
+  report: ReconciliationReport,
+  output: ProjectKindCliOptions['output'],
+): string {
+  if (output === 'json') return `${JSON.stringify(report, null, 2)}\n`
+  const conflicts = report.summary.missing + report.summary.ambiguous
+  const headline = `issue planning: ${report.summary.total} reconciled, ${report.summary.mutations} mutation${report.summary.mutations === 1 ? '' : 's'}, ${conflicts} conflict${conflicts === 1 ? '' : 's'}`
+  if (output === 'concise') return `${headline}\n`
+  return `${[
+    headline,
+    ...report.results.map(
+      (result) =>
+        `#${result.issueNumber}: ${result.state}; Project ${result.projectAction ?? 'not changed'}; ${result.detail}`,
+    ),
+  ].join('\n')}\n`
 }
 
 export const parseProjectKindRepository = parseProjectRepository
@@ -107,7 +137,9 @@ function parseEvent(
   label: string | undefined,
 ): KindEvent | undefined {
   if (action === undefined || action === '') return undefined
-  if (action === 'opened' || action === 'reopened') return { action }
+  if (action === 'opened' || action === 'reopened' || action === 'closed') {
+    return { action }
+  }
   if (action === 'labeled' || action === 'unlabeled') {
     if (label === undefined || label === '') {
       throw new Error(`The ${action} event requires an event label.`)

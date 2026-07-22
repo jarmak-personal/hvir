@@ -42,9 +42,10 @@ is:open AND (label:"kind:feature" OR label:"kind:enhancement") AND label:"area:t
   `opened` event intentionally fails its workflow run. Applying a recognized kind triggers a
   succeeding reconciliation.
 - Manual reconciliation reports missing, unsupported, and competing kinds without choosing one.
-- Valid open issues are added to the canonical Project when missing and their Kind value is
-  reconciled.
-- Closed issues retain their last Project Kind value. Reopening validates them again.
+- Open issues are added or restored in the canonical Project when needed. Their Kind is derived
+  from the repository label, and blank or stale completed Status values converge to `Todo`.
+- Closed issues with an active Project item retain their label-derived Kind and converge to
+  `Done`. Reopening converges them back to open-work planning before PR relationships are applied.
 - A delayed event whose issue timestamp is older than current GitHub state is treated as a
   non-destructive reconciliation, not replayed as a label transition.
 
@@ -77,9 +78,10 @@ HVIR_PROJECT_TOKEN="$(gh auth token)" \
 npm run project:kind -- --issue 83
 ```
 
-The command exits nonzero after printing its JSON report when any issue is missing a kind or has
-ambiguous kind metadata. GitHub API failures, missing fields/options, archived items, permission
-errors, and exhausted bounded retries also fail visibly.
+The command prints one concise result by default. Use `--verbose` for per-issue human diagnostics
+or `--json` for the structured report. It exits nonzero when any issue is missing a kind or has
+ambiguous kind metadata. GitHub API failures, missing fields/options, irreconcilable closed-item
+membership, permission errors, and exhausted bounded retries also fail visibly.
 
 ### Normalized planning records
 
@@ -141,10 +143,34 @@ Both commands use `HVIR_REPO_TOKEN`, `HVIR_PROJECT_TOKEN`, `HVIR_REPOSITORY`,
 `HVIR_PROJECT_OWNER`, and `HVIR_PROJECT_NUMBER` as documented above. Credentials are read only
 from the environment and are never accepted as command-line values.
 
+### Delivery context
+
+Read the complete implementation context for one issue before selecting a base or worktree:
+
+```sh
+npm run issue:context -- --issue 168
+npm run issue:context -- --issue 168 --json
+```
+
+The command uses the same repository and Project environment values as `project:record`.
+The concise human output is the default. The JSON form reports the issue, native parent, ordinary
+or epic-child path, exact expected PR base, deterministic `agent/issue-N` branch and sibling
+worktree, related open PRs, canonical planning state, and actionable conflicts. The command exits
+2 when a conflict blocks safe delivery. It never mutates repository or Project state.
+
+For ordinary issues the expected PR base is `main`; implementation starts from `origin/main`.
+For a direct child of an open `kind:epic`, the expected base is the one unambiguous live
+`epic/<parent>-<slug>` branch. Missing or multiple branches, nested epics, closed or invalid
+parents, mismatched Project state, and open related PRs on the wrong base are explicit conflicts.
+The report omits bodies, comments, credentials, internal IDs, and raw API responses.
+When invoked from the primary checkout or deterministic sibling issue worktree, the command
+infers the primary root without running Git. Set `HVIR_PRIMARY_ROOT` only for a nonstandard local
+layout.
+
 ## Pull request relationships and Status
 
 Issues remain the canonical planning records; pull requests are relationship and lifecycle
-signals and do not need to be Project items. A PR can relate to same-repository issues in two
+signals and do not need to be Project items. A PR can relate to same-repository issues in three
 explicit ways:
 
 - GitHub's native closing references (`Closes #86`, `Fixes #86`, and their documented keyword
@@ -157,39 +183,47 @@ explicit ways:
   Contributes-to: #50
   Contributes-to: #87
   ```
+- An epic-child PR uses one exact whole-line `Completes-child: #N` trailer. Automation derives
+  the child's open direct epic parent from the native relationship, resolves the one matching
+  epic branch, and requires the PR to target that exact base.
 
 The contribution spelling and capitalization are deliberate. Up to three leading spaces and
 trailing whitespace are accepted, but the remainder of the line must be exactly
 `Contributes-to: #N`, where `N` is a positive same-repository issue number other than the PR
 number. Free-form prose, fenced or indented code examples, and HTML comments are ignored.
-Malformed, cross-repository, and self-referencing relationships are errors; duplicate trailers
-are deduplicated with a warning. If one issue is both a completion and contribution target,
+Malformed, cross-repository, and self-referencing relationships are errors; duplicate
+contribution trailers are deduplicated with a warning. A completing-child relationship must name
+one direct child exactly once. If one issue is both a completion and contribution target,
 completion semantics take precedence.
 
-Status ownership is one-way and monotonic:
+Status ownership follows the canonical issue and PR signals:
 
 | Current event or state | Related issue behavior |
 | --- | --- |
 | PR opened, reopened, draft, or ready for review | An eligible open `Todo` issue advances to `In Progress`. |
 | Relationship added or edited | Current GitHub relationships are recomputed; eligible targets advance. |
-| Completion PR merged | Native issue closure and the Project issue-close workflow own `Done`; custom automation does not race them. |
+| Ordinary completion PR merged to `main` | Native issue closure owns completion; the issue event converges Project `Done`. |
+| Completing-child PR opened against its exact epic base | The direct child and derived parent epic converge to `In Progress`. |
+| Completing-child PR merged after exact validation | Trusted automation closes the direct child; the same lifecycle policy converges Project `Done`. |
 | Contribution PR merged | The contributed issue stays open and advances from `Todo` to `In Progress` when needed. |
 | PR closed unmerged or contribution removed | Current relationships are recomputed, but Status is never automatically regressed. |
-| Issue reopened | Current open completion and contribution relationships are recomputed before any advance. |
+| Issue reopened | Current open completion, completing-child, and contribution relationships are recomputed before any advance. |
 
-Automation changes only `Todo` to `In Progress`. It does not overwrite `In Progress`, `Done`, a
-blank Status, or a Status that changed after the job's initial read. It does not demote an issue,
-guess a previous manual Status, add or restore missing Project items, or mutate closed issues.
-Multiple PRs for one issue and one PR for multiple issues are resolved from current GitHub state
-rather than replaying event assumptions.
+Normal issue and PR events converge Project membership, label-derived Kind, and lifecycle Status.
+Open work starts at `Todo`, active explicit PR relationships advance it to `In Progress`, and
+closed issue state owns `Done`. Removing or closing a PR relationship never demotes an already
+open `In Progress` issue. Missing or archived open items are added or restored; a closed issue
+without an active item is a visible conflict because automation cannot safely invent historical
+membership. Multiple PRs for one issue and one PR for multiple issues are resolved from current
+GitHub state rather than replaying event assumptions.
 
-Epic-child PRs target a bounded `epic/**` branch and use one contribution trailer for the direct
-child plus one for its open epic. The same trusted relationship automation advances eligible
-records while the PR is active. After the PR merges, the contributor workflow verifies the PR's
-exact base and head plus the native parent relationship, then closes the feature-complete child
-with ordinary `gh` issue operations. Native issue-close automation owns `Done`. Reopen the child
-if a correction makes its outcome incomplete; a new contribution PR advances eligible reopened
-work normally. No intermediate Project Status is used.
+Epic-child PRs target a bounded `epic/**` branch and use one `Completes-child: #N` trailer. The
+trusted relationship workflow derives the parent epic and advances both records while the PR is
+active. After merge, it revalidates the exact base and native parent before closing the child.
+Failed or ambiguous validation leaves the child open and reports the conflict. Reopen the child if
+a correction makes its outcome incomplete; a new completing-child PR advances eligible reopened
+work normally. `Contributes-to: #N` remains available for partial, non-completing work. No
+intermediate Project Status is used.
 
 Inspect a PR relationship reconciliation without mutation:
 
@@ -202,6 +236,9 @@ Apply the eligible transitions after reviewing the report:
 ```sh
 npm run project:pr -- --pull-request 86 --apply
 ```
+
+Reconciliation emits one concise line by default. Add `--verbose` for per-target diagnostics or
+`--json` for the complete structured report.
 
 A reopened issue can be reconciled directly with `--issue N`. On an edited event, the workflow
 passes the previous body through an environment value only so the command can report a removed
@@ -252,12 +289,13 @@ Event jobs apply automatically; manual dispatch is a dry run unless `apply` is s
 repository-wide concurrency group serializes Project Status work without cancelling an in-flight
 job. Each event uses one runner. PR events load the current triggering PR and its paginated native
 relationships; both PR and issue-reopen paths scan paginated open PR bodies once for current
-contribution trailers and batch all issue operations inside that job. There is no polling or
-runner-per-relationship fan-out.
+contribution and completing-child trailers and batch all issue operations inside that job. There
+is no polling or runner-per-relationship fan-out.
 
-The workflow's repository-scoped `GITHUB_TOKEN` receives only `contents: read` and
-`issues: write`. GitHub does not allow that token to access a user-owned Project, so Project
-access uses the `HVIR_PROJECT_TOKEN` secret from the `project-automation` environment. That
+The workflows' repository-scoped `GITHUB_TOKEN` receives only `contents: read`, bounded
+`issues: write`, and PR metadata read where required. GitHub does not allow that token to access a
+user-owned Project, so Project access uses the `HVIR_PROJECT_TOKEN` secret from the
+`project-automation` environment. That
 environment accepts only the `main` branch. Create a classic personal access token owned by the
 Project owner with the GitHub-documented `project` and `repo` scopes, then store it as an
 environment secret:
@@ -286,8 +324,9 @@ The PR workflow uses `pull_request_target` because a fork-originated PR must be 
 the user-owned Project mutation. This is a privileged metadata workflow: GitHub loads the
 workflow from the default branch, the job checks out only trusted `main`, and it never checks out,
 fetches, installs, builds, or executes PR code. The job disables package-manager caching and gives
-`GITHUB_TOKEN` only `contents`, `issues`, and `pull-requests` read permissions. The Project
-credential remains isolated in the main-only `project-automation` environment; the event's
+`GITHUB_TOKEN` read-only `contents` and `pull-requests` access plus bounded `issues: write` access
+for validated direct-child closure. The Project credential remains isolated in the main-only
+`project-automation` environment; the event's
 `GITHUB_REF` remains the default branch even when the PR base is `epic/**`. PR bodies and the
 prior-body event value are parsed only as data by static default-branch automation; event values
 are passed through environment variables and never interpolated into shell source. External
