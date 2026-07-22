@@ -1,8 +1,10 @@
 import { hostPathEquals, type HostPath } from '../../../shared'
+import { TerminalEventRouter } from './terminal-event-router'
 import { TerminalRuntime, type TerminalRuntimeOptions } from './terminal-runtime'
 
 export class TerminalRuntimeRegistry {
   private readonly runtimes = new Map<string, TerminalRuntime>()
+  private eventRouter?: TerminalEventRouter
 
   acquire(options: TerminalRuntimeOptions): TerminalRuntime {
     const existing = this.runtimes.get(options.sessionId)
@@ -10,17 +12,21 @@ export class TerminalRuntimeRegistry {
       existing.update(options)
       return existing
     }
-    const runtime = new TerminalRuntime(options, (previousId, nextId, value) => {
-      if (this.runtimes.get(previousId) !== value) {
-        throw new Error('Terminal runtime identity changed while it was not registered')
-      }
-      const collision = this.runtimes.get(nextId)
-      if (collision && collision !== value) {
-        throw new Error(`Terminal runtime '${nextId}' is already registered`)
-      }
-      this.runtimes.delete(previousId)
-      this.runtimes.set(nextId, value)
-    })
+    const runtime = new TerminalRuntime(
+      options,
+      () => (this.eventRouter ??= new TerminalEventRouter(window.hvir)),
+      (previousId, nextId, value) => {
+        if (this.runtimes.get(previousId) !== value) {
+          throw new Error('Terminal runtime identity changed while it was not registered')
+        }
+        const collision = this.runtimes.get(nextId)
+        if (collision && collision !== value) {
+          throw new Error(`Terminal runtime '${nextId}' is already registered`)
+        }
+        this.runtimes.delete(previousId)
+        this.runtimes.set(nextId, value)
+      },
+    )
     this.runtimes.set(options.sessionId, runtime)
     return runtime
   }
@@ -45,5 +51,7 @@ export class TerminalRuntimeRegistry {
   dispose(): void {
     for (const runtime of this.runtimes.values()) runtime.dispose()
     this.runtimes.clear()
+    this.eventRouter?.dispose()
+    this.eventRouter = undefined
   }
 }

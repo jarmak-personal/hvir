@@ -11,11 +11,14 @@ import {
 } from '../../../shared'
 import { createGhosttyTerminalPane } from './ghostty-terminal-pane'
 import { SynchronizedOutputWriter } from './synchronized-output'
+import type { TerminalEventRouter } from './terminal-event-router'
 import type { TerminalLinkActivation, TerminalPane } from './terminal-pane'
 import type { TerminalPresentation } from './terminal-pane'
 import {
   baseTerminalTheme,
   resumeUnavailableStatus,
+  type TerminalRecoveryFailure,
+  type TerminalRuntimeSnapshot,
 } from './terminal-runtime-presentation'
 
 const PTY_RESIZE_DEBOUNCE_MS = 75
@@ -26,11 +29,6 @@ export interface FreshTerminalStart {
   readonly harnessSessionId?: string
   readonly identityStatus: TerminalIdentityStatus
   readonly capabilities: HarnessProviderCapabilities
-}
-
-export type TerminalRecoveryFailure = {
-  readonly kind: 'resume-unavailable'
-  readonly reason: 'artifact-missing'
 }
 
 export interface TerminalRuntimeOptions {
@@ -68,13 +66,6 @@ export interface TerminalRuntimeOptions {
   readonly onLink: (activation: TerminalLinkActivation) => void
 }
 
-export interface TerminalRuntimeSnapshot {
-  readonly title: string
-  readonly status: string
-  readonly exited: boolean
-  readonly recoveryFailure?: TerminalRecoveryFailure
-}
-
 export class TerminalRuntime {
   private options: TerminalRuntimeOptions
   private currentSnapshot: TerminalRuntimeSnapshot
@@ -83,7 +74,7 @@ export class TerminalRuntime {
   private pane?: TerminalPane
   private outputWriter?: SynchronizedOutputWriter
   private paneDisposers: Array<() => void | Promise<void>> = []
-  private eventDisposers: Array<() => void | Promise<void>> = []
+  private eventRoute?: ReturnType<TerminalEventRouter['register']>
   private resizeTimer?: number
   private terminalSize = { cols: 80, rows: 24 }
   private pendingInput = ''
@@ -100,6 +91,7 @@ export class TerminalRuntime {
 
   constructor(
     options: TerminalRuntimeOptions,
+    private readonly terminalEvents: () => TerminalEventRouter,
     private readonly replaceSessionId: (
       previousId: string,
       nextId: string,
@@ -137,6 +129,7 @@ export class TerminalRuntime {
       throw new Error('Live terminal launch context cannot change')
     }
     this.options = options
+    this.eventRoute?.setPresentation(options.presentation)
   }
 
   synchronizeLifecycle(): void {
@@ -165,6 +158,8 @@ export class TerminalRuntime {
     if (this.pane) {
       this.pane.reparent(container)
       this.pane.setPresentation(presentation)
+      this.eventRoute?.setPresentation(presentation)
+      this.eventRoute?.exposeStats(container)
       if (this.options.active) this.focus()
       return
     }
@@ -175,6 +170,7 @@ export class TerminalRuntime {
     if (this.container !== container) return
     this.container = undefined
     this.pane?.setPresentation('hidden')
+    this.eventRoute?.setPresentation('hidden')
   }
 
   focus(): void {
@@ -421,40 +417,39 @@ export class TerminalRuntime {
   }
 
   private installPtyListeners(sessionId: string): void {
-    this.eventDisposers = [
-      window.hvir.on('pty:data', ({ id, data }) => {
-        if (id !== sessionId) return
-        this.options.onOutput()
-        this.outputWriter?.write(data)
-      }),
-      window.hvir.on('pty:exit', ({ id, exitCode }) => {
-        if (id !== sessionId) return
-        this.started = false
-        this.activePtyId = undefined
-        this.updateSnapshot({
-          ...this.currentSnapshot,
-          status: `Exited (${exitCode})`,
-          exited: true,
-          recoveryFailure: undefined,
-        })
-      }),
-      window.hvir.on('pty:telemetry', ({ id, telemetry }) => {
-        if (id === sessionId) this.options.onTelemetry(telemetry)
-      }),
-      window.hvir.on('pty:identity', ({ id, harnessSessionId, identityStatus }) => {
-        if (id === sessionId) {
+    this.eventRoute = this.terminalEvents().register(
+      sessionId,
+      this.options.presentation,
+      {
+        onData: (data) => {
+          this.options.onOutput()
+          this.outputWriter?.write(data)
+        },
+        onExit: (exitCode) => {
+          this.started = false
+          this.activePtyId = undefined
+          this.updateSnapshot({
+            ...this.currentSnapshot,
+            status: `Exited (${exitCode})`,
+            exited: true,
+            recoveryFailure: undefined,
+          })
+        },
+        onTelemetry: (telemetry) => this.options.onTelemetry(telemetry),
+        onIdentity: (harnessSessionId, identityStatus) => {
           this.options.onIdentity(harnessSessionId, identityStatus)
-        }
-      }),
-    ]
+        },
+      },
+    )
+    if (this.container) this.eventRoute.exposeStats(this.container)
   }
 
   private releaseSurface(kill: boolean): void {
     this.startGeneration++
     this.starting = false
-    for (const dispose of this.eventDisposers) void dispose()
+    this.eventRoute?.dispose()
     for (const dispose of this.paneDisposers) void dispose()
-    this.eventDisposers = []
+    this.eventRoute = undefined
     this.paneDisposers = []
     if (this.resizeTimer !== undefined) window.clearTimeout(this.resizeTimer)
     this.resizeTimer = undefined

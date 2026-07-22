@@ -28,11 +28,14 @@ idle terminals. The loaded interval then mixes continuous plain output, Codex-li
 cursor/ANSI updates, synchronized-output bursts, and idle panes while churning a watched
 file and alternating Files/Git. It reports renderer, GPU, and main-process CPU alongside
 animation-frame, click-latency, and total-working-set evidence; it also verifies hidden
-parse-versus-presentation counters and exact input echo from a thirteenth terminal created
-under load. It fails when the idle CPU median ratio exceeds 1.5, p99 latency is >=100 ms,
-an unexplained stall exceeds 500 ms, net loaded-interval working-set growth exceeds 256
-MiB, hidden presentation advances, a PTY is orphaned, or all terminals cannot recover with
-Changes and History usable. Ghostty scrollback is bounded to 10,000 lines per terminal.
+parse-versus-presentation counters, native data-event versus coalesced-delivery callbacks,
+terminal writes, per-session buffered-byte peaks, and exact input echo from a thirteenth
+terminal created under load. Delivery buffers are capped at 64 KiB; visible output flushes
+on the next frame and hidden output within 40 ms. The smoke fails when delivery is not
+coalesced, a buffer exceeds its cap, the idle CPU median ratio exceeds 1.5, p99 latency is
+>=100 ms, an unexplained stall exceeds 500 ms, net loaded-interval working-set growth exceeds
+256 MiB, hidden presentation advances, a PTY is orphaned, or all terminals cannot recover
+with Changes and History usable. Ghostty scrollback is bounded to 10,000 lines per terminal.
 
 ## Workspace and error matrix
 
@@ -83,14 +86,23 @@ lines per terminal as a failure and retain the sample table with the release evi
 
 ## Latest automated evidence
 
-On 2026-07-15, the full gauntlet passed on the development MacBook Air:
+On 2026-07-22, the terminal-delivery candidate passed its targeted gates on the development
+MacBook Air:
 
-- seam checks, scoped lint, both TypeScript builds, and 39 test files / 272 tests passed;
-- production smoke covered Git, terminal lifecycle/recovery, themes, richer renderers,
-  terminal/viewer splits, settings, file handoff, and a bounded >5 MiB preview;
-- the 12-terminal probe measured **17.7 ms p99 / 17.8 ms max** over 75 UI transitions,
-  with 50 MiB net / 106 MiB peak working-set growth during the 30-second run; and
-- all 12 terminals recovered after reload with Changes and History ready.
+- policy, lint, both TypeScript builds, and 130 test files / 892 tests passed;
+- the focused real-Electron lifecycle preserved hidden ANSI/title/bell parsing, a current
+  one-repaint reveal, exact input echo, and close;
+- the loaded 12-terminal interval routed 6,386 native data events into 3,671 bounded delivery
+  callbacks and 3,672 terminal writes, a 42.5% callback reduction with a 330-byte peak buffer;
+- 11 hidden panes parsed 1,887 writes with zero presentation frames while the visible pane
+  advanced 1,785 frames;
+- the three-window idle renderer-plus-GPU median ratio was 0.937, and the denser loaded interval
+  measured **18.5 ms p99 / 18.7 ms max**, renderer/GPU/main CPU of 2.88%/1.35%/0.86%, and
+  102 MiB net / 102 MiB peak working-set growth; and
+- a thirteenth terminal accepted one exact input echo under load, then all 12 terminals recovered
+  with Changes and History ready.
 
-The local teardown audit was empty. This automated result does not replace the live SSH
-topology or two-hour memory protocols above; both remain Phase 8 release acceptance work.
+This separates the mechanisms: the feature router removes per-pane native subscription fan-out,
+delivery coalescing reduces 6,386 routed events to 3,671 callbacks, and the earlier hidden-
+presentation work still holds hidden frames at zero. The automated result does not replace the
+live SSH topology or two-hour memory protocols above; both remain Phase 8 release acceptance work.

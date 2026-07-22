@@ -12,6 +12,12 @@ describe('capacity terminal presentation accounting', () => {
       ...sample,
       parsedWrites: sample.parsedWrites + (index >= 1 && index <= 3 ? 20 : 0),
       renderFrames: sample.renderFrames + (index === 0 ? 30 : 0),
+      delivery: {
+        ...sample.delivery,
+        nativeDataEvents: sample.delivery.nativeDataEvents + 20,
+        deliveryCallbacks: sample.delivery.deliveryCallbacks + 5,
+        peakBufferedBytes: 4_096,
+      },
     }))
 
     expect(
@@ -21,6 +27,10 @@ describe('capacity terminal presentation accounting', () => {
       hiddenParsedWrites: 60,
       hiddenPresentationFrames: 0,
       visiblePresentationFrames: 30,
+      nativeDataEvents: 240,
+      deliveryCallbacks: 60,
+      terminalWrites: 60,
+      peakBufferedBytes: 4_096,
     })
   })
 
@@ -30,6 +40,11 @@ describe('capacity terminal presentation accounting', () => {
       ...sample,
       parsedWrites: sample.parsedWrites + (index >= 1 && index <= 3 ? 1 : 0),
       renderFrames: sample.renderFrames + (index === 0 || index === 2 ? 1 : 0),
+      delivery: {
+        ...sample.delivery,
+        nativeDataEvents: sample.delivery.nativeDataEvents + 4,
+        deliveryCallbacks: sample.delivery.deliveryCallbacks + 1,
+      },
     }))
 
     expect(() =>
@@ -48,5 +63,15 @@ function samples(): readonly TerminalPresentationSample[] {
     fullRenderFrames: 1,
     paused: index !== 0,
     pendingFrame: false,
+    delivery: {
+      nativeDataEvents: 10,
+      deliveryCallbacks: 5,
+      receivedBytes: 1_024,
+      deliveredBytes: 1_024,
+      peakBufferedBytes: 1_024,
+      bufferedBytes: 0,
+      pending: false,
+      presentation: index === 0 ? 'visible' : 'hidden',
+    },
   }))
 }
