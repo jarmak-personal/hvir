@@ -1,0 +1,140 @@
+.workbench-health-toggle {
+  min-width: 34px;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  border: 0;
+  border-bottom: 1px solid var(--border-strong);
+  background: transparent;
+  color: #7696b8;
+}
+
+.workbench-health-toggle:hover,
+.workbench-health-toggle:focus-visible,
+.workbench-health-toggle.new {
+  background: #172330;
+  color: #9ec8f2;
+}
+
+.workbench-health-toggle.critical {
+  color: #ef8b83;
+}
+
+.workbench-health-toggle.unavailable {
+  color: #d5a968;
+}
+
+.workbench-health-toggle b {
+  min-width: 14px;
+  padding: 1px 4px;
+  border-radius: 8px;
+  background: #24384b;
+  font-size: 8px;
+  font-variant-numeric: tabular-nums;
+}
+
+.workbench-health-dialog {
+  width: min(680px, calc(100vw - 32px));
+  max-height: min(720px, calc(100vh - 32px));
+}
+
+.workbench-health-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.workbench-health-heading h2,
+.workbench-health-heading p,
+.workbench-health-item p {
+  margin: 0;
+}
+
+.workbench-health-heading p,
+.workbench-health-item p,
+.workbench-health-dropped {
+  color: #929dab;
+  font-size: 11px;
+}
+
+.workbench-health-evidence {
+  flex: 0 0 auto;
+  padding: 4px 7px;
+  border: 1px solid #385b78;
+  border-radius: 9px;
+  color: #9ec8f2;
+  font-size: 9px;
+}
+
+.workbench-health-evidence.unavailable {
+  border-color: #794a46;
+  color: #ef9a91;
+}
+
+.workbench-health-list {
+  max-height: min(480px, 55vh);
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 14px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.workbench-health-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 5px 12px;
+  padding: 10px;
+  border: 1px solid #344455;
+  border-left: 3px solid #668db5;
+  border-radius: 5px;
+  background: #151b22;
+}
+
+.workbench-health-item.critical {
+  border-left-color: #d66d67;
+}
+
+.workbench-health-item.resolved {
+  opacity: 0.68;
+}
+
+.workbench-health-item-title,
+.workbench-health-item p,
+.workbench-health-item code {
+  grid-column: 1;
+}
+
+.workbench-health-item-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.workbench-health-item-title span {
+  color: #92a2b4;
+  font-size: 9px;
+  text-transform: uppercase;
+}
+
+.workbench-health-item code {
+  color: #8598ad;
+  font-size: 9px;
+}
+
+.workbench-health-item > button {
+  grid-column: 2;
+  grid-row: 1 / span 5;
+  align-self: center;
+}
+
+.workbench-health-empty {
+  margin: 20px 0 8px;
+  color: #a8b1bd;
+}

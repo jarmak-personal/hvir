@@ -6,6 +6,7 @@ import { describe, expect, it } from 'vitest'
 const expectedOrder = [
   'base.css',
   'projects.css',
+  'health.css',
   'shell.css',
   'viewer-tabs.css',
   'terminal-shell.css',

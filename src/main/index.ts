@@ -24,6 +24,7 @@ import { RendererResourceScopes, type RendererOwner } from './renderer-resource-
 import { createElectronWindowManager } from './window/electron-window-manager'
 import { WorkbenchRuntime } from './workbench-runtime'
 import { RuntimeDiagnostics } from './diagnostics/runtime-diagnostics'
+import { RendererEventPublisher } from './renderer-event-publisher'
 import {
   GIT_CHANGED_FILE_COUNT_TYPE,
   GIT_FETCH_TYPE,
@@ -35,8 +36,6 @@ import {
   LOCAL_HOST_ID,
   type EchoWorkerProtocol,
   type GitWorkerProtocol,
-  type IpcEventChannel,
-  type IpcEventPayload,
   HTML_PREVIEW_SCHEME,
 } from '../shared'
 
@@ -48,11 +47,6 @@ protocol.registerSchemesAsPrivileged([
 ])
 
 function createWorkbenchEntry(): void {
-  const diagnostics = RuntimeDiagnostics.create(
-    app.getPath('userData'),
-    app.isPackaged || process.env['HVIR_SMOKE'] === '1',
-  )
-  diagnostics.recordApplication('application-starting')
   const runtime = new WorkbenchRuntime({
     start: startup,
     suspend: suspendWorkbenchSessions,
@@ -74,6 +68,13 @@ function createWorkbenchEntry(): void {
     new RendererResourceScopes(),
     (scopes) => scopes.dispose(),
   )
+  const rendererEvents = new RendererEventPublisher(rendererScopes)
+  const diagnostics = RuntimeDiagnostics.create(
+    app.getPath('userData'),
+    app.isPackaged || process.env['HVIR_SMOKE'] === '1',
+    (state) => rendererEvents.toWindows('workbench-health:state', state),
+  )
+  diagnostics.recordApplication('application-starting')
   const gitMutationAuthorizations = runtime.own(
     'Git mutation authorizations',
     new GitMutationAuthorization(),
@@ -117,7 +118,7 @@ function createWorkbenchEntry(): void {
         return installRendererPresentation(transition.owner)
       },
       revokeRenderer: (owner) => {
-        diagnostics.revokeRenderer(owner)
+        diagnostics.closeRenderer(owner)
         void rendererScopes
           .revokeOwner(owner.id)
           .catch((error) => console.error('[renderer] owner cleanup failed', error))
@@ -126,6 +127,7 @@ function createWorkbenchEntry(): void {
       setOwnerFocused: (owner, focused) =>
         attentionBadge?.setFocused(owner.id, focused, owner.generation),
       startRendererDiagnostics: (owner) => diagnostics.startRenderer(owner),
+      recordWindowHealth: (event) => diagnostics.recordWindowHealth(event),
       onLastWindowClosed: () => {
         void runtime
           .suspend()
@@ -140,35 +142,15 @@ function createWorkbenchEntry(): void {
   const webPaneRoutes = windowManager.routes
   const createWindow = windowManager.createWindow
 
-  function emitToWindows<E extends IpcEventChannel>(
-    channel: E,
-    payload: IpcEventPayload<E>,
-  ): void {
-    for (const window of BrowserWindow.getAllWindows()) {
-      if (!window.isDestroyed()) window.webContents.send(channel, payload)
-    }
-  }
-
-  function emitToRenderer<E extends IpcEventChannel>(
-    owner: RendererOwner,
-    channel: E,
-    payload: IpcEventPayload<E>,
-  ): void {
-    if (!rendererScopes.isCurrent(owner)) return
-    const window = BrowserWindow.getAllWindows().find(
-      (candidate) => candidate.webContents.id === owner.id,
-    )
-    if (window && !window.isDestroyed()) window.webContents.send(channel, payload)
-  }
-
   async function startup(): Promise<void> {
     htmlPreviews.register()
-    const emit = emitToWindows
+    const emit = rendererEvents.toWindows
     sshPrompter = runtime.own(
       'SSH prompter',
       new RendererSshPrompter(
-        (owner, prompt) => emitToRenderer(owner, 'ssh:prompt', prompt),
-        (owner, hostId) => emitToRenderer(owner, 'ssh:prompt-cancel', { hostId }),
+        (owner, prompt) => rendererEvents.toRenderer(owner, 'ssh:prompt', prompt),
+        (owner, hostId) =>
+          rendererEvents.toRenderer(owner, 'ssh:prompt-cancel', { hostId }),
       ),
       (prompter) => prompter.cancelAll(),
     )
@@ -336,7 +318,7 @@ function createWorkbenchEntry(): void {
             console.error('[terminal] identity persistence failed', error),
           )
       }
-      emitToRenderer(
+      rendererEvents.toRenderer(
         { id: info.ownerId, generation: info.ownerGeneration },
         'pty:identity',
         {
@@ -381,6 +363,8 @@ function createWorkbenchEntry(): void {
           sshPrompter?.respond(owner, id, answers),
         rendererResources: rendererScopes,
         rendererReady: (owner) => sshPrompter?.activateOwner(owner),
+        getWorkbenchHealth: () => diagnostics.healthSnapshot(),
+        acknowledgeWorkbenchHealth: (id) => diagnostics.acknowledgeHealth(id),
         recordIpcContractDiagnostic: (event) => diagnostics.recordIpcContract(event),
         recordRenderContainment: (owner, batch) =>
           diagnostics.recordRenderContainment(owner, batch),

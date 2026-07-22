@@ -10,6 +10,7 @@ import type {
   ProjectHostOption,
   ProjectState,
   ProjectWatchInterestsResponse,
+  WorkbenchHealthSnapshot,
 } from '../../shared'
 import type { HarnessProfileStoreContract } from '../harness/harness-profile-store'
 import type { HarnessProbeManager } from '../harness/harness-probe'
@@ -77,6 +78,8 @@ export interface IpcDeps {
   ) => void
   readonly rendererResources: RendererResourceScopes
   readonly rendererReady: (owner: RendererOwner) => void
+  readonly getWorkbenchHealth: () => WorkbenchHealthSnapshot
+  readonly acknowledgeWorkbenchHealth: (occurrenceId: string) => WorkbenchHealthSnapshot
   readonly recordIpcContractDiagnostic: (event: IpcContractDiagnostic) => void
   readonly recordRenderContainment: (
     owner: RendererOwner,

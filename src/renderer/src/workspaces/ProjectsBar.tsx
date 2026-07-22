@@ -14,6 +14,7 @@ import type { WorkspaceAttentionRollups } from './project-session-model'
 import { aggregateWorkspaceAttention } from './workspace-attention'
 import type { AppTheme } from '../theme'
 import { ConfirmationDialog } from '../workbench/ConfirmationDialog'
+import { WorkbenchHealthControl } from '../health/WorkbenchHealthControl'
 
 interface ProjectsBarProps {
   readonly state: ProjectState
@@ -220,6 +221,7 @@ export function ProjectsBar({
           >
             +
           </button>
+          <WorkbenchHealthControl />
           <button
             type="button"
             className="theme-toggle"

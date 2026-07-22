@@ -57,6 +57,7 @@ import type {
   RenderContainmentDiagnosticBatch,
   RendererDiagnosticSession,
 } from './diagnostics'
+import type { WorkbenchHealthSnapshot } from './workbench-health'
 
 export type WebPaneCommandAction =
   KeybindingAction | 'closeWebPane' | 'escapeWebPaneFocus'
@@ -455,6 +456,11 @@ export interface RebindTerminalProfileRequest {
  */
 export interface IpcInvokeMap {
   'app:info': { request: void; response: AppInfo }
+  'workbench-health:get': { request: void; response: WorkbenchHealthSnapshot }
+  'workbench-health:acknowledge': {
+    request: { readonly occurrenceId: string }
+    response: WorkbenchHealthSnapshot
+  }
   /** Round-trips text through the echo utility process (renderer→main→worker). */
   'demo:echo': { request: EchoRequest; response: EchoResponse }
   'project:root': { request: void; response: ProjectState }
@@ -633,6 +639,7 @@ export interface IpcSendMap {
 /** Main -> renderer push channels. */
 export interface IpcEventMap {
   'diagnostics:session': RendererDiagnosticSession
+  'workbench-health:state': WorkbenchHealthSnapshot
   'project:watch': WatchEvent
   'project:state': ProjectState
   'ssh:prompt': SshPromptRequest
@@ -695,6 +702,8 @@ export interface HvirApi {
  */
 export const INVOKE_CHANNELS = [
   'app:info',
+  'workbench-health:get',
+  'workbench-health:acknowledge',
   'demo:echo',
   'project:root',
   'project:hosts',
@@ -765,6 +774,7 @@ export const SEND_CHANNELS = [
 
 export const EVENT_CHANNELS = [
   'diagnostics:session',
+  'workbench-health:state',
   'project:watch',
   'project:state',
   'ssh:prompt',
