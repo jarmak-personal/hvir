@@ -122,3 +122,9 @@ Build the npm payload for the current supported platform with the matching
 
 The deliberate boundary remains: hvir may surface rich read-only information and permit
 a minor edit-and-save, but it does not grow into an IDE.
+
+## License
+
+hvir is available under the [MIT License](LICENSE). See
+[Third-party notices](THIRD_PARTY_NOTICES.md) for software redistributed with hvir,
+including the locally modified terminal runtime.

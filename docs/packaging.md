@@ -32,6 +32,11 @@ inside that npm package. The launcher locates the selected package and starts it
 application. Users do not compile hvir or `node-pty`; installs with npm
 `--ignore-scripts` are unsupported because the payload cannot be expanded.
 
+The launcher package, platform package, and installed Electron application each carry
+[`THIRD_PARTY_NOTICES.md`](../THIRD_PARTY_NOTICES.md). Packaging verifies the notice at
+both npm and application-resource boundaries so upstream attributions and hvir's local
+modification disclosure cannot be dropped silently.
+
 Local package commands are architecture-specific:
 
 ```sh

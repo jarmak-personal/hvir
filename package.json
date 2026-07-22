@@ -29,6 +29,7 @@
   "scripts": {
     "postinstall": "npm run install:runtime && patch-package",
     "install:runtime": "install-electron --no && electron-rebuild -f -o node-pty",
+    "predev": "node scripts/check-terminal-runtime-patch.mts",
     "dev": "electron-vite dev",
     "build": "npm run typecheck && electron-vite build",
     "build:dir": "npm run build && electron-builder --dir",
