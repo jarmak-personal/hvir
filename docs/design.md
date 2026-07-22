@@ -151,6 +151,12 @@ order, seam checks, and blocking hotspot ratchets govern the existing process bo
 A requested exact resume whose qualified provider artifact is missing remains visibly
 unavailable without spawning a fresh harness or replacing the retained recovery identity.
 
+### [ADR-016 — Bounded local runtime diagnostics](adr/ADR-016-bounded-local-runtime-diagnostics.md)
+
+Fixed-schema, content-free diagnostic evidence flows through one bounded local owner while
+feature recovery stays feature-owned, workbench health remains separate from terminal attention,
+and diagnostic sessions stay explicit, droppable, and local.
+
 ## 5. Architecture
 
 ### Process model
