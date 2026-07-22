@@ -168,6 +168,26 @@ describe('diagnostic report boundary', () => {
     await storage.remove(opaqueId(999))
     expect(host.files.size).toBe(15)
   })
+
+  it('expires a closed temporary report during a long-running app session', async () => {
+    const host = new MemoryReportHost()
+    let expire: (() => void) | undefined
+    const coordinator = createCoordinator(host, new FakeActions(), (callback) => {
+      expire = callback
+      return () => undefined
+    })
+    const id = opaqueId(3)
+
+    expect(await coordinator.create(OWNER, id)).toMatchObject({ ok: true })
+    coordinator.cancel(OWNER, id)
+    expect(host.files.size).toBe(1)
+    expire?.()
+    await vi.waitFor(() => expect(host.files.size).toBe(0))
+    expect(coordinator.copy(OWNER, id)).toEqual({
+      ok: false,
+      reason: 'report-not-found',
+    })
+  })
 })
 
 class FakeActions implements DiagnosticReportActions {
@@ -253,6 +273,7 @@ class MemoryReportHost {
 function createCoordinator(
   host: MemoryReportHost,
   actions: DiagnosticReportActions,
+  scheduleExpiry?: (callback: () => void, delayMs: number) => () => void,
 ): DiagnosticReportCoordinator {
   return new DiagnosticReportCoordinator(
     { diagnostics: () => diagnostics('ssh'), health },
@@ -262,6 +283,7 @@ function createCoordinator(
     (owner) => owner.id === OWNER.id && owner.generation === OWNER.generation,
     () => undefined,
     () => NOW,
+    scheduleExpiry,
   )
 }
 

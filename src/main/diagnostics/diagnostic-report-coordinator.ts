@@ -45,6 +45,7 @@ interface ReportRecord {
   readonly reportId: string
   revision: number
   commit: Promise<void>
+  cancelExpiry?: () => void
   artifact?: DiagnosticReportArtifact
 }
 
@@ -63,6 +64,10 @@ export class DiagnosticReportCoordinator {
     private readonly isRendererCurrent: (owner: RendererOwner) => boolean,
     private readonly disposeStorage: () => void | Promise<void> = () => undefined,
     private readonly now: () => number = Date.now,
+    private readonly scheduleExpiry: (
+      callback: () => void,
+      delayMs: number,
+    ) => () => void = defaultScheduleExpiry,
   ) {}
 
   async start(): Promise<void> {
@@ -130,6 +135,10 @@ export class DiagnosticReportCoordinator {
       return failure('stale-renderer')
     }
     record.artifact = artifact
+    record.cancelExpiry = this.scheduleExpiry(
+      () => this.expire(record),
+      DIAGNOSTIC_REPORT_RETENTION_HOURS * 60 * 60 * 1_000,
+    )
     return success(artifact)
   }
 
@@ -246,7 +255,7 @@ export class DiagnosticReportCoordinator {
   async dispose(): Promise<void> {
     if (this.disposed) return
     this.disposed = true
-    this.records.clear()
+    for (const record of [...this.records.values()]) this.forget(record)
     this.activeByOwner.clear()
     this.deletedByOwner.clear()
     await this.disposeStorage()
@@ -284,6 +293,8 @@ export class DiagnosticReportCoordinator {
 
   private forget(record: ReportRecord): void {
     record.revision++
+    record.cancelExpiry?.()
+    record.cancelExpiry = undefined
     if (this.records.get(record.reportId) === record) this.records.delete(record.reportId)
     if (this.activeByOwner.get(ownerKey(record.owner)) === record) {
       this.activeByOwner.delete(ownerKey(record.owner))
@@ -326,6 +337,12 @@ export class DiagnosticReportCoordinator {
       () => undefined,
     )
     return operation
+  }
+
+  private expire(record: ReportRecord): void {
+    if (this.records.get(record.reportId) !== record) return
+    this.forget(record)
+    void this.storage.remove(record.reportId).catch(() => undefined)
   }
 }
 
@@ -389,4 +406,10 @@ function storageFailure(error: unknown): DiagnosticReportFailure {
 
 function ownerKey(owner: RendererOwner): string {
   return `${owner.id}:${owner.generation}`
+}
+
+function defaultScheduleExpiry(callback: () => void, delayMs: number): () => void {
+  const timer = setTimeout(callback, delayMs)
+  timer.unref()
+  return () => clearTimeout(timer)
 }
