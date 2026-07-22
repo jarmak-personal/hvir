@@ -176,8 +176,8 @@ describe('GitHub pull request planning adapter', () => {
             repository: {
               refs: {
                 nodes: second
-                  ? [{ name: 'epic/50-second' }]
-                  : [{ name: 'epic/50-first' }, { name: 'epic/51-unrelated' }],
+                  ? [{ name: '50-second' }, { name: '50-first' }]
+                  : [{ name: '50-first' }, { name: '51-unrelated' }],
                 pageInfo: {
                   endCursor: second ? null : 'next-ref',
                   hasNextPage: !second,

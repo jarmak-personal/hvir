@@ -131,7 +131,7 @@ export class GitHubPullRequestRepository {
     let cursor: string | null = null
     const branches: string[] = []
     const prefix = 'refs/heads/epic/'
-    const branchPrefix = `epic/${parentIssueNumber}-`
+    const branchPrefix = `${parentIssueNumber}-`
     do {
       const data: {
         repository: {
@@ -157,8 +157,10 @@ export class GitHubPullRequestRepository {
       }
       branches.push(
         ...connection.nodes
+          // GitHub returns Ref.name relative to refPrefix, not the full branch name.
           .map((reference) => reference.name)
-          .filter((name) => name.startsWith(branchPrefix)),
+          .filter((name) => name.startsWith(branchPrefix))
+          .map((name) => `epic/${name}`),
       )
       cursor = nextPageCursor(connection.pageInfo)
     } while (cursor !== null)
