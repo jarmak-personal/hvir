@@ -4,6 +4,7 @@ export interface ElectronCpuUsage {
   readonly renderer: number
   readonly gpu: number
   readonly main: number
+  readonly aggregateChildren: number
   readonly rendererPlusGpu: number
 }
 
@@ -25,10 +26,12 @@ export function classifyElectronCpuUsage(
   const renderer = sumCpu(metrics, (metric) => metric.pid === rendererProcessId)
   const gpu = sumCpu(metrics, (metric) => metric.type === 'GPU')
   const main = sumCpu(metrics, (metric) => metric.pid === mainProcessId)
+  const aggregateChildren = sumCpu(metrics, (metric) => metric.pid !== mainProcessId)
   return {
     renderer,
     gpu,
     main,
+    aggregateChildren,
     rendererPlusGpu: renderer + gpu,
   }
 }
@@ -76,21 +79,23 @@ export function median(values: readonly number[]): number {
 
 function averageCpu(samples: readonly ElectronCpuUsage[]): ElectronCpuUsage {
   if (samples.length === 0) {
-    return { renderer: 0, gpu: 0, main: 0, rendererPlusGpu: 0 }
+    return { renderer: 0, gpu: 0, main: 0, aggregateChildren: 0, rendererPlusGpu: 0 }
   }
   const totals = samples.reduce(
     (total, sample) => ({
       renderer: total.renderer + sample.renderer,
       gpu: total.gpu + sample.gpu,
       main: total.main + sample.main,
+      aggregateChildren: total.aggregateChildren + sample.aggregateChildren,
       rendererPlusGpu: total.rendererPlusGpu + sample.rendererPlusGpu,
     }),
-    { renderer: 0, gpu: 0, main: 0, rendererPlusGpu: 0 },
+    { renderer: 0, gpu: 0, main: 0, aggregateChildren: 0, rendererPlusGpu: 0 },
   )
   return {
     renderer: totals.renderer / samples.length,
     gpu: totals.gpu / samples.length,
     main: totals.main / samples.length,
+    aggregateChildren: totals.aggregateChildren / samples.length,
     rendererPlusGpu: totals.rendererPlusGpu / samples.length,
   }
 }

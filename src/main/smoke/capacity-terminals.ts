@@ -39,6 +39,12 @@ export interface TerminalActivityReport {
   readonly peakBufferedBytes: number
 }
 
+export interface TerminalReadinessSampleReport {
+  readonly durationsMs: readonly number[]
+  readonly p95Ms: number
+  readonly maxMs: number
+}
+
 export async function waitForCapacityTerminalCount(
   win: BrowserWindow,
   expected: number,
@@ -79,12 +85,13 @@ export async function waitForCapacityTerminalCount(
 export async function addCapacityTerminals(
   win: BrowserWindow,
   targetCount: number,
-): Promise<void> {
-  await withTimeout(
+): Promise<readonly number[]> {
+  return (await withTimeout(
     win.webContents.executeJavaScript(`
       (async () => {
         const targetCount = ${targetCount};
         const deadline = Date.now() + 30000;
+        const actionStartedAtMs = [];
         const waitFor = (predicate, message) =>
           new Promise((resolve, reject) => {
             const poll = () => {
@@ -106,6 +113,7 @@ export async function addCapacityTerminals(
             ),
             'new-terminal button unavailable at ' + expected
           );
+          actionStartedAtMs.push(Date.now());
           add.click();
           const shell = await waitFor(
             () => [...document.querySelectorAll('.terminal-new-menu button')]
@@ -120,11 +128,12 @@ export async function addCapacityTerminals(
               (active?.getAttribute('data-terminal-status') || '').startsWith('pid ');
           }, 'terminal did not settle at ' + expected);
         }
+        return actionStartedAtMs;
       })()
     `),
     `capacity terminal setup timed out at ${targetCount}`,
     35_000,
-  )
+  )) as readonly number[]
 }
 
 export async function activateCapacityTerminal(
@@ -213,63 +222,90 @@ export function startCapacityOutputFixtures(supervisor: PtySupervisor): void {
   })
 }
 
-export async function verifyLoadedAdditionalTerminal(
+export async function measureAdditionalTerminalReadiness(
   win: BrowserWindow,
   supervisor: PtySupervisor,
-): Promise<void> {
-  const existingIds = new Set(supervisor.list().map((terminal) => terminal.id))
-  await addCapacityTerminals(win, 13)
-  await waitFor(
-    () => supervisor.list().length === 13,
-    'loaded terminal was not supervised',
-  )
-  const terminal = supervisor.list().find((candidate) => !existingIds.has(candidate.id))
-  if (!terminal) throw new Error('loaded terminal identity was not registered')
+  label: string,
+  sampleCount: number,
+): Promise<TerminalReadinessSampleReport> {
+  const baseCount = supervisor.list().length
+  const durationsMs: number[] = []
 
-  let output = ''
-  const detach = supervisor.attach(terminal.id, terminal.ownerId, {
-    onData: (data) => {
-      output = (output + data).slice(-16_384)
-    },
-  })
-  try {
-    supervisor.write(
-      terminal.id,
-      terminal.ownerId,
-      `stty -echo; IFS= read -r hvir_input; stty echo; printf '\\r\\nloaded-input:%s\\r\\n' "$hvir_input"\n`,
-    )
-    await delay(150)
-    await win.webContents.executeJavaScript(`
-      (() => {
-        const sessionId = ${JSON.stringify(terminal.id)};
-        const surface = document.querySelector(
-          '.terminal-surface[data-terminal-session="' + CSS.escape(sessionId) + '"]'
-        );
-        surface?.querySelector('.terminal-engine-host')?.focus();
-      })()
-    `)
-    for (const keyCode of ['L', 'O', 'A', 'D']) {
-      win.webContents.sendInputEvent({ type: 'keyDown', keyCode })
-      win.webContents.sendInputEvent({ type: 'keyUp', keyCode })
+  for (let index = 0; index < sampleCount; index += 1) {
+    const existingIds = new Set(supervisor.list().map((terminal) => terminal.id))
+    const [actionStartedAtMs] = await addCapacityTerminals(win, baseCount + 1)
+    if (actionStartedAtMs === undefined) {
+      throw new Error(`${label} terminal ${index + 1} action time was not recorded`)
     }
-    win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Enter' })
-    win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Enter' })
     await waitFor(
-      () => output.includes('loaded-input:load'),
-      `loaded terminal input was not echoed: ${JSON.stringify(output)}`,
+      () => supervisor.list().length === baseCount + 1,
+      `${label} terminal ${index + 1} was not supervised`,
     )
-    await delay(250)
-    if (countOccurrences(output, 'loaded-input:load') !== 1) {
-      throw new Error(`loaded terminal input was duplicated: ${JSON.stringify(output)}`)
+    const terminal = supervisor.list().find((candidate) => !existingIds.has(candidate.id))
+    if (!terminal)
+      throw new Error(`${label} terminal ${index + 1} identity was not registered`)
+
+    const input = `${label}${String.fromCharCode(97 + index)}`
+    const marker = `ready-input:${input}`
+    let output = ''
+    const detach = supervisor.attach(terminal.id, terminal.ownerId, {
+      onData: (data) => {
+        output = (output + data).slice(-16_384)
+      },
+    })
+    try {
+      supervisor.write(
+        terminal.id,
+        terminal.ownerId,
+        `stty -echo; IFS= read -r hvir_input; stty echo; printf '\\r\\nready-input:%s\\r\\n' "$hvir_input"\n`,
+      )
+      await delay(150)
+      await win.webContents.executeJavaScript(`
+        (() => {
+          const sessionId = ${JSON.stringify(terminal.id)};
+          const surface = document.querySelector(
+            '.terminal-surface[data-terminal-session="' + CSS.escape(sessionId) + '"]'
+          );
+          surface?.querySelector('.terminal-engine-host')?.focus();
+        })()
+      `)
+      for (const keyCode of input.toUpperCase()) {
+        win.webContents.sendInputEvent({ type: 'keyDown', keyCode })
+        win.webContents.sendInputEvent({ type: 'keyUp', keyCode })
+      }
+      win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Enter' })
+      win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Enter' })
+      await waitFor(
+        () => output.includes(marker),
+        `${label} terminal ${index + 1} input was not echoed: ${JSON.stringify(output)}`,
+      )
+      const durationMs = Date.now() - actionStartedAtMs
+      durationsMs.push(durationMs)
+      await delay(250)
+      if (countOccurrences(output, marker) !== 1) {
+        throw new Error(
+          `${label} terminal ${index + 1} input was duplicated: ${JSON.stringify(output)}`,
+        )
+      }
+      console.log(
+        `[smoke:capacity:readiness] ${label} ${index + 1}/${sampleCount} ` +
+          `${durationMs.toFixed(1)}ms`,
+      )
+    } finally {
+      void detach()
+      await closeTerminal(win, terminal.id)
+      await waitFor(
+        () => supervisor.list().length === baseCount,
+        `${label} terminal ${index + 1} did not leave the supervisor`,
+      )
+      await waitForCapacityTerminalCount(win, baseCount)
     }
-    console.log('[smoke] loaded thirteenth terminal readiness + exact input echo OK')
-  } finally {
-    void detach()
-    await closeTerminal(win, terminal.id)
-    await waitFor(
-      () => supervisor.list().length === 12,
-      'loaded terminal did not leave the supervisor',
-    )
+  }
+
+  return {
+    durationsMs,
+    p95Ms: percentile(durationsMs, 0.95),
+    maxMs: Math.max(0, ...durationsMs),
   }
 }
 
@@ -392,6 +428,12 @@ async function waitFor(
 
 function countOccurrences(value: string, target: string): number {
   return value.split(target).length - 1
+}
+
+function percentile(values: readonly number[], fraction: number): number {
+  if (values.length === 0) return 0
+  const sorted = [...values].sort((left, right) => left - right)
+  return sorted[Math.min(sorted.length - 1, Math.ceil(sorted.length * fraction) - 1)]!
 }
 
 function delay(durationMs: number): Promise<void> {

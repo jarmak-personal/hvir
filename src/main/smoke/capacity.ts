@@ -6,13 +6,14 @@ import type { PtySupervisor } from '../pty/pty-supervisor'
 import {
   activateCapacityTerminal,
   addCapacityTerminals,
+  measureAdditionalTerminalReadiness,
   readTerminalPresentation,
   startCapacityOutputFixtures,
   verifyHiddenPresentationSettles,
-  verifyLoadedAdditionalTerminal,
   verifyTerminalActivity,
   waitForCapacityTerminalCount,
   type TerminalActivityReport,
+  type TerminalReadinessSampleReport,
 } from './capacity-terminals'
 import {
   median,
@@ -22,12 +23,21 @@ import {
 
 const CPU_SAMPLE_DURATION_MS = 30_000
 const CPU_SAMPLE_COUNT = 3
+const TERMINAL_READINESS_SAMPLE_COUNT = 10
+const TERMINAL_READINESS_RATIO_LIMIT = 2
+const TERMINAL_READINESS_MAX_MS = 1_000
 
 interface CapacityCpuComparison {
   readonly baseline: readonly ElectronProcessMetricReport[]
   readonly twelveTerminals: readonly ElectronProcessMetricReport[]
   readonly baselineMedianRendererPlusGpu: number
   readonly twelveTerminalMedianRendererPlusGpu: number
+  readonly ratio: number
+}
+
+interface CapacityTerminalReadinessComparison {
+  readonly baseline: TerminalReadinessSampleReport
+  readonly loaded: TerminalReadinessSampleReport
   readonly ratio: number
 }
 
@@ -43,6 +53,7 @@ interface CapacitySmokeReport {
   readonly memoryGrowthKiB?: number
   readonly processMetrics?: ElectronProcessMetricReport
   readonly idleCpu?: CapacityCpuComparison
+  readonly terminalReadiness?: CapacityTerminalReadinessComparison
   readonly terminalActivity?: TerminalActivityReport
 }
 
@@ -145,6 +156,12 @@ export async function runCapacityLoadSmoke(
   churnPath: HostPath,
 ): Promise<void> {
   await waitForCapacityTerminalCount(win, 1)
+  const baselineReadiness = await measureAdditionalTerminalReadiness(
+    win,
+    supervisor,
+    'baseline',
+    TERMINAL_READINESS_SAMPLE_COUNT,
+  )
   const baselineCpu = await sampleCapacityCpuSeries(win, 'one-terminal baseline')
   await addCapacityTerminals(win, 12)
   if (supervisor.list().length !== 12) {
@@ -178,7 +195,32 @@ export async function runCapacityLoadSmoke(
     }
   })()
 
-  await verifyLoadedAdditionalTerminal(win, supervisor)
+  const loadedReadiness = await measureAdditionalTerminalReadiness(
+    win,
+    supervisor,
+    'loaded',
+    TERMINAL_READINESS_SAMPLE_COUNT,
+  )
+  const terminalReadiness = compareTerminalReadiness(baselineReadiness, loadedReadiness)
+  console.log(`[smoke:capacity:terminal-readiness] ${JSON.stringify(terminalReadiness)}`)
+  if (terminalReadiness.ratio > TERMINAL_READINESS_RATIO_LIMIT) {
+    throw new Error(
+      `loaded terminal ready-and-echo p95 ${loadedReadiness.p95Ms.toFixed(1)}ms exceeded ` +
+        `${TERMINAL_READINESS_RATIO_LIMIT.toFixed(1)}x baseline ` +
+        `${baselineReadiness.p95Ms.toFixed(1)}ms`,
+    )
+  }
+  if (loadedReadiness.maxMs > TERMINAL_READINESS_MAX_MS) {
+    throw new Error(
+      `loaded terminal ready-and-echo max ${loadedReadiness.maxMs.toFixed(1)}ms exceeded ` +
+        `${TERMINAL_READINESS_MAX_MS}ms`,
+    )
+  }
+  console.log(
+    `[smoke] 10 loaded terminal launches ready + exact echo OK ` +
+      `(p95 ${loadedReadiness.p95Ms.toFixed(1)}ms / baseline ` +
+      `${baselineReadiness.p95Ms.toFixed(1)}ms · max ${loadedReadiness.maxMs.toFixed(1)}ms)`,
+  )
   await activateCapacityTerminal(win, 0)
   const presentationBefore = await readTerminalPresentation(win)
   let report: CapacitySmokeReport | undefined
@@ -267,6 +309,7 @@ export async function runCapacityLoadSmoke(
       ...rendererReport,
       processMetrics,
       idleCpu,
+      terminalReadiness,
       terminalActivity,
       memoryStartKiB: processMetrics.memoryStartKiB,
       memoryEndKiB: processMetrics.memoryEndKiB,
@@ -296,7 +339,7 @@ export async function runCapacityLoadSmoke(
     )
   }
   console.log(
-    `[smoke] 12-terminal responsiveness OK (p99 ${report.p99Ms}ms · max ${report.maxMs}ms · ${report.clickLatenciesMs.length} clicks · CPU renderer ${report.processMetrics!.cpu.renderer.toFixed(2)}% / GPU ${report.processMetrics!.cpu.gpu.toFixed(2)}% / main ${report.processMetrics!.cpu.main.toFixed(2)}% · memory ${Math.round((report.memoryGrowthKiB ?? 0) / 1024)} MiB net / ${Math.round(((report.memoryPeakKiB ?? 0) - (report.memoryStartKiB ?? 0)) / 1024)} MiB peak growth)`,
+    `[smoke] 12-terminal responsiveness OK (p99 ${report.p99Ms}ms · max ${report.maxMs}ms · ${report.clickLatenciesMs.length} clicks · CPU renderer ${report.processMetrics!.cpu.renderer.toFixed(2)}% / GPU ${report.processMetrics!.cpu.gpu.toFixed(2)}% / main ${report.processMetrics!.cpu.main.toFixed(2)}% / aggregate children ${report.processMetrics!.cpu.aggregateChildren.toFixed(2)}% · memory ${Math.round((report.memoryGrowthKiB ?? 0) / 1024)} MiB net / ${Math.round(((report.memoryPeakKiB ?? 0) - (report.memoryStartKiB ?? 0)) / 1024)} MiB peak growth)`,
   )
 }
 
@@ -315,7 +358,8 @@ async function sampleCapacityCpuSeries(
       `[smoke:capacity:cpu] ${label} ${index + 1}/${CPU_SAMPLE_COUNT} ` +
         `renderer=${sample.cpu.renderer.toFixed(3)}% ` +
         `gpu=${sample.cpu.gpu.toFixed(3)}% ` +
-        `main=${sample.cpu.main.toFixed(3)}%`,
+        `main=${sample.cpu.main.toFixed(3)}% ` +
+        `aggregate-children=${sample.cpu.aggregateChildren.toFixed(3)}%`,
     )
   }
   return samples
@@ -343,6 +387,22 @@ function compareCapacityCpu(
     baselineMedianRendererPlusGpu,
     twelveTerminalMedianRendererPlusGpu,
     ratio,
+  }
+}
+
+function compareTerminalReadiness(
+  baseline: TerminalReadinessSampleReport,
+  loaded: TerminalReadinessSampleReport,
+): CapacityTerminalReadinessComparison {
+  return {
+    baseline,
+    loaded,
+    ratio:
+      baseline.p95Ms === 0
+        ? loaded.p95Ms === 0
+          ? 1
+          : Number.POSITIVE_INFINITY
+        : loaded.p95Ms / baseline.p95Ms,
   }
 }
 
