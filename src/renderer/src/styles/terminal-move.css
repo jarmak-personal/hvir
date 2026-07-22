@@ -94,7 +94,7 @@
   border-top: 1px solid #343b45;
 }
 
-.project-dialog.terminal-move-dialog {
+.project-dialog.confirmation-dialog.terminal-move-dialog {
   width: min(560px, calc(100vw - 32px));
   gap: 0;
   overflow: hidden;
@@ -313,28 +313,6 @@
 
 .terminal-move-warning strong {
   color: color-mix(in srgb, #d6b16e 68%, var(--text-strong));
-}
-
-.terminal-move-actions {
-  padding: 13px 24px;
-  border-top: 1px solid var(--border-subtle);
-  background: color-mix(in srgb, var(--surface-0) 72%, transparent);
-}
-
-.terminal-move-actions button {
-  min-height: 29px;
-  padding: 5px 12px;
-}
-
-.project-dialog .terminal-move-submit {
-  border-color: var(--accent);
-  background: var(--accent);
-  color: #f4f8fc;
-}
-
-.project-dialog .terminal-move-submit:hover:not(:disabled),
-.project-dialog .terminal-move-submit:focus-visible:not(:disabled) {
-  background: color-mix(in srgb, var(--accent) 84%, white);
 }
 
 @media (max-width: 520px) {

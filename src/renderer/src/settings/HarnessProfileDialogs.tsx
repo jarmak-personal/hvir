@@ -6,6 +6,7 @@ import {
   type HarnessProviderId,
   type HostPath,
 } from '../../../shared'
+import { ConfirmationDialog } from '../workbench/ConfirmationDialog'
 
 export function UnsavedHarnessProfileDialog({
   profileName,
@@ -22,43 +23,29 @@ export function UnsavedHarnessProfileDialog({
   readonly onDiscard: () => void
   readonly onSave: () => Promise<void>
 }): ReactElement {
-  const dialogRef = useRef<HTMLElement>(null)
-  const keepEditingRef = useRef<HTMLButtonElement>(null)
-  useDialogFocusTrap(dialogRef, onKeepEditing, busy, keepEditingRef)
   return (
-    <div className="modal-backdrop nested">
-      <section
-        className="project-dialog unsaved-harness-dialog"
-        ref={dialogRef}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="unsaved-harness-title"
-        tabIndex={-1}
-      >
-        <h3 id="unsaved-harness-title">Unsaved harness profile</h3>
-        <p>
-          <strong>{profileName}</strong> has unsaved changes. Save this harness profile
-          before continuing?
-        </p>
-        {error ? <p className="dialog-error">{error}</p> : null}
-        <div className="dialog-actions">
-          <button
-            ref={keepEditingRef}
-            type="button"
-            disabled={busy}
-            onClick={onKeepEditing}
-          >
-            Keep editing
-          </button>
-          <button type="button" disabled={busy} onClick={onDiscard}>
-            Discard changes
-          </button>
-          <button type="button" disabled={busy} onClick={() => void onSave()}>
-            Save harness profile
-          </button>
-        </div>
-      </section>
-    </div>
+    <ConfirmationDialog
+      labelledBy="unsaved-harness-title"
+      actions={[
+        { label: 'Keep editing', kind: 'cancel', onSelect: onKeepEditing },
+        { label: 'Discard changes', kind: 'destructive', onSelect: onDiscard },
+        {
+          label: 'Save harness profile',
+          kind: 'primary',
+          onSelect: () => void onSave(),
+        },
+      ]}
+      busy={busy}
+      nested
+      className="unsaved-harness-dialog"
+    >
+      <h3 id="unsaved-harness-title">Unsaved harness profile</h3>
+      <p>
+        <strong>{profileName}</strong> has unsaved changes. Save this harness profile
+        before continuing?
+      </p>
+      {error ? <p className="dialog-error">{error}</p> : null}
+    </ConfirmationDialog>
   )
 }
 
@@ -110,11 +97,7 @@ export function AddHarnessDialog({
             <h3 id="add-harness-title">Add a harness</h3>
             <p>Choose installed harnesses to add as editable global profiles.</p>
           </div>
-          <button
-            type="button"
-            disabled={busy || pending.size > 0}
-            onClick={onRefresh}
-          >
+          <button type="button" disabled={busy || pending.size > 0} onClick={onRefresh}>
             Refresh
           </button>
         </div>
@@ -275,16 +258,13 @@ function useDialogFocusTrap(
   dialogRef: RefObject<HTMLElement | null>,
   onCancel: () => void,
   busy: boolean,
-  initialFocus?: RefObject<HTMLElement | null>,
 ): void {
   const onCancelRef = useRef(onCancel)
   const busyRef = useRef(busy)
   onCancelRef.current = onCancel
   busyRef.current = busy
   useEffect(() => {
-    const frame = window.requestAnimationFrame(() =>
-      (initialFocus?.current ?? dialogRef.current)?.focus(),
-    )
+    const frame = window.requestAnimationFrame(() => dialogRef.current?.focus())
     const keydown = (event: KeyboardEvent): void => {
       if (event.key === 'Escape') {
         event.preventDefault()
@@ -315,5 +295,5 @@ function useDialogFocusTrap(
       window.cancelAnimationFrame(frame)
       window.removeEventListener('keydown', keydown)
     }
-  }, [dialogRef, initialFocus])
+  }, [dialogRef])
 }

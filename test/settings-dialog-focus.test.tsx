@@ -169,18 +169,23 @@ describe('SettingsDialog section workflow', () => {
 
     const cancel = button('Cancel')
     const allow = button('Allow this change')
+    exposeForFocus(
+      document.querySelector<HTMLElement>('#composer-submit-consent-title')!,
+      cancel,
+      allow,
+    )
     expect(document.activeElement).toBe(cancel)
 
     act(() => {
       allow.focus()
-      window.dispatchEvent(
+      allow.dispatchEvent(
         new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true }),
       )
     })
     expect(document.activeElement).toBe(cancel)
 
     act(() => {
-      window.dispatchEvent(
+      cancel.dispatchEvent(
         new KeyboardEvent('keydown', {
           key: 'Escape',
           bubbles: true,
@@ -260,6 +265,12 @@ function button(label: string): HTMLButtonElement {
   )
   if (!match) throw new Error(`Missing button '${label}'`)
   return match
+}
+
+function exposeForFocus(parent: HTMLElement, ...elements: HTMLElement[]): void {
+  for (const element of elements) {
+    Object.defineProperty(element, 'offsetParent', { configurable: true, value: parent })
+  }
 }
 
 function changeValue(
