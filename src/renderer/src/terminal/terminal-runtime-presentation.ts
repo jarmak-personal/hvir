@@ -1,5 +1,17 @@
 import type { TerminalColorTheme } from './terminal-pane'
 
+export type TerminalRecoveryFailure = {
+  readonly kind: 'resume-unavailable'
+  readonly reason: 'artifact-missing'
+}
+
+export interface TerminalRuntimeSnapshot {
+  readonly title: string
+  readonly status: string
+  readonly exited: boolean
+  readonly recoveryFailure?: TerminalRecoveryFailure
+}
+
 export function resumeUnavailableStatus(reason: 'artifact-missing'): string {
   switch (reason) {
     case 'artifact-missing':

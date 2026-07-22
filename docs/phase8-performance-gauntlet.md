@@ -28,11 +28,14 @@ idle terminals. The loaded interval then mixes continuous plain output, Codex-li
 cursor/ANSI updates, synchronized-output bursts, and idle panes while churning a watched
 file and alternating Files/Git. It reports renderer, GPU, and main-process CPU alongside
 animation-frame, click-latency, and total-working-set evidence; it also verifies hidden
-parse-versus-presentation counters and exact input echo from a thirteenth terminal created
-under load. It fails when the idle CPU median ratio exceeds 1.5, p99 latency is >=100 ms,
-an unexplained stall exceeds 500 ms, net loaded-interval working-set growth exceeds 256
-MiB, hidden presentation advances, a PTY is orphaned, or all terminals cannot recover with
-Changes and History usable. Ghostty scrollback is bounded to 10,000 lines per terminal.
+parse-versus-presentation counters, native data-event versus coalesced-delivery callbacks,
+terminal writes, per-session buffered-byte peaks, and exact input echo from a thirteenth
+terminal created under load. Delivery buffers are capped at 64 KiB; visible output flushes
+on the next frame and hidden output within 40 ms. The smoke fails when delivery is not
+coalesced, a buffer exceeds its cap, the idle CPU median ratio exceeds 1.5, p99 latency is
+>=100 ms, an unexplained stall exceeds 500 ms, net loaded-interval working-set growth exceeds
+256 MiB, hidden presentation advances, a PTY is orphaned, or all terminals cannot recover
+with Changes and History usable. Ghostty scrollback is bounded to 10,000 lines per terminal.
 
 ## Workspace and error matrix
 

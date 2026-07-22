@@ -14,6 +14,18 @@ export interface TerminalRenderStats {
 export interface TerminalPresentationSample extends TerminalRenderStats {
   readonly sessionId: string
   readonly visible: boolean
+  readonly delivery: TerminalDeliverySample
+}
+
+export interface TerminalDeliverySample {
+  readonly nativeDataEvents: number
+  readonly deliveryCallbacks: number
+  readonly receivedBytes: number
+  readonly deliveredBytes: number
+  readonly peakBufferedBytes: number
+  readonly bufferedBytes: number
+  readonly pending: boolean
+  readonly presentation: 'visible' | 'hidden'
 }
 
 export interface TerminalActivityReport {
@@ -21,6 +33,10 @@ export interface TerminalActivityReport {
   readonly hiddenParsedWrites: number
   readonly hiddenPresentationFrames: number
   readonly visiblePresentationFrames: number
+  readonly nativeDataEvents: number
+  readonly deliveryCallbacks: number
+  readonly terminalWrites: number
+  readonly peakBufferedBytes: number
 }
 
 export async function waitForCapacityTerminalCount(
@@ -150,11 +166,15 @@ export async function readTerminalPresentation(
     (() => [...document.querySelectorAll('.terminal-surface')].map((surface) => {
       const engine = surface.querySelector('.terminal-engine-host');
       const stats = engine?.__hvirTerminalPerformance;
+      const delivery = surface.querySelector('.terminal-container')
+        ?.__hvirTerminalDelivery;
       if (!stats) throw new Error('terminal presentation telemetry missing');
+      if (!delivery) throw new Error('terminal delivery telemetry missing');
       return {
         sessionId: surface.getAttribute('data-terminal-session') || '',
         visible: getComputedStyle(surface).visibility === 'visible',
-        ...stats
+        ...stats,
+        delivery
       };
     }))()
   `)) as readonly TerminalPresentationSample[]
@@ -182,10 +202,10 @@ export function startCapacityOutputFixtures(supervisor: PtySupervisor): void {
     throw new Error(`capacity fixtures expected 12 terminals, found ${terminals.length}`)
   }
   const commands = [
-    `i=0; while :; do printf 'plain-visible-%06d abcdefghijklmnopqrstuvwxyz\\r\\n' "$i"; i=$((i+1)); sleep 0.05; done\n`,
-    `i=0; while :; do printf 'plain-hidden-%06d abcdefghijklmnopqrstuvwxyz\\r\\n' "$i"; i=$((i+1)); sleep 0.05; done\n`,
-    `i=0; while :; do printf '\\r\\033[2K\\033[36mThinking %04d…\\033[0m' "$i"; i=$((i+1)); sleep 0.08; done\n`,
-    `i=0; while :; do printf '\\033[?2026h\\033[33msync-%04d\\033[0m\\r\\nline-a\\r\\nline-b\\033[?2026l' "$i"; i=$((i+1)); sleep 0.2; done\n`,
+    `i=0; while :; do printf 'plain-visible-%06d abcdefghijklmnopqrstuvwxyz\\r\\n' "$i"; i=$((i+1)); sleep 0.01; done\n`,
+    `i=0; while :; do printf 'plain-hidden-%06d abcdefghijklmnopqrstuvwxyz\\r\\n' "$i"; i=$((i+1)); sleep 0.01; done\n`,
+    `i=0; while :; do printf '\\r\\033[2K\\033[36mThinking %04d…\\033[0m' "$i"; i=$((i+1)); sleep 0.01; done\n`,
+    `i=0; while :; do printf '\\033[?2026h\\033[33msync-%04d\\033[0m\\r\\nline-a\\r\\nline-b\\033[?2026l' "$i"; i=$((i+1)); sleep 0.04; done\n`,
   ]
   commands.forEach((command, index) => {
     const terminal = terminals[index]!
@@ -263,6 +283,10 @@ export function verifyTerminalActivity(
   let hiddenParsedWrites = 0
   let hiddenPresentationFrames = 0
   let visiblePresentationFrames = 0
+  let nativeDataEvents = 0
+  let deliveryCallbacks = 0
+  let terminalWrites = 0
+  let peakBufferedBytes = 0
 
   for (const current of after) {
     const previous = beforeById.get(current.sessionId)
@@ -270,6 +294,20 @@ export function verifyTerminalActivity(
       throw new Error(`terminal ${current.sessionId} lacked an activity baseline`)
     const parsedDelta = current.parsedWrites - previous.parsedWrites
     const frameDelta = current.renderFrames - previous.renderFrames
+    const eventDelta =
+      current.delivery.nativeDataEvents - previous.delivery.nativeDataEvents
+    const deliveryDelta =
+      current.delivery.deliveryCallbacks - previous.delivery.deliveryCallbacks
+    nativeDataEvents += eventDelta
+    deliveryCallbacks += deliveryDelta
+    terminalWrites += parsedDelta
+    peakBufferedBytes = Math.max(peakBufferedBytes, current.delivery.peakBufferedBytes)
+    if (
+      current.delivery.bufferedBytes > 64 * 1024 ||
+      current.delivery.peakBufferedBytes > 64 * 1024
+    ) {
+      throw new Error(`terminal ${current.sessionId} exceeded its delivery byte cap`)
+    }
     if (current.visible) {
       visiblePresentationFrames += frameDelta
       continue
@@ -289,11 +327,20 @@ export function verifyTerminalActivity(
   if (visiblePresentationFrames <= 0) {
     throw new Error('visible output fixture did not present any frames')
   }
+  if (deliveryCallbacks >= nativeDataEvents) {
+    throw new Error(
+      `terminal output was not coalesced: events=${nativeDataEvents} deliveries=${deliveryCallbacks}`,
+    )
+  }
   return {
     hiddenPanes: after.filter((sample) => !sample.visible).length,
     hiddenParsedWrites,
     hiddenPresentationFrames,
     visiblePresentationFrames,
+    nativeDataEvents,
+    deliveryCallbacks,
+    terminalWrites,
+    peakBufferedBytes,
   }
 }
 
