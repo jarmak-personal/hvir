@@ -150,8 +150,9 @@ npm run hooks:install
 `legacy-workflow` group in separate Electron processes with fresh project and user-data roots,
 then reports a result for every scheduled group. Select one group locally with
 `HVIR_SMOKE_SCENARIO=<name> npm run smoke`; the complete name set is `pty-native`,
-`viewer-position`, `platform-contracts`, `legacy-workflow`, and `capacity`.
-`npm run smoke:macos` runs the focused PTY and viewer groups plus the retained platform contracts;
+`viewer-position`, `platform-contracts`, `terminal-presentation`, `legacy-workflow`, and
+`capacity`. `npm run smoke:macos` runs the focused PTY, viewer, platform-contract, and terminal
+presentation groups;
 `npm run smoke:capacity` selects the capacity group. Both use the same aggregate launcher, so a
 failing group does not prevent reporting its scheduled siblings.
 

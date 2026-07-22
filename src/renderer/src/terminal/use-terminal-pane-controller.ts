@@ -10,6 +10,8 @@ export function useTerminalPaneController(
   runtimes: TerminalRuntimeRegistry,
 ) {
   const containerRef = useRef<HTMLDivElement>(null)
+  const presentationRef = useRef(options.presentation)
+  presentationRef.current = options.presentation
   const runtimeRef = useRef<ReturnType<TerminalRuntimeRegistry['acquire']> | undefined>(
     undefined,
   )
@@ -25,7 +27,10 @@ export function useTerminalPaneController(
   useEffect(() => {
     const container = containerRef.current
     if (!container) return
-    runtime.attach(container)
+    // Passive detach/attach ordering can overlap when a retained runtime moves
+    // between workspace-owned React containers. Reassert the new owner's
+    // current presentation after the old owner has detached.
+    runtime.attach(container, presentationRef.current)
     return () => runtime.detach(container)
   }, [runtime])
 

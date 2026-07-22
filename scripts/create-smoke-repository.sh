@@ -54,6 +54,11 @@ git -C "$repository" init --quiet --initial-branch=main
 git -C "$repository" config user.name 'hvir smoke'
 git -C "$repository" config user.email 'hvir-smoke@invalid.example'
 git -C "$repository" config commit.gpgsign false
+# The fixture is short-lived and deleted as soon as its scenario/test finishes.
+# Keep Git from launching detached maintenance that can still be writing under
+# .git while the owner removes that temporary directory.
+git -C "$repository" config maintenance.auto false
+git -C "$repository" config gc.auto 0
 
 export GIT_AUTHOR_DATE='2000-01-01T00:00:00Z'
 export GIT_COMMITTER_DATE='2000-01-01T00:00:00Z'

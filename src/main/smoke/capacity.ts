@@ -1,8 +1,35 @@
-import { app, type BrowserWindow } from 'electron'
+import type { BrowserWindow } from 'electron'
 
 import type { HostPath } from '../../shared'
 import { LocalHost } from '../project-host'
 import type { PtySupervisor } from '../pty/pty-supervisor'
+import {
+  activateCapacityTerminal,
+  addCapacityTerminals,
+  readTerminalPresentation,
+  startCapacityOutputFixtures,
+  verifyHiddenPresentationSettles,
+  verifyLoadedAdditionalTerminal,
+  verifyTerminalActivity,
+  waitForCapacityTerminalCount,
+  type TerminalActivityReport,
+} from './capacity-terminals'
+import {
+  median,
+  sampleElectronProcessMetrics,
+  type ElectronProcessMetricReport,
+} from './electron-process-metrics'
+
+const CPU_SAMPLE_DURATION_MS = 30_000
+const CPU_SAMPLE_COUNT = 3
+
+interface CapacityCpuComparison {
+  readonly baseline: readonly ElectronProcessMetricReport[]
+  readonly twelveTerminals: readonly ElectronProcessMetricReport[]
+  readonly baselineMedianRendererPlusGpu: number
+  readonly twelveTerminalMedianRendererPlusGpu: number
+  readonly ratio: number
+}
 
 interface CapacitySmokeReport {
   readonly durationMs: number
@@ -14,6 +41,9 @@ interface CapacitySmokeReport {
   readonly memoryEndKiB?: number
   readonly memoryPeakKiB?: number
   readonly memoryGrowthKiB?: number
+  readonly processMetrics?: ElectronProcessMetricReport
+  readonly idleCpu?: CapacityCpuComparison
+  readonly terminalActivity?: TerminalActivityReport
 }
 
 export async function runCapacityRecoverySmoke(
@@ -114,79 +144,31 @@ export async function runCapacityLoadSmoke(
   host: LocalHost,
   churnPath: HostPath,
 ): Promise<void> {
-  await withTimeout(
-    win.webContents.executeJavaScript(`
-      (async () => {
-        const deadline = Date.now() + 25000;
-        let target = 1;
-        const snapshot = () => ({
-          target,
-          rows: document.querySelectorAll('.terminal-list-row').length,
-          surfaces: document.querySelectorAll('.terminal-surface').length,
-          activeStatus: document.querySelector('.terminal-surface.active')
-            ?.getAttribute('data-terminal-status') || '',
-          addEnabled: Boolean(
-            document.querySelector('button[aria-label="New terminal"]:not(:disabled)')
-          ),
-          shellChoice: [...document.querySelectorAll('.terminal-new-menu button')]
-            .some((node) => node.querySelector('strong')?.textContent?.trim() === 'Shell')
-        });
-        const waitFor = (predicate, message) =>
-          new Promise((resolve, reject) => {
-            const poll = () => {
-              const value = predicate();
-              if (value) return resolve(value);
-              if (Date.now() > deadline) {
-                return reject(new Error(message + ': ' + JSON.stringify(snapshot())));
-              }
-              setTimeout(poll, 25);
-            };
-            poll();
-          });
-        await waitFor(() => {
-          const current = snapshot();
-          return current.rows === 1 &&
-            current.surfaces === 1 &&
-            current.activeStatus.startsWith('pid ');
-        }, 'initial terminal did not settle');
-        for (target = 2; target <= 12; target++) {
-          const add = await waitFor(
-            () => document.querySelector('button[aria-label="New terminal"]:not(:disabled)'),
-            'new-terminal button unavailable'
-          );
-          add.click();
-          const shell = await waitFor(
-            () => [...document.querySelectorAll('.terminal-new-menu button')]
-              .find((node) => node.querySelector('strong')?.textContent?.trim() === 'Shell'),
-            'shell menu item unavailable'
-          );
-          shell.click();
-          await waitFor(() => {
-            const current = snapshot();
-            return current.rows === target &&
-              current.surfaces === target &&
-              current.activeStatus.startsWith('pid ');
-          }, 'terminal did not settle');
-        }
-        return document.querySelectorAll('.terminal-list-row').length;
-      })()
-    `),
-    'capacity terminal setup timed out',
-    30_000,
-  )
+  await waitForCapacityTerminalCount(win, 1)
+  const baselineCpu = await sampleCapacityCpuSeries(win, 'one-terminal baseline')
+  await addCapacityTerminals(win, 12)
   if (supervisor.list().length !== 12) {
     throw new Error(
       `capacity smoke expected 12 terminals, found ${supervisor.list().length}`,
     )
   }
-
-  for (const terminal of supervisor.list()) {
-    supervisor.write(
-      terminal.id,
-      terminal.ownerId,
-      'i=0; while [ "$i" -lt 320 ]; do printf \'hvir-load-%04d abcdefghijklmnopqrstuvwxyz\\n\' "$i"; i=$((i+1)); sleep 0.1; done\n',
+  await activateCapacityTerminal(win, 0)
+  await verifyHiddenPresentationSettles(win)
+  const twelveTerminalCpu = await sampleCapacityCpuSeries(
+    win,
+    'one-visible-eleven-hidden',
+  )
+  const idleCpu = compareCapacityCpu(baselineCpu, twelveTerminalCpu)
+  console.log(`[smoke:capacity:idle-cpu] ${JSON.stringify(idleCpu)}`)
+  if (idleCpu.ratio > 1.5) {
+    throw new Error(
+      `idle renderer+GPU CPU ratio ${idleCpu.ratio.toFixed(2)} exceeded 1.50 ` +
+        `(one terminal ${idleCpu.baselineMedianRendererPlusGpu.toFixed(3)}%, ` +
+        `twelve terminals ${idleCpu.twelveTerminalMedianRendererPlusGpu.toFixed(3)}%)`,
     )
   }
+
+  startCapacityOutputFixtures(supervisor)
   let churning = true
   const watchChurn = (async (): Promise<void> => {
     let generation = 0
@@ -196,15 +178,14 @@ export async function runCapacityLoadSmoke(
     }
   })()
 
-  let report: CapacitySmokeReport
-  const memoryStartKiB = appWorkingSetKiB()
-  let memoryPeakKiB = memoryStartKiB
-  const memoryTimer = setInterval(() => {
-    memoryPeakKiB = Math.max(memoryPeakKiB, appWorkingSetKiB())
-  }, 500)
+  await verifyLoadedAdditionalTerminal(win, supervisor)
+  await activateCapacityTerminal(win, 0)
+  const presentationBefore = await readTerminalPresentation(win)
+  let report: CapacitySmokeReport | undefined
   try {
-    report = (await withTimeout(
-      win.webContents.executeJavaScript(`
+    const [rendererReport, processMetrics] = await Promise.all([
+      withTimeout(
+        win.webContents.executeJavaScript(`
         new Promise((resolve, reject) => {
           const durationMs = 30000;
           const started = performance.now();
@@ -265,11 +246,34 @@ export async function runCapacityLoadSmoke(
           requestAnimationFrame(frame);
         })
       `),
-      '30-second renderer responsiveness probe timed out',
-      40_000,
-    )) as CapacitySmokeReport
+        '30-second renderer responsiveness probe timed out',
+        40_000,
+      ) as Promise<CapacitySmokeReport>,
+      sampleElectronProcessMetrics(
+        win.webContents.getOSProcessId(),
+        CPU_SAMPLE_DURATION_MS,
+      ),
+    ])
+    const presentationAfter = await readTerminalPresentation(win)
+    const terminalActivity = verifyTerminalActivity(
+      presentationBefore,
+      presentationAfter,
+      supervisor
+        .list()
+        .slice(1, 4)
+        .map((terminal) => terminal.id),
+    )
+    report = {
+      ...rendererReport,
+      processMetrics,
+      idleCpu,
+      terminalActivity,
+      memoryStartKiB: processMetrics.memoryStartKiB,
+      memoryEndKiB: processMetrics.memoryEndKiB,
+      memoryPeakKiB: processMetrics.memoryPeakKiB,
+      memoryGrowthKiB: processMetrics.memoryGrowthKiB,
+    }
   } finally {
-    clearInterval(memoryTimer)
     churning = false
     await watchChurn
     for (const terminal of supervisor.list()) {
@@ -277,14 +281,7 @@ export async function runCapacityLoadSmoke(
     }
   }
 
-  const memoryEndKiB = appWorkingSetKiB()
-  report = {
-    ...report,
-    memoryStartKiB,
-    memoryEndKiB,
-    memoryPeakKiB,
-    memoryGrowthKiB: memoryEndKiB - memoryStartKiB,
-  }
+  if (!report) throw new Error('capacity report was not produced')
 
   console.log(`[smoke:capacity:raw] ${JSON.stringify(report)}`)
   if (report.p99Ms >= 100) {
@@ -299,14 +296,54 @@ export async function runCapacityLoadSmoke(
     )
   }
   console.log(
-    `[smoke] 12-terminal responsiveness OK (p99 ${report.p99Ms}ms · max ${report.maxMs}ms · ${report.clickLatenciesMs.length} clicks · memory ${Math.round((report.memoryGrowthKiB ?? 0) / 1024)} MiB net / ${Math.round(((report.memoryPeakKiB ?? 0) - (report.memoryStartKiB ?? 0)) / 1024)} MiB peak growth)`,
+    `[smoke] 12-terminal responsiveness OK (p99 ${report.p99Ms}ms · max ${report.maxMs}ms · ${report.clickLatenciesMs.length} clicks · CPU renderer ${report.processMetrics!.cpu.renderer.toFixed(2)}% / GPU ${report.processMetrics!.cpu.gpu.toFixed(2)}% / main ${report.processMetrics!.cpu.main.toFixed(2)}% · memory ${Math.round((report.memoryGrowthKiB ?? 0) / 1024)} MiB net / ${Math.round(((report.memoryPeakKiB ?? 0) - (report.memoryStartKiB ?? 0)) / 1024)} MiB peak growth)`,
   )
 }
 
-function appWorkingSetKiB(): number {
-  return app
-    .getAppMetrics()
-    .reduce((total, metric) => total + metric.memory.workingSetSize, 0)
+async function sampleCapacityCpuSeries(
+  win: BrowserWindow,
+  label: string,
+): Promise<readonly ElectronProcessMetricReport[]> {
+  const samples: ElectronProcessMetricReport[] = []
+  for (let index = 0; index < CPU_SAMPLE_COUNT; index += 1) {
+    const sample = await sampleElectronProcessMetrics(
+      win.webContents.getOSProcessId(),
+      CPU_SAMPLE_DURATION_MS,
+    )
+    samples.push(sample)
+    console.log(
+      `[smoke:capacity:cpu] ${label} ${index + 1}/${CPU_SAMPLE_COUNT} ` +
+        `renderer=${sample.cpu.renderer.toFixed(3)}% ` +
+        `gpu=${sample.cpu.gpu.toFixed(3)}% ` +
+        `main=${sample.cpu.main.toFixed(3)}%`,
+    )
+  }
+  return samples
+}
+
+function compareCapacityCpu(
+  baseline: readonly ElectronProcessMetricReport[],
+  twelveTerminals: readonly ElectronProcessMetricReport[],
+): CapacityCpuComparison {
+  const baselineMedianRendererPlusGpu = median(
+    baseline.map((sample) => sample.cpu.rendererPlusGpu),
+  )
+  const twelveTerminalMedianRendererPlusGpu = median(
+    twelveTerminals.map((sample) => sample.cpu.rendererPlusGpu),
+  )
+  const ratio =
+    baselineMedianRendererPlusGpu === 0
+      ? twelveTerminalMedianRendererPlusGpu === 0
+        ? 1
+        : Number.POSITIVE_INFINITY
+      : twelveTerminalMedianRendererPlusGpu / baselineMedianRendererPlusGpu
+  return {
+    baseline,
+    twelveTerminals,
+    baselineMedianRendererPlusGpu,
+    twelveTerminalMedianRendererPlusGpu,
+    ratio,
+  }
 }
 
 async function withTimeout<T>(

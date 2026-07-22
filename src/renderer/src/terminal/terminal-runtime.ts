@@ -159,11 +159,12 @@ export class TerminalRuntime {
     this.options.onTelemetry(undefined)
   }
 
-  attach(container: HTMLElement): void {
+  attach(container: HTMLElement, presentation = this.options.presentation): void {
     if (this.disposed) return
     this.container = container
     if (this.pane) {
       this.pane.reparent(container)
+      this.pane.setPresentation(presentation)
       if (this.options.active) this.focus()
       return
     }
@@ -177,7 +178,6 @@ export class TerminalRuntime {
   }
 
   focus(): void {
-    this.pane?.redraw()
     this.pane?.focus()
     this.options.onFocus()
   }
