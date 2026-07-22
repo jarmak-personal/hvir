@@ -106,6 +106,31 @@ describe('terminal exact-resume IPC', () => {
     )
   })
 
+  it('keeps one renderer forwarding lease until the supervised PTY exits', async () => {
+    const fixture = resumeFixture(asHostId('ssh-control-reconnect'), 'available')
+
+    await fixture.start(fixture.request, fixture.context)
+    const handlers = fixture.attach.mock.calls[0]?.[2]
+    if (!handlers) throw new Error('Expected the renderer PTY forwarding attachment')
+
+    handlers.onData?.('output during control reconnect')
+    expect(fixture.send).toHaveBeenCalledWith('pty:data', {
+      id: 'terminal-1',
+      data: 'output during control reconnect',
+    })
+    expect(fixture.spawn).toHaveBeenCalledOnce()
+    expect(fixture.register).toHaveBeenCalledOnce()
+    expect(fixture.lease.release).not.toHaveBeenCalled()
+
+    handlers.onExit?.({ exitCode: 255, signal: undefined })
+    expect(fixture.lease.release).toHaveBeenCalledOnce()
+    expect(fixture.send).toHaveBeenCalledWith('pty:exit', {
+      id: 'terminal-1',
+      exitCode: 255,
+      signal: undefined,
+    })
+  })
+
   it.each([
     ['local', LOCAL_HOST_ID],
     ['SSH', asHostId('ssh-replacement-test')],
@@ -268,6 +293,19 @@ function resumeFixture(
     ) => handlers.set(channel, handler),
     handleSend: vi.fn(),
   } as unknown as IpcRegistrar
+  const attach = vi.fn(
+    (
+      _id: string,
+      _ownerId: number,
+      _handlers: {
+        onData?: (data: string) => void
+        onExit?: (exit: { exitCode: number; signal?: number }) => void
+      },
+      _ownerGeneration?: number,
+    ) =>
+      () =>
+        undefined,
+  )
   const deps = {
     getProject: () => ({ root, host }),
     terminalSessions: {
@@ -291,7 +329,7 @@ function resumeFixture(
     },
     ptySupervisor: {
       spawn,
-      attach: vi.fn(() => () => undefined),
+      attach,
       disposeSession: vi.fn(),
     },
     terminalMoves: {
@@ -319,10 +357,11 @@ function resumeFixture(
     harnessSessionId: HARNESS_SESSION_ID,
     acknowledgeRisk: true,
   }
+  const send = vi.fn()
   const context = {
     owner: () => ({ id: 7, generation: 1 }),
     authority: ipc.authority,
-    sender: { isDestroyed: () => false, send: vi.fn() },
+    sender: { isDestroyed: () => false, send },
   } as unknown as IpcInvokeContext
   return {
     root,
@@ -334,6 +373,8 @@ function resumeFixture(
     lease,
     register,
     spawn,
+    attach,
+    send,
     start,
     request,
     context,

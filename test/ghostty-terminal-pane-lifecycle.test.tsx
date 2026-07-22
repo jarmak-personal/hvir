@@ -329,6 +329,110 @@ describe('GhosttyTerminalPane lifecycle', () => {
     })
   })
 
+  it('retains the live terminal surface and event route across a control reconnect', async () => {
+    const invoke = vi.fn(() =>
+      Promise.resolve({
+        outcome: 'started' as const,
+        id: 'terminal-1',
+        pid: 4321,
+        resumed: false,
+        harnessSessionId: undefined,
+        identityStatus: 'unsupported' as const,
+        capabilities: {
+          sessionIdentity: 'none' as const,
+          exactResume: false,
+          contextPresentation: 'none' as const,
+        },
+      }),
+    )
+    const send = vi.fn()
+    const events = new Map<string, (event: never) => void>()
+    Object.defineProperty(window, 'hvir', {
+      configurable: true,
+      value: {
+        invoke,
+        send,
+        on: vi.fn((channel: string, listener: (event: never) => void) => {
+          events.set(channel, listener)
+          return () => events.delete(channel)
+        }),
+      },
+    })
+    const registry = new TerminalRuntimeRegistry()
+    const host = document.createElement('div')
+    document.body.append(host)
+    const root = createRoot(host)
+    const render = (connectionState: TerminalRuntimeOptions['connectionState']) => (
+      <TerminalView
+        {...runtimeOptions()}
+        supportsResume={false}
+        harnessSessionId={undefined}
+        resumeOnStart={false}
+        connectionState={connectionState}
+        slot="primary"
+        visible
+        themeOverride="app"
+        runtimes={registry}
+      />
+    )
+
+    act(() => root.render(render('connected')))
+    await act(async () => {
+      await vi.waitFor(() => expect(invoke).toHaveBeenCalledOnce())
+    })
+    const state = ghosttyState.instances[0]!
+    const surface = host.querySelector('.terminal-engine-host')
+
+    act(() => root.render(render('reconnecting')))
+    expect(state.disposed).toBe(false)
+    expect(host.querySelector('.terminal-engine-host')).toBe(surface)
+    expect(invoke).toHaveBeenCalledOnce()
+    expect(send).not.toHaveBeenCalledWith('pty:kill', expect.anything())
+
+    act(() => {
+      events.get('pty:data')?.({
+        id: 'terminal-1',
+        data: 'output during reconnect',
+      } as never)
+    })
+    await vi.waitFor(() => expect(state.writes).toContain('output during reconnect'))
+
+    act(() => root.render(render('connected')))
+    expect(host.querySelector('.terminal-engine-host')).toBe(surface)
+    expect(invoke).toHaveBeenCalledOnce()
+
+    act(() => root.render(render('reconnecting')))
+    act(() => {
+      events.get('pty:exit')?.({
+        id: 'terminal-1',
+        exitCode: 255,
+      } as never)
+      events.get('pty:exit')?.({
+        id: 'terminal-1',
+        exitCode: 255,
+      } as never)
+    })
+    act(() => root.render(render('connected')))
+    await act(async () => {
+      await vi.waitFor(() => expect(invoke).toHaveBeenCalledTimes(2))
+    })
+    expect(state.disposed).toBe(true)
+    expect(ghosttyState.instances).toHaveLength(2)
+    expect(host.querySelectorAll('.terminal-engine-host')).toHaveLength(1)
+
+    act(() => root.render(render('disconnected')))
+    expect(ghosttyState.instances[1]?.disposed).toBe(true)
+    expect(host.querySelectorAll('.terminal-engine-host')).toHaveLength(0)
+    expect(
+      host.querySelector('.terminal-panel')?.getAttribute('data-terminal-status'),
+    ).toBe('disconnected')
+
+    act(() => {
+      root.unmount()
+      registry.dispose()
+    })
+  })
+
   it('retries unavailable resume without removing the React-owned container', async () => {
     const invoke = vi.fn(() =>
       Promise.resolve({

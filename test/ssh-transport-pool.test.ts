@@ -53,6 +53,51 @@ describe('SshHost transport pool', () => {
     supervisor.disposeAll()
   })
 
+  it('keeps a supervised PTY interactive across a primary control reconnect', async () => {
+    const fixture = await poolFixture()
+    const { host, supervisor, clients } = fixture
+    const exits = vi.fn()
+    const output = vi.fn()
+    supervisor.onExit(exits)
+    await spawnShells(fixture, 1)
+    const original = supervisor.get('shell-0')
+    const terminalClient = clients[1]
+    const channel = terminalClient?.channels[0] as
+      (ClientChannel & { readonly write: ReturnType<typeof vi.fn> }) | undefined
+    if (!original || !terminalClient || !channel) {
+      throw new Error('Expected one supervised PTY on a terminal transport')
+    }
+    supervisor.attach(original.id, OWNER_ID, { onData: output })
+
+    clients[0]?.emit('close')
+    expect(host.connectionState).toBe('reconnecting')
+    expect(supervisor.get(original.id)).toBe(original)
+    expect(exits).not.toHaveBeenCalled()
+
+    channel.emit('data', Buffer.from('still-running'))
+    supervisor.write(original.id, OWNER_ID, 'still-interactive')
+    expect(output).toHaveBeenCalledWith('still-running')
+    expect(channel.write.mock.calls).toContainEqual(['still-interactive'])
+
+    await host.connect()
+    expect(host.connectionState).toBe('connected')
+    expect(supervisor.get(original.id)).toBe(original)
+    expect(clients).toHaveLength(3)
+    channel.emit('data', Buffer.from('after-reconnect'))
+    supervisor.write(original.id, OWNER_ID, 'after-input')
+    expect(output).toHaveBeenCalledWith('after-reconnect')
+    expect(channel.write.mock.calls).toContainEqual(['after-input'])
+
+    terminalClient.emit('close')
+    channel.emit('close')
+    channel.emit('exit', 7)
+    expect(exits).toHaveBeenCalledOnce()
+    expect(exits).toHaveBeenCalledWith(original, { exitCode: 255, signal: undefined })
+    expect(supervisor.get(original.id)).toBeUndefined()
+
+    await host.dispose()
+  })
+
   it('grows a second control transport without borrowing terminal capacity', async () => {
     const fixture = await poolFixture()
     const streams = Array.from({ length: SSH_CONTROL_CHANNEL_BUDGET + 1 }, () =>
