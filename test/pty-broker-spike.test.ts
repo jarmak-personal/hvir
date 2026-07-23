@@ -264,12 +264,37 @@ describe.sequential('detached local PTY broker spike', () => {
     expect(reattached.replayBytes).toBeLessThanOrEqual(4 * 1024)
     expect(reattached.replayDroppedBytes).toBeGreaterThan(0)
 
+    const overflowDeltas: number[] = []
+    const disposeOverflow = second.onEvent((event) => {
+      if (
+        event.event === 'overflow' &&
+        event.sessionId === session.sessionId &&
+        event.epoch === reattached.epoch &&
+        event.scope === 'replay'
+      ) {
+        overflowDeltas.push(event.droppedBytes)
+      }
+    })
+    const secondFlood = waitForBrokerEvent(
+      second,
+      (event) => event.event === 'data' && event.data.includes('flood-end'),
+    )
+    await second.write(attachmentAuthority(reattached), `flood ${8 * 1024}\n`)
+    await secondFlood
     const pong = waitForBrokerEvent(
       second,
       (event) => event.event === 'data' && event.data.includes('pong after-flood'),
     )
     await second.write(attachmentAuthority(reattached), 'ping after-flood\n')
     await pong
+    const statusAfterPing = (await second.list()).find(
+      (candidate) => candidate.sessionId === session.sessionId,
+    )
+    const newlyDropped =
+      (statusAfterPing?.replayDroppedBytes ?? 0) - reattached.replayDroppedBytes
+    expect(newlyDropped).toBeGreaterThan(0)
+    expect(overflowDeltas.reduce((total, bytes) => total + bytes, 0)).toBe(newlyDropped)
+    disposeOverflow()
     await second.terminate(attachmentAuthority(reattached))
     await second.close()
   }, 15_000)
@@ -382,6 +407,65 @@ describe.sequential('detached local PTY broker spike', () => {
     expect(await waitForProcessExit(pids.leaderPid, 5_000)).toBe(true)
     expect(await waitForProcessExit(pids.grandchildPid, 5_000)).toBe(true)
     expect(await fileExists(handle.socketPath)).toBe(false)
+    client.crash()
+  }, 15_000)
+
+  it('rejects a late spawn while graceful broker shutdown is in progress', async () => {
+    const scratch = await ownedScratch()
+    const handle = await ownedBroker({
+      defaultLeaseMs: 3_000,
+      terminationGraceMs: 1_000,
+    })
+    const client = await handle.connect()
+    await client.spawn({
+      file: process.execPath,
+      args: [
+        syntheticHarness,
+        '--marker',
+        join(scratch, 'marker'),
+        '--process-record',
+        join(scratch, 'process.json'),
+        '--delay-ms',
+        '5000',
+        '--ignore-sigterm',
+        'true',
+      ],
+      cwd: process.cwd(),
+      leaseMs: 3_000,
+    })
+    const pids = await processRecord(scratch)
+
+    process.kill(handle.pid, 'SIGTERM')
+    await eventually(async () => {
+      try {
+        const probe = await handle.connect()
+        await probe.close()
+        return false
+      } catch {
+        return true
+      }
+    })
+    await expect(
+      client.spawn({
+        file: process.execPath,
+        args: [
+          syntheticHarness,
+          '--marker',
+          join(scratch, 'late.marker'),
+          '--process-record',
+          join(scratch, 'late.process.json'),
+          '--delay-ms',
+          '100',
+        ],
+        cwd: process.cwd(),
+        leaseMs: 3_000,
+      }),
+    ).rejects.toMatchObject({ code: 'BROKER_SHUTTING_DOWN' })
+
+    expect(await waitForProcessExit(handle.pid, 5_000)).toBe(true)
+    expect(await waitForProcessExit(pids.leaderPid, 5_000)).toBe(true)
+    expect(await waitForProcessExit(pids.grandchildPid, 5_000)).toBe(true)
+    expect(await fileExists(join(scratch, 'late.process.json'))).toBe(false)
     client.crash()
   }, 15_000)
 
