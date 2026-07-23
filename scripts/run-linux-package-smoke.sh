@@ -108,37 +108,91 @@ sed -i "s/^Version:.*/Version: $previous_version/" \
   "$previous_package_root/DEBIAN/control"
 dpkg-deb --root-owner-group --build "$previous_package_root" "$previous_package" >/dev/null
 
+require_equal() {
+  actual=$1
+  expected=$2
+  label=$3
+  if [[ "$actual" != "$expected" ]]; then
+    echo "Native package contract failed for $label: $actual != $expected" >&2
+    exit 1
+  fi
+}
+
+require_file() {
+  path=$1
+  label=$2
+  if [[ ! -f "$path" ]]; then
+    echo "Native package contract failed for $label: missing $path" >&2
+    exit 1
+  fi
+}
+
+require_contains() {
+  path=$1
+  expected=$2
+  label=$3
+  if ! grep -Fq "$expected" "$path"; then
+    echo "Native package contract failed for $label: $path lacks $expected" >&2
+    exit 1
+  fi
+}
+
 assert_package_contract() {
   expected_version=$1
   installed_version=$(dpkg-query -W -f='${Version}' hvir)
-  if [[ "$installed_version" != "$expected_version" ]]; then
-    echo "Installed hvir version mismatch: $installed_version != $expected_version" >&2
-    exit 1
-  fi
-  if [[ "$(dpkg-query -W -f='${Architecture}' hvir)" != "$deb_arch" ]]; then
-    echo 'Installed hvir package architecture is incorrect.' >&2
+  require_equal "$installed_version" "$expected_version" 'installed version'
+  require_equal \
+    "$(dpkg-query -W -f='${Architecture}' hvir)" \
+    "$deb_arch" \
+    'Debian architecture'
+
+  require_equal "$(stat -c '%U:%G' /opt/hvir)" 'root:root' '/opt/hvir ownership'
+  require_equal \
+    "$(stat -c '%U:%G' /opt/hvir/hvir)" \
+    'root:root' \
+    'executable ownership'
+  require_equal \
+    "$(stat -c '%U:%G' /usr/bin/hvir)" \
+    'root:root' \
+    'command ownership'
+  require_equal "$(readlink -f /usr/bin/hvir)" '/opt/hvir/hvir' 'command target'
+  binary_description=$(file /opt/hvir/hvir)
+  if [[ "$binary_description" != *"$binary_arch"* ]]; then
+    echo \
+      "Native package contract failed for executable architecture: $binary_description" \
+      >&2
     exit 1
   fi
 
-  test "$(stat -c '%U:%G' /opt/hvir)" = 'root:root'
-  test "$(stat -c '%U:%G' /opt/hvir/hvir)" = 'root:root'
-  test "$(stat -c '%U:%G' /usr/bin/hvir)" = 'root:root'
-  test "$(readlink -f /usr/bin/hvir)" = '/opt/hvir/hvir'
-  file /opt/hvir/hvir | grep -Fq "$binary_arch"
-
-  test -f /usr/share/applications/hvir.desktop
-  grep -Fq 'Exec=hvir' /usr/share/applications/hvir.desktop
+  desktop_entry=/usr/share/applications/hvir.desktop
+  require_file "$desktop_entry" 'desktop entry'
+  require_contains "$desktop_entry" 'Exec=hvir' 'desktop command'
   notices=/opt/hvir/resources/THIRD_PARTY_NOTICES.md
-  test -f "$notices"
-  grep -Fq 'Copyright (c) 2025 Coder' "$notices"
-  grep -Fq 'Copyright (c) 2024 Mitchell Hashimoto, Ghostty contributors' "$notices"
+  require_file "$notices" 'third-party notices'
+  require_contains "$notices" 'Copyright (c) 2025 Coder' 'Coder notice'
+  require_contains \
+    "$notices" \
+    'Copyright (c) 2024 Mitchell Hashimoto, Ghostty contributors' \
+    'Ghostty notice'
 
-  test "$(stat -c '%U:%G:%a' /etc/apparmor.d/hvir)" = 'root:root:644'
-  grep -Fq 'profile "hvir" "/opt/hvir/hvir" flags=(unconfined)' \
-    /etc/apparmor.d/hvir
-  grep -Fq 'userns,' /etc/apparmor.d/hvir
+  apparmor_profile=/etc/apparmor.d/hvir
+  require_file "$apparmor_profile" 'AppArmor profile'
+  require_equal \
+    "$(stat -c '%U:%G:%a' "$apparmor_profile")" \
+    'root:root:644' \
+    'AppArmor profile ownership and mode'
+  require_contains \
+    "$apparmor_profile" \
+    'profile "hvir" "/opt/hvir/hvir" flags=(unconfined)' \
+    'AppArmor executable attachment'
+  require_contains "$apparmor_profile" 'userns,' 'AppArmor user namespace permission'
   sudo apparmor_parser --skip-kernel-load --debug /etc/apparmor.d/hvir >/dev/null
-  sudo apparmor_status | grep -Eq '^[[:space:]]+hvir$'
+  apparmor_summary=$(sudo apparmor_status)
+  if ! grep -Eq '^[[:space:]]+hvir$' <<<"$apparmor_summary"; then
+    echo 'Native package contract failed for loaded AppArmor profile:' >&2
+    printf '%s\n' "$apparmor_summary" >&2
+    exit 1
+  fi
 
   sandbox_owner_mode=$(stat -c '%U:%G:%a' /opt/hvir/chrome-sandbox)
   case "$sandbox_owner_mode" in
