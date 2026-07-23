@@ -166,7 +166,7 @@ assert_package_contract() {
 
   desktop_entry=/usr/share/applications/hvir.desktop
   require_file "$desktop_entry" 'desktop entry'
-  require_contains "$desktop_entry" 'Exec=hvir' 'desktop command'
+  require_contains "$desktop_entry" 'Exec=/opt/hvir/hvir %U' 'desktop command'
   notices=/opt/hvir/resources/THIRD_PARTY_NOTICES.md
   require_file "$notices" 'third-party notices'
   require_contains "$notices" 'Copyright (c) 2025 Coder' 'Coder notice'

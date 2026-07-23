@@ -84,6 +84,9 @@ describe('Linux native package contract', () => {
     expect(installedSmoke).toContain(
       'PATH="$blocked_tools_root:/usr/sbin:/usr/bin:/sbin:/bin"',
     )
+    expect(installedSmoke).toContain(
+      "require_contains \"$desktop_entry\" 'Exec=/opt/hvir/hvir %U'",
+    )
     expect(installedSmoke).toContain('test -d "$project_root/.git"')
     expect(installedSmoke).not.toContain('--no-sandbox')
     expect(ciWorkflow).toContain('Native package acceptance (${{ matrix.name }})')
