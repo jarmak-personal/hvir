@@ -1,184 +1,125 @@
-# Packaging and npm releases
+# Packaging and GitHub Releases
 
 hvir has one supported installation path:
 
 ```sh
-npm install -g hvir-workbench
-hvir
+curl -fsSL https://github.com/jarmak-personal/hvir/releases/latest/download/install.sh | bash
 ```
 
-The public `hvir-workbench` package is a small launcher that installs the `hvir` command.
-npm selects one hidden optional payload for the current machine:
+The release-owned installer selects and verifies the native package for the current supported
+platform. Native packages are installer payloads and release evidence, not separate supported
+installation methods. [ADR-021](adr/ADR-021-platform-native-github-release-installation.md) owns
+the durable distribution, trust, privilege, update, removal, and migration boundaries.
 
-| Platform | Payload package |
-| --- | --- |
-| Linux x64 | `hvir-linux-x64` |
-| Linux arm64 | `hvir-linux-arm64` |
-| macOS arm64 | `hvir-darwin-arm64` |
+## Supported targets
 
-Intel macOS, Windows, native installers, and downloadable dmg/zip/AppImage/deb files are
-not release targets. Keeping one user-facing install/update/remove workflow is an
-intentional product-support boundary, not merely a CI convenience.
+| Platform | Architecture | Artifact | Native installation |
+| --- | --- | --- | --- |
+| Ubuntu 24.04 LTS | x64 | `.deb` | `apt` |
+| Ubuntu 24.04 LTS | arm64 | `.deb` | `apt` |
+| modern macOS | Apple silicon (`arm64`) | flat `.pkg` | `/usr/sbin/installer` |
 
-## How the packages are built
+Other Debian-family systems are not supported until they pass the same native acceptance as the
+Ubuntu 24.04 baseline. Intel macOS, Windows, direct package installation, DMG, ZIP, AppImage,
+Homebrew, Snap, Flatpak, and other package formats are not release targets.
 
-electron-vite builds the production `out/` tree. electron-builder then produces an
-unpacked application on a native runner so Electron and `node-pty` have the correct
-architecture. `scripts/package-npm.mjs` archives that directory into the matching
-platform package and creates the launcher package from the repository version. Platform packages
-declare no install-time lifecycle scripts. Linux and macOS intentionally use the same archive
-lifecycle even though macOS framework symlinks are the constraint that requires it.
-
-On the first `hvir` launch for a version, the launcher verifies the installed archive, prepares it
-atomically in the user's cache, and starts the native executable. Later launches reuse the
-completed payload. The launcher never writes to the global npm prefix, so launch does not require
-elevation even when that prefix is read-only. Users do not approve install scripts, compile hvir
-or `node-pty`, or download a second payload. ADR-018 owns this lifecycle.
-
-The preparation cache is `$XDG_CACHE_HOME/hvir/native` (or `~/.cache/hvir/native`) on Linux and
-`~/Library/Caches/hvir/native` on macOS. Each platform package retains the current and immediately
-previous completed versions. Failed staging is removed immediately when possible and otherwise by
-the next preparation. A script-free uninstall cannot remove user cache state, so uninstall may
-leave those two completed versions and at most one interrupted staging directory. When hvir is not
-running, the corresponding `hvir/native` cache directory may be removed safely.
-
-The permission to write npm's configured global prefix remains an npm/user-environment concern,
-not a package capability. hvir never invokes or recommends `sudo`; [npm's own
-guidance](https://docs.npmjs.com/resolving-eacces-permissions-errors-when-installing-packages-globally/)
-recommends a Node version manager or a user-owned prefix when a system prefix produces `EACCES`.
-
-The launcher package, platform package, and installed Electron application each carry
-[`THIRD_PARTY_NOTICES.md`](../THIRD_PARTY_NOTICES.md). Packaging verifies the notice at
-both npm and application-resource boundaries so upstream attributions and hvir's local
-modification disclosure cannot be dropped silently.
-
-Local package commands are architecture-specific:
+The installed package owns the `hvir` command. Pass a local project directory to open it
+directly:
 
 ```sh
-npm run pack:npm:launcher
-npm run pack:npm:linux:x64    # native Linux x64 host
-npm run pack:npm:linux:arm64  # native Linux arm64 host
-npm run pack:npm:mac:arm64    # Apple-silicon Mac
+hvir .
 ```
 
-Tarballs land in `dist/npm/`. Every platform pack command installs its generated tarball under
-strict install-script policy, verifies that it declares no scripts, prepares it through the real
-launcher-owned module, and validates the executable and notices before succeeding.
-After also packing the launcher, `npm run smoke:packaged` installs both tarballs into a clean
-prefix with no script approval, makes that prefix read-only, and launches twice. It proves the
-first launch prepares visibly in the user cache, the second reuses the result, a project path is
-preserved, the executable architecture matches the host, one real node-pty and one worker load,
-the required preview protocol responds, and the retained platform geometry holds. macOS also
-checks the framework symlink and the prepared bundle's documented signing state. It does not
-replay ordinary product behavior already owned by unpackaged tests.
+## Installer and trust contract
 
-Pull-request CI runs that packaged contract on Linux x64, Linux arm64, and macOS arm64.
-It also runs `npm run smoke:macos` against the unpackaged build on Apple silicon, covering
-the focused custom-profile PTY lifecycle, source/diff position, platform, and terminal
-presentation contracts. The separate `npm run smoke:capacity` step retains deterministic
-multi-terminal contracts and labels its machine-dependent measurements as evidence. These
-commands are locally reproducible only on a matching supported platform; CI supplies the
-cross-platform contract evidence, not an authoritative quantitative performance verdict.
+`releases/latest/download/install.sh` resolves to an installer stored with a specific immutable
+GitHub Release. That installer:
 
-## Dependency and security automation
+1. Detects one supported operating system and architecture without elevation.
+2. Selects one exact artifact from the same release.
+3. Downloads it over GitHub HTTPS.
+4. Verifies its SHA-256 digest against the release-specific digest embedded in the installer.
+5. Invokes only the exact native package operation that requires elevation.
 
-Dependabot checks npm dependencies daily and GitHub Actions weekly. Minor and patch
-updates are grouped by ecosystem to keep routine maintenance compact; major updates stay
-in individual pull requests so their compatibility and migration notes remain visible.
-Repository settings also enable vulnerability alerts and Dependabot security-update pull
-requests. Every update pull request goes through the full Linux CI gauntlet.
+The installer never executes an unverified native package. A clean installation requires Bash
+and the platform's native package tools; it does not require GitHub CLI, Node.js, npm, `cosign`,
+or an hvir-specific verifier.
 
-CodeQL analyzes JavaScript and TypeScript on pull requests, pushes to `main`, and a weekly
-schedule. Before starting a release, review the open Dependabot pull requests and confirm
-that CI and CodeQL are green on `main`; intentionally deferred major upgrades should be
-called out in the release notes.
+GitHub HTTPS and the immutable release are the bootstrap trust root. GitHub's generated release
+attestation is an additional audit path, not a prerequisite for installation. Maintainers and
+auditors can independently verify the published release and assets with `gh release verify` and
+`gh release verify-asset`.
 
-## Release workflow
+## Native package ownership
 
-Use **Actions → Release → Run workflow** on the `main` branch and choose a version:
+### Linux
 
-- `current` releases the version already in `package.json`. It is also the recovery
-  choice for an interrupted release whose tag already exists.
-- `patch`, `minor`, or `major` updates `package.json` and `package-lock.json`, verifies
-  that tree, and pushes the version commit to `main` before the native builds begin.
+The installer downloads the matching x64 or arm64 `.deb`, verifies it, and asks `apt` to perform
+the installation or update. The package installs hvir into a root-owned system location and owns
+the Ubuntu AppArmor profile required for Chromium sandboxing. Its package lifecycle loads,
+updates, unloads, and removes that policy. Production launch never adds `--no-sandbox` and does
+not require a user to edit AppArmor, change a sysctl, or repair ownership or permissions.
 
-The one `.github/workflows/release-npm.yml` run then:
+### macOS
 
-1. Verifies and smokes the exact release source on Linux.
-2. Builds and smokes Linux x64, Linux arm64, and macOS arm64 from that exact commit on
-   native runners.
-3. Creates or verifies the matching `v*` tag after every native build succeeds.
-4. Publishes the three platform packages, skipping versions already present during a
-   recovery run.
-5. Publishes `hvir-workbench` last, so its optional dependencies already exist at the
-   same version.
-6. Publishes a generated-notes GitHub Release only after npm publication succeeds. It
-   has no downloadable application assets; npm remains the only supported distribution.
+The Apple-silicon application is signed with a Developer ID Application identity. A Developer ID
+Installer identity signs the flat `.pkg`; Apple notarizes the package, and the released artifact
+carries a stapled ticket. The package owns:
 
-The workflow owns tag creation; manually pushing a tag is not a release trigger. The tag
-always equals the root package version (`v0.1.0` for version `0.1.0`).
+- `/Applications/hvir.app`
+- `/usr/local/bin/hvir`
 
-The initial `v0.1.0` attempt published the three platform payloads, but npm rejected the
-unscoped `hvir` launcher as too similar to an existing package. The launcher is therefore
-published as `hvir-workbench`; its `bin` entry still installs the command as `hvir`. Make
-the first complete release with a `patch` bump to `0.1.1`, rather than rewriting the
-partial tag or immutable payload versions.
+After digest verification, the installer asks `/usr/sbin/installer` to install the package
+noninteractively. The supported flow does not open Finder or Installer.app.
 
-Keep the granular npm publishing token in the `NPM_TOKEN` repository secret to bootstrap
-`hvir-workbench`. Afterward, configure its npm trusted publisher for repository
-`jarmak-personal/hvir`, workflow filename `release-npm.yml`, and the `npm publish` action.
-The three platform packages should already have the same trusted-publisher configuration.
-Then remove the long-lived token; the publish job already has the required OIDC permission
-and emits provenance attestations.
+## Install, update, uninstall, and purge
 
-Version commits and release tags are pushed with the repository's GitHub Actions token.
-If `main` branch protection or tag rules are added later, they must permit this workflow
-to update `main` for version bumps and create `v*` tags; otherwise a release will stop at
-the corresponding push after its earlier validation or builds.
+Run the same release installer for a clean install or an update. Native package managers replace
+the installed version. An unsuccessful operation reports the failed stage and either retains the
+previous working installation or leaves an explicitly recoverable native package-manager state;
+it never reports a launchable partial version as success.
 
-If a run fails before creating the tag, fix `main` and rerun with `current`. If the tag
-exists, `current` may safely finish an otherwise unchanged partial release and skips any
-package versions already published. If npm contains the version but its tag is missing,
-the workflow refuses to retag potentially different source; restore the original tag or
-release a new version. Published npm versions are immutable: if an artifact itself must
-change, make the fix and release a new patch instead. Workflow artifacts are only
-short-lived handoff files between build and publish jobs; they are not supported
-downloads.
+The installer also owns explicit uninstall and purge modes. Default uninstall removes
+package-owned application, command, and system-integration files while preserving:
 
-## macOS signing decision
+- application settings;
+- registered-project metadata;
+- local and remote project directories; and
+- all other user-authored data.
 
-As of 2026-07-15, development payloads are unsigned because hvir has no configured Apple
-Developer team/certificate. That is acceptable for development validation, not broad
-public distribution. Before promoting the npm path publicly, remove `mac.identity: null`,
-configure a Developer ID Application certificate, enable electron-builder notarization,
-and retain the checked-in hardened-runtime entitlements. Signing happens before the app
-bundle is archived into `hvir-darwin-arm64`. npm installs that archive byte-for-byte and
-first-use preparation preserves the framework links and signing and notarization state.
+Purge requires explicit intent. It removes only documented hvir-owned user-state roots in
+addition to package-owned files; it never deletes project directories.
 
-Verify the expanded application before publishing:
+During migration, native installation completes before legacy state is removed. The installer
+removes an existing npm `hvir` launcher only after proving that it belongs to `hvir-workbench`.
+It removes hvir's derived npm native cache only after the native installation succeeds. An
+ambiguous command is retained and reported rather than overwritten or deleted silently.
 
-```sh
-codesign --verify --deep --strict --verbose=2 path/to/hvir.app
-spctl --assess --verbose --type exec path/to/hvir.app
-xcrun stapler validate path/to/hvir.app
-```
+Published `hvir-workbench` and platform payload packages remain immutable npm history. npm
+publication stops and those packages are deprecated only after the complete native installation
+and migration contract passes cumulative acceptance.
 
-See the [electron-builder signing guide](https://www.electron.build/docs/features/code-signing/code-signing-mac/),
-[notarization guide](https://www.electron.build/docs/notarization/), and
-[Apple distribution documentation](https://developer.apple.com/documentation/xcode/packaging-mac-software-for-distribution).
+## Release contents and atomicity
 
-## Release acceptance
+One release manifest binds:
 
-On each supported architecture, install the exact release tarballs through npm in a clean
-environment, run `hvir`, register local and SSH projects, open Files and Git, start
-shell/Codex/Claude terminals, quit, relaunch, and confirm recovery. Run the
-[Phase 8 gauntlet](phase8-performance-gauntlet.md) before tagging and retain the real-host
-evidence with the release notes.
+- the hvir version and source tag;
+- the exact source commit;
+- every supported artifact and architecture;
+- every artifact's SHA-256 digest; and
+- the matching third-party notices.
 
-## Historical implementation evidence
+Linux x64, Linux arm64, and macOS arm64 artifacts are built and exercised on matching native
+runners. The macOS package additionally passes application and installer signature validation,
+Gatekeeper assessment, notarization, and stapled-ticket validation. Native installation
+acceptance proves the installed command, one real `node-pty` load, one worker round-trip, and
+platform-specific system integration.
 
-On 2026-07-15, `hvir-darwin-arm64@0.1.0` packed to a 160.9 MB npm tarball and validated the
-original install-time extraction path. ADR-018 subsequently replaced that lifecycle with
-script-free first-use preparation. Current acceptance comes from the native packaged-smoke jobs
-on Linux x64, Linux arm64, and macOS arm64; release evidence belongs with the corresponding
-commit, pull request, and release rather than this guide.
+Release assembly remains private until every required artifact passes its target acceptance.
+Only then is the installer published with the matched manifest, notices, and native packages in
+one GitHub Release. Published tags and assets are immutable; any artifact correction requires a
+new version.
+
+Run the [Phase 8 gauntlet](phase8-performance-gauntlet.md) on a controlled matching host before
+release. Implementation and acceptance evidence belongs in the governing issues, commits, pull
+requests, and releases rather than in ADRs.

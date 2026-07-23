@@ -31,18 +31,18 @@ them.
 
 ## Install
 
-Install hvir from npm, then launch it from any directory:
+Install hvir from its latest immutable GitHub Release, then launch it from any directory:
 
 ```sh
-npm install -g hvir-workbench
-hvir
+curl -fsSL https://github.com/jarmak-personal/hvir/releases/latest/download/install.sh | bash
+hvir .
 ```
 
-Pass a local project folder to open it directly (`hvir .`). The npm launcher supports
-Linux x64, Linux arm64, and Apple-silicon macOS. Its first launch visibly prepares the
-native application in the user cache and does not write to the npm prefix or require
-elevation. Native installers are deliberately not another supported release path; see
-[docs/packaging.md](docs/packaging.md).
+The installer selects and verifies the release's native package for Linux x64, Linux arm64,
+or Apple-silicon macOS before invoking the platform installation step. Native packages are
+installer payloads, not separate supported installation paths. See
+[docs/packaging.md](docs/packaging.md) for platform support, verification, migration,
+update, uninstall, and purge behavior.
 
 hvir expects the system `git` binary. Claude Code and Codex launch options use those CLIs
 from the selected host's login-shell environment; plain shells work without either.
@@ -108,8 +108,7 @@ evidence without enforcing quantitative budgets on a hosted runner. `npm run gau
 the combined controlled-machine release gate. Use `git push --no-verify` when a deliberate local
 bypass is needed.
 
-Build the npm payload for the current supported platform with the matching
-`pack:npm:*` script. See the
+Native packaging and installation acceptance run on the matching supported platform. See the
 [performance gauntlet](docs/phase8-performance-gauntlet.md) and
 [packaging guide](docs/packaging.md) for release acceptance.
 
