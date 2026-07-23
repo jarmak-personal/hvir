@@ -9,6 +9,8 @@ import {
   terminalRecoveryCandidateDecision,
 } from '../src/renderer/src/terminal/terminal-recovery-planner'
 import {
+  asHarnessProfileId,
+  asHarnessProviderId,
   asHostId,
   hostPath,
   type HarnessProviderDescriptor,
@@ -85,11 +87,15 @@ describe('terminal recovery planner', () => {
       [provider],
       [profile],
       [],
-      { secondaryIds: ['second'] },
+      { secondaryIds: [] },
       true,
     )
     expect(result.sessions.map(({ id }) => id)).toEqual(['first', 'second'])
     expect(result.activeId).toBe('second')
+    expect(result.sessions.map(({ id, dormant }) => ({ id, dormant }))).toEqual([
+      { id: 'first', dormant: true },
+      { id: 'second', dormant: false },
+    ])
   })
 
   it('partitions automatic recovery per record and leaves only blockers for review', () => {
@@ -153,7 +159,11 @@ describe('terminal recovery planner', () => {
       true,
     )
     const merged = mergeTerminalRestorations(
-      { sessions: [existing], activeId: existing.id },
+      {
+        sessions: [existing],
+        activeId: existing.id,
+        activeByPane: { primary: existing.id, secondary: undefined },
+      },
       reviewed,
       [secondRecord, firstRecord],
     )
@@ -218,7 +228,8 @@ describe('terminal recovery planner', () => {
       harnessSessionId: 'exact-retained-id',
       identityStatus: 'identified',
       resumeOnStart: true,
-      status: 'Ready to resume',
+      dormant: false,
+      status: 'Resuming…',
     })
   })
 
@@ -234,4 +245,111 @@ describe('terminal recovery planner', () => {
       }),
     ).toEqual({ kind: 'discard' })
   })
+
+  it('admits at most the persisted visible row per split across provider kinds', () => {
+    const exactCapabilities = {
+      sessionIdentity: 'preassigned' as const,
+      exactResume: true,
+      contextPresentation: 'count' as const,
+    }
+    const launchCapabilities = {
+      sessionIdentity: 'none' as const,
+      exactResume: false,
+      contextPresentation: 'none' as const,
+    }
+    const descriptors = [
+      providerFor('claude-code', exactCapabilities),
+      providerFor('codex', {
+        ...exactCapabilities,
+        sessionIdentity: 'discovered',
+      }),
+      providerFor('github-copilot-cli', launchCapabilities),
+      providerFor('custom', launchCapabilities),
+    ]
+    const recoveryProfiles = descriptors.map((descriptor) => ({
+      ...profile,
+      id: asHarnessProfileId(`${descriptor.id}-profile`),
+      providerId: descriptor.id,
+      displayName: descriptor.displayName,
+      builtIn: false,
+    }))
+    const records = descriptors.map((descriptor, position) => ({
+      ...record,
+      id: `terminal-${position}`,
+      providerId: descriptor.id,
+      profileId: recoveryProfiles[position]!.id,
+      title: descriptor.displayName,
+      harnessSessionId: position < 2 ? `exact-${position}` : undefined,
+      position,
+      active: position === 0,
+      attention: position === 3 ? ('bell' as const) : undefined,
+    }))
+
+    const restored = restoreTerminalSessions(
+      records,
+      descriptors,
+      recoveryProfiles,
+      [],
+      {
+        secondaryIds: ['terminal-1'],
+        activeByPane: { primary: 'terminal-0', secondary: 'terminal-1' },
+      },
+      true,
+    )
+
+    expect(restored.activeByPane).toEqual({
+      primary: 'terminal-0',
+      secondary: 'terminal-1',
+    })
+    expect(
+      restored.sessions.map(({ id, dormant, status, attention }) => ({
+        id,
+        dormant,
+        status,
+        attention,
+      })),
+    ).toEqual([
+      {
+        id: 'terminal-0',
+        dormant: false,
+        status: 'Resuming…',
+        attention: undefined,
+      },
+      {
+        id: 'terminal-1',
+        dormant: false,
+        status: 'Resuming…',
+        attention: undefined,
+      },
+      {
+        id: 'terminal-2',
+        dormant: true,
+        status: 'Ready to start',
+        attention: undefined,
+      },
+      {
+        id: 'terminal-3',
+        dormant: true,
+        status: 'Ready to start',
+        attention: 'bell',
+      },
+    ])
+  })
 })
+
+function providerFor(
+  id: string,
+  capabilities: HarnessProviderDescriptor['capabilities'],
+): HarnessProviderDescriptor {
+  return {
+    id: asHarnessProviderId(id),
+    displayName: id,
+    default: false,
+    capabilities,
+    terminalInput: {
+      modifiedKeyProtocol: 'none',
+      metaEnterAliasesControl: false,
+    },
+    profileGuidance: { reservedArguments: [], riskClassification: 'best-effort' },
+  }
+}

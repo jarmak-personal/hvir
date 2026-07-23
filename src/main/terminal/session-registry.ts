@@ -8,6 +8,7 @@ import {
   type HarnessProviderId,
   type HarnessProfileId,
   type HostPath,
+  type TerminalAttentionState,
   type TerminalLayoutEntry,
   type TerminalRecoverySession,
 } from '../../shared'
@@ -15,7 +16,8 @@ import type { ProjectHost } from '../project-host'
 import { harnessProvider } from '../harness/harness-provider'
 import type { HarnessRecoveryProfileReference } from '../harness/harness-profile-store'
 
-const FILE_VERSION = 4
+const FILE_VERSION = 5
+const LEGACY_PRESENTATION_FILE_VERSION = 4
 const LEGACY_WORKSPACE_FILE_VERSION = 3
 const LEGACY_PROVIDER_FILE_VERSION = 2
 const LEGACY_ADAPTER_FILE_VERSION = 1
@@ -37,6 +39,7 @@ interface StoredTerminalSession {
   readonly title: string
   readonly position: number
   readonly active: boolean
+  readonly attention?: TerminalAttentionState
   readonly updatedAt: number
 }
 
@@ -175,6 +178,7 @@ export class TerminalSessionRegistry implements TerminalSessionStore {
         if (
           isRecord(value) &&
           (value['version'] === FILE_VERSION ||
+            value['version'] === LEGACY_PRESENTATION_FILE_VERSION ||
             value['version'] === LEGACY_WORKSPACE_FILE_VERSION ||
             value['version'] === LEGACY_PROVIDER_FILE_VERSION ||
             value['version'] === LEGACY_ADAPTER_FILE_VERSION)
@@ -184,6 +188,7 @@ export class TerminalSessionRegistry implements TerminalSessionStore {
             const parsed = rawSessions
               .map((session) =>
                 value['version'] === FILE_VERSION ||
+                value['version'] === LEGACY_PRESENTATION_FILE_VERSION ||
                 value['version'] === LEGACY_WORKSPACE_FILE_VERSION
                   ? parseStoredSession(session)
                   : parseLegacyStoredSession(
@@ -255,6 +260,7 @@ export class TerminalSessionRegistry implements TerminalSessionStore {
     }
     const harnessSessionId =
       spawn.harnessSessionId ?? this.pendingIdentities.get(spawn.id)
+    const retainedAttention = this.sessions.get(spawn.id)?.attention
     this.pendingIdentities.delete(spawn.id)
     const now = Date.now()
     this.sessions.set(spawn.id, {
@@ -271,6 +277,7 @@ export class TerminalSessionRegistry implements TerminalSessionStore {
       title: cleanTitle(spawn.title),
       position: cleanPosition(spawn.position),
       active: spawn.active,
+      attention: retainedAttention,
       updatedAt: now,
     })
     return this.persist()
@@ -372,6 +379,7 @@ export class TerminalSessionRegistry implements TerminalSessionStore {
         title: cleanTitle(item.title),
         position: cleanPosition(item.position),
         active: item.active,
+        attention: item.attention,
         updatedAt: Date.now(),
       }
       this.sessions.set(item.id, next)
@@ -524,6 +532,7 @@ function parseStoredSession(value: unknown): StoredTerminalSession | undefined {
   const title = value['title']
   const position = value['position']
   const active = value['active']
+  const attention = value['attention']
   const updatedAt = value['updatedAt']
   if (
     typeof id !== 'string' ||
@@ -555,6 +564,7 @@ function parseStoredSession(value: unknown): StoredTerminalSession | undefined {
     position < 0 ||
     position >= MAX_SESSIONS ||
     typeof active !== 'boolean' ||
+    (attention !== undefined && !isTerminalAttention(attention)) ||
     typeof updatedAt !== 'number' ||
     !Number.isFinite(updatedAt) ||
     updatedAt < 0
@@ -575,6 +585,7 @@ function parseStoredSession(value: unknown): StoredTerminalSession | undefined {
     title,
     position,
     active,
+    attention,
     updatedAt,
   }
 }
@@ -644,6 +655,10 @@ function isHarnessSessionId(value: string): boolean {
     !/\s/.test(value) &&
     !hasControlCharacter(value)
   )
+}
+
+function isTerminalAttention(value: unknown): value is TerminalAttentionState {
+  return value === 'output' || value === 'bell' || value === 'idle'
 }
 
 function hasControlCharacter(value: string): boolean {

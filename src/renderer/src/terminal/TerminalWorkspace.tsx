@@ -360,6 +360,7 @@ export function TerminalWorkspace({
           setMenuOpen(false)
           onOpenHarnessSettings()
         }}
+        onResumeAll={commands.resumeAll}
         onFocusSession={commands.focus}
         onMoveSession={commands.moveToOtherPane}
         onCloseSession={commands.close}

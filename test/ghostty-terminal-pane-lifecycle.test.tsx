@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { createGhosttyTerminalPane } from '../src/renderer/src/terminal/ghostty-terminal-pane'
 import { TerminalView } from '../src/renderer/src/terminal/TerminalView'
-import type { TerminalRuntimeOptions } from '../src/renderer/src/terminal/terminal-runtime'
+import type { TerminalRuntimeOptions } from '../src/renderer/src/terminal/terminal-runtime-options'
 import { TerminalRuntimeRegistry } from '../src/renderer/src/terminal/terminal-runtime-registry'
 import { asHarnessProfileId, localPath } from '../src/shared'
 
@@ -754,6 +754,7 @@ function runtimeOptions(): TerminalRuntimeOptions {
     fallbackTitle: 'Claude Code · repo',
     harnessSessionId: '05ea41ff-026f-4ab6-b930-64eb3b497806',
     resumeOnStart: true,
+    startMode: 'interactive',
     position: 0,
     active: true,
     presentation: 'visible',

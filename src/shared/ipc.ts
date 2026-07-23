@@ -244,6 +244,8 @@ export interface StartPtyRequest {
   readonly position: number
   readonly active: boolean
   readonly composerSubmitMode: ComposerSubmitMode
+  /** Explicit bulk recovery is admitted through the bounded per-host start queue. */
+  readonly admission?: 'interactive' | 'bulk'
   readonly resume?: boolean
   readonly harnessSessionId?: string
   /** Explicit user acknowledgment for this profile's current elevated risk. */
@@ -356,6 +358,8 @@ export type StartPtyResponse =
 export type TerminalIdentityStatus =
   'none' | 'discovering' | 'identified' | 'ambiguous' | 'unavailable'
 
+export type TerminalAttentionState = 'output' | 'bell' | 'idle'
+
 export interface TerminalRecoverySession {
   readonly id: string
   readonly providerId: HarnessProviderId
@@ -370,6 +374,7 @@ export interface TerminalRecoverySession {
   readonly title: string
   readonly position: number
   readonly active: boolean
+  readonly attention?: TerminalAttentionState
   readonly updatedAt: number
 }
 
@@ -378,6 +383,7 @@ export interface TerminalLayoutEntry {
   readonly title: string
   readonly position: number
   readonly active: boolean
+  readonly attention?: TerminalAttentionState
 }
 
 export interface TerminalRecoveryRequest {

@@ -17,6 +17,20 @@
   background: #171b21;
 }
 
+.terminal-list-row.dormant {
+  background:
+    linear-gradient(90deg, rgb(83 119 156 / 16%), transparent 56%),
+    #12151a;
+}
+
+.terminal-list-row.dormant .terminal-list-title {
+  color: #b9cbe0;
+}
+
+.terminal-list-row.dormant .terminal-list-meta {
+  color: #7899bd;
+}
+
 .terminal-list-row.active {
   border-top: 1px solid var(--terminal-active-border);
   border-bottom-color: var(--terminal-active-border);

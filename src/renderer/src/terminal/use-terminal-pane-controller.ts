@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useSyncExternalStore } from 'react'
 
-import type { TerminalRuntimeOptions } from './terminal-runtime'
+import type { TerminalRuntimeOptions } from './terminal-runtime-options'
 import { TerminalRuntimeRegistry } from './terminal-runtime-registry'
 
 export type TerminalPaneControllerOptions = TerminalRuntimeOptions

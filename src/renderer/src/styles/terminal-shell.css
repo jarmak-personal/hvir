@@ -86,6 +86,30 @@
   gap: 1px;
 }
 
+.terminal-resume-all-button {
+  height: 24px;
+  margin-right: 3px;
+  padding: 0 6px;
+  border: 1px solid #3b5470;
+  border-radius: 3px;
+  background: #182433;
+  color: #a9c7e8;
+  font-size: 8px;
+  white-space: nowrap;
+}
+
+.terminal-resume-all-button:hover,
+.terminal-resume-all-button:focus-visible {
+  outline: none;
+  border-color: #5f87b4;
+  background: #203149;
+  color: #e1efff;
+}
+
+.terminal-resume-all-button:disabled {
+  opacity: 0.4;
+}
+
 .terminal-icon-button,
 .terminal-close-button,
 .terminal-move-button {

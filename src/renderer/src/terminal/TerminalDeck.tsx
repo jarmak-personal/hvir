@@ -11,7 +11,7 @@ import type { TerminalThemeOverride } from '../settings/settings'
 import type { TerminalLinkActivation } from './terminal-pane'
 import { TerminalView } from './TerminalView'
 import type { TerminalSession } from './terminal-workspace-model'
-import type { FreshTerminalStart } from './terminal-runtime'
+import type { FreshTerminalStart } from './terminal-runtime-options'
 import type { TerminalRuntimeRegistry } from './terminal-runtime-registry'
 
 export function TerminalDeck({
@@ -98,6 +98,7 @@ export function TerminalDeck({
         </div>
       ) : null}
       {sessions.map((session, position) => {
+        if (session.dormant) return null
         const provider = providers.find(
           (candidate) => candidate.id === session.providerId,
         )
@@ -113,6 +114,7 @@ export function TerminalDeck({
             fallbackTitle={session.fallbackTitle}
             harnessSessionId={session.harnessSessionId}
             resumeOnStart={session.resumeOnStart}
+            startMode={session.startMode ?? 'interactive'}
             position={position}
             slot={session.pane}
             visible={
@@ -149,7 +151,9 @@ export function TerminalDeck({
             }
             onStarted={() =>
               onUpdateSession(session.id, (current) =>
-                current.resumeOnStart ? { ...current, resumeOnStart: false } : current,
+                current.resumeOnStart || current.startMode === 'bulk'
+                  ? { ...current, resumeOnStart: false, startMode: 'interactive' }
+                  : current,
               )
             }
             onFreshStarted={(started: FreshTerminalStart) =>

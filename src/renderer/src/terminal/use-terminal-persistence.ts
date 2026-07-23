@@ -25,6 +25,7 @@ export function useTerminalPersistence({
       position,
       active: session.id === model.activeId,
       pane: session.pane,
+      attention: session.attention,
     })),
   )
 
@@ -36,6 +37,7 @@ export function useTerminalPersistence({
       title: session.title,
       position,
       active: session.id === current.activeId,
+      attention: session.attention,
     }))
     void window.hvir
       .invoke('terminal:update-layout', { root, sessions })
@@ -49,6 +51,7 @@ export function useTerminalPersistence({
       secondaryIds: modelRef.current.sessions
         .filter((session) => session.pane === 'secondary')
         .map((session) => session.id),
+      activeByPane: modelRef.current.activeByPane,
     })
   }, [layoutKey, ready, root])
 }

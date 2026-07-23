@@ -1,4 +1,6 @@
-export type TerminalAttention = 'output' | 'bell' | 'idle'
+import type { TerminalAttentionState } from '../../../shared'
+
+export type TerminalAttention = TerminalAttentionState
 export type TerminalIdleAttentionState = 'initial' | 'armed' | 'settled'
 
 export interface TerminalOutputAttentionDecision {

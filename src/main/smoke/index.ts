@@ -442,16 +442,16 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
       console.log('HVIR_SMOKE_OK')
       return 0
     }
-
     if (mode === 'capacity') {
       await runCapacityLoadSmoke(win, supervisor, host, liveReloadPath)
-      smokeRecoverySessions = supervisor.list().map((terminal, position) => ({
-        id: terminal.id,
+      const recoveryTemplate = supervisor.list()[0]!
+      smokeRecoverySessions = Array.from({ length: 20 }, (_, position) => ({
+        id: `capacity-recovery-${position}`,
         providerId: defaultHarnessProviderId,
         profileId: asHarnessProfileId('plain-shell-default'),
         launchRevision: 1,
-        hostId: terminal.hostId,
-        cwd: terminal.cwd,
+        hostId: recoveryTemplate.hostId,
+        cwd: recoveryTemplate.cwd,
         title: `Recovered capacity shell ${position + 1}`,
         position,
         active: position === 0,

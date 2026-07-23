@@ -20,6 +20,7 @@ import {
   type HostId,
   type HostPath,
   type TerminalIdentityStatus,
+  TerminalStartAdmission,
 } from '../../shared'
 import type { Disposer, ProjectHost, PtyExit, PtyProcess } from '../project-host'
 import type {
@@ -50,6 +51,8 @@ export interface PtySpawnRequest {
   readonly harnessSessionId?: string
   /** Resume `harnessSessionId` via the provider rather than launching fresh. */
   readonly resume?: boolean
+  /** Only explicit bulk recovery enters the bounded per-host admission queue. */
+  readonly admission?: 'interactive' | 'bulk'
   readonly cols?: number
   readonly rows?: number
   /** Re-probe once when the interactive shell reports a missing executable. */
@@ -113,6 +116,7 @@ interface PendingEntry {
   readonly token: symbol
   readonly ownerId: number
   readonly ownerGeneration: number
+  readonly controller: AbortController
   cancelled: boolean
 }
 
@@ -140,6 +144,7 @@ export type PtySupervisorDiagnostic =
 
 export interface PtySupervisorOptions {
   readonly onDiagnostic?: (event: PtySupervisorDiagnostic) => void
+  readonly bulkStartConcurrencyPerHost?: number
 }
 
 export class PtySupervisor {
@@ -152,8 +157,13 @@ export class PtySupervisor {
   private readonly identityListeners = new Set<(info: ManagedPty) => void>()
   private readonly discoveryQueues = new Map<string, Promise<void>>()
   private readonly discoveryControllers = new Set<AbortController>()
+  private readonly startAdmission: TerminalStartAdmission
 
-  constructor(private readonly options: PtySupervisorOptions = {}) {}
+  constructor(private readonly options: PtySupervisorOptions = {}) {
+    this.startAdmission = new TerminalStartAdmission(
+      options.bulkStartConcurrencyPerHost ?? 2,
+    )
+  }
 
   /** Spawn a PTY. The one and only site that calls `host.spawnPty`. */
   async spawn(req: PtySpawnRequest): Promise<ManagedPty> {
@@ -176,6 +186,7 @@ export class PtySupervisor {
       token: Symbol(sessionId),
       ownerId: req.ownerId,
       ownerGeneration: req.ownerGeneration ?? 0,
+      controller: new AbortController(),
       cancelled: false,
     }
     const generation = this.generation
@@ -207,9 +218,17 @@ export class PtySupervisor {
     let discoverySnapshot: unknown
     let discoveryReady = false
     let releaseDiscoveryLaunch: Disposer | undefined
+    let releaseStartAdmission: Disposer | undefined
     let pty: PtyProcess
     let launchedAtMs: number
     try {
+      if (req.admission === 'bulk') {
+        releaseStartAdmission = await this.startAdmission.acquire(
+          req.host.hostId,
+          pending.controller.signal,
+        )
+        this.assertPending(sessionId, pending, generation)
+      }
       if (discovery) {
         releaseDiscoveryLaunch = await this.reserveDiscoveryLaunch(
           `${req.host.hostId}:${req.provider.manifest.id}`,
@@ -269,6 +288,7 @@ export class PtySupervisor {
       }
       throw error
     } finally {
+      void releaseStartAdmission?.()
       if (this.pendingIds.get(sessionId)?.token === pending.token) {
         this.pendingIds.delete(sessionId)
       }
@@ -447,6 +467,16 @@ export class PtySupervisor {
   }
 
   kill(id: string, ownerId: number, signal?: string, ownerGeneration?: number): void {
+    const pending = this.pendingIds.get(id)
+    if (
+      pending?.ownerId === ownerId &&
+      (ownerGeneration === undefined || pending.ownerGeneration === ownerGeneration)
+    ) {
+      pending.cancelled = true
+      pending.controller.abort()
+      this.pendingIds.delete(id)
+      return
+    }
     this.requireOwned(id, ownerId, ownerGeneration).pty.kill(signal)
   }
 
@@ -480,7 +510,7 @@ export class PtySupervisor {
   }
 
   isOwnedBy(id: string, ownerId: number, ownerGeneration?: number): boolean {
-    const info = this.entries.get(id)?.info
+    const info = this.entries.get(id)?.info ?? this.pendingIds.get(id)
     return (
       info?.ownerId === ownerId &&
       (ownerGeneration === undefined || info.ownerGeneration === ownerGeneration)
@@ -542,7 +572,10 @@ export class PtySupervisor {
     this.generation++
     for (const controller of this.discoveryControllers) controller.abort()
     this.discoveryControllers.clear()
-    for (const pending of this.pendingIds.values()) pending.cancelled = true
+    for (const pending of this.pendingIds.values()) {
+      pending.cancelled = true
+      pending.controller.abort()
+    }
     this.pendingIds.clear()
     const pendingExits: PendingPtyExit[] = []
     for (const entry of this.entries.values()) {
@@ -583,6 +616,7 @@ export class PtySupervisor {
         continue
       }
       pending.cancelled = true
+      pending.controller.abort()
       this.pendingIds.delete(id)
     }
     for (const [id, entry] of this.entries) {
@@ -604,6 +638,7 @@ export class PtySupervisor {
       (ownerGeneration === undefined || pending.ownerGeneration === ownerGeneration)
     ) {
       pending.cancelled = true
+      pending.controller.abort()
       this.pendingIds.delete(id)
     }
     const entry = this.entries.get(id)

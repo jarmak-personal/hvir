@@ -48,6 +48,7 @@ export function TerminalRail({
   onAddHarness,
   onRefreshProbes,
   onOpenHarnessSettings,
+  onResumeAll,
   onFocusSession,
   onMoveSession,
   onCloseSession,
@@ -77,12 +78,14 @@ export function TerminalRail({
   readonly onAddHarness: () => void
   readonly onRefreshProbes: () => void
   readonly onOpenHarnessSettings: () => void
+  readonly onResumeAll: () => void
   readonly onFocusSession: (id: string) => void
   readonly onMoveSession: (id: string) => void
   readonly onCloseSession: (id: string) => void
 }): ReactElement {
   const { menuRef: launchMenuRef, menuStyle: launchMenuStyle } =
     useTerminalLaunchMenuLayout(menuOpen)
+  const dormantCount = sessions.filter((session) => session.dormant).length
 
   return (
     <aside
@@ -95,6 +98,18 @@ export function TerminalRail({
       <header className="terminal-rail-header">
         <span>Terminals</span>
         <div className="terminal-header-actions">
+          {dormantCount > 0 ? (
+            <button
+              type="button"
+              className="terminal-resume-all-button"
+              aria-label={`Resume all now, start ${dormantCount} dormant ${dormantCount === 1 ? 'terminal' : 'terminals'}`}
+              title={`Start ${dormantCount} dormant ${dormantCount === 1 ? 'terminal' : 'terminals'} with bounded per-host concurrency`}
+              disabled={!recoveryReady || !available}
+              onClick={onResumeAll}
+            >
+              Resume all now · {dormantCount}
+            </button>
+          ) : null}
           <div className="terminal-move-control">
             <button
               type="button"
@@ -250,7 +265,8 @@ export function TerminalRail({
           return (
             <div
               key={session.id}
-              className={`terminal-list-row${session.id === activeId ? ' active' : ''}`}
+              className={`terminal-list-row${session.id === activeId ? ' active' : ''}${session.dormant ? ' dormant' : ''}`}
+              data-terminal-dormant={session.dormant ? 'true' : undefined}
               role="listitem"
             >
               <button

@@ -201,6 +201,7 @@ export function useTerminalRecovery({
         type: 'sessions-replaced',
         sessions: plan.result.sessions,
         activeId: plan.result.activeId,
+        activeByPane: plan.result.activeByPane,
       })
       setCandidates(plan.residual)
       if (plan.residual.length === 0) recoveryRecords.current = []
@@ -278,6 +279,7 @@ export function useTerminalRecovery({
       {
         sessions: current.model.sessions,
         activeId: current.model.activeId,
+        activeByPane: current.model.activeByPane,
       },
       plan.result,
       recoveryRecords.current,
@@ -286,6 +288,7 @@ export function useTerminalRecovery({
       type: 'sessions-replaced',
       sessions: merged.sessions,
       activeId: merged.activeId,
+      activeByPane: merged.activeByPane,
     })
     recoveryRecords.current = []
     setCandidates([])

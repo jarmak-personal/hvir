@@ -34,6 +34,7 @@ export function registerTerminalIpc(ipc: IpcRegistrar, deps: TerminalIpcDeps): v
       const title = value['title']
       const position = value['position']
       const active = value['active']
+      const attention = value['attention']
       if (
         !isTerminalId(id) ||
         !isTerminalTitle(title) ||
@@ -41,11 +42,12 @@ export function registerTerminalIpc(ipc: IpcRegistrar, deps: TerminalIpcDeps): v
         typeof position !== 'number' ||
         position < 0 ||
         position >= 500 ||
-        typeof active !== 'boolean'
+        typeof active !== 'boolean' ||
+        (attention !== undefined && !isTerminalAttention(attention))
       ) {
         throw new Error('Invalid terminal layout entry')
       }
-      return { id, title, position, active }
+      return { id, title, position, active, attention }
     })
     await deps.terminalSessions.updateLayout(root, sessions)
   })
@@ -134,6 +136,9 @@ export function registerTerminalIpc(ipc: IpcRegistrar, deps: TerminalIpcDeps): v
       req.position >= 500 ||
       typeof req.active !== 'boolean' ||
       (req.composerSubmitMode !== 'enter' && req.composerSubmitMode !== 'ctrl-enter') ||
+      (req.admission !== undefined &&
+        req.admission !== 'interactive' &&
+        req.admission !== 'bulk') ||
       (req.resume !== undefined && typeof req.resume !== 'boolean') ||
       (req.acknowledgeRisk !== undefined && typeof req.acknowledgeRisk !== 'boolean')
     ) {
@@ -242,6 +247,7 @@ export function registerTerminalIpc(ipc: IpcRegistrar, deps: TerminalIpcDeps): v
         sessionId: req.sessionId,
         harnessSessionId: launchMode === 'resume' ? req.harnessSessionId : undefined,
         resume: launchMode === 'resume',
+        admission: req.admission,
         cols,
         rows,
         onClassifiedLaunchFailure: () => {
@@ -382,6 +388,10 @@ function isTerminalTitle(value: unknown): value is string {
     value.length <= 512 &&
     !hasControlCharacter(value)
   )
+}
+
+function isTerminalAttention(value: unknown): value is 'output' | 'bell' | 'idle' {
+  return value === 'output' || value === 'bell' || value === 'idle'
 }
 
 function isHarnessSessionId(value: unknown): value is string {

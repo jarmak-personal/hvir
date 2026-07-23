@@ -58,8 +58,26 @@ describe('TerminalSessionRegistry', () => {
     })
     await registry.recordIdentity(SESSION_ID, HARNESS_ID)
     await registry.updateLayout(root, [
-      { id: SESSION_ID, title: 'Review recovery flow', position: 2, active: true },
+      {
+        id: SESSION_ID,
+        title: 'Review recovery flow',
+        position: 2,
+        active: true,
+        attention: 'bell',
+      },
     ])
+    await registry.recordSpawn({
+      id: SESSION_ID,
+      providerId: CODEX_PROVIDER_ID,
+      profileId: CODEX_PROFILE_ID,
+      launchRevision: 1,
+      harnessSessionId: HARNESS_ID,
+      workspaceRoot: root,
+      cwd: root,
+      title: 'Review recovery flow',
+      position: 2,
+      active: true,
+    })
     await registry.flush()
 
     const restored = await TerminalSessionRegistry.load(host, file)
@@ -74,6 +92,7 @@ describe('TerminalSessionRegistry', () => {
         title: 'Review recovery flow',
         position: 2,
         active: true,
+        attention: 'bell',
       }),
     ])
   })
@@ -596,7 +615,7 @@ describe('TerminalSessionRegistry', () => {
     ])
     expect(JSON.parse(await host.readTextFile(file))).toEqual(
       expect.objectContaining({
-        version: 4,
+        version: 5,
         sessions: [
           expect.objectContaining({
             providerId: 'codex',
