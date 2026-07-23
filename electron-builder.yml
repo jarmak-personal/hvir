@@ -19,12 +19,22 @@ npmRebuild: false
 mac:
   icon: build/icon.icns
   category: public.app-category.developer-tools
-  # Phase 8 ships deterministic unsigned v1 npm payloads. Remove this when the
-  # Developer ID + notarization decision in docs/packaging.md is activated.
-  identity: null
+  target:
+    - pkg
   hardenedRuntime: true
   entitlements: build/entitlements.mac.plist
   entitlementsInherit: build/entitlements.mac.inherit.plist
+pkg:
+  artifactName: hvir-${version}-macos-${arch}.${ext}
+  scripts: pkg-scripts
+  installLocation: /Applications
+  allowAnywhere: false
+  allowCurrentUserHome: false
+  allowRootDirectory: true
+  isRelocatable: false
+  isVersionChecked: true
+  hasStrictIdentifier: true
+  overwriteAction: upgrade
 linux:
   icon: build/icons
   executableName: hvir

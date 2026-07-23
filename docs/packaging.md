@@ -72,6 +72,24 @@ carries a stapled ticket. The package owns:
 After digest verification, the installer asks `/usr/sbin/installer` to install the package
 noninteractively. The supported flow does not open Finder or Installer.app.
 
+Pull-request CI builds and exercises the unsigned package structure without receiving signing
+credentials. Signed package production is a manually dispatched workflow restricted to a source
+commit already merged into the default branch and the protected `native-release-signing`
+environment. Configure that environment with required reviewer protection and these secrets:
+
+- `MACOS_APPLICATION_CERTIFICATE` and `MACOS_APPLICATION_CERTIFICATE_PASSWORD`: the
+  electron-builder-compatible Developer ID Application certificate and password.
+- `MACOS_INSTALLER_CERTIFICATE` and `MACOS_INSTALLER_CERTIFICATE_PASSWORD`: the
+  electron-builder-compatible Developer ID Installer certificate and password.
+- `MACOS_NOTARY_KEY`, `MACOS_NOTARY_KEY_ID`, and `MACOS_NOTARY_ISSUER_ID`: the App Store Connect
+  API private key, key ID, and issuer ID used by `notarytool`.
+- `MACOS_TEAM_ID`: the expected Apple Developer team identifier checked during installed-package
+  acceptance.
+
+The protected workflow refuses non-default-branch execution, signs the hardened application and
+installer, notarizes and staples the package, validates both identities and Gatekeeper acceptance,
+and uploads the package only after native install, update, launch, and removal acceptance passes.
+
 ## Install, update, uninstall, and purge
 
 Run the same release installer for a clean install or an update. Native package managers replace
