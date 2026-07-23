@@ -51,6 +51,8 @@
     "check-adrs": "node scripts/check-adrs.mjs",
     "architecture:report": "node scripts/architecture-hotspots.mjs",
     "architecture:check": "node scripts/architecture-hotspots.mjs --enforce",
+    "spike:pty-broker:evaluate": "cross-env ELECTRON_RUN_AS_NODE=1 electron scripts/pty-broker-spike/evaluate.ts",
+    "spike:pty-broker:real": "cross-env ELECTRON_RUN_AS_NODE=1 electron scripts/pty-broker-spike/real-harness-trial.ts",
     "project:kind": "node scripts/project-management/sync-kind.ts",
     "project:record": "node scripts/project-management/read-planning-record.ts",
     "project:pr": "node scripts/project-management/sync-pull-request-planning.ts",

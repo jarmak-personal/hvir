@@ -16,6 +16,7 @@
     "scripts/release-changelog.d.mts",
     "scripts/check-terminal-runtime-patch.mts",
     "scripts/project-management/**/*.ts",
+    "scripts/pty-broker-spike/**/*.ts",
     "scripts/run-smoke-scenarios.mts",
     "test/**/*.ts",
     "electron.vite.config.ts",
