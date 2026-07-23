@@ -5,7 +5,13 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { HarnessProfilesSettings } from '../src/renderer/src/settings/HarnessProfilesSettings'
-import { localPath } from '../src/shared'
+import {
+  asHarnessProfileId,
+  asHarnessProviderId,
+  localPath,
+  type HarnessProfile,
+  type HarnessProviderDescriptor,
+} from '../src/shared'
 
 let root: Root | undefined
 let host: HTMLDivElement | undefined
@@ -15,6 +21,7 @@ afterEach(() => {
   host?.remove()
   root = undefined
   host = undefined
+  vi.useRealTimers()
   vi.unstubAllGlobals()
 })
 
@@ -64,9 +71,77 @@ describe('HarnessProfilesSettings', () => {
     expect(document.body.textContent).toContain('catalog unavailable')
     expect(document.querySelector('.add-harness-dialog')).toBeFalsy()
   })
+
+  it('does not send incomplete binding drafts to command preview', async () => {
+    vi.useFakeTimers()
+    const provider: HarnessProviderDescriptor = {
+      id: asHarnessProviderId('test'),
+      displayName: 'Test provider',
+      default: false,
+      capabilities: {
+        exactResume: false,
+        sessionIdentity: 'none',
+        contextPresentation: 'none',
+      },
+      terminalInput: {
+        modifiedKeyProtocol: 'none',
+        metaEnterAliasesControl: false,
+      },
+      profileTemplate: {
+        displayName: 'Test profile',
+        description: 'Test profile',
+      },
+      profileGuidance: {
+        reservedArguments: [],
+        riskClassification: 'best-effort',
+      },
+    }
+    const profile: HarnessProfile = {
+      id: asHarnessProfileId('test-profile'),
+      launchRevision: 1,
+      metadataRevision: 1,
+      providerContractVersion: 1,
+      builtIn: false,
+      risk: 'standard',
+      displayName: 'Test profile',
+      providerId: provider.id,
+      scope: { kind: 'global' },
+      executable: { kind: 'provider-default' },
+      args: [],
+      environment: [],
+      pathBindings: [],
+      order: 1,
+    }
+    const invoke = vi.fn((channel: string) => {
+      if (channel === 'harness:catalog') return Promise.resolve([provider])
+      if (channel === 'harness:profiles') return Promise.resolve([profile])
+      return Promise.resolve([])
+    })
+    vi.stubGlobal('hvir', { invoke })
+    renderHarnesses(false)
+    await settleEffects()
+
+    const environment = [...document.querySelectorAll<HTMLElement>('strong')].find(
+      (candidate) => candidate.textContent === 'Environment',
+    )
+    const add = environment
+      ?.closest<HTMLElement>('.settings-profile-rows')
+      ?.querySelector<HTMLButtonElement>('header button')
+    expect(add).toBeTruthy()
+    act(() => add?.click())
+    await act(async () => {
+      vi.advanceTimersByTime(180)
+      await Promise.resolve()
+    })
+
+    expect(
+      invoke.mock.calls.filter(([channel]) => channel === 'harness:preview'),
+    ).toEqual([])
+    expect(document.body.textContent).toContain('Invalid environment binding')
+  })
 })
 
-function renderHarnesses(): void {
+function renderHarnesses(initialAddOpen = true): void {
   host = document.createElement('div')
   document.body.append(host)
   root = createRoot(host)
@@ -75,7 +150,7 @@ function renderHarnesses(): void {
       createElement(HarnessProfilesSettings, {
         workspaceRoot: localPath('/tmp/hvir'),
         projectRoot: localPath('/tmp/hvir'),
-        initialAddOpen: true,
+        initialAddOpen,
       }),
     )
   })

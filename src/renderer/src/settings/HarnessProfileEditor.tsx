@@ -221,7 +221,7 @@ function EnvironmentEditor({
         </button>
       </header>
       {bindings.map((binding, index) => (
-        <div className="settings-profile-row" key={`${index}-${binding.name}`}>
+        <div className="settings-profile-row" key={index}>
           <input
             aria-label="Environment name"
             disabled={disabled}
@@ -351,7 +351,7 @@ function PathBindingsEditor({
         </button>
       </header>
       {bindings.map((binding, index) => (
-        <div className="settings-profile-row path" key={`${index}-${binding.name}`}>
+        <div className="settings-profile-row path" key={index}>
           <input
             aria-label="Path binding name"
             disabled={disabled}
