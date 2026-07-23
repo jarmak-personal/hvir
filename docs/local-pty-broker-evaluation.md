@@ -54,7 +54,8 @@ without cleanup while the broker remains alive. It does not yet establish:
 - renderer-only reattachment through current hvir resource scopes;
 - SSH transport loss or a remote attachable wrapper;
 - host logout, reboot, sleep-boundary lease behavior, or power loss; or
-- Linux behavior.
+- Linux real-harness, performance, lease, and packaging behavior beyond the automated
+  synthetic lifecycle suite.
 
 ADR-006 and ADR-010 remain unchanged.
 
@@ -102,14 +103,15 @@ leader/grandchild PIDs into caller-owned temporary directories, then remove them
 | Detached replay overflow | Pass | Replay stayed within per-session/global caps, reported dropped bytes, and accepted new interactive input. |
 | Broker authentication and endpoint permissions | Pass | Private modes were verified and a wrong broker capability was rejected. |
 | Broker `SIGTERM` | Pass | Broker stopped accepting clients, reaped the complete owned process group, removed its endpoint, and exited. |
-| Broker `SIGKILL` | **Fail** | PTY leader exited, but a non-terminal grandchild survived until the test killed the exact recorded process group. |
+| Broker `SIGKILL` on macOS | **Fail** | PTY leader exited, but a non-terminal grandchild survived until the test killed the exact recorded process group. |
+| Broker `SIGKILL` on Linux CI | Pass | PTY closure reaped the synthetic leader and grandchild; equivalent real-harness and packaged-broker evidence remains absent. |
 | Zero-session idle exit | Pass | Broker removed its endpoint and exited. |
 | Client restart with 0 / 1 / 20 retained records | Pass | Fresh client connections reconciled exact counts through the typed `list` operation. |
 
 The broker-crash failure is not a test-harness leak: the test explicitly asserts the
 survivor as negative evidence and then removes only the recorded broker-created group.
-The failure shows that PTY-master closure is not a complete process-tree ownership
-primitive on this host.
+The cross-platform result shows that PTY-master closure reaped this synthetic tree on
+Linux CI but is not a complete process-tree ownership primitive on the tested macOS host.
 
 ## Real harness evidence
 
@@ -215,7 +217,7 @@ the attachable owner into a host-side wrapper. That work must:
 2. prove PID-reuse safety and graceful/forced descendant cleanup;
 3. measure the added per-session footprint and blast radius;
 4. reduce or explicitly accept the approximately 87 MiB broker baseline;
-5. add Linux and packaged-host evidence; and
+5. add Linux real-harness/measurement evidence and packaged-host evidence; and
 6. compare the resulting local contract with the later SSH-wrapper spike before an ADR
    changes ADR-006 or ADR-010.
 
