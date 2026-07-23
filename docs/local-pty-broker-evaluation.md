@@ -81,6 +81,9 @@ The broker retains terminal data only in memory:
 - overflow behavior: discard PTY data before extending the user-space socket queue, then
   report a content-free overflow event when delivery resumes.
 
+Reattachment reports cumulative replay loss through its snapshot and advances the loss
+watermark, so overflow events for the new attachment epoch report only subsequent loss.
+
 The tests use smaller limits to force replay truncation. Per-session/global replay and
 client-queue decisions have deterministic policy tests. The real socket saturation path
 did not produce a stable forced-overflow test on macOS because kernel socket buffering
@@ -102,7 +105,7 @@ leader/grandchild PIDs into caller-owned temporary directories, then remove them
 | Orphan lease expiry | Pass | Exact process group exited, tombstone expired, socket disappeared, and broker exited. |
 | Detached replay overflow | Pass | Replay stayed within per-session/global caps, reported dropped bytes, and accepted new interactive input. |
 | Broker authentication and endpoint permissions | Pass | Private modes were verified and a wrong broker capability was rejected. |
-| Broker `SIGTERM` | Pass | Broker stopped accepting clients, reaped the complete owned process group, removed its endpoint, and exited. |
+| Broker `SIGTERM` | Pass | Broker stopped accepting clients, rejected a late spawn during bounded termination, reaped the complete owned process group, removed its endpoint, and exited. |
 | Broker `SIGKILL` on macOS | **Fail** | PTY leader exited, but a non-terminal grandchild survived until the test killed the exact recorded process group. |
 | Broker `SIGKILL` on Linux CI | Pass | PTY closure reaped the synthetic leader and grandchild; equivalent real-harness and packaged-broker evidence remains absent. |
 | Zero-session idle exit | Pass | Broker removed its endpoint and exited. |

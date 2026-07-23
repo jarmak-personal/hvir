@@ -284,6 +284,7 @@ class PtyBroker {
           'Broker authentication failed',
         )
       }
+      this.requireRunning()
       const result = await this.perform(connection, request)
       const response: BrokerSuccessResponse = {
         version: BROKER_PROTOCOL_VERSION,
@@ -400,6 +401,9 @@ class PtyBroker {
     try {
       // eslint-disable-next-line no-restricted-syntax
       const nodePty = await import('node-pty')
+      // The dynamic import yields. Recheck after it so a spawn already admitted
+      // when shutdown began cannot escape the termination snapshot.
+      this.requireRunning()
       pty = nodePty.spawn(body.file, [...body.args], {
         cwd: body.cwd,
         env: environment,
@@ -485,6 +489,9 @@ class PtyBroker {
     }
     connection.trackSession(session.id)
     const replay = this.replay.snapshot(session.id, afterSequence)
+    // The attach result reports the cumulative loss through this snapshot.
+    // Future overflow events for the new epoch report only later loss.
+    session.replayDroppedReported = replay.droppedBytes
     return {
       sessionId: session.id,
       sessionToken: session.token,
@@ -582,6 +589,12 @@ class PtyBroker {
       throw new BrokerProtocolError('UNKNOWN_SESSION', 'Broker session is unavailable')
     }
     return session
+  }
+
+  private requireRunning(): void {
+    if (this.shuttingDown) {
+      throw new BrokerProtocolError('BROKER_SHUTTING_DOWN', 'Broker is shutting down')
+    }
   }
 
   private requireAttachment(

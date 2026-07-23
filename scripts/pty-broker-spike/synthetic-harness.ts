@@ -10,6 +10,7 @@ interface HarnessOptions {
   readonly markerPath: string
   readonly processRecordPath: string
   readonly delayMs: number
+  readonly ignoreSigterm: boolean
 }
 
 async function main(): Promise<void> {
@@ -18,6 +19,7 @@ async function main(): Promise<void> {
     return
   }
   const options = parseOptions(process.argv.slice(2))
+  if (options.ignoreSigterm) process.on('SIGTERM', () => undefined)
   const entry = fileURLToPath(import.meta.url)
   const grandchild = spawn(
     process.execPath,
@@ -109,16 +111,23 @@ function parseOptions(args: readonly string[]): HarnessOptions {
   const markerPath = values.get('marker')
   const processRecordPath = values.get('process-record')
   const delayMs = Number(values.get('delay-ms') ?? '250')
+  const ignoreSigtermValue = values.get('ignore-sigterm') ?? 'false'
   if (
     !markerPath ||
     !processRecordPath ||
     !Number.isSafeInteger(delayMs) ||
     delayMs < 0 ||
-    delayMs > 60_000
+    delayMs > 60_000 ||
+    (ignoreSigtermValue !== 'true' && ignoreSigtermValue !== 'false')
   ) {
     throw new Error('Invalid synthetic harness options')
   }
-  return { markerPath, processRecordPath, delayMs }
+  return {
+    markerPath,
+    processRecordPath,
+    delayMs,
+    ignoreSigterm: ignoreSigtermValue === 'true',
+  }
 }
 
 void main().catch(() => {
