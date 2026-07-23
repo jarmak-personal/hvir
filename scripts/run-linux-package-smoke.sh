@@ -210,7 +210,7 @@ run_installed_smoke() {
   log="$invocation_root/$stage-$scenario.log"
   user_data_root="$invocation_root/user-data-$stage-$scenario"
   mkdir -p "$user_data_root"
-  (
+  if (
     unset ELECTRON_RUN_AS_NODE NODE_OPTIONS NODE_PATH
     cd "$project_root"
     HOME="$home_root" \
@@ -222,9 +222,22 @@ run_installed_smoke() {
       /usr/bin/hvir \
       --project-root="$project_root" \
       --user-data-dir="$user_data_root"
-  ) >"$log" 2>&1
+  ) >"$log" 2>&1; then
+    smoke_status=0
+  else
+    smoke_status=$?
+  fi
   sed -n '1,240p' "$log"
-  grep -Fq 'HVIR_SMOKE_OK' "$log"
+  if [[ "$smoke_status" -ne 0 ]]; then
+    echo \
+      "Installed hvir smoke failed during $stage $scenario with status $smoke_status." \
+      >&2
+    exit "$smoke_status"
+  fi
+  if ! grep -Fq 'HVIR_SMOKE_OK' "$log"; then
+    echo "Installed hvir smoke lacked success evidence during $stage $scenario." >&2
+    exit 1
+  fi
 }
 
 sudo /usr/bin/apt install --no-install-recommends -y "$previous_package" \
