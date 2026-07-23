@@ -22,6 +22,23 @@ export function registerTerminalIpc(ipc: IpcRegistrar, deps: TerminalIpcDeps): v
     return deps.terminalSessions.list(root)
   })
 
+  ipc.handle('terminal:record-recovery-decision', async (req) => {
+    const root = ipc.authority.workspaceRoot(req.root)
+    const restoredIds = recoveryDecisionIds(req.restoredIds)
+    const skippedIds = recoveryDecisionIds(req.skippedIds)
+    if (restoredIds.length + skippedIds.length > 500) {
+      throw new Error('Invalid terminal recovery decision')
+    }
+    const decided = new Set(restoredIds)
+    if (skippedIds.some((id) => decided.has(id))) {
+      throw new Error('Invalid terminal recovery decision')
+    }
+    await deps.terminalSessions.recordRecoveryDecision(root, {
+      restoredIds,
+      skippedIds,
+    })
+  })
+
   ipc.handle('terminal:update-layout', async (req) => {
     const root = ipc.authority.workspaceRoot(req.root)
     const rawSessions: unknown = req.sessions
@@ -381,6 +398,17 @@ function isTerminalId(value: unknown): value is string {
   return typeof value === 'string' && /^[a-zA-Z0-9-]{1,80}$/.test(value)
 }
 
+function recoveryDecisionIds(value: unknown): readonly string[] {
+  if (!Array.isArray(value) || value.length > 500) {
+    throw new Error('Invalid terminal recovery decision')
+  }
+  const ids = value.filter(isTerminalId)
+  if (ids.length !== value.length || new Set(ids).size !== ids.length) {
+    throw new Error('Invalid terminal recovery decision')
+  }
+  return ids
+}
+
 function isTerminalTitle(value: unknown): value is string {
   return (
     typeof value === 'string' &&
@@ -390,8 +418,8 @@ function isTerminalTitle(value: unknown): value is string {
   )
 }
 
-function isTerminalAttention(value: unknown): value is 'output' | 'bell' | 'idle' {
-  return value === 'output' || value === 'bell' || value === 'idle'
+function isTerminalAttention(value: unknown): value is 'working' | 'bell' | 'idle' {
+  return value === 'working' || value === 'bell' || value === 'idle'
 }
 
 function isHarnessSessionId(value: unknown): value is string {

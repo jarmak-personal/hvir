@@ -1,5 +1,6 @@
 import type { ReactElement } from 'react'
 
+import { focusActiveTerminalAfterLayout } from './active-terminal-focus'
 import type { TerminalLayoutMode } from './workspace-pane-state'
 
 interface TerminalLayoutControlsProps {
@@ -14,6 +15,10 @@ export function TerminalLayoutControls({
   const terminalLabel = mode === 'maximized' ? 'Restore split view' : 'Maximize terminal'
   const viewerLabel =
     mode === 'collapsed' ? 'Restore split view' : 'Maximize viewer and minimize terminal'
+  const applyMode = (next: TerminalLayoutMode): void => {
+    onMode(next)
+    focusActiveTerminalAfterLayout()
+  }
 
   return (
     <div className="terminal-mode-controls" role="group" aria-label="Terminal layout">
@@ -25,7 +30,7 @@ export function TerminalLayoutControls({
         aria-pressed={mode === 'maximized'}
         title={terminalLabel}
         onDoubleClick={(event) => event.stopPropagation()}
-        onClick={() => onMode(mode === 'maximized' ? 'restored' : 'maximized')}
+        onClick={() => applyMode(mode === 'maximized' ? 'restored' : 'maximized')}
       >
         <svg aria-hidden="true" viewBox="0 0 16 16">
           <path
@@ -45,7 +50,7 @@ export function TerminalLayoutControls({
         aria-pressed={mode === 'collapsed'}
         title={viewerLabel}
         onDoubleClick={(event) => event.stopPropagation()}
-        onClick={() => onMode(mode === 'collapsed' ? 'restored' : 'collapsed')}
+        onClick={() => applyMode(mode === 'collapsed' ? 'restored' : 'collapsed')}
       >
         <svg aria-hidden="true" viewBox="0 0 16 16">
           <path

@@ -51,6 +51,9 @@ export function useTerminalPaneController(
     ...snapshot,
     restart: () => runtime.restart(),
     startFresh: () => runtime.startFresh(),
-    focus: () => options.onFocus(),
+    focus: () => {
+      runtime.focus()
+      options.onFocus()
+    },
   }
 }

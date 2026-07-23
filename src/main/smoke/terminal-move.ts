@@ -55,6 +55,7 @@ export function createTerminalMoveSmokeHarness({
         providerId: terminal.providerId,
         profileId: asHarnessProfileId('plain-shell-default'),
         launchRevision: 1,
+        recoverySkipCount: 0,
         harnessSessionId: terminal.harnessSessionId,
         hostId: terminal.hostId,
         workspaceRoot,

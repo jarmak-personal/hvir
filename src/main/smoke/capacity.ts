@@ -1,6 +1,11 @@
 import type { BrowserWindow } from 'electron'
 
-import type { HostPath } from '../../shared'
+import {
+  asHarnessProfileId,
+  type HarnessProviderId,
+  type HostPath,
+  type TerminalRecoverySession,
+} from '../../shared'
 import { LocalHost } from '../project-host'
 import type { PtySupervisor } from '../pty/pty-supervisor'
 import {
@@ -60,6 +65,27 @@ interface CapacitySmokeReport {
   readonly terminalReadiness?: CapacityTerminalReadinessComparison
   readonly terminalActivity?: TerminalActivityReport
   readonly responsivenessDiagnostics?: ResponsivenessDiagnosticCostReport
+}
+
+export function capacityRecoverySessions(
+  supervisor: PtySupervisor,
+  providerId: HarnessProviderId,
+): readonly TerminalRecoverySession[] {
+  const template = supervisor.list()[0]
+  if (!template) throw new Error('capacity recovery requires a terminal template')
+  return Array.from({ length: 20 }, (_, position) => ({
+    id: `capacity-recovery-${position}`,
+    providerId,
+    profileId: asHarnessProfileId('plain-shell-default'),
+    launchRevision: 1,
+    recoverySkipCount: 0,
+    hostId: template.hostId,
+    cwd: template.cwd,
+    title: `Recovered capacity shell ${position + 1}`,
+    position,
+    active: position === 0,
+    updatedAt: Date.now(),
+  }))
 }
 
 export async function runCapacityRecoverySmoke(

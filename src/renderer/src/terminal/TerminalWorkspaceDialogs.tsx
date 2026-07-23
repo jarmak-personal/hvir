@@ -43,8 +43,9 @@ export function TerminalWorkspaceDialogs({
     readonly providers: readonly HarnessProviderDescriptor[]
     readonly profiles: readonly HarnessProfile[]
     readonly probes: readonly HarnessProfileProbe[]
-    readonly onCancel: () => void
-    readonly onResume: (ids: ReadonlySet<string>) => void
+    readonly onDismiss: () => void
+    readonly onSkip: () => Promise<void>
+    readonly onResume: (ids: ReadonlySet<string>) => Promise<void>
     readonly onRebind: (
       record: TerminalRecoverySession,
       profile: HarnessProfile,
@@ -83,7 +84,8 @@ export function TerminalWorkspaceDialogs({
           providers={recovery.providers}
           profiles={recovery.profiles}
           probes={recovery.probes}
-          onCancel={recovery.onCancel}
+          onDismiss={recovery.onDismiss}
+          onSkip={recovery.onSkip}
           onResume={recovery.onResume}
           onRebind={recovery.onRebind}
         />

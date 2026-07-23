@@ -358,13 +358,14 @@ export type StartPtyResponse =
 export type TerminalIdentityStatus =
   'none' | 'discovering' | 'identified' | 'ambiguous' | 'unavailable'
 
-export type TerminalAttentionState = 'output' | 'bell' | 'idle'
+export type TerminalAttentionState = 'working' | 'bell' | 'idle'
 
 export interface TerminalRecoverySession {
   readonly id: string
   readonly providerId: HarnessProviderId
   readonly profileId: HarnessProfileId
   readonly launchRevision: number
+  readonly recoverySkipCount: 0 | 1
   /** Present only when this terminal explicitly accepted this launch revision. */
   readonly riskAcknowledgedRevision?: number
   readonly artifactIdentity?: string
@@ -388,6 +389,12 @@ export interface TerminalLayoutEntry {
 
 export interface TerminalRecoveryRequest {
   readonly root: HostPath
+}
+
+export interface RecordTerminalRecoveryDecisionRequest {
+  readonly root: HostPath
+  readonly restoredIds: readonly string[]
+  readonly skippedIds: readonly string[]
 }
 
 export interface TerminalLayoutRequest {
@@ -668,6 +675,10 @@ export interface IpcInvokeMap {
     request: TerminalRecoveryRequest
     response: readonly TerminalRecoverySession[]
   }
+  'terminal:record-recovery-decision': {
+    request: RecordTerminalRecoveryDecisionRequest
+    response: void
+  }
   'terminal:update-layout': { request: TerminalLayoutRequest; response: void }
   'terminal:forget': { request: ForgetTerminalRequest; response: void }
   'terminal:plan-move': {
@@ -837,6 +848,7 @@ export const INVOKE_CHANNELS = [
   'harness:authorize-path',
   'harness:configure-composer-submit',
   'terminal:recovery',
+  'terminal:record-recovery-decision',
   'terminal:update-layout',
   'terminal:forget',
   'terminal:plan-move',

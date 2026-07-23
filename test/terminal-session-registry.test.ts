@@ -10,6 +10,8 @@ import { TerminalSessionRegistry } from '../src/main/terminal/session-registry'
 import {
   asHarnessProfileId,
   asHarnessProviderId,
+  asHostId,
+  hostPath,
   isHarnessProfileId,
   localPath,
 } from '../src/shared'
@@ -87,6 +89,7 @@ describe('TerminalSessionRegistry', () => {
         providerId: CODEX_PROVIDER_ID,
         profileId: CODEX_PROFILE_ID,
         launchRevision: 1,
+        recoverySkipCount: 0,
         harnessSessionId: HARNESS_ID,
         cwd: root,
         title: 'Review recovery flow',
@@ -95,6 +98,109 @@ describe('TerminalSessionRegistry', () => {
         attention: 'bell',
       }),
     ])
+  })
+
+  it.each([
+    ['local', localPath('/tmp/project')],
+    ['SSH', hostPath(asHostId('ssh-recovery-skips'), '/srv/project')],
+  ])(
+    'persists consecutive recovery decisions and prunes only hvir metadata for %s records',
+    async (_kind, root) => {
+      const secondId = 'terminal-2'
+      for (const [id, position] of [
+        [SESSION_ID, 0],
+        [secondId, 1],
+      ] as const) {
+        await registry.recordSpawn({
+          id,
+          providerId: CLAUDE_PROVIDER_ID,
+          profileId: CLAUDE_PROFILE_ID,
+          launchRevision: 1,
+          harnessSessionId: `${HARNESS_ID}-${position}`,
+          workspaceRoot: root,
+          cwd: root,
+          title: `Claude ${position + 1}`,
+          position,
+          active: position === 0,
+        })
+      }
+
+      await registry.recordRecoveryDecision(root, {
+        restoredIds: [],
+        skippedIds: [SESSION_ID, secondId],
+      })
+      let restored = await TerminalSessionRegistry.load(host, file)
+      expect(restored.list(root)).toEqual([
+        expect.objectContaining({ id: SESSION_ID, recoverySkipCount: 1 }),
+        expect.objectContaining({ id: secondId, recoverySkipCount: 1 }),
+      ])
+
+      await restored.recordRecoveryDecision(root, {
+        restoredIds: [SESSION_ID],
+        skippedIds: [secondId],
+      })
+      expect(restored.list(root)).toEqual([
+        expect.objectContaining({ id: SESSION_ID, recoverySkipCount: 0 }),
+      ])
+
+      await restored.recordRecoveryDecision(root, {
+        restoredIds: [],
+        skippedIds: [SESSION_ID],
+      })
+      await restored.recordRecoveryDecision(root, {
+        restoredIds: [SESSION_ID],
+        skippedIds: [],
+      })
+      expect(restored.list(root)[0]).toEqual(
+        expect.objectContaining({ id: SESSION_ID, recoverySkipCount: 0 }),
+      )
+
+      await restored.recordRecoveryDecision(root, {
+        restoredIds: [],
+        skippedIds: [SESSION_ID],
+      })
+      restored = await TerminalSessionRegistry.load(host, file)
+      expect(restored.list(root)[0]).toEqual(
+        expect.objectContaining({ id: SESSION_ID, recoverySkipCount: 1 }),
+      )
+      await restored.recordRecoveryDecision(root, {
+        restoredIds: [],
+        skippedIds: [SESSION_ID],
+      })
+      expect(restored.list(root)).toEqual([])
+      expect(await host.readTextFile(file)).not.toContain(HARNESS_ID)
+    },
+  )
+
+  it('rolls back a recovery decision when metadata persistence fails', async () => {
+    const root = localPath('/tmp/project')
+    await registry.recordSpawn({
+      id: SESSION_ID,
+      providerId: CODEX_PROVIDER_ID,
+      profileId: CODEX_PROFILE_ID,
+      launchRevision: 1,
+      harnessSessionId: HARNESS_ID,
+      workspaceRoot: root,
+      cwd: root,
+      title: 'Codex · project',
+      position: 0,
+      active: true,
+    })
+    vi.spyOn(host, 'writeFile').mockRejectedValueOnce(new Error('disk unavailable'))
+
+    await expect(
+      registry.recordRecoveryDecision(root, {
+        restoredIds: [],
+        skippedIds: [SESSION_ID],
+      }),
+    ).rejects.toThrow('disk unavailable')
+    expect(registry.list(root)[0]).toEqual(
+      expect.objectContaining({ id: SESSION_ID, recoverySkipCount: 0 }),
+    )
+    const restored = await TerminalSessionRegistry.load(host, file)
+    expect(restored.list(root)[0]).toEqual(
+      expect.objectContaining({ id: SESSION_ID, recoverySkipCount: 0 }),
+    )
   })
 
   it('retains provisional harness layout without authorizing resume', async () => {
@@ -615,10 +721,11 @@ describe('TerminalSessionRegistry', () => {
     ])
     expect(JSON.parse(await host.readTextFile(file))).toEqual(
       expect.objectContaining({
-        version: 5,
+        version: 6,
         sessions: [
           expect.objectContaining({
             providerId: 'codex',
+            recoverySkipCount: 0,
             harnessSessionId: HARNESS_ID,
           }),
         ],
@@ -630,6 +737,101 @@ describe('TerminalSessionRegistry', () => {
       profileId: CODEX_PROFILE_ID,
       launchRevision: 1,
     })
+  })
+
+  it('migrates v4 recovery records with no prior skip history', async () => {
+    const root = localPath('/tmp/project')
+    await host.writeFile(
+      file,
+      JSON.stringify({
+        version: 4,
+        sessions: [
+          {
+            id: SESSION_ID,
+            providerId: 'codex',
+            profileId: 'codex-default',
+            launchRevision: 1,
+            harnessSessionId: HARNESS_ID,
+            hostId: root.hostId,
+            workspaceRoot: root,
+            cwd: root,
+            title: 'Codex · project',
+            position: 0,
+            active: true,
+            updatedAt: 42,
+          },
+        ],
+      }),
+    )
+
+    const migrated = await TerminalSessionRegistry.load(host, file)
+    expect(migrated.list(root)[0]).toEqual(
+      expect.objectContaining({
+        id: SESSION_ID,
+        recoverySkipCount: 0,
+      }),
+    )
+    expect(JSON.parse(await host.readTextFile(file))).toEqual(
+      expect.objectContaining({
+        version: 6,
+        sessions: [
+          expect.objectContaining({
+            id: SESSION_ID,
+            recoverySkipCount: 0,
+          }),
+        ],
+      }),
+    )
+  })
+
+  it.each([
+    {
+      label: 'skip history',
+      stored: { recoverySkipCount: 1 },
+      expected: { recoverySkipCount: 1 },
+    },
+    {
+      label: 'legacy attention',
+      stored: { attention: 'output' },
+      expected: { recoverySkipCount: 0, attention: 'working' },
+    },
+  ])('migrates v5 $label into the combined registry schema', async ({
+    stored,
+    expected,
+  }) => {
+    const root = localPath('/tmp/project')
+    await host.writeFile(
+      file,
+      JSON.stringify({
+        version: 5,
+        sessions: [
+          {
+            id: SESSION_ID,
+            providerId: 'codex',
+            profileId: 'codex-default',
+            launchRevision: 1,
+            harnessSessionId: HARNESS_ID,
+            hostId: root.hostId,
+            workspaceRoot: root,
+            cwd: root,
+            title: 'Codex · project',
+            position: 0,
+            active: true,
+            updatedAt: 42,
+            ...stored,
+          },
+        ],
+      }),
+    )
+
+    const migrated = await TerminalSessionRegistry.load(host, file)
+    expect(migrated.list(root)[0]).toEqual(expect.objectContaining(expected))
+    expect(JSON.parse(await host.readTextFile(file))).toEqual(
+      expect.objectContaining({
+        version: 6,
+        sessions: [expect.objectContaining(expected)],
+      }),
+    )
   })
 
   it('preserves a syntactically valid provider record unknown to this build', async () => {

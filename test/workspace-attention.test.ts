@@ -1,14 +1,22 @@
 import { describe, expect, it } from 'vitest'
 
-import { aggregateWorkspaceAttention } from '../src/renderer/src/workspaces/workspace-attention'
+import {
+  aggregateActionableWorkspaceAttention,
+  workspaceActionableAttention,
+} from '../src/renderer/src/workspaces/workspace-attention'
 
 describe('workspace attention aggregation', () => {
-  it('includes active and inactive workspace children without clearing either', () => {
+  it('excludes working terminals while retaining actionable children in parent counts', () => {
+    const rollups = {
+      active: { actionable: 0 },
+      inactive: { actionable: 2 },
+    }
+
+    expect(workspaceActionableAttention('active', rollups)).toBe(0)
+    expect(workspaceActionableAttention('inactive', rollups)).toBe(2)
+    expect(workspaceActionableAttention('missing', rollups)).toBe(0)
     expect(
-      aggregateWorkspaceAttention(['active', 'inactive', 'missing'], {
-        active: { unseen: 1, actionable: 0 },
-        inactive: { unseen: 2, actionable: 2 },
-      }),
-    ).toEqual({ unseen: 3, actionable: 2 })
+      aggregateActionableWorkspaceAttention(['active', 'inactive', 'missing'], rollups),
+    ).toBe(2)
   })
 })

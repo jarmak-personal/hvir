@@ -11,7 +11,10 @@ import {
 import { RemoteConnectionBadge } from './ConnectionStatus'
 import { connectionStateLabel } from './connection-status'
 import type { WorkspaceAttentionRollups } from './project-session-model'
-import { aggregateWorkspaceAttention } from './workspace-attention'
+import {
+  aggregateActionableWorkspaceAttention,
+  workspaceActionableAttention,
+} from './workspace-attention'
 import type { AppTheme } from '../theme'
 import { ConfirmationDialog } from '../workbench/ConfirmationDialog'
 import { WorkbenchHealthControl } from '../health/WorkbenchHealthControl'
@@ -129,10 +132,10 @@ export function ProjectsBar({
               0,
             )
             const changedLabel = projectChangeCountLabel(presentWorkspaces)
-            const unseen = aggregateWorkspaceAttention(
+            const actionable = aggregateActionableWorkspaceAttention(
               project.workspaces.map((workspace) => workspace.id),
               rollups,
-            ).unseen
+            )
             const target = activeWorkspace(project)
             return (
               <div
@@ -165,7 +168,7 @@ export function ProjectsBar({
                       {changedLabel}
                     </span>
                   ) : null}
-                  {unseen > 0 ? <AttentionCount count={unseen} /> : null}
+                  {actionable > 0 ? <AttentionCount count={actionable} /> : null}
                 </button>
                 {remote && active ? (
                   <button
@@ -277,8 +280,10 @@ export function ProjectsBar({
                       {changeCountLabel(workspace.changedFiles)}
                     </b>
                   ) : null}
-                  {(rollups[workspace.id]?.unseen ?? 0) > 0 ? (
-                    <AttentionCount count={rollups[workspace.id]?.unseen ?? 0} />
+                  {workspaceActionableAttention(workspace.id, rollups) > 0 ? (
+                    <AttentionCount
+                      count={workspaceActionableAttention(workspace.id, rollups)}
+                    />
                   ) : null}
                 </button>
                 {workspace.missing && !workspace.prunableReason ? (
@@ -455,7 +460,7 @@ function CloseProjectDialog({
 }
 
 function AttentionCount({ count }: { readonly count: number }): ReactElement {
-  const label = `${count} unseen terminal${count === 1 ? '' : 's'}`
+  const label = `${count} terminal${count === 1 ? '' : 's'} needing attention`
   return (
     <span className="terminal-attention-count" aria-label={label} title={label}>
       <span aria-hidden="true">!</span>

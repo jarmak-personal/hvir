@@ -171,6 +171,12 @@
   font-size: 9px;
 }
 
+.terminal-recovery-option .terminal-recovery-skip-warning {
+  color: #d5a85c;
+  line-height: 1.35;
+  white-space: normal;
+}
+
 .ssh-host-fingerprint {
   display: block;
   max-width: 100%;

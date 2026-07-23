@@ -17,7 +17,8 @@ export function TerminalRecoveryDialog({
   providers,
   profiles,
   probes,
-  onCancel,
+  onDismiss,
+  onSkip,
   onResume,
   onRebind,
 }: {
@@ -25,15 +26,17 @@ export function TerminalRecoveryDialog({
   readonly providers: readonly HarnessProviderDescriptor[]
   readonly profiles: readonly HarnessProfile[]
   readonly probes: readonly HarnessProfileProbe[]
-  readonly onCancel: () => void
-  readonly onResume: (ids: ReadonlySet<string>) => void
+  readonly onDismiss: () => void
+  readonly onSkip: () => Promise<void>
+  readonly onResume: (ids: ReadonlySet<string>) => Promise<void>
   readonly onRebind: (
     record: TerminalRecoverySession,
     profile: HarnessProfile,
   ) => Promise<void>
 }): ReactElement {
   const dialogRef = useRef<HTMLElement>(null)
-  const onCancelRef = useRef(onCancel)
+  const onDismissRef = useRef(onDismiss)
+  const submittingRef = useRef(false)
   const [selected, setSelected] = useState<ReadonlySet<string>>(
     () =>
       new Set(
@@ -49,14 +52,16 @@ export function TerminalRecoveryDialog({
   )
   const [rebind, setRebind] = useState<Readonly<Record<string, HarnessProfileId>>>({})
   const [error, setError] = useState<string>()
-  onCancelRef.current = onCancel
+  const [submitting, setSubmitting] = useState(false)
+  onDismissRef.current = onDismiss
+  submittingRef.current = submitting
 
   useEffect(() => {
     const frame = window.requestAnimationFrame(() => dialogRef.current?.focus())
     const keydown = (event: KeyboardEvent): void => {
       if (event.key === 'Escape') {
         event.preventDefault()
-        onCancelRef.current()
+        if (!submittingRef.current) onDismissRef.current()
         return
       }
       if (event.key !== 'Tab') return
@@ -83,6 +88,18 @@ export function TerminalRecoveryDialog({
       window.removeEventListener('keydown', keydown)
     }
   }, [])
+
+  const submit = async (decision: () => Promise<void>): Promise<void> => {
+    setSubmitting(true)
+    setError(undefined)
+    try {
+      await decision()
+    } catch (reason) {
+      setError(errorMessage(reason))
+    } finally {
+      setSubmitting(false)
+    }
+  }
 
   return (
     <div className="modal-backdrop">
@@ -122,7 +139,9 @@ export function TerminalRecoveryDialog({
                 <input
                   type="checkbox"
                   aria-label={`Restore ${session.title}`}
-                  disabled={!provider || !profile || probeLaunchUnavailable(probe)}
+                  disabled={
+                    submitting || !provider || !profile || probeLaunchUnavailable(probe)
+                  }
                   checked={selected.has(session.id)}
                   onChange={(event) => {
                     const checked = event.currentTarget.checked
@@ -147,10 +166,17 @@ export function TerminalRecoveryDialog({
                         ? decision.reason
                         : 'Cannot restore'}
                   </small>
+                  {session.recoverySkipCount === 1 ? (
+                    <small className="terminal-recovery-skip-warning">
+                      Skip again to forget this record from hvir. Provider-native resume
+                      remains available.
+                    </small>
+                  ) : null}
                   {provider && !profile && sameProviderProfiles.length > 0 ? (
                     <span className="terminal-recovery-rebind">
                       <select
                         aria-label={`Rebind ${session.title} profile`}
+                        disabled={submitting}
                         value={rebind[session.id] ?? sameProviderProfiles[0]?.id}
                         onChange={(event) => {
                           const profileId = event.currentTarget.value as HarnessProfileId
@@ -171,6 +197,7 @@ export function TerminalRecoveryDialog({
                       </select>
                       <button
                         type="button"
+                        disabled={submitting}
                         onClick={() => {
                           if (!selectedRebindProfile) return
                           void onRebind(session, selectedRebindProfile).catch(
@@ -192,13 +219,13 @@ export function TerminalRecoveryDialog({
         </div>
         {error ? <p className="dialog-error">{error}</p> : null}
         <div className="dialog-actions">
-          <button type="button" onClick={onCancel}>
+          <button type="button" disabled={submitting} onClick={() => void submit(onSkip)}>
             Not now
           </button>
           <button
             type="button"
-            disabled={selected.size === 0}
-            onClick={() => onResume(selected)}
+            disabled={submitting || selected.size === 0}
+            onClick={() => void submit(() => onResume(selected))}
           >
             Restore selected
           </button>

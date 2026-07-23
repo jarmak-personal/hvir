@@ -15,6 +15,15 @@ const ghosttyState = vi.hoisted(() => ({
     readonly cursorBlinkValues: boolean[]
     readonly presentationPausedValues: boolean[]
     readonly writes: string[]
+    cursorBlinkResets: number
+    emitData(data: string): void
+    emitCustomKey(event: {
+      readonly code: string
+      readonly ctrlKey: boolean
+      readonly altKey: boolean
+      readonly metaKey: boolean
+      readonly shiftKey: boolean
+    }): boolean
     renders: number
     disposed: boolean
   }>,
@@ -46,6 +55,9 @@ vi.mock('ghostty-web', () => {
         cursorBlinkValues: [Boolean(options.cursorBlink)],
         presentationPausedValues: [],
         writes: [],
+        cursorBlinkResets: 0,
+        emitData: () => undefined,
+        emitCustomKey: () => false,
         renders: 0,
         disposed: false,
       }
@@ -64,12 +76,27 @@ vi.mock('ghostty-web', () => {
       )
     }
 
-    attachCustomKeyEventHandler(): void {}
+    attachCustomKeyEventHandler(
+      callback: (event: {
+        readonly code: string
+        readonly ctrlKey: boolean
+        readonly altKey: boolean
+        readonly metaKey: boolean
+        readonly shiftKey: boolean
+      }) => boolean,
+    ): void {
+      this.state.emitCustomKey = callback
+    }
 
     attachCustomWheelEventHandler(): void {}
 
-    onData(): { dispose(): void } {
-      return { dispose: () => undefined }
+    onData(callback: (data: string) => void): { dispose(): void } {
+      this.state.emitData = callback
+      return {
+        dispose: () => {
+          this.state.emitData = () => undefined
+        },
+      }
     }
 
     onResize(): { dispose(): void } {
@@ -120,6 +147,11 @@ vi.mock('ghostty-web', () => {
       if (!paused) this.requestRender()
     }
 
+    resetCursorBlink(): void {
+      if (!this.options.cursorBlink || this.state.disposed) return
+      this.state.cursorBlinkResets += 1
+    }
+
     getRenderStats(): {
       parsedWrites: number
       renderRequests: number
@@ -127,6 +159,7 @@ vi.mock('ghostty-web', () => {
       fullRenderFrames: number
       paused: boolean
       pendingFrame: boolean
+      cursorVisible: boolean
     } {
       return {
         parsedWrites: this.state.writes.length,
@@ -135,6 +168,7 @@ vi.mock('ghostty-web', () => {
         fullRenderFrames: this.state.renders,
         paused: this.presentationPaused,
         pendingFrame: false,
+        cursorVisible: true,
       }
     }
 
@@ -243,6 +277,47 @@ describe('GhosttyTerminalPane lifecycle', () => {
 
     expect(state.disposed).toBe(true)
     expect(state.cursorBlinkValues).toEqual(transitionsAtDisposal)
+  })
+
+  it('resets cursor blinking for ordinary and adapter-owned input only while visible', async () => {
+    const container = document.createElement('div')
+    document.body.append(container)
+    const pane = await createGhosttyTerminalPane(theme(), {
+      modifiedKeyProtocol: 'modify-other-keys',
+      metaEnterAliasesControl: true,
+      composerSubmitMode: 'enter',
+    })
+    const state = ghosttyState.instances[0]!
+    const input = vi.fn()
+    pane.events.onData(input)
+    pane.mount(container)
+
+    state.emitData('a')
+    const customHandled = state.emitCustomKey({
+      code: 'KeyV',
+      ctrlKey: true,
+      altKey: false,
+      metaKey: false,
+      shiftKey: false,
+    })
+
+    expect(customHandled).toBe(true)
+    expect(input.mock.calls).toEqual([['a'], ['\x16']])
+    expect(state.cursorBlinkResets).toBe(2)
+
+    pane.setPresentation('hidden')
+    state.emitData('b')
+    expect(input).toHaveBeenLastCalledWith('b')
+    expect(state.cursorBlinkResets).toBe(2)
+
+    pane.setPresentation('visible')
+    state.emitData('c')
+    expect(state.cursorBlinkResets).toBe(3)
+
+    pane.dispose()
+    state.emitData('d')
+    expect(input).not.toHaveBeenCalledWith('d')
+    expect(state.cursorBlinkResets).toBe(3)
   })
 
   it('follows React presentation independently from keyboard focus', async () => {

@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url'
 const REQUIRED_PRESENTATION_METHODS = [
   'requestRender',
   'setRenderPaused',
+  'resetCursorBlink',
   'getRenderStats',
 ] as const
 const RECOVERY = 'Run `npm ci` in this worktree, then retry `npm run dev`.'
