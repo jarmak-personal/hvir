@@ -85,14 +85,16 @@ export function capacityRecoverySessions(
   supervisor: PtySupervisor,
   providerId: HarnessProviderId,
 ): readonly TerminalRecoverySession[] {
-  return supervisor.list().map((terminal, position) => ({
-    id: terminal.id,
+  const template = supervisor.list()[0]
+  if (!template) throw new Error('capacity recovery requires a terminal template')
+  return Array.from({ length: 20 }, (_, position) => ({
+    id: `capacity-recovery-${position}`,
     providerId,
     profileId: asHarnessProfileId('plain-shell-default'),
     launchRevision: 1,
     recoverySkipCount: 0,
-    hostId: terminal.hostId,
-    cwd: terminal.cwd,
+    hostId: template.hostId,
+    cwd: template.cwd,
     title: `Recovered capacity shell ${position + 1}`,
     position,
     active: position === 0,
@@ -112,7 +114,7 @@ export async function runCapacityRecoverySmoke(
   )
   win.webContents.reload()
   await withTimeout(loaded, 'capacity recovery reload timed out')
-  const status = (await withTimeout(
+  const restored = (await withTimeout(
     win.webContents.executeJavaScript(`
       new Promise((resolve, reject) => {
         const deadline = Date.now() + 20000;
@@ -123,11 +125,11 @@ export async function runCapacityRecoverySmoke(
             dialog: Boolean(document.querySelector('.terminal-recovery-dialog')),
             rows: rows.length,
             surfaces: surfaces.length,
+            dormant: document.querySelectorAll(
+              '.terminal-list-row[data-terminal-dormant="true"]'
+            ).length,
             activeStatus: document.querySelector('.terminal-surface.active')
-              ?.getAttribute('data-terminal-status') || '',
-            changesReady: [...document.querySelectorAll('.git-tabs button')]
-              .some((node) => /^Changes \\(\\d+\\)$/.test(node.textContent?.trim() || '')),
-            historyReady: Boolean(document.querySelector('.git-rail-history-row.commit'))
+              ?.getAttribute('data-terminal-status') || ''
           };
         };
         const fail = (message) => reject(
@@ -147,36 +149,17 @@ export async function runCapacityRecoverySmoke(
         const waitForTerminals = () => {
           const current = snapshot();
           if (
-            current.rows === 12 &&
-            current.surfaces === 12 &&
+            current.rows === 20 &&
+            current.surfaces === 1 &&
+            current.dormant === 19 &&
             current.activeStatus.startsWith('pid ')
           ) {
-            const git = document.querySelector('.rail-nav button:nth-child(2)');
-            git?.click();
-            return waitForGit(git);
+            return resolve(
+              '20 restored rows · 1 activated PTY · 19 dormant'
+            );
           }
           if (Date.now() > deadline) return fail('capacity terminals did not restore');
           setTimeout(waitForTerminals, 25);
-        };
-        const waitForGit = (git) => {
-          const current = snapshot();
-          if (git?.classList.contains('active') && current.changesReady) {
-            const history = [...document.querySelectorAll('.git-tabs button')]
-              .find((node) => node.textContent?.trim() === 'History');
-            history?.click();
-            return waitForHistory(current.activeStatus);
-          }
-          if (Date.now() > deadline) return fail('Git unavailable after capacity restore');
-          setTimeout(() => waitForGit(git), 25);
-        };
-        const waitForHistory = (activeStatus) => {
-          if (snapshot().historyReady) {
-            return resolve(
-              '12 restored terminals · ' + activeStatus + ' · Changes + History ready'
-            );
-          }
-          if (Date.now() > deadline) return fail('Git History unavailable after capacity restore');
-          setTimeout(() => waitForHistory(activeStatus), 25);
         };
         waitForDialog();
       })
@@ -184,12 +167,89 @@ export async function runCapacityRecoverySmoke(
     'capacity recovery interaction timed out',
     25_000,
   )) as string
-  if (supervisor.list().length !== 12) {
-    throw new Error(
-      `capacity recovery expected 12 supervised terminals, found ${supervisor.list().length}`,
-    )
-  }
-  console.log(`[smoke] multi-terminal recovery under load OK (${status})`)
+  await waitForSupervisorCount(supervisor, 1, 'lazy capacity recovery')
+
+  const activated = (await withTimeout(
+    win.webContents.executeJavaScript(`
+      new Promise((resolve, reject) => {
+        const deadline = Date.now() + 10000;
+        const row = [...document.querySelectorAll(
+          '.terminal-list-row[data-terminal-dormant="true"]'
+        )].at(-1);
+        const terminalId = row?.querySelector('.terminal-list-main')
+          ?.getAttribute('data-terminal-session');
+        if (!row || !terminalId) return reject(new Error('dormant recovery row missing'));
+        row.querySelector('.terminal-list-main')?.click();
+        document.querySelector('.rail-nav button:nth-child(2)')?.click();
+        const poll = () => {
+          const surface = document.querySelector(
+            '.terminal-surface[data-terminal-session="' + CSS.escape(terminalId) + '"]'
+          );
+          const changesReady = [...document.querySelectorAll('.git-tabs button')]
+            .some((node) => /^Changes \\(\\d+\\)$/.test(node.textContent?.trim() || ''));
+          if (
+            !row.hasAttribute('data-terminal-dormant') &&
+            document.querySelectorAll('.terminal-surface').length === 2 &&
+            (surface?.getAttribute('data-terminal-status') || '').startsWith('pid ') &&
+            changesReady
+          ) return resolve('dormant selection started exactly one PTY · Changes ready');
+          if (Date.now() > deadline) {
+            return reject(new Error('dormant activation did not settle'));
+          }
+          setTimeout(poll, 25);
+        };
+        poll();
+      })
+    `),
+    'capacity dormant activation timed out',
+    12_000,
+  )) as string
+  await waitForSupervisorCount(supervisor, 2, 'dormant capacity activation')
+
+  const bulk = (await withTimeout(
+    win.webContents.executeJavaScript(`
+      new Promise((resolve, reject) => {
+        const deadline = Date.now() + 20000;
+        const resumeAll = document.querySelector('.terminal-resume-all-button');
+        if (!resumeAll) return reject(new Error('Resume all now action missing'));
+        const label = resumeAll.textContent?.trim() || '';
+        resumeAll.click();
+        const poll = () => {
+          const current = {
+            rows: document.querySelectorAll('.terminal-list-row').length,
+            dormant: document.querySelectorAll(
+              '.terminal-list-row[data-terminal-dormant="true"]'
+            ).length,
+            surfaces: document.querySelectorAll('.terminal-surface').length,
+            starting: [...document.querySelectorAll('.terminal-surface')]
+              .filter((surface) => {
+                const status = surface.getAttribute('data-terminal-status') || '';
+                return !status.startsWith('pid ');
+              }).length
+          };
+          if (
+            current.rows === 20 &&
+            current.dormant === 0 &&
+            current.surfaces === 20 &&
+            current.starting === 0
+          ) return resolve(label + ' · 20 isolated starts settled');
+          if (Date.now() > deadline) {
+            return reject(new Error(
+              'capacity bulk recovery did not settle: ' + JSON.stringify(current)
+            ));
+          }
+          setTimeout(poll, 25);
+        };
+        poll();
+      })
+    `),
+    'capacity bulk recovery timed out',
+    25_000,
+  )) as string
+  await waitForSupervisorCount(supervisor, 20, 'bulk capacity recovery')
+  console.log(
+    `[smoke] multi-terminal lazy recovery under load OK (${restored} · ${activated} · ${bulk})`,
+  )
 }
 
 export async function runCapacityLoadSmoke(
@@ -528,6 +588,22 @@ function capacitySourceEvidence(): CapacitySourceEvidence {
   return {
     commit: commit && /^[0-9a-f]{40}$/.test(commit) ? commit : 'unknown',
     dirty: dirty === '0' ? false : dirty === '1' ? true : 'unknown',
+  }
+}
+
+async function waitForSupervisorCount(
+  supervisor: PtySupervisor,
+  expected: number,
+  label: string,
+): Promise<void> {
+  const deadline = Date.now() + 10_000
+  while (supervisor.list().length !== expected) {
+    if (Date.now() > deadline) {
+      throw new Error(
+        `${label} expected ${expected} supervised terminals, found ${supervisor.list().length}`,
+      )
+    }
+    await new Promise<void>((resolve) => setTimeout(resolve, 25))
   }
 }
 

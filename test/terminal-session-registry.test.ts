@@ -60,8 +60,26 @@ describe('TerminalSessionRegistry', () => {
     })
     await registry.recordIdentity(SESSION_ID, HARNESS_ID)
     await registry.updateLayout(root, [
-      { id: SESSION_ID, title: 'Review recovery flow', position: 2, active: true },
+      {
+        id: SESSION_ID,
+        title: 'Review recovery flow',
+        position: 2,
+        active: true,
+        attention: 'bell',
+      },
     ])
+    await registry.recordSpawn({
+      id: SESSION_ID,
+      providerId: CODEX_PROVIDER_ID,
+      profileId: CODEX_PROFILE_ID,
+      launchRevision: 1,
+      harnessSessionId: HARNESS_ID,
+      workspaceRoot: root,
+      cwd: root,
+      title: 'Review recovery flow',
+      position: 2,
+      active: true,
+    })
     await registry.flush()
 
     const restored = await TerminalSessionRegistry.load(host, file)
@@ -77,6 +95,7 @@ describe('TerminalSessionRegistry', () => {
         title: 'Review recovery flow',
         position: 2,
         active: true,
+        attention: 'bell',
       }),
     ])
   })
@@ -702,7 +721,7 @@ describe('TerminalSessionRegistry', () => {
     ])
     expect(JSON.parse(await host.readTextFile(file))).toEqual(
       expect.objectContaining({
-        version: 5,
+        version: 6,
         sessions: [
           expect.objectContaining({
             providerId: 'codex',
@@ -754,13 +773,63 @@ describe('TerminalSessionRegistry', () => {
     )
     expect(JSON.parse(await host.readTextFile(file))).toEqual(
       expect.objectContaining({
-        version: 5,
+        version: 6,
         sessions: [
           expect.objectContaining({
             id: SESSION_ID,
             recoverySkipCount: 0,
           }),
         ],
+      }),
+    )
+  })
+
+  it.each([
+    {
+      label: 'skip history',
+      stored: { recoverySkipCount: 1 },
+      expected: { recoverySkipCount: 1 },
+    },
+    {
+      label: 'legacy attention',
+      stored: { attention: 'output' },
+      expected: { recoverySkipCount: 0, attention: 'working' },
+    },
+  ])('migrates v5 $label into the combined registry schema', async ({
+    stored,
+    expected,
+  }) => {
+    const root = localPath('/tmp/project')
+    await host.writeFile(
+      file,
+      JSON.stringify({
+        version: 5,
+        sessions: [
+          {
+            id: SESSION_ID,
+            providerId: 'codex',
+            profileId: 'codex-default',
+            launchRevision: 1,
+            harnessSessionId: HARNESS_ID,
+            hostId: root.hostId,
+            workspaceRoot: root,
+            cwd: root,
+            title: 'Codex · project',
+            position: 0,
+            active: true,
+            updatedAt: 42,
+            ...stored,
+          },
+        ],
+      }),
+    )
+
+    const migrated = await TerminalSessionRegistry.load(host, file)
+    expect(migrated.list(root)[0]).toEqual(expect.objectContaining(expected))
+    expect(JSON.parse(await host.readTextFile(file))).toEqual(
+      expect.objectContaining({
+        version: 6,
+        sessions: [expect.objectContaining(expected)],
       }),
     )
   })

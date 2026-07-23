@@ -63,6 +63,7 @@ describe('terminal workspace move controls', () => {
           onAddHarness={vi.fn()}
           onRefreshProbes={vi.fn()}
           onOpenHarnessSettings={vi.fn()}
+          onResumeAll={vi.fn()}
           onFocusSession={vi.fn()}
           onMoveSession={vi.fn()}
           onCloseSession={vi.fn()}
@@ -88,6 +89,54 @@ describe('terminal workspace move controls', () => {
     ].find((button) => button.textContent?.includes('Dismiss new-worktree'))
     act(() => dismiss?.click())
     expect(onDismissNewTargets).toHaveBeenCalledOnce()
+  })
+
+  it('offers a counted bulk action while keeping dormant rows distinct', () => {
+    const onResumeAll = vi.fn()
+    const dormant = { ...session(), dormant: true, status: 'Ready to start' }
+    act(() => {
+      root.render(
+        <TerminalRail
+          label="main"
+          visible
+          terminalTheme="app"
+          recoveryReady
+          available
+          menuOpen={false}
+          moveMenuOpen={false}
+          moveTargets={[]}
+          launchMenuEntries={[]}
+          checkingHiddenProfiles={false}
+          split={false}
+          sessions={[dormant]}
+          activeId={dormant.id}
+          providers={[]}
+          profiles={[]}
+          onSplit={vi.fn()}
+          onOpenSettings={vi.fn()}
+          onToggleMenu={vi.fn()}
+          onToggleMoveMenu={vi.fn()}
+          onPlanMove={vi.fn()}
+          onDismissNewTargets={vi.fn()}
+          onAddSession={vi.fn()}
+          onAddHarness={vi.fn()}
+          onRefreshProbes={vi.fn()}
+          onOpenHarnessSettings={vi.fn()}
+          onResumeAll={onResumeAll}
+          onFocusSession={vi.fn()}
+          onMoveSession={vi.fn()}
+          onCloseSession={vi.fn()}
+        />,
+      )
+    })
+
+    const resumeAll = host.querySelector<HTMLButtonElement>(
+      '.terminal-resume-all-button',
+    )
+    expect(resumeAll?.textContent).toContain('Resume all now · 1')
+    expect(host.querySelector('.terminal-list-row.dormant')).not.toBeNull()
+    act(() => resumeAll?.click())
+    expect(onResumeAll).toHaveBeenCalledOnce()
   })
 
   it('shows exact move consequences and traps keyboard focus in confirmation', () => {

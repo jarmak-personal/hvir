@@ -1,10 +1,16 @@
-import { hostPathEquals, type HostPath } from '../../../shared'
+import {
+  hostPathEquals,
+  TerminalStartAdmission,
+  type HostPath,
+} from '../../../shared'
 import { TerminalEventRouter } from './terminal-event-router'
-import { TerminalRuntime, type TerminalRuntimeOptions } from './terminal-runtime'
+import { TerminalRuntime } from './terminal-runtime'
+import type { TerminalRuntimeOptions } from './terminal-runtime-options'
 
 export class TerminalRuntimeRegistry {
   private readonly runtimes = new Map<string, TerminalRuntime>()
   private eventRouter?: TerminalEventRouter
+  private readonly startAdmission = new TerminalStartAdmission(2)
 
   acquire(options: TerminalRuntimeOptions): TerminalRuntime {
     const existing = this.runtimes.get(options.sessionId)
@@ -26,6 +32,7 @@ export class TerminalRuntimeRegistry {
         this.runtimes.delete(previousId)
         this.runtimes.set(nextId, value)
       },
+      (hostId, signal) => this.startAdmission.acquire(hostId, signal),
     )
     this.runtimes.set(options.sessionId, runtime)
     return runtime

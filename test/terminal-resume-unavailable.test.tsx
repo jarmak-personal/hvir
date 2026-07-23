@@ -5,7 +5,7 @@ import { createRoot } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { TerminalRail } from '../src/renderer/src/terminal/TerminalRail'
-import type { TerminalRuntimeOptions } from '../src/renderer/src/terminal/terminal-runtime'
+import type { TerminalRuntimeOptions } from '../src/renderer/src/terminal/terminal-runtime-options'
 import { TerminalRuntimeRegistry } from '../src/renderer/src/terminal/terminal-runtime-registry'
 import type { TerminalPane } from '../src/renderer/src/terminal/terminal-pane'
 import type { TerminalSession } from '../src/renderer/src/terminal/terminal-workspace-model'
@@ -175,6 +175,7 @@ describe('terminal resume unavailable state', () => {
       position: 0,
       active: true,
       composerSubmitMode: 'enter',
+      admission: 'interactive',
       resume: false,
       harnessSessionId: undefined,
       acknowledgeRisk: false,
@@ -416,6 +417,7 @@ describe('terminal resume unavailable state', () => {
           onAddHarness={vi.fn()}
           onRefreshProbes={vi.fn()}
           onOpenHarnessSettings={vi.fn()}
+          onResumeAll={vi.fn()}
           onFocusSession={vi.fn()}
           onMoveSession={vi.fn()}
           onCloseSession={vi.fn()}
@@ -444,6 +446,7 @@ function options(): TerminalRuntimeOptions {
     fallbackTitle: 'Claude Code · repo',
     harnessSessionId: '05ea41ff-026f-4ab6-b930-64eb3b497806',
     resumeOnStart: true,
+    startMode: 'interactive',
     position: 0,
     active: true,
     presentation: 'visible',
