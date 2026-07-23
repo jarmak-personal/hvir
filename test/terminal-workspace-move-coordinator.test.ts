@@ -74,6 +74,7 @@ function createFixture(settings: FixtureOptions = {}) {
     providerId: asHarnessProviderId('codex'),
     profileId: asHarnessProfileId('codex-default'),
     launchRevision: 1,
+    recoverySkipCount: 0,
     harnessSessionId: '019ab123-4567-7890-abcd-ef0123456789',
     hostId: 'local',
     cwd: SOURCE_ROOT,

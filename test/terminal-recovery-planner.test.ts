@@ -38,6 +38,7 @@ describe('terminal recovery planner', () => {
     providerId: provider.id,
     profileId: profile.id,
     launchRevision: profile.launchRevision,
+    recoverySkipCount: 0,
     hostId: root.hostId,
     cwd: root,
     title: 'Shell 2',
@@ -232,6 +233,57 @@ describe('terminal recovery planner', () => {
         probes: [],
         splitLayout: { secondaryIds: [] },
       }),
-    ).toEqual({ kind: 'discard' })
+    ).toEqual({
+      kind: 'discard',
+      decision: { restoredIds: [], skippedIds: ['second'] },
+    })
+  })
+
+  it('partitions restored and skipped records without deciding unavailable entries', () => {
+    const skipped = { ...record, id: 'skipped', active: false }
+    const missing = {
+      ...record,
+      id: 'missing',
+      profileId: 'missing-profile' as typeof record.profileId,
+      active: false,
+    }
+    const disconnectedProfile = {
+      ...profile,
+      id: 'disconnected-profile' as typeof profile.id,
+    }
+    const disconnected = {
+      ...record,
+      id: 'disconnected',
+      profileId: disconnectedProfile.id,
+      active: false,
+    }
+
+    expect(
+      planManualTerminalRecovery({
+        selectedIds: new Set(['second']),
+        records: [record, skipped, missing, disconnected],
+        providers: [provider],
+        profiles: [profile, disconnectedProfile],
+        probes: [
+          {
+            providerId: disconnected.providerId,
+            profileId: disconnected.profileId,
+            launchRevision: disconnected.launchRevision,
+            hostId: root.hostId,
+            status: 'disconnected',
+            checkedAt: 1,
+            expiresAt: 2,
+            capabilities: provider.capabilities,
+          },
+        ],
+        splitLayout: { secondaryIds: [] },
+      }),
+    ).toMatchObject({
+      kind: 'restore',
+      decision: {
+        restoredIds: ['second'],
+        skippedIds: ['skipped'],
+      },
+    })
   })
 })

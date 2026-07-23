@@ -14,6 +14,7 @@ import {
 } from '../layout/workspace-layout-persistence'
 import { fitSplitPrimaryWidth, PANE_DIVIDER_SIZE } from '../layout/split-layout-policy'
 import type { ViewerPaneId } from '../viewer/tab-state'
+import { focusActiveTerminalAfterLayout } from './active-terminal-focus'
 import { clamp, fitTerminalHeight } from './workbench-layout-policy'
 import {
   DEFAULT_WORKSPACE_PANE_STATE,
@@ -196,13 +197,7 @@ export function useWorkbenchLayout({
   )
   const focusTerminal = useCallback((): void => {
     setTerminalMode((mode) => (mode === 'collapsed' ? 'restored' : mode))
-    requestAnimationFrame(() =>
-      document
-        .querySelector<HTMLElement>(
-          '.terminal-deck:not([hidden]) .terminal-surface.active textarea',
-        )
-        ?.focus(),
-    )
+    focusActiveTerminalAfterLayout()
   }, [setTerminalMode])
   const focusViewer = useCallback(
     (pane: ViewerPaneId): void => {

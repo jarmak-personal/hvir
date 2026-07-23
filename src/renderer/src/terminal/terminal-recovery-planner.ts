@@ -11,7 +11,11 @@ import {
   probeAllowsAutoRestore,
   recoverableProfile,
 } from './terminal-profile-recovery'
-import { profileProbe, recoveryProbe } from './terminal-probe-policy'
+import {
+  probeLaunchUnavailable,
+  profileProbe,
+  recoveryProbe,
+} from './terminal-probe-policy'
 import type { StoredTerminalSplitLayout } from './terminal-split-persistence'
 import type { TerminalSession } from './terminal-workspace-model'
 
@@ -31,8 +35,20 @@ export interface TerminalRestorationResult {
 }
 
 export type TerminalManualRecoveryPlan =
-  | { readonly kind: 'discard' }
-  | { readonly kind: 'restore'; readonly result: TerminalRestorationResult }
+  | {
+      readonly kind: 'discard'
+      readonly decision: TerminalManualRecoveryDecision
+    }
+  | {
+      readonly kind: 'restore'
+      readonly decision: TerminalManualRecoveryDecision
+      readonly result: TerminalRestorationResult
+    }
+
+export interface TerminalManualRecoveryDecision {
+  readonly restoredIds: readonly string[]
+  readonly skippedIds: readonly string[]
+}
 
 export function planManualTerminalRecovery({
   selectedIds,
@@ -49,16 +65,23 @@ export function planManualTerminalRecovery({
   readonly probes: readonly HarnessProfileProbe[]
   readonly splitLayout: StoredTerminalSplitLayout
 }): TerminalManualRecoveryPlan {
-  const selected = records.filter(
+  const eligible = records.filter(
     (record) =>
-      selectedIds.has(record.id) &&
-      providerDescriptor(providers, record.providerId) !== undefined &&
-      recoverableProfile(profiles, record) !== undefined,
+      terminalRecoveryCandidateDecision(record, providers, profiles, probes).action !==
+        'unavailable' && !probeLaunchUnavailable(recoveryProbe(probes, record)),
   )
+  const selected = eligible.filter((record) => selectedIds.has(record.id))
+  const decision = {
+    restoredIds: selected.map(({ id }) => id),
+    skippedIds: eligible
+      .filter((record) => !selectedIds.has(record.id))
+      .map(({ id }) => id),
+  }
   return selected.length === 0
-    ? { kind: 'discard' }
+    ? { kind: 'discard', decision }
     : {
         kind: 'restore',
+        decision,
         result: restoreTerminalSessions(
           selected,
           providers,

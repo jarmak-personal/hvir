@@ -318,6 +318,7 @@ describe('IpcAuthorityRouter', () => {
         'harness:preview',
         'harness:authorize-path',
         'terminal:recovery',
+        'terminal:record-recovery-decision',
         'terminal:update-layout',
         'terminal:forget',
         'terminal:rebind-profile',
