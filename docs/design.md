@@ -183,6 +183,12 @@ workspace and project rollups count only actionable Ready and bell signals.
 One explicit skip retains and marks a decision-ready recovery record; a second consecutive skip
 forgets only hvir's host-qualified metadata while provider-native recovery remains untouched.
 
+### [ADR-021 — Platform-native installation from immutable GitHub Releases](adr/ADR-021-platform-native-github-release-installation.md)
+
+One release-owned installer selects and verifies platform-native packages from an immutable
+GitHub Release; native package managers own privileged installation and removal, while npm
+distribution is retired after cumulative acceptance.
+
 ## 5. Architecture
 
 ### Process model
