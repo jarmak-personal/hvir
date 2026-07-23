@@ -281,7 +281,11 @@ grep -Fxq 'command=/usr/local/bin/hvir' "$inventory"
 grep -Fxq 'inventory=/Library/Application Support/hvir/package-inventory-v1.txt' \
   "$inventory"
 grep -Fxq 'receipt=dev.hvir.app' "$inventory"
-pkgutil --files "$receipt" | grep -F 'hvir.app/Contents/MacOS/hvir' >/dev/null
+if ! pkgutil --files "$receipt" |
+  grep -Fx './hvir.app/Contents/MacOS/hvir' >/dev/null; then
+  echo 'Package receipt does not own the installed hvir executable.' >&2
+  exit 1
+fi
 
 file "$executable" | grep -Fq 'arm64'
 framework="$application/Contents/Frameworks/Electron Framework.framework"
