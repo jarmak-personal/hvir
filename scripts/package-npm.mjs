@@ -18,6 +18,8 @@ import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
 
+import { prepareNativePayload, sha256File } from '../npm/native-payload.mjs'
+
 const execFileAsync = promisify(execFile)
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const rootPackage = JSON.parse(
@@ -107,13 +109,17 @@ async function packLauncher() {
     join(repositoryRoot, 'npm', 'launcher', 'hvir.mjs'),
     join(stage, 'bin', 'hvir.mjs'),
   )
+  await cp(
+    join(repositoryRoot, 'npm', 'native-payload.mjs'),
+    join(stage, 'native-payload.mjs'),
+  )
   const optionalDependencies = Object.fromEntries(
     Object.values(platforms).map(({ packageName }) => [packageName, rootPackage.version]),
   )
   await writeJson(stagePackagePath(stage), {
     ...packageMetadata(launcherPackageName, rootPackage.description),
     bin: { hvir: 'bin/hvir.mjs' },
-    files: ['bin', 'LICENSE', thirdPartyNoticesFilename],
+    files: ['bin', 'native-payload.mjs', 'LICENSE', thirdPartyNoticesFilename],
     optionalDependencies,
   })
   await writeFile(
@@ -163,17 +169,16 @@ async function packPlatform(platform, arch, buildOutput) {
     }
   }
   // npm pack omits symlinks, while Electron's macOS framework layout requires
-  // them. Carry the complete app as one archive and expand it at npm install.
-  await run('tar', ['-czf', join(stage, 'payload.tar.gz'), '-C', archiveRoot, 'app'])
-  await cp(
-    join(repositoryRoot, 'npm', 'platform', 'install.mjs'),
-    join(stage, 'install.mjs'),
-  )
-  await writeJson(join(stage, 'platform.json'), {
+  // them. Carry the complete app as one archive for script-free first-use preparation.
+  const archive = join(stage, 'payload.tar.gz')
+  await run('tar', ['-czf', archive, '-C', archiveRoot, 'app'])
+  const platformMetadata = {
     platform,
     arch,
     executable: configuration.executable,
-  })
+    archiveSha256: await sha256File(archive),
+  }
+  await writeJson(join(stage, 'platform.json'), platformMetadata)
   await writeJson(stagePackagePath(stage), {
     ...packageMetadata(
       configuration.packageName,
@@ -181,14 +186,7 @@ async function packPlatform(platform, arch, buildOutput) {
     ),
     os: [platform],
     cpu: [arch],
-    files: [
-      'install.mjs',
-      'platform.json',
-      'payload.tar.gz',
-      'LICENSE',
-      thirdPartyNoticesFilename,
-    ],
-    scripts: { postinstall: 'node install.mjs' },
+    files: ['platform.json', 'payload.tar.gz', 'LICENSE', thirdPartyNoticesFilename],
   })
   await writeFile(
     join(stage, 'README.md'),
@@ -198,13 +196,13 @@ async function packPlatform(platform, arch, buildOutput) {
   try {
     const tarball = await pack(stage)
     await verifyPackageArchiveIncludesLegalFiles(tarball)
-    await verifyPlatformPackage(tarball, configuration)
+    await verifyPlatformPackage(tarball, configuration, platformMetadata)
   } finally {
     await rm(stage, { force: true, recursive: true })
   }
 }
 
-async function verifyPlatformPackage(tarball, configuration) {
+async function verifyPlatformPackage(tarball, configuration, metadata) {
   const installation = await mkdtemp(join(repositoryRoot, 'dist', '.npm-install-'))
   try {
     await run('npm', [
@@ -213,14 +211,38 @@ async function verifyPlatformPackage(tarball, configuration) {
       '--no-fund',
       '--no-package-lock',
       '--no-save',
+      '--strict-allow-scripts',
       '--prefix',
       installation,
       tarball,
     ])
     const packageRoot = join(installation, 'node_modules', configuration.packageName)
-    await access(join(packageRoot, configuration.executable), constants.X_OK)
+    const installedPackage = JSON.parse(
+      await readFile(join(packageRoot, 'package.json'), 'utf8'),
+    )
+    if (installedPackage.scripts) {
+      throw new Error(`${configuration.packageName} must not declare lifecycle scripts`)
+    }
+    await access(join(packageRoot, 'payload.tar.gz'), constants.R_OK)
     await verifyThirdPartyNotices(join(packageRoot, thirdPartyNoticesFilename))
-    await verifyThirdPartyNotices(join(packageRoot, configuration.notices))
+    const cacheRoot = join(installation, 'cache')
+    const executable = await prepareNativePayload({
+      packageDirectory: packageRoot,
+      packageName: configuration.packageName,
+      packageVersion: rootPackage.version,
+      metadata,
+      cacheRoot,
+      report: (message) => process.stdout.write(`${message}\n`),
+    })
+    await access(executable, constants.X_OK)
+    await verifyThirdPartyNotices(
+      join(
+        cacheRoot,
+        configuration.packageName,
+        rootPackage.version,
+        configuration.notices,
+      ),
+    )
     process.stdout.write(`Verified npm installation for ${configuration.packageName}\n`)
   } finally {
     await rm(installation, { force: true, recursive: true })

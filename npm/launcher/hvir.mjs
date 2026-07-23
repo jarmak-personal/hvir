@@ -1,11 +1,13 @@
 #!/usr/bin/env node
 
 import { spawn } from 'node:child_process'
-import { accessSync, constants, existsSync, readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { dirname, resolve } from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
+
+import { prepareNativePayload } from '../native-payload.mjs'
 
 const PLATFORM_PACKAGES = {
   'darwin-arm64': 'hvir-darwin-arm64',
@@ -54,9 +56,10 @@ function applicationArguments(args) {
 async function launch(args) {
   const { key, packageName } = platformPackage()
   const require = createRequire(import.meta.url)
-  let metadataPath
+  let metadataPath, packagePath
   try {
     metadataPath = require.resolve(`${packageName}/platform.json`)
+    packagePath = require.resolve(`${packageName}/package.json`)
   } catch {
     throw new Error(
       `The ${packageName} payload is missing. Reinstall hvir with npm on this ` +
@@ -64,15 +67,25 @@ async function launch(args) {
     )
   }
   const metadata = JSON.parse(readFileSync(metadataPath, 'utf8'))
-  const executable = resolve(dirname(metadataPath), metadata.executable)
-  try {
-    accessSync(executable, constants.X_OK)
-  } catch {
+  if (metadata.platform !== process.platform || metadata.arch !== process.arch) {
     throw new Error(
-      `The hvir application payload was not installed at ${executable}. ` +
-        'Reinstall without npm --ignore-scripts.',
+      `The ${packageName} payload metadata targets ${metadata.platform} ${metadata.arch}, ` +
+        `expected ${process.platform} ${process.arch}. Reinstall hvir with npm.`,
     )
   }
+  const installedPlatformPackage = JSON.parse(readFileSync(packagePath, 'utf8'))
+  if (installedPlatformPackage.version !== launcherPackage.version) {
+    throw new Error(
+      `The ${packageName} payload is version ${installedPlatformPackage.version}, but the launcher ` +
+        `is ${launcherPackage.version}. Reinstall hvir with npm.`,
+    )
+  }
+  const executable = await prepareNativePayload({
+    packageDirectory: dirname(metadataPath),
+    packageName,
+    packageVersion: installedPlatformPackage.version,
+    metadata,
+  })
 
   const smoke = Boolean(process.env.HVIR_SMOKE)
   const child = spawn(executable, applicationArguments(args), {

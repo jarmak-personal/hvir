@@ -167,6 +167,12 @@ Preview plus explicit Copy or Save remains the report boundary until a bundled p
 exact-session semantic submission, truthful host and attachment behavior, and revocable lifecycle
 semantics without generic PTY injection or new persistence.
 
+### [ADR-018 — Script-free first-use native payload preparation](adr/ADR-018-script-free-native-payload-preparation.md)
+
+Platform packages carry no lifecycle scripts; the launcher verifies and atomically prepares one
+common archived payload lifecycle in a bounded per-user cache while npm retains installation,
+platform selection, integrity, and provenance authority.
+
 ## 5. Architecture
 
 ### Process model

@@ -25,12 +25,27 @@ intentional product-support boundary, not merely a CI convenience.
 electron-vite builds the production `out/` tree. electron-builder then produces an
 unpacked application on a native runner so Electron and `node-pty` have the correct
 architecture. `scripts/package-npm.mjs` archives that directory into the matching
-platform package and creates the launcher package from the repository version.
+platform package and creates the launcher package from the repository version. Platform packages
+declare no install-time lifecycle scripts. Linux and macOS intentionally use the same archive
+lifecycle even though macOS framework symlinks are the constraint that requires it.
 
-The platform package's install script expands its integrity-checked application payload
-inside that npm package. The launcher locates the selected package and starts its native
-application. Users do not compile hvir or `node-pty`; installs with npm
-`--ignore-scripts` are unsupported because the payload cannot be expanded.
+On the first `hvir` launch for a version, the launcher verifies the installed archive, prepares it
+atomically in the user's cache, and starts the native executable. Later launches reuse the
+completed payload. The launcher never writes to the global npm prefix, so launch does not require
+elevation even when that prefix is read-only. Users do not approve install scripts, compile hvir
+or `node-pty`, or download a second payload. ADR-018 owns this lifecycle.
+
+The preparation cache is `$XDG_CACHE_HOME/hvir/native` (or `~/.cache/hvir/native`) on Linux and
+`~/Library/Caches/hvir/native` on macOS. Each platform package retains the current and immediately
+previous completed versions. Failed staging is removed immediately when possible and otherwise by
+the next preparation. A script-free uninstall cannot remove user cache state, so uninstall may
+leave those two completed versions and at most one interrupted staging directory. When hvir is not
+running, the corresponding `hvir/native` cache directory may be removed safely.
+
+The permission to write npm's configured global prefix remains an npm/user-environment concern,
+not a package capability. hvir never invokes or recommends `sudo`; [npm's own
+guidance](https://docs.npmjs.com/resolving-eacces-permissions-errors-when-installing-packages-globally/)
+recommends a Node version manager or a user-owned prefix when a system prefix produces `EACCES`.
 
 The launcher package, platform package, and installed Electron application each carry
 [`THIRD_PARTY_NOTICES.md`](../THIRD_PARTY_NOTICES.md). Packaging verifies the notice at
@@ -46,12 +61,15 @@ npm run pack:npm:linux:arm64  # native Linux arm64 host
 npm run pack:npm:mac:arm64    # Apple-silicon Mac
 ```
 
-Tarballs land in `dist/npm/`. Every platform pack command installs its generated tarball
-into a temporary npm prefix and verifies the extracted executable before succeeding.
-After also packing the launcher, `npm run smoke:packaged` installs both tarballs into a
-clean prefix. It proves the `hvir` launcher selects and starts the expected native payload,
-the executable architecture matches the host, one real node-pty and one worker load, the
-required preview protocol responds, and the retained platform geometry holds. It does not
+Tarballs land in `dist/npm/`. Every platform pack command installs its generated tarball under
+strict install-script policy, verifies that it declares no scripts, prepares it through the real
+launcher-owned module, and validates the executable and notices before succeeding.
+After also packing the launcher, `npm run smoke:packaged` installs both tarballs into a clean
+prefix with no script approval, makes that prefix read-only, and launches twice. It proves the
+first launch prepares visibly in the user cache, the second reuses the result, a project path is
+preserved, the executable architecture matches the host, one real node-pty and one worker load,
+the required preview protocol responds, and the retained platform geometry holds. macOS also
+checks the framework symlink and the prepared bundle's documented signing state. It does not
 replay ordinary product behavior already owned by unpackaged tests.
 
 Pull-request CI runs that packaged contract on Linux x64, Linux arm64, and macOS arm64.
@@ -132,7 +150,8 @@ Developer team/certificate. That is acceptable for development validation, not b
 public distribution. Before promoting the npm path publicly, remove `mac.identity: null`,
 configure a Developer ID Application certificate, enable electron-builder notarization,
 and retain the checked-in hardened-runtime entitlements. Signing happens before the app
-bundle is archived into `hvir-darwin-arm64`, so npm does not alter the signed bundle.
+bundle is archived into `hvir-darwin-arm64`. npm installs that archive byte-for-byte and
+first-use preparation preserves the framework links and signing and notarization state.
 
 Verify the expanded application before publishing:
 
@@ -154,12 +173,10 @@ shell/Codex/Claude terminals, quit, relaunch, and confirm recovery. Run the
 [Phase 8 gauntlet](phase8-performance-gauntlet.md) before tagging and retain the real-host
 evidence with the release notes.
 
-## Current implementation evidence
+## Historical implementation evidence
 
-On 2026-07-15, `hvir-darwin-arm64@0.1.0` packed to a 160.9 MB npm tarball. A clean
-temporary npm prefix ran the platform package's postinstall extraction, verified the
-arm64 executable, and passed the then-current packaged-app workflow through the installed
-`hvir` launcher—including its project-path argument—from that exact payload.
-The launcher tarball also passed `npm publish --dry-run` and its `hvir --version`/help
-contract. Linux x64 and arm64 retain native CI build-and-smoke acceptance before they can
-be published.
+On 2026-07-15, `hvir-darwin-arm64@0.1.0` packed to a 160.9 MB npm tarball and validated the
+original install-time extraction path. ADR-018 subsequently replaced that lifecycle with
+script-free first-use preparation. Current acceptance comes from the native packaged-smoke jobs
+on Linux x64, Linux arm64, and macOS arm64; release evidence belongs with the corresponding
+commit, pull request, and release rather than this guide.
