@@ -2,8 +2,9 @@ import { describe, expect, it } from 'vitest'
 
 import {
   nextTerminalAttention,
+  terminalActionableAttentionCount,
+  terminalAttentionBadgeText,
   terminalAttentionLabel,
-  terminalAttentionRollup,
   terminalIdleAttentionAfterInput,
   terminalInputArmsIdleAttention,
   terminalOutputAttentionDecision,
@@ -11,33 +12,36 @@ import {
 
 describe('terminal attention', () => {
   it('suppresses every signal while the terminal is focused', () => {
-    expect(nextTerminalAttention(undefined, 'output', true)).toBeUndefined()
+    expect(nextTerminalAttention(undefined, 'working', true)).toBeUndefined()
     expect(nextTerminalAttention(undefined, 'bell', true)).toBeUndefined()
     expect(nextTerminalAttention(undefined, 'idle', true)).toBeUndefined()
     expect(nextTerminalAttention('idle', 'bell', true)).toBeUndefined()
   })
 
-  it('raises background output, bell, and idle notifications', () => {
-    expect(nextTerminalAttention(undefined, 'output', false)).toBe('output')
+  it('shows submitted-turn output as working before it becomes ready', () => {
+    expect(nextTerminalAttention(undefined, 'working', false)).toBe('working')
     expect(nextTerminalAttention(undefined, 'bell', false)).toBe('bell')
     expect(nextTerminalAttention(undefined, 'idle', false)).toBe('idle')
+    expect(nextTerminalAttention('working', 'idle', false)).toBe('idle')
   })
 
   it('keeps the highest-priority unseen signal', () => {
-    expect(nextTerminalAttention('output', 'bell', false)).toBe('bell')
-    expect(nextTerminalAttention('bell', 'output', false)).toBe('bell')
+    expect(nextTerminalAttention('working', 'bell', false)).toBe('bell')
+    expect(nextTerminalAttention('bell', 'working', false)).toBe('bell')
     expect(nextTerminalAttention('bell', 'idle', false)).toBe('idle')
     expect(nextTerminalAttention('idle', 'bell', false)).toBe('idle')
   })
 
-  it('labels signals without relying on color and aggregates distinct terminals', () => {
-    expect(terminalAttentionLabel('output')).toBe('New output')
+  it('labels signals without relying on color and counts only actionable terminals', () => {
+    expect(terminalAttentionLabel('working')).toBe('Working')
     expect(terminalAttentionLabel('bell')).toBe('Bell')
     expect(terminalAttentionLabel('idle')).toBe('Ready')
-    expect(terminalAttentionRollup(['output', 'bell', 'idle', undefined])).toEqual({
-      unseen: 3,
-      actionable: 2,
-    })
+    expect(terminalAttentionBadgeText('working')).toBe('working')
+    expect(terminalAttentionBadgeText('bell')).toBe('bell')
+    expect(terminalAttentionBadgeText('idle')).toBe('ready')
+    expect(terminalActionableAttentionCount(['working', 'bell', 'idle', undefined])).toBe(
+      2,
+    )
   })
 
   it('arms idle-after-burst only at a submitted terminal-input boundary', () => {

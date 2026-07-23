@@ -173,6 +173,11 @@ Platform packages carry no lifecycle scripts; the launcher verifies and atomical
 common archived payload lifecycle in a bounded per-user cache while npm retains installation,
 platform selection, integrity, and provenance authority.
 
+### [ADR-019 — Working output is not actionable attention](adr/ADR-019-working-output-is-not-actionable-attention.md)
+
+Ongoing output after a submitted turn remains visible as low-salience Working state while
+workspace and project rollups count only actionable Ready and bell signals.
+
 ## 5. Architecture
 
 ### Process model

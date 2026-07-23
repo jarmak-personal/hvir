@@ -18,7 +18,6 @@ export interface ProjectSessionModel {
 
 /** Feature-neutral attention input supplied by harness/terminal surfaces. */
 export interface WorkspaceAttentionRollup {
-  readonly unseen: number
   readonly actionable: number
 }
 

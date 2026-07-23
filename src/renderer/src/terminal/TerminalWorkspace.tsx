@@ -88,7 +88,6 @@ interface TerminalWorkspaceProps {
 }
 
 export interface TerminalWorkspaceRollup {
-  readonly unseen: number
   readonly actionable: number
 }
 
