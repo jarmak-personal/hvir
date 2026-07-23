@@ -1,3 +1,5 @@
+import { arch, cpus, platform, release, totalmem } from 'node:os'
+
 import type { BrowserWindow } from 'electron'
 
 import {
@@ -29,12 +31,19 @@ import {
   measureResponsivenessDiagnosticCost,
   type ResponsivenessDiagnosticCostReport,
 } from './capacity-responsiveness'
+import {
+  CAPACITY_PERFORMANCE_BUDGETS,
+  CAPACITY_PERFORMANCE_GATE_ENV,
+  capacityPerformanceViolations,
+  formatCapacityPerformanceViolation,
+  parseCapacityPerformanceMode,
+  type CapacityPerformanceMeasurements,
+  type CapacityPerformanceMode,
+} from './capacity-performance'
 
 const CPU_SAMPLE_DURATION_MS = 30_000
 const CPU_SAMPLE_COUNT = 3
 const TERMINAL_READINESS_SAMPLE_COUNT = 10
-const TERMINAL_READINESS_RATIO_LIMIT = 2
-const TERMINAL_READINESS_MAX_MS = 1_000
 
 interface CapacityCpuComparison {
   readonly baseline: readonly ElectronProcessMetricReport[]
@@ -65,6 +74,11 @@ interface CapacitySmokeReport {
   readonly terminalReadiness?: CapacityTerminalReadinessComparison
   readonly terminalActivity?: TerminalActivityReport
   readonly responsivenessDiagnostics?: ResponsivenessDiagnosticCostReport
+}
+
+interface CapacitySourceEvidence {
+  readonly commit: string
+  readonly dirty: boolean | 'unknown'
 }
 
 export function capacityRecoverySessions(
@@ -244,6 +258,18 @@ export async function runCapacityLoadSmoke(
   host: LocalHost,
   churnPath: HostPath,
 ): Promise<void> {
+  const performanceMode = parseCapacityPerformanceMode(
+    process.env[CAPACITY_PERFORMANCE_GATE_ENV],
+  )
+  const source = capacitySourceEvidence()
+  if (
+    performanceMode === 'controlled' &&
+    (source.commit === 'unknown' || source.dirty !== false)
+  ) {
+    throw new Error(
+      'controlled capacity performance gate requires a clean checkout at a known commit',
+    )
+  }
   await waitForCapacityTerminalCount(win, 1)
   const baselineReadiness = await measureAdditionalTerminalReadiness(
     win,
@@ -265,17 +291,10 @@ export async function runCapacityLoadSmoke(
     'one-visible-eleven-hidden',
   )
   const idleCpu = compareCapacityCpu(baselineCpu, twelveTerminalCpu)
-  console.log(`[smoke:capacity:idle-cpu] ${JSON.stringify(idleCpu)}`)
-  if (idleCpu.ratio > 1.5) {
-    throw new Error(
-      `idle renderer+GPU CPU ratio ${idleCpu.ratio.toFixed(2)} exceeded 1.50 ` +
-        `(one terminal ${idleCpu.baselineMedianRendererPlusGpu.toFixed(3)}%, ` +
-        `twelve terminals ${idleCpu.twelveTerminalMedianRendererPlusGpu.toFixed(3)}%)`,
-    )
-  }
+  console.log(`[smoke:performance:sample:idle-cpu] ${JSON.stringify(idleCpu)}`)
   const responsivenessDiagnostics = await measureResponsivenessDiagnosticCost(win)
   console.log(
-    `[smoke:capacity:responsiveness-diagnostics] ${JSON.stringify(responsivenessDiagnostics)}`,
+    `[smoke:performance:sample:responsiveness-diagnostics] ${JSON.stringify(responsivenessDiagnostics)}`,
   )
 
   startCapacityOutputFixtures(supervisor)
@@ -295,22 +314,11 @@ export async function runCapacityLoadSmoke(
     TERMINAL_READINESS_SAMPLE_COUNT,
   )
   const terminalReadiness = compareTerminalReadiness(baselineReadiness, loadedReadiness)
-  console.log(`[smoke:capacity:terminal-readiness] ${JSON.stringify(terminalReadiness)}`)
-  if (terminalReadiness.ratio > TERMINAL_READINESS_RATIO_LIMIT) {
-    throw new Error(
-      `loaded terminal ready-and-echo p95 ${loadedReadiness.p95Ms.toFixed(1)}ms exceeded ` +
-        `${TERMINAL_READINESS_RATIO_LIMIT.toFixed(1)}x baseline ` +
-        `${baselineReadiness.p95Ms.toFixed(1)}ms`,
-    )
-  }
-  if (loadedReadiness.maxMs > TERMINAL_READINESS_MAX_MS) {
-    throw new Error(
-      `loaded terminal ready-and-echo max ${loadedReadiness.maxMs.toFixed(1)}ms exceeded ` +
-        `${TERMINAL_READINESS_MAX_MS}ms`,
-    )
-  }
   console.log(
-    `[smoke] 10 loaded terminal launches ready + exact echo OK ` +
+    `[smoke:performance:sample:terminal-readiness] ${JSON.stringify(terminalReadiness)}`,
+  )
+  console.log(
+    `[smoke:capacity:contract] 10 loaded terminal launches ready + exact echo OK ` +
       `(p95 ${loadedReadiness.p95Ms.toFixed(1)}ms / baseline ` +
       `${baselineReadiness.p95Ms.toFixed(1)}ms · max ${loadedReadiness.maxMs.toFixed(1)}ms)`,
   )
@@ -347,8 +355,6 @@ export async function runCapacityLoadSmoke(
               if (target.classList.contains('active')) {
                 clickLatenciesMs.push(Math.max(0, now - clickStarted));
                 clickPending = false;
-              } else if (now - clickStarted > 1000) {
-                reject(new Error('rail click did not reach visible state within 1s'));
               } else {
                 requestAnimationFrame(waitForState);
               }
@@ -365,6 +371,10 @@ export async function runCapacityLoadSmoke(
             }
             clearInterval(clickTimer);
             const finish = () => {
+              if (clickPending) {
+                requestAnimationFrame(finish);
+                return;
+              }
               const samples = [...frameGapsMs, ...clickLatenciesMs];
               const rounded = (values) => values.map((value) => Math.round(value * 10) / 10);
               resolve({
@@ -375,8 +385,7 @@ export async function runCapacityLoadSmoke(
                 maxMs: Math.round(Math.max(0, ...samples) * 10) / 10,
               });
             };
-            if (clickPending) requestAnimationFrame(finish);
-            else finish();
+            finish();
           };
           requestAnimationFrame(frame);
         })
@@ -419,21 +428,26 @@ export async function runCapacityLoadSmoke(
   }
 
   if (!report) throw new Error('capacity report was not produced')
-
-  console.log(`[smoke:capacity:raw] ${JSON.stringify(report)}`)
-  if (report.p99Ms >= 100) {
-    throw new Error(`capacity responsiveness p99 ${report.p99Ms}ms exceeded 100ms`)
-  }
-  if (report.maxMs > 500) {
-    throw new Error(`capacity responsiveness max ${report.maxMs}ms exceeded 500ms`)
-  }
-  if ((report.memoryGrowthKiB ?? 0) > 256 * 1024) {
+  const evidence = capacityPerformanceEvidence(report, performanceMode, source)
+  console.log(`[smoke:performance:evidence] ${JSON.stringify(evidence)}`)
+  console.log(
+    `[smoke:capacity:contracts] load passed ` +
+      `(${report.terminalActivity!.hiddenPanes} hidden panes · ` +
+      `${report.terminalActivity!.nativeDataEvents} native events → ` +
+      `${report.terminalActivity!.deliveryCallbacks} bounded deliveries · ` +
+      `${report.terminalActivity!.peakBufferedBytes} byte peak buffer)`,
+  )
+  if (performanceMode === 'controlled' && evidence.violations.length > 0) {
     throw new Error(
-      `capacity memory grew ${Math.round((report.memoryGrowthKiB ?? 0) / 1024)} MiB in 30s`,
+      `controlled capacity performance gate failed: ${evidence.violations
+        .map(formatCapacityPerformanceViolation)
+        .join('; ')}`,
     )
   }
   console.log(
-    `[smoke] 12-terminal responsiveness OK (p99 ${report.p99Ms}ms · max ${report.maxMs}ms · ${report.clickLatenciesMs.length} clicks · CPU renderer ${report.processMetrics!.cpu.renderer.toFixed(2)}% / GPU ${report.processMetrics!.cpu.gpu.toFixed(2)}% / main ${report.processMetrics!.cpu.main.toFixed(2)}% / aggregate children ${report.processMetrics!.cpu.aggregateChildren.toFixed(2)}% · memory ${Math.round((report.memoryGrowthKiB ?? 0) / 1024)} MiB net / ${Math.round(((report.memoryPeakKiB ?? 0) - (report.memoryStartKiB ?? 0)) / 1024)} MiB peak growth)`,
+    performanceMode === 'controlled'
+      ? '[smoke:performance:gate] controlled budgets passed'
+      : `[smoke:performance:gate] evidence only; run npm run performance:capacity on a controlled machine to enforce ${evidence.violations.length} observed crossing(s)`,
   )
 }
 
@@ -497,6 +511,83 @@ function compareTerminalReadiness(
           ? 1
           : Number.POSITIVE_INFINITY
         : loaded.p95Ms / baseline.p95Ms,
+  }
+}
+
+function capacityPerformanceEvidence(
+  report: CapacitySmokeReport,
+  mode: CapacityPerformanceMode,
+  source: CapacitySourceEvidence,
+) {
+  if (
+    !report.idleCpu ||
+    !report.terminalReadiness ||
+    !report.terminalActivity ||
+    !report.responsivenessDiagnostics ||
+    !report.processMetrics
+  ) {
+    throw new Error('capacity performance evidence was incomplete')
+  }
+  const measurements: CapacityPerformanceMeasurements = {
+    idleRendererPlusGpuRatio: report.idleCpu.ratio,
+    terminalReadinessP95Ratio: report.terminalReadiness.ratio,
+    terminalReadinessMaxMs: report.terminalReadiness.loaded.maxMs,
+    responsivenessP99Ms: report.p99Ms,
+    responsivenessMaxMs: report.maxMs,
+    workingSetGrowthKiB: report.memoryGrowthKiB ?? 0,
+    diagnosticRendererPlusGpuCpuDelta:
+      report.responsivenessDiagnostics.rendererPlusGpuCpuDelta,
+    diagnosticMemoryGrowthDeltaKiB: report.responsivenessDiagnostics.memoryGrowthDeltaKiB,
+    diagnosticFrameP99Ms: report.responsivenessDiagnostics.active.interactions.frameP99Ms,
+    diagnosticFrameMaxMs: report.responsivenessDiagnostics.active.interactions.frameMaxMs,
+    diagnosticClickP95Ms: report.responsivenessDiagnostics.active.interactions.clickP95Ms,
+    diagnosticClickMaxMs: report.responsivenessDiagnostics.active.interactions.clickMaxMs,
+  }
+  const cpu = cpus()
+  return {
+    schemaVersion: 1,
+    classification: 'machine-dependent-performance-evidence',
+    mode,
+    source,
+    environment: {
+      platform: platform(),
+      architecture: arch(),
+      release: release(),
+      cpuModel: cpu[0]?.model ?? 'unknown',
+      logicalCpuCount: cpu.length,
+      totalMemoryMiB: Math.round(totalmem() / (1024 * 1024)),
+      node: process.versions.node,
+      electron: process.versions.electron ?? 'unknown',
+      chrome: process.versions.chrome ?? 'unknown',
+    },
+    sampling: {
+      idleCpu: {
+        durationMs: CPU_SAMPLE_DURATION_MS,
+        samplesPerTopology: CPU_SAMPLE_COUNT,
+        baseline: report.idleCpu.baseline,
+        twelveTerminals: report.idleCpu.twelveTerminals,
+      },
+      terminalReadiness: report.terminalReadiness,
+      loadedInterval: {
+        durationMs: report.durationMs,
+        frameSamples: report.frameGapsMs.length,
+        clickSamples: report.clickLatenciesMs.length,
+        processMetrics: report.processMetrics,
+      },
+      responsivenessDiagnostics: report.responsivenessDiagnostics,
+    },
+    measurements,
+    budgets: CAPACITY_PERFORMANCE_BUDGETS,
+    violations: capacityPerformanceViolations(measurements),
+  }
+}
+
+function capacitySourceEvidence(): CapacitySourceEvidence {
+  const commit = process.env['HVIR_SMOKE_SOURCE_COMMIT']
+  const dirty = process.env['HVIR_SMOKE_SOURCE_DIRTY']
+  return {
+    commit: commit && /^[0-9a-f]{40}$/.test(commit) ? commit : 'unknown',
+    dirty: dirty === '0' ? false : dirty === '1' ? true : 'unknown',
   }
 }
 

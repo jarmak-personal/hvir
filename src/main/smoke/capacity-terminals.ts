@@ -288,7 +288,7 @@ export async function measureAdditionalTerminalReadiness(
         )
       }
       console.log(
-        `[smoke:capacity:readiness] ${label} ${index + 1}/${sampleCount} ` +
+        `[smoke:performance:sample:readiness] ${label} ${index + 1}/${sampleCount} ` +
           `${durationMs.toFixed(1)}ms`,
       )
     } finally {

@@ -44,7 +44,9 @@ visible renderer accumulate coarse main-thread occupancy that is useful beside o
 evidence?” The deterministic Electron fixture proves the pinned runtime can produce, group,
 preview, copy, and delete such evidence without changing health. The permanent capacity
 comparison keeps the observer inside #72's owning performance evidence instead of inventing a
-parallel benchmark; each run prints the raw disabled/active comparison for the platform.
+parallel benchmark. Hosted runs label the disabled/active comparison as machine-dependent
+evidence; the same budgets become blocking only through the documented controlled-machine
+`npm run performance:capacity` command.
 
 Retain this detector as opt-in development diagnostics. Promote no Long Tasks-derived signal to
 always-on packaged health. Even input/paint overlap does not identify the cause, and the added

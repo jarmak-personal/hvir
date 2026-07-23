@@ -49,7 +49,7 @@ const linuxChecks = [
   },
   {
     id: 'capacity-smoke',
-    name: 'Capacity smoke (Linux)',
+    name: 'Capacity contracts + performance evidence (Linux)',
     command: 'xvfb-run -a npm run smoke:capacity',
     fetchDepth: undefined,
   },
@@ -79,17 +79,21 @@ describe('CI workflow', () => {
     }
   })
 
-  it('runs the focused unpackaged Electron scenarios independently on macOS arm64', () => {
+  it('separates macOS correctness from capacity evidence without a hosted budget gate', () => {
     const job = workflow.jobs['macos-electron-smoke']
     if (!job) throw new Error('Missing CI job: macos-electron-smoke')
-    expect(job.name).toBe('Electron smoke (macOS arm64, unpackaged)')
+    expect(job.name).toBe('Electron correctness + capacity evidence (macOS arm64)')
     expect(job['runs-on']).toBe('macos-15')
     expect(job.needs).toBeUndefined()
     expect(job.steps).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ run: 'npm ci' }),
         expect.objectContaining({ run: 'npm run smoke:macos' }),
+        expect.objectContaining({ run: 'npm run smoke:capacity' }),
       ]),
+    )
+    expect(job.steps.map((step) => step.run ?? '').join('\n')).not.toContain(
+      'performance:capacity',
     )
   })
 
