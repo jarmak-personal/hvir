@@ -28,7 +28,7 @@ describe('terminal runtime patch preflight', () => {
     class UnpatchedTerminal {}
 
     expect(() => assertTerminalRuntimePatch(UnpatchedTerminal)).toThrow(
-      /requestRender, setRenderPaused, getRenderStats.*npm ci.*npm run dev/,
+      /requestRender, setRenderPaused, resetCursorBlink, getRenderStats.*npm ci.*npm run dev/,
     )
   })
 

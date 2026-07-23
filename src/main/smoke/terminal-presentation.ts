@@ -209,6 +209,7 @@ export async function verifyTerminalPresentationLifecycle(
     },
   })
   await new Promise<void>((resolve) => setTimeout(resolve, 100))
+  const cursorStatus = await verifyActiveCursorCadence(win, secondTerminal.id)
   for (const keyCode of ['H', 'V', 'I', 'R']) {
     win.webContents.sendInputEvent({ type: 'keyDown', keyCode })
     win.webContents.sendInputEvent({ type: 'keyUp', keyCode })
@@ -255,9 +256,110 @@ export async function verifyTerminalPresentationLifecycle(
     'revealed terminal close timed out',
   )) as string
 
-  return [layoutFocusStatus, launchMenuStatus, switchStatus, revealStatus, inputStatus]
+  return [
+    layoutFocusStatus,
+    launchMenuStatus,
+    switchStatus,
+    revealStatus,
+    cursorStatus,
+    inputStatus,
+  ]
     .filter((status): status is string => status !== undefined)
     .join(' · ')
+}
+
+async function verifyActiveCursorCadence(
+  win: BrowserWindow,
+  sessionId: string,
+): Promise<string> {
+  const idleHiddenFrame = await waitForCursorPhase(
+    win,
+    sessionId,
+    false,
+    -1,
+    'cursor did not enter its idle hidden phase',
+  )
+
+  let activeVisibleFrame = idleHiddenFrame
+  for (let index = 0; index < 6; index += 1) {
+    win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'X' })
+    win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'X' })
+    activeVisibleFrame = await waitForCursorPhase(
+      win,
+      sessionId,
+      true,
+      activeVisibleFrame,
+      'sustained input did not keep the cursor visible',
+    )
+    if (index < 5) {
+      await new Promise<void>((resolve) => setTimeout(resolve, 200))
+    }
+  }
+  const resumedHiddenFrame = await waitForCursorPhase(
+    win,
+    sessionId,
+    false,
+    activeVisibleFrame,
+    'cursor did not resume blinking after input',
+  )
+  await waitForCursorPhase(
+    win,
+    sessionId,
+    true,
+    resumedHiddenFrame,
+    'cursor blink cadence did not return to visible',
+  )
+
+  // Remove the probe character before the surrounding canonical read submits.
+  win.webContents.sendInputEvent({
+    type: 'keyDown',
+    keyCode: 'U',
+    modifiers: ['control'],
+  })
+  win.webContents.sendInputEvent({
+    type: 'keyUp',
+    keyCode: 'U',
+    modifiers: ['control'],
+  })
+  return 'active cursor + idle blink'
+}
+
+async function waitForCursorPhase(
+  win: BrowserWindow,
+  sessionId: string,
+  visible: boolean,
+  afterFrame: number,
+  failure: string,
+): Promise<number> {
+  return (await withTimeout(
+    win.webContents.executeJavaScript(`
+      new Promise((resolve, reject) => {
+        const deadline = Date.now() + 2500;
+        const sessionId = ${JSON.stringify(sessionId)};
+        const poll = () => {
+          const surface = document.querySelector(
+            '.terminal-surface[data-terminal-session="' + CSS.escape(sessionId) + '"]'
+          );
+          const stats = surface?.querySelector('.terminal-engine-host')
+            ?.__hvirTerminalPerformance;
+          if (
+            stats && !stats.paused && !stats.pendingFrame &&
+            stats.cursorVisible === ${JSON.stringify(visible)} &&
+            stats.renderFrames > ${JSON.stringify(afterFrame)}
+          ) {
+            return resolve(stats.renderFrames);
+          }
+          if (Date.now() > deadline) {
+            return reject(new Error(${JSON.stringify(failure)}));
+          }
+          setTimeout(poll, 25);
+        };
+        poll();
+      })
+    `),
+    failure,
+    3_000,
+  )) as number
 }
 
 async function verifyTerminalLayoutFocus(win: BrowserWindow): Promise<string> {
