@@ -11,10 +11,7 @@ export function useTerminalAttention() {
     (workspaceId: string, rollup: WorkspaceAttentionRollup): void => {
       setRollups((current) => {
         const existing = current[workspaceId]
-        if (
-          existing?.unseen === rollup.unseen &&
-          existing.actionable === rollup.actionable
-        ) {
+        if (existing?.actionable === rollup.actionable) {
           return current
         }
         return { ...current, [workspaceId]: rollup }
