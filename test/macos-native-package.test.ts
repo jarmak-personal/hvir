@@ -129,6 +129,13 @@ describe('macOS native package contract', () => {
     expect(installedSmoke).toContain("PATH='/usr/bin:/bin:/usr/sbin:/sbin'")
     expect(installedSmoke).toContain('otool -L "$executable"')
     expect(installedSmoke).toContain("find \"$application\" -type f -name '*.node'")
+    expect(installedSmoke).toContain(
+      'pkgutil --files "$receipt" | grep -F ' +
+        "'hvir.app/Contents/MacOS/hvir' >/dev/null",
+    )
+    expect(installedSmoke).not.toContain(
+      'pkgutil --files "$receipt" | grep -Fq',
+    )
     expect(installedSmoke).toContain('test -d "$project_root/.git"')
     expect(installedSmoke).not.toMatch(/open -a|Installer\.app|\/usr\/bin\/open/)
   })

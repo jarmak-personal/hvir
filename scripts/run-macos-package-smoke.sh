@@ -222,13 +222,24 @@ run_installed_smoke retained-after-failed-update pty-native
 
 sudo /usr/sbin/installer -pkg "$package_path" -target / | tee "$install_log"
 grep -Fq 'installer: The install was successful.' "$install_log"
-[[ "$(pkgutil --pkg-info-plist "$receipt" | plutil -extract pkg-version raw -)" == "$package_version" ]]
-[[ "$(plutil -extract CFBundleShortVersionString raw "$application/Contents/Info.plist")" == "$package_version" ]]
+receipt_version=$(pkgutil --pkg-info-plist "$receipt" | plutil -extract pkg-version raw -)
+bundle_version=$(plutil -extract CFBundleShortVersionString raw \
+  "$application/Contents/Info.plist")
+application_state=$(stat -f '%Su:%Sg:%Lp' "$application")
+command_state=$(stat -f '%Su:%Sg:%Lp' "$command")
+inventory_state=$(stat -f '%Su:%Sg:%Lp' "$inventory")
+printf '%s\n' \
+  "Installed receipt version: $receipt_version" \
+  "Installed bundle version: $bundle_version" \
+  "Application ownership: $application_state" \
+  "Command ownership: $command_state" \
+  "Inventory ownership: $inventory_state"
+[[ "$receipt_version" == "$package_version" ]]
+[[ "$bundle_version" == "$package_version" ]]
 test ! -e "$application/Contents/Resources/hvir-previous-only.txt"
-
-[[ "$(stat -f '%Su:%Sg:%Lp' "$application")" == 'root:wheel:755' ]]
-[[ "$(stat -f '%Su:%Sg:%Lp' "$command")" == 'root:wheel:755' ]]
-[[ "$(stat -f '%Su:%Sg:%Lp' "$inventory")" == 'root:wheel:644' ]]
+[[ "$application_state" == 'root:wheel:755' ]]
+[[ "$command_state" == 'root:wheel:755' ]]
+[[ "$inventory_state" == 'root:wheel:644' ]]
 grep -Fq 'hvir-native-package-command-v1' "$command"
 grep -Fxq 'hvir-native-package-inventory-v1' "$inventory"
 grep -Fxq 'package-id=dev.hvir.app' "$inventory"
@@ -237,7 +248,7 @@ grep -Fxq 'command=/usr/local/bin/hvir' "$inventory"
 grep -Fxq 'inventory=/Library/Application Support/hvir/package-inventory-v1.txt' \
   "$inventory"
 grep -Fxq 'receipt=dev.hvir.app' "$inventory"
-pkgutil --files "$receipt" | grep -Fq 'hvir.app/Contents/MacOS/hvir'
+pkgutil --files "$receipt" | grep -F 'hvir.app/Contents/MacOS/hvir' >/dev/null
 
 file "$executable" | grep -Fq 'arm64'
 framework="$application/Contents/Frameworks/Electron Framework.framework"
