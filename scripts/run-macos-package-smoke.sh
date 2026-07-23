@@ -222,24 +222,57 @@ run_installed_smoke retained-after-failed-update pty-native
 
 sudo /usr/sbin/installer -pkg "$package_path" -target / | tee "$install_log"
 grep -Fq 'installer: The install was successful.' "$install_log"
-receipt_version=$(pkgutil --pkg-info-plist "$receipt" | plutil -extract pkg-version raw -)
+receipt_version=$(pkgutil --pkg-info-plist "$receipt" |
+  plutil -extract pkg-version raw -) || {
+  echo 'Could not read the installed package receipt version.' >&2
+  exit 1
+}
+echo "Installed receipt version: $receipt_version"
 bundle_version=$(plutil -extract CFBundleShortVersionString raw \
-  "$application/Contents/Info.plist")
-application_state=$(stat -f '%Su:%Sg:%Lp' "$application")
-command_state=$(stat -f '%Su:%Sg:%Lp' "$command")
-inventory_state=$(stat -f '%Su:%Sg:%Lp' "$inventory")
-printf '%s\n' \
-  "Installed receipt version: $receipt_version" \
-  "Installed bundle version: $bundle_version" \
-  "Application ownership: $application_state" \
-  "Command ownership: $command_state" \
-  "Inventory ownership: $inventory_state"
-[[ "$receipt_version" == "$package_version" ]]
-[[ "$bundle_version" == "$package_version" ]]
-test ! -e "$application/Contents/Resources/hvir-previous-only.txt"
-[[ "$application_state" == 'root:wheel:755' ]]
-[[ "$command_state" == 'root:wheel:755' ]]
-[[ "$inventory_state" == 'root:wheel:644' ]]
+  "$application/Contents/Info.plist") || {
+  echo 'Could not read the installed application version.' >&2
+  exit 1
+}
+echo "Installed bundle version: $bundle_version"
+application_state=$(stat -f '%Su:%Sg:%Lp' "$application") || {
+  echo 'Could not read installed application ownership.' >&2
+  exit 1
+}
+echo "Application ownership: $application_state"
+command_state=$(stat -f '%Su:%Sg:%Lp' "$command") || {
+  echo 'Could not read installed command ownership.' >&2
+  exit 1
+}
+echo "Command ownership: $command_state"
+inventory_state=$(stat -f '%Su:%Sg:%Lp' "$inventory") || {
+  echo 'Could not read installed inventory ownership.' >&2
+  exit 1
+}
+echo "Inventory ownership: $inventory_state"
+[[ "$receipt_version" == "$package_version" ]] || {
+  echo "Expected receipt version $package_version, found $receipt_version." >&2
+  exit 1
+}
+[[ "$bundle_version" == "$package_version" ]] || {
+  echo "Expected bundle version $package_version, found $bundle_version." >&2
+  exit 1
+}
+if [[ -e "$application/Contents/Resources/hvir-previous-only.txt" ]]; then
+  echo 'Package upgrade retained a stale application file.' >&2
+  exit 1
+fi
+[[ "$application_state" == 'root:wheel:755' ]] || {
+  echo "Unexpected application ownership: $application_state" >&2
+  exit 1
+}
+[[ "$command_state" == 'root:wheel:755' ]] || {
+  echo "Unexpected command ownership: $command_state" >&2
+  exit 1
+}
+[[ "$inventory_state" == 'root:wheel:644' ]] || {
+  echo "Unexpected inventory ownership: $inventory_state" >&2
+  exit 1
+}
 grep -Fq 'hvir-native-package-command-v1' "$command"
 grep -Fxq 'hvir-native-package-inventory-v1' "$inventory"
 grep -Fxq 'package-id=dev.hvir.app' "$inventory"
