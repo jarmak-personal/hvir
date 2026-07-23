@@ -158,7 +158,10 @@ describe('macOS native package contract', () => {
     if (!signed) throw new Error('Missing signed-package release job')
     expect(signed.environment).toBe('native-release-signing')
     expect(signedWorkflowSource).toContain(
-      'git merge-base --is-ancestor "$SOURCE_SHA" "origin/$DEFAULT_BRANCH"',
+      'source_sha must exactly match the selected branch tip $WORKFLOW_SHA',
+    )
+    expect(signedWorkflowSource).toContain(
+      'git rev-parse "origin/$SOURCE_REF"',
     )
     expect(signedWorkflowSource).toContain('MACOS_APPLICATION_CERTIFICATE')
     expect(signedWorkflowSource).toContain('MACOS_INSTALLER_CERTIFICATE')
