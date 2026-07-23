@@ -151,3 +151,50 @@ jobs:
 
       - name: Smoke installed packages
         run: ${{ matrix.smoke }}
+
+  native-linux-package:
+    name: Native package acceptance (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux x64
+            os: ubuntu-24.04
+            build: npm run pack:linux:x64
+            artifact: dist/hvir_*_amd64.deb
+          - name: Linux arm64
+            os: ubuntu-24.04-arm
+            build: npm run pack:linux:arm64
+            artifact: dist/hvir_*_arm64.deb
+    env:
+      HVIR_LINUX_PACKAGE_ACCEPTANCE: '1'
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          package-manager-cache: false
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build native package
+        run: ${{ matrix.build }}
+
+      - name: Install, update, launch, and remove native package
+        run: xvfb-run -a npm run smoke:linux:installed
+
+      - name: Retain accepted native package
+        uses: actions/upload-artifact@v7
+        with:
+          name: hvir-${{ matrix.name }}-deb
+          path: ${{ matrix.artifact }}
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14

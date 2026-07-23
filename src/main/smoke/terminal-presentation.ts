@@ -1,4 +1,4 @@
-import type { BrowserWindow } from 'electron'
+import { app, type BrowserWindow } from 'electron'
 
 import type { HostPath } from '../../shared'
 import type { PtySupervisor } from '../pty/pty-supervisor'
@@ -363,6 +363,25 @@ async function waitForCursorPhase(
 }
 
 async function verifyTerminalLayoutFocus(win: BrowserWindow): Promise<string> {
+  if (process.platform === 'darwin') app.focus({ steal: true })
+  win.focus()
+  await withTimeout(
+    win.webContents.executeJavaScript(`
+      new Promise((resolve, reject) => {
+        const deadline = Date.now() + 2500;
+        const poll = () => {
+          if (document.hasFocus()) return resolve();
+          if (Date.now() > deadline) {
+            return reject(new Error('smoke window did not become focused'));
+          }
+          setTimeout(poll, 25);
+        };
+        poll();
+      })
+    `),
+    'smoke window did not become focused',
+    3_000,
+  )
   return (await withTimeout(
     win.webContents.executeJavaScript(`
       (async () => {
