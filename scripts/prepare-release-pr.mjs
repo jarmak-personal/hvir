@@ -7,6 +7,8 @@ import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
 
+import { sortClosedIssues } from './release-changelog.mjs'
+
 const execFileAsync = promisify(execFile)
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const expectedVersionFiles = ['package-lock.json', 'package.json']
@@ -162,10 +164,7 @@ async function listClosedIssues(repository, since) {
     '--json',
     'number,title,url,closedAt',
   ])
-  return JSON.parse(output).sort(
-    (first, second) =>
-      first.closedAt.localeCompare(second.closedAt) || first.number - second.number,
-  )
+  return sortClosedIssues(JSON.parse(output))
 }
 
 async function findOpenPullRequest(repository, branch) {
