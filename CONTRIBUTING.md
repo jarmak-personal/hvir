@@ -167,11 +167,12 @@ user-data roots. Iterations are fixed stress evidence, not retries: every schedu
 and any failed iteration makes the aggregate command fail. Pull-request jobs omit the variable and
 therefore run one iteration.
 
-Packaged smoke is a distribution boundary, not a second product workflow. On a matching supported
-host, build the platform tarball and launcher, then run `npm run smoke:packaged`. It installs the
-exact versioned tarballs into a clean prefix and proves launcher selection, executable architecture,
-application/worker/native-PTY loading, preview-protocol handling, and retained platform geometry.
-Ordinary behavior remains in the unpackaged groups.
+Native package acceptance is the distribution boundary, not a second product workflow. On a
+disposable matching host, build the native package and run `npm run smoke:linux:installed` or
+`npm run smoke:macos:installed` with the guarded environment documented in
+[`docs/packaging.md`](docs/packaging.md). These checks exercise installer-owned install, update,
+launch, `hvir .`, migration, uninstall, reinstall, and purge behavior, including the real worker
+and native PTY. Ordinary behavior remains in the unpackaged groups.
 
 Use `npm run gauntlet` for the full release gate on a controlled machine; it includes
 `performance:capacity`. Packaging and performance work has additional acceptance guidance in

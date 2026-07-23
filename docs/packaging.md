@@ -86,8 +86,9 @@ After digest verification, the installer asks `/usr/sbin/installer` to install t
 noninteractively. The supported flow does not open Finder or Installer.app.
 
 Pull-request CI builds and exercises the unsigned package structure without receiving signing
-credentials. Signed package production is a manually dispatched workflow restricted to the exact
-tip commit of the selected branch and the protected `native-release-signing` environment.
+credentials. The protected signed-package workflow is both the reusable macOS release builder and
+a manually dispatched pre-merge acceptance workflow restricted to the exact tip commit of the
+selected branch. Both paths use the `native-release-signing` environment.
 Configure that environment with required reviewer and deployment-branch protection. Permit an
 epic branch only while its signed candidate is under maintainer acceptance; keep the default
 branch permitted for release. Configure these environment secrets:
@@ -101,10 +102,10 @@ branch permitted for release. Configure these environment secrets:
 - `MACOS_TEAM_ID`: the expected Apple Developer team identifier checked during installed-package
   acceptance.
 
-The protected workflow refuses tags, stale branch tips, and mismatched source commits. It signs the
-hardened application and installer, notarizes and staples the package, validates both identities
-and Gatekeeper acceptance, and uploads the package only after native install, update, launch, and
-removal acceptance passes.
+The protected workflow refuses tags, stale manual branch tips, and source commits not contained in
+the release branch. It signs the hardened application and installer, notarizes and staples the
+package, validates both identities and Gatekeeper acceptance, and retains the package only after
+native install, update, launch, and removal acceptance passes.
 
 ## Install, update, uninstall, and purge
 
@@ -157,13 +158,23 @@ and migration contract passes cumulative acceptance.
 
 ## Release contents and atomicity
 
-One release manifest binds:
+The `Release` workflow is the only publication path. `patch`, `minor`, and `major` dispatches keep
+the version-only release pull-request flow. A `current` dispatch builds one exact commit already
+merged into the default branch and produces exactly these assets:
 
-- the hvir version and source tag;
-- the exact source commit;
-- every supported artifact and architecture;
-- every artifact's SHA-256 digest; and
-- the matching third-party notices.
+- `hvir-<version>-linux-x64.deb`;
+- `hvir-<version>-linux-arm64.deb`;
+- `hvir-<version>-darwin-arm64.pkg`;
+- `install.sh`;
+- `SHA256SUMS`;
+- `release-manifest.json`; and
+- `THIRD_PARTY_NOTICES.md`.
+
+The release manifest binds the hvir version and source tag, exact source commit, supported
+platforms and architectures, artifact names and SHA-256 digests, installer digest, and notices
+digest. `SHA256SUMS` covers every release asset except itself. The assembler refuses missing,
+unexpected, or misnamed native inputs and proves that the installer embeds the same native
+artifact names and digests.
 
 Linux x64, Linux arm64, and macOS arm64 artifacts are built and exercised on matching native
 runners. The macOS package additionally passes application and installer signature validation,
@@ -171,10 +182,28 @@ Gatekeeper assessment, notarization, and stapled-ticket validation. Native insta
 acceptance proves the installed command, one real `node-pty` load, one worker round-trip, and
 platform-specific system integration.
 
-Release assembly remains private until every required artifact passes its target acceptance.
-Only then is the installer published with the matched manifest, notices, and native packages in
-one GitHub Release. Published tags and assets are immutable; any artifact correction requires a
-new version.
+Before cutover, enable immutable releases in the repository Releases settings. The workflow checks
+the repository setting through GitHub's API before creating a tag or draft and fails closed when
+it is disabled. Release assembly remains private until every required artifact passes its target
+acceptance. Only then does the workflow create or repair a draft, upload and compare the exact
+seven-asset set, and publish it as latest. Publication makes the tag and assets immutable; any
+artifact correction requires a new version. A failed draft may be repaired only while it remains
+private.
+
+After publication, the workflow downloads the assets again, validates `SHA256SUMS`, and requires
+GitHub's generated release attestation to pass for the release and every downloaded asset:
+
+```sh
+gh release verify v<version>
+gh release verify-asset v<version> ./hvir-<version>-linux-x64.deb
+```
+
+The final one-time `npm-retirement` job runs only after release verification. Protect that
+environment with a required reviewer and a short-lived `NPM_RETIREMENT_TOKEN` authorized to
+deprecate the four historical packages. The job applies and verifies one migration message on
+every published `hvir-workbench`, `hvir-linux-x64`, `hvir-linux-arm64`, and
+`hvir-darwin-arm64` version. Revoke the token and remove the environment secret after the first
+successful native cutover. The job never publishes or unpublishes an npm version.
 
 Run the [Phase 8 gauntlet](phase8-performance-gauntlet.md) on a controlled matching host before
 release. Implementation and acceptance evidence belongs in the governing issues, commits, pull

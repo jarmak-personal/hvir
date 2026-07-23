@@ -1,6 +1,17 @@
 name: Signed macOS package
 
 on:
+  workflow_call:
+    inputs:
+      source_sha:
+        description: Full merged release source commit SHA to package.
+        required: true
+        type: string
+      allow_merged_source:
+        description: Permit an exact commit contained in the selected branch for release assembly.
+        required: false
+        default: false
+        type: boolean
   workflow_dispatch:
     inputs:
       source_sha:
@@ -25,6 +36,7 @@ jobs:
     steps:
       - name: Require an exact protected branch-tip source
         env:
+          ALLOW_MERGED_SOURCE: ${{ inputs.allow_merged_source }}
           REF_TYPE: ${{ github.ref_type }}
           SOURCE_SHA: ${{ inputs.source_sha }}
           WORKFLOW_SHA: ${{ github.sha }}
@@ -37,7 +49,7 @@ jobs:
             echo "::error::source_sha must be a full commit SHA"
             exit 1
           fi
-          if [ "$SOURCE_SHA" != "$WORKFLOW_SHA" ]; then
+          if [ "$ALLOW_MERGED_SOURCE" != true ] && [ "$SOURCE_SHA" != "$WORKFLOW_SHA" ]; then
             echo "::error::source_sha must exactly match the selected branch tip $WORKFLOW_SHA"
             exit 1
           fi
@@ -50,6 +62,7 @@ jobs:
 
       - name: Confirm the protected branch has not moved
         env:
+          ALLOW_MERGED_SOURCE: ${{ inputs.allow_merged_source }}
           SOURCE_REF: ${{ github.ref_name }}
           SOURCE_SHA: ${{ inputs.source_sha }}
         run: |
@@ -58,8 +71,14 @@ jobs:
             echo "::error::checkout does not match requested source"
             exit 1
           fi
-          if [ "$(git rev-parse "origin/$SOURCE_REF")" != "$SOURCE_SHA" ]; then
+          branch_sha=$(git rev-parse "origin/$SOURCE_REF")
+          if [ "$ALLOW_MERGED_SOURCE" != true ] && [ "$branch_sha" != "$SOURCE_SHA" ]; then
             echo "::error::$SOURCE_REF moved after signed packaging was dispatched"
+            exit 1
+          fi
+          if [ "$ALLOW_MERGED_SOURCE" = true ] &&
+            ! git merge-base --is-ancestor "$SOURCE_SHA" "$branch_sha"; then
+            echo "::error::$SOURCE_SHA is not contained in $SOURCE_REF"
             exit 1
           fi
 
@@ -112,10 +131,21 @@ jobs:
         if: always()
         run: rm -f -- "$RUNNER_TEMP/hvir-notary-key.p8"
 
-      - name: Upload accepted package
+      - name: Give the accepted artifact its public release name
+        run: |
+          package_version=$(node -p "require('./package.json').version")
+          source="dist/hvir-${package_version}-macos-arm64.pkg"
+          target="dist/hvir-${package_version}-darwin-arm64.pkg"
+          if [ ! -f "$source" ] || [ -e "$target" ]; then
+            echo "::error::Expected exactly one accepted package at $source"
+            exit 1
+          fi
+          mv -- "$source" "$target"
+
+      - name: Retain accepted package for release assembly
         uses: actions/upload-artifact@v7
         with:
-          name: hvir-macos-arm64-signed
-          path: dist/hvir-*-macos-arm64.pkg
+          name: release-macos-arm64
+          path: dist/hvir-*-darwin-arm64.pkg
           if-no-files-found: error
           retention-days: 1

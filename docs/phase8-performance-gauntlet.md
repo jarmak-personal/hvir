@@ -29,13 +29,12 @@ contract; that failure names the missing state or owned resource rather than tre
 elapsed value as a performance verdict.
 
 `npm run smoke:macos` is the matching Apple-silicon correctness check for the focused PTY,
-viewer-position, retained platform-contract, and terminal-presentation groups. Packaged
-correctness remains a separate distribution boundary: after building the matching platform and
-launcher tarballs, run `npm run smoke:packaged` to verify script-disabled installation,
-first-use preparation from a read-only prefix, subsequent reuse, launcher and native architecture
-selection, application/native-PTY/worker loading, preview-protocol handling, and platform
-geometry. Neither command is a performance measurement, and evidence from one platform does not
-substitute for another.
+viewer-position, retained platform-contract, and terminal-presentation groups. Native package
+correctness remains a separate distribution boundary. On disposable matching hosts, the guarded
+`npm run smoke:linux:installed` and `npm run smoke:macos:installed` checks exercise the
+release-owned installer, install/update/removal lifecycle, production sandbox, command,
+application, native PTY, worker, and platform geometry. Neither command is a performance
+measurement, and evidence from one platform does not substitute for another.
 
 ## Controlled quantitative gate
 

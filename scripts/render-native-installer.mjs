@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { createHash } from 'node:crypto'
+import { createReadStream } from 'node:fs'
 import { chmod, mkdir, readFile, writeFile } from 'node:fs/promises'
 import { basename, dirname, isAbsolute, resolve } from 'node:path'
 import process from 'node:process'
@@ -108,10 +109,11 @@ async function artifactRecord(path) {
   if (!artifactPattern.test(name)) {
     throw new Error(`Unsafe native artifact name: ${name}.`)
   }
-  const bytes = await readFile(resolve(path))
+  const hash = createHash('sha256')
+  for await (const chunk of createReadStream(resolve(path))) hash.update(chunk)
   return {
     name,
-    sha256: createHash('sha256').update(bytes).digest('hex'),
+    sha256: hash.digest('hex'),
   }
 }
 

@@ -1,0 +1,458 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: current releases package.json; patch/minor/major open a validated release PR.
+        required: true
+        type: choice
+        options:
+          - current
+          - patch
+          - minor
+          - major
+      source_sha:
+        description: Exact merged release source; automation only, normally left blank.
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    name: Prepare ${{ inputs.bump }} release
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      issues: read
+      pull-requests: write
+    outputs:
+      ready: ${{ steps.release.outputs.ready }}
+      version: ${{ steps.release.outputs.version }}
+      tag: ${{ steps.release.outputs.tag }}
+      sha: ${{ steps.release.outputs.sha }}
+    steps:
+      - name: Require the default branch
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          if [ "$GITHUB_REF" != "refs/heads/$DEFAULT_BRANCH" ]; then
+            echo "::error::Run releases from $DEFAULT_BRANCH, not $GITHUB_REF_NAME"
+            exit 1
+          fi
+
+      - name: Check out release history
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Select trusted release source
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+        run: |
+          if [ -z "$SOURCE_SHA" ]; then
+            exit 0
+          fi
+          if [[ ! "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::Release source must be a full commit SHA"
+            exit 1
+          fi
+          if ! git cat-file -e "$SOURCE_SHA^{commit}"; then
+            echo "::error::Release source $SOURCE_SHA is not available"
+            exit 1
+          fi
+          default_sha=$(git rev-parse "origin/$DEFAULT_BRANCH")
+          if ! git merge-base --is-ancestor "$SOURCE_SHA" "$default_sha"; then
+            echo "::error::Release source $SOURCE_SHA is not merged into $DEFAULT_BRANCH"
+            exit 1
+          fi
+          git checkout --detach "$SOURCE_SHA"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          package-manager-cache: false
+
+      - name: Select release version
+        id: version
+        env:
+          BUMP: ${{ inputs.bump }}
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+        run: |
+          current=$(node -p "require('./package.json').version")
+          if [ "$BUMP" = current ]; then
+            version=$current
+          else
+            npm version "$BUMP" --no-git-tag-version --ignore-scripts
+            version=$(node -p "require('./package.json').version")
+          fi
+          tag="v$version"
+
+          remote_tag_sha=$(git ls-remote origin "refs/tags/$tag^{}" | awk '{print $1}')
+          if [ -z "$remote_tag_sha" ]; then
+            remote_tag_sha=$(git ls-remote origin "refs/tags/$tag" | awk '{print $1}')
+          fi
+
+          if [ "$BUMP" = current ] && [ -n "$remote_tag_sha" ]; then
+            if [ -n "$SOURCE_SHA" ] && [ "$remote_tag_sha" != "$SOURCE_SHA" ]; then
+              echo "::error::$tag points at $remote_tag_sha, expected release source $SOURCE_SHA"
+              exit 1
+            fi
+            git checkout --detach "$remote_tag_sha"
+            tagged_version=$(node -p "require('./package.json').version")
+            if [ "$tagged_version" != "$version" ]; then
+              echo "::error::$tag contains package version $tagged_version, expected $version"
+              exit 1
+            fi
+            if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+              is_draft=$(gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft)
+              if [ "$is_draft" != true ]; then
+                echo "::error::$tag is already published; immutable releases require a new version"
+                exit 1
+              fi
+            fi
+            echo "Repairing or completing draft $tag at $remote_tag_sha"
+          elif [ -n "$remote_tag_sha" ]; then
+            echo "::error::$tag already exists; rerun with bump=current"
+            exit 1
+          elif gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "::error::$tag has a release without the expected source tag"
+            exit 1
+          fi
+
+          echo "current=$current" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          {
+            echo "### hvir $version"
+            echo
+            echo "Version: $current -> $version ($BUMP)"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify release source
+        run: npm run verify
+
+      - name: Exercise unpackaged Electron production workflow
+        run: xvfb-run -a npm run smoke
+
+      - name: Prepare pull request or native release source
+        id: release
+        env:
+          BUMP: ${{ inputs.bump }}
+          VERSION: ${{ steps.version.outputs.version }}
+          TAG: ${{ steps.version.outputs.tag }}
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          if [ "$BUMP" != current ]; then
+            node scripts/prepare-release-pr.mjs "$VERSION"
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          else
+            sha=$(git rev-parse HEAD)
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+            echo "sha=$sha" >> "$GITHUB_OUTPUT"
+            echo "Release source: $sha" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+  build-linux:
+    name: Build and accept ${{ matrix.name }}
+    needs: prepare
+    if: needs.prepare.outputs.ready == 'true'
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux x64
+            os: ubuntu-24.04
+            build: npm run pack:linux:x64
+            deb_arch: amd64
+            release_arch: x64
+          - name: Linux arm64
+            os: ubuntu-24.04-arm
+            build: npm run pack:linux:arm64
+            deb_arch: arm64
+            release_arch: arm64
+    env:
+      HVIR_LINUX_PACKAGE_ACCEPTANCE: '1'
+    steps:
+      - name: Check out exact release source
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          package-manager-cache: false
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build native package
+        run: ${{ matrix.build }}
+
+      - name: Install, update, launch, and remove native package
+        run: xvfb-run -a npm run smoke:linux:installed
+
+      - name: Give the accepted artifact its public release name
+        env:
+          DEB_ARCH: ${{ matrix.deb_arch }}
+          RELEASE_ARCH: ${{ matrix.release_arch }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          source="dist/hvir_${VERSION}_${DEB_ARCH}.deb"
+          target="dist/hvir-${VERSION}-linux-${RELEASE_ARCH}.deb"
+          if [ ! -f "$source" ] || [ -e "$target" ]; then
+            echo "::error::Expected exactly one accepted package at $source"
+            exit 1
+          fi
+          mv -- "$source" "$target"
+
+      - name: Upload accepted artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-linux-${{ matrix.release_arch }}
+          path: dist/hvir-${{ needs.prepare.outputs.version }}-linux-${{ matrix.release_arch }}.deb
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 1
+
+  build-macos:
+    name: Build and accept macOS arm64
+    needs: prepare
+    if: needs.prepare.outputs.ready == 'true'
+    uses: ./.github/workflows/macos-package-release.yml
+    with:
+      source_sha: ${{ needs.prepare.outputs.sha }}
+      allow_merged_source: true
+
+  publish-native-release:
+    name: Assemble, verify, and publish immutable release
+    needs:
+      - prepare
+      - build-linux
+      - build-macos
+    if: needs.prepare.outputs.ready == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    environment: native-release-signing
+    permissions:
+      contents: write
+    steps:
+      - name: Check out exact release source
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          package-manager-cache: false
+
+      - name: Download every accepted native package
+        uses: actions/download-artifact@v8
+        with:
+          pattern: release-*
+          path: dist/release
+          merge-multiple: true
+
+      - name: Require repository release immutability
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          enabled=$(gh api \
+            -H 'Accept: application/vnd.github+json' \
+            -H 'X-GitHub-Api-Version: 2026-03-10' \
+            "repos/$GITHUB_REPOSITORY/immutable-releases" \
+            --jq .enabled)
+          if [ "$enabled" != true ]; then
+            echo "::error::Enable immutable releases before native release cutover"
+            exit 1
+          fi
+
+      - name: Assemble exact release metadata and installer
+        env:
+          MACOS_TEAM_ID: ${{ secrets.MACOS_TEAM_ID }}
+          RELEASE_SHA: ${{ needs.prepare.outputs.sha }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          npm run assemble:native-release -- \
+            --version "$VERSION" \
+            --source-sha "$RELEASE_SHA" \
+            --repository "$GITHUB_REPOSITORY" \
+            --macos-team-id "$MACOS_TEAM_ID" \
+            --asset-directory dist/release
+          (
+            cd dist/release
+            sha256sum --check SHA256SUMS
+          )
+
+      - name: Create or repair a private draft
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_SHA: ${{ needs.prepare.outputs.sha }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+        run: |
+          remote_tag_sha=$(git ls-remote origin "refs/tags/$TAG^{}" | awk '{print $1}')
+          if [ -z "$remote_tag_sha" ]; then
+            remote_tag_sha=$(git ls-remote origin "refs/tags/$TAG" | awk '{print $1}')
+          fi
+          if [ -n "$remote_tag_sha" ] && [ "$remote_tag_sha" != "$RELEASE_SHA" ]; then
+            echo "::error::$TAG points at $remote_tag_sha, expected $RELEASE_SHA"
+            exit 1
+          fi
+          if [ -z "$remote_tag_sha" ]; then
+            git tag "$TAG" "$RELEASE_SHA"
+            git push origin "$TAG"
+          fi
+
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            is_draft=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft)
+            if [ "$is_draft" != true ]; then
+              echo "::error::$TAG is already public and cannot be repaired in place"
+              exit 1
+            fi
+          else
+            gh release create "$TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --verify-tag \
+              --draft \
+              --title "$TAG" \
+              --generate-notes
+          fi
+
+      - name: Upload and validate the complete draft asset set
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          gh release upload "$TAG" dist/release/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --clobber
+          actual=$(gh release view "$TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --json assets \
+            --jq '.assets[].name' |
+            sort)
+          expected=$(printf '%s\n' \
+            SHA256SUMS \
+            THIRD_PARTY_NOTICES.md \
+            "hvir-${VERSION}-darwin-arm64.pkg" \
+            "hvir-${VERSION}-linux-arm64.deb" \
+            "hvir-${VERSION}-linux-x64.deb" \
+            install.sh \
+            release-manifest.json |
+            sort)
+          if [ "$actual" != "$expected" ]; then
+            echo "::error::Draft release asset set is incomplete or unexpected"
+            diff -u <(printf '%s\n' "$expected") <(printf '%s\n' "$actual") || true
+            exit 1
+          fi
+
+      - name: Publish the complete immutable release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+        run: |
+          gh release edit "$TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --draft=false \
+            --latest
+
+      - name: Verify published release attestation and downloaded assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+        run: |
+          verified=false
+          for attempt in {1..12}; do
+            if gh release verify "$TAG" --repo "$GITHUB_REPOSITORY"; then
+              verified=true
+              break
+            fi
+            echo "Release attestation is not ready (attempt $attempt/12)"
+            sleep 5
+          done
+          if [ "$verified" != true ]; then
+            echo "::error::GitHub did not verify immutable release $TAG"
+            exit 1
+          fi
+
+          verify_directory="$RUNNER_TEMP/hvir-release-verification"
+          mkdir "$verify_directory"
+          gh release download "$TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --dir "$verify_directory"
+          (
+            cd "$verify_directory"
+            sha256sum --check SHA256SUMS
+          )
+          for asset in "$verify_directory"/*; do
+            gh release verify-asset "$TAG" "$asset" --repo "$GITHUB_REPOSITORY"
+          done
+          latest=$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq .tag_name)
+          if [ "$latest" != "$TAG" ]; then
+            echo "::error::Latest release is $latest, expected $TAG"
+            exit 1
+          fi
+
+  retire-npm-distribution:
+    name: Deprecate historical npm distribution
+    needs:
+      - prepare
+      - publish-native-release
+    if: needs.prepare.outputs.ready == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment: npm-retirement
+    steps:
+      - name: Set up Node.js for authenticated metadata retirement
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+
+      - name: Deprecate every historical package version with the migration path
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_RETIREMENT_TOKEN }}
+        run: |
+          message='hvir npm distribution is retired. Install or update with https://github.com/jarmak-personal/hvir/releases/latest/download/install.sh. Published npm versions remain available only for migration.'
+          for package in \
+            hvir-workbench \
+            hvir-linux-x64 \
+            hvir-linux-arm64 \
+            hvir-darwin-arm64; do
+            npm deprecate "${package}@*" "$message"
+            while read -r version; do
+              actual=$(npm view "${package}@${version}" deprecated)
+              if [ "$actual" != "$message" ]; then
+                echo "::error::${package}@${version} does not carry the retirement message"
+                exit 1
+              fi
+            done < <(npm view "$package" versions --json | jq -r '.[]')
+          done
