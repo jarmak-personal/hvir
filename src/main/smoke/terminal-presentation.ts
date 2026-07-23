@@ -272,15 +272,21 @@ async function verifyActiveCursorCadence(
     'cursor did not enter its idle hidden phase',
   )
 
-  win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'X' })
-  win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'X' })
-  const activeVisibleFrame = await waitForCursorPhase(
-    win,
-    sessionId,
-    true,
-    idleHiddenFrame,
-    'active input did not make the cursor visible',
-  )
+  let activeVisibleFrame = idleHiddenFrame
+  for (let index = 0; index < 6; index += 1) {
+    win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'X' })
+    win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'X' })
+    activeVisibleFrame = await waitForCursorPhase(
+      win,
+      sessionId,
+      true,
+      activeVisibleFrame,
+      'sustained input did not keep the cursor visible',
+    )
+    if (index < 5) {
+      await new Promise<void>((resolve) => setTimeout(resolve, 200))
+    }
+  }
   const resumedHiddenFrame = await waitForCursorPhase(
     win,
     sessionId,

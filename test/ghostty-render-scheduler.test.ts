@@ -105,20 +105,28 @@ describe('ghostty demand render scheduler patch', () => {
     expect(renderer.requestRender).toHaveBeenCalledOnce()
     expect(vi.getTimerCount()).toBe(1)
 
+    for (let movement = 0; movement < 6; movement += 1) {
+      vi.advanceTimersByTime(200)
+      expect(renderer.cursorVisible).toBe(true)
+      renderer.resetCursorBlink()
+    }
+    expect(renderer.requestRender).toHaveBeenCalledTimes(7)
+    expect(vi.getTimerCount()).toBe(1)
+
     vi.advanceTimersByTime(529)
     expect(renderer.cursorVisible).toBe(true)
     vi.advanceTimersByTime(1)
     expect(renderer.cursorVisible).toBe(false)
-    expect(renderer.requestRender).toHaveBeenCalledTimes(2)
-
-    renderer.resetCursorBlink()
+    vi.advanceTimersByTime(530)
     expect(renderer.cursorVisible).toBe(true)
-    expect(renderer.requestRender).toHaveBeenCalledTimes(3)
-    expect(vi.getTimerCount()).toBe(1)
+    expect(renderer.requestRender).toHaveBeenCalledTimes(9)
 
     renderer.setCursorBlink(false)
+    const requestsAfterDisable = renderer.requestRender.mock.calls.length
+    renderer.resetCursorBlink()
     vi.advanceTimersByTime(1_060)
     expect(renderer.cursorVisible).toBe(true)
+    expect(renderer.requestRender).toHaveBeenCalledTimes(requestsAfterDisable)
     expect(vi.getTimerCount()).toBe(0)
   })
 
