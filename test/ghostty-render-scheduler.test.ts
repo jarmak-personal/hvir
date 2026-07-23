@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { Terminal } from 'ghostty-web'
+import { CanvasRenderer, Terminal } from 'ghostty-web'
 
 type FrameCallback = (timestamp: number) => void
 
@@ -22,11 +22,16 @@ interface SchedulerHarness {
   scrollbarOpacity: number
   viewportY: number
   lastCursorY: number
-  renderer: { render: ReturnType<typeof vi.fn> }
+  renderer: {
+    cursorVisible: boolean
+    render: ReturnType<typeof vi.fn>
+    resetCursorBlink: ReturnType<typeof vi.fn>
+  }
   wasmTerm: { getCursor(): { y: number } }
   cursorMoveEmitter: { fire: ReturnType<typeof vi.fn> }
   requestRender(forceAll?: boolean): void
   setRenderPaused(paused: boolean): void
+  resetCursorBlink(): void
   getRenderStats(): {
     parsedWrites: number
     renderRequests: number
@@ -34,7 +39,17 @@ interface SchedulerHarness {
     fullRenderFrames: number
     paused: boolean
     pendingFrame: boolean
+    cursorVisible: boolean
   }
+}
+
+interface CursorBlinkHarness {
+  cursorBlink: boolean
+  cursorVisible: boolean
+  cursorBlinkInterval?: number
+  requestRender: ReturnType<typeof vi.fn>
+  resetCursorBlink(): void
+  setCursorBlink(enabled: boolean): void
 }
 
 function createHarness(): SchedulerHarness {
@@ -53,16 +68,58 @@ function createHarness(): SchedulerHarness {
     scrollbarOpacity: 0,
     viewportY: 0,
     lastCursorY: 0,
-    renderer: { render: vi.fn() },
+    renderer: {
+      cursorVisible: true,
+      render: vi.fn(),
+      resetCursorBlink: vi.fn(),
+    },
     wasmTerm: { getCursor: () => ({ y: 0 }) },
     cursorMoveEmitter: { fire: vi.fn() },
   }) as SchedulerHarness
 }
 
+function createCursorBlinkHarness(): CursorBlinkHarness {
+  return Object.assign(Object.create(CanvasRenderer.prototype) as object, {
+    cursorBlink: true,
+    cursorVisible: false,
+    cursorBlinkInterval: undefined,
+    requestRender: vi.fn(),
+  }) as CursorBlinkHarness
+}
+
 describe('ghostty demand render scheduler patch', () => {
   afterEach(() => {
+    vi.useRealTimers()
     vi.restoreAllMocks()
     vi.unstubAllGlobals()
+  })
+
+  it('shows active input immediately and restarts the idle blink cadence', () => {
+    vi.useFakeTimers()
+    vi.stubGlobal('window', globalThis)
+    const renderer = createCursorBlinkHarness()
+
+    renderer.resetCursorBlink()
+
+    expect(renderer.cursorVisible).toBe(true)
+    expect(renderer.requestRender).toHaveBeenCalledOnce()
+    expect(vi.getTimerCount()).toBe(1)
+
+    vi.advanceTimersByTime(529)
+    expect(renderer.cursorVisible).toBe(true)
+    vi.advanceTimersByTime(1)
+    expect(renderer.cursorVisible).toBe(false)
+    expect(renderer.requestRender).toHaveBeenCalledTimes(2)
+
+    renderer.resetCursorBlink()
+    expect(renderer.cursorVisible).toBe(true)
+    expect(renderer.requestRender).toHaveBeenCalledTimes(3)
+    expect(vi.getTimerCount()).toBe(1)
+
+    renderer.setCursorBlink(false)
+    vi.advanceTimersByTime(1_060)
+    expect(renderer.cursorVisible).toBe(true)
+    expect(vi.getTimerCount()).toBe(0)
   })
 
   it('coalesces visible requests and preserves a requested full repaint', () => {
@@ -87,6 +144,7 @@ describe('ghostty demand render scheduler patch', () => {
       fullRenderFrames: 0,
       paused: false,
       pendingFrame: true,
+      cursorVisible: true,
     })
 
     const [id, callback] = [...callbacks][0]!
@@ -185,6 +243,7 @@ describe('ghostty demand render scheduler patch', () => {
 
     terminal.requestRender()
     ;(terminal as unknown as Terminal).dispose()
+    terminal.resetCursorBlink()
     terminal.requestRender(true)
 
     expect(cancelAnimationFrame).toHaveBeenCalledOnce()
@@ -192,6 +251,7 @@ describe('ghostty demand render scheduler patch', () => {
     expect(terminal.isDisposed).toBe(true)
     expect(terminal.isOpen).toBe(false)
     expect(terminal.renderer.render).not.toHaveBeenCalled()
+    expect(terminal.renderer.resetCursorBlink).not.toHaveBeenCalled()
     expect(terminal.renderRequests).toBe(1)
   })
 })
