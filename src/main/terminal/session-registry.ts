@@ -15,7 +15,8 @@ import type { ProjectHost } from '../project-host'
 import { harnessProvider } from '../harness/harness-provider'
 import type { HarnessRecoveryProfileReference } from '../harness/harness-profile-store'
 
-const FILE_VERSION = 4
+const FILE_VERSION = 5
+const LEGACY_PROFILE_FILE_VERSION = 4
 const LEGACY_WORKSPACE_FILE_VERSION = 3
 const LEGACY_PROVIDER_FILE_VERSION = 2
 const LEGACY_ADAPTER_FILE_VERSION = 1
@@ -28,6 +29,7 @@ interface StoredTerminalSession {
   readonly providerId: HarnessProviderId
   readonly profileId: HarnessProfileId
   readonly launchRevision: number
+  readonly recoverySkipCount: 0 | 1
   readonly riskAcknowledgedRevision?: number
   readonly artifactIdentity?: string
   readonly harnessSessionId?: string
@@ -106,6 +108,13 @@ export interface OwnedTerminalSession extends TerminalRecoverySession {
 
 export interface TerminalSessionStore {
   list(workspaceRoot: HostPath): readonly TerminalRecoverySession[]
+  recordRecoveryDecision(
+    workspaceRoot: HostPath,
+    decision: {
+      readonly restoredIds: readonly string[]
+      readonly skippedIds: readonly string[]
+    },
+  ): Promise<void>
   recordSpawn(spawn: RecordTerminalSpawn): Promise<void>
   recordReplacement(replacement: RecordTerminalReplacement): Promise<void>
   recordIdentity(id: string, harnessSessionId: string): Promise<void>
@@ -175,6 +184,7 @@ export class TerminalSessionRegistry implements TerminalSessionStore {
         if (
           isRecord(value) &&
           (value['version'] === FILE_VERSION ||
+            value['version'] === LEGACY_PROFILE_FILE_VERSION ||
             value['version'] === LEGACY_WORKSPACE_FILE_VERSION ||
             value['version'] === LEGACY_PROVIDER_FILE_VERSION ||
             value['version'] === LEGACY_ADAPTER_FILE_VERSION)
@@ -183,13 +193,15 @@ export class TerminalSessionRegistry implements TerminalSessionStore {
           if (Array.isArray(rawSessions)) {
             const parsed = rawSessions
               .map((session) =>
-                value['version'] === FILE_VERSION ||
-                value['version'] === LEGACY_WORKSPACE_FILE_VERSION
+                value['version'] === FILE_VERSION
                   ? parseStoredSession(session)
-                  : parseLegacyStoredSession(
-                      session,
-                      value['version'] === LEGACY_ADAPTER_FILE_VERSION,
-                    ),
+                  : value['version'] === LEGACY_PROFILE_FILE_VERSION ||
+                      value['version'] === LEGACY_WORKSPACE_FILE_VERSION
+                    ? parsePreSkipStoredSession(session)
+                    : parseLegacyStoredSession(
+                        session,
+                        value['version'] === LEGACY_ADAPTER_FILE_VERSION,
+                      ),
               )
               .filter((session): session is StoredTerminalSession => Boolean(session))
             sessions = parsed
@@ -248,6 +260,78 @@ export class TerminalSessionRegistry implements TerminalSessionStore {
     }))
   }
 
+  async recordRecoveryDecision(
+    workspaceRoot: HostPath,
+    decision: {
+      readonly restoredIds: readonly string[]
+      readonly skippedIds: readonly string[]
+    },
+  ): Promise<void> {
+    const previous = new Map<string, StoredTerminalSession>()
+    const applied = new Map<string, StoredTerminalSession | undefined>()
+    const newlyForgotten = new Set<string>()
+    const restore = new Set(decision.restoredIds)
+    const skip = new Set(decision.skippedIds)
+
+    for (const id of restore) {
+      const current = this.sessions.get(id)
+      if (
+        !current ||
+        !hostPathEquals(current.workspaceRoot, workspaceRoot) ||
+        current.recoverySkipCount === 0
+      ) {
+        continue
+      }
+      const updated: StoredTerminalSession = {
+        ...current,
+        recoverySkipCount: 0,
+      }
+      previous.set(id, current)
+      applied.set(id, updated)
+      this.sessions.set(id, updated)
+    }
+
+    for (const id of skip) {
+      if (restore.has(id)) continue
+      const current = this.sessions.get(id)
+      if (!current || !hostPathEquals(current.workspaceRoot, workspaceRoot)) continue
+      previous.set(id, current)
+      if (current.recoverySkipCount === 1) {
+        applied.set(id, undefined)
+        this.sessions.delete(id)
+        if (!this.forgotten.has(id)) {
+          this.forgotten.add(id)
+          newlyForgotten.add(id)
+        }
+      } else {
+        const updated: StoredTerminalSession = {
+          ...current,
+          recoverySkipCount: 1,
+        }
+        applied.set(id, updated)
+        this.sessions.set(id, updated)
+      }
+    }
+
+    if (previous.size === 0) return
+    try {
+      await this.persist()
+    } catch (error) {
+      for (const [id, prior] of previous) {
+        const attempted = applied.get(id)
+        if (
+          (attempted === undefined && !this.sessions.has(id)) ||
+          this.sessions.get(id) === attempted
+        ) {
+          this.sessions.set(id, prior)
+        }
+        if (newlyForgotten.has(id)) this.forgotten.delete(id)
+      }
+      await this.persist().catch(() => undefined)
+      throw error
+    }
+  }
+
   recordSpawn(spawn: RecordTerminalSpawn): Promise<void> {
     if (this.forgotten.has(spawn.id)) {
       this.pendingIdentities.delete(spawn.id)
@@ -262,6 +346,7 @@ export class TerminalSessionRegistry implements TerminalSessionStore {
       providerId: spawn.providerId,
       profileId: spawn.profileId,
       launchRevision: spawn.launchRevision,
+      recoverySkipCount: 0,
       riskAcknowledgedRevision: spawn.riskAcknowledgedRevision,
       artifactIdentity: spawn.artifactIdentity,
       harnessSessionId,
@@ -301,6 +386,7 @@ export class TerminalSessionRegistry implements TerminalSessionStore {
       providerId: spawn.providerId,
       profileId: spawn.profileId,
       launchRevision: spawn.launchRevision,
+      recoverySkipCount: 0,
       riskAcknowledgedRevision: spawn.riskAcknowledgedRevision,
       artifactIdentity: spawn.artifactIdentity,
       harnessSessionId,
@@ -514,6 +600,7 @@ function parseStoredSession(value: unknown): StoredTerminalSession | undefined {
   const providerId = value['providerId']
   const profileId = value['profileId']
   const launchRevision = value['launchRevision']
+  const recoverySkipCount = value['recoverySkipCount']
   const riskAcknowledgedRevision = value['riskAcknowledgedRevision']
   const artifactIdentity = value['artifactIdentity']
   const harnessSessionId = value['harnessSessionId']
@@ -534,6 +621,7 @@ function parseStoredSession(value: unknown): StoredTerminalSession | undefined {
     typeof launchRevision !== 'number' ||
     !Number.isSafeInteger(launchRevision) ||
     launchRevision <= 0 ||
+    (recoverySkipCount !== 0 && recoverySkipCount !== 1) ||
     (riskAcknowledgedRevision !== undefined &&
       (typeof riskAcknowledgedRevision !== 'number' ||
         !Number.isSafeInteger(riskAcknowledgedRevision) ||
@@ -566,6 +654,7 @@ function parseStoredSession(value: unknown): StoredTerminalSession | undefined {
     providerId,
     profileId: asHarnessProfileId(profileId),
     launchRevision,
+    recoverySkipCount,
     riskAcknowledgedRevision,
     artifactIdentity,
     harnessSessionId,
@@ -577,6 +666,11 @@ function parseStoredSession(value: unknown): StoredTerminalSession | undefined {
     active,
     updatedAt,
   }
+}
+
+function parsePreSkipStoredSession(value: unknown): StoredTerminalSession | undefined {
+  if (!isRecord(value)) return undefined
+  return parseStoredSession({ ...value, recoverySkipCount: 0 })
 }
 
 function parsePath(value: unknown): HostPath | undefined {
@@ -609,6 +703,7 @@ function parseLegacyStoredSession(
     providerId,
     profileId: legacyProfileId(providerId),
     launchRevision: 1,
+    recoverySkipCount: 0,
   })
 }
 

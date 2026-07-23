@@ -74,7 +74,7 @@ export const AUTHORITY_SCOPED_INVOKE_CHANNELS = [
   'harness:acknowledge-risk',
   'harness:preview',
   'harness:authorize-path',
-  'terminal:recovery',
+  'terminal:recovery', 'terminal:record-recovery-decision',
   'terminal:update-layout',
   'terminal:forget',
   'terminal:rebind-profile',

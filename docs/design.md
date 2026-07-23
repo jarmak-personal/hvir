@@ -178,6 +178,11 @@ platform selection, integrity, and provenance authority.
 Ongoing output after a submitted turn remains visible as low-salience Working state while
 workspace and project rollups count only actionable Ready and bell signals.
 
+### [ADR-020 — Two explicit recovery skips forget the hvir record](adr/ADR-020-two-explicit-recovery-skips-forget-record.md)
+
+One explicit skip retains and marks a decision-ready recovery record; a second consecutive skip
+forgets only hvir's host-qualified metadata while provider-native recovery remains untouched.
+
 ## 5. Architecture
 
 ### Process model
