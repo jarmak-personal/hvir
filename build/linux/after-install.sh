@@ -9,6 +9,9 @@ report_failure() {
 }
 trap report_failure ERR
 
+HVIR_COMMAND='/opt/${sanitizedProductName}/resources/hvir-command'
+chown root:root "$HVIR_COMMAND"
+chmod 0755 "$HVIR_COMMAND"
 if command -v update-alternatives >/dev/null 2>&1; then
   if [ -L '/usr/bin/${executable}' ] &&
     [ -e '/usr/bin/${executable}' ] &&
@@ -17,9 +20,9 @@ if command -v update-alternatives >/dev/null 2>&1; then
   fi
   update-alternatives \
     --install '/usr/bin/${executable}' '${executable}' \
-    '/opt/${sanitizedProductName}/${executable}' 100
+    "$HVIR_COMMAND" 100
 else
-  ln -sf '/opt/${sanitizedProductName}/${executable}' '/usr/bin/${executable}'
+  ln -sf "$HVIR_COMMAND" '/usr/bin/${executable}'
 fi
 
 stage='configuring the Chromium sandbox helper'

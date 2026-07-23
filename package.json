@@ -41,6 +41,7 @@
     "pack:mac:arm64:signed": "npm run build && electron-builder --mac pkg --arm64 --publish never --config.forceCodeSigning=true",
     "pack:linux:x64": "npm run build && electron-builder --linux deb --x64 --publish never",
     "pack:linux:arm64": "npm run build && electron-builder --linux deb --arm64 --publish never",
+    "render:native-installer": "node scripts/render-native-installer.mjs",
     "preview": "electron-vite preview",
     "typecheck:node": "tsc --noEmit -p tsconfig.node.json",
     "typecheck:web": "tsc --noEmit -p tsconfig.web.json",

@@ -9,6 +9,8 @@ files:
 extraResources:
   - from: THIRD_PARTY_NOTICES.md
     to: THIRD_PARTY_NOTICES.md
+  - from: build/native/hvir-command
+    to: hvir-command
 asar: true
 asarUnpack:
   - node_modules/**/*.node

@@ -6,6 +6,14 @@ hvir has one supported installation path:
 curl -fsSL https://github.com/jarmak-personal/hvir/releases/latest/download/install.sh | bash
 ```
 
+To inspect the exact release-owned installer before running it:
+
+```sh
+curl -fsSLO https://github.com/jarmak-personal/hvir/releases/latest/download/install.sh
+less install.sh
+bash install.sh
+```
+
 The release-owned installer selects and verifies the native package for the current supported
 platform. Native packages are installer payloads and release evidence, not separate supported
 installation methods. [ADR-021](adr/ADR-021-platform-native-github-release-installation.md) owns
@@ -29,6 +37,11 @@ directly:
 ```sh
 hvir .
 ```
+
+`hvir [project]` accepts one local directory. Relative paths resolve from the caller's current
+directory; an invalid path fails before Electron starts. Running `hvir` without a project
+preserves the remembered-workspace behavior. Startup errors remain attached to the invoking
+terminal.
 
 ## Installer and trust contract
 
@@ -108,8 +121,30 @@ package-owned application, command, and system-integration files while preservin
 - local and remote project directories; and
 - all other user-authored data.
 
-Purge requires explicit intent. It removes only documented hvir-owned user-state roots in
-addition to package-owned files; it never deletes project directories.
+Run default uninstall with:
+
+```sh
+curl -fsSL https://github.com/jarmak-personal/hvir/releases/latest/download/install.sh |
+  bash -s -- --uninstall
+```
+
+Purge requires explicit intent:
+
+```sh
+curl -fsSL https://github.com/jarmak-personal/hvir/releases/latest/download/install.sh |
+  bash -s -- --uninstall --purge
+```
+
+After package removal succeeds, purge reports and removes only these current-user roots:
+
+| Platform | Settings | Cache |
+| --- | --- | --- |
+| Linux | `${XDG_CONFIG_HOME:-~/.config}/hvir` | `${XDG_CACHE_HOME:-~/.cache}/hvir` |
+| macOS | `~/Library/Application Support/hvir` | `~/Library/Caches/hvir` |
+
+The paths in the Linux row use an absolute `XDG_CONFIG_HOME` or `XDG_CACHE_HOME` when set and
+otherwise use the shown home-directory fallback. Purge never deletes a registered local or
+remote project directory.
 
 During migration, native installation completes before legacy state is removed. The installer
 removes an existing npm `hvir` launcher only after proving that it belongs to `hvir-workbench`.

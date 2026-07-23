@@ -40,7 +40,7 @@ if [[ ${#package_matches[@]} -ne 1 ]]; then
   echo "Expected exactly one macOS arm64 package, found ${#package_matches[@]}." >&2
   exit 1
 fi
-package_path=${package_matches[0]}
+package_path="$source_checkout/${package_matches[0]}"
 
 for path in "$application" "$command" "$inventory"; do
   if [[ -e "$path" || -L "$path" ]]; then
@@ -59,9 +59,14 @@ invocation_root=$(mktemp -d "$temporary_parent/hvir-macos-package-smoke.XXXXXX")
 project_root="$invocation_root/repository"
 home_root="$invocation_root/home"
 user_data_root="$invocation_root/user-data"
+legacy_prefix="$invocation_root/legacy-npm"
+legacy_root="$legacy_prefix/lib/node_modules"
+legacy_launcher="$legacy_prefix/bin/hvir"
 old_root="$invocation_root/old-root"
 old_package="$invocation_root/hvir-previous.pkg"
 old_component_plist="$invocation_root/old-component.plist"
+old_installer="$invocation_root/install-previous.sh"
+current_installer="$invocation_root/install-current.sh"
 previous_command="$invocation_root/hvir-previous-command"
 unowned_command="$invocation_root/hvir-unowned-command"
 signature_log="$invocation_root/package-signature.log"
@@ -97,12 +102,35 @@ trap 'exit 143' TERM
 
 mkdir -p \
   "$home_root/Library/Application Support/hvir" \
+  "$home_root/Library/Caches/hvir/native" \
   "$user_data_root" \
+  "$legacy_prefix/bin" \
+  "$legacy_root/hvir-workbench/bin" \
   "$old_root"
 printf '%s\n' 'settings-preserved' \
   >"$home_root/Library/Application Support/hvir/settings-smoke.json"
 printf '%s\n' 'registered-project-preserved' \
   >"$home_root/Library/Application Support/hvir/registered-projects-smoke.json"
+printf '#!/bin/sh\nexit 97\n' \
+  >"$legacy_root/hvir-workbench/bin/hvir.mjs"
+chmod 0755 "$legacy_root/hvir-workbench/bin/hvir.mjs"
+ln -s '../lib/node_modules/hvir-workbench/bin/hvir.mjs' "$legacy_launcher"
+printf '%s\n' \
+  '#!/bin/sh' \
+  'case "$1:$2" in' \
+  'prefix:-g) printf "%s\n" "$HVIR_FAKE_NPM_PREFIX" ;;' \
+  'root:-g) printf "%s\n" "$HVIR_FAKE_NPM_ROOT" ;;' \
+  'ls:-g) printf "%s/hvir-workbench\n" "$HVIR_FAKE_NPM_ROOT" ;;' \
+  'uninstall:-g)' \
+  '  /bin/rm -f -- "$HVIR_FAKE_NPM_PREFIX/bin/hvir"' \
+  '  /bin/rm -rf -- "$HVIR_FAKE_NPM_ROOT/hvir-workbench"' \
+  '  ;;' \
+  '*) exit 96 ;;' \
+  'esac' \
+  >"$legacy_prefix/bin/npm"
+chmod 0755 "$legacy_prefix/bin/npm"
+printf '%s\n' 'derived npm cache' \
+  >"$home_root/Library/Caches/hvir/native/cache-smoke-marker"
 "$source_checkout/scripts/create-smoke-repository.sh" \
   "$source_checkout" \
   "$project_root"
@@ -167,8 +195,47 @@ pkgbuild \
   --version 0.0.0 \
   "$old_package"
 
-sudo /usr/sbin/installer -pkg "$old_package" -target / | tee "$install_log"
+render_acceptance_installer() {
+  local package=$1
+  local version=$2
+  local output=$3
+  local unsigned=$4
+  CI=true GITHUB_ACTIONS=true node scripts/render-native-installer.mjs \
+    --version "$version" \
+    --repository jarmak-personal/hvir \
+    --linux-x64-artifact "$package" \
+    --linux-arm64-artifact "$package" \
+    --macos-arm64-artifact "$package" \
+    --macos-team-id "${expected_team_id:-AAAAAAAAAA}" \
+    --output "$output" \
+    --acceptance-asset-directory "$(dirname "$package")" \
+    --acceptance-unsigned-macos "$unsigned"
+}
+
+render_acceptance_installer "$old_package" 0.0.0 "$old_installer" true
+if [[ "$package_mode" == 'signed' ]]; then
+  render_acceptance_installer \
+    "$package_path" \
+    "$package_version" \
+    "$current_installer" \
+    false
+else
+  render_acceptance_installer \
+    "$package_path" \
+    "$package_version" \
+    "$current_installer" \
+    true
+fi
+
+HOME="$home_root" \
+  PATH="$legacy_prefix/bin:/usr/bin:/bin:/usr/sbin:/sbin" \
+  HVIR_FAKE_NPM_PREFIX="$legacy_prefix" \
+  HVIR_FAKE_NPM_ROOT="$legacy_root" \
+  "$old_installer" | tee "$install_log"
 installed_by_smoke=1
+test ! -e "$legacy_launcher"
+test ! -e "$legacy_root/hvir-workbench"
+test ! -e "$home_root/Library/Caches/hvir/native"
 grep -Fq 'installer: The install was successful.' "$install_log"
 [[ "$(pkgutil --pkg-info-plist "$receipt" | plutil -extract pkg-version raw -)" == '0.0.0' ]]
 test -f "$application/Contents/Resources/hvir-previous-only.txt"
@@ -185,7 +252,7 @@ run_installed_smoke() {
       PATH='/usr/bin:/bin:/usr/sbin:/sbin' \
       HVIR_SMOKE=1 \
       HVIR_SMOKE_SCENARIO="$scenario" \
-      "$command" "$project_root" \
+      "$command" . \
       --user-data-dir="$user_data_root"
   ) >"$log" 2>&1
   status=$?
@@ -220,7 +287,9 @@ sudo /usr/bin/install -o root -g wheel -m 0755 "$previous_command" "$command"
 test -f "$application/Contents/Resources/hvir-previous-only.txt"
 run_installed_smoke retained-after-failed-update pty-native
 
-sudo /usr/sbin/installer -pkg "$package_path" -target / | tee "$install_log"
+HOME="$home_root" \
+  PATH='/usr/bin:/bin:/usr/sbin:/sbin' \
+  "$current_installer" | tee "$install_log"
 grep -Fq 'installer: The upgrade was successful.' "$install_log"
 receipt_version=$(pkgutil --pkg-info-plist "$receipt" |
   plutil -extract pkg-version raw -) || {
@@ -338,7 +407,18 @@ fi
 run_installed_smoke current pty-native
 run_installed_smoke current platform-contracts
 
-remove_package_state
+if HOME="$home_root" \
+  PATH='/usr/bin:/bin:/usr/sbin:/sbin' \
+  "$command" "$invocation_root/missing-project" \
+  >"$invocation_root/invalid-project.log" 2>&1; then
+  echo 'Invalid public project path unexpectedly launched hvir.' >&2
+  exit 1
+fi
+grep -Fq 'project is not a local directory' "$invocation_root/invalid-project.log"
+
+HOME="$home_root" \
+  PATH='/usr/bin:/bin:/usr/sbin:/sbin' \
+  "$current_installer" --uninstall
 installed_by_smoke=0
 for path in "$application" "$command" "$inventory"; do
   if [[ -e "$path" || -L "$path" ]]; then
@@ -354,4 +434,19 @@ test -f "$home_root/Library/Application Support/hvir/settings-smoke.json"
 test -f "$home_root/Library/Application Support/hvir/registered-projects-smoke.json"
 test -d "$project_root/.git"
 
-echo "Accepted $package_mode macOS arm64 package $package_path."
+HOME="$home_root" \
+  PATH='/usr/bin:/bin:/usr/sbin:/sbin' \
+  "$current_installer" >/dev/null
+installed_by_smoke=1
+mkdir -p "$home_root/Library/Caches/hvir"
+printf '%s\n' 'purge-cache' \
+  >"$home_root/Library/Caches/hvir/cache-smoke-marker"
+HOME="$home_root" \
+  PATH='/usr/bin:/bin:/usr/sbin:/sbin' \
+  "$current_installer" --uninstall --purge >/dev/null
+installed_by_smoke=0
+test ! -e "$home_root/Library/Application Support/hvir"
+test ! -e "$home_root/Library/Caches/hvir"
+test -d "$project_root/.git"
+
+echo "Accepted $package_mode macOS arm64 native installer lifecycle."

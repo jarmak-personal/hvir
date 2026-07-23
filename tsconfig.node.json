@@ -14,6 +14,7 @@
     "src/shared/**/*.ts",
     "npm/**/*.d.mts",
     "scripts/release-changelog.d.mts",
+    "scripts/render-native-installer.d.mts",
     "scripts/check-terminal-runtime-patch.mts",
     "scripts/project-management/**/*.ts",
     "scripts/run-smoke-scenarios.mts",
