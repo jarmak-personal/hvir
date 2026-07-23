@@ -97,31 +97,43 @@ describe('CI workflow', () => {
     )
   })
 
-  it('retains packaged smoke on the three ADR-011 target architectures', () => {
-    const job = workflow.jobs['packaged-smoke']
-    if (!job) throw new Error('Missing CI job: packaged-smoke')
-    expect(job.name).toBe('Packaged smoke (${{ matrix.name }})')
+  it('retires npm payload smoke and keeps native acceptance on both Linux architectures', () => {
+    expect(workflow.jobs['packaged-smoke']).toBeUndefined()
+    const job = workflow.jobs['native-linux-package']
+    if (!job) throw new Error('Missing CI job: native-linux-package')
+    expect(job.name).toBe('Native package acceptance (${{ matrix.name }})')
     expect(job.strategy?.['fail-fast']).toBe(false)
     expect(job.strategy?.matrix.include).toEqual([
       {
         name: 'Linux x64',
         os: 'ubuntu-24.04',
-        build: 'npm run pack:npm:linux:x64',
-        smoke: 'xvfb-run -a npm run smoke:packaged',
+        build: 'npm run pack:linux:x64',
+        artifact: 'dist/hvir_*_amd64.deb',
       },
       {
         name: 'Linux arm64',
         os: 'ubuntu-24.04-arm',
-        build: 'npm run pack:npm:linux:arm64',
-        smoke: 'xvfb-run -a npm run smoke:packaged',
-      },
-      {
-        name: 'macOS arm64',
-        os: 'macos-15',
-        build: 'npm run pack:npm:mac:arm64',
-        smoke: 'npm run smoke:packaged',
+        build: 'npm run pack:linux:arm64',
+        artifact: 'dist/hvir_*_arm64.deb',
       },
     ])
+    expect(job.steps).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ run: 'xvfb-run -a npm run smoke:linux:installed' }),
+      ]),
+    )
+  })
+
+  it('assembles the accepted native matrix without publishing from pull-request CI', () => {
+    const job = workflow.jobs['native-release-assembly']
+    if (!job) throw new Error('Missing CI job: native-release-assembly')
+    expect(job.name).toBe('Native release assembly (unsigned structure)')
+    expect(job.needs).toEqual(['native-linux-package', 'native-macos-package'])
+    const commands = job.steps.map((step) => step.run ?? '').join('\n')
+    expect(commands).toContain('npm run assemble:native-release')
+    expect(commands).toContain('bash -n dist/release/install.sh')
+    expect(commands).toContain('sha256sum --check SHA256SUMS')
+    expect(commands).not.toMatch(/gh release (?:create|upload|edit)/)
   })
 
   it('keeps cancellation scoped to the current pull request or branch', () => {

@@ -162,7 +162,11 @@ describe('macOS native package contract', () => {
     )
     expect(ciSource).not.toMatch(/MACOS_(APPLICATION|INSTALLER|NOTARY|TEAM)/)
 
-    expect(Object.keys(signedWorkflow.on)).toEqual(['workflow_dispatch'])
+    expect(Object.keys(signedWorkflow.on)).toEqual([
+      'workflow_call',
+      'workflow_dispatch',
+    ])
+    expect(signedWorkflowSource).toContain('allow_merged_source')
     const signed = signedWorkflow.jobs['signed-package']
     if (!signed) throw new Error('Missing signed-package release job')
     expect(signed.environment).toBe('native-release-signing')
