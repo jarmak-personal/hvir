@@ -117,6 +117,10 @@ export function TerminalView(props: TerminalViewProps): ReactElement {
         className="terminal-container"
         data-terminal-theme={effectiveTheme}
         ref={containerRef}
+        tabIndex={-1}
+        onFocus={(event) => {
+          if (event.target === event.currentTarget) focus()
+        }}
         onMouseDown={focus}
       />
     </section>
