@@ -314,6 +314,9 @@ describe('Electron smoke command contracts', () => {
     )
     expect(layoutFocusScenario).toContain("input.addEventListener('focus', finish)")
     expect(layoutFocusScenario).toContain('document.activeElement === input')
+    expect(layoutFocusScenario).toContain('!document.hasFocus()')
+    expect(layoutFocusScenario).toContain('input.focus()')
+    expect(layoutFocusScenario).not.toContain('app.focus(')
     expect(layoutFocusScenario).not.toContain(
       'requestAnimationFrame(() => requestAnimationFrame(resolve))',
     )

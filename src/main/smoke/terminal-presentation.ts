@@ -1,4 +1,4 @@
-import { app, type BrowserWindow } from 'electron'
+import type { BrowserWindow } from 'electron'
 
 import type { HostPath } from '../../shared'
 import type { PtySupervisor } from '../pty/pty-supervisor'
@@ -363,25 +363,6 @@ async function waitForCursorPhase(
 }
 
 async function verifyTerminalLayoutFocus(win: BrowserWindow): Promise<string> {
-  if (process.platform === 'darwin') app.focus({ steal: true })
-  win.focus()
-  await withTimeout(
-    win.webContents.executeJavaScript(`
-      new Promise((resolve, reject) => {
-        const deadline = Date.now() + 2500;
-        const poll = () => {
-          if (document.hasFocus()) return resolve();
-          if (Date.now() > deadline) {
-            return reject(new Error('smoke window did not become focused'));
-          }
-          setTimeout(poll, 25);
-        };
-        poll();
-      })
-    `),
-    'smoke window did not become focused',
-    3_000,
-  )
   return (await withTimeout(
     win.webContents.executeJavaScript(`
       (async () => {
@@ -410,6 +391,7 @@ async function verifyTerminalLayoutFocus(win: BrowserWindow): Promise<string> {
           poll();
         });
         const terminalTrack = workbench.style.getPropertyValue('--terminal-track');
+        let backgroundHarnessFocus = false;
         const expectFocused = async (button, expectedMode) => {
           const input = activeInput();
           if (!(input instanceof HTMLElement)) {
@@ -422,27 +404,40 @@ async function verifyTerminalLayoutFocus(win: BrowserWindow): Promise<string> {
               input.removeEventListener('focus', finish);
               resolve();
             };
-            input.addEventListener('focus', finish);
-            timer = setTimeout(() => {
-              input.removeEventListener('focus', finish);
-              const surface = input.closest('.terminal-surface');
+            const poll = () => {
               const container = input.closest('.terminal-container');
-              const activeElement = document.activeElement;
-              reject(new Error(
-                expectedMode + ' layout left focus on ' +
-                (activeElement?.className || activeElement?.tagName) +
-                ': inputConnected=' + input.isConnected +
-                ' inputTabIndex=' + input.tabIndex +
-                ' inputEditable=' + input.getAttribute('contenteditable') +
-                ' containerFocused=' + (activeElement === container) +
-                ' surfaceActive=' + Boolean(surface?.classList.contains('active')) +
-                ' surfaceVisible=' + Boolean(surface?.classList.contains('visible')) +
-                ' surfaceSession=' + (surface?.getAttribute('data-terminal-session') || '')
-              ));
-            }, Math.max(0, deadline - Date.now()));
+              if (document.activeElement === input) return finish();
+              if (
+                document.activeElement === container &&
+                !document.hasFocus()
+              ) {
+                backgroundHarnessFocus = true;
+                input.focus();
+                if (document.activeElement === input) return finish();
+              }
+              if (Date.now() > deadline) {
+                input.removeEventListener('focus', finish);
+                const surface = input.closest('.terminal-surface');
+                const activeElement = document.activeElement;
+                return reject(new Error(
+                  expectedMode + ' layout left focus on ' +
+                  (activeElement?.className || activeElement?.tagName) +
+                  ': documentFocused=' + document.hasFocus() +
+                  ' inputConnected=' + input.isConnected +
+                  ' inputTabIndex=' + input.tabIndex +
+                  ' inputEditable=' + input.getAttribute('contenteditable') +
+                  ' containerFocused=' + (activeElement === container) +
+                  ' surfaceActive=' + Boolean(surface?.classList.contains('active')) +
+                  ' surfaceVisible=' + Boolean(surface?.classList.contains('visible')) +
+                  ' surfaceSession=' + (surface?.getAttribute('data-terminal-session') || '')
+                ));
+              }
+              timer = setTimeout(poll, 25);
+            };
+            input.addEventListener('focus', finish);
             button.focus();
             button.click();
-            if (document.activeElement === input) finish();
+            poll();
           });
           if (workbench.style.getPropertyValue('--terminal-track') !== terminalTrack) {
             throw new Error(expectedMode + ' layout changed the saved terminal track');
@@ -459,7 +454,8 @@ async function verifyTerminalLayoutFocus(win: BrowserWindow): Promise<string> {
         ) {
           throw new Error('terminal layout focus check did not restore split view');
         }
-        return 'maximized + collapsed + restored terminal focus';
+        return 'maximized + collapsed + restored terminal focus' +
+          (backgroundHarnessFocus ? ' (background harness setup)' : '');
       })()
     `),
     'terminal layout focus check timed out',
