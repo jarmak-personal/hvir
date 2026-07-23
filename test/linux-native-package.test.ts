@@ -29,6 +29,14 @@ const ciWorkflow = readFileSync(
   new URL('../.github/workflows/ci.yml', import.meta.url),
   'utf8',
 )
+const preload = readFileSync(
+  new URL('../src/preload/index.ts', import.meta.url),
+  'utf8',
+)
+const platformContracts = readFileSync(
+  new URL('../src/main/smoke/platform-contracts.ts', import.meta.url),
+  'utf8',
+)
 
 describe('Linux native package contract', () => {
   it('builds only Debian packages for both supported native architectures', () => {
@@ -89,6 +97,10 @@ describe('Linux native package contract', () => {
     )
     expect(installedSmoke).toContain('test -d "$project_root/.git"')
     expect(installedSmoke).not.toContain('--no-sandbox')
+    expect(preload).toContain('processSandboxed: process.sandboxed')
+    expect(platformContracts).toContain(
+      'window.hvir?.diagnostics?.processSandboxed === true',
+    )
     expect(ciWorkflow).toContain('Native package acceptance (${{ matrix.name }})')
     expect(ciWorkflow).toContain('ubuntu-24.04-arm')
     expect(ciWorkflow).toContain('xvfb-run -a npm run smoke:linux:installed')

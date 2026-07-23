@@ -75,9 +75,7 @@ async function verifyRequiredProcessSandbox(win: BrowserWindow): Promise<string>
     throw new Error('required Chromium process sandbox was disabled by --no-sandbox')
   }
   const rendererSandboxed = (await win.webContents.executeJavaScript(`
-    typeof process === 'object' &&
-      typeof process.sandboxed === 'boolean' &&
-      process.sandboxed === true
+    window.hvir?.diagnostics?.processSandboxed === true
   `)) as boolean
   if (!rendererSandboxed) {
     throw new Error('required Chromium renderer sandbox is not active')

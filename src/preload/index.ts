@@ -34,6 +34,7 @@ ipcRenderer.on('diagnostics:session', (_event, session: unknown) => {
 
 const api: HvirApi = {
   diagnostics: {
+    processSandboxed: process.sandboxed,
     recordRenderContainment: (occurrenceId) =>
       rendererDiagnostics.recordRenderContainment(occurrenceId),
     recordResponsivenessObservation: (observation) =>
