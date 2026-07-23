@@ -200,15 +200,26 @@ render_acceptance_installer() {
   local version=$2
   local output=$3
   local unsigned=$4
+  local asset_directory="${output%.sh}-assets"
+  local linux_x64_artifact="$asset_directory/hvir-${version}-linux-x64.deb"
+  local linux_arm64_artifact="$asset_directory/hvir-${version}-linux-arm64.deb"
+  local macos_artifact="$asset_directory/$(basename "$package")"
+
+  mkdir "$asset_directory"
+  printf '%s\n' 'acceptance-only Linux x64 artifact placeholder' \
+    >"$linux_x64_artifact"
+  printf '%s\n' 'acceptance-only Linux arm64 artifact placeholder' \
+    >"$linux_arm64_artifact"
+  ln -s "$package" "$macos_artifact"
   CI=true GITHUB_ACTIONS=true node scripts/render-native-installer.mjs \
     --version "$version" \
     --repository jarmak-personal/hvir \
-    --linux-x64-artifact "$package" \
-    --linux-arm64-artifact "$package" \
-    --macos-arm64-artifact "$package" \
+    --linux-x64-artifact "$linux_x64_artifact" \
+    --linux-arm64-artifact "$linux_arm64_artifact" \
+    --macos-arm64-artifact "$macos_artifact" \
     --macos-team-id "${expected_team_id:-AAAAAAAAAA}" \
     --output "$output" \
-    --acceptance-asset-directory "$(dirname "$package")" \
+    --acceptance-asset-directory "$asset_directory" \
     --acceptance-unsigned-macos "$unsigned"
 }
 

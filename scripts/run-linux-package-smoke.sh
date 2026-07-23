@@ -139,18 +139,26 @@ sed -i "s/^Version:.*/Version: $previous_version/" \
 dpkg-deb --root-owner-group --build "$previous_package_root" "$previous_package" >/dev/null
 
 render_acceptance_installer() {
-  package=$1
-  version=$2
-  output=$3
+  local package=$1
+  local version=$2
+  local output=$3
+  local asset_directory="${output%.sh}-assets"
+  local linux_artifact="$asset_directory/$(basename "$package")"
+  local macos_artifact="$asset_directory/hvir-${version}-macos-arm64.pkg"
+
+  mkdir "$asset_directory"
+  ln -s "$package" "$linux_artifact"
+  printf '%s\n' 'acceptance-only macOS arm64 artifact placeholder' \
+    >"$macos_artifact"
   CI=true GITHUB_ACTIONS=true node scripts/render-native-installer.mjs \
     --version "$version" \
     --repository jarmak-personal/hvir \
-    --linux-x64-artifact "$package" \
-    --linux-arm64-artifact "$package" \
-    --macos-arm64-artifact "$package" \
+    --linux-x64-artifact "$linux_artifact" \
+    --linux-arm64-artifact "$linux_artifact" \
+    --macos-arm64-artifact "$macos_artifact" \
     --macos-team-id AAAAAAAAAA \
     --output "$output" \
-    --acceptance-asset-directory "$(dirname "$package")" \
+    --acceptance-asset-directory "$asset_directory" \
     --acceptance-unsigned-macos true
 }
 
