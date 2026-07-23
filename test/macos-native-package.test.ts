@@ -132,11 +132,15 @@ describe('macOS native package contract', () => {
     expect(installedSmoke).toContain("PATH='/usr/bin:/bin:/usr/sbin:/sbin'")
     expect(installedSmoke).toContain('otool -L "$executable"')
     expect(installedSmoke).toContain("find \"$application\" -type f -name '*.node'")
+    expect(installedSmoke).toContain("-path '*/prebuilds/darwin-arm64/*'")
+    expect(installedSmoke).toContain(
+      'Installed native module is not an arm64 Mach-O:',
+    )
     expect(installedSmoke).toContain(
       'pkgutil --files "$receipt" |',
     )
     expect(installedSmoke).toContain(
-      "grep -Fx './hvir.app/Contents/MacOS/hvir' >/dev/null",
+      "grep -Fx 'hvir.app/Contents/MacOS/hvir' >/dev/null",
     )
     expect(installedSmoke).not.toContain(
       'pkgutil --files "$receipt" | grep -Fq',

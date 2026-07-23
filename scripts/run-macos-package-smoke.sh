@@ -282,25 +282,41 @@ grep -Fxq 'inventory=/Library/Application Support/hvir/package-inventory-v1.txt'
   "$inventory"
 grep -Fxq 'receipt=dev.hvir.app' "$inventory"
 if ! pkgutil --files "$receipt" |
-  grep -Fx './hvir.app/Contents/MacOS/hvir' >/dev/null; then
+  grep -Fx 'hvir.app/Contents/MacOS/hvir' >/dev/null; then
   echo 'Package receipt does not own the installed hvir executable.' >&2
   exit 1
 fi
 
-file "$executable" | grep -Fq 'arm64'
+executable_description=$(file "$executable")
+if [[ "$executable_description" != *'Mach-O'* ||
+  "$executable_description" != *'arm64'* ]]; then
+  echo "Installed executable is not an arm64 Mach-O: $executable_description" >&2
+  exit 1
+fi
 framework="$application/Contents/Frameworks/Electron Framework.framework"
 test -L "$framework/Versions/Current"
 otool -L "$executable" | grep -Fq 'Electron Framework.framework'
 native_modules=()
 while IFS= read -r native_module; do
   native_modules+=("$native_module")
-done < <(find "$application" -type f -name '*.node' -print)
+done < <(
+  find "$application" -type f -name '*.node' \
+    \( -path '*/build/Release/*' \
+    -o -path '*/bin/darwin-arm64-*/*' \
+    -o -path '*/prebuilds/darwin-arm64/*' \) \
+    -print
+)
 if [[ ${#native_modules[@]} -eq 0 ]]; then
-  echo 'Installed application contains no native modules.' >&2
+  echo 'Installed application contains no macOS arm64 native modules.' >&2
   exit 1
 fi
 for native_module in "${native_modules[@]}"; do
-  file "$native_module" | grep -Fq 'arm64'
+  native_description=$(file "$native_module")
+  if [[ "$native_description" != *'Mach-O'* ||
+    "$native_description" != *'arm64'* ]]; then
+    echo "Installed native module is not an arm64 Mach-O: $native_description" >&2
+    exit 1
+  fi
 done
 notices="$application/Contents/Resources/THIRD_PARTY_NOTICES.md"
 grep -Fq 'Copyright (c) 2025 Coder' "$notices"
