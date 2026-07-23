@@ -14,6 +14,7 @@ import {
 } from './harness-launch-menu'
 import { TerminalContextMeter } from './TerminalContextMeter'
 import type { TerminalSession } from './terminal-workspace-model'
+import { useTerminalLaunchMenuLayout } from './use-terminal-launch-menu-layout'
 
 export interface TerminalLaunchMenuEntry {
   readonly profile: HarnessProfile
@@ -80,6 +81,9 @@ export function TerminalRail({
   readonly onMoveSession: (id: string) => void
   readonly onCloseSession: (id: string) => void
 }): ReactElement {
+  const { menuRef: launchMenuRef, menuStyle: launchMenuStyle } =
+    useTerminalLaunchMenuLayout(menuOpen)
+
   return (
     <aside
       className="terminal-rail"
@@ -179,7 +183,12 @@ export function TerminalRail({
               +
             </button>
             {menuOpen ? (
-              <div className="terminal-new-menu" role="menu">
+              <div
+                ref={launchMenuRef}
+                className="terminal-new-menu"
+                role="menu"
+                style={launchMenuStyle}
+              >
                 {launchMenuEntries.flatMap(({ profile, provider, state }) => {
                   if (!state.visible) return []
                   const capability = compactHarnessCapabilityLabel(

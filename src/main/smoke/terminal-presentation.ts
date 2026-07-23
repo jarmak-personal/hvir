@@ -1,5 +1,6 @@
 import type { BrowserWindow } from 'electron'
 
+import type { HostPath } from '../../shared'
 import type { PtySupervisor } from '../pty/pty-supervisor'
 
 /** Retain broad terminal presentation assertions only in the legacy workflow. */
@@ -47,7 +48,11 @@ export async function verifyLegacyTerminalPresentation(
 export async function verifyTerminalPresentationLifecycle(
   win: BrowserWindow,
   supervisor: PtySupervisor,
+  launchMenuOverflowRoot?: HostPath,
 ): Promise<string> {
+  const launchMenuStatus = launchMenuOverflowRoot
+    ? await verifyTerminalLaunchMenuOverflow(win, launchMenuOverflowRoot)
+    : undefined
   const switchStatus = (await withTimeout(
     win.webContents.executeJavaScript(`
       new Promise((resolve, reject) => {
@@ -249,7 +254,131 @@ export async function verifyTerminalPresentationLifecycle(
     'revealed terminal close timed out',
   )) as string
 
-  return `${switchStatus} · ${revealStatus} · ${inputStatus}`
+  return [launchMenuStatus, switchStatus, revealStatus, inputStatus]
+    .filter((status): status is string => status !== undefined)
+    .join(' · ')
+}
+
+async function verifyTerminalLaunchMenuOverflow(
+  win: BrowserWindow,
+  root: HostPath,
+): Promise<string> {
+  return (await withTimeout(
+    win.webContents.executeJavaScript(`
+      (async () => {
+        const deadline = Date.now() + 15000;
+        const waitFor = (read, message) => new Promise((resolve, reject) => {
+          const poll = () => {
+            const value = read();
+            if (value) return resolve(value);
+            if (Date.now() > deadline) return reject(new Error(message));
+            setTimeout(poll, 25);
+          };
+          poll();
+        });
+        const add = await waitFor(
+          () => document.querySelector('button[aria-label="New terminal"]:not(:disabled)'),
+          'new-terminal button unavailable for overflow check'
+        );
+        add.click();
+        const initialMenu = await waitFor(
+          () => document.querySelector('.terminal-new-menu'),
+          'initial new-terminal menu did not open'
+        );
+        const initialStyle = getComputedStyle(initialMenu);
+        if (initialStyle.overflowY !== 'auto') {
+          throw new Error('new-terminal menu does not use conditional vertical overflow');
+        }
+        if (initialMenu.scrollHeight > initialMenu.clientHeight + 1) {
+          throw new Error('new-terminal menu overflows with only the built-in shell');
+        }
+        add.click();
+        await waitFor(
+          () => !document.querySelector('.terminal-new-menu'),
+          'initial new-terminal menu did not close'
+        );
+
+        const root = ${JSON.stringify(root)};
+        const profiles = await window.hvir.invoke('harness:profiles', { root });
+        const shell = profiles.find((profile) => profile.builtIn);
+        if (!shell) throw new Error('built-in shell profile missing');
+        const created = await Promise.all(
+          Array.from({ length: 24 }, () =>
+            window.hvir.invoke('harness:profile-duplicate', { id: shell.id })
+          )
+        );
+        window.dispatchEvent(new Event('hvir:harness-profiles-changed'));
+        add.click();
+        let lastRefresh = 0;
+        const menu = await waitFor(() => {
+          const candidate = document.querySelector('.terminal-new-menu');
+          if (!(candidate instanceof HTMLElement)) return undefined;
+          const profileButtons = [...candidate.children].filter(
+            (node) => node instanceof HTMLButtonElement
+          );
+          if (profileButtons.length >= created.length + 1) return candidate;
+          if (Date.now() - lastRefresh > 250) {
+            [...candidate.querySelectorAll('.terminal-new-menu-actions button')]
+              .find((button) => button.textContent?.trim() === 'Refresh availability')
+              ?.click();
+            lastRefresh = Date.now();
+          }
+          return undefined;
+        }, 'configured harness profiles did not enter the launch menu');
+
+        if (menu.scrollHeight <= menu.clientHeight + 1) {
+          throw new Error('configured harness profiles did not overflow the launch menu');
+        }
+        const bounds = menu.getBoundingClientRect();
+        if (
+          bounds.top < -1 ||
+          bounds.left < -1 ||
+          bounds.right > window.innerWidth + 1 ||
+          bounds.bottom > window.innerHeight + 1
+        ) {
+          throw new Error(
+            'overflowing launch menu escaped the viewport: bounds=' +
+            [bounds.top, bounds.right, bounds.bottom, bounds.left].join(',') +
+            ' viewport=' + window.innerWidth + 'x' + window.innerHeight
+          );
+        }
+        const scrollbar = getComputedStyle(menu, '::-webkit-scrollbar');
+        const thumb = getComputedStyle(menu, '::-webkit-scrollbar-thumb');
+        if (scrollbar.width !== '8px' || thumb.backgroundColor === 'rgba(0, 0, 0, 0)') {
+          throw new Error(
+            'overflowing launch menu has no visible scrollbar: width=' +
+            scrollbar.width + ' thumb=' + thumb.backgroundColor
+          );
+        }
+
+        menu.scrollTop = menu.scrollHeight;
+        await new Promise((resolve) => requestAnimationFrame(() => resolve()));
+        const profileButtons = [...menu.children].filter(
+          (node) => node instanceof HTMLButtonElement
+        );
+        const finalProfile = profileButtons.at(-1);
+        const actions = menu.querySelector('.terminal-new-menu-actions');
+        if (!(finalProfile instanceof HTMLElement) || !(actions instanceof HTMLElement)) {
+          throw new Error('launch menu profile or actions missing after scroll');
+        }
+        const finalProfileBounds = finalProfile.getBoundingClientRect();
+        const actionBounds = actions.getBoundingClientRect();
+        if (
+          menu.scrollTop <= 0 ||
+          finalProfileBounds.top < bounds.top - 1 ||
+          finalProfileBounds.bottom > bounds.bottom + 1 ||
+          actionBounds.top < bounds.top - 1 ||
+          actionBounds.bottom > bounds.bottom + 1
+        ) {
+          throw new Error('final harness profile and actions are not reachable by scrolling');
+        }
+        add.click();
+        return created.length + ' configured profiles · visible scrollbar · final actions';
+      })()
+    `),
+    'terminal launch menu overflow timed out',
+    20_000,
+  )) as string
 }
 
 async function withTimeout<T>(

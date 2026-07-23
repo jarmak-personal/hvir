@@ -437,7 +437,7 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
     }
 
     if (mode === 'terminal-presentation') {
-      const presentation = await verifyTerminalPresentationLifecycle(win, supervisor)
+      const presentation = await verifyTerminalPresentationLifecycle(win, supervisor, smokeRoot)
       console.log(`[smoke] terminal presentation lifecycle OK (${presentation})`)
       console.log('HVIR_SMOKE_OK')
       return 0
