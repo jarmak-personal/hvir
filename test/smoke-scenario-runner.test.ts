@@ -219,6 +219,10 @@ describe('Electron smoke command contracts', () => {
     new URL('../src/main/smoke/viewer-position.ts', import.meta.url),
     'utf8',
   )
+  const terminalPresentationScenario = readFileSync(
+    new URL('../src/main/smoke/terminal-presentation.ts', import.meta.url),
+    'utf8',
+  )
 
   it('separates correctness, hosted evidence, and controlled performance commands', () => {
     expect(packageJson.scripts.smoke).toContain('node scripts/run-smoke-scenarios.mts')
@@ -297,6 +301,22 @@ describe('Electron smoke command contracts', () => {
     expect(smokeWorkflow).toContain('first-frame evidence')
     expect(smokeWorkflow).toContain("meta.includes('preview')")
     expect(smokeWorkflow).not.toContain('large-file activation stalled paint')
+  })
+
+  it('waits for exact terminal focus instead of assuming a frame count', () => {
+    const layoutFocusScenario = terminalPresentationScenario.slice(
+      terminalPresentationScenario.indexOf(
+        'async function verifyTerminalLayoutFocus',
+      ),
+      terminalPresentationScenario.indexOf(
+        'async function verifyTerminalLaunchMenuOverflow',
+      ),
+    )
+    expect(layoutFocusScenario).toContain("input.addEventListener('focus', finish)")
+    expect(layoutFocusScenario).toContain('document.activeElement === input')
+    expect(layoutFocusScenario).not.toContain(
+      'requestAnimationFrame(() => requestAnimationFrame(resolve))',
+    )
   })
 
   it('enters the viewer group before legacy work with semantic diagnostics', () => {

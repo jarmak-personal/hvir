@@ -366,9 +366,6 @@ async function verifyTerminalLayoutFocus(win: BrowserWindow): Promise<string> {
   return (await withTimeout(
     win.webContents.executeJavaScript(`
       (async () => {
-        const frames = () => new Promise((resolve) =>
-          requestAnimationFrame(() => requestAnimationFrame(resolve))
-        );
         const workbench = document.querySelector('.workbench');
         const maximize = document.querySelector('.terminal-focus-toggle');
         const minimize = document.querySelector('.terminal-collapse-toggle');
@@ -395,19 +392,39 @@ async function verifyTerminalLayoutFocus(win: BrowserWindow): Promise<string> {
         });
         const terminalTrack = workbench.style.getPropertyValue('--terminal-track');
         const expectFocused = async (button, expectedMode) => {
-          button.focus();
-          button.click();
-          await frames();
           const input = activeInput();
           if (!(input instanceof HTMLElement)) {
             throw new Error('active terminal input missing after ' + expectedMode);
           }
-          if (document.activeElement !== input) {
-            throw new Error(
-              expectedMode + ' layout left focus on ' +
-              (document.activeElement?.className || document.activeElement?.tagName)
-            );
-          }
+          await new Promise((resolve, reject) => {
+            let timer;
+            const finish = () => {
+              if (timer) clearTimeout(timer);
+              input.removeEventListener('focus', finish);
+              resolve();
+            };
+            input.addEventListener('focus', finish);
+            timer = setTimeout(() => {
+              input.removeEventListener('focus', finish);
+              const surface = input.closest('.terminal-surface');
+              const container = input.closest('.terminal-container');
+              const activeElement = document.activeElement;
+              reject(new Error(
+                expectedMode + ' layout left focus on ' +
+                (activeElement?.className || activeElement?.tagName) +
+                ': inputConnected=' + input.isConnected +
+                ' inputTabIndex=' + input.tabIndex +
+                ' inputEditable=' + input.getAttribute('contenteditable') +
+                ' containerFocused=' + (activeElement === container) +
+                ' surfaceActive=' + Boolean(surface?.classList.contains('active')) +
+                ' surfaceVisible=' + Boolean(surface?.classList.contains('visible')) +
+                ' surfaceSession=' + (surface?.getAttribute('data-terminal-session') || '')
+              ));
+            }, Math.max(0, deadline - Date.now()));
+            button.focus();
+            button.click();
+            if (document.activeElement === input) finish();
+          });
           if (workbench.style.getPropertyValue('--terminal-track') !== terminalTrack) {
             throw new Error(expectedMode + ' layout changed the saved terminal track');
           }
