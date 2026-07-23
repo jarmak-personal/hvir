@@ -1,5 +1,8 @@
 # ADR-006: Exact harness recovery instead of a PTY daemon
 
+> [ADR-019](ADR-019-two-explicit-recovery-skips-forget-record.md) supersedes only the
+> retention-until-explicit-close rule in this record. The remaining decisions still apply.
+
 ## Context
 
 The durable asset in an agent terminal is the harness conversation, not the PTY process.

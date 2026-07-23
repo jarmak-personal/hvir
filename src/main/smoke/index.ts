@@ -23,7 +23,11 @@ import {
   verifyLegacyTerminalPresentation,
   verifyTerminalPresentationLifecycle,
 } from './terminal-presentation'
-import { runCapacityLoadSmoke, runCapacityRecoverySmoke } from './capacity'
+import {
+  capacityRecoverySessions,
+  runCapacityLoadSmoke,
+  runCapacityRecoverySmoke,
+} from './capacity'
 import {
   ECHO_REQUEST_TYPE,
   HTML_PREVIEW_SCHEME,
@@ -236,6 +240,7 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
     let smokeRecoverySessions: readonly TerminalRecoverySession[] = []
     const smokeTerminalSessions: TerminalSessionStore = {
       list: () => smokeRecoverySessions,
+      recordRecoveryDecision: () => Promise.resolve(),
       recordSpawn: () => Promise.resolve(),
       recordReplacement: () => Promise.resolve(),
       recordIdentity: () => Promise.resolve(),
@@ -445,18 +450,10 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
 
     if (mode === 'capacity') {
       await runCapacityLoadSmoke(win, supervisor, host, liveReloadPath)
-      smokeRecoverySessions = supervisor.list().map((terminal, position) => ({
-        id: terminal.id,
-        providerId: defaultHarnessProviderId,
-        profileId: asHarnessProfileId('plain-shell-default'),
-        launchRevision: 1,
-        hostId: terminal.hostId,
-        cwd: terminal.cwd,
-        title: `Recovered capacity shell ${position + 1}`,
-        position,
-        active: position === 0,
-        updatedAt: Date.now(),
-      }))
+      smokeRecoverySessions = capacityRecoverySessions(
+        supervisor,
+        defaultHarnessProviderId,
+      )
       await runCapacityRecoverySmoke(win, supervisor)
       console.log('HVIR_SMOKE_OK')
       return 0
@@ -2736,6 +2733,7 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
         providerId: defaultHarnessProviderId,
         profileId: asHarnessProfileId('plain-shell-default'),
         launchRevision: 1,
+        recoverySkipCount: 0,
         hostId: smokeRoot.hostId,
         cwd: smokeRoot,
         title: 'Recovered smoke shell',

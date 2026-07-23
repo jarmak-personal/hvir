@@ -173,6 +173,11 @@ Platform packages carry no lifecycle scripts; the launcher verifies and atomical
 common archived payload lifecycle in a bounded per-user cache while npm retains installation,
 platform selection, integrity, and provenance authority.
 
+### [ADR-019 — Two explicit recovery skips forget the hvir record](adr/ADR-019-two-explicit-recovery-skips-forget-record.md)
+
+One explicit skip retains and marks a decision-ready recovery record; a second consecutive skip
+forgets only hvir's host-qualified metadata while provider-native recovery remains untouched.
+
 ## 5. Architecture
 
 ### Process model

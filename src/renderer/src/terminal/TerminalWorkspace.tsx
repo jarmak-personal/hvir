@@ -197,7 +197,8 @@ export function TerminalWorkspace({
     candidates: recoveryCandidates,
     defaultProvider,
     defaultProfile,
-    discard: discardRecovery,
+    dismiss: dismissRecovery,
+    skip: skipRecovery,
     resume: resumeRecovery,
     rebind: rebindRecovery,
   } = recovery
@@ -395,7 +396,8 @@ export function TerminalWorkspace({
           profiles,
           probes,
           onRebind: rebindRecovery,
-          onCancel: discardRecovery,
+          onDismiss: dismissRecovery,
+          onSkip: skipRecovery,
           onResume: resumeRecovery,
         }}
       />

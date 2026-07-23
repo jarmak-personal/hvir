@@ -22,6 +22,7 @@ describe('profile-bound terminal recovery', () => {
     providerId: profile.providerId,
     profileId: profile.id,
     launchRevision: profile.launchRevision,
+    recoverySkipCount: 0,
     harnessSessionId: '00000000-0000-4000-8000-000000000001',
     hostId: root.hostId,
     cwd: root,

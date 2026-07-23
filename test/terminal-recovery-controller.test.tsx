@@ -61,6 +61,7 @@ describe('terminal recovery controller', () => {
       providerId: provider.id,
       profileId: profile.id,
       launchRevision: profile.launchRevision,
+      recoverySkipCount: 0,
       hostId: root.hostId,
       cwd: root,
       title: 'Automatic shell',
@@ -87,6 +88,8 @@ describe('terminal recovery controller', () => {
           return Promise.resolve([automatic, residual])
         case 'harness:probe-profiles':
           return Promise.resolve([])
+        case 'terminal:record-recovery-decision':
+          return Promise.resolve()
         default:
           return Promise.reject(new Error(`Unexpected IPC ${channel}`))
       }
@@ -113,6 +116,99 @@ describe('terminal recovery controller', () => {
 
     expect(text('sessions')).toBe('automatic')
     expect(text('candidates')).toBe('')
+    expect(invoke).toHaveBeenCalledWith('terminal:record-recovery-decision', {
+      root,
+      restoredIds: [],
+      skippedIds: [],
+    })
+  })
+
+  it('records restored and skipped rows before applying a mixed manual selection', async () => {
+    const profile = builtInProfiles()[0]!
+    const provider: HarnessProviderDescriptor = {
+      id: profile.providerId,
+      displayName: 'Shell',
+      default: true,
+      capabilities: {
+        sessionIdentity: 'none',
+        exactResume: false,
+        contextPresentation: 'none',
+      },
+      terminalInput: {
+        modifiedKeyProtocol: 'none',
+        metaEnterAliasesControl: false,
+      },
+      profileGuidance: {
+        reservedArguments: [],
+        riskClassification: 'best-effort',
+      },
+    }
+    const root = hostPath(asHostId('manual-recovery-controller'), '/repo')
+    const first: TerminalRecoverySession = {
+      id: 'first',
+      providerId: provider.id,
+      profileId: profile.id,
+      launchRevision: profile.launchRevision,
+      recoverySkipCount: 1,
+      hostId: root.hostId,
+      cwd: root,
+      title: 'First shell',
+      position: 0,
+      active: true,
+      updatedAt: 1,
+    }
+    const second = {
+      ...first,
+      id: 'second',
+      recoverySkipCount: 0 as const,
+      title: 'Second shell',
+      position: 1,
+      active: false,
+    }
+    const invoke = vi.fn((channel: string) => {
+      switch (channel) {
+        case 'harness:catalog':
+          return Promise.resolve([provider])
+        case 'harness:profiles':
+          return Promise.resolve([profile])
+        case 'terminal:recovery':
+          return Promise.resolve([first, second])
+        case 'terminal:record-recovery-decision':
+          return Promise.resolve()
+        default:
+          return Promise.reject(new Error(`Unexpected IPC ${channel}`))
+      }
+    })
+    Object.defineProperty(window, 'hvir', {
+      configurable: true,
+      value: { invoke, on: vi.fn(), send: vi.fn() },
+    })
+
+    await act(async () => {
+      reactRoot.render(
+        <RecoveryHarness
+          root={root}
+          provider={provider}
+          profile={profile}
+          mode="prompt"
+        />,
+      )
+      await settleEffects()
+    })
+    expect(text('candidates')).toBe('first,second')
+
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>('[data-testid="restore-first"]')?.click()
+      await settleEffects()
+    })
+
+    expect(invoke).toHaveBeenCalledWith('terminal:record-recovery-decision', {
+      root,
+      restoredIds: ['first'],
+      skippedIds: ['second'],
+    })
+    expect(text('sessions')).toBe('first')
+    expect(text('candidates')).toBe('')
   })
 })
 
@@ -120,10 +216,12 @@ function RecoveryHarness({
   root,
   provider,
   profile,
+  mode = 'auto',
 }: {
   readonly root: ReturnType<typeof hostPath>
   readonly provider: HarnessProviderDescriptor
   readonly profile: ReturnType<typeof builtInProfiles>[number]
+  readonly mode?: 'auto' | 'prompt'
 }) {
   const [model, dispatch] = useReducer(
     terminalWorkspaceReducer,
@@ -134,7 +232,7 @@ function RecoveryHarness({
     root,
     available: true,
     visible: true,
-    mode: 'auto',
+    mode,
     model,
     providers: [provider],
     profiles: [profile],
@@ -153,8 +251,18 @@ function RecoveryHarness({
       <span data-testid="candidates">
         {recovery.candidates.map(({ id }) => id).join(',')}
       </span>
-      <button type="button" onClick={recovery.discard}>
+      <button type="button" onClick={() => void recovery.skip()}>
         Not now
+      </button>
+      <button
+        data-testid="restore-first"
+        type="button"
+        onClick={() => {
+          const id = recovery.candidates[0]?.id
+          if (id) void recovery.resume(new Set([id]))
+        }}
+      >
+        Restore first
       </button>
     </>
   )
