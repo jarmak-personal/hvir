@@ -92,7 +92,7 @@ fi
 /bin/chmod 0755 "$command_dir" "$inventory_dir"
 transaction=$(/usr/bin/mktemp -d "$inventory_dir/.package-install.XXXXXX")
 
-if [ -e "$command" ]; then
+if [ -e "$command" ] || [ -L "$command" ]; then
   if [ ! -f "$command" ] || ! /usr/bin/grep -Fq "$command_marker" "$command"; then
     stage='refusing to replace an unowned hvir command'
     false
@@ -101,7 +101,7 @@ if [ -e "$command" ]; then
   command_had_previous=1
 fi
 
-if [ -e "$inventory" ]; then
+if [ -e "$inventory" ] || [ -L "$inventory" ]; then
   if [ ! -f "$inventory" ] || ! /usr/bin/grep -Fq "$inventory_marker" "$inventory"; then
     stage='refusing to replace an unowned hvir inventory'
     false

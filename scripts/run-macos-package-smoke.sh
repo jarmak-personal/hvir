@@ -139,6 +139,7 @@ grep -Fq 'enable_localSystem="true"' "$expanded_package/Distribution"
 component_info="$expanded_package/dev.hvir.app.pkg/PackageInfo"
 grep -Fq '<upgrade-bundle>' "$component_info"
 grep -Fq '<strict-identifier>' "$component_info"
+grep -Fq '<preinstall ' "$component_info"
 grep -Fq '<postinstall ' "$component_info"
 
 ditto 'dist/mac-arm64/hvir.app' "$old_root/hvir.app"

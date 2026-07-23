@@ -9,6 +9,8 @@ const builder = parse(
 const packageJson = JSON.parse(
   readFileSync(new URL('../package.json', import.meta.url), 'utf8'),
 ) as { scripts: Record<string, string> }
+const preinstallUrl = new URL('../build/pkg-scripts/preinstall', import.meta.url)
+const preinstall = readFileSync(preinstallUrl, 'utf8')
 const postinstallUrl = new URL('../build/pkg-scripts/postinstall', import.meta.url)
 const postinstall = readFileSync(postinstallUrl, 'utf8')
 const installedSmokeUrl = new URL(
@@ -76,6 +78,11 @@ describe('macOS native package contract', () => {
   })
 
   it('installs an owned command and exact removal inventory transactionally', () => {
+    expect(statSync(preinstallUrl).mode & 0o111).not.toBe(0)
+    expect(preinstall).toContain('hvir-native-package-command-v1')
+    expect(preinstall).toContain('hvir-native-package-inventory-v1')
+    expect(preinstall).toContain('preflight refused unowned command')
+    expect(preinstall).toContain('preflight refused unowned inventory')
     expect(statSync(postinstallUrl).mode & 0o111).not.toBe(0)
     expect(postinstall).toContain("application=\"$volume_root/Applications/hvir.app\"")
     expect(postinstall).toContain("command=\"$command_dir/hvir\"")

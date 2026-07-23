@@ -1,0 +1,33 @@
+#!/bin/sh
+set -eu
+
+command_marker='hvir-native-package-command-v1'
+inventory_marker='hvir-native-package-inventory-v1'
+target_volume=${3:-/}
+
+case "$target_volume" in
+/*) ;;
+*)
+  echo "hvir package preflight failed: invalid target '$target_volume'" >&2
+  exit 1
+  ;;
+esac
+
+volume_root=${target_volume%/}
+command="$volume_root/usr/local/bin/hvir"
+inventory="$volume_root/Library/Application Support/hvir/package-inventory-v1.txt"
+
+if [ -e "$command" ] || [ -L "$command" ]; then
+  if [ ! -f "$command" ] || ! /usr/bin/grep -Fq "$command_marker" "$command"; then
+    echo "hvir package preflight refused unowned command: $command" >&2
+    exit 1
+  fi
+fi
+
+if [ -e "$inventory" ] || [ -L "$inventory" ]; then
+  if [ ! -f "$inventory" ] ||
+    ! /usr/bin/grep -Fq "$inventory_marker" "$inventory"; then
+    echo "hvir package preflight refused unowned inventory: $inventory" >&2
+    exit 1
+  fi
+fi
