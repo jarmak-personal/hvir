@@ -30,3 +30,22 @@ linux:
   executableName: hvir
   syncDesktopName: true
   category: Development
+  target:
+    - deb
+deb:
+  packageCategory: devel
+  appArmorProfile: build/linux/hvir.apparmor
+  afterInstall: build/linux/after-install.sh
+  afterRemove: build/linux/after-remove.sh
+  depends:
+    - apparmor
+    - libatspi2.0-0
+    - libgtk-3-0
+    - libnotify4
+    - libnss3
+    - libsecret-1-0
+    - libuuid1
+    - libxss1
+    - libxtst6
+    - xdg-utils
+  recommends: []
