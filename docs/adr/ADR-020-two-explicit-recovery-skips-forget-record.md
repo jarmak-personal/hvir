@@ -1,4 +1,4 @@
-# ADR-019: Two explicit recovery skips forget the hvir record
+# ADR-020: Two explicit recovery skips forget the hvir record
 
 ## Context
 

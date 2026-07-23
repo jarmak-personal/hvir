@@ -1,4 +1,4 @@
-export type TerminalAttention = 'output' | 'bell' | 'idle'
+export type TerminalAttention = 'working' | 'bell' | 'idle'
 export type TerminalIdleAttentionState = 'initial' | 'armed' | 'settled'
 
 export interface TerminalOutputAttentionDecision {
@@ -7,7 +7,7 @@ export interface TerminalOutputAttentionDecision {
 }
 
 const attentionPriority: Record<TerminalAttention, number> = {
-  output: 1,
+  working: 1,
   bell: 2,
   idle: 3,
 }
@@ -52,16 +52,18 @@ export function terminalOutputAttentionDecision(
 export function terminalAttentionLabel(attention: TerminalAttention): string {
   if (attention === 'idle') return 'Ready'
   if (attention === 'bell') return 'Bell'
-  return 'New output'
+  return 'Working'
 }
 
-export function terminalAttentionRollup(
+export function terminalAttentionBadgeText(attention: TerminalAttention): string {
+  if (attention === 'idle') return 'ready'
+  if (attention === 'bell') return 'bell'
+  return 'working'
+}
+
+export function terminalActionableAttentionCount(
   attentions: readonly (TerminalAttention | undefined)[],
-): { readonly unseen: number; readonly actionable: number } {
-  return {
-    unseen: attentions.filter(Boolean).length,
-    actionable: attentions.filter(
-      (attention) => attention === 'idle' || attention === 'bell',
-    ).length,
-  }
+): number {
+  return attentions.filter((attention) => attention === 'idle' || attention === 'bell')
+    .length
 }

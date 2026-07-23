@@ -50,6 +50,7 @@ export async function verifyTerminalPresentationLifecycle(
   supervisor: PtySupervisor,
   launchMenuOverflowRoot?: HostPath,
 ): Promise<string> {
+  const layoutFocusStatus = await verifyTerminalLayoutFocus(win)
   const launchMenuStatus = launchMenuOverflowRoot
     ? await verifyTerminalLaunchMenuOverflow(win, launchMenuOverflowRoot)
     : undefined
@@ -254,9 +255,78 @@ export async function verifyTerminalPresentationLifecycle(
     'revealed terminal close timed out',
   )) as string
 
-  return [launchMenuStatus, switchStatus, revealStatus, inputStatus]
+  return [layoutFocusStatus, launchMenuStatus, switchStatus, revealStatus, inputStatus]
     .filter((status): status is string => status !== undefined)
     .join(' · ')
+}
+
+async function verifyTerminalLayoutFocus(win: BrowserWindow): Promise<string> {
+  return (await withTimeout(
+    win.webContents.executeJavaScript(`
+      (async () => {
+        const frames = () => new Promise((resolve) =>
+          requestAnimationFrame(() => requestAnimationFrame(resolve))
+        );
+        const workbench = document.querySelector('.workbench');
+        const maximize = document.querySelector('.terminal-focus-toggle');
+        const minimize = document.querySelector('.terminal-collapse-toggle');
+        if (
+          !(workbench instanceof HTMLElement) ||
+          !(maximize instanceof HTMLButtonElement) ||
+          !(minimize instanceof HTMLButtonElement)
+        ) {
+          throw new Error('terminal layout focus controls missing');
+        }
+        const activeInput = () => document.querySelector(
+          '.terminal-deck:not([hidden]) .terminal-surface.active .terminal-engine-host'
+        );
+        const deadline = Date.now() + 8000;
+        await new Promise((resolve, reject) => {
+          const poll = () => {
+            if (activeInput() instanceof HTMLElement) return resolve();
+            if (Date.now() > deadline) {
+              return reject(new Error('active terminal input did not mount'));
+            }
+            setTimeout(poll, 25);
+          };
+          poll();
+        });
+        const terminalTrack = workbench.style.getPropertyValue('--terminal-track');
+        const expectFocused = async (button, expectedMode) => {
+          button.focus();
+          button.click();
+          await frames();
+          const input = activeInput();
+          if (!(input instanceof HTMLElement)) {
+            throw new Error('active terminal input missing after ' + expectedMode);
+          }
+          if (document.activeElement !== input) {
+            throw new Error(
+              expectedMode + ' layout left focus on ' +
+              (document.activeElement?.className || document.activeElement?.tagName)
+            );
+          }
+          if (workbench.style.getPropertyValue('--terminal-track') !== terminalTrack) {
+            throw new Error(expectedMode + ' layout changed the saved terminal track');
+          }
+        };
+
+        await expectFocused(maximize, 'maximized');
+        await expectFocused(maximize, 'restored');
+        await expectFocused(minimize, 'collapsed');
+        await expectFocused(minimize, 'restored');
+        if (
+          workbench.classList.contains('terminal-focused') ||
+          workbench.classList.contains('terminal-collapsed')
+        ) {
+          throw new Error('terminal layout focus check did not restore split view');
+        }
+        return 'maximized + collapsed + restored terminal focus';
+      })()
+    `),
+    'terminal layout focus check timed out',
+    10_000,
+  )) as string
 }
 
 async function verifyTerminalLaunchMenuOverflow(

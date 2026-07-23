@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef } from 'react'
 
 import {
   nextTerminalAttention,
-  terminalAttentionRollup,
+  terminalActionableAttentionCount,
   terminalIdleAttentionAfterInput,
   terminalOutputAttentionDecision,
   type TerminalAttention,
@@ -123,7 +123,7 @@ export function useTerminalAttentionController({
         idleStates.current.get(id) ?? 'initial',
       )
       if (!decision.notify || focused) return
-      raiseAttention(id, 'output')
+      raiseAttention(id, 'working')
       if (!decision.scheduleIdle) return
       idleTimers.current.set(
         id,
@@ -158,16 +158,14 @@ export function useTerminalAttentionRollup({
   readonly sessions: readonly TerminalSession[]
   readonly onRollup: (
     workspaceId: string,
-    rollup: { readonly unseen: number; readonly actionable: number },
+    rollup: { readonly actionable: number },
   ) => void
 }): void {
-  const rollup = terminalAttentionRollup(sessions.map((session) => session.attention))
-  const { unseen, actionable } = rollup
-  useEffect(() => {
-    onRollup(workspaceId, { unseen, actionable })
-  }, [actionable, onRollup, unseen, workspaceId])
-  useEffect(
-    () => () => onRollup(workspaceId, { unseen: 0, actionable: 0 }),
-    [onRollup, workspaceId],
+  const actionable = terminalActionableAttentionCount(
+    sessions.map((session) => session.attention),
   )
+  useEffect(() => {
+    onRollup(workspaceId, { actionable })
+  }, [actionable, onRollup, workspaceId])
+  useEffect(() => () => onRollup(workspaceId, { actionable: 0 }), [onRollup, workspaceId])
 }
