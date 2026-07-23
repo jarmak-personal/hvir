@@ -1,0 +1,138 @@
+#!/bin/sh
+set -eu
+
+package_id='dev.hvir.app'
+command_marker='hvir-native-package-command-v1'
+inventory_marker='hvir-native-package-inventory-v1'
+target_volume=${3:-/}
+stage='validating target volume'
+transaction=''
+command_had_previous=0
+inventory_had_previous=0
+committed=0
+inventory_dir_created=0
+command_dir_created=0
+
+case "$target_volume" in
+/*) ;;
+*)
+  echo "hvir package configuration failed while $stage: invalid target '$target_volume'" >&2
+  exit 1
+  ;;
+esac
+
+volume_root=${target_volume%/}
+application="$volume_root/Applications/hvir.app"
+executable="$application/Contents/MacOS/hvir"
+notices="$application/Contents/Resources/THIRD_PARTY_NOTICES.md"
+framework="$application/Contents/Frameworks/Electron Framework.framework"
+command_dir="$volume_root/usr/local/bin"
+command="$command_dir/hvir"
+inventory_dir="$volume_root/Library/Application Support/hvir"
+inventory="$inventory_dir/package-inventory-v1.txt"
+
+cleanup() {
+  status=$?
+  trap - EXIT HUP INT TERM
+  if [ "$committed" -ne 1 ] && [ -n "$transaction" ]; then
+    if [ -f "$command" ] && /usr/bin/grep -Fq "$command_marker" "$command"; then
+      /bin/rm -f -- "$command"
+    fi
+    if [ "$command_had_previous" -eq 1 ] && [ -e "$transaction/command.previous" ]; then
+      /bin/mv -f -- "$transaction/command.previous" "$command"
+    fi
+    if [ -f "$inventory" ] && /usr/bin/grep -Fq "$inventory_marker" "$inventory"; then
+      /bin/rm -f -- "$inventory"
+    fi
+    if [ "$inventory_had_previous" -eq 1 ] &&
+      [ -e "$transaction/inventory.previous" ]; then
+      /bin/mv -f -- "$transaction/inventory.previous" "$inventory"
+    fi
+  fi
+  if [ -n "$transaction" ]; then
+    case "$transaction" in
+    "$inventory_dir"/.package-install.*) /bin/rm -rf -- "$transaction" ;;
+    *) status=1 ;;
+    esac
+  fi
+  if [ "$committed" -ne 1 ]; then
+    if [ "$inventory_dir_created" -eq 1 ]; then /bin/rmdir "$inventory_dir" 2>/dev/null || true; fi
+    if [ "$command_dir_created" -eq 1 ]; then /bin/rmdir "$command_dir" 2>/dev/null || true; fi
+  fi
+  if [ "$status" -ne 0 ]; then
+    echo "hvir package configuration failed while $stage" >&2
+  fi
+  exit "$status"
+}
+trap cleanup EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+stage='validating installed application'
+test -x "$executable"
+/usr/bin/file "$executable" | /usr/bin/grep -Fq 'arm64'
+test -L "$framework/Versions/Current"
+test -f "$notices"
+if /usr/bin/codesign -dvv "$application" 2>&1 |
+  /usr/bin/grep -q '^Authority='; then
+  /usr/bin/codesign --verify --deep --strict --verbose=2 "$application"
+fi
+
+stage='preparing package-owned command transaction'
+if [ ! -d "$command_dir" ]; then
+  /bin/mkdir -p "$command_dir"
+  command_dir_created=1
+fi
+if [ ! -d "$inventory_dir" ]; then
+  /bin/mkdir -p "$inventory_dir"
+  inventory_dir_created=1
+fi
+/usr/sbin/chown root:wheel "$command_dir" "$inventory_dir"
+/bin/chmod 0755 "$command_dir" "$inventory_dir"
+transaction=$(/usr/bin/mktemp -d "$inventory_dir/.package-install.XXXXXX")
+
+if [ -e "$command" ] || [ -L "$command" ]; then
+  if [ ! -f "$command" ] || ! /usr/bin/grep -Fq "$command_marker" "$command"; then
+    stage='refusing to replace an unowned hvir command'
+    false
+  fi
+  /bin/mv -- "$command" "$transaction/command.previous"
+  command_had_previous=1
+fi
+
+if [ -e "$inventory" ] || [ -L "$inventory" ]; then
+  if [ ! -f "$inventory" ] || ! /usr/bin/grep -Fq "$inventory_marker" "$inventory"; then
+    stage='refusing to replace an unowned hvir inventory'
+    false
+  fi
+  /bin/mv -- "$inventory" "$transaction/inventory.previous"
+  inventory_had_previous=1
+fi
+
+stage='writing package-owned command'
+{
+  echo '#!/bin/sh'
+  echo "# $command_marker"
+  echo 'exec /Applications/hvir.app/Contents/MacOS/hvir "$@"'
+} >"$transaction/hvir"
+/usr/sbin/chown root:wheel "$transaction/hvir"
+/bin/chmod 0755 "$transaction/hvir"
+/bin/mv -- "$transaction/hvir" "$command"
+
+stage='writing deterministic package inventory'
+{
+  echo "$inventory_marker"
+  echo "package-id=$package_id"
+  echo 'application=/Applications/hvir.app'
+  echo 'command=/usr/local/bin/hvir'
+  echo 'inventory=/Library/Application Support/hvir/package-inventory-v1.txt'
+  echo "receipt=$package_id"
+} >"$transaction/inventory"
+/usr/sbin/chown root:wheel "$transaction/inventory"
+/bin/chmod 0644 "$transaction/inventory"
+/bin/mv -- "$transaction/inventory" "$inventory"
+
+stage='committing package-owned command transaction'
+committed=1
+/bin/rm -f -- "$transaction/command.previous" "$transaction/inventory.previous"
