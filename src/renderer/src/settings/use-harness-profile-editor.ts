@@ -15,6 +15,7 @@ import {
   applyExecutableGrant,
   editorErrorMessage,
   findProfileProbe,
+  harnessProfileBindingError,
   mergeProfileProbe,
 } from './harness-profile-editor-policy'
 import {
@@ -187,6 +188,13 @@ export function useHarnessProfileEditor({
         if (!policyOwner.isCurrent(token, true)) return
         setPreviews([])
         setPreviewError(editorErrorMessage(reason))
+        return
+      }
+      const bindingError = harnessProfileBindingError(previewInput)
+      if (bindingError) {
+        if (!policyOwner.isCurrent(token, true)) return
+        setPreviews([])
+        setPreviewError(bindingError)
         return
       }
       const common = {

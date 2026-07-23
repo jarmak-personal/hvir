@@ -9,6 +9,7 @@ import {
 import {
   applyExecutableGrant,
   applyPathBindingGrant,
+  harnessProfileBindingError,
   harnessRiskLabel,
   previewRiskLabel,
 } from '../src/renderer/src/settings/harness-profile-editor-policy'
@@ -76,6 +77,74 @@ describe('harness profile editor policy', () => {
       path,
       grantId: 'grant-2',
     })
+  })
+
+  it('keeps invalid binding drafts out of command previews', () => {
+    const input: HarnessProfileInput = {
+      displayName: 'Custom',
+      providerId: asHarnessProviderId('opaque'),
+      scope: { kind: 'global' },
+      executable: { kind: 'command', command: 'agent' },
+      args: [],
+      environment: [{ kind: 'literal', name: 'TOKEN', value: '' }],
+      pathBindings: [{ name: 'repo', path: localPath('/repo') }],
+      order: 1,
+    }
+
+    expect(harnessProfileBindingError(input)).toBeUndefined()
+    expect(
+      harnessProfileBindingError({
+        ...input,
+        environment: [{ kind: 'literal', name: '', value: '' }],
+      }),
+    ).toBe('Invalid environment binding')
+    expect(
+      harnessProfileBindingError({
+        ...input,
+        environment: [
+          {
+            kind: 'reference',
+            name: 'TOKEN',
+            source: 'host',
+            sourceName: '',
+          },
+        ],
+      }),
+    ).toBe("Invalid environment binding for 'TOKEN'")
+    expect(
+      harnessProfileBindingError({
+        ...input,
+        environment: [
+          { kind: 'literal', name: 'TOKEN', value: '' },
+          { kind: 'unset', name: 'TOKEN' },
+        ],
+      }),
+    ).toBe("Duplicate environment binding 'TOKEN'")
+    expect(
+      harnessProfileBindingError({
+        ...input,
+        pathBindings: [{ name: '', path: localPath('/repo') }],
+      }),
+    ).toBe('Invalid profile path binding')
+    expect(
+      harnessProfileBindingError({
+        ...input,
+        pathBindings: [
+          { name: 'repo', path: localPath('/one') },
+          { name: 'repo', path: localPath('/two') },
+        ],
+      }),
+    ).toBe("Duplicate path binding 'repo'")
+    expect(
+      harnessProfileBindingError({
+        ...input,
+        args: [
+          {
+            parts: [{ kind: 'path', source: 'binding', binding: 'missing' }],
+          },
+        ],
+      }),
+    ).toBe("Unknown path binding 'missing'")
   })
 
   it('keeps risk labels policy-only and preview-derived', () => {
