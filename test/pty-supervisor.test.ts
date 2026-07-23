@@ -597,6 +597,75 @@ describe('PtySupervisor', () => {
     expect(supervisor.list()).toEqual([])
   })
 
+  it('bounds bulk starts per host and cancels a queued session by its owner', async () => {
+    const { host, provider, spawnPty } = fixture()
+    const supervisor = new PtySupervisor({ bulkStartConcurrencyPerHost: 1 })
+    const firstPty = new FakePty()
+    const secondPty = new FakePty()
+    let finishFirst: (() => void) | undefined
+    spawnPty
+      .mockImplementationOnce(
+        () =>
+          new Promise<PtyProcess>((resolve) => {
+            finishFirst = () => resolve(firstPty)
+          }),
+      )
+      .mockResolvedValueOnce(secondPty)
+    const request = {
+      host,
+      provider,
+      cwd: localPath('/tmp/project'),
+      ownerId: OWNER_ID,
+      admission: 'bulk' as const,
+    }
+
+    const first = supervisor.spawn({ ...request, sessionId: 'bulk-first' })
+    await vi.waitFor(() => expect(spawnPty).toHaveBeenCalledOnce())
+    const second = supervisor.spawn({ ...request, sessionId: 'bulk-second' })
+    await Promise.resolve()
+    expect(spawnPty).toHaveBeenCalledOnce()
+    expect(supervisor.isOwnedBy('bulk-second', OWNER_ID)).toBe(true)
+    const cancelled = expect(second).rejects.toThrow('admission was cancelled')
+    supervisor.kill('bulk-second', OWNER_ID)
+    finishFirst?.()
+
+    await first
+    await cancelled
+    expect(spawnPty).toHaveBeenCalledOnce()
+  })
+
+  it('admits the next bulk start after an isolated launch failure', async () => {
+    const { host, provider, spawnPty } = fixture()
+    const supervisor = new PtySupervisor({ bulkStartConcurrencyPerHost: 1 })
+    const secondPty = new FakePty()
+    let failFirst: (() => void) | undefined
+    spawnPty
+      .mockImplementationOnce(
+        () =>
+          new Promise<PtyProcess>((_resolve, reject) => {
+            failFirst = () => reject(new Error('first launch failed'))
+          }),
+      )
+      .mockResolvedValueOnce(secondPty)
+    const request = {
+      host,
+      provider,
+      cwd: localPath('/tmp/project'),
+      ownerId: OWNER_ID,
+      admission: 'bulk' as const,
+    }
+
+    const first = supervisor.spawn({ ...request, sessionId: 'bulk-failure' })
+    const failed = expect(first).rejects.toThrow('first launch failed')
+    await vi.waitFor(() => expect(spawnPty).toHaveBeenCalledOnce())
+    const second = supervisor.spawn({ ...request, sessionId: 'bulk-after-failure' })
+    failFirst?.()
+
+    await failed
+    await expect(second).resolves.toMatchObject({ id: 'bulk-after-failure' })
+    expect(spawnPty).toHaveBeenCalledTimes(2)
+  })
+
   it('reports one exit when an SSH PTY closes without exit-status', async () => {
     const channel = Object.assign(new EventEmitter(), {
       close: vi.fn(() => channel.emit('close')),

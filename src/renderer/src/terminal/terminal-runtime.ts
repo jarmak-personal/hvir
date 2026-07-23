@@ -1,70 +1,21 @@
 import {
   hostPathEquals,
-  type ComposerSubmitMode,
-  type HarnessModifiedKeyProtocol,
-  type HarnessProfileId,
-  type HarnessProviderCapabilities,
-  type HarnessTelemetry,
   type HostConnectionState,
   type HostPath,
-  type TerminalIdentityStatus,
 } from '../../../shared'
 import { createGhosttyTerminalPane } from './ghostty-terminal-pane'
 import { SynchronizedOutputWriter } from './synchronized-output'
 import type { TerminalEventRouter } from './terminal-event-router'
-import type { TerminalLinkActivation, TerminalPane } from './terminal-pane'
-import type { TerminalPresentation } from './terminal-pane'
+import type { TerminalPane } from './terminal-pane'
 import {
   baseTerminalTheme,
   resumeUnavailableStatus,
   type TerminalRecoveryFailure,
   type TerminalRuntimeSnapshot,
 } from './terminal-runtime-presentation'
+import type { TerminalRuntimeOptions } from './terminal-runtime-options'
 
 const PTY_RESIZE_DEBOUNCE_MS = 75
-
-export interface FreshTerminalStart {
-  readonly sessionId: string
-  readonly status: string
-  readonly harnessSessionId?: string
-  readonly identityStatus: TerminalIdentityStatus
-  readonly capabilities: HarnessProviderCapabilities
-}
-
-export interface TerminalRuntimeOptions {
-  readonly sessionId: string
-  readonly profileId: HarnessProfileId
-  readonly launchRevision: number
-  readonly riskAcknowledged: boolean
-  readonly supportsResume: boolean
-  readonly fallbackTitle: string
-  readonly harnessSessionId?: string
-  readonly resumeOnStart: boolean
-  readonly position: number
-  readonly active: boolean
-  readonly presentation: TerminalPresentation
-  readonly modifiedKeyProtocol: HarnessModifiedKeyProtocol
-  readonly metaEnterAliasesControl: boolean
-  readonly composerSubmitMode: ComposerSubmitMode
-  readonly cwd: HostPath
-  readonly workspaceRoot: HostPath
-  readonly connectionState: HostConnectionState
-  readonly onTitle: (title: string) => void
-  readonly onStatus: (status: string) => void
-  readonly onTelemetry: (telemetry: HarnessTelemetry | undefined) => void
-  readonly onIdentity: (
-    harnessSessionId: string | undefined,
-    status: TerminalIdentityStatus,
-  ) => void
-  readonly onStarted: () => void
-  readonly onFreshStarted: (started: FreshTerminalStart) => void
-  readonly onCapabilities: (capabilities: HarnessProviderCapabilities) => void
-  readonly onInput: (data: string) => void
-  readonly onOutput: () => void
-  readonly onBell: () => void
-  readonly onFocus: () => void
-  readonly onLink: (activation: TerminalLinkActivation) => void
-}
 
 export class TerminalRuntime {
   private options: TerminalRuntimeOptions
@@ -87,6 +38,7 @@ export class TerminalRuntime {
   private restartRequested = false
   private pendingReplacementId?: string
   private activePtyId?: string
+  private startController?: AbortController
   private disposed = false
 
   constructor(
@@ -97,6 +49,10 @@ export class TerminalRuntime {
       nextId: string,
       runtime: TerminalRuntime,
     ) => void,
+    private readonly admitBulkStart: (
+      hostId: string,
+      signal: AbortSignal,
+    ) => Promise<() => void>,
   ) {
     this.options = options
     // Connected is the neutral initial value; the first synchronization must still
@@ -147,7 +103,7 @@ export class TerminalRuntime {
     }
     this.disconnected = true
     if (this.started && connectionState !== 'disconnected') return
-    this.releaseSurface(false)
+    this.releaseSurface(this.starting)
     this.updateSnapshot({
       title: this.options.fallbackTitle,
       status: connectionState,
@@ -259,6 +215,9 @@ export class TerminalRuntime {
     const reconnect = this.disconnected && this.hasStarted
     const manualRestart = !replacement && this.restartRequested
     const sessionId = replacement?.sessionId ?? this.options.sessionId
+    const startController = new AbortController()
+    this.startController = startController
+    let releaseAdmission: (() => void) | undefined
     this.disconnected = false
     this.restartRequested = false
     this.updateSnapshot({
@@ -268,6 +227,17 @@ export class TerminalRuntime {
     })
     this.options.onTelemetry(undefined)
     try {
+      if (this.options.startMode === 'bulk') {
+        releaseAdmission = await this.admitBulkStart(
+          this.options.cwd.hostId,
+          startController.signal,
+        )
+        if (!this.isCurrent(generation)) return
+        this.updateSnapshot({
+          ...this.currentSnapshot,
+          status: this.options.resumeOnStart ? 'Resuming…' : 'Starting…',
+        })
+      }
       if (reconnect && this.options.supportsResume && !this.options.harnessSessionId) {
         throw new Error('Exact harness session id unavailable; start a new terminal')
       }
@@ -304,6 +274,7 @@ export class TerminalRuntime {
         position: this.options.position,
         active: this.options.active,
         composerSubmitMode: this.options.composerSubmitMode,
+        admission: this.options.startMode,
         resume,
         harnessSessionId: resume ? this.options.harnessSessionId : undefined,
         acknowledgeRisk: this.options.riskAcknowledged,
@@ -378,6 +349,8 @@ export class TerminalRuntime {
         })
       }
     } finally {
+      releaseAdmission?.()
+      if (this.startController === startController) this.startController = undefined
       if (generation === this.startGeneration) {
         this.starting = false
         if (replacement && this.pendingReplacementId === replacement.sessionId) {
@@ -450,6 +423,9 @@ export class TerminalRuntime {
   }
 
   private releaseSurface(kill: boolean): void {
+    const wasStarting = this.starting
+    this.startController?.abort()
+    this.startController = undefined
     this.startGeneration++
     this.starting = false
     this.eventRoute?.dispose()
@@ -463,8 +439,13 @@ export class TerminalRuntime {
     this.pendingInput = ''
     this.pane?.dispose()
     this.pane = undefined
-    if (kill && this.started && this.activePtyId) {
-      window.hvir.send('pty:kill', { id: this.activePtyId })
+    if (kill && (this.started || wasStarting)) {
+      window.hvir.send('pty:kill', {
+        id:
+          this.activePtyId ??
+          this.pendingReplacementId ??
+          this.options.sessionId,
+      })
     }
     this.started = false
     this.activePtyId = undefined

@@ -92,13 +92,69 @@ describe('terminal workspace model', () => {
   it('bounds persisted split recovery data without accepting malformed widths', () => {
     const ids = Array.from({ length: 510 }, (_, index) => `terminal-${index}`)
     expect(
-      decodeTerminalSplitLayout(JSON.stringify({ secondaryIds: ids, primaryWidth: 320 })),
-    ).toMatchObject({ secondaryIds: ids.slice(0, 500), primaryWidth: 320 })
+      decodeTerminalSplitLayout(
+        JSON.stringify({
+          secondaryIds: ids,
+          primaryWidth: 320,
+          activeByPane: { primary: 'terminal-2', secondary: 'terminal-9' },
+        }),
+      ),
+    ).toMatchObject({
+      secondaryIds: ids.slice(0, 500),
+      primaryWidth: 320,
+      activeByPane: { primary: 'terminal-2', secondary: 'terminal-9' },
+    })
     expect(
       decodeTerminalSplitLayout(
         JSON.stringify({ secondaryIds: ['ok'], primaryWidth: 'wide' }),
       ),
     ).toEqual({ secondaryIds: ['ok'], primaryWidth: undefined })
+  })
+
+  it('starts a selected dormant row once and queues only the remaining dormant rows', () => {
+    let model = reduce(initialTerminalWorkspaceModel, {
+      type: 'sessions-replaced',
+      sessions: [
+        { ...session('active', 'primary'), dormant: false },
+        { ...session('selected', 'primary'), dormant: true, resumeOnStart: true },
+        { ...session('bulk', 'primary'), dormant: true },
+      ],
+      activeId: 'active',
+    })
+
+    model = reduce(model, { type: 'session-focused', id: 'selected' })
+    expect(model.sessions[1]).toMatchObject({
+      dormant: false,
+      startMode: 'interactive',
+      status: 'Resuming…',
+    })
+    model = reduce(model, { type: 'session-focused', id: 'selected' })
+    expect(model.sessions[1]?.status).toBe('Resuming…')
+
+    model = reduce(model, { type: 'dormant-sessions-start-requested' })
+    expect(model.sessions[0]?.startMode).toBeUndefined()
+    expect(model.sessions[1]?.startMode).toBe('interactive')
+    expect(model.sessions[2]).toMatchObject({
+      dormant: false,
+      startMode: 'bulk',
+      status: 'Queued to start',
+    })
+  })
+
+  it('forgets a dormant row without admitting another process', () => {
+    const live = { ...session('live', 'primary'), dormant: false }
+    const dormant = { ...session('dormant', 'primary'), dormant: true }
+    const model = reduce(
+      reduce(initialTerminalWorkspaceModel, {
+        type: 'sessions-replaced',
+        sessions: [live, dormant],
+        activeId: live.id,
+      }),
+      { type: 'session-closed', id: dormant.id },
+    )
+
+    expect(model.sessions).toEqual([live])
+    expect(model.activeId).toBe(live.id)
   })
 })
 

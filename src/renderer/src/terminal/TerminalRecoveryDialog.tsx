@@ -112,6 +112,10 @@ export function TerminalRecoveryDialog({
         tabIndex={-1}
       >
         <h2 id="terminal-recovery-title">Restore terminals</h2>
+        <p className="terminal-recovery-summary">
+          Restore terminal rows now. Only the visible terminal in each split will
+          start; the rest stay ready until selected.
+        </p>
         <div className="terminal-recovery-list">
           {sessions.map((session) => {
             const provider = providerDescriptor(providers, session.providerId)

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import type { TerminalRuntimeOptions } from '../src/renderer/src/terminal/terminal-runtime'
+import type { TerminalRuntimeOptions } from '../src/renderer/src/terminal/terminal-runtime-options'
 import { TerminalRuntimeRegistry } from '../src/renderer/src/terminal/terminal-runtime-registry'
 import {
   asHarnessProfileId,
@@ -22,6 +22,7 @@ function options(
     fallbackTitle: 'Codex · repo',
     harnessSessionId: '019ab123-4567-7890-abcd-ef0123456789',
     resumeOnStart: false,
+    startMode: 'interactive',
     position: 0,
     active: true,
     presentation: 'visible',

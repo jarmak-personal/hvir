@@ -13,6 +13,7 @@ import type { TerminalAttention } from './terminal-attention'
 import { profileRiskAcknowledged } from './terminal-profile-recovery'
 
 export type TerminalSplitPane = 'primary' | 'secondary'
+export type TerminalStartMode = 'interactive' | 'bulk'
 
 export interface TerminalSession {
   readonly id: string
@@ -29,6 +30,10 @@ export interface TerminalSession {
   readonly harnessSessionId?: string
   readonly identityStatus?: TerminalIdentityStatus
   readonly resumeOnStart: boolean
+  /** Restored metadata exists, but no terminal engine or PTY has been allocated. */
+  readonly dormant?: boolean
+  /** Bulk starts alone use the main-owned per-host admission queue. */
+  readonly startMode?: TerminalStartMode
   readonly pane: TerminalSplitPane
   /** Immutable provider launch/recovery context. */
   readonly cwd: HostPath
@@ -48,6 +53,9 @@ export type TerminalWorkspaceAction =
       readonly type: 'sessions-replaced'
       readonly sessions: readonly TerminalSession[]
       readonly activeId?: string
+      readonly activeByPane?: Readonly<
+        Record<TerminalSplitPane, string | undefined>
+      >
     }
   | { readonly type: 'session-added'; readonly session: TerminalSession }
   | {
@@ -59,6 +67,7 @@ export type TerminalWorkspaceAction =
   | { readonly type: 'session-updated'; readonly session: TerminalSession }
   | { readonly type: 'session-closed'; readonly id: string }
   | { readonly type: 'session-moved'; readonly id: string }
+  | { readonly type: 'dormant-sessions-start-requested' }
   | { readonly type: 'primary-width-changed'; readonly width?: number }
 
 export const initialTerminalWorkspaceModel: TerminalWorkspaceModel = {
@@ -75,7 +84,12 @@ export function terminalWorkspaceReducer(
     case 'reset':
       return { ...initialTerminalWorkspaceModel, primaryWidth: action.primaryWidth }
     case 'sessions-replaced':
-      return replaceSessions(model, action.sessions, action.activeId)
+      return replaceSessions(
+        model,
+        action.sessions,
+        action.activeId,
+        action.activeByPane,
+      )
     case 'session-added':
       return {
         ...model,
@@ -94,11 +108,13 @@ export function terminalWorkspaceReducer(
       if (!session) return model
       return {
         ...model,
-        sessions: model.sessions.map((candidate) =>
-          candidate.id === action.id && candidate.attention
-            ? { ...candidate, attention: undefined }
-            : candidate,
-        ),
+        sessions: model.sessions.map((candidate) => {
+          if (candidate.id !== action.id) return candidate
+          return requestTerminalStart(
+            candidate.attention ? { ...candidate, attention: undefined } : candidate,
+            'interactive',
+          )
+        }),
         activeId: session.id,
         activePane: session.pane,
         activeByPane: { ...model.activeByPane, [session.pane]: session.id },
@@ -115,6 +131,13 @@ export function terminalWorkspaceReducer(
       return closeSession(model, action.id)
     case 'session-moved':
       return moveSession(model, action.id)
+    case 'dormant-sessions-start-requested':
+      return {
+        ...model,
+        sessions: model.sessions.map((session) =>
+          requestTerminalStart(session, 'bulk'),
+        ),
+      }
     case 'primary-width-changed':
       return { ...model, primaryWidth: action.width }
   }
@@ -141,6 +164,8 @@ export function createTerminalSession(
     title: fallbackTitle,
     status: 'Starting…',
     resumeOnStart: false,
+    dormant: false,
+    startMode: 'interactive',
     pane,
     cwd,
   }
@@ -170,6 +195,9 @@ function replaceSessions(
   model: TerminalWorkspaceModel,
   sessions: readonly TerminalSession[],
   requestedActiveId?: string,
+  requestedActiveByPane?: Readonly<
+    Record<TerminalSplitPane, string | undefined>
+  >,
 ): TerminalWorkspaceModel {
   const active =
     sessions.find((session) => session.id === requestedActiveId) ?? sessions[0]
@@ -177,12 +205,16 @@ function replaceSessions(
     primary:
       sessions.find(
         (session) =>
-          session.pane === 'primary' && session.id === model.activeByPane.primary,
+          session.pane === 'primary' &&
+          session.id ===
+            (requestedActiveByPane?.primary ?? model.activeByPane.primary),
       )?.id ?? sessions.find((session) => session.pane === 'primary')?.id,
     secondary:
       sessions.find(
         (session) =>
-          session.pane === 'secondary' && session.id === model.activeByPane.secondary,
+          session.pane === 'secondary' &&
+          session.id ===
+            (requestedActiveByPane?.secondary ?? model.activeByPane.secondary),
       )?.id ?? sessions.find((session) => session.pane === 'secondary')?.id,
   }
   if (active) activeByPane[active.pane] = active.id
@@ -199,7 +231,7 @@ function closeSession(model: TerminalWorkspaceModel, id: string): TerminalWorksp
   const index = model.sessions.findIndex((session) => session.id === id)
   if (index < 0) return model
   const pane = model.sessions[index]?.pane ?? 'primary'
-  const sessions = model.sessions.filter((session) => session.id !== id)
+  let sessions = model.sessions.filter((session) => session.id !== id)
   const nextInPane =
     sessions.slice(index).find((session) => session.pane === pane) ??
     [...sessions].reverse().find((session) => session.pane === pane)
@@ -209,6 +241,13 @@ function closeSession(model: TerminalWorkspaceModel, id: string): TerminalWorksp
   if (!active) {
     active = nextInPane ?? sessions[Math.min(index, sessions.length - 1)]
     if (active) activeByPane[active.pane] = active.id
+  }
+  if (active?.dormant) {
+    sessions = sessions.map((session) =>
+      session.id === active?.id
+        ? requestTerminalStart(session, 'interactive')
+        : session,
+    )
   }
   return {
     ...model,
@@ -260,10 +299,31 @@ function moveSession(model: TerminalWorkspaceModel, id: string): TerminalWorkspa
   return {
     ...model,
     sessions: model.sessions.map((candidate) =>
-      candidate.id === id ? { ...candidate, pane } : candidate,
+      candidate.id === id
+        ? requestTerminalStart({ ...candidate, pane }, 'interactive')
+        : candidate,
     ),
     activeId: id,
     activePane: pane,
     activeByPane,
+  }
+}
+
+function requestTerminalStart(
+  session: TerminalSession,
+  mode: TerminalStartMode,
+): TerminalSession {
+  if (!session.dormant) return session
+  const action = session.resumeOnStart ? 'resume' : 'start'
+  return {
+    ...session,
+    dormant: false,
+    startMode: mode,
+    status:
+      mode === 'bulk'
+        ? `Queued to ${action}`
+        : session.resumeOnStart
+          ? 'Resuming…'
+          : 'Starting…',
   }
 }

@@ -14,7 +14,7 @@ import type { TerminalThemeOverride } from '../settings/settings'
 import { useAppTheme, type AppTheme } from '../theme'
 import type { TerminalLinkActivation } from './terminal-pane'
 import { useTerminalPaneController } from './use-terminal-pane-controller'
-import type { FreshTerminalStart } from './terminal-runtime'
+import type { FreshTerminalStart } from './terminal-runtime-options'
 import type { TerminalRuntimeRegistry } from './terminal-runtime-registry'
 
 interface TerminalViewProps {
@@ -26,6 +26,7 @@ interface TerminalViewProps {
   readonly fallbackTitle: string
   readonly harnessSessionId?: string
   readonly resumeOnStart: boolean
+  readonly startMode: 'interactive' | 'bulk'
   readonly position: number
   readonly slot: 'primary' | 'secondary'
   readonly visible: boolean

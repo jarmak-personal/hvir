@@ -9,7 +9,7 @@ import type {
 } from '../../../shared'
 import { profileRiskAcknowledged } from './terminal-profile-recovery'
 import { profileProbe } from './terminal-probe-policy'
-import type { FreshTerminalStart } from './terminal-runtime'
+import type { FreshTerminalStart } from './terminal-runtime-options'
 import type { TerminalRuntimeRegistry } from './terminal-runtime-registry'
 import {
   createTerminalSession,
@@ -116,6 +116,7 @@ export function useTerminalSessionCommands({
       focusAttention(id)
       send({ type: 'session-focused', id })
     },
+    resumeAll: () => send({ type: 'dormant-sessions-start-requested' }),
     split: () => {
       if (!available || !defaultProvider || !defaultProfile) return
       send({
