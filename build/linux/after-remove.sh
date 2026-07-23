@@ -22,9 +22,10 @@ report_failure() {
 }
 trap report_failure ERR
 
+HVIR_COMMAND='/opt/${sanitizedProductName}/resources/hvir-command'
 if command -v update-alternatives >/dev/null 2>&1; then
   update-alternatives \
-    --remove '${executable}' '/opt/${sanitizedProductName}/${executable}'
+    --remove '${executable}' "$HVIR_COMMAND"
 else
   rm -f '/usr/bin/${executable}'
 fi

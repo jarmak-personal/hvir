@@ -62,8 +62,13 @@ home_root="$invocation_root/home"
 config_root="$invocation_root/config"
 user_state_root="$config_root/hvir"
 blocked_tools_root="$invocation_root/blocked-tools"
+legacy_prefix="$invocation_root/legacy-npm"
+legacy_root="$legacy_prefix/lib/node_modules"
+legacy_launcher="$legacy_prefix/bin/hvir"
 previous_package_root="$invocation_root/previous-package"
 previous_package="$invocation_root/hvir_previous_${deb_arch}.deb"
+previous_installer="$invocation_root/install-previous.sh"
+current_installer="$invocation_root/install-current.sh"
 install_log="$invocation_root/install.log"
 update_log="$invocation_root/update.log"
 remove_log="$invocation_root/remove.log"
@@ -91,7 +96,13 @@ trap 'exit 129' HUP
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
-mkdir -p "$home_root" "$user_state_root" "$blocked_tools_root"
+mkdir -p \
+  "$home_root" \
+  "$user_state_root" \
+  "$blocked_tools_root" \
+  "$legacy_prefix/bin" \
+  "$legacy_root/hvir-workbench/bin" \
+  "$invocation_root/cache/hvir/native"
 "$source_checkout/scripts/create-smoke-repository.sh" \
   "$source_checkout" \
   "$project_root"
@@ -101,12 +112,61 @@ for blocked_tool in node npm npx; do
   printf '#!/bin/sh\nexit 97\n' >"$blocked_tools_root/$blocked_tool"
   chmod 0755 "$blocked_tools_root/$blocked_tool"
 done
+printf '#!/bin/sh\nexit 97\n' \
+  >"$legacy_root/hvir-workbench/bin/hvir.mjs"
+chmod 0755 "$legacy_root/hvir-workbench/bin/hvir.mjs"
+ln -s '../lib/node_modules/hvir-workbench/bin/hvir.mjs' "$legacy_launcher"
+printf '%s\n' \
+  '#!/bin/sh' \
+  'case "$1:$2" in' \
+  'prefix:-g) printf "%s\n" "$HVIR_FAKE_NPM_PREFIX" ;;' \
+  'root:-g) printf "%s\n" "$HVIR_FAKE_NPM_ROOT" ;;' \
+  'ls:-g) printf "%s/hvir-workbench\n" "$HVIR_FAKE_NPM_ROOT" ;;' \
+  'uninstall:-g)' \
+  '  /bin/rm -f -- "$HVIR_FAKE_NPM_PREFIX/bin/hvir"' \
+  '  /bin/rm -rf -- "$HVIR_FAKE_NPM_ROOT/hvir-workbench"' \
+  '  ;;' \
+  '*) exit 96 ;;' \
+  'esac' \
+  >"$legacy_prefix/bin/npm"
+chmod 0755 "$legacy_prefix/bin/npm"
+printf 'derived npm cache\n' >"$invocation_root/cache/hvir/native/cache-smoke-marker"
 
 dpkg-deb --raw-extract "$package_path" "$previous_package_root"
-previous_version='0.0.0~hvir-smoke'
+previous_version='0.0.0'
 sed -i "s/^Version:.*/Version: $previous_version/" \
   "$previous_package_root/DEBIAN/control"
 dpkg-deb --root-owner-group --build "$previous_package_root" "$previous_package" >/dev/null
+
+render_acceptance_installer() {
+  local package=$1
+  local version=$2
+  local output=$3
+  local asset_directory="${output%.sh}-assets"
+  local linux_artifact="$asset_directory/$(basename "$package")"
+  local macos_artifact="$asset_directory/hvir-${version}-macos-arm64.pkg"
+
+  mkdir "$asset_directory"
+  ln -s "$package" "$linux_artifact"
+  printf '%s\n' 'acceptance-only macOS arm64 artifact placeholder' \
+    >"$macos_artifact"
+  CI=true GITHUB_ACTIONS=true node scripts/render-native-installer.mjs \
+    --version "$version" \
+    --repository jarmak-personal/hvir \
+    --linux-x64-artifact "$linux_artifact" \
+    --linux-arm64-artifact "$linux_artifact" \
+    --macos-arm64-artifact "$macos_artifact" \
+    --macos-team-id AAAAAAAAAA \
+    --output "$output" \
+    --acceptance-asset-directory "$asset_directory" \
+    --acceptance-unsigned-macos true
+}
+
+render_acceptance_installer \
+  "$previous_package" \
+  "$previous_version" \
+  "$previous_installer"
+render_acceptance_installer "$package_path" "$package_version" "$current_installer"
 
 require_equal() {
   actual=$1
@@ -155,7 +215,11 @@ assert_package_contract() {
     "$(stat -c '%U:%G' /usr/bin/hvir)" \
     'root:root' \
     'command ownership'
-  require_equal "$(readlink -f /usr/bin/hvir)" '/opt/hvir/hvir' 'command target'
+  require_equal \
+    "$(readlink -f /usr/bin/hvir)" \
+    '/opt/hvir/resources/hvir-command' \
+    'command target'
+  require_contains /usr/bin/hvir 'hvir-native-package-command-v1' 'command marker'
   binary_description=$(file /opt/hvir/hvir)
   if [[ "$binary_description" != *"$binary_arch"* ]]; then
     echo \
@@ -220,7 +284,7 @@ run_installed_smoke() {
       HVIR_SMOKE_REQUIRE_PROCESS_SANDBOX=1 \
       HVIR_SMOKE_SCENARIO="$scenario" \
       /usr/bin/hvir \
-      --project-root="$project_root" \
+      . \
       --user-data-dir="$user_data_root"
   ) >"$log" 2>&1; then
     smoke_status=0
@@ -240,14 +304,25 @@ run_installed_smoke() {
   fi
 }
 
-sudo /usr/bin/apt install --no-install-recommends -y "$previous_package" \
-  2>&1 | tee "$install_log"
+HOME="$home_root" \
+  PATH="$legacy_prefix/bin:$blocked_tools_root:/usr/sbin:/usr/bin:/sbin:/bin" \
+  HVIR_FAKE_NPM_PREFIX="$legacy_prefix" \
+  HVIR_FAKE_NPM_ROOT="$legacy_root" \
+  XDG_CONFIG_HOME="$config_root" \
+  XDG_CACHE_HOME="$invocation_root/cache" \
+  "$previous_installer" 2>&1 | tee "$install_log"
 package_installed=1
+test ! -e "$legacy_launcher"
+test ! -e "$legacy_root/hvir-workbench"
+test ! -e "$invocation_root/cache/hvir/native"
 assert_package_contract "$previous_version"
 run_installed_smoke previous pty-native
 
-sudo /usr/bin/apt install --no-install-recommends -y "$package_path" \
-  2>&1 | tee "$update_log"
+HOME="$home_root" \
+  PATH="$blocked_tools_root:/usr/sbin:/usr/bin:/sbin:/bin" \
+  XDG_CONFIG_HOME="$config_root" \
+  XDG_CACHE_HOME="$invocation_root/cache" \
+  "$current_installer" 2>&1 | tee "$update_log"
 assert_package_contract "$package_version"
 run_installed_smoke current pty-native
 run_installed_smoke current platform-contracts
@@ -256,7 +331,22 @@ grep -Fq 'renderer sandbox active' \
 grep -Fq 'renderer IPC + echo worker round-trip OK' \
   "$invocation_root/current-platform-contracts.log"
 
-sudo /usr/bin/apt remove -y hvir 2>&1 | tee "$remove_log"
+if HOME="$home_root" \
+  PATH="$blocked_tools_root:/usr/sbin:/usr/bin:/sbin:/bin" \
+  XDG_CONFIG_HOME="$config_root" \
+  XDG_CACHE_HOME="$invocation_root/cache" \
+  /usr/bin/hvir "$invocation_root/missing-project" \
+  >"$invocation_root/invalid-project.log" 2>&1; then
+  echo 'Invalid public project path unexpectedly launched hvir.' >&2
+  exit 1
+fi
+grep -Fq 'project is not a local directory' "$invocation_root/invalid-project.log"
+
+HOME="$home_root" \
+  PATH="$blocked_tools_root:/usr/sbin:/usr/bin:/sbin:/bin" \
+  XDG_CONFIG_HOME="$config_root" \
+  XDG_CACHE_HOME="$invocation_root/cache" \
+  "$current_installer" --uninstall 2>&1 | tee "$remove_log"
 package_installed=0
 if [[ -e /usr/bin/hvir || -e /opt/hvir || -e /etc/apparmor.d/hvir ]]; then
   echo 'Native package removal left package-owned files behind.' >&2
@@ -270,4 +360,22 @@ test -f "$user_state_root/settings-smoke-marker"
 test -f "$user_state_root/projects-smoke-marker"
 test -d "$project_root/.git"
 
-echo "Verified hvir ${package_version} ${deb_arch} native installation, update, sandbox, and removal."
+HOME="$home_root" \
+  PATH="$blocked_tools_root:/usr/sbin:/usr/bin:/sbin:/bin" \
+  XDG_CONFIG_HOME="$config_root" \
+  XDG_CACHE_HOME="$invocation_root/cache" \
+  "$current_installer" >/dev/null
+package_installed=1
+mkdir -p "$invocation_root/cache/hvir"
+printf 'purge cache\n' >"$invocation_root/cache/hvir/cache-smoke-marker"
+HOME="$home_root" \
+  PATH="$blocked_tools_root:/usr/sbin:/usr/bin:/sbin:/bin" \
+  XDG_CONFIG_HOME="$config_root" \
+  XDG_CACHE_HOME="$invocation_root/cache" \
+  "$current_installer" --uninstall --purge >/dev/null
+package_installed=0
+test ! -e "$user_state_root"
+test ! -e "$invocation_root/cache/hvir"
+test -d "$project_root/.git"
+
+echo "Verified hvir ${package_version} ${deb_arch} native installer lifecycle."

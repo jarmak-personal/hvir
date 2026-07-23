@@ -25,6 +25,7 @@ volume_root=${target_volume%/}
 application="$volume_root/Applications/hvir.app"
 executable="$application/Contents/MacOS/hvir"
 notices="$application/Contents/Resources/THIRD_PARTY_NOTICES.md"
+command_source="$application/Contents/Resources/hvir-command"
 framework="$application/Contents/Frameworks/Electron Framework.framework"
 command_dir="$volume_root/usr/local/bin"
 command="$command_dir/hvir"
@@ -74,6 +75,8 @@ test -x "$executable"
 /usr/bin/file "$executable" | /usr/bin/grep -Fq 'arm64'
 test -L "$framework/Versions/Current"
 test -f "$notices"
+test -f "$command_source"
+/usr/bin/grep -Fq "$command_marker" "$command_source"
 if /usr/bin/codesign -dvv "$application" 2>&1 |
   /usr/bin/grep -q '^Authority='; then
   /usr/bin/codesign --verify --deep --strict --verbose=2 "$application"
@@ -111,11 +114,7 @@ if [ -e "$inventory" ] || [ -L "$inventory" ]; then
 fi
 
 stage='writing package-owned command'
-{
-  echo '#!/bin/sh'
-  echo "# $command_marker"
-  echo 'exec /Applications/hvir.app/Contents/MacOS/hvir "$@"'
-} >"$transaction/hvir"
+/bin/cp -- "$command_source" "$transaction/hvir"
 /usr/sbin/chown root:wheel "$transaction/hvir"
 /bin/chmod 0755 "$transaction/hvir"
 /bin/mv -- "$transaction/hvir" "$command"

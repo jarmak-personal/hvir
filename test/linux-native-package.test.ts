@@ -29,10 +29,7 @@ const ciWorkflow = readFileSync(
   new URL('../.github/workflows/ci.yml', import.meta.url),
   'utf8',
 )
-const preload = readFileSync(
-  new URL('../src/preload/index.ts', import.meta.url),
-  'utf8',
-)
+const preload = readFileSync(new URL('../src/preload/index.ts', import.meta.url), 'utf8')
 const platformContracts = readFileSync(
   new URL('../src/main/smoke/platform-contracts.ts', import.meta.url),
   'utf8',
@@ -64,6 +61,9 @@ describe('Linux native package contract', () => {
     expect(afterInstall).toContain(
       "APPARMOR_PROFILE_TARGET='/etc/apparmor.d/${executable}'",
     )
+    expect(afterInstall).toContain(
+      "HVIR_COMMAND='/opt/${sanitizedProductName}/resources/hvir-command'",
+    )
     expect(afterInstall).toContain('apparmor_parser --skip-kernel-load --debug')
     expect(afterInstall).toContain('chmod 4755')
     expect(afterInstall).toContain('hvir package configuration failed while $stage')
@@ -73,7 +73,9 @@ describe('Linux native package contract', () => {
     expect(afterRemove).toContain(
       'upgrade | failed-upgrade | abort-install | abort-upgrade | disappear',
     )
-    expect(afterRemove).toContain("update-alternatives \\\n    --remove '${executable}'")
+    expect(afterRemove).toContain(
+      'update-alternatives \\\n    --remove \'${executable}\' "$HVIR_COMMAND"',
+    )
     expect(afterRemove).toContain('apparmor_parser --remove')
     expect(afterRemove).not.toMatch(/config|projects|HOME/)
   })
@@ -82,7 +84,9 @@ describe('Linux native package contract', () => {
     expect(installedSmoke).toContain(
       '"${ID:-}" != \'ubuntu\' || "${VERSION_ID:-}" != \'24.04\'',
     )
-    expect(installedSmoke).toContain('/usr/bin/apt install')
+    expect(installedSmoke).toContain('scripts/render-native-installer.mjs')
+    expect(installedSmoke).toContain('"$previous_installer" 2>&1 | tee "$install_log"')
+    expect(installedSmoke).toContain('"$current_installer" 2>&1 | tee "$update_log"')
     expect(installedSmoke).toContain('run_installed_smoke previous pty-native')
     expect(installedSmoke).toContain('run_installed_smoke current platform-contracts')
     expect(installedSmoke).toContain('HVIR_SMOKE_REQUIRE_PROCESS_SANDBOX=1')
@@ -92,8 +96,12 @@ describe('Linux native package contract', () => {
     expect(installedSmoke).toContain(
       'PATH="$blocked_tools_root:/usr/sbin:/usr/bin:/sbin:/bin"',
     )
+    expect(installedSmoke).toContain('/usr/bin/hvir \\\n      . \\')
+    expect(installedSmoke).toContain('"$current_installer" --uninstall --purge')
+    expect(installedSmoke).toContain('HVIR_FAKE_NPM_PREFIX="$legacy_prefix"')
+    expect(installedSmoke).toContain('test ! -e "$legacy_launcher"')
     expect(installedSmoke).toContain(
-      "require_contains \"$desktop_entry\" 'Exec=/opt/hvir/hvir %U'",
+      'require_contains "$desktop_entry" \'Exec=/opt/hvir/hvir %U\'',
     )
     expect(installedSmoke).toContain('test -d "$project_root/.git"')
     expect(installedSmoke).not.toContain('--no-sandbox')
