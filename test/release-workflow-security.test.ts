@@ -42,6 +42,7 @@ describe('release PR automation', () => {
     )
     expect(prepareReleaseScript).toContain("'issue',\n    'list'")
     expect(prepareReleaseScript).toContain('`closed:>${since}`')
+    expect(releaseWorkflow).toContain('      issues: read\n      pull-requests: write')
     expect(prepareReleaseScript).toContain(
       '## Closed issues since ${boundaryDescription}',
     )
