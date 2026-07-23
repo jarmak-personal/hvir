@@ -123,6 +123,9 @@ describe('macOS native package contract', () => {
       'sudo /usr/sbin/installer -pkg "$package_path" -target /',
     )
     expect(installedSmoke).toContain(
+      "grep -Fq 'installer: The upgrade was successful.'",
+    )
+    expect(installedSmoke).toContain(
       'run_installed_smoke retained-after-failed-update pty-native',
     )
     expect(installedSmoke).toContain('run_installed_smoke current platform-contracts')

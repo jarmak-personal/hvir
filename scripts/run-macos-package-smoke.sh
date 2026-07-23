@@ -221,7 +221,7 @@ test -f "$application/Contents/Resources/hvir-previous-only.txt"
 run_installed_smoke retained-after-failed-update pty-native
 
 sudo /usr/sbin/installer -pkg "$package_path" -target / | tee "$install_log"
-grep -Fq 'installer: The install was successful.' "$install_log"
+grep -Fq 'installer: The upgrade was successful.' "$install_log"
 receipt_version=$(pkgutil --pkg-info-plist "$receipt" |
   plutil -extract pkg-version raw -) || {
   echo 'Could not read the installed package receipt version.' >&2
