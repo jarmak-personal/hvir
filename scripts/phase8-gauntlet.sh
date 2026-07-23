@@ -7,5 +7,5 @@ npm run verify
 npm run smoke
 
 if [[ "${HVIR_SKIP_CAPACITY:-0}" != "1" ]]; then
-  npm run smoke:capacity
+  npm run performance:capacity
 fi

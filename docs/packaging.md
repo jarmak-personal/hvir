@@ -74,9 +74,11 @@ replay ordinary product behavior already owned by unpackaged tests.
 
 Pull-request CI runs that packaged contract on Linux x64, Linux arm64, and macOS arm64.
 It also runs `npm run smoke:macos` against the unpackaged build on Apple silicon, covering
-the focused custom-profile PTY lifecycle, source/diff position, and platform contracts.
-Both commands are locally reproducible only on a matching supported platform; CI supplies
-the cross-platform evidence.
+the focused custom-profile PTY lifecycle, source/diff position, platform, and terminal
+presentation contracts. The separate `npm run smoke:capacity` step retains deterministic
+multi-terminal contracts and labels its machine-dependent measurements as evidence. These
+commands are locally reproducible only on a matching supported platform; CI supplies the
+cross-platform contract evidence, not an authoritative quantitative performance verdict.
 
 ## Dependency and security automation
 

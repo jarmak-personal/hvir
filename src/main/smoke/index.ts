@@ -1483,13 +1483,13 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
             }
             const started = performance.now();
             file.click();
-            requestAnimationFrame((painted) => {
-              if (painted - started > 500) return reject(new Error('large-file activation stalled paint'));
+            requestAnimationFrame(() => {
+              const firstFrameMs = Math.round(performance.now() - started);
               const waitForPreview = () => {
                 const preview = document.querySelector('.large-file-preview');
                 const meta = document.querySelector('.source-meta')?.textContent || '';
                 if (preview && meta.includes('preview')) {
-                  return resolve(meta + ' · activation paint ' + Math.round(painted - started) + 'ms');
+                  return resolve(meta + ' · first-frame evidence ' + firstFrameMs + 'ms');
                 }
                 if (Date.now() > deadline) return reject(new Error('bounded large-file preview timed out'));
                 setTimeout(waitForPreview, 50);

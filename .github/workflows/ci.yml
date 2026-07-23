@@ -63,7 +63,7 @@ jobs:
         run: xvfb-run -a npm run smoke
 
   capacity-smoke:
-    name: Capacity smoke (Linux)
+    name: Capacity contracts + performance evidence (Linux)
     runs-on: ubuntu-24.04
     timeout-minutes: 15
 
@@ -80,11 +80,11 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Run Electron capacity probe
+      - name: Run capacity contracts and collect performance evidence
         run: xvfb-run -a npm run smoke:capacity
 
   macos-electron-smoke:
-    name: Electron smoke (macOS arm64, unpackaged)
+    name: Electron correctness + capacity evidence (macOS arm64)
     runs-on: macos-15
     timeout-minutes: 15
 
@@ -103,6 +103,9 @@ jobs:
 
       - name: Run focused unpackaged Electron scenarios
         run: npm run smoke:macos
+
+      - name: Run capacity contracts and collect performance evidence
+        run: npm run smoke:capacity
 
   packaged-smoke:
     name: Packaged smoke (${{ matrix.name }})

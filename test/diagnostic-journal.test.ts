@@ -60,6 +60,8 @@ class MemoryStorage implements DiagnosticJournalStorage {
 }
 
 describe('DiagnosticJournal', () => {
+  afterEach(() => vi.useRealTimers())
+
   it('serializes only closed fields and separates actionable failure kinds', async () => {
     const storage = new MemoryStorage()
     const journal = new DiagnosticJournal(storage)
@@ -139,6 +141,7 @@ describe('DiagnosticJournal', () => {
   })
 
   it('drops a slow storage sink without delaying callers or shutdown', async () => {
+    vi.useFakeTimers({ now: NOW })
     const storage = new MemoryStorage()
     let storageStarted = false
     storage.inspectSegment = () => {
@@ -152,10 +155,17 @@ describe('DiagnosticJournal', () => {
 
     record(journal, { kind: 'application-starting' })
     expect(storageStarted).toBe(false)
-    const started = performance.now()
-    await journal.dispose(40)
+    let disposalSettled = false
+    const disposal = journal.dispose(40).then(() => {
+      disposalSettled = true
+    })
+    expect(storageStarted).toBe(true)
+    expect(disposalSettled).toBe(false)
 
-    expect(performance.now() - started).toBeLessThan(150)
+    await vi.advanceTimersByTimeAsync(10)
+    await disposal
+
+    expect(disposalSettled).toBe(true)
     expect(journal.status()).toMatchObject({
       sink: 'failed',
       dropped: { storage: 1 },

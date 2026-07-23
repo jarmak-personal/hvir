@@ -10,6 +10,11 @@ while IFS= read -r variable; do
   if [[ -n "$variable" ]]; then unset "$variable"; fi
 done < <(git -C "$source_checkout" rev-parse --local-env-vars)
 
+source_commit=$(git -C "$source_checkout" rev-parse HEAD)
+source_dirty=0
+if [[ -n "$(git -C "$source_checkout" status --porcelain --untracked-files=normal)" ]]; then
+  source_dirty=1
+fi
 temporary_parent=$(cd "${TMPDIR:-/tmp}" && pwd -P)
 invocation_root=$(mktemp -d "$temporary_parent/hvir-smoke.XXXXXX")
 project_root="$invocation_root/repository"
@@ -47,6 +52,8 @@ mkdir -p "$user_data_root"
 (
   cd "$project_root"
   HVIR_SMOKE=1 \
+    HVIR_SMOKE_SOURCE_COMMIT="$source_commit" \
+    HVIR_SMOKE_SOURCE_DIRTY="$source_dirty" \
     HVIR_SMOKE_SCENARIO="${HVIR_SMOKE_SCENARIO:-legacy-workflow}" \
     "$source_checkout/node_modules/.bin/electron" "$source_checkout" \
     --project-root="$project_root" \

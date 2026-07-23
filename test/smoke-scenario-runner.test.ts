@@ -191,6 +191,10 @@ describe('Electron smoke command contracts', () => {
     new URL('../scripts/run-packaged-smoke.sh', import.meta.url),
     'utf8',
   )
+  const gauntletScript = readFileSync(
+    new URL('../scripts/phase8-gauntlet.sh', import.meta.url),
+    'utf8',
+  )
   const contributing = readFileSync(
     new URL('../CONTRIBUTING.md', import.meta.url),
     'utf8',
@@ -203,6 +207,10 @@ describe('Electron smoke command contracts', () => {
     new URL('../src/main/smoke/capacity.ts', import.meta.url),
     'utf8',
   )
+  const capacityPerformancePolicy = readFileSync(
+    new URL('../src/main/smoke/capacity-performance.ts', import.meta.url),
+    'utf8',
+  )
   const capacityTerminalScenario = readFileSync(
     new URL('../src/main/smoke/capacity-terminals.ts', import.meta.url),
     'utf8',
@@ -212,21 +220,34 @@ describe('Electron smoke command contracts', () => {
     'utf8',
   )
 
-  it('routes default, macOS, and capacity commands through the named process launcher', () => {
+  it('separates correctness, hosted evidence, and controlled performance commands', () => {
     expect(packageJson.scripts.smoke).toContain('node scripts/run-smoke-scenarios.mts')
     expect(packageJson.scripts['smoke:macos']).toContain(
       'node scripts/run-smoke-scenarios.mts pty-native viewer-position platform-contracts terminal-presentation',
     )
+    expect(packageJson.scripts['smoke:macos']).not.toMatch(
+      /terminal-presentation capacity/,
+    )
     expect(packageJson.scripts['smoke:capacity']).toContain(
       'HVIR_SMOKE_SCENARIO=capacity node scripts/run-smoke-scenarios.mts',
     )
-    expect(packageJson.scripts['smoke:capacity']).not.toContain('HVIR_CAPACITY_SMOKE')
+    expect(packageJson.scripts['smoke:capacity']).not.toContain(
+      'HVIR_CAPACITY_PERFORMANCE_GATE',
+    )
+    expect(packageJson.scripts['performance:capacity']).toContain(
+      'HVIR_SMOKE_SCENARIO=capacity HVIR_CAPACITY_PERFORMANCE_GATE=controlled',
+    )
+    expect(gauntletScript).toContain('npm run performance:capacity')
+    expect(contributing).toContain('machine-dependent capacity evidence')
+    expect(contributing).toContain('controlled-machine release gate')
   })
 
   it('passes one selected name into each hermetic unpackaged invocation', () => {
     expect(invocationScript).toContain(
       'HVIR_SMOKE_SCENARIO="${HVIR_SMOKE_SCENARIO:-legacy-workflow}"',
     )
+    expect(invocationScript).toContain('HVIR_SMOKE_SOURCE_COMMIT="$source_commit"')
+    expect(invocationScript).toContain('HVIR_SMOKE_SOURCE_DIRTY="$source_dirty"')
     expect(invocationScript).toContain('create-smoke-repository.sh')
   })
 
@@ -256,16 +277,26 @@ describe('Electron smoke command contracts', () => {
     expect(smokeWorkflow.indexOf("if (mode === 'capacity')", branch + 1)).toBe(-1)
     expect(capacityScenario).toContain('const CPU_SAMPLE_COUNT = 3')
     expect(capacityScenario).toContain('const TERMINAL_READINESS_SAMPLE_COUNT = 10')
-    expect(capacityScenario).toContain('idleCpu.ratio > 1.5')
+    expect(capacityScenario).toContain('[smoke:capacity:contracts]')
+    expect(capacityScenario).toContain('[smoke:performance:evidence]')
     expect(capacityScenario).toContain(
-      'terminalReadiness.ratio > TERMINAL_READINESS_RATIO_LIMIT',
+      'controlled capacity performance gate requires a clean checkout',
     )
-    expect(capacityScenario).toContain('cpu.aggregateChildren.toFixed(2)')
+    expect(capacityScenario).not.toContain('idleCpu.ratio > 1.5')
+    expect(capacityPerformancePolicy).toContain('idleRendererPlusGpuRatio: 1.5')
+    expect(capacityPerformancePolicy).toContain('terminalReadinessP95Ratio: 2')
+    expect(capacityScenario).toContain('cpu.aggregateChildren.toFixed(3)')
     expect(capacityTerminalScenario).toContain('JSON.stringify(current)')
     expect(capacityTerminalScenario).toContain('current.surfaces === expected')
     expect(capacityTerminalScenario).toContain('actionStartedAtMs.push(Date.now())')
     expect(capacityTerminalScenario).toContain('ready-input:%s')
     expect(capacityTerminalScenario).toContain('countOccurrences(output, marker) !== 1')
+  })
+
+  it('treats large-file frame latency as evidence beside a semantic preview contract', () => {
+    expect(smokeWorkflow).toContain('first-frame evidence')
+    expect(smokeWorkflow).toContain("meta.includes('preview')")
+    expect(smokeWorkflow).not.toContain('large-file activation stalled paint')
   })
 
   it('enters the viewer group before legacy work with semantic diagnostics', () => {

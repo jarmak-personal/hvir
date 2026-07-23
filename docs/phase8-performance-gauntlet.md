@@ -4,15 +4,29 @@ This is the reusable release check for hvir's “nothing blocks the paint” con
 it on a modest primary-platform machine before a release and after changes to watching,
 Git, terminal rendering, SSH pooling, telemetry, or layout.
 
-## Automated run
+## Automated runs
 
 ```sh
 npm run gauntlet
 ```
 
 The script runs seam enforcement, lint, both TypeScript builds, all unit/integration
-tests, the default unpackaged Electron groups, and the capacity smoke. Set
-`HVIR_SKIP_CAPACITY=1` only for a quick preflight; that is not release evidence.
+tests, the default unpackaged Electron groups, and the controlled capacity-performance gate.
+Set `HVIR_SKIP_CAPACITY=1` only for a quick preflight; that is not release evidence.
+
+Pull-request and main-branch CI use the evidence-only capacity command:
+
+```sh
+npm run smoke:capacity
+```
+
+It runs the same real Electron topology and samples. Exact terminal topology, hidden
+presentation, bounded buffers, output delivery and coalescing, exact input echo, cleanup, and
+recovery are blocking contracts. CPU, elapsed-time, frame/click latency, launch latency, and
+working-set crossings are emitted under `[smoke:performance:evidence]` and do not fail a hosted
+run. A bounded readiness deadline may still fail when the scenario cannot establish a semantic
+contract; that failure names the missing state or owned resource rather than treating the
+elapsed value as a performance verdict.
 
 `npm run smoke:macos` is the matching Apple-silicon correctness check for the focused PTY,
 viewer-position, retained platform-contract, and terminal-presentation groups. Packaged
@@ -23,7 +37,25 @@ selection, application/native-PTY/worker loading, preview-protocol handling, and
 geometry. Neither command is a performance measurement, and evidence from one platform does not
 substitute for another.
 
-The capacity smoke first compares three 30-second Electron renderer-plus-GPU CPU samples
+## Controlled quantitative gate
+
+Run the quantitative budgets only on a maintainer-controlled supported machine:
+
+```sh
+npm run performance:capacity
+```
+
+Use one stable machine and power mode, close unrelated high-load applications, leave DevTools
+closed, and avoid concurrent builds or test runs. The command refuses a dirty checkout or an
+unknown source commit. Run the exact candidate once; do not retry a crossing into a pass. The
+evidence record includes the source commit and clean/dirty state, OS/platform release,
+architecture, CPU model and logical count, total memory, Node/Electron/Chromium versions, sample
+counts and durations, raw CPU series, readiness distributions, and loaded/diagnostic summaries.
+Retain that JSON line with the issue, pull request, or release evidence. Compare candidates only
+when the recorded environment is meaningfully equivalent; otherwise record a new baseline rather
+than treating unlike machines as one distribution.
+
+The controlled scenario first compares three 30-second Electron renderer-plus-GPU CPU samples
 for one visible terminal with three matching samples for one visible and eleven hidden
 idle terminals. The loaded interval then mixes continuous plain output, Codex-like
 cursor/ANSI updates, synchronized-output bursts, and idle panes while churning a watched
@@ -34,12 +66,14 @@ terminal writes, per-session buffered-byte peaks, and ten action-to-ready-and-ex
 launches under load against ten matching one-terminal baseline launches. Each loaded launch
 must complete within one second and the loaded p95 must be no more than twice the baseline
 p95. CPU evidence includes renderer, GPU, main, and aggregate Electron child-process usage.
-Delivery buffers are capped at 64 KiB; visible output flushes
-on the next frame and hidden output within 40 ms. The smoke fails when delivery is not
-coalesced, a buffer exceeds its cap, the idle CPU median ratio exceeds 1.5, p99 latency is
->=100 ms, an unexplained stall exceeds 500 ms, net loaded-interval working-set growth exceeds
-256 MiB, hidden presentation advances, a PTY is orphaned, or all terminals cannot recover
-with Changes and History usable. Ghostty scrollback is bounded to 10,000 lines per terminal.
+Delivery buffers are capped at 64 KiB; visible output flushes on the next frame and hidden output
+within 40 ms. Every mode fails when delivery is not coalesced, a buffer exceeds its cap, hidden
+presentation advances, a PTY is orphaned, or all terminals cannot recover with Changes and
+History usable. Controlled mode additionally fails when the idle CPU median ratio exceeds 1.5,
+loaded launch p95 exceeds twice baseline, an individual loaded launch exceeds one second, p99
+latency is >=100 ms, an unexplained stall exceeds 500 ms, net loaded-interval working-set growth
+exceeds 256 MiB, or the ADR-016 diagnostic-cost budgets are crossed. Ghostty scrollback is
+bounded to 10,000 lines per terminal.
 
 ## Workspace and error matrix
 
