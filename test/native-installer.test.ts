@@ -90,6 +90,8 @@ describe('release-owned native installer', () => {
         output: join(fixture.root, 'install.sh'),
       }),
     ).rejects.toThrow(/Invalid hvir version/)
+    vi.stubEnv('CI', 'false')
+    vi.stubEnv('GITHUB_ACTIONS', 'false')
     await expect(
       renderNativeInstaller({
         ...fixture.options,
