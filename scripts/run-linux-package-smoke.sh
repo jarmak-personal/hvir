@@ -70,6 +70,7 @@ previous_package="$invocation_root/hvir_previous_${deb_arch}.deb"
 previous_installer="$invocation_root/install-previous.sh"
 current_installer="$invocation_root/install-current.sh"
 install_log="$invocation_root/install.log"
+shadowed_install_log="$invocation_root/shadowed-install.log"
 update_log="$invocation_root/update.log"
 remove_log="$invocation_root/remove.log"
 package_installed=0
@@ -116,6 +117,8 @@ printf '#!/bin/sh\nexit 97\n' \
   >"$legacy_root/hvir-workbench/bin/hvir.mjs"
 chmod 0755 "$legacy_root/hvir-workbench/bin/hvir.mjs"
 ln -s '../lib/node_modules/hvir-workbench/bin/hvir.mjs' "$legacy_launcher"
+printf '#!/bin/sh\nexit 95\n' >"$blocked_tools_root/hvir"
+chmod 0755 "$blocked_tools_root/hvir"
 printf '%s\n' \
   '#!/bin/sh' \
   'case "$1:$2" in' \
@@ -304,17 +307,31 @@ run_installed_smoke() {
   fi
 }
 
-HOME="$home_root" \
+if HOME="$home_root" \
   PATH="$legacy_prefix/bin:$blocked_tools_root:/usr/sbin:/usr/bin:/sbin:/bin" \
   HVIR_FAKE_NPM_PREFIX="$legacy_prefix" \
   HVIR_FAKE_NPM_ROOT="$legacy_root" \
   XDG_CONFIG_HOME="$config_root" \
   XDG_CACHE_HOME="$invocation_root/cache" \
-  "$previous_installer" 2>&1 | tee "$install_log"
+  "$previous_installer" >"$shadowed_install_log" 2>&1; then
+  echo 'Native installer accepted a second command shadowing /usr/bin/hvir.' >&2
+  exit 1
+fi
 package_installed=1
+sed -n '1,240p' "$shadowed_install_log"
+grep -Fq \
+  'Another hvir command shadows the installed native command:' \
+  "$shadowed_install_log"
 test ! -e "$legacy_launcher"
 test ! -e "$legacy_root/hvir-workbench"
 test ! -e "$invocation_root/cache/hvir/native"
+rm "$blocked_tools_root/hvir"
+
+HOME="$home_root" \
+  PATH="$blocked_tools_root:/usr/sbin:/usr/bin:/sbin:/bin" \
+  XDG_CONFIG_HOME="$config_root" \
+  XDG_CACHE_HOME="$invocation_root/cache" \
+  "$previous_installer" 2>&1 | tee "$install_log"
 assert_package_contract "$previous_version"
 run_installed_smoke previous pty-native
 

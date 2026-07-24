@@ -105,6 +105,10 @@ describe('release-owned native installer', () => {
     const installFunction = template.indexOf('install_or_update()')
     const verifyCall = template.indexOf('\n  verify_native_command', installFunction)
     const removeCall = template.indexOf('\n  remove_legacy_launcher', installFunction)
+    const resolutionCall = template.indexOf(
+      '\n  verify_native_command_resolution',
+      installFunction,
+    )
     expect(template).toContain('Linux:x86_64)')
     expect(template).toContain('Linux:aarch64 | Linux:arm64)')
     expect(template).toContain('Darwin:arm64)')
@@ -126,6 +130,11 @@ describe('release-owned native installer', () => {
     expect(template).toContain('verify_native_command')
     expect(verifyCall).toBeGreaterThan(installFunction)
     expect(verifyCall).toBeLessThan(removeCall)
+    expect(template).toContain('hash -r')
+    expect(template).toContain(
+      'Another hvir command shadows the installed native command:',
+    )
+    expect(resolutionCall).toBeGreaterThan(removeCall)
     expect(template).toContain('/usr/bin/sudo /usr/bin/apt remove -y hvir')
     expect(template).toContain('/usr/bin/sudo /bin/rm -rf -- /Applications/hvir.app')
     expect(template).toContain('Purging current-user hvir state: $path')

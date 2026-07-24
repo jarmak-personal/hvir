@@ -372,6 +372,19 @@ remove_legacy_launcher() {
   safe_remove_legacy_cache
 }
 
+verify_native_command_resolution() {
+  local found
+  stage='verifying public hvir command resolution'
+  hash -r
+  found=$(command -v hvir 2>/dev/null || true)
+  if [[ -z "$found" || ! "$found" -ef "$native_command" ]]; then
+    echo \
+      "Another hvir command shadows the installed native command: ${found:-not found}" \
+      >&2
+    exit 1
+  fi
+}
+
 install_or_update() {
   local artifact
   discover_legacy_launcher
@@ -389,6 +402,7 @@ install_or_update() {
   fi
   verify_native_command
   remove_legacy_launcher
+  verify_native_command_resolution
   echo \
     "Installed hvir $HVIR_VERSION for $platform $architecture from $artifact_name."
 }
