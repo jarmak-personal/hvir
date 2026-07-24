@@ -131,6 +131,12 @@ describe('macOS native package contract', () => {
     expect(installedSmoke).toContain('scripts/render-native-installer.mjs')
     expect(installedSmoke).toContain('HVIR_FAKE_NPM_PREFIX="$legacy_prefix"')
     expect(installedSmoke).toContain('test ! -e "$legacy_launcher"')
+    expect(installedSmoke).toContain(
+      'PATH="$legacy_prefix/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"',
+    )
+    expect(installedSmoke).toContain(
+      "PATH='/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin'",
+    )
     expect(installedSmoke).toContain("PATH='/usr/bin:/bin:/usr/sbin:/sbin'")
     expect(installedSmoke).toContain('otool -L "$executable"')
     expect(installedSmoke).toContain('find "$application" -type f -name \'*.node\'')
