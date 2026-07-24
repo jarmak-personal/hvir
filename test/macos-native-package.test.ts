@@ -33,6 +33,7 @@ const ci = parse(ciSource) as {
       name: string
       'runs-on': string
       env: Record<string, string>
+      secrets?: string
       steps: Array<{ name: string; run?: string }>
     }
   >
@@ -182,6 +183,7 @@ describe('macOS native package contract', () => {
     expect(ciSource).toContain(
       'uses: ./.github/workflows/macos-package-release.yml',
     )
+    expect(ci.jobs['signed-macos-epic-acceptance']?.secrets).toBe('inherit')
 
     expect(Object.keys(signedWorkflow.on)).toEqual([
       'workflow_call',

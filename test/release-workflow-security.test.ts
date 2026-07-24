@@ -7,6 +7,9 @@ const releaseWorkflow = readFileSync(
   new URL('../.github/workflows/release.yml', import.meta.url),
   'utf8',
 )
+const release = parse(releaseWorkflow) as {
+  jobs: Record<string, { secrets?: string }>
+}
 const macosWorkflow = readFileSync(
   new URL('../.github/workflows/macos-package-release.yml', import.meta.url),
   'utf8',
@@ -111,6 +114,7 @@ describe('native release automation', () => {
     expect(releaseWorkflow).toContain(
       'uses: ./.github/workflows/macos-package-release.yml',
     )
+    expect(release.jobs['build-macos']?.secrets).toBe('inherit')
     expect(releaseWorkflow).toContain('source_sha: ${{ needs.prepare.outputs.sha }}')
     expect(macosWorkflow).toContain('workflow_call:')
     expect(macosWorkflow).toContain('npm run smoke:macos:installed')
