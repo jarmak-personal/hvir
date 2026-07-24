@@ -142,7 +142,7 @@ describe('macOS native package contract', () => {
     expect(installedSmoke).not.toMatch(/open -a|Installer\.app|\/usr\/bin\/open/)
   })
 
-  it('keeps credentials out of PR checks and gates signing behind release protection', () => {
+  it('keeps credentials out of PR YAML and gates signing behind exact protected sources', () => {
     const structural = ci.jobs['native-macos-package']
     if (!structural) throw new Error('Missing native-macos-package CI job')
     expect(structural).toMatchObject({
@@ -161,19 +161,43 @@ describe('macOS native package contract', () => {
       ]),
     )
     expect(ciSource).not.toMatch(/MACOS_(APPLICATION|INSTALLER|NOTARY|TEAM)/)
+    expect(ciSource).toContain('signed-macos-epic-acceptance:')
+    expect(ciSource).toContain("github.event.pull_request.number == 234")
+    expect(ciSource).toContain(
+      "github.event.pull_request.base.ref == 'main'",
+    )
+    expect(ciSource).toContain(
+      "github.event.pull_request.head.ref == 'epic/222-native-distribution'",
+    )
+    expect(ciSource).toContain(
+      'github.event.pull_request.head.repo.full_name == github.repository',
+    )
+    expect(ciSource).toContain(
+      'source_sha: ${{ github.event.pull_request.head.sha }}',
+    )
+    expect(ciSource).toContain(
+      'source_branch: epic/222-native-distribution',
+    )
+    expect(ciSource).toContain(
+      'uses: ./.github/workflows/macos-package-release.yml',
+    )
 
     expect(Object.keys(signedWorkflow.on)).toEqual([
       'workflow_call',
       'workflow_dispatch',
     ])
     expect(signedWorkflowSource).toContain('allow_merged_source')
+    expect(signedWorkflowSource).toContain('source_branch')
     const signed = signedWorkflow.jobs['signed-package']
     if (!signed) throw new Error('Missing signed-package release job')
     expect(signed.environment).toBe('native-release-signing')
     expect(signedWorkflowSource).toContain(
       'source_sha must exactly match the selected branch tip $WORKFLOW_SHA',
     )
-    expect(signedWorkflowSource).toContain('git rev-parse "origin/$SOURCE_REF"')
+    expect(signedWorkflowSource).toContain(
+      'git fetch origin "refs/heads/$SOURCE_BRANCH"',
+    )
+    expect(signedWorkflowSource).toContain('git rev-parse FETCH_HEAD')
     expect(signedWorkflowSource).toContain('MACOS_APPLICATION_CERTIFICATE')
     expect(signedWorkflowSource).toContain('MACOS_INSTALLER_CERTIFICATE')
     expect(signedWorkflowSource).toContain('MACOS_NOTARY_KEY')
