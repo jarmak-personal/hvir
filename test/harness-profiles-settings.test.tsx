@@ -72,46 +72,41 @@ describe('HarnessProfilesSettings', () => {
     expect(document.querySelector('.add-harness-dialog')).toBeFalsy()
   })
 
+  it('reads cached availability on open and probes only after explicit refresh', async () => {
+    const provider = testProvider()
+    const profile = testProfile(provider)
+    const invoke = vi.fn((channel: string) => {
+      if (channel === 'harness:catalog') return Promise.resolve([provider])
+      if (channel === 'harness:profiles') return Promise.resolve([profile])
+      return Promise.resolve([])
+    })
+    vi.stubGlobal('hvir', { invoke })
+
+    renderHarnesses(false)
+    await settleEffects()
+
+    expect(
+      invoke.mock.calls.filter(([channel]) => channel === 'harness:probe-snapshot'),
+    ).toHaveLength(1)
+    expect(
+      invoke.mock.calls.filter(([channel]) => channel === 'harness:probe-profiles'),
+    ).toEqual([])
+
+    const refresh = [...document.querySelectorAll<HTMLButtonElement>('button')].find(
+      (button) => button.textContent?.trim() === 'Refresh availability',
+    )
+    act(() => refresh?.click())
+    await settleEffects()
+
+    expect(
+      invoke.mock.calls.filter(([channel]) => channel === 'harness:probe-profiles'),
+    ).toHaveLength(1)
+  })
+
   it('does not send incomplete binding drafts to command preview', async () => {
     vi.useFakeTimers()
-    const provider: HarnessProviderDescriptor = {
-      id: asHarnessProviderId('test'),
-      displayName: 'Test provider',
-      default: false,
-      capabilities: {
-        exactResume: false,
-        sessionIdentity: 'none',
-        contextPresentation: 'none',
-      },
-      terminalInput: {
-        modifiedKeyProtocol: 'none',
-        metaEnterAliasesControl: false,
-      },
-      profileTemplate: {
-        displayName: 'Test profile',
-        description: 'Test profile',
-      },
-      profileGuidance: {
-        reservedArguments: [],
-        riskClassification: 'best-effort',
-      },
-    }
-    const profile: HarnessProfile = {
-      id: asHarnessProfileId('test-profile'),
-      launchRevision: 1,
-      metadataRevision: 1,
-      providerContractVersion: 1,
-      builtIn: false,
-      risk: 'standard',
-      displayName: 'Test profile',
-      providerId: provider.id,
-      scope: { kind: 'global' },
-      executable: { kind: 'provider-default' },
-      args: [],
-      environment: [],
-      pathBindings: [],
-      order: 1,
-    }
+    const provider = testProvider()
+    const profile = testProfile(provider)
     const invoke = vi.fn((channel: string) => {
       if (channel === 'harness:catalog') return Promise.resolve([provider])
       if (channel === 'harness:profiles') return Promise.resolve([profile])
@@ -140,6 +135,50 @@ describe('HarnessProfilesSettings', () => {
     expect(document.body.textContent).toContain('Invalid environment binding')
   })
 })
+
+function testProvider(): HarnessProviderDescriptor {
+  return {
+    id: asHarnessProviderId('test'),
+    displayName: 'Test provider',
+    default: false,
+    capabilities: {
+      exactResume: false,
+      sessionIdentity: 'none',
+      contextPresentation: 'none',
+    },
+    terminalInput: {
+      modifiedKeyProtocol: 'none',
+      metaEnterAliasesControl: false,
+    },
+    profileTemplate: {
+      displayName: 'Test profile',
+      description: 'Test profile',
+    },
+    profileGuidance: {
+      reservedArguments: [],
+      riskClassification: 'best-effort',
+    },
+  }
+}
+
+function testProfile(provider: HarnessProviderDescriptor): HarnessProfile {
+  return {
+    id: asHarnessProfileId('test-profile'),
+    launchRevision: 1,
+    metadataRevision: 1,
+    providerContractVersion: 1,
+    builtIn: false,
+    risk: 'standard',
+    displayName: 'Test profile',
+    providerId: provider.id,
+    scope: { kind: 'global' },
+    executable: { kind: 'provider-default' },
+    args: [],
+    environment: [],
+    pathBindings: [],
+    order: 1,
+  }
+}
 
 function renderHarnesses(initialAddOpen = true): void {
   host = document.createElement('div')

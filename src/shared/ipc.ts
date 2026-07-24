@@ -634,6 +634,10 @@ export interface IpcInvokeMap {
     request: HarnessProfilesRequest
     response: readonly HarnessProfile[]
   }
+  'harness:probe-snapshot': {
+    request: HarnessProfilesRequest
+    response: readonly HarnessProfileProbe[]
+  }
   'harness:probe-profiles': {
     request: HarnessProbeProfilesRequest
     response: readonly HarnessProfileProbe[]
@@ -837,6 +841,7 @@ export const INVOKE_CHANNELS = [
   'html-preview:create',
   'harness:catalog',
   'harness:profiles',
+  'harness:probe-snapshot',
   'harness:probe-profiles',
   'harness:probe-templates',
   'harness:profile-materialize',

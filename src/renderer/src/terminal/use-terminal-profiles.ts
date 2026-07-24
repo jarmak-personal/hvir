@@ -10,7 +10,6 @@ import type {
 } from '../../../shared'
 import {
   mergeTerminalProbe,
-  terminalProbeMemory,
   terminalProbeRefreshCandidates,
 } from './terminal-probe-policy'
 import { EffectGeneration } from './effect-generation'
@@ -32,14 +31,17 @@ export function useTerminalProfiles({
   )
   const profilesRef = useRef(profiles)
   const probesRef = useRef(probes)
-  const menuOpenRef = useRef(menuOpen)
+  const pendingProbeIdsRef = useRef(pendingProbeIds)
+  const connectionStateRef = useRef(connectionState)
   const generation = useRef(new EffectGeneration())
+  const probeGeneration = useRef(new EffectGeneration())
   profilesRef.current = profiles
   probesRef.current = probes
-  menuOpenRef.current = menuOpen
+  pendingProbeIdsRef.current = pendingProbeIds
 
   useEffect(() => {
     generation.current.begin()
+    probeGeneration.current.begin()
     setProviders([])
     setProfiles([])
     setProbes([])
@@ -70,7 +72,7 @@ export function useTerminalProfiles({
         force,
       )
       if (candidates.length === 0) return
-      const requestedGeneration = generation.current.snapshot()
+      const requestedGeneration = probeGeneration.current.begin()
       setPendingProbeIds((current) => {
         const next = new Set(current)
         for (const profile of candidates) next.add(profile.id)
@@ -84,13 +86,12 @@ export function useTerminalProfiles({
             force,
           })
           .then(([probe]) => {
-            if (!probe || !generation.current.isCurrent(requestedGeneration)) return
-            terminalProbeMemory.remember(root, probe)
+            if (!probe || !probeGeneration.current.isCurrent(requestedGeneration)) return
             setProbes((current) => mergeTerminalProbe(current, probe))
           })
           .catch(() => undefined)
           .finally(() => {
-            if (!generation.current.isCurrent(requestedGeneration)) return
+            if (!probeGeneration.current.isCurrent(requestedGeneration)) return
             setPendingProbeIds((current) => {
               const next = new Set(current)
               next.delete(profile.id)
@@ -102,12 +103,27 @@ export function useTerminalProfiles({
     [root],
   )
 
+  const refreshProbeSnapshot = useCallback((): void => {
+    if (pendingProbeIdsRef.current.size > 0) return
+    const requestedGeneration = probeGeneration.current.snapshot()
+    void window.hvir
+      .invoke('harness:probe-snapshot', { root })
+      .then((snapshot) => {
+        if (probeGeneration.current.isCurrent(requestedGeneration)) setProbes(snapshot)
+      })
+      .catch(() => undefined)
+  }, [root])
+
   useEffect(() => {
-    if (menuOpen) refreshProbes(false)
-  }, [menuOpen, refreshProbes])
+    if (menuOpen) refreshProbeSnapshot()
+  }, [menuOpen, refreshProbeSnapshot])
   useEffect(() => {
-    if (menuOpenRef.current) refreshProbes(true)
-  }, [connectionState, refreshProbes])
+    if (connectionStateRef.current === connectionState) return
+    connectionStateRef.current = connectionState
+    probeGeneration.current.begin()
+    setProbes([])
+    setPendingProbeIds(new Set())
+  }, [connectionState])
 
   const acceptCatalog = useCallback(
     (
@@ -125,11 +141,8 @@ export function useTerminalProfiles({
     [],
   )
   const acceptRecoveryProbes = useCallback(
-    (values: readonly HarnessProfileProbe[]): void => {
-      for (const probe of values) terminalProbeMemory.remember(root, probe)
-      setProbes(values)
-    },
-    [root],
+    (values: readonly HarnessProfileProbe[]): void => setProbes(values),
+    [],
   )
 
   return {

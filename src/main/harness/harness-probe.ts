@@ -22,15 +22,19 @@ interface HostProbeState {
   active: number
   readonly waiters: Array<() => void>
   readonly cache: Map<string, HarnessProfileProbe>
+  readonly advisory: Map<string, HarnessProfileProbe>
   readonly pending: Map<string, Promise<HarnessProfileProbe>>
   disposeConnection: Disposer
 }
 
-export interface ProbeHarnessProfilesRequest {
+export interface HarnessProfileAvailabilityContext {
   readonly host: ProjectHost
   readonly projectRoot: HostPath
   readonly workspaceRoot: HostPath
   readonly profiles: readonly HarnessProfile[]
+}
+
+export interface ProbeHarnessProfilesRequest extends HarnessProfileAvailabilityContext {
   readonly store: HarnessProfileStoreContract
   readonly force?: boolean
 }
@@ -49,6 +53,58 @@ export class HarnessProbeManager {
     return Promise.all(profiles.map((profile) => this.probeProfile(request, profile)))
   }
 
+  /** Returns context-current cache entries without running host commands. */
+  snapshotProfiles(
+    request: HarnessProfileAvailabilityContext,
+  ): readonly HarnessProfileProbe[] {
+    const profiles = request.profiles.slice(0, MAX_PROFILES_PER_REQUEST)
+    if (profiles.length === 0) return []
+    const state = this.stateFor(request.host)
+    return profiles.flatMap((profile) => {
+      const key = cacheKey(
+        profile,
+        state.generation,
+        request.projectRoot,
+        request.workspaceRoot,
+      )
+      const cached = state.cache.get(key) ?? state.advisory.get(key)
+      return cached ? [cached] : []
+    })
+  }
+
+  /** A supervised process start is useful advisory evidence without another probe. */
+  recordSuccessfulLaunch(
+    request: HarnessProfileAvailabilityContext,
+    profile: HarnessProfile,
+    capabilities: HarnessProfileProbe['capabilities'],
+  ): HarnessProfileProbe {
+    const state = this.stateFor(request.host)
+    const key = cacheKey(
+      profile,
+      state.generation,
+      request.projectRoot,
+      request.workspaceRoot,
+    )
+    const cached = state.cache.get(key) ?? state.advisory.get(key)
+    const observation = {
+      ...result(
+        {
+          providerId: profile.providerId,
+          profileId: profile.id,
+          launchRevision: profile.launchRevision,
+          hostId: request.host.hostId,
+          capabilities,
+        },
+        'available',
+        'Launch started successfully',
+      ),
+      version: cached?.status === 'available' ? cached.version : undefined,
+    }
+    state.cache.delete(key)
+    state.advisory.set(key, observation)
+    return observation
+  }
+
   invalidate(
     host: ProjectHost,
     profile: Pick<HarnessProfile, 'id' | 'launchRevision' | 'providerId'>,
@@ -57,13 +113,15 @@ export class HarnessProbeManager {
     if (!state) return
     // One profile may have entries for several worktrees; invalidate every
     // matching host entry rather than leaving a context-specific result stale.
-    for (const [key, probe] of state.cache) {
-      if (
-        probe.providerId === profile.providerId &&
-        probe.profileId === profile.id &&
-        probe.launchRevision === profile.launchRevision
-      ) {
-        state.cache.delete(key)
+    for (const observations of [state.cache, state.advisory]) {
+      for (const [key, probe] of observations) {
+        if (
+          probe.providerId === profile.providerId &&
+          probe.profileId === profile.id &&
+          probe.launchRevision === profile.launchRevision
+        ) {
+          observations.delete(key)
+        }
       }
     }
   }
@@ -99,6 +157,7 @@ export class HarnessProbeManager {
           cacheKey(profile, state.generation, request.projectRoot, request.workspaceRoot)
         ) {
           state.cache.set(key, result)
+          state.advisory.delete(key)
         }
         return result
       })
@@ -221,6 +280,7 @@ export class HarnessProbeManager {
       active: 0,
       waiters: [],
       cache: new Map(),
+      advisory: new Map(),
       pending: new Map(),
       disposeConnection: () => undefined,
     }
@@ -229,6 +289,7 @@ export class HarnessProbeManager {
       state.connectionState = connectionState
       state.generation++
       state.cache.clear()
+      state.advisory.clear()
     })
     this.hosts.set(host, state)
     return state

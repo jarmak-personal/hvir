@@ -36,6 +36,59 @@ describe('HarnessProbeManager', () => {
     manager.dispose()
   })
 
+  it('returns current and expired cached observations without host work', async () => {
+    let now = 1_000
+    const clock = vi.spyOn(Date, 'now').mockImplementation(() => now)
+    const { host, exec } = probeHost('probe-snapshot', 'claude 9.2.1')
+    const manager = new HarnessProbeManager()
+    const request = probeRequest(host)
+    try {
+      expect(manager.snapshotProfiles(request)).toEqual([])
+
+      const [observed] = await manager.probeProfiles(request)
+      expect(manager.snapshotProfiles(request)).toEqual([observed])
+      expect(exec).toHaveBeenCalledTimes(2)
+
+      now = observed!.expiresAt! + 1
+      expect(manager.snapshotProfiles(request)).toEqual([observed])
+      expect(exec).toHaveBeenCalledTimes(2)
+    } finally {
+      manager.dispose()
+      clock.mockRestore()
+    }
+  })
+
+  it('keeps successful-launch evidence advisory to bounded recovery probes', async () => {
+    const fixture = probeHost('probe-launch', 'unused')
+    const manager = new HarnessProbeManager()
+    const request = probeRequest(fixture.host)
+    const profile = request.profiles[0]!
+    const capabilities = {
+      sessionIdentity: 'preassigned' as const,
+      exactResume: true,
+      contextPresentation: 'count' as const,
+    }
+
+    const observed = manager.recordSuccessfulLaunch(request, profile, capabilities)
+
+    expect(observed).toMatchObject({
+      status: 'available',
+      detail: 'Launch started successfully',
+      capabilities,
+    })
+    expect(manager.snapshotProfiles(request)).toEqual([observed])
+    expect(fixture.exec).not.toHaveBeenCalled()
+
+    const [probed] = await manager.probeProfiles(request)
+    expect(fixture.exec).toHaveBeenCalledTimes(2)
+    expect(manager.snapshotProfiles(request)).toEqual([probed])
+
+    fixture.setConnection('disconnected')
+    fixture.setConnection('connected')
+    expect(manager.snapshotProfiles(request)).toEqual([])
+    manager.dispose()
+  })
+
   it('keeps host-version skew isolated and reports disconnected hosts without exec', async () => {
     const first = probeHost('probe-one', 'claude 1.0.0')
     const second = probeHost('probe-two', 'claude 2.0.0')

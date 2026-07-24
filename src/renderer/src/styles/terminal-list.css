@@ -1,5 +1,6 @@
 .terminal-list {
   min-height: 0;
+  flex: 1;
   overflow: auto;
   background: linear-gradient(to right, var(--border-subtle) 1px, transparent 1px);
 }
@@ -18,9 +19,7 @@
 }
 
 .terminal-list-row.dormant {
-  background:
-    linear-gradient(90deg, rgb(83 119 156 / 16%), transparent 56%),
-    #12151a;
+  background: linear-gradient(90deg, rgb(83 119 156 / 16%), transparent 56%), #12151a;
 }
 
 .terminal-list-row.dormant .terminal-list-title {
