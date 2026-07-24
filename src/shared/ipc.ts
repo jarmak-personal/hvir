@@ -775,6 +775,8 @@ export interface HvirApi {
     callback: (payload: IpcEventPayload<E>) => void,
   ): Disposer
   readonly diagnostics: {
+    /** Electron's renderer-process sandbox state, surfaced read-only by preload. */
+    readonly processSandboxed: boolean
     /** Domain-owned, content-free evidence. Invalid or overloaded calls are dropped. */
     recordRenderContainment(occurrenceId: string): void
     /** Content-free responsiveness evidence routed through the bounded preload queue. */

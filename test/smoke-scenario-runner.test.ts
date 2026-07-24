@@ -187,10 +187,6 @@ describe('Electron smoke command contracts', () => {
     new URL('../scripts/run-smoke.sh', import.meta.url),
     'utf8',
   )
-  const packagedScript = readFileSync(
-    new URL('../scripts/run-packaged-smoke.sh', import.meta.url),
-    'utf8',
-  )
   const gauntletScript = readFileSync(
     new URL('../scripts/phase8-gauntlet.sh', import.meta.url),
     'utf8',
@@ -255,24 +251,6 @@ describe('Electron smoke command contracts', () => {
     expect(invocationScript).toContain('create-smoke-repository.sh')
   })
 
-  it('installs exact-version tarballs and exercises script-free first-use preparation', () => {
-    expect(packagedScript).toContain(
-      'tarball="dist/npm/${package_name}-${package_version}.tgz"',
-    )
-    expect(packagedScript).toContain(
-      'launcher_tarball="dist/npm/hvir-workbench-${package_version}.tgz"',
-    )
-    expect(packagedScript).toContain('--ignore-scripts')
-    expect(packagedScript).toContain("grep -Eiq 'allow-scripts|install scripts not'")
-    expect(packagedScript).toContain('chmod -R a-w "$installation_root"')
-    expect(packagedScript).toContain('HVIR_SMOKE=1 \\')
-    expect(packagedScript).toContain('HVIR_SMOKE_SCENARIO=platform-contracts \\')
-    expect(packagedScript).toContain('grep -Fq "Preparing hvir $package_version"')
-    expect(packagedScript).toContain('run_launcher >"$second_launch_log"')
-    expect(packagedScript).not.toContain('HVIR_SMOKE_SCENARIO=legacy-workflow')
-    expect(packagedScript).not.toContain('find dist/npm')
-  })
-
   it('enters capacity before unrelated legacy profile and viewer assertions', () => {
     const branch = smokeWorkflow.indexOf("if (mode === 'capacity')")
     expect(branch).toBeGreaterThan(-1)
@@ -314,6 +292,9 @@ describe('Electron smoke command contracts', () => {
     )
     expect(layoutFocusScenario).toContain("input.addEventListener('focus', finish)")
     expect(layoutFocusScenario).toContain('document.activeElement === input')
+    expect(layoutFocusScenario).toContain('!document.hasFocus()')
+    expect(layoutFocusScenario).toContain('input.focus()')
+    expect(layoutFocusScenario).not.toContain('app.focus(')
     expect(layoutFocusScenario).not.toContain(
       'requestAnimationFrame(() => requestAnimationFrame(resolve))',
     )

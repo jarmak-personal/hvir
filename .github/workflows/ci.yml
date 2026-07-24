@@ -107,28 +107,24 @@ jobs:
       - name: Run capacity contracts and collect performance evidence
         run: npm run smoke:capacity
 
-  packaged-smoke:
-    name: Packaged smoke (${{ matrix.name }})
+  native-linux-package:
+    name: Native package acceptance (${{ matrix.name }})
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 20
+    timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
         include:
           - name: Linux x64
             os: ubuntu-24.04
-            build: npm run pack:npm:linux:x64
-            smoke: xvfb-run -a npm run smoke:packaged
+            build: npm run pack:linux:x64
+            artifact: dist/hvir_*_amd64.deb
           - name: Linux arm64
             os: ubuntu-24.04-arm
-            build: npm run pack:npm:linux:arm64
-            smoke: xvfb-run -a npm run smoke:packaged
-          - name: macOS arm64
-            os: macos-15
-            build: npm run pack:npm:mac:arm64
-            smoke: npm run smoke:packaged
+            build: npm run pack:linux:arm64
+            artifact: dist/hvir_*_arm64.deb
     env:
-      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      HVIR_LINUX_PACKAGE_ACCEPTANCE: '1'
 
     steps:
       - name: Check out repository
@@ -143,11 +139,127 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Build platform package
+      - name: Build native package
         run: ${{ matrix.build }}
 
-      - name: Build launcher package
-        run: npm run pack:npm:launcher
+      - name: Install, update, launch, and remove native package
+        run: xvfb-run -a npm run smoke:linux:installed
 
-      - name: Smoke installed packages
-        run: ${{ matrix.smoke }}
+      - name: Retain accepted native package
+        uses: actions/upload-artifact@v7
+        with:
+          name: hvir-${{ matrix.name }}-deb
+          path: ${{ matrix.artifact }}
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+
+  native-macos-package:
+    name: Native package acceptance (macOS arm64, unsigned structure)
+    runs-on: macos-15
+    timeout-minutes: 25
+    env:
+      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      HVIR_MACOS_PACKAGE_ACCEPTANCE: '1'
+      HVIR_MACOS_PACKAGE_MODE: structural
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          package-manager-cache: false
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build unsigned structural package
+        run: npm run pack:mac:arm64
+
+      - name: Install, update, launch, and remove structural package
+        run: npm run smoke:macos:installed
+
+      - name: Upload structural package
+        uses: actions/upload-artifact@v7
+        with:
+          name: hvir-macos-arm64-unsigned-structure
+          path: dist/hvir-*-macos-arm64.pkg
+          if-no-files-found: error
+          retention-days: 1
+
+  native-release-assembly:
+    name: Native release assembly (unsigned structure)
+    needs:
+      - native-linux-package
+      - native-macos-package
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          package-manager-cache: false
+
+      - name: Download accepted Linux packages
+        uses: actions/download-artifact@v8
+        with:
+          pattern: hvir-*-deb
+          path: dist/release
+          merge-multiple: true
+
+      - name: Download accepted macOS package structure
+        uses: actions/download-artifact@v8
+        with:
+          name: hvir-macos-arm64-unsigned-structure
+          path: dist/release
+
+      - name: Assemble and verify the cumulative release contract
+        env:
+          RELEASE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          version=$(node -p "require('./package.json').version")
+          mv -- \
+            "dist/release/hvir_${version}_amd64.deb" \
+            "dist/release/hvir-${version}-linux-x64.deb"
+          mv -- \
+            "dist/release/hvir_${version}_arm64.deb" \
+            "dist/release/hvir-${version}-linux-arm64.deb"
+          mv -- \
+            "dist/release/hvir-${version}-macos-arm64.pkg" \
+            "dist/release/hvir-${version}-darwin-arm64.pkg"
+          npm run assemble:native-release -- \
+            --version "$version" \
+            --source-sha "$RELEASE_SHA" \
+            --repository "$GITHUB_REPOSITORY" \
+            --macos-team-id AAAAAAAAAA \
+            --asset-directory dist/release
+          bash -n dist/release/install.sh
+          (
+            cd dist/release
+            sha256sum --check SHA256SUMS
+          )
+
+  # One-time bootstrap for epic #222. Remove this invocation after the epic merges;
+  # default-branch releases continue to call the same protected reusable workflow.
+  signed-macos-epic-acceptance:
+    name: Signed native package acceptance (epic #222)
+    if: >-
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.number == 234 &&
+      github.event.pull_request.base.ref == 'main' &&
+      github.event.pull_request.head.ref == 'epic/222-native-distribution' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    uses: ./.github/workflows/macos-package-release.yml
+    with:
+      source_sha: ${{ github.event.pull_request.head.sha }}
+      source_branch: epic/222-native-distribution
+      allow_pull_request_signing: true
+    secrets: inherit
