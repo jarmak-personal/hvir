@@ -245,6 +245,7 @@ jobs:
     with:
       source_sha: ${{ needs.prepare.outputs.sha }}
       allow_merged_source: true
+    secrets: inherit
 
   publish-native-release:
     name: Assemble, verify, and publish immutable release
