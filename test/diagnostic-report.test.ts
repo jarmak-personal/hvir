@@ -18,6 +18,10 @@ import { DiagnosticReportCoordinator } from '../src/main/diagnostics/diagnostic-
 import { DiagnosticReportStorage } from '../src/main/diagnostics/diagnostic-report-storage'
 import type { DiagnosticReportActions } from '../src/main/diagnostics/electron-diagnostic-report-actions'
 import type { DiagnosticRecentSnapshot } from '../src/main/diagnostics/diagnostic-intake'
+import {
+  prepareDiagnosticReportEvidence,
+  type DiagnosticReportEvidenceSnapshot,
+} from '../src/main/diagnostics/diagnostic-report-evidence'
 import type { RendererOwner } from '../src/main/renderer-resource-scopes'
 import {
   DIAGNOSTIC_REPORT_NOTICE,
@@ -53,8 +57,13 @@ describe('diagnostic report boundary', () => {
 
     expect(local).toEqual(ssh)
     expect(local.notice).toBe(DIAGNOSTIC_REPORT_NOTICE)
+    expect(local.diagnostics.scopes).toEqual({
+      currentLifetime: { availability: 'included', eventCount: 1 },
+      precedingLifetime: { availability: 'unavailable', eventCount: 0 },
+    })
     expect(local.diagnostics.events).toEqual([
       {
+        scope: 'current-lifetime',
         kind: 'pty-spawn-failed',
         owner: 'pty-supervisor',
         ownerGeneration: 1,
@@ -65,7 +74,19 @@ describe('diagnostic report boundary', () => {
     ])
     expect(JSON.stringify(local)).not.toContain(SENTINEL)
     expect(isDiagnosticReport({ ...local, futureField: true })).toBe(false)
-    expect(isDiagnosticReport({ ...local, version: 2 })).toBe(false)
+    expect(isDiagnosticReport({ ...local, version: 3 })).toBe(false)
+    expect(
+      isDiagnosticReport({
+        ...local,
+        diagnostics: {
+          ...local.diagnostics,
+          scopes: {
+            ...local.diagnostics.scopes,
+            precedingLifetime: { availability: 'included', eventCount: 0 },
+          },
+        },
+      }),
+    ).toBe(false)
     expect(
       isDiagnosticReport({
         ...local,
@@ -167,6 +188,79 @@ describe('diagnostic report boundary', () => {
     lateImage.resolve(screenshot(3))
     expect(await lateCapture).toEqual({ ok: false, reason: 'stale-renderer' })
     expect(host.files.size).toBe(0)
+  })
+
+  it('rejects report preparation after evidence deletion or renderer revocation', async () => {
+    const evidencePreparation = deferred<{
+      revision: number
+      diagnostics: DiagnosticReportEvidenceSnapshot
+      health: WorkbenchHealthSnapshot
+    }>()
+    let evidenceRevision = 0
+    let evidencePrepareStarted = false
+    const deletedHost = new MemoryReportHost()
+    const deletedCoordinator = new DiagnosticReportCoordinator(
+      {
+        prepare: () => {
+          evidencePrepareStarted = true
+          return evidencePreparation.promise
+        },
+        isCurrent: (revision) => revision === evidenceRevision,
+      },
+      APPLICATION,
+      new DiagnosticReportStorage(deletedHost, ROOT, () => NOW),
+      new FakeActions(),
+      () => true,
+    )
+    const deletedCreate = deletedCoordinator.create(OWNER, opaqueId(12))
+    await vi.waitFor(() => expect(evidencePrepareStarted).toBe(true))
+    evidenceRevision++
+    evidencePreparation.resolve({
+      revision: 0,
+      diagnostics: reportEvidence(diagnostics('local')),
+      health: health(),
+    })
+
+    expect(await deletedCreate).toEqual({
+      ok: false,
+      reason: 'evidence-changed',
+    })
+    expect(deletedHost.files.size).toBe(0)
+
+    const revokedPreparation = deferred<{
+      revision: number
+      diagnostics: DiagnosticReportEvidenceSnapshot
+      health: WorkbenchHealthSnapshot
+    }>()
+    let revokedPrepareStarted = false
+    const revokedHost = new MemoryReportHost()
+    const revokedCoordinator = new DiagnosticReportCoordinator(
+      {
+        prepare: () => {
+          revokedPrepareStarted = true
+          return revokedPreparation.promise
+        },
+        isCurrent: () => true,
+      },
+      APPLICATION,
+      new DiagnosticReportStorage(revokedHost, ROOT, () => NOW),
+      new FakeActions(),
+      () => true,
+    )
+    const revokedCreate = revokedCoordinator.create(OWNER, opaqueId(13))
+    await vi.waitFor(() => expect(revokedPrepareStarted).toBe(true))
+    await revokedCoordinator.revoke(OWNER)
+    revokedPreparation.resolve({
+      revision: 0,
+      diagnostics: reportEvidence(diagnostics('local')),
+      health: health(),
+    })
+
+    expect(await revokedCreate).toEqual({
+      ok: false,
+      reason: 'stale-renderer',
+    })
+    expect(revokedHost.files.size).toBe(0)
   })
 
   it('retains at most sixteen temporary reports and removes expired files', async () => {
@@ -304,7 +398,15 @@ function createCoordinator(
   scheduleExpiry?: (callback: () => void, delayMs: number) => () => void,
 ): DiagnosticReportCoordinator {
   return new DiagnosticReportCoordinator(
-    { diagnostics: () => diagnostics('ssh'), health },
+    {
+      prepare: () =>
+        Promise.resolve({
+          revision: 0,
+          diagnostics: reportEvidence(diagnostics('ssh')),
+          health: health(),
+        }),
+      isCurrent: (revision) => revision === 0,
+    },
     APPLICATION,
     new DiagnosticReportStorage(host, ROOT, () => NOW),
     actions,
@@ -324,7 +426,7 @@ function report(
     createdAt: '2026-07-22T12:00:00.000Z',
     application: APPLICATION,
     owner: OWNER,
-    diagnostics: evidence,
+    diagnostics: reportEvidence(evidence),
     health: health(),
   })
   if (!result) throw new Error('Expected report fixture to satisfy the schema')
@@ -358,6 +460,16 @@ function diagnostics(hostKind: 'local' | 'ssh'): DiagnosticRecentSnapshot {
     ],
     dropped: [],
   }
+}
+
+function reportEvidence(
+  current: DiagnosticRecentSnapshot,
+): DiagnosticReportEvidenceSnapshot {
+  return prepareDiagnosticReportEvidence(
+    current,
+    { availability: 'unavailable', events: [] },
+    undefined,
+  )
 }
 
 function health(): WorkbenchHealthSnapshot {
@@ -425,6 +537,7 @@ describe('diagnostic report artifact schema', () => {
     const diagnosticReport = report(81, evidence)
     expect(diagnosticReport.diagnostics.events).toEqual([
       {
+        scope: 'current-lifetime',
         kind: 'renderer-responsiveness-episode',
         owner: 'renderer-responsiveness',
         ownerGeneration: 3,

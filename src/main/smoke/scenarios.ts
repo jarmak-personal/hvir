@@ -2,6 +2,7 @@ import { runSmoke, type ElectronSmokeDependencies } from '.'
 import { runNativePtySmoke } from './native-pty'
 import {
   parseElectronSmokeScenario,
+  type ElectronSmokeMode,
   type ElectronSmokeScenario,
 } from './scenario-selection.mts'
 
@@ -30,14 +31,10 @@ export async function runElectronSmokeScenario(
 
 function rendererMode(
   scenario: Exclude<ElectronSmokeScenario, 'pty-native'>,
-):
-  | 'workflow'
-  | 'viewer-position'
-  | 'platform-contracts'
-  | 'terminal-presentation'
-  | 'capacity' {
+): ElectronSmokeMode {
   if (scenario === 'capacity') return 'capacity'
-  if (scenario === 'platform-contracts') return 'platform-contracts'
+  if (scenario === 'platform-contracts' || scenario === 'diagnostic-report-restart')
+    return 'platform-contracts'
   if (scenario === 'terminal-presentation') return 'terminal-presentation'
   return scenario === 'viewer-position' ? 'viewer-position' : 'workflow'
 }
