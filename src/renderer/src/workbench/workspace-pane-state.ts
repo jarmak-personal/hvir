@@ -4,11 +4,13 @@ export type TerminalLayoutMode = 'collapsed' | 'restored' | 'maximized'
 
 export interface WorkspacePaneState {
   readonly terminalMode: TerminalLayoutMode
+  readonly terminalRailCompact: boolean
   readonly treeCollapsed: boolean
 }
 
 export const DEFAULT_WORKSPACE_PANE_STATE: WorkspacePaneState = {
   terminalMode: 'restored',
+  terminalRailCompact: false,
   treeCollapsed: false,
 }
 

@@ -104,41 +104,43 @@ export function useHarnessProfileEditor({
     [],
   )
 
-  const refresh = useCallback(
-    async (selectId?: HarnessProfile['id']): Promise<void> => {
-      const current = stateRef.current
-      if (!current.workspaceRoot) return
-      const token = policy.current.start('load')
-      let catalog: readonly HarnessProviderDescriptor[]
-      let launchProfiles: readonly HarnessProfile[]
-      try {
-        const loaded = await Promise.all([
-          window.hvir.invoke('harness:catalog', undefined),
-          window.hvir.invoke('harness:profiles', { root: current.workspaceRoot }),
-        ])
-        catalog = loaded[0]
-        launchProfiles = loaded[1]
-      } catch (reason) {
-        if (policy.current.isCurrent(token)) throw reason
-        return
-      }
-      if (!policy.current.isCurrent(token)) return
-      setProviders(catalog)
-      setProfiles(launchProfiles)
-      probeAvailability(launchProfiles)
-      const selected =
-        launchProfiles.find((profile) => profile.id === selectId) ??
-        launchProfiles.find((profile) => profile.id === stateRef.current.draft?.id) ??
-        launchProfiles[0]
-      policy.current.switchProfile()
-      setDraft(
-        selected
-          ? harnessProfileDraft(selected)
-          : newHarnessProfileDraft(catalog, launchProfiles),
-      )
-    },
-    [probeAvailability],
-  )
+  const refresh = useCallback(async (selectId?: HarnessProfile['id']): Promise<void> => {
+    const current = stateRef.current
+    if (!current.workspaceRoot) return
+    const token = policy.current.start('load')
+    let catalog: readonly HarnessProviderDescriptor[]
+    let launchProfiles: readonly HarnessProfile[]
+    let cachedProbes: readonly HarnessProfileProbe[]
+    try {
+      const loaded = await Promise.all([
+        window.hvir.invoke('harness:catalog', undefined),
+        window.hvir.invoke('harness:profiles', { root: current.workspaceRoot }),
+        window.hvir.invoke('harness:probe-snapshot', {
+          root: current.workspaceRoot,
+        }),
+      ])
+      catalog = loaded[0]
+      launchProfiles = loaded[1]
+      cachedProbes = loaded[2]
+    } catch (reason) {
+      if (policy.current.isCurrent(token)) throw reason
+      return
+    }
+    if (!policy.current.isCurrent(token)) return
+    setProviders(catalog)
+    setProfiles(launchProfiles)
+    setProfileProbes(cachedProbes)
+    const selected =
+      launchProfiles.find((profile) => profile.id === selectId) ??
+      launchProfiles.find((profile) => profile.id === stateRef.current.draft?.id) ??
+      launchProfiles[0]
+    policy.current.switchProfile()
+    setDraft(
+      selected
+        ? harnessProfileDraft(selected)
+        : newHarnessProfileDraft(catalog, launchProfiles),
+    )
+  }, [])
 
   const {
     loadState,
