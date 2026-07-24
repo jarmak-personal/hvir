@@ -598,7 +598,6 @@ async function verifyTerminalLaunchMenuOverflow(
         );
         window.dispatchEvent(new Event('hvir:harness-profiles-changed'));
         add.click();
-        let lastRefresh = 0;
         const menu = await waitFor(() => {
           const candidate = document.querySelector('.terminal-new-menu');
           if (!(candidate instanceof HTMLElement)) return undefined;
@@ -606,15 +605,20 @@ async function verifyTerminalLaunchMenuOverflow(
             (node) => node instanceof HTMLButtonElement
           );
           if (profileButtons.length >= created.length + 1) return candidate;
-          if (Date.now() - lastRefresh > 250) {
-            [...candidate.querySelectorAll('.terminal-new-menu-actions button')]
-              .find((button) => button.textContent?.trim() === 'Refresh availability')
-              ?.click();
-            lastRefresh = Date.now();
-          }
           return undefined;
         }, 'configured harness profiles did not enter the launch menu');
 
+        const uncheckedProfiles = [...menu.children].filter(
+          (node) =>
+            node instanceof HTMLButtonElement &&
+            node.dataset.harnessAvailability === 'unchecked'
+        );
+        if (uncheckedProfiles.length < created.length) {
+          throw new Error(
+            'configured profiles were hidden or checked implicitly: visible unchecked=' +
+            uncheckedProfiles.length + ' created=' + created.length
+          );
+        }
         if (menu.scrollHeight <= menu.clientHeight + 1) {
           throw new Error('configured harness profiles did not overflow the launch menu');
         }

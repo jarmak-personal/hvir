@@ -101,7 +101,6 @@ function renderRail(overrides: Partial<ComponentProps<typeof TerminalRail>> = {}
     moveMenuOpen: false,
     moveTargets: [],
     launchMenuEntries: [],
-    checkingHiddenProfiles: false,
     split: false,
     sessions: [session('terminal-ready', 'idle')],
     activeId: 'terminal-ready',

@@ -403,7 +403,6 @@ describe('terminal resume unavailable state', () => {
           moveMenuOpen={false}
           moveTargets={[]}
           launchMenuEntries={[]}
-          checkingHiddenProfiles={false}
           split={false}
           sessions={[session]}
           activeId={session.id}

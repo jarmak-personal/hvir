@@ -238,6 +238,20 @@ export function registerTerminalIpc(ipc: IpcRegistrar, deps: TerminalIpcDeps): v
       return { outcome: 'resume-unavailable', reason: launchDecision.reason }
     }
     const launchMode = launchDecision.mode
+    const availabilityRequest = {
+      host,
+      projectRoot,
+      workspaceRoot: cwd,
+      profiles: [profile],
+      store: deps.harnessProfiles,
+    } as const
+    const refreshAfterClassifiedLaunchFailure = (): void => {
+      deps.harnessProbes.invalidate(host, profile)
+      void deps.harnessProbes.probeProfiles({
+        ...availabilityRequest,
+        force: true,
+      })
+    }
     const ptyLease = deps.rendererResources.register(
       owner,
       {
@@ -267,33 +281,20 @@ export function registerTerminalIpc(ipc: IpcRegistrar, deps: TerminalIpcDeps): v
         admission: req.admission,
         cols,
         rows,
-        onClassifiedLaunchFailure: () => {
-          deps.harnessProbes.invalidate(host, profile)
-          void deps.harnessProbes.probeProfiles({
-            host,
-            projectRoot,
-            workspaceRoot: cwd,
-            profiles: [profile],
-            store: deps.harnessProfiles,
-            force: true,
-          })
-        },
+        onClassifiedLaunchFailure: refreshAfterClassifiedLaunchFailure,
       })
     } catch (reason) {
       await ptyLease.dispose()
       if (isClassifiedHarnessLaunchFailure(reason)) {
-        deps.harnessProbes.invalidate(host, profile)
-        void deps.harnessProbes.probeProfiles({
-          host,
-          projectRoot,
-          workspaceRoot: cwd,
-          profiles: [profile],
-          store: deps.harnessProfiles,
-          force: true,
-        })
+        refreshAfterClassifiedLaunchFailure()
       }
       throw reason
     }
+    deps.harnessProbes.recordSuccessfulLaunch(
+      availabilityRequest,
+      profile,
+      managed.capabilities,
+    )
     try {
       deps.rendererResources.assertCurrent(owner)
     } catch (error) {

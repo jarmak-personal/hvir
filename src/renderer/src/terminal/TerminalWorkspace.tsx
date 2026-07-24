@@ -25,7 +25,7 @@ import {
 import { TerminalDeck } from './TerminalDeck'
 import { TerminalRail } from './TerminalRail'
 import { TerminalWorkspaceDialogs } from './TerminalWorkspaceDialogs'
-import { profileProbe, terminalProbeMemory } from './terminal-probe-policy'
+import { profileProbe } from './terminal-probe-policy'
 import {
   readTerminalSplitLayout,
   writeTerminalSplitLayout,
@@ -271,22 +271,12 @@ export function TerminalWorkspace({
   }
   const launchMenuEntries = profiles.map((profile) => {
     const probe = profileProbe(probes, profile)
-    const needsCheck =
-      !profile.builtIn && (!probe?.expiresAt || probe.expiresAt <= Date.now())
     return {
       profile,
       provider: providerDescriptor(providers, profile.providerId),
-      state: harnessLaunchMenuState(
-        profile,
-        probe,
-        terminalProbeMemory.get(workspaceRoot, profile),
-        pendingProbeIds.has(profile.id) || (menuOpen && needsCheck),
-      ),
+      state: harnessLaunchMenuState(profile, probe, pendingProbeIds.has(profile.id)),
     }
   })
-  const checkingHiddenProfiles = launchMenuEntries.some(
-    ({ state }) => !state.visible && state.checking,
-  )
 
   return (
     <>
@@ -341,7 +331,6 @@ export function TerminalWorkspace({
         moveMenuOpen={moving.menuOpen}
         moveTargets={moveTargets}
         launchMenuEntries={launchMenuEntries}
-        checkingHiddenProfiles={checkingHiddenProfiles}
         split={terminalSplit}
         sessions={sessions}
         activeId={activeId}

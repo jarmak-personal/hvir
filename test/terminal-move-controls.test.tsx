@@ -49,7 +49,6 @@ describe('terminal workspace move controls', () => {
           moveMenuOpen
           moveTargets={[target]}
           launchMenuEntries={[]}
-          checkingHiddenProfiles={false}
           split={false}
           sessions={[session()]}
           activeId="terminal-1"
@@ -151,7 +150,6 @@ describe('terminal workspace move controls', () => {
           moveMenuOpen={false}
           moveTargets={[]}
           launchMenuEntries={[]}
-          checkingHiddenProfiles={false}
           split={false}
           sessions={[dormant]}
           activeId={dormant.id}
