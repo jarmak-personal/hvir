@@ -59,6 +59,8 @@ interface TerminalWorkspaceProps {
   readonly connectionState: HostConnectionState
   readonly available: boolean
   readonly visible: boolean
+  readonly railCompact: boolean
+  readonly onRailCompact: (compact: boolean) => void
   readonly label: string
   readonly onRollup: (workspaceId: string, rollup: TerminalWorkspaceRollup) => void
   readonly onOpenPath: (target: ResolvedTerminalFileTarget) => void
@@ -97,6 +99,8 @@ export function TerminalWorkspace({
   connectionState,
   available,
   visible,
+  railCompact,
+  onRailCompact,
   label,
   onRollup,
   onOpenPath,
@@ -328,6 +332,8 @@ export function TerminalWorkspace({
       <TerminalRail
         label={label}
         visible={visible}
+        compact={railCompact}
+        onCompact={onRailCompact}
         terminalTheme={effectiveTerminalTheme}
         recoveryReady={recoveryReady}
         available={available}

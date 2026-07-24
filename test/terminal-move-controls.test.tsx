@@ -40,6 +40,8 @@ describe('terminal workspace move controls', () => {
         <TerminalRail
           label="main"
           visible
+          compact={false}
+          onCompact={vi.fn()}
           terminalTheme="app"
           recoveryReady
           available
@@ -99,6 +101,8 @@ describe('terminal workspace move controls', () => {
         <TerminalRail
           label="main"
           visible
+          compact={false}
+          onCompact={vi.fn()}
           terminalTheme="app"
           recoveryReady
           available
@@ -130,9 +134,7 @@ describe('terminal workspace move controls', () => {
       )
     })
 
-    const resumeAll = host.querySelector<HTMLButtonElement>(
-      '.terminal-resume-all-button',
-    )
+    const resumeAll = host.querySelector<HTMLButtonElement>('.terminal-resume-all-button')
     expect(resumeAll?.textContent).toContain('Resume all now · 1')
     expect(host.querySelector('.terminal-list-row.dormant')).not.toBeNull()
     act(() => resumeAll?.click())

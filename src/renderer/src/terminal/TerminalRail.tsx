@@ -13,6 +13,7 @@ import {
   type HarnessLaunchMenuState,
 } from './harness-launch-menu'
 import { TerminalContextMeter } from './TerminalContextMeter'
+import { TerminalRailCompact } from './TerminalRailCompact'
 import type { TerminalSession } from './terminal-workspace-model'
 import { useTerminalLaunchMenuLayout } from './use-terminal-launch-menu-layout'
 
@@ -25,6 +26,8 @@ export interface TerminalLaunchMenuEntry {
 export function TerminalRail({
   label,
   visible,
+  compact,
+  onCompact,
   terminalTheme,
   recoveryReady,
   available,
@@ -55,6 +58,8 @@ export function TerminalRail({
 }: {
   readonly label: string
   readonly visible: boolean
+  readonly compact: boolean
+  readonly onCompact: (compact: boolean) => void
   readonly terminalTheme: string
   readonly recoveryReady: boolean
   readonly available: boolean
@@ -86,6 +91,11 @@ export function TerminalRail({
   const { menuRef: launchMenuRef, menuStyle: launchMenuStyle } =
     useTerminalLaunchMenuLayout(menuOpen)
   const dormantCount = sessions.filter((session) => session.dormant).length
+  const applyCompact = (next: boolean): void => {
+    if (next && menuOpen) onToggleMenu()
+    if (next && moveMenuOpen) onToggleMoveMenu()
+    onCompact(next)
+  }
 
   return (
     <aside
@@ -95,9 +105,20 @@ export function TerminalRail({
       data-diagnostic-capture="terminal"
       hidden={!visible}
     >
-      <header className="terminal-rail-header">
+      <header className="terminal-rail-header" hidden={compact}>
         <span>Terminals</span>
         <div className="terminal-header-actions">
+          <button
+            type="button"
+            className="terminal-icon-button terminal-rail-collapse"
+            aria-label="Collapse terminal rail"
+            title="Collapse terminal rail"
+            onClick={() => applyCompact(true)}
+          >
+            <svg aria-hidden="true" viewBox="0 0 16 16">
+              <path d="M4.5 3 9 8l-4.5 5M8.5 3 13 8l-4.5 5" />
+            </svg>
+          </button>
           {dormantCount > 0 ? (
             <button
               type="button"
@@ -258,7 +279,7 @@ export function TerminalRail({
           </div>
         </div>
       </header>
-      <div className="terminal-list" role="list">
+      <div className="terminal-list" role="list" hidden={compact}>
         {sessions.map((session) => {
           const provider = providerDescriptor(providers, session.providerId)
           const contextPresentation = provider?.capabilities.contextPresentation
@@ -330,6 +351,11 @@ export function TerminalRail({
           )
         })}
       </div>
+      <TerminalRailCompact
+        hidden={!compact}
+        sessions={sessions}
+        onRestore={() => applyCompact(false)}
+      />
     </aside>
   )
 }
