@@ -377,7 +377,7 @@ async function verifyTerminalLayoutFocus(win: BrowserWindow): Promise<string> {
           throw new Error('terminal layout focus controls missing');
         }
         const activeInput = () => document.querySelector(
-          '.terminal-deck:not([hidden]) .terminal-surface.active .terminal-engine-host'
+          '.terminal-deck:not([hidden]) .terminal-surface.active .terminal-container'
         );
         const deadline = Date.now() + 8000;
         await new Promise((resolve, reject) => {
