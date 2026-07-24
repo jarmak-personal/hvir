@@ -87,15 +87,18 @@ export class DiagnosticIntake {
     this.correlation = options.correlation ?? randomUUID
   }
 
-  record(event: RuntimeDiagnosticEvent): void {
-    this.admit(event, true)
+  record(event: RuntimeDiagnosticEvent): StoredDiagnosticEvent | undefined {
+    return this.admit(event, true)
   }
 
   recordTransient(event: RuntimeDiagnosticEvent): void {
     this.admit(event, false)
   }
 
-  private admit(event: RuntimeDiagnosticEvent, persist: boolean): void {
+  private admit(
+    event: RuntimeDiagnosticEvent,
+    persist: boolean,
+  ): StoredDiagnosticEvent | undefined {
     const context: DiagnosticEventContext = {
       occurredAtMs: this.now(),
       correlation: this.correlation(),
@@ -104,16 +107,16 @@ export class DiagnosticIntake {
     const source = diagnosticSource(event.kind)
     if (!stored) {
       this.incrementDropped(source, 'invalid')
-      return
+      return undefined
     }
     if (!this.takeRateToken(source, context.occurredAtMs)) {
       this.incrementDropped(source, 'rate')
-      return
+      return undefined
     }
     const line = serializeStoredDiagnosticEvent(stored)
     if (!line || Buffer.byteLength(line, 'utf8') > DIAGNOSTIC_EVENT_BYTES) {
       this.incrementDropped(source, 'invalid')
-      return
+      return undefined
     }
     if (persist) this.options.writer?.record(line)
     this.retain({
@@ -126,6 +129,7 @@ export class DiagnosticIntake {
     } catch {
       // Diagnostic consumers are droppable observers and never own feature behavior.
     }
+    return stored
   }
 
   startRenderer(owner: RendererOwner): RendererDiagnosticSession {

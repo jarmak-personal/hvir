@@ -1,7 +1,9 @@
 import {
   parseStoredDiagnosticEvent,
   type SerializedDiagnosticEvent,
+  type StoredDiagnosticEvent,
 } from './diagnostic-event'
+import type { DurableDiagnosticEvidence } from './diagnostic-report-evidence'
 
 export type {
   ApplicationDiagnosticKind,
@@ -62,8 +64,11 @@ export class DiagnosticJournal {
   private readonly dropped = { queue: 0, storage: 0 }
   private activeSegment = ''
   private initialized = false
+  private initializing?: Promise<void>
   private accepting = true
   private sinkFailed = false
+  private durablePartial = false
+  private generation = 0
   private scheduled?: ReturnType<typeof setTimeout>
   private draining?: Promise<void>
   private resetting?: Promise<void>
@@ -131,21 +136,77 @@ export class DiagnosticJournal {
 
   async reset(): Promise<void> {
     if (this.resetting) return this.resetting
+    this.generation++
     if (this.scheduled) {
       clearTimeout(this.scheduled)
       this.scheduled = undefined
     }
     this.queue.length = 0
     const draining = this.draining
-    const operation = this.resetAfterDrain(draining).catch((error: unknown) => {
-      this.failStorage()
-      throw error
-    })
+    const initializing = this.initializing
+    const operation = this.resetAfterDrain(draining, initializing).catch(
+      (error: unknown) => {
+        this.failStorage()
+        throw error
+      },
+    )
     this.resetting = operation.finally(() => {
       this.resetting = undefined
       if (this.queue.length > 0 && !this.sinkFailed) this.scheduleDrain()
     })
     return this.resetting
+  }
+
+  async readReportEvidence(): Promise<DurableDiagnosticEvidence> {
+    const generation = this.generation
+    if (this.sinkFailed) return unavailableEvidence()
+    try {
+      const segments = new Map<number, string>()
+      const cutoff = this.now() - this.retentionMs
+      let partial = this.durablePartial
+      for (let index = 0; index < this.segmentCount; index++) {
+        const metadata = await this.storageCall(this.storage.inspectSegment(index))
+        if (!metadata || metadata.mtimeMs < cutoff) continue
+        if (metadata.size > this.segmentBytes) {
+          partial = true
+          continue
+        }
+        const content = await this.storageCall(
+          this.storage.readSegment(index, this.segmentBytes),
+        )
+        if (content === undefined) partial = true
+        else segments.set(index, content)
+      }
+      partial ||= this.durablePartial
+      if (generation !== this.generation) return unavailableEvidence()
+      if (segments.size === 0) {
+        return {
+          availability: partial ? 'partial' : 'available',
+          events: [],
+        }
+      }
+      const highest = Math.max(...segments.keys())
+      for (let index = 0; index <= highest; index++) {
+        if (!segments.has(index)) partial = true
+      }
+      const events: StoredDiagnosticEvent[] = []
+      for (let index = highest; index >= 0; index--) {
+        const content = segments.get(index)
+        if (content === undefined) continue
+        const parsed = retainValidEvents(content, Number.NEGATIVE_INFINITY)
+        events.push(...parsed.events)
+        partial ||= parsed.rejected
+      }
+      events.sort((left, right) => {
+        return Date.parse(left.occurredAt) - Date.parse(right.occurredAt)
+      })
+      return {
+        availability: partial ? 'partial' : 'available',
+        events,
+      }
+    } catch {
+      return unavailableEvidence()
+    }
   }
 
   private scheduleDrain(): void {
@@ -168,7 +229,7 @@ export class DiagnosticJournal {
   }
 
   private async drain(): Promise<void> {
-    if (!this.initialized) await this.initialize()
+    await this.ensureInitialized()
     const pending = this.queue.splice(0)
     this.inFlightEvents = pending.length
     let changed = false
@@ -186,12 +247,27 @@ export class DiagnosticJournal {
     if (changed) await this.storageCall(this.storage.writeSegment(0, this.activeSegment))
   }
 
+  private ensureInitialized(): Promise<void> {
+    if (this.initialized) return Promise.resolve()
+    if (!this.initializing) {
+      this.initializing = this.initialize()
+        .then(() => {
+          this.initialized = true
+        })
+        .finally(() => {
+          this.initializing = undefined
+        })
+    }
+    return this.initializing
+  }
+
   private async initialize(): Promise<void> {
     const cutoff = this.now() - this.retentionMs
     for (let index = 0; index < this.segmentCount; index++) {
       const metadata = await this.storageCall(this.storage.inspectSegment(index))
       if (!metadata) continue
       if (metadata.size > this.segmentBytes || metadata.mtimeMs < cutoff) {
+        if (metadata.size > this.segmentBytes) this.durablePartial = true
         await this.storageCall(this.storage.removeSegment(index))
         continue
       }
@@ -199,20 +275,21 @@ export class DiagnosticJournal {
         this.storage.readSegment(index, this.segmentBytes),
       )
       if (existing === undefined) {
+        this.durablePartial = true
         await this.storageCall(this.storage.removeSegment(index))
         continue
       }
       const retained = retainValidEvents(existing, cutoff)
-      if (retained.length === 0) {
+      this.durablePartial ||= retained.rejected
+      if (retained.content.length === 0) {
         await this.storageCall(this.storage.removeSegment(index))
         continue
       }
-      if (retained !== existing) {
-        await this.storageCall(this.storage.writeSegment(index, retained))
+      if (retained.content !== existing) {
+        await this.storageCall(this.storage.writeSegment(index, retained.content))
       }
-      if (index === 0) this.activeSegment = retained
+      if (index === 0) this.activeSegment = retained.content
     }
-    this.initialized = true
   }
 
   private async rotate(): Promise<void> {
@@ -231,13 +308,17 @@ export class DiagnosticJournal {
     this.activeSegment = ''
   }
 
-  private async resetAfterDrain(draining: Promise<void> | undefined): Promise<void> {
-    await draining
+  private async resetAfterDrain(
+    draining: Promise<void> | undefined,
+    initializing: Promise<void> | undefined,
+  ): Promise<void> {
+    await Promise.all([draining, initializing])
     for (let index = 0; index < this.segmentCount; index++) {
       await this.storageCall(this.storage.removeSegment(index))
     }
     this.activeSegment = ''
     this.initialized = true
+    this.durablePartial = false
     this.sinkFailed = false
     this.dropped.queue = 0
     this.dropped.storage = 0
@@ -276,20 +357,48 @@ export class DiagnosticJournal {
   }
 }
 
-function retainValidEvents(content: string, cutoff: number): string {
+function retainValidEvents(
+  content: string,
+  cutoff: number,
+): {
+  readonly content: string
+  readonly events: readonly StoredDiagnosticEvent[]
+  readonly rejected: boolean
+} {
   let retained = ''
-  for (const line of content.split('\n')) {
-    if (!line || Buffer.byteLength(line, 'utf8') > DIAGNOSTIC_EVENT_BYTES) continue
+  const events: StoredDiagnosticEvent[] = []
+  let rejected = false
+  const lines = content.split('\n')
+  if (content.endsWith('\n')) lines.pop()
+  else if (lines.length > 0) {
+    lines.pop()
+    rejected = content.length > 0
+  }
+  for (const line of lines) {
+    if (!line || Buffer.byteLength(line, 'utf8') > DIAGNOSTIC_EVENT_BYTES) {
+      rejected = true
+      continue
+    }
     try {
       const value: unknown = JSON.parse(line)
       const event = parseStoredDiagnosticEvent(value)
-      if (!event || Date.parse(event.occurredAt) < cutoff) continue
+      if (!event) {
+        rejected = true
+        continue
+      }
+      if (Date.parse(event.occurredAt) < cutoff) continue
       retained += `${line}\n`
+      events.push(event)
     } catch {
       // Existing journal material is untrusted and fails closed per ADR-016.
+      rejected = true
     }
   }
-  return retained
+  return { content: retained, events, rejected }
+}
+
+function unavailableEvidence(): DurableDiagnosticEvidence {
+  return { availability: 'unavailable', events: [] }
 }
 
 function saturatingAdd(current: number, increment: number): number {

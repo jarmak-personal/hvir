@@ -5,6 +5,7 @@ import { HarnessProfileStore } from '../harness/harness-profile-store'
 import { harnessProviderCatalog } from '../harness/harness-provider'
 import type { HarnessProbeManager } from '../harness/harness-probe'
 import type { HtmlPreviewProtocol } from '../html-preview-protocol'
+import type { RuntimeDiagnostics } from '../diagnostics/runtime-diagnostics'
 import { registerIpcHandlers } from '../ipc'
 import type { RendererResourceScopes } from '../renderer-resource-scopes'
 import { LocalHost } from '../project-host'
@@ -14,10 +15,12 @@ import type { WebPaneRouteRegistry } from '../web-pane/web-pane-route-registry'
 import { createWorkerClient, workerPath } from '../worker-host'
 import { SmokeCleanup } from './cleanup'
 import { verifyGitDiffBases } from './git-diff'
+import { verifyDiagnosticRestart } from './diagnostic-report-restart'
 import { verifyPlatformContracts } from './platform-contracts'
 import { verifyRendererLifecycleCleanup } from './renderer-lifecycle'
 import { verifySourceDiffPosition, verifyViewerPositions } from './viewer-position'
 import { verifyWorkbenchHealthFault } from './workbench-health'
+import type { ElectronSmokeMode } from './scenario-selection.mts'
 import { createTerminalMoveSmokeHarness, verifyTerminalMoveSmoke } from './terminal-move'
 import {
   verifyLegacyTerminalPresentation,
@@ -49,13 +52,6 @@ import {
   type TerminalRecoverySession,
 } from '../../shared'
 
-export type ElectronSmokeMode =
-  | 'workflow'
-  | 'viewer-position'
-  | 'platform-contracts'
-  | 'terminal-presentation'
-  | 'capacity'
-
 export interface ElectronSmokeDependencies {
   readonly mode: ElectronSmokeMode
   readonly projectRoot: HostPath
@@ -66,6 +62,7 @@ export interface ElectronSmokeDependencies {
   readonly htmlPreviews: HtmlPreviewProtocol
   readonly rendererResources: RendererResourceScopes
   readonly diagnostics: import('../ipc/deps').IpcDeps['diagnostics']
+  readonly runtimeDiagnostics: RuntimeDiagnostics
   readonly webPaneRoutes: WebPaneRouteRegistry
   readonly updateWebPaneBindings: (ownerId: number, bindings: KeybindingMap) => void
   readonly updateWebPaneFullPage: (ownerId: number, paneId?: string) => void
@@ -414,6 +411,7 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
       throw new Error('renderer echo ran in the main process')
     }
     console.log('[smoke] renderer IPC + echo worker round-trip OK')
+    if (await verifyDiagnosticRestart(win, dependencies.runtimeDiagnostics)) return 0
     if (mode === 'workflow') {
       const health = await verifyWorkbenchHealthFault(win)
       console.log(`[smoke] workbench health fault injection OK (${health})`)

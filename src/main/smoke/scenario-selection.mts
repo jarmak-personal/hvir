@@ -2,12 +2,19 @@ export const ELECTRON_SMOKE_SCENARIOS = [
   'pty-native',
   'viewer-position',
   'platform-contracts',
+  'diagnostic-report-restart',
   'terminal-presentation',
   'legacy-workflow',
   'capacity',
 ] as const
 
 export type ElectronSmokeScenario = (typeof ELECTRON_SMOKE_SCENARIOS)[number]
+export type ElectronSmokeMode =
+  | 'workflow'
+  | 'viewer-position'
+  | 'platform-contracts'
+  | 'terminal-presentation'
+  | 'capacity'
 
 /** Keep direct `HVIR_SMOKE=1` invocations compatible with the legacy workflow. */
 export function parseElectronSmokeScenario(

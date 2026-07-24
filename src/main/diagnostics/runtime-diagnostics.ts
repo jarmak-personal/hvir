@@ -39,6 +39,11 @@ import {
   type DiagnosticSegmentMetadata,
 } from './diagnostic-journal'
 import type { StoredDiagnosticEvent } from './diagnostic-event'
+import {
+  prepareDiagnosticReportEvidence,
+  type DiagnosticLifetimeStart,
+  type DiagnosticReportEvidenceSnapshot,
+} from './diagnostic-report-evidence'
 import { ResponsivenessDiagnosticSessions } from './responsiveness-diagnostic-sessions'
 
 const JOURNAL_FILE = 'runtime-diagnostics.jsonl'
@@ -46,6 +51,9 @@ type PublishHealth = (snapshot: WorkbenchHealthSnapshot) => void
 
 /** App-lifetime diagnostics facade; feature owners can emit only their closed schemas. */
 export class RuntimeDiagnostics {
+  private evidenceRevision = 0
+  private currentLifetimeStart?: DiagnosticLifetimeStart
+
   private constructor(
     private readonly intake: DiagnosticIntake,
     private readonly health: WorkbenchHealth,
@@ -99,7 +107,13 @@ export class RuntimeDiagnostics {
   }
 
   recordApplication(kind: ApplicationDiagnosticKind): void {
-    this.intake.record({ kind })
+    const accepted = this.intake.record({ kind })
+    if (kind === 'application-starting' && accepted) {
+      this.currentLifetimeStart = {
+        correlation: accepted.correlation,
+        occurredAt: accepted.occurredAt,
+      }
+    }
   }
 
   recordPty(event: PtySupervisorDiagnostic): void {
@@ -195,6 +209,36 @@ export class RuntimeDiagnostics {
     return this.intake.snapshot()
   }
 
+  async prepareReportSnapshot(): Promise<
+    | {
+        readonly revision: number
+        readonly diagnostics: DiagnosticReportEvidenceSnapshot
+        readonly health: WorkbenchHealthSnapshot
+      }
+    | undefined
+  > {
+    const revision = this.evidenceRevision
+    const current = this.intake.snapshot()
+    const health = this.healthSnapshot()
+    const durable = this.journal
+      ? await this.journal.readReportEvidence()
+      : { availability: 'unavailable' as const, events: [] }
+    if (!this.isReportSnapshotCurrent(revision)) return undefined
+    return {
+      revision,
+      diagnostics: prepareDiagnosticReportEvidence(
+        current,
+        durable,
+        this.currentLifetimeStart,
+      ),
+      health,
+    }
+  }
+
+  isReportSnapshotCurrent(revision: number): boolean {
+    return revision === this.evidenceRevision
+  }
+
   healthSnapshot(): WorkbenchHealthSnapshot {
     return this.health.snapshot(this.evidenceAvailability())
   }
@@ -227,6 +271,8 @@ export class RuntimeDiagnostics {
   }
 
   async deleteEvidence(): Promise<DiagnosticEvidenceDeleteResult> {
+    this.evidenceRevision++
+    this.currentLifetimeStart = undefined
     this.intake.clear()
     this.health.clear()
     this.publishHealth()

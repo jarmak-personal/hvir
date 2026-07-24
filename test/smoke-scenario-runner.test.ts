@@ -30,11 +30,11 @@ describe('Electron smoke scenario selection', () => {
   it('rejects unknown groups with the complete reproducible name set', () => {
     expect(() => parseElectronSmokeScenario('unknown')).toThrow(
       "Unknown Electron smoke scenario 'unknown'. Expected one of: " +
-        'pty-native, viewer-position, platform-contracts, terminal-presentation, legacy-workflow, capacity',
+        'pty-native, viewer-position, platform-contracts, diagnostic-report-restart, terminal-presentation, legacy-workflow, capacity',
     )
     expect(() => selectedSmokeScenarios('unknown')).toThrow(
       "Unknown Electron smoke scenario 'unknown'. Expected one of: " +
-        'pty-native, viewer-position, platform-contracts, terminal-presentation, legacy-workflow, capacity',
+        'pty-native, viewer-position, platform-contracts, diagnostic-report-restart, terminal-presentation, legacy-workflow, capacity',
     )
   })
 
@@ -266,9 +266,17 @@ describe('Electron smoke command contracts', () => {
     expect(packagedScript).toContain("grep -Eiq 'allow-scripts|install scripts not'")
     expect(packagedScript).toContain('chmod -R a-w "$installation_root"')
     expect(packagedScript).toContain('HVIR_SMOKE=1 \\')
-    expect(packagedScript).toContain('HVIR_SMOKE_SCENARIO=platform-contracts \\')
+    expect(packagedScript).toContain('HVIR_SMOKE_SCENARIO="$scenario" \\')
     expect(packagedScript).toContain('grep -Fq "Preparing hvir $package_version"')
-    expect(packagedScript).toContain('run_launcher >"$second_launch_log"')
+    expect(packagedScript).toContain(
+      'run_launcher platform-contracts >"$first_launch_log"',
+    )
+    expect(packagedScript).toContain(
+      'run_launcher diagnostic-report-restart preceding >"$second_launch_log"',
+    )
+    expect(packagedScript).toContain(
+      'run_launcher diagnostic-report-restart current >"$third_launch_log"',
+    )
     expect(packagedScript).not.toContain('HVIR_SMOKE_SCENARIO=legacy-workflow')
     expect(packagedScript).not.toContain('find dist/npm')
   })

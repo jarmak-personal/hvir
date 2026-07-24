@@ -269,6 +269,68 @@ describe('DiagnosticJournal', () => {
     expect(content).toContain('"kind":"application-ready"')
     expect(content).toContain('"kind":"application-startup-failed"')
   })
+
+  it('reads bounded segments chronologically and reports rejected durable material as partial', async () => {
+    const storage = new MemoryStorage()
+    const older = storedApplicationEvent('2026-07-22T10:00:00.000Z')
+    const newer = storedApplicationEvent('2026-07-22T11:00:00.000Z')
+    storage.segments.set(2, { content: `${older}\n`, mtimeMs: NOW })
+    storage.segments.set(0, {
+      content:
+        `${JSON.stringify({ version: 99, secret: SENSITIVE })}\n` +
+        `${JSON.stringify({ ...JSON.parse(newer), correlation: SENSITIVE })}\n` +
+        `${newer}\n{"version":`,
+      mtimeMs: NOW,
+    })
+    const journal = new DiagnosticJournal(storage, { now: () => NOW })
+
+    const evidence = await journal.readReportEvidence()
+
+    expect(evidence.availability).toBe('partial')
+    expect(evidence.events.map((event) => event.occurredAt)).toEqual([
+      '2026-07-22T10:00:00.000Z',
+      '2026-07-22T11:00:00.000Z',
+    ])
+    expect(JSON.stringify(evidence)).not.toContain(SENSITIVE)
+    expect(storage.segments.get(0)?.content).toContain(SENSITIVE)
+  })
+
+  it('revokes a durable read already in flight when the journal resets', async () => {
+    const storage = new MemoryStorage()
+    storage.segments.set(0, {
+      content: `${storedApplicationEvent('2026-07-22T11:00:00.000Z')}\n`,
+      mtimeMs: NOW,
+    })
+    const readSegment = storage.readSegment.bind(storage)
+    let reads = 0
+    let releaseRead!: () => void
+    let markReadStarted!: () => void
+    const readStarted = new Promise<void>((resolve) => {
+      markReadStarted = resolve
+    })
+    const waitForRelease = new Promise<void>((resolve) => {
+      releaseRead = resolve
+    })
+    storage.readSegment = async (index, maxBytes) => {
+      const content = await readSegment(index, maxBytes)
+      reads++
+      if (reads === 1) {
+        markReadStarted()
+        await waitForRelease
+      }
+      return content
+    }
+    const journal = new DiagnosticJournal(storage, { now: () => NOW })
+
+    const reading = journal.readReportEvidence()
+    await readStarted
+    const resetting = journal.reset()
+    releaseRead()
+
+    expect(await reading).toEqual({ availability: 'unavailable', events: [] })
+    await resetting
+    expect(storage.segments.size).toBe(0)
+  })
 })
 
 describe('RuntimeDiagnostics local storage', () => {
@@ -340,6 +402,48 @@ describe('RuntimeDiagnostics local storage', () => {
     ).rejects.toMatchObject({ code: 'ENOENT' })
     expect(await diagnostics.deleteEvidence()).toMatchObject({ ok: true })
     await diagnostics.dispose()
+  })
+
+  it('prepares a two-lifetime report snapshot from retained local evidence', async () => {
+    directory = await mkdtemp(join(tmpdir(), 'hvir-diagnostics-lifetimes-'))
+    const lifetimeA = RuntimeDiagnostics.create(directory, true)
+    lifetimeA.recordApplication('application-starting')
+    lifetimeA.recordWindowHealth({
+      kind: 'renderer-unresponsive',
+      ownerId: 7,
+      ownerGeneration: 1,
+      occurrenceId: '019c0000-0000-7000-8000-000000000031',
+    })
+    lifetimeA.recordWindowHealth({
+      kind: 'workbench-health-recovered',
+      ownerId: 7,
+      ownerGeneration: 1,
+      occurrenceId: '019c0000-0000-7000-8000-000000000031',
+      outcome: 'reload-selected',
+    })
+    lifetimeA.recordApplication('application-shutdown-completed')
+    await lifetimeA.dispose()
+
+    const lifetimeB = RuntimeDiagnostics.create(directory, true)
+    lifetimeB.recordApplication('application-starting')
+    lifetimeB.recordApplication('application-ready')
+    const prepared = await lifetimeB.prepareReportSnapshot()
+
+    expect(prepared?.diagnostics.scopes).toEqual({
+      currentLifetime: { availability: 'included', eventCount: 2 },
+      precedingLifetime: { availability: 'included', eventCount: 4 },
+    })
+    expect(
+      prepared?.diagnostics.events.map(({ scope, event }) => [scope, event.kind]),
+    ).toEqual([
+      ['preceding-lifetime', 'application-starting'],
+      ['preceding-lifetime', 'renderer-unresponsive'],
+      ['preceding-lifetime', 'workbench-health-recovered'],
+      ['preceding-lifetime', 'application-shutdown-completed'],
+      ['current-lifetime', 'application-starting'],
+      ['current-lifetime', 'application-ready'],
+    ])
+    await lifetimeB.dispose()
   })
 })
 

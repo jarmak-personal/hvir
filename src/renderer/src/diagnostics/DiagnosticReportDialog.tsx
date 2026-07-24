@@ -184,6 +184,16 @@ export function DiagnosticReportDialog({
         <>
           <section aria-labelledby="diagnostic-report-structured-title">
             <h3 id="diagnostic-report-structured-title">Exact structured fields</h3>
+            <dl className="diagnostic-report-evidence-scopes">
+              <dt>Current lifetime</dt>
+              <dd>
+                {scopeSummary(state.artifact.report.diagnostics.scopes.currentLifetime)}
+              </dd>
+              <dt>Preceding lifetime</dt>
+              <dd>
+                {scopeSummary(state.artifact.report.diagnostics.scopes.precedingLifetime)}
+              </dd>
+            </dl>
             <pre className="diagnostic-report-preview">
               {JSON.stringify(state.artifact.report, null, 2)}
             </pre>
@@ -274,5 +284,20 @@ function failureMessage(reason: DiagnosticReportFailure | undefined): string {
   if (reason === 'invalid-request')
     return 'The report request was rejected by its closed schema.'
   if (reason === 'action-unavailable') return 'The requested local action is unavailable.'
+  if (reason === 'evidence-changed')
+    return 'Local evidence changed while the report was being prepared. Try again.'
   return 'Local diagnostic storage is unavailable.'
+}
+
+function scopeSummary(scope: {
+  readonly availability: 'included' | 'partial' | 'unavailable'
+  readonly eventCount: number
+}): string {
+  const label =
+    scope.availability === 'included'
+      ? 'included'
+      : scope.availability === 'partial'
+        ? 'partially available'
+        : 'unavailable'
+  return `${label} · ${scope.eventCount} ${scope.eventCount === 1 ? 'event' : 'events'}`
 }

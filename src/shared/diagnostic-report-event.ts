@@ -32,7 +32,10 @@ export type DiagnosticReportOwner =
   | 'renderer-responsiveness'
   | 'window-manager'
 
+export type DiagnosticReportLifetimeScope = 'preceding-lifetime' | 'current-lifetime'
+
 interface DiagnosticReportEventBase {
+  readonly scope: DiagnosticReportLifetimeScope
   readonly kind: Exclude<DiagnosticReportEventKind, 'renderer-responsiveness-episode'>
   readonly owner: DiagnosticReportOwner
   readonly ownerGeneration: number
@@ -44,6 +47,7 @@ interface DiagnosticReportEventBase {
 export type DiagnosticReportEvent =
   | DiagnosticReportEventBase
   | {
+      readonly scope: DiagnosticReportLifetimeScope
       readonly kind: 'renderer-responsiveness-episode'
       readonly owner: 'renderer-responsiveness'
       readonly ownerGeneration: number
@@ -76,6 +80,7 @@ export const DIAGNOSTIC_REPORT_OWNERS: readonly DiagnosticReportOwner[] = [
 export function isDiagnosticReportEvent(value: unknown): value is DiagnosticReportEvent {
   if (!isRecord(value)) return false
   const common =
+    REPORT_EVENT_SCOPES.includes(value.scope as DiagnosticReportLifetimeScope) &&
     REPORT_EVENT_KINDS.includes(value.kind as DiagnosticReportEventKind) &&
     DIAGNOSTIC_REPORT_OWNERS.includes(value.owner as DiagnosticReportOwner) &&
     isPositiveSafeInteger(value.ownerGeneration) &&
@@ -85,6 +90,7 @@ export function isDiagnosticReportEvent(value: unknown): value is DiagnosticRepo
   if (!common) return false
   if (value.kind !== 'renderer-responsiveness-episode') {
     return exactKeys(value, [
+      'scope',
       'kind',
       'owner',
       'ownerGeneration',
@@ -95,6 +101,7 @@ export function isDiagnosticReportEvent(value: unknown): value is DiagnosticRepo
   }
   return (
     exactKeys(value, [
+      'scope',
       'kind',
       'owner',
       'ownerGeneration',
@@ -179,4 +186,9 @@ const REPORT_EVENT_KINDS: readonly DiagnosticReportEventKind[] = [
   'renderer-unresponsive',
   'workbench-health-recovered',
   'renderer-responsiveness-episode',
+]
+
+const REPORT_EVENT_SCOPES: readonly DiagnosticReportLifetimeScope[] = [
+  'preceding-lifetime',
+  'current-lifetime',
 ]

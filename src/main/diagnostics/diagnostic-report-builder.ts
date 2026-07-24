@@ -7,10 +7,11 @@ import {
   type DiagnosticReport,
   type DiagnosticReportDroppedCount,
   type DiagnosticReportEvent,
+  type DiagnosticReportLifetimeScope,
   type WorkbenchHealthSnapshot,
 } from '../../shared'
 import type { RendererOwner } from '../renderer-resource-scopes'
-import type { DiagnosticRecentSnapshot } from './diagnostic-intake'
+import type { DiagnosticReportEvidenceSnapshot } from './diagnostic-report-evidence'
 
 export interface DiagnosticReportApplicationFacts {
   readonly version: string
@@ -27,7 +28,7 @@ export function buildDiagnosticReport(input: {
   readonly createdAt: string
   readonly application: DiagnosticReportApplicationFacts
   readonly owner: RendererOwner
-  readonly diagnostics: DiagnosticRecentSnapshot
+  readonly diagnostics: DiagnosticReportEvidenceSnapshot
   readonly health: WorkbenchHealthSnapshot
 }): DiagnosticReport | undefined {
   const report: DiagnosticReport = {
@@ -42,10 +43,11 @@ export function buildDiagnosticReport(input: {
       surface: 'workbench-health',
     },
     diagnostics: {
-      schemaVersion: 1,
+      schemaVersion: 2,
+      scopes: input.diagnostics.scopes,
       events: input.diagnostics.events
         .slice(-MAX_DIAGNOSTIC_REPORT_EVENTS)
-        .map(reportEvent),
+        .map(({ event, scope }) => reportEvent(event, scope)),
       dropped: input.diagnostics.dropped
         .slice(-MAX_DIAGNOSTIC_REPORT_DROPPED_COUNTS)
         .map((entry): DiagnosticReportDroppedCount => ({ ...entry })),
@@ -56,9 +58,11 @@ export function buildDiagnosticReport(input: {
 }
 
 function reportEvent(
-  event: DiagnosticRecentSnapshot['events'][number],
+  event: DiagnosticReportEvidenceSnapshot['events'][number]['event'],
+  scope: DiagnosticReportLifetimeScope,
 ): DiagnosticReportEvent {
   const common = {
+    scope,
     ownerGeneration: event.ownerGeneration,
     severity: event.severity,
     occurredAt: event.occurredAt,
