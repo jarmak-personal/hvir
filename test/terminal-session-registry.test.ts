@@ -356,6 +356,53 @@ describe('TerminalSessionRegistry', () => {
     expect(registry.list(root)).toEqual([])
   })
 
+  it('authorizes renderer reattachment for an exact stored terminal identity', async () => {
+    const root = localPath('/tmp/project')
+    await registry.recordSpawn({
+      id: SESSION_ID,
+      providerId: SHELL_PROVIDER_ID,
+      profileId: SHELL_PROFILE_ID,
+      launchRevision: 1,
+      workspaceRoot: root,
+      cwd: root,
+      title: 'Shell',
+      position: 0,
+      active: true,
+    })
+
+    expect(
+      registry.authorizeReattach({
+        id: SESSION_ID,
+        providerId: SHELL_PROVIDER_ID,
+        profileId: SHELL_PROFILE_ID,
+        launchRevision: 1,
+        workspaceRoot: root,
+        cwd: root,
+      }),
+    ).toBe(true)
+    expect(
+      registry.authorizeReattach({
+        id: SESSION_ID,
+        providerId: SHELL_PROVIDER_ID,
+        profileId: SHELL_PROFILE_ID,
+        launchRevision: 2,
+        workspaceRoot: root,
+        cwd: root,
+      }),
+    ).toBe(false)
+    expect(
+      registry.authorizeReattach({
+        id: SESSION_ID,
+        providerId: SHELL_PROVIDER_ID,
+        profileId: SHELL_PROFILE_ID,
+        launchRevision: 1,
+        harnessSessionId: HARNESS_ID,
+        workspaceRoot: root,
+        cwd: root,
+      }),
+    ).toBe(false)
+  })
+
   it('atomically replaces a retained recovery record with new identities', async () => {
     const root = localPath('/tmp/project')
     const replacementId = 'terminal-2'

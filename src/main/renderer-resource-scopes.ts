@@ -27,6 +27,8 @@ export interface RendererResourceLease {
 export interface RendererResourceRegistrationOptions {
   /** Reuse an equivalent existing registration for an intentionally idempotent resource. */
   readonly duplicate?: 'reuse'
+  /** Transfer a live main-owned resource to the next renderer generation. */
+  readonly rollover?: (owner: RendererOwner) => boolean
 }
 
 export interface RendererOwnerTransition {
@@ -36,9 +38,10 @@ export interface RendererOwnerTransition {
 
 interface ResourceRecord {
   key: string
-  readonly owner: RendererOwner
+  owner: RendererOwner
   qualifier: RendererResourceQualifier
   readonly dispose: () => void | Promise<void>
+  readonly rollover?: (owner: RendererOwner) => boolean
   active: boolean
 }
 
@@ -85,7 +88,26 @@ export class RendererResourceScopes {
       ? this.take((record) => sameOwner(record.owner, previous))
       : []
     const owner = this.activateOwner(id)
-    return { owner, cleanup: this.trackCleanup(this.disposeRecords(records)) }
+    const disposed: ResourceRecord[] = []
+    const failures: unknown[] = []
+    for (const record of records) {
+      try {
+        if (record.rollover?.(owner)) {
+          record.owner = owner
+          record.key = resourceKey(owner, record.qualifier)
+          record.active = true
+          this.resources.set(record.key, record)
+          continue
+        }
+      } catch (error) {
+        failures.push(error)
+      }
+      disposed.push(record)
+    }
+    return {
+      owner,
+      cleanup: this.trackCleanup(this.disposeRecords(disposed, failures)),
+    }
   }
 
   revokeOwner(id: number): Promise<void> {
@@ -110,9 +132,20 @@ export class RendererResourceScopes {
       if (options.duplicate === 'reuse') return this.lease(existing)
       throw new Error(`Renderer ${qualifier.type} resource is already registered`)
     }
-    const record: ResourceRecord = { key, owner, qualifier, dispose, active: true }
+    const record: ResourceRecord = {
+      key,
+      owner,
+      qualifier,
+      dispose,
+      rollover: options.rollover,
+      active: true,
+    }
     this.resources.set(key, record)
     return this.lease(record)
+  }
+
+  hasResource(owner: RendererOwner, qualifier: RendererResourceQualifier): boolean {
+    return this.resources.has(resourceKey(owner, qualifier))
   }
 
   private lease(record: ResourceRecord): RendererResourceLease {
@@ -209,8 +242,11 @@ export class RendererResourceScopes {
     return records
   }
 
-  private async disposeRecords(records: readonly ResourceRecord[]): Promise<void> {
-    const failures: unknown[] = []
+  private async disposeRecords(
+    records: readonly ResourceRecord[],
+    initialFailures: readonly unknown[] = [],
+  ): Promise<void> {
+    const failures: unknown[] = [...initialFailures]
     for (const record of records) {
       try {
         await record.dispose()

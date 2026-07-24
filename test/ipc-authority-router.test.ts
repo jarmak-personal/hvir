@@ -278,6 +278,7 @@ describe('IpcAuthorityRouter', () => {
         'web-pane:open-browser',
         'terminal:plan-move',
         'terminal:move',
+        'terminal:record-recovery-decision',
         'pty:start',
         'diagnostic-report:create',
         'diagnostic-report:capture',

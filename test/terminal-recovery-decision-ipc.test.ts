@@ -59,24 +59,41 @@ function fixture(
     },
   ) => Promise<void>,
 ) {
-  const handlers = new Map<string, (request: unknown) => unknown>()
+  const handlers = new Map<
+    string,
+    (
+      request: unknown,
+      context: { owner: () => { id: number; generation: number } },
+    ) => unknown
+  >()
   const workspaceRoot = vi.fn(() => authorizedRoot)
+  const context = { owner: () => ({ id: 7, generation: 1 }) }
   const ipc = {
     authority: {
       workspaceRoot,
     },
-    handle: (channel: string, handler: (request: unknown) => unknown) => {
+    handle: (
+      channel: string,
+      handler: (
+        request: unknown,
+        context: { owner: () => { id: number; generation: number } },
+      ) => unknown,
+    ) => {
       handlers.set(channel, handler)
     },
     handleSend: vi.fn(),
   } as unknown as IpcRegistrar
   registerTerminalIpc(ipc, {
     terminalSessions: { recordRecoveryDecision },
+    rendererResources: {
+      hasResource: () => false,
+      disposeResource: () => Promise.resolve(false),
+    },
   } as unknown as Parameters<typeof registerTerminalIpc>[1])
   const handler = handlers.get('terminal:record-recovery-decision')
   if (!handler) throw new Error('Recovery decision handler was not registered')
   return {
-    handler: (request: unknown) => Promise.resolve(handler(request)),
+    handler: (request: unknown) => Promise.resolve(handler(request, context)),
     workspaceRoot,
   }
 }

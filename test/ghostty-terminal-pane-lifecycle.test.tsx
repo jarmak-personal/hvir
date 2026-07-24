@@ -327,6 +327,7 @@ describe('GhosttyTerminalPane lifecycle', () => {
         id: 'terminal-1',
         pid: 4321,
         resumed: false,
+        reattached: false,
         harnessSessionId: undefined,
         identityStatus: 'unsupported' as const,
         capabilities: {
@@ -411,6 +412,7 @@ describe('GhosttyTerminalPane lifecycle', () => {
         id: 'terminal-1',
         pid: 4321,
         resumed: false,
+        reattached: false,
         harnessSessionId: undefined,
         identityStatus: 'unsupported' as const,
         capabilities: {
@@ -571,6 +573,7 @@ describe('GhosttyTerminalPane lifecycle', () => {
         id: 'terminal-1',
         pid: 4321,
         resumed: false,
+        reattached: false,
         harnessSessionId: undefined,
         identityStatus: 'unsupported' as const,
         capabilities: {
@@ -636,6 +639,7 @@ describe('GhosttyTerminalPane lifecycle', () => {
         id: 'd33b09dd-bf6a-4fab-b198-446017d5f8c9',
         pid: 4321,
         resumed: false,
+        reattached: false,
         harnessSessionId: 'd33b09dd-bf6a-4fab-b198-446017d5f8c9',
         identityStatus: 'identified' as const,
         capabilities: {
@@ -709,6 +713,7 @@ describe('GhosttyTerminalPane lifecycle', () => {
         id: 'terminal-1',
         pid: 4321,
         resumed: true,
+        reattached: false,
         harnessSessionId: '05ea41ff-026f-4ab6-b930-64eb3b497806',
         identityStatus: 'identified' as const,
         capabilities: {

@@ -450,6 +450,39 @@ export class PtySupervisor {
     }
   }
 
+  /**
+   * Preserve an attached live PTY while replacing only its renderer document.
+   * Detached output returns to the bounded replay buffer until the new document attaches.
+   */
+  transferRendererSession(
+    id: string,
+    ownerId: number,
+    ownerGeneration: number,
+    nextOwnerId: number,
+    nextOwnerGeneration: number,
+  ): boolean {
+    const entry = this.entries.get(id)
+    if (
+      !entry ||
+      entry.exited ||
+      entry.info.ownerId !== ownerId ||
+      entry.info.ownerGeneration !== ownerGeneration ||
+      entry.dataListeners.size === 0
+    ) {
+      return false
+    }
+    entry.dataListeners.clear()
+    entry.exitListeners.clear()
+    entry.telemetryListeners.clear()
+    entry.replayPending = true
+    entry.info = {
+      ...entry.info,
+      ownerId: nextOwnerId,
+      ownerGeneration: nextOwnerGeneration,
+    }
+    return true
+  }
+
   write(id: string, ownerId: number, data: string, ownerGeneration?: number): void {
     const entry = this.requireOwned(id, ownerId, ownerGeneration)
     entry.pty.write(data)

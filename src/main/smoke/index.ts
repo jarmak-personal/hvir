@@ -15,7 +15,10 @@ import { createWorkerClient, workerPath } from '../worker-host'
 import { SmokeCleanup } from './cleanup'
 import { verifyGitDiffBases } from './git-diff'
 import { verifyPlatformContracts } from './platform-contracts'
-import { verifyRendererLifecycleCleanup } from './renderer-lifecycle'
+import {
+  verifyRendererLifecycleCleanup,
+  verifyRendererRolloverRecovery,
+} from './renderer-lifecycle'
 import { verifySourceDiffPosition, verifyViewerPositions } from './viewer-position'
 import { verifyWorkbenchHealthFault } from './workbench-health'
 import { createTerminalMoveSmokeHarness, verifyTerminalMoveSmoke } from './terminal-move'
@@ -32,7 +35,6 @@ import {
   ECHO_REQUEST_TYPE,
   HTML_PREVIEW_SCHEME,
   MAX_PROJECT_WATCH_INTERESTS,
-  asHarnessProfileId,
   asHostId,
   hostPath,
   hostPathEquals,
@@ -247,6 +249,18 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
       updateLayout: () => Promise.resolve(),
       forget: () => Promise.resolve(),
       rebindProfile: () => Promise.reject(new Error('Smoke recovery is read-only')),
+      authorizeReattach: (request) => {
+        const stored = smokeRecoverySessions.find((session) => session.id === request.id)
+        return Boolean(
+          stored &&
+          stored.providerId === request.providerId &&
+          stored.profileId === request.profileId &&
+          stored.launchRevision === request.launchRevision &&
+          stored.harnessSessionId === request.harnessSessionId &&
+          hostPathEquals(request.workspaceRoot, smokeRoot) &&
+          hostPathEquals(stored.cwd, request.cwd),
+        )
+      },
       authorizeResume: () => false,
       authorizeReplacement: () => false,
       flush: () => Promise.resolve(),
@@ -2718,108 +2732,18 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
     )) as string
     console.log(`[smoke] project close OK (${projectCloseStatus})`)
 
-    const previousRecoveryMode = (await win.webContents.executeJavaScript(
-      `localStorage.getItem('hvir:terminal-recovery-mode')`,
-    )) as string | null
-    const previousSettings = (await win.webContents.executeJavaScript(
-      `localStorage.getItem('hvir:settings:v1')`,
-    )) as string | null
-    await win.webContents.executeJavaScript(
-      `localStorage.setItem('hvir:terminal-recovery-mode', 'prompt'); localStorage.setItem('hvir:settings:v1', JSON.stringify({ terminalRecoveryMode: 'prompt' }))`,
-    )
-    smokeRecoverySessions = [
-      {
-        id: 'smoke-recovery-shell',
-        providerId: defaultHarnessProviderId,
-        profileId: asHarnessProfileId('plain-shell-default'),
-        launchRevision: 1,
-        recoverySkipCount: 0,
-        hostId: smokeRoot.hostId,
-        cwd: smokeRoot,
-        title: 'Recovered smoke shell',
-        position: 0,
-        active: true,
-        updatedAt: Date.now(),
+    const recoveryStatus = await verifyRendererRolloverRecovery({
+      win,
+      supervisor,
+      root: smokeRoot,
+      providerId: defaultHarnessProviderId,
+      setRecoverySessions: (sessions) => {
+        smokeRecoverySessions = sessions
       },
-    ]
-    const reloaded = new Promise<void>((resolve) =>
-      win.webContents.once('did-finish-load', () => resolve()),
+    })
+    console.log(
+      `[smoke] terminal recovery picker + same-PID reattach OK (${recoveryStatus})`,
     )
-    win.webContents.reload()
-    await withTimeout(reloaded, 'recovery smoke reload timed out')
-    let recoveryStatus: string
-    try {
-      recoveryStatus = (await withTimeout(
-        win.webContents.executeJavaScript(`
-          new Promise((resolve, reject) => {
-            const deadline = Date.now() + 10000;
-            const waitForDialog = () => {
-              const dialog = document.querySelector('.terminal-recovery-dialog');
-              const option = dialog?.querySelector('.terminal-recovery-option input');
-              if (option) {
-                option.click();
-                requestAnimationFrame(() => {
-                  if (!document.querySelector('.terminal-recovery-dialog')) {
-                    return reject(new Error('recovery dialog crashed after changing selection'));
-                  }
-                  if (option.checked) {
-                    return reject(new Error('recovery option did not clear'));
-                  }
-                  option.click();
-                  requestAnimationFrame(() => {
-                    if (!option.checked) {
-                      return reject(new Error('recovery option did not reselect'));
-                    }
-                    const restore = [...dialog.querySelectorAll('button')]
-                      .find((node) => node.textContent?.trim() === 'Restore selected');
-                    restore?.click();
-                    const waitForTerminal = () => {
-                      const status = document.querySelector('.terminal-panel')?.getAttribute('data-terminal-status') || '';
-                      const gitReady = [...document.querySelectorAll('.git-tabs button')]
-                        .some((node) => /^Changes \\(\\d+\\)$/.test(node.textContent?.trim() || ''));
-                      if (status.startsWith('pid ') && gitReady) {
-                        return resolve('toggle selection · restore · ' + status);
-                      }
-                      if (Date.now() > deadline) {
-                        return reject(new Error('restored workspace did not settle: ' + status));
-                      }
-                      setTimeout(waitForTerminal, 25);
-                    };
-                    waitForTerminal();
-                  });
-                });
-                return;
-              }
-              if (Date.now() > deadline) return reject(new Error('recovery dialog missing'));
-              setTimeout(waitForDialog, 25);
-            };
-            waitForDialog();
-          })
-        `),
-        'terminal recovery interaction timed out',
-        12_000,
-      )) as string
-    } finally {
-      if (previousRecoveryMode === null) {
-        await win.webContents.executeJavaScript(
-          `localStorage.removeItem('hvir:terminal-recovery-mode')`,
-        )
-      } else {
-        await win.webContents.executeJavaScript(
-          `localStorage.setItem('hvir:terminal-recovery-mode', ${JSON.stringify(previousRecoveryMode)})`,
-        )
-      }
-      if (previousSettings === null) {
-        await win.webContents.executeJavaScript(
-          `localStorage.removeItem('hvir:settings:v1')`,
-        )
-      } else {
-        await win.webContents.executeJavaScript(
-          `localStorage.setItem('hvir:settings:v1', ${JSON.stringify(previousSettings)})`,
-        )
-      }
-    }
-    console.log(`[smoke] terminal recovery picker OK (${recoveryStatus})`)
     await verifyRendererLifecycleCleanup({
       win,
       initialGeneration: initialRendererGeneration,

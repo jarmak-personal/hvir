@@ -300,17 +300,19 @@ export class TerminalRuntime {
       this.started = true
       this.hasStarted = true
       this.activePtyId = result.id
-      const status = result.resumed
-        ? `Resumed · pid ${result.pid}`
-        : replacement
-          ? `New session · pid ${result.pid}`
-          : resume
+      const status = result.reattached
+        ? `Reattached · pid ${result.pid}`
+        : result.resumed
+          ? `Resumed · pid ${result.pid}`
+          : replacement
             ? `New session · pid ${result.pid}`
-            : manualRestart
-              ? `Restarted · pid ${result.pid}`
-              : reconnect
-                ? `New shell · pid ${result.pid}`
-                : `pid ${result.pid}`
+            : resume
+              ? `New session · pid ${result.pid}`
+              : manualRestart
+                ? `Restarted · pid ${result.pid}`
+                : reconnect
+                  ? `New shell · pid ${result.pid}`
+                  : `pid ${result.pid}`
       if (this.pendingInput) {
         window.hvir.send('pty:write', {
           id: result.id,

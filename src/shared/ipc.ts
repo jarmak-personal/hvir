@@ -346,6 +346,7 @@ export type StartPtyResponse =
       readonly id: string
       readonly pid: number
       readonly resumed: boolean
+      readonly reattached: boolean
       readonly harnessSessionId?: string
       readonly identityStatus: TerminalIdentityStatus
       readonly capabilities: import('./harness-provider').HarnessProviderCapabilities
