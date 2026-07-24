@@ -246,3 +246,18 @@ jobs:
             cd dist/release
             sha256sum --check SHA256SUMS
           )
+
+  # One-time bootstrap for epic #222. Remove this invocation after the epic merges;
+  # default-branch releases continue to call the same protected reusable workflow.
+  signed-macos-epic-acceptance:
+    name: Signed native package acceptance (epic #222)
+    if: >-
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.number == 234 &&
+      github.event.pull_request.base.ref == 'main' &&
+      github.event.pull_request.head.ref == 'epic/222-native-distribution' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    uses: ./.github/workflows/macos-package-release.yml
+    with:
+      source_sha: ${{ github.event.pull_request.head.sha }}
+      source_branch: epic/222-native-distribution
