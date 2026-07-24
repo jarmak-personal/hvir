@@ -85,6 +85,16 @@ describe('terminal exact-resume IPC', () => {
       },
     })
     expect(fixture.spawn).toHaveBeenCalledOnce()
+    expect(fixture.recordSuccessfulLaunch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        host: fixture.host,
+        projectRoot: fixture.root,
+        workspaceRoot: fixture.root,
+        profiles: [fixture.profile],
+      }),
+      fixture.profile,
+      expect.objectContaining({ exactResume: true }),
+    )
     expect(fixture.spawn.mock.calls[0]?.[0]).toMatchObject({
       launchSpec: {
         file: 'claude',
@@ -204,6 +214,55 @@ describe('terminal exact-resume IPC', () => {
     expect(fixture.recordSpawn).not.toHaveBeenCalled()
     expect(fixture.lease.dispose).toHaveBeenCalledOnce()
   })
+
+  it('contains a classified fresh-launch failure without retaining resources', async () => {
+    const fixture = resumeFixture(LOCAL_HOST_ID, 'missing')
+    fixture.spawn.mockRejectedValueOnce(new Error('spawn ENOENT'))
+
+    await expect(
+      fixture.start(
+        {
+          ...fixture.request,
+          resume: false,
+          harnessSessionId: undefined,
+        },
+        fixture.context,
+      ),
+    ).rejects.toThrow('spawn ENOENT')
+
+    expect(fixture.lease.dispose).toHaveBeenCalledOnce()
+    expect(fixture.recordSpawn).not.toHaveBeenCalled()
+    expect(fixture.recordSuccessfulLaunch).not.toHaveBeenCalled()
+    expect(fixture.invalidateProbe).toHaveBeenCalledWith(fixture.host, fixture.profile)
+    expect(fixture.probeProfiles).toHaveBeenCalledWith(
+      expect.objectContaining({
+        host: fixture.host,
+        profiles: [fixture.profile],
+        force: true,
+      }),
+    )
+  })
+
+  it('refuses a disconnected fresh launch before allocating a renderer lease', async () => {
+    const fixture = resumeFixture(asHostId('ssh-disconnected-launch'), 'missing')
+    Object.assign(fixture.host, { connectionState: 'disconnected' })
+    fixture.defaultShell.mockRejectedValueOnce(new Error('SSH host is disconnected'))
+
+    await expect(
+      fixture.start(
+        {
+          ...fixture.request,
+          resume: false,
+          harnessSessionId: undefined,
+        },
+        fixture.context,
+      ),
+    ).rejects.toThrow('SSH host is disconnected')
+
+    expect(fixture.register).not.toHaveBeenCalled()
+    expect(fixture.spawn).not.toHaveBeenCalled()
+    expect(fixture.recordSpawn).not.toHaveBeenCalled()
+  })
 })
 
 function resumeFixture(
@@ -238,11 +297,12 @@ function resumeFixture(
       stdout: availability,
       stderr: '',
     })
+  const defaultShell = vi.fn(() => Promise.resolve('/bin/sh'))
   const host = {
     hostId,
     connectionState: 'connected',
     watchTier: hostId === LOCAL_HOST_ID ? 'native' : 'polling',
-    defaultShell: vi.fn(() => Promise.resolve('/bin/sh')),
+    defaultShell,
     realpath: vi.fn((path) => Promise.resolve(path)),
     exec,
   } as unknown as ProjectHost
@@ -306,6 +366,9 @@ function resumeFixture(
       () =>
         undefined,
   )
+  const invalidateProbe = vi.fn()
+  const probeProfiles = vi.fn()
+  const recordSuccessfulLaunch = vi.fn()
   const deps = {
     getProject: () => ({ root, host }),
     terminalSessions: {
@@ -319,8 +382,9 @@ function resumeFixture(
       hasPathGrant: () => false,
     },
     harnessProbes: {
-      invalidate: vi.fn(),
-      probeProfiles: vi.fn(),
+      invalidate: invalidateProbe,
+      probeProfiles,
+      recordSuccessfulLaunch,
     },
     rendererResources: {
       register,
@@ -365,7 +429,10 @@ function resumeFixture(
   } as unknown as IpcInvokeContext
   return {
     root,
+    host,
+    profile,
     exec,
+    defaultShell,
     authorizeResume,
     authorizeReplacement,
     recordSpawn,
@@ -374,6 +441,9 @@ function resumeFixture(
     register,
     spawn,
     attach,
+    invalidateProbe,
+    probeProfiles,
+    recordSuccessfulLaunch,
     send,
     start,
     request,

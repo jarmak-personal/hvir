@@ -25,7 +25,7 @@ import {
 import { TerminalDeck } from './TerminalDeck'
 import { TerminalRail } from './TerminalRail'
 import { TerminalWorkspaceDialogs } from './TerminalWorkspaceDialogs'
-import { profileProbe, terminalProbeMemory } from './terminal-probe-policy'
+import { profileProbe } from './terminal-probe-policy'
 import {
   readTerminalSplitLayout,
   writeTerminalSplitLayout,
@@ -59,6 +59,8 @@ interface TerminalWorkspaceProps {
   readonly connectionState: HostConnectionState
   readonly available: boolean
   readonly visible: boolean
+  readonly railCompact: boolean
+  readonly onRailCompact: (compact: boolean) => void
   readonly label: string
   readonly onRollup: (workspaceId: string, rollup: TerminalWorkspaceRollup) => void
   readonly onOpenPath: (target: ResolvedTerminalFileTarget) => void
@@ -97,6 +99,8 @@ export function TerminalWorkspace({
   connectionState,
   available,
   visible,
+  railCompact,
+  onRailCompact,
   label,
   onRollup,
   onOpenPath,
@@ -267,22 +271,12 @@ export function TerminalWorkspace({
   }
   const launchMenuEntries = profiles.map((profile) => {
     const probe = profileProbe(probes, profile)
-    const needsCheck =
-      !profile.builtIn && (!probe?.expiresAt || probe.expiresAt <= Date.now())
     return {
       profile,
       provider: providerDescriptor(providers, profile.providerId),
-      state: harnessLaunchMenuState(
-        profile,
-        probe,
-        terminalProbeMemory.get(workspaceRoot, profile),
-        pendingProbeIds.has(profile.id) || (menuOpen && needsCheck),
-      ),
+      state: harnessLaunchMenuState(profile, probe, pendingProbeIds.has(profile.id)),
     }
   })
-  const checkingHiddenProfiles = launchMenuEntries.some(
-    ({ state }) => !state.visible && state.checking,
-  )
 
   return (
     <>
@@ -328,6 +322,8 @@ export function TerminalWorkspace({
       <TerminalRail
         label={label}
         visible={visible}
+        compact={railCompact}
+        onCompact={onRailCompact}
         terminalTheme={effectiveTerminalTheme}
         recoveryReady={recoveryReady}
         available={available}
@@ -335,7 +331,6 @@ export function TerminalWorkspace({
         moveMenuOpen={moving.menuOpen}
         moveTargets={moveTargets}
         launchMenuEntries={launchMenuEntries}
-        checkingHiddenProfiles={checkingHiddenProfiles}
         split={terminalSplit}
         sessions={sessions}
         activeId={activeId}

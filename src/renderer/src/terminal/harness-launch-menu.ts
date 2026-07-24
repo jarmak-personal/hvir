@@ -6,8 +6,7 @@ import type {
 } from '../../../shared'
 
 export interface HarnessLaunchMenuState {
-  readonly visible: boolean
-  readonly checking: boolean
+  readonly availability: 'unchecked' | 'checking' | 'available' | 'stale' | 'failed'
   readonly probe?: HarnessProfileProbe
 }
 
@@ -29,27 +28,24 @@ export function bareShellLaunchChoice(
   return provider && profile ? { provider, profile } : undefined
 }
 
-/**
- * Launch-menu truth is deliberately stricter than Settings. Bare Shell is
- * unconditional; configured harnesses appear only after a positive probe or
- * from a same-context last-known-good result while a new check is pending.
- */
 export function harnessLaunchMenuState(
   profile: HarnessProfile,
   current: HarnessProfileProbe | undefined,
-  lastKnownGood: HarnessProfileProbe | undefined,
   checking: boolean,
+  now = Date.now(),
 ): HarnessLaunchMenuState {
-  if (profile.builtIn) return { visible: true, checking: false }
-  if (current) {
-    if (current.status !== 'available')
-      return { visible: false, checking, probe: current }
-    return { visible: true, checking, probe: current }
+  if (profile.builtIn) return { availability: 'available' }
+  if (checking) return { availability: 'checking', probe: current }
+  if (!current || current.status === 'unchecked') {
+    return { availability: 'unchecked', probe: current }
   }
-  if (lastKnownGood?.status === 'available') {
-    return { visible: true, checking, probe: lastKnownGood }
+  if (current.expiresAt !== undefined && current.expiresAt <= now) {
+    return { availability: 'stale', probe: current }
   }
-  return { visible: false, checking }
+  return {
+    availability: current.status === 'available' ? 'available' : 'failed',
+    probe: current,
+  }
 }
 
 export function compactHarnessCapabilityLabel(
