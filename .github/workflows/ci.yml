@@ -261,3 +261,4 @@ jobs:
     with:
       source_sha: ${{ github.event.pull_request.head.sha }}
       source_branch: epic/222-native-distribution
+      allow_pull_request_signing: true

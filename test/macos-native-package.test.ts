@@ -178,6 +178,7 @@ describe('macOS native package contract', () => {
     expect(ciSource).toContain(
       'source_branch: epic/222-native-distribution',
     )
+    expect(ciSource).toContain('allow_pull_request_signing: true')
     expect(ciSource).toContain(
       'uses: ./.github/workflows/macos-package-release.yml',
     )
@@ -187,7 +188,24 @@ describe('macOS native package contract', () => {
       'workflow_dispatch',
     ])
     expect(signedWorkflowSource).toContain('allow_merged_source')
+    expect(signedWorkflowSource).toContain('allow_pull_request_signing')
     expect(signedWorkflowSource).toContain('source_branch')
+    const workflowCall = signedWorkflow.on.workflow_call as {
+      secrets: Record<string, { required: boolean }>
+    }
+    expect(Object.keys(workflowCall.secrets)).toEqual([
+      'MACOS_APPLICATION_CERTIFICATE',
+      'MACOS_APPLICATION_CERTIFICATE_PASSWORD',
+      'MACOS_INSTALLER_CERTIFICATE',
+      'MACOS_INSTALLER_CERTIFICATE_PASSWORD',
+      'MACOS_NOTARY_KEY',
+      'MACOS_NOTARY_KEY_ID',
+      'MACOS_NOTARY_ISSUER_ID',
+      'MACOS_TEAM_ID',
+    ])
+    for (const secret of Object.values(workflowCall.secrets)) {
+      expect(secret.required).toBe(false)
+    }
     const signed = signedWorkflow.jobs['signed-package']
     if (!signed) throw new Error('Missing signed-package release job')
     expect(signed.environment).toBe('native-release-signing')
@@ -201,6 +219,12 @@ describe('macOS native package contract', () => {
     expect(signedWorkflowSource).toContain('MACOS_APPLICATION_CERTIFICATE')
     expect(signedWorkflowSource).toContain('MACOS_INSTALLER_CERTIFICATE')
     expect(signedWorkflowSource).toContain('MACOS_NOTARY_KEY')
+    expect(signedWorkflowSource).toContain(
+      'Require protected signing credentials',
+    )
+    expect(signedWorkflowSource).toContain(
+      'CSC_FOR_PULL_REQUEST: ${{ inputs.allow_pull_request_signing }}',
+    )
     expect(signedWorkflowSource).toContain('xcrun stapler staple "$package"')
     expect(signedWorkflowSource).not.toMatch(/pull_request:|push:/)
   })
