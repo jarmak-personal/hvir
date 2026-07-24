@@ -96,6 +96,8 @@ describe('terminal workspace move controls', () => {
         <TerminalRail
           label="main"
           visible
+          compact={false}
+          onCompact={vi.fn()}
           terminalTheme="app"
           recoveryReady
           available
@@ -103,7 +105,6 @@ describe('terminal workspace move controls', () => {
           moveMenuOpen
           moveTargets={[{ ...target, newlyDiscovered: false }]}
           launchMenuEntries={[]}
-          checkingHiddenProfiles={false}
           split={false}
           sessions={[session()]}
           activeId="terminal-1"
