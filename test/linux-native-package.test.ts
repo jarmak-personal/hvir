@@ -101,6 +101,9 @@ describe('Linux native package contract', () => {
     expect(installedSmoke).toContain('HVIR_FAKE_NPM_PREFIX="$legacy_prefix"')
     expect(installedSmoke).toContain('test ! -e "$legacy_launcher"')
     expect(installedSmoke).toContain(
+      'Another hvir command shadows the installed native command:',
+    )
+    expect(installedSmoke).toContain(
       'require_contains "$desktop_entry" \'Exec=/opt/hvir/hvir %U\'',
     )
     expect(installedSmoke).toContain('test -d "$project_root/.git"')

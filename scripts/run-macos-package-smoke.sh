@@ -239,7 +239,7 @@ else
 fi
 
 HOME="$home_root" \
-  PATH="$legacy_prefix/bin:/usr/bin:/bin:/usr/sbin:/sbin" \
+  PATH="$legacy_prefix/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin" \
   HVIR_FAKE_NPM_PREFIX="$legacy_prefix" \
   HVIR_FAKE_NPM_ROOT="$legacy_root" \
   "$old_installer" | tee "$install_log"
@@ -299,7 +299,7 @@ test -f "$application/Contents/Resources/hvir-previous-only.txt"
 run_installed_smoke retained-after-failed-update pty-native
 
 HOME="$home_root" \
-  PATH='/usr/bin:/bin:/usr/sbin:/sbin' \
+  PATH='/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin' \
   "$current_installer" | tee "$install_log"
 grep -Fq 'installer: The upgrade was successful.' "$install_log"
 receipt_version=$(pkgutil --pkg-info-plist "$receipt" |
@@ -446,7 +446,7 @@ test -f "$home_root/Library/Application Support/hvir/registered-projects-smoke.j
 test -d "$project_root/.git"
 
 HOME="$home_root" \
-  PATH='/usr/bin:/bin:/usr/sbin:/sbin' \
+  PATH='/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin' \
   "$current_installer" >/dev/null
 installed_by_smoke=1
 mkdir -p "$home_root/Library/Caches/hvir"
