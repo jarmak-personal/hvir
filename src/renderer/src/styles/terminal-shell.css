@@ -291,6 +291,14 @@
   white-space: nowrap;
 }
 
+.terminal-new-menu button[data-harness-availability='stale'] > small {
+  color: #b89a68;
+}
+
+.terminal-new-menu button[data-harness-availability='failed'] > small {
+  color: #cf7b82;
+}
+
 .terminal-new-menu button:disabled {
   opacity: 0.48;
 }
@@ -314,12 +322,6 @@
   grid-template-columns: repeat(3, 1fr);
   padding-top: 4px;
   border-top: 1px solid #343a45;
-}
-
-.terminal-new-menu-checking {
-  padding: 7px 8px;
-  color: #7f8997;
-  font-size: 9px;
 }
 
 .harness-risk-dialog small {

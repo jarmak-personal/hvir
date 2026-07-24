@@ -19,6 +19,17 @@ export function registerHarnessIpc(ipc: IpcRegistrar, deps: HarnessIpcDeps): voi
     const workspaceRoot = ipc.authority.workspaceRoot(req.root)
     return deps.harnessProfiles.list(ipc.authority.projectRoot(workspaceRoot))
   })
+  ipc.handle('harness:probe-snapshot', (req) => {
+    const workspaceRoot = ipc.authority.workspaceRoot(req.root)
+    const projectRoot = ipc.authority.projectRoot(workspaceRoot)
+    const { host } = deps.getProject()
+    return deps.harnessProbes.snapshotProfiles({
+      host,
+      projectRoot,
+      workspaceRoot,
+      profiles: deps.harnessProfiles.list(projectRoot),
+    })
+  })
   ipc.handle('harness:probe-profiles', async (req) => {
     const root = ipc.authority.workspaceRoot(req.root)
     const projectRoot = ipc.authority.projectRoot(root)

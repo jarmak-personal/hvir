@@ -35,7 +35,6 @@ export function TerminalRail({
   moveMenuOpen,
   moveTargets,
   launchMenuEntries,
-  checkingHiddenProfiles,
   split,
   sessions,
   activeId,
@@ -67,7 +66,6 @@ export function TerminalRail({
   readonly moveMenuOpen: boolean
   readonly moveTargets: readonly WorkspaceState[]
   readonly launchMenuEntries: readonly TerminalLaunchMenuEntry[]
-  readonly checkingHiddenProfiles: boolean
   readonly split: boolean
   readonly sessions: readonly TerminalSession[]
   readonly activeId?: string
@@ -225,8 +223,7 @@ export function TerminalRail({
                 role="menu"
                 style={launchMenuStyle}
               >
-                {launchMenuEntries.flatMap(({ profile, provider, state }) => {
-                  if (!state.visible) return []
+                {launchMenuEntries.map(({ profile, provider, state }) => {
                   const capability = compactHarnessCapabilityLabel(
                     provider?.default === true,
                     state.probe?.capabilities ?? provider?.capabilities,
@@ -236,14 +233,15 @@ export function TerminalRail({
                       ? provider.displayName
                       : undefined,
                     capability,
-                    state.checking ? 'Checking…' : undefined,
+                    profile.builtIn ? undefined : launchAvailabilityLabel(state),
                   ].filter((value): value is string => Boolean(value))
                   return (
                     <button
                       key={profile.id}
                       type="button"
                       role="menuitem"
-                      title={launchMenuDescription(profile, provider, state.probe)}
+                      data-harness-availability={state.availability}
+                      title={launchMenuDescription(profile, provider, state)}
                       onClick={() => onAddSession(profile)}
                     >
                       <span>
@@ -258,11 +256,6 @@ export function TerminalRail({
                     </button>
                   )
                 })}
-                {checkingHiddenProfiles ? (
-                  <div className="terminal-new-menu-checking" role="status">
-                    Checking configured harnesses…
-                  </div>
-                ) : null}
                 <div className="terminal-new-menu-actions">
                   <button type="button" role="menuitem" onClick={onAddHarness}>
                     Add a harness…
@@ -448,19 +441,34 @@ function probeLabel(probe: HarnessProfileProbe | undefined): string {
 function launchMenuDescription(
   profile: HarnessProfile,
   provider: HarnessProviderDescriptor | undefined,
-  probe: HarnessProfileProbe | undefined,
+  state: HarnessLaunchMenuState,
 ): string {
   const capability = compactHarnessCapabilityLabel(
     provider?.default === true,
-    probe?.capabilities ?? provider?.capabilities,
+    state.probe?.capabilities ?? provider?.capabilities,
   )
   return [
     profile.displayName,
     provider?.displayName ?? profile.providerId,
     capability,
-    probe ? probeLabel(probe) : undefined,
-    probe?.detail,
+    profile.builtIn ? undefined : launchAvailabilityLabel(state),
+    state.probe?.detail,
   ]
     .filter((value): value is string => Boolean(value))
     .join(' · ')
+}
+
+function launchAvailabilityLabel(state: HarnessLaunchMenuState): string {
+  switch (state.availability) {
+    case 'unchecked':
+      return 'Unchecked'
+    case 'checking':
+      return 'Checking…'
+    case 'available':
+      return state.probe?.version ? `Available · ${state.probe.version}` : 'Available'
+    case 'stale':
+      return `Stale · ${probeLabel(state.probe)}`
+    case 'failed':
+      return `Failed · ${probeLabel(state.probe)}`
+  }
 }

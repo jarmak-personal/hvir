@@ -66,7 +66,7 @@ export const AUTHORITY_SCOPED_INVOKE_CHANNELS = [
   'git:pull',
   'git:switch-branch',
   'html-preview:create',
-  'harness:profiles',
+  'harness:profiles', 'harness:probe-snapshot',
   'harness:probe-profiles',
   'harness:probe-templates',
   'harness:profile-materialize',
