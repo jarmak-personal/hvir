@@ -30,10 +30,12 @@ describe('workspace pane state session', () => {
     const other = localPath('/srv/other')
     const localState: WorkspacePaneState = {
       terminalMode: 'maximized',
+      terminalRailCompact: true,
       treeCollapsed: true,
     }
     const remoteState: WorkspacePaneState = {
       terminalMode: 'collapsed',
+      terminalRailCompact: false,
       treeCollapsed: false,
     }
 
@@ -44,6 +46,7 @@ describe('workspace pane state session', () => {
     expect(session.read(remote)).toEqual(remoteState)
     expect(session.read(other)).toEqual({
       terminalMode: 'restored',
+      terminalRailCompact: false,
       treeCollapsed: false,
     })
   })

@@ -394,6 +394,8 @@ describe('terminal resume unavailable state', () => {
         <TerminalRail
           label="repo"
           visible
+          compact={false}
+          onCompact={vi.fn()}
           terminalTheme="app"
           recoveryReady
           available

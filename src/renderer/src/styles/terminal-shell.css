@@ -60,6 +60,12 @@
   background: #12151a;
 }
 
+.terminal-rail-header[hidden],
+.terminal-list[hidden],
+.terminal-rail-compact-strip[hidden] {
+  display: none;
+}
+
 .terminal-rail-header {
   position: relative;
   z-index: 7;
@@ -74,6 +80,80 @@
   color: #c9ced6;
   font-size: 10px;
   font-weight: 650;
+}
+
+.terminal-rail-collapse svg,
+.terminal-rail-restore svg {
+  width: 14px;
+  height: 14px;
+}
+
+.terminal-rail-collapse path,
+.terminal-rail-restore path {
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.4;
+}
+
+.terminal-rail-compact-strip {
+  min-height: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 6px 2px;
+  box-shadow: inset 1px 0 var(--border-subtle);
+  background: #181b21;
+}
+
+.terminal-rail-compact-rollups {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.terminal-rail-compact-rollup {
+  width: 20px;
+  min-height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  border: 1px solid currentColor;
+  border-radius: 3px;
+  font-size: 7px;
+  font-weight: 750;
+  line-height: 1;
+}
+
+.terminal-rail-compact-rollup.idle {
+  background: #17261c;
+  color: #7ccc91;
+}
+
+.terminal-rail-compact-rollup.bell {
+  background: #2a2114;
+  color: #e5b65f;
+}
+
+.terminal-rail-restore {
+  width: 24px;
+  height: 24px;
+  margin-top: auto;
+  padding: 0;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: #99a2af;
+}
+
+.terminal-rail-restore:hover,
+.terminal-rail-restore:focus-visible {
+  outline: none;
+  background: #252b34;
+  color: #edf0f5;
 }
 
 .terminal-new-control {

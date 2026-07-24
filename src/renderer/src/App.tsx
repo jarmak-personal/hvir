@@ -6,7 +6,6 @@ import {
   useState,
   type ReactElement,
 } from 'react'
-
 import {
   GIT_CHANGE_DISPLAY_LIMIT,
   hostPathEquals,
@@ -170,7 +169,6 @@ export function App(): ReactElement {
     acknowledgeWorkspaces: session.acknowledgeWorkspaces,
     onError: session.reportError,
   })
-
   const layout = useWorkbenchLayout({
     root,
     gitAvailable: gitEnabled,
@@ -416,7 +414,7 @@ export function App(): ReactElement {
         />
       ) : null}
       <main
-        className={`workbench${connectionState === 'connected' ? '' : ' project-stale'}${terminalMode === 'maximized' ? ' terminal-focused' : ''}${terminalMode === 'collapsed' ? ' terminal-collapsed' : ''}${treeCollapsed ? ' tree-collapsed' : ''}${webViewFocused && webViewActive ? ' web-focused' : ''}`}
+        className={`workbench${connectionState === 'connected' ? '' : ' project-stale'}${terminalMode === 'maximized' ? ' terminal-focused' : ''}${terminalMode === 'collapsed' ? ' terminal-collapsed' : ''}${treeCollapsed ? ' tree-collapsed' : ''}${layout.terminalRailCompact ? ' terminal-rail-compact' : ''}${webViewFocused && webViewActive ? ' web-focused' : ''}`}
         ref={workbenchRef}
       >
         <aside
@@ -622,6 +620,8 @@ export function App(): ReactElement {
               label={workspace.name}
               available={!workspace.missing}
               visible={workspace.id === projectState.activeWorkspaceId}
+              railCompact={layout.terminalRailCompact}
+              onRailCompact={layout.setTerminalRailCompact}
               connectionState={project.connectionState}
               {...terminalWorkspaces.moveProps(project, workspace)}
               onRollup={terminalAttention.updateRollup}

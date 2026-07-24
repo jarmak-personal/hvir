@@ -369,17 +369,35 @@ async function verifyTerminalLayoutFocus(win: BrowserWindow): Promise<string> {
         const workbench = document.querySelector('.workbench');
         const maximize = document.querySelector('.terminal-focus-toggle');
         const minimize = document.querySelector('.terminal-collapse-toggle');
+        const collapseRail = document.querySelector(
+          'button[aria-label="Collapse terminal rail"]'
+        );
+        const restoreRail = document.querySelector(
+          'button[aria-label="Restore terminal rail"]'
+        );
         if (
           !(workbench instanceof HTMLElement) ||
           !(maximize instanceof HTMLButtonElement) ||
-          !(minimize instanceof HTMLButtonElement)
+          !(minimize instanceof HTMLButtonElement) ||
+          !(collapseRail instanceof HTMLButtonElement) ||
+          !(restoreRail instanceof HTMLButtonElement)
         ) {
           throw new Error('terminal layout focus controls missing');
         }
         const activeInput = () => document.querySelector(
           '.terminal-deck:not([hidden]) .terminal-surface.active .terminal-engine-host'
         );
-        const deadline = Date.now() + 8000;
+        const deadline = Date.now() + 12000;
+        const waitFor = (read, message) => new Promise((resolve, reject) => {
+          const waitDeadline = Date.now() + 4000;
+          const poll = () => {
+            const value = read();
+            if (value) return resolve(value);
+            if (Date.now() > waitDeadline) return reject(new Error(message));
+            setTimeout(poll, 25);
+          };
+          poll();
+        });
         await new Promise((resolve, reject) => {
           const poll = () => {
             if (activeInput() instanceof HTMLElement) return resolve();
@@ -434,13 +452,95 @@ async function verifyTerminalLayoutFocus(win: BrowserWindow): Promise<string> {
         await expectFocused(maximize, 'restored');
         await expectFocused(minimize, 'collapsed');
         await expectFocused(minimize, 'restored');
+        const deck = document.querySelector('.terminal-deck:not([hidden])');
+        const rail = document.querySelector('.terminal-rail:not([hidden])');
+        const canvas = activeInput()?.querySelector('canvas');
+        const add = document.querySelector('button[aria-label="New terminal"]');
+        if (
+          !(deck instanceof HTMLElement) ||
+          !(rail instanceof HTMLElement) ||
+          !(canvas instanceof HTMLCanvasElement) ||
+          !(add instanceof HTMLButtonElement)
+        ) {
+          throw new Error('terminal rail compact fixtures missing');
+        }
+        const deckWidth = deck.getBoundingClientRect().width;
+        const canvasWidth = canvas.getBoundingClientRect().width;
+        const primaryTrack = deck.style.getPropertyValue('--terminal-primary-track');
+        const surfaceState = [...deck.querySelectorAll('.terminal-surface')]
+          .map((surface) => [
+            surface.getAttribute('data-terminal-session'),
+            surface.getAttribute('data-terminal-slot'),
+            surface.classList.contains('active'),
+            surface.classList.contains('visible')
+          ].join(':'))
+          .join('|');
+        add.click();
+        await waitFor(
+          () => document.querySelector('.terminal-new-menu'),
+          'terminal launch menu did not open before rail collapse'
+        );
+        await expectFocused(collapseRail, 'compact rail');
+        await waitFor(() => {
+          const strip = document.querySelector('.terminal-rail-compact-strip');
+          return (
+            workbench.classList.contains('terminal-rail-compact') &&
+            strip instanceof HTMLElement &&
+            !strip.hidden &&
+            !document.querySelector('.terminal-new-menu') &&
+            deck.getBoundingClientRect().width > deckWidth + 100 &&
+            canvas.getBoundingClientRect().width > canvasWidth + 100
+          );
+        }, 'compact terminal rail did not release and refit the terminal width');
+        const deckBounds = deck.getBoundingClientRect();
+        const railBounds = rail.getBoundingClientRect();
+        const restoreBounds = restoreRail.getBoundingClientRect();
+        const deckEdgeTarget = document.elementFromPoint(
+          deckBounds.right - 2,
+          deckBounds.top + deckBounds.height / 2
+        );
+        if (
+          railBounds.left < deckBounds.right - 1 ||
+          railBounds.width > 32 ||
+          restoreBounds.bottom < railBounds.bottom - 8 ||
+          deckEdgeTarget?.closest('.terminal-rail')
+        ) {
+          throw new Error(
+            'compact terminal rail overlaps the deck or misplaces restore: deckRight=' +
+            deckBounds.right + ' rail=' + [railBounds.left, railBounds.width].join(',') +
+            ' restoreBottom=' + restoreBounds.bottom + ' railBottom=' + railBounds.bottom
+          );
+        }
+        if (
+          workbench.style.getPropertyValue('--terminal-track') !== terminalTrack ||
+          deck.style.getPropertyValue('--terminal-primary-track') !== primaryTrack ||
+          [...deck.querySelectorAll('.terminal-surface')]
+            .map((surface) => [
+              surface.getAttribute('data-terminal-session'),
+              surface.getAttribute('data-terminal-slot'),
+              surface.classList.contains('active'),
+              surface.classList.contains('visible')
+            ].join(':'))
+            .join('|') !== surfaceState
+        ) {
+          throw new Error('compact terminal rail changed terminal layout state');
+        }
+        await expectFocused(restoreRail, 'restored rail');
+        await waitFor(
+          () =>
+            !workbench.classList.contains('terminal-rail-compact') &&
+            Math.abs(deck.getBoundingClientRect().width - deckWidth) <= 1 &&
+            Math.abs(canvas.getBoundingClientRect().width - canvasWidth) <= 1,
+          'restored terminal rail did not refit the original terminal width'
+        );
         if (
           workbench.classList.contains('terminal-focused') ||
-          workbench.classList.contains('terminal-collapsed')
+          workbench.classList.contains('terminal-collapsed') ||
+          workbench.classList.contains('terminal-rail-compact')
         ) {
           throw new Error('terminal layout focus check did not restore split view');
         }
-        return 'maximized + collapsed + restored terminal focus';
+        return 'maximized + collapsed + compact rail refit + restored terminal focus';
       })()
     `),
     'terminal layout focus check timed out',
