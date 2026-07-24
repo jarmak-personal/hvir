@@ -59,6 +59,7 @@ describe('PtySupervisor renderer rollover', () => {
     expect(supervisor.transferRendererSession(info.id, OWNER_ID, 4, OWNER_ID, 5)).toBe(
       true,
     )
+    expect(supervisor.isAwaitingRendererAttachment(info.id, OWNER_ID, 5)).toBe(true)
     expect(supervisor.get(info.id)).toMatchObject({
       pid: info.pid,
       ownerId: OWNER_ID,
@@ -71,12 +72,17 @@ describe('PtySupervisor renderer rollover', () => {
 
     pty.emitData('during rollover')
     expect(staleData).toHaveBeenCalledTimes(1)
+    expect(supervisor.transferRendererSession(info.id, OWNER_ID, 5, OWNER_ID, 6)).toBe(
+      true,
+    )
+    expect(supervisor.isAwaitingRendererAttachment(info.id, OWNER_ID, 6)).toBe(true)
     const currentData = vi.fn<(data: string) => void>()
-    supervisor.attach(info.id, OWNER_ID, { onData: currentData }, 5)
+    supervisor.attach(info.id, OWNER_ID, { onData: currentData }, 6)
     expect(currentData).toHaveBeenCalledWith('during rollover')
+    expect(supervisor.isAwaitingRendererAttachment(info.id, OWNER_ID, 6)).toBe(false)
 
-    supervisor.write(info.id, OWNER_ID, 'current', 5)
-    supervisor.resize(info.id, OWNER_ID, 120, 40, 5)
+    supervisor.write(info.id, OWNER_ID, 'current', 6)
+    supervisor.resize(info.id, OWNER_ID, 120, 40, 6)
     expect(pty.write).toHaveBeenCalledWith('current')
     expect(pty.resize).toHaveBeenCalledWith(120, 40)
   })
@@ -87,6 +93,7 @@ describe('PtySupervisor renderer rollover', () => {
     expect(supervisor.transferRendererSession(info.id, OWNER_ID, 4, OWNER_ID, 5)).toBe(
       false,
     )
+    expect(supervisor.isAwaitingRendererAttachment(info.id, OWNER_ID, 4)).toBe(false)
     expect(supervisor.get(info.id)?.ownerGeneration).toBe(4)
     expect(pty.kill).not.toHaveBeenCalled()
   })

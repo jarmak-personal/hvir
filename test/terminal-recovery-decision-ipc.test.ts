@@ -86,7 +86,7 @@ function fixture(
   registerTerminalIpc(ipc, {
     terminalSessions: { recordRecoveryDecision },
     rendererResources: {
-      hasResource: () => false,
+      hasTransferredResource: () => false,
       disposeResource: () => Promise.resolve(false),
     },
   } as unknown as Parameters<typeof registerTerminalIpc>[1])

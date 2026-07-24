@@ -114,7 +114,7 @@ describe('terminal exact-resume IPC', () => {
     'reattaches the same live PTY without probing or spawning on a %s ProjectHost',
     async (_kind, hostId) => {
       const fixture = resumeFixture(hostId, 'missing')
-      fixture.hasResource.mockReturnValue(true)
+      fixture.hasTransferredResource.mockReturnValue(true)
       fixture.get.mockReturnValue(fixture.managed)
 
       const result = await fixture.start(fixture.request, fixture.context)
@@ -147,16 +147,17 @@ describe('terminal exact-resume IPC', () => {
       expect(fixture.spawn).not.toHaveBeenCalled()
       expect(fixture.recordSpawn).not.toHaveBeenCalled()
       expect(fixture.attach).toHaveBeenCalledWith('terminal-1', 7, expect.any(Object), 1)
-      const registrationOptions = fixture.register.mock.calls[0]?.[3] as
-        { duplicate?: unknown; rollover?: unknown } | undefined
-      expect(registrationOptions?.duplicate).toBe('reuse')
-      expect(registrationOptions?.rollover).toEqual(expect.any(Function))
+      expect(fixture.claimTransferredResource).toHaveBeenCalledWith(
+        { id: 7, generation: 1 },
+        expect.objectContaining({ type: 'pty-session', id: 'terminal-1' }),
+      )
+      expect(fixture.register).not.toHaveBeenCalled()
     },
   )
 
   it('falls back to exact resume when the transferred PTY exits before reattachment', async () => {
     const fixture = resumeFixture(LOCAL_HOST_ID, 'available')
-    fixture.hasResource.mockReturnValue(true)
+    fixture.hasTransferredResource.mockReturnValue(true)
 
     const result = await fixture.start(fixture.request, fixture.context)
 
@@ -170,7 +171,24 @@ describe('terminal exact-resume IPC', () => {
     expect(fixture.lease.release).toHaveBeenCalledOnce()
     expect(fixture.defaultShell).toHaveBeenCalledOnce()
     expect(fixture.spawn).toHaveBeenCalledOnce()
-    expect(fixture.register).toHaveBeenCalledTimes(2)
+    expect(fixture.register).toHaveBeenCalledOnce()
+  })
+
+  it('rejects a same-generation duplicate start instead of double-attaching', async () => {
+    const fixture = resumeFixture(LOCAL_HOST_ID, 'available')
+    fixture.register.mockImplementationOnce(() => {
+      throw new Error('Renderer pty-session resource is already registered')
+    })
+
+    await expect(fixture.start(fixture.request, fixture.context)).rejects.toThrow(
+      'already registered',
+    )
+
+    expect(fixture.hasTransferredResource).toHaveBeenCalledOnce()
+    expect(fixture.claimTransferredResource).not.toHaveBeenCalled()
+    expect(fixture.get).not.toHaveBeenCalled()
+    expect(fixture.spawn).not.toHaveBeenCalled()
+    expect(fixture.attach).not.toHaveBeenCalled()
   })
 
   it('keeps one renderer forwarding lease until the supervised PTY exits', async () => {
@@ -274,7 +292,7 @@ describe('terminal exact-resume IPC', () => {
 
   it('terminates a transferred PTY when recovery is intentionally skipped', async () => {
     const fixture = resumeFixture(LOCAL_HOST_ID, 'missing')
-    fixture.hasResource.mockReturnValue(true)
+    fixture.hasTransferredResource.mockReturnValue(true)
 
     await fixture.recordRecoveryDecision(
       {
@@ -410,8 +428,9 @@ function resumeFixture(
       () =>
         undefined,
   )
-  const hasResource = vi.fn(() => false)
+  const hasTransferredResource = vi.fn(() => false)
   const disposeResource = vi.fn(() => Promise.resolve(true))
+  const claimTransferredResource = vi.fn(() => lease)
   const get = vi.fn(() => undefined as typeof managed | undefined)
   const deps = {
     getProject: () => ({ root, host }),
@@ -433,7 +452,8 @@ function resumeFixture(
     },
     rendererResources: {
       register,
-      hasResource,
+      hasTransferredResource,
+      claimTransferredResource,
       disposeResource,
       assertCurrent: vi.fn(),
       isCurrent: vi.fn(() => true),
@@ -442,6 +462,7 @@ function resumeFixture(
       spawn,
       attach,
       get,
+      isAwaitingRendererAttachment: vi.fn(() => true),
       transferRendererSession: vi.fn(() => true),
       disposeSession: vi.fn(),
     },
@@ -496,7 +517,8 @@ function resumeFixture(
     persistRecoveryDecision,
     lease,
     register,
-    hasResource,
+    hasTransferredResource,
+    claimTransferredResource,
     disposeResource,
     spawn,
     attach,

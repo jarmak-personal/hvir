@@ -63,8 +63,10 @@ describe('RendererResourceScopes', () => {
     const transition = scopes.rolloverOwner(first.id)
 
     expect(rollover).toHaveBeenCalledWith(transition.owner)
-    expect(scopes.hasResource(first, qualifier)).toBe(false)
-    expect(scopes.hasResource(transition.owner, qualifier)).toBe(true)
+    expect(scopes.hasTransferredResource(first, qualifier)).toBe(false)
+    expect(scopes.hasTransferredResource(transition.owner, qualifier)).toBe(true)
+    expect(scopes.claimTransferredResource(transition.owner, qualifier)).toBeDefined()
+    expect(scopes.hasTransferredResource(transition.owner, qualifier)).toBe(false)
     expect(dispose).not.toHaveBeenCalled()
     await transition.cleanup
     await scopes.revokeOwner(transition.owner.id)

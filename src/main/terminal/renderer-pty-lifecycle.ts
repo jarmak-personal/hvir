@@ -31,7 +31,6 @@ export function registerRendererPty(
   owner: RendererOwner,
   root: HostPath,
   id: string,
-  duplicate?: 'reuse',
 ): RendererResourceLease {
   let resourceOwner = owner
   return deps.rendererResources.register(
@@ -40,7 +39,6 @@ export function registerRendererPty(
     () =>
       deps.ptySupervisor.disposeSession(id, resourceOwner.id, resourceOwner.generation),
     {
-      duplicate,
       rollover: (nextOwner) => {
         const transferred = deps.ptySupervisor.transferRendererSession(
           id,

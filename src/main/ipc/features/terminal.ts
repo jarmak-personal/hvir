@@ -45,7 +45,7 @@ export function registerTerminalIpc(ipc: IpcRegistrar, deps: TerminalIpcDeps): v
     const owner = context.owner()
     for (const id of skippedIds) {
       const qualifier = rendererPtyQualifier(root, id)
-      if (deps.rendererResources.hasResource(owner, qualifier)) {
+      if (deps.rendererResources.hasTransferredResource(owner, qualifier)) {
         await deps.rendererResources.disposeResource(owner, 'pty-session', id)
       }
     }
@@ -222,7 +222,7 @@ export function registerTerminalIpc(ipc: IpcRegistrar, deps: TerminalIpcDeps): v
       throw new Error('Terminal replacement is not authorized for this project')
     }
     const qualifier = rendererPtyQualifier(root, req.sessionId)
-    if (deps.rendererResources.hasResource(owner, qualifier)) {
+    if (deps.rendererResources.hasTransferredResource(owner, qualifier)) {
       if (
         !deps.terminalSessions.authorizeReattach({
           id: req.sessionId,
@@ -244,12 +244,18 @@ export function registerTerminalIpc(ipc: IpcRegistrar, deps: TerminalIpcDeps): v
           retained.hostId !== root.hostId ||
           retained.providerId !== profile.providerId ||
           retained.harnessSessionId !== req.harnessSessionId ||
+          !deps.ptySupervisor.isAwaitingRendererAttachment(
+            retained.id,
+            owner.id,
+            owner.generation,
+          ) ||
           !hostPathEquals(retained.workspaceRoot, root) ||
           !hostPathEquals(retained.cwd, cwd)
         ) {
           throw new Error('Retained terminal identity changed during reattachment')
         }
-        const ptyLease = registerRendererPty(deps, owner, root, req.sessionId, 'reuse')
+        const ptyLease = deps.rendererResources.claimTransferredResource(owner, qualifier)
+        if (!ptyLease) throw new Error('Retained terminal was already reattached')
         deps.rendererResources.assertCurrent(owner)
         // If a concurrent rollover has already transferred this lease again,
         // attachment fails closed without disposing the newer owner's PTY.
@@ -267,7 +273,9 @@ export function registerTerminalIpc(ipc: IpcRegistrar, deps: TerminalIpcDeps): v
       }
       // The PTY exited after rollover but before recovery was accepted. Retire
       // its transferred lease and continue through the existing exact-resume path.
-      registerRendererPty(deps, owner, root, req.sessionId, 'reuse').release()
+      const ptyLease = deps.rendererResources.claimTransferredResource(owner, qualifier)
+      if (!ptyLease) throw new Error('Retained terminal was already reattached')
+      ptyLease.release()
     }
     const defaultShell = await host.defaultShell()
     const requestedMode = req.resume ? 'resume' : 'fresh'

@@ -99,6 +99,7 @@ interface Entry {
   identityDiscoveryActive: boolean
   launchDiagnostic: string
   identityRetry?: IdentityRetry
+  rendererReattachPending: boolean
   exited: boolean
 }
 
@@ -332,6 +333,7 @@ export class PtySupervisor {
       telemetryStarted: false,
       identityDiscoveryActive: false,
       launchDiagnostic: '',
+      rendererReattachPending: false,
       exited: false,
     }
 
@@ -440,6 +442,7 @@ export class PtySupervisor {
       entry.replayLength = 0
       for (const data of replay) handlers.onData(data)
     }
+    if (handlers.onData) entry.rendererReattachPending = false
     if (handlers.onTelemetry && entry.telemetry) {
       handlers.onTelemetry(entry.telemetry)
     }
@@ -467,7 +470,7 @@ export class PtySupervisor {
       entry.exited ||
       entry.info.ownerId !== ownerId ||
       entry.info.ownerGeneration !== ownerGeneration ||
-      entry.dataListeners.size === 0
+      (entry.dataListeners.size === 0 && !entry.rendererReattachPending)
     ) {
       return false
     }
@@ -475,12 +478,29 @@ export class PtySupervisor {
     entry.exitListeners.clear()
     entry.telemetryListeners.clear()
     entry.replayPending = true
+    entry.rendererReattachPending = true
     entry.info = {
       ...entry.info,
       ownerId: nextOwnerId,
       ownerGeneration: nextOwnerGeneration,
     }
     return true
+  }
+
+  isAwaitingRendererAttachment(
+    id: string,
+    ownerId: number,
+    ownerGeneration: number,
+  ): boolean {
+    const entry = this.entries.get(id)
+    return Boolean(
+      entry &&
+      !entry.exited &&
+      entry.info.ownerId === ownerId &&
+      entry.info.ownerGeneration === ownerGeneration &&
+      entry.rendererReattachPending &&
+      entry.dataListeners.size === 0,
+    )
   }
 
   write(id: string, ownerId: number, data: string, ownerGeneration?: number): void {

@@ -42,6 +42,7 @@ interface ResourceRecord {
   qualifier: RendererResourceQualifier
   readonly dispose: () => void | Promise<void>
   readonly rollover?: (owner: RendererOwner) => boolean
+  transferred: boolean
   active: boolean
 }
 
@@ -95,6 +96,7 @@ export class RendererResourceScopes {
         if (record.rollover?.(owner)) {
           record.owner = owner
           record.key = resourceKey(owner, record.qualifier)
+          record.transferred = true
           record.active = true
           this.resources.set(record.key, record)
           continue
@@ -138,14 +140,29 @@ export class RendererResourceScopes {
       qualifier,
       dispose,
       rollover: options.rollover,
+      transferred: false,
       active: true,
     }
     this.resources.set(key, record)
     return this.lease(record)
   }
 
-  hasResource(owner: RendererOwner, qualifier: RendererResourceQualifier): boolean {
-    return this.resources.has(resourceKey(owner, qualifier))
+  hasTransferredResource(
+    owner: RendererOwner,
+    qualifier: RendererResourceQualifier,
+  ): boolean {
+    return this.resources.get(resourceKey(owner, qualifier))?.transferred === true
+  }
+
+  claimTransferredResource(
+    owner: RendererOwner,
+    qualifier: RendererResourceQualifier,
+  ): RendererResourceLease | undefined {
+    this.assertCurrent(owner)
+    const record = this.resources.get(resourceKey(owner, qualifier))
+    if (!record?.transferred) return undefined
+    record.transferred = false
+    return this.lease(record)
   }
 
   private lease(record: ResourceRecord): RendererResourceLease {
