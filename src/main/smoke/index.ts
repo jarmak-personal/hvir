@@ -468,6 +468,9 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
         supervisor,
         defaultHarnessProviderId,
       )
+      // The load and synthetic recovery checks are separate capacity contracts.
+      // End the load fixtures so rollover preservation does not inflate recovery counts.
+      supervisor.disposeSessions()
       await runCapacityRecoverySmoke(win, supervisor)
       console.log('HVIR_SMOKE_OK')
       return 0

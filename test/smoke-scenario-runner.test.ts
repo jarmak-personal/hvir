@@ -275,10 +275,25 @@ describe('Electron smoke command contracts', () => {
 
   it('enters capacity before unrelated legacy profile and viewer assertions', () => {
     const branch = smokeWorkflow.indexOf("if (mode === 'capacity')")
+    const recoveryRecords = smokeWorkflow.indexOf(
+      'smokeRecoverySessions = capacityRecoverySessions',
+      branch,
+    )
+    const resetLoadFixtures = smokeWorkflow.indexOf(
+      'supervisor.disposeSessions()',
+      recoveryRecords,
+    )
+    const recovery = smokeWorkflow.indexOf(
+      'await runCapacityRecoverySmoke',
+      resetLoadFixtures,
+    )
     expect(branch).toBeGreaterThan(-1)
     expect(branch).toBeLessThan(smokeWorkflow.indexOf('const profileSmoke'))
     expect(branch).toBeLessThan(smokeWorkflow.indexOf('const viewerStatus'))
     expect(smokeWorkflow.indexOf("if (mode === 'capacity')", branch + 1)).toBe(-1)
+    expect(recoveryRecords).toBeGreaterThan(branch)
+    expect(resetLoadFixtures).toBeGreaterThan(recoveryRecords)
+    expect(recovery).toBeGreaterThan(resetLoadFixtures)
     expect(capacityScenario).toContain('const CPU_SAMPLE_COUNT = 3')
     expect(capacityScenario).toContain('const TERMINAL_READINESS_SAMPLE_COUNT = 10')
     expect(capacityScenario).toContain('[smoke:capacity:contracts]')
