@@ -91,6 +91,47 @@ describe('terminal workspace move controls', () => {
     ].find((button) => button.textContent?.includes('Dismiss new-worktree'))
     act(() => dismiss?.click())
     expect(onDismissNewTargets).toHaveBeenCalledOnce()
+
+    act(() => {
+      root.render(
+        <TerminalRail
+          label="main"
+          visible
+          terminalTheme="app"
+          recoveryReady
+          available
+          menuOpen={false}
+          moveMenuOpen
+          moveTargets={[{ ...target, newlyDiscovered: false }]}
+          launchMenuEntries={[]}
+          checkingHiddenProfiles={false}
+          split={false}
+          sessions={[session()]}
+          activeId="terminal-1"
+          providers={[]}
+          profiles={[]}
+          onSplit={vi.fn()}
+          onOpenSettings={vi.fn()}
+          onToggleMenu={vi.fn()}
+          onToggleMoveMenu={vi.fn()}
+          onPlanMove={onPlanMove}
+          onDismissNewTargets={onDismissNewTargets}
+          onAddSession={vi.fn()}
+          onAddHarness={vi.fn()}
+          onRefreshProbes={vi.fn()}
+          onOpenHarnessSettings={vi.fn()}
+          onResumeAll={vi.fn()}
+          onFocusSession={vi.fn()}
+          onMoveSession={vi.fn()}
+          onCloseSession={vi.fn()}
+        />,
+      )
+    })
+    expect(host.querySelector('.terminal-workspace-move-button')).not.toBeNull()
+    expect(host.querySelector('.terminal-new-worktree-badge')).toBeNull()
+    expect(host.querySelector('.terminal-move-menu')?.textContent).toContain(
+      '/repo-feature',
+    )
   })
 
   it('offers a counted bulk action while keeping dormant rows distinct', () => {

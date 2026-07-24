@@ -6,6 +6,7 @@ import type {
   WorkspaceState,
 } from '../../../shared'
 import { TerminalRuntimeRegistry } from './terminal-runtime-registry'
+import { useNewWorktreeMoveBadge } from './use-new-worktree-move-badge'
 import { useTerminalWorkspaceTransfer } from './use-terminal-workspace-transfer'
 
 export function useTerminalWorkspaceRuntime({
@@ -30,6 +31,7 @@ export function useTerminalWorkspaceRuntime({
     forgetWebViews,
     onError,
   })
+  useNewWorktreeMoveBadge({ projectState, acknowledgeWorkspaces, onError })
 
   useEffect(() => () => runtimes.dispose(), [runtimes])
   useEffect(() => {
