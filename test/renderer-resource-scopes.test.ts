@@ -47,6 +47,61 @@ describe('RendererResourceScopes', () => {
     ).toThrow('has been revoked')
   })
 
+  it('transfers an opted-in resource to the next renderer generation', async () => {
+    const scopes = new RendererResourceScopes()
+    const first = scopes.activateOwner(10)
+    const dispose = vi.fn()
+    const rollover = vi.fn(() => true)
+    const qualifier = {
+      lifetime: 'workspace' as const,
+      type: 'pty-session' as const,
+      root: firstRoot,
+      id: 'terminal-1',
+    }
+    scopes.register(first, qualifier, dispose, { rollover })
+
+    const transition = scopes.rolloverOwner(first.id)
+
+    expect(rollover).toHaveBeenCalledWith(transition.owner)
+    expect(scopes.hasTransferredResource(first, qualifier)).toBe(false)
+    expect(scopes.hasTransferredResource(transition.owner, qualifier)).toBe(true)
+    expect(scopes.claimTransferredResource(transition.owner, qualifier)).toBeDefined()
+    expect(scopes.hasTransferredResource(transition.owner, qualifier)).toBe(false)
+    expect(dispose).not.toHaveBeenCalled()
+    await transition.cleanup
+    await scopes.revokeOwner(transition.owner.id)
+    expect(dispose).toHaveBeenCalledOnce()
+  })
+
+  it('disposes resources that decline or fail renderer rollover', async () => {
+    const scopes = new RendererResourceScopes()
+    const owner = scopes.activateOwner(10)
+    const declined = vi.fn()
+    const failed = vi.fn()
+    scopes.register(
+      owner,
+      { lifetime: 'workspace', type: 'pty-session', root: firstRoot, id: 'declined' },
+      declined,
+      { rollover: () => false },
+    )
+    scopes.register(
+      owner,
+      { lifetime: 'workspace', type: 'pty-session', root: firstRoot, id: 'failed' },
+      failed,
+      {
+        rollover: () => {
+          throw new Error('transfer failed')
+        },
+      },
+    )
+
+    const transition = scopes.rolloverOwner(owner.id)
+
+    await expect(transition.cleanup).rejects.toThrow('Renderer resource cleanup failed')
+    expect(failed).toHaveBeenCalledOnce()
+    expect(declined).toHaveBeenCalledOnce()
+  })
+
   it('bulk-revokes one workspace without flattening renderer resources', async () => {
     const scopes = new RendererResourceScopes()
     const owner = scopes.activateOwner(10)

@@ -1,6 +1,11 @@
 import { hostPathEquals, type HarnessProviderCapabilities } from '../../../shared'
 import { resolveHarnessLaunch } from '../../harness/harness-launch'
 import { harnessProvider, selectHarnessLaunch } from '../../harness/harness-provider'
+import {
+  attachRendererPty,
+  registerRendererPty,
+  rendererPtyQualifier,
+} from '../../terminal/renderer-pty-lifecycle'
 import type { IpcRegistrar } from '../authority-router'
 import type { IpcDeps } from '../deps'
 import { operationResult } from '../operation-result'
@@ -22,7 +27,7 @@ export function registerTerminalIpc(ipc: IpcRegistrar, deps: TerminalIpcDeps): v
     return deps.terminalSessions.list(root)
   })
 
-  ipc.handle('terminal:record-recovery-decision', async (req) => {
+  ipc.handle('terminal:record-recovery-decision', async (req, context) => {
     const root = ipc.authority.workspaceRoot(req.root)
     const restoredIds = recoveryDecisionIds(req.restoredIds)
     const skippedIds = recoveryDecisionIds(req.skippedIds)
@@ -37,6 +42,13 @@ export function registerTerminalIpc(ipc: IpcRegistrar, deps: TerminalIpcDeps): v
       restoredIds,
       skippedIds,
     })
+    const owner = context.owner()
+    for (const id of skippedIds) {
+      const qualifier = rendererPtyQualifier(root, id)
+      if (deps.rendererResources.hasTransferredResource(owner, qualifier)) {
+        await deps.rendererResources.disposeResource(owner, 'pty-session', id)
+      }
+    }
   })
 
   ipc.handle('terminal:update-layout', async (req) => {
@@ -209,6 +221,62 @@ export function registerTerminalIpc(ipc: IpcRegistrar, deps: TerminalIpcDeps): v
     ) {
       throw new Error('Terminal replacement is not authorized for this project')
     }
+    const qualifier = rendererPtyQualifier(root, req.sessionId)
+    if (deps.rendererResources.hasTransferredResource(owner, qualifier)) {
+      if (
+        !deps.terminalSessions.authorizeReattach({
+          id: req.sessionId,
+          providerId: profile.providerId,
+          profileId: profile.id,
+          launchRevision: profile.launchRevision,
+          harnessSessionId: req.harnessSessionId,
+          workspaceRoot: root,
+          cwd,
+        })
+      ) {
+        throw new Error('Terminal reattachment is not authorized for this project')
+      }
+      const retained = deps.ptySupervisor.get(req.sessionId)
+      if (retained) {
+        if (
+          retained.ownerId !== owner.id ||
+          retained.ownerGeneration !== owner.generation ||
+          retained.hostId !== root.hostId ||
+          retained.providerId !== profile.providerId ||
+          retained.harnessSessionId !== req.harnessSessionId ||
+          !deps.ptySupervisor.isAwaitingRendererAttachment(
+            retained.id,
+            owner.id,
+            owner.generation,
+          ) ||
+          !hostPathEquals(retained.workspaceRoot, root) ||
+          !hostPathEquals(retained.cwd, cwd)
+        ) {
+          throw new Error('Retained terminal identity changed during reattachment')
+        }
+        const ptyLease = deps.rendererResources.claimTransferredResource(owner, qualifier)
+        if (!ptyLease) throw new Error('Retained terminal was already reattached')
+        deps.rendererResources.assertCurrent(owner)
+        // If a concurrent rollover has already transferred this lease again,
+        // attachment fails closed without disposing the newer owner's PTY.
+        attachRendererPty(deps, retained, ptyLease, owner, context.sender)
+        return {
+          outcome: 'started',
+          id: retained.id,
+          pid: retained.pid,
+          harnessSessionId: retained.harnessSessionId,
+          identityStatus: retained.identityStatus,
+          capabilities: retained.capabilities,
+          resumed: retained.resumed,
+          reattached: true,
+        }
+      }
+      // The PTY exited after rollover but before recovery was accepted. Retire
+      // its transferred lease and continue through the existing exact-resume path.
+      const ptyLease = deps.rendererResources.claimTransferredResource(owner, qualifier)
+      if (!ptyLease) throw new Error('Retained terminal was already reattached')
+      ptyLease.release()
+    }
     const defaultShell = await host.defaultShell()
     const requestedMode = req.resume ? 'resume' : 'fresh'
     const resolved = await resolveHarnessLaunch({
@@ -238,16 +306,7 @@ export function registerTerminalIpc(ipc: IpcRegistrar, deps: TerminalIpcDeps): v
       return { outcome: 'resume-unavailable', reason: launchDecision.reason }
     }
     const launchMode = launchDecision.mode
-    const ptyLease = deps.rendererResources.register(
-      owner,
-      {
-        lifetime: 'workspace',
-        type: 'pty-session',
-        root,
-        id: req.sessionId,
-      },
-      () => deps.ptySupervisor.disposeSession(req.sessionId, owner.id, owner.generation),
-    )
+    const ptyLease = registerRendererPty(deps, owner, root, req.sessionId)
     let managed
     try {
       managed = await deps.ptySupervisor.spawn({
@@ -316,32 +375,8 @@ export function registerTerminalIpc(ipc: IpcRegistrar, deps: TerminalIpcDeps): v
       active: req.active,
     }
     let detach: () => void | Promise<void> = () => undefined
-    const sender = context.sender
     try {
-      detach = deps.ptySupervisor.attach(
-        managed.id,
-        owner.id,
-        {
-          onData: (data) => {
-            if (deps.rendererResources.isCurrent(owner) && !sender.isDestroyed()) {
-              sender.send('pty:data', { id: managed.id, data })
-            }
-          },
-          onExit: (exit) => {
-            void detach()
-            ptyLease.release()
-            if (deps.rendererResources.isCurrent(owner) && !sender.isDestroyed()) {
-              sender.send('pty:exit', { id: managed.id, ...exit })
-            }
-          },
-          onTelemetry: (telemetry) => {
-            if (deps.rendererResources.isCurrent(owner) && !sender.isDestroyed()) {
-              sender.send('pty:telemetry', { id: managed.id, telemetry })
-            }
-          },
-        },
-        owner.generation,
-      )
+      detach = attachRendererPty(deps, managed, ptyLease, owner, context.sender)
       if (req.replacesSessionId) {
         await deps.terminalSessions.recordReplacement({
           replacedId: req.replacesSessionId,
@@ -365,6 +400,7 @@ export function registerTerminalIpc(ipc: IpcRegistrar, deps: TerminalIpcDeps): v
       identityStatus: managed.identityStatus,
       capabilities: managed.capabilities,
       resumed: managed.resumed,
+      reattached: false,
     }
   })
 

@@ -76,6 +76,7 @@ describe('terminal exact-resume IPC', () => {
       id: 'terminal-1',
       pid: 4321,
       resumed: true,
+      reattached: false,
       harnessSessionId: HARNESS_SESSION_ID,
       identityStatus: 'identified',
       capabilities: {
@@ -104,6 +105,90 @@ describe('terminal exact-resume IPC', () => {
         workspaceRoot: fixture.root,
       }),
     )
+  })
+
+  it.each([
+    ['local', LOCAL_HOST_ID],
+    ['SSH', asHostId('ssh-renderer-rollover')],
+  ])(
+    'reattaches the same live PTY without probing or spawning on a %s ProjectHost',
+    async (_kind, hostId) => {
+      const fixture = resumeFixture(hostId, 'missing')
+      fixture.hasTransferredResource.mockReturnValue(true)
+      fixture.get.mockReturnValue(fixture.managed)
+
+      const result = await fixture.start(fixture.request, fixture.context)
+
+      expect(result).toEqual({
+        outcome: 'started',
+        id: 'terminal-1',
+        pid: 4321,
+        resumed: true,
+        reattached: true,
+        harnessSessionId: HARNESS_SESSION_ID,
+        identityStatus: 'identified',
+        capabilities: {
+          sessionIdentity: 'preassigned',
+          exactResume: true,
+          contextPresentation: 'count',
+        },
+      })
+      expect(fixture.authorizeReattach).toHaveBeenCalledWith({
+        id: 'terminal-1',
+        providerId: 'claude-code',
+        profileId: fixture.request.profileId,
+        launchRevision: fixture.request.launchRevision,
+        harnessSessionId: HARNESS_SESSION_ID,
+        workspaceRoot: fixture.root,
+        cwd: fixture.root,
+      })
+      expect(fixture.defaultShell).not.toHaveBeenCalled()
+      expect(fixture.exec).not.toHaveBeenCalled()
+      expect(fixture.spawn).not.toHaveBeenCalled()
+      expect(fixture.recordSpawn).not.toHaveBeenCalled()
+      expect(fixture.attach).toHaveBeenCalledWith('terminal-1', 7, expect.any(Object), 1)
+      expect(fixture.claimTransferredResource).toHaveBeenCalledWith(
+        { id: 7, generation: 1 },
+        expect.objectContaining({ type: 'pty-session', id: 'terminal-1' }),
+      )
+      expect(fixture.register).not.toHaveBeenCalled()
+    },
+  )
+
+  it('falls back to exact resume when the transferred PTY exits before reattachment', async () => {
+    const fixture = resumeFixture(LOCAL_HOST_ID, 'available')
+    fixture.hasTransferredResource.mockReturnValue(true)
+
+    const result = await fixture.start(fixture.request, fixture.context)
+
+    expect(result).toMatchObject({
+      outcome: 'started',
+      id: 'terminal-1',
+      resumed: true,
+      reattached: false,
+    })
+    expect(fixture.authorizeReattach).toHaveBeenCalledOnce()
+    expect(fixture.lease.release).toHaveBeenCalledOnce()
+    expect(fixture.defaultShell).toHaveBeenCalledOnce()
+    expect(fixture.spawn).toHaveBeenCalledOnce()
+    expect(fixture.register).toHaveBeenCalledOnce()
+  })
+
+  it('rejects a same-generation duplicate start instead of double-attaching', async () => {
+    const fixture = resumeFixture(LOCAL_HOST_ID, 'available')
+    fixture.register.mockImplementationOnce(() => {
+      throw new Error('Renderer pty-session resource is already registered')
+    })
+
+    await expect(fixture.start(fixture.request, fixture.context)).rejects.toThrow(
+      'already registered',
+    )
+
+    expect(fixture.hasTransferredResource).toHaveBeenCalledOnce()
+    expect(fixture.claimTransferredResource).not.toHaveBeenCalled()
+    expect(fixture.get).not.toHaveBeenCalled()
+    expect(fixture.spawn).not.toHaveBeenCalled()
+    expect(fixture.attach).not.toHaveBeenCalled()
   })
 
   it('keeps one renderer forwarding lease until the supervised PTY exits', async () => {
@@ -204,6 +289,30 @@ describe('terminal exact-resume IPC', () => {
     expect(fixture.recordSpawn).not.toHaveBeenCalled()
     expect(fixture.lease.dispose).toHaveBeenCalledOnce()
   })
+
+  it('terminates a transferred PTY when recovery is intentionally skipped', async () => {
+    const fixture = resumeFixture(LOCAL_HOST_ID, 'missing')
+    fixture.hasTransferredResource.mockReturnValue(true)
+
+    await fixture.recordRecoveryDecision(
+      {
+        root: fixture.root,
+        restoredIds: [],
+        skippedIds: ['terminal-1'],
+      },
+      fixture.context,
+    )
+
+    expect(fixture.persistRecoveryDecision).toHaveBeenCalledWith(fixture.root, {
+      restoredIds: [],
+      skippedIds: ['terminal-1'],
+    })
+    expect(fixture.disposeResource).toHaveBeenCalledWith(
+      { id: 7, generation: 1 },
+      'pty-session',
+      'terminal-1',
+    )
+  })
 })
 
 function resumeFixture(
@@ -238,25 +347,38 @@ function resumeFixture(
       stdout: availability,
       stderr: '',
     })
+  const defaultShell = vi.fn(() => Promise.resolve('/bin/sh'))
   const host = {
     hostId,
     connectionState: 'connected',
     watchTier: hostId === LOCAL_HOST_ID ? 'native' : 'polling',
-    defaultShell: vi.fn(() => Promise.resolve('/bin/sh')),
+    defaultShell,
     realpath: vi.fn((path) => Promise.resolve(path)),
     exec,
   } as unknown as ProjectHost
+  const authorizeReattach = vi.fn(() => true)
   const authorizeResume = vi.fn(() => true)
   const authorizeReplacement = vi.fn(() => true)
+  const persistRecoveryDecision = vi.fn(() => Promise.resolve())
   const recordSpawn = vi.fn(() => Promise.resolve())
   const recordReplacement = vi.fn((_replacement: RecordTerminalReplacement) =>
     Promise.resolve(),
   )
   const lease = { dispose: vi.fn(() => Promise.resolve()), release: vi.fn() }
-  const register = vi.fn(() => lease)
+  const register = vi.fn(
+    (_owner: unknown, _qualifier: unknown, _dispose: () => unknown, _options?: unknown) =>
+      lease,
+  )
   const managed = {
     id: 'terminal-1',
+    ownerId: 7,
+    ownerGeneration: 1,
+    hostId,
+    cwd: root,
+    workspaceRoot: root,
+    providerId: profile.providerId,
     pid: 4321,
+    startedAt: 1,
     resumed: true,
     harnessSessionId: HARNESS_SESSION_ID,
     identityStatus: 'identified' as const,
@@ -306,11 +428,17 @@ function resumeFixture(
       () =>
         undefined,
   )
+  const hasTransferredResource = vi.fn(() => false)
+  const disposeResource = vi.fn(() => Promise.resolve(true))
+  const claimTransferredResource = vi.fn(() => lease)
+  const get = vi.fn(() => undefined as typeof managed | undefined)
   const deps = {
     getProject: () => ({ root, host }),
     terminalSessions: {
+      authorizeReattach,
       authorizeResume,
       authorizeReplacement,
+      recordRecoveryDecision: persistRecoveryDecision,
       recordSpawn,
       recordReplacement,
     },
@@ -324,12 +452,18 @@ function resumeFixture(
     },
     rendererResources: {
       register,
+      hasTransferredResource,
+      claimTransferredResource,
+      disposeResource,
       assertCurrent: vi.fn(),
       isCurrent: vi.fn(() => true),
     },
     ptySupervisor: {
       spawn,
       attach,
+      get,
+      isAwaitingRendererAttachment: vi.fn(() => true),
+      transferRendererSession: vi.fn(() => true),
       disposeSession: vi.fn(),
     },
     terminalMoves: {
@@ -342,6 +476,14 @@ function resumeFixture(
     request: StartPtyRequest,
     context: IpcInvokeContext,
   ) => Promise<StartPtyResponse>
+  const recordRecoveryDecision = handlers.get('terminal:record-recovery-decision') as (
+    request: {
+      root: HostPath
+      restoredIds: readonly string[]
+      skippedIds: readonly string[]
+    },
+    context: IpcInvokeContext,
+  ) => Promise<void>
   const request: StartPtyRequest = {
     sessionId: 'terminal-1',
     profileId: profile.id,
@@ -366,16 +508,25 @@ function resumeFixture(
   return {
     root,
     exec,
+    defaultShell,
+    authorizeReattach,
     authorizeResume,
     authorizeReplacement,
     recordSpawn,
     recordReplacement,
+    persistRecoveryDecision,
     lease,
     register,
+    hasTransferredResource,
+    claimTransferredResource,
+    disposeResource,
     spawn,
     attach,
+    get,
+    managed,
     send,
     start,
+    recordRecoveryDecision,
     request,
     context,
   }
