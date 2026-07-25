@@ -164,7 +164,6 @@ export function ProjectsBar({
                       aria-label={`${changedLabel} changed files`}
                       title={`${changedLabel} changed files`}
                     >
-                      <span aria-hidden="true">Δ </span>
                       {changedLabel}
                     </span>
                   ) : null}
@@ -276,7 +275,6 @@ export function ProjectsBar({
                       aria-label={`${changeCountLabel(workspace.changedFiles)} changed files`}
                       title={`${changeCountLabel(workspace.changedFiles)} changed files`}
                     >
-                      <span aria-hidden="true">Δ </span>
                       {changeCountLabel(workspace.changedFiles)}
                     </b>
                   ) : null}
