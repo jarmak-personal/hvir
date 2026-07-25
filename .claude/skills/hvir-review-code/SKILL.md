@@ -6,7 +6,7 @@ description: Review a verified hvir implementation for correctness, issue fideli
 # Review hvir code
 
 Run one headless review of the committed candidate. Return the result to the completing agent.
-Do not modify the candidate.
+Do not modify the candidate during the external review.
 
 ## Supply the required inputs
 
@@ -188,9 +188,10 @@ printf '%s' "$REVIEW_PROMPT" | codex exec \
 ## Process the result
 
 Return every finding to the caller. Evaluate its evidence and state a recommendation, but leave
-the decision to integrate or reject each finding to the caller. Do not modify the candidate solely
-because the reviewer reported a finding. Record concise evidence for a rejected finding. Do not ask
-the reviewer to inspect corrections.
+the decision to integrate or reject each finding to the caller. Do not assign a final disposition
+or modify the candidate before the caller decides. After the caller responds, record concise
+evidence for rejected findings and integrate only the findings the caller selects. Do not ask the
+reviewer to inspect corrections.
 
 If the caller directs code changes, run the relevant focused checks. Run a fresh
 `npm run verify`. Commit the final candidate. The pre-push hook, CI, and epic acceptance tests
