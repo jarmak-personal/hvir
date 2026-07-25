@@ -1,4 +1,4 @@
-import type { GitBranchModel, GitChanges, HostConnectionState } from '../../../shared'
+import type { GitBranchModel, HostConnectionState } from '../../../shared'
 
 export function gitUpstreamSummary(model: GitBranchModel | undefined): string {
   if (!model) return 'Checking remote status…'
@@ -28,12 +28,10 @@ export function gitBaseDriftSummary(
 
 export function gitPullBlockReason({
   model,
-  changes,
   connectionState,
   hasDirtyViewerTabs,
 }: {
   readonly model: GitBranchModel | undefined
-  readonly changes: GitChanges | undefined
   readonly connectionState: HostConnectionState
   readonly hasDirtyViewerTabs: boolean
 }): string | undefined {
@@ -46,10 +44,6 @@ export function gitPullBlockReason({
   if (!upstream) return 'Configure an upstream through an agent first'
   if (upstream.gone) return 'Missing upstream requires an agent'
   if (hasDirtyViewerTabs) return 'Save or close unsaved viewer tabs before pulling'
-  if (!changes) return 'Checking working tree…'
-  if (changes.workingTree.length > 0) {
-    return 'Working tree changes require an agent before pulling'
-  }
   if (upstream.ahead > 0 && upstream.behind > 0) {
     return 'Diverged branch requires an agent'
   }
