@@ -124,7 +124,7 @@ export async function verifyTerminalPresentationLifecycle(
     win.webContents.executeJavaScript(`
       new Promise((resolve, reject) => {
         const sessionId = ${JSON.stringify(secondTerminal.id)};
-        const deadline = Date.now() + 5000;
+        const deadline = Date.now() + 8000;
         const fail = (message) => reject(new Error(message));
         const waitForHiddenOutput = () => {
           const button = document.querySelector(
@@ -154,8 +154,7 @@ export async function verifyTerminalPresentationLifecycle(
               ) {
                 return fail('hidden terminal continued presentation work');
               }
-              button.click();
-              waitForReveal(surface, row, hiddenFullFrames);
+              selectFromCompactRail(surface, row, hiddenFullFrames);
             }, 650);
           }
           if (Date.now() > deadline) {
@@ -164,11 +163,199 @@ export async function verifyTerminalPresentationLifecycle(
           }
           setTimeout(waitForHiddenOutput, 25);
         };
-        const waitForReveal = (surface, row, hiddenFullFrames) => {
+        const selectFromCompactRail = (surface, row, hiddenFullFrames) => {
+          const workbench = document.querySelector('.workbench');
+          const rail = document.querySelector('.terminal-rail:not([hidden])');
+          const collapse = document.querySelector(
+            'button[aria-label="Collapse terminal rail"]'
+          );
+          const expandedOrder = [...document.querySelectorAll('.terminal-list-main')]
+            .map((entry) => entry.getAttribute('data-terminal-session'))
+            .join('|');
+          if (
+            !(workbench instanceof HTMLElement) ||
+            !(rail instanceof HTMLElement) ||
+            !(collapse instanceof HTMLButtonElement)
+          ) {
+            return fail('compact marker switch fixtures missing');
+          }
+          collapse.click();
+          const waitForMarkers = () => {
+            const markerList = document.querySelector('.terminal-rail-compact-markers');
+            const restore = document.querySelector(
+              'button[aria-label="Restore terminal rail"]'
+            );
+            const markers = markerList
+              ? [...markerList.querySelectorAll('.terminal-rail-compact-marker')]
+              : [];
+            if (
+              workbench.classList.contains('terminal-rail-compact') &&
+              markerList instanceof HTMLElement &&
+              restore instanceof HTMLButtonElement &&
+              markers.length === 2
+            ) {
+              const markerOrder = markers
+                .map((entry) => entry.getAttribute('data-terminal-session'))
+                .join('|');
+              const firstMarker = markers[0];
+              const marker = markers.find(
+                (entry) => entry.getAttribute('data-terminal-session') === sessionId
+              );
+              if (
+                markerOrder !== expandedOrder ||
+                !(firstMarker instanceof HTMLButtonElement) ||
+                !(marker instanceof HTMLButtonElement) ||
+                firstMarker.textContent !== '' ||
+                marker.dataset.terminalState !== 'bell' ||
+                marker.getAttribute('aria-label') !== 'Hidden buffered, Bell' ||
+                marker.title !== 'Hidden buffered, Bell' ||
+                marker.tabIndex !== 0
+              ) {
+                return fail(
+                  'compact markers lost row order, state, or accessible naming: order=' +
+                  markerOrder + ' expected=' + expandedOrder +
+                  ' state=' + marker?.getAttribute('data-terminal-state') +
+                  ' label=' + marker?.getAttribute('aria-label')
+                );
+              }
+              const firstRectangle = getComputedStyle(firstMarker, '::before');
+              const secondRectangle = getComputedStyle(marker, '::before');
+              const firstItem = firstMarker.closest(
+                '.terminal-rail-compact-marker-item'
+              );
+              const lastItem = marker.closest(
+                '.terminal-rail-compact-marker-item'
+              );
+              const firstItemDecoration = firstItem
+                ? getComputedStyle(firstItem, '::before')
+                : undefined;
+              const lastItemDecoration = lastItem
+                ? getComputedStyle(lastItem, '::before')
+                : undefined;
+              const firstBounds = firstMarker.getBoundingClientRect();
+              const secondBounds = marker.getBoundingClientRect();
+              if (
+                firstRectangle.transform !== 'none' ||
+                secondRectangle.transform !== 'none' ||
+                firstRectangle.borderRadius !== '0px' ||
+                secondRectangle.borderRadius !== '0px' ||
+                firstRectangle.borderLeftWidth !== '2px' ||
+                firstRectangle.borderTopWidth !== '2px' ||
+                secondRectangle.borderBottomWidth !== '3px' ||
+                getComputedStyle(markerList).rowGap !== '0px' ||
+                Math.abs(firstBounds.width - markerList.clientWidth) > 1 ||
+                Math.abs(secondBounds.width - markerList.clientWidth) > 1 ||
+                Math.abs(secondBounds.top - firstBounds.bottom) > 1 ||
+                firstItemDecoration?.content !== 'none' ||
+                lastItemDecoration?.content !== 'none'
+              ) {
+                return fail(
+                  'compact markers lost zero-gap full-width rectangle geometry: ' +
+                  'transforms=' + firstRectangle.transform + '/' +
+                    secondRectangle.transform +
+                  ' radii=' + firstRectangle.borderRadius + '/' +
+                    secondRectangle.borderRadius +
+                  ' active=' + firstRectangle.borderLeftWidth + '/' +
+                    firstRectangle.borderTopWidth +
+                  ' bell=' + secondRectangle.borderBottomWidth +
+                  ' gap=' + getComputedStyle(markerList).rowGap +
+                  ' widths=' + [
+                    firstBounds.width,
+                    secondBounds.width,
+                    markerList.clientWidth
+                  ].join('/') +
+                  ' adjacency=' + (secondBounds.top - firstBounds.bottom) +
+                  ' decorations=' + [
+                    firstItemDecoration?.content,
+                    lastItemDecoration?.content
+                  ].join('/')
+                );
+              }
+              markerList.style.flex = '0 0 20px';
+              markerList.style.maxHeight = '20px';
+              return requestAnimationFrame(() => {
+                const railBounds = rail.getBoundingClientRect();
+                const listBounds = markerList.getBoundingClientRect();
+                const restoreBounds = restore.getBoundingClientRect();
+                const scrollbar = getComputedStyle(
+                  markerList,
+                  '::-webkit-scrollbar'
+                );
+                const thumb = getComputedStyle(
+                  markerList,
+                  '::-webkit-scrollbar-thumb'
+                );
+                if (
+                  getComputedStyle(markerList).overflowY !== 'auto' ||
+                  markerList.scrollHeight <= markerList.clientHeight ||
+                  scrollbar.width !== '3px' ||
+                  thumb.backgroundColor === 'rgba(0, 0, 0, 0)' ||
+                  listBounds.left < railBounds.left - 1 ||
+                  listBounds.right > railBounds.right + 1 ||
+                  restoreBounds.left < railBounds.left - 1 ||
+                  restoreBounds.right > railBounds.right + 1 ||
+                  restoreBounds.bottom > railBounds.bottom + 1
+                ) {
+                  return fail(
+                    'compact marker overflow escaped the rail or hid restore: ' +
+                    'overflow=' + getComputedStyle(markerList).overflowY +
+                    ' heights=' + markerList.clientHeight + '/' + markerList.scrollHeight +
+                    ' scrollbar=' + scrollbar.width +
+                    ' rail=' + [railBounds.left, railBounds.right].join(',') +
+                    ' list=' + [listBounds.left, listBounds.right].join(',') +
+                    ' restore=' + [
+                      restoreBounds.left,
+                      restoreBounds.right,
+                      restoreBounds.bottom
+                    ].join(',')
+                  );
+                }
+                marker.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+                requestAnimationFrame(() => {
+                  const markerBounds = marker.getBoundingClientRect();
+                  if (
+                    markerList.scrollTop <= 0 ||
+                    markerBounds.top < listBounds.top - 1 ||
+                    markerBounds.bottom > listBounds.bottom + 1
+                  ) {
+                    return fail('final compact marker is not reachable by scrolling');
+                  }
+                  marker.focus();
+                  marker.click();
+                  waitForReveal(
+                    surface,
+                    row,
+                    hiddenFullFrames,
+                    workbench,
+                    markerList,
+                    restore
+                  );
+                });
+              });
+            }
+            if (Date.now() > deadline) {
+              return fail('compact terminal markers did not appear');
+            }
+            setTimeout(waitForMarkers, 25);
+          };
+          waitForMarkers();
+        };
+        const waitForReveal = (
+          surface,
+          row,
+          hiddenFullFrames,
+          workbench,
+          markerList,
+          restore
+        ) => {
           const canvas = surface.querySelector('canvas');
           const context = canvas?.getContext('2d');
           const stats = surface.querySelector('.terminal-engine-host')
             ?.__hvirTerminalPerformance;
+          const marker = markerList.querySelector(
+            '.terminal-rail-compact-marker[data-terminal-session="' +
+            CSS.escape(sessionId) + '"]'
+          );
           const pixel = canvas && context
             ? context.getImageData(
                 Math.floor(canvas.width / 2),
@@ -181,7 +368,14 @@ export async function verifyTerminalPresentationLifecycle(
             row.classList.contains('active') &&
             getComputedStyle(surface).visibility === 'visible' &&
             pixel && pixel[0] > 120 && pixel[1] < 160 && stats &&
-            !stats.paused && !stats.pendingFrame
+            !stats.paused && !stats.pendingFrame &&
+            workbench.classList.contains('terminal-rail-compact') &&
+            marker instanceof HTMLButtonElement &&
+            marker.getAttribute('aria-current') === 'true' &&
+            marker.dataset.terminalState === 'neutral' &&
+            marker.getAttribute('aria-label') ===
+              'Hidden buffered, Neutral, active terminal' &&
+            !row.querySelector('.terminal-attention-badge')
           ) {
             if (stats.fullRenderFrames - hiddenFullFrames !== 1) {
               return fail(
@@ -189,17 +383,46 @@ export async function verifyTerminalPresentationLifecycle(
                 (stats.fullRenderFrames - hiddenFullFrames)
               );
             }
-            return resolve('hidden output + current repaint');
+            markerList.style.removeProperty('flex');
+            markerList.style.removeProperty('max-height');
+            restore.click();
+            const waitForRestore = () => {
+              if (!workbench.classList.contains('terminal-rail-compact')) {
+                return resolve(
+                  'hidden output + compact marker switch + attention clear + ' +
+                  'bounded overflow + current repaint'
+                );
+              }
+              if (Date.now() > deadline) {
+                return fail('terminal rail did not restore after compact marker switch');
+              }
+              setTimeout(waitForRestore, 25);
+            };
+            return waitForRestore();
           }
           if (Date.now() > deadline) {
-            return fail('revealed terminal did not repaint its hidden buffer');
+            return fail(
+              'compact marker did not activate and clear the revealed terminal'
+            );
           }
-          setTimeout(() => waitForReveal(surface, row, hiddenFullFrames), 25);
+          setTimeout(
+            () =>
+              waitForReveal(
+                surface,
+                row,
+                hiddenFullFrames,
+                workbench,
+                markerList,
+                restore
+              ),
+            25
+          );
         };
         waitForHiddenOutput();
       })
     `),
-    'hidden terminal reveal timed out',
+    'hidden terminal compact switch timed out',
+    12_000,
   )) as string
 
   let inputProbe = ''

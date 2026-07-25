@@ -1,14 +1,19 @@
 import type { ReactElement } from 'react'
 
+import { terminalAttentionLabel, type TerminalAttention } from './terminal-attention'
 import type { TerminalSession } from './terminal-workspace-model'
 
 export function TerminalRailCompact({
   hidden,
   sessions,
+  activeId,
+  onFocusSession,
   onRestore,
 }: {
   readonly hidden: boolean
   readonly sessions: readonly TerminalSession[]
+  readonly activeId?: string
+  readonly onFocusSession: (id: string) => void
   readonly onRestore: () => void
 }): ReactElement {
   const ready = sessions.filter((session) => session.attention === 'idle').length
@@ -42,6 +47,37 @@ export function TerminalRailCompact({
           </span>
         ) : null}
       </div>
+      <div
+        className="terminal-rail-compact-markers"
+        role="list"
+        aria-label="Open terminals"
+      >
+        {sessions.map((session) => {
+          const state = session.attention ?? 'neutral'
+          const active = session.id === activeId
+          const label = markerLabel(session.title, state, active)
+          return (
+            <div
+              key={session.id}
+              className="terminal-rail-compact-marker-item"
+              role="listitem"
+            >
+              <button
+                type="button"
+                className={`terminal-rail-compact-marker ${state}${active ? ' active' : ''}`}
+                data-terminal-session={session.id}
+                data-terminal-state={state}
+                aria-current={active ? 'true' : undefined}
+                aria-label={label}
+                title={label}
+                onClick={() => onFocusSession(session.id)}
+              >
+                <span aria-hidden="true">{markerText(state)}</span>
+              </button>
+            </div>
+          )
+        })}
+      </div>
       <button
         type="button"
         className="terminal-rail-restore"
@@ -65,4 +101,22 @@ function attentionSummary(ready: number, bell: number): string {
   ]
     .filter((label): label is string => Boolean(label))
     .join(', ')
+}
+
+type CompactTerminalState = TerminalAttention | 'neutral'
+
+function markerLabel(
+  title: string,
+  state: CompactTerminalState,
+  active: boolean,
+): string {
+  const stateLabel = state === 'neutral' ? 'Neutral' : terminalAttentionLabel(state)
+  return `${title}, ${stateLabel}${active ? ', active terminal' : ''}`
+}
+
+function markerText(state: CompactTerminalState): string {
+  if (state === 'working') return '…'
+  if (state === 'idle') return 'R'
+  if (state === 'bell') return 'B'
+  return ''
 }
