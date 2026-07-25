@@ -168,33 +168,13 @@
 }
 
 .terminal-rail-compact-marker-item {
-  --terminal-rail-compact-blade-skew: -9deg;
-
-  position: relative;
+  width: 100%;
   flex: 0 0 auto;
-}
-
-.terminal-rail-compact-marker-item:nth-child(even) {
-  --terminal-rail-compact-blade-skew: 9deg;
-}
-
-.terminal-rail-compact-marker-item:not(:last-child)::before {
-  content: '';
-  position: absolute;
-  z-index: 0;
-  top: 50%;
-  left: 50%;
-  width: 1px;
-  height: 100%;
-  background: rgb(60 70 83 / 42%);
-  transform: translateX(-50%);
-  pointer-events: none;
 }
 
 .terminal-rail-compact-marker {
   position: relative;
-  z-index: 1;
-  width: 20px;
+  width: 100%;
   height: 20px;
   box-sizing: border-box;
   display: flex;
@@ -213,14 +193,13 @@
   content: '';
   position: absolute;
   z-index: 0;
-  inset: 2px;
+  inset: 0;
   box-sizing: border-box;
-  border: 1px var(--terminal-rail-compact-blade-border-style, solid) currentColor;
-  border-inline-width: var(--terminal-rail-compact-blade-inline-width, 1px);
-  border-bottom-width: var(--terminal-rail-compact-blade-bottom-width, 1px);
-  border-radius: 1px;
-  background: var(--terminal-rail-compact-blade-background, #15191f);
-  transform: skewX(var(--terminal-rail-compact-blade-skew));
+  border: 1px var(--terminal-rail-compact-marker-border-style, solid) currentColor;
+  border-inline-width: var(--terminal-rail-compact-marker-inline-width, 1px);
+  border-bottom-width: var(--terminal-rail-compact-marker-bottom-width, 1px);
+  border-radius: 0;
+  background: var(--terminal-rail-compact-marker-background, #15191f);
 }
 
 .terminal-rail-compact-marker > span {
@@ -229,36 +208,34 @@
 }
 
 .terminal-rail-compact-marker.working {
-  --terminal-rail-compact-blade-background: #172230;
-  --terminal-rail-compact-blade-border-style: dashed;
+  --terminal-rail-compact-marker-background: #172230;
+  --terminal-rail-compact-marker-border-style: dashed;
 
   color: #78ace4;
 }
 
 .terminal-rail-compact-marker.idle {
-  --terminal-rail-compact-blade-background: #17261c;
-  --terminal-rail-compact-blade-inline-width: 2px;
+  --terminal-rail-compact-marker-background: #17261c;
+  --terminal-rail-compact-marker-inline-width: 2px;
 
   color: #7ccc91;
 }
 
 .terminal-rail-compact-marker.bell {
-  --terminal-rail-compact-blade-background: #2a2114;
-  --terminal-rail-compact-blade-bottom-width: 3px;
+  --terminal-rail-compact-marker-background: #2a2114;
+  --terminal-rail-compact-marker-bottom-width: 3px;
 
   color: #e5b65f;
 }
 
 .terminal-rail-compact-marker.active::before {
-  inset: 1px;
-  border-width: 1px;
-  border-inline-width: 3px;
+  border-width: 2px;
   border-style: solid;
   border-color: #c9d5e4;
 }
 
 .terminal-rail-compact-marker:hover {
-  --terminal-rail-compact-blade-background: #252b34;
+  --terminal-rail-compact-marker-background: #252b34;
 
   color: #edf0f5;
 }

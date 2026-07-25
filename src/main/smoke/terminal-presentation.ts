@@ -218,52 +218,56 @@ export async function verifyTerminalPresentationLifecycle(
                   ' label=' + marker?.getAttribute('aria-label')
                 );
               }
-              const firstBlade = getComputedStyle(firstMarker, '::before');
-              const secondBlade = getComputedStyle(marker, '::before');
-              const expectedSkew = Math.tan(9 * Math.PI / 180);
-              const firstSkew = new DOMMatrixReadOnly(firstBlade.transform).c;
-              const secondSkew = new DOMMatrixReadOnly(secondBlade.transform).c;
-              const firstRung = firstMarker.closest(
+              const firstRectangle = getComputedStyle(firstMarker, '::before');
+              const secondRectangle = getComputedStyle(marker, '::before');
+              const firstItem = firstMarker.closest(
                 '.terminal-rail-compact-marker-item'
               );
-              const lastRung = marker.closest(
+              const lastItem = marker.closest(
                 '.terminal-rail-compact-marker-item'
               );
-              const spine = firstRung
-                ? getComputedStyle(firstRung, '::before')
+              const firstItemDecoration = firstItem
+                ? getComputedStyle(firstItem, '::before')
                 : undefined;
-              const lastSpine = lastRung
-                ? getComputedStyle(lastRung, '::before')
+              const lastItemDecoration = lastItem
+                ? getComputedStyle(lastItem, '::before')
                 : undefined;
+              const firstBounds = firstMarker.getBoundingClientRect();
+              const secondBounds = marker.getBoundingClientRect();
               if (
-                firstBlade.transform === 'none' ||
-                secondBlade.transform === 'none' ||
-                firstBlade.transform === secondBlade.transform ||
-                Math.abs(firstSkew + expectedSkew) > 0.01 ||
-                Math.abs(secondSkew - expectedSkew) > 0.01 ||
-                firstBlade.borderRadius !== '1px' ||
-                secondBlade.borderRadius !== '1px' ||
-                firstBlade.borderLeftWidth !== '3px' ||
-                firstBlade.borderTopWidth !== '1px' ||
+                firstRectangle.transform !== 'none' ||
+                secondRectangle.transform !== 'none' ||
+                firstRectangle.borderRadius !== '0px' ||
+                secondRectangle.borderRadius !== '0px' ||
+                firstRectangle.borderLeftWidth !== '2px' ||
+                firstRectangle.borderTopWidth !== '2px' ||
+                secondRectangle.borderBottomWidth !== '3px' ||
                 getComputedStyle(markerList).rowGap !== '0px' ||
-                spine?.width !== '1px' ||
-                spine?.height !== '20px' ||
-                spine.backgroundColor === 'rgba(0, 0, 0, 0)' ||
-                lastSpine?.content !== 'none'
+                Math.abs(firstBounds.width - markerList.clientWidth) > 1 ||
+                Math.abs(secondBounds.width - markerList.clientWidth) > 1 ||
+                Math.abs(secondBounds.top - firstBounds.bottom) > 1 ||
+                firstItemDecoration?.content !== 'none' ||
+                lastItemDecoration?.content !== 'none'
               ) {
                 return fail(
-                  'compact markers lost alternating blade or ladder geometry: ' +
-                  'transforms=' + firstBlade.transform + '/' + secondBlade.transform +
-                  ' skew=' + firstSkew + '/' + secondSkew +
-                  ' radii=' + firstBlade.borderRadius + '/' + secondBlade.borderRadius +
-                  ' active=' + firstBlade.borderLeftWidth + '/' +
-                    firstBlade.borderTopWidth +
+                  'compact markers lost zero-gap full-width rectangle geometry: ' +
+                  'transforms=' + firstRectangle.transform + '/' +
+                    secondRectangle.transform +
+                  ' radii=' + firstRectangle.borderRadius + '/' +
+                    secondRectangle.borderRadius +
+                  ' active=' + firstRectangle.borderLeftWidth + '/' +
+                    firstRectangle.borderTopWidth +
+                  ' bell=' + secondRectangle.borderBottomWidth +
                   ' gap=' + getComputedStyle(markerList).rowGap +
-                  ' spine=' + [
-                    spine?.width,
-                    spine?.height,
-                    spine?.backgroundColor,
-                    lastSpine?.content
+                  ' widths=' + [
+                    firstBounds.width,
+                    secondBounds.width,
+                    markerList.clientWidth
+                  ].join('/') +
+                  ' adjacency=' + (secondBounds.top - firstBounds.bottom) +
+                  ' decorations=' + [
+                    firstItemDecoration?.content,
+                    lastItemDecoration?.content
                   ].join('/')
                 );
               }
