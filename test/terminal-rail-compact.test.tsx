@@ -86,6 +86,73 @@ describe('compact terminal rail', () => {
     ).toBe('1 ready, 1 bell')
     expect(strip?.querySelector('[role="status"]')).not.toBeNull()
   })
+
+  it('shows ordered keyboard-native markers with state, title, and active labels', () => {
+    renderRail({
+      compact: true,
+      sessions: [
+        session('terminal-neutral', undefined),
+        session('terminal-working', 'working'),
+        session('terminal-ready', 'idle'),
+        session('terminal-bell', 'bell'),
+      ],
+      activeId: 'terminal-working',
+    })
+
+    const markers = markerButtons()
+    expect(markers.map((marker) => marker.dataset.terminalSession)).toEqual([
+      'terminal-neutral',
+      'terminal-working',
+      'terminal-ready',
+      'terminal-bell',
+    ])
+    expect(markers.map((marker) => marker.textContent)).toEqual(['–', '…', 'R', 'B'])
+    expect(markers.map((marker) => marker.getAttribute('aria-label'))).toEqual([
+      'terminal-neutral, Neutral',
+      'terminal-working, Working, active terminal',
+      'terminal-ready, Ready',
+      'terminal-bell, Bell',
+    ])
+    expect(markers.map((marker) => marker.title)).toEqual(
+      markers.map((marker) => marker.getAttribute('aria-label')),
+    )
+    expect(
+      markers.every((marker) => marker.type === 'button' && marker.tabIndex === 0),
+    ).toBe(true)
+    expect(markers[1]?.getAttribute('aria-current')).toBe('true')
+    expect(markers[1]?.classList.contains('active')).toBe(true)
+    expect(new Set(markers.map((marker) => marker.dataset.terminalState))).toEqual(
+      new Set(['neutral', 'working', 'idle', 'bell']),
+    )
+  })
+
+  it('selects a marker through the existing focus command without restoring the rail', () => {
+    const onCompact = vi.fn()
+    const onFocusSession = vi.fn()
+    renderRail({
+      compact: true,
+      sessions: [
+        session('terminal-first', undefined),
+        session('terminal-second', 'idle'),
+      ],
+      activeId: 'terminal-first',
+      onCompact,
+      onFocusSession,
+    })
+
+    const second = markerButtons()[1]
+    second?.focus()
+    act(() => second?.click())
+
+    expect(document.activeElement).toBe(second)
+    expect(onFocusSession).toHaveBeenCalledOnce()
+    expect(onFocusSession).toHaveBeenCalledWith('terminal-second')
+    expect(onCompact).not.toHaveBeenCalled()
+    expect(host.querySelector<HTMLElement>('.terminal-rail-compact-strip')?.hidden).toBe(
+      false,
+    )
+    expect(button('Restore terminal rail')).not.toBeNull()
+  })
 })
 
 function renderRail(overrides: Partial<ComponentProps<typeof TerminalRail>> = {}): void {
@@ -129,6 +196,10 @@ function button(label: string): HTMLButtonElement {
   const value = host.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`)
   if (!value) throw new Error(`terminal rail button missing: ${label}`)
   return value
+}
+
+function markerButtons(): HTMLButtonElement[] {
+  return [...host.querySelectorAll<HTMLButtonElement>('.terminal-rail-compact-marker')]
 }
 
 function session(id: string, attention: TerminalSession['attention']): TerminalSession {

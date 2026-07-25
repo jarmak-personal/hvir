@@ -347,6 +347,8 @@ export function TerminalRail({
       <TerminalRailCompact
         hidden={!compact}
         sessions={sessions}
+        activeId={activeId}
+        onFocusSession={onFocusSession}
         onRestore={() => applyCompact(false)}
       />
     </aside>
