@@ -11,6 +11,18 @@ export interface TerminalFileLink {
   readonly end: number
 }
 
+export interface AmbiguousTerminalFileContinuation {
+  readonly target: string
+  readonly previous: {
+    readonly start: number
+    readonly end: number
+  }
+  readonly continuation: {
+    readonly start: number
+    readonly end: number
+  }
+}
+
 export interface ParsedTerminalFileTarget {
   readonly path: string
   readonly line?: number
@@ -32,6 +44,63 @@ const FILE_NAME = /(?:^|\/)[^/]+\.[a-z0-9][a-z0-9._-]*$/i
 /** Detect conservative, single-line path candidates without executing or resolving them. */
 export function detectTerminalFileLinks(text: string): readonly TerminalFileLink[] {
   const links: TerminalFileLink[] = []
+  for (const token of terminalTokens(text)) {
+    if (isTerminalWebTarget(token.target)) continue
+    const parsed = parseTerminalFileTarget(token.target)
+    if (parsed && isPlainPathCandidate(parsed.path)) links.push(token)
+  }
+  return links
+}
+
+/**
+ * Identify two path-like fragments separated by an application-rendered hard row boundary.
+ * The boundary remains authoritative; callers use this only to suppress the ambiguous pieces.
+ */
+export function detectAmbiguousTerminalFileContinuation(
+  previousText: string,
+  continuationText: string,
+): AmbiguousTerminalFileContinuation | undefined {
+  const previousTokens = terminalTokens(previousText)
+  const continuationTokens = terminalTokens(continuationText)
+  const previous = previousTokens.at(-1)
+  const continuation = continuationTokens[0]
+  if (!previous || !continuation) return undefined
+
+  const previousContentEnd = previousText.trimEnd().length
+  const continuationContentStart =
+    continuationText.length - continuationText.trimStart().length
+  if (
+    previous.end !== previousContentEnd - 1 ||
+    continuation.start !== continuationContentStart
+  ) {
+    return undefined
+  }
+
+  const previousTarget = parseTerminalFileTarget(previous.target)
+  const continuationTarget = parseTerminalFileTarget(continuation.target)
+  const joinedTarget = `${previous.target}${continuation.target}`
+  const joined = parseTerminalFileTarget(joinedTarget)
+  if (
+    !previousTarget ||
+    !isPlainPathCandidate(previousTarget.path) ||
+    FILE_NAME.test(previousTarget.path) ||
+    !continuationTarget ||
+    !isPlainPathCandidate(continuationTarget.path) ||
+    !joined ||
+    !isPlainPathCandidate(joined.path)
+  ) {
+    return undefined
+  }
+
+  return {
+    target: joinedTarget,
+    previous: { start: previous.start, end: previous.end },
+    continuation: { start: continuation.start, end: continuation.end },
+  }
+}
+
+function terminalTokens(text: string): TerminalFileLink[] {
+  const tokens: TerminalFileLink[] = []
   TOKEN.lastIndex = 0
   let match = TOKEN.exec(text)
   while (match) {
@@ -40,18 +109,13 @@ export function detectTerminalFileLinks(text: string): readonly TerminalFileLink
     const withoutLeading = original.slice(leading)
     const trailing = withoutLeading.match(TRAILING_PUNCTUATION)?.[0].length ?? 0
     const target = withoutLeading.slice(0, withoutLeading.length - trailing)
-    if (isTerminalWebTarget(target)) {
-      match = TOKEN.exec(text)
-      continue
-    }
-    const parsed = parseTerminalFileTarget(target)
-    if (parsed && isPlainPathCandidate(parsed.path)) {
+    if (target) {
       const start = match.index + leading
-      links.push({ target, start, end: start + target.length - 1 })
+      tokens.push({ target, start, end: start + target.length - 1 })
     }
     match = TOKEN.exec(text)
   }
-  return links
+  return tokens
 }
 
 /** Parse file URI/path and optional `:line[:column]` decoration. */

@@ -2,10 +2,12 @@ import type { ILink, ILinkProvider } from 'ghostty-web'
 
 import type { TerminalLinkActivation } from './terminal-pane'
 import {
+  detectAmbiguousTerminalFileContinuation,
   detectTerminalFileLinks,
   detectTerminalWebLinks,
   isFileUri,
   isTerminalWebTarget,
+  parseTerminalFileTarget,
 } from './terminal-file-link'
 
 export interface GhosttyLinkBufferCell {
@@ -42,6 +44,12 @@ interface BufferPosition {
   readonly y: number
 }
 
+interface PhysicalFileFragment {
+  readonly target: string
+  readonly start: number
+  readonly end: number
+}
+
 /** Registered after Ghostty's built-ins so file:// OSC 8 links stay inside hvir. */
 export class GhosttyTerminalLinkProvider implements ILinkProvider {
   constructor(
@@ -57,12 +65,18 @@ export class GhosttyTerminalLinkProvider implements ILinkProvider {
     }
 
     const lineText = terminalLineText(line)
-    const links = this.oscLinks(line, y)
+    const ambiguousFragments = hardWrappedFileFragments(this.terminal.buffer.active, y)
+    const links = this.oscLinks(line, y, ambiguousFragments)
     const logicalLine = readLogicalTerminalLine(this.terminal.buffer.active, y)
     if (logicalLine) {
       for (const candidate of detectTerminalFileLinks(logicalLine.text)) {
         const range = logicalRange(logicalLine, candidate.start, candidate.end)
         if (!range || y < range.start.y || y > range.end.y) continue
+        if (
+          ambiguousFragments.some((fragment) => rangeOverlapsFragment(range, y, fragment))
+        ) {
+          continue
+        }
         links.push(this.link({ kind: 'file', target: candidate.target }, range))
       }
     }
@@ -83,7 +97,11 @@ export class GhosttyTerminalLinkProvider implements ILinkProvider {
     callback(links.length > 0 ? links : undefined)
   }
 
-  private oscLinks(line: GhosttyLinkBufferLine, y: number): ILink[] {
+  private oscLinks(
+    line: GhosttyLinkBufferLine,
+    y: number,
+    ambiguousFragments: readonly PhysicalFileFragment[],
+  ): ILink[] {
     const links: ILink[] = []
     const hyperlinkIds = new Set<number>()
     for (let x = 0; x < line.length; x += 1) {
@@ -99,11 +117,26 @@ export class GhosttyTerminalLinkProvider implements ILinkProvider {
       while (end + 1 < line.length && line.getCell(end + 1)?.getHyperlinkId() === id) {
         end += 1
       }
+      const range = { start: { x: start, y }, end: { x: end, y } }
+      const fragment = ambiguousFragments.find((candidate) =>
+        rangeOverlapsFragment(range, y, candidate),
+      )
+      if (
+        isFileUri(target) &&
+        fragment &&
+        !fileTargetMatchesVisiblePath(target, fragment.target)
+      ) {
+        // Claim the OSC id without activating it so Ghostty's earlier built-in
+        // provider cannot fall back to window.open for this partial file target.
+        links.push({
+          text: target,
+          range,
+          activate: () => undefined,
+        })
+        continue
+      }
       links.push(
-        this.link(
-          { kind: isFileUri(target) ? 'file' : 'loopback-http', target },
-          { start: { x: start, y }, end: { x: end, y } },
-        ),
+        this.link({ kind: isFileUri(target) ? 'file' : 'loopback-http', target }, range),
       )
     }
     return links
@@ -118,6 +151,48 @@ export class GhosttyTerminalLinkProvider implements ILinkProvider {
       },
     }
   }
+}
+
+function hardWrappedFileFragments(
+  buffer: GhosttyLinkSource['buffer']['active'],
+  y: number,
+): readonly PhysicalFileFragment[] {
+  const line = buffer.getLine(y)
+  if (!line) return []
+
+  const fragments: PhysicalFileFragment[] = []
+  if (y > 0 && !line.isWrapped) {
+    const previous = buffer.getLine(y - 1)
+    if (previous) {
+      const boundary = detectAmbiguousTerminalFileContinuation(
+        terminalLineText(previous),
+        terminalLineText(line),
+      )
+      if (boundary) {
+        fragments.push({
+          target: boundary.target,
+          start: boundary.continuation.start,
+          end: boundary.continuation.end,
+        })
+      }
+    }
+  }
+
+  const next = y + 1 < buffer.length ? buffer.getLine(y + 1) : undefined
+  if (next && !next.isWrapped) {
+    const boundary = detectAmbiguousTerminalFileContinuation(
+      terminalLineText(line),
+      terminalLineText(next),
+    )
+    if (boundary) {
+      fragments.push({
+        target: boundary.target,
+        start: boundary.previous.start,
+        end: boundary.previous.end,
+      })
+    }
+  }
+  return fragments
 }
 
 function readLogicalTerminalLine(
@@ -148,6 +223,28 @@ function readLogicalTerminalLine(
     }
   }
   return { text: text.join(''), positions }
+}
+
+function rangeOverlapsFragment(
+  range: ILink['range'],
+  y: number,
+  fragment: PhysicalFileFragment,
+): boolean {
+  if (y < range.start.y || y > range.end.y) return false
+  const start = y === range.start.y ? range.start.x : 0
+  const end = y === range.end.y ? range.end.x : Number.POSITIVE_INFINITY
+  return start <= fragment.end && end >= fragment.start
+}
+
+function fileTargetMatchesVisiblePath(target: string, visibleTarget: string): boolean {
+  const parsedTarget = parseTerminalFileTarget(target)
+  const parsedVisible = parseTerminalFileTarget(visibleTarget)
+  if (!parsedTarget || !parsedVisible) return false
+  return (
+    parsedTarget.path === parsedVisible.path ||
+    (!parsedVisible.path.startsWith('/') &&
+      parsedTarget.path.endsWith(`/${parsedVisible.path}`))
+  )
 }
 
 function terminalLineText(line: GhosttyLinkBufferLine): string {

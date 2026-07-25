@@ -114,6 +114,58 @@ describe('Ghostty terminal links', () => {
     })
   })
 
+  it('suppresses both fragments of an application-wrapped path', () => {
+    const directory = 'src/renderer/src/terminal'
+    const firstRow = `${directory}/terminal-`
+    const continuation = 'probe-policy.ts'
+    const activated: TerminalLinkActivation[] = []
+    const provider = providerFor(
+      [
+        bufferLine(
+          firstRow,
+          firstRow.length,
+          false,
+          Array.from({ length: firstRow.length }, (_, x) =>
+            x < directory.length ? 9 : 0,
+          ),
+        ),
+        bufferLine(continuation, firstRow.length, false),
+      ],
+      activated,
+      new Map([[9, `file:///srv/project/${directory}`]]),
+    )
+
+    const prefixLinks = linksAt(provider, 0)
+    expect(prefixLinks).toHaveLength(1)
+    prefixLinks[0]?.activate(modifiedClick())
+    expect(linksAt(provider, 1)).toEqual([])
+    expect(activated).toEqual([])
+  })
+
+  it('retains an exact OSC file target across an ambiguous hard row boundary', () => {
+    const directory = 'src/renderer/src/terminal'
+    const target = `${directory}/terminal-probe-policy.ts`
+    const firstRow = `${directory}/terminal-`
+    const provider = providerFor(
+      [
+        bufferLine(
+          firstRow,
+          firstRow.length,
+          false,
+          Array.from({ length: firstRow.length }, () => 9),
+        ),
+        bufferLine('probe-policy.ts', firstRow.length, false),
+      ],
+      [],
+      new Map([[9, `file:///srv/project/${target}`]]),
+    )
+
+    expect(linksAt(provider, 0).map((link) => link.text)).toEqual([
+      `file:///srv/project/${target}`,
+    ])
+    expect(linksAt(provider, 1)).toEqual([])
+  })
+
   it('retains OSC 8 file links and physical-row loopback handling', () => {
     const activated: TerminalLinkActivation[] = []
     const provider = providerFor(

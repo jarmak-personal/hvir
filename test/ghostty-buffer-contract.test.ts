@@ -80,9 +80,8 @@ describe('Ghostty buffer contract', () => {
     )
 
     const activated: TerminalLinkActivation[] = []
-    const provider = new GhosttyTerminalLinkProvider(
-      canvasTerminal,
-      (activation) => activated.push(activation),
+    const provider = new GhosttyTerminalLinkProvider(canvasTerminal, (activation) =>
+      activated.push(activation),
     )
     const firstRowLinks = linksAt(provider, 0)
     const continuationLinks = linksAt(provider, 1)
@@ -94,6 +93,31 @@ describe('Ghostty buffer contract', () => {
       metaKey: false,
     } as unknown as MouseEvent)
     expect(activated).toEqual([{ kind: 'file', target }])
+
+    terminal.free()
+  })
+
+  it('suppresses split file fragments across an application-rendered hard row', () => {
+    const directory = 'src/renderer/src/terminal'
+    const terminal = ghostty.createTerminal(50, 4)
+    const canvasTerminal = new GhosttyCanvasTerminal({
+      cols: 50,
+      rows: 4,
+      ghostty,
+    })
+    Reflect.set(canvasTerminal, 'wasmTerm', terminal)
+    terminal.write(
+      `\u001bc\u001b]8;;file:///srv/project/${directory}\u0007${directory}\u001b]8;;\u0007/terminal-\r\nprobe-policy.ts`,
+    )
+
+    expect(terminal.isRowWrapped(1)).toBe(false)
+    const activated: TerminalLinkActivation[] = []
+    const provider = new GhosttyTerminalLinkProvider(canvasTerminal, (activation) =>
+      activated.push(activation),
+    )
+    expect(linksAt(provider, 0)).toEqual([])
+    expect(linksAt(provider, 1)).toEqual([])
+    expect(activated).toEqual([])
 
     terminal.free()
   })

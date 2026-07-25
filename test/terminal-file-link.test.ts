@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import { asHostId, hostPath } from '../src/shared'
 import {
+  detectAmbiguousTerminalFileContinuation,
   detectTerminalFileLinks,
   detectTerminalWebLinks,
   normalizeTerminalWebTarget,
@@ -17,6 +18,25 @@ describe('terminal file links', () => {
       { target: 'src/main.ts:12:4', start: 3, end: 18 },
       { target: 'README.md', start: 24, end: 32 },
     ])
+  })
+
+  it('identifies ambiguous application-wrapped fragments without joining hard lines', () => {
+    expect(
+      detectAmbiguousTerminalFileContinuation(
+        '  src/renderer/src/terminal/terminal-   ',
+        '  probe-policy.ts   ',
+      ),
+    ).toEqual({
+      target: 'src/renderer/src/terminal/terminal-probe-policy.ts',
+      previous: { start: 2, end: 36 },
+      continuation: { start: 2, end: 16 },
+    })
+    expect(
+      detectAmbiguousTerminalFileContinuation('/srv/project/first.ts', 'src/second.ts:4'),
+    ).toBeUndefined()
+    expect(
+      detectAmbiguousTerminalFileContinuation('Documentation', 'README.md'),
+    ).toBeUndefined()
   })
 
   it('parses file URIs and line positions', () => {
