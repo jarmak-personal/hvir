@@ -1,9 +1,4 @@
-import {
-  Terminal as GhosttyTerminal,
-  init,
-  type ILink,
-  type ILinkProvider,
-} from 'ghostty-web'
+import { Terminal as GhosttyTerminal, init } from 'ghostty-web'
 
 import type {
   ComposerSubmitMode,
@@ -19,14 +14,9 @@ import type {
   TerminalColorTheme,
   TerminalLinkActivation,
 } from './terminal-pane'
-import {
-  detectTerminalFileLinks,
-  detectTerminalWebLinks,
-  isFileUri,
-  isTerminalWebTarget,
-} from './terminal-file-link'
 import { TerminalFitController } from './ghostty-terminal-fit'
 import { ghosttyKeyboardOverride } from './ghostty-terminal-keyboard'
+import { GhosttyTerminalLinkProvider } from './ghostty-terminal-links'
 import { TerminalSignalParser } from './terminal-signals'
 import { writePreservingViewport } from './terminal-viewport'
 import { TerminalWheelController } from './terminal-wheel'
@@ -136,7 +126,9 @@ class GhosttyTerminalPane implements TerminalPane {
     )
     this.terminal.open(surface)
     this.terminal.registerLinkProvider(
-      new FileLinkProvider(this.terminal, (target) => this.linkListeners.emit(target)),
+      new GhosttyTerminalLinkProvider(this.terminal, (target) =>
+        this.linkListeners.emit(target),
+      ),
     )
     this.terminal.attachCustomWheelEventHandler((event) => this.handleWheel(event))
     const canvas = this.terminal.renderer?.getCanvas()
@@ -271,89 +263,5 @@ class GhosttyTerminalPane implements TerminalPane {
       this.dataListeners.emit(data)
     }
     return result.handled
-  }
-}
-
-/** Registered after Ghostty's built-ins so file:// OSC 8 links stay inside hvir. */
-class FileLinkProvider implements ILinkProvider {
-  constructor(
-    private readonly terminal: GhosttyTerminal,
-    private readonly activateTarget: (activation: TerminalLinkActivation) => void,
-  ) {}
-
-  provideLinks(y: number, callback: (links: ILink[] | undefined) => void): void {
-    const line = this.terminal.buffer.active.getLine(y)
-    if (!line) {
-      callback(undefined)
-      return
-    }
-
-    const text: string[] = []
-    const links: ILink[] = []
-    const hyperlinkIds = new Set<number>()
-    for (let x = 0; x < line.length; x += 1) {
-      const cell = line.getCell(x)
-      const codepoint = cell?.getCodepoint() ?? 0
-      text.push(codepoint < 32 ? ' ' : String.fromCodePoint(codepoint))
-      const id = cell?.getHyperlinkId() ?? 0
-      if (id <= 0 || hyperlinkIds.has(id)) continue
-      hyperlinkIds.add(id)
-      const target = this.terminal.wasmTerm?.getHyperlinkUri(id)
-      if (!target || (!isFileUri(target) && !isTerminalWebTarget(target))) continue
-      let start = x
-      let end = x
-      while (start > 0 && line.getCell(start - 1)?.getHyperlinkId() === id) start -= 1
-      while (end + 1 < line.length && line.getCell(end + 1)?.getHyperlinkId() === id) {
-        end += 1
-      }
-      links.push(
-        this.link(
-          { kind: isFileUri(target) ? 'file' : 'loopback-http', target },
-          y,
-          start,
-          end,
-        ),
-      )
-    }
-
-    const lineText = text.join('')
-    for (const candidate of detectTerminalFileLinks(lineText)) {
-      links.push(
-        this.link(
-          { kind: 'file', target: candidate.target },
-          y,
-          candidate.start,
-          candidate.end,
-        ),
-      )
-    }
-    // Registered after Ghostty's built-in URL detector, so these exact ranges
-    // replace its global window.open activations with typed terminal provenance.
-    for (const candidate of detectTerminalWebLinks(lineText)) {
-      links.push(
-        this.link(
-          { kind: 'loopback-http', target: candidate.target },
-          y,
-          candidate.start,
-          candidate.end,
-        ),
-      )
-    }
-    callback(links.length > 0 ? links : undefined)
-  }
-
-  private link(
-    activation: TerminalLinkActivation,
-    y: number,
-    start: number,
-    end: number,
-  ): ILink {
-    return {
-      text: activation.target,
-      range: { start: { x: start, y }, end: { x: end, y } },
-      activate: (event) => {
-        if (event.ctrlKey || event.metaKey) this.activateTarget(activation)
-      },
-    }
   }
 }
