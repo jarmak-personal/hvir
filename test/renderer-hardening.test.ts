@@ -36,6 +36,7 @@ describe('renderer filesystem contract', () => {
     expect(INVOKE_CHANNELS).toContain('git:pull')
     expect(INVOKE_CHANNELS).toContain('git:switch-branch')
     expect(INVOKE_CHANNELS).toContain('harness:catalog')
+    expect(INVOKE_CHANNELS).toContain('harness:probe-snapshot')
     expect(INVOKE_CHANNELS).toContain('harness:probe-templates')
     expect(INVOKE_CHANNELS).toContain('harness:profile-materialize')
   })

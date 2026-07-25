@@ -26,6 +26,7 @@ describe('harness launch-menu policy', () => {
     hostId: asHostId('menu-host'),
     status: 'available',
     checkedAt: 1,
+    expiresAt: 20,
     capabilities: {
       sessionIdentity: 'preassigned',
       exactResume: true,
@@ -34,9 +35,8 @@ describe('harness launch-menu policy', () => {
   }
 
   it('keeps bare Shell visible without a probe or capability label', () => {
-    expect(harnessLaunchMenuState(shell, undefined, undefined, false)).toEqual({
-      visible: true,
-      checking: false,
+    expect(harnessLaunchMenuState(shell, undefined, false)).toEqual({
+      availability: 'available',
     })
     expect(compactHarnessCapabilityLabel(true, available.capabilities)).toBeUndefined()
   })
@@ -82,24 +82,34 @@ describe('harness launch-menu policy', () => {
     })
   })
 
-  it('suppresses never-probed and negative profiles but keeps last-known-good while checking', () => {
-    expect(harnessLaunchMenuState(claude, undefined, undefined, true)).toMatchObject({
-      visible: false,
-      checking: true,
-    })
-    expect(harnessLaunchMenuState(claude, undefined, available, true)).toMatchObject({
-      visible: true,
-      checking: true,
-      probe: available,
+  it('keeps configured profiles launchable across every advisory state', () => {
+    expect(harnessLaunchMenuState(claude, undefined, false, 10)).toEqual({
+      availability: 'unchecked',
     })
     expect(
-      harnessLaunchMenuState(
-        claude,
-        { ...available, status: 'executable-missing' },
-        available,
-        false,
-      ),
-    ).toMatchObject({ visible: false, checking: false })
+      harnessLaunchMenuState(claude, { ...available, status: 'timeout' }, true, 10),
+    ).toMatchObject({ availability: 'checking' })
+    expect(harnessLaunchMenuState(claude, available, false, 10)).toMatchObject({
+      availability: 'available',
+    })
+    expect(harnessLaunchMenuState(claude, available, false, 20)).toMatchObject({
+      availability: 'stale',
+    })
+    for (const status of [
+      'timeout',
+      'disconnected',
+      'executable-missing',
+      'probe-failed',
+    ] as const) {
+      expect(
+        harnessLaunchMenuState(
+          claude,
+          { ...available, status, expiresAt: 20 },
+          false,
+          10,
+        ),
+      ).toMatchObject({ availability: 'failed' })
+    }
   })
 
   it('uses only the compact truthful capability vocabulary', () => {

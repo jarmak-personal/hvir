@@ -21,6 +21,7 @@ npm_user_config="$invocation_root/npmrc"
 install_log="$invocation_root/npm-install.log"
 first_launch_log="$invocation_root/first-launch.log"
 second_launch_log="$invocation_root/second-launch.log"
+third_launch_log="$invocation_root/third-launch.log"
 
 cleanup() {
   if [[ -z "${invocation_root:-}" ]]; then return; fi
@@ -39,7 +40,8 @@ cleanup() {
       "$npm_user_config" \
       "$install_log" \
       "$first_launch_log" \
-      "$second_launch_log" || cleanup_status=$?
+      "$second_launch_log" \
+      "$third_launch_log" || cleanup_status=$?
     rmdir -- "$invocation_root" 2>/dev/null || {
       if [[ -e "$invocation_root" ]]; then cleanup_status=1; fi
     }
@@ -154,19 +156,22 @@ fi
 chmod -R a-w "$installation_root"
 
 run_launcher() {
+  local scenario=$1
+  local diagnostic_phase=${2:-}
   (
     cd "$project_root"
     HOME="$home_root" \
       XDG_CACHE_HOME="$cache_base" \
       HVIR_SMOKE=1 \
-      HVIR_SMOKE_SCENARIO=platform-contracts \
+      HVIR_SMOKE_SCENARIO="$scenario" \
+      HVIR_SMOKE_DIAGNOSTIC_REPORT_PHASE="$diagnostic_phase" \
       "$launcher" "$project_root" \
       --no-sandbox \
       --user-data-dir="$user_data_root"
   )
 }
 
-run_launcher >"$first_launch_log" 2>&1
+run_launcher platform-contracts >"$first_launch_log" 2>&1
 cat "$first_launch_log"
 grep -Fq "Preparing hvir $package_version" "$first_launch_log"
 grep -Fq "Prepared hvir $package_version." "$first_launch_log"
@@ -220,12 +225,21 @@ else
   file "$executable" | grep -q "$expected_arch"
 fi
 
-run_launcher >"$second_launch_log" 2>&1
+run_launcher diagnostic-report-restart preceding >"$second_launch_log" 2>&1
 cat "$second_launch_log"
 if grep -Fq 'Preparing hvir' "$second_launch_log"; then
   echo 'A subsequent hvir launch repeated payload preparation' >&2
   exit 1
 fi
+grep -Fq 'packaged preceding diagnostic lifetime retained' "$second_launch_log"
+
+run_launcher diagnostic-report-restart current >"$third_launch_log" 2>&1
+cat "$third_launch_log"
+if grep -Fq 'Preparing hvir' "$third_launch_log"; then
+  echo 'A later hvir launch repeated payload preparation' >&2
+  exit 1
+fi
+grep -Fq 'packaged preceding + current lifetimes previewed and copied exactly' "$third_launch_log"
 
 diagnostic_journal="$user_data_root/runtime-diagnostics.jsonl"
 test -f "$diagnostic_journal"

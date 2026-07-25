@@ -440,6 +440,7 @@ function createWorkbenchEntry(): void {
           htmlPreviews,
           rendererResources: rendererScopes,
           diagnostics: diagnosticIpc,
+          runtimeDiagnostics: diagnostics,
           webPaneRoutes,
           updateWebPaneBindings: windowManager.updateWebPaneBindings,
           updateWebPaneFullPage: windowManager.updateWebPaneFullPage,

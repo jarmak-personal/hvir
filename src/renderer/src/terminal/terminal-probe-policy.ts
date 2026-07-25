@@ -1,7 +1,6 @@
 import type {
   HarnessProfile,
   HarnessProfileProbe,
-  HostPath,
   TerminalRecoverySession,
 } from '../../../shared'
 
@@ -61,45 +60,4 @@ export function terminalProbeRefreshCandidates(
     const current = profileProbe(probes, profile)
     return force || !current?.expiresAt || current.expiresAt <= now
   })
-}
-
-export class TerminalProbeMemory {
-  readonly #values = new Map<string, HarnessProfileProbe>()
-
-  constructor(readonly limit = 500) {}
-
-  remember(root: HostPath, probe: HarnessProfileProbe): void {
-    if (probe.status !== 'available') return
-    const key = probeMemoryKey(root, {
-      id: probe.profileId,
-      launchRevision: probe.launchRevision,
-    })
-    this.#values.delete(key)
-    this.#values.set(key, probe)
-    while (this.#values.size > this.limit) {
-      const oldest = this.#values.keys().next().value
-      if (oldest === undefined) break
-      this.#values.delete(oldest)
-    }
-  }
-
-  get(
-    root: HostPath,
-    profile: Pick<HarnessProfile, 'id' | 'launchRevision'>,
-  ): HarnessProfileProbe | undefined {
-    return this.#values.get(probeMemoryKey(root, profile))
-  }
-
-  clear(): void {
-    this.#values.clear()
-  }
-}
-
-export const terminalProbeMemory = new TerminalProbeMemory()
-
-function probeMemoryKey(
-  root: HostPath,
-  profile: Pick<HarnessProfile, 'id' | 'launchRevision'>,
-): string {
-  return JSON.stringify([root.hostId, root.path, profile.id, profile.launchRevision])
 }

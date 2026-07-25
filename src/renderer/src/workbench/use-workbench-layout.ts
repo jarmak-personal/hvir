@@ -48,8 +48,10 @@ export function useWorkbenchLayout({
   const [railMode, setRailMode] = useState<WorkbenchRailMode>('files')
   const [terminalModeState, setTerminalModeState] =
     useState<TerminalLayoutMode>('restored')
+  const [terminalRailCompactState, setTerminalRailCompactState] = useState(false)
   const [treeCollapsedState, setTreeCollapsedState] = useState(false)
   const terminalModeRef = useRef<TerminalLayoutMode>('restored')
+  const terminalRailCompactRef = useRef(false)
   const treeCollapsedRef = useRef(false)
   rootRef.current = root
 
@@ -59,8 +61,10 @@ export function useWorkbenchLayout({
       : DEFAULT_WORKSPACE_PANE_STATE
     const next = state ?? DEFAULT_WORKSPACE_PANE_STATE
     terminalModeRef.current = next.terminalMode
+    terminalRailCompactRef.current = next.terminalRailCompact
     treeCollapsedRef.current = next.treeCollapsed
     setTerminalModeState(next.terminalMode)
+    setTerminalRailCompactState(next.terminalRailCompact)
     setTreeCollapsedState(next.treeCollapsed)
   }, [root])
 
@@ -73,6 +77,7 @@ export function useWorkbenchLayout({
       if (activeRoot) {
         paneStateSessionRef.current?.write(activeRoot, {
           terminalMode: next,
+          terminalRailCompact: terminalRailCompactRef.current,
           treeCollapsed: treeCollapsedRef.current,
         })
       }
@@ -88,9 +93,24 @@ export function useWorkbenchLayout({
     if (activeRoot) {
       paneStateSessionRef.current?.write(activeRoot, {
         terminalMode: terminalModeRef.current,
+        terminalRailCompact: terminalRailCompactRef.current,
         treeCollapsed: next,
       })
     }
+  }, [])
+
+  const setTerminalRailCompact = useCallback((compact: boolean): void => {
+    terminalRailCompactRef.current = compact
+    setTerminalRailCompactState(compact)
+    const activeRoot = rootRef.current
+    if (activeRoot) {
+      paneStateSessionRef.current?.write(activeRoot, {
+        terminalMode: terminalModeRef.current,
+        terminalRailCompact: compact,
+        treeCollapsed: treeCollapsedRef.current,
+      })
+    }
+    focusActiveTerminalAfterLayout()
   }, [])
 
   useEffect(() => {
@@ -140,8 +160,9 @@ export function useWorkbenchLayout({
     const workbench = workbenchRef.current
     if (!workbench) return
     const terminalRailWidth =
-      workbench.querySelector<HTMLElement>('.terminal-rail')?.getBoundingClientRect()
-        .width ?? 0
+      workbench
+        .querySelector<HTMLElement>('.terminal-rail:not([hidden])')
+        ?.getBoundingClientRect().width ?? 0
     const max = Math.max(
       TREE_MIN_WIDTH,
       Math.min(
@@ -228,6 +249,8 @@ export function useWorkbenchLayout({
     setRailMode,
     terminalMode: terminalModeState,
     setTerminalMode,
+    terminalRailCompact: terminalRailCompactState,
+    setTerminalRailCompact,
     toggleTerminalFocus,
     restoreViewer,
     treeCollapsed: treeCollapsedState,

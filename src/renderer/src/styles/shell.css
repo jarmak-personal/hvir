@@ -2,9 +2,12 @@
   --tree-track: 238px;
   --terminal-track: minmax(260px, 3.8fr);
   --terminal-rail-track: 220px;
+  --terminal-rail-current-track: var(--terminal-rail-track);
 
   display: grid;
-  grid-template-columns: var(--tree-track) 1px minmax(0, 1fr) var(--terminal-rail-track);
+  grid-template-columns: var(--tree-track) 1px minmax(0, 1fr) var(
+      --terminal-rail-current-track
+    );
   grid-template-rows: minmax(180px, 4fr) 1px var(--terminal-track);
   width: 100%;
   min-height: 0;
@@ -32,7 +35,11 @@
 }
 
 .workbench.tree-collapsed {
-  grid-template-columns: 0 1px minmax(0, 1fr) var(--terminal-rail-track);
+  grid-template-columns: 0 1px minmax(0, 1fr) var(--terminal-rail-current-track);
+}
+
+.workbench.terminal-rail-compact {
+  --terminal-rail-current-track: 28px;
 }
 
 .workbench.tree-collapsed .tree-panel {
