@@ -1,14 +1,12 @@
 /// <reference lib="dom" />
 
-import { readFileSync } from 'node:fs'
-
 import {
   Ghostty,
   Terminal as GhosttyCanvasTerminal,
   type GhosttyCell,
   type ILink,
 } from 'ghostty-web'
-import { beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 
 import { GhosttyTerminalLinkProvider } from '../src/renderer/src/terminal/ghostty-terminal-links'
 import type { TerminalLinkActivation } from '../src/renderer/src/terminal/terminal-pane'
@@ -17,12 +15,12 @@ describe('Ghostty buffer contract', () => {
   let ghostty: Ghostty
 
   beforeAll(async () => {
-    const wasm = readFileSync(
-      `${process.cwd()}/src/renderer/src/terminal/ghostty-vt.wasm`,
-    )
-    ghostty = await Ghostty.load(
-      `data:application/wasm;base64,${wasm.toString('base64')}`,
-    )
+    vi.stubGlobal('self', { location: 'http://localhost/' })
+    ghostty = await Ghostty.load()
+  })
+
+  afterAll(() => {
+    vi.unstubAllGlobals()
   })
 
   it('marks the row that continues a soft-wrapped predecessor', () => {

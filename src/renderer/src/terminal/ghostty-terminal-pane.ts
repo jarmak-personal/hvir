@@ -1,5 +1,4 @@
 import { Terminal as GhosttyTerminal, init } from 'ghostty-web'
-import ghosttyWasmUrl from './ghostty-vt.wasm?url'
 
 import type {
   ComposerSubmitMode,
@@ -35,7 +34,7 @@ export async function createGhosttyTerminalPane(
   theme: TerminalColorTheme,
   options: GhosttyTerminalPaneOptions,
 ): Promise<TerminalPane> {
-  initializeGhostty ??= init(ghosttyWasmUrl)
+  initializeGhostty ??= init()
   await initializeGhostty
   return new GhosttyTerminalPane(theme, options)
 }
