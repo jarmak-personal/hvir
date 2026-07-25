@@ -168,10 +168,32 @@
 }
 
 .terminal-rail-compact-marker-item {
+  --terminal-rail-compact-blade-skew: -16deg;
+
+  position: relative;
   flex: 0 0 auto;
 }
 
+.terminal-rail-compact-marker-item:nth-child(even) {
+  --terminal-rail-compact-blade-skew: 16deg;
+}
+
+.terminal-rail-compact-marker-item::before {
+  content: '';
+  position: absolute;
+  z-index: 0;
+  top: -2px;
+  bottom: -2px;
+  left: 50%;
+  width: 1px;
+  background: #3c4653;
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
 .terminal-rail-compact-marker {
+  position: relative;
+  z-index: 1;
   width: 20px;
   height: 20px;
   box-sizing: border-box;
@@ -179,47 +201,80 @@
   align-items: center;
   justify-content: center;
   padding: 0;
-  border: 1px solid #596270;
-  border-radius: 50%;
-  background: #15191f;
+  border: 0;
+  background: transparent;
   color: #9aa3af;
   font-size: 8px;
   font-weight: 800;
   line-height: 1;
 }
 
+.terminal-rail-compact-marker::before {
+  content: '';
+  position: absolute;
+  z-index: 0;
+  inset: 2px;
+  box-sizing: border-box;
+  border: 1px var(--terminal-rail-compact-blade-border-style, solid) currentColor;
+  border-inline-width: var(--terminal-rail-compact-blade-inline-width, 1px);
+  border-bottom-width: var(--terminal-rail-compact-blade-bottom-width, 1px);
+  border-radius: 1px;
+  background: var(--terminal-rail-compact-blade-background, #15191f);
+  transform: skewX(var(--terminal-rail-compact-blade-skew));
+}
+
+.terminal-rail-compact-marker > span {
+  position: relative;
+  z-index: 1;
+}
+
 .terminal-rail-compact-marker.working {
-  border-style: dashed;
-  background: #172230;
+  --terminal-rail-compact-blade-background: #172230;
+  --terminal-rail-compact-blade-border-style: dashed;
+
   color: #78ace4;
 }
 
 .terminal-rail-compact-marker.idle {
-  border-radius: 3px;
-  background: #17261c;
+  --terminal-rail-compact-blade-background: #17261c;
+  --terminal-rail-compact-blade-inline-width: 2px;
+
   color: #7ccc91;
 }
 
 .terminal-rail-compact-marker.bell {
-  border-radius: 3px 3px 50% 50%;
-  background: #2a2114;
+  --terminal-rail-compact-blade-background: #2a2114;
+  --terminal-rail-compact-blade-bottom-width: 3px;
+
   color: #e5b65f;
 }
 
-.terminal-rail-compact-marker.active {
+.terminal-rail-compact-marker.active::before {
+  inset: 1px;
   border-width: 3px;
   border-style: double;
   border-color: #c9d5e4;
 }
 
 .terminal-rail-compact-marker:hover {
-  background: #252b34;
+  --terminal-rail-compact-blade-background: #252b34;
+
   color: #edf0f5;
 }
 
 .terminal-rail-compact-marker:focus-visible {
   outline: none;
-  box-shadow: inset 0 0 0 2px #edf0f5;
+}
+
+.terminal-rail-compact-marker:focus-visible::after {
+  content: '';
+  position: absolute;
+  z-index: 2;
+  inset: 0;
+  background:
+    linear-gradient(#edf0f5, #edf0f5) left / 2px 100% no-repeat,
+    linear-gradient(#edf0f5, #edf0f5) right / 2px 100% no-repeat;
+  pointer-events: none;
 }
 
 .terminal-rail-restore {

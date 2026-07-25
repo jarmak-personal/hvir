@@ -197,11 +197,13 @@ export async function verifyTerminalPresentationLifecycle(
               const markerOrder = markers
                 .map((entry) => entry.getAttribute('data-terminal-session'))
                 .join('|');
+              const firstMarker = markers[0];
               const marker = markers.find(
                 (entry) => entry.getAttribute('data-terminal-session') === sessionId
               );
               if (
                 markerOrder !== expandedOrder ||
+                !(firstMarker instanceof HTMLButtonElement) ||
                 !(marker instanceof HTMLButtonElement) ||
                 marker.dataset.terminalState !== 'bell' ||
                 marker.getAttribute('aria-label') !== 'Hidden buffered, Bell' ||
@@ -213,6 +215,30 @@ export async function verifyTerminalPresentationLifecycle(
                   markerOrder + ' expected=' + expandedOrder +
                   ' state=' + marker?.getAttribute('data-terminal-state') +
                   ' label=' + marker?.getAttribute('aria-label')
+                );
+              }
+              const firstBlade = getComputedStyle(firstMarker, '::before');
+              const secondBlade = getComputedStyle(marker, '::before');
+              const firstRung = firstMarker.closest(
+                '.terminal-rail-compact-marker-item'
+              );
+              const spine = firstRung
+                ? getComputedStyle(firstRung, '::before')
+                : undefined;
+              if (
+                firstBlade.transform === 'none' ||
+                secondBlade.transform === 'none' ||
+                firstBlade.transform === secondBlade.transform ||
+                firstBlade.borderRadius !== '1px' ||
+                secondBlade.borderRadius !== '1px' ||
+                spine?.width !== '1px' ||
+                spine.backgroundColor === 'rgba(0, 0, 0, 0)'
+              ) {
+                return fail(
+                  'compact markers lost alternating blade or ladder geometry: ' +
+                  'transforms=' + firstBlade.transform + '/' + secondBlade.transform +
+                  ' radii=' + firstBlade.borderRadius + '/' + secondBlade.borderRadius +
+                  ' spine=' + spine?.width + '/' + spine?.backgroundColor
                 );
               }
               markerList.style.flex = '0 0 20px';
@@ -254,7 +280,7 @@ export async function verifyTerminalPresentationLifecycle(
                     ].join(',')
                   );
                 }
-                markerList.scrollTop = markerList.scrollHeight;
+                marker.scrollIntoView({ block: 'nearest', inline: 'nearest' });
                 requestAnimationFrame(() => {
                   const markerBounds = marker.getBoundingClientRect();
                   if (
