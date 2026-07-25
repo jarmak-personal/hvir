@@ -147,14 +147,15 @@ Linux, run Electron smoke tests under `xvfb-run`. Install the optional pre-push 
 npm run hooks:install
 ```
 
-`npm run smoke` runs the focused `pty-native` and `viewer-position` groups plus the transitional
-`legacy-workflow` group in separate Electron processes with fresh project and user-data roots,
-then reports a result for every scheduled group. Select one group locally with
+`npm run smoke` runs the focused `pty-native`, `viewer-position`, and `renderer-recovery` groups
+plus the transitional `legacy-workflow` group in separate Electron processes with fresh project
+and user-data roots, then reports a result for every scheduled group. Select one group locally with
 `HVIR_SMOKE_SCENARIO=<name> npm run smoke`; the complete name set is `pty-native`,
 `viewer-position`, `platform-contracts`, `diagnostic-report-restart`,
-`terminal-presentation`, `legacy-workflow`, and `capacity`. The restart scenario is reserved
-for the packaged multi-launch fixture. `npm run smoke:macos` runs the focused PTY, viewer,
-platform-contract, and terminal presentation correctness groups. `npm run smoke:capacity`
+`renderer-recovery`, `terminal-presentation`, `legacy-workflow`, and `capacity`. The restart
+scenario is reserved for the packaged multi-launch fixture. `npm run smoke:macos` runs the focused
+PTY, viewer, platform-contract, renderer-recovery, and terminal presentation correctness groups.
+`npm run smoke:capacity`
 selects the capacity group: terminal
 topology, presentation, delivery, exact input, cleanup, and recovery contracts remain blocking,
 while CPU, latency, and working-set measurements are labeled evidence. CI invokes this command

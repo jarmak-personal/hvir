@@ -30,11 +30,11 @@ describe('Electron smoke scenario selection', () => {
   it('rejects unknown groups with the complete reproducible name set', () => {
     expect(() => parseElectronSmokeScenario('unknown')).toThrow(
       "Unknown Electron smoke scenario 'unknown'. Expected one of: " +
-        'pty-native, viewer-position, platform-contracts, diagnostic-report-restart, terminal-presentation, legacy-workflow, capacity',
+        'pty-native, viewer-position, platform-contracts, diagnostic-report-restart, renderer-recovery, terminal-presentation, legacy-workflow, capacity',
     )
     expect(() => selectedSmokeScenarios('unknown')).toThrow(
       "Unknown Electron smoke scenario 'unknown'. Expected one of: " +
-        'pty-native, viewer-position, platform-contracts, diagnostic-report-restart, terminal-presentation, legacy-workflow, capacity',
+        'pty-native, viewer-position, platform-contracts, diagnostic-report-restart, renderer-recovery, terminal-presentation, legacy-workflow, capacity',
     )
   })
 
@@ -227,7 +227,7 @@ describe('Electron smoke command contracts', () => {
   it('separates correctness, hosted evidence, and controlled performance commands', () => {
     expect(packageJson.scripts.smoke).toContain('node scripts/run-smoke-scenarios.mts')
     expect(packageJson.scripts['smoke:macos']).toContain(
-      'node scripts/run-smoke-scenarios.mts pty-native viewer-position platform-contracts terminal-presentation',
+      'node scripts/run-smoke-scenarios.mts pty-native viewer-position platform-contracts renderer-recovery terminal-presentation',
     )
     expect(packageJson.scripts['smoke:macos']).not.toMatch(
       /terminal-presentation capacity/,
@@ -270,6 +270,9 @@ describe('Electron smoke command contracts', () => {
     expect(packagedScript).toContain('grep -Fq "Preparing hvir $package_version"')
     expect(packagedScript).toContain(
       'run_launcher platform-contracts >"$first_launch_log"',
+    )
+    expect(packagedScript).toContain(
+      'run_launcher renderer-recovery >"$recovery_launch_log"',
     )
     expect(packagedScript).toContain(
       'run_launcher diagnostic-report-restart preceding >"$second_launch_log"',
@@ -328,9 +331,7 @@ describe('Electron smoke command contracts', () => {
 
   it('waits for exact terminal focus instead of assuming a frame count', () => {
     const layoutFocusScenario = terminalPresentationScenario.slice(
-      terminalPresentationScenario.indexOf(
-        'async function verifyTerminalLayoutFocus',
-      ),
+      terminalPresentationScenario.indexOf('async function verifyTerminalLayoutFocus'),
       terminalPresentationScenario.indexOf(
         'async function verifyTerminalLaunchMenuOverflow',
       ),

@@ -22,6 +22,7 @@ install_log="$invocation_root/npm-install.log"
 first_launch_log="$invocation_root/first-launch.log"
 second_launch_log="$invocation_root/second-launch.log"
 third_launch_log="$invocation_root/third-launch.log"
+recovery_launch_log="$invocation_root/renderer-recovery.log"
 
 cleanup() {
   if [[ -z "${invocation_root:-}" ]]; then return; fi
@@ -41,7 +42,8 @@ cleanup() {
       "$install_log" \
       "$first_launch_log" \
       "$second_launch_log" \
-      "$third_launch_log" || cleanup_status=$?
+      "$third_launch_log" \
+      "$recovery_launch_log" || cleanup_status=$?
     rmdir -- "$invocation_root" 2>/dev/null || {
       if [[ -e "$invocation_root" ]]; then cleanup_status=1; fi
     }
@@ -224,6 +226,14 @@ else
   expected_arch=$(if [[ "$package_name" == 'hvir-linux-arm64' ]]; then echo 'ARM aarch64'; else echo 'x86-64'; fi)
   file "$executable" | grep -q "$expected_arch"
 fi
+
+run_launcher renderer-recovery >"$recovery_launch_log" 2>&1
+cat "$recovery_launch_log"
+if grep -Fq 'Preparing hvir' "$recovery_launch_log"; then
+  echo 'Renderer recovery launch repeated payload preparation' >&2
+  exit 1
+fi
+grep -Fq '[smoke] renderer recovery OK' "$recovery_launch_log"
 
 run_launcher diagnostic-report-restart preceding >"$second_launch_log" 2>&1
 cat "$second_launch_log"

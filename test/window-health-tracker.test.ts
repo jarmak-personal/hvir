@@ -30,7 +30,7 @@ describe('WindowHealthTracker', () => {
     const tracker = new WindowHealthTracker(record)
     const episode = tracker.unresponsive(OWNER)
 
-    tracker.responsive()
+    tracker.responsive(OWNER)
     expect(record).toHaveBeenLastCalledWith(
       expect.objectContaining({
         kind: 'workbench-health-recovered',
@@ -39,7 +39,7 @@ describe('WindowHealthTracker', () => {
       }),
     )
     const before = record.mock.calls.length
-    tracker.recoverUnresponsive(episode, 'reload-selected')
+    tracker.recoverUnresponsive(episode, 'reload-requested')
     expect(record).toHaveBeenCalledTimes(before)
   })
 
@@ -49,7 +49,7 @@ describe('WindowHealthTracker', () => {
     const episode = tracker.unresponsive(OWNER)
 
     tracker.recoverUnresponsive(episode, 'wait-selected')
-    tracker.responsive()
+    tracker.responsive(OWNER)
 
     expect(events.slice(1)).toEqual([
       expect.objectContaining({
@@ -62,7 +62,7 @@ describe('WindowHealthTracker', () => {
       }),
     ])
     const before = events.length
-    tracker.recoverUnresponsive(episode, 'reload-selected')
+    tracker.recoverUnresponsive(episode, 'reload-requested')
     expect(events).toHaveLength(before)
   })
 
@@ -83,7 +83,51 @@ describe('WindowHealthTracker', () => {
     const before = events.length
     tracker.rendererGone(OWNER, 'clean-exit')
     expect(events).toHaveLength(before)
-    tracker.rendererGone(OWNER, 'crashed', true)
+    tracker.rendererGone(OWNER, 'crashed', 'forced-for-reload')
     expect(events).toHaveLength(before)
+  })
+
+  it('distinguishes requested, failed, and successful renderer reloads', () => {
+    const events: WindowHealthDiagnostic[] = []
+    const tracker = new WindowHealthTracker((event) => events.push(event))
+    const episode = tracker.unresponsive(OWNER)
+
+    tracker.recoverUnresponsive(episode, 'reload-requested')
+    tracker.rendererGone(OWNER, 'killed', 'forced-for-reload')
+    tracker.responsive({ ...OWNER, generation: OWNER.generation + 1 })
+    tracker.recoverUnresponsive(episode, 'reload-failed')
+    tracker.recoverUnresponsive(episode, 'reload-requested')
+    tracker.recoverUnresponsive(episode, 'reload-succeeded')
+
+    expect(
+      events
+        .filter((event) => event.kind === 'workbench-health-recovered')
+        .map((event) => event.outcome),
+    ).toEqual([
+      'reload-requested',
+      'reload-failed',
+      'reload-requested',
+      'reload-succeeded',
+    ])
+  })
+
+  it('records a replacement exit without resolving the original episode', () => {
+    const events: WindowHealthDiagnostic[] = []
+    const tracker = new WindowHealthTracker((event) => events.push(event))
+    const episode = tracker.unresponsive(OWNER)
+    const replacement = { ...OWNER, generation: OWNER.generation + 1 }
+
+    tracker.recoverUnresponsive(episode, 'reload-requested')
+    tracker.rendererGone(replacement, 'crashed', 'replacement-failed')
+    tracker.recoverUnresponsive(episode, 'reload-failed')
+
+    expect(events.slice(1)).toEqual([
+      expect.objectContaining({ outcome: 'reload-requested' }),
+      expect.objectContaining({
+        kind: 'renderer-process-exited',
+        ownerGeneration: replacement.generation,
+      }),
+      expect.objectContaining({ outcome: 'reload-failed' }),
+    ])
   })
 })

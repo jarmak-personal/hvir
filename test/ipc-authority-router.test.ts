@@ -96,10 +96,10 @@ function projectState(): ProjectState {
 }
 
 function fixture() {
-  const currentOwner = vi.fn(() => owner)
+  const currentIpcOwner = vi.fn(() => owner)
   const assertCurrent = vi.fn()
   const rendererResources = {
-    currentOwner,
+    currentIpcOwner,
     assertCurrent,
   } as unknown as RendererResourceScopes
   const recordIpcContractDiagnostic = vi.fn<(event: IpcContractDiagnostic) => void>()
@@ -122,7 +122,7 @@ function fixture() {
   return {
     deps,
     transport,
-    currentOwner,
+    currentIpcOwner,
     assertCurrent,
     recordIpcContractDiagnostic,
   }
@@ -214,7 +214,7 @@ describe('IpcAuthorityRouter', () => {
   })
 
   it('centrally validates current owner generation for every owner-scoped channel', () => {
-    const { deps, transport, currentOwner, assertCurrent } = fixture()
+    const { deps, transport, currentIpcOwner, assertCurrent } = fixture()
     const router = new IpcAuthorityRouter(deps, transport)
     for (const channel of OWNER_SCOPED_INVOKE_CHANNELS) {
       router.handle(channel, (_request, context) => {
@@ -237,7 +237,7 @@ describe('IpcAuthorityRouter', () => {
     }
 
     const total = OWNER_SCOPED_INVOKE_CHANNELS.length + OWNER_SCOPED_SEND_CHANNELS.length
-    expect(currentOwner).toHaveBeenCalledTimes(total)
+    expect(currentIpcOwner).toHaveBeenCalledTimes(total)
     expect(assertCurrent).toHaveBeenCalledTimes(total)
     expect(assertCurrent).toHaveBeenCalledWith(owner)
   })

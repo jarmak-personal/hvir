@@ -72,8 +72,8 @@ export function registerAppIpc(ipc: IpcRegistrar, deps: AppIpcDeps): void {
       : deps.diagnostics.responsiveness.responsivenessState(owner)
   })
 
-  ipc.handleSend('app:renderer-ready', (_payload, context) => {
-    deps.rendererReady(context.owner())
+  ipc.handleSend('app:renderer-ready', ({ ownerGeneration }, context) => {
+    deps.rendererReady(context.owner(), ownerGeneration)
   })
   ipc.handleSend('diagnostics:render-containment', (batch, context) => {
     deps.recordRenderContainment(context.owner(), batch)

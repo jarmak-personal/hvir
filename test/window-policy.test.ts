@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+  ownsRendererReadiness,
   ownsUnresponsiveRecovery,
   workbenchWindowOptions,
 } from '../src/main/window/window-policy'
@@ -34,5 +35,11 @@ describe('workbench window policy', () => {
     expect(
       ownsUnresponsiveRecovery({ id: 8, generation: 3 }, { id: 7, generation: 3 }),
     ).toBe(false)
+  })
+
+  it('accepts readiness only from the preload generation that reports it', () => {
+    expect(ownsRendererReadiness({ id: 7, generation: 4 }, 4)).toBe(true)
+    expect(ownsRendererReadiness({ id: 7, generation: 4 }, 3)).toBe(false)
+    expect(ownsRendererReadiness({ id: 7, generation: 4 }, Number.NaN)).toBe(false)
   })
 })

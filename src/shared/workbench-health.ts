@@ -29,6 +29,9 @@ export type WorkbenchHealthRecoveryOutcome =
   | 'responsive'
   | 'wait-selected'
   | 'reload-selected'
+  | 'reload-requested'
+  | 'reload-succeeded'
+  | 'reload-failed'
   | 'renderer-exited'
   | 'window-closed'
 
@@ -125,6 +128,9 @@ export function isWorkbenchHealthRecoveryOutcome(
       'responsive',
       'wait-selected',
       'reload-selected',
+      'reload-requested',
+      'reload-succeeded',
+      'reload-failed',
       'renderer-exited',
       'window-closed',
     ].some((candidate) => candidate === value)
@@ -164,15 +170,26 @@ function isSeverityForKind(kind: unknown, severity: unknown): boolean {
 function isRecoveryState(kind: unknown, state: unknown, outcome: unknown): boolean {
   if (state === 'open') return outcome === undefined
   if (state === 'acknowledged')
-    return outcome === undefined || outcome === 'wait-selected'
+    return (
+      outcome === undefined ||
+      outcome === 'wait-selected' ||
+      outcome === 'reload-requested' ||
+      outcome === 'reload-failed'
+    )
   if (state !== 'resolved' || !isWorkbenchHealthRecoveryOutcome(outcome)) return false
   if (kind === 'main-document-load-failed') {
     return ['document-loaded', 'renderer-reloaded', 'window-closed'].includes(outcome)
   }
   if (kind === 'renderer-unresponsive') {
-    return ['responsive', 'reload-selected', 'renderer-exited', 'window-closed'].includes(
-      outcome,
-    )
+    return [
+      'responsive',
+      'reload-selected',
+      'reload-requested',
+      'reload-succeeded',
+      'reload-failed',
+      'renderer-exited',
+      'window-closed',
+    ].includes(outcome)
   }
   return outcome === 'renderer-reloaded' || outcome === 'window-closed'
 }

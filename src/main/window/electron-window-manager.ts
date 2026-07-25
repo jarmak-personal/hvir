@@ -15,8 +15,14 @@ import type { HtmlPreviewProtocol } from '../html-preview-protocol'
 import type { WindowHealthDiagnostic } from '../health/workbench-health-events'
 import { isSafeExternalUrl, isWorkbenchDocument } from '../navigation-policy'
 import type { RendererOwner } from '../renderer-resource-scopes'
+import { installRendererDocumentLifecycle } from './electron-renderer-document-lifecycle'
+import { ElectronRendererRecovery } from './electron-renderer-recovery'
 import { WindowHealthTracker } from './window-health-tracker'
-import { ownsUnresponsiveRecovery, workbenchWindowOptions } from './window-policy'
+import {
+  ownsRendererReadiness,
+  ownsUnresponsiveRecovery,
+  workbenchWindowOptions,
+} from './window-policy'
 import {
   WEB_PANE_PARTITION_PREFIX,
   WebPaneRouteRegistry,
@@ -36,8 +42,10 @@ export interface ElectronWindowManagerDependencies {
   readonly rolloverRenderer: (owner: RendererOwner) => RendererOwner
   readonly revokeRenderer: (owner: RendererOwner) => void
   readonly isRendererCurrent: (owner: RendererOwner) => boolean
+  readonly resumeRendererIpc: (owner: RendererOwner) => void
   readonly setOwnerFocused: (owner: RendererOwner, focused: boolean) => void
   readonly startRendererDiagnostics: (owner: RendererOwner) => RendererDiagnosticSession
+  readonly rendererReady: (owner: RendererOwner) => void
   readonly recordWindowHealth: (event: WindowHealthDiagnostic) => void
   readonly onLastWindowClosed: () => void
   readonly isShuttingDown: () => boolean
@@ -50,6 +58,8 @@ export interface ElectronWindowManager {
   ) => BrowserWindow
   readonly updateWebPaneBindings: (ownerId: number, bindings: KeybindingMap) => void
   readonly updateWebPaneFullPage: (ownerId: number, paneId?: string) => void
+  readonly rendererReady: (owner: RendererOwner, reportedGeneration: number) => boolean
+  readonly reloadUnresponsiveRenderer: (owner: RendererOwner) => boolean
   readonly dispose: () => Promise<void>
 }
 
@@ -60,6 +70,12 @@ export function createElectronWindowManager(
   const webPaneSessionPartitions = new WeakMap<Session, string>()
   const webPaneBindings = new Map<number, KeybindingMap>()
   const fullPageWebPanes = new Map<number, string>()
+  const rendererReadyHandlers = new Map<
+    number,
+    (owner: RendererOwner, reportedGeneration: number) => boolean
+  >()
+  const unresponsiveReloadHandlers = new Map<number, (owner: RendererOwner) => boolean>()
+  const windowRecoveryDisposers = new Map<number, () => void>()
   const webPaneRoutes = new WebPaneRouteRegistry({
     prepareSession: prepareWebPaneSession,
     destroyGuest: (guestId) => {
@@ -243,17 +259,26 @@ export function createElectronWindowManager(
     win.on('blur', () => dependencies.setOwnerFocused(rendererOwner, false))
 
     win.on('ready-to-show', () => win.show())
-    win.webContents.on('did-finish-load', () => {
-      committedDocument = true
-      hadUsableDocument = true
-      windowHealth.documentReady()
-      win.webContents.send(
-        'diagnostics:session',
-        dependencies.startRendererDiagnostics(rendererOwner),
-      )
-    })
-    const revokeRendererResources = (reopen: boolean): void => {
+    const rolloverRendererResources = (
+      expectedOwner: RendererOwner,
+    ): RendererOwner | undefined => {
+      if (rendererRevoked || !dependencies.isRendererCurrent(expectedOwner)) {
+        return undefined
+      }
+      discardExternalResources(ownerId)
+      htmlPreviews.releaseOwner(expectedOwner)
+      webPaneBindings.delete(ownerId)
+      fullPageWebPanes.delete(ownerId)
+      void webPaneRoutes
+        .closeOwner(expectedOwner.id, expectedOwner.generation)
+        .catch((error) => console.error('[web-pane] renderer cleanup failed', error))
+      rendererOwner = dependencies.rolloverRenderer(expectedOwner)
+      committedDocument = false
+      return rendererOwner
+    }
+    const revokeRendererResources = (): void => {
       if (rendererRevoked) return
+      rendererRevoked = true
       discardExternalResources(ownerId)
       htmlPreviews.releaseOwner(rendererOwner)
       webPaneBindings.delete(ownerId)
@@ -261,20 +286,61 @@ export function createElectronWindowManager(
       void webPaneRoutes
         .closeOwner(rendererOwner.id, rendererOwner.generation)
         .catch((error) => console.error('[web-pane] renderer cleanup failed', error))
-      if (reopen) {
-        rendererOwner = dependencies.rolloverRenderer(rendererOwner)
-        committedDocument = false
-      } else {
-        rendererRevoked = true
-        dependencies.revokeRenderer(rendererOwner)
-      }
+      dependencies.revokeRenderer(rendererOwner)
     }
-    // Renderer reload/crash cannot run React cleanup for its main-owned resources.
-    win.webContents.on('did-start-navigation', (_event, url, isInPlace, isMainFrame) => {
-      if (isMainFrame && !isInPlace && isWorkbenchDocument(url, entryUrl)) {
-        windowHealth.documentStarted()
-        if (committedDocument) revokeRendererResources(true)
+    const recovery = new ElectronRendererRecovery({
+      win,
+      health: windowHealth,
+      currentOwner: () => rendererOwner,
+      rollover: rolloverRendererResources,
+      isShuttingDown: dependencies.isShuttingDown,
+    })
+    rendererReadyHandlers.set(ownerId, (owner, reportedGeneration) => {
+      if (
+        !ownsRendererReadiness(owner, reportedGeneration) ||
+        !committedDocument ||
+        !ownsUnresponsiveRecovery(rendererOwner, owner) ||
+        !dependencies.isRendererCurrent(owner)
+      ) {
+        return false
       }
+      hadUsableDocument = true
+      dependencies.rendererReady(owner)
+      recovery.rendererReady(owner)
+      return true
+    })
+    unresponsiveReloadHandlers.set(ownerId, (owner) => recovery.reloadUnresponsive(owner))
+    windowRecoveryDisposers.set(ownerId, () => recovery.dispose())
+    // Renderer reload/crash cannot run React cleanup for its main-owned resources.
+    installRendererDocumentLifecycle(win.webContents, entryUrl, {
+      started: () => {
+        if (!recovery.owns(rendererOwner)) windowHealth.documentStarted()
+      },
+      committed: () => {
+        if (!recovery.owns(rendererOwner) && committedDocument)
+          rolloverRendererResources(rendererOwner)
+        dependencies.resumeRendererIpc(rendererOwner)
+      },
+      loaded: () => {
+        committedDocument = true
+        windowHealth.documentReady()
+        win.webContents.send(
+          'diagnostics:session',
+          dependencies.startRendererDiagnostics(rendererOwner),
+        )
+        recovery.documentLoaded(rendererOwner)
+      },
+      failed: (code, description, url) => {
+        windowHealth.documentFailed(
+          rendererOwner,
+          code,
+          hadUsableDocument && !recovery.owns(rendererOwner),
+        )
+        console.error(
+          `[window] main document failed to load (${code}): ${description} ${url}`,
+        )
+        if (code !== -3) recovery.documentFailed(rendererOwner)
+      },
     })
     win.webContents.on('will-navigate', (event, url) => {
       if (isWorkbenchDocument(url, entryUrl)) return
@@ -282,33 +348,23 @@ export function createElectronWindowManager(
       console.warn(`[navigation] blocked workbench replacement: ${url}`)
       if (isSafeExternalUrl(url)) void shell.openExternal(url)
     })
-    win.webContents.on('did-fail-load', (_event, code, description, url, isMainFrame) => {
-      if (isMainFrame) {
-        windowHealth.documentFailed(rendererOwner, code, hadUsableDocument)
-        console.error(
-          `[window] main document failed to load (${code}): ${description} ${url}`,
-        )
-      }
-    })
-    let rendererRecoveryRequested = false
     win.webContents.on('render-process-gone', (_event, details) => {
       const exitedOwner = rendererOwner
-      windowHealth.rendererGone(exitedOwner, details.reason, rendererRecoveryRequested)
-      revokeRendererResources(true)
       console.error(`[window] renderer process gone: ${JSON.stringify(details)}`)
-      if (rendererRecoveryRequested) {
-        rendererRecoveryRequested = false
-      } else if (!win.isDestroyed() && details.reason !== 'clean-exit') {
-        // Reload into a fresh renderer that can restore persisted tabs.
-        win.webContents.reload()
+      if (recovery.rendererGone(exitedOwner, details.reason)) return
+      windowHealth.rendererGone(exitedOwner, details.reason)
+      const replacement = rolloverRendererResources(exitedOwner)
+      if (replacement && !win.isDestroyed() && details.reason !== 'clean-exit') {
+        recovery.reloadUnexpected(replacement)
       }
     })
-    win.webContents.once('destroyed', () => revokeRendererResources(false))
+    win.webContents.once('destroyed', revokeRendererResources)
     let handlingUnresponsive = false
     win.webContents.on('unresponsive', () => {
-      if (handlingUnresponsive || win.isDestroyed()) return
+      if (handlingUnresponsive || win.isDestroyed() || recovery.owns(rendererOwner))
+        return
       handlingUnresponsive = true
-      const episode = windowHealth.unresponsive(rendererOwner)
+      const episode = recovery.unresponsive(rendererOwner)
       console.error('[window] renderer became unresponsive')
       void dialog
         .showMessageBox(win, {
@@ -321,28 +377,20 @@ export function createElectronWindowManager(
           defaultId: 0,
           cancelId: 0,
         })
-        .then(({ response }) => {
-          windowHealth.recoverUnresponsive(
-            episode,
-            response === 1 ? 'reload-selected' : 'wait-selected',
-          )
-          if (
-            response === 1 &&
-            ownsUnresponsiveRecovery(rendererOwner, episode.owner) &&
-            !win.isDestroyed()
-          ) {
-            rendererRecoveryRequested = true
-            win.webContents.forcefullyCrashRenderer()
-            win.webContents.reload()
-          }
-        })
+        .then(({ response }) =>
+          recovery.resolveUnresponsiveChoice(episode, response === 1),
+        )
         .finally(() => {
           handlingUnresponsive = false
         })
     })
-    win.webContents.on('responsive', () => windowHealth.responsive())
+    win.webContents.on('responsive', () => recovery.responsive(rendererOwner))
     win.on('closed', () => {
-      revokeRendererResources(false)
+      recovery.close()
+      rendererReadyHandlers.delete(ownerId)
+      unresponsiveReloadHandlers.delete(ownerId)
+      windowRecoveryDisposers.delete(ownerId)
+      revokeRendererResources()
       if (
         process.platform === 'darwin' &&
         BrowserWindow.getAllWindows().length === 0 &&
@@ -430,8 +478,16 @@ export function createElectronWindowManager(
       if (paneId) fullPageWebPanes.set(ownerId, paneId)
       else fullPageWebPanes.delete(ownerId)
     },
+    rendererReady: (owner, reportedGeneration) =>
+      rendererReadyHandlers.get(owner.id)?.(owner, reportedGeneration) ?? false,
+    reloadUnresponsiveRenderer: (owner) =>
+      unresponsiveReloadHandlers.get(owner.id)?.(owner) ?? false,
     dispose: async () => {
       app.off('login', handleLogin)
+      for (const disposeRecovery of windowRecoveryDisposers.values()) disposeRecovery()
+      windowRecoveryDisposers.clear()
+      rendererReadyHandlers.clear()
+      unresponsiveReloadHandlers.clear()
       webPaneBindings.clear()
       fullPageWebPanes.clear()
       await webPaneRoutes.closeAll()

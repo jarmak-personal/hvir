@@ -144,11 +144,13 @@ export class RuntimeDiagnostics {
   }
 
   startRenderer(owner: RendererOwner): RendererDiagnosticSession {
-    const session = this.intake.startRenderer(owner)
+    return this.intake.startRenderer(owner)
+  }
+
+  rendererReady(owner: RendererOwner): void {
     const recovered = this.health.rendererReady(owner, nowIso())
     if (recovered.length > 0) this.publishHealth()
     for (const event of recovered) this.intake.record(event)
-    return session
   }
 
   revokeRenderer(owner: RendererOwner): void {

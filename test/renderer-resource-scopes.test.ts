@@ -47,6 +47,19 @@ describe('RendererResourceScopes', () => {
     ).toThrow('has been revoked')
   })
 
+  it('blocks IPC between rollover and the replacement document commit', () => {
+    const scopes = new RendererResourceScopes()
+    scopes.activateOwner(10)
+    const replacement = scopes.rolloverOwner(10).owner
+
+    expect(() => scopes.currentIpcOwner(10)).toThrow('is not ready for IPC')
+    scopes.resumeOwnerIpc(replacement)
+    expect(scopes.currentIpcOwner(10)).toEqual(replacement)
+    expect(() =>
+      scopes.resumeOwnerIpc({ ...replacement, generation: replacement.generation - 1 }),
+    ).toThrow('has been revoked')
+  })
+
   it('transfers an opted-in resource to the next renderer generation', async () => {
     const scopes = new RendererResourceScopes()
     const first = scopes.activateOwner(10)
