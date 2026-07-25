@@ -15,7 +15,7 @@ export interface GhosttyLinkBufferCell {
 
 export interface GhosttyLinkBufferLine {
   readonly length: number
-  /** Ghostty marks a row when its contents soft-wrap onto the following row. */
+  /** Ghostty marks a row when it continues the preceding soft-wrapped row. */
   readonly isWrapped: boolean
   getCell(x: number): GhosttyLinkBufferCell | undefined
 }
@@ -127,14 +127,10 @@ function readLogicalTerminalLine(
   if (!buffer.getLine(requestedY)) return undefined
 
   let startY = requestedY
-  while (startY > 0 && buffer.getLine(startY - 1)?.isWrapped) startY -= 1
+  while (startY > 0 && buffer.getLine(startY)?.isWrapped) startY -= 1
 
   let endY = requestedY
-  while (
-    endY + 1 < buffer.length &&
-    buffer.getLine(endY)?.isWrapped &&
-    buffer.getLine(endY + 1)
-  ) {
+  while (endY + 1 < buffer.length && buffer.getLine(endY + 1)?.isWrapped) {
     endY += 1
   }
 

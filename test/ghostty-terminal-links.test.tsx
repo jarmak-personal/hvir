@@ -45,6 +45,43 @@ describe('Ghostty terminal links', () => {
     })
   })
 
+  it('does not link the first fragment of a wrapped relative path', () => {
+    const prefix = 'Here you go: '
+    const target = 'src/renderer/src/terminal/terminal-probe-policy.ts'
+    const firstRow = `${prefix}src/renderer/src/terminal/terminal-`
+    const activated: TerminalLinkActivation[] = []
+    const provider = providerFor(
+      wrappedRows(`${prefix}${target}`, firstRow.length),
+      activated,
+    )
+
+    const firstRowLinks = linksAt(provider, 0)
+    const continuationLinks = linksAt(provider, 1)
+    expect(firstRowLinks).toHaveLength(1)
+    expect(continuationLinks).toHaveLength(1)
+    expect(firstRowLinks[0]).toMatchObject({
+      text: target,
+      range: {
+        start: { x: prefix.length, y: 0 },
+        end: { x: 'probe-policy.ts'.length - 1, y: 1 },
+      },
+    })
+    expect(firstRowLinks[0]?.text).not.toBe('src/renderer/src/terminal/terminal-')
+
+    firstRowLinks[0]?.activate(modifiedClick())
+    continuationLinks[0]?.activate(modifiedClick())
+    expect(activated).toEqual([
+      { kind: 'file', target },
+      { kind: 'file', target },
+    ])
+    expect(resolveTerminalFileTarget(target, workspaceRoot)).toEqual({
+      path: hostPath(
+        asHostId('remote'),
+        '/srv/project/src/renderer/src/terminal/terminal-probe-policy.ts',
+      ),
+    })
+  })
+
   it('never promotes a path-like wrapped suffix to a workspace-relative target', () => {
     const target = '/srv/worktrees/topic/.codex-drafts/report.md'
     const activated: TerminalLinkActivation[] = []
@@ -144,9 +181,7 @@ function wrappedRows(text: string, columns: number): GhosttyLinkBufferLine[] {
   for (let start = 0; start < text.length; start += columns) {
     chunks.push(text.slice(start, start + columns))
   }
-  return chunks.map((chunk, index) =>
-    bufferLine(chunk, columns, index < chunks.length - 1),
-  )
+  return chunks.map((chunk, index) => bufferLine(chunk, columns, index > 0))
 }
 
 function rowsFromText(rows: readonly string[], columns: number): GhosttyLinkBufferLine[] {
