@@ -179,9 +179,13 @@ export class WorkbenchHealth {
         item.ownerGeneration === event.ownerGeneration,
     )
     if (!entry || entry[1].state === 'resolved') return false
+    const pending =
+      outcome === 'wait-selected' ||
+      outcome === 'reload-requested' ||
+      outcome === 'reload-failed'
     this.items.set(entry[0], {
       ...entry[1],
-      state: outcome === 'wait-selected' ? 'acknowledged' : 'resolved',
+      state: pending ? 'acknowledged' : 'resolved',
       lastObservedAt: event.occurredAt,
       recoveryOutcome: outcome,
     })

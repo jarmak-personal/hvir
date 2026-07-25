@@ -251,7 +251,7 @@ export class IpcAuthorityRouter {
       owner: () => {
         if (!ownerScoped) throw new Error('IPC channel is not owner-scoped')
         try {
-          owner ??= this.deps.rendererResources.currentOwner(sender.id)
+          owner ??= this.deps.rendererResources.currentIpcOwner(sender.id)
           this.deps.rendererResources.assertCurrent(owner)
           return owner
         } catch (error) {

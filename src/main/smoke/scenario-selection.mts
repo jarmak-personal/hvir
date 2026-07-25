@@ -3,6 +3,7 @@ export const ELECTRON_SMOKE_SCENARIOS = [
   'viewer-position',
   'platform-contracts',
   'diagnostic-report-restart',
+  'renderer-recovery',
   'terminal-presentation',
   'legacy-workflow',
   'capacity',
@@ -13,6 +14,7 @@ export type ElectronSmokeMode =
   | 'workflow'
   | 'viewer-position'
   | 'platform-contracts'
+  | 'renderer-recovery'
   | 'terminal-presentation'
   | 'capacity'
 

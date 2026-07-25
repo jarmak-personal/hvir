@@ -5,16 +5,30 @@ import { DIAGNOSTIC_REPORT_NOTICE } from '../../shared'
 const SENTINEL = '/secret/project TOKEN=hvir-health-smoke'
 
 /** Real Electron event wiring plus renderer presentation for a console-only load fault. */
-export async function verifyWorkbenchHealthFault(win: BrowserWindow): Promise<string> {
+export async function verifyWorkbenchHealthFault(
+  win: BrowserWindow,
+  signalRendererReady: () => void,
+): Promise<string> {
   const responsiveness = await verifyResponsivenessDiagnostics(win)
-  win.webContents.emit('did-fail-load', {}, -105, SENTINEL, `file://${SENTINEL}`, true)
+  const { processId, routingId } = win.webContents.mainFrame
+  win.webContents.emit(
+    'did-fail-load',
+    {},
+    -105,
+    SENTINEL,
+    `file://${SENTINEL}`,
+    true,
+    processId,
+    routingId,
+  )
   const opened = (await win.webContents.executeJavaScript(
     waitForHealthLabel('1 unresolved fault'),
   )) as string
   if (opened.includes(SENTINEL))
     throw new Error('Health affordance exposed fault context')
 
-  win.webContents.emit('did-finish-load')
+  win.webContents.emit('did-frame-finish-load', {}, true, processId, routingId)
+  signalRendererReady()
   await win.webContents.executeJavaScript(waitForHealthLabel('no unresolved faults'))
   clipboard.clear()
   const reviewed = (await win.webContents.executeJavaScript(`

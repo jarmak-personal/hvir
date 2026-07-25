@@ -11,6 +11,7 @@ import {
   EVENT_CHANNELS,
   INVOKE_CHANNELS,
   SEND_CHANNELS,
+  isRendererDiagnosticSession,
   type HvirApi,
   type IpcEventChannel,
   type IpcEventPayload,
@@ -28,11 +29,28 @@ const rendererDiagnostics = new RendererDiagnosticsAdapter({
     ipcRenderer.send('diagnostics:responsiveness-observation', batch),
 })
 
+let readyGeneration: number | undefined
+let readyRequested = false
+let readySent = false
+const signalRendererReady = (): void => {
+  if (!readyRequested || readySent || readyGeneration === undefined) return
+  readySent = true
+  ipcRenderer.send('app:renderer-ready', { ownerGeneration: readyGeneration })
+}
+
 ipcRenderer.on('diagnostics:session', (_event, session: unknown) => {
   rendererDiagnostics.activate(session)
+  if (isRendererDiagnosticSession(session)) {
+    readyGeneration = session.ownerGeneration
+    signalRendererReady()
+  }
 })
 
 const api: HvirApi = {
+  rendererReady: () => {
+    readyRequested = true
+    signalRendererReady()
+  },
   diagnostics: {
     recordRenderContainment: (occurrenceId) =>
       rendererDiagnostics.recordRenderContainment(occurrenceId),
@@ -76,4 +94,3 @@ const api: HvirApi = {
 }
 
 contextBridge.exposeInMainWorld('hvir', api)
-ipcRenderer.send('app:renderer-ready', undefined)

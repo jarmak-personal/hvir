@@ -384,6 +384,9 @@ function isStoredDiagnosticEvent(value: unknown): value is StoredDiagnosticEvent
         'responsive',
         'wait-selected',
         'reload-selected',
+        'reload-requested',
+        'reload-succeeded',
+        'reload-failed',
         'renderer-exited',
         'window-closed',
       ].includes(String(value['outcome']))

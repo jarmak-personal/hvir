@@ -23,6 +23,7 @@ import {
 } from './renderer-lifecycle'
 import { verifySourceDiffPosition, verifyViewerPositions } from './viewer-position'
 import { verifyWorkbenchHealthFault } from './workbench-health'
+import { verifyUnresponsiveRendererRecovery } from './renderer-recovery'
 import type { ElectronSmokeMode } from './scenario-selection.mts'
 import { createTerminalMoveSmokeHarness, verifyTerminalMoveSmoke } from './terminal-move'
 import {
@@ -66,6 +67,13 @@ export interface ElectronSmokeDependencies {
   readonly diagnostics: import('../ipc/deps').IpcDeps['diagnostics']
   readonly runtimeDiagnostics: RuntimeDiagnostics
   readonly webPaneRoutes: WebPaneRouteRegistry
+  readonly rendererReady: (
+    owner: import('../renderer-resource-scopes').RendererOwner,
+    reportedGeneration: number,
+  ) => boolean
+  readonly reloadUnresponsiveRenderer: (
+    owner: import('../renderer-resource-scopes').RendererOwner,
+  ) => boolean
   readonly updateWebPaneBindings: (ownerId: number, bindings: KeybindingMap) => void
   readonly updateWebPaneFullPage: (ownerId: number, paneId?: string) => void
   readonly openExternal: (url: string) => Promise<void>
@@ -100,6 +108,7 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
   const host = new LocalHost()
   const supervisor = new PtySupervisor()
   let smokeWindow: BrowserWindow | undefined
+  let discardedRendererGenerations = 0
   let stopSmokeWatch: Disposer | undefined
   const smokeRoot = projectRoot
   const smokeCloseableRoot = joinHostPath(smokeRoot, '.hvir-smoke-closed-project')
@@ -156,7 +165,7 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
             main: true,
             missing,
             // The platform-only group does not acquire unrelated Git-worker work.
-            repository: mode !== 'platform-contracts',
+            repository: mode !== 'platform-contracts' && mode !== 'renderer-recovery',
             changedFiles: 0,
           },
         ],
@@ -347,7 +356,7 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
       pullGit: () => Promise.resolve(smokeProjectState()),
       respondSshPrompt: () => undefined,
       rendererResources,
-      rendererReady: () => undefined,
+      rendererReady: dependencies.rendererReady,
       getWorkbenchHealth: () => ({
         version: 1,
         evidence: 'memory-only',
@@ -393,7 +402,9 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
       console.log('[smoke] LocalHost.stat OK')
     }
 
-    const win = createWindow()
+    const win = createWindow(() => {
+      discardedRendererGenerations++
+    })
     smokeWindow = win
     await withTimeout(
       new Promise<void>((resolve) => win.once('ready-to-show', resolve)),
@@ -425,9 +436,30 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
       throw new Error('renderer echo ran in the main process')
     }
     console.log('[smoke] renderer IPC + echo worker round-trip OK')
+    if (mode === 'renderer-recovery') {
+      const result = await verifyUnresponsiveRendererRecovery({
+        win,
+        resources: rendererResources,
+        diagnostics: dependencies.runtimeDiagnostics,
+        reloadUnresponsiveRenderer: dependencies.reloadUnresponsiveRenderer,
+      })
+      if (discardedRendererGenerations !== 1) {
+        throw new Error(
+          `renderer recovery discarded resources ${discardedRendererGenerations} times`,
+        )
+      }
+      console.log(`[smoke] renderer recovery OK (${result})`)
+      console.log('HVIR_SMOKE_OK')
+      return 0
+    }
     if (await verifyDiagnosticRestart(win, dependencies.runtimeDiagnostics)) return 0
     if (mode === 'workflow') {
-      const health = await verifyWorkbenchHealthFault(win)
+      const health = await verifyWorkbenchHealthFault(win, () => {
+        const owner = rendererResources.currentOwner(win.webContents.id)
+        if (!dependencies.rendererReady(owner, owner.generation)) {
+          throw new Error('window manager rejected smoke renderer readiness')
+        }
+      })
       console.log(`[smoke] workbench health fault injection OK (${health})`)
     }
 
@@ -454,7 +486,11 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
     }
 
     if (mode === 'terminal-presentation') {
-      const presentation = await verifyTerminalPresentationLifecycle(win, supervisor, smokeRoot)
+      const presentation = await verifyTerminalPresentationLifecycle(
+        win,
+        supervisor,
+        smokeRoot,
+      )
       console.log(`[smoke] terminal presentation lifecycle OK (${presentation})`)
       console.log('HVIR_SMOKE_OK')
       return 0
