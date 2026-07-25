@@ -146,7 +146,7 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 4px;
+  gap: 0;
   margin: 6px 0;
   overflow-x: hidden;
   overflow-y: auto;
@@ -168,25 +168,25 @@
 }
 
 .terminal-rail-compact-marker-item {
-  --terminal-rail-compact-blade-skew: -16deg;
+  --terminal-rail-compact-blade-skew: -9deg;
 
   position: relative;
   flex: 0 0 auto;
 }
 
 .terminal-rail-compact-marker-item:nth-child(even) {
-  --terminal-rail-compact-blade-skew: 16deg;
+  --terminal-rail-compact-blade-skew: 9deg;
 }
 
-.terminal-rail-compact-marker-item::before {
+.terminal-rail-compact-marker-item:not(:last-child)::before {
   content: '';
   position: absolute;
   z-index: 0;
-  top: -2px;
-  bottom: -2px;
+  top: 50%;
   left: 50%;
   width: 1px;
-  background: #3c4653;
+  height: 100%;
+  background: rgb(60 70 83 / 42%);
   transform: translateX(-50%);
   pointer-events: none;
 }
@@ -251,8 +251,9 @@
 
 .terminal-rail-compact-marker.active::before {
   inset: 1px;
-  border-width: 3px;
-  border-style: double;
+  border-width: 1px;
+  border-inline-width: 3px;
+  border-style: solid;
   border-color: #c9d5e4;
 }
 

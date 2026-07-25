@@ -118,5 +118,5 @@ function markerText(state: CompactTerminalState): string {
   if (state === 'working') return '…'
   if (state === 'idle') return 'R'
   if (state === 'bell') return 'B'
-  return '–'
+  return ''
 }

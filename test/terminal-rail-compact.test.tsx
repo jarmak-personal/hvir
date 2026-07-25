@@ -106,7 +106,7 @@ describe('compact terminal rail', () => {
       'terminal-ready',
       'terminal-bell',
     ])
-    expect(markers.map((marker) => marker.textContent)).toEqual(['–', '…', 'R', 'B'])
+    expect(markers.map((marker) => marker.textContent)).toEqual(['', '…', 'R', 'B'])
     expect(markers.map((marker) => marker.getAttribute('aria-label'))).toEqual([
       'terminal-neutral, Neutral',
       'terminal-working, Working, active terminal',

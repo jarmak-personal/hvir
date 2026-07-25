@@ -205,6 +205,7 @@ export async function verifyTerminalPresentationLifecycle(
                 markerOrder !== expandedOrder ||
                 !(firstMarker instanceof HTMLButtonElement) ||
                 !(marker instanceof HTMLButtonElement) ||
+                firstMarker.textContent !== '' ||
                 marker.dataset.terminalState !== 'bell' ||
                 marker.getAttribute('aria-label') !== 'Hidden buffered, Bell' ||
                 marker.title !== 'Hidden buffered, Bell' ||
@@ -219,26 +220,51 @@ export async function verifyTerminalPresentationLifecycle(
               }
               const firstBlade = getComputedStyle(firstMarker, '::before');
               const secondBlade = getComputedStyle(marker, '::before');
+              const expectedSkew = Math.tan(9 * Math.PI / 180);
+              const firstSkew = new DOMMatrixReadOnly(firstBlade.transform).c;
+              const secondSkew = new DOMMatrixReadOnly(secondBlade.transform).c;
               const firstRung = firstMarker.closest(
+                '.terminal-rail-compact-marker-item'
+              );
+              const lastRung = marker.closest(
                 '.terminal-rail-compact-marker-item'
               );
               const spine = firstRung
                 ? getComputedStyle(firstRung, '::before')
                 : undefined;
+              const lastSpine = lastRung
+                ? getComputedStyle(lastRung, '::before')
+                : undefined;
               if (
                 firstBlade.transform === 'none' ||
                 secondBlade.transform === 'none' ||
                 firstBlade.transform === secondBlade.transform ||
+                Math.abs(firstSkew + expectedSkew) > 0.01 ||
+                Math.abs(secondSkew - expectedSkew) > 0.01 ||
                 firstBlade.borderRadius !== '1px' ||
                 secondBlade.borderRadius !== '1px' ||
+                firstBlade.borderLeftWidth !== '3px' ||
+                firstBlade.borderTopWidth !== '1px' ||
+                getComputedStyle(markerList).rowGap !== '0px' ||
                 spine?.width !== '1px' ||
-                spine.backgroundColor === 'rgba(0, 0, 0, 0)'
+                spine?.height !== '20px' ||
+                spine.backgroundColor === 'rgba(0, 0, 0, 0)' ||
+                lastSpine?.content !== 'none'
               ) {
                 return fail(
                   'compact markers lost alternating blade or ladder geometry: ' +
                   'transforms=' + firstBlade.transform + '/' + secondBlade.transform +
+                  ' skew=' + firstSkew + '/' + secondSkew +
                   ' radii=' + firstBlade.borderRadius + '/' + secondBlade.borderRadius +
-                  ' spine=' + spine?.width + '/' + spine?.backgroundColor
+                  ' active=' + firstBlade.borderLeftWidth + '/' +
+                    firstBlade.borderTopWidth +
+                  ' gap=' + getComputedStyle(markerList).rowGap +
+                  ' spine=' + [
+                    spine?.width,
+                    spine?.height,
+                    spine?.backgroundColor,
+                    lastSpine?.content
+                  ].join('/')
                 );
               }
               markerList.style.flex = '0 0 20px';
