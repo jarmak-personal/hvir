@@ -142,7 +142,7 @@ describe('Git rail model', () => {
 
     const model: GitRailModel = {
       ...initialGitRailModel,
-      changes: changes(),
+      changes: changes([working]),
       branchModel: branchModel('feature', 0, 2),
     }
     const sync = gitRailSyncState({
@@ -151,7 +151,15 @@ describe('Git rail model', () => {
       hasDirtyViewerTabs: false,
     })
     expect(sync.upstreamSummary).toContain('↓2 incoming')
+    expect(sync.branchBlockReason).toBeUndefined()
     expect(sync.pullBlockReason).toBeUndefined()
+    const unsaved = gitRailSyncState({
+      model,
+      connectionState: 'connected',
+      hasDirtyViewerTabs: true,
+    })
+    expect(unsaved.branchBlockReason).toContain('unsaved viewer tabs')
+    expect(unsaved.pullBlockReason).toContain('unsaved viewer tabs')
     expect(
       gitAutoFetchDelay({
         hidden: false,

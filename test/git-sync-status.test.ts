@@ -5,14 +5,7 @@ import {
   gitPullBlockReason,
   gitUpstreamSummary,
 } from '../src/renderer/src/git/git-sync-status'
-import type { GitBranchModel, GitChanges } from '../src/shared'
-
-const cleanChanges: GitChanges = {
-  repositoryState: 'ready',
-  workingTree: [],
-  branchPoint: [],
-  branchPointAvailable: true,
-}
+import type { GitBranchModel } from '../src/shared'
 
 function model(ahead: number, behind: number): GitBranchModel {
   return {
@@ -39,11 +32,10 @@ describe('Git sync status', () => {
     )
   })
 
-  it('offers pull only for a clean behind-only branch', () => {
+  it('offers pull for a behind-only branch while protecting unsaved viewer tabs', () => {
     expect(
       gitPullBlockReason({
         model: model(0, 2),
-        changes: cleanChanges,
         connectionState: 'connected',
         hasDirtyViewerTabs: false,
       }),
@@ -51,7 +43,6 @@ describe('Git sync status', () => {
     expect(
       gitPullBlockReason({
         model: model(1, 2),
-        changes: cleanChanges,
         connectionState: 'connected',
         hasDirtyViewerTabs: false,
       }),
@@ -59,11 +50,10 @@ describe('Git sync status', () => {
     expect(
       gitPullBlockReason({
         model: model(0, 2),
-        changes: { ...cleanChanges, workingTree: [{} as never] },
         connectionState: 'connected',
-        hasDirtyViewerTabs: false,
+        hasDirtyViewerTabs: true,
       }),
-    ).toContain('agent')
+    ).toContain('unsaved viewer tabs')
   })
 
   it('explains missing upstream and detached states', () => {
@@ -72,7 +62,6 @@ describe('Git sync status', () => {
     expect(
       gitPullBlockReason({
         model: noUpstream,
-        changes: cleanChanges,
         connectionState: 'connected',
         hasDirtyViewerTabs: false,
       }),

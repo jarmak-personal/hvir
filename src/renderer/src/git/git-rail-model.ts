@@ -305,11 +305,7 @@ export function gitRailSyncState({
       ? 'Reconnect before switching branches'
       : hasDirtyViewerTabs
         ? 'Save or close unsaved viewer tabs before switching'
-        : !model.changes
-          ? 'Checking working tree…'
-          : model.changes.workingTree.length > 0
-            ? 'Commit or stash working tree changes before switching'
-            : undefined
+        : undefined
   const fetchBlockedReason =
     connectionState !== 'connected'
       ? 'Reconnect before fetching'
@@ -323,7 +319,6 @@ export function gitRailSyncState({
     hasAlternativeBranch: model.branchModel?.branches.some((branch) => !branch.current),
     pullBlockReason: gitPullBlockReason({
       model: model.branchModel,
-      changes: model.changes,
       connectionState,
       hasDirtyViewerTabs,
     }),

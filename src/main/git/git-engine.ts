@@ -33,11 +33,7 @@ export class GitEngine {
     const context = new GitCommandContext(host, projectRoot)
     this.worktreeCapability = new GitWorktreeCapability(context)
     this.statusCapability = new GitStatusCapability(context)
-    this.branchCapability = new GitBranchCapability(
-      context,
-      this.worktreeCapability,
-      this.statusCapability,
-    )
+    this.branchCapability = new GitBranchCapability(context, this.worktreeCapability)
     this.diffCapability = new GitDiffCapability(context)
     this.historyCapability = new GitHistoryCapability(context)
     this.detailCapability = new GitDetailCapability(context)
@@ -68,17 +64,17 @@ export class GitEngine {
 
   pullFastForward(
     workspaceRoot: HostPath,
-    relatedWorktreeRoots: readonly HostPath[] = [],
+    _relatedWorktreeRoots: readonly HostPath[] = [],
   ): Promise<void> {
-    return this.branchCapability.pullFastForward(workspaceRoot, relatedWorktreeRoots)
+    return this.branchCapability.pullFastForward(workspaceRoot)
   }
 
   switchBranch(
     workspaceRoot: HostPath,
     branch: string,
-    relatedWorktreeRoots: readonly HostPath[] = [],
+    _relatedWorktreeRoots: readonly HostPath[] = [],
   ): Promise<void> {
-    return this.branchCapability.switchBranch(workspaceRoot, branch, relatedWorktreeRoots)
+    return this.branchCapability.switchBranch(workspaceRoot, branch)
   }
 
   diffInputs(

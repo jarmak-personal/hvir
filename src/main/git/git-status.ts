@@ -51,32 +51,6 @@ export class GitStatusCapability {
     return Math.min(count, GIT_CHANGE_DISPLAY_LIMIT + 1)
   }
 
-  async assertClean(
-    workspaceRoot: HostPath,
-    relatedWorktreeRoots: readonly HostPath[],
-    message: string,
-  ): Promise<void> {
-    const status = await this.context.boundedStatus(workspaceRoot, [
-      'status',
-      '--porcelain=v2',
-      '-z',
-      '--untracked-files=all',
-    ])
-    const context = await this.context.project(workspaceRoot)
-    if (!context) throw new Error('Not a Git repository')
-    if (
-      status.truncated ||
-      excludeNestedWorktrees(
-        parseStatus(status.output),
-        workspaceRoot,
-        context.repositoryPrefix,
-        relatedWorktreeRoots,
-      ).length > 0
-    ) {
-      throw new Error(message)
-    }
-  }
-
   async changes(
     projectRoot: HostPath,
     relatedWorktreeRoots: readonly HostPath[] = [],

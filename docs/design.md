@@ -183,6 +183,11 @@ workspace and project rollups count only actionable Ready and bell signals.
 One explicit skip retains and marks a decision-ready recovery record; a second consecutive skip
 forgets only hvir's host-qualified metadata while provider-native recovery remains untouched.
 
+### [ADR-021 — System Git decides dirty navigation safety](adr/ADR-021-system-git-dirty-navigation-safety.md)
+
+Explicit branch switches and fast-forward pulls may run with working-tree changes; system Git
+decides whether it can preserve them while hvir retains its bounded mutation and authority model.
+
 ## 5. Architecture
 
 ### Process model

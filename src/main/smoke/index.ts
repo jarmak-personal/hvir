@@ -15,6 +15,7 @@ import type { WebPaneRouteRegistry } from '../web-pane/web-pane-route-registry'
 import { createWorkerClient, workerPath } from '../worker-host'
 import { SmokeCleanup } from './cleanup'
 import { verifyGitDiffBases } from './git-diff'
+import { verifyDirtyBranchSwitch } from './git-dirty-navigation'
 import { verifyDiagnosticRestart } from './diagnostic-report-restart'
 import { verifyPlatformContracts } from './platform-contracts'
 import {
@@ -351,7 +352,17 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
       pruneWorktrees: () => Promise.resolve(smokeProjectState()),
       dismissWorkspace: () => Promise.resolve(smokeProjectState()),
       acknowledgeWorkspace: () => Promise.resolve(smokeProjectState()),
-      switchGitBranch: () => Promise.resolve(smokeProjectState()),
+      switchGitBranch: async (_root, branch) => {
+        const result = await host.exec('git', [
+          '-C',
+          smokeRoot.path,
+          'switch',
+          '--no-guess',
+          branch,
+        ])
+        if (result.code !== 0) throw new Error(result.stderr)
+        return smokeProjectState()
+      },
       fetchGit: () => Promise.resolve(smokeProjectState()),
       pullGit: () => Promise.resolve(smokeProjectState()),
       respondSshPrompt: () => undefined,
@@ -1776,6 +1787,19 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
       20000,
     )) as string
     console.log(`[smoke] mounted Git panel OK (${gitPanelStatus})`)
+    const dirtyBranch = await withTimeout(
+      verifyDirtyBranchSwitch(win),
+      'dirty branch switch timed out',
+      20000,
+    )
+    const [activeBranch, dirtyStatus] = await Promise.all([
+      host.exec('git', ['-C', smokeRoot.path, 'branch', '--show-current']),
+      host.exec('git', ['-C', smokeRoot.path, 'status', '--porcelain']),
+    ])
+    if (activeBranch.stdout.trim() !== dirtyBranch || !dirtyStatus.stdout.trim()) {
+      throw new Error('Dirty branch switch did not preserve the working tree')
+    }
+    console.log(`[smoke] dirty branch switch + refresh OK (${dirtyBranch})`)
 
     const blameStatus = (await withTimeout(
       win.webContents.executeJavaScript(`

@@ -211,4 +211,18 @@ describe('GitMutationCoordinator', () => {
     expect(workspaces.scheduleRefresh).toHaveBeenCalledWith('project-1')
     expect(errors).toEqual(['[git] workspace refresh after pull failed'])
   })
+
+  it('refreshes project state and revokes authority after Git refuses a pull', async () => {
+    const { coordinator, worker, workspaces, revoke } = fixture()
+    vi.mocked(worker.pull).mockRejectedValueOnce(
+      new Error('local changes would be overwritten'),
+    )
+
+    await expect(coordinator.pull(root)).rejects.toThrow(
+      'local changes would be overwritten',
+    )
+
+    expect(revoke).toHaveBeenCalledOnce()
+    expect(workspaces.refresh).toHaveBeenCalledWith('project-1')
+  })
 })
