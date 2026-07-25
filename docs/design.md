@@ -232,8 +232,8 @@ through typed IPC and never access the filesystem directly.
 ### UI layout
 ```
 ┌────────────────────────────────────────────────────────────────────┐
-│ Projects bar — project tabs (host badge, dots/changed-count        │
-│ rollups); persistent worktree/workspace context tier beneath       │
+│ Projects bar — project tabs (host badge and attention rollups);    │
+│ persistent worktree/workspace context tier beneath                 │
 ├──────────┬────────────────────────────────────────┬────────────────┤
 │ Left     │ Viewer — tabs w/ view mode             │                │
 │ rail     │ (rendered / source / diff),            │  Right rail    │
@@ -295,7 +295,8 @@ harness's own persistence (`--session-id` at launch → `--resume` on restart). 
 ### The "what did the agent change" view
 History/blame is table stakes; the killer view is the **working-tree and branch-point
 diff** — what changed since I last looked, per worktree, one keystroke from the file
-view (ADR-007). Changed-file counts roll up alongside notification dots.
+view (ADR-007). Git change details stay in the Git and file views instead of adding
+persistent counts to project and workspace navigation.
 
 ### Workspaces
 First-class multiple directories, without VSCode's multi-root heaviness. Two tiers:

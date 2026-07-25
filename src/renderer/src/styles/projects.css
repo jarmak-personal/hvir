@@ -164,21 +164,6 @@
   white-space: nowrap;
 }
 
-.project-change-count {
-  flex: 0 0 auto;
-  padding: 2px 5px;
-  border-radius: 8px;
-  background: #252c36;
-  color: #8fa6c2;
-  font-size: 8px;
-  font-weight: 600;
-}
-
-.project-change-count {
-  color: #d6b16e;
-  font-variant-numeric: tabular-nums;
-}
-
 .project-add {
   width: 34px;
   flex: 0 0 34px;
@@ -328,17 +313,6 @@
 .workspace-tab small {
   color: #687384;
   font-size: 8px;
-}
-
-.workspace-change-count {
-  padding: 1px 4px;
-  border: 1px solid #594c32;
-  border-radius: 3px;
-  background: #211d16;
-  color: #d6b16e;
-  font-size: 9px;
-  font-weight: 650;
-  font-variant-numeric: tabular-nums;
 }
 
 .workspace-dismiss {
