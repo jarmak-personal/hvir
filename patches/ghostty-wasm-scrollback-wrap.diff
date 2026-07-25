@@ -1,0 +1,26 @@
+diff --git a/src/lib_vt.zig b/src/lib_vt.zig
+--- a/src/lib_vt.zig
++++ b/src/lib_vt.zig
+@@ -173,0 +174 @@ comptime {
++        @export(&c.terminal_is_scrollback_row_wrapped, .{ .name = "ghostty_terminal_is_scrollback_row_wrapped" });
+diff --git a/src/terminal/c/main.zig b/src/terminal/c/main.zig
+--- a/src/terminal/c/main.zig
++++ b/src/terminal/c/main.zig
+@@ -86,0 +87 @@ pub const terminal_is_row_wrapped = terminal.isRowWrapped;
++pub const terminal_is_scrollback_row_wrapped = terminal.isScrollbackRowWrapped;
+diff --git a/src/terminal/c/terminal.zig b/src/terminal/c/terminal.zig
+--- a/src/terminal/c/terminal.zig
++++ b/src/terminal/c/terminal.zig
+@@ -938,0 +939,12 @@ pub fn isRowWrapped(ptr: ?*anyopaque, y: c_int) callconv(.c) bool {
++/// Check if a scrollback row continues the preceding row (soft-wrapped).
++/// offset 0 = oldest line in scrollback, offset (length-1) = newest.
++pub fn isScrollbackRowWrapped(ptr: ?*anyopaque, offset: c_int) callconv(.c) bool {
++    const wrapper: *const TerminalWrapper = @ptrCast(@alignCast(ptr orelse return false));
++    if (offset < 0 or offset >= getScrollbackLength(ptr)) return false;
++
++    const pages = &wrapper.terminal.screens.active.pages;
++    const pin = pages.pin(.{ .history = .{ .y = @intCast(offset) } }) orelse return false;
++    const rac = pin.rowAndCell();
++    return rac.row.wrap_continuation;
++}
++

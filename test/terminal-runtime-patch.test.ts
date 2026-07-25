@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 import {
+  assertGhosttyBufferPatch,
   assertTerminalRuntimePatch,
   verifyTerminalRuntimePatch,
 } from '../scripts/check-terminal-runtime-patch.mts'
@@ -32,6 +33,14 @@ describe('terminal runtime patch preflight', () => {
     )
   })
 
+  it('reports a missing scrollback-wrap capability and the recovery command', () => {
+    class UnpatchedGhosttyTerminal {}
+
+    expect(() => assertGhosttyBufferPatch(UnpatchedGhosttyTerminal)).toThrow(
+      /isScrollbackRowWrapped.*npm ci.*npm run dev/,
+    )
+  })
+
   it('reports an install mismatch when ghostty-web cannot be loaded', async () => {
     await expect(
       verifyTerminalRuntimePatch(() => Promise.reject(new Error('module unavailable'))),
@@ -42,7 +51,7 @@ describe('terminal runtime patch preflight', () => {
     await expect(
       verifyTerminalRuntimePatch(() => Promise.resolve(undefined)),
     ).rejects.toThrow(
-      /ghostty-web does not export the required Terminal constructor.*npm ci.*npm run dev/,
+      /ghostty-web does not export the required terminal constructors.*npm ci.*npm run dev/,
     )
   })
 

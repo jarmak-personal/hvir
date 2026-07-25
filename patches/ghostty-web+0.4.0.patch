@@ -1,8 +1,28 @@
 diff --git a/node_modules/ghostty-web/dist/ghostty-web.js b/node_modules/ghostty-web/dist/ghostty-web.js
-index a4ca427..c522555 100644
+index a4ca427..3f03094 100644
 --- a/node_modules/ghostty-web/dist/ghostty-web.js
 +++ b/node_modules/ghostty-web/dist/ghostty-web.js
-@@ -1338,7 +1338,8 @@ class $ {
+@@ -325,6 +325,10 @@ const z = class K {
+   isRowWrapped(A) {
+     return this.exports.ghostty_terminal_is_row_wrapped(this.handle, A) !== 0;
+   }
++  /** Check if a scrollback row continues the preceding row (soft-wrapped) */
++  isScrollbackRowWrapped(A) {
++    return this.exports.ghostty_terminal_is_scrollback_row_wrapped(this.handle, A) !== 0;
++  }
+   /** Hyperlink URI not yet exposed in simplified API */
+   getHyperlinkUri(A) {
+     return null;
+@@ -544,7 +548,7 @@ class m {
+     let E, C, I;
+     if (this.bufferType === "normal" && A < g) {
+       const D = A;
+-      E = B.getScrollbackLine(D), I = !1;
++      E = B.getScrollbackLine(D), I = B.isScrollbackRowWrapped(D);
+     } else
+       C = this.bufferType === "normal" ? A - g : A, E = B.getLine(C), I = B.isRowWrapped(C);
+     if (E)
+@@ -1338,7 +1342,8 @@ class $ {
      const g = A.getContext("2d", { alpha: !0 });
      if (!g)
        throw new Error("Failed to get 2D rendering context");
@@ -12,7 +32,7 @@ index a4ca427..c522555 100644
        this.theme.black,
        this.theme.red,
        this.theme.green,
-@@ -1584,12 +1585,15 @@ class $ {
+@@ -1584,12 +1589,15 @@ class $ {
    // ==========================================================================
    startCursorBlink() {
      this.cursorBlinkInterval = window.setInterval(() => {
@@ -29,7 +49,7 @@ index a4ca427..c522555 100644
    // ==========================================================================
    // Public API
    // ==========================================================================
-@@ -1614,31 +1618,31 @@ class $ {
+@@ -1614,31 +1622,31 @@ class $ {
        this.theme.brightMagenta,
        this.theme.brightCyan,
        this.theme.brightWhite
@@ -66,7 +86,7 @@ index a4ca427..c522555 100644
    }
    /**
     * Get current font metrics
-@@ -1687,14 +1691,14 @@ class $ {
+@@ -1687,14 +1695,14 @@ class $ {
     * Set the currently hovered hyperlink ID for rendering underlines
     */
    setHoveredHyperlinkId(A) {
@@ -83,7 +103,7 @@ index a4ca427..c522555 100644
    }
    /**
     * Get character cell width (for coordinate conversion)
-@@ -2090,6 +2094,7 @@ const L = class Y {
+@@ -2090,6 +2098,7 @@ const L = class Y {
     * Request a render update (triggers selection overlay redraw)
     */
    requestRender() {
@@ -91,7 +111,7 @@ index a4ca427..c522555 100644
    }
  };
  L.AUTO_SCROLL_EDGE_SIZE = 30;
-@@ -2108,13 +2113,13 @@ class IA {
+@@ -2108,13 +2117,13 @@ class IA {
          return;
        const g = this.options.smoothScrollDuration ?? 100, E = this.targetViewportY - this.viewportY;
        if (Math.abs(E) < 0.01) {
@@ -107,7 +127,7 @@ index a4ca427..c522555 100644
      }, this.handleMouseMove = (g) => {
        if (!(!this.canvas || !this.renderer || !this.wasmTerm)) {
          if (this.isDraggingScrollbar) {
-@@ -2193,7 +2198,7 @@ class IA {
+@@ -2193,7 +2202,7 @@ class IA {
        }
      }, this.handleMouseUp = () => {
        this.isDraggingScrollbar && (this.isDraggingScrollbar = !1, this.scrollbarDragStart = null, this.canvas && (this.canvas.style.userSelect = "", this.canvas.style.webkitUserSelect = ""), this.scrollbarVisible && this.getScrollbackLength() > 0 && this.showScrollbar());
@@ -116,7 +136,7 @@ index a4ca427..c522555 100644
      const B = {
        cols: A.cols ?? 80,
        rows: A.rows ?? 24,
-@@ -2230,7 +2235,7 @@ class IA {
+@@ -2230,7 +2239,7 @@ class IA {
            break;
          case "cursorBlink":
          case "cursorStyle":
@@ -125,7 +145,7 @@ index a4ca427..c522555 100644
            break;
          case "theme":
            this.renderer && console.warn("ghostty-web: theme changes after open() are not yet fully supported");
-@@ -2256,7 +2261,7 @@ class IA {
+@@ -2256,7 +2265,7 @@ class IA {
        return;
      this.selectionManager && this.selectionManager.clearSelection(), this.renderer.resize(this.cols, this.rows);
      const A = this.renderer.getMetrics();
@@ -134,7 +154,7 @@ index a4ca427..c522555 100644
    }
    /**
     * Parse a CSS color string to 0xRRGGBB format.
-@@ -2340,7 +2345,8 @@ class IA {
+@@ -2340,7 +2349,8 @@ class IA {
          fontFamily: this.options.fontFamily,
          cursorStyle: this.options.cursorStyle,
          cursorBlink: this.options.cursorBlink,
@@ -144,7 +164,7 @@ index a4ca427..c522555 100644
        }), this.renderer.resize(this.cols, this.rows), this.inputHandler = new P(
          this.ghostty,
          A,
-@@ -2370,7 +2376,7 @@ class IA {
+@@ -2370,7 +2380,7 @@ class IA {
          E.preventDefault(), E.stopPropagation();
          const C = (I = E.clipboardData) == null ? void 0 : I.getData("text");
          C && this.paste(C);
@@ -153,7 +173,7 @@ index a4ca427..c522555 100644
      } catch (B) {
        throw this.isOpen = !1, this.cleanupComponents(), new Error(`Failed to open terminal: ${B}`);
      }
-@@ -2387,7 +2393,7 @@ class IA {
+@@ -2387,7 +2397,7 @@ class IA {
     */
    writeInternal(A, B) {
      var g;
@@ -162,7 +182,7 @@ index a4ca427..c522555 100644
    }
    /**
     * Write data with newline
-@@ -2424,13 +2430,13 @@ class IA {
+@@ -2424,13 +2434,13 @@ class IA {
        return;
      this.cols = A, this.rows = B, this.wasmTerm.resize(A, B), this.renderer.resize(A, B);
      const g = this.renderer.getMetrics();
@@ -178,7 +198,7 @@ index a4ca427..c522555 100644
    }
    /**
     * Reset terminal state
-@@ -2438,7 +2444,7 @@ class IA {
+@@ -2438,7 +2448,7 @@ class IA {
    reset() {
      this.assertOpen(), this.wasmTerm && this.wasmTerm.free();
      const A = this.buildWasmConfig();
@@ -187,7 +207,7 @@ index a4ca427..c522555 100644
    }
    /**
     * Focus terminal input
-@@ -2572,7 +2578,7 @@ class IA {
+@@ -2572,7 +2582,7 @@ class IA {
      if (!this.wasmTerm)
        throw new Error("Terminal not open");
      const B = this.getScrollbackLength(), E = Math.max(0, Math.min(B, this.viewportY - A));
@@ -196,7 +216,7 @@ index a4ca427..c522555 100644
    }
    /**
     * Scroll viewport by a number of pages
-@@ -2586,13 +2592,13 @@ class IA {
+@@ -2586,13 +2596,13 @@ class IA {
     */
    scrollToTop() {
      const A = this.getScrollbackLength();
@@ -212,7 +232,7 @@ index a4ca427..c522555 100644
    }
    /**
     * Scroll viewport to a specific line in the buffer
-@@ -2600,7 +2606,7 @@ class IA {
+@@ -2600,7 +2610,7 @@ class IA {
     */
    scrollToLine(A) {
      const B = this.getScrollbackLength(), g = Math.max(0, Math.min(B, A));
@@ -221,7 +241,7 @@ index a4ca427..c522555 100644
    }
    /**
     * Smoothly scroll to a target viewport position
-@@ -2611,7 +2617,7 @@ class IA {
+@@ -2611,7 +2621,7 @@ class IA {
        return;
      const B = this.getScrollbackLength(), E = Math.max(0, Math.min(B, A));
      if ((this.options.smoothScrollDuration ?? 100) === 0) {
@@ -230,7 +250,7 @@ index a4ca427..c522555 100644
        return;
      }
      this.targetViewportY = E, !this.scrollAnimationFrame && (this.scrollAnimationStartTime = Date.now(), this.scrollAnimationStartY = this.viewportY, this.animateScroll());
-@@ -2624,7 +2630,7 @@ class IA {
+@@ -2624,7 +2634,7 @@ class IA {
     */
    dispose() {
      if (!this.isDisposed) {
@@ -239,7 +259,7 @@ index a4ca427..c522555 100644
        for (const A of this.addons)
          A.dispose();
        this.addons = [], this.cleanupComponents(), this.dataEmitter.dispose(), this.resizeEmitter.dispose(), this.bellEmitter.dispose(), this.selectionChangeEmitter.dispose(), this.keyEmitter.dispose(), this.titleChangeEmitter.dispose(), this.scrollEmitter.dispose(), this.renderEmitter.dispose(), this.cursorMoveEmitter.dispose();
-@@ -2633,18 +2639,30 @@ class IA {
+@@ -2633,18 +2643,30 @@ class IA {
    // ==========================================================================
    // Private Methods
    // ==========================================================================
@@ -279,7 +299,7 @@ index a4ca427..c522555 100644
    }
    /**
     * Get a line from native WASM scrollback buffer
-@@ -2743,6 +2761,8 @@ class IA {
+@@ -2743,6 +2765,8 @@ class IA {
     * Show scrollbar with fade-in and schedule auto-hide
     */
    showScrollbar() {
@@ -288,7 +308,7 @@ index a4ca427..c522555 100644
      this.scrollbarHideTimeout && (window.clearTimeout(this.scrollbarHideTimeout), this.scrollbarHideTimeout = void 0), this.scrollbarVisible ? this.scrollbarOpacity = 1 : (this.scrollbarVisible = !0, this.scrollbarOpacity = 0, this.fadeInScrollbar()), this.isDraggingScrollbar || (this.scrollbarHideTimeout = window.setTimeout(() => {
        this.hideScrollbar();
      }, this.SCROLLBAR_HIDE_DELAY_MS));
-@@ -2758,8 +2778,10 @@ class IA {
+@@ -2758,8 +2782,10 @@ class IA {
     */
    fadeInScrollbar() {
      const A = Date.now(), B = () => {
@@ -300,7 +320,7 @@ index a4ca427..c522555 100644
      };
      B();
    }
-@@ -2768,8 +2790,10 @@ class IA {
+@@ -2768,8 +2794,10 @@ class IA {
     */
    fadeOutScrollbar() {
      const A = Date.now(), B = this.scrollbarOpacity, g = () => {
@@ -312,8 +332,19 @@ index a4ca427..c522555 100644
      };
      g();
    }
+@@ -2924,8 +2952,8 @@ class DA {
+   }
+ }
+ let R = null;
+-async function oA() {
+-  R || (R = await q.load());
++async function oA(A) {
++  R || (R = await q.load(A));
+ }
+ function CA() {
+   if (!R)
 diff --git a/node_modules/ghostty-web/dist/index.d.ts b/node_modules/ghostty-web/dist/index.d.ts
-index 19c99f9..3184691 100644
+index 19c99f9..2ee2d27 100644
 --- a/node_modules/ghostty-web/dist/index.d.ts
 +++ b/node_modules/ghostty-web/dist/index.d.ts
 @@ -9,6 +9,7 @@ export declare class CanvasRenderer {
@@ -324,20 +355,36 @@ index 19c99f9..3184691 100644
      private cursorVisible;
      private cursorBlinkInterval?;
      private lastCursorPosition;
-@@ -67,0 +69,1 @@ export declare class CanvasRenderer {
+@@ -64,6 +65,7 @@ export declare class CanvasRenderer {
+     private renderCursor;
+     private startCursorBlink;
+     private stopCursorBlink;
 +    resetCursorBlink(): void;
-@@ -1265,6 +1267,7 @@ export declare interface RendererOptions {
+     /**
+      * Update theme colors
+      */
+@@ -359,6 +361,8 @@ export declare class GhosttyTerminal {
+     getScrollbackLine(offset: number): GhosttyCell[] | null;
+     /** Check if a row in the active screen is wrapped (soft-wrapped to next line) */
+     isRowWrapped(row: number): boolean;
++    /** Check if a scrollback row continues the preceding row (soft-wrapped) */
++    isScrollbackRowWrapped(offset: number): boolean;
+     /** Hyperlink URI not yet exposed in simplified API */
+     getHyperlinkUri(_id: number): string | null;
+     /**
+@@ -700 +704 @@ export declare interface ILinkProvider {
+-export declare function init(): Promise<void>;
++export declare function init(wasmPath?: string): Promise<void>;
+@@ -1265,4 +1269,5 @@ export declare interface RendererOptions {
      cursorBlink?: boolean;
      theme?: ITheme;
      devicePixelRatio?: number;
 +    requestRender?: () => void;
  }
- 
- /**
-@@ -1452,6 +1455,16 @@ export declare class SelectionManager {
+@@ -1452,2 +1457,12 @@ export declare class SelectionManager {
      private requestRender;
  }
- 
++
 +export declare interface TerminalRenderStats {
 +    parsedWrites: number;
 +    renderRequests: number;
@@ -347,11 +394,7 @@ index 19c99f9..3184691 100644
 +    pendingFrame: boolean;
 +    cursorVisible: boolean;
 +}
-+
- export declare class Terminal implements ITerminalCore {
-     cols: number;
-     rows: number;
-@@ -1497,6 +1510,12 @@ export declare class Terminal implements ITerminalCore {
+@@ -1497,6 +1512,12 @@ export declare class Terminal implements ITerminalCore {
      private isOpen;
      private isDisposed;
      private animationFrameId?;
@@ -364,7 +407,7 @@ index 19c99f9..3184691 100644
      private addons;
      private customKeyEventHandler?;
      private currentTitle;
-@@ -1687,7 +1706,23 @@ export declare class Terminal implements ITerminalCore {
+@@ -1687,7 +1708,23 @@ export declare class Terminal implements ITerminalCore {
       */
      dispose(): void;
      /**

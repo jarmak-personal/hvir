@@ -66,6 +66,8 @@ export default defineConfig({
       format: 'es',
     },
     build: {
+      assetsInlineLimit: (filePath) =>
+        filePath.endsWith('/terminal/ghostty-vt.wasm') ? true : undefined,
       rollupOptions: {
         input: {
           index: resolve('src/renderer/index.html'),
