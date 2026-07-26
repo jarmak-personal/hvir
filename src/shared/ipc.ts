@@ -346,6 +346,7 @@ export type StartPtyResponse =
       readonly id: string
       readonly pid: number
       readonly resumed: boolean
+      readonly reattached: boolean
       readonly harnessSessionId?: string
       readonly identityStatus: TerminalIdentityStatus
       readonly capabilities: import('./harness-provider').HarnessProviderCapabilities
@@ -712,7 +713,7 @@ export interface IpcInvokeMap {
  * round trip is never inserted into the typing hot path.
  */
 export interface IpcSendMap {
-  'app:renderer-ready': void
+  'app:renderer-ready': { readonly ownerGeneration: number }
   'diagnostics:render-containment': RenderContainmentDiagnosticBatch
   'diagnostics:responsiveness-observation': ResponsivenessObservationBatch
   'html-preview:release': ReleaseHtmlPreviewRequest
@@ -769,6 +770,8 @@ export type IpcEventPayload<E extends IpcEventChannel> = IpcEventMap[E]
  * against it without importing anything from main/preload.
  */
 export interface HvirApi {
+  /** Signals that the workbench surface committed for the preload's exact generation. */
+  rendererReady(): void
   invoke<C extends IpcInvokeChannel>(
     channel: C,
     request: IpcRequest<C>,

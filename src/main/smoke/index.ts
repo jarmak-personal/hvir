@@ -5,6 +5,7 @@ import { HarnessProfileStore } from '../harness/harness-profile-store'
 import { harnessProviderCatalog } from '../harness/harness-provider'
 import type { HarnessProbeManager } from '../harness/harness-probe'
 import type { HtmlPreviewProtocol } from '../html-preview-protocol'
+import type { RuntimeDiagnostics } from '../diagnostics/runtime-diagnostics'
 import { registerIpcHandlers } from '../ipc'
 import type { RendererResourceScopes } from '../renderer-resource-scopes'
 import { LocalHost } from '../project-host'
@@ -14,10 +15,17 @@ import type { WebPaneRouteRegistry } from '../web-pane/web-pane-route-registry'
 import { createWorkerClient, workerPath } from '../worker-host'
 import { SmokeCleanup } from './cleanup'
 import { verifyGitDiffBases } from './git-diff'
+import { verifyDirtyBranchSwitch } from './git-dirty-navigation'
+import { verifyDiagnosticRestart } from './diagnostic-report-restart'
 import { verifyPlatformContracts } from './platform-contracts'
-import { verifyRendererLifecycleCleanup } from './renderer-lifecycle'
+import {
+  verifyRendererLifecycleCleanup,
+  verifyRendererRolloverRecovery,
+} from './renderer-lifecycle'
 import { verifySourceDiffPosition, verifyViewerPositions } from './viewer-position'
 import { verifyWorkbenchHealthFault } from './workbench-health'
+import { verifyUnresponsiveRendererRecovery } from './renderer-recovery'
+import type { ElectronSmokeMode } from './scenario-selection.mts'
 import { createTerminalMoveSmokeHarness, verifyTerminalMoveSmoke } from './terminal-move'
 import {
   verifyLegacyTerminalPresentation,
@@ -32,7 +40,6 @@ import {
   ECHO_REQUEST_TYPE,
   HTML_PREVIEW_SCHEME,
   MAX_PROJECT_WATCH_INTERESTS,
-  asHarnessProfileId,
   asHostId,
   hostPath,
   hostPathEquals,
@@ -49,13 +56,6 @@ import {
   type TerminalRecoverySession,
 } from '../../shared'
 
-export type ElectronSmokeMode =
-  | 'workflow'
-  | 'viewer-position'
-  | 'platform-contracts'
-  | 'terminal-presentation'
-  | 'capacity'
-
 export interface ElectronSmokeDependencies {
   readonly mode: ElectronSmokeMode
   readonly projectRoot: HostPath
@@ -66,7 +66,15 @@ export interface ElectronSmokeDependencies {
   readonly htmlPreviews: HtmlPreviewProtocol
   readonly rendererResources: RendererResourceScopes
   readonly diagnostics: import('../ipc/deps').IpcDeps['diagnostics']
+  readonly runtimeDiagnostics: RuntimeDiagnostics
   readonly webPaneRoutes: WebPaneRouteRegistry
+  readonly rendererReady: (
+    owner: import('../renderer-resource-scopes').RendererOwner,
+    reportedGeneration: number,
+  ) => boolean
+  readonly reloadUnresponsiveRenderer: (
+    owner: import('../renderer-resource-scopes').RendererOwner,
+  ) => boolean
   readonly updateWebPaneBindings: (ownerId: number, bindings: KeybindingMap) => void
   readonly updateWebPaneFullPage: (ownerId: number, paneId?: string) => void
   readonly openExternal: (url: string) => Promise<void>
@@ -101,6 +109,7 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
   const host = new LocalHost()
   const supervisor = new PtySupervisor()
   let smokeWindow: BrowserWindow | undefined
+  let discardedRendererGenerations = 0
   let stopSmokeWatch: Disposer | undefined
   const smokeRoot = projectRoot
   const smokeCloseableRoot = joinHostPath(smokeRoot, '.hvir-smoke-closed-project')
@@ -157,7 +166,7 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
             main: true,
             missing,
             // The platform-only group does not acquire unrelated Git-worker work.
-            repository: mode !== 'platform-contracts',
+            repository: mode !== 'platform-contracts' && mode !== 'renderer-recovery',
             changedFiles: 0,
           },
         ],
@@ -247,6 +256,18 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
       updateLayout: () => Promise.resolve(),
       forget: () => Promise.resolve(),
       rebindProfile: () => Promise.reject(new Error('Smoke recovery is read-only')),
+      authorizeReattach: (request) => {
+        const stored = smokeRecoverySessions.find((session) => session.id === request.id)
+        return Boolean(
+          stored &&
+          stored.providerId === request.providerId &&
+          stored.profileId === request.profileId &&
+          stored.launchRevision === request.launchRevision &&
+          stored.harnessSessionId === request.harnessSessionId &&
+          hostPathEquals(request.workspaceRoot, smokeRoot) &&
+          hostPathEquals(stored.cwd, request.cwd),
+        )
+      },
       authorizeResume: () => false,
       authorizeReplacement: () => false,
       flush: () => Promise.resolve(),
@@ -331,12 +352,22 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
       pruneWorktrees: () => Promise.resolve(smokeProjectState()),
       dismissWorkspace: () => Promise.resolve(smokeProjectState()),
       acknowledgeWorkspace: () => Promise.resolve(smokeProjectState()),
-      switchGitBranch: () => Promise.resolve(smokeProjectState()),
+      switchGitBranch: async (_root, branch) => {
+        const result = await host.exec('git', [
+          '-C',
+          smokeRoot.path,
+          'switch',
+          '--no-guess',
+          branch,
+        ])
+        if (result.code !== 0) throw new Error(result.stderr)
+        return smokeProjectState()
+      },
       fetchGit: () => Promise.resolve(smokeProjectState()),
       pullGit: () => Promise.resolve(smokeProjectState()),
       respondSshPrompt: () => undefined,
       rendererResources,
-      rendererReady: () => undefined,
+      rendererReady: dependencies.rendererReady,
       getWorkbenchHealth: () => ({
         version: 1,
         evidence: 'memory-only',
@@ -382,7 +413,9 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
       console.log('[smoke] LocalHost.stat OK')
     }
 
-    const win = createWindow()
+    const win = createWindow(() => {
+      discardedRendererGenerations++
+    })
     smokeWindow = win
     await withTimeout(
       new Promise<void>((resolve) => win.once('ready-to-show', resolve)),
@@ -414,8 +447,30 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
       throw new Error('renderer echo ran in the main process')
     }
     console.log('[smoke] renderer IPC + echo worker round-trip OK')
+    if (mode === 'renderer-recovery') {
+      const result = await verifyUnresponsiveRendererRecovery({
+        win,
+        resources: rendererResources,
+        diagnostics: dependencies.runtimeDiagnostics,
+        reloadUnresponsiveRenderer: dependencies.reloadUnresponsiveRenderer,
+      })
+      if (discardedRendererGenerations !== 1) {
+        throw new Error(
+          `renderer recovery discarded resources ${discardedRendererGenerations} times`,
+        )
+      }
+      console.log(`[smoke] renderer recovery OK (${result})`)
+      console.log('HVIR_SMOKE_OK')
+      return 0
+    }
+    if (await verifyDiagnosticRestart(win, dependencies.runtimeDiagnostics)) return 0
     if (mode === 'workflow') {
-      const health = await verifyWorkbenchHealthFault(win)
+      const health = await verifyWorkbenchHealthFault(win, () => {
+        const owner = rendererResources.currentOwner(win.webContents.id)
+        if (!dependencies.rendererReady(owner, owner.generation)) {
+          throw new Error('window manager rejected smoke renderer readiness')
+        }
+      })
       console.log(`[smoke] workbench health fault injection OK (${health})`)
     }
 
@@ -442,7 +497,11 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
     }
 
     if (mode === 'terminal-presentation') {
-      const presentation = await verifyTerminalPresentationLifecycle(win, supervisor, smokeRoot)
+      const presentation = await verifyTerminalPresentationLifecycle(
+        win,
+        supervisor,
+        smokeRoot,
+      )
       console.log(`[smoke] terminal presentation lifecycle OK (${presentation})`)
       console.log('HVIR_SMOKE_OK')
       return 0
@@ -454,6 +513,9 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
         supervisor,
         defaultHarnessProviderId,
       )
+      // The load and synthetic recovery checks are separate capacity contracts.
+      // End the load fixtures so rollover preservation does not inflate recovery counts.
+      supervisor.disposeSessions()
       await runCapacityRecoverySmoke(win, supervisor)
       console.log('HVIR_SMOKE_OK')
       return 0
@@ -1725,6 +1787,19 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
       20000,
     )) as string
     console.log(`[smoke] mounted Git panel OK (${gitPanelStatus})`)
+    const dirtyBranch = await withTimeout(
+      verifyDirtyBranchSwitch(win),
+      'dirty branch switch timed out',
+      20000,
+    )
+    const [activeBranch, dirtyStatus] = await Promise.all([
+      host.exec('git', ['-C', smokeRoot.path, 'branch', '--show-current']),
+      host.exec('git', ['-C', smokeRoot.path, 'status', '--porcelain']),
+    ])
+    if (activeBranch.stdout.trim() !== dirtyBranch || !dirtyStatus.stdout.trim()) {
+      throw new Error('Dirty branch switch did not preserve the working tree')
+    }
+    console.log(`[smoke] dirty branch switch + refresh OK (${dirtyBranch})`)
 
     const blameStatus = (await withTimeout(
       win.webContents.executeJavaScript(`
@@ -2718,108 +2793,18 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
     )) as string
     console.log(`[smoke] project close OK (${projectCloseStatus})`)
 
-    const previousRecoveryMode = (await win.webContents.executeJavaScript(
-      `localStorage.getItem('hvir:terminal-recovery-mode')`,
-    )) as string | null
-    const previousSettings = (await win.webContents.executeJavaScript(
-      `localStorage.getItem('hvir:settings:v1')`,
-    )) as string | null
-    await win.webContents.executeJavaScript(
-      `localStorage.setItem('hvir:terminal-recovery-mode', 'prompt'); localStorage.setItem('hvir:settings:v1', JSON.stringify({ terminalRecoveryMode: 'prompt' }))`,
-    )
-    smokeRecoverySessions = [
-      {
-        id: 'smoke-recovery-shell',
-        providerId: defaultHarnessProviderId,
-        profileId: asHarnessProfileId('plain-shell-default'),
-        launchRevision: 1,
-        recoverySkipCount: 0,
-        hostId: smokeRoot.hostId,
-        cwd: smokeRoot,
-        title: 'Recovered smoke shell',
-        position: 0,
-        active: true,
-        updatedAt: Date.now(),
+    const recoveryStatus = await verifyRendererRolloverRecovery({
+      win,
+      supervisor,
+      root: smokeRoot,
+      providerId: defaultHarnessProviderId,
+      setRecoverySessions: (sessions) => {
+        smokeRecoverySessions = sessions
       },
-    ]
-    const reloaded = new Promise<void>((resolve) =>
-      win.webContents.once('did-finish-load', () => resolve()),
+    })
+    console.log(
+      `[smoke] terminal recovery picker + same-PID reattach OK (${recoveryStatus})`,
     )
-    win.webContents.reload()
-    await withTimeout(reloaded, 'recovery smoke reload timed out')
-    let recoveryStatus: string
-    try {
-      recoveryStatus = (await withTimeout(
-        win.webContents.executeJavaScript(`
-          new Promise((resolve, reject) => {
-            const deadline = Date.now() + 10000;
-            const waitForDialog = () => {
-              const dialog = document.querySelector('.terminal-recovery-dialog');
-              const option = dialog?.querySelector('.terminal-recovery-option input');
-              if (option) {
-                option.click();
-                requestAnimationFrame(() => {
-                  if (!document.querySelector('.terminal-recovery-dialog')) {
-                    return reject(new Error('recovery dialog crashed after changing selection'));
-                  }
-                  if (option.checked) {
-                    return reject(new Error('recovery option did not clear'));
-                  }
-                  option.click();
-                  requestAnimationFrame(() => {
-                    if (!option.checked) {
-                      return reject(new Error('recovery option did not reselect'));
-                    }
-                    const restore = [...dialog.querySelectorAll('button')]
-                      .find((node) => node.textContent?.trim() === 'Restore selected');
-                    restore?.click();
-                    const waitForTerminal = () => {
-                      const status = document.querySelector('.terminal-panel')?.getAttribute('data-terminal-status') || '';
-                      const gitReady = [...document.querySelectorAll('.git-tabs button')]
-                        .some((node) => /^Changes \\(\\d+\\)$/.test(node.textContent?.trim() || ''));
-                      if (status.startsWith('pid ') && gitReady) {
-                        return resolve('toggle selection · restore · ' + status);
-                      }
-                      if (Date.now() > deadline) {
-                        return reject(new Error('restored workspace did not settle: ' + status));
-                      }
-                      setTimeout(waitForTerminal, 25);
-                    };
-                    waitForTerminal();
-                  });
-                });
-                return;
-              }
-              if (Date.now() > deadline) return reject(new Error('recovery dialog missing'));
-              setTimeout(waitForDialog, 25);
-            };
-            waitForDialog();
-          })
-        `),
-        'terminal recovery interaction timed out',
-        12_000,
-      )) as string
-    } finally {
-      if (previousRecoveryMode === null) {
-        await win.webContents.executeJavaScript(
-          `localStorage.removeItem('hvir:terminal-recovery-mode')`,
-        )
-      } else {
-        await win.webContents.executeJavaScript(
-          `localStorage.setItem('hvir:terminal-recovery-mode', ${JSON.stringify(previousRecoveryMode)})`,
-        )
-      }
-      if (previousSettings === null) {
-        await win.webContents.executeJavaScript(
-          `localStorage.removeItem('hvir:settings:v1')`,
-        )
-      } else {
-        await win.webContents.executeJavaScript(
-          `localStorage.setItem('hvir:settings:v1', ${JSON.stringify(previousSettings)})`,
-        )
-      }
-    }
-    console.log(`[smoke] terminal recovery picker OK (${recoveryStatus})`)
     await verifyRendererLifecycleCleanup({
       win,
       initialGeneration: initialRendererGeneration,

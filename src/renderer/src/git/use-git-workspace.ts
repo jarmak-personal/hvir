@@ -56,14 +56,17 @@ export function useGitWorkspace(ports: GitWorkspacePorts) {
     if (current.hasDirtyViewerTabs()) {
       throw new Error('Save or close unsaved viewer tabs before switching')
     }
-    const state = unwrapOperation(
-      await window.hvir.invoke('git:switch-branch', {
-        root: current.root,
-        branch,
-      }),
-    )
-    current.acceptProjectState(state)
-    current.refreshContent()
+    try {
+      const state = unwrapOperation(
+        await window.hvir.invoke('git:switch-branch', {
+          root: current.root,
+          branch,
+        }),
+      )
+      current.acceptProjectState(state)
+    } finally {
+      current.refreshContent()
+    }
   }, [])
 
   const fetch = useCallback(async (): Promise<void> => {
@@ -81,10 +84,13 @@ export function useGitWorkspace(ports: GitWorkspacePorts) {
     if (current.hasDirtyViewerTabs()) {
       throw new Error('Save or close unsaved viewer tabs before pulling')
     }
-    current.acceptProjectState(
-      unwrapOperation(await window.hvir.invoke('git:pull', { root: current.root })),
-    )
-    current.refreshContent()
+    try {
+      current.acceptProjectState(
+        unwrapOperation(await window.hvir.invoke('git:pull', { root: current.root })),
+      )
+    } finally {
+      current.refreshContent()
+    }
   }, [])
 
   return {

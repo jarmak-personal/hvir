@@ -11,7 +11,6 @@ import {
   parseBranchTracking,
   parseLocalBranches,
 } from './git-parsers'
-import type { GitStatusCapability } from './git-status'
 import type { GitWorktreeCapability } from './git-worktrees'
 
 export const GIT_FETCH_ARGS = ['fetch', '--prune', '--no-recurse-submodules'] as const
@@ -26,7 +25,6 @@ export class GitBranchCapability {
   constructor(
     private readonly context: GitCommandContext,
     private readonly worktrees: GitWorktreeCapability,
-    private readonly status: GitStatusCapability,
   ) {}
 
   async branches(workspaceRoot: HostPath): Promise<GitBranchModel> {
@@ -94,10 +92,7 @@ export class GitBranchCapability {
     if (result.code !== 0) throw gitError(GIT_FETCH_ARGS, result.stderr, result.code)
   }
 
-  async pullFastForward(
-    workspaceRoot: HostPath,
-    relatedWorktreeRoots: readonly HostPath[] = [],
-  ): Promise<void> {
+  async pullFastForward(workspaceRoot: HostPath): Promise<void> {
     this.context.assertHost(workspaceRoot)
     const model = await this.branches(workspaceRoot)
     if (model.repositoryState === 'not-git') throw new Error('Not a Git repository')
@@ -110,22 +105,13 @@ export class GitBranchCapability {
       throw new Error('The branch has diverged; ask an agent to integrate it')
     }
     if (upstream.behind === 0) throw new Error('The branch is already up to date')
-    await this.status.assertClean(
-      workspaceRoot,
-      relatedWorktreeRoots,
-      'Working tree changed; ask an agent to commit or stash it',
-    )
     const context = await this.context.project(workspaceRoot)
     if (!context) throw new Error('Not a Git repository')
     const result = await this.context.mutate(context.commandRoot, GIT_PULL_ARGS)
     if (result.code !== 0) throw gitError(GIT_PULL_ARGS, result.stderr, result.code)
   }
 
-  async switchBranch(
-    workspaceRoot: HostPath,
-    branch: string,
-    relatedWorktreeRoots: readonly HostPath[] = [],
-  ): Promise<void> {
+  async switchBranch(workspaceRoot: HostPath, branch: string): Promise<void> {
     assertBranchName(branch)
     const model = await this.branches(workspaceRoot)
     if (model.repositoryState === 'not-git') throw new Error('Not a Git repository')
@@ -135,11 +121,6 @@ export class GitBranchCapability {
     if (target.worktree && !hostPathEquals(target.worktree, workspaceRoot)) {
       throw new Error(`${branch} is checked out in ${target.worktree.path}`)
     }
-    await this.status.assertClean(
-      workspaceRoot,
-      relatedWorktreeRoots,
-      'Working tree changed; commit or stash before switching',
-    )
     const args = ['switch', '--no-guess', branch] as const
     const result = await this.context.mutate(workspaceRoot, args)
     if (result.code !== 0) throw gitError(args, result.stderr, result.code)

@@ -75,6 +75,16 @@ export interface AuthorizeTerminalResume {
   readonly cwd: HostPath
 }
 
+export interface AuthorizeTerminalReattach {
+  readonly id: string
+  readonly providerId: HarnessProviderId
+  readonly profileId: HarnessProfileId
+  readonly launchRevision: number
+  readonly harnessSessionId?: string
+  readonly workspaceRoot: HostPath
+  readonly cwd: HostPath
+}
+
 export interface AuthorizeTerminalReplacement {
   readonly replacedId: string
   readonly replacementId: string
@@ -127,6 +137,7 @@ export interface TerminalSessionStore {
   ): Promise<void>
   forget(workspaceRoot: HostPath, id: string): Promise<void>
   rebindProfile(request: RebindTerminalProfile): Promise<TerminalRecoverySession>
+  authorizeReattach(request: AuthorizeTerminalReattach): boolean
   authorizeResume(request: AuthorizeTerminalResume): boolean
   authorizeReplacement(request: AuthorizeTerminalReplacement): boolean
   flush(): Promise<void>
@@ -535,6 +546,19 @@ export class TerminalSessionRegistry implements TerminalSessionStore {
   }
 
   authorizeResume(request: AuthorizeTerminalResume): boolean {
+    const stored = this.sessions.get(request.id)
+    return Boolean(
+      stored &&
+      stored.providerId === request.providerId &&
+      stored.profileId === request.profileId &&
+      stored.launchRevision === request.launchRevision &&
+      stored.harnessSessionId === request.harnessSessionId &&
+      hostPathEquals(stored.workspaceRoot, request.workspaceRoot) &&
+      hostPathEquals(stored.cwd, request.cwd),
+    )
+  }
+
+  authorizeReattach(request: AuthorizeTerminalReattach): boolean {
     const stored = this.sessions.get(request.id)
     return Boolean(
       stored &&

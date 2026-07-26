@@ -1,4 +1,4 @@
-# ADR-021: Platform-native installation from immutable GitHub Releases
+# ADR-022: Platform-native installation from immutable GitHub Releases
 
 ## Context
 

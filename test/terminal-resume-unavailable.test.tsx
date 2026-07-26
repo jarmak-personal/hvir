@@ -151,6 +151,7 @@ describe('terminal resume unavailable state', () => {
       id: 'd33b09dd-bf6a-4fab-b198-446017d5f8c9',
       pid: 4321,
       resumed: false,
+      reattached: false,
       harnessSessionId: 'd33b09dd-bf6a-4fab-b198-446017d5f8c9',
       identityStatus: 'identified' as const,
       capabilities: {
@@ -256,6 +257,7 @@ describe('terminal resume unavailable state', () => {
       id: 'd33b09dd-bf6a-4fab-b198-446017d5f8c9',
       pid: 4321,
       resumed: false,
+      reattached: false,
       harnessSessionId: 'd33b09dd-bf6a-4fab-b198-446017d5f8c9',
       identityStatus: 'identified',
       capabilities: {
@@ -291,6 +293,7 @@ describe('terminal resume unavailable state', () => {
       id: 'd33b09dd-bf6a-4fab-b198-446017d5f8c9',
       pid: 4321,
       resumed: false,
+      reattached: false,
       harnessSessionId: 'd33b09dd-bf6a-4fab-b198-446017d5f8c9',
       identityStatus: 'identified',
       capabilities: {
@@ -314,6 +317,7 @@ describe('terminal resume unavailable state', () => {
       id: 'terminal-1',
       pid: 4321,
       resumed: true,
+      reattached: false,
       harnessSessionId: '05ea41ff-026f-4ab6-b930-64eb3b497806',
       identityStatus: 'identified' as const,
       capabilities: {
@@ -344,6 +348,33 @@ describe('terminal resume unavailable state', () => {
     expect(runtimeOptions.onIdentity).toHaveBeenCalledWith(
       '05ea41ff-026f-4ab6-b930-64eb3b497806',
       'identified',
+    )
+  })
+
+  it('distinguishes same-process renderer reattachment from harness resume', async () => {
+    invoke.mockResolvedValueOnce({
+      outcome: 'started' as const,
+      id: 'terminal-1',
+      pid: 4321,
+      resumed: false,
+      reattached: true,
+      harnessSessionId: '05ea41ff-026f-4ab6-b930-64eb3b497806',
+      identityStatus: 'identified' as const,
+      capabilities: {
+        sessionIdentity: 'preassigned' as const,
+        exactResume: true,
+        contextPresentation: 'count-only' as const,
+      },
+    })
+    const runtime = registry.acquire(options())
+    runtime.attach(document.createElement('div'))
+
+    await vi.waitFor(() =>
+      expect(runtime.snapshot()).toEqual({
+        title: 'Claude Code · repo',
+        status: 'Reattached · pid 4321',
+        exited: false,
+      }),
     )
   })
 

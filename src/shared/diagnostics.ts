@@ -12,6 +12,25 @@ export interface RendererDiagnosticSession {
   readonly sessionId: string
 }
 
+export function isRendererDiagnosticSession(
+  value: unknown,
+): value is RendererDiagnosticSession {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    !Array.isArray(value) &&
+    Object.keys(value).length === 3 &&
+    'version' in value &&
+    value.version === RENDERER_DIAGNOSTIC_VERSION &&
+    'ownerGeneration' in value &&
+    typeof value.ownerGeneration === 'number' &&
+    Number.isSafeInteger(value.ownerGeneration) &&
+    value.ownerGeneration > 0 &&
+    'sessionId' in value &&
+    isDiagnosticOpaqueId(value.sessionId)
+  )
+}
+
 export interface RenderContainmentDiagnostic {
   readonly version: typeof RENDERER_DIAGNOSTIC_VERSION
   readonly occurrenceId: string

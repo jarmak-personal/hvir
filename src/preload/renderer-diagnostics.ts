@@ -6,6 +6,7 @@ import {
   RENDERER_RESPONSIVENESS_QUEUE_EVENTS,
   RENDERER_RESPONSIVENESS_VERSION,
   isDiagnosticOpaqueId,
+  isRendererDiagnosticSession,
   isResponsivenessObservation,
   type RenderContainmentDiagnosticBatch,
   type RendererDiagnosticDroppedCounts,
@@ -46,7 +47,7 @@ export class RendererDiagnosticsAdapter {
   }
 
   activate(session: unknown): void {
-    if (!isSession(session)) return
+    if (!isRendererDiagnosticSession(session)) return
     if (
       this.session &&
       (this.session.ownerGeneration !== session.ownerGeneration ||
@@ -205,23 +206,6 @@ export class RendererDiagnosticsAdapter {
       [reason]: saturatingAdd(this.responsivenessDropped[reason], 1),
     }
   }
-}
-
-function isSession(value: unknown): value is RendererDiagnosticSession {
-  return (
-    typeof value === 'object' &&
-    value !== null &&
-    !Array.isArray(value) &&
-    Object.keys(value).length === 3 &&
-    'version' in value &&
-    value.version === RENDERER_DIAGNOSTIC_VERSION &&
-    'ownerGeneration' in value &&
-    typeof value.ownerGeneration === 'number' &&
-    Number.isSafeInteger(value.ownerGeneration) &&
-    value.ownerGeneration > 0 &&
-    'sessionId' in value &&
-    isDiagnosticOpaqueId(value.sessionId)
-  )
 }
 
 function emptyDroppedCounts(): RendererDiagnosticDroppedCounts {

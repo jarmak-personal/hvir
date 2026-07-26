@@ -30,11 +30,11 @@ describe('Electron smoke scenario selection', () => {
   it('rejects unknown groups with the complete reproducible name set', () => {
     expect(() => parseElectronSmokeScenario('unknown')).toThrow(
       "Unknown Electron smoke scenario 'unknown'. Expected one of: " +
-        'pty-native, viewer-position, platform-contracts, terminal-presentation, legacy-workflow, capacity',
+        'pty-native, viewer-position, platform-contracts, diagnostic-report-restart, renderer-recovery, terminal-presentation, legacy-workflow, capacity',
     )
     expect(() => selectedSmokeScenarios('unknown')).toThrow(
       "Unknown Electron smoke scenario 'unknown'. Expected one of: " +
-        'pty-native, viewer-position, platform-contracts, terminal-presentation, legacy-workflow, capacity',
+        'pty-native, viewer-position, platform-contracts, diagnostic-report-restart, renderer-recovery, terminal-presentation, legacy-workflow, capacity',
     )
   })
 
@@ -191,6 +191,10 @@ describe('Electron smoke command contracts', () => {
     new URL('../scripts/phase8-gauntlet.sh', import.meta.url),
     'utf8',
   )
+  const prePushHook = readFileSync(
+    new URL('../.githooks/pre-push', import.meta.url),
+    'utf8',
+  )
   const contributing = readFileSync(
     new URL('../CONTRIBUTING.md', import.meta.url),
     'utf8',
@@ -223,8 +227,12 @@ describe('Electron smoke command contracts', () => {
   it('separates correctness, hosted evidence, and controlled performance commands', () => {
     expect(packageJson.scripts.smoke).toContain('node scripts/run-smoke-scenarios.mts')
     expect(packageJson.scripts['smoke:macos']).toContain(
-      'node scripts/run-smoke-scenarios.mts pty-native viewer-position platform-contracts terminal-presentation',
+      'node scripts/run-smoke-scenarios.mts pty-native viewer-position platform-contracts renderer-recovery terminal-presentation',
     )
+    expect(packageJson.scripts['smoke:macos:ci']).toContain(
+      'node scripts/run-smoke-scenarios.mts pty-native viewer-position platform-contracts renderer-recovery',
+    )
+    expect(packageJson.scripts['smoke:macos:ci']).not.toContain('terminal-presentation')
     expect(packageJson.scripts['smoke:macos']).not.toMatch(
       /terminal-presentation capacity/,
     )
@@ -238,6 +246,9 @@ describe('Electron smoke command contracts', () => {
       'HVIR_SMOKE_SCENARIO=capacity HVIR_CAPACITY_PERFORMANCE_GATE=controlled',
     )
     expect(gauntletScript).toContain('npm run performance:capacity')
+    expect(prePushHook).toContain('if [[ "$(uname -s)" == "Darwin" ]]')
+    expect(prePushHook).toMatch(/^\s*exec npm run smoke:macos$/m)
+    expect(prePushHook).not.toContain('smoke:macos:ci')
     expect(contributing).toContain('machine-dependent capacity evidence')
     expect(contributing).toContain('controlled-machine release gate')
   })
@@ -253,10 +264,25 @@ describe('Electron smoke command contracts', () => {
 
   it('enters capacity before unrelated legacy profile and viewer assertions', () => {
     const branch = smokeWorkflow.indexOf("if (mode === 'capacity')")
+    const recoveryRecords = smokeWorkflow.indexOf(
+      'smokeRecoverySessions = capacityRecoverySessions',
+      branch,
+    )
+    const resetLoadFixtures = smokeWorkflow.indexOf(
+      'supervisor.disposeSessions()',
+      recoveryRecords,
+    )
+    const recovery = smokeWorkflow.indexOf(
+      'await runCapacityRecoverySmoke',
+      resetLoadFixtures,
+    )
     expect(branch).toBeGreaterThan(-1)
     expect(branch).toBeLessThan(smokeWorkflow.indexOf('const profileSmoke'))
     expect(branch).toBeLessThan(smokeWorkflow.indexOf('const viewerStatus'))
     expect(smokeWorkflow.indexOf("if (mode === 'capacity')", branch + 1)).toBe(-1)
+    expect(recoveryRecords).toBeGreaterThan(branch)
+    expect(resetLoadFixtures).toBeGreaterThan(recoveryRecords)
+    expect(recovery).toBeGreaterThan(resetLoadFixtures)
     expect(capacityScenario).toContain('const CPU_SAMPLE_COUNT = 3')
     expect(capacityScenario).toContain('const TERMINAL_READINESS_SAMPLE_COUNT = 10')
     expect(capacityScenario).toContain('[smoke:capacity:contracts]')
@@ -283,9 +309,7 @@ describe('Electron smoke command contracts', () => {
 
   it('waits for exact terminal focus instead of assuming a frame count', () => {
     const layoutFocusScenario = terminalPresentationScenario.slice(
-      terminalPresentationScenario.indexOf(
-        'async function verifyTerminalLayoutFocus',
-      ),
+      terminalPresentationScenario.indexOf('async function verifyTerminalLayoutFocus'),
       terminalPresentationScenario.indexOf(
         'async function verifyTerminalLaunchMenuOverflow',
       ),

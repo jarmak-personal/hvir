@@ -39,7 +39,6 @@ import {
   type GitWorkerProtocol,
   HTML_PREVIEW_SCHEME,
 } from '../shared'
-
 protocol.registerSchemesAsPrivileged([
   {
     scheme: HTML_PREVIEW_SCHEME,
@@ -139,9 +138,11 @@ function createWorkbenchEntry(): void {
           .catch((error) => console.error('[renderer] owner cleanup failed', error))
       },
       isRendererCurrent: (owner) => rendererScopes.isCurrent(owner),
+      resumeRendererIpc: (owner) => rendererScopes.resumeOwnerIpc(owner),
       setOwnerFocused: (owner, focused) =>
         attentionBadge?.setFocused(owner.id, focused, owner.generation),
       startRendererDiagnostics: (owner) => diagnostics.startRenderer(owner),
+      rendererReady: (owner) => diagnostics.rendererReady(owner),
       recordWindowHealth: (event) => diagnostics.recordWindowHealth(event),
       onLastWindowClosed: () => {
         void runtime
@@ -375,7 +376,9 @@ function createWorkbenchEntry(): void {
         respondSshPrompt: (owner, id, answers) =>
           sshPrompter?.respond(owner, id, answers),
         rendererResources: rendererScopes,
-        rendererReady: (owner) => sshPrompter?.activateOwner(owner),
+        rendererReady: (owner, reportedGeneration) =>
+          windowManager.rendererReady(owner, reportedGeneration) &&
+          sshPrompter?.activateOwner(owner),
         getWorkbenchHealth: () => diagnostics.healthSnapshot(),
         acknowledgeWorkbenchHealth: (id) => diagnostics.acknowledgeHealth(id),
         diagnostics: diagnosticIpc,
@@ -411,7 +414,6 @@ function createWorkbenchEntry(): void {
     }
     workspaceCoordinator.startPolling()
   }
-
   function reopenWorkbench(): void {
     if (!projectRegistry || BrowserWindow.getAllWindows().length > 0) return
     if (projectRegistry.active.host.connectionState === 'connected') {
@@ -421,12 +423,10 @@ function createWorkbenchEntry(): void {
     }
     createWindow()
   }
-
   function projectRootArgument(): string | undefined {
     const fromFlag = process.argv.find((arg) => arg.startsWith('--project-root='))
     return fromFlag?.slice('--project-root='.length) || process.env.HVIR_PROJECT_ROOT
   }
-
   void app
     .whenReady()
     .then(async () => {
@@ -440,7 +440,10 @@ function createWorkbenchEntry(): void {
           htmlPreviews,
           rendererResources: rendererScopes,
           diagnostics: diagnosticIpc,
+          runtimeDiagnostics: diagnostics,
           webPaneRoutes,
+          rendererReady: windowManager.rendererReady,
+          reloadUnresponsiveRenderer: windowManager.reloadUnresponsiveRenderer,
           updateWebPaneBindings: windowManager.updateWebPaneBindings,
           updateWebPaneFullPage: windowManager.updateWebPaneFullPage,
           openExternal: (url) => shell.openExternal(url),
@@ -457,11 +460,9 @@ function createWorkbenchEntry(): void {
       console.error('HVIR_STARTUP_FAIL', error)
       app.exit(1)
     })
-
   app.on('window-all-closed', () => {
     if (process.platform !== 'darwin') app.quit()
   })
-
   app.on('activate', () => {
     void runtime
       .reopen()

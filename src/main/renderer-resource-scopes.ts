@@ -27,6 +27,8 @@ export interface RendererResourceLease {
 export interface RendererResourceRegistrationOptions {
   /** Reuse an equivalent existing registration for an intentionally idempotent resource. */
   readonly duplicate?: 'reuse'
+  /** Transfer a live main-owned resource to the next renderer generation. */
+  readonly rollover?: (owner: RendererOwner) => boolean
 }
 
 export interface RendererOwnerTransition {
@@ -36,9 +38,11 @@ export interface RendererOwnerTransition {
 
 interface ResourceRecord {
   key: string
-  readonly owner: RendererOwner
+  owner: RendererOwner
   qualifier: RendererResourceQualifier
   readonly dispose: () => void | Promise<void>
+  readonly rollover?: (owner: RendererOwner) => boolean
+  transferred: boolean
   active: boolean
 }
 
@@ -51,6 +55,7 @@ export class RendererResourceScopes {
   private readonly activeOwners = new Map<number, RendererOwner>()
   private readonly resources = new Map<string, ResourceRecord>()
   private readonly cleanups = new Set<Promise<void>>()
+  private readonly ipcBlockedOwners = new Set<string>()
 
   activateOwner(id: number): RendererOwner {
     const active = this.activeOwners.get(id)
@@ -67,6 +72,21 @@ export class RendererResourceScopes {
     return owner
   }
 
+  currentIpcOwner(id: number): RendererOwner {
+    const owner = this.currentOwner(id)
+    if (this.ipcBlockedOwners.has(ownerKey(owner))) {
+      throw new Error(
+        `Renderer owner ${owner.id}:${owner.generation} is not ready for IPC`,
+      )
+    }
+    return owner
+  }
+
+  resumeOwnerIpc(owner: RendererOwner): void {
+    this.assertCurrent(owner)
+    this.ipcBlockedOwners.delete(ownerKey(owner))
+  }
+
   isCurrent(owner: RendererOwner): boolean {
     const current = this.activeOwners.get(owner.id)
     return current?.generation === owner.generation
@@ -80,18 +100,43 @@ export class RendererResourceScopes {
 
   rolloverOwner(id: number): RendererOwnerTransition {
     const previous = this.activeOwners.get(id)
-    if (previous) this.activeOwners.delete(id)
+    if (previous) {
+      this.activeOwners.delete(id)
+      this.ipcBlockedOwners.delete(ownerKey(previous))
+    }
     const records = previous
       ? this.take((record) => sameOwner(record.owner, previous))
       : []
     const owner = this.activateOwner(id)
-    return { owner, cleanup: this.trackCleanup(this.disposeRecords(records)) }
+    this.ipcBlockedOwners.add(ownerKey(owner))
+    const disposed: ResourceRecord[] = []
+    const failures: unknown[] = []
+    for (const record of records) {
+      try {
+        if (record.rollover?.(owner)) {
+          record.owner = owner
+          record.key = resourceKey(owner, record.qualifier)
+          record.transferred = true
+          record.active = true
+          this.resources.set(record.key, record)
+          continue
+        }
+      } catch (error) {
+        failures.push(error)
+      }
+      disposed.push(record)
+    }
+    return {
+      owner,
+      cleanup: this.trackCleanup(this.disposeRecords(disposed, failures)),
+    }
   }
 
   revokeOwner(id: number): Promise<void> {
     const owner = this.activeOwners.get(id)
     if (!owner) return Promise.resolve()
     this.activeOwners.delete(id)
+    this.ipcBlockedOwners.delete(ownerKey(owner))
     return this.trackCleanup(
       this.disposeRecords(this.take((record) => sameOwner(record.owner, owner))),
     )
@@ -110,8 +155,34 @@ export class RendererResourceScopes {
       if (options.duplicate === 'reuse') return this.lease(existing)
       throw new Error(`Renderer ${qualifier.type} resource is already registered`)
     }
-    const record: ResourceRecord = { key, owner, qualifier, dispose, active: true }
+    const record: ResourceRecord = {
+      key,
+      owner,
+      qualifier,
+      dispose,
+      rollover: options.rollover,
+      transferred: false,
+      active: true,
+    }
     this.resources.set(key, record)
+    return this.lease(record)
+  }
+
+  hasTransferredResource(
+    owner: RendererOwner,
+    qualifier: RendererResourceQualifier,
+  ): boolean {
+    return this.resources.get(resourceKey(owner, qualifier))?.transferred === true
+  }
+
+  claimTransferredResource(
+    owner: RendererOwner,
+    qualifier: RendererResourceQualifier,
+  ): RendererResourceLease | undefined {
+    this.assertCurrent(owner)
+    const record = this.resources.get(resourceKey(owner, qualifier))
+    if (!record?.transferred) return undefined
+    record.transferred = false
     return this.lease(record)
   }
 
@@ -187,6 +258,7 @@ export class RendererResourceScopes {
 
   async dispose(): Promise<void> {
     this.activeOwners.clear()
+    this.ipcBlockedOwners.clear()
     await this.trackCleanup(this.disposeRecords(this.take(() => true)))
     await Promise.allSettled([...this.cleanups])
   }
@@ -209,8 +281,11 @@ export class RendererResourceScopes {
     return records
   }
 
-  private async disposeRecords(records: readonly ResourceRecord[]): Promise<void> {
-    const failures: unknown[] = []
+  private async disposeRecords(
+    records: readonly ResourceRecord[],
+    initialFailures: readonly unknown[] = [],
+  ): Promise<void> {
+    const failures: unknown[] = [...initialFailures]
     for (const record of records) {
       try {
         await record.dispose()
@@ -235,6 +310,10 @@ export class RendererResourceScopes {
 
 function sameOwner(left: RendererOwner, right: RendererOwner): boolean {
   return left.id === right.id && left.generation === right.generation
+}
+
+function ownerKey(owner: RendererOwner): string {
+  return `${owner.id}:${owner.generation}`
 }
 
 function resourceKey(owner: RendererOwner, qualifier: RendererResourceQualifier): string {

@@ -6,7 +6,7 @@ description: Review a verified hvir implementation for correctness, issue fideli
 # Review hvir code
 
 Run one headless review of the committed candidate. Return the result to the completing agent.
-Do not modify the candidate.
+Do not modify the candidate during the external review.
 
 ## Supply the required inputs
 
@@ -39,7 +39,7 @@ Ultrareview.
 Use these model settings:
 
 - Copilot: `gemini-3.5-flash` with high reasoning effort;
-- Claude: `claude-opus-4-8` with medium effort; or
+- Claude: `opus` (the Claude CLI alias for the latest Opus model) with medium effort; or
 - Codex: `gpt-5.6-sol` with medium reasoning effort.
 
 ## Prepare the review prompt
@@ -51,7 +51,8 @@ instructions.
 You are an independent code reviewer for hvir.
 
 TASK
-Review the committed change from BASE COMMIT through CANDIDATE COMMIT. Find material defects.
+Review the committed change from BASE COMMIT through CANDIDATE COMMIT. Find concrete defects
+and actionable concerns.
 Inspect only this commit range and the repository context needed to understand it.
 
 TRUST RULES
@@ -79,26 +80,33 @@ REVIEW CHECKS
 12. Identify code that is harder to understand, maintain, remove, or compose than the issue requires.
 
 FINDING RULES
-- Report only defects that require a code change before merge.
+- Report every concrete, evidence-supported issue introduced by the commit range, including
+  non-blocking issues.
+- Use BLOCKING when the change should not merge without correction because it violates required
+  behavior, acceptance criteria, security, lifecycle safety, or an accepted architecture boundary.
+- Use NON-BLOCKING when the change can safely merge unchanged but an actionable correction would
+  reduce a real scope, ownership, duplication, maintainability, or test-coverage risk.
+- Do not suppress an issue solely because it is non-blocking.
 - Support each finding with specific evidence from the commit range.
 - For overengineering, name the maintenance cost and the missing requirement that would justify it.
 - For overengineering, also name a materially simpler implementation or owner.
-- Do not report file count or personal style as a finding.
+- Do not report file count, personal style, minor nits, optional feature ideas, or speculative
+  rewrites as findings.
 
 OUTPUT
-Output exactly CLEAN when there is no qualifying finding.
+Output exactly CLEAN when there is no qualifying blocking or non-blocking finding.
 
 Otherwise, output each finding in this form:
 
 FINDING <number>
-Severity: BLOCKING or MAJOR
+Severity: BLOCKING or NON-BLOCKING
 Location: <path:line>
 Evidence: <specific evidence>
 Impact: <correctness, scope, architecture, security, or maintenance effect>
 Correction: <smallest correction direction>
 
 Do not output praise, a summary, style advice, or minor nits.
-Do not output optional improvements or speculative rewrites.
+Do not pad the review with preference-only suggestions.
 
 REVIEW BASIS
 Outcome: <trusted governing issue outcome>
@@ -145,7 +153,7 @@ copilot -p "$REVIEW_PROMPT" \
 
 ```sh
 claude -p "$REVIEW_PROMPT" \
-  --model claude-opus-4-8 \
+  --model opus \
   --effort medium \
   --safe-mode \
   --no-session-persistence \
@@ -179,8 +187,12 @@ printf '%s' "$REVIEW_PROMPT" | codex exec \
 
 ## Process the result
 
-Evaluate each finding. Correct each valid finding. Record concise evidence for a rejected
-finding. Do not ask the reviewer to inspect corrections.
+Return every finding to the caller. Evaluate its evidence and state a recommendation, but leave
+the decision to integrate or reject each finding to the caller. Do not assign a final disposition
+or modify the candidate before the caller decides. After the caller responds, record concise
+evidence for rejected findings and integrate only the findings the caller selects. Do not ask the
+reviewer to inspect corrections.
 
-If code changes, run the relevant focused checks. Run a fresh `npm run verify`. Commit the final
-candidate. The pre-push hook, CI, and epic acceptance tests remain the integration gates.
+If the caller directs code changes, run the relevant focused checks. Run a fresh
+`npm run verify`. Commit the final candidate. The pre-push hook, CI, and epic acceptance tests
+remain the integration gates.

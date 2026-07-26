@@ -101,12 +101,13 @@ Contributors can opt into the repository's pre-push hook:
 npm run hooks:install
 ```
 
-The hook runs `npm run smoke` using the machine's installed Electron platform and
-architecture. Headless Linux uses `xvfb-run` when available. CI reports verification,
-Electron correctness, deterministic capacity contracts, and machine-dependent performance
-evidence without enforcing quantitative budgets on a hosted runner. `npm run gauntlet` remains
-the combined controlled-machine release gate. Use `git push --no-verify` when a deliberate local
-bypass is needed.
+The hook runs the full `npm run smoke:macos` command on macOS and `npm run smoke` elsewhere,
+using the machine's installed Electron platform and architecture. Headless Linux uses `xvfb-run`
+when available. CI reports verification, Electron correctness, deterministic capacity contracts,
+and machine-dependent performance evidence without enforcing quantitative budgets on a hosted
+runner. See [CONTRIBUTING.md](CONTRIBUTING.md#develop-locally) for the temporary hosted macOS
+containment. `npm run gauntlet` remains the combined controlled-machine release gate. Use
+`git push --no-verify` when a deliberate local bypass is needed.
 
 Native packaging and installation acceptance run on the matching supported platform. See the
 [performance gauntlet](docs/phase8-performance-gauntlet.md) and

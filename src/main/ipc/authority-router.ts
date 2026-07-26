@@ -41,8 +41,7 @@ export const OWNER_SCOPED_INVOKE_CHANNELS = [
   'web-pane:close',
   'web-pane:open-external',
   'web-pane:open-browser',
-  'terminal:plan-move',
-  'terminal:move',
+  'terminal:plan-move', 'terminal:move', 'terminal:record-recovery-decision',
   'pty:start',
 ] as const satisfies readonly IpcInvokeChannel[]
 
@@ -252,7 +251,7 @@ export class IpcAuthorityRouter {
       owner: () => {
         if (!ownerScoped) throw new Error('IPC channel is not owner-scoped')
         try {
-          owner ??= this.deps.rendererResources.currentOwner(sender.id)
+          owner ??= this.deps.rendererResources.currentIpcOwner(sender.id)
           this.deps.rendererResources.assertCurrent(owner)
           return owner
         } catch (error) {
