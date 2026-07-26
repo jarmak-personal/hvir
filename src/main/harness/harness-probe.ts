@@ -8,6 +8,10 @@ import type { Disposer, ProjectHost } from '../project-host'
 import { resolveHarnessLaunch } from './harness-launch'
 import type { HarnessProfileStoreContract } from './harness-profile-store'
 import { harnessProvider } from './harness-provider'
+import {
+  harnessShellCommandArgs,
+  harnessShellProbeArgs,
+} from './harness-shell-environment'
 
 const AVAILABLE_TTL_MS = 10 * 60_000
 const NEGATIVE_TTL_MS = 2 * 60_000
@@ -211,7 +215,7 @@ export class HarnessProbeManager {
       } as const
       const exists = await host.exec(
         defaultShell,
-        ['-ic', `command -v ${shellQuote(resolved.spec.file)} >/dev/null 2>&1`],
+        harnessShellProbeArgs(resolved.spec.file),
         options,
       )
       if (exists.code !== 0) {
@@ -221,12 +225,7 @@ export class HarnessProbeManager {
       if (provider.probe.versionArgs) {
         const versionResult = await host.exec(
           defaultShell,
-          [
-            '-ic',
-            `exec ${[resolved.spec.file, ...provider.probe.versionArgs]
-              .map(shellQuote)
-              .join(' ')}`,
-          ],
+          harnessShellCommandArgs(resolved.spec.file, provider.probe.versionArgs),
           options,
         )
         const combined = `${versionResult.stdout}\n${versionResult.stderr}`.trim()
@@ -242,12 +241,7 @@ export class HarnessProbeManager {
       if (provider.probe.capabilityArgs) {
         const capabilityResult = await host.exec(
           defaultShell,
-          [
-            '-ic',
-            `exec ${[resolved.spec.file, ...provider.probe.capabilityArgs]
-              .map(shellQuote)
-              .join(' ')}`,
-          ],
+          harnessShellCommandArgs(resolved.spec.file, provider.probe.capabilityArgs),
           options,
         )
         if (capabilityResult.code === 0) {
@@ -389,8 +383,4 @@ function cleanDetail(value: string): string {
     .join('')
     .trim()
   return first.slice(0, 240) || 'Probe failed'
-}
-
-function shellQuote(value: string): string {
-  return `'${value.replaceAll("'", `'"'"'`)}'`
 }
