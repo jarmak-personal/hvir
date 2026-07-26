@@ -210,6 +210,96 @@ describe('terminal recovery controller', () => {
     expect(text('sessions')).toBe('first')
     expect(text('candidates')).toBe('')
   })
+
+  it('condemns nothing when recovery is deferred rather than declined', async () => {
+    const profile = builtInProfiles()[0]!
+    const provider: HarnessProviderDescriptor = {
+      id: profile.providerId,
+      displayName: 'Shell',
+      default: true,
+      capabilities: {
+        sessionIdentity: 'none',
+        exactResume: false,
+        contextPresentation: 'none',
+      },
+      terminalInput: {
+        modifiedKeyProtocol: 'none',
+        metaEnterAliasesControl: false,
+      },
+      profileGuidance: {
+        reservedArguments: [],
+        riskClassification: 'best-effort',
+      },
+    }
+    const root = hostPath(asHostId('deferred-recovery-controller'), '/repo')
+    const first: TerminalRecoverySession = {
+      id: 'first',
+      providerId: provider.id,
+      profileId: profile.id,
+      launchRevision: profile.launchRevision,
+      recoverySkipCount: 0,
+      hostId: root.hostId,
+      cwd: root,
+      title: 'First shell',
+      position: 0,
+      active: true,
+      updatedAt: 1,
+    }
+    const second = {
+      ...first,
+      id: 'second',
+      title: 'Second shell',
+      position: 1,
+      active: false,
+    }
+    const invoke = vi.fn((channel: string) => {
+      switch (channel) {
+        case 'harness:catalog':
+          return Promise.resolve([provider])
+        case 'harness:profiles':
+          return Promise.resolve([profile])
+        case 'terminal:recovery':
+          return Promise.resolve([first, second])
+        case 'terminal:record-recovery-decision':
+          return Promise.resolve()
+        default:
+          return Promise.reject(new Error(`Unexpected IPC ${channel}`))
+      }
+    })
+    Object.defineProperty(window, 'hvir', {
+      configurable: true,
+      value: { invoke, on: vi.fn(), send: vi.fn() },
+    })
+
+    await act(async () => {
+      reactRoot.render(
+        <RecoveryHarness
+          root={root}
+          provider={provider}
+          profile={profile}
+          mode="prompt"
+        />,
+      )
+      await settleEffects()
+    })
+    expect(text('candidates')).toBe('first,second')
+
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>('button')?.click()
+      await settleEffects()
+    })
+
+    /**
+     * Deferring must not name a single terminal as skipped: main destroys the retained
+     * PTY behind every skipped id, so a blanket skip list here kills live work.
+     */
+    expect(invoke).toHaveBeenCalledWith('terminal:record-recovery-decision', {
+      root,
+      restoredIds: [],
+      skippedIds: [],
+    })
+    expect(text('candidates')).toBe('')
+  })
 })
 
 function RecoveryHarness({

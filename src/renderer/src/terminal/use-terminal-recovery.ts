@@ -264,17 +264,14 @@ export function useTerminalRecovery({
   const skip = useCallback(async (): Promise<void> => {
     const current = stateRef.current
     const currentGeneration = generation.current.snapshot()
-    const plan = planManualTerminalRecovery({
-      selectedIds: new Set(),
-      records: candidatesRef.current,
-      providers: current.providers,
-      profiles: current.profiles,
-      probes: current.probes,
-      splitLayout: current.splitLayout,
-    })
+    /**
+     * Deferring judges no terminal. Main destroys the retained PTY behind every skipped
+     * id, so naming the candidates here would kill live work the user only postponed.
+     */
     await window.hvir.invoke('terminal:record-recovery-decision', {
       root: current.root,
-      ...plan.decision,
+      restoredIds: [],
+      skippedIds: [],
     })
     if (!generation.current.isCurrent(currentGeneration)) return
     discardRef.current()
