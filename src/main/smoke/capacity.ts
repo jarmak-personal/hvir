@@ -181,20 +181,35 @@ export async function runCapacityRecoverySmoke(
         if (!row || !terminalId) return reject(new Error('dormant recovery row missing'));
         row.querySelector('.terminal-list-main')?.click();
         document.querySelector('.rail-nav button:nth-child(2)')?.click();
-        const poll = () => {
-          const surface = document.querySelector(
+        const snapshot = () => ({
+          rowDormant: row.hasAttribute('data-terminal-dormant'),
+          dormant: document.querySelectorAll(
+            '.terminal-list-row[data-terminal-dormant="true"]'
+          ).length,
+          surfaces: document.querySelectorAll('.terminal-surface').length,
+          surfaceStatus: document.querySelector(
             '.terminal-surface[data-terminal-session="' + CSS.escape(terminalId) + '"]'
-          );
-          const changesReady = [...document.querySelectorAll('.git-tabs button')]
-            .some((node) => /^Changes \\(\\d+\\)$/.test(node.textContent?.trim() || ''));
+          )?.getAttribute('data-terminal-status') || '',
+          changesReady: [...document.querySelectorAll('.git-tabs button')]
+            .some((node) => /^Changes \\(\\d+\\)$/.test(node.textContent?.trim() || '')),
+          resumeAll: Boolean(document.querySelector('.terminal-resume-all-button'))
+        });
+        const poll = () => {
+          const current = snapshot();
           if (
-            !row.hasAttribute('data-terminal-dormant') &&
-            document.querySelectorAll('.terminal-surface').length === 2 &&
-            (surface?.getAttribute('data-terminal-status') || '').startsWith('pid ') &&
-            changesReady
-          ) return resolve('dormant selection started exactly one PTY · Changes ready');
+            !current.rowDormant &&
+            current.dormant === 18 &&
+            current.surfaces === 2 &&
+            current.surfaceStatus.startsWith('pid ') &&
+            current.changesReady &&
+            !current.resumeAll
+          ) return resolve(
+            'dormant selection started exactly one PTY · 18 remained lazy · Changes ready'
+          );
           if (Date.now() > deadline) {
-            return reject(new Error('dormant activation did not settle'));
+            return reject(new Error(
+              'dormant activation did not settle: ' + JSON.stringify(current)
+            ));
           }
           setTimeout(poll, 25);
         };
@@ -205,50 +220,8 @@ export async function runCapacityRecoverySmoke(
     12_000,
   )) as string
   await waitForSupervisorCount(supervisor, 2, 'dormant capacity activation')
-
-  const bulk = (await withTimeout(
-    win.webContents.executeJavaScript(`
-      new Promise((resolve, reject) => {
-        const deadline = Date.now() + 20000;
-        const resumeAll = document.querySelector('.terminal-resume-all-button');
-        if (!resumeAll) return reject(new Error('Resume all now action missing'));
-        const label = resumeAll.textContent?.trim() || '';
-        resumeAll.click();
-        const poll = () => {
-          const current = {
-            rows: document.querySelectorAll('.terminal-list-row').length,
-            dormant: document.querySelectorAll(
-              '.terminal-list-row[data-terminal-dormant="true"]'
-            ).length,
-            surfaces: document.querySelectorAll('.terminal-surface').length,
-            starting: [...document.querySelectorAll('.terminal-surface')]
-              .filter((surface) => {
-                const status = surface.getAttribute('data-terminal-status') || '';
-                return !status.startsWith('pid ');
-              }).length
-          };
-          if (
-            current.rows === 20 &&
-            current.dormant === 0 &&
-            current.surfaces === 20 &&
-            current.starting === 0
-          ) return resolve(label + ' · 20 isolated starts settled');
-          if (Date.now() > deadline) {
-            return reject(new Error(
-              'capacity bulk recovery did not settle: ' + JSON.stringify(current)
-            ));
-          }
-          setTimeout(poll, 25);
-        };
-        poll();
-      })
-    `),
-    'capacity bulk recovery timed out',
-    25_000,
-  )) as string
-  await waitForSupervisorCount(supervisor, 20, 'bulk capacity recovery')
   console.log(
-    `[smoke] multi-terminal lazy recovery under load OK (${restored} · ${activated} · ${bulk})`,
+    `[smoke] multi-terminal lazy recovery under load OK (${restored} · ${activated})`,
   )
 }
 

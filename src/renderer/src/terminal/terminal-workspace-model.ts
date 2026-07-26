@@ -67,7 +67,6 @@ export type TerminalWorkspaceAction =
   | { readonly type: 'session-updated'; readonly session: TerminalSession }
   | { readonly type: 'session-closed'; readonly id: string }
   | { readonly type: 'session-moved'; readonly id: string }
-  | { readonly type: 'dormant-sessions-start-requested' }
   | { readonly type: 'primary-width-changed'; readonly width?: number }
 
 export const initialTerminalWorkspaceModel: TerminalWorkspaceModel = {
@@ -131,13 +130,6 @@ export function terminalWorkspaceReducer(
       return closeSession(model, action.id)
     case 'session-moved':
       return moveSession(model, action.id)
-    case 'dormant-sessions-start-requested':
-      return {
-        ...model,
-        sessions: model.sessions.map((session) =>
-          requestTerminalStart(session, 'bulk'),
-        ),
-      }
     case 'primary-width-changed':
       return { ...model, primaryWidth: action.width }
   }

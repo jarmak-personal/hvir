@@ -64,7 +64,6 @@ describe('terminal workspace move controls', () => {
           onAddHarness={vi.fn()}
           onRefreshProbes={vi.fn()}
           onOpenHarnessSettings={vi.fn()}
-          onResumeAll={vi.fn()}
           onFocusSession={vi.fn()}
           onMoveSession={vi.fn()}
           onCloseSession={vi.fn()}
@@ -120,7 +119,6 @@ describe('terminal workspace move controls', () => {
           onAddHarness={vi.fn()}
           onRefreshProbes={vi.fn()}
           onOpenHarnessSettings={vi.fn()}
-          onResumeAll={vi.fn()}
           onFocusSession={vi.fn()}
           onMoveSession={vi.fn()}
           onCloseSession={vi.fn()}
@@ -134,8 +132,8 @@ describe('terminal workspace move controls', () => {
     )
   })
 
-  it('offers a counted bulk action while keeping dormant rows distinct', () => {
-    const onResumeAll = vi.fn()
+  it('keeps dormant rows selectable without offering a bulk-start action', () => {
+    const onFocusSession = vi.fn()
     const dormant = { ...session(), dormant: true, status: 'Ready to start' }
     act(() => {
       root.render(
@@ -166,19 +164,21 @@ describe('terminal workspace move controls', () => {
           onAddHarness={vi.fn()}
           onRefreshProbes={vi.fn()}
           onOpenHarnessSettings={vi.fn()}
-          onResumeAll={onResumeAll}
-          onFocusSession={vi.fn()}
+          onFocusSession={onFocusSession}
           onMoveSession={vi.fn()}
           onCloseSession={vi.fn()}
         />,
       )
     })
 
-    const resumeAll = host.querySelector<HTMLButtonElement>('.terminal-resume-all-button')
-    expect(resumeAll?.textContent).toContain('Resume all now · 1')
     expect(host.querySelector('.terminal-list-row.dormant')).not.toBeNull()
-    act(() => resumeAll?.click())
-    expect(onResumeAll).toHaveBeenCalledOnce()
+    expect(host.querySelector('.terminal-resume-all-button')).toBeNull()
+    act(() => {
+      host
+        .querySelector<HTMLButtonElement>('[data-terminal-session="terminal-1"]')
+        ?.click()
+    })
+    expect(onFocusSession).toHaveBeenCalledWith('terminal-1')
   })
 
   it('shows exact move consequences and traps keyboard focus in confirmation', () => {

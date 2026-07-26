@@ -116,7 +116,6 @@ export function useTerminalSessionCommands({
       focusAttention(id)
       send({ type: 'session-focused', id })
     },
-    resumeAll: () => send({ type: 'dormant-sessions-start-requested' }),
     split: () => {
       if (!available || !defaultProvider || !defaultProfile) return
       send({
