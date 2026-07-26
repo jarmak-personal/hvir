@@ -24,6 +24,16 @@ export function ownsUnresponsiveRecovery(
   return current.id === observed.id && current.generation === observed.generation
 }
 
+/** A readiness signal can complete only the exact generation encoded by its preload. */
+export function ownsRendererReadiness(
+  current: RendererOwner,
+  reportedGeneration: number,
+): boolean {
+  return (
+    Number.isSafeInteger(reportedGeneration) && reportedGeneration === current.generation
+  )
+}
+
 /** The single security baseline used for every workbench BrowserWindow. */
 export function workbenchWindowOptions(preload: string): WorkbenchWindowOptions {
   return {

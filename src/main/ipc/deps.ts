@@ -80,7 +80,7 @@ export interface IpcDeps {
     answers?: readonly string[],
   ) => void
   readonly rendererResources: RendererResourceScopes
-  readonly rendererReady: (owner: RendererOwner) => void
+  readonly rendererReady: (owner: RendererOwner, reportedGeneration: number) => void
   readonly getWorkbenchHealth: () => WorkbenchHealthSnapshot
   readonly acknowledgeWorkbenchHealth: (occurrenceId: string) => WorkbenchHealthSnapshot
   readonly diagnostics: {

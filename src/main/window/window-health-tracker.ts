@@ -8,6 +8,9 @@ export interface WindowUnresponsiveEpisode {
   readonly owner: RendererOwner
 }
 
+export type RendererExitContext =
+  'unexpected' | 'forced-for-reload' | 'replacement-failed'
+
 /** Sanitizes and correlates Electron window signals without owning recovery policy. */
 export class WindowHealthTracker {
   private documentFailureId?: string
@@ -39,12 +42,14 @@ export class WindowHealthTracker {
   rendererGone(
     owner: RendererOwner,
     reason: Electron.RenderProcessGoneDetails['reason'],
-    recoveryRequested = false,
+    context: RendererExitContext = 'unexpected',
   ): void {
-    const unresponsive = this.unresponsiveEpisode
-    this.unresponsiveEpisode = undefined
-    if (unresponsive) this.recover(unresponsive, 'renderer-exited')
-    if (recoveryRequested || reason === 'clean-exit') return
+    if (context === 'unexpected') {
+      const unresponsive = this.unresponsiveEpisode
+      this.unresponsiveEpisode = undefined
+      if (unresponsive) this.recover(unresponsive, 'renderer-exited')
+    }
+    if (context === 'forced-for-reload' || reason === 'clean-exit') return
     this.record({
       kind: 'renderer-process-exited',
       ownerId: owner.id,
@@ -73,13 +78,21 @@ export class WindowHealthTracker {
     outcome: RecoveryOutcome,
   ): void {
     if (this.unresponsiveEpisode !== episode) return
-    if (outcome !== 'wait-selected') this.unresponsiveEpisode = undefined
+    if (
+      outcome !== 'wait-selected' &&
+      outcome !== 'reload-requested' &&
+      outcome !== 'reload-failed'
+    ) {
+      this.unresponsiveEpisode = undefined
+    }
     this.recover(episode, outcome)
   }
 
-  responsive(): void {
+  responsive(owner: RendererOwner): void {
     const episode = this.unresponsiveEpisode
-    if (episode) this.recoverUnresponsive(episode, 'responsive')
+    if (episode && sameOwner(episode.owner, owner)) {
+      this.recoverUnresponsive(episode, 'responsive')
+    }
   }
 
   private recover(episode: WindowUnresponsiveEpisode, outcome: RecoveryOutcome): void {
@@ -91,6 +104,10 @@ export class WindowHealthTracker {
       outcome,
     })
   }
+}
+
+function sameOwner(left: RendererOwner, right: RendererOwner): boolean {
+  return left.id === right.id && left.generation === right.generation
 }
 
 type RecoveryOutcome = Extract<

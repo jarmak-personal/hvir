@@ -103,6 +103,49 @@ describe('WorkbenchHealth', () => {
     expect(health.snapshot('durable').items[0]?.recoveryOutcome).toBe('window-closed')
   })
 
+  it('keeps reload requests and failures active until the replacement is usable', () => {
+    const health = new WorkbenchHealth()
+    const occurrenceId = opaqueId(7)
+    health.observe(
+      stored({
+        kind: 'renderer-unresponsive',
+        ownerId: OWNER.id,
+        ownerGeneration: OWNER.generation,
+        occurrenceId,
+      }),
+    )
+
+    for (const outcome of ['reload-requested', 'reload-failed'] as const) {
+      health.observe(
+        stored({
+          kind: 'workbench-health-recovered',
+          ownerId: OWNER.id,
+          ownerGeneration: OWNER.generation,
+          occurrenceId,
+          outcome,
+        }),
+      )
+      expect(health.snapshot('durable').items[0]).toMatchObject({
+        state: 'acknowledged',
+        recoveryOutcome: outcome,
+      })
+    }
+
+    health.observe(
+      stored({
+        kind: 'workbench-health-recovered',
+        ownerId: OWNER.id,
+        ownerGeneration: OWNER.generation,
+        occurrenceId,
+        outcome: 'reload-succeeded',
+      }),
+    )
+    expect(health.snapshot('durable').items[0]).toMatchObject({
+      state: 'resolved',
+      recoveryOutcome: 'reload-succeeded',
+    })
+  })
+
   it('resolves all window items even when recovery evidence is rate-dropped', () => {
     let now = Date.parse('2026-07-22T12:00:00.000Z')
     const nowSpy = vi.spyOn(Date, 'now').mockImplementation(() => now)

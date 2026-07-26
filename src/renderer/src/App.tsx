@@ -43,7 +43,7 @@ import { useWorkbenchCommands } from './workbench/use-workbench-commands'
 import { useWorkbenchLayout } from './workbench/use-workbench-layout'
 import { useWorkbenchOverlays } from './workbench/use-workbench-overlays'
 import { TerminalLayoutControls } from './workbench/TerminalLayoutControls'
-
+import { useRendererReady } from './workbench/use-renderer-ready'
 export function App(): ReactElement {
   const theme = useAppTheme()
   const settings = useAppSettings()
@@ -124,7 +124,6 @@ export function App(): ReactElement {
   const changedCountLabel = gitChanges?.workingTreeLimited
     ? `${GIT_CHANGE_DISPLAY_LIMIT.toLocaleString()}+`
     : changedCount.toLocaleString()
-
   const applyProjectViewState = useCallback(
     (state: ProjectState): void => {
       if (!applyWebProjectState(state, rootRef.current)) return
@@ -155,6 +154,7 @@ export function App(): ReactElement {
   const { watch: watchVersion, ignored: ignoredRefreshVersion } = session.versions
   const { content: contentVersion, git: gitVersion } = session.versions
   const openWatchPaths = useMemo(() => tabs.map((tab) => tab.path), [tabs])
+  useRendererReady(Boolean(root))
   const watchInterests = useProjectWatchInterests({
     root,
     connected: connectionState === 'connected',

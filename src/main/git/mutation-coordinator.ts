@@ -104,16 +104,17 @@ export class GitMutationCoordinator {
         root,
         target: branch,
       })
-      try {
-        await this.options.worker.switchBranch(
-          root,
-          branch,
-          this.relatedWorktreeRoots(projectId),
-        )
-      } finally {
-        grant.revoke()
-      }
-      return this.refreshAfterMutation(projectId, 'branch switch')
+      return this.mutateAndRefresh(projectId, 'branch switch', async () => {
+        try {
+          await this.options.worker.switchBranch(
+            root,
+            branch,
+            this.relatedWorktreeRoots(projectId),
+          )
+        } finally {
+          grant.revoke()
+        }
+      })
     })
   }
 
@@ -147,12 +148,13 @@ export class GitMutationCoordinator {
         projectId,
         root,
       })
-      try {
-        await this.options.worker.pull(root, this.relatedWorktreeRoots(projectId))
-      } finally {
-        grant.revoke()
-      }
-      return this.refreshAfterMutation(projectId, 'pull')
+      return this.mutateAndRefresh(projectId, 'pull', async () => {
+        try {
+          await this.options.worker.pull(root, this.relatedWorktreeRoots(projectId))
+        } finally {
+          grant.revoke()
+        }
+      })
     })
   }
 
@@ -224,6 +226,24 @@ export class GitMutationCoordinator {
         ?.workspaces.filter((workspace) => !workspace.missing)
         .map((workspace) => workspace.root) ?? []
     )
+  }
+
+  private async mutateAndRefresh(
+    projectId: string,
+    operation: string,
+    mutation: () => Promise<void>,
+  ): Promise<ProjectState> {
+    let succeeded = false
+    let failure: unknown
+    try {
+      await mutation()
+      succeeded = true
+    } catch (error) {
+      failure = error
+    }
+    const state = await this.refreshAfterMutation(projectId, operation)
+    if (!succeeded) throw failure
+    return state
   }
 
   private async refreshAfterMutation(

@@ -23,11 +23,16 @@ afterEach(async () => {
 })
 
 describe('GitEngine', () => {
-  it('models local branches and switches only from a clean available worktree', async () => {
+  it('lets Git preserve safe changes and refuse branch-switch collisions', async () => {
     const root = await repository()
     const linked = `${root}-occupied`
     cleanups.push(linked)
     git(root, ['branch', 'feature'])
+    git(root, ['switch', '-c', 'conflict'])
+    await writeFile(join(root, 'collision.txt'), 'target branch\n')
+    git(root, ['add', 'collision.txt'])
+    git(root, ['commit', '-m', 'add collision target'])
+    git(root, ['switch', 'main'])
     git(root, ['worktree', 'add', '-b', 'occupied', linked])
     const workspaceRoot = localPath(await realpath(root))
     const canonicalLinked = await realpath(linked)
@@ -60,9 +65,30 @@ describe('GitEngine', () => {
     await expect(engine.branches(workspaceRoot)).resolves.toEqual(
       expect.objectContaining({ current: 'feature' }),
     )
-    await writeFile(join(root, 'dirty.txt'), 'dirty\n')
-    await expect(engine.switchBranch(workspaceRoot, 'main')).rejects.toThrow(
-      'Working tree changed',
+    await writeFile(join(root, 'file.txt'), 'staged\n')
+    git(root, ['add', 'file.txt'])
+    await writeFile(join(root, 'file.txt'), 'staged\nunstaged\n')
+    await writeFile(join(root, 'draft.txt'), 'untracked\n')
+
+    await expect(engine.switchBranch(workspaceRoot, 'main')).resolves.toBeUndefined()
+
+    expect(await host.readTextFile(localPath(join(root, 'file.txt')))).toBe(
+      'staged\nunstaged\n',
+    )
+    expect(gitOutput(root, ['show', ':file.txt'])).toBe('staged\n')
+    expect(await host.readTextFile(localPath(join(root, 'draft.txt')))).toBe(
+      'untracked\n',
+    )
+
+    await writeFile(join(root, 'collision.txt'), 'local draft\n')
+    await expect(engine.switchBranch(workspaceRoot, 'conflict')).rejects.toThrow(
+      'would be overwritten',
+    )
+    await expect(engine.branches(workspaceRoot)).resolves.toEqual(
+      expect.objectContaining({ current: 'main' }),
+    )
+    expect(await host.readTextFile(localPath(join(root, 'collision.txt')))).toBe(
+      'local draft\n',
     )
     await expect(engine.switchBranch(workspaceRoot, 'missing')).rejects.toThrow(
       'no longer exists',
@@ -70,7 +96,7 @@ describe('GitEngine', () => {
     await host.dispose()
   })
 
-  it('models upstream and base drift, then permits only a clean fast-forward pull', async () => {
+  it('lets Git preserve safe changes and refuse fast-forward pull collisions', async () => {
     const root = await repository()
     const remote = await mkdtemp(join(tmpdir(), 'hvir-git-remote-'))
     const peerParent = await mkdtemp(join(tmpdir(), 'hvir-git-peer-'))
@@ -124,12 +150,44 @@ describe('GitEngine', () => {
     git(peer, ['commit', '-m', 'second incoming'])
     git(peer, ['push'])
     await engine.fetch(workspaceRoot)
-    await writeFile(join(root, 'dirty.txt'), 'dirty\n')
-    await expect(engine.pullFastForward(workspaceRoot)).rejects.toThrow(
-      'Working tree changed',
-    )
-    await rm(join(root, 'dirty.txt'))
+    await writeFile(join(root, 'file.txt'), 'staged\n')
+    git(root, ['add', 'file.txt'])
+    await writeFile(join(root, 'file.txt'), 'staged\nunstaged\n')
+    await writeFile(join(root, 'draft.txt'), 'untracked\n')
+
     await engine.pullFastForward(workspaceRoot)
+
+    expect(await host.readTextFile(localPath(join(root, 'second.txt')))).toBe('second\n')
+    expect(await host.readTextFile(localPath(join(root, 'file.txt')))).toBe(
+      'staged\nunstaged\n',
+    )
+    expect(gitOutput(root, ['show', ':file.txt'])).toBe('staged\n')
+    expect(await host.readTextFile(localPath(join(root, 'draft.txt')))).toBe(
+      'untracked\n',
+    )
+
+    git(root, ['reset', '--hard'])
+    await rm(join(root, 'draft.txt'))
+    git(peer, ['switch', 'feature'])
+    await writeFile(join(peer, 'file.txt'), 'remote collision\n')
+    git(peer, ['add', 'file.txt'])
+    git(peer, ['commit', '-m', 'remote collision'])
+    git(peer, ['push'])
+    await engine.fetch(workspaceRoot)
+    await writeFile(join(root, 'file.txt'), 'local collision\n')
+    const headBeforeCollision = gitOutput(root, ['rev-parse', 'HEAD'])
+
+    await expect(engine.pullFastForward(workspaceRoot)).rejects.toThrow(
+      'would be overwritten',
+    )
+
+    expect(gitOutput(root, ['rev-parse', 'HEAD'])).toBe(headBeforeCollision)
+    expect(await host.readTextFile(localPath(join(root, 'file.txt')))).toBe(
+      'local collision\n',
+    )
+    git(root, ['reset', '--hard'])
+    await engine.pullFastForward(workspaceRoot)
+
     await writeFile(join(root, 'local.txt'), 'local\n')
     git(root, ['add', 'local.txt'])
     git(root, ['commit', '-m', 'local outgoing'])

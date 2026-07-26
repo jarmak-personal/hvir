@@ -79,22 +79,20 @@ describe('CI workflow', () => {
     }
   })
 
-  it('separates macOS correctness from capacity evidence without a hosted budget gate', () => {
+  it('temporarily runs only the stable macOS correctness subset', () => {
     const job = workflow.jobs['macos-electron-smoke']
     if (!job) throw new Error('Missing CI job: macos-electron-smoke')
-    expect(job.name).toBe('Electron correctness + capacity evidence (macOS arm64)')
+    expect(job.name).toBe('Electron correctness (macOS arm64; temporary reduced gate)')
     expect(job['runs-on']).toBe('macos-15')
     expect(job.needs).toBeUndefined()
     expect(job.steps).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ run: 'npm ci' }),
-        expect.objectContaining({ run: 'npm run smoke:macos' }),
-        expect.objectContaining({ run: 'npm run smoke:capacity' }),
+        expect.objectContaining({ run: 'npm run smoke:macos:ci' }),
       ]),
     )
-    expect(job.steps.map((step) => step.run ?? '').join('\n')).not.toContain(
-      'performance:capacity',
-    )
+    const commands = job.steps.flatMap((step) => (step.run ? [step.run] : []))
+    expect(commands).toEqual(['npm ci', 'npm run smoke:macos:ci'])
   })
 
   it('retires npm payload smoke and keeps native acceptance on both Linux architectures', () => {

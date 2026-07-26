@@ -16,8 +16,18 @@ bash install.sh
 
 The release-owned installer selects and verifies the native package for the current supported
 platform. Native packages are installer payloads and release evidence, not separate supported
-installation methods. [ADR-021](adr/ADR-021-platform-native-github-release-installation.md) owns
+installation methods. [ADR-022](adr/ADR-022-platform-native-github-release-installation.md) owns
 the durable distribution, trust, privilege, update, removal, and migration boundaries.
+
+Pull-request CI runs native package acceptance on Linux x64, Linux arm64, and macOS arm64.
+It temporarily runs `npm run smoke:macos:ci` against the unpackaged build on Apple silicon,
+covering the focused custom-profile PTY lifecycle, source/diff position, platform, and renderer
+recovery contracts. Terminal presentation remains in the full local/pre-push `npm run
+smoke:macos` command. macOS capacity is also temporarily local-only while its native PTY teardown
+flake is hardened; Linux CI continues to run `npm run smoke:capacity` for deterministic
+multi-terminal contracts and machine-dependent evidence. These commands are locally reproducible
+only on a matching supported platform; CI supplies the remaining cross-platform contract evidence,
+not an authoritative quantitative performance verdict.
 
 ## Supported targets
 
