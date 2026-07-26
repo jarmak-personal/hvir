@@ -195,6 +195,10 @@ describe('Electron smoke command contracts', () => {
     new URL('../scripts/phase8-gauntlet.sh', import.meta.url),
     'utf8',
   )
+  const prePushHook = readFileSync(
+    new URL('../.githooks/pre-push', import.meta.url),
+    'utf8',
+  )
   const contributing = readFileSync(
     new URL('../CONTRIBUTING.md', import.meta.url),
     'utf8',
@@ -229,6 +233,10 @@ describe('Electron smoke command contracts', () => {
     expect(packageJson.scripts['smoke:macos']).toContain(
       'node scripts/run-smoke-scenarios.mts pty-native viewer-position platform-contracts renderer-recovery terminal-presentation',
     )
+    expect(packageJson.scripts['smoke:macos:ci']).toContain(
+      'node scripts/run-smoke-scenarios.mts pty-native viewer-position platform-contracts renderer-recovery',
+    )
+    expect(packageJson.scripts['smoke:macos:ci']).not.toContain('terminal-presentation')
     expect(packageJson.scripts['smoke:macos']).not.toMatch(
       /terminal-presentation capacity/,
     )
@@ -242,6 +250,9 @@ describe('Electron smoke command contracts', () => {
       'HVIR_SMOKE_SCENARIO=capacity HVIR_CAPACITY_PERFORMANCE_GATE=controlled',
     )
     expect(gauntletScript).toContain('npm run performance:capacity')
+    expect(prePushHook).toContain('if [[ "$(uname -s)" == "Darwin" ]]')
+    expect(prePushHook).toMatch(/^\s*exec npm run smoke:macos$/m)
+    expect(prePushHook).not.toContain('smoke:macos:ci')
     expect(contributing).toContain('machine-dependent capacity evidence')
     expect(contributing).toContain('controlled-machine release gate')
   })

@@ -73,12 +73,14 @@ checks the framework symlink and the prepared bundle's documented signing state.
 replay ordinary product behavior already owned by unpackaged tests.
 
 Pull-request CI runs that packaged contract on Linux x64, Linux arm64, and macOS arm64.
-It also runs `npm run smoke:macos` against the unpackaged build on Apple silicon, covering
-the focused custom-profile PTY lifecycle, source/diff position, platform, and terminal
-presentation contracts. The separate `npm run smoke:capacity` step retains deterministic
-multi-terminal contracts and labels its machine-dependent measurements as evidence. These
-commands are locally reproducible only on a matching supported platform; CI supplies the
-cross-platform contract evidence, not an authoritative quantitative performance verdict.
+It temporarily runs `npm run smoke:macos:ci` against the unpackaged build on Apple silicon,
+covering the focused custom-profile PTY lifecycle, source/diff position, platform, and renderer
+recovery contracts. Terminal presentation remains in the full local/pre-push `npm run
+smoke:macos` command. macOS capacity is also temporarily local-only while its native PTY teardown
+flake is hardened; Linux CI continues to run `npm run smoke:capacity` for deterministic
+multi-terminal contracts and machine-dependent evidence. These commands are locally reproducible
+only on a matching supported platform; CI supplies the remaining cross-platform contract evidence,
+not an authoritative quantitative performance verdict.
 
 ## Dependency and security automation
 

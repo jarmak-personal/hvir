@@ -17,4 +17,8 @@ if [[ "$(uname -s)" == "Linux" && -z "${DISPLAY:-}" ]]; then
   exec xvfb-run -a npm run smoke
 fi
 
+if [[ "$(uname -s)" == "Darwin" ]]; then
+  exec npm run smoke:macos
+fi
+
 exec npm run smoke

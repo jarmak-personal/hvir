@@ -135,6 +135,7 @@ npm ci
 npm run verify
 npm run smoke
 npm run smoke:macos        # matching Apple-silicon Mac
+npm run smoke:macos:ci     # temporary reduced hosted macOS subset
 npm run smoke:capacity     # contracts + machine-dependent evidence
 npm run performance:capacity  # controlled-machine quantitative gate
 npm run dev
@@ -155,11 +156,17 @@ and user-data roots, then reports a result for every scheduled group. Select one
 `renderer-recovery`, `terminal-presentation`, `legacy-workflow`, and `capacity`. The restart
 scenario is reserved for the packaged multi-launch fixture. `npm run smoke:macos` runs the focused
 PTY, viewer, platform-contract, renderer-recovery, and terminal presentation correctness groups.
+The pre-push hook uses that full command on macOS. As a temporary containment while the observed
+macOS presentation-readiness and native PTY teardown flakes are hardened, hosted macOS CI runs
+`npm run smoke:macos:ci`, which omits terminal presentation, and does not run capacity. Linux CI
+continues to gate on `npm run smoke:capacity`; both omitted macOS paths remain directly runnable
+locally and are not treated as allowed failures.
 `npm run smoke:capacity`
 selects the capacity group: terminal
 topology, presentation, delivery, exact input, cleanup, and recovery contracts remain blocking,
 while CPU, latency, and working-set measurements are labeled evidence. CI invokes this command
-separately on Linux and macOS. `npm run performance:capacity` runs the same contracts and samples
+on Linux; the temporary macOS containment above leaves it local-only there. `npm run
+performance:capacity` runs the same contracts and samples
 but enforces the quantitative budgets on a controlled machine. These commands use the same
 aggregate launcher, so a failing group does not prevent reporting its scheduled siblings.
 

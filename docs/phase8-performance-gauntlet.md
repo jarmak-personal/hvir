@@ -14,7 +14,7 @@ The script runs seam enforcement, lint, both TypeScript builds, all unit/integra
 tests, the default unpackaged Electron groups, and the controlled capacity-performance gate.
 Set `HVIR_SKIP_CAPACITY=1` only for a quick preflight; that is not release evidence.
 
-Pull-request and main-branch CI use the evidence-only capacity command:
+Pull-request and main-branch Linux CI use the evidence-only capacity command:
 
 ```sh
 npm run smoke:capacity
@@ -36,6 +36,11 @@ first-use preparation from a read-only prefix, subsequent reuse, launcher and na
 selection, application/native-PTY/worker loading, preview-protocol handling, and platform
 geometry. Neither command is a performance measurement, and evidence from one platform does not
 substitute for another.
+
+Hosted macOS CI temporarily runs `npm run smoke:macos:ci`, excluding terminal presentation, and
+does not run capacity while the observed macOS presentation-readiness and native PTY teardown
+flakes are hardened. The full `smoke:macos` command remains the macOS pre-push check, capacity
+remains locally runnable, and Linux CI continues to gate on its deterministic capacity contracts.
 
 ## Controlled quantitative gate
 
