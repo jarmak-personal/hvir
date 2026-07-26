@@ -29,6 +29,7 @@ import type {
   HarnessSessionDiscovery,
   HarnessArtifactContext,
 } from '../harness/harness-provider'
+import { harnessShellCommandArgs } from '../harness/harness-shell-environment'
 
 export interface PtySpawnRequest {
   readonly host: ProjectHost
@@ -55,7 +56,7 @@ export interface PtySpawnRequest {
   readonly admission?: 'interactive' | 'bulk'
   readonly cols?: number
   readonly rows?: number
-  /** Re-probe once when the interactive shell reports a missing executable. */
+  /** Re-probe once when the login-interactive shell reports a missing executable. */
   readonly onClassifiedLaunchFailure?: () => void
 }
 
@@ -261,7 +262,10 @@ export class PtySupervisor {
       const spec =
         req.launchSpec ?? (resumed ? req.provider.resume(ctx) : req.provider.launch(ctx))
       const launch = spec.shellEnvironment
-        ? interactiveShellLaunch(defaultShell, spec.file, spec.args)
+        ? {
+            file: defaultShell,
+            args: harnessShellCommandArgs(spec.file, spec.args),
+          }
         : spec
       launchedAtMs = Date.now()
       pty = await req.host.spawnPty({
@@ -926,15 +930,6 @@ export class PtySupervisor {
   }
 }
 
-function interactiveShellLaunch(
-  shell: string,
-  file: string,
-  args: readonly string[],
-): { file: string; args: readonly string[] } {
-  const command = [file, ...args].map(shellQuote).join(' ')
-  return { file: shell, args: ['-ic', `exec ${command}`] }
-}
-
 function lifetimeBucket(elapsedMs: number): 'under-30s' | 'under-5m' | '5m-or-more' {
   if (elapsedMs < 30_000) return 'under-30s'
   if (elapsedMs < 5 * 60_000) return 'under-5m'
@@ -950,10 +945,6 @@ function classifiedEarlyExit(exit: PtyExit, output: string, elapsedMs: number): 
       output,
     )
   )
-}
-
-function shellQuote(value: string): string {
-  return `'${value.replaceAll("'", `'"'"'`)}'`
 }
 
 function identityStatus(

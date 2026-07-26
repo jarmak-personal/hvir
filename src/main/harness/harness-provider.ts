@@ -50,7 +50,7 @@ export interface HarnessLaunchSpec {
   readonly file: string
   readonly args: readonly string[]
   readonly env?: Record<string, string>
-  /** Resolve the command in the user's interactive shell environment. */
+  /** Resolve the command in the user's login-interactive shell environment. */
   readonly shellEnvironment?: boolean
 }
 
