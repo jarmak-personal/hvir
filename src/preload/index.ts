@@ -52,6 +52,7 @@ const api: HvirApi = {
     signalRendererReady()
   },
   diagnostics: {
+    processSandboxed: process.sandboxed,
     recordRenderContainment: (occurrenceId) =>
       rendererDiagnostics.recordRenderContainment(occurrenceId),
     recordResponsivenessObservation: (observation) =>

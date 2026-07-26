@@ -28,6 +28,18 @@ describe('HarnessProbeManager', () => {
     expect(first[0]).toMatchObject({ status: 'available', version: 'claude 9.2.1' })
     expect(second).toEqual(first)
     expect(exec).toHaveBeenCalledTimes(2)
+    expect(exec).toHaveBeenNthCalledWith(
+      1,
+      '/bin/zsh',
+      ['-lic', `command -v 'claude' >/dev/null 2>&1`],
+      expect.any(Object),
+    )
+    expect(exec).toHaveBeenNthCalledWith(
+      2,
+      '/bin/zsh',
+      ['-lic', `exec 'claude' '--version'`],
+      expect.any(Object),
+    )
 
     await manager.probeProfiles(request)
     expect(exec).toHaveBeenCalledTimes(2)

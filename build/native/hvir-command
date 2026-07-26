@@ -1,0 +1,41 @@
+#!/bin/sh
+set -eu
+
+# hvir-native-package-command-v1
+
+case "$(/usr/bin/uname -s)" in
+Linux)
+  application='/opt/hvir/hvir'
+  ;;
+Darwin)
+  application='/Applications/hvir.app/Contents/MacOS/hvir'
+  ;;
+*)
+  echo 'hvir: the installed command is available only on Linux and macOS' >&2
+  exit 69
+  ;;
+esac
+
+if [ "$#" -gt 0 ]; then
+  case "$1" in
+  -*)
+    # Smoke and Chromium switches are explicit internal options.
+    ;;
+  *)
+    caller_directory=$(pwd -P)
+    case "$1" in
+    /*) project_candidate=$1 ;;
+    *) project_candidate=$caller_directory/$1 ;;
+    esac
+    if [ ! -d "$project_candidate" ]; then
+      echo "hvir: project is not a local directory: $1" >&2
+      exit 64
+    fi
+    project_root=$(CDPATH= cd -P "$project_candidate" && pwd -P)
+    shift
+    set -- "--project-root=$project_root" "$@"
+    ;;
+  esac
+fi
+
+exec "$application" "$@"

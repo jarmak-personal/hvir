@@ -140,7 +140,7 @@ describe('PtySupervisor', () => {
     )
   })
 
-  it('launches harness commands through the interactive shell environment', async () => {
+  it('launches harness commands through the login-interactive shell environment', async () => {
     const { supervisor, host, provider, spawnPty } = fixture()
     Object.assign(provider, {
       launch: () => ({
@@ -162,7 +162,7 @@ describe('PtySupervisor', () => {
     expect(spawnPty).toHaveBeenCalledWith(
       expect.objectContaining({
         file: '/remote/bin/bash',
-        args: ['-ic', `exec 'test-harness' 'launch' 'profile'"'"'s command'`],
+        args: ['-lic', `exec 'test-harness' 'launch' 'profile'"'"'s command'`],
         env: {
           TERM: 'xterm-256color',
           COLORTERM: 'truecolor',

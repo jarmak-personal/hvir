@@ -240,6 +240,7 @@ interface MockTerminalEventHandlers extends TerminalEventHandlers {
 class FakeHvirApi implements HvirApi {
   rendererReady(): void {}
   readonly diagnostics = {
+    processSandboxed: true,
     recordRenderContainment: vi.fn(),
     recordResponsivenessObservation: vi.fn(),
     flushResponsivenessObservations: vi.fn(),

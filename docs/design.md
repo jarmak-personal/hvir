@@ -188,6 +188,12 @@ forgets only hvir's host-qualified metadata while provider-native recovery remai
 Explicit branch switches and fast-forward pulls may run with working-tree changes; system Git
 decides whether it can preserve them while hvir retains its bounded mutation and authority model.
 
+### [ADR-022 — Platform-native installation from immutable GitHub Releases](adr/ADR-022-platform-native-github-release-installation.md)
+
+One release-owned installer selects and verifies platform-native packages from an immutable
+GitHub Release; native package managers own privileged installation and removal, while npm
+distribution is retired after cumulative acceptance.
+
 ## 5. Architecture
 
 ### Process model

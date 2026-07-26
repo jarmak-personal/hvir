@@ -9,6 +9,8 @@ files:
 extraResources:
   - from: THIRD_PARTY_NOTICES.md
     to: THIRD_PARTY_NOTICES.md
+  - from: build/native/hvir-command
+    to: hvir-command
 asar: true
 asarUnpack:
   - node_modules/**/*.node
@@ -19,14 +21,43 @@ npmRebuild: false
 mac:
   icon: build/icon.icns
   category: public.app-category.developer-tools
-  # Phase 8 ships deterministic unsigned v1 npm payloads. Remove this when the
-  # Developer ID + notarization decision in docs/packaging.md is activated.
-  identity: null
+  target:
+    - pkg
   hardenedRuntime: true
   entitlements: build/entitlements.mac.plist
   entitlementsInherit: build/entitlements.mac.inherit.plist
+pkg:
+  artifactName: hvir-${version}-macos-${arch}.${ext}
+  scripts: pkg-scripts
+  installLocation: /Applications
+  allowAnywhere: false
+  allowCurrentUserHome: false
+  allowRootDirectory: true
+  isRelocatable: false
+  isVersionChecked: true
+  hasStrictIdentifier: true
+  overwriteAction: upgrade
 linux:
   icon: build/icons
   executableName: hvir
   syncDesktopName: true
   category: Development
+  target:
+    - deb
+deb:
+  packageCategory: devel
+  appArmorProfile: build/linux/hvir.apparmor
+  afterInstall: build/linux/after-install.sh
+  afterRemove: build/linux/after-remove.sh
+  depends:
+    - apparmor
+    - libatspi2.0-0
+    - libgtk-3-0
+    - libnotify4
+    - libnss3
+    - libsecret-1-0
+    - libuuid1
+    - libxss1
+    - libxtst6
+    - xdg-utils
+  recommends: []

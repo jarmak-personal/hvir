@@ -37,6 +37,10 @@ export async function verifyPlatformContracts({
 }): Promise<string> {
   const snapshot = await platformContractSnapshot(win)
   assertPlatformGeometry(snapshot)
+  const processSandboxStatus =
+    process.env['HVIR_SMOKE_REQUIRE_PROCESS_SANDBOX'] === '1'
+      ? await verifyRequiredProcessSandbox(win)
+      : ''
 
   const terminals = supervisor.list()
   if (terminals.length !== 1) {
@@ -62,8 +66,21 @@ export async function verifyPlatformContracts({
     `${process.platform} ${process.arch} · ${snapshot.viewport.width}×${snapshot.viewport.height} ` +
     `· terminal ${Math.round(snapshot.terminalPanel.height)}px · ` +
     `canvas remainder ${rightRemainder.toFixed(1)}×${bottomRemainder.toFixed(1)}px ` +
-    `· pid ${terminal.pid} · ${protocolStatus}`
+    `${processSandboxStatus}· pid ${terminal.pid} · ${protocolStatus}`
   )
+}
+
+async function verifyRequiredProcessSandbox(win: BrowserWindow): Promise<string> {
+  if (process.argv.includes('--no-sandbox')) {
+    throw new Error('required Chromium process sandbox was disabled by --no-sandbox')
+  }
+  const rendererSandboxed = (await win.webContents.executeJavaScript(`
+    window.hvir?.diagnostics?.processSandboxed === true
+  `)) as boolean
+  if (!rendererSandboxed) {
+    throw new Error('required Chromium renderer sandbox is not active')
+  }
+  return '· renderer sandbox active '
 }
 
 async function verifyPreviewProtocol(htmlPreviews: HtmlPreviewProtocol): Promise<string> {

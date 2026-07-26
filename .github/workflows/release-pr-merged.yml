@@ -73,7 +73,7 @@ jobs:
             exit 1
           fi
 
-          gh workflow run release-npm.yml \
+          gh workflow run release.yml \
             --repo "$GITHUB_REPOSITORY" \
             --ref "$DEFAULT_BRANCH" \
             -f bump=current \
