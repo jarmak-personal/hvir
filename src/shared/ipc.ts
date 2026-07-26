@@ -149,6 +149,19 @@ export type PruneProjectWorktreesRequest = RefreshProjectRequest
 export type DismissWorkspaceRequest = SwitchWorkspaceRequest
 export type AcknowledgeWorkspaceRequest = SwitchWorkspaceRequest
 
+export type PlanWorkspaceCloseRequest = SwitchWorkspaceRequest
+
+export interface WorkspaceClosePlan {
+  readonly terminalCount: number
+}
+
+export interface CloseWorkspaceRequest extends SwitchWorkspaceRequest {
+  readonly expectedTerminalCount: number
+  readonly terminateTerminals: boolean
+}
+
+export type ReopenWorkspaceRequest = SwitchWorkspaceRequest
+
 export interface ConnectHostRequest {
   readonly hostId: string
 }
@@ -585,6 +598,18 @@ export interface IpcInvokeMap {
     request: DismissWorkspaceRequest
     response: OperationResult<ProjectState>
   }
+  'workspace:plan-close': {
+    request: PlanWorkspaceCloseRequest
+    response: OperationResult<WorkspaceClosePlan>
+  }
+  'workspace:close': {
+    request: CloseWorkspaceRequest
+    response: OperationResult<ProjectState>
+  }
+  'workspace:reopen': {
+    request: ReopenWorkspaceRequest
+    response: OperationResult<ProjectState>
+  }
   'workspace:acknowledge': {
     request: AcknowledgeWorkspaceRequest
     response: OperationResult<ProjectState>
@@ -826,6 +851,9 @@ export const INVOKE_CHANNELS = [
   'project:close',
   'workspace:prune',
   'workspace:dismiss',
+  'workspace:plan-close',
+  'workspace:close',
+  'workspace:reopen',
   'workspace:acknowledge',
   'ssh:prompt-response',
   'fs:readdir',

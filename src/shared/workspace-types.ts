@@ -1,6 +1,33 @@
 import type { HostConnectionState, HostWatchTier } from './fs-types'
 import type { HostPath } from './host-path'
 
+export const WORKSPACE_ACTIVITY_SCHEMA = 1
+export const WORKSPACE_ACTIVITY_STATUS_LIMIT = 2_000
+export const WORKSPACE_ACTIVITY_FIELDS = 'head-branch-porcelain-v2-path-state' as const
+
+/** Bounded result of the existing per-worktree porcelain status invocation. */
+export interface WorkspaceStatusActivity {
+  readonly schema: typeof WORKSPACE_ACTIVITY_SCHEMA
+  readonly fields: typeof WORKSPACE_ACTIVITY_FIELDS
+  readonly statusLimit: typeof WORKSPACE_ACTIVITY_STATUS_LIMIT
+  readonly statusEntryCount: number
+  readonly statusTruncated: boolean
+  readonly statusDigest: string
+}
+
+/** Host-qualified comparison state retained only for a closed workspace. */
+export interface WorkspaceActivitySnapshot extends WorkspaceStatusActivity {
+  readonly root: HostPath
+  readonly head?: string
+  readonly branch?: string
+}
+
+export interface WorkspaceActivityResult {
+  readonly changedFiles: number
+  /** Omitted when the root is no longer a Git repository. */
+  readonly status?: WorkspaceStatusActivity
+}
+
 /** One checkout reported by `git worktree list`, or the root of a plain directory. */
 export interface DiscoveredWorktree {
   readonly root: HostPath
@@ -26,6 +53,8 @@ export interface WorkspaceState {
   readonly head?: string
   readonly branch?: string
   readonly main: boolean
+  /** Closed workspaces stay in the catalog but own no renderer workspace runtime. */
+  readonly closed: boolean
   readonly missing: boolean
   /** Present only when Git still lists this missing workspace as prunable. */
   readonly prunableReason?: string

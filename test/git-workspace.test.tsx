@@ -125,6 +125,7 @@ function projectState(): ProjectState {
             root,
             name: 'repo',
             main: true,
+            closed: false,
             missing: false,
             repository: true,
             changedFiles: 1,

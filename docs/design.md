@@ -194,6 +194,11 @@ One release-owned installer selects and verifies platform-native packages from a
 GitHub Release; native package managers own privileged installation and removal, while npm
 distribution is retired after cumulative acceptance.
 
+### [ADR-023 — Closed workspaces unload and resurface on bounded Git activity](adr/ADR-023-closed-workspace-lifecycle.md)
+
+Present inactive worktrees may close without changing Git; closed workspaces retain no runtime and
+return without activation after comparable bounded Git activity or successful rediscovery.
+
 ## 5. Architecture
 
 ### Process model

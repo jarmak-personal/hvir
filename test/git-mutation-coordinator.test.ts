@@ -37,6 +37,7 @@ function projectState(): ProjectState {
             root,
             name: 'project',
             main: true,
+            closed: false,
             missing: false,
             repository: true,
             changedFiles: 0,
@@ -46,6 +47,7 @@ function projectState(): ProjectState {
             root: worktreeRoot,
             name: 'project-worktree',
             main: false,
+            closed: false,
             missing: false,
             repository: true,
             changedFiles: 0,
@@ -55,6 +57,7 @@ function projectState(): ProjectState {
             root: staleRoot,
             name: 'project-stale',
             main: false,
+            closed: false,
             missing: true,
             prunableReason: 'gitdir file points to a missing location',
             repository: true,
@@ -110,7 +113,7 @@ function fixture() {
   const cleanup: GitMutationCleanupPort = {
     forgetWorkspaceSessions: vi.fn(() => Promise.resolve()),
     revokeWorkspace: vi.fn(() => Promise.resolve()),
-    closeWorkspace: vi.fn(() => Promise.resolve()),
+    closeWorkspaceWebPanes: vi.fn(() => Promise.resolve()),
     clearHtmlPreviews: vi.fn(),
   }
   const revoke = vi.fn()
@@ -169,7 +172,7 @@ describe('GitMutationCoordinator', () => {
     expect(cleanup.forgetWorkspaceSessions).toHaveBeenCalledWith(staleRoot)
     expect(registry.dismissWorkspace).toHaveBeenCalledWith('project-1', 'workspace-stale')
     expect(cleanup.revokeWorkspace).toHaveBeenCalledWith(staleRoot)
-    expect(cleanup.closeWorkspace).toHaveBeenCalledWith(staleRoot)
+    expect(cleanup.closeWorkspaceWebPanes).toHaveBeenCalledWith(staleRoot)
     expect(cleanup.clearHtmlPreviews).not.toHaveBeenCalled()
   })
 

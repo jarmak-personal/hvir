@@ -17,7 +17,7 @@ import { PaneResizer } from './layout/PaneResizer'
 import type { WebViewState } from './dashboards/WebPane'
 import { WebPaneStack } from './dashboards/WebPaneStack'
 import { useWebPaneWorkspace } from './dashboards/use-web-pane-workspace'
-import { TerminalWorkspace } from './terminal/TerminalWorkspace'
+import { TerminalWorkspaceCollection } from './terminal/TerminalWorkspaceCollection'
 import { useTerminalWorkspaceRuntime } from './terminal/use-terminal-workspace-runtime'
 import { useTerminalAttention } from './terminal/use-terminal-attention'
 import { ProjectsBar } from './workspaces/ProjectsBar'
@@ -403,6 +403,13 @@ export function App(): ReactElement {
           onDismiss={(projectId, workspaceId) =>
             void session.dismissWorkspace(projectId, workspaceId)
           }
+          onPlanCloseWorkspace={session.planWorkspaceClose}
+          onCloseWorkspace={(projectId, workspaceId, plan, terminateTerminals) =>
+            void session.closeWorkspace(projectId, workspaceId, plan, terminateTerminals)
+          }
+          onReopenWorkspace={(projectId, workspaceId) =>
+            void session.reopenWorkspace(projectId, workspaceId)
+          }
           watchTier={watchTier}
           statusError={session.error}
           onChangeConnection={overlays.openProjectPicker}
@@ -611,40 +618,30 @@ export function App(): ReactElement {
           onReset={resetTerminalHeight}
           action={<TerminalLayoutControls mode={terminalMode} onMode={setTerminalMode} />}
         />
-        {projectState?.projects.flatMap((project) =>
-          project.workspaces.map((workspace) => (
-            <TerminalWorkspace
-              key={workspace.id}
-              workspaceId={workspace.id}
-              cwd={workspace.root}
-              label={workspace.name}
-              available={!workspace.missing}
-              visible={workspace.id === projectState.activeWorkspaceId}
-              railCompact={layout.terminalRailCompact}
-              onRailCompact={layout.setTerminalRailCompact}
-              connectionState={project.connectionState}
-              {...terminalWorkspaces.moveProps(project, workspace)}
-              onRollup={terminalAttention.updateRollup}
-              onOpenPath={(target) =>
-                openFile(
-                  target.path,
-                  true,
-                  'file-tree',
-                  'head',
-                  undefined,
-                  target.line === undefined
-                    ? undefined
-                    : { line: target.line, column: target.column },
-                )
-              }
-              onOpenWebLink={openWebLink}
-              preferences={terminalPreferences(settings)}
-              onOpenSettings={() => overlays.openSettings()}
-              onOpenHarnessSettings={() => overlays.openSettings('harnesses')}
-              onAddHarness={overlays.openAddHarnessSettings}
-            />
-          )),
-        )}
+        <TerminalWorkspaceCollection
+          state={projectState}
+          runtime={terminalWorkspaces}
+          railCompact={layout.terminalRailCompact}
+          onRailCompact={layout.setTerminalRailCompact}
+          onRollup={terminalAttention.updateRollup}
+          onOpenPath={(target) =>
+            openFile(
+              target.path,
+              true,
+              'file-tree',
+              'head',
+              undefined,
+              target.line === undefined
+                ? undefined
+                : { line: target.line, column: target.column },
+            )
+          }
+          onOpenWebLink={openWebLink}
+          preferences={terminalPreferences(settings)}
+          onOpenSettings={() => overlays.openSettings()}
+          onOpenHarnessSettings={() => overlays.openSettings('harnesses')}
+          onAddHarness={overlays.openAddHarnessSettings}
+        />
       </main>
       {overlays.projectPickerOpen ? (
         <SessionDialog

@@ -16,6 +16,9 @@ type ProjectCommandDeps = Pick<
   | 'closeProject'
   | 'pruneWorktrees'
   | 'dismissWorkspace'
+  | 'planWorkspaceClose'
+  | 'closeWorkspace'
+  | 'reopenWorkspace'
   | 'acknowledgeWorkspace'
   | 'switchGitBranch'
   | 'fetchGit'
@@ -50,6 +53,17 @@ export function createProjectCommands({
     pruneWorktrees: (projectId) => git.pruneWorktrees(projectId),
     dismissWorkspace: (projectId, workspaceId) =>
       projects.dismissWorkspace(projectId, workspaceId),
+    planWorkspaceClose: (projectId, workspaceId) =>
+      Promise.resolve(projects.planWorkspaceClose(projectId, workspaceId)),
+    closeWorkspace: (projectId, workspaceId, expectedTerminalCount, terminateTerminals) =>
+      projects.closeWorkspace(
+        projectId,
+        workspaceId,
+        expectedTerminalCount,
+        terminateTerminals,
+      ),
+    reopenWorkspace: (projectId, workspaceId) =>
+      projects.reopenWorkspace(projectId, workspaceId),
     acknowledgeWorkspace: (projectId, workspaceId) =>
       projects.acknowledgeWorkspace(projectId, workspaceId),
     switchGitBranch: (root, branch) => git.switchBranch(root, branch),

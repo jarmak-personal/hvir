@@ -43,6 +43,7 @@ function projectState(activeProjectId = 'project-1'): ProjectState {
             root: remoteRoot,
             name: 'project',
             main: true,
+            closed: false,
             missing: false,
             repository: true,
             changedFiles: 0,
@@ -52,6 +53,7 @@ function projectState(activeProjectId = 'project-1'): ProjectState {
             root: remoteOtherRoot,
             name: 'project-worktree',
             main: false,
+            closed: false,
             missing: true,
             repository: true,
             changedFiles: 0,
@@ -71,6 +73,7 @@ function projectState(activeProjectId = 'project-1'): ProjectState {
             root: localRoot,
             name: 'other',
             main: true,
+            closed: false,
             missing: false,
             repository: false,
             changedFiles: 0,
@@ -150,6 +153,25 @@ function fixture() {
       state = { ...projectState('project-2'), projects: projectState().projects.slice(1) }
       return Promise.resolve(state)
     }),
+    closeWorkspace: vi.fn<ProjectRegistryPort['closeWorkspace']>(() =>
+      Promise.resolve(state),
+    ),
+    restoreWorkspaceAfterFailedClose: vi.fn<
+      ProjectRegistryPort['restoreWorkspaceAfterFailedClose']
+    >(() => Promise.resolve(state)),
+    reopenWorkspace: vi.fn<ProjectRegistryPort['reopenWorkspace']>(
+      (projectId, workspaceId) => {
+        const remote = projectId === 'project-1'
+        active = {
+          host: remote ? remoteHost : localHost,
+          root: remote ? remoteRoot : localRoot,
+          projectId,
+          workspaceId,
+        }
+        state = projectState(projectId)
+        return Promise.resolve(state)
+      },
+    ),
     dismissWorkspace: vi.fn<ProjectRegistryPort['dismissWorkspace']>(() =>
       Promise.resolve(state),
     ),
@@ -172,7 +194,11 @@ function fixture() {
     revokeWorkspace: vi.fn<ProjectCleanupPort['revokeWorkspace']>(() =>
       Promise.resolve(),
     ),
-    closeWorkspace: vi.fn<ProjectCleanupPort['closeWorkspace']>(() => Promise.resolve()),
+    closeWorkspaceWebPanes: vi.fn<ProjectCleanupPort['closeWorkspaceWebPanes']>(() =>
+      Promise.resolve(),
+    ),
+    workspaceTerminalIds: vi.fn<ProjectCleanupPort['workspaceTerminalIds']>(() => []),
+    closeWorkspaceTerminals: vi.fn<ProjectCleanupPort['closeWorkspaceTerminals']>(),
     forgetWorkspaceSessions: vi.fn<ProjectCleanupPort['forgetWorkspaceSessions']>(() =>
       Promise.resolve(),
     ),
@@ -286,12 +312,87 @@ describe('ProjectCoordinator', () => {
     await coordinator.closeProject('project-1')
 
     expect(registry.closeProject).toHaveBeenCalledWith('project-1')
-    expect(cleanup.closeWorkspace).toHaveBeenCalledWith(remoteRoot)
-    expect(cleanup.closeWorkspace).toHaveBeenCalledWith(remoteOtherRoot)
+    expect(cleanup.closeWorkspaceWebPanes).toHaveBeenCalledWith(remoteRoot)
+    expect(cleanup.closeWorkspaceWebPanes).toHaveBeenCalledWith(remoteOtherRoot)
     expect(vi.mocked(workspaces.replaceWatch).mock.calls).toEqual([
       [],
       [expect.objectContaining({ root: localRoot, projectId: 'project-2' })],
     ])
+  })
+
+  it('requires an exact destructive terminal plan before closing workspace resources', async () => {
+    const { coordinator, registry, cleanup } = fixture()
+    vi.mocked(cleanup.workspaceTerminalIds).mockReturnValue([
+      'terminal-1',
+      'terminal-1',
+      'terminal-2',
+    ])
+
+    expect(coordinator.planWorkspaceClose('project-2', 'workspace-2')).toEqual({
+      terminalCount: 2,
+    })
+    await expect(
+      coordinator.closeWorkspace('project-2', 'workspace-2', 1, true),
+    ).rejects.toThrow('terminal count changed')
+    await expect(
+      coordinator.closeWorkspace('project-2', 'workspace-2', 2, false),
+    ).rejects.toThrow('Confirm terminal termination')
+
+    await coordinator.closeWorkspace('project-2', 'workspace-2', 2, true)
+
+    expect(registry.closeWorkspace).toHaveBeenCalledWith('project-2', 'workspace-2')
+    expect(cleanup.closeWorkspaceTerminals).toHaveBeenCalledWith(localRoot)
+    expect(cleanup.forgetWorkspaceSessions).toHaveBeenCalledWith(localRoot)
+    expect(cleanup.revokeWorkspace).toHaveBeenCalledWith(localRoot)
+    expect(cleanup.closeWorkspaceWebPanes).toHaveBeenCalledWith(localRoot)
+  })
+
+  it('applies the same host-qualified close contract to an SSH workspace', async () => {
+    const { coordinator, cleanup } = fixture()
+    await coordinator.switchWorkspace('project-2', 'workspace-2')
+
+    expect(coordinator.planWorkspaceClose('project-1', 'workspace-1')).toEqual({
+      terminalCount: 0,
+    })
+    await coordinator.closeWorkspace('project-1', 'workspace-1', 0, false)
+
+    expect(cleanup.closeWorkspaceTerminals).toHaveBeenCalledWith(remoteRoot)
+    expect(cleanup.forgetWorkspaceSessions).toHaveBeenCalledWith(remoteRoot)
+    expect(cleanup.revokeWorkspace).toHaveBeenCalledWith(remoteRoot)
+    expect(cleanup.closeWorkspaceWebPanes).toHaveBeenCalledWith(remoteRoot)
+  })
+
+  it('restores an open catalog record when confirmed-close cleanup fails', async () => {
+    const { coordinator, registry, cleanup } = fixture()
+    vi.mocked(cleanup.revokeWorkspace).mockRejectedValueOnce(
+      new Error('resource cleanup failed'),
+    )
+
+    await expect(
+      coordinator.closeWorkspace('project-2', 'workspace-2', 0, false),
+    ).rejects.toThrow('Workspace close cleanup failed')
+
+    expect(registry.restoreWorkspaceAfterFailedClose).toHaveBeenCalledWith(
+      'project-2',
+      'workspace-2',
+    )
+    expect(cleanup.closeWorkspaceTerminals).toHaveBeenCalledWith(localRoot)
+    expect(cleanup.forgetWorkspaceSessions).toHaveBeenCalledWith(localRoot)
+    expect(cleanup.closeWorkspaceWebPanes).toHaveBeenCalledWith(localRoot)
+  })
+
+  it('never closes the active workspace and reopens a closed workspace through activation', async () => {
+    const { coordinator, registry, workspaces } = fixture()
+
+    expect(() => coordinator.planWorkspaceClose('project-1', 'workspace-1')).toThrow(
+      'Select another workspace',
+    )
+    await coordinator.reopenWorkspace('project-2', 'workspace-2')
+
+    expect(registry.reopenWorkspace).toHaveBeenCalledWith('project-2', 'workspace-2')
+    expect(workspaces.replaceWatch).toHaveBeenCalledWith(
+      expect.objectContaining({ root: localRoot }),
+    )
   })
 
   it('forgets recovery state before dismissing a missing workspace', async () => {

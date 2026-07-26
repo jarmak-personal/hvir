@@ -20,6 +20,7 @@
 @import './styles/git-graph.css';
 @import './styles/git-inspector.css';
 @import './styles/dialogs.css';
+@import './styles/workspace-catalog.css';
 @import './styles/tree.css';
 @import './styles/viewer-content.css';
 @import './styles/terminal-pane.css';

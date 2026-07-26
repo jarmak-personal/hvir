@@ -269,6 +269,7 @@ export class TerminalWorkspaceMoveCoordinator {
     }
     if (source.id === target.id) throw new Error('Terminal is already in this workspace')
     if (target.missing) throw new Error('Target worktree is no longer present')
+    if (target.closed) throw new Error('Reopen the target workspace before moving')
     if (
       source.root.hostId !== project.registeredRoot.hostId ||
       target.root.hostId !== project.registeredRoot.hostId

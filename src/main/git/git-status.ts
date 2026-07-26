@@ -1,4 +1,14 @@
-import { GIT_CHANGE_DISPLAY_LIMIT, type GitChanges, type HostPath } from '../../shared'
+import { createHash } from 'node:crypto'
+
+import {
+  GIT_CHANGE_DISPLAY_LIMIT,
+  WORKSPACE_ACTIVITY_FIELDS,
+  WORKSPACE_ACTIVITY_SCHEMA,
+  WORKSPACE_ACTIVITY_STATUS_LIMIT,
+  type GitChanges,
+  type HostPath,
+  type WorkspaceActivityResult,
+} from '../../shared'
 import { gitError, shortRef, type GitCommandContext } from './git-command-context'
 import {
   changedFile,
@@ -18,10 +28,10 @@ import {
 export class GitStatusCapability {
   constructor(private readonly context: GitCommandContext) {}
 
-  async changedFileCount(
+  async workspaceActivity(
     workspaceRoot: HostPath,
     relatedWorktreeRoots: readonly HostPath[] = [],
-  ): Promise<number> {
+  ): Promise<WorkspaceActivityResult> {
     this.context.assertHost(workspaceRoot)
     const hasNestedWorktree = relatedWorktreeRoots.some((candidate) =>
       isNestedHostPath(candidate, workspaceRoot),
@@ -29,7 +39,7 @@ export class GitStatusCapability {
     const repositoryPrefix = hasNestedWorktree
       ? (await this.context.project(workspaceRoot))?.repositoryPrefix
       : ''
-    if (repositoryPrefix === undefined) return 0
+    if (repositoryPrefix === undefined) return { changedFiles: 0 }
     const status = await this.context.boundedStatus(workspaceRoot, [
       'status',
       '--porcelain=v2',
@@ -38,17 +48,28 @@ export class GitStatusCapability {
       '--',
       '.',
     ])
-    if (status.truncated) return GIT_CHANGE_DISPLAY_LIMIT + 1
-    const count = excludeNestedWorktrees(
-      parseStatus(
-        status.output,
-        hasNestedWorktree ? undefined : GIT_CHANGE_DISPLAY_LIMIT + 1,
-      ),
+    const entries = excludeNestedWorktrees(
+      parseStatus(status.output),
       workspaceRoot,
       repositoryPrefix,
       relatedWorktreeRoots,
-    ).length
-    return Math.min(count, GIT_CHANGE_DISPLAY_LIMIT + 1)
+    )
+    const statusTruncated =
+      status.truncated || entries.length > WORKSPACE_ACTIVITY_STATUS_LIMIT
+    const bounded = entries.slice(0, WORKSPACE_ACTIVITY_STATUS_LIMIT)
+    return {
+      changedFiles: statusTruncated
+        ? GIT_CHANGE_DISPLAY_LIMIT + 1
+        : Math.min(bounded.length, GIT_CHANGE_DISPLAY_LIMIT + 1),
+      status: {
+        schema: WORKSPACE_ACTIVITY_SCHEMA,
+        fields: WORKSPACE_ACTIVITY_FIELDS,
+        statusLimit: WORKSPACE_ACTIVITY_STATUS_LIMIT,
+        statusEntryCount: bounded.length,
+        statusTruncated,
+        statusDigest: digestStatusEntries(bounded),
+      },
+    }
   }
 
   async changes(
@@ -265,6 +286,30 @@ export class GitStatusCapability {
     }
     return { ignoredNames }
   }
+}
+
+function digestStatusEntries(entries: readonly ParsedStatus[]): string {
+  const digest = createHash('sha256')
+  const ordered = [...entries].sort((left, right) => {
+    if (left.path !== right.path) return left.path < right.path ? -1 : 1
+    const leftOriginal = left.originalPath ?? ''
+    const rightOriginal = right.originalPath ?? ''
+    return leftOriginal === rightOriginal ? 0 : leftOriginal < rightOriginal ? -1 : 1
+  })
+  for (const entry of ordered) {
+    digest.update(entry.statusCode)
+    digest.update('\0')
+    digest.update(entry.staged ? '1' : '0')
+    digest.update(entry.unstaged ? '1' : '0')
+    digest.update(entry.untracked ? '1' : '0')
+    digest.update(entry.conflicted ? '1' : '0')
+    digest.update('\0')
+    digest.update(entry.path)
+    digest.update('\0')
+    digest.update(entry.originalPath ?? '')
+    digest.update('\0')
+  }
+  return digest.digest('hex')
 }
 
 async function addUntrackedStats(

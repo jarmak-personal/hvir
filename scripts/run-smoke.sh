@@ -9,6 +9,8 @@ source_checkout=$PWD
 while IFS= read -r variable; do
   if [[ -n "$variable" ]]; then unset "$variable"; fi
 done < <(git -C "$source_checkout" rev-parse --local-env-vars)
+# A built smoke must never attach to an unrelated renderer development server.
+unset ELECTRON_RENDERER_URL
 
 source_commit=$(git -C "$source_checkout" rev-parse HEAD)
 source_dirty=0

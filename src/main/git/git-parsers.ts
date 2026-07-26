@@ -139,6 +139,8 @@ export function assertRevision(revision: string): void {
 
 export interface ParsedStatus {
   readonly path: string
+  readonly originalPath?: string
+  readonly statusCode: string
   readonly staged: boolean
   readonly unstaged: boolean
   readonly untracked: boolean
@@ -157,6 +159,7 @@ export function parseStatus(output: string, limit?: number): readonly ParsedStat
       if (path) {
         result.push({
           path,
+          statusCode: '?',
           staged: false,
           unstaged: false,
           untracked: true,
@@ -171,6 +174,7 @@ export function parseStatus(output: string, limit?: number): readonly ParsedStat
       if (path) {
         result.push({
           path,
+          statusCode: `u:${fields[1] ?? ''}`,
           staged: true,
           unstaged: true,
           untracked: false,
@@ -186,6 +190,10 @@ export function parseStatus(output: string, limit?: number): readonly ParsedStat
       if (path) {
         result.push({
           path,
+          ...(record.startsWith('2 ') && records[index + 1]
+            ? { originalPath: records[index + 1] }
+            : {}),
+          statusCode: `${record[0]}:${xy}`,
           staged: xy[0] !== '.',
           unstaged: xy[1] !== '.',
           untracked: false,
@@ -402,8 +410,9 @@ export function changedFile(
   stats: ReadonlyMap<string, { additions: number; deletions: number }>,
 ): GitChangedFile {
   const counts = stats.get(file.path) ?? { additions: 0, deletions: 0 }
+  const { originalPath: _originalPath, statusCode: _statusCode, ...rendererStatus } = file
   const base = {
-    ...file,
+    ...rendererStatus,
     path: projectFilePath(root, repositoryPrefix, file.path),
   }
   if (!stats.has(file.path) && file.untracked) return base

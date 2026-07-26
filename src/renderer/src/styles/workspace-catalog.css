@@ -1,0 +1,48 @@
+.closed-worktrees-list {
+  max-height: min(320px, 48vh);
+  overflow: auto;
+  border: 1px solid var(--border-subtle);
+  border-radius: 4px;
+  background: var(--surface-1);
+}
+
+.closed-worktree-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 10px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.closed-worktree-row:last-child {
+  border-bottom: 0;
+}
+
+.closed-worktree-row > span {
+  min-width: 0;
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.closed-worktree-row strong,
+.closed-worktree-row code,
+.closed-worktree-row small {
+  overflow-wrap: anywhere;
+}
+
+.closed-worktree-row strong {
+  color: var(--text);
+  font-size: 11px;
+}
+
+.closed-worktree-row code,
+.closed-worktree-row small {
+  color: var(--text-muted);
+  font-size: 9px;
+}
+
+.closed-worktree-row button {
+  flex: 0 0 auto;
+}

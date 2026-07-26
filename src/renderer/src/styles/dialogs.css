@@ -32,7 +32,8 @@
   color: var(--danger-text);
 }
 
-.close-project-dialog code {
+.close-project-dialog code,
+.close-workspace-dialog code {
   overflow-wrap: anywhere;
   padding: 9px 10px;
   border: 1px solid var(--border-subtle);

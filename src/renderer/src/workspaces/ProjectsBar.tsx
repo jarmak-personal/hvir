@@ -6,6 +6,7 @@ import {
   type RegisteredProjectState,
   type HostWatchTier,
   type WorkspaceState,
+  type WorkspaceClosePlan,
 } from '../../../shared'
 import { RemoteConnectionBadge } from './ConnectionStatus'
 import { connectionStateLabel } from './connection-status'
@@ -17,6 +18,7 @@ import {
 import type { AppTheme } from '../theme'
 import { ConfirmationDialog } from '../workbench/ConfirmationDialog'
 import { WorkbenchHealthControl } from '../health/WorkbenchHealthControl'
+import { ClosedWorktreesDialog, CloseWorkspaceDialog } from './WorkspaceCatalogDialogs'
 
 interface ProjectsBarProps {
   readonly state: ProjectState
@@ -28,6 +30,17 @@ interface ProjectsBarProps {
   readonly onCloseProject: (projectId: string) => void
   readonly onPrune: (projectId: string) => void
   readonly onDismiss: (projectId: string, workspaceId: string) => void
+  readonly onPlanCloseWorkspace: (
+    projectId: string,
+    workspaceId: string,
+  ) => Promise<WorkspaceClosePlan | undefined>
+  readonly onCloseWorkspace: (
+    projectId: string,
+    workspaceId: string,
+    plan: WorkspaceClosePlan,
+    terminateTerminals: boolean,
+  ) => void
+  readonly onReopenWorkspace: (projectId: string, workspaceId: string) => void
   readonly watchTier: HostWatchTier
   readonly statusError?: string
   readonly onChangeConnection: () => void
@@ -48,6 +61,9 @@ export function ProjectsBar({
   onCloseProject,
   onPrune,
   onDismiss,
+  onPlanCloseWorkspace,
+  onCloseWorkspace,
+  onReopenWorkspace,
   watchTier,
   statusError,
   onChangeConnection,
@@ -59,6 +75,13 @@ export function ProjectsBar({
 }: ProjectsBarProps): ReactElement {
   const [pruneProjectId, setPruneProjectId] = useState<string>()
   const [closeProjectId, setCloseProjectId] = useState<string>()
+  const [catalogProjectId, setCatalogProjectId] = useState<string>()
+  const [planningWorkspaceId, setPlanningWorkspaceId] = useState<string>()
+  const [closeWorkspaceRequest, setCloseWorkspaceRequest] = useState<{
+    readonly projectId: string
+    readonly workspaceId: string
+    readonly plan: WorkspaceClosePlan
+  }>()
   const [connectionMenu, setConnectionMenu] = useState<{
     readonly projectId: string
     readonly left: number
@@ -72,13 +95,30 @@ export function ProjectsBar({
     activeProject?.workspaces.filter(
       (workspace) => workspace.prunableReason !== undefined,
     ) ?? []
+  const openWorkspaces =
+    activeProject?.workspaces.filter((workspace) => !workspace.closed) ?? []
+  const closedWorkspaces =
+    activeProject?.workspaces.filter((workspace) => workspace.closed) ?? []
   // A single-checkout project has nothing to switch between; reclaim the row.
   // Errors and prune prompts still force the bar because it is their only home.
   const showWorkspacesBar =
     activeProject !== undefined &&
-    (activeProject.workspaces.length > 1 || Boolean(statusError) || prunable.length > 0)
+    (openWorkspaces.length > 1 ||
+      closedWorkspaces.length > 0 ||
+      Boolean(statusError) ||
+      prunable.length > 0)
   const pruneProject = state.projects.find((project) => project.id === pruneProjectId)
   const closeProject = state.projects.find((project) => project.id === closeProjectId)
+  const catalogProject = state.projects.find((project) => project.id === catalogProjectId)
+  const catalogWorkspaces =
+    catalogProject?.workspaces.filter((workspace) => workspace.closed) ?? []
+  const closeWorkspace = closeWorkspaceRequest
+    ? state.projects
+        .find((project) => project.id === closeWorkspaceRequest.projectId)
+        ?.workspaces.find(
+          (workspace) => workspace.id === closeWorkspaceRequest.workspaceId,
+        )
+    : undefined
   const pruneTargets =
     pruneProject?.workspaces.filter(
       (workspace) => workspace.prunableReason !== undefined,
@@ -88,6 +128,14 @@ export function ProjectsBar({
   useEffect(() => {
     setConnectionMenu((current) =>
       current && current.projectId !== state.activeProjectId ? undefined : current,
+    )
+  }, [state.activeProjectId])
+  useEffect(() => {
+    setCatalogProjectId((current) =>
+      current === state.activeProjectId ? current : undefined,
+    )
+    setCloseWorkspaceRequest((current) =>
+      current?.projectId === state.activeProjectId ? current : undefined,
     )
   }, [state.activeProjectId])
   useEffect(() => {
@@ -225,7 +273,7 @@ export function ProjectsBar({
             aria-label="Workspaces"
             data-diagnostic-capture="project-navigation"
           >
-            {activeProject.workspaces.map((workspace) => (
+            {openWorkspaces.map((workspace) => (
               <div
                 className={`workspace-tab${workspace.id === state.activeWorkspaceId ? ' active' : ''}${workspace.missing ? ' missing' : ''}`}
                 key={workspace.id}
@@ -246,7 +294,42 @@ export function ProjectsBar({
                     />
                   ) : null}
                 </button>
-                {workspace.missing && !workspace.prunableReason ? (
+                {!workspace.missing ? (
+                  <button
+                    type="button"
+                    className="workspace-close"
+                    disabled={
+                      busy ||
+                      workspace.id === state.activeWorkspaceId ||
+                      planningWorkspaceId === workspace.id
+                    }
+                    onClick={() => {
+                      setPlanningWorkspaceId(workspace.id)
+                      void onPlanCloseWorkspace(activeProject.id, workspace.id)
+                        .then((plan) => {
+                          if (!plan) return
+                          if (plan.terminalCount > 0) {
+                            setCloseWorkspaceRequest({
+                              projectId: activeProject.id,
+                              workspaceId: workspace.id,
+                              plan,
+                            })
+                          } else {
+                            onCloseWorkspace(activeProject.id, workspace.id, plan, false)
+                          }
+                        })
+                        .finally(() => setPlanningWorkspaceId(undefined))
+                    }}
+                    aria-label={`Close workspace ${workspace.name}`}
+                    title={
+                      workspace.id === state.activeWorkspaceId
+                        ? 'Select another workspace before closing this one'
+                        : `Close workspace ${workspace.name}`
+                    }
+                  >
+                    <span aria-hidden="true">×</span>
+                  </button>
+                ) : !workspace.prunableReason ? (
                   <button
                     type="button"
                     className="workspace-dismiss"
@@ -275,6 +358,16 @@ export function ProjectsBar({
                   title="Remove Git's stale worktree administrative records"
                 >
                   Prune {prunable.length}
+                </button>
+              ) : null}
+              {closedWorkspaces.length > 0 ? (
+                <button
+                  type="button"
+                  className="workspaces-catalog"
+                  disabled={busy}
+                  onClick={() => setCatalogProjectId(activeProject.id)}
+                >
+                  Worktrees {closedWorkspaces.length}
                 </button>
               ) : null}
               <button
@@ -373,6 +466,36 @@ export function ProjectsBar({
           onConfirm={() => {
             setCloseProjectId(undefined)
             onCloseProject(closeProject.id)
+          }}
+        />
+      ) : null}
+      {catalogProject && catalogWorkspaces.length > 0 ? (
+        <ClosedWorktreesDialog
+          project={catalogProject}
+          workspaces={catalogWorkspaces}
+          busy={busy}
+          onCancel={() => setCatalogProjectId(undefined)}
+          onReopen={(workspaceId) => {
+            setCatalogProjectId(undefined)
+            onReopenWorkspace(catalogProject.id, workspaceId)
+          }}
+          onDismiss={(workspaceId) => onDismiss(catalogProject.id, workspaceId)}
+        />
+      ) : null}
+      {closeWorkspace && closeWorkspaceRequest ? (
+        <CloseWorkspaceDialog
+          workspace={closeWorkspace}
+          plan={closeWorkspaceRequest.plan}
+          busy={busy}
+          onCancel={() => setCloseWorkspaceRequest(undefined)}
+          onConfirm={() => {
+            setCloseWorkspaceRequest(undefined)
+            onCloseWorkspace(
+              closeWorkspaceRequest.projectId,
+              closeWorkspaceRequest.workspaceId,
+              closeWorkspaceRequest.plan,
+              true,
+            )
           }}
         />
       ) : null}
@@ -502,7 +625,10 @@ function watchTierLabel(watchTier: HostWatchTier): string {
 function activeWorkspace(project: RegisteredProjectState) {
   return (
     project.workspaces.find(
-      (workspace) => workspace.id === project.activeWorkspaceId && !workspace.missing,
-    ) ?? project.workspaces.find((workspace) => !workspace.missing)
+      (workspace) =>
+        workspace.id === project.activeWorkspaceId &&
+        !workspace.missing &&
+        !workspace.closed,
+    ) ?? project.workspaces.find((workspace) => !workspace.missing && !workspace.closed)
   )
 }

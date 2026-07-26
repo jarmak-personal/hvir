@@ -118,6 +118,7 @@ interface PendingEntry {
   readonly token: symbol
   readonly ownerId: number
   readonly ownerGeneration: number
+  readonly workspaceRoot: HostPath
   readonly controller: AbortController
   cancelled: boolean
 }
@@ -188,6 +189,7 @@ export class PtySupervisor {
       token: Symbol(sessionId),
       ownerId: req.ownerId,
       ownerGeneration: req.ownerGeneration ?? 0,
+      workspaceRoot: req.workspaceRoot ?? req.cwd,
       controller: new AbortController(),
       cancelled: false,
     }
@@ -564,6 +566,30 @@ export class PtySupervisor {
 
   list(): ManagedPty[] {
     return [...this.entries.values()].map((e) => e.info)
+  }
+
+  workspaceSessionIds(root: HostPath): readonly string[] {
+    return [
+      ...[...this.pendingIds.entries()]
+        .filter(([, pending]) => hostPathEquals(pending.workspaceRoot, root))
+        .map(([id]) => id),
+      ...[...this.entries.entries()]
+        .filter(([, entry]) => hostPathEquals(entry.info.workspaceRoot, root))
+        .map(([id]) => id),
+    ]
+  }
+
+  /** Cancel every pending/live PTY owned by one host-qualified workspace. */
+  disposeWorkspace(root: HostPath): void {
+    for (const [id, pending] of this.pendingIds) {
+      if (!hostPathEquals(pending.workspaceRoot, root)) continue
+      pending.cancelled = true
+      pending.controller.abort()
+      this.pendingIds.delete(id)
+    }
+    for (const [id, entry] of this.entries) {
+      if (hostPathEquals(entry.info.workspaceRoot, root)) this.disposeEntry(id, entry)
+    }
   }
 
   isOwnedBy(id: string, ownerId: number, ownerGeneration?: number): boolean {

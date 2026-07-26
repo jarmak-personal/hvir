@@ -134,7 +134,9 @@ export function selectRelativeWorkspace(
 ): { readonly projectId: string; readonly workspaceId: string } | undefined {
   const state = model.projectState
   const project = selectActiveProject(model)
-  const available = project?.workspaces.filter((workspace) => !workspace.missing) ?? []
+  const available =
+    project?.workspaces.filter((workspace) => !workspace.missing && !workspace.closed) ??
+    []
   if (!state || !project || available.length < 2) return undefined
   const currentIndex = available.findIndex(
     (workspace) => workspace.id === state.activeWorkspaceId,

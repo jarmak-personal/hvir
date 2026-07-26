@@ -39,6 +39,7 @@
 .project-add,
 .workspace-tab > button,
 .workspaces-prune,
+.workspaces-catalog,
 .workspaces-refresh {
   border: 0;
   background: transparent;
@@ -173,6 +174,7 @@
 
 .project-add:hover,
 .workspaces-prune:hover,
+.workspaces-catalog:hover,
 .workspaces-refresh:hover,
 .workspace-tab > button:hover {
   background: #20262e;
@@ -315,7 +317,8 @@
   font-size: 8px;
 }
 
-.workspace-dismiss {
+.workspace-dismiss,
+.workspace-close {
   width: 23px;
   padding: 0;
   border: 0;
@@ -324,9 +327,15 @@
   color: #a7adb7;
 }
 
-.workspace-dismiss:hover {
+.workspace-dismiss:hover,
+.workspace-close:hover:not(:disabled) {
   background: #563238;
   color: #f1c2c6;
+}
+
+.workspace-close:disabled {
+  cursor: default;
+  opacity: 0.38;
 }
 
 .workspaces-actions {
@@ -348,6 +357,7 @@
 }
 
 .workspaces-prune,
+.workspaces-catalog,
 .workspaces-refresh {
   height: 24px;
   padding: 0 8px;

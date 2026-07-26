@@ -23,6 +23,7 @@ const expectedOrder = [
   'git-graph.css',
   'git-inspector.css',
   'dialogs.css',
+  'workspace-catalog.css',
   'tree.css',
   'viewer-content.css',
   'terminal-pane.css',

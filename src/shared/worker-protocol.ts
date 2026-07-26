@@ -25,7 +25,7 @@ import type {
   GitPullRequest,
   GitSwitchBranchRequest,
 } from './git-types'
-import type { WorktreeDiscovery } from './workspace-types'
+import type { WorkspaceActivityResult, WorktreeDiscovery } from './workspace-types'
 
 export interface WorkerRequest<T = unknown> {
   readonly id: number
@@ -109,7 +109,7 @@ export const GIT_BLAME_TYPE = 'git:blame' as const
 export const GIT_COMMIT_DETAIL_TYPE = 'git:commit-detail' as const
 export const GIT_WORKTREES_TYPE = 'git:worktrees' as const
 export const GIT_PRUNE_WORKTREES_TYPE = 'git:prune-worktrees' as const
-export const GIT_CHANGED_FILE_COUNT_TYPE = 'git:changed-file-count' as const
+export const GIT_WORKSPACE_ACTIVITY_TYPE = 'git:workspace-activity' as const
 export const GIT_BRANCHES_TYPE = 'git:branches' as const
 export const GIT_FETCH_TYPE = 'git:fetch' as const
 export const GIT_PULL_TYPE = 'git:pull' as const
@@ -134,9 +134,9 @@ export interface GitWorkerProtocol {
     GitSwitchBranchRequest & { readonly relatedWorktreeRoots?: readonly HostPath[] },
     void
   >
-  readonly [GIT_CHANGED_FILE_COUNT_TYPE]: WorkerOperation<
+  readonly [GIT_WORKSPACE_ACTIVITY_TYPE]: WorkerOperation<
     { readonly root: HostPath; readonly relatedWorktreeRoots?: readonly HostPath[] },
-    number
+    WorkspaceActivityResult
   >
   readonly [GIT_WORKTREES_TYPE]: WorkerOperation<
     { readonly root: HostPath },

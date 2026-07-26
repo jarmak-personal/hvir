@@ -6,6 +6,7 @@ import {
   type ProjectHostOption,
   type ProjectState,
   type RegisteredProjectState,
+  type WorkspaceClosePlan,
 } from '../shared'
 import type { ProjectWatchTarget } from './project-watch'
 
@@ -19,6 +20,12 @@ export interface ProjectRegistryPort {
   open(hostId: string, path: string): Promise<ProjectState>
   activate(projectId: string, workspaceId: string): Promise<ProjectState>
   closeProject(projectId: string): Promise<ProjectState>
+  closeWorkspace(projectId: string, workspaceId: string): Promise<ProjectState>
+  restoreWorkspaceAfterFailedClose(
+    projectId: string,
+    workspaceId: string,
+  ): Promise<ProjectState>
+  reopenWorkspace(projectId: string, workspaceId: string): Promise<ProjectState>
   dismissWorkspace(projectId: string, workspaceId: string): Promise<ProjectState>
   acknowledgeWorkspace(projectId: string, workspaceId: string): Promise<ProjectState>
 }
@@ -33,7 +40,9 @@ export interface ProjectWorkspacePort {
 
 export interface ProjectCleanupPort {
   revokeWorkspace(root: HostPath): Promise<void>
-  closeWorkspace(root: HostPath): Promise<void>
+  closeWorkspaceWebPanes(root: HostPath): Promise<void>
+  workspaceTerminalIds(root: HostPath): readonly string[]
+  closeWorkspaceTerminals(root: HostPath): void
   forgetWorkspaceSessions(root: HostPath): Promise<void>
 }
 
@@ -181,7 +190,7 @@ export class ProjectCoordinator {
         await Promise.all(
           roots.flatMap((root) => [
             this.options.cleanup.revokeWorkspace(root),
-            this.options.cleanup.closeWorkspace(root),
+            this.options.cleanup.closeWorkspaceWebPanes(root),
           ]),
         )
         this.assertCurrent(transition)
@@ -195,6 +204,81 @@ export class ProjectCoordinator {
           await this.options.workspaces.replaceWatch(this.options.registry.active)
         }
       }
+    })
+  }
+
+  planWorkspaceClose(projectId: string, workspaceId: string): WorkspaceClosePlan {
+    const workspace = this.closeableWorkspace(projectId, workspaceId)
+    return {
+      terminalCount: new Set(this.options.cleanup.workspaceTerminalIds(workspace.root))
+        .size,
+    }
+  }
+
+  closeWorkspace(
+    projectId: string,
+    workspaceId: string,
+    expectedTerminalCount: number,
+    terminateTerminals: boolean,
+  ): Promise<ProjectState> {
+    const transition = this.beginTransition()
+    return this.options.workspaces.serialize(async () => {
+      this.assertCurrent(transition)
+      await this.settleTransition(transition)
+      this.assertCurrent(transition)
+      const workspace = this.closeableWorkspace(projectId, workspaceId)
+      const terminalCount = new Set(
+        this.options.cleanup.workspaceTerminalIds(workspace.root),
+      ).size
+      if (
+        !Number.isSafeInteger(expectedTerminalCount) ||
+        expectedTerminalCount < 0 ||
+        terminalCount !== expectedTerminalCount
+      ) {
+        throw new Error('Workspace terminal count changed; review the close again')
+      }
+      if (terminalCount > 0 && terminateTerminals !== true) {
+        throw new Error('Confirm terminal termination before closing this workspace')
+      }
+      const state = await this.options.registry.closeWorkspace(projectId, workspaceId)
+      const cleanups = await Promise.allSettled([
+        Promise.resolve().then(() =>
+          this.options.cleanup.closeWorkspaceTerminals(workspace.root),
+        ),
+        this.options.cleanup.forgetWorkspaceSessions(workspace.root),
+        this.options.cleanup.revokeWorkspace(workspace.root),
+        this.options.cleanup.closeWorkspaceWebPanes(workspace.root),
+      ])
+      const failures: unknown[] = []
+      for (const result of cleanups) {
+        if (result.status === 'rejected') failures.push(result.reason as unknown)
+      }
+      if (failures.length > 0) {
+        try {
+          await this.options.registry.restoreWorkspaceAfterFailedClose(
+            projectId,
+            workspaceId,
+          )
+        } catch (error) {
+          failures.push(error)
+        }
+        throw new AggregateError(failures, 'Workspace close cleanup failed')
+      }
+      this.assertCurrent(transition)
+      return state
+    })
+  }
+
+  reopenWorkspace(projectId: string, workspaceId: string): Promise<ProjectState> {
+    const transition = this.beginTransition()
+    return this.options.workspaces.serialize(async () => {
+      this.assertCurrent(transition)
+      await this.settleTransition(transition)
+      this.assertCurrent(transition)
+      const state = await this.options.registry.reopenWorkspace(projectId, workspaceId)
+      this.assertCurrent(transition)
+      await this.options.workspaces.replaceWatch(this.options.registry.active)
+      return state
     })
   }
 
@@ -217,7 +301,7 @@ export class ProjectCoordinator {
       if (workspace) {
         await Promise.all([
           this.options.cleanup.revokeWorkspace(workspace.root),
-          this.options.cleanup.closeWorkspace(workspace.root),
+          this.options.cleanup.closeWorkspaceWebPanes(workspace.root),
         ])
       }
       this.assertCurrent(transition)
@@ -243,6 +327,25 @@ export class ProjectCoordinator {
       this.options.workspaces.invalidateProject(projectId)
     }
     return transition
+  }
+
+  private closeableWorkspace(
+    projectId: string,
+    workspaceId: string,
+  ): RegisteredProjectState['workspaces'][number] {
+    const workspace = this.options.registry
+      .projectById(projectId)
+      ?.workspaces.find((candidate) => candidate.id === workspaceId)
+    if (!workspace) throw new Error('Unknown project workspace')
+    if (
+      this.options.registry.active.projectId === projectId &&
+      this.options.registry.active.workspaceId === workspaceId
+    ) {
+      throw new Error('Select another workspace before closing this one')
+    }
+    if (workspace.missing) throw new Error('Only present workspaces can be closed')
+    if (workspace.closed) throw new Error('Workspace is already closed')
+    return workspace
   }
 
   private settleTransition(transition: Transition): Promise<void> {

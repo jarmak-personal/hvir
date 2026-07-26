@@ -265,7 +265,9 @@ describe('Git worker host broker', () => {
     await expect(engine.worktrees(localPath(rootPath))).resolves.toEqual(
       expect.objectContaining({ repository: true }),
     )
-    await expect(engine.changedFileCount(localPath(rootPath))).resolves.toBe(1)
+    await expect(engine.workspaceActivity(localPath(rootPath))).resolves.toMatchObject({
+      changedFiles: 1,
+    })
     await expect(engine.branches(localPath(rootPath))).resolves.toEqual(
       expect.objectContaining({ current: 'main' }),
     )

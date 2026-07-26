@@ -236,7 +236,25 @@ describe('GitEngine', () => {
       expect.objectContaining({ root: localPath(canonicalLinked), branch: 'feature' }),
     ])
     await writeFile(join(linked, 'dirty.txt'), 'dirty\n')
-    await expect(engine.changedFileCount(localPath(canonicalLinked))).resolves.toBe(1)
+    const firstActivity = await engine.workspaceActivity(localPath(canonicalLinked))
+    expect(firstActivity.changedFiles).toBe(1)
+    expect(firstActivity.status?.statusEntryCount).toBe(1)
+    expect(firstActivity.status?.statusTruncated).toBe(false)
+    expect(firstActivity.status?.statusDigest).toMatch(/^[0-9a-f]{64}$/)
+    expect(JSON.stringify(firstActivity)).not.toContain('dirty.txt')
+    await writeFile(join(linked, 'dirty.txt'), 'different content\n')
+    expect(
+      (await engine.workspaceActivity(localPath(canonicalLinked))).status?.statusDigest,
+    ).toBe(firstActivity.status?.statusDigest)
+    git(linked, ['add', 'dirty.txt'])
+    const stagedActivity = await engine.workspaceActivity(localPath(canonicalLinked))
+    expect(stagedActivity.status?.statusDigest).not.toBe(
+      firstActivity.status?.statusDigest,
+    )
+    await writeFile(join(linked, 'another.txt'), 'new path\n')
+    expect(
+      (await engine.workspaceActivity(localPath(canonicalLinked))).status?.statusDigest,
+    ).not.toBe(stagedActivity.status?.statusDigest)
     await rm(linked, { recursive: true })
     const prunable = await engine.worktrees(localPath(root))
     const stale = prunable.worktrees.find(
@@ -284,9 +302,10 @@ describe('GitEngine', () => {
       const exec = vi.spyOn(host, 'exec')
       const engine = new GitEngine(host, workspaceRoot)
 
-      await expect(engine.changedFileCount(workspaceRoot)).resolves.toBe(
-        GIT_CHANGE_DISPLAY_LIMIT + 1,
-      )
+      await expect(engine.workspaceActivity(workspaceRoot)).resolves.toMatchObject({
+        changedFiles: GIT_CHANGE_DISPLAY_LIMIT + 1,
+        status: { statusTruncated: true },
+      })
       const changes = await engine.changes(workspaceRoot)
 
       expect(changes.workingTreeLimited).toBe(true)
@@ -321,9 +340,10 @@ describe('GitEngine', () => {
     } as ProjectHost
     const engine = new GitEngine(host, workspaceRoot)
 
-    await expect(engine.changedFileCount(workspaceRoot)).resolves.toBe(
-      GIT_CHANGE_DISPLAY_LIMIT + 1,
-    )
+    await expect(engine.workspaceActivity(workspaceRoot)).resolves.toMatchObject({
+      changedFiles: GIT_CHANGE_DISPLAY_LIMIT + 1,
+      status: { statusTruncated: true },
+    })
     await expect(engine.changes(workspaceRoot)).resolves.toEqual(
       expect.objectContaining({
         workingTreeLimited: true,
@@ -360,7 +380,9 @@ describe('GitEngine', () => {
     expect(
       gitOutput(root, ['status', '--porcelain=v2', '--untracked-files=all']),
     ).toContain('test-worktree/')
-    await expect(engine.changedFileCount(workspaceRoot, related)).resolves.toBe(0)
+    await expect(engine.workspaceActivity(workspaceRoot, related)).resolves.toMatchObject(
+      { changedFiles: 0 },
+    )
     await expect(engine.changes(workspaceRoot, related)).resolves.toEqual(
       expect.objectContaining({ workingTree: [] }),
     )
