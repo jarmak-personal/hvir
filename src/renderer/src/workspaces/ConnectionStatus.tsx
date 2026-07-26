@@ -6,9 +6,11 @@ import { connectionStateCopy } from './connection-status'
 export function RemoteConnectionBadge({
   state,
   hostLabel,
+  compact = false,
 }: {
   readonly state: HostConnectionState
   readonly hostLabel: string
+  readonly compact?: boolean
 }): ReactElement {
   const copy = connectionStateCopy(state)
   return (
@@ -20,7 +22,7 @@ export function RemoteConnectionBadge({
       <span className="remote-connection-mark" aria-hidden="true">
         {copy.mark}
       </span>
-      <span className="remote-connection-host">{hostLabel}</span>
+      <span className="remote-connection-host">{compact ? 'ssh' : hostLabel}</span>
     </span>
   )
 }

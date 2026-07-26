@@ -134,6 +134,7 @@ export function ProjectsBar({
                     <RemoteConnectionBadge
                       state={project.connectionState}
                       hostLabel={`ssh:${project.registeredRoot.hostId}`}
+                      compact
                     />
                   ) : null}
                   {actionable > 0 ? <AttentionCount count={actionable} /> : null}
@@ -145,7 +146,7 @@ export function ProjectsBar({
                     disabled={busy}
                     aria-haspopup="dialog"
                     aria-expanded={connectionMenu?.projectId === project.id}
-                    aria-label={`Connection controls for ssh:${project.registeredRoot.hostId}`}
+                    aria-label={`Connection controls for ssh:${project.registeredRoot.hostId} · ${connectionStateLabel(project.connectionState)}`}
                     title="Connection controls"
                     onClick={(event) => {
                       if (connectionMenu?.projectId === project.id) {
@@ -163,6 +164,7 @@ export function ProjectsBar({
                     <RemoteConnectionBadge
                       state={project.connectionState}
                       hostLabel={`ssh:${project.registeredRoot.hostId}`}
+                      compact
                     />
                     <span className="project-connection-chevron" aria-hidden="true">
                       ▾
