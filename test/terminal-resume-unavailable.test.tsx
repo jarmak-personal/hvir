@@ -449,7 +449,6 @@ describe('terminal resume unavailable state', () => {
           onAddHarness={vi.fn()}
           onRefreshProbes={vi.fn()}
           onOpenHarnessSettings={vi.fn()}
-          onResumeAll={vi.fn()}
           onFocusSession={vi.fn()}
           onMoveSession={vi.fn()}
           onCloseSession={vi.fn()}

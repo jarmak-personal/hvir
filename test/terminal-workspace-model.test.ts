@@ -111,13 +111,13 @@ describe('terminal workspace model', () => {
     ).toEqual({ secondaryIds: ['ok'], primaryWidth: undefined })
   })
 
-  it('starts a selected dormant row once and queues only the remaining dormant rows', () => {
+  it('starts only the selected dormant row', () => {
     let model = reduce(initialTerminalWorkspaceModel, {
       type: 'sessions-replaced',
       sessions: [
         { ...session('active', 'primary'), dormant: false },
         { ...session('selected', 'primary'), dormant: true, resumeOnStart: true },
-        { ...session('bulk', 'primary'), dormant: true },
+        { ...session('waiting', 'primary'), dormant: true },
       ],
       activeId: 'active',
     })
@@ -131,14 +131,10 @@ describe('terminal workspace model', () => {
     model = reduce(model, { type: 'session-focused', id: 'selected' })
     expect(model.sessions[1]?.status).toBe('Resuming…')
 
-    model = reduce(model, { type: 'dormant-sessions-start-requested' })
     expect(model.sessions[0]?.startMode).toBeUndefined()
     expect(model.sessions[1]?.startMode).toBe('interactive')
-    expect(model.sessions[2]).toMatchObject({
-      dormant: false,
-      startMode: 'bulk',
-      status: 'Queued to start',
-    })
+    expect(model.sessions[2]?.dormant).toBe(true)
+    expect(model.sessions[2]?.startMode).toBeUndefined()
   })
 
   it('forgets a dormant row without admitting another process', () => {

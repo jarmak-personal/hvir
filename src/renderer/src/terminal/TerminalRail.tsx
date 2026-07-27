@@ -50,7 +50,6 @@ export function TerminalRail({
   onAddHarness,
   onRefreshProbes,
   onOpenHarnessSettings,
-  onResumeAll,
   onFocusSession,
   onMoveSession,
   onCloseSession,
@@ -81,14 +80,12 @@ export function TerminalRail({
   readonly onAddHarness: () => void
   readonly onRefreshProbes: () => void
   readonly onOpenHarnessSettings: () => void
-  readonly onResumeAll: () => void
   readonly onFocusSession: (id: string) => void
   readonly onMoveSession: (id: string) => void
   readonly onCloseSession: (id: string) => void
 }): ReactElement {
   const { menuRef: launchMenuRef, menuStyle: launchMenuStyle } =
     useTerminalLaunchMenuLayout(menuOpen)
-  const dormantCount = sessions.filter((session) => session.dormant).length
   const applyCompact = (next: boolean): void => {
     if (next && menuOpen) onToggleMenu()
     if (next && moveMenuOpen) onToggleMoveMenu()
@@ -117,18 +114,6 @@ export function TerminalRail({
               <path d="M4.5 3 9 8l-4.5 5M8.5 3 13 8l-4.5 5" />
             </svg>
           </button>
-          {dormantCount > 0 ? (
-            <button
-              type="button"
-              className="terminal-resume-all-button"
-              aria-label={`Resume all now, start ${dormantCount} dormant ${dormantCount === 1 ? 'terminal' : 'terminals'}`}
-              title={`Start ${dormantCount} dormant ${dormantCount === 1 ? 'terminal' : 'terminals'} with bounded per-host concurrency`}
-              disabled={!recoveryReady || !available}
-              onClick={onResumeAll}
-            >
-              Resume all now · {dormantCount}
-            </button>
-          ) : null}
           <div className="terminal-move-control">
             <button
               type="button"
