@@ -2,6 +2,10 @@
 
 > [ADR-015](ADR-015-missing-resume-artifact-blocks-fresh-launch.md) supersedes only the
 > missing-artifact fresh-launch fallback in this record. The remaining decisions still apply.
+>
+> [ADR-024](ADR-024-demand-driven-terminal-workspace-lifecycle.md) supersedes only the
+> interpretation that Bare Shell being the default choice for an empty workspace or split starts
+> a session automatically. Bare Shell remains the default for an explicit launch.
 
 ## Context
 

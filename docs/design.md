@@ -199,6 +199,11 @@ distribution is retired after cumulative acceptance.
 Present inactive worktrees may close without changing Git; closed workspaces retain no runtime and
 return without activation after comparable bounded Git activity or successful rediscovery.
 
+### [ADR-024 — Demand-driven terminal workspace lifecycle](adr/ADR-024-demand-driven-terminal-workspace-lifecycle.md)
+
+Registered worktrees allocate no terminal runtime by registration alone; explicit materialization,
+session, PTY, presentation, and focus lifecycles remain independently owned.
+
 ## 5. Architecture
 
 ### Process model
