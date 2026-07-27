@@ -22,7 +22,7 @@ describe('development renderer instrumentation ownership', () => {
 
     first.dispose()
     expect(vi.getTimerCount()).toBe(1)
-    replacement.dispose()
+    window.dispatchEvent(new Event('pagehide'))
     replacement.dispose()
     expect(vi.getTimerCount()).toBe(0)
     expect(

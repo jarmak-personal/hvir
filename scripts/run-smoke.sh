@@ -55,6 +55,7 @@ mkdir -p "$user_data_root"
   cd "$project_root"
   if [[ "${HVIR_SMOKE_SCENARIO:-legacy-workflow}" == 'development-performance' ]]; then
     cd "$source_checkout"
+    development_smoke_log="$user_data_root/development-performance.log"
     HVIR_SMOKE=1 \
       HVIR_SMOKE_SOURCE_COMMIT="$source_commit" \
       HVIR_SMOKE_SOURCE_DIRTY="$source_dirty" \
@@ -65,7 +66,11 @@ mkdir -p "$user_data_root"
       "$source_checkout/node_modules/.bin/electron-vite" \
       "$source_checkout" \
       --noSandbox \
-      --clearScreen false
+      --clearScreen false | tee "$development_smoke_log"
+    if ! grep -qx 'HVIR_SMOKE_OK' "$development_smoke_log"; then
+      echo 'Development Performance Timeline smoke ended without its success sentinel' >&2
+      exit 1
+    fi
   else
     HVIR_SMOKE=1 \
       HVIR_SMOKE_SOURCE_COMMIT="$source_commit" \

@@ -10,7 +10,7 @@ import {
 } from './performance-measure-budget'
 
 export interface DevelopmentRendererInstrumentation {
-  dispose(): void
+  readonly dispose: () => void
 }
 
 const ACTIVE_INSTRUMENTATION_KEY = '__hvirDevelopmentRendererInstrumentation'
@@ -43,12 +43,13 @@ export function installDevelopmentRendererInstrumentation(): DevelopmentRenderer
   budget.start()
 
   const instrumentation: DevelopmentRendererInstrumentation = {
-    dispose(): void {
+    dispose: (): void => {
       if (disposed) return
       disposed = true
       budget.dispose()
       fixture?.dispose()
       fixture = undefined
+      window.removeEventListener('pagehide', instrumentation.dispose)
       window.removeEventListener(DEVELOPMENT_PERFORMANCE_FIXTURE_EVENT, startFixture)
       delete document.documentElement.dataset.hvirDevelopmentPerformanceMeasureBudget
       delete document.documentElement.dataset.hvirDevelopmentPerformanceMeasureInterval
@@ -59,5 +60,6 @@ export function installDevelopmentRendererInstrumentation(): DevelopmentRenderer
     },
   }
   registry[ACTIVE_INSTRUMENTATION_KEY] = instrumentation
+  window.addEventListener('pagehide', instrumentation.dispose, { once: true })
   return instrumentation
 }

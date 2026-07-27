@@ -3,8 +3,7 @@ import { defineConfig, externalizeDepsPlugin } from 'electron-vite'
 import react from '@vitejs/plugin-react'
 import type { Plugin } from 'vite'
 
-const DEVELOPMENT_PERFORMANCE_MEASURE_POLICY_ID =
-  'hvir:development-performance-measure-budget:v1'
+import { DEVELOPMENT_PERFORMANCE_MEASURE_POLICY_ID } from './src/renderer/src/development/performance-measure-budget'
 
 function excludeDevelopmentPerformancePolicyFromProduction(): Plugin {
   return {

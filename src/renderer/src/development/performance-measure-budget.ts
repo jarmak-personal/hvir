@@ -23,7 +23,6 @@ export interface IntervalSchedule {
 /** Development-only owner for Blink's otherwise-unbounded measure collection. */
 export class DevelopmentPerformanceMeasureBudget {
   private timer?: number
-  private generation = 0
   private disposed = false
 
   constructor(
@@ -46,9 +45,8 @@ export class DevelopmentPerformanceMeasureBudget {
 
   start(): void {
     if (this.disposed || this.timer !== undefined) return
-    const generation = ++this.generation
     this.timer = this.schedule.setInterval(() => {
-      if (this.disposed || generation !== this.generation) return
+      if (this.disposed) return
       if (this.timeline.getEntriesByType('measure').length > this.entryBudget) {
         // React's dynamic names do not provide reliable selective ownership.
         this.timeline.clearMeasures()
@@ -59,7 +57,6 @@ export class DevelopmentPerformanceMeasureBudget {
   dispose(): void {
     if (this.disposed) return
     this.disposed = true
-    this.generation++
     if (this.timer !== undefined) this.schedule.clearInterval(this.timer)
     this.timer = undefined
   }

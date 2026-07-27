@@ -21,21 +21,14 @@ root.render(
 )
 
 if (import.meta.env.DEV) {
-  let instrumentation: { dispose(): void } | undefined
-  let disposed = false
-  const dispose = (): void => {
-    if (disposed) return
-    disposed = true
-    instrumentation?.dispose()
-    instrumentation = undefined
-    window.removeEventListener('pagehide', dispose)
-  }
-  window.addEventListener('pagehide', dispose, { once: true })
-  import.meta.hot?.dispose(dispose)
   void import('./development/development-renderer-instrumentation').then(
     ({ installDevelopmentRendererInstrumentation }) => {
-      if (disposed) return
-      instrumentation = installDevelopmentRendererInstrumentation()
+      installDevelopmentRendererInstrumentation()
     },
+    (error: unknown) =>
+      console.error(
+        '[development-performance] renderer instrumentation failed to load',
+        error,
+      ),
   )
 }
