@@ -434,6 +434,7 @@ export async function verifyTerminalPresentationLifecycle(
     },
   })
   await new Promise<void>((resolve) => setTimeout(resolve, 100))
+  await focusTerminalEngine(win, secondTerminal.id)
   const cursorStatus = await verifyActiveCursorCadence(win, secondTerminal.id)
   for (const keyCode of ['H', 'V', 'I', 'R']) {
     win.webContents.sendInputEvent({ type: 'keyDown', keyCode })
@@ -452,6 +453,11 @@ export async function verifyTerminalPresentationLifecycle(
       }),
       `revealed terminal input was not echoed: ${JSON.stringify(inputProbe)}`,
       5_000,
+    )
+  } catch (error) {
+    throw new Error(
+      `${error instanceof Error ? error.message : String(error)}; final probe: ${JSON.stringify(inputProbe)}`,
+      { cause: error },
     )
   } finally {
     void detachInputProbe()
@@ -492,6 +498,37 @@ export async function verifyTerminalPresentationLifecycle(
   ]
     .filter((status): status is string => status !== undefined)
     .join(' · ')
+}
+
+async function focusTerminalEngine(win: BrowserWindow, sessionId: string): Promise<void> {
+  await withTimeout(
+    win.webContents.executeJavaScript(`
+      new Promise((resolve, reject) => {
+        const deadline = Date.now() + 5000;
+        const sessionId = ${JSON.stringify(sessionId)};
+        const poll = () => {
+          const surface = document.querySelector(
+            '.terminal-surface[data-terminal-session="' + CSS.escape(sessionId) + '"]'
+          );
+          const engine = surface?.querySelector('.terminal-engine-host');
+          if (
+            surface?.classList.contains('active') &&
+            getComputedStyle(surface).visibility === 'visible' &&
+            engine instanceof HTMLElement
+          ) {
+            engine.focus();
+            if (document.activeElement === engine) return resolve();
+          }
+          if (Date.now() > deadline) {
+            return reject(new Error('revealed terminal engine did not regain focus'));
+          }
+          setTimeout(poll, 25);
+        };
+        poll();
+      })
+    `),
+    'revealed terminal engine focus timed out',
+  )
 }
 
 async function verifyActiveCursorCadence(
