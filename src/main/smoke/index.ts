@@ -447,6 +447,7 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
         win,
         resources: rendererResources,
         diagnostics: dependencies.runtimeDiagnostics,
+        supervisor,
         reloadUnresponsiveRenderer: dependencies.reloadUnresponsiveRenderer,
       })
       if (discardedRendererGenerations !== 1) {

@@ -298,7 +298,7 @@ export function TerminalWorkspace({
         workspaceRoot={workspaceRoot}
         connectionState={connectionState}
         onCreateDefault={
-          defaultProfile ? () => commands.add(defaultProfile.id) : undefined
+          defaultProfile ? commands.startDefault : undefined
         }
         onUpdateSession={updateSession}
         onFreshStarted={commands.acceptFreshStart}
