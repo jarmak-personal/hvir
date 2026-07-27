@@ -8,6 +8,7 @@ export type TerminalPaneControllerOptions = TerminalRuntimeOptions
 export function useTerminalPaneController(
   options: TerminalPaneControllerOptions,
   runtimes: TerminalRuntimeRegistry,
+  presented = true,
 ) {
   const containerRef = useRef<HTMLDivElement>(null)
   const presentationRef = useRef(options.presentation)
@@ -25,6 +26,7 @@ export function useTerminalPaneController(
   )
 
   useEffect(() => {
+    if (!presented) return
     const container = containerRef.current
     if (!container) return
     // Passive detach/attach ordering can overlap when a retained runtime moves
@@ -32,7 +34,7 @@ export function useTerminalPaneController(
     // current presentation after the old owner has detached.
     runtime.attach(container, presentationRef.current)
     return () => runtime.detach(container)
-  }, [runtime])
+  }, [presented, runtime])
 
   useLayoutEffect(
     () => runtime.synchronizeLifecycle(),

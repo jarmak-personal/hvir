@@ -405,6 +405,79 @@ describe('GhosttyTerminalPane lifecycle', () => {
     })
   })
 
+  it('retains a live pane and output route while its workspace view is absent', async () => {
+    let emitData: ((event: { id: string; data: string }) => void) | undefined
+    const invoke = vi.fn(() =>
+      Promise.resolve({
+        outcome: 'started' as const,
+        id: 'terminal-1',
+        pid: 4321,
+        resumed: false,
+        reattached: false,
+        harnessSessionId: undefined,
+        identityStatus: 'unsupported' as const,
+        capabilities: {
+          sessionIdentity: 'none' as const,
+          exactResume: false,
+          contextPresentation: 'none' as const,
+        },
+      }),
+    )
+    const send = vi.fn()
+    Object.defineProperty(window, 'hvir', {
+      configurable: true,
+      value: {
+        invoke,
+        send,
+        on: vi.fn((channel: string, listener: typeof emitData) => {
+          if (channel === 'pty:data') emitData = listener
+          return () => undefined
+        }),
+      },
+    })
+    const registry = new TerminalRuntimeRegistry()
+    const host = document.createElement('div')
+    document.body.append(host)
+    const root = createRoot(host)
+    const render = (presented: boolean) => (
+      <TerminalView
+        {...runtimeOptions()}
+        active={presented}
+        slot="primary"
+        presented={presented}
+        visible={presented}
+        themeOverride="app"
+        runtimes={registry}
+      />
+    )
+
+    act(() => root.render(render(true)))
+    await act(async () => {
+      await vi.waitFor(() => expect(invoke).toHaveBeenCalledOnce())
+    })
+    const state = ghosttyState.instances[0]!
+    const surface = host.querySelector('.terminal-engine-host')
+
+    act(() => root.render(render(false)))
+    expect(host.querySelector('.terminal-panel')).toBeNull()
+    expect(state.disposed).toBe(false)
+    expect(send).not.toHaveBeenCalledWith('pty:kill', expect.anything())
+
+    act(() => {
+      emitData?.({ id: 'terminal-1', data: 'background output' })
+    })
+    await vi.waitFor(() => expect(state.writes).toContain('background output'))
+
+    act(() => root.render(render(true)))
+    expect(host.querySelector('.terminal-engine-host')).toBe(surface)
+    expect(invoke).toHaveBeenCalledOnce()
+
+    act(() => {
+      root.unmount()
+      registry.dispose()
+    })
+  })
+
   it('retains the live terminal surface and event route across a control reconnect', async () => {
     const invoke = vi.fn(() =>
       Promise.resolve({

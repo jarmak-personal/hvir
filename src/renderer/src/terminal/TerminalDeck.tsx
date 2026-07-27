@@ -9,10 +9,10 @@ import type {
 import { PaneResizer } from '../layout/PaneResizer'
 import type { TerminalThemeOverride } from '../settings/settings'
 import type { TerminalLinkActivation } from './terminal-pane'
-import { TerminalView } from './TerminalView'
 import type { TerminalSession } from './terminal-workspace-model'
 import type { FreshTerminalStart } from './terminal-runtime-options'
 import type { TerminalRuntimeRegistry } from './terminal-runtime-registry'
+import { TerminalSessionRuntimes } from './TerminalSessionRuntimes'
 
 export function TerminalDeck({
   deckRef,
@@ -77,6 +77,30 @@ export function TerminalDeck({
   const style = primaryWidth
     ? ({ '--terminal-primary-track': `${primaryWidth}px` } as CSSProperties)
     : undefined
+  const sessionRuntimes = (
+    <TerminalSessionRuntimes
+      sessions={sessions}
+      providers={providers}
+      activeId={activeId}
+      primaryActiveId={primaryActiveId}
+      secondaryActiveId={secondaryActiveId}
+      workspaceVisible={visible}
+      presentSurfaces={visible}
+      terminalTheme={terminalTheme}
+      composerSubmitMode={composerSubmitMode}
+      workspaceRoot={workspaceRoot}
+      connectionState={connectionState}
+      onUpdateSession={onUpdateSession}
+      onFreshStarted={onFreshStarted}
+      onInput={onInput}
+      onOutput={onOutput}
+      onBell={onBell}
+      onFocus={onFocus}
+      onLink={onLink}
+      runtimes={runtimes}
+    />
+  )
+  if (!visible) return sessionRuntimes
   return (
     <div
       className={`terminal-deck${split ? ' split' : ''}`}
@@ -97,83 +121,7 @@ export function TerminalDeck({
           )}
         </div>
       ) : null}
-      {sessions.map((session, position) => {
-        if (session.dormant) return null
-        const provider = providers.find(
-          (candidate) => candidate.id === session.providerId,
-        )
-        if (!provider) return null
-        return (
-          <TerminalView
-            key={session.id}
-            sessionId={session.id}
-            profileId={session.profileId}
-            launchRevision={session.launchRevision}
-            riskAcknowledged={session.riskAcknowledged}
-            supportsResume={session.capabilities.exactResume}
-            fallbackTitle={session.fallbackTitle}
-            harnessSessionId={session.harnessSessionId}
-            resumeOnStart={session.resumeOnStart}
-            startMode={session.startMode ?? 'interactive'}
-            position={position}
-            slot={session.pane}
-            visible={
-              visible &&
-              session.id ===
-                (session.pane === 'primary' ? primaryActiveId : secondaryActiveId)
-            }
-            active={visible && session.id === activeId}
-            modifiedKeyProtocol={provider.terminalInput.modifiedKeyProtocol}
-            metaEnterAliasesControl={provider.terminalInput.metaEnterAliasesControl}
-            themeOverride={terminalTheme}
-            composerSubmitMode={composerSubmitMode}
-            cwd={session.cwd}
-            workspaceRoot={workspaceRoot}
-            runtimes={runtimes}
-            connectionState={connectionState}
-            onTitle={(title) =>
-              onUpdateSession(session.id, (current) => ({ ...current, title }))
-            }
-            onStatus={(status) =>
-              onUpdateSession(session.id, (current) => ({ ...current, status }))
-            }
-            onTelemetry={(telemetry) =>
-              onUpdateSession(session.id, (current) =>
-                current.telemetry === telemetry ? current : { ...current, telemetry },
-              )
-            }
-            onIdentity={(harnessSessionId, identityStatus) =>
-              onUpdateSession(session.id, (current) => ({
-                ...current,
-                harnessSessionId: harnessSessionId ?? current.harnessSessionId,
-                identityStatus,
-              }))
-            }
-            onStarted={() =>
-              onUpdateSession(session.id, (current) =>
-                current.resumeOnStart || current.startMode === 'bulk'
-                  ? { ...current, resumeOnStart: false, startMode: 'interactive' }
-                  : current,
-              )
-            }
-            onFreshStarted={(started: FreshTerminalStart) =>
-              onFreshStarted(session.id, started)
-            }
-            onCapabilities={(capabilities) =>
-              onUpdateSession(session.id, (current) =>
-                current.capabilities === capabilities
-                  ? current
-                  : { ...current, capabilities },
-              )
-            }
-            onInput={(data) => onInput(session.id, data)}
-            onOutput={() => onOutput(session.id)}
-            onBell={() => onBell(session.id)}
-            onFocus={() => onFocus(session.id)}
-            onLink={(activation) => onLink(session, activation)}
-          />
-        )
-      })}
+      {sessionRuntimes}
       {split ? (
         <PaneResizer
           orientation="vertical"
