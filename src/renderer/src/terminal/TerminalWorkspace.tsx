@@ -144,17 +144,15 @@ export function TerminalWorkspace({
     acceptCatalog,
     acceptRecoveryProbes,
   } = profileState
-  const send = useCallback(
-    (action: TerminalWorkspaceAction): void => {
-      const next = terminalWorkspaceReducer(modelRef.current, action)
-      modelRef.current = next
-      onMaterializationChange(workspaceId, next.sessions.length > 0)
-      dispatch(action)
-    },
-    [onMaterializationChange, workspaceId],
-  )
+  const send = useCallback((action: TerminalWorkspaceAction): void => {
+    modelRef.current = terminalWorkspaceReducer(modelRef.current, action)
+    dispatch(action)
+  }, [])
   modelRef.current = model
   const { sessions, activeId } = model
+  useEffect(() => {
+    onMaterializationChange(workspaceId, sessions.length > 0)
+  }, [onMaterializationChange, sessions.length, workspaceId])
   const updateSession = useCallback(
     (id: string, update: (session: TerminalSession) => TerminalSession): void => {
       const session = modelRef.current.sessions.find((candidate) => candidate.id === id)

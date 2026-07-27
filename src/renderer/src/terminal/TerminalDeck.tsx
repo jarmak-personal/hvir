@@ -84,8 +84,7 @@ export function TerminalDeck({
       activeId={activeId}
       primaryActiveId={primaryActiveId}
       secondaryActiveId={secondaryActiveId}
-      workspaceVisible={visible}
-      presentSurfaces={visible}
+      presented={visible}
       terminalTheme={terminalTheme}
       composerSubmitMode={composerSubmitMode}
       workspaceRoot={workspaceRoot}

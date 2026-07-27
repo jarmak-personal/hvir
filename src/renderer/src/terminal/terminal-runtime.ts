@@ -22,6 +22,8 @@ export class TerminalRuntime {
   private currentSnapshot: TerminalRuntimeSnapshot
   private readonly listeners = new Set<() => void>()
   private container?: HTMLElement
+  /** Last detached React container, retained so hidden SSH reconnect stays autonomous. */
+  private retainedContainer?: HTMLElement
   private pane?: TerminalPane
   private outputWriter?: SynchronizedOutputWriter
   private paneDisposers: Array<() => void | Promise<void>> = []
@@ -116,6 +118,7 @@ export class TerminalRuntime {
   attach(container: HTMLElement, presentation = this.options.presentation): void {
     if (this.disposed) return
     this.container = container
+    this.retainedContainer = container
     if (this.pane) {
       this.pane.reparent(container)
       this.pane.setPresentation(presentation)
@@ -129,6 +132,7 @@ export class TerminalRuntime {
 
   detach(container: HTMLElement): void {
     if (this.container !== container) return
+    this.retainedContainer = container
     this.container = undefined
     this.pane?.setPresentation('hidden')
     this.eventRoute?.setPresentation('hidden')
@@ -185,6 +189,7 @@ export class TerminalRuntime {
     if (this.disposed) return
     this.disposed = true
     this.releaseSurface(true)
+    this.retainedContainer = undefined
     this.listeners.clear()
   }
 
@@ -200,19 +205,19 @@ export class TerminalRuntime {
       replacesSessionId: string
     }>,
   ): Promise<void> {
+    const reconnect = this.disconnected && this.hasStarted
+    const container = this.container ?? (reconnect ? this.retainedContainer : undefined)
     if (
       this.disposed ||
       this.starting ||
       this.started ||
-      !this.container ||
+      !container ||
       this.options.connectionState !== 'connected'
     ) {
       return
     }
     this.starting = true
     const generation = ++this.startGeneration
-    const container = this.container
-    const reconnect = this.disconnected && this.hasStarted
     const manualRestart = !replacement && this.restartRequested
     const sessionId = replacement?.sessionId ?? this.options.sessionId
     const startController = new AbortController()

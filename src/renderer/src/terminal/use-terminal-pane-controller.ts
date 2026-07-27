@@ -8,7 +8,7 @@ export type TerminalPaneControllerOptions = TerminalRuntimeOptions
 export function useTerminalPaneController(
   options: TerminalPaneControllerOptions,
   runtimes: TerminalRuntimeRegistry,
-  presented = true,
+  presented: boolean,
 ) {
   const containerRef = useRef<HTMLDivElement>(null)
   const presentationRef = useRef(options.presentation)

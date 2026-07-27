@@ -439,13 +439,17 @@ describe('GhosttyTerminalPane lifecycle', () => {
     const host = document.createElement('div')
     document.body.append(host)
     const root = createRoot(host)
-    const render = (presented: boolean) => (
+    const render = (
+      presented: boolean,
+      connectionState: TerminalRuntimeOptions['connectionState'] = 'connected',
+    ) => (
       <TerminalView
         {...runtimeOptions()}
         active={presented}
         slot="primary"
         presented={presented}
         visible={presented}
+        connectionState={connectionState}
         themeOverride="app"
         runtimes={registry}
       />
@@ -468,9 +472,26 @@ describe('GhosttyTerminalPane lifecycle', () => {
     })
     await vi.waitFor(() => expect(state.writes).toContain('background output'))
 
+    act(() => root.render(render(false, 'disconnected')))
+    expect(state.disposed).toBe(true)
+    expect(send).not.toHaveBeenCalledWith('pty:kill', expect.anything())
+
+    act(() => root.render(render(false, 'connected')))
+    await act(async () => {
+      await vi.waitFor(() => expect(invoke).toHaveBeenCalledTimes(2))
+    })
+    const reconnected = ghosttyState.instances[1]!
+    act(() => {
+      emitData?.({ id: 'terminal-1', data: 'reconnected background output' })
+    })
+    await vi.waitFor(() =>
+      expect(reconnected.writes).toContain('reconnected background output'),
+    )
+
     act(() => root.render(render(true)))
-    expect(host.querySelector('.terminal-engine-host')).toBe(surface)
-    expect(invoke).toHaveBeenCalledOnce()
+    expect(host.querySelector('.terminal-engine-host')).not.toBe(surface)
+    expect(ghosttyState.instances).toHaveLength(2)
+    expect(invoke).toHaveBeenCalledTimes(2)
 
     act(() => {
       root.unmount()
@@ -897,7 +918,7 @@ function theme() {
   }
 }
 
-function runtimeOptions(): TerminalRuntimeOptions {
+function runtimeOptions(): TerminalRuntimeOptions & { readonly presented: boolean } {
   return {
     sessionId: 'terminal-1',
     profileId: asHarnessProfileId('claude-code-default'),
@@ -910,6 +931,7 @@ function runtimeOptions(): TerminalRuntimeOptions {
     startMode: 'interactive',
     position: 0,
     active: true,
+    presented: true,
     presentation: 'visible',
     modifiedKeyProtocol: 'modify-other-keys',
     metaEnterAliasesControl: true,

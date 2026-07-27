@@ -19,8 +19,7 @@ export interface TerminalSessionRuntimesProps {
   readonly activeId?: string
   readonly primaryActiveId?: string
   readonly secondaryActiveId?: string
-  readonly workspaceVisible: boolean
-  readonly presentSurfaces: boolean
+  readonly presented: boolean
   readonly terminalTheme: TerminalThemeOverride
   readonly composerSubmitMode: ComposerSubmitMode
   readonly workspaceRoot: HostPath
@@ -45,8 +44,7 @@ export function TerminalSessionRuntimes({
   activeId,
   primaryActiveId,
   secondaryActiveId,
-  workspaceVisible,
-  presentSurfaces,
+  presented,
   terminalTheme,
   composerSubmitMode,
   workspaceRoot,
@@ -82,13 +80,13 @@ export function TerminalSessionRuntimes({
             startMode={session.startMode ?? 'interactive'}
             position={position}
             slot={session.pane}
-            presented={presentSurfaces}
+            presented={presented}
             visible={
-              workspaceVisible &&
+              presented &&
               session.id ===
                 (session.pane === 'primary' ? primaryActiveId : secondaryActiveId)
             }
-            active={workspaceVisible && session.id === activeId}
+            active={presented && session.id === activeId}
             modifiedKeyProtocol={provider.terminalInput.modifiedKeyProtocol}
             metaEnterAliasesControl={provider.terminalInput.metaEnterAliasesControl}
             themeOverride={terminalTheme}
