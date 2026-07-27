@@ -141,6 +141,17 @@ describe('native release automation', () => {
     expect(publish).toBeGreaterThan(upload)
     expect(verify).toBeGreaterThan(publish)
     expect(releaseWorkflow).toContain('"repos/$GITHUB_REPOSITORY/immutable-releases"')
+    const immutableStep = releaseWorkflow.slice(immutable, assemble)
+    expect(immutableStep).toContain(
+      'GH_TOKEN: ${{ secrets.IMMUTABLE_RELEASES_READ_TOKEN }}',
+    )
+    expect(immutableStep).toContain(
+      'IMMUTABLE_RELEASES_READ_TOKEN is unavailable in native-release-signing',
+    )
+    expect(immutableStep).not.toContain('GH_TOKEN: ${{ github.token }}')
+    expect(releaseWorkflow.slice(createDraft, upload)).toContain(
+      'GH_TOKEN: ${{ github.token }}',
+    )
     expect(releaseWorkflow).toContain('npm run assemble:native-release')
     expect(releaseWorkflow).toContain('--draft')
     expect(releaseWorkflow).toContain('--draft=false')

@@ -282,8 +282,12 @@ jobs:
 
       - name: Require repository release immutability
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.IMMUTABLE_RELEASES_READ_TOKEN }}
         run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::error::IMMUTABLE_RELEASES_READ_TOKEN is unavailable in native-release-signing"
+            exit 1
+          fi
           enabled=$(gh api \
             -H 'Accept: application/vnd.github+json' \
             -H 'X-GitHub-Api-Version: 2026-03-10' \

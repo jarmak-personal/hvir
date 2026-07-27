@@ -111,6 +111,9 @@ branch permitted for release. Configure these environment secrets:
   API private key, key ID, and issuer ID used by `notarytool`.
 - `MACOS_TEAM_ID`: the expected Apple Developer team identifier checked during installed-package
   acceptance.
+- `IMMUTABLE_RELEASES_READ_TOKEN`: a fine-grained GitHub token restricted to this repository with
+  read-only Administration permission, used only to verify immutable releases are enabled before
+  publication. The workflow's built-in token remains the release publication credential.
 
 The protected workflow refuses tags, stale manual branch tips, and source commits not contained in
 the release branch. It signs the hardened application and installer, notarizes and staples the
