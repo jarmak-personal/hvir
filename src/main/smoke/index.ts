@@ -10,9 +10,9 @@ import { registerIpcHandlers } from '../ipc'
 import type { RendererResourceScopes } from '../renderer-resource-scopes'
 import { LocalHost } from '../project-host'
 import { PtySupervisor } from '../pty/pty-supervisor'
-import type { TerminalSessionStore } from '../terminal/session-registry'
 import type { WebPaneRouteRegistry } from '../web-pane/web-pane-route-registry'
 import { createWorkerClient, workerPath } from '../worker-host'
+import { createWorkspaceCleanup } from '../workspace-cleanup'
 import { SmokeCleanup } from './cleanup'
 import { verifyGitDiffBases } from './git-diff'
 import { verifyDirtyBranchSwitch } from './git-dirty-navigation'
@@ -27,10 +27,12 @@ import { verifyWorkbenchHealthFault } from './workbench-health'
 import { verifyUnresponsiveRendererRecovery } from './renderer-recovery'
 import type { ElectronSmokeMode } from './scenario-selection.mts'
 import { createTerminalMoveSmokeHarness, verifyTerminalMoveSmoke } from './terminal-move'
+import { createSmokeTerminalSessionStore } from './terminal-session-store'
 import {
   verifyLegacyTerminalPresentation,
   verifyTerminalPresentationLifecycle,
 } from './terminal-presentation'
+import { verifyWorkspaceCloseSmoke, workspaceCloseSmokeCommands } from './workspace-close'
 import {
   capacityRecoverySessions,
   runCapacityLoadSmoke,
@@ -53,7 +55,6 @@ import {
   type IpcEventPayload,
   type KeybindingMap,
   type ProjectState,
-  type TerminalRecoverySession,
 } from '../../shared'
 
 export interface ElectronSmokeDependencies {
@@ -164,6 +165,7 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
             root: smokeRoot,
             name: 'hvir',
             main: true,
+            closed: false,
             missing,
             // The platform-only group does not acquire unrelated Git-worker work.
             repository: mode !== 'platform-contracts' && mode !== 'renderer-recovery',
@@ -195,6 +197,7 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
             root: smokeRoot,
             name: 'feature/header',
             main: true,
+            closed: false,
             missing: false,
             repository: true,
             changedFiles: 0,
@@ -246,32 +249,8 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
       if (smokeWindow && !smokeWindow.isDestroyed())
         smokeWindow.webContents.send(channel, payload)
     }
-    let smokeRecoverySessions: readonly TerminalRecoverySession[] = []
-    const smokeTerminalSessions: TerminalSessionStore = {
-      list: () => smokeRecoverySessions,
-      recordRecoveryDecision: () => Promise.resolve(),
-      recordSpawn: () => Promise.resolve(),
-      recordReplacement: () => Promise.resolve(),
-      recordIdentity: () => Promise.resolve(),
-      updateLayout: () => Promise.resolve(),
-      forget: () => Promise.resolve(),
-      rebindProfile: () => Promise.reject(new Error('Smoke recovery is read-only')),
-      authorizeReattach: (request) => {
-        const stored = smokeRecoverySessions.find((session) => session.id === request.id)
-        return Boolean(
-          stored &&
-          stored.providerId === request.providerId &&
-          stored.profileId === request.profileId &&
-          stored.launchRevision === request.launchRevision &&
-          stored.harnessSessionId === request.harnessSessionId &&
-          hostPathEquals(request.workspaceRoot, smokeRoot) &&
-          hostPathEquals(stored.cwd, request.cwd),
-        )
-      },
-      authorizeResume: () => false,
-      authorizeReplacement: () => false,
-      flush: () => Promise.resolve(),
-    }
+    const smokeTerminalSessionHarness = createSmokeTerminalSessionStore(smokeRoot)
+    const smokeTerminalSessions = smokeTerminalSessionHarness.store
     const smokeHarnessProfiles = await HarnessProfileStore.load(host, harnessProfilesPath)
     let smokeIpcProjectState = smokeProjectState()
     const openedFolderSelections: Array<{ hostId: string; path: string }> = []
@@ -284,6 +263,19 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
       onState: (state) => {
         smokeIpcProjectState = state
       },
+    })
+    const workspaceCloseCommands = workspaceCloseSmokeCommands({
+      host,
+      getState: () => smokeIpcProjectState,
+      setState: (state) => {
+        smokeIpcProjectState = state
+      },
+      cleanup: createWorkspaceCleanup({
+        ptys: supervisor,
+        resources: rendererResources,
+        sessions: smokeTerminalSessions,
+        webPanes: webPaneRoutes,
+      }),
     })
     const ipcRouter = registerIpcHandlers({
       echoWorker: worker,
@@ -351,6 +343,9 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
       },
       pruneWorktrees: () => Promise.resolve(smokeProjectState()),
       dismissWorkspace: () => Promise.resolve(smokeProjectState()),
+      planWorkspaceClose: workspaceCloseCommands.planWorkspaceClose,
+      closeWorkspace: workspaceCloseCommands.closeWorkspace,
+      reopenWorkspace: workspaceCloseCommands.reopenWorkspace,
       acknowledgeWorkspace: () => Promise.resolve(smokeProjectState()),
       switchGitBranch: async (_root, branch) => {
         const result = await host.exec('git', [
@@ -489,6 +484,26 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
       console.log(`[smoke] terminal presentation OK (${presentation})`)
     }
 
+    if (mode === 'workflow') {
+      const workspaceCloseStatus = await verifyWorkspaceCloseSmoke({
+        win,
+        host,
+        supervisor,
+        resources: rendererResources,
+        routes: webPaneRoutes,
+        activeRoot: smokeRoot,
+        closeRoot: smokeWebSwitchRoot,
+        getState: () => smokeIpcProjectState,
+        setState: (state) => (smokeIpcProjectState = state),
+        emitState: (state) => emit('project:state', state),
+        recovery: {
+          add: smokeTerminalSessionHarness.add,
+          has: smokeTerminalSessionHarness.has,
+        },
+      })
+      console.log(`[smoke] workspace close OK (${workspaceCloseStatus})`)
+    }
+
     if (mode === 'viewer-position') {
       const result = await verifySourceDiffPosition(win, liveReloadPath)
       console.log(`[smoke] source/diff viewer positions OK (${result})`)
@@ -509,9 +524,8 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
 
     if (mode === 'capacity') {
       await runCapacityLoadSmoke(win, supervisor, host, liveReloadPath)
-      smokeRecoverySessions = capacityRecoverySessions(
-        supervisor,
-        defaultHarnessProviderId,
+      smokeTerminalSessionHarness.set(
+        capacityRecoverySessions(supervisor, defaultHarnessProviderId),
       )
       // The load and synthetic recovery checks are separate capacity contracts.
       // End the load fixtures so rollover preservation does not inflate recovery counts.
@@ -785,6 +799,7 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
               root: smokeWebSwitchRoot,
               name: 'docs',
               main: false,
+              closed: false,
               missing: true,
               repository: true,
               changedFiles: 0,
@@ -2744,6 +2759,7 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
               root: smokeCloseableRoot,
               name: 'Close me',
               main: true,
+              closed: false,
               missing: true,
               repository: false,
               changedFiles: 0,
@@ -2799,7 +2815,7 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
       root: smokeRoot,
       providerId: defaultHarnessProviderId,
       setRecoverySessions: (sessions) => {
-        smokeRecoverySessions = sessions
+        smokeTerminalSessionHarness.set(sessions)
       },
     })
     console.log(

@@ -7,7 +7,7 @@ import {
   GIT_COMMIT_DETAIL_TYPE,
   GIT_WORKTREES_TYPE,
   GIT_PRUNE_WORKTREES_TYPE,
-  GIT_CHANGED_FILE_COUNT_TYPE,
+  GIT_WORKSPACE_ACTIVITY_TYPE,
   GIT_BRANCHES_TYPE,
   GIT_FETCH_TYPE,
   GIT_PULL_TYPE,
@@ -84,8 +84,8 @@ async function handle(request: WorkerRequest): Promise<void> {
       result = await engine.switchBranch(root, raw['branch'], relatedWorktreeRoots)
     } else if (request.type === GIT_PRUNE_WORKTREES_TYPE) {
       result = await engine.pruneWorktrees(root)
-    } else if (request.type === GIT_CHANGED_FILE_COUNT_TYPE) {
-      result = await engine.changedFileCount(root, relatedWorktreeRoots)
+    } else if (request.type === GIT_WORKSPACE_ACTIVITY_TYPE) {
+      result = await engine.workspaceActivity(root, relatedWorktreeRoots)
     } else if (request.type === GIT_DIFF_INPUTS_TYPE && isPayload(request.payload)) {
       const path = decodePath(request.payload.path)
       assertProjectPath(path, root)

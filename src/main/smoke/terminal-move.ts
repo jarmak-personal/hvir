@@ -139,6 +139,7 @@ export function createTerminalMoveSmokeHarness({
                 name: 'smoke-move-target',
                 branch: 'smoke/move-target',
                 main: false,
+                closed: false,
                 missing: false,
                 repository: true,
                 changedFiles: 0,

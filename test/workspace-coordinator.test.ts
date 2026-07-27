@@ -8,7 +8,15 @@ import {
   type WorkspaceRegistryPort,
   type WorkspaceWatchPort,
 } from '../src/main/workspace-coordinator'
-import { localPath, type ProjectState, type WorktreeDiscovery } from '../src/shared'
+import {
+  WORKSPACE_ACTIVITY_FIELDS,
+  WORKSPACE_ACTIVITY_SCHEMA,
+  WORKSPACE_ACTIVITY_STATUS_LIMIT,
+  localPath,
+  type ProjectState,
+  type WorkspaceActivityResult,
+  type WorktreeDiscovery,
+} from '../src/shared'
 
 const root = localPath('/project')
 const host = {
@@ -20,6 +28,18 @@ const host = {
 const discovered: WorktreeDiscovery = {
   repository: true,
   worktrees: [{ root, detached: false, bare: false }],
+}
+
+const workspaceActivity: WorkspaceActivityResult = {
+  changedFiles: 3,
+  status: {
+    schema: WORKSPACE_ACTIVITY_SCHEMA,
+    fields: WORKSPACE_ACTIVITY_FIELDS,
+    statusLimit: WORKSPACE_ACTIVITY_STATUS_LIMIT,
+    statusEntryCount: 3,
+    statusTruncated: false,
+    statusDigest: 'a'.repeat(64),
+  },
 }
 
 function projectState(): ProjectState {
@@ -43,6 +63,7 @@ function projectState(): ProjectState {
             root,
             name: 'project',
             main: true,
+            closed: false,
             missing: false,
             repository: true,
             changedFiles: 0,
@@ -63,7 +84,7 @@ function fixture() {
       workspaceId: 'workspace-1',
     },
     state: () => state,
-    projectById: (id) => state.projects.find((project) => project.id === id),
+    projectById: vi.fn((id) => state.projects.find((project) => project.id === id)),
     reconcileWorktrees: vi.fn((_id, discovery: WorktreeDiscovery) => {
       state = {
         ...state,
@@ -74,6 +95,7 @@ function fixture() {
             root: worktree.root,
             name: 'project',
             main: true,
+            closed: false,
             missing: false,
             repository: discovery.repository,
             changedFiles: 0,
@@ -82,23 +104,26 @@ function fixture() {
       }
       return Promise.resolve(state)
     }),
-    updateChangedCounts: vi.fn((_id, counts: ReadonlyMap<string, number>) => {
-      state = {
-        ...state,
-        projects: state.projects.map((project) => ({
-          ...project,
-          workspaces: project.workspaces.map((workspace) => ({
-            ...workspace,
-            changedFiles: counts.get(workspace.id) ?? workspace.changedFiles,
+    updateWorkspaceActivity: vi.fn(
+      (_id, results: ReadonlyMap<string, WorkspaceActivityResult>) => {
+        state = {
+          ...state,
+          projects: state.projects.map((project) => ({
+            ...project,
+            workspaces: project.workspaces.map((workspace) => ({
+              ...workspace,
+              changedFiles:
+                results.get(workspace.id)?.changedFiles ?? workspace.changedFiles,
+            })),
           })),
-        })),
-      }
-      return Promise.resolve(state)
-    }),
+        }
+        return Promise.resolve(state)
+      },
+    ),
   }
   const discovery = {
     discover: vi.fn<() => Promise<WorktreeDiscovery>>(() => Promise.resolve(discovered)),
-    changedFileCount: vi.fn(() => Promise.resolve(3)),
+    workspaceActivity: vi.fn(() => Promise.resolve(workspaceActivity)),
   }
   const watches: WorkspaceWatchPort[] = []
   const createWatch = vi.fn((target: WorkspaceWatchPort['target']) => {
@@ -130,7 +155,7 @@ describe('WorkspaceCoordinator', () => {
     await expect(first).resolves.toMatchObject({ activeProjectId: 'project-1' })
     expect(discovery.discover).toHaveBeenCalledOnce()
     expect(registry.reconcileWorktrees).toHaveBeenCalledOnce()
-    expect(registry.updateChangedCounts).toHaveBeenCalledOnce()
+    expect(registry.updateWorkspaceActivity).toHaveBeenCalledOnce()
   })
 
   it('ignores a discovery result invalidated while it is in flight', async () => {
@@ -150,7 +175,7 @@ describe('WorkspaceCoordinator', () => {
     await refresh
 
     expect(registry.reconcileWorktrees).not.toHaveBeenCalled()
-    expect(registry.updateChangedCounts).not.toHaveBeenCalled()
+    expect(registry.updateWorkspaceActivity).not.toHaveBeenCalled()
   })
 
   it('retries after refresh failure instead of caching rejection', async () => {
@@ -161,6 +186,60 @@ describe('WorkspaceCoordinator', () => {
     await coordinator.refresh('project-1')
 
     expect(discovery.discover).toHaveBeenCalledTimes(2)
+  })
+
+  it('retries after activity failure without publishing a partial refresh', async () => {
+    const { coordinator, registry, discovery } = fixture()
+    discovery.workspaceActivity.mockRejectedValueOnce(new Error('status unavailable'))
+
+    await expect(coordinator.refresh('project-1')).rejects.toThrow('status unavailable')
+    expect(registry.updateWorkspaceActivity).not.toHaveBeenCalled()
+    await coordinator.refresh('project-1')
+
+    expect(discovery.workspaceActivity).toHaveBeenCalledTimes(2)
+    expect(registry.updateWorkspaceActivity).toHaveBeenCalledOnce()
+  })
+
+  it('drops activity that completes after the project generation is invalidated', async () => {
+    const { coordinator, registry, discovery } = fixture()
+    let finish: ((value: WorkspaceActivityResult) => void) | undefined
+    discovery.workspaceActivity.mockImplementationOnce(
+      () =>
+        new Promise<WorkspaceActivityResult>((resolve) => {
+          finish = resolve
+        }),
+    )
+
+    const refresh = coordinator.refresh('project-1')
+    await vi.waitFor(() => expect(finish).toBeTypeOf('function'))
+    coordinator.invalidateProject('project-1')
+    finish?.(workspaceActivity)
+    await refresh
+
+    expect(registry.reconcileWorktrees).toHaveBeenCalledOnce()
+    expect(registry.updateWorkspaceActivity).not.toHaveBeenCalled()
+  })
+
+  it('samples closed present workspaces through the existing activity refresh', async () => {
+    const { coordinator, registry, discovery } = fixture()
+    const initial = projectState()
+    const closedState: ProjectState = {
+      ...initial,
+      projects: initial.projects.map((project) => ({
+        ...project,
+        workspaces: project.workspaces.map((workspace) => ({
+          ...workspace,
+          closed: true,
+        })),
+      })),
+    }
+    vi.mocked(registry.projectById).mockReturnValue(closedState.projects[0])
+    vi.mocked(registry.reconcileWorktrees).mockResolvedValue(closedState)
+
+    await coordinator.refresh('project-1')
+
+    expect(discovery.workspaceActivity).toHaveBeenCalledWith(root, [root])
+    expect(registry.updateWorkspaceActivity).toHaveBeenCalledOnce()
   })
 
   it('replaces watches without letting a slow prior disposal win', async () => {
@@ -215,7 +294,7 @@ describe('WorkspaceCoordinator', () => {
       coordinator.stopPolling()
       await vi.advanceTimersByTimeAsync(0)
 
-      expect(discovery.changedFileCount).toHaveBeenCalledOnce()
+      expect(discovery.workspaceActivity).toHaveBeenCalledOnce()
     } finally {
       vi.useRealTimers()
     }

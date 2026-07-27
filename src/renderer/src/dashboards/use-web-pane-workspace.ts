@@ -86,7 +86,9 @@ export function useWebPaneWorkspace({
     (state: ProjectState, currentRoot: HostPath | undefined): boolean => {
       const liveWorkspaceKeys = new Set(
         state.projects.flatMap((project) =>
-          project.workspaces.map((workspace) => webWorkspaceKey(workspace.root)),
+          project.workspaces
+            .filter((workspace) => !workspace.closed)
+            .map((workspace) => webWorkspaceKey(workspace.root)),
         ),
       )
       setViews((current) =>

@@ -49,7 +49,7 @@ export interface GitMutationWorkspacePort {
 export interface GitMutationCleanupPort {
   forgetWorkspaceSessions(root: HostPath): Promise<void>
   revokeWorkspace(root: HostPath): Promise<void>
-  closeWorkspace(root: HostPath): Promise<void>
+  closeWorkspaceWebPanes(root: HostPath): Promise<void>
   clearHtmlPreviews(): void
 }
 
@@ -196,7 +196,7 @@ export class GitMutationCoordinator {
       await registry.dismissWorkspace(projectId, target.id)
       await Promise.all([
         cleanup.revokeWorkspace(target.root),
-        cleanup.closeWorkspace(target.root),
+        cleanup.closeWorkspaceWebPanes(target.root),
       ])
     }
     if (prunesActiveWorkspace) {

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useReducer, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react'
 
 import {
   unwrapOperation,
@@ -18,6 +18,7 @@ import {
   selectActiveWorkspace,
   selectRelativeWorkspace,
 } from './project-session-model'
+import { createWorkspaceSessionActions } from './workspace-session-actions'
 
 const WATCH_REFRESH_DELAY_MS = 250
 
@@ -162,6 +163,22 @@ export function useProjectSession(options: UseProjectSessionOptions) {
     [acceptProjectState, configureComposerSubmitNonfatal],
   )
 
+  const ensureProjectConnected = useCallback(
+    async (projectId: string): Promise<void> => {
+      const targetProject = modelRef.current.projectState?.projects.find(
+        (project) => project.id === projectId,
+      )
+      if (
+        targetProject &&
+        targetProject.registeredRoot.hostId !== 'local' &&
+        targetProject.connectionState !== 'connected'
+      ) {
+        await connectHost(targetProject.registeredRoot.hostId)
+      }
+    },
+    [connectHost],
+  )
+
   const switchWorkspace = useCallback(
     async (projectId: string, workspaceId: string): Promise<void> => {
       const current = modelRef.current.projectState
@@ -172,22 +189,13 @@ export function useProjectSession(options: UseProjectSessionOptions) {
         return
       }
       await runTransition(async () => {
-        const targetProject = modelRef.current.projectState?.projects.find(
-          (project) => project.id === projectId,
-        )
-        if (
-          targetProject &&
-          targetProject.registeredRoot.hostId !== 'local' &&
-          targetProject.connectionState !== 'connected'
-        ) {
-          await connectHost(targetProject.registeredRoot.hostId)
-        }
+        await ensureProjectConnected(projectId)
         return unwrapOperation(
           await window.hvir.invoke('project:switch', { projectId, workspaceId }),
         )
       })
     },
-    [connectHost, runTransition],
+    [ensureProjectConnected, runTransition],
   )
 
   const switchRelativeWorkspace = useCallback(
@@ -234,6 +242,17 @@ export function useProjectSession(options: UseProjectSessionOptions) {
       )
     },
     [runTransition],
+  )
+
+  const workspaceActions = useMemo(
+    () =>
+      createWorkspaceSessionActions({
+        runTransition,
+        ensureProjectConnected,
+        reportError: (reason) =>
+          dispatch({ type: 'reported-error', error: errorMessage(reason) }),
+      }),
+    [ensureProjectConnected, runTransition],
   )
 
   const acknowledgeWorkspaces = useCallback(
@@ -434,6 +453,7 @@ export function useProjectSession(options: UseProjectSessionOptions) {
     closeProject,
     pruneWorktrees,
     dismissWorkspace,
+    ...workspaceActions,
     acknowledgeWorkspaces,
     disconnect,
     reconnect,

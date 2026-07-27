@@ -6,6 +6,7 @@ import {
   type ProjectState,
   type ProjectWatchInterestsResponse,
   type RegisteredProjectState,
+  type WorkspaceActivityResult,
   type WorktreeDiscovery,
 } from '../shared'
 import type { ProjectHost } from './project-host'
@@ -29,15 +30,18 @@ export interface WorkspaceRegistryPort {
     projectId: string,
     discovery: WorktreeDiscovery,
   ): Promise<ProjectState>
-  updateChangedCounts(
+  updateWorkspaceActivity(
     projectId: string,
-    counts: ReadonlyMap<string, number>,
+    activity: ReadonlyMap<string, WorkspaceActivityResult>,
   ): Promise<ProjectState>
 }
 
 export interface WorkspaceDiscoveryPort {
   discover(root: HostPath): Promise<WorktreeDiscovery>
-  changedFileCount(root: HostPath, relatedRoots: readonly HostPath[]): Promise<number>
+  workspaceActivity(
+    root: HostPath,
+    relatedRoots: readonly HostPath[],
+  ): Promise<WorkspaceActivityResult>
 }
 
 export interface WorkspaceWatchPort {
@@ -263,19 +267,19 @@ export class WorkspaceCoordinator {
     if (!refreshed) return this.options.registry.state()
     const present = refreshed.workspaces.filter((workspace) => !workspace.missing)
     const relatedRoots = present.map((workspace) => workspace.root)
-    const counts = new Map<string, number>()
+    const activity = new Map<string, WorkspaceActivityResult>()
     for (let index = 0; index < present.length; index += 3) {
       await Promise.all(
         present.slice(index, index + 3).map(async (workspace) => {
-          counts.set(
+          activity.set(
             workspace.id,
-            await this.options.discovery.changedFileCount(workspace.root, relatedRoots),
+            await this.options.discovery.workspaceActivity(workspace.root, relatedRoots),
           )
         }),
       )
       if (!this.isCurrent(projectId, generation)) return this.options.registry.state()
     }
-    return this.options.registry.updateChangedCounts(projectId, counts)
+    return this.options.registry.updateWorkspaceActivity(projectId, activity)
   }
 
   private poll(): void {

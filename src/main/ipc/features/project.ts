@@ -16,6 +16,9 @@ type ProjectIpcDeps = Pick<
   | 'closeProject'
   | 'pruneWorktrees'
   | 'dismissWorkspace'
+  | 'planWorkspaceClose'
+  | 'closeWorkspace'
+  | 'reopenWorkspace'
   | 'acknowledgeWorkspace'
   | 'respondSshPrompt'
 >
@@ -55,6 +58,22 @@ export function registerProjectIpc(ipc: IpcRegistrar, deps: ProjectIpcDeps): voi
   )
   ipc.handle('workspace:dismiss', (req) =>
     operationResult(() => deps.dismissWorkspace(req.projectId, req.workspaceId)),
+  )
+  ipc.handle('workspace:plan-close', (req) =>
+    operationResult(() => deps.planWorkspaceClose(req.projectId, req.workspaceId)),
+  )
+  ipc.handle('workspace:close', (req) =>
+    operationResult(() =>
+      deps.closeWorkspace(
+        req.projectId,
+        req.workspaceId,
+        req.expectedTerminalCount,
+        req.terminateTerminals,
+      ),
+    ),
+  )
+  ipc.handle('workspace:reopen', (req) =>
+    operationResult(() => deps.reopenWorkspace(req.projectId, req.workspaceId)),
   )
   ipc.handle('workspace:acknowledge', (req) =>
     operationResult(() => deps.acknowledgeWorkspace(req.projectId, req.workspaceId)),

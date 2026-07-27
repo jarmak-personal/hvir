@@ -260,12 +260,13 @@ describe('Electron smoke command contracts', () => {
     expect(invocationScript).toContain('HVIR_SMOKE_SOURCE_COMMIT="$source_commit"')
     expect(invocationScript).toContain('HVIR_SMOKE_SOURCE_DIRTY="$source_dirty"')
     expect(invocationScript).toContain('create-smoke-repository.sh')
+    expect(invocationScript).toContain('unset ELECTRON_RENDERER_URL')
   })
 
   it('enters capacity before unrelated legacy profile and viewer assertions', () => {
     const branch = smokeWorkflow.indexOf("if (mode === 'capacity')")
     const recoveryRecords = smokeWorkflow.indexOf(
-      'smokeRecoverySessions = capacityRecoverySessions',
+      'capacityRecoverySessions(supervisor, defaultHarnessProviderId)',
       branch,
     )
     const resetLoadFixtures = smokeWorkflow.indexOf(

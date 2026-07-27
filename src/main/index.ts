@@ -18,6 +18,7 @@ import { HarnessProfileStore } from './harness/harness-profile-store'
 import { HarnessProbeManager } from './harness/harness-probe'
 import { ProjectWatchController } from './project-watch'
 import { WorkspaceCoordinator } from './workspace-coordinator'
+import { createWorkspaceCleanup } from './workspace-cleanup'
 import { TerminalSessionRegistry } from './terminal/session-registry'
 import { TerminalWorkspaceMoveCoordinator } from './terminal/terminal-workspace-move-coordinator'
 import { RendererResourceScopes, type RendererOwner } from './renderer-resource-scopes'
@@ -27,7 +28,7 @@ import { RuntimeDiagnostics } from './diagnostics/runtime-diagnostics'
 import { createDiagnosticReportCoordinator } from './diagnostics/diagnostic-report-coordinator'
 import { RendererEventPublisher } from './renderer-event-publisher'
 import {
-  GIT_CHANGED_FILE_COUNT_TYPE,
+  GIT_WORKSPACE_ACTIVITY_TYPE,
   GIT_FETCH_TYPE,
   GIT_PRUNE_WORKTREES_TYPE,
   GIT_PULL_TYPE,
@@ -242,8 +243,8 @@ function createWorkbenchEntry(): void {
         registry: projectRegistry,
         discovery: {
           discover: (root) => gitWorker!.request(GIT_WORKTREES_TYPE, { root }),
-          changedFileCount: (root, relatedWorktreeRoots) =>
-            gitWorker!.request(GIT_CHANGED_FILE_COUNT_TYPE, {
+          workspaceActivity: (root, relatedWorktreeRoots) =>
+            gitWorker!.request(GIT_WORKSPACE_ACTIVITY_TYPE, {
               root,
               relatedWorktreeRoots,
             }),
@@ -256,20 +257,21 @@ function createWorkbenchEntry(): void {
       }),
       (coordinator) => coordinator.dispose(),
     )
+    ptySupervisor = runtime.own(
+      'PTY supervisor',
+      new PtySupervisor({ onDiagnostic: (event) => diagnostics.recordPty(event) }),
+      (supervisor) => supervisor.disposeAllAndWait(),
+    )
+    const workspaceCleanup = createWorkspaceCleanup({
+      ptys: ptySupervisor,
+      resources: rendererScopes,
+      sessions: terminalSessionRegistry,
+      webPanes: webPaneRoutes,
+    })
     projectCoordinator = new ProjectCoordinator({
       registry: projectRegistry,
       workspaces: workspaceCoordinator,
-      cleanup: {
-        revokeWorkspace: (root) => rendererScopes.revokeWorkspace(root),
-        closeWorkspace: (root) => webPaneRoutes.closeWorkspace(root),
-        forgetWorkspaceSessions: async (root) => {
-          await Promise.all(
-            terminalSessionRegistry!
-              .list(root)
-              .map((session) => terminalSessionRegistry!.forget(root, session.id)),
-          )
-        },
-      },
+      cleanup: workspaceCleanup,
       onError: (message, error) => console.error(message, error),
       onHostControlDiagnostic: (event) => diagnostics.recordHostControl(event),
     })
@@ -290,24 +292,13 @@ function createWorkbenchEntry(): void {
       workspaces: workspaceCoordinator,
       authorizations: gitMutationAuthorizations,
       cleanup: {
-        forgetWorkspaceSessions: async (root) => {
-          await Promise.all(
-            terminalSessionRegistry!
-              .list(root)
-              .map((session) => terminalSessionRegistry!.forget(root, session.id)),
-          )
-        },
-        revokeWorkspace: (root) => rendererScopes.revokeWorkspace(root),
-        closeWorkspace: (root) => webPaneRoutes.closeWorkspace(root),
+        forgetWorkspaceSessions: workspaceCleanup.forgetWorkspaceSessions,
+        revokeWorkspace: workspaceCleanup.revokeWorkspace,
+        closeWorkspaceWebPanes: workspaceCleanup.closeWorkspaceWebPanes,
         clearHtmlPreviews: () => htmlPreviews.clear(),
       },
       onError: (message, error) => console.error(message, error),
     })
-    ptySupervisor = runtime.own(
-      'PTY supervisor',
-      new PtySupervisor({ onDiagnostic: (event) => diagnostics.recordPty(event) }),
-      (supervisor) => supervisor.disposeAllAndWait(),
-    )
     const terminalMoves = new TerminalWorkspaceMoveCoordinator({
       projects: projectRegistry,
       workspaces: workspaceCoordinator,

@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -8,13 +8,38 @@ import {
   RendererSshPrompter,
   identityFileCandidates,
 } from '../src/main/project-registry'
-import { asHostId, hostPath, localPath } from '../src/shared'
+import {
+  WORKSPACE_ACTIVITY_FIELDS,
+  WORKSPACE_ACTIVITY_SCHEMA,
+  WORKSPACE_ACTIVITY_STATUS_LIMIT,
+  asHostId,
+  hostPath,
+  localPath,
+  type WorkspaceActivityResult,
+} from '../src/shared'
 
 const cleanups: string[] = []
 
 afterEach(async () => {
   await Promise.all(cleanups.splice(0).map((path) => rm(path, { recursive: true })))
 })
+
+function activityResult(
+  digestCharacter: string,
+  statusTruncated = false,
+): WorkspaceActivityResult {
+  return {
+    changedFiles: 1,
+    status: {
+      schema: WORKSPACE_ACTIVITY_SCHEMA,
+      fields: WORKSPACE_ACTIVITY_FIELDS,
+      statusLimit: WORKSPACE_ACTIVITY_STATUS_LIMIT,
+      statusEntryCount: 1,
+      statusTruncated,
+      statusDigest: digestCharacter.repeat(64),
+    },
+  }
+}
 
 describe('ProjectRegistry session flow', () => {
   it('cancels first-run selection without inventing a cwd project', async () => {
@@ -104,6 +129,10 @@ describe('ProjectRegistry session flow', () => {
         { root: canonicalLinked, branch: 'feature', detached: false, bare: false },
       ],
     })
+    const linkedId = initial
+      .projectById(initial.state().activeProjectId)!
+      .workspaces.find((workspace) => workspace.root.path === canonicalLinked.path)!.id
+    await initial.closeWorkspace(initial.state().activeProjectId, linkedId)
     await initial.dispose()
 
     const restored = await ProjectRegistry.create(
@@ -116,6 +145,11 @@ describe('ProjectRegistry session flow', () => {
 
     expect(restored.state().root).toEqual(canonicalLinked)
     expect(restored.state().projects).toHaveLength(1)
+    expect(
+      restored
+        .projectById(restored.state().activeProjectId)
+        ?.workspaces.find((workspace) => workspace.id === linkedId)?.closed,
+    ).toBe(false)
     await restored.dispose()
   })
 
@@ -418,6 +452,251 @@ describe('ProjectRegistry session flow', () => {
     await restored.dispose()
   })
 
+  it('persists closed workspaces and resurfaces them only from comparable activity or rediscovery', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'hvir-registry-closed-'))
+    const linked = join(root, 'linked')
+    await mkdir(linked)
+    const canonicalRoot = localPath(await realpath(root))
+    const canonicalLinked = localPath(await realpath(linked))
+    const projectsFile = join(root, 'projects.json')
+    const trustFile = join(root, 'known-hosts.json')
+    cleanups.push(root)
+    const registry = await ProjectRegistry.create(
+      canonicalRoot,
+      { prompt: () => Promise.resolve(undefined) },
+      trustFile,
+      projectsFile,
+      () => undefined,
+    )
+    const projectId = registry.state().activeProjectId
+    await registry.reconcileWorktrees(projectId, {
+      repository: true,
+      worktrees: [
+        {
+          root: canonicalRoot,
+          head: '1'.repeat(40),
+          branch: 'main',
+          detached: false,
+          bare: false,
+        },
+        {
+          root: canonicalLinked,
+          head: '2'.repeat(40),
+          branch: 'feature',
+          detached: false,
+          bare: false,
+        },
+      ],
+    })
+    const linkedId = registry
+      .projectById(projectId)!
+      .workspaces.find((workspace) => workspace.root.path === canonicalLinked.path)!.id
+    await registry.updateWorkspaceActivity(
+      projectId,
+      new Map([[linkedId, activityResult('a')]]),
+    )
+    await registry.closeWorkspace(projectId, linkedId)
+
+    await registry.restoreWorkspaceAfterFailedClose(projectId, linkedId)
+    expect(registry.state().activeWorkspaceId).not.toBe(linkedId)
+    expect(
+      registry.projectById(projectId)?.workspaces.find(({ id }) => id === linkedId)
+        ?.closed,
+    ).toBe(false)
+    await registry.closeWorkspace(projectId, linkedId)
+
+    expect(
+      registry.projectById(projectId)?.workspaces.find(({ id }) => id === linkedId),
+    ).toMatchObject({ closed: true, missing: false })
+    expect(registry.registeredWorkspaceRoot(canonicalLinked)).toBeUndefined()
+    const stored = JSON.parse(await readFile(projectsFile, 'utf8')) as {
+      projects: Array<{
+        workspaces: Array<{ path: string; activityBaseline?: Record<string, unknown> }>
+      }>
+    }
+    const storedLinked = stored.projects[0]?.workspaces.find(
+      (workspace) => workspace.path === canonicalLinked.path,
+    )
+    expect(Object.keys(storedLinked?.activityBaseline ?? {}).sort()).toEqual([
+      'branch',
+      'fields',
+      'head',
+      'schema',
+      'statusDigest',
+      'statusEntryCount',
+      'statusLimit',
+      'statusTruncated',
+    ])
+    expect(JSON.stringify(storedLinked)).not.toMatch(/mtime|fileSize|terminal|output/)
+    await registry.dispose()
+
+    const restored = await ProjectRegistry.create(
+      canonicalRoot,
+      { prompt: () => Promise.resolve(undefined) },
+      trustFile,
+      projectsFile,
+      () => undefined,
+    )
+    await restored.updateWorkspaceActivity(
+      projectId,
+      new Map([[linkedId, activityResult('a')]]),
+    )
+    expect(
+      restored.projectById(projectId)?.workspaces.find(({ id }) => id === linkedId)
+        ?.closed,
+    ).toBe(true)
+    await restored.updateWorkspaceActivity(
+      projectId,
+      new Map([[linkedId, activityResult('b', true)]]),
+    )
+    expect(
+      restored.projectById(projectId)?.workspaces.find(({ id }) => id === linkedId)
+        ?.closed,
+    ).toBe(true)
+    await restored.updateWorkspaceActivity(
+      projectId,
+      new Map([[linkedId, activityResult('b')]]),
+    )
+    expect(restored.state().activeWorkspaceId).not.toBe(linkedId)
+    expect(
+      restored.projectById(projectId)?.workspaces.find(({ id }) => id === linkedId)
+        ?.closed,
+    ).toBe(false)
+
+    await restored.closeWorkspace(projectId, linkedId)
+    await restored.reconcileWorktrees(projectId, {
+      repository: true,
+      worktrees: [
+        {
+          root: canonicalRoot,
+          head: '1'.repeat(40),
+          branch: 'main',
+          detached: false,
+          bare: false,
+        },
+      ],
+    })
+    expect(
+      restored.projectById(projectId)?.workspaces.find(({ id }) => id === linkedId),
+    ).toMatchObject({ closed: true, missing: true })
+    await restored.reconcileWorktrees(projectId, {
+      repository: true,
+      worktrees: [
+        {
+          root: canonicalRoot,
+          head: '1'.repeat(40),
+          branch: 'main',
+          detached: false,
+          bare: false,
+        },
+        {
+          root: canonicalLinked,
+          head: '2'.repeat(40),
+          branch: 'feature',
+          detached: false,
+          bare: false,
+          prunable: true,
+          prunableReason: 'gitdir points to a missing worktree',
+        },
+      ],
+    })
+    expect(
+      restored.projectById(projectId)?.workspaces.find(({ id }) => id === linkedId),
+    ).toMatchObject({
+      closed: true,
+      missing: true,
+      prunableReason: 'gitdir points to a missing worktree',
+    })
+    await restored.reconcileWorktrees(projectId, {
+      repository: true,
+      worktrees: [
+        {
+          root: canonicalRoot,
+          head: '1'.repeat(40),
+          branch: 'main',
+          detached: false,
+          bare: false,
+        },
+        {
+          root: canonicalLinked,
+          head: '2'.repeat(40),
+          branch: 'feature',
+          detached: false,
+          bare: false,
+        },
+      ],
+    })
+    expect(restored.state().activeWorkspaceId).not.toBe(linkedId)
+    expect(
+      restored.projectById(projectId)?.workspaces.find(({ id }) => id === linkedId),
+    ).toMatchObject({ closed: false, missing: false })
+
+    await restored.closeWorkspace(projectId, linkedId)
+    await restored.reopenWorkspace(projectId, linkedId)
+    expect(restored.state()).toMatchObject({
+      activeWorkspaceId: linkedId,
+      root: canonicalLinked,
+    })
+    await restored.dispose()
+  })
+
+  it('establishes a missing close baseline before later Git activity resurfaces', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'hvir-registry-late-baseline-'))
+    const linked = join(root, 'linked')
+    await mkdir(linked)
+    const canonicalRoot = localPath(await realpath(root))
+    const canonicalLinked = localPath(await realpath(linked))
+    cleanups.push(root)
+    const registry = await ProjectRegistry.create(
+      canonicalRoot,
+      { prompt: () => Promise.resolve(undefined) },
+      join(root, 'known-hosts.json'),
+      join(root, 'projects.json'),
+      () => undefined,
+    )
+    const projectId = registry.state().activeProjectId
+    await registry.reconcileWorktrees(projectId, {
+      repository: true,
+      worktrees: [
+        {
+          root: canonicalRoot,
+          head: '1'.repeat(40),
+          branch: 'main',
+          detached: false,
+          bare: false,
+        },
+        {
+          root: canonicalLinked,
+          head: '2'.repeat(40),
+          branch: 'feature',
+          detached: false,
+          bare: false,
+        },
+      ],
+    })
+    const linkedId = registry
+      .projectById(projectId)!
+      .workspaces.find((workspace) => workspace.root.path === canonicalLinked.path)!.id
+    await registry.closeWorkspace(projectId, linkedId)
+    await registry.updateWorkspaceActivity(
+      projectId,
+      new Map([[linkedId, activityResult('a')]]),
+    )
+    expect(
+      registry.projectById(projectId)?.workspaces.find(({ id }) => id === linkedId)
+        ?.closed,
+    ).toBe(true)
+    await registry.updateWorkspaceActivity(
+      projectId,
+      new Map([[linkedId, activityResult('b')]]),
+    )
+    expect(
+      registry.projectById(projectId)?.workspaces.find(({ id }) => id === linkedId)
+        ?.closed,
+    ).toBe(false)
+    await registry.dispose()
+  })
+
   it('persists newly discovered worktrees until they are acknowledged or opened', async () => {
     const root = await mkdtemp(join(tmpdir(), 'hvir-registry-discovery-'))
     const linked = join(root, 'linked')
@@ -533,7 +812,10 @@ describe('ProjectRegistry session flow', () => {
       repository: true,
       worktrees: [{ root: canonicalRoot, branch: 'main', detached: false, bare: false }],
     })
-    await registry.updateChangedCounts(projectId, new Map([[workspaceId, 12]]))
+    await registry.updateWorkspaceActivity(
+      projectId,
+      new Map([[workspaceId, { changedFiles: 12 }]]),
+    )
 
     await registry.reconcileWorktrees(projectId, {
       repository: false,

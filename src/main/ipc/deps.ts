@@ -10,6 +10,7 @@ import type {
   ProjectHostOption,
   ProjectState,
   ProjectWatchInterestsResponse,
+  WorkspaceClosePlan,
   RenderContainmentDiagnosticBatch,
   WorkbenchHealthSnapshot,
 } from '../../shared'
@@ -64,6 +65,20 @@ export interface IpcDeps {
   readonly closeProject: (projectId: string) => Promise<ProjectState>
   readonly pruneWorktrees: (projectId: string) => Promise<ProjectState>
   readonly dismissWorkspace: (
+    projectId: string,
+    workspaceId: string,
+  ) => Promise<ProjectState>
+  readonly planWorkspaceClose: (
+    projectId: string,
+    workspaceId: string,
+  ) => Promise<WorkspaceClosePlan>
+  readonly closeWorkspace: (
+    projectId: string,
+    workspaceId: string,
+    expectedTerminalCount: number,
+    terminateTerminals: boolean,
+  ) => Promise<ProjectState>
+  readonly reopenWorkspace: (
     projectId: string,
     workspaceId: string,
   ) => Promise<ProjectState>

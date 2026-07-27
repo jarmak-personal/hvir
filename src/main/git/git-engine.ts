@@ -8,6 +8,7 @@ import type {
   GitHistoryPage,
   HostPath,
   WorktreeDiscovery,
+  WorkspaceActivityResult,
 } from '../../shared'
 import { GitBranchCapability } from './git-branches'
 import { GitCommandContext, type GitHostPort } from './git-command-context'
@@ -47,11 +48,11 @@ export class GitEngine {
     return this.worktreeCapability.prune(projectRoot)
   }
 
-  changedFileCount(
+  workspaceActivity(
     workspaceRoot: HostPath,
     relatedWorktreeRoots: readonly HostPath[] = [],
-  ): Promise<number> {
-    return this.statusCapability.changedFileCount(workspaceRoot, relatedWorktreeRoots)
+  ): Promise<WorkspaceActivityResult> {
+    return this.statusCapability.workspaceActivity(workspaceRoot, relatedWorktreeRoots)
   }
 
   branches(workspaceRoot: HostPath): Promise<GitBranchModel> {

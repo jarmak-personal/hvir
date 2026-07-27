@@ -108,12 +108,115 @@ describe('ProjectsBar status presentation', () => {
     expect(menu?.textContent).toContain('ssh:remote-connected')
     expect(menu?.textContent).toContain('Connected')
   })
+
+  it('disables active close and confirms the exact inactive terminal count', async () => {
+    const callbacks = renderProjectsBar(projectState(0, 0), {})
+    const closeButtons = [...host.querySelectorAll<HTMLButtonElement>('.workspace-close')]
+    expect(closeButtons).toHaveLength(2)
+    expect(closeButtons[0]?.disabled).toBe(true)
+    expect(closeButtons[0]?.title).toBe(
+      'Select another workspace before closing this one',
+    )
+    expect(closeButtons[1]?.getAttribute('aria-label')).toBe('Close workspace feature')
+    callbacks.plan.mockResolvedValueOnce({ terminalCount: 2 })
+
+    await act(async () => {
+      closeButtons[1]?.click()
+      await Promise.resolve()
+    })
+
+    expect(host.querySelector('.close-workspace-dialog')?.textContent).toContain(
+      '2 hvir terminals will be terminated',
+    )
+    const confirm = [
+      ...host.querySelectorAll<HTMLButtonElement>('.confirmation-action'),
+    ].find((button) => button.textContent === 'Close workspace')
+    act(() => confirm?.click())
+    expect(callbacks.close).toHaveBeenCalledWith(
+      'project:local:/repo',
+      'workspace:local:/repo/feature',
+      { terminalCount: 2 },
+      true,
+    )
+  })
+
+  it('keeps closed worktrees out of the bar and exposes present, missing, and prunable catalog actions', () => {
+    const state = projectState(0, 0)
+    const project = state.projects[0]!
+    const feature = project.workspaces[1]!
+    const closedState: ProjectState = {
+      ...state,
+      projects: [
+        {
+          ...project,
+          workspaces: [
+            project.workspaces[0]!,
+            { ...feature, closed: true },
+            {
+              ...feature,
+              id: 'workspace:local:/repo/missing',
+              root: localPath('/repo/missing'),
+              name: 'missing',
+              closed: true,
+              missing: true,
+            },
+            {
+              ...feature,
+              id: 'workspace:local:/repo/prunable',
+              root: localPath('/repo/prunable'),
+              name: 'prunable',
+              closed: true,
+              missing: true,
+              prunableReason: 'gitdir is stale',
+            },
+          ],
+        },
+      ],
+    }
+    const callbacks = renderProjectsBar(closedState, {})
+
+    expect(host.querySelectorAll('.workspace-tab')).toHaveLength(1)
+    const catalog = [...host.querySelectorAll<HTMLButtonElement>('button')].find(
+      (button) => button.textContent === 'Worktrees 3',
+    )
+    act(() => catalog?.click())
+    const dialog = host.querySelector('.closed-worktrees-dialog')
+    expect(dialog?.textContent).toContain('Present')
+    expect(dialog?.textContent).toContain(
+      'Missing from the last successful Git discovery',
+    )
+    expect(dialog?.textContent).toContain('Prunable · gitdir is stale')
+    expect(host.textContent).toContain('Prune 1')
+    const reopen = dialog?.querySelector<HTMLButtonElement>(
+      '[aria-label="Reopen workspace feature"]',
+    )
+    act(() => reopen?.click())
+    expect(callbacks.reopen).toHaveBeenCalledWith(
+      'project:local:/repo',
+      'workspace:local:/repo/feature',
+    )
+    act(() => catalog?.click())
+    const dismiss = host.querySelector<HTMLButtonElement>(
+      '[aria-label="Dismiss removed workspace missing"]',
+    )
+    act(() => dismiss?.click())
+    expect(callbacks.dismiss).toHaveBeenCalledWith(
+      'project:local:/repo',
+      'workspace:local:/repo/missing',
+    )
+  })
 })
 
 function renderProjectsBar(
   state: ProjectState,
   rollups: Readonly<Record<string, { readonly actionable: number }>>,
-): void {
+) {
+  const callbacks = {
+    plan: vi.fn(() => Promise.resolve({ terminalCount: 0 })),
+    close: vi.fn(),
+    reopen: vi.fn(),
+    dismiss: vi.fn(),
+  }
   act(() => {
     root.render(
       <ProjectsBar
@@ -125,7 +228,10 @@ function renderProjectsBar(
         onRefresh={vi.fn()}
         onCloseProject={vi.fn()}
         onPrune={vi.fn()}
-        onDismiss={vi.fn()}
+        onDismiss={callbacks.dismiss}
+        onPlanCloseWorkspace={callbacks.plan}
+        onCloseWorkspace={callbacks.close}
+        onReopenWorkspace={callbacks.reopen}
         watchTier="native"
         onChangeConnection={vi.fn()}
         onDisconnect={vi.fn()}
@@ -136,6 +242,7 @@ function renderProjectsBar(
       />,
     )
   })
+  return callbacks
 }
 
 function projectState(mainChanged: number, featureChanged: number): ProjectState {
@@ -145,6 +252,7 @@ function projectState(mainChanged: number, featureChanged: number): ProjectState
     name: 'main',
     branch: 'main',
     main: true,
+    closed: false,
     missing: false,
     repository: true,
     changedFiles: mainChanged,
@@ -155,6 +263,7 @@ function projectState(mainChanged: number, featureChanged: number): ProjectState
     name: 'feature',
     branch: 'feature',
     main: false,
+    closed: false,
     missing: false,
     repository: true,
     changedFiles: featureChanged,
@@ -189,6 +298,7 @@ function remoteProjectState(states: readonly HostConnectionState[]): ProjectStat
       name: connectionState,
       branch: 'main',
       main: true,
+      closed: false,
       missing: false,
       repository: true,
       changedFiles: 0,

@@ -37,7 +37,9 @@ export function useTerminalWorkspaceRuntime({
   useEffect(() => {
     runtimes.disposeMissingWorkspaces(
       projectState?.projects.flatMap((project) =>
-        project.workspaces.map((workspace) => workspace.root),
+        project.workspaces
+          .filter((workspace) => !workspace.closed)
+          .map((workspace) => workspace.root),
       ) ?? [],
     )
   }, [projectState, runtimes])
@@ -46,7 +48,7 @@ export function useTerminalWorkspaceRuntime({
     moveProps: (project: RegisteredProjectState, workspace: WorkspaceState) => ({
       runtimes,
       moveTargets: project.workspaces.filter(
-        (target) => target.id !== workspace.id && !target.missing,
+        (target) => target.id !== workspace.id && !target.missing && !target.closed,
       ),
       onController: transfer.register,
       onTerminalMoved: transfer.complete,

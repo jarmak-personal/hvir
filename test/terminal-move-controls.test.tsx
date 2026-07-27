@@ -307,6 +307,7 @@ function targetWorkspace(): WorkspaceState {
     name: 'feature',
     branch: 'feature',
     main: false,
+    closed: false,
     missing: false,
     repository: true,
     changedFiles: 0,
