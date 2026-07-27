@@ -296,8 +296,8 @@ async function runCloseDialog(
             return setTimeout(waitForControl, 25);
           }
           if (close.disabled) return reject(new Error('inactive workspace close is disabled'));
-          if (!document.querySelector('[aria-label="Closeable terminal workspace"]')) {
-            return reject(new Error('inactive terminal workspace was not mounted before close'));
+          if (document.querySelector('[aria-label="Closeable terminal workspace"]')) {
+            return reject(new Error('inactive retained record materialized a workspace view'));
           }
           close.click();
           const waitForDialog = () => {
@@ -323,7 +323,7 @@ async function runCloseDialog(
                 '[aria-label="Closeable terminal workspace"]'
               );
               const done = ${JSON.stringify(action)} === 'Cancel'
-                ? dialogClosed && Boolean(tab) && Boolean(terminalWorkspace)
+                ? dialogClosed && Boolean(tab) && !terminalWorkspace
                 : dialogClosed && !tab && Boolean(catalog) && !terminalWorkspace;
               if (done) return resolve(true);
               if (Date.now() > deadline) return reject(new Error('workspace close result did not settle'));

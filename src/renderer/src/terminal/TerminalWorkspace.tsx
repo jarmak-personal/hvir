@@ -7,25 +7,20 @@ import {
   type ReactElement,
 } from 'react'
 import {
-  type HarnessProviderDescriptor,
   type HostConnectionState,
   type HostPath,
-  type HarnessProviderId,
   type MoveTerminalResponse,
   type WorkspaceState,
 } from '../../../shared'
 import { fitSplitPrimaryWidth } from '../layout/split-layout-policy'
 import type { TerminalPreferences } from '../settings/settings'
-import { useAppTheme } from '../theme'
 import {
   normalizeTerminalWebTarget,
   resolveTerminalFileTarget,
   type ResolvedTerminalFileTarget,
 } from './terminal-file-link'
 import { TerminalDeck } from './TerminalDeck'
-import { TerminalRail } from './TerminalRail'
-import { TerminalWorkspaceDialogs } from './TerminalWorkspaceDialogs'
-import { profileProbe } from './terminal-probe-policy'
+import { TerminalWorkspaceControls } from './TerminalWorkspaceControls'
 import {
   readTerminalSplitLayout,
   writeTerminalSplitLayout,
@@ -45,7 +40,6 @@ import {
 import { useTerminalProfiles } from './use-terminal-profiles'
 import { useTerminalPersistence } from './use-terminal-persistence'
 import { useTerminalRecovery } from './use-terminal-recovery'
-import { harnessLaunchMenuState } from './harness-launch-menu'
 import type { TerminalRuntimeRegistry } from './terminal-runtime-registry'
 import {
   useTerminalWorkspaceMove,
@@ -75,10 +69,13 @@ interface TerminalWorkspaceProps {
   readonly onAddHarness: () => void
   readonly runtimes: TerminalRuntimeRegistry
   readonly moveTargets: readonly WorkspaceState[]
+  readonly onMaterializationChange: (workspaceId: string, retained: boolean) => void
   readonly onController: (
     workspaceId: string,
     controller: TerminalWorkspaceController | undefined,
   ) => void
+  readonly onPrepareMoveTarget: (workspaceId: string) => Promise<void>
+  readonly onReleaseMoveTarget: (workspaceId: string) => void
   readonly onTerminalMoved: (
     sessionId: string,
     sourceWorkspaceId: string,
@@ -111,14 +108,14 @@ export function TerminalWorkspace({
   onAddHarness,
   runtimes,
   moveTargets,
+  onMaterializationChange,
   onController,
+  onPrepareMoveTarget,
+  onReleaseMoveTarget,
   onTerminalMoved,
   onAcknowledgeMoveTargets,
   onError,
 }: TerminalWorkspaceProps): ReactElement {
-  const appTheme = useAppTheme()
-  const effectiveTerminalTheme =
-    preferences.terminalTheme === 'app' ? appTheme : preferences.terminalTheme
   const workspaceRootRef = useRef(cwd)
   if (
     workspaceRootRef.current.hostId !== cwd.hostId ||
@@ -144,11 +141,8 @@ export function TerminalWorkspace({
     providers,
     profiles,
     probes,
-    pendingProbeIds,
     acceptCatalog,
-    acceptProfiles,
     acceptRecoveryProbes,
-    refreshProbes,
   } = profileState
   const send = useCallback((action: TerminalWorkspaceAction): void => {
     modelRef.current = terminalWorkspaceReducer(modelRef.current, action)
@@ -156,6 +150,9 @@ export function TerminalWorkspace({
   }, [])
   modelRef.current = model
   const { sessions, activeId } = model
+  useEffect(() => {
+    onMaterializationChange(workspaceId, sessions.length > 0)
+  }, [onMaterializationChange, sessions.length, workspaceId])
   const updateSession = useCallback(
     (id: string, update: (session: TerminalSession) => TerminalSession): void => {
       const session = modelRef.current.sessions.find((candidate) => candidate.id === id)
@@ -196,14 +193,8 @@ export function TerminalWorkspace({
   })
   const {
     ready: recoveryReady,
-    probesReady: recoveryProbesReady,
-    candidates: recoveryCandidates,
     defaultProvider,
     defaultProfile,
-    dismiss: dismissRecovery,
-    skip: skipRecovery,
-    resume: resumeRecovery,
-    rebind: rebindRecovery,
   } = recovery
   useTerminalPersistence({ root: workspaceRoot, model, ready: recoveryReady })
   const commands = useTerminalSessionCommands({
@@ -228,6 +219,8 @@ export function TerminalWorkspace({
     forgetAttention: forgetAttentionSession,
     moveTargets,
     registerController: onController,
+    prepareMoveTarget: onPrepareMoveTarget,
+    releaseMoveTarget: onReleaseMoveTarget,
     onMoved: onTerminalMoved,
     acknowledgeTargets: onAcknowledgeMoveTargets,
     onError,
@@ -269,15 +262,6 @@ export function TerminalWorkspace({
     writeTerminalSplitLayout(workspaceRoot, updated)
     send({ type: 'primary-width-changed', width: undefined })
   }
-  const launchMenuEntries = profiles.map((profile) => {
-    const probe = profileProbe(probes, profile)
-    return {
-      profile,
-      provider: providerDescriptor(providers, profile.providerId),
-      state: harnessLaunchMenuState(profile, probe, pendingProbeIds.has(profile.id)),
-    }
-  })
-
   return (
     <>
       <TerminalDeck
@@ -319,89 +303,26 @@ export function TerminalWorkspace({
         onResetPrimaryWidth={resetTerminalPrimaryWidth}
         runtimes={runtimes}
       />
-      <TerminalRail
-        label={label}
-        visible={visible}
-        compact={railCompact}
-        onCompact={onRailCompact}
-        terminalTheme={effectiveTerminalTheme}
-        recoveryReady={recoveryReady}
-        available={available}
-        menuOpen={menuOpen}
-        moveMenuOpen={moving.menuOpen}
-        moveTargets={moveTargets}
-        launchMenuEntries={launchMenuEntries}
-        split={terminalSplit}
-        sessions={sessions}
-        activeId={activeId}
-        providers={providers}
-        profiles={profiles}
-        onSplit={commands.split}
-        onOpenSettings={onOpenSettings}
-        onToggleMenu={() => setMenuOpen((open) => !open)}
-        onToggleMoveMenu={() => {
-          setMenuOpen(false)
-          moving.toggleMenu()
-        }}
-        onPlanMove={moving.plan}
-        onDismissNewTargets={moving.dismissNewTargets}
-        onAddSession={(profile) => commands.add(profile.id)}
-        onAddHarness={() => {
-          setMenuOpen(false)
-          onAddHarness()
-        }}
-        onRefreshProbes={() => refreshProbes(true)}
-        onOpenHarnessSettings={() => {
-          setMenuOpen(false)
-          onOpenHarnessSettings()
-        }}
-        onFocusSession={commands.focus}
-        onMoveSession={commands.moveToOtherPane}
-        onCloseSession={commands.close}
-      />
-      <TerminalWorkspaceDialogs
-        visible={visible}
-        risk={
-          commands.pendingRiskProfile
-            ? {
-                profile: commands.pendingRiskProfile,
-                providers,
-                root: workspaceRoot,
-                acceptProfiles,
-                launch: commands.launchAcknowledged,
-                onCancel: commands.cancelRisk,
-              }
-            : undefined
-        }
-        move={
-          moving.pending
-            ? { plan: moving.pending, onCancel: moving.cancel, onMove: moving.confirm }
-            : undefined
-        }
-        recovery={{
-          ready: Boolean(
-            recoveryCandidates.length > 0 &&
-            recoveryProbesReady &&
-            defaultProvider &&
-            defaultProfile,
-          ),
-          sessions: recoveryCandidates,
-          providers,
-          profiles,
-          probes,
-          onRebind: rebindRecovery,
-          onDismiss: dismissRecovery,
-          onSkip: skipRecovery,
-          onResume: resumeRecovery,
-        }}
-      />
+      {visible ? (
+        <TerminalWorkspaceControls
+          label={label}
+          workspaceRoot={workspaceRoot}
+          available={available}
+          railCompact={railCompact}
+          onRailCompact={onRailCompact}
+          menuOpen={menuOpen}
+          setMenuOpen={setMenuOpen}
+          model={model}
+          profileState={profileState}
+          recovery={recovery}
+          commands={commands}
+          moving={moving}
+          preferences={preferences}
+          onOpenSettings={onOpenSettings}
+          onOpenHarnessSettings={onOpenHarnessSettings}
+          onAddHarness={onAddHarness}
+        />
+      ) : null}
     </>
   )
-}
-
-function providerDescriptor(
-  providers: readonly HarnessProviderDescriptor[],
-  id: HarnessProviderId,
-): HarnessProviderDescriptor | undefined {
-  return providers.find((provider) => provider.id === id)
 }

@@ -405,6 +405,100 @@ describe('GhosttyTerminalPane lifecycle', () => {
     })
   })
 
+  it('retains a live pane and output route while its workspace view is absent', async () => {
+    let emitData: ((event: { id: string; data: string }) => void) | undefined
+    const invoke = vi.fn(() =>
+      Promise.resolve({
+        outcome: 'started' as const,
+        id: 'terminal-1',
+        pid: 4321,
+        resumed: false,
+        reattached: false,
+        harnessSessionId: undefined,
+        identityStatus: 'unsupported' as const,
+        capabilities: {
+          sessionIdentity: 'none' as const,
+          exactResume: false,
+          contextPresentation: 'none' as const,
+        },
+      }),
+    )
+    const send = vi.fn()
+    Object.defineProperty(window, 'hvir', {
+      configurable: true,
+      value: {
+        invoke,
+        send,
+        on: vi.fn((channel: string, listener: typeof emitData) => {
+          if (channel === 'pty:data') emitData = listener
+          return () => undefined
+        }),
+      },
+    })
+    const registry = new TerminalRuntimeRegistry()
+    const host = document.createElement('div')
+    document.body.append(host)
+    const root = createRoot(host)
+    const render = (
+      presented: boolean,
+      connectionState: TerminalRuntimeOptions['connectionState'] = 'connected',
+    ) => (
+      <TerminalView
+        {...runtimeOptions()}
+        active={presented}
+        slot="primary"
+        presented={presented}
+        visible={presented}
+        connectionState={connectionState}
+        themeOverride="app"
+        runtimes={registry}
+      />
+    )
+
+    act(() => root.render(render(true)))
+    await act(async () => {
+      await vi.waitFor(() => expect(invoke).toHaveBeenCalledOnce())
+    })
+    const state = ghosttyState.instances[0]!
+    const surface = host.querySelector('.terminal-engine-host')
+
+    act(() => root.render(render(false)))
+    expect(host.querySelector('.terminal-panel')).toBeNull()
+    expect(state.disposed).toBe(false)
+    expect(send).not.toHaveBeenCalledWith('pty:kill', expect.anything())
+
+    act(() => {
+      emitData?.({ id: 'terminal-1', data: 'background output' })
+    })
+    await vi.waitFor(() => expect(state.writes).toContain('background output'))
+
+    act(() => root.render(render(false, 'disconnected')))
+    expect(state.disposed).toBe(true)
+    expect(send).not.toHaveBeenCalledWith('pty:kill', expect.anything())
+
+    act(() => root.render(render(false, 'connected')))
+    await act(async () => {
+      await vi.waitFor(() => expect(invoke).toHaveBeenCalledTimes(2))
+    })
+    const reconnected = ghosttyState.instances[1]!
+    act(() => {
+      emitData?.({ id: 'terminal-1', data: 'reconnected background output' })
+    })
+    await vi.waitFor(() =>
+      expect(reconnected.writes).toContain('reconnected background output'),
+    )
+
+    act(() => root.render(render(true)))
+    expect(host.querySelector('.terminal-engine-host')).not.toBe(surface)
+    expect(ghosttyState.instances).toHaveLength(2)
+    expect(invoke).toHaveBeenCalledTimes(2)
+
+    act(() => {
+      root.unmount()
+      registry.dispose()
+    })
+  })
+
   it('retains the live terminal surface and event route across a control reconnect', async () => {
     const invoke = vi.fn(() =>
       Promise.resolve({
@@ -824,7 +918,7 @@ function theme() {
   }
 }
 
-function runtimeOptions(): TerminalRuntimeOptions {
+function runtimeOptions(): TerminalRuntimeOptions & { readonly presented: boolean } {
   return {
     sessionId: 'terminal-1',
     profileId: asHarnessProfileId('claude-code-default'),
@@ -837,6 +931,7 @@ function runtimeOptions(): TerminalRuntimeOptions {
     startMode: 'interactive',
     position: 0,
     active: true,
+    presented: true,
     presentation: 'visible',
     modifiedKeyProtocol: 'modify-other-keys',
     metaEnterAliasesControl: true,

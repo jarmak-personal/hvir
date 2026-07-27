@@ -1,11 +1,11 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useSyncExternalStore } from 'react'
 
 import type {
   ProjectState,
   RegisteredProjectState,
   WorkspaceState,
 } from '../../../shared'
-import { TerminalRuntimeRegistry } from './terminal-runtime-registry'
+import { TerminalWorkspaceRuntimeOwner } from './terminal-workspace-runtime-owner'
 import { useNewWorktreeMoveBadge } from './use-new-worktree-move-badge'
 import { useTerminalWorkspaceTransfer } from './use-terminal-workspace-transfer'
 
@@ -25,32 +25,52 @@ export function useTerminalWorkspaceRuntime({
   ) => Promise<void>
   readonly onError: (message: string) => void
 }) {
-  const runtimes = useRef(new TerminalRuntimeRegistry()).current
+  const owner = useRef(new TerminalWorkspaceRuntimeOwner()).current
+  const materializedWorkspaceIds = useSyncExternalStore(
+    owner.subscribe,
+    owner.snapshot,
+    owner.snapshot,
+  )
+  const eligibleWorkspaceIds = useRef<ReadonlySet<string>>(new Set())
+  eligibleWorkspaceIds.current = new Set(
+    projectState?.projects.flatMap((project) =>
+      project.workspaces
+        .filter((workspace) => !workspace.closed)
+        .map((workspace) => workspace.id),
+    ) ?? [],
+  )
   const transfer = useTerminalWorkspaceTransfer({
+    owner,
+    canMaterialize: (workspaceId) => eligibleWorkspaceIds.current.has(workspaceId),
     acceptProjectState,
     forgetWebViews,
     onError,
   })
   useNewWorktreeMoveBadge({ projectState, acknowledgeWorkspaces, onError })
 
-  useEffect(() => () => runtimes.dispose(), [runtimes])
+  useEffect(() => () => owner.dispose(), [owner])
   useEffect(() => {
-    runtimes.disposeMissingWorkspaces(
+    owner.pruneWorkspaces(eligibleWorkspaceIds.current)
+    owner.runtimes.disposeMissingWorkspaces(
       projectState?.projects.flatMap((project) =>
         project.workspaces
           .filter((workspace) => !workspace.closed)
           .map((workspace) => workspace.root),
       ) ?? [],
     )
-  }, [projectState, runtimes])
+  }, [owner, projectState])
 
   return {
+    materializedWorkspaceIds,
     moveProps: (project: RegisteredProjectState, workspace: WorkspaceState) => ({
-      runtimes,
+      runtimes: owner.runtimes,
       moveTargets: project.workspaces.filter(
         (target) => target.id !== workspace.id && !target.missing && !target.closed,
       ),
+      onMaterializationChange: owner.retainWorkspace,
       onController: transfer.register,
+      onPrepareMoveTarget: transfer.prepare,
+      onReleaseMoveTarget: transfer.release,
       onTerminalMoved: transfer.complete,
       onAcknowledgeMoveTargets: (workspaceIds: readonly string[]) =>
         acknowledgeWorkspaces(project.id, workspaceIds),
