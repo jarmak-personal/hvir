@@ -53,12 +53,27 @@ mkdir -p "$user_data_root"
 
 (
   cd "$project_root"
-  HVIR_SMOKE=1 \
-    HVIR_SMOKE_SOURCE_COMMIT="$source_commit" \
-    HVIR_SMOKE_SOURCE_DIRTY="$source_dirty" \
-    HVIR_SMOKE_SCENARIO="${HVIR_SMOKE_SCENARIO:-legacy-workflow}" \
-    "$source_checkout/node_modules/.bin/electron" "$source_checkout" \
-    --project-root="$project_root" \
-    --no-sandbox \
-    --user-data-dir="$user_data_root"
+  if [[ "${HVIR_SMOKE_SCENARIO:-legacy-workflow}" == 'development-performance' ]]; then
+    cd "$source_checkout"
+    HVIR_SMOKE=1 \
+      HVIR_SMOKE_SOURCE_COMMIT="$source_commit" \
+      HVIR_SMOKE_SOURCE_DIRTY="$source_dirty" \
+      HVIR_SMOKE_SCENARIO=development-performance \
+      HVIR_PROJECT_ROOT="$project_root" \
+      ELECTRON_ENTRY="$source_checkout" \
+      ELECTRON_CLI_ARGS="[\"--user-data-dir=$user_data_root\"]" \
+      "$source_checkout/node_modules/.bin/electron-vite" \
+      "$source_checkout" \
+      --noSandbox \
+      --clearScreen false
+  else
+    HVIR_SMOKE=1 \
+      HVIR_SMOKE_SOURCE_COMMIT="$source_commit" \
+      HVIR_SMOKE_SOURCE_DIRTY="$source_dirty" \
+      HVIR_SMOKE_SCENARIO="${HVIR_SMOKE_SCENARIO:-legacy-workflow}" \
+      "$source_checkout/node_modules/.bin/electron" "$source_checkout" \
+      --project-root="$project_root" \
+      --no-sandbox \
+      --user-data-dir="$user_data_root"
+  fi
 )

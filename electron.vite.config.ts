@@ -1,6 +1,29 @@
 import { resolve } from 'node:path'
 import { defineConfig, externalizeDepsPlugin } from 'electron-vite'
 import react from '@vitejs/plugin-react'
+import type { Plugin } from 'vite'
+
+const DEVELOPMENT_PERFORMANCE_MEASURE_POLICY_ID =
+  'hvir:development-performance-measure-budget:v1'
+
+function excludeDevelopmentPerformancePolicyFromProduction(): Plugin {
+  return {
+    name: 'exclude-development-performance-policy-from-production',
+    apply: 'build',
+    generateBundle(_options, bundle): void {
+      const retainedPolicy = Object.values(bundle).find(
+        (output) =>
+          output.type === 'chunk' &&
+          output.code.includes(DEVELOPMENT_PERFORMANCE_MEASURE_POLICY_ID),
+      )
+      if (retainedPolicy) {
+        this.error(
+          `Production renderer chunk ${retainedPolicy.fileName} retained development Performance Timeline policy`,
+        )
+      }
+    },
+  }
+}
 
 // Three build targets. `externalizeDepsPlugin` keeps `dependencies` (node-pty,
 // chokidar) out of the main/preload bundles so native modules load from
@@ -72,6 +95,6 @@ export default defineConfig({
         },
       },
     },
-    plugins: [react()],
+    plugins: [react(), excludeDevelopmentPerformancePolicyFromProduction()],
   },
 })

@@ -17,6 +17,7 @@ import { SmokeCleanup } from './cleanup'
 import { verifyGitDiffBases } from './git-diff'
 import { verifyDirtyBranchSwitch } from './git-dirty-navigation'
 import { verifyDiagnosticRestart } from './diagnostic-report-restart'
+import { verifyDevelopmentPerformanceMode } from './development-performance'
 import { verifyPlatformContracts } from './platform-contracts'
 import {
   verifyRendererLifecycleCleanup,
@@ -407,7 +408,6 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
       await host.stat(smokeRoot)
       console.log('[smoke] LocalHost.stat OK')
     }
-
     const win = createWindow(() => {
       discardedRendererGenerations++
     })
@@ -420,7 +420,6 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
       win.webContents.id,
     ).generation
     console.log('[smoke] window ready-to-show OK')
-
     // A real preload round-trip establishes more than ready-to-show paint.
     const rendererResult = (await withTimeout(
       win.webContents.executeJavaScript(`
@@ -442,6 +441,7 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
       throw new Error('renderer echo ran in the main process')
     }
     console.log('[smoke] renderer IPC + echo worker round-trip OK')
+    if (await verifyDevelopmentPerformanceMode(win, mode)) return 0
     if (mode === 'renderer-recovery') {
       const result = await verifyUnresponsiveRendererRecovery({
         win,

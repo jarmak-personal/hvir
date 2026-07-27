@@ -137,6 +137,7 @@ npm run smoke
 npm run smoke:macos        # matching Apple-silicon Mac
 npm run smoke:macos:ci     # temporary reduced hosted macOS subset
 npm run smoke:capacity     # contracts + machine-dependent evidence
+npm run smoke:development-performance  # development-only timeline containment
 npm run performance:capacity  # controlled-machine quantitative gate
 npm run dev
 ```
@@ -153,8 +154,10 @@ plus the transitional `legacy-workflow` group in separate Electron processes wit
 and user-data roots, then reports a result for every scheduled group. Select one group locally with
 `HVIR_SMOKE_SCENARIO=<name> npm run smoke`; the complete name set is `pty-native`,
 `viewer-position`, `platform-contracts`, `diagnostic-report-restart`,
-`renderer-recovery`, `terminal-presentation`, `legacy-workflow`, and `capacity`. The restart
-scenario is reserved for the packaged multi-launch fixture. `npm run smoke:macos` runs the focused
+`renderer-recovery`, `development-performance`, `terminal-presentation`, `legacy-workflow`, and
+`capacity`. The development-performance group starts a development renderer and is run separately
+with `npm run smoke:development-performance`; the restart scenario is reserved for the packaged
+multi-launch fixture. `npm run smoke:macos` runs the focused
 PTY, viewer, platform-contract, renderer-recovery, and terminal presentation correctness groups.
 The pre-push hook uses that full command on macOS. As a temporary containment while the observed
 macOS presentation-readiness and native PTY teardown flakes are hardened, hosted macOS CI runs
