@@ -1,5 +1,9 @@
 # ADR-008: Registered projects with discovered worktree workspaces
 
+> [ADR-024](ADR-024-demand-driven-terminal-workspace-lifecycle.md) supersedes only the
+> implication that registration or discovery materializes renderer terminal runtime. The
+> project/worktree hierarchy and live inactive-PTY decisions in this record still apply.
+
 ## Context
 
 Agent configuration and trust are repository-scoped, while active work commonly spans
