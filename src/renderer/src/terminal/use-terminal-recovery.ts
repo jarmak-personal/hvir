@@ -17,10 +17,9 @@ import {
   planManualTerminalRecovery,
 } from './terminal-recovery-planner'
 import type { StoredTerminalSplitLayout } from './terminal-split-persistence'
-import {
-  createTerminalSession,
-  type TerminalWorkspaceAction,
-  type TerminalWorkspaceModel,
+import type {
+  TerminalWorkspaceAction,
+  TerminalWorkspaceModel,
 } from './terminal-workspace-model'
 
 interface TerminalRecoveryPorts {
@@ -72,7 +71,6 @@ export function useTerminalRecovery({
     splitLayout,
   })
   const generation = useRef(new EffectGeneration())
-  const shouldCreateDefault = useRef(false)
   const recoveryRecords = useRef<readonly TerminalRecoverySession[]>([])
   portsRef.current = ports
   stateRef.current = {
@@ -95,7 +93,6 @@ export function useTerminalRecovery({
   useEffect(() => {
     const generationOwner = generation.current
     const currentGeneration = generationOwner.begin()
-    shouldCreateDefault.current = false
     recoveryRecords.current = []
     portsRef.current.resetAttention()
     setReady(false)
@@ -115,28 +112,7 @@ export function useTerminalRecovery({
       ([catalog, launchProfiles, records]) => {
         if (!generationOwner.isCurrent(currentGeneration)) return
         portsRef.current.acceptCatalog(catalog, launchProfiles)
-        const launch = bareShellLaunchChoice(catalog, launchProfiles)
-        if (!launch) {
-          setReady(true)
-          return
-        }
         if (records.length === 0) {
-          shouldCreateDefault.current = stateRef.current.available
-          if (stateRef.current.visible && stateRef.current.available) {
-            const session = createTerminalSession(
-              crypto.randomUUID(),
-              launch.profile,
-              launch.provider,
-              root,
-              'primary',
-            )
-            shouldCreateDefault.current = false
-            portsRef.current.send({
-              type: 'sessions-replaced',
-              sessions: [session],
-              activeId: session.id,
-            })
-          }
           setReady(true)
           return
         }
@@ -184,9 +160,7 @@ export function useTerminalRecovery({
   }, [available, candidates, probesReady, profiles, root, visible])
 
   useEffect(() => {
-    if (!available || !visible || model.sessions.length > 0 || !defaultLaunch) {
-      return
-    }
+    if (!available || !visible || model.sessions.length > 0) return
     const plan = planAutomaticTerminalRecovery({
       records: candidates,
       providers,
@@ -206,56 +180,21 @@ export function useTerminalRecovery({
       setCandidates(plan.residual)
       if (plan.residual.length === 0) recoveryRecords.current = []
       setReady(true)
-      return
     }
-    if (!ready || !shouldCreateDefault.current || candidates.length > 0) return
-    shouldCreateDefault.current = false
-    const session = createTerminalSession(
-      crypto.randomUUID(),
-      defaultLaunch.profile,
-      defaultLaunch.provider,
-      root,
-      'primary',
-    )
-    portsRef.current.send({
-      type: 'sessions-replaced',
-      sessions: [session],
-      activeId: session.id,
-    })
   }, [
     available,
     candidates,
-    defaultLaunch,
     mode,
     model.sessions.length,
     probes,
     probesReady,
     profiles,
     providers,
-    ready,
-    root,
     splitLayout,
     visible,
   ])
 
   const discard = useCallback((): void => {
-    const current = stateRef.current
-    if (current.model.sessions.length === 0) {
-      const launch = bareShellLaunchChoice(current.providers, current.profiles)
-      if (!launch) return
-      const session = createTerminalSession(
-        crypto.randomUUID(),
-        launch.profile,
-        launch.provider,
-        current.root,
-        'primary',
-      )
-      portsRef.current.send({
-        type: 'sessions-replaced',
-        sessions: [session],
-        activeId: session.id,
-      })
-    }
     recoveryRecords.current = []
     setCandidates([])
     setReady(true)
