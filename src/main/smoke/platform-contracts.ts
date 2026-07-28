@@ -115,6 +115,8 @@ async function verifyPaneDividerControlVisibility(win: BrowserWindow): Promise<s
     }
 
     moveMouse(win, points.safe)
+    win.focus()
+    win.webContents.focus()
     await focusPaneDividerAction(win, '.tree-resizer')
     await waitForPaneDividerVisibility(
       win,
