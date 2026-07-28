@@ -368,6 +368,11 @@ export type StartPtyResponse =
       readonly outcome: 'resume-unavailable'
       readonly reason: 'artifact-missing'
     }
+  | {
+      readonly outcome: 'launch-unavailable'
+      readonly reason: 'identity-baseline-unavailable'
+      readonly retryable: true
+    }
 
 export type TerminalIdentityStatus =
   'none' | 'discovering' | 'identified' | 'ambiguous' | 'unavailable'

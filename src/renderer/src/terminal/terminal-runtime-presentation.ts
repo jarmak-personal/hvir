@@ -19,6 +19,13 @@ export function resumeUnavailableStatus(reason: 'artifact-missing'): string {
   }
 }
 
+export function launchUnavailableStatus(reason: 'identity-baseline-unavailable'): string {
+  switch (reason) {
+    case 'identity-baseline-unavailable':
+      return 'Launch unavailable · session recovery baseline could not be read'
+  }
+}
+
 export function baseTerminalTheme(): TerminalColorTheme {
   return {
     background: '#111318',

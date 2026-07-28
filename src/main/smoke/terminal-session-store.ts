@@ -11,7 +11,8 @@ export function createSmokeTerminalSessionStore(defaultRoot: HostPath) {
     recordRecoveryDecision: () => Promise.resolve(),
     recordSpawn: () => Promise.resolve(),
     recordReplacement: () => Promise.resolve(),
-    recordIdentity: () => Promise.resolve(),
+    recordIdentity: () => Promise.resolve(true),
+    cancelIdentityRegistration: () => undefined,
     updateLayout: () => Promise.resolve(),
     forget: (root, id) => {
       if (hostPathEquals(sessionRoot(id), root)) {

@@ -6,6 +6,7 @@ import {
   registerRendererPty,
   rendererPtyQualifier,
 } from '../../terminal/renderer-pty-lifecycle'
+import { PtyStartUnavailableError } from '../../pty/pty-supervisor'
 import type { IpcRegistrar } from '../authority-router'
 import type { IpcDeps } from '../deps'
 import { operationResult } from '../operation-result'
@@ -344,6 +345,12 @@ export function registerTerminalIpc(ipc: IpcRegistrar, deps: TerminalIpcDeps): v
       })
     } catch (reason) {
       await ptyLease.dispose()
+      if (reason instanceof PtyStartUnavailableError)
+        return {
+          outcome: 'launch-unavailable',
+          reason: reason.reason,
+          retryable: reason.retryable,
+        }
       if (isClassifiedHarnessLaunchFailure(reason)) {
         refreshAfterClassifiedLaunchFailure()
       }
