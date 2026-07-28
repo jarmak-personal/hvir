@@ -28,7 +28,21 @@ describe('terminal runtime patch preflight', () => {
     class UnpatchedTerminal {}
 
     expect(() => assertTerminalRuntimePatch(UnpatchedTerminal)).toThrow(
-      /requestRender, setRenderPaused, resetCursorBlink, getRenderStats.*npm ci.*retry the command/,
+      /requestRender, setRenderPaused, resetCursorBlink, getRenderStats, custom link-provider priority.*npm ci.*retry the command/,
+    )
+  })
+
+  it('rejects a runtime that lets built-in links override custom routing', () => {
+    class UnprioritizedTerminal {
+      requestRender(): void {}
+      setRenderPaused(): void {}
+      resetCursorBlink(): void {}
+      getRenderStats(): void {}
+      registerLinkProvider(): void {}
+    }
+
+    expect(() => assertTerminalRuntimePatch(UnprioritizedTerminal)).toThrow(
+      /custom link-provider priority/,
     )
   })
 

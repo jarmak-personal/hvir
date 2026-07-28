@@ -1,7 +1,18 @@
 diff --git a/node_modules/ghostty-web/dist/ghostty-web.js b/node_modules/ghostty-web/dist/ghostty-web.js
-index d5fc080..fcc2b93 100644
+index d5fc080..c25340c 100644
 --- a/node_modules/ghostty-web/dist/ghostty-web.js
 +++ b/node_modules/ghostty-web/dist/ghostty-web.js
+@@ -1249,8 +1249,8 @@ class QA {
+   /**
+    * Register a link provider
+    */
+-  registerProvider(A) {
+-    this.providers.push(A), this.invalidateCache();
++  registerProvider(A, B = !1) {
++    B ? this.providers.unshift(A) : this.providers.push(A), this.invalidateCache();
+   }
+   /**
+    * Get link at the specified buffer position
 @@ -1543,7 +1543,8 @@ class EA {
      const g = A.getContext("2d", { alpha: !0 });
      if (!g)
@@ -189,6 +200,15 @@ index d5fc080..fcc2b93 100644
    }
    /**
     * Focus terminal input
+@@ -3068,7 +3074,7 @@ class iA {
+   registerLinkProvider(A) {
+     if (!this.linkDetector)
+       throw new Error("Terminal must be opened before registering link providers");
+-    this.linkDetector.registerProvider(A);
++    this.linkDetector.registerProvider(A, !0);
+   }
+   // ==========================================================================
+   // Phase 2: Scrolling Methods
 @@ -3081,7 +3087,7 @@ class iA {
      if (!this.wasmTerm)
        throw new Error("Terminal not open");
@@ -330,7 +350,7 @@ index d5fc080..fcc2b93 100644
      g();
    }
 diff --git a/node_modules/ghostty-web/dist/renderer.d.ts b/node_modules/ghostty-web/dist/renderer.d.ts
-index dc6f05b..a52ed31 100644
+index dc6f05b..6a18d15 100644
 --- a/node_modules/ghostty-web/dist/renderer.d.ts
 +++ b/node_modules/ghostty-web/dist/renderer.d.ts
 @@ -34,6 +34,7 @@ export interface RendererOptions {
@@ -358,7 +378,7 @@ index dc6f05b..a52ed31 100644
       * Update theme colors
       */
 diff --git a/node_modules/ghostty-web/dist/terminal.d.ts b/node_modules/ghostty-web/dist/terminal.d.ts
-index 7db5ac8..1267d48 100644
+index 7db5ac8..37ffffa 100644
 --- a/node_modules/ghostty-web/dist/terminal.d.ts
 +++ b/node_modules/ghostty-web/dist/terminal.d.ts
 @@ -2,6 +2,15 @@ import { GhosttyCell, GhosttyTerminal } from './ghostty';

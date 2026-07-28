@@ -19,6 +19,32 @@ interface TerminalConstructor {
 
 type LoadTerminal = () => Promise<unknown>
 
+function hasCustomLinkProviderPriority(prototype: object): boolean {
+  const register = Reflect.get(prototype, 'registerLinkProvider') as unknown
+  if (typeof register !== 'function') return false
+
+  const provider = Object.freeze({})
+  let receivedProvider: unknown
+  let receivedPriority: unknown
+  try {
+    Reflect.apply(
+      register,
+      {
+        linkDetector: {
+          registerProvider(candidate: unknown, priority?: boolean) {
+            receivedProvider = candidate
+            receivedPriority = priority
+          },
+        },
+      },
+      [provider],
+    )
+  } catch {
+    return false
+  }
+  return receivedProvider === provider && receivedPriority === true
+}
+
 function isTerminalConstructor(value: unknown): value is TerminalConstructor {
   if (typeof value !== 'function') return false
   const prototype = Reflect.get(value, 'prototype') as unknown
@@ -26,13 +52,16 @@ function isTerminalConstructor(value: unknown): value is TerminalConstructor {
 }
 
 export function assertTerminalRuntimePatch(terminal: TerminalConstructor): void {
-  const missing = REQUIRED_PRESENTATION_METHODS.filter(
+  const missing: string[] = REQUIRED_PRESENTATION_METHODS.filter(
     (method) => typeof Reflect.get(terminal.prototype, method) !== 'function',
   )
+  if (!hasCustomLinkProviderPriority(terminal.prototype)) {
+    missing.push('custom link-provider priority')
+  }
   if (missing.length === 0) return
 
   throw new Error(
-    `Installed dependencies do not match this checkout: ghostty-web is missing the required terminal presentation patch (${missing.join(', ')}). ${RECOVERY}`,
+    `Installed dependencies do not match this checkout: ghostty-web is missing the required terminal runtime patch (${missing.join(', ')}). ${RECOVERY}`,
   )
 }
 

@@ -274,7 +274,7 @@ class GhosttyTerminalPane implements TerminalPane {
   }
 }
 
-/** Registered after Ghostty's built-ins so file:// OSC 8 links stay inside hvir. */
+/** Registered with custom-provider priority so file:// OSC 8 links stay inside hvir. */
 export class FileLinkProvider implements ILinkProvider {
   constructor(
     private readonly terminal: GhosttyTerminal,
@@ -348,8 +348,8 @@ export class FileLinkProvider implements ILinkProvider {
         ),
       )
     }
-    // Registered after Ghostty's built-in URL detector, so these exact ranges
-    // replace its global window.open activations with typed terminal provenance.
+    // Custom providers take priority over Ghostty's built-in URL detector, so
+    // these exact ranges replace global window.open with typed provenance.
     for (const candidate of detectTerminalWebLinks(lineText)) {
       links.push(
         this.link(
