@@ -683,19 +683,31 @@ describe('TerminalSessionRegistry', () => {
 
   it('rebinds recovery only within the same provider and revision', async () => {
     const root = localPath('/tmp/project')
+    const cwd = localPath('/tmp/project/worktree')
     const alternate = asHarnessProfileId('claude-bypass')
     await registry.recordSpawn({
       id: SESSION_ID,
       providerId: CLAUDE_PROVIDER_ID,
       profileId: CLAUDE_PROFILE_ID,
       launchRevision: 1,
+      riskAcknowledgedRevision: 1,
+      artifactIdentity: 'old-artifact-identity',
       harnessSessionId: HARNESS_ID,
       workspaceRoot: root,
-      cwd: root,
+      cwd,
       title: 'Claude Code · project',
       position: 0,
       active: true,
     })
+    await registry.updateLayout(root, [
+      {
+        id: SESSION_ID,
+        title: 'Retained elevated Claude',
+        position: 3,
+        active: false,
+        attention: 'bell',
+      },
+    ])
 
     const rebound = await registry.rebindProfile({
       id: SESSION_ID,
@@ -710,6 +722,12 @@ describe('TerminalSessionRegistry', () => {
       launchRevision: 4,
       riskAcknowledgedRevision: 4,
       harnessSessionId: HARNESS_ID,
+      artifactIdentity: undefined,
+      cwd,
+      title: 'Retained elevated Claude',
+      position: 3,
+      active: false,
+      attention: 'bell',
     })
     expect(
       registry.authorizeResume({
@@ -719,7 +737,7 @@ describe('TerminalSessionRegistry', () => {
         launchRevision: 4,
         harnessSessionId: HARNESS_ID,
         workspaceRoot: root,
-        cwd: root,
+        cwd,
       }),
     ).toBe(true)
     await expect(
@@ -731,6 +749,49 @@ describe('TerminalSessionRegistry', () => {
         workspaceRoot: root,
       }),
     ).rejects.toThrow(/same provider/)
+  })
+
+  it('rolls a profile rebind back when persistence fails', async () => {
+    const root = localPath('/tmp/project')
+    await registry.recordSpawn({
+      id: SESSION_ID,
+      providerId: CLAUDE_PROVIDER_ID,
+      profileId: CLAUDE_PROFILE_ID,
+      launchRevision: 1,
+      artifactIdentity: 'retained-artifact-identity',
+      harnessSessionId: HARNESS_ID,
+      workspaceRoot: root,
+      cwd: root,
+      title: 'Retained Claude',
+      position: 0,
+      active: true,
+    })
+    const original = registry.list(root)[0]
+    vi.spyOn(host, 'writeFile').mockRejectedValueOnce(new Error('disk unavailable'))
+
+    await expect(
+      registry.rebindProfile({
+        id: SESSION_ID,
+        providerId: CLAUDE_PROVIDER_ID,
+        profileId: asHarnessProfileId('claude-current'),
+        launchRevision: 5,
+        riskAcknowledgedRevision: 5,
+        workspaceRoot: root,
+      }),
+    ).rejects.toThrow('disk unavailable')
+
+    expect(registry.list(root)).toEqual([original])
+    expect(
+      registry.authorizeResume({
+        id: SESSION_ID,
+        providerId: CLAUDE_PROVIDER_ID,
+        profileId: CLAUDE_PROFILE_ID,
+        launchRevision: 1,
+        harnessSessionId: HARNESS_ID,
+        workspaceRoot: root,
+        cwd: root,
+      }),
+    ).toBe(true)
   })
 
   it('migrates v1 adapter records to current profile records without changing identity', async () => {

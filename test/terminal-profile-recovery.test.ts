@@ -6,11 +6,17 @@ import {
 } from '../src/main/harness/harness-profile-store'
 import {
   autoRecoverableProfile,
+  defaultRecoveryRebindProfile,
   profileRiskAcknowledged,
   probeAllowsAutoRestore,
   recoverableProfile,
 } from '../src/renderer/src/terminal/terminal-profile-recovery'
-import { asHostId, hostPath, type TerminalRecoverySession } from '../src/shared'
+import {
+  asHarnessProfileId,
+  asHostId,
+  hostPath,
+  type TerminalRecoverySession,
+} from '../src/shared'
 
 describe('profile-bound terminal recovery', () => {
   const root = hostPath(asHostId('recovery-host'), '/project')
@@ -61,6 +67,27 @@ describe('profile-bound terminal recovery', () => {
         [{ ...profile, launchRevision: profile.launchRevision + 1 }],
         record,
       ),
+    ).toBeUndefined()
+  })
+
+  it('defaults review to the retained profile identity without choosing by array order', () => {
+    const alternative = {
+      ...profile,
+      id: asHarnessProfileId('claude-code-alternative'),
+      displayName: 'Alternative Claude',
+    }
+    const current = {
+      ...profile,
+      displayName: 'Retained Claude',
+      launchRevision: record.launchRevision + 1,
+    }
+
+    expect(defaultRecoveryRebindProfile([alternative, current], record)).toBe(current)
+    expect(
+      defaultRecoveryRebindProfile([alternative], {
+        ...record,
+        profileId: asHarnessProfileId('removed-profile'),
+      }),
     ).toBeUndefined()
   })
 

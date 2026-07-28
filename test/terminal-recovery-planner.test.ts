@@ -234,6 +234,49 @@ describe('terminal recovery planner', () => {
     })
   })
 
+  it('plans exact resume after the retained profile is rebound to its current revision', () => {
+    const integrated = {
+      ...provider,
+      capabilities: {
+        sessionIdentity: 'preassigned' as const,
+        exactResume: true,
+        contextPresentation: 'count' as const,
+      },
+    }
+    const current = {
+      ...profile,
+      builtIn: false,
+      launchRevision: 5,
+      risk: 'elevated' as const,
+    }
+    const rebound = {
+      ...record,
+      launchRevision: current.launchRevision,
+      riskAcknowledgedRevision: current.launchRevision,
+      harnessSessionId: 'exact-rebound-id',
+    }
+
+    const plan = planManualTerminalRecovery({
+      selectedIds: new Set([rebound.id]),
+      records: [rebound],
+      providers: [integrated],
+      profiles: [current],
+      probes: [],
+      splitLayout: { secondaryIds: [] },
+    })
+
+    expect(plan.kind).toBe('restore')
+    if (plan.kind === 'restore') {
+      expect(plan.result.sessions[0]).toMatchObject({
+        id: rebound.id,
+        harnessSessionId: 'exact-rebound-id',
+        identityStatus: 'identified',
+        resumeOnStart: true,
+        status: 'Resuming…',
+      })
+    }
+  })
+
   it('plans an empty manual selection as discard without inventing a launch', () => {
     expect(
       planManualTerminalRecovery({
