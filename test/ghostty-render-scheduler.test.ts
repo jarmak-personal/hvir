@@ -13,6 +13,7 @@ interface SchedulerHarness {
   renderRequests: number
   renderFrames: number
   fullRenderFrames: number
+  writeQueue: Uint8Array[]
   animationFrameId?: number
   scrollAnimationFrame?: number
   scrollAnimationStartTime?: number
@@ -62,6 +63,7 @@ function createHarness(): SchedulerHarness {
     renderRequests: 0,
     renderFrames: 0,
     fullRenderFrames: 0,
+    writeQueue: [],
     animationFrameId: undefined,
     scrollAnimationFrame: undefined,
     scrollbarVisible: false,
@@ -75,7 +77,7 @@ function createHarness(): SchedulerHarness {
     },
     wasmTerm: { getCursor: () => ({ y: 0 }) },
     cursorMoveEmitter: { fire: vi.fn() },
-  }) as SchedulerHarness
+  }) as unknown as SchedulerHarness
 }
 
 function createCursorBlinkHarness(): CursorBlinkHarness {

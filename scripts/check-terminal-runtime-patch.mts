@@ -11,7 +11,7 @@ const REQUIRED_PRESENTATION_METHODS = [
   'resetCursorBlink',
   'getRenderStats',
 ] as const
-const RECOVERY = 'Run `npm ci` in this worktree, then retry `npm run dev`.'
+const RECOVERY = 'Run `npm ci` in this worktree, then retry the command.'
 
 interface TerminalConstructor {
   readonly prototype: object
