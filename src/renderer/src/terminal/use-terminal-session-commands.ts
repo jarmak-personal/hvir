@@ -93,6 +93,17 @@ export function useTerminalSessionCommands({
     launchAcknowledged: (profile: HarnessProfile, provider: HarnessProviderDescriptor) =>
       launch(profile, provider, true),
     add,
+    startDefault: () => {
+      if (
+        !available ||
+        modelRef.current.sessions.length > 0 ||
+        !defaultProvider ||
+        !defaultProfile
+      ) {
+        return
+      }
+      launch(defaultProfile, defaultProvider, true)
+    },
     acceptFreshStart: (id: string, started: FreshTerminalStart) => {
       const session = modelRef.current.sessions.find((candidate) => candidate.id === id)
       if (!session) return
@@ -118,6 +129,7 @@ export function useTerminalSessionCommands({
     },
     split: () => {
       if (!available || !defaultProvider || !defaultProfile) return
+      const current = modelRef.current
       send({
         type: 'session-added',
         session: createTerminalSession(
@@ -125,7 +137,7 @@ export function useTerminalSessionCommands({
           defaultProfile,
           defaultProvider,
           workspaceRoot,
-          nextTerminalSplitPane(modelRef.current),
+          current.sessions.length === 0 ? 'primary' : nextTerminalSplitPane(current),
         ),
       })
     },

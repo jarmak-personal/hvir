@@ -18,7 +18,6 @@ import {
   startCapacityOutputFixtures,
   verifyHiddenPresentationSettles,
   verifyTerminalActivity,
-  waitForCapacityTerminalCount,
   type TerminalActivityReport,
   type TerminalReadinessSampleReport,
 } from './capacity-terminals'
@@ -243,7 +242,7 @@ export async function runCapacityLoadSmoke(
       'controlled capacity performance gate requires a clean checkout at a known commit',
     )
   }
-  await waitForCapacityTerminalCount(win, 1)
+  await addCapacityTerminals(win, 1)
   const baselineReadiness = await measureAdditionalTerminalReadiness(
     win,
     supervisor,

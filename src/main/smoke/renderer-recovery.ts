@@ -1,17 +1,22 @@
 import type { BrowserWindow } from 'electron'
 
 import type { RuntimeDiagnostics } from '../diagnostics/runtime-diagnostics'
+import type { PtySupervisor } from '../pty/pty-supervisor'
 import type { RendererOwner, RendererResourceScopes } from '../renderer-resource-scopes'
 
 export async function verifyUnresponsiveRendererRecovery(options: {
   readonly win: BrowserWindow
   readonly resources: RendererResourceScopes
   readonly diagnostics: RuntimeDiagnostics
+  readonly supervisor: PtySupervisor
   readonly reloadUnresponsiveRenderer: (owner: RendererOwner) => boolean
 }): Promise<string> {
-  const { win, resources, diagnostics, reloadUnresponsiveRenderer } = options
+  const { win, resources, diagnostics, supervisor, reloadUnresponsiveRenderer } = options
   const initialOwner = resources.currentOwner(win.webContents.id)
   const initialProcessId = win.webContents.getOSProcessId()
+  if (supervisor.list().length !== 0) {
+    throw new Error('empty renderer-recovery fixture started a PTY before user action')
+  }
   const loaded = new Promise<void>((resolve) =>
     win.webContents.once('did-finish-load', () => resolve()),
   )
@@ -61,19 +66,27 @@ export async function verifyUnresponsiveRendererRecovery(options: {
       new Promise((resolve, reject) => {
         const deadline = Date.now() + 10000;
         const inspect = () => {
-          const status = document.querySelector('.terminal-surface.active')
-            ?.getAttribute('data-terminal-status') || '';
-          if (status.includes('pid ')) return resolve();
+          const emptyAction = [...document.querySelectorAll('.terminal-empty button')]
+            .find((button) => button.textContent?.trim() === 'New terminal');
+          const sessions = document.querySelectorAll('.terminal-list-row').length;
+          const surfaces = document.querySelectorAll('.terminal-surface').length;
+          if (emptyAction && sessions === 0 && surfaces === 0) return resolve();
           if (Date.now() >= deadline) {
-            return reject(new Error('replacement terminal did not settle: ' + status));
+            return reject(new Error(
+              'replacement empty terminal area did not settle: sessions=' + sessions +
+              ' surfaces=' + surfaces
+            ));
           }
           setTimeout(inspect, 25);
         };
         inspect();
       })
     `),
-    'replacement terminal lifecycle timed out',
+    'replacement empty terminal lifecycle timed out',
   )
+  if (supervisor.list().length !== 0) {
+    throw new Error('renderer replacement implicitly started a PTY')
+  }
 
   const replacement = resources.currentOwner(win.webContents.id)
   if (replacement.generation !== initialOwner.generation + 1) {
@@ -90,7 +103,10 @@ export async function verifyUnresponsiveRendererRecovery(options: {
     throw new Error('renderer recovery did not create a replacement OS process')
   }
   await waitForRecoveryEvidence(diagnostics, initialOwner)
-  return `generation ${initialOwner.generation} → ${replacement.generation} · ${functionalControl}`
+  return (
+    `generation ${initialOwner.generation} → ${replacement.generation} · ` +
+    `${functionalControl} · empty workspace retained zero PTYs`
+  )
 }
 
 async function waitForRecoveryEvidence(

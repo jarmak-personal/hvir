@@ -29,6 +29,7 @@ interface TerminalViewProps {
   readonly startMode: 'interactive' | 'bulk'
   readonly position: number
   readonly slot: 'primary' | 'secondary'
+  readonly presented: boolean
   readonly visible: boolean
   readonly active: boolean
   readonly modifiedKeyProtocol: HarnessModifiedKeyProtocol
@@ -56,7 +57,7 @@ interface TerminalViewProps {
   readonly onLink: (activation: TerminalLinkActivation) => void
 }
 
-export function TerminalView(props: TerminalViewProps): ReactElement {
+export function TerminalView(props: TerminalViewProps): ReactElement | null {
   const {
     sessionId,
     supportsResume,
@@ -72,9 +73,12 @@ export function TerminalView(props: TerminalViewProps): ReactElement {
   const controller = useTerminalPaneController(
     { ...props, presentation: visible ? 'visible' : 'hidden' },
     props.runtimes,
+    props.presented,
   )
   const { containerRef, title, status, exited, restart, startFresh, focus } = controller
   const canRecoverHarness = supportsResume && Boolean(harnessSessionId)
+
+  if (!props.presented) return null
 
   return (
     <section

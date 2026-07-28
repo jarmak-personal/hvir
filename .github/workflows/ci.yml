@@ -62,6 +62,9 @@ jobs:
       - name: Run production Electron workflow
         run: xvfb-run -a npm run smoke
 
+      - name: Run development renderer Performance Timeline containment
+        run: xvfb-run -a npm run smoke:development-performance
+
   capacity-smoke:
     name: Capacity contracts + performance evidence (Linux)
     runs-on: ubuntu-24.04

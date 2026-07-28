@@ -15,6 +15,7 @@ import {
   asHarnessProfileId,
   asHostId,
   hostPath,
+  localPath,
   type HarnessProviderDescriptor,
   type TerminalRecoverySession,
 } from '../src/shared'
@@ -35,6 +36,102 @@ afterEach(() => {
 })
 
 describe('terminal recovery controller', () => {
+  it.each([
+    ['local', localPath('/repo')],
+    ['SSH', hostPath(asHostId('ssh-empty'), '/repo')],
+  ])('leaves an empty %s workspace session-free when no recovery exists', async (_kind, root) => {
+    const profile = builtInProfiles()[0]!
+    const provider = shellProvider(profile.providerId)
+    const invoke = vi.fn((channel: string) => {
+      switch (channel) {
+        case 'harness:catalog':
+          return Promise.resolve([provider])
+        case 'harness:profiles':
+          return Promise.resolve([profile])
+        case 'terminal:recovery':
+          return Promise.resolve([])
+        default:
+          return Promise.reject(new Error(`Unexpected IPC ${channel}`))
+      }
+    })
+    Object.defineProperty(window, 'hvir', {
+      configurable: true,
+      value: { invoke, on: vi.fn(), send: vi.fn() },
+    })
+
+    await act(async () => {
+      reactRoot.render(
+        <RecoveryHarness root={root} provider={provider} profile={profile} />,
+      )
+      await settleEffects()
+    })
+
+    expect(text('ready')).toBe('true')
+    expect(text('sessions')).toBe('')
+    expect(text('candidates')).toBe('')
+  })
+
+  it('leaves the workspace empty when retained recovery is explicitly skipped', async () => {
+    const profile = builtInProfiles()[0]!
+    const provider = shellProvider(profile.providerId)
+    const root = localPath('/repo')
+    const retained: TerminalRecoverySession = {
+      id: 'retained-shell',
+      providerId: provider.id,
+      profileId: profile.id,
+      launchRevision: profile.launchRevision,
+      recoverySkipCount: 0,
+      hostId: root.hostId,
+      cwd: root,
+      title: 'Retained shell',
+      position: 0,
+      active: true,
+      updatedAt: 1,
+    }
+    const invoke = vi.fn((channel: string) => {
+      switch (channel) {
+        case 'harness:catalog':
+          return Promise.resolve([provider])
+        case 'harness:profiles':
+          return Promise.resolve([profile])
+        case 'terminal:recovery':
+          return Promise.resolve([retained])
+        case 'terminal:record-recovery-decision':
+          return Promise.resolve()
+        default:
+          return Promise.reject(new Error(`Unexpected IPC ${channel}`))
+      }
+    })
+    Object.defineProperty(window, 'hvir', {
+      configurable: true,
+      value: { invoke, on: vi.fn(), send: vi.fn() },
+    })
+
+    await act(async () => {
+      reactRoot.render(
+        <RecoveryHarness
+          root={root}
+          provider={provider}
+          profile={profile}
+          mode="prompt"
+        />,
+      )
+      await settleEffects()
+    })
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>('button')?.click()
+      await settleEffects()
+    })
+
+    expect(text('sessions')).toBe('')
+    expect(text('candidates')).toBe('')
+    expect(invoke).toHaveBeenCalledWith('terminal:record-recovery-decision', {
+      root,
+      restoredIds: [],
+      skippedIds: ['retained-shell'],
+    })
+  })
+
   it('dismisses residual review without replacing an automatic live session', async () => {
     const profile = builtInProfiles()[0]!
     const provider: HarnessProviderDescriptor = {
@@ -248,6 +345,7 @@ function RecoveryHarness({
   return (
     <>
       <span data-testid="sessions">{model.sessions.map(({ id }) => id).join(',')}</span>
+      <span data-testid="ready">{String(recovery.ready)}</span>
       <span data-testid="candidates">
         {recovery.candidates.map(({ id }) => id).join(',')}
       </span>
@@ -274,4 +372,27 @@ function text(testId: string): string | null {
 
 async function settleEffects(): Promise<void> {
   for (let index = 0; index < 8; index++) await Promise.resolve()
+}
+
+function shellProvider(
+  id: HarnessProviderDescriptor['id'],
+): HarnessProviderDescriptor {
+  return {
+    id,
+    displayName: 'Shell',
+    default: true,
+    capabilities: {
+      sessionIdentity: 'none',
+      exactResume: false,
+      contextPresentation: 'none',
+    },
+    terminalInput: {
+      modifiedKeyProtocol: 'none',
+      metaEnterAliasesControl: false,
+    },
+    profileGuidance: {
+      reservedArguments: [],
+      riskClassification: 'best-effort',
+    },
+  }
 }

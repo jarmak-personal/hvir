@@ -210,7 +210,10 @@ export async function verifyTerminalMoveSmoke({
     harness.sourceRoot,
   )
   emitState(harness.reset())
-  return `same pid ${terminal.pid} · same canvas/surface · ${originalCount} supervised`
+  return (
+    `unopened target materialized on demand · same pid ${terminal.pid} · ` +
+    `same canvas/surface · ${originalCount} supervised`
+  )
 }
 
 async function runMoveInteraction(
@@ -234,6 +237,14 @@ async function runMoveInteraction(
         window.__hvirSmokeMoveCanvas = window.__hvirSmokeMoveSurface?.querySelector('canvas');
       }
       const poll = () => {
+        if (
+          ${expectNew} &&
+          [...document.querySelectorAll('[aria-label]')].some(
+            (element) => element.getAttribute('aria-label') === ${JSON.stringify(targetDeckLabel)}
+          )
+        ) {
+          return fail('unopened terminal move target was materialized before user action');
+        }
         const visibleRail = document.querySelector('.terminal-rail:not([hidden])');
         const title = visibleRail?.querySelector('.terminal-list-title')?.textContent?.trim();
         if (${JSON.stringify(waitForTitle)} && title !== ${JSON.stringify(waitForTitle)}) {

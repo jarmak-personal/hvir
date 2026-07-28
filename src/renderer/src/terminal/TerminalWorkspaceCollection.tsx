@@ -21,7 +21,7 @@ interface TerminalWorkspaceCollectionProps {
   readonly onAddHarness: WorkspaceProps['onAddHarness']
 }
 
-/** Mounts renderer terminal runtime only for workspaces currently open in the bar. */
+/** Mounts only selected, retained-session, or admitted-transfer workspace owners. */
 export function TerminalWorkspaceCollection({
   state,
   runtime,
@@ -35,11 +35,16 @@ export function TerminalWorkspaceCollection({
   onOpenHarnessSettings,
   onAddHarness,
 }: TerminalWorkspaceCollectionProps): ReactElement {
+  const materialized = new Set(runtime.materializedWorkspaceIds)
   return (
     <>
       {state?.projects.flatMap((project) =>
         project.workspaces
-          .filter((workspace) => !workspace.closed)
+          .filter(
+            (workspace) =>
+              !workspace.closed &&
+              (workspace.id === state.activeWorkspaceId || materialized.has(workspace.id)),
+          )
           .map((workspace) => (
             <TerminalWorkspace
               key={workspace.id}

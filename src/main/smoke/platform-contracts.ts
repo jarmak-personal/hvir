@@ -3,6 +3,7 @@ import { net, protocol, type BrowserWindow } from 'electron'
 import { HTML_PREVIEW_SCHEME } from '../../shared'
 import type { HtmlPreviewProtocol } from '../html-preview-protocol'
 import type { PtySupervisor } from '../pty/pty-supervisor'
+import { ensureExplicitBareShellLaunch } from './terminal-explicit-launch'
 
 interface RectSnapshot {
   readonly top: number
@@ -35,6 +36,7 @@ export async function verifyPlatformContracts({
   readonly supervisor: PtySupervisor
   readonly win: BrowserWindow
 }): Promise<string> {
+  const explicitLaunch = await ensureExplicitBareShellLaunch(win, supervisor)
   const snapshot = await platformContractSnapshot(win)
   assertPlatformGeometry(snapshot)
   const processSandboxStatus =
@@ -45,7 +47,7 @@ export async function verifyPlatformContracts({
   const terminals = supervisor.list()
   if (terminals.length !== 1) {
     throw new Error(
-      `platform contract expected one automatically launched PTY, found ${terminals.length} ` +
+      `platform contract expected one explicitly launched PTY, found ${terminals.length} ` +
         `(snapshot=${JSON.stringify(snapshot)})`,
     )
   }
@@ -66,7 +68,7 @@ export async function verifyPlatformContracts({
     `${process.platform} ${process.arch} · ${snapshot.viewport.width}×${snapshot.viewport.height} ` +
     `· terminal ${Math.round(snapshot.terminalPanel.height)}px · ` +
     `canvas remainder ${rightRemainder.toFixed(1)}×${bottomRemainder.toFixed(1)}px ` +
-    `${processSandboxStatus}· pid ${terminal.pid} · ${protocolStatus}`
+    `${processSandboxStatus}· ${explicitLaunch} · ${protocolStatus}`
   )
 }
 

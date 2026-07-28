@@ -1,27 +1,47 @@
 import { useCallback, useRef } from 'react'
 
 import type { MoveTerminalResponse } from '../../../shared'
+import type { TerminalWorkspaceRuntimeOwner } from './terminal-workspace-runtime-owner'
 import type { TerminalWorkspaceController } from './use-terminal-workspace-move'
 
 export function useTerminalWorkspaceTransfer({
+  owner,
+  canMaterialize,
   acceptProjectState,
   forgetWebViews,
   onError,
 }: {
+  readonly owner: TerminalWorkspaceRuntimeOwner
+  readonly canMaterialize: (workspaceId: string) => boolean
   readonly acceptProjectState: (state: MoveTerminalResponse['state']) => void
   readonly forgetWebViews: (terminalId: string) => void
   readonly onError: (message: string) => void
 }) {
-  const controllers = useRef(new Map<string, TerminalWorkspaceController>())
-  const callbacks = useRef({ acceptProjectState, forgetWebViews, onError })
-  callbacks.current = { acceptProjectState, forgetWebViews, onError }
+  const callbacks = useRef({ acceptProjectState, canMaterialize, forgetWebViews, onError })
+  callbacks.current = { acceptProjectState, canMaterialize, forgetWebViews, onError }
 
   const register = useCallback(
     (workspaceId: string, controller: TerminalWorkspaceController | undefined) => {
-      if (controller) controllers.current.set(workspaceId, controller)
-      else controllers.current.delete(workspaceId)
+      owner.registerController(workspaceId, controller)
     },
-    [],
+    [owner],
+  )
+
+  const prepare = useCallback(
+    (workspaceId: string): Promise<void> => {
+      if (!callbacks.current.canMaterialize(workspaceId)) {
+        return Promise.reject(
+          new Error(`Terminal move target '${workspaceId}' is no longer available`),
+        )
+      }
+      return owner.prepareTransferTarget(workspaceId)
+    },
+    [owner],
+  )
+
+  const release = useCallback(
+    (workspaceId: string): void => owner.releaseTransferTarget(workspaceId),
+    [owner],
   )
 
   const complete = useCallback(
@@ -31,8 +51,8 @@ export function useTerminalWorkspaceTransfer({
       targetWorkspaceId: string,
       response: MoveTerminalResponse,
     ): void => {
-      const source = controllers.current.get(sourceWorkspaceId)
-      const target = controllers.current.get(targetWorkspaceId)
+      const source = owner.controller(sourceWorkspaceId)
+      const target = owner.controller(targetWorkspaceId)
       if (!source || !target || !source.hasSession(terminalId)) {
         callbacks.current.acceptProjectState(response.state)
         callbacks.current.onError(
@@ -47,11 +67,12 @@ export function useTerminalWorkspaceTransfer({
         return
       }
       target.transferIn(session)
+      owner.retainWorkspace(targetWorkspaceId, true)
       callbacks.current.forgetWebViews(terminalId)
       callbacks.current.acceptProjectState(response.state)
     },
-    [],
+    [owner],
   )
 
-  return { register, complete }
+  return { register, prepare, release, complete }
 }
