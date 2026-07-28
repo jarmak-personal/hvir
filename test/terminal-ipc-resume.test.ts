@@ -4,6 +4,7 @@ import { providerTemplateProfiles } from '../src/main/harness/harness-profile-st
 import { registerTerminalIpc } from '../src/main/ipc/features/terminal'
 import type { IpcInvokeContext, IpcRegistrar } from '../src/main/ipc/authority-router'
 import type { ProjectHost } from '../src/main/project-host'
+import { PtyStartUnavailableError } from '../src/main/pty/pty-supervisor'
 import type { RecordTerminalReplacement } from '../src/main/terminal/session-registry'
 import {
   LOCAL_HOST_ID,
@@ -17,6 +18,31 @@ import {
 const HARNESS_SESSION_ID = '05ea41ff-026f-4ab6-b930-64eb3b497806'
 
 describe('terminal exact-resume IPC', () => {
+  it('returns provider-neutral retryable launch unavailability without a PTY', async () => {
+    const fixture = resumeFixture(LOCAL_HOST_ID, 'available')
+    fixture.spawn.mockRejectedValueOnce(
+      new PtyStartUnavailableError('identity-baseline-unavailable'),
+    )
+
+    const result = await fixture.start(
+      {
+        ...fixture.request,
+        resume: false,
+        harnessSessionId: undefined,
+      },
+      fixture.context,
+    )
+
+    expect(result).toEqual({
+      outcome: 'launch-unavailable',
+      reason: 'identity-baseline-unavailable',
+      retryable: true,
+    })
+    expect(fixture.lease.dispose).toHaveBeenCalledOnce()
+    expect(fixture.recordSpawn).not.toHaveBeenCalled()
+    expect(fixture.recordSuccessfulLaunch).not.toHaveBeenCalled()
+  })
+
   it.each([
     ['local', LOCAL_HOST_ID],
     ['SSH', asHostId('ssh-resume-test')],

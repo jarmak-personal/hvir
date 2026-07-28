@@ -1132,32 +1132,6 @@ describe('PtySupervisor', () => {
     })
   })
 
-  it('still launches when the discovery snapshot is unavailable', async () => {
-    const { supervisor, host, provider, spawnPty } = fixture()
-    const identify = vi.fn()
-    Object.assign(provider, {
-      sessionIdentity: 'discovered',
-      sessionDiscovery: {
-        snapshot: () => Promise.reject(new Error('scan failed')),
-        identify,
-      },
-    })
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
-
-    const info = await supervisor.spawn({
-      host,
-      provider,
-      cwd: localPath('/tmp/project'),
-      ownerId: OWNER_ID,
-      sessionId: 'snapshot-failed',
-    })
-
-    expect(spawnPty).toHaveBeenCalledOnce()
-    expect(info.identityStatus).toBe('unavailable')
-    expect(identify).not.toHaveBeenCalled()
-    warn.mockRestore()
-  })
-
   it('requires an exact id to resume a discovered session', async () => {
     const { supervisor, host, provider, spawnPty } = fixture()
     Object.assign(provider, {

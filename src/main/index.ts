@@ -259,7 +259,13 @@ function createWorkbenchEntry(): void {
     )
     ptySupervisor = runtime.own(
       'PTY supervisor',
-      new PtySupervisor({ onDiagnostic: (event) => diagnostics.recordPty(event) }),
+      new PtySupervisor({
+        onDiagnostic: (event) => diagnostics.recordPty(event),
+        registerSessionIdentity: (terminalId, harnessSessionId) =>
+          terminalSessionRegistry!.recordIdentity(terminalId, harnessSessionId),
+        cancelSessionIdentityRegistration: (terminalId) =>
+          terminalSessionRegistry!.cancelIdentityRegistration(terminalId),
+      }),
       (supervisor) => supervisor.disposeAllAndWait(),
     )
     const workspaceCleanup = createWorkspaceCleanup({
@@ -317,13 +323,6 @@ function createWorkbenchEntry(): void {
       (badge) => badge.clear(),
     )
     ptySupervisor.onSessionIdentity((info) => {
-      if (info.identityStatus === 'identified' && info.harnessSessionId) {
-        void terminalSessionRegistry
-          ?.recordIdentity(info.id, info.harnessSessionId)
-          .catch((error) =>
-            console.error('[terminal] identity persistence failed', error),
-          )
-      }
       rendererEvents.toRenderer(
         { id: info.ownerId, generation: info.ownerGeneration },
         'pty:identity',

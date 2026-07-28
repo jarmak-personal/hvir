@@ -9,6 +9,7 @@ import type { TerminalEventRouter } from './terminal-event-router'
 import type { TerminalPane } from './terminal-pane'
 import {
   baseTerminalTheme,
+  launchUnavailableStatus,
   resumeUnavailableStatus,
   type TerminalRecoveryFailure,
   type TerminalRuntimeSnapshot,
@@ -288,6 +289,15 @@ export class TerminalRuntime {
         if (result.outcome === 'started') {
           window.hvir.send('pty:kill', { id: result.id })
         }
+        return
+      }
+      if (result.outcome === 'launch-unavailable') {
+        this.updateSnapshot({
+          ...this.currentSnapshot,
+          status: launchUnavailableStatus(result.reason),
+          exited: true,
+          recoveryFailure: undefined,
+        })
         return
       }
       if (result.outcome === 'resume-unavailable') {

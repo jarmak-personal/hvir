@@ -119,6 +119,12 @@ export interface OwnedTerminalSession extends TerminalRecoverySession {
   readonly workspaceRoot: HostPath
 }
 
+interface PendingIdentityRegistration {
+  readonly harnessSessionId: string
+  readonly acceptance: Promise<boolean>
+  readonly resolve: (accepted: boolean) => void
+}
+
 export interface TerminalSessionStore {
   list(workspaceRoot: HostPath): readonly TerminalRecoverySession[]
   recordRecoveryDecision(
@@ -130,7 +136,8 @@ export interface TerminalSessionStore {
   ): Promise<void>
   recordSpawn(spawn: RecordTerminalSpawn): Promise<void>
   recordReplacement(replacement: RecordTerminalReplacement): Promise<void>
-  recordIdentity(id: string, harnessSessionId: string): Promise<void>
+  recordIdentity(id: string, harnessSessionId: string): Promise<boolean>
+  cancelIdentityRegistration(id: string): void
   updateLayout(
     workspaceRoot: HostPath,
     layout: readonly TerminalLayoutEntry[],
@@ -158,7 +165,7 @@ export type TerminalSessionRegistryDiagnostic =
 export class TerminalSessionRegistry implements TerminalSessionStore {
   private readonly sessions = new Map<string, StoredTerminalSession>()
   private readonly forgotten = new Set<string>()
-  private readonly pendingIdentities = new Map<string, string>()
+  private readonly pendingIdentities = new Map<string, PendingIdentityRegistration>()
   private pendingWrite: Promise<void> = Promise.resolve()
 
   private constructor(
@@ -349,17 +356,19 @@ export class TerminalSessionRegistry implements TerminalSessionStore {
     }
   }
 
-  recordSpawn(spawn: RecordTerminalSpawn): Promise<void> {
+  async recordSpawn(spawn: RecordTerminalSpawn): Promise<void> {
+    const pendingIdentity = this.pendingIdentities.get(spawn.id)
     if (this.forgotten.has(spawn.id)) {
       this.pendingIdentities.delete(spawn.id)
+      pendingIdentity?.resolve(false)
       return Promise.resolve()
     }
-    const harnessSessionId =
-      spawn.harnessSessionId ?? this.pendingIdentities.get(spawn.id)
-    const retainedAttention = this.sessions.get(spawn.id)?.attention
+    const harnessSessionId = spawn.harnessSessionId ?? pendingIdentity?.harnessSessionId
+    const previous = this.sessions.get(spawn.id)
+    const retainedAttention = previous?.attention
     this.pendingIdentities.delete(spawn.id)
     const now = Date.now()
-    this.sessions.set(spawn.id, {
+    const recorded: StoredTerminalSession = {
       id: spawn.id,
       providerId: spawn.providerId,
       profileId: spawn.profileId,
@@ -376,8 +385,27 @@ export class TerminalSessionRegistry implements TerminalSessionStore {
       active: spawn.active,
       attention: retainedAttention,
       updatedAt: now,
-    })
-    return this.persist()
+    }
+    this.sessions.set(spawn.id, recorded)
+    try {
+      await this.persist()
+      pendingIdentity?.resolve(
+        recorded.harnessSessionId === pendingIdentity.harnessSessionId,
+      )
+    } catch (error) {
+      if (this.sessions.get(spawn.id) === recorded) {
+        this.sessions.set(spawn.id, {
+          ...recorded,
+          harnessSessionId:
+            recorded.harnessSessionId === pendingIdentity?.harnessSessionId
+              ? spawn.harnessSessionId
+              : recorded.harnessSessionId,
+        })
+      }
+      pendingIdentity?.resolve(false)
+      await this.persist().catch(() => undefined)
+      throw error
+    }
   }
 
   async recordReplacement({
@@ -399,7 +427,7 @@ export class TerminalSessionRegistry implements TerminalSessionStore {
     }
     const replaced = this.sessions.get(replacedId)!
     const pendingIdentity = this.pendingIdentities.get(spawn.id)
-    const harnessSessionId = spawn.harnessSessionId ?? pendingIdentity
+    const harnessSessionId = spawn.harnessSessionId ?? pendingIdentity?.harnessSessionId
     const replacement: StoredTerminalSession = {
       id: spawn.id,
       providerId: spawn.providerId,
@@ -426,7 +454,11 @@ export class TerminalSessionRegistry implements TerminalSessionStore {
       if (this.forgotten.has(spawn.id)) {
         throw new Error('Terminal replacement was cancelled')
       }
+      pendingIdentity?.resolve(
+        replacement.harnessSessionId === pendingIdentity.harnessSessionId,
+      )
     } catch (error) {
+      pendingIdentity?.resolve(false)
       if (this.forgotten.has(spawn.id)) throw error
       this.sessions.delete(spawn.id)
       this.sessions.set(replacedId, replaced)
@@ -439,29 +471,62 @@ export class TerminalSessionRegistry implements TerminalSessionStore {
     }
   }
 
-  recordIdentity(id: string, harnessSessionId: string): Promise<void> {
+  async recordIdentity(id: string, harnessSessionId: string): Promise<boolean> {
     if (
       this.forgotten.has(id) ||
       !TERMINAL_ID.test(id) ||
       !isHarnessSessionId(harnessSessionId)
     ) {
-      return Promise.resolve()
+      return false
     }
     const current = this.sessions.get(id)
     if (!current) {
+      const existing = this.pendingIdentities.get(id)
+      if (existing?.harnessSessionId === harnessSessionId) return existing.acceptance
+      existing?.resolve(false)
       if (this.pendingIdentities.size >= MAX_SESSIONS) {
         const oldest = this.pendingIdentities.keys().next().value
-        if (oldest !== undefined) this.pendingIdentities.delete(oldest)
+        if (oldest !== undefined) {
+          this.pendingIdentities.get(oldest)?.resolve(false)
+          this.pendingIdentities.delete(oldest)
+        }
       }
-      this.pendingIdentities.set(id, harnessSessionId)
-      return Promise.resolve()
+      let resolve = (_accepted: boolean): void => undefined
+      const acceptance = new Promise<boolean>((accept) => {
+        resolve = accept
+      })
+      this.pendingIdentities.set(id, { harnessSessionId, acceptance, resolve })
+      return acceptance
     }
-    this.sessions.set(id, {
+    const recorded: StoredTerminalSession = {
       ...current,
       harnessSessionId,
       updatedAt: Date.now(),
-    })
-    return this.persist()
+    }
+    this.sessions.set(id, recorded)
+    try {
+      await this.persist()
+      return true
+    } catch (error) {
+      const retained = this.sessions.get(id)
+      if (retained === recorded) {
+        this.sessions.set(id, current)
+      } else if (retained?.harnessSessionId === harnessSessionId) {
+        this.sessions.set(id, {
+          ...retained,
+          harnessSessionId: current.harnessSessionId,
+        })
+      }
+      await this.persist().catch(() => undefined)
+      throw error
+    }
+  }
+
+  cancelIdentityRegistration(id: string): void {
+    const pending = this.pendingIdentities.get(id)
+    if (!pending) return
+    this.pendingIdentities.delete(id)
+    pending.resolve(false)
   }
 
   updateLayout(
@@ -492,7 +557,7 @@ export class TerminalSessionRegistry implements TerminalSessionStore {
       return Promise.resolve()
     }
     this.forgotten.add(id)
-    this.pendingIdentities.delete(id)
+    this.cancelIdentityRegistration(id)
     if (!current) return Promise.resolve()
     this.sessions.delete(id)
     return this.persist()

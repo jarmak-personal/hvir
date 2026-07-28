@@ -98,6 +98,7 @@ interface Entry {
   telemetry?: HarnessTelemetry
   telemetryStarted: boolean
   identityDiscoveryActive: boolean
+  identityRetryPending: boolean
   launchDiagnostic: string
   identityRetry?: IdentityRetry
   rendererReattachPending: boolean
@@ -148,6 +149,24 @@ export type PtySupervisorDiagnostic =
 export interface PtySupervisorOptions {
   readonly onDiagnostic?: (event: PtySupervisorDiagnostic) => void
   readonly bulkStartConcurrencyPerHost?: number
+  readonly registerSessionIdentity?: (
+    terminalId: string,
+    harnessSessionId: string,
+  ) => Promise<boolean>
+  readonly cancelSessionIdentityRegistration?: (terminalId: string) => void
+}
+
+export type PtyStartUnavailableReason = 'identity-baseline-unavailable'
+
+export class PtyStartUnavailableError extends Error {
+  readonly retryable = true
+
+  constructor(
+    readonly reason: PtyStartUnavailableReason,
+    cause?: unknown,
+  ) {
+    super('Harness launch identity baseline is unavailable', { cause })
+  }
 }
 
 export class PtySupervisor {
@@ -160,6 +179,7 @@ export class PtySupervisor {
   private readonly identityListeners = new Set<(info: ManagedPty) => void>()
   private readonly discoveryQueues = new Map<string, Promise<void>>()
   private readonly discoveryControllers = new Set<AbortController>()
+  private readonly identityAcceptances = new Set<Promise<boolean>>()
   private readonly startAdmission: TerminalStartAdmission
 
   constructor(private readonly options: PtySupervisorOptions = {}) {
@@ -242,12 +262,7 @@ export class PtySupervisor {
           discoverySnapshot = await discovery.snapshot(req.host, artifact)
           discoveryReady = true
         } catch (error) {
-          console.warn(
-            `[pty] ${req.provider.manifest.id} session discovery snapshot unavailable`,
-            error,
-          )
-          void releaseDiscoveryLaunch()
-          releaseDiscoveryLaunch = undefined
+          throw new PtyStartUnavailableError('identity-baseline-unavailable', error)
         }
       }
 
@@ -290,7 +305,11 @@ export class PtySupervisor {
       releaseDiscoveryLaunch = undefined
     } catch (error) {
       void releaseDiscoveryLaunch?.()
-      if (!pending.cancelled && this.generation === generation) {
+      if (
+        !(error instanceof PtyStartUnavailableError) &&
+        !pending.cancelled &&
+        this.generation === generation
+      ) {
         this.reportDiagnostic({ kind: 'pty-spawn-failed', ...diagnosticContext })
       }
       throw error
@@ -338,6 +357,7 @@ export class PtySupervisor {
       replayPending: true,
       telemetryStarted: false,
       identityDiscoveryActive: false,
+      identityRetryPending: false,
       launchDiagnostic: '',
       rendererReattachPending: false,
       exited: false,
@@ -386,6 +406,7 @@ export class PtySupervisor {
           for (const cb of entry.exitListeners) cb(exit)
           for (const cb of this.globalExitListeners) cb(entry.info, exit)
         } finally {
+          this.cancelPendingIdentity(entry.info.id)
           for (const dispose of entry.disposers) void dispose()
           entry.dataListeners.clear()
           entry.exitListeners.clear()
@@ -634,7 +655,11 @@ export class PtySupervisor {
    */
   async disposeAllAndWait(timeoutMs = 2_000): Promise<void> {
     const pendingExits = this.beginSessionDisposal(true)
+    const identityAcceptances = [...this.identityAcceptances]
     this.clearLifetimeListeners()
+    await Promise.all(
+      identityAcceptances.map((acceptance) => acceptance.catch(() => false)),
+    )
     if (pendingExits.length === 0) return
 
     let timer: ReturnType<typeof setTimeout> | undefined
@@ -662,6 +687,7 @@ export class PtySupervisor {
     this.pendingIds.clear()
     const pendingExits: PendingPtyExit[] = []
     for (const entry of this.entries.values()) {
+      this.cancelPendingIdentity(entry.info.id)
       for (const dispose of entry.disposers) void dispose()
       if (waitForExit && !entry.exited) {
         let disposeExit: Disposer = () => undefined
@@ -751,6 +777,7 @@ export class PtySupervisor {
   }
 
   private disposeEntry(id: string, entry: Entry): void {
+    this.cancelPendingIdentity(id)
     for (const dispose of entry.disposers) void dispose()
     entry.dataListeners.clear()
     entry.exitListeners.clear()
@@ -817,26 +844,44 @@ export class PtySupervisor {
         artifact,
       })
       if (entry.exited || this.entries.get(entry.info.id) !== entry) return
-      entry.info =
-        result.status === 'identified'
-          ? {
-              ...entry.info,
-              harnessSessionId: result.sessionId,
-              identityStatus: 'identified',
-            }
-          : { ...entry.info, identityStatus: result.status }
       if (result.status === 'identified') {
-        entry.identityRetry = undefined
-        this.startTelemetry(
-          entry,
-          host,
-          provider,
-          result.sessionId,
-          artifact,
-          result.sessionData,
-        )
+        let accepted = false
+        try {
+          accepted = await this.registerIdentity(entry.info.id, result.sessionId)
+        } catch {
+          // The registry owns persistence diagnostics. Publication stays unavailable.
+        }
+        if (!entry.exited && this.entries.get(entry.info.id) === entry) {
+          entry.info = accepted
+            ? {
+                ...entry.info,
+                harnessSessionId: result.sessionId,
+                identityStatus: 'identified',
+              }
+            : {
+                ...entry.info,
+                harnessSessionId: undefined,
+                identityStatus: 'unavailable',
+              }
+          if (accepted) {
+            entry.identityRetry = undefined
+            entry.identityRetryPending = false
+            this.startTelemetry(
+              entry,
+              host,
+              provider,
+              result.sessionId,
+              artifact,
+              result.sessionData,
+            )
+          }
+        }
       } else if (result.status === 'ambiguous') {
+        entry.info = { ...entry.info, identityStatus: result.status }
         entry.identityRetry = undefined
+        entry.identityRetryPending = false
+      } else {
+        entry.info = { ...entry.info, identityStatus: result.status }
       }
     } catch (error) {
       if (!entry.exited && this.entries.get(entry.info.id) === entry) {
@@ -854,17 +899,28 @@ export class PtySupervisor {
     }
     if (entry.exited || this.entries.get(entry.info.id) !== entry) return
     for (const cb of this.identityListeners) cb(entry.info)
+    if (
+      entry.identityRetryPending &&
+      entry.info.identityStatus === 'unavailable' &&
+      entry.identityRetry
+    ) {
+      entry.identityRetryPending = false
+      this.retryIdentityAfterInput(entry)
+    }
   }
 
   private retryIdentityAfterInput(entry: Entry): void {
     const retry = entry.identityRetry
     if (
       !retry ||
-      entry.identityDiscoveryActive ||
       entry.exited ||
       entry.info.identityStatus === 'identified' ||
       this.entries.get(entry.info.id) !== entry
     ) {
+      return
+    }
+    if (entry.identityDiscoveryActive) {
+      entry.identityRetryPending = true
       return
     }
     entry.identityDiscoveryActive = true
@@ -886,6 +942,24 @@ export class PtySupervisor {
       retry.artifact,
       controller,
     )
+  }
+
+  private registerIdentity(
+    terminalId: string,
+    harnessSessionId: string,
+  ): Promise<boolean> {
+    const acceptance = Promise.resolve().then(
+      () => this.options.registerSessionIdentity?.(terminalId, harnessSessionId) ?? true,
+    )
+    this.identityAcceptances.add(acceptance)
+    void acceptance
+      .catch(() => false)
+      .finally(() => this.identityAcceptances.delete(acceptance))
+    return acceptance
+  }
+
+  private cancelPendingIdentity(terminalId: string): void {
+    this.options.cancelSessionIdentityRegistration?.(terminalId)
   }
 
   private startTelemetry(

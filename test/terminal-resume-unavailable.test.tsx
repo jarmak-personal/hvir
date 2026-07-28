@@ -93,6 +93,38 @@ describe('terminal resume unavailable state', () => {
     vi.restoreAllMocks()
   })
 
+  it('keeps a retryable identity-baseline failure visible without claiming startup', async () => {
+    invoke.mockResolvedValue({
+      outcome: 'launch-unavailable' as const,
+      reason: 'identity-baseline-unavailable' as const,
+      retryable: true as const,
+    })
+    const runtimeOptions = {
+      ...options(),
+      harnessSessionId: undefined,
+      resumeOnStart: false,
+    }
+    const runtime = registry.acquire(runtimeOptions)
+    runtime.attach(document.createElement('div'))
+
+    await vi.waitFor(() => expect(invoke).toHaveBeenCalledOnce())
+    expect(runtime.snapshot()).toEqual({
+      title: 'Claude Code · repo',
+      status: 'Launch unavailable · session recovery baseline could not be read',
+      exited: true,
+      recoveryFailure: undefined,
+    })
+    expect(runtimeOptions.onStarted).not.toHaveBeenCalled()
+    expect(runtimeOptions.onIdentity).not.toHaveBeenCalled()
+
+    runtime.restart()
+    await vi.waitFor(() => expect(invoke).toHaveBeenCalledTimes(2))
+    expect(invoke).toHaveBeenLastCalledWith(
+      'pty:start',
+      expect.objectContaining({ resume: false, harnessSessionId: undefined }),
+    )
+  })
+
   it('keeps typed missing-artifact state sticky while preserving the retained identity', async () => {
     const runtimeOptions = options()
     const runtime = registry.acquire(runtimeOptions)
