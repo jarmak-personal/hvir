@@ -35,6 +35,9 @@ interface PaneDividerControlPoints {
   readonly terminal: PaneDividerPoint
 }
 
+const PANE_DIVIDER_STATE_TIMEOUT_MS = 2_000
+const PANE_DIVIDER_STATE_POLL_MS = 25
+
 /** Prove the real platform contracts retained by unpackaged and installed smoke. */
 export async function verifyPlatformContracts({
   htmlPreviews,
@@ -111,17 +114,17 @@ async function verifyPaneDividerControlVisibility(win: BrowserWindow): Promise<s
       )
     }
 
-    await moveMouse(win, points.safe)
+    moveMouse(win, points.safe)
     await focusPaneDividerAction(win, '.tree-resizer')
-    assertPaneDividerVisibility(
-      await paneDividerVisibility(win),
+    await waitForPaneDividerVisibility(
+      win,
       [1, 1, 1, 0, 0, 0],
       'tree keyboard focus',
     )
 
     await focusPaneDividerAction(win, '.terminal-resizer')
-    assertPaneDividerVisibility(
-      await paneDividerVisibility(win),
+    await waitForPaneDividerVisibility(
+      win,
       [0, 0, 0, 1, 1, 1],
       'terminal keyboard focus',
     )
@@ -134,7 +137,7 @@ async function verifyPaneDividerControlVisibility(win: BrowserWindow): Promise<s
       }
       if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
     `)
-    await moveMouse(win, points.safe)
+    moveMouse(win, points.safe)
   }
   return 'pane controls dark/light hover + keyboard focus'
 }
@@ -202,8 +205,24 @@ async function expectPaneDividerVisibility(
   expected: PaneDividerVisibility,
   context: string,
 ): Promise<void> {
-  await moveMouse(win, point)
-  assertPaneDividerVisibility(await paneDividerVisibility(win), expected, context)
+  moveMouse(win, point)
+  await waitForPaneDividerVisibility(win, expected, context)
+}
+
+async function waitForPaneDividerVisibility(
+  win: BrowserWindow,
+  expected: PaneDividerVisibility,
+  context: string,
+): Promise<void> {
+  const deadline = Date.now() + PANE_DIVIDER_STATE_TIMEOUT_MS
+  let actual = await paneDividerVisibility(win)
+  while (!paneDividerVisibilityMatches(actual, expected)) {
+    if (Date.now() > deadline) {
+      assertPaneDividerVisibility(actual, expected, context)
+    }
+    await new Promise((resolve) => setTimeout(resolve, PANE_DIVIDER_STATE_POLL_MS))
+    actual = await paneDividerVisibility(win)
+  }
 }
 
 function assertPaneDividerVisibility(
@@ -211,20 +230,30 @@ function assertPaneDividerVisibility(
   expected: PaneDividerVisibility,
   context: string,
 ): void {
-  if (actual.some((value, index) => Math.abs(value - expected[index]!) > 0.01)) {
+  if (!paneDividerVisibilityMatches(actual, expected)) {
     throw new Error(
       `${context} state was ${JSON.stringify(actual)}, expected ${JSON.stringify(expected)}`,
     )
   }
 }
 
-async function moveMouse(win: BrowserWindow, [x, y]: PaneDividerPoint): Promise<void> {
+function paneDividerVisibilityMatches(
+  actual: PaneDividerVisibility,
+  expected: PaneDividerVisibility,
+): boolean {
+  return actual.every((value, index) => Math.abs(value - expected[index]!) <= 0.01)
+}
+
+function moveMouse(win: BrowserWindow, [x, y]: PaneDividerPoint): void {
+  const input = { x: Math.round(x), y: Math.round(y) }
   win.webContents.sendInputEvent({
-    type: 'mouseMove',
-    x: Math.round(x),
-    y: Math.round(y),
+    ...input,
+    type: 'mouseEnter',
   })
-  await settlePaneDividerTransition()
+  win.webContents.sendInputEvent({
+    ...input,
+    type: 'mouseMove',
+  })
 }
 
 async function focusPaneDividerAction(
@@ -240,11 +269,6 @@ async function focusPaneDividerAction(
   `)
   win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Tab' })
   win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Tab' })
-  await settlePaneDividerTransition()
-}
-
-async function settlePaneDividerTransition(): Promise<void> {
-  await new Promise((resolve) => setTimeout(resolve, 150))
 }
 
 async function verifyRequiredProcessSandbox(win: BrowserWindow): Promise<string> {
