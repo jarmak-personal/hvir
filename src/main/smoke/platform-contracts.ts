@@ -26,6 +26,15 @@ interface PlatformContractSnapshot {
   readonly paddingBottom: number
 }
 
+type PaneDividerPoint = readonly [number, number]
+type PaneDividerVisibility = readonly [number, number, number, number, number, number]
+
+interface PaneDividerControlPoints {
+  readonly safe: PaneDividerPoint
+  readonly tree: PaneDividerPoint
+  readonly terminal: PaneDividerPoint
+}
+
 /** Prove the real platform contracts retained by unpackaged and installed smoke. */
 export async function verifyPlatformContracts({
   htmlPreviews,
@@ -39,6 +48,7 @@ export async function verifyPlatformContracts({
   const explicitLaunch = await ensureExplicitBareShellLaunch(win, supervisor)
   const snapshot = await platformContractSnapshot(win)
   assertPlatformGeometry(snapshot)
+  const paneDividerStatus = await verifyPaneDividerControlVisibility(win)
   const processSandboxStatus =
     process.env['HVIR_SMOKE_REQUIRE_PROCESS_SANDBOX'] === '1'
       ? await verifyRequiredProcessSandbox(win)
@@ -68,8 +78,173 @@ export async function verifyPlatformContracts({
     `${process.platform} ${process.arch} · ${snapshot.viewport.width}×${snapshot.viewport.height} ` +
     `· terminal ${Math.round(snapshot.terminalPanel.height)}px · ` +
     `canvas remainder ${rightRemainder.toFixed(1)}×${bottomRemainder.toFixed(1)}px ` +
-    `${processSandboxStatus}· ${explicitLaunch} · ${protocolStatus}`
+    `${processSandboxStatus}· ${paneDividerStatus} · ${explicitLaunch} · ${protocolStatus}`
   )
+}
+
+async function verifyPaneDividerControlVisibility(win: BrowserWindow): Promise<string> {
+  const points = await paneDividerControlPoints(win)
+  const originalTheme = (await win.webContents.executeJavaScript(
+    `document.documentElement.getAttribute('data-theme')`,
+  )) as string | null
+  const hidden = [0, 0, 0, 0, 0, 0] as const
+  const treeRevealed = [1, 1, 0, 0, 0, 0] as const
+  const terminalRevealed = [0, 0, 0, 1, 1, 0] as const
+  try {
+    for (const theme of ['dark', 'light']) {
+      await win.webContents.executeJavaScript(`
+        document.documentElement.setAttribute('data-theme', ${JSON.stringify(theme)});
+        if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+      `)
+      await expectPaneDividerVisibility(win, points.safe, hidden, `${theme} inactive`)
+      await expectPaneDividerVisibility(
+        win,
+        points.tree,
+        treeRevealed,
+        `${theme} tree hover`,
+      )
+      await expectPaneDividerVisibility(
+        win,
+        points.terminal,
+        terminalRevealed,
+        `${theme} terminal hover`,
+      )
+    }
+
+    await moveMouse(win, points.safe)
+    await focusPaneDividerAction(win, '.tree-resizer')
+    assertPaneDividerVisibility(
+      await paneDividerVisibility(win),
+      [1, 1, 1, 0, 0, 0],
+      'tree keyboard focus',
+    )
+
+    await focusPaneDividerAction(win, '.terminal-resizer')
+    assertPaneDividerVisibility(
+      await paneDividerVisibility(win),
+      [0, 0, 0, 1, 1, 1],
+      'terminal keyboard focus',
+    )
+  } finally {
+    await win.webContents.executeJavaScript(`
+      if (${JSON.stringify(originalTheme)} === null) {
+        document.documentElement.removeAttribute('data-theme');
+      } else {
+        document.documentElement.setAttribute('data-theme', ${JSON.stringify(originalTheme)});
+      }
+      if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+    `)
+    await moveMouse(win, points.safe)
+  }
+  return 'pane controls dark/light hover + keyboard focus'
+}
+
+async function paneDividerControlPoints(
+  win: BrowserWindow,
+): Promise<PaneDividerControlPoints> {
+  return (await win.webContents.executeJavaScript(`
+    (() => {
+      const viewer = document.querySelector('.viewer-panel');
+      const tree = document.querySelector('.tree-collapse-toggle');
+      const terminal = document.querySelector('.terminal-focus-toggle');
+      if (!(viewer instanceof HTMLElement) ||
+          !(tree instanceof HTMLElement) ||
+          !(terminal instanceof HTMLElement)) {
+        throw new Error('pane divider controls missing');
+      }
+      const point = (node) => {
+        const rect = node.getBoundingClientRect();
+        return [rect.left + rect.width / 2, rect.top + rect.height / 2];
+      };
+      const viewerRect = viewer.getBoundingClientRect();
+      return {
+        safe: [viewerRect.right - 24, viewerRect.top + 24],
+        tree: point(tree),
+        terminal: point(terminal)
+      };
+    })()
+  `)) as PaneDividerControlPoints
+}
+
+async function paneDividerVisibility(win: BrowserWindow): Promise<PaneDividerVisibility> {
+  return (await win.webContents.executeJavaScript(`
+    (() => {
+      const read = (dividerSelector, controlSelector, actionSelector) => {
+        const divider = document.querySelector(dividerSelector);
+        const control = document.querySelector(controlSelector);
+        const action = document.querySelector(actionSelector);
+        if (!(divider instanceof HTMLElement) ||
+            !(control instanceof HTMLElement) ||
+            !(action instanceof HTMLElement)) {
+          throw new Error('pane divider visibility target missing');
+        }
+        return [
+          Number(getComputedStyle(control).opacity),
+          Number(getComputedStyle(divider, '::after').opacity),
+          Number(action.matches(':focus-visible'))
+        ];
+      };
+      return [
+        ...read('.tree-resizer', '.tree-collapse-toggle', '.tree-collapse-toggle'),
+        ...read(
+          '.terminal-resizer',
+          '.terminal-mode-controls',
+          '.terminal-focus-toggle'
+        )
+      ];
+    })()
+  `)) as PaneDividerVisibility
+}
+
+async function expectPaneDividerVisibility(
+  win: BrowserWindow,
+  point: PaneDividerPoint,
+  expected: PaneDividerVisibility,
+  context: string,
+): Promise<void> {
+  await moveMouse(win, point)
+  assertPaneDividerVisibility(await paneDividerVisibility(win), expected, context)
+}
+
+function assertPaneDividerVisibility(
+  actual: PaneDividerVisibility,
+  expected: PaneDividerVisibility,
+  context: string,
+): void {
+  if (actual.some((value, index) => Math.abs(value - expected[index]!) > 0.01)) {
+    throw new Error(
+      `${context} state was ${JSON.stringify(actual)}, expected ${JSON.stringify(expected)}`,
+    )
+  }
+}
+
+async function moveMouse(win: BrowserWindow, [x, y]: PaneDividerPoint): Promise<void> {
+  win.webContents.sendInputEvent({
+    type: 'mouseMove',
+    x: Math.round(x),
+    y: Math.round(y),
+  })
+  await settlePaneDividerTransition()
+}
+
+async function focusPaneDividerAction(
+  win: BrowserWindow,
+  dividerSelector: string,
+): Promise<void> {
+  await win.webContents.executeJavaScript(`
+    (() => {
+      const divider = document.querySelector(${JSON.stringify(dividerSelector)});
+      if (!(divider instanceof HTMLElement)) throw new Error('pane divider missing');
+      divider.focus();
+    })()
+  `)
+  win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Tab' })
+  win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Tab' })
+  await settlePaneDividerTransition()
+}
+
+async function settlePaneDividerTransition(): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, 150))
 }
 
 async function verifyRequiredProcessSandbox(win: BrowserWindow): Promise<string> {

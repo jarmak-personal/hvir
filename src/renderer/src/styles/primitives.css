@@ -28,6 +28,7 @@
 
 .pane-resizer:hover::after,
 .pane-resizer:focus-visible::after,
+.pane-resizer:has(:focus-visible)::after,
 .pane-resizer.dragging::after {
   opacity: 1;
 }
@@ -130,7 +131,17 @@
   z-index: 3;
   top: 50%;
   left: 50%;
+  opacity: 0;
   transform: translate(-50%, -50%);
+  transition: opacity 100ms ease;
+}
+
+.pane-resizer:hover > :is(.terminal-mode-controls, .tree-collapse-toggle),
+.pane-resizer:focus-visible > :is(.terminal-mode-controls, .tree-collapse-toggle),
+.pane-resizer:has(:focus-visible)
+  > :is(.terminal-mode-controls, .tree-collapse-toggle),
+.pane-resizer.dragging > :is(.terminal-mode-controls, .tree-collapse-toggle) {
+  opacity: 1;
 }
 
 .terminal-mode-controls {
