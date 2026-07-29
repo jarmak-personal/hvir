@@ -8,7 +8,7 @@ export async function verifyFocusedViewer(
   renderedPath: HostPath,
 ): Promise<string> {
   const virtualized = await verifySourceDiffPosition(win, sourcePath)
-  const commands = await verifyViewerPositions(win, renderedPath)
+  const commands = await verifyViewerPositions(win, renderedPath, false)
   return `${virtualized} · ${commands}`
 }
 
@@ -16,6 +16,7 @@ export async function verifyFocusedViewer(
 export function verifyViewerPositions(
   win: BrowserWindow,
   path: HostPath,
+  includeEmptyDiff = true,
 ): Promise<string> {
   return win.webContents.executeJavaScript(`
     (async () => {
@@ -207,53 +208,56 @@ export function verifyViewerPositions(
         return range.toString().length + 1 === 3;
       }, 'go-to-line did not place the requested column');
 
-      const cleanFile = await waitFor(
-        () => [...document.querySelectorAll('.file-row')]
-          .find((node) => node.getAttribute('title')?.endsWith('/package.json')),
-        'clean diff fixture missing'
-      );
-      cleanFile.click();
-      await waitFor(
-        () => document.querySelector('.viewer-tab.active .tab-name')?.textContent
-          ?.includes('package.json'),
-        'clean diff fixture did not open'
-      );
-      modeButton('source')?.click();
-      const cleanSource = await waitFor(
-        () => document.querySelector('.source-shell .cm-scroller'),
-        'clean diff source missing'
-      );
-      const cleanLine = await waitFor(() => {
-        cleanSource.scrollTop = Math.min(
-          cleanSource.scrollHeight - cleanSource.clientHeight,
-          cleanSource.clientHeight * 0.75
+      let cleanLine;
+      if (${JSON.stringify(includeEmptyDiff)}) {
+        const cleanFile = await waitFor(
+          () => [...document.querySelectorAll('.file-row')]
+            .find((node) => node.getAttribute('title')?.endsWith('/package.json')),
+          'clean diff fixture missing'
         );
-        cleanSource.dispatchEvent(new Event('scroll'));
-        const line = visibleCodeLine(cleanSource, '.cm-lineNumbers .cm-gutterElement');
-        return line !== undefined && line > 1 ? line : undefined;
-      }, 'clean diff source did not scroll');
-      await settle();
-      modeButton('diff')?.click();
-      const emptyDiff = await waitFor(
-        () => document.querySelector('.cm-mergeView'),
-        'empty diff did not render'
-      );
-      if (emptyDiff.querySelector('.cm-changedLine')) {
-        throw new Error('clean diff unexpectedly contained changes');
+        cleanFile.click();
+        await waitFor(
+          () => document.querySelector('.viewer-tab.active .tab-name')?.textContent
+            ?.includes('package.json'),
+          'clean diff fixture did not open'
+        );
+        modeButton('source')?.click();
+        const cleanSource = await waitFor(
+          () => document.querySelector('.source-shell .cm-scroller'),
+          'clean diff source missing'
+        );
+        cleanLine = await waitFor(() => {
+          cleanSource.scrollTop = Math.min(
+            cleanSource.scrollHeight - cleanSource.clientHeight,
+            cleanSource.clientHeight * 0.75
+          );
+          cleanSource.dispatchEvent(new Event('scroll'));
+          const line = visibleCodeLine(cleanSource, '.cm-lineNumbers .cm-gutterElement');
+          return line !== undefined && line > 1 ? line : undefined;
+        }, 'clean diff source did not scroll');
+        await settle();
+        modeButton('diff')?.click();
+        const emptyDiff = await waitFor(
+          () => document.querySelector('.cm-mergeView'),
+          'empty diff did not render'
+        );
+        if (emptyDiff.querySelector('.cm-changedLine')) {
+          throw new Error('clean diff unexpectedly contained changes');
+        }
+        await settle();
+        modeButton('source')?.click();
+        const restoredCleanSource = await waitFor(
+          () => document.querySelector('.source-shell .cm-scroller'),
+          'source missing after empty diff'
+        );
+        await waitFor(() => {
+          const line = visibleCodeLine(
+            restoredCleanSource,
+            '.cm-lineNumbers .cm-gutterElement'
+          );
+          return line !== undefined && Math.abs(line - cleanLine) <= 2 ? line : undefined;
+        }, 'empty diff reset the source position');
       }
-      await settle();
-      modeButton('source')?.click();
-      const restoredCleanSource = await waitFor(
-        () => document.querySelector('.source-shell .cm-scroller'),
-        'source missing after empty diff'
-      );
-      await waitFor(() => {
-        const line = visibleCodeLine(
-          restoredCleanSource,
-          '.cm-lineNumbers .cm-gutterElement'
-        );
-        return line !== undefined && Math.abs(line - cleanLine) <= 2 ? line : undefined;
-      }, 'empty diff reset the source position');
 
       document.querySelector('[aria-label="Split viewer right"]')?.click();
       const secondary = await waitFor(
@@ -299,7 +303,9 @@ export function verifyViewerPositions(
       );
 
       return 'keyboard isolated · line ' + targetLine + ' · ' + transitions.join(', ') +
-        ' · go-to 121:3 · split scoped · empty diff preserved line ' + cleanLine;
+        ' · go-to 121:3 · split scoped' + (cleanLine === undefined
+          ? ''
+          : ' · empty diff preserved line ' + cleanLine);
     })()
   `) as Promise<string>
 }
