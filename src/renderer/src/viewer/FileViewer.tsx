@@ -20,6 +20,7 @@ import {
   type HostPath,
 } from '../../../shared'
 import { DiffView } from './DiffView'
+import { GoToLineControl } from './GoToLineControl'
 import { captureTopLine, restoreTopLine } from './code-scroll-anchor'
 import {
   languageForPath,
@@ -27,7 +28,16 @@ import {
   type HighlightToken,
 } from './highlight-protocol'
 import { RenderedView } from './RenderedView'
-import type { ViewerDocumentPosition, ViewerTab } from './tab-state'
+import {
+  resolveSourceCoordinate,
+  type SourceCoordinate,
+} from './source-coordinate'
+import type {
+  ViewerDocumentPosition,
+  ViewerNavigationPosition,
+  ViewerTab,
+} from './tab-state'
+import type { RegisterViewerCommandTarget } from './viewer-command-targets'
 import {
   approximateLineAtScroll,
   approximateScrollForLine,
@@ -96,6 +106,7 @@ interface FileViewerProps {
   readonly onReload: () => void
   readonly onPosition: (position: ViewerDocumentPosition) => void
   readonly onNavigationHandled: (serial: number) => void
+  readonly registerCommands: RegisterViewerCommandTarget
   readonly onOpenPath: (path: HostPath) => void
   readonly refreshVersion: number
 }
@@ -109,6 +120,7 @@ export function FileViewer({
   onReload,
   onPosition,
   onNavigationHandled,
+  registerCommands,
   onOpenPath,
   refreshVersion,
 }: FileViewerProps): ReactElement {
@@ -116,11 +128,44 @@ export function FileViewer({
   const [blame, setBlame] = useState<readonly GitBlameRun[]>([])
   const [blameStatus, setBlameStatus] = useState('')
   const [modeControlExpanded, setModeControlExpanded] = useState(false)
+  const [manualNavigation, setManualNavigation] = useState<ViewerNavigationPosition>()
+  const [goToLineRequest, setGoToLineRequest] = useState<number>()
+  const manualNavigationSerial = useRef(0)
+  const commandSerial = useRef(0)
   const modeControlRef = useRef<HTMLDivElement>(null)
+  const tabId = tab?.id
   const currentPath = tab?.path
   const blameMode = tab?.mode
   const positionCapture = useRef<(() => ViewerDocumentPosition) | undefined>(undefined)
   const binaryImage = Boolean(tab?.file?.binary && renderedFileType(tab.path) === 'image')
+  const boundedPreview = Boolean(tab?.file && tab.file.size > CODEMIRROR_SIZE_LIMIT)
+  const navigationContent =
+    tab?.file && !tab.file.binary
+      ? boundedPreview
+        ? tab.file.content.slice(0, LARGE_FILE_PREVIEW_LIMIT)
+        : tab.file.content
+      : undefined
+
+  const navigate = (coordinate: SourceCoordinate): void => {
+    setManualNavigation({
+      ...coordinate,
+      serial: (manualNavigationSerial.current -= 1),
+      focus: true,
+    })
+    onMode('source', positionCapture.current?.())
+  }
+
+  const handleNavigation = (serial: number): void => {
+    if (manualNavigation?.serial === serial) setManualNavigation(undefined)
+    else onNavigationHandled(serial)
+  }
+
+  useEffect(() => {
+    if (!tabId) return
+    return registerCommands(tabId, {
+      goToLine: () => setGoToLineRequest((commandSerial.current += 1)),
+    })
+  }, [registerCommands, tabId])
 
   useEffect(() => {
     if (!showBlame || !currentPath || blameMode !== 'source') return
@@ -179,6 +224,17 @@ export function FileViewer({
             </span>
           ) : null}
           <div className="view-controls">
+            <GoToLineControl
+              requestSerial={goToLineRequest}
+              content={navigationContent}
+              boundedPreview={boundedPreview}
+              onRequestHandled={(serial) =>
+                setGoToLineRequest((current) =>
+                  current === serial ? undefined : current,
+                )
+              }
+              onNavigate={navigate}
+            />
             {tab.mode === 'diff' && !tab.diffRevision ? (
               <select
                 className="diff-base-select"
@@ -293,7 +349,8 @@ export function FileViewer({
           onOpenPath={onOpenPath}
           refreshVersion={refreshVersion}
           positionCapture={positionCapture}
-          onNavigationHandled={onNavigationHandled}
+          navigation={manualNavigation ?? tab.navigation}
+          onNavigationHandled={handleNavigation}
         />
       ) : null}
     </div>
@@ -328,6 +385,7 @@ function ActiveView({
   onOpenPath,
   refreshVersion,
   positionCapture,
+  navigation,
   onNavigationHandled,
 }: {
   readonly tab: ViewerTab
@@ -340,6 +398,7 @@ function ActiveView({
   readonly onOpenPath: (path: HostPath) => void
   readonly refreshVersion: number
   readonly positionCapture: ViewerPositionCapture
+  readonly navigation?: ViewerNavigationPosition
   readonly onNavigationHandled: (serial: number) => void
 }): ReactElement {
   if (tab.mode === 'rendered') {
@@ -364,6 +423,8 @@ function ActiveView({
         position={tab.position}
         onPosition={onPosition}
         positionCapture={positionCapture}
+        navigation={navigation}
+        onNavigationHandled={onNavigationHandled}
       />
     )
   }
@@ -394,7 +455,7 @@ function ActiveView({
       blame={blame}
       blameStatus={blameStatus}
       positionCapture={positionCapture}
-      navigation={tab.navigation}
+      navigation={navigation}
       onNavigationHandled={onNavigationHandled}
     />
   )
@@ -407,6 +468,8 @@ function LargeFileView({
   position,
   onPosition,
   positionCapture,
+  navigation,
+  onNavigationHandled,
 }: {
   readonly content: string
   readonly size: number
@@ -414,6 +477,8 @@ function LargeFileView({
   readonly position: ViewerDocumentPosition
   readonly onPosition: (position: ViewerDocumentPosition) => void
   readonly positionCapture: ViewerPositionCapture
+  readonly navigation?: ViewerNavigationPosition
+  readonly onNavigationHandled: (serial: number) => void
 }): ReactElement {
   const container = useRef<HTMLPreElement>(null)
   const positionRef = useRef(position)
@@ -456,13 +521,50 @@ function LargeFileView({
       if (positionCapture.current === capture) positionCapture.current = undefined
     }
   }, [lines, mode, positionCapture])
+
+  useEffect(() => {
+    if (!navigation) return
+    const frame = requestAnimationFrame(() => {
+      const root = container.current
+      if (!root) return
+      const resolved = resolveSourceCoordinate(preview, navigation)
+      if (resolved.valid) {
+        const lineHeight = Number.parseFloat(getComputedStyle(root).lineHeight)
+        if (Number.isFinite(lineHeight)) {
+          root.scrollTop = Math.max(
+            0,
+            (resolved.coordinate.line - 1) * lineHeight - root.clientHeight / 2,
+          )
+        } else {
+          root.scrollTop = approximateScrollForLine(
+            resolved.coordinate.line,
+            root.scrollHeight,
+            root.clientHeight,
+            lines,
+          )
+        }
+        const text = root.firstChild
+        if (text instanceof Text && resolved.offset <= text.length) {
+          const range = document.createRange()
+          range.setStart(text, resolved.offset)
+          range.collapse(true)
+          const selection = window.getSelection()
+          selection?.removeAllRanges()
+          selection?.addRange(range)
+        }
+        if (navigation.focus) root.focus()
+      }
+      onNavigationHandled(navigation.serial)
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [lines, navigation, onNavigationHandled, preview])
   return (
     <div className="large-file-shell">
       <div className="source-meta">
         <span>{formatBytes(size)}</span>
         <span>read-only preview · first {formatBytes(preview.length)}</span>
       </div>
-      <pre ref={container} className="large-file-preview">
+      <pre ref={container} className="large-file-preview" tabIndex={-1}>
         {preview}
       </pre>
     </div>
@@ -572,15 +674,16 @@ function SourceView({
     const frame = requestAnimationFrame(() => {
       const editor = view.current
       if (!editor) return
-      const line = editor.state.doc.line(
-        Math.min(editor.state.doc.lines, Math.max(1, Math.floor(navigation.line))),
-      )
-      const columnOffset = Math.max(0, Math.floor((navigation.column ?? 1) - 1))
-      const position = Math.min(line.to, line.from + columnOffset)
+      const resolved = resolveSourceCoordinate(editor.state.doc.toString(), navigation)
+      if (!resolved.valid) {
+        onNavigationHandled(navigation.serial)
+        return
+      }
       editor.dispatch({
-        selection: { anchor: position },
-        effects: EditorView.scrollIntoView(position, { y: 'center' }),
+        selection: { anchor: resolved.offset },
+        effects: EditorView.scrollIntoView(resolved.offset, { y: 'center' }),
       })
+      if (navigation.focus) editor.focus()
       onNavigationHandled(navigation.serial)
     })
     return () => cancelAnimationFrame(frame)

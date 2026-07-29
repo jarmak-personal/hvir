@@ -5,6 +5,7 @@ import type {
   KeybindingMap,
   WebPaneCommandAction,
 } from '../../../shared'
+import { keybindingAvailableInContext } from '../../../shared'
 import { matchesKeybinding } from '../settings/keybindings'
 import {
   dispatchWorkbenchCommand,
@@ -30,12 +31,10 @@ export function useWorkbenchCommands(
       )?.[0]
       if (!action) return
       if (
-        action === 'cycleViewMode' &&
         event.target instanceof Element &&
-        event.target.closest('.terminal-panel')
-      ) {
-        return
-      }
+        event.target.closest('.terminal-panel') &&
+        !keybindingAvailableInContext(action, 'terminal')
+      ) return
       event.preventDefault()
       perform(action)
     }

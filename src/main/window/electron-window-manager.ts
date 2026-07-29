@@ -29,6 +29,7 @@ import {
 } from '../web-pane/web-pane-route-registry'
 import {
   DEFAULT_KEYBINDINGS,
+  keybindingAvailableInContext,
   matchesKeybinding,
   type KeybindingAction,
   type KeybindingMap,
@@ -213,7 +214,8 @@ export function createElectronWindowManager(
         action = 'escapeWebPaneFocus'
       } else {
         action = (Object.entries(bindings) as [KeybindingAction, string][]).find(
-          ([, binding]) =>
+          ([candidate, binding]) =>
+            keybindingAvailableInContext(candidate, 'web-pane') &&
             matchesKeybinding(
               {
                 key: input.key,

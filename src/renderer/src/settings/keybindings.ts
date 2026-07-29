@@ -6,6 +6,7 @@ import {
 export {
   DEFAULT_KEYBINDINGS,
   KEYBINDING_ACTIONS,
+  keybindingAvailableInContext,
   keybindingOverridesJson,
   parseKeybindingOverrides,
   type KeybindingAction,

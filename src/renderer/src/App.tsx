@@ -79,6 +79,7 @@ export function App(): ReactElement {
     pinTab,
     setMode: setViewerMode,
     cycleActiveMode,
+    viewerCommands,
     setDiffBase: setViewerDiffBase,
     setContent: setViewerContent,
     navigationHandled,
@@ -240,8 +241,9 @@ export function App(): ReactElement {
   useWorkbenchCommands(settings.keybindings, {
     closeWebPane: closeWebView,
     escapeWebPaneFocus: () => setWebViewFocused(false),
-    canCycleViewMode: () => !gitGraphActiveRef.current && !webViewActiveRef.current,
+    canUseViewerCommands: () => !gitGraphActiveRef.current && !webViewActiveRef.current,
     cycleViewMode: cycleActiveMode,
+    goToLine: viewerCommands.goToLine,
     toggleTerminalFocus,
     focusTerminal,
     focusViewer: () => focusViewer(getActivePane()),
@@ -374,6 +376,7 @@ export function App(): ReactElement {
             onNavigationHandled={(serial) =>
               paneTab && navigationHandled(paneTab.id, serial)
             }
+            registerCommands={viewerCommands.register}
             onOpenPath={(path) => {
               focusViewerPane(pane)
               if (paneTab) pinTab(paneTab.id)

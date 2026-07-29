@@ -1,5 +1,6 @@
 export const KEYBINDING_ACTIONS = [
   'cycleViewMode',
+  'goToLine',
   'focusTerminal',
   'focusViewer',
   'focusTree',
@@ -13,12 +14,24 @@ export type KeybindingMap = Readonly<Record<KeybindingAction, string>>
 
 export const DEFAULT_KEYBINDINGS: KeybindingMap = {
   cycleViewMode: 'Mod+Shift+M',
+  goToLine: 'Ctrl+G',
   focusTerminal: 'Mod+J',
   focusViewer: 'Mod+1',
   focusTree: 'Mod+0',
   toggleTerminalFocus: 'Mod+Shift+J',
   nextWorkspace: 'Mod+Alt+]',
   previousWorkspace: 'Mod+Alt+[',
+}
+
+export type KeybindingContext = 'workbench' | 'terminal' | 'web-pane'
+
+export function keybindingAvailableInContext(
+  action: KeybindingAction,
+  context: KeybindingContext,
+): boolean {
+  if (action === 'goToLine') return context === 'workbench'
+  if (action === 'cycleViewMode') return context !== 'terminal'
+  return true
 }
 
 export interface KeyboardStroke {
