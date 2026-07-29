@@ -19,8 +19,8 @@ export function verifyViewerPositions(
 ): Promise<string> {
   return win.webContents.executeJavaScript(`
     (async () => {
-      const deadline = Date.now() + 20000;
       const waitFor = (test, message) => new Promise((resolve, reject) => {
+        const deadline = Date.now() + 20000;
         const poll = () => {
           const value = test();
           if (value) return resolve(value);
