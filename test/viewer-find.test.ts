@@ -3,7 +3,9 @@ import { describe, expect, it } from 'vitest'
 import {
   findLiteralRanges,
   normalizeFindIndex,
+  viewerFindUnavailable,
 } from '../src/renderer/src/viewer/viewer-find'
+import { localPath, type ReadFileResponse, type ViewMode } from '../src/shared'
 
 describe('viewer find semantics', () => {
   it('finds literal non-overlapping matches without case sensitivity by default', () => {
@@ -36,4 +38,52 @@ describe('viewer find semantics', () => {
     expect(normalizeFindIndex(8, 3)).toBe(2)
     expect(normalizeFindIndex(12, 0)).toBe(0)
   })
+
+  it('reports unsupported representations without hiding supported rendered text', () => {
+    expect(unavailable('/repo/file.bin', 'rendered', true)).toBe(
+      'In-file find is unavailable for binary files',
+    )
+    expect(unavailable('/repo/image.png', 'rendered', true)).toBe(
+      'In-file find is unavailable for images',
+    )
+    expect(unavailable('/repo/index.html', 'rendered')).toBe(
+      'In-file find is unavailable in live rendered HTML',
+    )
+    expect(unavailable('/repo/index.html', 'source')).toBeUndefined()
+    for (const path of [
+      '/repo/readme.md',
+      '/repo/data.json',
+      '/repo/data.yml',
+      '/repo/data.csv',
+      '/repo/diagram.mmd',
+    ]) {
+      expect(unavailable(path, 'rendered')).toBeUndefined()
+    }
+    expect(unavailable('/repo/plain.txt', 'rendered')).toBe(
+      'In-file find is unavailable in this rendered view',
+    )
+  })
+
+  it('reports loading before representation availability', () => {
+    const path = localPath('/repo/readme.md')
+    expect(viewerFindUnavailable({ path, mode: 'rendered', loading: true })).toBe(
+      'In-file find is unavailable while the file loads',
+    )
+  })
 })
+
+function unavailable(
+  pathValue: string,
+  mode: ViewMode,
+  binary = false,
+): string | undefined {
+  const path = localPath(pathValue)
+  const file: ReadFileResponse = {
+    path,
+    content: '',
+    size: 0,
+    mtimeMs: 0,
+    binary,
+  }
+  return viewerFindUnavailable({ path, mode, loading: false, file })
+}

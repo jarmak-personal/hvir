@@ -2,6 +2,7 @@ import {
   findLiteralRanges,
   normalizeFindIndex,
   type ViewerFindQuery,
+  type ViewerFindRange,
   type ViewerFindResult,
   type ViewerFindTarget,
 } from './viewer-find'
@@ -17,45 +18,42 @@ interface MaterializedText {
   readonly segments: readonly TextSegment[]
 }
 
-let nextHighlightId = 0
+const ALL_HIGHLIGHT = 'hvir-find-match'
+const ACTIVE_HIGHLIGHT = 'hvir-find-active'
+const targetMatches = new Map<DomFindTarget, readonly Range[]>()
+const targetActiveMatches = new Map<DomFindTarget, Range>()
 
 export class DomFindTarget implements ViewerFindTarget {
-  readonly #activeName: string
-  readonly #allName: string
   readonly #listeners = new Set<() => void>()
   readonly #observer: MutationObserver
   readonly #root: HTMLElement
-  readonly #style: HTMLStyleElement
+  #materialized?: MaterializedText
   #notifyFrame?: number
 
   constructor(root: HTMLElement) {
-    const id = ++nextHighlightId
     this.#root = root
-    this.#allName = `hvir-find-${id}`
-    this.#activeName = `hvir-find-active-${id}`
-    this.#style = document.createElement('style')
-    this.#style.textContent = `
-      ::highlight(${this.#allName}) { background: rgb(169 125 33 / 55%); color: inherit; }
-      ::highlight(${this.#activeName}) { background: #f4bf4f; color: #11151b; }
-    `
-    document.head.append(this.#style)
-    this.#observer = new MutationObserver(() => this.#scheduleChanged())
+    this.#observer = new MutationObserver(() => {
+      this.#materialized = undefined
+      this.#scheduleChanged()
+    })
     this.#observer.observe(root, { childList: true, characterData: true, subtree: true })
   }
 
   update(query: ViewerFindQuery, requestedIndex: number): ViewerFindResult {
     this.clear()
-    const text = materializedText(this.#root)
-    const matches = findLiteralRanges(text.content, query)
-      .map((match) => rangeForMatch(text.segments, match.from, match.to))
-      .filter((range): range is Range => Boolean(range))
+    const text = (this.#materialized ??= materializedText(this.#root))
+    const matches = rangesForMatches(
+      text.segments,
+      findLiteralRanges(text.content, query),
+    )
     if (matches.length === 0) return { current: 0, total: 0 }
 
     const index = normalizeFindIndex(requestedIndex, matches.length)
     const active = matches[index]
     if (!active) return { current: 0, total: 0 }
-    CSS.highlights.set(this.#allName, new Highlight(...matches))
-    CSS.highlights.set(this.#activeName, new Highlight(active))
+    targetMatches.set(this, matches)
+    targetActiveMatches.set(this, active)
+    syncHighlights()
     const target =
       active.startContainer instanceof Element
         ? active.startContainer
@@ -65,8 +63,9 @@ export class DomFindTarget implements ViewerFindTarget {
   }
 
   clear(): void {
-    CSS.highlights.delete(this.#allName)
-    CSS.highlights.delete(this.#activeName)
+    targetMatches.delete(this)
+    targetActiveMatches.delete(this)
+    syncHighlights()
   }
 
   subscribe(listener: () => void): () => void {
@@ -78,7 +77,6 @@ export class DomFindTarget implements ViewerFindTarget {
     this.clear()
     this.#observer.disconnect()
     if (this.#notifyFrame !== undefined) cancelAnimationFrame(this.#notifyFrame)
-    this.#style.remove()
     this.#listeners.clear()
   }
 
@@ -129,16 +127,50 @@ function textBlock(node: Text, root: HTMLElement): Element {
   )
 }
 
-function rangeForMatch(
+function rangesForMatches(
   segments: readonly TextSegment[],
-  from: number,
-  to: number,
-): Range | undefined {
-  const start = segments.find((segment) => from >= segment.from && from < segment.to)
-  const end = segments.find((segment) => to > segment.from && to <= segment.to)
-  if (!start || !end) return undefined
-  const range = document.createRange()
-  range.setStart(start.node, from - start.from)
-  range.setEnd(end.node, to - end.from)
-  return range
+  matches: readonly ViewerFindRange[],
+): readonly Range[] {
+  const ranges: Range[] = []
+  let startIndex = 0
+  let endIndex = 0
+  for (const match of matches) {
+    for (;;) {
+      const segment = segments[startIndex]
+      if (!segment || match.from < segment.to) break
+      startIndex++
+    }
+    const start = segments[startIndex]
+    if (!start || match.from < start.from) continue
+    endIndex = Math.max(endIndex, startIndex)
+    for (;;) {
+      const segment = segments[endIndex]
+      if (!segment || match.to <= segment.to) break
+      endIndex++
+    }
+    const end = segments[endIndex]
+    if (!end || match.to <= end.from) continue
+    const range = document.createRange()
+    range.setStart(start.node, match.from - start.from)
+    range.setEnd(end.node, match.to - end.from)
+    ranges.push(range)
+  }
+  return ranges
+}
+
+function syncHighlights(): void {
+  const all = new Highlight()
+  for (const ranges of targetMatches.values()) {
+    for (const range of ranges) all.add(range)
+  }
+  registerHighlight(ALL_HIGHLIGHT, all)
+
+  const active = new Highlight()
+  for (const range of targetActiveMatches.values()) active.add(range)
+  registerHighlight(ACTIVE_HIGHLIGHT, active)
+}
+
+function registerHighlight(name: string, highlight: Highlight): void {
+  if (highlight.size > 0) CSS.highlights.set(name, highlight)
+  else CSS.highlights.delete(name)
 }

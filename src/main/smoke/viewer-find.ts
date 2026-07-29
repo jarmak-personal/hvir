@@ -7,6 +7,7 @@ export function verifyViewerFind(
   sourcePath: HostPath,
   renderedPath: HostPath,
   largePath: HostPath,
+  collapsedDiffPath: HostPath,
   focusPath: HostPath,
 ): Promise<string> {
   return win.webContents.executeJavaScript(`
@@ -108,6 +109,10 @@ export function verifyViewerFind(
 
       let control = await openFind();
       let status = await setQuery(control, 'line 23', (text) => text === '1 of 11');
+      await waitFor(
+        () => document.querySelector('.source-shell .cm-hvir-find-match-active'),
+        'source find did not visibly highlight its active match'
+      );
       const input = control.querySelector('input');
       input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
       await waitFor(
@@ -138,6 +143,10 @@ export function verifyViewerFind(
         control,
         'line 23',
         (text) => text === '1 of 11 · current'
+      );
+      await waitFor(
+        () => document.querySelector('.cm-merge-b .cm-hvir-find-match-active'),
+        'diff find did not visibly highlight its active match'
       );
       await closeFind(control);
 
@@ -179,6 +188,28 @@ export function verifyViewerFind(
       if ([...CSS.highlights.keys()].some((name) => name.startsWith('hvir-find'))) {
         throw new Error('closing rendered find retained highlights');
       }
+
+      await openFile(${JSON.stringify(collapsedDiffPath.path)});
+      await switchMode('diff');
+      await waitFor(
+        () => document.querySelector('.cm-mergeView .cm-collapsedLines'),
+        'clean diff did not contain collapsed unchanged content'
+      );
+      control = await openFind();
+      const collapsedStatus = await setQuery(
+        control,
+        'hvir may surface rich read-only information',
+        (text) => text === '1 of 2 · base'
+      );
+      await waitFor(
+        () => !document.querySelector('.cm-mergeView .cm-collapsedLines'),
+        'find did not reveal collapsed unchanged diff content'
+      );
+      await waitFor(
+        () => document.querySelector('.cm-merge-a .cm-hvir-find-match-active'),
+        'revealed base match was not visibly highlighted'
+      );
+      await closeFind(control);
 
       await openFile(${JSON.stringify(largePath.path)});
       await switchMode('source');
@@ -225,8 +256,8 @@ export function verifyViewerFind(
       }
 
       return 'source ' + status + ' · diff ' + diffStatus + ' · rendered ' +
-        renderedStatus + ' · Mermaid ' + mermaidStatus + ' · large ' + largeStatus +
-        ' · terminal isolated · split scoped';
+        renderedStatus + ' · Mermaid ' + mermaidStatus + ' · collapsed ' +
+        collapsedStatus + ' · large ' + largeStatus + ' · terminal isolated · split scoped';
     })()
   `) as Promise<string>
 }

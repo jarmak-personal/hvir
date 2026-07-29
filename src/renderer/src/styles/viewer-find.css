@@ -2,6 +2,25 @@
   position: relative;
 }
 
+::highlight(hvir-find-match) {
+  background: rgb(169 125 33 / 55%);
+  color: inherit;
+}
+
+::highlight(hvir-find-active) {
+  background: #f4bf4f;
+  color: #11151b;
+}
+
+.cm-hvir-find-match {
+  background: rgb(169 125 33 / 55%);
+}
+
+.cm-hvir-find-match-active {
+  background: #f4bf4f;
+  color: #11151b;
+}
+
 .find-toggle {
   min-height: 24px;
   padding: 3px 8px;

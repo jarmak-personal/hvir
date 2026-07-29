@@ -5,7 +5,7 @@ import { useEffect, useRef, useState, type ReactElement } from 'react'
 
 import type { DiffBase, GitDiffResponse, HostPath } from '../../../shared'
 import { captureTopLine, restoreTopLine } from './code-scroll-anchor'
-import { CodeMirrorFindTarget, viewerSearch } from './codemirror-find-target'
+import { CodeMirrorFindTarget, viewerFindDecorations } from './codemirror-find-target'
 import { shouldPublishDiffPosition, usesUnsavedContent } from './diff-policy'
 import type { ViewerDocumentPosition } from './tab-state'
 import type { RegisterViewerFindTarget } from './viewer-find'
@@ -70,7 +70,7 @@ export function DiffView({
       EditorState.readOnly.of(true),
       EditorView.editable.of(false),
       lineNumbers(),
-      viewerSearch,
+      viewerFindDecorations,
       diffTheme,
     ]
     const merge = new MergeView({
@@ -84,10 +84,13 @@ export function DiffView({
       highlightChanges: true,
       gutter: true,
     })
-    const findTarget = new CodeMirrorFindTarget([
-      { view: merge.a, side: 'base' },
-      { view: merge.b, side: 'current' },
-    ])
+    const findTarget = new CodeMirrorFindTarget(
+      [
+        { view: merge.a, side: 'base' },
+        { view: merge.b, side: 'current' },
+      ],
+      { revealMatches: () => merge.reconfigure({ collapseUnchanged: undefined }) },
+    )
     const unregisterFind = registerFindTarget(findTarget)
     const restorePosition = positionRef.current
     const hasChanges = merge.chunks.length > 0

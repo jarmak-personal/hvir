@@ -17,6 +17,7 @@ export async function verifyFocusedViewer(
     joinHostPath(root, 'test/fixtures/rendered.md'),
     joinHostPath(root, '.hvir-smoke-large.txt'),
     joinHostPath(root, 'README.md'),
+    joinHostPath(root, 'package.json'),
   )
   return `${virtualized} · ${commands} · ${find}`
 }

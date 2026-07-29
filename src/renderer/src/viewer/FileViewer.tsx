@@ -22,7 +22,7 @@ import {
 import { DiffView } from './DiffView'
 import { FindControl } from './FindControl'
 import { GoToLineControl } from './GoToLineControl'
-import { CodeMirrorFindTarget, viewerSearch } from './codemirror-find-target'
+import { CodeMirrorFindTarget, viewerFindDecorations } from './codemirror-find-target'
 import { DomFindTarget } from './dom-find-target'
 import { captureTopLine, restoreTopLine } from './code-scroll-anchor'
 import {
@@ -38,7 +38,11 @@ import type {
   ViewerTab,
 } from './tab-state'
 import type { RegisterViewerCommandTarget } from './viewer-command-targets'
-import type { RegisterViewerFindTarget, ViewerFindTarget } from './viewer-find'
+import {
+  viewerFindUnavailable,
+  type RegisterViewerFindTarget,
+  type ViewerFindTarget,
+} from './viewer-find'
 import {
   approximateLineAtScroll,
   approximateScrollForLine,
@@ -242,7 +246,7 @@ export function FileViewer({
               key={`${tab.id}:${tab.pane}:${tab.mode}`}
               requestSerial={findRequest}
               target={findTarget}
-              unavailable={findUnavailable(tab)}
+              unavailable={viewerFindUnavailable(tab)}
               boundedPreview={boundedPreview && tab.mode !== 'rendered'}
               onRequestHandled={(serial) =>
                 setFindRequest((current) => (current === serial ? undefined : current))
@@ -397,31 +401,6 @@ function BinaryFileView({
       <span>Source and diff views are unavailable.</span>
     </div>
   )
-}
-
-function findUnavailable(tab: ViewerTab): string | undefined {
-  if (!tab.file || tab.loading) return 'In-file find is unavailable while the file loads'
-  if (tab.file.binary) {
-    return renderedFileType(tab.path) === 'image'
-      ? 'In-file find is unavailable for images'
-      : 'In-file find is unavailable for binary files'
-  }
-  if (tab.mode !== 'rendered') return undefined
-  const type = renderedFileType(tab.path)
-  if (type === 'html') {
-    return 'In-file find is unavailable in live rendered HTML'
-  }
-  if (type === 'image') return 'In-file find is unavailable for images'
-  if (
-    type === 'markdown' ||
-    type === 'json' ||
-    type === 'yaml' ||
-    type === 'csv' ||
-    type === 'mermaid'
-  ) {
-    return undefined
-  }
-  return 'In-file find is unavailable in this rendered view'
 }
 
 function ActiveView({
@@ -691,7 +670,7 @@ function SourceView({
           lineNumbers(),
           blameCompartment.current.of(blameGutter(blame)),
           tokenDecorations,
-          viewerSearch,
+          viewerFindDecorations,
           keymap.of([
             {
               key: 'Mod-s',

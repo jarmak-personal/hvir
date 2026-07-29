@@ -71,14 +71,18 @@ describe('FindControl', () => {
     })
     expect(host.querySelector('[role="status"]')?.textContent).toBe('1 of 3')
 
-    act(() => host.querySelector<HTMLInputElement>('[type="checkbox"]')?.click())
+    const matchCase = host.querySelector<HTMLInputElement>('[type="checkbox"]')
+    act(() => matchCase?.click())
     expect(target.update).toHaveBeenLastCalledWith(
       { text: 'needle', caseSensitive: true },
       0,
     )
 
+    matchCase?.focus()
     act(() => {
-      input?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+      matchCase?.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }),
+      )
     })
     expect(host.querySelector('[role="search"]')).toBeNull()
     expect(target.clear).toHaveBeenCalled()

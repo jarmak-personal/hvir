@@ -121,7 +121,17 @@ export function FindControl({
         Find
       </button>
       {open ? (
-        <div className="find-popover" role="search" aria-label="Find in file">
+        <div
+          className="find-popover"
+          role="search"
+          aria-label="Find in file"
+          onKeyDown={(event) => {
+            if (event.key !== 'Escape') return
+            event.preventDefault()
+            event.stopPropagation()
+            close(true)
+          }}
+        >
           <label htmlFor={inputId}>Find</label>
           <input
             ref={input}
@@ -135,10 +145,7 @@ export function FindControl({
               setRequestedIndex(0)
             }}
             onKeyDown={(event) => {
-              if (event.key === 'Escape') {
-                event.preventDefault()
-                close(true)
-              } else if (event.key === 'Enter') {
+              if (event.key === 'Enter') {
                 event.preventDefault()
                 navigate(event.shiftKey ? -1 : 1)
               }

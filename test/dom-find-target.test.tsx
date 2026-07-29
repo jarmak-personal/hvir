@@ -4,9 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { DomFindTarget } from '../src/renderer/src/viewer/dom-find-target'
 
-interface HighlightRecord {
-  readonly ranges: readonly Range[]
-}
+type HighlightRecord = Set<Range>
 
 const highlightRecords = new Map<string, HighlightRecord>()
 let animationFrame: FrameRequestCallback | undefined
@@ -16,11 +14,9 @@ beforeEach(() => {
   animationFrame = undefined
   vi.stubGlobal(
     'Highlight',
-    class implements HighlightRecord {
-      readonly ranges: readonly Range[]
-
+    class extends Set<Range> {
       constructor(...ranges: Range[]) {
-        this.ranges = ranges
+        super(ranges)
       }
     },
   )
@@ -43,7 +39,6 @@ beforeEach(() => {
 
 afterEach(() => {
   document.body.replaceChildren()
-  document.head.querySelectorAll('style').forEach((style) => style.remove())
   vi.unstubAllGlobals()
   vi.restoreAllMocks()
 })
@@ -51,6 +46,8 @@ afterEach(() => {
 describe('DomFindTarget', () => {
   it('searches visible rendered text across inline nodes and SVG labels', () => {
     const root = renderedRoot()
+    const styleCount = document.head.querySelectorAll('style').length
+    const createTreeWalker = vi.spyOn(document, 'createTreeWalker')
     const target = new DomFindTarget(root)
 
     expect(target.update({ text: 'Alpha needle', caseSensitive: false }, 0)).toEqual({
@@ -64,8 +61,10 @@ describe('DomFindTarget', () => {
       total: 2,
     })
     expect(activeRanges()[0]?.startContainer.parentElement?.localName).toBe('text')
+    expect(createTreeWalker).toHaveBeenCalledOnce()
 
     target.dispose()
+    expect(document.head.querySelectorAll('style')).toHaveLength(styleCount)
   })
 
   it('refreshes an open session after DOM changes and removes owned resources', async () => {
@@ -74,8 +73,6 @@ describe('DomFindTarget', () => {
     const listener = vi.fn()
     target.subscribe(listener)
     target.update({ text: 'needle', caseSensitive: false }, 0)
-    const ownedStyle = document.head.lastElementChild
-
     root.querySelector('strong')?.replaceChildren('changed')
     await Promise.resolve()
     expect(listener).not.toHaveBeenCalled()
@@ -85,7 +82,6 @@ describe('DomFindTarget', () => {
 
     target.dispose()
     expect(highlightRecords.size).toBe(0)
-    expect(ownedStyle?.isConnected).toBe(false)
 
     root.append('needle')
     await Promise.resolve()
@@ -109,5 +105,5 @@ function activeRanges(): readonly Range[] {
   const active = [...highlightRecords.entries()].find(([name]) =>
     name.includes('find-active'),
   )
-  return active?.[1].ranges ?? []
+  return active ? [...active[1]] : []
 }

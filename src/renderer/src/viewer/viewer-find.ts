@@ -1,6 +1,9 @@
 import { Text } from '@codemirror/state'
 import { SearchQuery } from '@codemirror/search'
 
+import { renderedFileType } from '../../../shared'
+import type { ViewerTab } from './tab-state'
+
 export interface ViewerFindQuery {
   readonly text: string
   readonly caseSensitive: boolean
@@ -26,6 +29,33 @@ export interface ViewerFindTarget {
 }
 
 export type RegisterViewerFindTarget = (target: ViewerFindTarget) => () => void
+
+export function viewerFindUnavailable(
+  tab: Pick<ViewerTab, 'file' | 'loading' | 'mode' | 'path'>,
+): string | undefined {
+  if (!tab.file || tab.loading) return 'In-file find is unavailable while the file loads'
+  if (tab.file.binary) {
+    return renderedFileType(tab.path) === 'image'
+      ? 'In-file find is unavailable for images'
+      : 'In-file find is unavailable for binary files'
+  }
+  if (tab.mode !== 'rendered') return undefined
+  const type = renderedFileType(tab.path)
+  if (type === 'html') {
+    return 'In-file find is unavailable in live rendered HTML'
+  }
+  if (type === 'image') return 'In-file find is unavailable for images'
+  if (
+    type === 'markdown' ||
+    type === 'json' ||
+    type === 'yaml' ||
+    type === 'csv' ||
+    type === 'mermaid'
+  ) {
+    return undefined
+  }
+  return 'In-file find is unavailable in this rendered view'
+}
 
 export function createSearchQuery(query: ViewerFindQuery): SearchQuery {
   return new SearchQuery({
