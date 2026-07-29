@@ -194,7 +194,6 @@ export function App(): ReactElement {
     focusTerminal,
     focusViewer,
     focusTree,
-    focusFilenameSearch,
   } = layout
   const git = useGitWorkspace({
     root,
@@ -243,7 +242,7 @@ export function App(): ReactElement {
     escapeWebPaneFocus: () => setWebViewFocused(false),
     canUseViewerCommands: () => !gitGraphActiveRef.current && !webViewActiveRef.current,
     cycleViewMode: cycleActiveMode,
-    findFile: focusFilenameSearch,
+    findFile: layout.focusFilenameSearch,
     findInFile: viewerCommands.findInFile,
     goToLine: viewerCommands.goToLine,
     toggleTerminalFocus,
@@ -466,6 +465,7 @@ export function App(): ReactElement {
               key={`files:${root.hostId}:${root.path}`}
               root={root}
               refreshVersion={watchVersion}
+              searchRefreshVersion={contentVersion}
               ignoredRefreshVersion={ignoredRefreshVersion}
               changedFiles={gitChanges?.workingTree}
               gitChangesLimited={gitChanges?.workingTreeLimited}

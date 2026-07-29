@@ -26,11 +26,7 @@ export interface FilenameEnumeration {
 }
 
 export interface GitIgnorePort {
-  ignoredEntries(
-    root: HostPath,
-    directory: HostPath,
-    names: readonly string[],
-  ): Promise<ReadonlySet<string>>
+  ignoredPaths(root: HostPath, paths: readonly string[]): Promise<ReadonlySet<string>>
 }
 
 export interface EnumerateFilenamesOptions {
@@ -51,6 +47,20 @@ interface PendingDirectory {
   readonly canonical: HostPath
   readonly depth: number
 }
+
+interface DirectoryCandidate {
+  readonly entry: DirEntry
+  readonly display: HostPath
+  readonly canonical: HostPath
+  readonly ignorePath: string
+}
+
+interface DirectoryListing {
+  readonly directory: PendingDirectory
+  readonly candidates: readonly DirectoryCandidate[]
+}
+
+const GIT_IGNORE_BATCH_ENTRY_TARGET = 512
 
 const DEFAULT_LIMITS: FilenameEnumerationLimits = {
   entries: FILENAME_SEARCH_ENTRY_LIMIT,
@@ -82,45 +92,65 @@ export async function enumerateFilenames({
   let truncated = false
   const deadline = Date.now() + limits.timeMs
 
-  while (pending.length > 0) {
-    throwIfAborted(signal)
-    if (
-      entriesVisited >= limits.entries ||
-      directoriesVisited >= limits.directories ||
-      Date.now() >= deadline
-    ) {
-      truncated = true
-      break
-    }
-    const directory = pending.shift()!
-    directoriesVisited++
-    let entries: readonly DirEntry[]
-    try {
-      entries = await waitForHost(host.readdir(directory.canonical), signal, deadline)
-    } catch (error) {
-      if (isDeadline(error)) {
+  traversal: while (pending.length > 0) {
+    const listings: DirectoryListing[] = []
+    let batchEntryCount = 0
+    while (pending.length > 0 && batchEntryCount < GIT_IGNORE_BATCH_ENTRY_TARGET) {
+      throwIfAborted(signal)
+      if (
+        entriesVisited >= limits.entries ||
+        directoriesVisited >= limits.directories ||
+        Date.now() >= deadline
+      ) {
         truncated = true
         break
       }
-      if (directory.depth === 0 || signal.aborted) throw error
-      continue
+      const directory = pending.shift()!
+      directoriesVisited++
+      let entries: readonly DirEntry[]
+      try {
+        entries = await waitForHost(host.readdir(directory.canonical), signal, deadline)
+      } catch (error) {
+        if (isDeadline(error)) {
+          truncated = true
+          break
+        }
+        if (directory.depth === 0 || signal.aborted) throw error
+        continue
+      }
+      const entriesInDirectory = entries
+        .filter((entry) => validEntryName(entry.name) && entry.name !== '.git')
+        .sort((left, right) => compareName(left.name, right.name))
+      const remaining = limits.entries - entriesVisited
+      if (entriesInDirectory.length > remaining) truncated = true
+      const bounded = entriesInDirectory.slice(0, remaining)
+      entriesVisited += bounded.length
+      batchEntryCount += bounded.length
+      listings.push({
+        directory,
+        candidates: bounded.map((entry) => {
+          const display = joinHostPath(directory.display, entry.name)
+          const canonical = joinHostPath(directory.canonical, entry.name)
+          return {
+            entry,
+            display,
+            canonical,
+            ignorePath: relativeProjectPath(canonicalRoot, canonical),
+          }
+        }),
+      })
     }
-    const candidates = entries
-      .filter((entry) => validEntryName(entry.name) && entry.name !== '.git')
-      .sort((left, right) => compareName(left.name, right.name))
-    const remaining = limits.entries - entriesVisited
-    if (candidates.length > remaining) truncated = true
-    const bounded = candidates.slice(0, remaining)
-    entriesVisited += bounded.length
+    if (listings.length === 0) break
     let ignored = new Set<string>()
     if (!includeIgnored && gitIgnore) {
       try {
         ignored = new Set(
-          await ignoredNames(
+          await ignoredPaths(
             gitIgnore,
             canonicalRoot,
-            directory.canonical,
-            bounded.map((entry) => entry.name),
+            listings.flatMap((listing) =>
+              listing.candidates.map((candidate) => candidate.ignorePath),
+            ),
             signal,
             deadline,
           ),
@@ -132,71 +162,69 @@ export async function enumerateFilenames({
       }
     }
 
-    for (const entry of bounded) {
-      if (ignored.has(entry.name)) continue
-      const display = joinHostPath(directory.display, entry.name)
-      const canonical = joinHostPath(directory.canonical, entry.name)
-      if (entry.type === 'file') {
-        files.push(indexedFile(root, display))
-        continue
-      }
-      if (entry.type === 'dir') {
-        if (directory.depth >= limits.depth) {
-          truncated = true
+    for (const { directory, candidates } of listings) {
+      for (const { entry, display, canonical, ignorePath } of candidates) {
+        if (ignored.has(ignorePath)) continue
+        if (entry.type === 'file') {
+          files.push(indexedFile(root, display))
           continue
         }
-        queueDirectory(
-          pending,
-          visitedDirectories,
-          display,
-          canonical,
-          directory.depth + 1,
-        )
-        continue
-      }
-      if (entry.type !== 'symlink') continue
-      try {
-        const target = await waitForHost(host.realpath(canonical), signal, deadline)
-        if (!insideRoot(target, canonicalRoot)) continue
-        const stat = await waitForHost(host.stat(target), signal, deadline)
-        if (stat.type === 'file') files.push(indexedFile(root, display))
-        else if (stat.type === 'dir') {
-          if (directory.depth >= limits.depth) truncated = true
-          else
-            queueDirectory(
-              pending,
-              visitedDirectories,
-              display,
-              target,
-              directory.depth + 1,
-            )
+        if (entry.type === 'dir') {
+          if (directory.depth >= limits.depth) {
+            truncated = true
+            continue
+          }
+          queueDirectory(
+            pending,
+            visitedDirectories,
+            display,
+            canonical,
+            directory.depth + 1,
+          )
+          continue
         }
-      } catch (error) {
-        if (isDeadline(error)) {
-          truncated = true
-          pending.length = 0
-          break
+        if (entry.type !== 'symlink') continue
+        try {
+          const target = await waitForHost(host.realpath(canonical), signal, deadline)
+          if (!insideRoot(target, canonicalRoot)) continue
+          const stat = await waitForHost(host.stat(target), signal, deadline)
+          if (stat.type === 'file') files.push(indexedFile(root, display))
+          else if (stat.type === 'dir') {
+            if (directory.depth >= limits.depth) truncated = true
+            else
+              queueDirectory(
+                pending,
+                visitedDirectories,
+                display,
+                target,
+                directory.depth + 1,
+              )
+          }
+        } catch (error) {
+          if (isDeadline(error)) {
+            truncated = true
+            break traversal
+          }
+          if (signal.aborted) throw error
+          // Broken and inaccessible links match the existing tree's non-openable behavior.
         }
-        if (signal.aborted) throw error
-        // Broken and inaccessible links match the existing tree's non-openable behavior.
       }
     }
   }
   return { files, truncated }
 }
 
-async function ignoredNames(
+async function ignoredPaths(
   port: GitIgnorePort,
   root: HostPath,
-  directory: HostPath,
-  names: readonly string[],
+  paths: readonly string[],
   signal: AbortSignal,
   deadline: number,
 ): Promise<ReadonlySet<string>> {
   const ignored = new Set<string>()
-  for (let index = 0; index < names.length; index += 512) {
+  for (let index = 0; index < paths.length; index += 512) {
     const batch = await waitForHost(
-      port.ignoredEntries(root, directory, names.slice(index, index + 512)),
+      port.ignoredPaths(root, paths.slice(index, index + 512)),
       signal,
       deadline,
     )

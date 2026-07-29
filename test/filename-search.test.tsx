@@ -44,7 +44,6 @@ describe('FilenameSearch', () => {
               parentPath: 'other',
             },
           ],
-          filesScanned: 300,
           traversalTruncated: true,
           resultsTruncated: false,
         },
@@ -123,7 +122,6 @@ describe('FilenameSearch', () => {
         ok: true as const,
         value: {
           results: [],
-          filesScanned: 0,
           traversalTruncated: false,
           resultsTruncated: false,
         },

@@ -17,7 +17,6 @@ import { FileTreeName } from './DirectoryTree'
 
 const EMPTY_RESPONSE: FilenameSearchResponse = {
   results: [],
-  filesScanned: 0,
   traversalTruncated: false,
   resultsTruncated: false,
 }
@@ -179,12 +178,7 @@ export function FilenameSearch({
           {error ? (
             <div className="tree-error filename-search-error">{error}</div>
           ) : (
-            <div
-              ref={resultsRef}
-              className="filename-search-results"
-              role="list"
-              aria-label="Filename search results"
-            >
+            <div ref={resultsRef} className="filename-search-results">
               {response.results.map((result) => (
                 <FilenameResult
                   key={`${result.path.hostId}:${result.path.path}`}

@@ -18,6 +18,7 @@ const NO_CHANGED_FILES: readonly GitChangedFile[] = []
 interface FileTreeProps {
   readonly root: HostPath
   readonly refreshVersion: number
+  readonly searchRefreshVersion: number
   readonly ignoredRefreshVersion: number
   readonly changedFiles?: readonly GitChangedFile[]
   readonly gitChangesLimited?: boolean
@@ -34,6 +35,7 @@ interface FileTreeProps {
 export function FileTree({
   root,
   refreshVersion,
+  searchRefreshVersion,
   ignoredRefreshVersion,
   changedFiles = NO_CHANGED_FILES,
   gitChangesLimited = false,
@@ -89,7 +91,7 @@ export function FileTree({
             root={root}
             connected={connected}
             gitIgnoreAvailable={gitEnabled}
-            refreshVersion={refreshVersion + ignoredRefreshVersion}
+            refreshVersion={searchRefreshVersion}
             onActiveChange={setSearchActive}
             onOpen={onOpen}
           />

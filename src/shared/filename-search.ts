@@ -20,7 +20,6 @@ export interface FilenameSearchResult {
 
 export interface FilenameSearchResponse {
   readonly results: readonly FilenameSearchResult[]
-  readonly filesScanned: number
   readonly traversalTruncated: boolean
   readonly resultsTruncated: boolean
 }

@@ -633,8 +633,14 @@ describe('GitEngine', () => {
       ]),
     ).resolves.toEqual({ ignoredNames: ['cache', 'scratch.tmp'] })
     await expect(
+      engine.ignoredPaths(localPath(root), ['src/cache', 'src/scratch.tmp', 'file.txt']),
+    ).resolves.toEqual({ ignoredPaths: ['src/cache', 'src/scratch.tmp'] })
+    await expect(
       engine.ignoredEntries(localPath(root), localPath(root), ['../outside']),
     ).rejects.toThrow('Invalid Git ignore entry name')
+    await expect(
+      engine.ignoredPaths(localPath(root), ['src/../outside']),
+    ).rejects.toThrow('Invalid Git ignore path')
     await host.dispose()
   })
 

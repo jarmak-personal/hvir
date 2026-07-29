@@ -4,7 +4,6 @@ import type { RendererOwner } from '../renderer-resource-scopes'
 import {
   enumerateFilenames,
   type FilenameEnumeration,
-  type FilenameEnumerationLimits,
   type GitIgnorePort,
 } from './filename-enumerator'
 import { rankFilenameMatches } from './filename-search-policy'
@@ -48,12 +47,11 @@ interface OwnerState {
 export class FilenameSearchCoordinator {
   private readonly owners = new Map<string, OwnerState>()
 
-  constructor(
-    private readonly gitIgnore: GitIgnorePort,
-    private readonly limits?: Partial<FilenameEnumerationLimits>,
-  ) {}
+  constructor(private readonly gitIgnore: GitIgnorePort) {}
 
   async search(input: FilenameSearchInput): Promise<FilenameSearchResponse> {
+    const canonicalRootPromise = Promise.resolve(input.canonicalRoot)
+    void canonicalRootPromise.catch(() => undefined)
     validateInput(input)
     if (input.host.connectionState !== 'connected') {
       throw new Error('Reconnect to search this host.')
@@ -66,7 +64,7 @@ export class FilenameSearchCoordinator {
     }
     state.latestRequestId = input.requestId
     const sequence = ++state.sequence
-    const canonicalRoot = await input.canonicalRoot
+    const canonicalRoot = await canonicalRootPromise
     if (state.sequence !== sequence || this.owners.get(ownerKey) !== state) {
       throw new Error('Filename search request was superseded')
     }
@@ -85,7 +83,6 @@ export class FilenameSearchCoordinator {
     const ranked = rankFilenameMatches(index.files, input.query)
     return {
       results: ranked.results,
-      filesScanned: index.files.length,
       traversalTruncated: index.truncated,
       resultsTruncated: ranked.truncated,
     }
@@ -94,11 +91,8 @@ export class FilenameSearchCoordinator {
   cancel(owner: RendererOwner, requestId: number): void {
     if (!Number.isSafeInteger(requestId) || requestId < 1) return
     const ownerKey = keyOwner(owner)
-    const state = this.owners.get(ownerKey) ?? {
-      sequence: 0,
-      latestRequestId: 0,
-    }
-    this.owners.set(ownerKey, state)
+    const state = this.owners.get(ownerKey)
+    if (!state) return
     state.latestRequestId = Math.max(state.latestRequestId, requestId)
     state.sequence++
     state.active?.controller.abort(new Error('Filename search workspace changed'))
@@ -145,7 +139,6 @@ export class FilenameSearchCoordinator {
       includeIgnored: input.includeIgnored,
       gitIgnore: input.gitIgnoreAvailable ? this.gitIgnore : undefined,
       signal: controller.signal,
-      limits: this.limits,
     }).finally(stopConnection)
     const active = { key, controller, promise }
     state.active = active

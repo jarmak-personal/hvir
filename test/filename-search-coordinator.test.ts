@@ -29,7 +29,6 @@ describe('FilenameSearchCoordinator', () => {
     await expect(first).rejects.toThrow('superseded')
     await expect(second).resolves.toMatchObject({
       results: [{ name: 'beta.ts' }],
-      filesScanned: 2,
     })
     expect(host.readDirectory).toHaveBeenCalledOnce()
   })
@@ -64,6 +63,16 @@ describe('FilenameSearchCoordinator', () => {
     expect(host.readDirectory).not.toHaveBeenCalled()
   })
 
+  it('does not retain cancellation state for an owner without a search', async () => {
+    const host = fakeHost(() => Promise.resolve([{ name: 'file.ts', type: 'file' }]))
+    const search = coordinator()
+    search.cancel(owner, 5)
+
+    await expect(search.search(input(host, 'file', 5))).resolves.toMatchObject({
+      results: [{ name: 'file.ts' }],
+    })
+  })
+
   it('reports disconnected hosts as unavailable and invalidates on refresh', async () => {
     const host = fakeHost(() => Promise.resolve([{ name: 'file.ts', type: 'file' }]))
     const search = coordinator()
@@ -79,7 +88,7 @@ describe('FilenameSearchCoordinator', () => {
 
 function coordinator(): FilenameSearchCoordinator {
   return new FilenameSearchCoordinator({
-    ignoredEntries: () => Promise.resolve(new Set()),
+    ignoredPaths: () => Promise.resolve(new Set()),
   })
 }
 

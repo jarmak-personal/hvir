@@ -25,11 +25,15 @@ describe('filename enumeration', () => {
     cleanupPaths.push(directory)
     await Promise.all([
       mkdir(join(directory, 'src'), { recursive: true }),
+      mkdir(join(directory, 'docs'), { recursive: true }),
+      mkdir(join(directory, 'lib'), { recursive: true }),
       mkdir(join(directory, 'ignored'), { recursive: true }),
       mkdir(join(directory, '.git'), { recursive: true }),
     ])
     await Promise.all([
       writeFile(join(directory, 'src', 'inside.ts'), ''),
+      writeFile(join(directory, 'docs', 'guide.md'), ''),
+      writeFile(join(directory, 'lib', 'helper.ts'), ''),
       writeFile(join(directory, 'ignored', 'secret.ts'), ''),
       writeFile(join(directory, '.git', 'config'), ''),
     ])
@@ -37,10 +41,10 @@ describe('filename enumeration', () => {
     await symlink(tmpdir(), join(directory, 'outside'))
     const host = new LocalHost()
     const root = localPath(directory)
-    const ignored: GitIgnorePort = {
-      ignoredEntries: (_root, _directory, names) =>
-        Promise.resolve(new Set(names.filter((name) => name === 'ignored'))),
-    }
+    const ignoredPaths = vi.fn((_root, paths: readonly string[]) =>
+      Promise.resolve(new Set(paths.filter((path) => path === 'ignored'))),
+    )
+    const ignored: GitIgnorePort = { ignoredPaths }
 
     const result = await enumerateFilenames({
       host,
@@ -51,8 +55,13 @@ describe('filename enumeration', () => {
       signal: new AbortController().signal,
     })
 
-    expect(result.files.map((file) => file.name)).toEqual(['inside.ts'])
+    expect(result.files.map((file) => file.name)).toEqual([
+      'guide.md',
+      'helper.ts',
+      'inside.ts',
+    ])
     expect(result.truncated).toBe(false)
+    expect(ignoredPaths).toHaveBeenCalledTimes(2)
   })
 
   it('uses the same traversal contract through SshHost', async () => {

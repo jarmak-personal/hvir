@@ -104,6 +104,9 @@ export class GitEngine {
   ): Promise<{ readonly ignoredNames: readonly string[] }> {
     return this.statusCapability.ignoredEntries(projectRoot, directory, names)
   }
+  ignoredPaths(projectRoot: HostPath, paths: readonly string[]) {
+    return this.statusCapability.ignoredPaths(projectRoot, paths)
+  }
 
   history(
     projectRoot: HostPath,
