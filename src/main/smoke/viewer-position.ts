@@ -232,6 +232,7 @@ export function verifyViewerPositions(
         const line = visibleCodeLine(cleanSource, '.cm-lineNumbers .cm-gutterElement');
         return line !== undefined && line > 1 ? line : undefined;
       }, 'clean diff source did not scroll');
+      await settle();
       modeButton('diff')?.click();
       const emptyDiff = await waitFor(
         () => document.querySelector('.cm-mergeView'),
@@ -240,6 +241,7 @@ export function verifyViewerPositions(
       if (emptyDiff.querySelector('.cm-changedLine')) {
         throw new Error('clean diff unexpectedly contained changes');
       }
+      await settle();
       modeButton('source')?.click();
       const restoredCleanSource = await waitFor(
         () => document.querySelector('.source-shell .cm-scroller'),
