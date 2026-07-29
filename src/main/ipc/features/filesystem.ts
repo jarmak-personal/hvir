@@ -1,9 +1,12 @@
-import { hostPath, repositoryImageMimeType } from '../../../shared'
+import { hostPath, hostPathEquals, repositoryImageMimeType } from '../../../shared'
 import type { IpcRegistrar } from '../authority-router'
 import type { IpcDeps } from '../deps'
 import { operationResult } from '../operation-result'
 
-type FilesystemIpcDeps = Pick<IpcDeps, 'getProject'>
+type FilesystemIpcDeps = Pick<
+  IpcDeps,
+  'getProject' | 'getProjectState' | 'filenameSearch' | 'rendererResources'
+>
 
 export function registerFilesystemIpc(ipc: IpcRegistrar, deps: FilesystemIpcDeps): void {
   ipc.handle('fs:readdir', (req) =>
@@ -15,6 +18,50 @@ export function registerFilesystemIpc(ipc: IpcRegistrar, deps: FilesystemIpcDeps
       return host.readdir(canonical)
     }),
   )
+
+  ipc.handle('fs:filename-search', (req, context) =>
+    operationResult(async () => {
+      const project = deps.getProject()
+      if (!hostPathEquals(req.root, project.root)) {
+        throw new Error('Filename search root is not the active workspace')
+      }
+      const canonicalRoot = ipc.authority.projectPath(
+        req.root,
+        project.root,
+        project.host,
+        { returnCanonical: true },
+      )
+      const owner = context.owner()
+      const state = deps.getProjectState()
+      const activeProject = state.projects.find(
+        (candidate) => candidate.id === state.activeProjectId,
+      )
+      const activeWorkspace = activeProject?.workspaces.find(
+        (candidate) => candidate.id === state.activeWorkspaceId,
+      )
+      deps.rendererResources.register(
+        owner,
+        { lifetime: 'renderer', type: 'filename-search' },
+        () => deps.filenameSearch.revoke(owner),
+        { duplicate: 'reuse' },
+      )
+      return deps.filenameSearch.search({
+        owner,
+        host: project.host,
+        root: req.root,
+        canonicalRoot,
+        query: req.query,
+        includeIgnored: req.includeIgnored,
+        gitIgnoreAvailable: activeWorkspace?.repository === true,
+        refreshVersion: req.refreshVersion,
+        requestId: req.requestId,
+      })
+    }),
+  )
+
+  ipc.handleSend('fs:filename-search-cancel', ({ requestId }, context) => {
+    deps.filenameSearch.cancel(context.owner(), requestId)
+  })
 
   ipc.handle('fs:resolve-entry', (req) =>
     operationResult(async () => {

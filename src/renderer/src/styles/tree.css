@@ -5,6 +5,138 @@
   background: #13161b;
 }
 
+.tree-scroll[hidden] {
+  display: none;
+}
+
+.filename-search {
+  border-bottom: 1px solid var(--border-subtle);
+  background: #15181e;
+}
+
+.filename-search.active {
+  min-height: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.filename-search-field {
+  position: relative;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 7px;
+  padding: 8px 10px 5px;
+}
+
+.filename-search-field > label {
+  color: var(--text-muted);
+  font-size: 10px;
+  text-transform: uppercase;
+}
+
+.filename-search-field input {
+  min-width: 0;
+  height: 26px;
+  padding: 0 26px 0 8px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 4px;
+  outline: none;
+  background: #101318;
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+}
+
+.filename-search-field input:focus {
+  border-color: var(--accent);
+}
+
+.filename-search-field input:disabled {
+  color: var(--text-muted);
+}
+
+.filename-search-clear {
+  width: 22px;
+  height: 22px;
+  position: absolute;
+  right: 12px;
+  bottom: 7px;
+  border: 0;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 16px;
+}
+
+.filename-search-ignored {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px 7px;
+  color: var(--text-muted);
+  font-size: 10px;
+}
+
+.filename-search-ignored input {
+  margin: 0;
+}
+
+.filename-search-output {
+  min-height: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.filename-search-status {
+  padding: 5px 10px;
+  color: var(--text-muted);
+  font-size: 10px;
+}
+
+.filename-search-results {
+  min-height: 0;
+  flex: 1;
+  overflow: auto;
+  padding-bottom: 8px;
+}
+
+.filename-search-result {
+  width: 100%;
+  min-width: 0;
+  height: 34px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 1px;
+  padding: 0 10px;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+}
+
+.filename-search-result:hover,
+.filename-search-result:focus {
+  outline: none;
+  background: #20242c;
+}
+
+.filename-search-parent {
+  max-width: 100%;
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.filename-search-error {
+  padding: 4px 10px 8px;
+}
+
 .tree-row {
   width: 100%;
   height: 25px;

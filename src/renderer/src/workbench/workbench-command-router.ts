@@ -5,6 +5,7 @@ export interface WorkbenchCommandPorts {
   readonly escapeWebPaneFocus: () => void
   readonly canUseViewerCommands: () => boolean
   readonly cycleViewMode: () => void
+  readonly findFile: () => void
   readonly findInFile: () => void
   readonly goToLine: () => void
   readonly toggleTerminalFocus: () => void
@@ -31,6 +32,9 @@ export function dispatchWorkbenchCommand(
       return
     case 'findInFile':
       if (ports.canUseViewerCommands()) ports.findInFile()
+      return
+    case 'findFile':
+      ports.findFile()
       return
     case 'goToLine':
       if (ports.canUseViewerCommands()) ports.goToLine()

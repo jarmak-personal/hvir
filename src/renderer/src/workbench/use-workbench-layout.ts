@@ -238,6 +238,15 @@ export function useWorkbenchLayout({
     )
   }, [setTerminalMode, setTreeCollapsed])
 
+  const focusFilenameSearch = useCallback((): void => {
+    setTerminalMode((mode) => (mode === 'maximized' ? 'restored' : mode))
+    setTreeCollapsed(false)
+    setRailMode('files')
+    requestAnimationFrame(() =>
+      document.querySelector<HTMLInputElement>('[data-filename-search]')?.focus(),
+    )
+  }, [setTerminalMode, setTreeCollapsed])
+
   const restoreViewer = useCallback((): void => {
     setTerminalMode((mode) => (mode === 'maximized' ? 'restored' : mode))
   }, [setTerminalMode])
@@ -264,6 +273,7 @@ export function useWorkbenchLayout({
     focusTerminal,
     focusViewer,
     focusTree,
+    focusFilenameSearch,
   }
 }
 
