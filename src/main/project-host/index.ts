@@ -6,6 +6,7 @@ export type {
   PtyExit,
   PtyProcess,
   ReadFileOptions,
+  RemoveFileOptions,
   SpawnPtyOptions,
   WatchOptions,
   WriteFileOptions,

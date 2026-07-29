@@ -47,6 +47,17 @@ describe('LocalHost', () => {
     expect((await host.readFile(p)).toString('utf8')).toBe('hi there')
   })
 
+  it('rejects an aborted atomic write without publishing the file', async () => {
+    const p = localPath(join(dir, 'aborted.txt'))
+    const controller = new AbortController()
+    controller.abort()
+
+    await expect(
+      host.writeFile(p, 'never published', { signal: controller.signal }),
+    ).rejects.toMatchObject({ name: 'AbortError' })
+    await expect(host.stat(p)).rejects.toThrow()
+  })
+
   it('preserves an externally changed file when an atomic save is stale', async () => {
     const p = localPath(join(dir, 'conflict.txt'))
     await host.writeFile(p, 'original')
@@ -76,6 +87,12 @@ describe('LocalHost', () => {
 
     await host.removeFile(p, { expectedMtimeMs: changedTime.getTime() })
     await expect(host.stat(p)).rejects.toThrow()
+  })
+
+  it('allows idempotent cleanup of an already-absent file', async () => {
+    const p = localPath(join(dir, 'already-removed.txt'))
+
+    await expect(host.removeFile(p, { ignoreMissing: true })).resolves.toBeUndefined()
   })
 
   it('lists directory entries with types', async () => {

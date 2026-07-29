@@ -10,7 +10,11 @@ import {
   type HostPath,
   type Stat,
 } from '../../shared'
-import type { ReadFileOptions, WriteFileOptions } from './project-host'
+import type {
+  ReadFileOptions,
+  RemoveFileOptions,
+  WriteFileOptions,
+} from './project-host'
 
 export interface SshFileAccessOptions {
   readonly fingerprintObservationWindowMs?: number
@@ -90,14 +94,16 @@ export class SshFileAccess {
     opts: WriteFileOptions = {},
   ): Promise<void> {
     this.assertPath(path)
+    opts.signal?.throwIfAborted()
     const data = Buffer.from(value)
     const parent = remoteParent(path.path)
     const basename = path.path.slice(parent === '/' ? 1 : parent.length + 1)
     const temporary = `${parent === '/' ? '' : parent}/.${basename}.hvir-${randomUUID()}.tmp`
     let mode: number | undefined
     try {
-      const attrs = await this.sftp<import('ssh2').Stats>((s, done) =>
-        s.lstat(path.path, done),
+      const attrs = await this.sftp<import('ssh2').Stats>(
+        (s, done) => s.lstat(path.path, done),
+        opts.signal,
       )
       mode = attrs.mode & 0o777
     } catch (reason) {
@@ -105,27 +111,41 @@ export class SshFileAccess {
     }
     const expectedDigest = this.readDigests.get(path.path)
     try {
-      await this.sftp<void>((s, done) =>
-        s.writeFile(temporary, data, mode === undefined ? {} : { mode }, done),
-      )
+      await this.sftp<void>((s, done) => {
+        if (opts.signal) {
+          writeSftpFile(s, temporary, data, mode, opts.signal, done)
+        } else {
+          s.writeFile(temporary, data, mode === undefined ? {} : { mode }, done)
+        }
+      })
+      opts.signal?.throwIfAborted()
       if (opts.expectedMtimeMs !== undefined) {
-        const currentAttrs = await this.sftp<import('ssh2').Stats>((s, done) =>
-          s.lstat(path.path, done),
+        const currentAttrs = await this.sftp<import('ssh2').Stats>(
+          (s, done) => s.lstat(path.path, done),
+          opts.signal,
         )
         if (currentAttrs.mtime * 1_000 !== opts.expectedMtimeMs) {
           throw fileChangedError()
         }
       }
       if (expectedDigest !== undefined) {
-        const current = await this.sftp<Buffer>((s, done) => s.readFile(path.path, done))
+        const current = await this.sftp<Buffer>(
+          (s, done) => s.readFile(path.path, done),
+          opts.signal,
+        )
         if (contentDigest(current) !== expectedDigest) throw fileChangedError()
       }
       try {
-        await this.sftp<void>((s, done) =>
-          s.ext_openssh_rename(temporary, path.path, done),
+        await this.sftp<void>(
+          (s, done) => s.ext_openssh_rename(temporary, path.path, done),
+          opts.signal,
         )
       } catch {
-        await this.sftp<void>((s, done) => s.rename(temporary, path.path, done))
+        opts.signal?.throwIfAborted()
+        await this.sftp<void>(
+          (s, done) => s.rename(temporary, path.path, done),
+          opts.signal,
+        )
       }
     } catch (reason) {
       await this.sftp<void>((s, done) => s.unlink(temporary, done)).catch(() => undefined)
@@ -136,7 +156,7 @@ export class SshFileAccess {
     this.invalidate(path.path)
   }
 
-  async removeFile(path: HostPath, opts: WriteFileOptions = {}): Promise<void> {
+  async removeFile(path: HostPath, opts: RemoveFileOptions = {}): Promise<void> {
     this.assertPath(path)
     if (opts.expectedMtimeMs !== undefined) {
       const current = await this.sftp<import('ssh2').Stats>((s, done) =>
@@ -144,7 +164,11 @@ export class SshFileAccess {
       )
       if (current.mtime * 1_000 !== opts.expectedMtimeMs) throw fileChangedError()
     }
-    await this.sftp<void>((s, done) => s.unlink(path.path, done))
+    try {
+      await this.sftp<void>((s, done) => s.unlink(path.path, done))
+    } catch (reason) {
+      if (!opts.ignoreMissing || !isNoSuchFile(reason)) throw reason
+    }
     this.pollingFiles.delete(path.path)
     this.readDigests.delete(path.path)
     this.fingerprintObservations.delete(path.path)
@@ -272,15 +296,31 @@ export class SshFileAccess {
 
   private sftp<T>(
     op: (s: SFTPWrapper, done: (e: Error | null | undefined, value: T) => void) => void,
+    signal?: AbortSignal,
   ): Promise<T> {
-    return this.getSftp().then(
+    return withAbort(this.getSftp(), signal).then(
       (session) =>
-        new Promise<T>((resolve, reject) =>
-          op(session, (reason, value) => {
+        new Promise<T>((resolve, reject) => {
+          let settled = false
+          const abort = () => finish(abortError())
+          const finish = (reason?: Error | null, value?: T): void => {
+            if (settled) return
+            settled = true
+            signal?.removeEventListener('abort', abort)
             if (reason) reject(reason)
-            else resolve(value)
-          }),
-        ),
+            else resolve(value as T)
+          }
+          if (signal?.aborted) {
+            finish(abortError())
+            return
+          }
+          signal?.addEventListener('abort', abort, { once: true })
+          try {
+            op(session, finish)
+          } catch (reason) {
+            finish(reason instanceof Error ? reason : new Error(String(reason)))
+          }
+        }),
     )
   }
 
@@ -292,6 +332,71 @@ export class SshFileAccess {
     }
     return value.value as T
   }
+}
+
+function writeSftpFile(
+  session: SFTPWrapper,
+  path: string,
+  data: Buffer,
+  mode: number | undefined,
+  signal: AbortSignal | undefined,
+  done: (reason: Error | null | undefined, value: void) => void,
+): void {
+  if (signal?.aborted) {
+    done(abortError(), undefined)
+    return
+  }
+  const stream = session.createWriteStream(path, mode === undefined ? {} : { mode })
+  let settled = false
+  const abort = () => {
+    stream.destroy()
+    finish(abortError())
+  }
+  const finish = (reason?: Error): void => {
+    if (settled) return
+    settled = true
+    signal?.removeEventListener('abort', abort)
+    stream.removeListener('error', onError)
+    stream.removeListener('finish', onFinish)
+    stream.removeListener('close', onClose)
+    done(reason, undefined)
+  }
+  const onError = (reason: Error) => finish(reason)
+  const onFinish = () => finish()
+  const onClose = () => finish(new Error('SSH file write closed before completion'))
+  stream.once('error', onError)
+  stream.once('finish', onFinish)
+  stream.once('close', onClose)
+  signal?.addEventListener('abort', abort, { once: true })
+  stream.end(data)
+}
+
+function withAbort<T>(task: Promise<T>, signal?: AbortSignal): Promise<T> {
+  if (!signal) return task
+  if (signal.aborted) return Promise.reject(abortError())
+  return new Promise<T>((resolve, reject) => {
+    let settled = false
+    const abort = () => finish(abortError())
+    const finish = (reason?: unknown, value?: T): void => {
+      if (settled) return
+      settled = true
+      signal.removeEventListener('abort', abort)
+      if (reason !== undefined) {
+        reject(reason instanceof Error ? reason : new Error('SSH file operation failed'))
+      } else resolve(value as T)
+    }
+    signal.addEventListener('abort', abort, { once: true })
+    void task.then(
+      (value) => finish(undefined, value),
+      (reason: unknown) => finish(reason),
+    )
+  })
+}
+
+function abortError(): Error {
+  const error = new Error('The operation was aborted')
+  error.name = 'AbortError'
+  return error
 }
 
 export function remoteParent(path: string): string {

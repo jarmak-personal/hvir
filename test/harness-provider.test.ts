@@ -9,7 +9,7 @@ import {
   plainShellProvider,
   type HarnessProvider,
 } from '../src/main/harness/harness-provider'
-import { asHarnessProviderId, localPath } from '../src/shared'
+import { asHarnessProviderId, asHostId, hostPath, localPath } from '../src/shared'
 
 const context = {
   sessionId: '3d33e340-b73f-4f3b-885b-cc47a22cb844',
@@ -71,6 +71,28 @@ describe('Harness providers', () => {
       'resume',
       context.sessionId,
     ])
+  })
+
+  it('limits remote path image paste to the evidenced native composers', () => {
+    const path = hostPath(
+      asHostId('ssh-test'),
+      '/run/user/501/hvir/image-paste/paste.abc/image.png',
+    )
+    const expected =
+      '\x1b[200~/run/user/501/hvir/image-paste/paste.abc/image.png\x1b[201~'
+    expect(claudeCodeProvider.remoteImagePaste?.revision).toBe(1)
+    expect(claudeCodeProvider.remoteImagePaste?.terminalInput(path)).toBe(expected)
+    expect(codexProvider.remoteImagePaste?.terminalInput(path)).toBe(expected)
+    expect(() =>
+      codexProvider.remoteImagePaste?.terminalInput(
+        hostPath(asHostId('ssh-test'), '/tmp/hvir path/image.png'),
+      ),
+    ).toThrow(/safe absolute path/)
+    expect(
+      ['plain-shell', 'pi', 'gemini-cli', 'github-copilot-cli', 'cursor-cli', 'custom'].every(
+        (id) => harnessProvider(id).remoteImagePaste === undefined,
+      ),
+    ).toBe(true)
   })
 
   it('resolves only registered providers and emits their serializable catalog', () => {

@@ -19,12 +19,16 @@ import {
 } from '../src/shared'
 
 const paneState = vi.hoisted(() => ({
-  instances: [] as Array<{ readonly emitTitle: (title: string) => void }>,
+  instances: [] as Array<{
+    readonly emitTitle: (title: string) => void
+    readonly emitClipboardPaste: (fallbackData: string) => void
+  }>,
 }))
 
 vi.mock('../src/renderer/src/terminal/ghostty-terminal-pane', () => ({
   createGhosttyTerminalPane: vi.fn(() => {
     let titleListener: ((title: string) => void) | undefined
+    let clipboardPasteListener: ((fallbackData: string) => void) | undefined
     let surface: HTMLDivElement | undefined
     const pane = {
       mount: vi.fn((container: HTMLElement) => {
@@ -47,6 +51,10 @@ vi.mock('../src/renderer/src/terminal/ghostty-terminal-pane', () => ({
       focus: vi.fn(),
       events: {
         onData: vi.fn(() => () => undefined),
+        onClipboardPaste: vi.fn((listener: (fallbackData: string) => void) => {
+          clipboardPasteListener = listener
+          return () => undefined
+        }),
         onTitle: vi.fn((listener: (title: string) => void) => {
           titleListener = listener
           return () => undefined
@@ -57,7 +65,10 @@ vi.mock('../src/renderer/src/terminal/ghostty-terminal-pane', () => ({
         onLink: vi.fn(() => () => undefined),
       },
     } satisfies TerminalPane
-    paneState.instances.push({ emitTitle: (title) => titleListener?.(title) })
+    paneState.instances.push({
+      emitTitle: (title) => titleListener?.(title),
+      emitClipboardPaste: (fallbackData) => clipboardPasteListener?.(fallbackData),
+    })
     return Promise.resolve(pane)
   }),
 }))
@@ -122,6 +133,29 @@ describe('terminal resume unavailable state', () => {
     expect(invoke).toHaveBeenLastCalledWith(
       'pty:start',
       expect.objectContaining({ resume: false, harnessSessionId: undefined }),
+    )
+  })
+
+  it('round-trips an explicit clipboard gesture and preserves the native fallback key', async () => {
+    invoke.mockResolvedValue(startedResponse())
+    const runtimeOptions = {
+      ...options(),
+      harnessSessionId: undefined,
+      resumeOnStart: false,
+    }
+    const runtime = registry.acquire(runtimeOptions)
+    runtime.attach(document.createElement('div'))
+    await vi.waitFor(() => expect(invoke).toHaveBeenCalledOnce())
+
+    paneState.instances[0]?.emitClipboardPaste('\x16')
+
+    expect(send).toHaveBeenCalledWith('terminal:paste-image', {
+      id: 'terminal-1',
+      fallbackData: '\x16',
+    })
+    expect(send).not.toHaveBeenCalledWith(
+      'pty:write',
+      expect.objectContaining({ data: '\x16' }),
     )
   })
 
@@ -498,6 +532,22 @@ describe('terminal resume unavailable state', () => {
     host.remove()
   })
 })
+
+function startedResponse(): StartPtyResponse {
+  return {
+    outcome: 'started',
+    id: 'terminal-1',
+    pid: 4321,
+    resumed: false,
+    reattached: false,
+    identityStatus: 'identified',
+    capabilities: {
+      sessionIdentity: 'preassigned',
+      exactResume: true,
+      contextPresentation: 'count',
+    },
+  }
+}
 
 function options(): TerminalRuntimeOptions {
   return {

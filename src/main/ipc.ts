@@ -7,6 +7,7 @@ import { registerDiagnosticReportIpc } from './ipc/features/diagnostic-report'
 import { registerFilesystemIpc } from './ipc/features/filesystem'
 import { registerGitIpc } from './ipc/features/git'
 import { registerHarnessIpc } from './ipc/features/harness'
+import { registerImagePasteIpc } from './ipc/features/image-paste'
 import { registerPreviewIpc } from './ipc/features/preview'
 import { registerProjectIpc } from './ipc/features/project'
 import { registerTerminalIpc } from './ipc/features/terminal'
@@ -26,6 +27,7 @@ export function registerIpcHandlers(
     registerFilesystemIpc(router, deps)
     registerGitIpc(router, deps)
     registerHarnessIpc(router, deps)
+    registerImagePasteIpc(router, deps)
     registerPreviewIpc(router, deps)
     registerWebPaneIpc(router, deps)
     registerTerminalIpc(router, deps)

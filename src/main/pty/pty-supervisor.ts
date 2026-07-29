@@ -62,6 +62,8 @@ export interface PtySpawnRequest {
 
 /** Immutable, serializable description of a managed PTY session. */
 export interface ManagedPty {
+  /** Unique to this live spawn even when a persisted terminal id is reused. */
+  readonly instanceId: string
   readonly id: string
   readonly ownerId: number
   readonly ownerGeneration: number
@@ -326,6 +328,7 @@ export class PtySupervisor {
     }
 
     const info: ManagedPty = {
+      instanceId: randomUUID(),
       id: sessionId,
       ownerId: req.ownerId,
       ownerGeneration: req.ownerGeneration ?? 0,

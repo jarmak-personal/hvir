@@ -16,6 +16,7 @@ import { PtySupervisor } from './pty/pty-supervisor'
 import { AttentionBadge } from './attention-badge'
 import { HarnessProfileStore } from './harness/harness-profile-store'
 import { HarnessProbeManager } from './harness/harness-probe'
+import { createElectronRemoteImagePasteCoordinator } from './harness/electron-clipboard-image'
 import { ProjectWatchController } from './project-watch'
 import { WorkspaceCoordinator } from './workspace-coordinator'
 import { createWorkspaceCleanup } from './workspace-cleanup'
@@ -272,6 +273,15 @@ function createWorkbenchEntry(): void {
       }),
       (supervisor) => supervisor.disposeAllAndWait(),
     )
+    const remoteImagePaste = runtime.own(
+      'remote image paste coordinator',
+      createElectronRemoteImagePasteCoordinator({
+        ptys: ptySupervisor,
+        resources: rendererScopes,
+        getHost: (hostId) => projectRegistry?.hostById(hostId),
+      }),
+      (coordinator) => coordinator.dispose(),
+    )
     const workspaceCleanup = createWorkspaceCleanup({
       ptys: ptySupervisor,
       resources: rendererScopes,
@@ -354,18 +364,12 @@ function createWorkbenchEntry(): void {
         echoWorker,
         gitWorker,
         filenameSearch,
-        getProject: () => {
-          if (!projectRegistry) throw new Error('Project registry is unavailable')
-          return projectRegistry.active
-        },
+        getProject: () => registry.active,
         getHost: (hostId) => projectRegistry?.hostById(hostId),
         connectedHosts: () => projectRegistry?.connectedHosts() ?? [],
         getRegisteredWorkspaceRoot: (root) =>
           projectRegistry?.registeredWorkspaceRoot(root),
-        getProjectState: () => {
-          if (!projectRegistry) throw new Error('Project registry is unavailable')
-          return projectRegistry.state()
-        },
+        getProjectState: () => registry.state(),
         listHosts: () => projectRegistry?.listHosts() ?? [],
         ...projectCommands,
         respondSshPrompt: (owner, id, answers) =>
@@ -385,6 +389,7 @@ function createWorkbenchEntry(): void {
         terminalMoves,
         harnessProfiles: harnessProfileStore,
         harnessProbes: harnessProbeManager,
+        remoteImagePaste,
         updateAttention: (owner, count) =>
           attentionBadge?.update(owner.id, count, owner.generation),
         updateWebPaneBindings: (owner, bindings) =>

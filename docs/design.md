@@ -208,6 +208,12 @@ The low-confidence Long Tasks experiment and its complete opt-in runtime/reporti
 removed; independent capacity coverage, development measure containment, and Electron's
 high-confidence unresponsive lifecycle remain at their owning seams.
 
+### [ADR-026 — Explicit SSH image paste through private remote materialization](adr/ADR-026-explicit-ssh-image-paste.md)
+
+An explicit paste gesture may privately stage a bounded local clipboard PNG on an SSH host and
+insert its path into an exact supported native harness composer, with no daemon, submission,
+generic prompt delivery, or repository artifact.
+
 ## 5. Architecture
 
 ### Process model

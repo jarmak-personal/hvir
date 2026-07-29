@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+  ghosttyClipboardPasteFallback,
   ghosttyKeyboardOverride,
   type GhosttyKeyboardEvent,
   type GhosttyKeyboardOptions,
@@ -34,10 +35,10 @@ function key(
 
 describe('ghostty terminal keyboard compatibility', () => {
   it('forwards image-paste chords instead of waiting for text paste', () => {
-    expect(ghosttyKeyboardOverride(key('KeyV', { ctrlKey: true }))).toBe('\x16')
-    expect(ghosttyKeyboardOverride(key('KeyV', { ctrlKey: true, altKey: true }))).toBe(
-      '\x1b\x16',
-    )
+    expect(ghosttyClipboardPasteFallback(key('KeyV', { ctrlKey: true }))).toBe('\x16')
+    expect(
+      ghosttyClipboardPasteFallback(key('KeyV', { ctrlKey: true, altKey: true })),
+    ).toBe('\x1b\x16')
   })
 
   it.each([
@@ -70,9 +71,7 @@ describe('ghostty terminal keyboard compatibility', () => {
   ])('uses modifyOtherKeys for compatible harnesses on Shift+%s', (code, sequence) => {
     const event = key(code, { shiftKey: true })
     expect(ghosttyKeyboardOverride(event)).toBeUndefined()
-    expect(ghosttyKeyboardOverride(event, options('modify-other-keys'))).toBe(
-      sequence,
-    )
+    expect(ghosttyKeyboardOverride(event, options('modify-other-keys'))).toBe(sequence)
   })
 
   it.each([
@@ -82,9 +81,9 @@ describe('ghostty terminal keyboard compatibility', () => {
     [{ ctrlKey: true, shiftKey: true }, '\x1b[13;6u'],
     [{ metaKey: true }, '\x1b[13;9u'],
   ])('uses CSI-u for Codex modified Enter %#', (modifiers, sequence) => {
-    expect(
-      ghosttyKeyboardOverride(key('Enter', modifiers), options('csi-u')),
-    ).toBe(sequence)
+    expect(ghosttyKeyboardOverride(key('Enter', modifiers), options('csi-u'))).toBe(
+      sequence,
+    )
   })
 
   it('encodes Claude Ctrl/Command+Enter as its configured submit chord', () => {
@@ -133,14 +132,15 @@ describe('ghostty terminal keyboard compatibility', () => {
 
   it('uses CSI-u for Codex modified Escape', () => {
     expect(
-      ghosttyKeyboardOverride(
-        key('Escape', { shiftKey: true }),
-        options('csi-u'),
-      ),
+      ghosttyKeyboardOverride(key('Escape', { shiftKey: true }), options('csi-u')),
     ).toBe('\x1b[27;2u')
   })
 
   it('leaves ordinary paste and unrelated keys to the terminal engine', () => {
+    expect(ghosttyClipboardPasteFallback(key('KeyV', { metaKey: true }))).toBeUndefined()
+    expect(
+      ghosttyClipboardPasteFallback(key('KeyV', { ctrlKey: true, shiftKey: true })),
+    ).toBeUndefined()
     expect(ghosttyKeyboardOverride(key('KeyV', { metaKey: true }))).toBeUndefined()
     expect(
       ghosttyKeyboardOverride(key('KeyV', { ctrlKey: true, shiftKey: true })),

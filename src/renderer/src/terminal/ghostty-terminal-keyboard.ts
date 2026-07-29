@@ -60,9 +60,7 @@ function csiUModifier(event: GhosttyKeyboardEvent): number {
   )
 }
 
-function controlEnterSequence(
-  protocol: HarnessModifiedKeyProtocol,
-): string | undefined {
+function controlEnterSequence(protocol: HarnessModifiedKeyProtocol): string | undefined {
   if (protocol === 'csi-u') return '\x1b[13;5u'
   if (protocol === 'modify-other-keys') return '\x1b[27;5;13~'
   return undefined
@@ -77,10 +75,6 @@ export function ghosttyKeyboardOverride(
   event: GhosttyKeyboardEvent,
   options: GhosttyKeyboardOptions = DEFAULT_KEYBOARD_OPTIONS,
 ): string | undefined {
-  if (event.code === 'KeyV' && event.ctrlKey && !event.metaKey && !event.shiftKey) {
-    return event.altKey ? '\x1b\x16' : '\x16'
-  }
-
   if (
     options.composerSubmitMode === 'ctrl-enter' &&
     event.code === 'Enter' &&
@@ -113,4 +107,14 @@ export function ghosttyKeyboardOverride(
   }
 
   return SHIFTED_SPECIAL_SEQUENCES[event.code]
+}
+
+/** Preserve the exact wire fallback while surfacing an explicit paste gesture. */
+export function ghosttyClipboardPasteFallback(
+  event: GhosttyKeyboardEvent,
+): string | undefined {
+  if (event.code !== 'KeyV' || !event.ctrlKey || event.metaKey || event.shiftKey) {
+    return undefined
+  }
+  return event.altKey ? '\x1b\x16' : '\x16'
 }
