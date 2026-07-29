@@ -54,7 +54,7 @@ closed, and avoid concurrent builds or test runs. The command refuses a dirty ch
 unknown source commit. Run the exact candidate once; do not retry a crossing into a pass. The
 evidence record includes the source commit and clean/dirty state, OS/platform release,
 architecture, CPU model and logical count, total memory, Node/Electron/Chromium versions, sample
-counts and durations, raw CPU series, readiness distributions, and loaded/diagnostic summaries.
+counts and durations, raw CPU series, readiness distributions, and loaded summaries.
 Retain that JSON line with the issue, pull request, or release evidence. Compare candidates only
 when the recorded environment is meaningfully equivalent; otherwise record a new baseline rather
 than treating unlike machines as one distribution.
@@ -76,8 +76,7 @@ presentation advances, a PTY is orphaned, or all terminals cannot recover with C
 History usable. Controlled mode additionally fails when the idle CPU median ratio exceeds 1.5,
 loaded launch p95 exceeds twice baseline, an individual loaded launch exceeds one second, p99
 latency is >=100 ms, an unexplained stall exceeds 500 ms, net loaded-interval working-set growth
-exceeds 256 MiB, or the ADR-016 diagnostic-cost budgets are crossed. Ghostty scrollback is
-bounded to 10,000 lines per terminal.
+exceeds 256 MiB. Ghostty scrollback is bounded to 10,000 lines per terminal.
 
 ## Workspace and error matrix
 

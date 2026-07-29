@@ -530,6 +530,18 @@ describe('diagnostic report artifact schema', () => {
         },
       }),
     ).toBe(false)
+
+    const [retainedEvent] = diagnosticReport.diagnostics.events
+    if (!retainedEvent) throw new Error('Expected a retained diagnostic report event')
+    expect(
+      isDiagnosticReport({
+        ...diagnosticReport,
+        diagnostics: {
+          ...diagnosticReport.diagnostics,
+          events: [{ ...retainedEvent, futureField: SENTINEL }],
+        },
+      }),
+    ).toBe(false)
   })
 
   it('requires image byte accounting and the exact optional-image fields', () => {
