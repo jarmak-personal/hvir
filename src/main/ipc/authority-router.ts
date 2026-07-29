@@ -22,10 +22,6 @@ import type { IpcDeps } from './deps'
 
 export const OWNER_SCOPED_INVOKE_CHANNELS = [
   'workbench-health:acknowledge', 'diagnostic-evidence:get', 'diagnostic-evidence:delete',
-  'responsiveness-diagnostics:get',
-  'responsiveness-diagnostics:start',
-  'responsiveness-diagnostics:stop',
-  'responsiveness-diagnostics:delete',
   'diagnostic-report:create',
   'diagnostic-report:capture',
   'diagnostic-report:copy',

@@ -1,5 +1,9 @@
 # Renderer responsiveness diagnostic evaluation
 
+> Historical evaluation: ADR-025 supersedes the recommendation below and removes this
+> experiment. This document records the evidence boundary that was evaluated; it does not
+> describe a current hvir capability.
+
 This document records the bounded experiment authorized by ADR-016. It is a diagnostic
 contract and product recommendation, not a responsiveness SLA: Chromium Long Tasks are
 low-confidence evidence that the renderer main thread was occupied, not proof that hvir caused

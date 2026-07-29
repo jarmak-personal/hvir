@@ -1,11 +1,6 @@
 import { app } from 'electron'
 
-import {
-  ECHO_REQUEST_TYPE,
-  isDeleteResponsivenessDiagnosticsRequest,
-  isStopResponsivenessDiagnosticsRequest,
-  type AppInfo,
-} from '../../../shared'
+import { ECHO_REQUEST_TYPE, type AppInfo } from '../../../shared'
 import type { IpcRegistrar } from '../authority-router'
 import type { IpcDeps } from '../deps'
 
@@ -46,40 +41,11 @@ export function registerAppIpc(ipc: IpcRegistrar, deps: AppIpcDeps): void {
     context.owner()
     return deps.diagnostics.evidence.deleteEvidence()
   })
-  ipc.handle('responsiveness-diagnostics:get', (_request, context) =>
-    deps.diagnostics.responsiveness.responsivenessState(context.owner()),
-  )
-  ipc.handle('responsiveness-diagnostics:start', (_request, context) =>
-    deps.diagnostics.responsiveness.startResponsiveness(context.owner()),
-  )
-  ipc.handle('responsiveness-diagnostics:stop', (request, context) => {
-    const owner = context.owner()
-    return isStopResponsivenessDiagnosticsRequest(request)
-      ? deps.diagnostics.responsiveness.stopResponsiveness(
-          owner,
-          request.diagnosticSessionId,
-          request.reason,
-        )
-      : deps.diagnostics.responsiveness.responsivenessState(owner)
-  })
-  ipc.handle('responsiveness-diagnostics:delete', (request, context) => {
-    const owner = context.owner()
-    return isDeleteResponsivenessDiagnosticsRequest(request)
-      ? deps.diagnostics.responsiveness.deleteResponsiveness(
-          owner,
-          request.diagnosticSessionId,
-        )
-      : deps.diagnostics.responsiveness.responsivenessState(owner)
-  })
-
   ipc.handleSend('app:renderer-ready', ({ ownerGeneration }, context) => {
     deps.rendererReady(context.owner(), ownerGeneration)
   })
   ipc.handleSend('diagnostics:render-containment', (batch, context) => {
     deps.recordRenderContainment(context.owner(), batch)
-  })
-  ipc.handleSend('diagnostics:responsiveness-observation', (observation, context) => {
-    deps.diagnostics.responsiveness.recordResponsiveness(context.owner(), observation)
   })
   ipc.handleSend('app:attention', ({ count }, context) => {
     const safeCount = Number.isSafeInteger(count) ? Math.max(0, Math.min(99, count)) : 0

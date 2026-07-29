@@ -25,11 +25,9 @@ describe('capacity performance verdict policy', () => {
       capacityPerformanceViolations(
         measurements({
           responsivenessP99Ms: 100,
-          diagnosticFrameP99Ms: 100,
-          diagnosticClickP95Ms: 100,
         }),
       ).map((violation) => violation.budget),
-    ).toEqual(['responsivenessP99Ms', 'diagnosticFrameP99Ms', 'diagnosticClickP95Ms'])
+    ).toEqual(['responsivenessP99Ms'])
   })
 
   it.each([
@@ -38,10 +36,6 @@ describe('capacity performance verdict policy', () => {
     ['terminalReadinessMaxMs', 1_001],
     ['responsivenessMaxMs', 501],
     ['workingSetGrowthKiB', 256 * 1024 + 1],
-    ['diagnosticRendererPlusGpuCpuDelta', 1.0001],
-    ['diagnosticMemoryGrowthDeltaKiB', 16 * 1024 + 1],
-    ['diagnosticFrameMaxMs', 501],
-    ['diagnosticClickMaxMs', 501],
   ] as const)(
     'reports a controlled %s crossing without changing the sample',
     (budget, value) => {
@@ -65,12 +59,6 @@ function measurements(
     responsivenessP99Ms: 99.9,
     responsivenessMaxMs: 500,
     workingSetGrowthKiB: 256 * 1024,
-    diagnosticRendererPlusGpuCpuDelta: 1,
-    diagnosticMemoryGrowthDeltaKiB: 16 * 1024,
-    diagnosticFrameP99Ms: 99.9,
-    diagnosticFrameMaxMs: 500,
-    diagnosticClickP95Ms: 99.9,
-    diagnosticClickMaxMs: 500,
     ...overrides,
   }
 }

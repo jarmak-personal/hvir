@@ -7,12 +7,6 @@ export const CAPACITY_PERFORMANCE_BUDGETS = {
   responsivenessP99Ms: 100,
   responsivenessMaxMs: 500,
   workingSetGrowthKiB: 256 * 1024,
-  diagnosticRendererPlusGpuCpuDelta: 1,
-  diagnosticMemoryGrowthDeltaKiB: 16 * 1024,
-  diagnosticFrameP99Ms: 100,
-  diagnosticFrameMaxMs: 500,
-  diagnosticClickP95Ms: 100,
-  diagnosticClickMaxMs: 500,
 } as const
 
 export type CapacityPerformanceMode = 'evidence' | 'controlled'
@@ -24,12 +18,6 @@ export interface CapacityPerformanceMeasurements {
   readonly responsivenessP99Ms: number
   readonly responsivenessMaxMs: number
   readonly workingSetGrowthKiB: number
-  readonly diagnosticRendererPlusGpuCpuDelta: number
-  readonly diagnosticMemoryGrowthDeltaKiB: number
-  readonly diagnosticFrameP99Ms: number
-  readonly diagnosticFrameMaxMs: number
-  readonly diagnosticClickP95Ms: number
-  readonly diagnosticClickMaxMs: number
 }
 
 export type CapacityPerformanceBudget = keyof typeof CAPACITY_PERFORMANCE_BUDGETS
@@ -77,28 +65,6 @@ export function capacityPerformanceViolations(
   )
   addGreaterThan(violations, 'responsivenessMaxMs', measurements.responsivenessMaxMs)
   addGreaterThan(violations, 'workingSetGrowthKiB', measurements.workingSetGrowthKiB)
-  addGreaterThan(
-    violations,
-    'diagnosticRendererPlusGpuCpuDelta',
-    measurements.diagnosticRendererPlusGpuCpuDelta,
-  )
-  addGreaterThan(
-    violations,
-    'diagnosticMemoryGrowthDeltaKiB',
-    measurements.diagnosticMemoryGrowthDeltaKiB,
-  )
-  addGreaterThanOrEqual(
-    violations,
-    'diagnosticFrameP99Ms',
-    measurements.diagnosticFrameP99Ms,
-  )
-  addGreaterThan(violations, 'diagnosticFrameMaxMs', measurements.diagnosticFrameMaxMs)
-  addGreaterThanOrEqual(
-    violations,
-    'diagnosticClickP95Ms',
-    measurements.diagnosticClickP95Ms,
-  )
-  addGreaterThan(violations, 'diagnosticClickMaxMs', measurements.diagnosticClickMaxMs)
   return violations
 }
 
