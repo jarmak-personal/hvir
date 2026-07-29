@@ -25,8 +25,6 @@ import { RendererDiagnosticsAdapter } from './renderer-diagnostics'
 
 const rendererDiagnostics = new RendererDiagnosticsAdapter({
   send: (batch) => ipcRenderer.send('diagnostics:render-containment', batch),
-  sendResponsiveness: (batch) =>
-    ipcRenderer.send('diagnostics:responsiveness-observation', batch),
 })
 
 let readyGeneration: number | undefined
@@ -55,10 +53,6 @@ const api: HvirApi = {
     processSandboxed: process.sandboxed,
     recordRenderContainment: (occurrenceId) =>
       rendererDiagnostics.recordRenderContainment(occurrenceId),
-    recordResponsivenessObservation: (observation) =>
-      rendererDiagnostics.recordResponsivenessObservation(observation),
-    flushResponsivenessObservations: () =>
-      rendererDiagnostics.flushResponsivenessObservations(),
   },
   invoke<C extends IpcInvokeChannel>(
     channel: C,

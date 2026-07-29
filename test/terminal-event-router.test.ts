@@ -242,8 +242,6 @@ class FakeHvirApi implements HvirApi {
   readonly diagnostics = {
     processSandboxed: true,
     recordRenderContainment: vi.fn(),
-    recordResponsivenessObservation: vi.fn(),
-    flushResponsivenessObservations: vi.fn(),
   }
   private readonly callbacks = new Map<IpcEventChannel, Set<(payload: unknown) => void>>()
   private readonly subscriptions = new Map<IpcEventChannel, number>()

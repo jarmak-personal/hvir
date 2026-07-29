@@ -7,7 +7,6 @@ import {
   type DiagnosticReport,
   type DiagnosticReportDroppedCount,
   type DiagnosticReportEvent,
-  type DiagnosticReportLifetimeScope,
   type WorkbenchHealthSnapshot,
 } from '../../shared'
 import type { RendererOwner } from '../renderer-resource-scopes'
@@ -47,7 +46,15 @@ export function buildDiagnosticReport(input: {
       scopes: input.diagnostics.scopes,
       events: input.diagnostics.events
         .slice(-MAX_DIAGNOSTIC_REPORT_EVENTS)
-        .map(({ event, scope }) => reportEvent(event, scope)),
+        .map(({ event, scope }): DiagnosticReportEvent => ({
+          scope,
+          kind: event.kind,
+          owner: event.owner,
+          ownerGeneration: event.ownerGeneration,
+          severity: event.severity,
+          occurredAt: event.occurredAt,
+          correlation: event.correlation,
+        })),
       dropped: input.diagnostics.dropped
         .slice(-MAX_DIAGNOSTIC_REPORT_DROPPED_COUNTS)
         .map((entry): DiagnosticReportDroppedCount => ({ ...entry })),
@@ -55,49 +62,6 @@ export function buildDiagnosticReport(input: {
     health: input.health,
   }
   return isDiagnosticReport(report) ? report : undefined
-}
-
-function reportEvent(
-  event: DiagnosticReportEvidenceSnapshot['events'][number]['event'],
-  scope: DiagnosticReportLifetimeScope,
-): DiagnosticReportEvent {
-  const common = {
-    scope,
-    ownerGeneration: event.ownerGeneration,
-    severity: event.severity,
-    occurredAt: event.occurredAt,
-    correlation: event.correlation,
-  } as const
-  if (event.kind !== 'renderer-responsiveness-episode') {
-    return { ...common, kind: event.kind, owner: event.owner }
-  }
-  return {
-    ...common,
-    kind: event.kind,
-    owner: 'renderer-responsiveness',
-    severity: 'info',
-    sessionId: event['sessionId'] as string,
-    count: event['count'] as number,
-    drop: event['drop'] as number,
-    timing: event['timing'] as Extract<
-      DiagnosticReportEvent,
-      { kind: 'renderer-responsiveness-episode' }
-    >['timing'],
-    classification: event['classification'] as Extract<
-      DiagnosticReportEvent,
-      { kind: 'renderer-responsiveness-episode' }
-    >['classification'],
-    confounder: event['confounder'] as Extract<
-      DiagnosticReportEvent,
-      { kind: 'renderer-responsiveness-episode' }
-    >['confounder'],
-    firstAt: event['firstAt'] as string,
-    lastAt: event['lastAt'] as string,
-    resolution: event['resolution'] as Extract<
-      DiagnosticReportEvent,
-      { kind: 'renderer-responsiveness-episode' }
-    >['resolution'],
-  }
 }
 
 export function safeVersion(value: string | undefined): string {

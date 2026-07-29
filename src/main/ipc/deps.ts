@@ -103,14 +103,6 @@ export interface IpcDeps {
       DiagnosticReportCoordinator,
       'create' | 'capture' | 'copy' | 'save' | 'cancel' | 'delete'
     >
-    readonly responsiveness: Pick<
-      RuntimeDiagnostics,
-      | 'responsivenessState'
-      | 'startResponsiveness'
-      | 'recordResponsiveness'
-      | 'stopResponsiveness'
-      | 'deleteResponsiveness'
-    >
     readonly evidence: Pick<RuntimeDiagnostics, 'evidenceState' | 'deleteEvidence'>
   }
   readonly recordIpcContractDiagnostic: (event: IpcContractDiagnostic) => void

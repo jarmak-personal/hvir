@@ -155,11 +155,9 @@ unavailable without spawning a fresh harness or replacing the retained recovery 
 
 Fixed-schema, content-free diagnostic evidence flows through one bounded local owner while
 feature recovery stays feature-owned, workbench health remains separate from terminal attention,
-and diagnostic sessions stay explicit, droppable, and local. The bounded Long Tasks experiment
-and its opt-in recommendation are recorded in the
-[renderer responsiveness evaluation](renderer-responsiveness-evaluation.md). The owner-by-owner
-[layout-integrity evaluation](layout-integrity-evaluation.md) retains layout postconditions as
-pure or focused Electron conformance and promotes no runtime detector.
+and diagnostic sessions stay explicit, droppable, and local. The owner-by-owner [layout-integrity
+evaluation](layout-integrity-evaluation.md) retains layout postconditions as pure or focused
+Electron conformance and promotes no runtime detector.
 
 ### [ADR-017 — Defer direct diagnostic report delivery to harnesses](adr/ADR-017-defer-direct-diagnostic-report-delivery.md)
 
@@ -203,6 +201,12 @@ return without activation after comparable bounded Git activity or successful re
 
 Registered worktrees allocate no terminal runtime by registration alone; explicit materialization,
 session, PTY, presentation, and focus lifecycles remain independently owned.
+
+### [ADR-025 — Remove the renderer-responsiveness diagnostic](adr/ADR-025-remove-renderer-responsiveness-diagnostic.md)
+
+The low-confidence Long Tasks experiment and its complete opt-in runtime/reporting surface are
+removed; independent capacity coverage, development measure containment, and Electron's
+high-confidence unresponsive lifecycle remain at their owning seams.
 
 ## 5. Architecture
 

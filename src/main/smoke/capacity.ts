@@ -27,10 +27,6 @@ import {
   type ElectronProcessMetricReport,
 } from './electron-process-metrics'
 import {
-  measureResponsivenessDiagnosticCost,
-  type ResponsivenessDiagnosticCostReport,
-} from './capacity-responsiveness'
-import {
   CAPACITY_PERFORMANCE_BUDGETS,
   CAPACITY_PERFORMANCE_GATE_ENV,
   capacityPerformanceViolations,
@@ -72,7 +68,6 @@ interface CapacitySmokeReport {
   readonly idleCpu?: CapacityCpuComparison
   readonly terminalReadiness?: CapacityTerminalReadinessComparison
   readonly terminalActivity?: TerminalActivityReport
-  readonly responsivenessDiagnostics?: ResponsivenessDiagnosticCostReport
 }
 
 interface CapacitySourceEvidence {
@@ -264,11 +259,6 @@ export async function runCapacityLoadSmoke(
   )
   const idleCpu = compareCapacityCpu(baselineCpu, twelveTerminalCpu)
   console.log(`[smoke:performance:sample:idle-cpu] ${JSON.stringify(idleCpu)}`)
-  const responsivenessDiagnostics = await measureResponsivenessDiagnosticCost(win)
-  console.log(
-    `[smoke:performance:sample:responsiveness-diagnostics] ${JSON.stringify(responsivenessDiagnostics)}`,
-  )
-
   startCapacityOutputFixtures(supervisor)
   let churning = true
   const watchChurn = (async (): Promise<void> => {
@@ -385,7 +375,6 @@ export async function runCapacityLoadSmoke(
       idleCpu,
       terminalReadiness,
       terminalActivity,
-      responsivenessDiagnostics,
       memoryStartKiB: processMetrics.memoryStartKiB,
       memoryEndKiB: processMetrics.memoryEndKiB,
       memoryPeakKiB: processMetrics.memoryPeakKiB,
@@ -495,7 +484,6 @@ function capacityPerformanceEvidence(
     !report.idleCpu ||
     !report.terminalReadiness ||
     !report.terminalActivity ||
-    !report.responsivenessDiagnostics ||
     !report.processMetrics
   ) {
     throw new Error('capacity performance evidence was incomplete')
@@ -507,13 +495,6 @@ function capacityPerformanceEvidence(
     responsivenessP99Ms: report.p99Ms,
     responsivenessMaxMs: report.maxMs,
     workingSetGrowthKiB: report.memoryGrowthKiB ?? 0,
-    diagnosticRendererPlusGpuCpuDelta:
-      report.responsivenessDiagnostics.rendererPlusGpuCpuDelta,
-    diagnosticMemoryGrowthDeltaKiB: report.responsivenessDiagnostics.memoryGrowthDeltaKiB,
-    diagnosticFrameP99Ms: report.responsivenessDiagnostics.active.interactions.frameP99Ms,
-    diagnosticFrameMaxMs: report.responsivenessDiagnostics.active.interactions.frameMaxMs,
-    diagnosticClickP95Ms: report.responsivenessDiagnostics.active.interactions.clickP95Ms,
-    diagnosticClickMaxMs: report.responsivenessDiagnostics.active.interactions.clickMaxMs,
   }
   const cpu = cpus()
   return {
@@ -546,7 +527,6 @@ function capacityPerformanceEvidence(
         clickSamples: report.clickLatenciesMs.length,
         processMetrics: report.processMetrics,
       },
-      responsivenessDiagnostics: report.responsivenessDiagnostics,
     },
     measurements,
     budgets: CAPACITY_PERFORMANCE_BUDGETS,

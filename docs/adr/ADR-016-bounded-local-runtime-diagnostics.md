@@ -1,5 +1,8 @@
 # ADR-016: Bounded local runtime diagnostics
 
+ADR-025 supersedes the `Responsiveness episode` candidate and removes that opt-in experiment.
+The remaining decision continues to govern bounded local runtime diagnostics.
+
 ## Context
 
 hvir already contains several distinct fault surfaces. React contains render failures, the

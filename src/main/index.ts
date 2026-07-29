@@ -73,7 +73,6 @@ function createWorkbenchEntry(): void {
     app.getPath('userData'),
     app.isPackaged || process.env['HVIR_SMOKE'] === '1',
     (state) => rendererEvents.toWindows('workbench-health:state', state),
-    !app.isPackaged,
   )
   const diagnosticReports = runtime.own(
     'Diagnostic reports',
@@ -82,7 +81,6 @@ function createWorkbenchEntry(): void {
   )
   const diagnosticIpc = {
     reports: diagnosticReports,
-    responsiveness: diagnostics,
     evidence: diagnostics,
   }
   diagnostics.recordApplication('application-starting')
