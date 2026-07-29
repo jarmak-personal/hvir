@@ -274,8 +274,8 @@ class GhosttyTerminalPane implements TerminalPane {
   }
 }
 
-/** Registered after Ghostty's built-ins so file:// OSC 8 links stay inside hvir. */
-class FileLinkProvider implements ILinkProvider {
+/** Registered with custom-provider priority so file:// OSC 8 links stay inside hvir. */
+export class FileLinkProvider implements ILinkProvider {
   constructor(
     private readonly terminal: GhosttyTerminal,
     private readonly activateTarget: (activation: TerminalLinkActivation) => void,
@@ -290,21 +290,42 @@ class FileLinkProvider implements ILinkProvider {
 
     const text: string[] = []
     const links: ILink[] = []
-    const hyperlinkIds = new Set<number>()
+    const visitedHyperlinkColumns = new Set<number>()
+    const wasmTerm = this.terminal.wasmTerm
+    const scrollbackLength = wasmTerm?.getScrollbackLength() ?? 0
+    const viewportRow = y - scrollbackLength
+    const hyperlinkTargetAt = (column: number): string | null => {
+      if (!wasmTerm) return null
+      return viewportRow < 0
+        ? wasmTerm.getScrollbackHyperlinkUri(y, column)
+        : wasmTerm.getHyperlinkUri(viewportRow, column)
+    }
     for (let x = 0; x < line.length; x += 1) {
       const cell = line.getCell(x)
       const codepoint = cell?.getCodepoint() ?? 0
       text.push(codepoint < 32 ? ' ' : String.fromCodePoint(codepoint))
       const id = cell?.getHyperlinkId() ?? 0
-      if (id <= 0 || hyperlinkIds.has(id)) continue
-      hyperlinkIds.add(id)
-      const target = this.terminal.wasmTerm?.getHyperlinkUri(id)
+      if (id <= 0 || visitedHyperlinkColumns.has(x)) continue
+      const target = hyperlinkTargetAt(x)
       if (!target || (!isFileUri(target) && !isTerminalWebTarget(target))) continue
       let start = x
       let end = x
-      while (start > 0 && line.getCell(start - 1)?.getHyperlinkId() === id) start -= 1
-      while (end + 1 < line.length && line.getCell(end + 1)?.getHyperlinkId() === id) {
+      while (
+        start > 0 &&
+        (line.getCell(start - 1)?.getHyperlinkId() ?? 0) > 0 &&
+        hyperlinkTargetAt(start - 1) === target
+      ) {
+        start -= 1
+      }
+      while (
+        end + 1 < line.length &&
+        (line.getCell(end + 1)?.getHyperlinkId() ?? 0) > 0 &&
+        hyperlinkTargetAt(end + 1) === target
+      ) {
         end += 1
+      }
+      for (let column = start; column <= end; column += 1) {
+        visitedHyperlinkColumns.add(column)
       }
       links.push(
         this.link(
@@ -327,8 +348,8 @@ class FileLinkProvider implements ILinkProvider {
         ),
       )
     }
-    // Registered after Ghostty's built-in URL detector, so these exact ranges
-    // replace its global window.open activations with typed terminal provenance.
+    // Custom providers take priority over Ghostty's built-in URL detector, so
+    // these exact ranges replace global window.open with typed provenance.
     for (const candidate of detectTerminalWebLinks(lineText)) {
       links.push(
         this.link(
