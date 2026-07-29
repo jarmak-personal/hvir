@@ -9,6 +9,7 @@ import {
   type HostPath,
 } from '../../../shared'
 import { renderMarkdown, resetMarkdownRenderer } from './markdown-client'
+import { DomFindTarget } from './dom-find-target'
 import { handleRenderedLinkClick } from './rendered-link-handler'
 import type {
   JsonNodeDescriptor,
@@ -19,6 +20,7 @@ import { useAppTheme } from '../theme'
 import type { CsvTableData } from './csv-parser'
 import type { CsvWorkerResponse } from './csv-protocol'
 import type { ViewerDocumentPosition } from './tab-state'
+import type { RegisterViewerFindTarget } from './viewer-find'
 import { captureRenderedPosition, restoreRenderedPosition } from './rendered-position'
 import { documentLineCount, type ViewerPositionCapture } from './viewer-position'
 
@@ -61,6 +63,7 @@ interface RenderedViewProps {
   readonly positionCapture: ViewerPositionCapture
   readonly onOpenPath: (path: HostPath) => void
   readonly refreshVersion: number
+  readonly registerFindTarget: RegisterViewerFindTarget
 }
 
 export function RenderedView({
@@ -71,6 +74,7 @@ export function RenderedView({
   positionCapture,
   onOpenPath,
   refreshVersion,
+  registerFindTarget,
 }: RenderedViewProps): ReactElement {
   const renderGeneration = useDevRendererGeneration()
   const theme = useAppTheme()
@@ -86,6 +90,7 @@ export function RenderedView({
         onPosition={onPosition}
         positionCapture={positionCapture}
         renderGeneration={renderGeneration}
+        registerFindTarget={registerFindTarget}
       />
     )
   }
@@ -103,6 +108,7 @@ export function RenderedView({
         position={position}
         onPosition={onPosition}
         positionCapture={positionCapture}
+        registerFindTarget={registerFindTarget}
       />
     )
   }
@@ -112,6 +118,7 @@ export function RenderedView({
         content={content}
         renderGeneration={renderGeneration}
         theme={theme}
+        registerFindTarget={registerFindTarget}
       />
     )
   }
@@ -127,6 +134,7 @@ export function RenderedView({
         renderGeneration={renderGeneration}
         refreshVersion={refreshVersion}
         theme={theme}
+        registerFindTarget={registerFindTarget}
       />
     )
   }
@@ -206,12 +214,14 @@ function CsvView({
   onPosition,
   positionCapture,
   renderGeneration,
+  registerFindTarget,
 }: {
   readonly content: string
   readonly position: ViewerDocumentPosition
   readonly onPosition: (position: ViewerDocumentPosition) => void
   readonly positionCapture: ViewerPositionCapture
   readonly renderGeneration: number
+  readonly registerFindTarget: RegisterViewerFindTarget
 }): ReactElement {
   const container = useRef<HTMLDivElement>(null)
   const [table, setTable] = useState<CsvTableData>()
@@ -236,6 +246,7 @@ function CsvView({
   }, [content, renderGeneration])
 
   useRenderedPosition(container, content, position, onPosition, positionCapture, table)
+  useRenderedFindTarget(container, table, registerFindTarget)
 
   if (error) return <div className="viewer-empty error">Invalid CSV: {error}</div>
   if (!table) return <div className="viewer-empty">Parsing CSV…</div>
@@ -345,6 +356,7 @@ function MarkdownView({
   renderGeneration,
   refreshVersion,
   theme,
+  registerFindTarget,
 }: RenderedViewProps & {
   readonly renderGeneration: number
   readonly theme: 'dark' | 'light'
@@ -387,6 +399,11 @@ function MarkdownView({
     onPosition,
     positionCapture,
     html ? `${refreshVersion}:${html}` : undefined,
+  )
+  useRenderedFindTarget(
+    container,
+    html ? `${refreshVersion}:${html}` : undefined,
+    registerFindTarget,
   )
 
   useEffect(() => {
@@ -458,10 +475,12 @@ function StandaloneMermaid({
   content,
   renderGeneration,
   theme,
+  registerFindTarget,
 }: {
   readonly content: string
   readonly renderGeneration: number
   readonly theme: 'dark' | 'light'
+  readonly registerFindTarget: RegisterViewerFindTarget
 }): ReactElement {
   const ref = useRef<HTMLDivElement>(null)
   useEffect(() => {
@@ -482,6 +501,11 @@ function StandaloneMermaid({
       cancelled = true
     }
   }, [content, renderGeneration, theme])
+  useRenderedFindTarget(
+    ref,
+    `${content}:${renderGeneration}:${theme}`,
+    registerFindTarget,
+  )
   return <div className="rendered-scroll mermaid-standalone" ref={ref} />
 }
 
@@ -529,6 +553,7 @@ function StructuredDataView({
   position,
   onPosition,
   positionCapture,
+  registerFindTarget,
 }: {
   readonly content: string
   readonly format: 'json' | 'yaml'
@@ -536,6 +561,7 @@ function StructuredDataView({
   readonly position: ViewerDocumentPosition
   readonly onPosition: (position: ViewerDocumentPosition) => void
   readonly positionCapture: ViewerPositionCapture
+  readonly registerFindTarget: RegisterViewerFindTarget
 }): ReactElement {
   const container = useRef<HTMLDivElement>(null)
   const [document, setDocument] = useState<{
@@ -567,6 +593,7 @@ function StructuredDataView({
   }, [content, format, renderGeneration])
 
   useRenderedPosition(container, content, position, onPosition, positionCapture, document)
+  useRenderedFindTarget(container, document, registerFindTarget)
 
   if (error)
     return (
@@ -610,6 +637,23 @@ function useRenderedPosition(
       if (positionCapture.current === capture) positionCapture.current = undefined
     }
   }, [container, lines, positionCapture, readyKey])
+}
+
+function useRenderedFindTarget(
+  container: RefObject<HTMLElement | null>,
+  readyKey: unknown,
+  registerFindTarget: RegisterViewerFindTarget,
+): void {
+  useEffect(() => {
+    const root = container.current
+    if (!root || readyKey === undefined) return
+    const target = new DomFindTarget(root)
+    const unregister = registerFindTarget(target)
+    return () => {
+      unregister()
+      target.dispose()
+    }
+  }, [container, readyKey, registerFindTarget])
 }
 
 /** Re-render active previews when their implementation changes during Vite dev HMR. */

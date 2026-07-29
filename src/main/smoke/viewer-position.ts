@@ -1,6 +1,7 @@
 import type { BrowserWindow } from 'electron'
 
-import type { HostPath } from '../../shared'
+import { dirnameHostPath, joinHostPath, type HostPath } from '../../shared'
+import { verifyViewerFind } from './viewer-find'
 
 export async function verifyFocusedViewer(
   win: BrowserWindow,
@@ -9,7 +10,16 @@ export async function verifyFocusedViewer(
 ): Promise<string> {
   const virtualized = await verifySourceDiffPosition(win, sourcePath)
   const commands = await verifyViewerPositions(win, renderedPath, false)
-  return `${virtualized} · ${commands}`
+  const root = dirnameHostPath(sourcePath)
+  const find = await verifyViewerFind(
+    win,
+    sourcePath,
+    joinHostPath(root, 'test/fixtures/rendered.md'),
+    joinHostPath(root, '.hvir-smoke-large.txt'),
+    joinHostPath(root, 'README.md'),
+    joinHostPath(root, 'package.json'),
+  )
+  return `${virtualized} · ${commands} · ${find}`
 }
 
 /** Retains keyboard routing and rendered-to-code position coverage in the legacy workflow. */

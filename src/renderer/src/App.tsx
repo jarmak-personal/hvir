@@ -243,6 +243,7 @@ export function App(): ReactElement {
     escapeWebPaneFocus: () => setWebViewFocused(false),
     canUseViewerCommands: () => !gitGraphActiveRef.current && !webViewActiveRef.current,
     cycleViewMode: cycleActiveMode,
+    findInFile: viewerCommands.findInFile,
     goToLine: viewerCommands.goToLine,
     toggleTerminalFocus,
     focusTerminal,
@@ -388,7 +389,6 @@ export function App(): ReactElement {
       </div>
     </section>
   )
-
   return (
     <div className="app-shell">
       {projectState ? (

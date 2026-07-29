@@ -8,7 +8,7 @@ import {
   lineNumbers,
   type DecorationSet,
 } from '@codemirror/view'
-import { useEffect, useRef, useState, type ReactElement } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react'
 
 import {
   basenameHostPath,
@@ -20,7 +20,10 @@ import {
   type HostPath,
 } from '../../../shared'
 import { DiffView } from './DiffView'
+import { FindControl } from './FindControl'
 import { GoToLineControl } from './GoToLineControl'
+import { CodeMirrorFindTarget, viewerFindDecorations } from './codemirror-find-target'
+import { DomFindTarget } from './dom-find-target'
 import { captureTopLine, restoreTopLine } from './code-scroll-anchor'
 import {
   languageForPath,
@@ -28,16 +31,18 @@ import {
   type HighlightToken,
 } from './highlight-protocol'
 import { RenderedView } from './RenderedView'
-import {
-  resolveSourceCoordinate,
-  type SourceCoordinate,
-} from './source-coordinate'
+import { resolveSourceCoordinate, type SourceCoordinate } from './source-coordinate'
 import type {
   ViewerDocumentPosition,
   ViewerNavigationPosition,
   ViewerTab,
 } from './tab-state'
 import type { RegisterViewerCommandTarget } from './viewer-command-targets'
+import {
+  viewerFindUnavailable,
+  type RegisterViewerFindTarget,
+  type ViewerFindTarget,
+} from './viewer-find'
 import {
   approximateLineAtScroll,
   approximateScrollForLine,
@@ -129,6 +134,8 @@ export function FileViewer({
   const [blameStatus, setBlameStatus] = useState('')
   const [modeControlExpanded, setModeControlExpanded] = useState(false)
   const [manualNavigation, setManualNavigation] = useState<ViewerNavigationPosition>()
+  const [findTarget, setFindTarget] = useState<ViewerFindTarget>()
+  const [findRequest, setFindRequest] = useState<number>()
   const [goToLineRequest, setGoToLineRequest] = useState<number>()
   const manualNavigationSerial = useRef(0)
   const commandSerial = useRef(0)
@@ -145,6 +152,16 @@ export function FileViewer({
         ? tab.file.content.slice(0, LARGE_FILE_PREVIEW_LIMIT)
         : tab.file.content
       : undefined
+
+  const registerFindTarget: RegisterViewerFindTarget = useCallback((target) => {
+    setFindTarget(target)
+    let active = true
+    return () => {
+      if (!active) return
+      active = false
+      setFindTarget((current) => (current === target ? undefined : current))
+    }
+  }, [])
 
   const navigate = (coordinate: SourceCoordinate): void => {
     setManualNavigation({
@@ -163,6 +180,7 @@ export function FileViewer({
   useEffect(() => {
     if (!tabId) return
     return registerCommands(tabId, {
+      findInFile: () => setFindRequest((commandSerial.current += 1)),
       goToLine: () => setGoToLineRequest((commandSerial.current += 1)),
     })
   }, [registerCommands, tabId])
@@ -224,6 +242,16 @@ export function FileViewer({
             </span>
           ) : null}
           <div className="view-controls">
+            <FindControl
+              key={`${tab.id}:${tab.pane}:${tab.mode}`}
+              requestSerial={findRequest}
+              target={findTarget}
+              unavailable={viewerFindUnavailable(tab)}
+              boundedPreview={boundedPreview && tab.mode !== 'rendered'}
+              onRequestHandled={(serial) =>
+                setFindRequest((current) => (current === serial ? undefined : current))
+              }
+            />
             <GoToLineControl
               requestSerial={goToLineRequest}
               content={navigationContent}
@@ -351,6 +379,7 @@ export function FileViewer({
           positionCapture={positionCapture}
           navigation={manualNavigation ?? tab.navigation}
           onNavigationHandled={handleNavigation}
+          registerFindTarget={registerFindTarget}
         />
       ) : null}
     </div>
@@ -387,6 +416,7 @@ function ActiveView({
   positionCapture,
   navigation,
   onNavigationHandled,
+  registerFindTarget,
 }: {
   readonly tab: ViewerTab
   readonly file: NonNullable<ViewerTab['file']>
@@ -400,6 +430,7 @@ function ActiveView({
   readonly positionCapture: ViewerPositionCapture
   readonly navigation?: ViewerNavigationPosition
   readonly onNavigationHandled: (serial: number) => void
+  readonly registerFindTarget: RegisterViewerFindTarget
 }): ReactElement {
   if (tab.mode === 'rendered') {
     return (
@@ -411,6 +442,7 @@ function ActiveView({
         positionCapture={positionCapture}
         onOpenPath={onOpenPath}
         refreshVersion={refreshVersion}
+        registerFindTarget={registerFindTarget}
       />
     )
   }
@@ -425,6 +457,7 @@ function ActiveView({
         positionCapture={positionCapture}
         navigation={navigation}
         onNavigationHandled={onNavigationHandled}
+        registerFindTarget={registerFindTarget}
       />
     )
   }
@@ -440,6 +473,7 @@ function ActiveView({
         position={tab.position}
         onPosition={onPosition}
         positionCapture={positionCapture}
+        registerFindTarget={registerFindTarget}
       />
     )
   }
@@ -457,6 +491,7 @@ function ActiveView({
       positionCapture={positionCapture}
       navigation={navigation}
       onNavigationHandled={onNavigationHandled}
+      registerFindTarget={registerFindTarget}
     />
   )
 }
@@ -470,6 +505,7 @@ function LargeFileView({
   positionCapture,
   navigation,
   onNavigationHandled,
+  registerFindTarget,
 }: {
   readonly content: string
   readonly size: number
@@ -479,6 +515,7 @@ function LargeFileView({
   readonly positionCapture: ViewerPositionCapture
   readonly navigation?: ViewerNavigationPosition
   readonly onNavigationHandled: (serial: number) => void
+  readonly registerFindTarget: RegisterViewerFindTarget
 }): ReactElement {
   const container = useRef<HTMLPreElement>(null)
   const positionRef = useRef(position)
@@ -558,6 +595,17 @@ function LargeFileView({
     })
     return () => cancelAnimationFrame(frame)
   }, [lines, navigation, onNavigationHandled, preview])
+
+  useEffect(() => {
+    const root = container.current
+    if (!root) return
+    const target = new DomFindTarget(root)
+    const unregister = registerFindTarget(target)
+    return () => {
+      unregister()
+      target.dispose()
+    }
+  }, [preview, registerFindTarget])
   return (
     <div className="large-file-shell">
       <div className="source-meta">
@@ -584,6 +632,7 @@ function SourceView({
   positionCapture,
   navigation,
   onNavigationHandled,
+  registerFindTarget,
 }: {
   readonly pathKey: string
   readonly content: string
@@ -597,6 +646,7 @@ function SourceView({
   readonly positionCapture: ViewerPositionCapture
   readonly navigation?: ViewerTab['navigation']
   readonly onNavigationHandled: (serial: number) => void
+  readonly registerFindTarget: RegisterViewerFindTarget
 }): ReactElement {
   const theme = useAppTheme()
   const container = useRef<HTMLDivElement>(null)
@@ -611,6 +661,7 @@ function SourceView({
   useEffect(() => {
     const parent = container.current
     if (!parent) return
+    const targetRef: { current?: CodeMirrorFindTarget } = {}
     const editor = new EditorView({
       parent,
       state: EditorState.create({
@@ -619,6 +670,7 @@ function SourceView({
           lineNumbers(),
           blameCompartment.current.of(blameGutter(blame)),
           tokenDecorations,
+          viewerFindDecorations,
           keymap.of([
             {
               key: 'Mod-s',
@@ -630,6 +682,7 @@ function SourceView({
             },
           ]),
           EditorView.updateListener.of((update) => {
+            if (update.docChanged) targetRef.current?.contentChanged()
             if (update.docChanged && !applyingExternal.current) {
               const next = update.state.doc.toString()
               lastUserContent.current = next
@@ -640,6 +693,9 @@ function SourceView({
         ],
       }),
     })
+    const target = new CodeMirrorFindTarget([{ view: editor }])
+    targetRef.current = target
+    const unregisterFind = registerFindTarget(target)
     const restorePosition = position
     const capturePosition = (): ViewerDocumentPosition => ({
       mode: 'source',
@@ -663,6 +719,9 @@ function SourceView({
         positionCapture.current = undefined
       }
       view.current = undefined
+      unregisterFind()
+      target.clear()
+      targetRef.current = undefined
       editor.destroy()
     }
     // A path change is a new editor. Content synchronization is handled below.

@@ -103,9 +103,9 @@ describe('FileViewer controls', () => {
     })
     act(() => {
       if (!input) return
-      input.closest('form')?.dispatchEvent(
-        new Event('submit', { bubbles: true, cancelable: true }),
-      )
+      input
+        .closest('form')
+        ?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
     })
     expect(host.querySelector('[role="status"]')?.textContent).toContain(
       'outside this document',
@@ -122,9 +122,9 @@ describe('FileViewer controls', () => {
     })
     act(() => {
       if (!input) return
-      input.closest('form')?.dispatchEvent(
-        new Event('submit', { bubbles: true, cancelable: true }),
-      )
+      input
+        .closest('form')
+        ?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
     })
     expect(onMode).toHaveBeenCalledWith('source', undefined)
   })
@@ -143,6 +143,48 @@ describe('FileViewer controls', () => {
 
     expect(host.querySelector('[aria-label="Go to line"]')).toBeTruthy()
     expect(onNavigationHandled).not.toHaveBeenCalled()
+  })
+
+  it('finds current unsaved source content and refreshes counts after edits', () => {
+    vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => {
+      callback(0)
+      return 1
+    })
+    let target:
+      Parameters<Parameters<typeof FileViewer>[0]['registerCommands']>[1] | undefined
+    renderViewer(
+      tab({
+        mode: 'source',
+        loading: false,
+        content: 'needle one\nNEEDLE two',
+        size: 1024 * 1024 + 1,
+      }),
+      {
+        registerCommands: (_tabId, next) => {
+          target = next
+          return () => undefined
+        },
+      },
+    )
+
+    act(() => target?.findInFile())
+    const input = host.querySelector<HTMLInputElement>(
+      '[aria-label="Find in file"] input',
+    )
+    setInput(input, 'needle')
+    expect(
+      host.querySelector('[aria-label="Find in file"] [role="status"]')?.textContent,
+    ).toBe('1 of 2')
+
+    act(() => {
+      const editor = editorView()
+      editor.dispatch({
+        changes: { from: editor.state.doc.length, insert: '\nneedle three' },
+      })
+    })
+    expect(
+      host.querySelector('[aria-label="Find in file"] [role="status"]')?.textContent,
+    ).toBe('1 of 3')
   })
 
   it('closes on Escape and restores focus to the previous viewer surface', () => {
@@ -268,9 +310,9 @@ describe('FileViewer controls', () => {
         '1:3',
       )
       input.dispatchEvent(new Event('input', { bubbles: true }))
-      input.closest('form')?.dispatchEvent(
-        new Event('submit', { bubbles: true, cancelable: true }),
-      )
+      input
+        .closest('form')
+        ?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
     })
 
     expect(onMode).toHaveBeenCalledWith('source', expect.any(Object))
@@ -316,6 +358,17 @@ function editorView(): EditorView {
   const view = EditorView.findFromDOM(editor)
   if (!view) throw new Error('Expected CodeMirror view')
   return view
+}
+
+function setInput(input: HTMLInputElement | null, value: string): void {
+  act(() => {
+    if (!input) return
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(
+      input,
+      value,
+    )
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+  })
 }
 
 function renderViewer(
