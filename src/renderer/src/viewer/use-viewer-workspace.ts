@@ -36,10 +36,7 @@ import {
   viewerTabId,
   type RestoredViewerTabs,
 } from './viewer-workspace-persistence'
-import {
-  ViewerCommandTargets,
-  type ViewerCommandTarget,
-} from './viewer-command-targets'
+import { ViewerCommandTargets, type ViewerCommandTarget } from './viewer-command-targets'
 
 interface UseViewerWorkspaceOptions {
   readonly onActivateFile: () => void
@@ -244,6 +241,10 @@ export function useViewerWorkspace(options: UseViewerWorkspaceOptions) {
     commandTargets.current.goToLine(modelRef.current.activeId)
   }, [])
 
+  const requestFindInFile = useCallback((): void => {
+    commandTargets.current.findInFile(modelRef.current.activeId)
+  }, [])
+
   const navigationHandled = useCallback(
     (id: string, serial: number): void =>
       send({ type: 'navigation-handled', id, serial }),
@@ -421,7 +422,11 @@ export function useViewerWorkspace(options: UseViewerWorkspaceOptions) {
     pinTab,
     setMode,
     cycleActiveMode,
-    viewerCommands: { register: registerViewerCommandTarget, goToLine: requestGoToLine },
+    viewerCommands: {
+      register: registerViewerCommandTarget,
+      findInFile: requestFindInFile,
+      goToLine: requestGoToLine,
+    },
     setDiffBase,
     setContent,
     navigationHandled,

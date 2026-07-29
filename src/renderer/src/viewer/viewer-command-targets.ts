@@ -1,4 +1,5 @@
 export interface ViewerCommandTarget {
+  readonly findInFile: () => void
   readonly goToLine: () => void
 }
 
@@ -23,5 +24,9 @@ export class ViewerCommandTargets {
 
   goToLine(tabId: string | undefined): void {
     if (tabId) this.#targets.get(tabId)?.goToLine()
+  }
+
+  findInFile(tabId: string | undefined): void {
+    if (tabId) this.#targets.get(tabId)?.findInFile()
   }
 }

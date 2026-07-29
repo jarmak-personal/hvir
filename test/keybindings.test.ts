@@ -11,11 +11,15 @@ describe('configurable keybindings', () => {
     const bindings = parseKeybindingOverrides({ focusTerminal: 'Mod+Alt+T' })
     expect(bindings.focusTerminal).toBe('Mod+Alt+T')
     expect(bindings.cycleViewMode).toBe('Mod+Shift+M')
+    expect(bindings.findInFile).toBe('Mod+F')
     expect(bindings.goToLine).toBe('Ctrl+G')
   })
 
   it('keeps viewer navigation out of terminal and web-pane input', () => {
     expect(keybindingAvailableInContext('goToLine', 'workbench')).toBe(true)
+    expect(keybindingAvailableInContext('findInFile', 'workbench')).toBe(true)
+    expect(keybindingAvailableInContext('findInFile', 'terminal')).toBe(false)
+    expect(keybindingAvailableInContext('findInFile', 'web-pane')).toBe(false)
     expect(keybindingAvailableInContext('goToLine', 'terminal')).toBe(false)
     expect(keybindingAvailableInContext('goToLine', 'web-pane')).toBe(false)
     expect(keybindingAvailableInContext('cycleViewMode', 'web-pane')).toBe(true)

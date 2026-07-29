@@ -5,8 +5,10 @@ import { useEffect, useRef, useState, type ReactElement } from 'react'
 
 import type { DiffBase, GitDiffResponse, HostPath } from '../../../shared'
 import { captureTopLine, restoreTopLine } from './code-scroll-anchor'
+import { CodeMirrorFindTarget, viewerSearch } from './codemirror-find-target'
 import { shouldPublishDiffPosition, usesUnsavedContent } from './diff-policy'
 import type { ViewerDocumentPosition } from './tab-state'
+import type { RegisterViewerFindTarget } from './viewer-find'
 import type { ViewerPositionCapture } from './viewer-position'
 
 interface DiffViewProps {
@@ -19,6 +21,7 @@ interface DiffViewProps {
   readonly position: ViewerDocumentPosition
   readonly onPosition: (position: ViewerDocumentPosition) => void
   readonly positionCapture: ViewerPositionCapture
+  readonly registerFindTarget: RegisterViewerFindTarget
 }
 
 export function DiffView({
@@ -31,6 +34,7 @@ export function DiffView({
   position,
   onPosition,
   positionCapture,
+  registerFindTarget,
 }: DiffViewProps): ReactElement {
   const host = useRef<HTMLDivElement>(null)
   const positionRef = useRef(position)
@@ -66,6 +70,7 @@ export function DiffView({
       EditorState.readOnly.of(true),
       EditorView.editable.of(false),
       lineNumbers(),
+      viewerSearch,
       diffTheme,
     ]
     const merge = new MergeView({
@@ -79,6 +84,11 @@ export function DiffView({
       highlightChanges: true,
       gutter: true,
     })
+    const findTarget = new CodeMirrorFindTarget([
+      { view: merge.a, side: 'base' },
+      { view: merge.b, side: 'current' },
+    ])
+    const unregisterFind = registerFindTarget(findTarget)
     const restorePosition = positionRef.current
     const hasChanges = merge.chunks.length > 0
     let userNavigated = false
@@ -122,9 +132,11 @@ export function DiffView({
       if (positionCapture.current === capturePosition) {
         positionCapture.current = undefined
       }
+      unregisterFind()
+      findTarget.clear()
       merge.destroy()
     }
-  }, [base, currentContent, dirty, inputs, positionCapture, revision])
+  }, [base, currentContent, dirty, inputs, positionCapture, registerFindTarget, revision])
 
   if (error) return <div className="viewer-empty error">{error}</div>
   if (!inputs) return <div className="viewer-empty">Preparing diff…</div>

@@ -1,0 +1,84 @@
+.find-control {
+  position: relative;
+}
+
+.find-toggle {
+  min-height: 24px;
+  padding: 3px 8px;
+  border: 1px solid #343a44;
+  border-radius: 4px;
+  background: #15181e;
+  color: #8e97a5;
+  cursor: pointer;
+  font-size: 10px;
+}
+
+.find-popover {
+  position: absolute;
+  z-index: 6;
+  top: calc(100% + 6px);
+  right: 0;
+  width: 300px;
+  display: grid;
+  gap: 6px;
+  padding: 9px;
+  border: 1px solid #3b4552;
+  border-radius: 5px;
+  background: #11151b;
+  color: #aeb6c2;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 45%);
+  font-size: 10px;
+}
+
+.find-popover > input {
+  min-width: 0;
+  padding: 5px 7px;
+  border: 1px solid #414b59;
+  border-radius: 4px;
+  outline: none;
+  background: #171c23;
+  color: #edf0f5;
+  font:
+    12px/1.35 'JetBrains Mono',
+    'SFMono-Regular',
+    Consolas,
+    monospace;
+}
+
+.find-popover > input:focus {
+  border-color: #4d8fd8;
+  box-shadow: 0 0 0 1px #4d8fd8;
+}
+
+.find-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.find-actions label {
+  display: inline-flex;
+  flex: 1;
+  align-items: center;
+  gap: 4px;
+}
+
+.find-actions button {
+  min-height: 23px;
+  padding: 2px 6px;
+  border: 1px solid #343a44;
+  border-radius: 4px;
+  background: #171c23;
+  color: #b8bec8;
+  cursor: pointer;
+  font-size: 10px;
+}
+
+.find-actions button:disabled {
+  cursor: default;
+  opacity: 0.4;
+}
+
+.find-popover small {
+  color: #768190;
+}

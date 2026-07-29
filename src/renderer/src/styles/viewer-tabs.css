@@ -342,7 +342,11 @@
   outline: none;
   background: #171c23;
   color: #edf0f5;
-  font: 12px/1.35 'JetBrains Mono', 'SFMono-Regular', Consolas, monospace;
+  font:
+    12px/1.35 'JetBrains Mono',
+    'SFMono-Regular',
+    Consolas,
+    monospace;
 }
 
 .go-to-line-popover input:focus {
@@ -386,6 +390,7 @@
 
 .mode-control button:focus-visible,
 .blame-toggle:focus-visible,
+.find-toggle:focus-visible,
 .go-to-line-toggle:focus-visible,
 .conflict-badge:focus-visible {
   outline: none;

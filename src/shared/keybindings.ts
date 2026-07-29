@@ -1,5 +1,6 @@
 export const KEYBINDING_ACTIONS = [
   'cycleViewMode',
+  'findInFile',
   'goToLine',
   'focusTerminal',
   'focusViewer',
@@ -14,6 +15,7 @@ export type KeybindingMap = Readonly<Record<KeybindingAction, string>>
 
 export const DEFAULT_KEYBINDINGS: KeybindingMap = {
   cycleViewMode: 'Mod+Shift+M',
+  findInFile: 'Mod+F',
   goToLine: 'Ctrl+G',
   focusTerminal: 'Mod+J',
   focusViewer: 'Mod+1',
@@ -29,7 +31,7 @@ export function keybindingAvailableInContext(
   action: KeybindingAction,
   context: KeybindingContext,
 ): boolean {
-  if (action === 'goToLine') return context === 'workbench'
+  if (action === 'findInFile' || action === 'goToLine') return context === 'workbench'
   if (action === 'cycleViewMode') return context !== 'terminal'
   return true
 }
