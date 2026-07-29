@@ -1,6 +1,16 @@
 import type { BrowserWindow } from 'electron'
 
-import type { HostPath } from '../../shared'
+import { dirnameHostPath, joinHostPath, type HostPath } from '../../shared'
+
+export async function verifyFocusedViewerPositions(
+  win: BrowserWindow,
+  sourcePath: HostPath,
+): Promise<string> {
+  const renderedPath = joinHostPath(dirnameHostPath(sourcePath), '.hvir-smoke-position.md')
+  const virtualized = await verifySourceDiffPosition(win, sourcePath)
+  const commands = await verifyViewerPositions(win, renderedPath)
+  return `${virtualized} · ${commands}`
+}
 
 /** Retains keyboard routing and rendered-to-code position coverage in the legacy workflow. */
 export function verifyViewerPositions(
@@ -65,6 +75,12 @@ export function verifyViewerPositions(
         'viewer position fixture missing'
       );
       file.click();
+      await waitFor(
+        () => document.querySelector('.viewer-tab.active .tab-main')
+          ?.getAttribute('title') === ${JSON.stringify(path.path)},
+        'viewer position fixture did not activate'
+      );
+      modeButton('rendered')?.click();
       const rendered = await waitFor(
         () => document.querySelector('.markdown-body'),
         'position fixture did not render'
@@ -136,6 +152,61 @@ export function verifyViewerPositions(
       await changeMode('diff', 'rendered');
       await changeMode('rendered', 'source');
 
+      modeButton('rendered')?.click();
+      await waitFor(() => activeMode() === 'rendered', 'go-to-line fixture did not render');
+      terminal?.dispatchEvent(new KeyboardEvent('keydown', {
+        key: 'g', ctrlKey: true, bubbles: true
+      }));
+      await settle();
+      if (document.querySelector('[aria-label="Go to line"]')) {
+        throw new Error('terminal Ctrl+G opened viewer navigation');
+      }
+      window.dispatchEvent(new KeyboardEvent('keydown', {
+        key: 'g', ctrlKey: true, bubbles: true
+      }));
+      const coordinate = await waitFor(
+        () => document.querySelector('[aria-label="Go to line"] input'),
+        'Ctrl+G did not open go-to-line'
+      );
+      const coordinateSetter = Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        'value'
+      )?.set;
+      coordinateSetter?.call(coordinate, '121:3');
+      coordinate.dispatchEvent(new Event('input', { bubbles: true }));
+      coordinate.closest('form')?.dispatchEvent(
+        new Event('submit', { bubbles: true, cancelable: true })
+      );
+      const goToSource = await waitFor(
+        () => document.querySelector('.source-shell .cm-scroller'),
+        'go-to-line did not switch to source'
+      );
+      await waitFor(() => {
+        const bounds = goToSource.getBoundingClientRect();
+        const marker = [...goToSource.querySelectorAll('.cm-lineNumbers .cm-gutterElement')]
+          .find((node) => node.textContent?.trim() === '121');
+        if (!marker) return false;
+        const markerBounds = marker.getBoundingClientRect();
+        return markerBounds.bottom > bounds.top && markerBounds.top < bounds.bottom;
+      }, 'go-to-line did not scroll to the requested line');
+      await waitFor(() => {
+        const selection = window.getSelection();
+        const anchor = selection?.anchorNode;
+        const selectedLine = anchor instanceof Element
+          ? anchor.closest('.cm-line')
+          : anchor?.parentElement?.closest('.cm-line');
+        if (!selection || !anchor || !selectedLine) return false;
+        const marker = [...goToSource.querySelectorAll('.cm-lineNumbers .cm-gutterElement')]
+          .find((node) => node.textContent?.trim() === '121');
+        if (!marker || Math.abs(
+          marker.getBoundingClientRect().top - selectedLine.getBoundingClientRect().top
+        ) > 2) return false;
+        const range = document.createRange();
+        range.selectNodeContents(selectedLine);
+        range.setEnd(anchor, selection.anchorOffset);
+        return range.toString().length + 1 === 3;
+      }, 'go-to-line did not place the requested column');
+
       const cleanFile = await waitFor(
         () => [...document.querySelectorAll('.file-row')]
           .find((node) => node.getAttribute('title')?.endsWith('/package.json')),
@@ -182,8 +253,39 @@ export function verifyViewerPositions(
         return line !== undefined && Math.abs(line - cleanLine) <= 2 ? line : undefined;
       }, 'empty diff reset the source position');
 
+      document.querySelector('[aria-label="Split viewer right"]')?.click();
+      const secondary = await waitFor(
+        () => document.querySelector('[data-viewer-pane="secondary"]'),
+        'secondary viewer did not open'
+      );
+      secondary.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+      const secondaryFile = await waitFor(
+        () => [...document.querySelectorAll('.file-row')]
+          .find((node) => node.getAttribute('title')?.endsWith('/tsconfig.json')),
+        'secondary viewer fixture missing'
+      );
+      secondaryFile.click();
+      await waitFor(
+        () => secondary.querySelector('.viewer-tab.active .tab-name')?.textContent
+          ?.includes('tsconfig.json'),
+        'secondary viewer fixture did not open in the focused pane'
+      );
+      window.dispatchEvent(new KeyboardEvent('keydown', {
+        key: 'g', ctrlKey: true, bubbles: true
+      }));
+      const scopedControl = await waitFor(
+        () => secondary.querySelector('[aria-label="Go to line"]'),
+        'go-to-line did not target the focused secondary pane'
+      );
+      if (document.querySelectorAll('[aria-label="Go to line"]').length !== 1) {
+        throw new Error('go-to-line opened in more than one viewer pane');
+      }
+      scopedControl.querySelector('input')?.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })
+      );
+
       return 'keyboard isolated · line ' + targetLine + ' · ' + transitions.join(', ') +
-        ' · empty diff preserved line ' + cleanLine;
+        ' · go-to 121:3 · split scoped · empty diff preserved line ' + cleanLine;
     })()
   `) as Promise<string>
 }

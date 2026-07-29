@@ -36,6 +36,10 @@ import {
   viewerTabId,
   type RestoredViewerTabs,
 } from './viewer-workspace-persistence'
+import {
+  ViewerCommandTargets,
+  type ViewerCommandTarget,
+} from './viewer-command-targets'
 
 interface UseViewerWorkspaceOptions {
   readonly onActivateFile: () => void
@@ -54,6 +58,7 @@ export function useViewerWorkspace(options: UseViewerWorkspaceOptions) {
   const workspaceGeneration = useRef(0)
   const readGenerations = useRef(new Map<string, number>())
   const navigationSerial = useRef(0)
+  const commandTargets = useRef(new ViewerCommandTargets())
   const pendingPositions = useRef(new Map<string, ViewerDocumentPosition>())
   const scrollFrame = useRef<number | undefined>(undefined)
   const discardDirtyOnUnload = useRef(false)
@@ -228,6 +233,16 @@ export function useViewerWorkspace(options: UseViewerWorkspaceOptions) {
     flushPendingPositions()
     send({ type: 'cycle-active-mode' })
   }, [flushPendingPositions, send])
+
+  const registerViewerCommandTarget = useCallback(
+    (tabId: string, target: ViewerCommandTarget): (() => void) =>
+      commandTargets.current.register(tabId, target),
+    [],
+  )
+
+  const requestGoToLine = useCallback((): void => {
+    commandTargets.current.goToLine(modelRef.current.activeId)
+  }, [])
 
   const navigationHandled = useCallback(
     (id: string, serial: number): void =>
@@ -406,6 +421,7 @@ export function useViewerWorkspace(options: UseViewerWorkspaceOptions) {
     pinTab,
     setMode,
     cycleActiveMode,
+    viewerCommands: { register: registerViewerCommandTarget, goToLine: requestGoToLine },
     setDiffBase,
     setContent,
     navigationHandled,

@@ -23,7 +23,7 @@ import {
   verifyRendererLifecycleCleanup,
   verifyRendererRolloverRecovery,
 } from './renderer-lifecycle'
-import { verifySourceDiffPosition, verifyViewerPositions } from './viewer-position'
+import { verifyFocusedViewerPositions, verifyViewerPositions } from './viewer-position'
 import { verifyWorkbenchHealthFault } from './workbench-health'
 import { verifyUnresponsiveRendererRecovery } from './renderer-recovery'
 import type { ElectronSmokeMode } from './scenario-selection.mts'
@@ -224,7 +224,7 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
     await host.exec('rm', ['-f', '--', harnessProfilesPath.path])
     const liveReloadBefore = `${Array.from({ length: 240 }, (_, index) => `line ${index}`).join('\n')}\n`
     await host.writeFile(liveReloadPath, liveReloadBefore)
-    if (mode === 'workflow') {
+    if (mode === 'workflow' || mode === 'viewer-position') {
       await host.writeFile(
         viewerPositionPath,
         Array.from(
@@ -506,7 +506,7 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
     }
 
     if (mode === 'viewer-position') {
-      const result = await verifySourceDiffPosition(win, liveReloadPath)
+      const result = await verifyFocusedViewerPositions(win, liveReloadPath)
       console.log(`[smoke] source/diff viewer positions OK (${result})`)
       console.log('HVIR_SMOKE_OK')
       return 0

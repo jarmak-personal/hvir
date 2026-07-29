@@ -84,10 +84,93 @@ describe('FileViewer controls', () => {
     })
     expect(onDiffBase).toHaveBeenCalledWith('branch-point')
   })
+
+  it('validates and submits a visible go-to-line control', () => {
+    const onMode = vi.fn()
+    renderViewer(tab({ mode: 'rendered' }), { onMode })
+
+    act(() => host.querySelector<HTMLButtonElement>('.go-to-line-toggle')?.click())
+    const input = host.querySelector<HTMLInputElement>('[aria-label="Go to line"] input')
+    expect(input).toBeTruthy()
+    act(() => {
+      if (!input) return
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(
+        input,
+        '2',
+      )
+      input.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    act(() => {
+      if (!input) return
+      input.closest('form')?.dispatchEvent(
+        new Event('submit', { bubbles: true, cancelable: true }),
+      )
+    })
+    expect(host.querySelector('[role="status"]')?.textContent).toContain(
+      'outside this document',
+    )
+    expect(onMode).not.toHaveBeenCalled()
+
+    act(() => {
+      if (!input) return
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(
+        input,
+        '1:3',
+      )
+      input.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    act(() => {
+      if (!input) return
+      input.closest('form')?.dispatchEvent(
+        new Event('submit', { bubbles: true, cancelable: true }),
+      )
+    })
+    expect(onMode).toHaveBeenCalledWith('source', undefined)
+  })
+
+  it('acknowledges a tab-scoped keyboard request when the control opens', () => {
+    const onNavigationHandled = vi.fn()
+    let target: { readonly goToLine: () => void } | undefined
+    renderViewer(tab({ mode: 'source' }), {
+      onNavigationHandled,
+      registerCommands: (_tabId, next) => {
+        target = next
+        return () => undefined
+      },
+    })
+    act(() => target?.goToLine())
+
+    expect(host.querySelector('[aria-label="Go to line"]')).toBeTruthy()
+    expect(onNavigationHandled).not.toHaveBeenCalled()
+  })
+
+  it('closes on Escape and restores focus to the previous viewer surface', () => {
+    vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => {
+      callback(0)
+      return 1
+    })
+    const previous = document.createElement('button')
+    document.body.append(previous)
+    previous.focus()
+    renderViewer(tab({ mode: 'source' }))
+
+    act(() => host.querySelector<HTMLButtonElement>('.go-to-line-toggle')?.click())
+    const input = host.querySelector<HTMLInputElement>('[aria-label="Go to line"] input')
+    expect(document.activeElement).toBe(input)
+    act(() => {
+      input?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    })
+
+    expect(host.querySelector('[aria-label="Go to line"]')).toBeNull()
+    expect(document.activeElement).toBe(previous)
+    previous.remove()
+  })
 })
 
 function tab(
-  overrides: Partial<Pick<ViewerTab, 'mode' | 'conflict'>> & { mode: ViewMode },
+  overrides: Partial<Pick<ViewerTab, 'mode' | 'conflict'>> & {
+    mode: ViewMode
+  },
 ): ViewerTab {
   const path = localPath('/repo/design.md')
   return {
@@ -111,6 +194,8 @@ function renderViewer(
     readonly onMode?: (mode: ViewMode) => void
     readonly onDiffBase?: (base: 'working-tree' | 'head' | 'branch-point') => void
     readonly onReload?: () => void
+    readonly onNavigationHandled?: (serial: number) => void
+    readonly registerCommands?: Parameters<typeof FileViewer>[0]['registerCommands']
   } = {},
 ): void {
   act(() => {
@@ -123,7 +208,8 @@ function renderViewer(
         onSave={vi.fn()}
         onReload={overrides.onReload ?? vi.fn()}
         onPosition={vi.fn()}
-        onNavigationHandled={vi.fn()}
+        onNavigationHandled={overrides.onNavigationHandled ?? vi.fn()}
+        registerCommands={overrides.registerCommands ?? (() => () => undefined)}
         onOpenPath={vi.fn()}
         refreshVersion={0}
       />,
