@@ -318,6 +318,7 @@ jobs:
       - name: Create or repair a private draft
         env:
           GH_TOKEN: ${{ github.token }}
+          RELEASE_REF_WRITE_TOKEN: ${{ secrets.IMMUTABLE_RELEASES_READ_TOKEN }}
           RELEASE_SHA: ${{ needs.prepare.outputs.sha }}
           TAG: ${{ needs.prepare.outputs.tag }}
         run: |
@@ -330,8 +331,14 @@ jobs:
             exit 1
           fi
           if [ -z "$remote_tag_sha" ]; then
-            git tag "$TAG" "$RELEASE_SHA"
-            git push origin "$TAG"
+            GH_TOKEN="$RELEASE_REF_WRITE_TOKEN" gh api \
+              --method POST \
+              -H 'Accept: application/vnd.github+json' \
+              -H 'X-GitHub-Api-Version: 2026-03-10' \
+              "repos/$GITHUB_REPOSITORY/git/refs" \
+              -f ref="refs/tags/$TAG" \
+              -f sha="$RELEASE_SHA" \
+              >/dev/null
           fi
 
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then

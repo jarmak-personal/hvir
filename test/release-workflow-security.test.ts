@@ -149,9 +149,20 @@ describe('native release automation', () => {
       'IMMUTABLE_RELEASES_READ_TOKEN is unavailable in native-release-signing',
     )
     expect(immutableStep).not.toContain('GH_TOKEN: ${{ github.token }}')
-    expect(releaseWorkflow.slice(createDraft, upload)).toContain(
+    const createDraftStep = releaseWorkflow.slice(createDraft, upload)
+    expect(createDraftStep).toContain(
       'GH_TOKEN: ${{ github.token }}',
     )
+    expect(createDraftStep).toContain(
+      'RELEASE_REF_WRITE_TOKEN: ${{ secrets.IMMUTABLE_RELEASES_READ_TOKEN }}',
+    )
+    expect(createDraftStep).toContain(
+      'GH_TOKEN="$RELEASE_REF_WRITE_TOKEN" gh api',
+    )
+    expect(createDraftStep).toContain(
+      '"repos/$GITHUB_REPOSITORY/git/refs"',
+    )
+    expect(createDraftStep).not.toContain('git push origin "$TAG"')
     expect(releaseWorkflow).toContain('npm run assemble:native-release')
     expect(releaseWorkflow).toContain('--draft')
     expect(releaseWorkflow).toContain('--draft=false')
