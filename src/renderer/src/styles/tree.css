@@ -46,7 +46,7 @@
   stroke-width: 1.4;
 }
 
-.files-panel .directory-tree > .tree-row:first-child {
+.files-panel .directory-tree > .tree-directory > .directory-row {
   padding-right: 34px;
 }
 

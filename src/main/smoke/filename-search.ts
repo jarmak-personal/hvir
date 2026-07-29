@@ -24,12 +24,21 @@ export async function verifyFilenameSearch(win: BrowserWindow): Promise<string> 
           document.querySelector('.terminal-panel');
         const testDirectory = [...document.querySelectorAll('.directory-row')]
           .find((node) => node.getAttribute('title')?.endsWith('/test'));
-        if (!trigger || !terminal || !testDirectory) {
+        const rootRow = document.querySelector(
+          '.directory-tree > .tree-directory > .directory-row'
+        );
+        const rootGitStatus = rootRow?.querySelector('.tree-git-status.directory');
+        if (!trigger || !terminal || !testDirectory || !rootGitStatus) {
           if (Date.now() > deadline) return reject(new Error('filename search controls missing'));
           return setTimeout(waitForControl, 50);
         }
         if (document.querySelector('[data-filename-search]')) {
           return reject(new Error('filename search field consumed idle rail space'));
+        }
+        const triggerRect = trigger.getBoundingClientRect();
+        const gitStatusRect = rootGitStatus.getBoundingClientRect();
+        if (gitStatusRect.right + 4 > triggerRect.left) {
+          return reject(new Error('filename search action overlapped the root Git status badge'));
         }
         trigger.click();
         requestAnimationFrame(() => {
@@ -101,7 +110,7 @@ export async function verifyFilenameSearch(win: BrowserWindow): Promise<string> 
               return reject(new Error('filename result did not restore the Files tree'));
             }
             return requestAnimationFrame(() => resolve(
-              'on-demand · wildcard · terminal preserved · collapsed result · keyboard activation'
+              'on-demand · badge-safe · wildcard · terminal preserved · collapsed result · keyboard activation'
             ));
           }
           if (Date.now() > deadline) return reject(new Error('filename result did not open: ' + title));
