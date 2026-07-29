@@ -5,6 +5,11 @@ export interface SourceCoordinate {
 
 interface InvalidSourceCoordinate {
   readonly valid: false
+  readonly reason:
+    | 'invalid-format'
+    | 'unsafe-integer'
+    | 'line-out-of-range'
+    | 'column-out-of-range'
   readonly message: string
 }
 
@@ -20,11 +25,11 @@ const COORDINATE = /^([1-9]\d*)(?::([1-9]\d*))?$/
 
 export function parseSourceCoordinate(value: string): ParsedSourceCoordinate {
   const match = value.trim().match(COORDINATE)
-  if (!match) return invalid('Enter a positive line or line:column')
+  if (!match) return invalid('invalid-format', 'Enter a positive line or line:column')
   const line = Number(match[1])
   const column = match[2] === undefined ? undefined : Number(match[2])
   if (!Number.isSafeInteger(line) || (column !== undefined && !Number.isSafeInteger(column))) {
-    return invalid('Line and column must be safe positive integers')
+    return invalid('unsafe-integer', 'Line and column must be safe positive integers')
   }
   return {
     valid: true,
@@ -44,7 +49,10 @@ export function resolveSourceCoordinate(
     lineStart = index + 1
   }
   if (line !== coordinate.line) {
-    return invalid(`Line ${coordinate.line} is outside this document`)
+    return invalid(
+      'line-out-of-range',
+      `Line ${coordinate.line} is outside this document`,
+    )
   }
 
   const newline = content.indexOf('\n', lineStart)
@@ -54,6 +62,7 @@ export function resolveSourceCoordinate(
   const maximumColumn = lineEnd - lineStart + 1
   if (column > maximumColumn) {
     return invalid(
+      'column-out-of-range',
       `Column ${column} is outside line ${coordinate.line} (maximum ${maximumColumn})`,
     )
   }
@@ -64,6 +73,9 @@ export function resolveSourceCoordinate(
   }
 }
 
-function invalid(message: string): InvalidSourceCoordinate {
-  return { valid: false, message }
+function invalid(
+  reason: InvalidSourceCoordinate['reason'],
+  message: string,
+): InvalidSourceCoordinate {
+  return { valid: false, reason, message }
 }

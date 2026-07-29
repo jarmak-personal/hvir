@@ -23,7 +23,7 @@ import {
   verifyRendererLifecycleCleanup,
   verifyRendererRolloverRecovery,
 } from './renderer-lifecycle'
-import { verifyFocusedViewerPositions, verifyViewerPositions } from './viewer-position'
+import { verifyFocusedViewer, verifyViewerPositions } from './viewer-position'
 import { verifyWorkbenchHealthFault } from './workbench-health'
 import { verifyUnresponsiveRendererRecovery } from './renderer-recovery'
 import type { ElectronSmokeMode } from './scenario-selection.mts'
@@ -506,7 +506,7 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
     }
 
     if (mode === 'viewer-position') {
-      const result = await verifyFocusedViewerPositions(win, liveReloadPath)
+      const result = await verifyFocusedViewer(win, liveReloadPath, viewerPositionPath)
       console.log(`[smoke] source/diff viewer positions OK (${result})`)
       console.log('HVIR_SMOKE_OK')
       return 0

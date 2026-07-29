@@ -1,12 +1,12 @@
 import type { BrowserWindow } from 'electron'
 
-import { dirnameHostPath, joinHostPath, type HostPath } from '../../shared'
+import type { HostPath } from '../../shared'
 
-export async function verifyFocusedViewerPositions(
+export async function verifyFocusedViewer(
   win: BrowserWindow,
   sourcePath: HostPath,
+  renderedPath: HostPath,
 ): Promise<string> {
-  const renderedPath = joinHostPath(dirnameHostPath(sourcePath), '.hvir-smoke-position.md')
   const virtualized = await verifySourceDiffPosition(win, sourcePath)
   const commands = await verifyViewerPositions(win, renderedPath)
   return `${virtualized} · ${commands}`
@@ -282,6 +282,18 @@ export function verifyViewerPositions(
       }
       scopedControl.querySelector('input')?.dispatchEvent(
         new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })
+      );
+      await waitFor(
+        () => !secondary.querySelector('[aria-label="Go to line"]'),
+        'go-to-line did not close on Escape'
+      );
+      secondary.querySelector('[aria-label="Close secondary viewer"]')?.click();
+      await waitFor(
+        () => !document.querySelector('[data-viewer-pane="secondary"]'),
+        'secondary viewer did not close after scoped command coverage'
+      );
+      document.querySelector('[data-viewer-pane="primary"]')?.dispatchEvent(
+        new PointerEvent('pointerdown', { bubbles: true })
       );
 
       return 'keyboard isolated · line ' + targetLine + ' · ' + transitions.join(', ') +

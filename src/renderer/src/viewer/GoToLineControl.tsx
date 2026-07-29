@@ -34,11 +34,21 @@ export function GoToLineControl({
   const previousFocus = useRef<HTMLElement | null>(null)
   const coordinateId = useId()
   const errorId = useId()
+  const root = useRef<HTMLDivElement>(null)
+  const openRef = useRef(false)
 
   const show = useCallback((): void => {
+    if (openRef.current) {
+      requestAnimationFrame(() => {
+        input.current?.focus()
+        input.current?.select()
+      })
+      return
+    }
     previousFocus.current =
       document.activeElement instanceof HTMLElement ? document.activeElement : null
     setError('')
+    openRef.current = true
     setOpen(true)
   }, [])
 
@@ -57,11 +67,23 @@ export function GoToLineControl({
     return () => cancelAnimationFrame(frame)
   }, [open])
 
-  const close = (restoreFocus: boolean): void => {
+  const close = useCallback((restoreFocus: boolean): void => {
+    openRef.current = false
     setOpen(false)
     setError('')
     if (restoreFocus) requestAnimationFrame(() => previousFocus.current?.focus())
-  }
+  }, [])
+
+  useEffect(() => {
+    if (!open) return
+    const closeOutside = (event: PointerEvent): void => {
+      if (event.target instanceof Node && !root.current?.contains(event.target)) {
+        close(false)
+      }
+    }
+    document.addEventListener('pointerdown', closeOutside, true)
+    return () => document.removeEventListener('pointerdown', closeOutside, true)
+  }, [close, open])
 
   const submit = (event: FormEvent): void => {
     event.preventDefault()
@@ -77,8 +99,8 @@ export function GoToLineControl({
     const resolved = resolveSourceCoordinate(content, parsed.coordinate)
     if (!resolved.valid) {
       setError(
-        boundedPreview && resolved.message.includes('outside this document')
-          ? resolved.message.replace('this document', 'the loaded preview')
+        boundedPreview && resolved.reason === 'line-out-of-range'
+          ? `Line ${parsed.coordinate.line} is outside the loaded preview`
           : resolved.message,
       )
       return
@@ -88,13 +110,13 @@ export function GoToLineControl({
   }
 
   return (
-    <div className="go-to-line">
+    <div ref={root} className="go-to-line">
       <button
         type="button"
         className="go-to-line-toggle"
         title="Go to line · Ctrl+G"
         aria-expanded={open}
-        onClick={show}
+        onClick={() => (open ? close(true) : show())}
       >
         Line
       </button>

@@ -29,8 +29,14 @@ describe('source coordinates', () => {
       coordinate: { line: 2, column: 3 },
       offset: 9,
     })
-    expect(resolveSourceCoordinate(content, { line: 4 }).valid).toBe(false)
-    expect(resolveSourceCoordinate(content, { line: 2, column: 6 }).valid).toBe(false)
+    expect(resolveSourceCoordinate(content, { line: 4 })).toMatchObject({
+      valid: false,
+      reason: 'line-out-of-range',
+    })
+    expect(resolveSourceCoordinate(content, { line: 2, column: 6 })).toMatchObject({
+      valid: false,
+      reason: 'column-out-of-range',
+    })
   })
 
   it('allows the caret immediately after the final character on a line', () => {
