@@ -28,6 +28,7 @@ import { WorkbenchRuntime } from './workbench-runtime'
 import { RuntimeDiagnostics } from './diagnostics/runtime-diagnostics'
 import { createDiagnosticReportCoordinator } from './diagnostics/diagnostic-report-coordinator'
 import { RendererEventPublisher } from './renderer-event-publisher'
+import { createFilenameSearchCoordinator } from './filename-search'
 import {
   GIT_WORKSPACE_ACTIVITY_TYPE,
   GIT_FETCH_TYPE,
@@ -236,6 +237,11 @@ function createWorkbenchEntry(): void {
       ),
       (worker) => worker.dispose(),
     )
+    const filenameSearch = runtime.own(
+      'filename search',
+      createFilenameSearchCoordinator(gitWorker),
+      (search) => search.dispose(),
+    )
     workspaceCoordinator = runtime.own(
       'workspace coordinator',
       new WorkspaceCoordinator({
@@ -357,18 +363,13 @@ function createWorkbenchEntry(): void {
       registerIpcHandlers({
         echoWorker,
         gitWorker,
-        getProject: () => {
-          if (!projectRegistry) throw new Error('Project registry is unavailable')
-          return projectRegistry.active
-        },
+        filenameSearch,
+        getProject: () => registry.active,
         getHost: (hostId) => projectRegistry?.hostById(hostId),
         connectedHosts: () => projectRegistry?.connectedHosts() ?? [],
         getRegisteredWorkspaceRoot: (root) =>
           projectRegistry?.registeredWorkspaceRoot(root),
-        getProjectState: () => {
-          if (!projectRegistry) throw new Error('Project registry is unavailable')
-          return projectRegistry.state()
-        },
+        getProjectState: () => registry.state(),
         listHosts: () => projectRegistry?.listHosts() ?? [],
         ...projectCommands,
         respondSshPrompt: (owner, id, answers) =>

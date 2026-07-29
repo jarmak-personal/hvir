@@ -6,6 +6,7 @@ export interface ViewerNavigationPosition {
   readonly line: number
   readonly column?: number
   readonly serial: number
+  readonly focus?: boolean
 }
 
 /** A logical document location plus the exact scroll offset in the mode that captured it. */

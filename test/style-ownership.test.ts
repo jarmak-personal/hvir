@@ -10,6 +10,7 @@ const expectedOrder = [
   'diagnostic-report.css',
   'shell.css',
   'viewer-tabs.css',
+  'viewer-find.css',
   'terminal-shell.css',
   'terminal-move.css',
   'settings.css',

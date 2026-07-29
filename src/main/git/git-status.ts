@@ -250,6 +250,27 @@ export class GitStatusCapability {
       relativeDirectory ? `${relativeDirectory}/${name}` : name,
     )
     const namesByPath = new Map(paths.map((path, index) => [path, names[index] ?? '']))
+    const { ignoredPaths } = await this.ignoredPaths(projectRoot, paths)
+    return {
+      ignoredNames: ignoredPaths
+        .map((path) => namesByPath.get(path))
+        .filter((name): name is string => Boolean(name)),
+    }
+  }
+
+  async ignoredPaths(
+    projectRoot: HostPath,
+    paths: readonly string[],
+  ): Promise<{ readonly ignoredPaths: readonly string[] }> {
+    this.context.assertHost(projectRoot)
+    if (paths.length === 0) return { ignoredPaths: [] }
+    if (paths.length > 512) throw new Error('Too many Git ignore paths')
+    if (
+      new Set(paths).size !== paths.length ||
+      paths.some((path) => !validGitPath(path))
+    ) {
+      throw new Error('Invalid Git ignore path')
+    }
     const batches: string[][] = []
     let batch: string[] = []
     let batchLength = 0
@@ -264,7 +285,7 @@ export class GitStatusCapability {
       batchLength += length
     }
     if (batch.length > 0) batches.push(batch)
-    const ignoredNames: string[] = []
+    const ignoredPaths: string[] = []
     for (const batch of batches) {
       const result = await this.context.readOnly(
         projectRoot,
@@ -272,20 +293,32 @@ export class GitStatusCapability {
         { input: `${batch.join('\0')}\0` },
       )
       if (result.code === 1) continue
-      if (/not a git repository/i.test(result.stderr)) return { ignoredNames: [] }
+      if (/not a git repository/i.test(result.stderr)) return { ignoredPaths: [] }
       if (result.code !== 0) {
         throw gitError(['check-ignore', '-z', '--stdin'], result.stderr, result.code)
       }
-      ignoredNames.push(
+      ignoredPaths.push(
         ...result.stdout
           .split('\0')
           .filter(Boolean)
-          .map((path) => namesByPath.get(path.replace(/^\.\//, '')))
-          .filter((name): name is string => Boolean(name)),
+          .map((path) => path.replace(/^\.\//, '')),
       )
     }
-    return { ignoredNames }
+    return { ignoredPaths }
   }
+}
+
+function validGitPath(path: string): boolean {
+  return (
+    typeof path === 'string' &&
+    path.length > 0 &&
+    path.length <= 4_096 &&
+    !path.startsWith('/') &&
+    !path.includes('\0') &&
+    path
+      .split('/')
+      .every((segment) => segment.length > 0 && segment !== '.' && segment !== '..')
+  )
 }
 
 function digestStatusEntries(entries: readonly ParsedStatus[]): string {

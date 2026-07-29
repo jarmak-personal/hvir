@@ -11,6 +11,7 @@
 import type { Disposer } from './disposer'
 import type { ComposerSubmitMode } from './composer-submit'
 import type { DirEntry, FileType, WatchEvent } from './fs-types'
+import type { FilenameSearchRequest, FilenameSearchResponse } from './filename-search'
 import type { HostPath } from './host-path'
 import type {
   CreateHtmlPreviewRequest,
@@ -601,6 +602,10 @@ export interface IpcInvokeMap {
     request: ReadDirectoryRequest
     response: OperationResult<readonly DirEntry[]>
   }
+  'fs:filename-search': {
+    request: FilenameSearchRequest
+    response: OperationResult<FilenameSearchResponse>
+  }
   'fs:resolve-entry': {
     request: ReadFileRequest
     response: OperationResult<ResolveEntryResponse>
@@ -722,6 +727,7 @@ export interface IpcInvokeMap {
 export interface IpcSendMap {
   'app:renderer-ready': { readonly ownerGeneration: number }
   'diagnostics:render-containment': RenderContainmentDiagnosticBatch
+  'fs:filename-search-cancel': { readonly requestId: number }
   'html-preview:release': ReleaseHtmlPreviewRequest
   'pty:write': { readonly id: string; readonly data: string }
   'pty:resize': { readonly id: string; readonly cols: number; readonly rows: number }
@@ -831,6 +837,7 @@ export const INVOKE_CHANNELS = [
   'workspace:acknowledge',
   'ssh:prompt-response',
   'fs:readdir',
+  'fs:filename-search',
   'fs:resolve-entry',
   'fs:read',
   'fs:read-asset',
@@ -876,6 +883,7 @@ export const INVOKE_CHANNELS = [
 export const SEND_CHANNELS = [
   'app:renderer-ready',
   'diagnostics:render-containment',
+  'fs:filename-search-cancel',
   'html-preview:release',
   'pty:write',
   'pty:resize',

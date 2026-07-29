@@ -3,8 +3,11 @@ import type { WebPaneCommandAction } from '../../../shared'
 export interface WorkbenchCommandPorts {
   readonly closeWebPane: (paneId: string) => void
   readonly escapeWebPaneFocus: () => void
-  readonly canCycleViewMode: () => boolean
+  readonly canUseViewerCommands: () => boolean
   readonly cycleViewMode: () => void
+  readonly findFile: () => void
+  readonly findInFile: () => void
+  readonly goToLine: () => void
   readonly toggleTerminalFocus: () => void
   readonly focusTerminal: () => void
   readonly focusViewer: () => void
@@ -25,7 +28,16 @@ export function dispatchWorkbenchCommand(
       ports.escapeWebPaneFocus()
       return
     case 'cycleViewMode':
-      if (ports.canCycleViewMode()) ports.cycleViewMode()
+      if (ports.canUseViewerCommands()) ports.cycleViewMode()
+      return
+    case 'findInFile':
+      if (ports.canUseViewerCommands()) ports.findInFile()
+      return
+    case 'findFile':
+      ports.findFile()
+      return
+    case 'goToLine':
+      if (ports.canUseViewerCommands()) ports.goToLine()
       return
     case 'toggleTerminalFocus':
       ports.toggleTerminalFocus()

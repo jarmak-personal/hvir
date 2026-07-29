@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+  keybindingAvailableInContext,
   matchesKeybinding,
   parseKeybindingOverrides,
 } from '../src/renderer/src/settings/keybindings'
@@ -10,6 +11,36 @@ describe('configurable keybindings', () => {
     const bindings = parseKeybindingOverrides({ focusTerminal: 'Mod+Alt+T' })
     expect(bindings.focusTerminal).toBe('Mod+Alt+T')
     expect(bindings.cycleViewMode).toBe('Mod+Shift+M')
+    expect(bindings.findFile).toBe('Mod+P')
+    expect(bindings.findInFile).toBe('Mod+F')
+    expect(bindings.goToLine).toBe('Ctrl+G')
+  })
+
+  it('keeps viewer navigation out of terminal and web-pane input', () => {
+    expect(keybindingAvailableInContext('findFile', 'workbench')).toBe(true)
+    expect(keybindingAvailableInContext('findFile', 'terminal')).toBe(false)
+    expect(keybindingAvailableInContext('findFile', 'web-pane')).toBe(true)
+    expect(keybindingAvailableInContext('goToLine', 'workbench')).toBe(true)
+    expect(keybindingAvailableInContext('findInFile', 'workbench')).toBe(true)
+    expect(keybindingAvailableInContext('findInFile', 'terminal')).toBe(false)
+    expect(keybindingAvailableInContext('findInFile', 'web-pane')).toBe(false)
+    expect(keybindingAvailableInContext('goToLine', 'terminal')).toBe(false)
+    expect(keybindingAvailableInContext('goToLine', 'web-pane')).toBe(false)
+    expect(keybindingAvailableInContext('cycleViewMode', 'web-pane')).toBe(true)
+  })
+
+  it('uses Ctrl+G rather than Command+G on macOS', () => {
+    const stroke = {
+      key: 'g',
+      ctrlKey: true,
+      metaKey: false,
+      altKey: false,
+      shiftKey: false,
+    }
+    expect(matchesKeybinding(stroke, 'Ctrl+G', true)).toBe(true)
+    expect(
+      matchesKeybinding({ ...stroke, ctrlKey: false, metaKey: true }, 'Ctrl+G', true),
+    ).toBe(false)
   })
 
   it('rejects unknown actions and malformed chords', () => {

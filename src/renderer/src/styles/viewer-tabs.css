@@ -302,6 +302,66 @@
   font-size: 10px;
 }
 
+.go-to-line {
+  position: relative;
+}
+
+.go-to-line-toggle {
+  min-height: 24px;
+  padding: 3px 8px;
+  border: 1px solid #343a44;
+  border-radius: 4px;
+  background: #15181e;
+  color: #8e97a5;
+  cursor: pointer;
+  font-size: 10px;
+}
+
+.go-to-line-popover {
+  position: absolute;
+  z-index: 5;
+  top: calc(100% + 6px);
+  right: 0;
+  width: 210px;
+  display: grid;
+  gap: 5px;
+  padding: 9px;
+  border: 1px solid #3b4552;
+  border-radius: 5px;
+  background: #11151b;
+  color: #aeb6c2;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 45%);
+  font-size: 10px;
+}
+
+.go-to-line-popover input {
+  min-width: 0;
+  padding: 5px 7px;
+  border: 1px solid #414b59;
+  border-radius: 4px;
+  outline: none;
+  background: #171c23;
+  color: #edf0f5;
+  font:
+    12px/1.35 'JetBrains Mono',
+    'SFMono-Regular',
+    Consolas,
+    monospace;
+}
+
+.go-to-line-popover input:focus {
+  border-color: #4d8fd8;
+  box-shadow: 0 0 0 1px #4d8fd8;
+}
+
+.go-to-line-popover small {
+  color: #768190;
+}
+
+.go-to-line-popover .go-to-line-error {
+  color: #e18a90;
+}
+
 .blame-toggle.active {
   border-color: #4d8fd8;
   color: #e3e7ec;
@@ -330,6 +390,8 @@
 
 .mode-control button:focus-visible,
 .blame-toggle:focus-visible,
+.find-toggle:focus-visible,
+.go-to-line-toggle:focus-visible,
 .conflict-badge:focus-visible {
   outline: none;
   box-shadow: inset 0 0 0 1px #4d8fd8;

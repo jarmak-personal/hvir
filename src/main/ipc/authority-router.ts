@@ -21,7 +21,9 @@ import type { RendererOwner } from '../renderer-resource-scopes'
 import type { IpcDeps } from './deps'
 
 export const OWNER_SCOPED_INVOKE_CHANNELS = [
-  'workbench-health:acknowledge', 'diagnostic-evidence:get', 'diagnostic-evidence:delete',
+  'workbench-health:acknowledge',
+  'diagnostic-evidence:get',
+  'diagnostic-evidence:delete',
   'diagnostic-report:create',
   'diagnostic-report:capture',
   'diagnostic-report:copy',
@@ -32,20 +34,22 @@ export const OWNER_SCOPED_INVOKE_CHANNELS = [
   'project:browse-host',
   'project:open',
   'ssh:prompt-response',
+  'fs:filename-search',
   'html-preview:create',
   'web-pane:open',
   'web-pane:close',
   'web-pane:open-external',
   'web-pane:open-browser',
-  'terminal:plan-move', 'terminal:move', 'terminal:record-recovery-decision',
+  'terminal:plan-move',
+  'terminal:move',
+  'terminal:record-recovery-decision',
   'pty:start',
 ] as const satisfies readonly IpcInvokeChannel[]
-
 export const OWNER_SCOPED_SEND_CHANNELS = SEND_CHANNELS
-
 export const AUTHORITY_SCOPED_INVOKE_CHANNELS = [
   'project:watch-interests',
   'fs:readdir',
+  'fs:filename-search',
   'fs:resolve-entry',
   'fs:read',
   'fs:read-asset',
@@ -61,7 +65,8 @@ export const AUTHORITY_SCOPED_INVOKE_CHANNELS = [
   'git:pull',
   'git:switch-branch',
   'html-preview:create',
-  'harness:profiles', 'harness:probe-snapshot',
+  'harness:profiles',
+  'harness:probe-snapshot',
   'harness:probe-profiles',
   'harness:probe-templates',
   'harness:profile-materialize',
@@ -69,14 +74,14 @@ export const AUTHORITY_SCOPED_INVOKE_CHANNELS = [
   'harness:acknowledge-risk',
   'harness:preview',
   'harness:authorize-path',
-  'terminal:recovery', 'terminal:record-recovery-decision',
+  'terminal:recovery',
+  'terminal:record-recovery-decision',
   'terminal:update-layout',
   'terminal:forget',
   'terminal:rebind-profile',
   'pty:start',
   'web-pane:open',
 ] as const satisfies readonly IpcInvokeChannel[]
-
 export interface IpcInvokeContext {
   readonly sender: Electron.WebContents
   readonly authority: IpcAuthority
