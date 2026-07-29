@@ -19,6 +19,50 @@ describe('terminal file links', () => {
     ])
   })
 
+  it('strips bare trailing colons from detected paths', () => {
+    const text =
+      'open /srv/project/icon.svg: and README.md: plus (/srv/project/nested/file.ts):'
+    const links = detectTerminalFileLinks(text)
+
+    expect(links.map(({ target }) => target)).toEqual([
+      '/srv/project/icon.svg',
+      'README.md',
+      '/srv/project/nested/file.ts',
+    ])
+    for (const link of links) {
+      expect(text.slice(link.start, link.end + 1)).toBe(link.target)
+    }
+    expect(resolveTerminalFileTarget(links[0]?.target ?? '', root)).toEqual({
+      path: hostPath(asHostId('remote'), '/srv/project/icon.svg'),
+    })
+  })
+
+  it('preserves line decorations before trailing colons', () => {
+    const text = 'src/main.ts:12: message src/main.ts:12:4:'
+    const links = detectTerminalFileLinks(text)
+
+    expect(links.map(({ target }) => target)).toEqual([
+      'src/main.ts:12',
+      'src/main.ts:12:4',
+    ])
+    for (const link of links) {
+      expect(text.slice(link.start, link.end + 1)).toBe(link.target)
+    }
+    expect(
+      links.map(({ target }) => resolveTerminalFileTarget(target, root)),
+    ).toEqual([
+      {
+        path: hostPath(asHostId('remote'), '/srv/project/src/main.ts'),
+        line: 12,
+      },
+      {
+        path: hostPath(asHostId('remote'), '/srv/project/src/main.ts'),
+        line: 12,
+        column: 4,
+      },
+    ])
+  })
+
   it('parses file URIs and line positions', () => {
     expect(parseTerminalFileTarget('file:///srv/project/a%20b.ts')).toEqual({
       path: '/srv/project/a b.ts',
