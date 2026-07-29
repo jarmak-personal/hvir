@@ -44,6 +44,7 @@ export function FilenameSearch({
   const inputRef = useRef<HTMLInputElement>(null)
   const resultsRef = useRef<HTMLDivElement>(null)
   const latestRequestId = useRef(0)
+  const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
   const [includeIgnored, setIncludeIgnored] = useState(false)
   const [response, setResponse] = useState(EMPTY_RESPONSE)
@@ -51,7 +52,11 @@ export function FilenameSearch({
   const [error, setError] = useState<string>()
   const active = query.length > 0
 
-  useEffect(() => onActiveChange(active), [active, onActiveChange])
+  useEffect(() => onActiveChange(open), [onActiveChange, open])
+
+  useEffect(() => {
+    if (open) inputRef.current?.focus()
+  }, [open])
 
   useEffect(
     () => () => {
@@ -121,8 +126,42 @@ export function FilenameSearch({
     results[next]?.focus()
   }
 
+  const closeSearch = (): void => {
+    if (latestRequestId.current > 0) {
+      window.hvir.send('fs:filename-search-cancel', {
+        requestId: latestRequestId.current,
+      })
+      latestRequestId.current = 0
+    }
+    setQuery('')
+    setOpen(false)
+  }
+
+  const openResult = (path: HostPath, pinned: boolean): void => {
+    closeSearch()
+    onOpen(path, pinned)
+  }
+
+  if (!open) {
+    return (
+      <button
+        type="button"
+        className="filename-search-trigger"
+        data-filename-search-trigger
+        aria-label="Find file"
+        title="Find file"
+        onClick={() => setOpen(true)}
+      >
+        <svg aria-hidden="true" viewBox="0 0 16 16">
+          <circle cx="6.75" cy="6.75" r="4.25" />
+          <path d="m10 10 3.5 3.5" />
+        </svg>
+      </button>
+    )
+  }
+
   return (
-    <div className={`filename-search${active ? ' active' : ''}`}>
+    <div className="filename-search">
       <div className="filename-search-field">
         <label htmlFor={inputId}>Find file</label>
         <input
@@ -140,9 +179,9 @@ export function FilenameSearch({
             if (event.key === 'ArrowDown') {
               event.preventDefault()
               focusResult(null, 1)
-            } else if (event.key === 'Escape' && query) {
+            } else if (event.key === 'Escape') {
               event.preventDefault()
-              setQuery('')
+              closeSearch()
             }
           }}
         />
@@ -159,6 +198,15 @@ export function FilenameSearch({
             ×
           </button>
         ) : null}
+        <button
+          type="button"
+          className="filename-search-close"
+          aria-label="Close filename search"
+          title="Close filename search"
+          onClick={closeSearch}
+        >
+          ×
+        </button>
       </div>
       {gitIgnoreAvailable ? (
         <label className="filename-search-ignored">
@@ -183,9 +231,9 @@ export function FilenameSearch({
                 <FilenameResult
                   key={`${result.path.hostId}:${result.path.path}`}
                   result={result}
-                  onOpen={onOpen}
+                  onOpen={openResult}
                   onMove={focusResult}
-                  onEscape={() => inputRef.current?.focus()}
+                  onEscape={closeSearch}
                 />
               ))}
             </div>

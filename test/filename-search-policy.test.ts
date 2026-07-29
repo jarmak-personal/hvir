@@ -40,6 +40,36 @@ describe('filename search policy', () => {
     expect(ranked.results.map((result) => result.name)).toEqual(['file[1].ts'])
     expect(ranked.truncated).toBe(true)
   })
+
+  it('matches a complete basename with a case-insensitive star wildcard', () => {
+    const files = [
+      file('docs/001-intro.md'),
+      file('docs/010-architecture.MD'),
+      file('docs/100-later.md'),
+      file('docs/my-010-notes.md'),
+      file('src/010-architecture.ts'),
+    ]
+
+    expect(
+      rankFilenameMatches(files, '*.md').results.map((result) => result.name),
+    ).toEqual(['001-intro.md', '010-architecture.MD', '100-later.md', 'my-010-notes.md'])
+
+    const ranked = rankFilenameMatches(files, '0*.md')
+
+    expect(ranked.results.map((result) => result.name)).toEqual([
+      '001-intro.md',
+      '010-architecture.MD',
+    ])
+  })
+
+  it('keeps non-star wildcard syntax literal', () => {
+    const ranked = rankFilenameMatches(
+      [file('docs/file?.md'), file('docs/file1.md'), file('docs/file[1].md')],
+      'file?.md',
+    )
+
+    expect(ranked.results.map((result) => result.name)).toEqual(['file?.md'])
+  })
 })
 
 function file(relativePath: string) {

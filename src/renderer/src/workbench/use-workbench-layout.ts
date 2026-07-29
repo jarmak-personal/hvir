@@ -242,9 +242,14 @@ export function useWorkbenchLayout({
     setTerminalMode((mode) => (mode === 'maximized' ? 'restored' : mode))
     setTreeCollapsed(false)
     setRailMode('files')
-    requestAnimationFrame(() =>
-      document.querySelector<HTMLInputElement>('[data-filename-search]')?.focus(),
-    )
+    requestAnimationFrame(() => {
+      const input = document.querySelector<HTMLInputElement>('[data-filename-search]')
+      if (input) input.focus()
+      else
+        document
+          .querySelector<HTMLButtonElement>('[data-filename-search-trigger]')
+          ?.click()
+    })
   }, [setTerminalMode, setTreeCollapsed])
 
   const restoreViewer = useCallback((): void => {

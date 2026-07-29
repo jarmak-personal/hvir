@@ -68,7 +68,15 @@ describe('FilenameSearch', () => {
         />,
       )
     })
+    expect(container.querySelector('[data-filename-search]')).toBeNull()
+    expect(container.querySelector('[data-filename-search-trigger]')).not.toBeNull()
+    act(() => {
+      container
+        .querySelector<HTMLButtonElement>('[data-filename-search-trigger]')!
+        .click()
+    })
     const input = container.querySelector<HTMLInputElement>('[data-filename-search]')!
+    expect(document.activeElement).toBe(input)
     setInput(input, 'needle')
     await act(async () => {
       await vi.advanceTimersByTimeAsync(100)
@@ -100,7 +108,21 @@ describe('FilenameSearch', () => {
       first.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
     })
     expect(onOpen).toHaveBeenCalledWith(localPath('/repo/collapsed/needle.ts'), false)
+    expect(container.querySelector('[data-filename-search]')).toBeNull()
 
+    act(() => {
+      container
+        .querySelector<HTMLButtonElement>('[data-filename-search-trigger]')!
+        .click()
+    })
+    const reopenedInput = container.querySelector<HTMLInputElement>(
+      '[data-filename-search]',
+    )!
+    setInput(reopenedInput, 'needle')
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(100)
+      await Promise.resolve()
+    })
     act(() =>
       container
         .querySelectorAll<HTMLButtonElement>('.filename-search-result')[1]!
@@ -110,6 +132,9 @@ describe('FilenameSearch', () => {
       localPath('/repo/other/needle.test.ts'),
       false,
     )
+    expect(container.querySelector('[data-filename-search]')).toBeNull()
+    expect(container.querySelector('[data-filename-search-trigger]')).not.toBeNull()
+    expect(onActiveChange).toHaveBeenLastCalledWith(false)
     act(() => root.render(<div />))
     expect(send).toHaveBeenCalledWith('fs:filename-search-cancel', {
       requestId: (request as FilenameSearchRequest).requestId,
@@ -144,6 +169,11 @@ describe('FilenameSearch', () => {
       )
     }
     act(() => render(false))
+    act(() => {
+      container
+        .querySelector<HTMLButtonElement>('[data-filename-search-trigger]')!
+        .click()
+    })
     const input = container.querySelector<HTMLInputElement>('[data-filename-search]')!
     expect(input.disabled).toBe(false)
     expect(container.textContent).toContain('Include ignored files')
@@ -155,6 +185,13 @@ describe('FilenameSearch', () => {
       await Promise.resolve()
     })
     expect(invoke).toHaveBeenCalledOnce()
+
+    act(() => {
+      input.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),
+      )
+    })
+    expect(container.querySelector('[data-filename-search]')).toBeNull()
   })
 })
 

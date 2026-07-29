@@ -18,34 +18,60 @@ export async function verifyFilenameSearch(win: BrowserWindow): Promise<string> 
         input.dispatchEvent(new Event('input', { bubbles: true }));
       };
       const waitForControl = () => {
-        const input = document.querySelector('[data-filename-search]');
+        const trigger = document.querySelector('[data-filename-search-trigger]');
         const terminal = document.querySelector('.terminal-panel canvas') ||
           document.querySelector('.terminal-panel [tabindex]') ||
           document.querySelector('.terminal-panel');
-        if (!input || !terminal) {
+        const testDirectory = [...document.querySelectorAll('.directory-row')]
+          .find((node) => node.getAttribute('title')?.endsWith('/test'));
+        if (!trigger || !terminal || !testDirectory) {
           if (Date.now() > deadline) return reject(new Error('filename search controls missing'));
           return setTimeout(waitForControl, 50);
+        }
+        if (document.querySelector('[data-filename-search]')) {
+          return reject(new Error('filename search field consumed idle rail space'));
+        }
+        trigger.click();
+        requestAnimationFrame(() => {
+          const input = document.querySelector('[data-filename-search]');
+          if (!input || document.activeElement !== input) {
+            return reject(new Error('filename search action did not focus the input'));
+          }
+          input.dispatchEvent(new KeyboardEvent('keydown', {
+            key: 'Escape', bubbles: true, cancelable: true
+          }));
+          requestAnimationFrame(() => verifyShortcut(terminal, testDirectory));
+        });
+      };
+      const verifyShortcut = (terminal, testDirectory) => {
+        if (document.querySelector('[data-filename-search]')) {
+          return reject(new Error('Escape did not dismiss filename search'));
         }
         terminal.focus();
         key(terminal, 'p');
         requestAnimationFrame(() => {
-          if (document.activeElement === input) {
+          if (document.querySelector('[data-filename-search]')) {
             return reject(new Error('terminal Mod+P was intercepted'));
           }
           key(document.body, 'p');
-          requestAnimationFrame(() => {
+          const waitForInput = () => {
+            const input = document.querySelector('[data-filename-search]');
+            if (!input) {
+              if (Date.now() > deadline) {
+                return reject(new Error('workbench Mod+P did not open filename search'));
+              }
+              return requestAnimationFrame(waitForInput);
+            }
             if (document.activeElement !== input) {
               return reject(new Error('workbench Mod+P did not focus filename search'));
             }
-            const testDirectory = [...document.querySelectorAll('.directory-row')]
-              .find((node) => node.getAttribute('title')?.endsWith('/test'));
-            if (!testDirectory ||
-                testDirectory.querySelector('.tree-chevron')?.textContent?.trim() !== '›') {
+            if (testDirectory.querySelector('.tree-chevron')?.textContent?.trim() !== '›') {
               return reject(new Error('test directory was not collapsed before filename search'));
             }
-            inputValue(input, 'rendered.yml');
+            inputValue(input, 'rendered*.yml');
             waitForResult(input, testDirectory);
-          });
+          };
+          requestAnimationFrame(waitForInput);
         });
       };
       const waitForResult = (input, testDirectory) => {
@@ -70,9 +96,12 @@ export async function verifyFilenameSearch(win: BrowserWindow): Promise<string> 
             if (testDirectory.querySelector('.tree-chevron')?.textContent?.trim() !== '›') {
               return reject(new Error('filename search expanded the lazy tree'));
             }
-            document.querySelector('.filename-search-clear')?.click();
+            if (document.querySelector('[data-filename-search]') ||
+                !document.querySelector('[data-filename-search-trigger]')) {
+              return reject(new Error('filename result did not restore the Files tree'));
+            }
             return requestAnimationFrame(() => resolve(
-              'terminal preserved · collapsed result · keyboard activation'
+              'on-demand · wildcard · terminal preserved · collapsed result · keyboard activation'
             ));
           }
           if (Date.now() > deadline) return reject(new Error('filename result did not open: ' + title));
