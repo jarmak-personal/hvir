@@ -45,7 +45,7 @@ A main-owned coordinator handles the approved remote case. It binds the request 
 renderer owner and generation, immutable live PTY instance, host-qualified workspace, SSH host,
 provider ID, and provider image-paste contract revision. Codex and Claude opt into revision 1;
 Bare Shell, custom commands, and the other bundled providers do not. After staging, the
-coordinator revalidates every binding and asks the provider for one quoted bracketed-paste value.
+coordinator revalidates every binding and asks the provider for one bare bracketed-paste value.
 It writes that value through `PtySupervisor` without a newline or submission. Late work fails
 closed if the terminal exits, restarts, moves, changes owner generation, changes provider
 capability, or disconnects.
@@ -53,7 +53,7 @@ capability, or disconnects.
 Clipboard access occurs only inside that explicit invocation. Electron reads dimensions before
 PNG encoding. One image is limited to 8,192 pixels on either axis, 32 megapixels, and 20 MiB of
 encoded PNG. At most one transfer may target a terminal and at most two transfers may run across
-the application. The transfer deadline is 15 seconds; individual remote control operations use
+the application. The transfer deadline is 15 seconds; individual shell control operations use
 an 8-second bound. Work is asynchronous from the renderer and consumes only bounded SSH control
 and SFTP capacity. Image bytes, names, and paths are not returned to the renderer or written to
 logs, diagnostics, terminal recovery, or provider-profile records.
@@ -61,8 +61,12 @@ logs, diagnostics, terminal recovery, or provider-profile records.
 Remote material lives outside projects and repositories. The SSH host selects:
 
 - `${XDG_RUNTIME_DIR}/hvir/image-paste/paste.<random>/image.png` when the runtime directory is
-  absolute; or
+  absolute and contains only terminal-safe path characters; or
 - `${TMPDIR:-/tmp}/hvir-$UID/image-paste/paste.<random>/image.png` otherwise.
+
+An unsafe or relative `TMPDIR` falls back to `/tmp`. This constrained root plus hvir's fixed
+leaf names produces a bare ASCII path that both approved composers accept without shell quoting;
+the provider writes it as one bracketed paste.
 
 The hvir root and random leaf must be real directories owned by the SSH user with mode `0700`;
 the placeholder and final PNG use mode `0600`, and final type, size, and permissions are verified
@@ -74,8 +78,10 @@ Because neither native composer provides a trustworthy consumed-bytes callback, 
 only “path inserted” and retains the PNG. A renderer-scoped workspace lease removes it on failed
 or cancelled transfer, renderer revocation, terminal exit or close, workspace revocation, or
 application shutdown; a 24-hour timer bounds an otherwise-live paste. Disconnect failures are
-retried after reconnect. On the next image paste to a host, reconciliation removes only stale
-`paste.*` image leaves older than 24 hours. A host that never reconnects or never uses image paste
+retried after reconnect, and an idle reconnect observer is then removed. Clean shutdown makes a
+bounded attempt to await staging and cleanup before host teardown. On the next image paste to a
+host, reconciliation removes only stale `paste.*` image leaves older than 24 hours. A host that
+never reconnects or never uses image paste
 again may retain material until the user or host temp policy removes it; a remote daemon would be
 required to promise stronger offline cleanup and is not authorized.
 

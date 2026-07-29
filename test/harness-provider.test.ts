@@ -76,13 +76,18 @@ describe('Harness providers', () => {
   it('limits remote path image paste to the evidenced native composers', () => {
     const path = hostPath(
       asHostId('ssh-test'),
-      "/run/user/501/hvir/image-paste/paste.abc/image's copy.png",
+      '/run/user/501/hvir/image-paste/paste.abc/image.png',
     )
     const expected =
-      "\x1b[200~'/run/user/501/hvir/image-paste/paste.abc/image'\\''s copy.png'\x1b[201~"
+      '\x1b[200~/run/user/501/hvir/image-paste/paste.abc/image.png\x1b[201~'
     expect(claudeCodeProvider.remoteImagePaste?.revision).toBe(1)
     expect(claudeCodeProvider.remoteImagePaste?.terminalInput(path)).toBe(expected)
     expect(codexProvider.remoteImagePaste?.terminalInput(path)).toBe(expected)
+    expect(() =>
+      codexProvider.remoteImagePaste?.terminalInput(
+        hostPath(asHostId('ssh-test'), '/tmp/hvir path/image.png'),
+      ),
+    ).toThrow(/safe absolute path/)
     expect(
       ['plain-shell', 'pi', 'gemini-cli', 'github-copilot-cli', 'cursor-cli', 'custom'].every(
         (id) => harnessProvider(id).remoteImagePaste === undefined,

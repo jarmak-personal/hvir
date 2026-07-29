@@ -29,6 +29,7 @@ export const REMOTE_IMAGE_PASTE_MAX_DIMENSION = 8_192
 export const REMOTE_IMAGE_PASTE_MAX_CONCURRENT = 2
 export const REMOTE_IMAGE_PASTE_TRANSFER_TIMEOUT_MS = 15_000
 export const REMOTE_IMAGE_PASTE_TTL_MS = 24 * 60 * 60_000
+const REMOTE_IMAGE_PASTE_SHUTDOWN_TIMEOUT_MS = 2_000
 
 export interface ClipboardPng {
   readonly width: number
@@ -82,6 +83,7 @@ interface ImagePasteState {
   readonly controller: AbortController
   resource?: RendererResourceLease
   stageTask?: Promise<HostPath>
+  cleanupTask?: Promise<void>
   path?: HostPath
   timer?: ReturnType<typeof setTimeout>
   retired: boolean
@@ -122,7 +124,7 @@ export class RemoteImagePasteCoordinator {
     if (!target) return { outcome: 'failed', reason: 'target-changed' }
     if (
       this.activeTerminals.has(terminalId) ||
-      [...this.states].filter((state) => !state.retained && !state.retired).length >=
+      [...this.states].filter((state) => !state.retained).length >=
         REMOTE_IMAGE_PASTE_MAX_CONCURRENT
     ) {
       return { outcome: 'failed', reason: 'busy' }
@@ -163,7 +165,7 @@ export class RemoteImagePasteCoordinator {
     this.activeTerminals.add(terminalId)
 
     try {
-      await this.drainPendingCleanup(target.host)
+      void this.drainPendingCleanup(target.host)
       state.stageTask = this.storage
         .stage(target.host, image.bytes, state.controller.signal)
         .then((path) => {
@@ -221,7 +223,13 @@ export class RemoteImagePasteCoordinator {
     if (this.disposed) return
     this.disposed = true
     void this.disposePtyExit()
-    await Promise.all([...this.states].map((state) => this.retire(state)))
+    await withTimeout(
+      Promise.all([...this.states].map((state) => this.retire(state, true))),
+      REMOTE_IMAGE_PASTE_SHUTDOWN_TIMEOUT_MS,
+      () => undefined,
+      this.setTimer,
+      this.clearTimer,
+    ).catch(() => undefined)
     for (const dispose of this.hostDisposers.values()) void dispose()
     this.hostDisposers.clear()
     this.pendingCleanup.clear()
@@ -289,20 +297,28 @@ export class RemoteImagePasteCoordinator {
     }
   }
 
-  private retire(state: ImagePasteState): Promise<void> {
-    if (state.retired) return Promise.resolve()
+  private retire(state: ImagePasteState, awaitPending = false): Promise<void> {
+    if (state.retired) {
+      return awaitPending && state.cleanupTask
+        ? state.cleanupTask
+        : Promise.resolve()
+    }
     state.retired = true
     state.controller.abort()
     if (state.timer) this.clearTimer(state.timer)
     state.resource?.release()
-    this.states.delete(state)
-    this.activeTerminals.delete(state.target.terminalId)
-    if (state.path) return this.cleanupPath(state.target.host, state.path)
-    void state.stageTask?.then(
-      (path) => this.cleanupPath(state.target.host, path),
-      () => undefined,
-    )
-    return Promise.resolve()
+    const cleanupTask = state.path
+      ? this.cleanupPath(state.target.host, state.path)
+      : state.stageTask?.then(
+          (path) => this.cleanupPath(state.target.host, path),
+          () => undefined,
+        )
+    if (!cleanupTask) {
+      this.states.delete(state)
+      return Promise.resolve()
+    }
+    state.cleanupTask = cleanupTask.finally(() => this.states.delete(state))
+    return awaitPending || state.path ? state.cleanupTask : Promise.resolve()
   }
 
   private async cleanupPath(host: ProjectHost, path: HostPath): Promise<void> {
@@ -341,7 +357,16 @@ export class RemoteImagePasteCoordinator {
         break
       }
     }
-    if (paths.size === 0) this.pendingCleanup.delete(host)
+    if (paths.size === 0) {
+      this.pendingCleanup.delete(host)
+      const dispose = this.hostDisposers.get(host)
+      this.hostDisposers.delete(host)
+      try {
+        await dispose?.()
+      } catch {
+        // Removing an idle observer is best effort.
+      }
+    }
   }
 }
 

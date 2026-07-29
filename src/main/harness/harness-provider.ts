@@ -611,11 +611,14 @@ function pathImagePasteContract(): HarnessRemoteImagePasteContract {
   return {
     revision: 1,
     terminalInput: (path) => {
-      if (!path.path.startsWith('/') || hasTerminalControl(path.path)) {
+      if (
+        !path.path.startsWith('/') ||
+        hasTerminalControl(path.path) ||
+        !/^[A-Za-z0-9_./-]+$/.test(path.path)
+      ) {
         throw new Error('Remote image paste requires a safe absolute path')
       }
-      const quoted = `'${path.path.replaceAll("'", "'\\''")}'`
-      return `\x1b[200~${quoted}\x1b[201~`
+      return `\x1b[200~${path.path}\x1b[201~`
     },
   }
 }

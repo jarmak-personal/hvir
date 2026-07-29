@@ -4,11 +4,12 @@ import {
   RemoteImagePasteCoordinator,
   RemoteImagePasteStorage,
   REMOTE_IMAGE_PASTE_MAX_BYTES,
+  REMOTE_IMAGE_PASTE_TRANSFER_TIMEOUT_MS,
   REMOTE_IMAGE_PASTE_TTL_MS,
   type ClipboardPngSource,
   type RemoteImagePasteStoragePort,
 } from '../src/main/harness/remote-image-paste'
-import type { ProjectHost } from '../src/main/project-host'
+import type { ProjectHost, PtyExit } from '../src/main/project-host'
 import type { ManagedPty } from '../src/main/pty/pty-supervisor'
 import type {
   RendererOwner,
@@ -72,7 +73,7 @@ describe('RemoteImagePasteCoordinator', () => {
     expect(fixture.write).toHaveBeenCalledExactlyOnceWith(
       terminal.id,
       OWNER.id,
-      "\x1b[200~'/run/user/501/hvir/image-paste/paste.abc123/image.png'\x1b[201~",
+      '\x1b[200~/run/user/501/hvir/image-paste/paste.abc123/image.png\x1b[201~',
       OWNER.generation,
     )
     expect(fixture.storage.remove).not.toHaveBeenCalled()
@@ -137,6 +138,134 @@ describe('RemoteImagePasteCoordinator', () => {
     await fixture.coordinator.dispose()
   })
 
+  it('keeps the per-terminal guard when an older retained paste is retired', async () => {
+    const terminal = managedTerminal('terminal-overlap', 'codex', REMOTE_ROOT)
+    const laterPath = hostPath(
+      REMOTE_ID,
+      '/run/user/501/hvir/image-paste/paste.def456/image.png',
+    )
+    const staged = deferred<HostPath>()
+    const fixture = coordinatorFixture([terminal])
+    fixture.storage.stage
+      .mockResolvedValueOnce(STAGED_PATH)
+      .mockReturnValueOnce(staged.promise)
+
+    await expect(fixture.coordinator.paste(terminal.id, OWNER)).resolves.toEqual({
+      outcome: 'path-inserted',
+    })
+    const second = fixture.coordinator.paste(terminal.id, OWNER)
+    await vi.waitFor(() => expect(fixture.storage.stage).toHaveBeenCalledTimes(2))
+
+    await fixture.disposeRegistration(0)
+    await expect(fixture.coordinator.paste(terminal.id, OWNER)).resolves.toEqual({
+      outcome: 'failed',
+      reason: 'busy',
+    })
+
+    staged.resolve(laterPath)
+    await expect(second).resolves.toEqual({ outcome: 'path-inserted' })
+    await fixture.coordinator.dispose()
+  })
+
+  it('fails closed when renderer authority changes during transfer', async () => {
+    const terminal = managedTerminal('terminal-renderer', 'claude-code', REMOTE_ROOT)
+    const staged = deferred<HostPath>()
+    const fixture = coordinatorFixture([terminal], undefined, staged.promise)
+    const paste = fixture.coordinator.paste(terminal.id, OWNER)
+    await vi.waitFor(() => expect(fixture.storage.stage).toHaveBeenCalledOnce())
+
+    fixture.assertCurrent.mockImplementation(() => {
+      throw new Error('stale renderer')
+    })
+    staged.resolve(STAGED_PATH)
+
+    await expect(paste).resolves.toEqual({
+      outcome: 'failed',
+      reason: 'target-changed',
+    })
+    expect(fixture.write).not.toHaveBeenCalled()
+    expect(fixture.storage.remove).toHaveBeenCalledWith(fixture.host, STAGED_PATH)
+    await fixture.coordinator.dispose()
+  })
+
+  it('aborts a transfer at its deadline and removes late material', async () => {
+    vi.useFakeTimers()
+    try {
+      const terminal = managedTerminal('terminal-timeout', 'codex', REMOTE_ROOT)
+      const staged = deferred<HostPath>()
+      const fixture = coordinatorFixture([terminal], undefined, staged.promise)
+      const paste = fixture.coordinator.paste(terminal.id, OWNER)
+      await Promise.resolve()
+      expect(fixture.storage.stage).toHaveBeenCalledOnce()
+
+      await vi.advanceTimersByTimeAsync(REMOTE_IMAGE_PASTE_TRANSFER_TIMEOUT_MS)
+      await expect(paste).resolves.toEqual({
+        outcome: 'failed',
+        reason: 'transfer-failed',
+      })
+
+      staged.resolve(STAGED_PATH)
+      await Promise.resolve()
+      await Promise.resolve()
+      expect(fixture.storage.remove).toHaveBeenCalledWith(fixture.host, STAGED_PATH)
+      await fixture.coordinator.dispose()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('removes retained material when the exact PTY exits', async () => {
+    const terminal = managedTerminal('terminal-exit', 'claude-code', REMOTE_ROOT)
+    const fixture = coordinatorFixture([terminal])
+    await expect(fixture.coordinator.paste(terminal.id, OWNER)).resolves.toEqual({
+      outcome: 'path-inserted',
+    })
+
+    fixture.emitExit(terminal)
+
+    await vi.waitFor(() =>
+      expect(fixture.storage.remove).toHaveBeenCalledWith(fixture.host, STAGED_PATH),
+    )
+    await fixture.coordinator.dispose()
+  })
+
+  it('retries failed cleanup on reconnect and removes the idle observer', async () => {
+    const terminal = managedTerminal('terminal-reconnect', 'codex', REMOTE_ROOT)
+    const fixture = coordinatorFixture([terminal])
+    fixture.storage.remove
+      .mockRejectedValueOnce(new Error('disconnected'))
+      .mockResolvedValueOnce(undefined)
+    await expect(fixture.coordinator.paste(terminal.id, OWNER)).resolves.toEqual({
+      outcome: 'path-inserted',
+    })
+
+    await fixture.disposeRegistration(0)
+    expect(fixture.connectionListenerCount()).toBe(1)
+    fixture.emitConnection('connected')
+
+    await vi.waitFor(() => expect(fixture.storage.remove).toHaveBeenCalledTimes(2))
+    expect(fixture.connectionListenerCount()).toBe(0)
+    await fixture.coordinator.dispose()
+  })
+
+  it('awaits late staging cleanup during a clean shutdown', async () => {
+    const terminal = managedTerminal('terminal-shutdown', 'codex', REMOTE_ROOT)
+    const staged = deferred<HostPath>()
+    const fixture = coordinatorFixture([terminal], undefined, staged.promise)
+    const paste = fixture.coordinator.paste(terminal.id, OWNER)
+    await vi.waitFor(() => expect(fixture.storage.stage).toHaveBeenCalledOnce())
+
+    const shutdown = fixture.coordinator.dispose()
+    staged.resolve(STAGED_PATH)
+
+    await shutdown
+    expect(fixture.storage.remove).toHaveBeenCalledWith(fixture.host, STAGED_PATH)
+    await expect(paste).resolves.toEqual({
+      outcome: 'failed',
+      reason: 'target-changed',
+    })
+  })
+
   it('expires retained material after the bounded lease', async () => {
     vi.useFakeTimers()
     try {
@@ -188,6 +317,7 @@ describe('RemoteImagePasteStorage', () => {
     expect(path).toEqual(STAGED_PATH)
     expect(exec.mock.calls[0]?.[1]?.[1]).toContain('XDG_RUNTIME_DIR')
     expect(exec.mock.calls[0]?.[1]?.[1]).toContain('hvir-$uid')
+    expect(exec.mock.calls[0]?.[1]?.[1]).toContain('safe_parent')
     expect(exec.mock.calls[1]?.[1]?.[1]).toContain('image-paste')
     expect(writeFile).toHaveBeenCalledWith(STAGED_PATH, new Uint8Array([1, 2, 3]))
 
@@ -199,6 +329,33 @@ describe('RemoteImagePasteStorage', () => {
       STAGED_PATH.path,
     ])
   })
+
+  it('bounds each preparatory shell control operation', async () => {
+    vi.useFakeTimers()
+    try {
+      const exec = vi.fn<ProjectHost['exec']>((_command, _args, options) =>
+        new Promise((_resolve, reject) => {
+          options?.signal?.addEventListener('abort', () => {
+            reject(new Error('aborted'))
+          })
+        }),
+      )
+      const host = { hostId: REMOTE_ID, exec } as unknown as ProjectHost
+      const storage = new RemoteImagePasteStorage()
+      const stage = storage.stage(
+        host,
+        new Uint8Array([1, 2, 3]),
+        new AbortController().signal,
+      )
+      const failure = stage.catch((error: unknown) => error)
+
+      await vi.advanceTimersByTimeAsync(8_000)
+
+      await expect(failure).resolves.toEqual(expect.objectContaining({ message: 'aborted' }))
+    } finally {
+      vi.useRealTimers()
+    }
+  })
 })
 
 function coordinatorFixture(
@@ -208,9 +365,13 @@ function coordinatorFixture(
 ) {
   const terminals = new Map(initialTerminals.map((terminal) => [terminal.id, terminal]))
   const connectionListeners = new Set<(state: HostConnectionState) => void>()
+  const exitListeners = new Set<(info: ManagedPty, exit: PtyExit) => void>()
+  let connectionState: HostConnectionState = 'connected'
   const host = {
     hostId: REMOTE_ID,
-    connectionState: 'connected' as const,
+    get connectionState() {
+      return connectionState
+    },
     onConnectionState: (listener: (state: HostConnectionState) => void) => {
       connectionListeners.add(listener)
       return () => connectionListeners.delete(listener)
@@ -262,7 +423,12 @@ function coordinatorFixture(
         )
       },
       write,
-      onExit: () => () => undefined,
+      onExit: (listener) => {
+        exitListeners.add(listener)
+        return () => {
+          exitListeners.delete(listener)
+        }
+      },
     },
   })
   return {
@@ -274,12 +440,28 @@ function coordinatorFixture(
       remove: ReturnType<typeof vi.fn>
     },
     write,
+    assertCurrent: resources.assertCurrent,
+    disposeRegistration: async (index: number) => {
+      const record = registered[index]
+      if (!record?.active) return
+      record.active = false
+      await record.dispose()
+    },
     disposeRegistered: async () => {
       for (const record of registered) {
         if (!record.active) continue
         record.active = false
         await record.dispose()
       }
+    },
+    emitConnection: (state: HostConnectionState) => {
+      connectionState = state
+      for (const listener of connectionListeners) listener(state)
+    },
+    connectionListenerCount: () => connectionListeners.size,
+    emitExit: (terminal: ManagedPty) => {
+      const exit = { exitCode: 0, signal: undefined }
+      for (const listener of exitListeners) listener(terminal, exit)
     },
   }
 }

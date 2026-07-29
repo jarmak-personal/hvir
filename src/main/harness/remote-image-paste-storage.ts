@@ -19,17 +19,11 @@ export class RemoteImagePasteStorage implements RemoteImagePasteStoragePort {
     signal: AbortSignal,
   ): Promise<HostPath> {
     if (!this.reconciledHosts.has(host.hostId)) {
-      const reconciled = await host.exec('sh', ['-c', RECONCILE_SCRIPT], {
-        signal,
-        maxBuffer: MAX_COMMAND_OUTPUT,
-      })
+      const reconciled = await boundedExec(host, RECONCILE_SCRIPT, [], signal)
       if (reconciled.code !== 0) throw new Error('Remote image cleanup unavailable')
       this.reconciledHosts.add(host.hostId)
     }
-    const created = await host.exec('sh', ['-c', CREATE_SCRIPT], {
-      signal,
-      maxBuffer: MAX_COMMAND_OUTPUT,
-    })
+    const created = await boundedExec(host, CREATE_SCRIPT, [], signal)
     if (created.code !== 0) throw new Error('Remote image staging unavailable')
     const rawPath = created.stdout.trim()
     if (!safeStagedPath(rawPath)) throw new Error('Remote image staging returned no path')
@@ -62,6 +56,7 @@ function safeStagedPath(path: string): boolean {
   return (
     path.startsWith('/') &&
     !hasControl(path) &&
+    /^[A-Za-z0-9_./-]+$/.test(path) &&
     /\/image-paste\/paste\.[A-Za-z0-9]+\/image\.png$/.test(path)
   )
 }
@@ -77,8 +72,12 @@ async function boundedExec(
   host: ProjectHost,
   script: string,
   args: readonly string[],
+  parentSignal?: AbortSignal,
 ): Promise<Awaited<ReturnType<ProjectHost['exec']>>> {
   const controller = new AbortController()
+  const abort = () => controller.abort()
+  if (parentSignal?.aborted) abort()
+  else parentSignal?.addEventListener('abort', abort, { once: true })
   const timer = setTimeout(() => controller.abort(), CONTROL_TIMEOUT_MS)
   try {
     return await host.exec('sh', ['-c', script, 'hvir-image-paste', ...args], {
@@ -87,20 +86,27 @@ async function boundedExec(
     })
   } finally {
     clearTimeout(timer)
+    parentSignal?.removeEventListener('abort', abort)
   }
 }
 
 const ROOT_SCRIPT = `
 uid=$(id -u)
+safe_parent() {
+  candidate=$1
+  case "$candidate" in /*) ;; *) return 1 ;; esac
+  case "$candidate" in *[!A-Za-z0-9_./-]*) return 1 ;; esac
+  return 0
+}
 runtime=\${XDG_RUNTIME_DIR-}
-case "$runtime" in
-  /*) parent=$runtime; base=$parent/hvir ;;
-  *)
-    parent=\${TMPDIR:-/tmp}
-    case "$parent" in /*) ;; *) parent=/tmp ;; esac
-    base=$parent/hvir-$uid
-    ;;
-esac
+if safe_parent "$runtime"; then
+  parent=$runtime
+  base=$parent/hvir
+else
+  parent=\${TMPDIR:-/tmp}
+  safe_parent "$parent" || parent=/tmp
+  base=$parent/hvir-$uid
+fi
 root=$base/image-paste
 `
 
