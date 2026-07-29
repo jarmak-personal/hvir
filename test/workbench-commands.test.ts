@@ -10,6 +10,7 @@ describe('workbench command routing', () => {
     const ports = commandPorts()
     dispatchWorkbenchCommand('closeWebPane', 'pane-1', ports)
     dispatchWorkbenchCommand('focusTree', undefined, ports)
+    dispatchWorkbenchCommand('findFile', undefined, ports)
     dispatchWorkbenchCommand('findInFile', undefined, ports)
     dispatchWorkbenchCommand('goToLine', undefined, ports)
     dispatchWorkbenchCommand('nextWorkspace', undefined, ports)
@@ -17,6 +18,7 @@ describe('workbench command routing', () => {
 
     expect(ports.closeWebPane).toHaveBeenCalledWith('pane-1')
     expect(ports.focusTree).toHaveBeenCalledOnce()
+    expect(ports.findFile).toHaveBeenCalledOnce()
     expect(ports.findInFile).toHaveBeenCalledOnce()
     expect(ports.goToLine).toHaveBeenCalledOnce()
     expect(ports.switchWorkspace).toHaveBeenNthCalledWith(1, 1)
@@ -41,6 +43,7 @@ function commandPorts(): WorkbenchCommandPorts {
     escapeWebPaneFocus: vi.fn(),
     canUseViewerCommands: vi.fn(() => true),
     cycleViewMode: vi.fn(),
+    findFile: vi.fn(),
     findInFile: vi.fn(),
     goToLine: vi.fn(),
     toggleTerminalFocus: vi.fn(),

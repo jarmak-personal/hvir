@@ -1,6 +1,7 @@
 import { webContents, type BrowserWindow } from 'electron'
 
 import { dispatchWorkerHostCall } from '../git/worker-host-broker'
+import { createFilenameSearchCoordinator } from '../filename-search'
 import { HarnessProfileStore } from '../harness/harness-profile-store'
 import { harnessProviderCatalog } from '../harness/harness-provider'
 import type { HarnessProbeManager } from '../harness/harness-probe'
@@ -24,6 +25,7 @@ import {
   verifyRendererRolloverRecovery,
 } from './renderer-lifecycle'
 import { verifyFocusedViewer, verifyViewerPositions } from './viewer-position'
+import { verifyFilenameSearch } from './filename-search'
 import { verifyWorkbenchHealthFault } from './workbench-health'
 import { verifyUnresponsiveRendererRecovery } from './renderer-recovery'
 import type { ElectronSmokeMode } from './scenario-selection.mts'
@@ -108,6 +110,7 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
     'hvir-git-smoke',
     (call) => dispatchWorkerHostCall(call, { host, root: projectRoot }),
   )
+  const filenameSearch = createFilenameSearchCoordinator(git)
   const host = new LocalHost()
   const supervisor = new PtySupervisor()
   let smokeWindow: BrowserWindow | undefined
@@ -119,6 +122,7 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
   const cleanup = new SmokeCleanup()
   cleanup.defer('echo worker', () => worker.dispose())
   cleanup.defer('Git worker', () => git.dispose())
+  cleanup.defer('filename search', () => filenameSearch.dispose())
   cleanup.defer('local host', () => host.dispose())
   cleanup.defer('harness profile fixture', () =>
     host.exec('rm', ['-f', '--', harnessProfilesPath.path]).then(() => undefined),
@@ -281,6 +285,7 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
     const ipcRouter = registerIpcHandlers({
       echoWorker: worker,
       gitWorker: git,
+      filenameSearch,
       getProject: () => ({ host, root: smokeRoot }),
       getHost: () => host,
       connectedHosts: () => [host],
@@ -469,7 +474,6 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
       })
       console.log(`[smoke] workbench health fault injection OK (${health})`)
     }
-
     if (mode === 'workflow' || mode === 'platform-contracts') {
       const result = await verifyPlatformContracts({
         htmlPreviews,
@@ -484,7 +488,6 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
       const presentation = await verifyLegacyTerminalPresentation(win)
       console.log(`[smoke] terminal presentation OK (${presentation})`)
     }
-
     if (mode === 'workflow') {
       const workspaceCloseStatus = await verifyWorkspaceCloseSmoke({
         win,
@@ -504,14 +507,12 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
       })
       console.log(`[smoke] workspace close OK (${workspaceCloseStatus})`)
     }
-
     if (mode === 'viewer-position') {
       const result = await verifyFocusedViewer(win, liveReloadPath, viewerPositionPath)
       console.log(`[smoke] source/diff viewer positions OK (${result})`)
       console.log('HVIR_SMOKE_OK')
       return 0
     }
-
     if (mode === 'terminal-presentation') {
       const presentation = await verifyTerminalPresentationLifecycle(
         win,
@@ -522,7 +523,6 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
       console.log('HVIR_SMOKE_OK')
       return 0
     }
-
     if (mode === 'capacity') {
       await runCapacityLoadSmoke(win, supervisor, host, liveReloadPath)
       smokeTerminalSessionHarness.set(
@@ -535,7 +535,6 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
       console.log('HVIR_SMOKE_OK')
       return 0
     }
-
     const profileSmoke = (await withTimeout(
       win.webContents.executeJavaScript(`
         (async () => {
@@ -1191,6 +1190,7 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
       40_000,
     )) as string
     console.log(`[smoke] ProjectHost tree + CodeMirror/Shiki worker OK (${viewerStatus})`)
+    console.log(`[smoke] filename search OK (${await verifyFilenameSearch(win)})`)
 
     const renderedFixture = (await withTimeout(
       win.webContents.executeJavaScript(`

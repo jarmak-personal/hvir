@@ -1,4 +1,4 @@
-import { useCallback, useMemo, type ReactElement } from 'react'
+import { useCallback, useMemo, useState, type ReactElement } from 'react'
 
 import {
   basenameHostPath,
@@ -11,12 +11,14 @@ import {
 import { DirectoryTree } from './DirectoryTree'
 import { MissingWorkspaceNotice } from '../workspaces/MissingWorkspaceNotice'
 import { buildTreeGitDecorations } from './git-status-decoration'
+import { FilenameSearch } from './FilenameSearch'
 
 const NO_CHANGED_FILES: readonly GitChangedFile[] = []
 
 interface FileTreeProps {
   readonly root: HostPath
   readonly refreshVersion: number
+  readonly searchRefreshVersion: number
   readonly ignoredRefreshVersion: number
   readonly changedFiles?: readonly GitChangedFile[]
   readonly gitChangesLimited?: boolean
@@ -33,6 +35,7 @@ interface FileTreeProps {
 export function FileTree({
   root,
   refreshVersion,
+  searchRefreshVersion,
   ignoredRefreshVersion,
   changedFiles = NO_CHANGED_FILES,
   gitChangesLimited = false,
@@ -45,6 +48,7 @@ export function FileTree({
   watchInterestsLimited = false,
   onExpandedChange,
 }: FileTreeProps): ReactElement {
+  const [searchActive, setSearchActive] = useState(false)
   const gitDecorations = useMemo(
     () =>
       buildTreeGitDecorations(
@@ -82,38 +86,48 @@ export function FileTree({
       {missing ? (
         <MissingWorkspaceNotice root={root} />
       ) : (
-        <div className="tree-scroll">
-          {watchInterestsLimited ? (
-            <div className="tree-scope-notice" role="status">
-              Live updates are limited to the first{' '}
-              {MAX_PROJECT_WATCH_INTERESTS.toLocaleString()} visible folders. Collapsed
-              folders still load when opened.
-            </div>
-          ) : null}
-          {gitEnabled && gitChangesLimited ? (
-            <div className="tree-scope-notice" role="status">
-              Per-file Git markers are hidden while the working tree exceeds{' '}
-              {GIT_CHANGE_DISPLAY_LIMIT.toLocaleString()} changes.
-            </div>
-          ) : null}
-          {connected ? (
-            <DirectoryTree
-              root={root}
-              rootLabel={basenameHostPath(root) || root.path}
-              loadEntries={loadProjectEntries}
-              loadIgnoredEntries={gitEnabled ? loadIgnoredEntries : undefined}
-              resolveEntry={resolveProjectEntry}
-              refreshVersion={refreshVersion}
-              ignoredRefreshVersion={ignoredRefreshVersion}
-              gitDecorations={gitDecorations}
-              selected={selected}
-              onOpenFile={onOpen}
-              onExpandedChange={onExpandedChange}
-            />
-          ) : (
-            <div className="tree-error">Reconnect to browse this host.</div>
-          )}
-        </div>
+        <>
+          <FilenameSearch
+            root={root}
+            connected={connected}
+            gitIgnoreAvailable={gitEnabled}
+            refreshVersion={searchRefreshVersion}
+            onActiveChange={setSearchActive}
+            onOpen={onOpen}
+          />
+          <div className="tree-scroll" hidden={searchActive}>
+            {watchInterestsLimited ? (
+              <div className="tree-scope-notice" role="status">
+                Live updates are limited to the first{' '}
+                {MAX_PROJECT_WATCH_INTERESTS.toLocaleString()} visible folders. Collapsed
+                folders still load when opened.
+              </div>
+            ) : null}
+            {gitEnabled && gitChangesLimited ? (
+              <div className="tree-scope-notice" role="status">
+                Per-file Git markers are hidden while the working tree exceeds{' '}
+                {GIT_CHANGE_DISPLAY_LIMIT.toLocaleString()} changes.
+              </div>
+            ) : null}
+            {connected ? (
+              <DirectoryTree
+                root={root}
+                rootLabel={basenameHostPath(root) || root.path}
+                loadEntries={loadProjectEntries}
+                loadIgnoredEntries={gitEnabled ? loadIgnoredEntries : undefined}
+                resolveEntry={resolveProjectEntry}
+                refreshVersion={refreshVersion}
+                ignoredRefreshVersion={ignoredRefreshVersion}
+                gitDecorations={gitDecorations}
+                selected={selected}
+                onOpenFile={onOpen}
+                onExpandedChange={onExpandedChange}
+              />
+            ) : (
+              <div className="tree-error">Reconnect to browse this host.</div>
+            )}
+          </div>
+        </>
       )}
     </section>
   )

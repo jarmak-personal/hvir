@@ -134,7 +134,6 @@ export function App(): ReactElement {
     },
     [applyWebProjectState, switchViewerWorkspace],
   )
-
   const session = useProjectSession({
     composerSubmitMode: settings.composerSubmitMode,
     onProjectState: applyProjectViewState,
@@ -243,6 +242,7 @@ export function App(): ReactElement {
     escapeWebPaneFocus: () => setWebViewFocused(false),
     canUseViewerCommands: () => !gitGraphActiveRef.current && !webViewActiveRef.current,
     cycleViewMode: cycleActiveMode,
+    findFile: layout.focusFilenameSearch,
     findInFile: viewerCommands.findInFile,
     goToLine: viewerCommands.goToLine,
     toggleTerminalFocus,
@@ -278,7 +278,6 @@ export function App(): ReactElement {
   const workspaceWebViews = webViews.filter((view) =>
     hostPathEquals(view.workspaceRoot, root),
   )
-
   const renderViewerPane = (
     pane: ViewerPaneId,
     paneTabs: readonly ViewerTab[],
@@ -466,6 +465,7 @@ export function App(): ReactElement {
               key={`files:${root.hostId}:${root.path}`}
               root={root}
               refreshVersion={watchVersion}
+              searchRefreshVersion={contentVersion}
               ignoredRefreshVersion={ignoredRefreshVersion}
               changedFiles={gitChanges?.workingTree}
               gitChangesLimited={gitChanges?.workingTreeLimited}

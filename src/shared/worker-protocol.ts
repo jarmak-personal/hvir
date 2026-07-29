@@ -105,6 +105,7 @@ export const GIT_DIFF_INPUTS_TYPE = 'git:diff-inputs' as const
 export const GIT_CHANGES_TYPE = 'git:changes' as const
 export const GIT_HISTORY_TYPE = 'git:history' as const
 export const GIT_IGNORED_ENTRIES_TYPE = 'git:ignored-entries' as const
+export const GIT_IGNORED_PATHS_TYPE = 'git:ignored-paths' as const
 export const GIT_BLAME_TYPE = 'git:blame' as const
 export const GIT_COMMIT_DETAIL_TYPE = 'git:commit-detail' as const
 export const GIT_WORKTREES_TYPE = 'git:worktrees' as const
@@ -158,6 +159,10 @@ export interface GitWorkerProtocol {
   readonly [GIT_IGNORED_ENTRIES_TYPE]: WorkerOperation<
     GitIgnoredEntriesRequest,
     GitIgnoredEntriesResponse
+  >
+  readonly [GIT_IGNORED_PATHS_TYPE]: WorkerOperation<
+    { readonly root: HostPath; readonly paths: readonly string[] },
+    { readonly ignoredPaths: readonly string[] }
   >
   readonly [GIT_COMMIT_DETAIL_TYPE]: WorkerOperation<
     GitCommitDetailRequest,

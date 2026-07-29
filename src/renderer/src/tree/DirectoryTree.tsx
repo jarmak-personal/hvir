@@ -503,7 +503,7 @@ function TreeDepthGuides({ depth }: { readonly depth: number }): ReactElement | 
   )
 }
 
-function FileTreeName({ name }: { readonly name: string }): ReactElement {
+export function FileTreeName({ name }: { readonly name: string }): ReactElement {
   const { stem, extension } = splitFileName(name)
   return (
     <span className="tree-name tree-file-name">

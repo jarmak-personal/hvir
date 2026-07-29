@@ -4,6 +4,7 @@ import {
   GIT_CHANGES_TYPE,
   GIT_HISTORY_TYPE,
   GIT_IGNORED_ENTRIES_TYPE,
+  GIT_IGNORED_PATHS_TYPE,
   GIT_COMMIT_DETAIL_TYPE,
   GIT_WORKTREES_TYPE,
   GIT_PRUNE_WORKTREES_TYPE,
@@ -108,6 +109,8 @@ async function handle(request: WorkerRequest): Promise<void> {
         directory,
         raw['names'] as readonly string[],
       )
+    } else if (request.type === GIT_IGNORED_PATHS_TYPE && Array.isArray(raw['paths'])) {
+      result = await engine.ignoredPaths(root, raw['paths'] as readonly string[])
     } else if (request.type === GIT_HISTORY_TYPE) {
       const path = isRawPath(raw['path']) ? decodePath(raw['path']) : undefined
       if (path) assertProjectPath(path, root)

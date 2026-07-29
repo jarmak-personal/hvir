@@ -268,6 +268,7 @@ describe('IpcAuthorityRouter', () => {
         'project:browse-host',
         'project:open',
         'ssh:prompt-response',
+        'fs:filename-search',
         'html-preview:create',
         'web-pane:open',
         'web-pane:close',
@@ -292,6 +293,7 @@ describe('IpcAuthorityRouter', () => {
       new Set<IpcInvokeChannel>([
         'project:watch-interests',
         'fs:readdir',
+        'fs:filename-search',
         'fs:resolve-entry',
         'fs:read',
         'fs:read-asset',

@@ -8,7 +8,8 @@ export interface RendererOwner {
 export type RendererResourceQualifier =
   | {
       readonly lifetime: 'renderer'
-      readonly type: 'attention' | 'ssh-prompt-presentation' | 'diagnostic-report'
+      readonly type:
+        'attention' | 'ssh-prompt-presentation' | 'diagnostic-report' | 'filename-search'
     }
   | {
       readonly lifetime: 'workspace'
