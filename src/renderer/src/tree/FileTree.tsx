@@ -82,7 +82,7 @@ export function FileTree({
   )
 
   return (
-    <section className="rail-section" aria-label="Files" hidden={hidden}>
+    <section className="rail-section files-panel" aria-label="Files" hidden={hidden}>
       {missing ? (
         <MissingWorkspaceNotice root={root} />
       ) : (
