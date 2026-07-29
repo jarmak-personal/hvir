@@ -1,0 +1,102 @@
+// @vitest-environment happy-dom
+
+import { act, type ReactElement } from 'react'
+import { createRoot, type Root } from 'react-dom/client'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+
+import { useWorkbenchCommands } from '../src/renderer/src/workbench/use-workbench-commands'
+import type { WorkbenchCommandPorts } from '../src/renderer/src/workbench/workbench-command-router'
+import { DEFAULT_KEYBINDINGS } from '../src/shared'
+
+let container: HTMLDivElement
+let root: Root
+
+beforeEach(() => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true)
+  container = document.createElement('div')
+  document.body.append(container)
+  root = createRoot(container)
+  Object.defineProperty(window, 'hvir', {
+    configurable: true,
+    value: { send: vi.fn(), on: vi.fn(() => vi.fn()) },
+  })
+})
+
+afterEach(() => {
+  act(() => root.unmount())
+  container.remove()
+  vi.restoreAllMocks()
+  vi.unstubAllGlobals()
+})
+
+describe('workbench command listener', () => {
+  it('leaves viewer commands untouched in renderer-owned web pane chrome', () => {
+    const ports = commandPorts()
+    act(() => root.render(<CommandHarness ports={ports} />))
+    const input = container.querySelector('input')!
+    const primaryModifier = /Mac/.test(navigator.platform)
+      ? { metaKey: true }
+      : { ctrlKey: true }
+
+    const find = keydown('f', primaryModifier)
+    const goToLine = keydown('g', { ctrlKey: true })
+    act(() => {
+      input.dispatchEvent(find)
+      input.dispatchEvent(goToLine)
+    })
+
+    expect(find.defaultPrevented).toBe(false)
+    expect(goToLine.defaultPrevented).toBe(false)
+    expect(ports.findInFile).not.toHaveBeenCalled()
+    expect(ports.goToLine).not.toHaveBeenCalled()
+
+    const findFile = keydown('p', primaryModifier)
+    act(() => {
+      input.dispatchEvent(findFile)
+    })
+    expect(findFile.defaultPrevented).toBe(true)
+    expect(ports.findFile).toHaveBeenCalledOnce()
+  })
+})
+
+function CommandHarness({
+  ports,
+}: {
+  readonly ports: WorkbenchCommandPorts
+}): ReactElement {
+  useWorkbenchCommands(DEFAULT_KEYBINDINGS, ports)
+  return (
+    <div className="web-pane">
+      <input aria-label="Web pane path" />
+    </div>
+  )
+}
+
+function keydown(
+  key: string,
+  modifiers: Pick<KeyboardEventInit, 'ctrlKey' | 'metaKey'>,
+): KeyboardEvent {
+  return new KeyboardEvent('keydown', {
+    key,
+    ...modifiers,
+    bubbles: true,
+    cancelable: true,
+  })
+}
+
+function commandPorts(): WorkbenchCommandPorts {
+  return {
+    closeWebPane: vi.fn(),
+    escapeWebPaneFocus: vi.fn(),
+    canUseViewerCommands: vi.fn(() => true),
+    cycleViewMode: vi.fn(),
+    findFile: vi.fn(),
+    findInFile: vi.fn(),
+    goToLine: vi.fn(),
+    toggleTerminalFocus: vi.fn(),
+    focusTerminal: vi.fn(),
+    focusViewer: vi.fn(),
+    focusTree: vi.fn(),
+    switchWorkspace: vi.fn(),
+  }
+}

@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react'
 
 import type {
   KeybindingAction,
+  KeybindingContext,
   KeybindingMap,
   WebPaneCommandAction,
 } from '../../../shared'
@@ -30,11 +31,13 @@ export function useWorkbenchCommands(
         ([, binding]) => matchesKeybinding(event, binding),
       )?.[0]
       if (!action) return
-      if (
-        event.target instanceof Element &&
-        event.target.closest('.terminal-panel') &&
-        !keybindingAvailableInContext(action, 'terminal')
-      ) return
+      const context: KeybindingContext =
+        event.target instanceof Element && event.target.closest('.terminal-panel')
+          ? 'terminal'
+          : event.target instanceof Element && event.target.closest('.web-pane')
+            ? 'web-pane'
+            : 'workbench'
+      if (!keybindingAvailableInContext(action, context)) return
       event.preventDefault()
       perform(action)
     }
