@@ -11,8 +11,10 @@ import {
   asHostId,
   hostPath,
   type HostPath,
+  type RebindTerminalProfileRequest,
   type StartPtyRequest,
   type StartPtyResponse,
+  type TerminalRecoverySession,
 } from '../src/shared'
 
 const HARNESS_SESSION_ID = '05ea41ff-026f-4ab6-b930-64eb3b497806'
@@ -142,6 +144,40 @@ describe('terminal exact-resume IPC', () => {
       }),
     )
   })
+
+  it.each([
+    ['local', LOCAL_HOST_ID],
+    ['SSH', asHostId('ssh-profile-rebind')],
+  ])(
+    'authorizes a typed current-revision profile rebind on a %s ProjectHost',
+    async (_kind, hostId) => {
+      const fixture = resumeFixture(hostId, 'available')
+      const request: RebindTerminalProfileRequest = {
+        root: fixture.root,
+        id: 'terminal-1',
+        profileId: fixture.profile.id,
+        launchRevision: fixture.profile.launchRevision,
+        acknowledgeRisk: true,
+      }
+
+      await expect(
+        fixture.rebind({ ...request, acknowledgeRisk: false }, fixture.context),
+      ).rejects.toThrow('Unclassified profile requires acknowledgment')
+      expect(fixture.rebindProfile).not.toHaveBeenCalled()
+
+      const result = await fixture.rebind(request, fixture.context)
+
+      expect(result).toEqual(fixture.rebound)
+      expect(fixture.rebindProfile).toHaveBeenCalledWith({
+        id: 'terminal-1',
+        providerId: fixture.profile.providerId,
+        profileId: fixture.profile.id,
+        launchRevision: fixture.profile.launchRevision,
+        riskAcknowledgedRevision: fixture.profile.launchRevision,
+        workspaceRoot: fixture.root,
+      })
+    },
+  )
 
   it.each([
     ['local', LOCAL_HOST_ID],
@@ -449,6 +485,22 @@ function resumeFixture(
   const recordReplacement = vi.fn((_replacement: RecordTerminalReplacement) =>
     Promise.resolve(),
   )
+  const rebound: TerminalRecoverySession = {
+    id: 'terminal-1',
+    providerId: profile.providerId,
+    profileId: profile.id,
+    launchRevision: profile.launchRevision,
+    recoverySkipCount: 0,
+    riskAcknowledgedRevision: profile.launchRevision,
+    harnessSessionId: HARNESS_SESSION_ID,
+    hostId,
+    cwd: root,
+    title: 'Retained conversation',
+    position: 0,
+    active: true,
+    updatedAt: 2,
+  }
+  const rebindProfile = vi.fn(() => Promise.resolve(rebound))
   const lease = { dispose: vi.fn(() => Promise.resolve()), release: vi.fn() }
   const register = vi.fn(
     (_owner: unknown, _qualifier: unknown, _dispose: () => unknown, _options?: unknown) =>
@@ -529,6 +581,7 @@ function resumeFixture(
       recordRecoveryDecision: persistRecoveryDecision,
       recordSpawn,
       recordReplacement,
+      rebindProfile,
     },
     harnessProfiles: {
       get: () => profile,
@@ -573,6 +626,10 @@ function resumeFixture(
     },
     context: IpcInvokeContext,
   ) => Promise<void>
+  const rebind = handlers.get('terminal:rebind-profile') as (
+    request: RebindTerminalProfileRequest,
+    context: IpcInvokeContext,
+  ) => Promise<TerminalRecoverySession>
   const request: StartPtyRequest = {
     sessionId: 'terminal-1',
     profileId: profile.id,
@@ -605,6 +662,8 @@ function resumeFixture(
     authorizeReplacement,
     recordSpawn,
     recordReplacement,
+    rebound,
+    rebindProfile,
     persistRecoveryDecision,
     lease,
     register,
@@ -621,6 +680,7 @@ function resumeFixture(
     send,
     start,
     recordRecoveryDecision,
+    rebind,
     request,
     context,
   }

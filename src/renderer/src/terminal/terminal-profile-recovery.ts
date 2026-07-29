@@ -16,6 +16,16 @@ export function recoverableProfile(
   )
 }
 
+export function defaultRecoveryRebindProfile(
+  profiles: readonly HarnessProfile[],
+  record: TerminalRecoverySession,
+): HarnessProfile | undefined {
+  return profiles.find(
+    (profile) =>
+      profile.id === record.profileId && profile.providerId === record.providerId,
+  )
+}
+
 export function autoRecoverableProfile(
   profiles: readonly HarnessProfile[],
   record: TerminalRecoverySession,

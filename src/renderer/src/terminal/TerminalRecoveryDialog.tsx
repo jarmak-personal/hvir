@@ -8,7 +8,10 @@ import {
   type HarnessProviderDescriptor,
   type TerminalRecoverySession,
 } from '../../../shared'
-import { recoverableProfile } from './terminal-profile-recovery'
+import {
+  defaultRecoveryRebindProfile,
+  recoverableProfile,
+} from './terminal-profile-recovery'
 import { terminalRecoveryCandidateDecision } from './terminal-recovery-planner'
 import { probeLaunchUnavailable, recoveryProbe } from './terminal-probe-policy'
 
@@ -130,9 +133,10 @@ export function TerminalRecoveryDialog({
             const sameProviderProfiles = profiles.filter(
               (candidate) => candidate.providerId === session.providerId,
             )
+            const defaultRebindProfile = defaultRecoveryRebindProfile(profiles, session)
+            const selectedRebindId = rebind[session.id] ?? defaultRebindProfile?.id ?? ''
             const selectedRebindProfile = sameProviderProfiles.find(
-              (candidate) =>
-                candidate.id === (rebind[session.id] ?? sameProviderProfiles[0]?.id),
+              (candidate) => candidate.id === selectedRebindId,
             )
             return (
               <div key={session.id} className="terminal-recovery-option">
@@ -157,7 +161,9 @@ export function TerminalRecoveryDialog({
                   <strong>{session.title}</strong>
                   <small>
                     {profile?.displayName ??
-                      provider?.displayName ??
+                      (defaultRebindProfile
+                        ? `Current profile: ${defaultRebindProfile.displayName}`
+                        : provider?.displayName) ??
                       `Unavailable provider (${session.providerId})`}{' '}
                     · {basenameHostPath(session.cwd)} ·{' '}
                     {provider && profile
@@ -177,7 +183,7 @@ export function TerminalRecoveryDialog({
                       <select
                         aria-label={`Rebind ${session.title} profile`}
                         disabled={submitting}
-                        value={rebind[session.id] ?? sameProviderProfiles[0]?.id}
+                        value={selectedRebindId}
                         onChange={(event) => {
                           const profileId = event.currentTarget.value as HarnessProfileId
                           setRebind((current) => ({
@@ -186,23 +192,26 @@ export function TerminalRecoveryDialog({
                           }))
                         }}
                       >
+                        {defaultRebindProfile ? null : (
+                          <option value="" disabled>
+                            Select a profile
+                          </option>
+                        )}
                         {sameProviderProfiles.map((candidate) => (
                           <option key={candidate.id} value={candidate.id}>
-                            {candidate.displayName}
-                            {candidate.risk === 'standard'
-                              ? ''
-                              : ` · ${riskLabel(candidate.risk)}`}
+                            {candidate.displayName} · {riskLabel(candidate.risk)}
                           </option>
                         ))}
                       </select>
                       <button
                         type="button"
-                        disabled={submitting}
+                        disabled={submitting || !selectedRebindProfile}
                         onClick={() => {
                           if (!selectedRebindProfile) return
-                          void onRebind(session, selectedRebindProfile).catch(
-                            (reason: unknown) => setError(errorMessage(reason)),
-                          )
+                          void submit(async () => {
+                            await onRebind(session, selectedRebindProfile)
+                            setSelected((current) => new Set(current).add(session.id))
+                          })
                         }}
                       >
                         {selectedRebindProfile?.risk === 'standard' ||

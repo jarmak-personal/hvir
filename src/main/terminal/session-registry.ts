@@ -605,7 +605,14 @@ export class TerminalSessionRegistry implements TerminalSessionStore {
       updatedAt: Date.now(),
     }
     this.sessions.set(request.id, updated)
-    await this.persist()
+    try {
+      await this.persist()
+    } catch (error) {
+      if (this.sessions.get(request.id) === updated) {
+        this.sessions.set(request.id, current)
+      }
+      throw error
+    }
     const { workspaceRoot: _workspaceRoot, ...result } = updated
     return result
   }
