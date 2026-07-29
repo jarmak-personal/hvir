@@ -1,20 +1,110 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+<?xml version="1.0" encoding="UTF-8"?>
+<svg
+  xmlns="http://www.w3.org/2000/svg"
+  width="1254"
+  height="1254"
+  viewBox="0 0 1254 1254"
+  role="img"
+  aria-labelledby="title description"
+>
+  <title id="title">hvir icon</title>
+  <desc id="description">
+    Four geometric modules forming an abstract lowercase h.
+  </desc>
+
   <defs>
-    <linearGradient id="frame" x1="178" y1="142" x2="846" y2="878" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#6CA9F0"/>
-      <stop offset="1" stop-color="#376FAF"/>
+    <radialGradient id="background" cx="50%" cy="47%" r="72%">
+      <stop offset="0" stop-color="#111520" />
+      <stop offset="0.72" stop-color="#0c0f18" />
+      <stop offset="1" stop-color="#090b12" />
+    </radialGradient>
+
+    <linearGradient id="blue" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#7795c5" />
+      <stop offset="1" stop-color="#6684b6" />
     </linearGradient>
-    <linearGradient id="screen" x1="512" y1="230" x2="512" y2="804" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#191E27"/>
-      <stop offset="1" stop-color="#101319"/>
+
+    <linearGradient id="ivory" x1="0" y1="0" x2="0.85" y2="1">
+      <stop offset="0" stop-color="#fbf7f2" />
+      <stop offset="1" stop-color="#f1e9e2" />
     </linearGradient>
+
+    <filter id="soft-shadow" x="-12%" y="-12%" width="124%" height="128%">
+      <feDropShadow
+        dx="0"
+        dy="3"
+        stdDeviation="4"
+        flood-color="#000000"
+        flood-opacity="0.24"
+      />
+    </filter>
   </defs>
-  <rect x="48" y="48" width="928" height="928" rx="220" fill="#0C0F14"/>
-  <rect x="132" y="132" width="760" height="760" rx="176" fill="url(#frame)"/>
-  <rect x="202" y="202" width="620" height="620" rx="116" fill="url(#screen)"/>
-  <path d="M202 606H822" stroke="#303947" stroke-width="28"/>
-  <path d="M333 324V548M333 420H490C554 420 584 457 584 516V548" fill="none" stroke="#E7ECF3" stroke-width="72" stroke-linecap="round" stroke-linejoin="round"/>
-  <circle cx="704" cy="339" r="34" fill="#F0B75D"/>
-  <path d="M314 709L382 657M314 709L382 761" fill="none" stroke="#78C587" stroke-width="38" stroke-linecap="round" stroke-linejoin="round"/>
-  <path d="M444 758H632" stroke="#8C97A8" stroke-width="38" stroke-linecap="round"/>
+
+  <rect id="background-field" width="1254" height="1254" fill="url(#background)" />
+
+  <g id="mark" filter="url(#soft-shadow)">
+    <path
+      id="left-structure"
+      fill="url(#blue)"
+      d="
+        M 357 272
+        H 530
+        Q 558 272 558 300
+        V 382
+        H 482
+        Q 465 382 465 399
+        V 953
+        Q 465 982 436 982
+        H 357
+        Q 328 982 328 953
+        V 301
+        Q 328 272 357 272
+        Z
+      "
+    />
+
+    <path
+      id="ivory-pane"
+      fill="url(#ivory)"
+      d="
+        M 620 272
+        H 895
+        Q 924 272 924 301
+        V 712
+        Q 924 741 895 741
+        H 827
+        Q 806 741 801 721
+        C 783 655 714 604 642 604
+        C 618 604 592 618 592 604
+        V 301
+        Q 592 272 620 272
+        Z
+      "
+    />
+
+    <path
+      id="center-leg"
+      fill="url(#blue)"
+      d="
+        M 563 712
+        C 563 672 595 640 635 640
+        C 675 640 707 672 707 712
+        V 953
+        Q 707 982 678 982
+        H 592
+        Q 563 982 563 953
+        Z
+      "
+    />
+
+    <rect
+      id="right-stem"
+      x="800"
+      y="780"
+      width="124"
+      height="202"
+      rx="28"
+      fill="url(#blue)"
+    />
+  </g>
 </svg>
