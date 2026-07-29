@@ -289,7 +289,9 @@ describe('GhosttyTerminalPane lifecycle', () => {
     })
     const state = ghosttyState.instances[0]!
     const input = vi.fn()
+    const clipboardPaste = vi.fn()
     pane.events.onData(input)
+    pane.events.onClipboardPaste(clipboardPaste)
     pane.mount(container)
 
     state.emitData('a')
@@ -302,7 +304,8 @@ describe('GhosttyTerminalPane lifecycle', () => {
     })
 
     expect(customHandled).toBe(true)
-    expect(input.mock.calls).toEqual([['a'], ['\x16']])
+    expect(input.mock.calls).toEqual([['a']])
+    expect(clipboardPaste).toHaveBeenCalledExactlyOnceWith('\x16')
     expect(state.cursorBlinkResets).toBe(2)
 
     pane.setPresentation('hidden')

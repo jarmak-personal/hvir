@@ -1,8 +1,4 @@
-import {
-  hostPathEquals,
-  type HostConnectionState,
-  type HostPath,
-} from '../../../shared'
+import { hostPathEquals, type HostConnectionState, type HostPath } from '../../../shared'
 import { createGhosttyTerminalPane } from './ghostty-terminal-pane'
 import { SynchronizedOutputWriter } from './synchronized-output'
 import type { TerminalEventRouter } from './terminal-event-router'
@@ -388,6 +384,15 @@ export class TerminalRuntime {
         if (this.started) window.hvir.send('pty:write', { id: this.activePtyId!, data })
         else this.pendingInput += data
       }),
+      pane.events.onClipboardPaste((fallbackData) => {
+        this.options.onInput(fallbackData)
+        if (this.started) {
+          window.hvir.send('terminal:paste-image', {
+            id: this.activePtyId!,
+            fallbackData,
+          })
+        } else this.pendingInput += fallbackData
+      }),
       pane.events.onResize(({ cols, rows }) => {
         this.terminalSize = { cols, rows }
         if (!this.started) return
@@ -458,10 +463,7 @@ export class TerminalRuntime {
     this.pane = undefined
     if (kill && (this.started || wasStarting)) {
       window.hvir.send('pty:kill', {
-        id:
-          this.activePtyId ??
-          this.pendingReplacementId ??
-          this.options.sessionId,
+        id: this.activePtyId ?? this.pendingReplacementId ?? this.options.sessionId,
       })
     }
     this.started = false

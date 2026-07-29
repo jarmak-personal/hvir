@@ -46,6 +46,8 @@ export type TerminalLinkActivation =
 export interface TerminalPaneEvents {
   /** User keystrokes / paste — data the pane wants written to the PTY. */
   onData(cb: (data: string) => void): Disposer
+  /** Explicit clipboard-paste gesture; policy remains outside the swappable pane. */
+  onClipboardPaste(cb: (fallbackData: string) => void): Disposer
   /** OSC 0/2 title change (drives auto-titled terminals — §7). */
   onTitle(cb: (title: string) => void): Disposer
   /** BEL / OSC 9 (a notification signal — ADR-009). */

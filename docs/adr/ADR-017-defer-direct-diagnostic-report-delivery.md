@@ -1,5 +1,9 @@
 # ADR-017: Defer direct diagnostic report delivery to harnesses
 
+> [ADR-026](ADR-026-explicit-ssh-image-paste.md) narrowly supersedes this record's
+> rejection of remote image staging and generic PTY injection only for an explicit
+> image-paste gesture in a focused terminal. Diagnostic-report delivery remains deferred.
+
 ## Context
 
 ADR-016 authorizes a bounded local diagnostic report that the user can preview, copy, save,

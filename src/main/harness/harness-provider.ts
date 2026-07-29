@@ -58,6 +58,14 @@ export interface HarnessComposerConfiguration {
   configure(host: ProjectHost, mode: ComposerSubmitMode): Promise<void>
 }
 
+/** Exact native-composer behavior approved for an explicit remote image-paste gesture. */
+export interface HarnessRemoteImagePasteContract {
+  /** Increment when path insertion or acknowledgement semantics change. */
+  readonly revision: number
+  /** Produce one atomic terminal paste; never submit the composer. */
+  terminalInput(path: HostPath): string
+}
+
 export type HarnessSessionDiscoveryResult =
   | {
       readonly status: 'identified'
@@ -195,6 +203,7 @@ export interface HarnessProvider {
   readonly resumeValidation?: HarnessResumeValidation
   readonly probe: HarnessProbeContract
   readonly composerConfiguration?: HarnessComposerConfiguration
+  readonly remoteImagePaste?: HarnessRemoteImagePasteContract
 
   /** Command to start a fresh session. */
   launch(ctx: HarnessLaunchContext): HarnessLaunchSpec
@@ -273,6 +282,7 @@ export const claudeCodeProvider: HarnessProvider = {
   resumeValidation: { availability: claudeResumeAvailability },
   probe: versionProbe('preassigned', true, 'count'),
   composerConfiguration: { configure: configureClaudeComposerSubmit },
+  remoteImagePaste: pathImagePasteContract(),
 
   launch(ctx): HarnessLaunchSpec {
     return {
@@ -329,6 +339,7 @@ export const codexProvider: HarnessProvider = {
   sessionDiscovery: codexSessionDiscovery,
   telemetry: { observe: observeCodexContext },
   probe: versionProbe('discovered', true, 'pressure'),
+  remoteImagePaste: pathImagePasteContract(),
 
   launch(ctx): HarnessLaunchSpec {
     return {
@@ -594,6 +605,22 @@ function isElevatedCodexConfig(value: string): boolean {
     normalized === 'sandbox_mode=danger-full-access' ||
     normalized === 'approval_policy=never'
   )
+}
+
+function pathImagePasteContract(): HarnessRemoteImagePasteContract {
+  return {
+    revision: 1,
+    terminalInput: (path) => {
+      if (
+        !path.path.startsWith('/') ||
+        hasControlCharacter(path.path) ||
+        !/^[A-Za-z0-9_./-]+$/.test(path.path)
+      ) {
+        throw new Error('Remote image paste requires a safe absolute path')
+      }
+      return `\x1b[200~${path.path}\x1b[201~`
+    },
+  }
 }
 
 function staticProbe(

@@ -12,7 +12,7 @@ export type RendererResourceQualifier =
     }
   | {
       readonly lifetime: 'workspace'
-      readonly type: 'pty-session' | 'web-pane' | 'html-preview'
+      readonly type: 'pty-session' | 'web-pane' | 'html-preview' | 'image-paste'
       readonly root: HostPath
       readonly id: string
     }

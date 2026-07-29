@@ -82,6 +82,15 @@ export interface WatchOptions {
 export interface WriteFileOptions {
   /** Reject if the live file no longer has the version originally read. */
   readonly expectedMtimeMs?: number
+  /** Cancel an in-flight write without publishing its temporary file. */
+  readonly signal?: AbortSignal
+}
+
+export interface RemoveFileOptions {
+  /** Reject if the live file no longer has the version originally read. */
+  readonly expectedMtimeMs?: number
+  /** Treat an already-absent removal target as a successful idempotent cleanup. */
+  readonly ignoreMissing?: boolean
 }
 
 export interface ReadFileOptions {
@@ -177,7 +186,7 @@ export interface ProjectHost {
     opts?: WriteFileOptions,
   ): Promise<void>
   /** Remove one file, optionally only while its observed version is still current. */
-  removeFile(path: HostPath, opts?: WriteFileOptions): Promise<void>
+  removeFile(path: HostPath, opts?: RemoveFileOptions): Promise<void>
   readdir(path: HostPath): Promise<DirEntry[]>
   stat(path: HostPath): Promise<Stat>
   /** Canonicalize through symlinks on the project host. */

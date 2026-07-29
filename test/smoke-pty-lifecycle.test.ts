@@ -302,6 +302,7 @@ function outputFixture(): {
 
 function managedPty(id: string, pid: number): ManagedPty {
   return {
+    instanceId: `instance-${id}-${pid}`,
     id,
     ownerId: 17,
     ownerGeneration: 3,
