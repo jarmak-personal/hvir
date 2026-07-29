@@ -24,7 +24,7 @@ export interface ResolvedTerminalFileTarget {
 }
 
 const TOKEN = /[^\s<>"'`|]+/g
-const TRAILING_PUNCTUATION = /[.),;!?}\]]+$/
+const TRAILING_PUNCTUATION = /[.),;:!?}\]]+$/
 const LEADING_PUNCTUATION = /^[([{]+/
 const LINE_POSITION = /:(\d+)(?::(\d+))?$/
 const FILE_NAME = /(?:^|\/)[^/]+\.[a-z0-9][a-z0-9._-]*$/i

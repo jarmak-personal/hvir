@@ -19,6 +19,24 @@ describe('terminal file links', () => {
     ])
   })
 
+  it('strips bare trailing colons from detected paths', () => {
+    const text =
+      'open /srv/project/icon.svg: and README.md: plus (/srv/project/nested/file.ts):'
+    const links = detectTerminalFileLinks(text)
+
+    expect(links.map(({ target }) => target)).toEqual([
+      '/srv/project/icon.svg',
+      'README.md',
+      '/srv/project/nested/file.ts',
+    ])
+    for (const link of links) {
+      expect(text.slice(link.start, link.end + 1)).toBe(link.target)
+    }
+    expect(resolveTerminalFileTarget(links[0]?.target ?? '', root)).toEqual({
+      path: hostPath(asHostId('remote'), '/srv/project/icon.svg'),
+    })
+  })
+
   it('parses file URIs and line positions', () => {
     expect(parseTerminalFileTarget('file:///srv/project/a%20b.ts')).toEqual({
       path: '/srv/project/a b.ts',
