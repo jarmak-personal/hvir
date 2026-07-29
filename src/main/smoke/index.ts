@@ -14,15 +14,13 @@ import type { WebPaneRouteRegistry } from '../web-pane/web-pane-route-registry'
 import { createWorkerClient, workerPath } from '../worker-host'
 import { createWorkspaceCleanup } from '../workspace-cleanup'
 import { SmokeCleanup } from './cleanup'
+import { createSmokeImagePasteFallback } from './image-paste-fallback'
 import { verifyGitDiffBases } from './git-diff'
 import { verifyDirtyBranchSwitch } from './git-dirty-navigation'
 import { verifyDiagnosticRestart } from './diagnostic-report-restart'
 import { verifyDevelopmentPerformanceMode } from './development-performance'
 import { verifyPlatformContracts } from './platform-contracts'
-import {
-  verifyRendererLifecycleCleanup,
-  verifyRendererRolloverRecovery,
-} from './renderer-lifecycle'
+import { verifyRendererLifecycleCleanup, verifyRendererRolloverRecovery } from './renderer-lifecycle'
 import { verifySourceDiffPosition, verifyViewerPositions } from './viewer-position'
 import { verifyWorkbenchHealthFault } from './workbench-health'
 import { verifyUnresponsiveRendererRecovery } from './renderer-recovery'
@@ -384,7 +382,7 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
       terminalMoves: terminalMoveSmoke.coordinator,
       harnessProfiles: smokeHarnessProfiles,
       harnessProbes: harnessProbeManager,
-      remoteImagePaste: { pasteOrForward: () => Promise.resolve() },
+      remoteImagePaste: createSmokeImagePasteFallback(supervisor),
       updateAttention: () => undefined,
       updateWebPaneBindings: (owner, bindings) => updateWebPaneBindings(owner.id, bindings),
       updateWebPaneFullPage: (owner, paneId) => updateWebPaneFullPage(owner.id, paneId),

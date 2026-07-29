@@ -1,4 +1,5 @@
 import { EventEmitter } from 'node:events'
+import { Writable } from 'node:stream'
 
 import type { SFTPWrapper } from 'ssh2'
 import { describe, expect, it, vi } from 'vitest'
@@ -113,6 +114,44 @@ describe('SshFileAccess', () => {
     files.dispose()
   })
 
+  it('cancels an in-flight SFTP write and removes its unpublished temporary', async () => {
+    const hostId = asHostId('ssh:test')
+    const path = hostPath(hostId, '/project/image.png')
+    const stream = new Writable({
+      write: (_chunk, _encoding, _callback) => undefined,
+    })
+    const destroy = vi.spyOn(stream, 'destroy')
+    const session = {
+      lstat: vi.fn(
+        (_path: string, callback: (error: Error | undefined, value: unknown) => void) =>
+          callback(undefined, { mode: 0o100600, mtime: 100, size: 0, atime: 100 }),
+      ),
+      createWriteStream: vi.fn(() => stream),
+      unlink: vi.fn((_path: string, callback: (error?: Error) => void) => callback()),
+      once: vi.fn(),
+      end: vi.fn(),
+    }
+    const files = new SshFileAccess(
+      {
+        hostId,
+        openSftp: () => Promise.resolve(session as unknown as SFTPWrapper),
+      },
+      {},
+    )
+    const controller = new AbortController()
+    const writing = files.writeFile(path, Buffer.from([1, 2, 3]), {
+      signal: controller.signal,
+    })
+    await vi.waitFor(() => expect(session.createWriteStream).toHaveBeenCalledOnce())
+
+    controller.abort()
+
+    await expect(writing).rejects.toMatchObject({ name: 'AbortError' })
+    expect(destroy).toHaveBeenCalledOnce()
+    expect(session.unlink).toHaveBeenCalledOnce()
+    files.dispose()
+  })
+
   it('removes only the observed version of a remote file', async () => {
     const hostId = asHostId('ssh:test')
     const path = hostPath(hostId, '/project/keybindings.json')
@@ -163,6 +202,32 @@ describe('SshFileAccess', () => {
       'changed on the remote host',
     )
     expect(session.unlink).not.toHaveBeenCalled()
+    files.dispose()
+  })
+
+  it('allows idempotent removal and clears optimistic-save state', async () => {
+    const hostId = asHostId('ssh:test')
+    const path = hostPath(hostId, '/project/already-removed.png')
+    const missing = Object.assign(new Error('missing'), { code: 2 })
+    const session = {
+      unlink: vi.fn((_path: string, callback: (error?: Error) => void) =>
+        callback(missing),
+      ),
+      once: vi.fn(),
+      end: vi.fn(),
+    }
+    const files = new SshFileAccess(
+      {
+        hostId,
+        openSftp: () => Promise.resolve(session as unknown as SFTPWrapper),
+      },
+      {},
+    )
+    const digests = (files as unknown as { readDigests: Map<string, string> }).readDigests
+    digests.set(path.path, 'stale')
+
+    await expect(files.removeFile(path, { ignoreMissing: true })).resolves.toBeUndefined()
+    expect(digests.has(path.path)).toBe(false)
     files.dispose()
   })
 })

@@ -4,11 +4,16 @@ import {
   RemoteImagePasteCoordinator,
   RemoteImagePasteStorage,
   REMOTE_IMAGE_PASTE_MAX_BYTES,
+  REMOTE_IMAGE_PASTE_MAX_CONCURRENT,
+  REMOTE_IMAGE_PASTE_MAX_DIMENSION,
+  REMOTE_IMAGE_PASTE_MAX_HOST_ITEMS,
+  REMOTE_IMAGE_PASTE_MAX_PIXELS,
   REMOTE_IMAGE_PASTE_TRANSFER_TIMEOUT_MS,
   REMOTE_IMAGE_PASTE_TTL_MS,
   type ClipboardPngSource,
   type RemoteImagePasteStoragePort,
 } from '../src/main/harness/remote-image-paste'
+import { ElectronClipboardPngSource } from '../src/main/harness/electron-clipboard-image'
 import type { ProjectHost, PtyExit } from '../src/main/project-host'
 import type { ManagedPty } from '../src/main/pty/pty-supervisor'
 import type {
@@ -52,6 +57,24 @@ describe('RemoteImagePasteCoordinator', () => {
       local.id,
       OWNER.id,
       '\x16',
+      OWNER.generation,
+    )
+    await fixture.coordinator.dispose()
+  })
+
+  it('forwards the exact native key when a supported remote has no image', async () => {
+    const terminal = managedTerminal('terminal-empty', 'codex', REMOTE_ROOT)
+    const clipboard = emptyClipboard()
+    const fixture = coordinatorFixture([terminal], clipboard)
+
+    await fixture.coordinator.pasteOrForward(terminal.id, OWNER, '\x1b\x16')
+
+    expect(clipboard.read.mock.calls).toHaveLength(1)
+    expect(fixture.storage.stage).not.toHaveBeenCalled()
+    expect(fixture.write).toHaveBeenCalledExactlyOnceWith(
+      terminal.id,
+      OWNER.id,
+      '\x1b\x16',
       OWNER.generation,
     )
     await fixture.coordinator.dispose()
@@ -138,6 +161,37 @@ describe('RemoteImagePasteCoordinator', () => {
     await fixture.coordinator.dispose()
   })
 
+  it('admits at most two in-flight pastes across the application', async () => {
+    const terminals = ['one', 'two', 'three'].map((suffix) =>
+      managedTerminal(`terminal-${suffix}`, 'codex', REMOTE_ROOT),
+    )
+    const firstStage = deferred<HostPath>()
+    const secondStage = deferred<HostPath>()
+    const fixture = coordinatorFixture(terminals)
+    fixture.storage.stage
+      .mockReturnValueOnce(firstStage.promise)
+      .mockReturnValueOnce(secondStage.promise)
+
+    const first = fixture.coordinator.paste(terminals[0]!.id, OWNER)
+    const second = fixture.coordinator.paste(terminals[1]!.id, OWNER)
+    await vi.waitFor(() =>
+      expect(fixture.storage.stage).toHaveBeenCalledTimes(
+        REMOTE_IMAGE_PASTE_MAX_CONCURRENT,
+      ),
+    )
+
+    await expect(fixture.coordinator.paste(terminals[2]!.id, OWNER)).resolves.toEqual({
+      outcome: 'failed',
+      reason: 'busy',
+    })
+
+    firstStage.resolve(stagedPath('first'))
+    secondStage.resolve(stagedPath('second'))
+    await expect(first).resolves.toEqual({ outcome: 'path-inserted' })
+    await expect(second).resolves.toEqual({ outcome: 'path-inserted' })
+    await fixture.coordinator.dispose()
+  })
+
   it('keeps the per-terminal guard when an older retained paste is retired', async () => {
     const terminal = managedTerminal('terminal-overlap', 'codex', REMOTE_ROOT)
     const laterPath = hostPath(
@@ -167,6 +221,27 @@ describe('RemoteImagePasteCoordinator', () => {
     await fixture.coordinator.dispose()
   })
 
+  it('bounds retained and in-flight material per SSH host', async () => {
+    const terminals = Array.from(
+      { length: REMOTE_IMAGE_PASTE_MAX_HOST_ITEMS + 1 },
+      (_value, index) => managedTerminal(`terminal-host-${index}`, 'codex', REMOTE_ROOT),
+    )
+    const fixture = coordinatorFixture(terminals)
+    fixture.storage.stage.mockResolvedValue(STAGED_PATH)
+
+    for (const terminal of terminals.slice(0, REMOTE_IMAGE_PASTE_MAX_HOST_ITEMS)) {
+      await expect(fixture.coordinator.paste(terminal.id, OWNER)).resolves.toEqual({
+        outcome: 'path-inserted',
+      })
+    }
+
+    await expect(fixture.coordinator.paste(terminals.at(-1)!.id, OWNER)).resolves.toEqual(
+      { outcome: 'failed', reason: 'busy' },
+    )
+    expect(fixture.storage.stage).toHaveBeenCalledTimes(REMOTE_IMAGE_PASTE_MAX_HOST_ITEMS)
+    await fixture.coordinator.dispose()
+  })
+
   it('fails closed when renderer authority changes during transfer', async () => {
     const terminal = managedTerminal('terminal-renderer', 'claude-code', REMOTE_ROOT)
     const staged = deferred<HostPath>()
@@ -188,12 +263,40 @@ describe('RemoteImagePasteCoordinator', () => {
     await fixture.coordinator.dispose()
   })
 
+  it('fails closed and removes material when the SSH host disconnects in flight', async () => {
+    const terminal = managedTerminal('terminal-disconnect', 'codex', REMOTE_ROOT)
+    const staged = deferred<HostPath>()
+    const fixture = coordinatorFixture([terminal], undefined, staged.promise)
+    const paste = fixture.coordinator.paste(terminal.id, OWNER)
+    await vi.waitFor(() => expect(fixture.storage.stage).toHaveBeenCalledOnce())
+
+    fixture.emitConnection('disconnected')
+    staged.resolve(STAGED_PATH)
+
+    await expect(paste).resolves.toEqual({
+      outcome: 'failed',
+      reason: 'target-changed',
+    })
+    expect(fixture.write).not.toHaveBeenCalled()
+    expect(fixture.storage.remove).toHaveBeenCalledWith(fixture.host, STAGED_PATH)
+    await fixture.coordinator.dispose()
+  })
+
   it('aborts a transfer at its deadline and removes late material', async () => {
     vi.useFakeTimers()
     try {
       const terminal = managedTerminal('terminal-timeout', 'codex', REMOTE_ROOT)
+      const retryTerminal = managedTerminal(
+        'terminal-after-timeout',
+        'codex',
+        REMOTE_ROOT,
+      )
       const staged = deferred<HostPath>()
-      const fixture = coordinatorFixture([terminal], undefined, staged.promise)
+      const fixture = coordinatorFixture(
+        [terminal, retryTerminal],
+        undefined,
+        staged.promise,
+      )
       const paste = fixture.coordinator.paste(terminal.id, OWNER)
       await Promise.resolve()
       expect(fixture.storage.stage).toHaveBeenCalledOnce()
@@ -202,6 +305,11 @@ describe('RemoteImagePasteCoordinator', () => {
       await expect(paste).resolves.toEqual({
         outcome: 'failed',
         reason: 'transfer-failed',
+      })
+
+      fixture.storage.stage.mockResolvedValueOnce(stagedPath('after-timeout'))
+      await expect(fixture.coordinator.paste(retryTerminal.id, OWNER)).resolves.toEqual({
+        outcome: 'path-inserted',
       })
 
       staged.resolve(STAGED_PATH)
@@ -285,6 +393,50 @@ describe('RemoteImagePasteCoordinator', () => {
   })
 })
 
+describe('ElectronClipboardPngSource', () => {
+  it('returns no image for an empty application clipboard', () => {
+    const toPNG = vi.fn(() => Buffer.from([1]))
+    const image = electronImage({ empty: true, toPNG })
+    const source = new ElectronClipboardPngSource({ readImage: () => image })
+
+    expect(source.read()).toBeUndefined()
+    expect(toPNG).not.toHaveBeenCalled()
+  })
+
+  it('rejects dimensions and pixel counts before PNG encoding', () => {
+    const toPNG = vi.fn(() => Buffer.from([1]))
+    const readImage = vi
+      .fn<() => Electron.NativeImage>()
+      .mockReturnValueOnce(
+        electronImage({ width: REMOTE_IMAGE_PASTE_MAX_DIMENSION + 1, toPNG }),
+      )
+      .mockReturnValueOnce(
+        electronImage({
+          width: REMOTE_IMAGE_PASTE_MAX_DIMENSION,
+          height:
+            Math.floor(REMOTE_IMAGE_PASTE_MAX_PIXELS / REMOTE_IMAGE_PASTE_MAX_DIMENSION) +
+            1,
+          toPNG,
+        }),
+      )
+    const source = new ElectronClipboardPngSource({ readImage })
+
+    expect(source.read()).toBe('too-large')
+    expect(source.read()).toBe('too-large')
+    expect(toPNG).not.toHaveBeenCalled()
+  })
+
+  it('returns bounded PNG bytes with their clipboard dimensions', () => {
+    const bytes = Buffer.from([1, 2, 3])
+    const toPNG = vi.fn(() => bytes)
+    const image = electronImage({ width: 2, height: 3, bytes, toPNG })
+    const source = new ElectronClipboardPngSource({ readImage: () => image })
+
+    expect(source.read()).toEqual({ width: 2, height: 3, bytes })
+    expect(toPNG).toHaveBeenCalledOnce()
+  })
+})
+
 describe('RemoteImagePasteStorage', () => {
   it('uses the private hvir temp root, verifies mode, and cleans the exact leaf', async () => {
     const exec = vi
@@ -298,6 +450,7 @@ describe('RemoteImagePasteStorage', () => {
       })
       .mockResolvedValueOnce({ code: 0, signal: null, stdout: '', stderr: '' })
     const writeFile = vi.fn<ProjectHost['writeFile']>(() => Promise.resolve())
+    const removeFile = vi.fn<ProjectHost['removeFile']>(() => Promise.resolve())
     const stat = vi.fn<ProjectHost['stat']>(() =>
       Promise.resolve({ type: 'file', size: 3, mtimeMs: 1, mode: 0o100600 }),
     )
@@ -305,40 +458,72 @@ describe('RemoteImagePasteStorage', () => {
       hostId: REMOTE_ID,
       exec,
       writeFile,
+      removeFile,
       stat,
     } as unknown as ProjectHost
     const storage = new RemoteImagePasteStorage()
+    const signal = new AbortController().signal
 
-    const path = await storage.stage(
-      host,
-      new Uint8Array([1, 2, 3]),
-      new AbortController().signal,
-    )
+    const path = await storage.stage(host, new Uint8Array([1, 2, 3]), signal)
     expect(path).toEqual(STAGED_PATH)
     expect(exec.mock.calls[0]?.[1]?.[1]).toContain('XDG_RUNTIME_DIR')
     expect(exec.mock.calls[0]?.[1]?.[1]).toContain('hvir-$uid')
     expect(exec.mock.calls[0]?.[1]?.[1]).toContain('safe_parent')
     expect(exec.mock.calls[1]?.[1]?.[1]).toContain('image-paste')
-    expect(writeFile).toHaveBeenCalledWith(STAGED_PATH, new Uint8Array([1, 2, 3]))
+    expect(writeFile).toHaveBeenCalledWith(STAGED_PATH, new Uint8Array([1, 2, 3]), {
+      signal,
+    })
 
     await storage.remove(host, path)
+    expect(removeFile).toHaveBeenCalledWith(STAGED_PATH, { ignoreMissing: true })
     expect(exec.mock.calls[2]?.[1]).toEqual([
       '-c',
-      expect.stringContaining('rm -f "$file"'),
+      expect.not.stringContaining('rm -f'),
       'hvir-image-paste',
       STAGED_PATH.path,
     ])
   })
 
+  it('removes the placeholder when staged file verification fails', async () => {
+    const exec = vi
+      .fn<ProjectHost['exec']>()
+      .mockResolvedValueOnce({ code: 0, signal: null, stdout: '', stderr: '' })
+      .mockResolvedValueOnce({
+        code: 0,
+        signal: null,
+        stdout: `${STAGED_PATH.path}\n`,
+        stderr: '',
+      })
+      .mockResolvedValueOnce({ code: 0, signal: null, stdout: '', stderr: '' })
+    const removeFile = vi.fn<ProjectHost['removeFile']>(() => Promise.resolve())
+    const host = {
+      hostId: REMOTE_ID,
+      exec,
+      writeFile: vi.fn<ProjectHost['writeFile']>(() => Promise.resolve()),
+      removeFile,
+      stat: vi.fn<ProjectHost['stat']>(() =>
+        Promise.resolve({ type: 'file', size: 2, mtimeMs: 1, mode: 0o100600 }),
+      ),
+    } as unknown as ProjectHost
+    const storage = new RemoteImagePasteStorage()
+
+    await expect(
+      storage.stage(host, new Uint8Array([1, 2, 3]), new AbortController().signal),
+    ).rejects.toThrow('verification failed')
+    expect(removeFile).toHaveBeenCalledWith(STAGED_PATH, { ignoreMissing: true })
+    expect(exec).toHaveBeenCalledTimes(3)
+  })
+
   it('bounds each preparatory shell control operation', async () => {
     vi.useFakeTimers()
     try {
-      const exec = vi.fn<ProjectHost['exec']>((_command, _args, options) =>
-        new Promise((_resolve, reject) => {
-          options?.signal?.addEventListener('abort', () => {
-            reject(new Error('aborted'))
-          })
-        }),
+      const exec = vi.fn<ProjectHost['exec']>(
+        (_command, _args, options) =>
+          new Promise((_resolve, reject) => {
+            options?.signal?.addEventListener('abort', () => {
+              reject(new Error('aborted'))
+            })
+          }),
       )
       const host = { hostId: REMOTE_ID, exec } as unknown as ProjectHost
       const storage = new RemoteImagePasteStorage()
@@ -351,7 +536,9 @@ describe('RemoteImagePasteStorage', () => {
 
       await vi.advanceTimersByTimeAsync(8_000)
 
-      await expect(failure).resolves.toEqual(expect.objectContaining({ message: 'aborted' }))
+      await expect(failure).resolves.toEqual(
+        expect.objectContaining({ message: 'aborted' }),
+      )
     } finally {
       vi.useRealTimers()
     }
@@ -470,6 +657,31 @@ function imageClipboard(
   image = { width: 1, height: 1, bytes: new Uint8Array([1, 2, 3]) },
 ): ClipboardPngSource & { read: ReturnType<typeof vi.fn> } {
   return { read: vi.fn(() => image) }
+}
+
+function emptyClipboard(): ClipboardPngSource & { read: ReturnType<typeof vi.fn> } {
+  return { read: vi.fn(() => undefined) }
+}
+
+function stagedPath(suffix: string): HostPath {
+  return hostPath(REMOTE_ID, `/run/user/501/hvir/image-paste/paste.${suffix}/image.png`)
+}
+
+function electronImage(
+  options: {
+    readonly empty?: boolean
+    readonly width?: number
+    readonly height?: number
+    readonly bytes?: Buffer
+    readonly toPNG?: () => Buffer
+  } = {},
+): Electron.NativeImage {
+  const bytes = options.bytes ?? Buffer.from([1])
+  return {
+    isEmpty: () => options.empty ?? false,
+    getSize: () => ({ width: options.width ?? 1, height: options.height ?? 1 }),
+    toPNG: options.toPNG ?? vi.fn(() => bytes),
+  } as unknown as Electron.NativeImage
 }
 
 function managedTerminal(

@@ -42,6 +42,7 @@ import type {
   PtyExit,
   PtyProcess,
   ReadFileOptions,
+  RemoveFileOptions,
   SpawnPtyOptions,
   WatchOptions,
   WriteFileOptions,
@@ -365,6 +366,7 @@ export class LocalHost implements ProjectHost {
     data: Uint8Array | string,
     opts: WriteFileOptions = {},
   ): Promise<void> {
+    opts.signal?.throwIfAborted()
     const destination = this.resolve(path)
     let mode: number | undefined
     try {
@@ -378,7 +380,11 @@ export class LocalHost implements ProjectHost {
       `.${basename(destination)}.hvir-${randomUUID()}.tmp`,
     )
     try {
-      await fsp.writeFile(temporary, data, mode === undefined ? {} : { mode })
+      await fsp.writeFile(temporary, data, {
+        ...(mode === undefined ? {} : { mode }),
+        signal: opts.signal,
+      })
+      opts.signal?.throwIfAborted()
       if (opts.expectedMtimeMs !== undefined) {
         const current = await fsp.lstat(destination)
         if (current.mtimeMs !== opts.expectedMtimeMs) throw fileChangedError()
@@ -390,7 +396,7 @@ export class LocalHost implements ProjectHost {
     }
   }
 
-  async removeFile(path: HostPath, opts: WriteFileOptions = {}): Promise<void> {
+  async removeFile(path: HostPath, opts: RemoveFileOptions = {}): Promise<void> {
     const destination = this.resolve(path)
     if (opts.expectedMtimeMs !== undefined) {
       let current: import('node:fs').Stats
@@ -402,7 +408,13 @@ export class LocalHost implements ProjectHost {
       }
       if (current.mtimeMs !== opts.expectedMtimeMs) throw fileChangedError()
     }
-    await fsp.unlink(destination)
+    try {
+      await fsp.unlink(destination)
+    } catch (reason) {
+      if (!opts.ignoreMissing || (reason as NodeJS.ErrnoException).code !== 'ENOENT') {
+        throw reason
+      }
+    }
   }
 
   async readdir(path: HostPath): Promise<DirEntry[]> {

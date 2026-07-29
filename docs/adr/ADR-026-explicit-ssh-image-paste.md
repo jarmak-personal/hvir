@@ -53,10 +53,12 @@ capability, or disconnects.
 Clipboard access occurs only inside that explicit invocation. Electron reads dimensions before
 PNG encoding. One image is limited to 8,192 pixels on either axis, 32 megapixels, and 20 MiB of
 encoded PNG. At most one transfer may target a terminal and at most two transfers may run across
-the application. The transfer deadline is 15 seconds; individual shell control operations use
-an 8-second bound. Work is asynchronous from the renderer and consumes only bounded SSH control
-and SFTP capacity. Image bytes, names, and paths are not returned to the renderer or written to
-logs, diagnostics, terminal recovery, or provider-profile records.
+the application. In-flight and retained material is limited per SSH host to 16 images and 64 MiB;
+an additional paste fails closed until cleanup or expiry restores capacity. The transfer deadline
+is 15 seconds; individual shell control operations use an 8-second bound. Work is asynchronous
+from the renderer and consumes only bounded SSH control and SFTP capacity. Image bytes, names,
+and paths are not returned to the renderer or written to logs, diagnostics, terminal recovery,
+or provider-profile records.
 
 Remote material lives outside projects and repositories. The SSH host selects:
 

@@ -613,7 +613,7 @@ function pathImagePasteContract(): HarnessRemoteImagePasteContract {
     terminalInput: (path) => {
       if (
         !path.path.startsWith('/') ||
-        hasTerminalControl(path.path) ||
+        hasControlCharacter(path.path) ||
         !/^[A-Za-z0-9_./-]+$/.test(path.path)
       ) {
         throw new Error('Remote image paste requires a safe absolute path')
@@ -621,13 +621,6 @@ function pathImagePasteContract(): HarnessRemoteImagePasteContract {
       return `\x1b[200~${path.path}\x1b[201~`
     },
   }
-}
-
-function hasTerminalControl(value: string): boolean {
-  return [...value].some((character) => {
-    const code = character.charCodeAt(0)
-    return code <= 31 || code === 127
-  })
 }
 
 function staticProbe(

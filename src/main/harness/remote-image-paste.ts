@@ -27,6 +27,8 @@ export const REMOTE_IMAGE_PASTE_MAX_BYTES = 20 * 1024 * 1024
 export const REMOTE_IMAGE_PASTE_MAX_PIXELS = 32 * 1024 * 1024
 export const REMOTE_IMAGE_PASTE_MAX_DIMENSION = 8_192
 export const REMOTE_IMAGE_PASTE_MAX_CONCURRENT = 2
+export const REMOTE_IMAGE_PASTE_MAX_HOST_ITEMS = 16
+export const REMOTE_IMAGE_PASTE_MAX_HOST_BYTES = 64 * 1024 * 1024
 export const REMOTE_IMAGE_PASTE_TRANSFER_TIMEOUT_MS = 15_000
 export const REMOTE_IMAGE_PASTE_TTL_MS = 24 * 60 * 60_000
 const REMOTE_IMAGE_PASTE_SHUTDOWN_TIMEOUT_MS = 2_000
@@ -81,6 +83,7 @@ interface ImagePasteState {
   readonly id: string
   readonly target: ImagePasteTarget
   readonly controller: AbortController
+  readonly byteLength: number
   resource?: RendererResourceLease
   stageTask?: Promise<HostPath>
   cleanupTask?: Promise<void>
@@ -124,8 +127,7 @@ export class RemoteImagePasteCoordinator {
     if (!target) return { outcome: 'failed', reason: 'target-changed' }
     if (
       this.activeTerminals.has(terminalId) ||
-      [...this.states].filter((state) => !state.retained).length >=
-        REMOTE_IMAGE_PASTE_MAX_CONCURRENT
+      this.activeTerminals.size >= REMOTE_IMAGE_PASTE_MAX_CONCURRENT
     ) {
       return { outcome: 'failed', reason: 'busy' }
     }
@@ -139,11 +141,15 @@ export class RemoteImagePasteCoordinator {
     if (!image) return { outcome: 'forward-key' }
     if (image === 'too-large') return { outcome: 'failed', reason: 'image-too-large' }
     if (!boundedImage(image)) return { outcome: 'failed', reason: 'image-too-large' }
+    if (!this.hasHostCapacity(target.host, image.bytes.byteLength)) {
+      return { outcome: 'failed', reason: 'busy' }
+    }
 
     const state: ImagePasteState = {
       id: randomUUID(),
       target,
       controller: new AbortController(),
+      byteLength: image.bytes.byteLength,
       retired: false,
       retained: false,
     }
@@ -295,6 +301,17 @@ export class RemoteImagePasteCoordinator {
     for (const state of this.states) {
       if (state.target.terminalId === terminalId) void state.resource?.dispose()
     }
+  }
+
+  private hasHostCapacity(host: ProjectHost, byteLength: number): boolean {
+    const material = [...this.states].filter(
+      (state) => !state.retired && state.target.host.hostId === host.hostId,
+    )
+    return (
+      material.length < REMOTE_IMAGE_PASTE_MAX_HOST_ITEMS &&
+      material.reduce((total, state) => total + state.byteLength, byteLength) <=
+        REMOTE_IMAGE_PASTE_MAX_HOST_BYTES
+    )
   }
 
   private retire(state: ImagePasteState, awaitPending = false): Promise<void> {

@@ -29,8 +29,10 @@ export class RemoteImagePasteStorage implements RemoteImagePasteStoragePort {
     if (!safeStagedPath(rawPath)) throw new Error('Remote image staging returned no path')
     const path = hostPath(host.hostId, rawPath)
     try {
-      await host.writeFile(path, bytes)
+      await host.writeFile(path, bytes, { signal })
+      signal.throwIfAborted()
       const stat = await host.stat(path)
+      signal.throwIfAborted()
       if (
         stat.type !== 'file' ||
         stat.size !== bytes.byteLength ||
@@ -47,6 +49,7 @@ export class RemoteImagePasteStorage implements RemoteImagePasteStoragePort {
 
   async remove(host: ProjectHost, path: HostPath): Promise<void> {
     if (path.hostId !== host.hostId || !safeStagedPath(path.path)) return
+    await host.removeFile(path, { ignoreMissing: true })
     const result = await boundedExec(host, CLEANUP_SCRIPT, [path.path])
     if (result.code !== 0) throw new Error('Remote image cleanup failed')
   }
@@ -154,6 +157,5 @@ case "$file" in
   *) exit 64 ;;
 esac
 dir=\${file%/image.png}
-rm -f "$file"
 rmdir "$dir" 2>/dev/null || true
 `

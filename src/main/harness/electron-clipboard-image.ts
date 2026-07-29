@@ -12,8 +12,10 @@ import {
 
 /** Reads the application host clipboard only when called for an explicit gesture. */
 export class ElectronClipboardPngSource implements ClipboardPngSource {
+  constructor(private readonly source: Pick<typeof clipboard, 'readImage'> = clipboard) {}
+
   read(): ClipboardPng | 'too-large' | undefined {
-    const image = clipboard.readImage()
+    const image = this.source.readImage()
     if (image.isEmpty()) return undefined
     const { width, height } = image.getSize(1)
     if (
