@@ -384,9 +384,9 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
       terminalMoves: terminalMoveSmoke.coordinator,
       harnessProfiles: smokeHarnessProfiles,
       harnessProbes: harnessProbeManager,
+      remoteImagePaste: { pasteOrForward: () => Promise.resolve() },
       updateAttention: () => undefined,
-      updateWebPaneBindings: (owner, bindings) =>
-        updateWebPaneBindings(owner.id, bindings),
+      updateWebPaneBindings: (owner, bindings) => updateWebPaneBindings(owner.id, bindings),
       updateWebPaneFullPage: (owner, paneId) => updateWebPaneFullPage(owner.id, paneId),
       htmlPreviews,
       webPanes: webPaneRoutes,

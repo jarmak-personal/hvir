@@ -726,6 +726,7 @@ export interface IpcSendMap {
   'pty:write': { readonly id: string; readonly data: string }
   'pty:resize': { readonly id: string; readonly cols: number; readonly rows: number }
   'pty:kill': { readonly id: string }
+  'terminal:paste-image': { readonly id: string; readonly fallbackData: string }
   'app:attention': { readonly count: number }
   'web-pane:reserved-bindings': KeybindingMap
   'web-pane:full-page': { readonly paneId?: string }
@@ -879,6 +880,7 @@ export const SEND_CHANNELS = [
   'pty:write',
   'pty:resize',
   'pty:kill',
+  'terminal:paste-image',
   'app:attention',
   'web-pane:reserved-bindings',
   'web-pane:full-page',

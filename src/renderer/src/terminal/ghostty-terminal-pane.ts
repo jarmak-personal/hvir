@@ -26,7 +26,10 @@ import {
   isTerminalWebTarget,
 } from './terminal-file-link'
 import { TerminalFitController } from './ghostty-terminal-fit'
-import { ghosttyKeyboardOverride } from './ghostty-terminal-keyboard'
+import {
+  ghosttyClipboardPasteFallback,
+  ghosttyKeyboardOverride,
+} from './ghostty-terminal-keyboard'
 import { TerminalSignalParser } from './terminal-signals'
 import { writePreservingViewport } from './terminal-viewport'
 import { TerminalWheelController } from './terminal-wheel'
@@ -84,6 +87,11 @@ class GhosttyTerminalPane implements TerminalPane {
     })
     this.fit = new TerminalFitController(this.terminal)
     this.terminal.attachCustomKeyEventHandler((event) => {
+      const pasteFallback = ghosttyClipboardPasteFallback(event)
+      if (pasteFallback !== undefined) {
+        this.emitClipboardPaste(pasteFallback)
+        return true
+      }
       const data = ghosttyKeyboardOverride(event, options)
       if (data === undefined) return false
       this.emitInput(data)
@@ -92,6 +100,7 @@ class GhosttyTerminalPane implements TerminalPane {
   }
 
   private readonly dataListeners = new ListenerSet<string>()
+  private readonly clipboardPasteListeners = new ListenerSet<string>()
   private readonly titleListeners = new ListenerSet<string>()
   private readonly bellListeners = new ListenerSet<void>()
   private readonly oscListeners = new ListenerSet<OscEvent>()
@@ -108,6 +117,7 @@ class GhosttyTerminalPane implements TerminalPane {
 
   readonly events: TerminalPaneEvents = {
     onData: (callback) => this.dataListeners.on(callback),
+    onClipboardPaste: (callback) => this.clipboardPasteListeners.on(callback),
     onTitle: (callback) => this.titleListeners.on(callback),
     onBell: (callback) => this.bellListeners.on(callback),
     onOsc: (callback) => this.oscListeners.on(callback),
@@ -226,6 +236,7 @@ class GhosttyTerminalPane implements TerminalPane {
     this.surface?.remove()
     this.surface = undefined
     this.dataListeners.clear()
+    this.clipboardPasteListeners.clear()
     this.titleListeners.clear()
     this.bellListeners.clear()
     this.oscListeners.clear()
@@ -253,6 +264,11 @@ class GhosttyTerminalPane implements TerminalPane {
   private emitInput(data: string): void {
     this.terminal.resetCursorBlink()
     this.dataListeners.emit(data)
+  }
+
+  private emitClipboardPaste(fallbackData: string): void {
+    this.terminal.resetCursorBlink()
+    this.clipboardPasteListeners.emit(fallbackData)
   }
 
   private handleWheel(event: WheelEvent): boolean {

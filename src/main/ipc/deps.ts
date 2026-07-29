@@ -16,6 +16,7 @@ import type {
 } from '../../shared'
 import type { HarnessProfileStoreContract } from '../harness/harness-profile-store'
 import type { HarnessProbeManager } from '../harness/harness-probe'
+import type { RemoteImagePasteCoordinator } from '../harness/remote-image-paste'
 import type { HtmlPreviewProtocol } from '../html-preview-protocol'
 import type { ProjectHost } from '../project-host'
 import type { PtySupervisor } from '../pty/pty-supervisor'
@@ -115,6 +116,7 @@ export interface IpcDeps {
   readonly terminalMoves: Pick<TerminalWorkspaceMoveCoordinator, 'plan' | 'move'>
   readonly harnessProfiles: HarnessProfileStoreContract
   readonly harnessProbes: HarnessProbeManager
+  readonly remoteImagePaste: Pick<RemoteImagePasteCoordinator, 'pasteOrForward'>
   readonly updateAttention: (owner: RendererOwner, count: number) => void
   readonly updateWebPaneBindings: (owner: RendererOwner, bindings: KeybindingMap) => void
   readonly updateWebPaneFullPage: (owner: RendererOwner, paneId?: string) => void

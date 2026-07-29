@@ -339,6 +339,7 @@ describe('IpcAuthorityRouter', () => {
       'terminal.ts',
       'web-pane.ts',
       'diagnostic-report.ts',
+      'image-paste.ts',
     ]
     const source = (
       await Promise.all(
