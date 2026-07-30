@@ -30,11 +30,11 @@ describe('Electron smoke scenario selection', () => {
   it('rejects unknown groups with the complete reproducible name set', () => {
     expect(() => parseElectronSmokeScenario('unknown')).toThrow(
       "Unknown Electron smoke scenario 'unknown'. Expected one of: " +
-        'pty-native, viewer-position, viewer-content, git-workflow, platform-contracts, diagnostic-report-restart, renderer-recovery, development-performance, terminal-presentation, terminal-lifecycle, legacy-workflow, capacity',
+        'pty-native, viewer-position, viewer-content, git-workflow, workspace-remote, web-pane, renderer-authority, platform-contracts, diagnostic-report-restart, renderer-recovery, development-performance, terminal-presentation, terminal-lifecycle, legacy-workflow, capacity',
     )
     expect(() => selectedSmokeScenarios('unknown')).toThrow(
       "Unknown Electron smoke scenario 'unknown'. Expected one of: " +
-        'pty-native, viewer-position, viewer-content, git-workflow, platform-contracts, diagnostic-report-restart, renderer-recovery, development-performance, terminal-presentation, terminal-lifecycle, legacy-workflow, capacity',
+        'pty-native, viewer-position, viewer-content, git-workflow, workspace-remote, web-pane, renderer-authority, platform-contracts, diagnostic-report-restart, renderer-recovery, development-performance, terminal-presentation, terminal-lifecycle, legacy-workflow, capacity',
     )
   })
 
@@ -231,6 +231,18 @@ describe('Electron smoke command contracts', () => {
     new URL('../src/main/smoke/git-workflow.ts', import.meta.url),
     'utf8',
   )
+  const workspaceRemoteScenario = readFileSync(
+    new URL('../src/main/smoke/workspace-remote.ts', import.meta.url),
+    'utf8',
+  )
+  const webPaneScenario = readFileSync(
+    new URL('../src/main/smoke/web-pane.ts', import.meta.url),
+    'utf8',
+  )
+  const rendererAuthorityScenario = readFileSync(
+    new URL('../src/main/smoke/renderer-authority.ts', import.meta.url),
+    'utf8',
+  )
   const terminalPresentationScenario = readFileSync(
     new URL('../src/main/smoke/terminal-presentation.ts', import.meta.url),
     'utf8',
@@ -247,13 +259,13 @@ describe('Electron smoke command contracts', () => {
   it('separates correctness, hosted evidence, and controlled performance commands', () => {
     expect(packageJson.scripts.smoke).toContain('node scripts/run-smoke-scenarios.mts')
     expect(packageJson.scripts.smoke).toContain(
-      'viewer-position viewer-content git-workflow renderer-recovery terminal-presentation terminal-lifecycle legacy-workflow',
+      'viewer-position viewer-content git-workflow workspace-remote web-pane renderer-authority renderer-recovery terminal-presentation terminal-lifecycle legacy-workflow',
     )
     expect(packageJson.scripts['smoke:macos']).toContain(
-      'node scripts/run-smoke-scenarios.mts pty-native viewer-position viewer-content git-workflow platform-contracts renderer-recovery terminal-presentation terminal-lifecycle',
+      'node scripts/run-smoke-scenarios.mts pty-native viewer-position viewer-content git-workflow workspace-remote web-pane renderer-authority platform-contracts renderer-recovery terminal-presentation terminal-lifecycle',
     )
     expect(packageJson.scripts['smoke:macos:ci']).toContain(
-      'node scripts/run-smoke-scenarios.mts pty-native viewer-position viewer-content git-workflow platform-contracts renderer-recovery',
+      'node scripts/run-smoke-scenarios.mts pty-native viewer-position viewer-content git-workflow workspace-remote web-pane renderer-authority platform-contracts renderer-recovery',
     )
     expect(packageJson.scripts['smoke:macos:ci']).not.toContain('terminal-presentation')
     expect(packageJson.scripts['smoke:macos:ci']).not.toContain('terminal-lifecycle')
@@ -389,6 +401,8 @@ describe('Electron smoke command contracts', () => {
     expect(rendererLifecycleScenario.indexOf("once('destroyed'")).toBeLessThan(
       rendererLifecycleScenario.indexOf('win.destroy()'),
     )
+    expect(rendererLifecycleScenario).not.toContain('WebPaneRouteRegistry')
+    expect(rendererLifecycleScenario).not.toContain('routes.open')
   })
 
   it('enters the viewer group before legacy work with semantic diagnostics', () => {
@@ -424,6 +438,40 @@ describe('Electron smoke command contracts', () => {
     expect(viewerFindScenario).not.toContain("querySelector('.terminal-panel')")
     expect(viewerFindScenario).not.toContain(
       'requestAnimationFrame(() => requestAnimationFrame',
+    )
+  })
+
+  it('runs workspace, web-pane, and renderer authority independently of legacy work', () => {
+    const workspaceBranch = smokeWorkflow.indexOf("if (mode === 'workspace-remote')")
+    const webPaneBranch = smokeWorkflow.indexOf("if (mode === 'web-pane')")
+    const authorityBranch = smokeWorkflow.indexOf("if (mode === 'renderer-authority')")
+    const legacyWorkflow = smokeWorkflow.indexOf('const profileSmoke')
+    expect(workspaceBranch).toBeGreaterThan(-1)
+    expect(webPaneBranch).toBeGreaterThan(workspaceBranch)
+    expect(authorityBranch).toBeGreaterThan(webPaneBranch)
+    expect(authorityBranch).toBeLessThan(legacyWorkflow)
+    expect(smokeWorkflow.slice(legacyWorkflow)).not.toContain(
+      'verifyWorkspaceRemoteWorkflow',
+    )
+    expect(smokeWorkflow.slice(legacyWorkflow)).not.toContain('verifyWebPaneWorkflow')
+    expect(smokeWorkflow.slice(legacyWorkflow)).not.toContain(
+      'verifyRendererAuthorityLifecycle',
+    )
+
+    expect(workspaceRemoteScenario).toContain('state=${JSON.stringify(state)}')
+    expect(workspaceRemoteScenario).toContain('no PTY materialized')
+    expect(workspaceRemoteScenario).not.toContain('requestAnimationFrame')
+    expect(webPaneScenario).toContain('state=${JSON.stringify(state)}')
+    expect(webPaneScenario).toContain('routes.source')
+    expect(webPaneScenario).toContain('routes.paneIdForGuest')
+    expect(webPaneScenario).not.toMatch(/setTimeout\(poll, 100\)/)
+    expect(webPaneScenario).not.toMatch(/setTimeout\(poll, 300\)/)
+    expect(rendererAuthorityScenario).toContain('state=${JSON.stringify(state)}')
+    expect(rendererAuthorityScenario.indexOf("once('did-finish-load'")).toBeLessThan(
+      rendererAuthorityScenario.indexOf('win.webContents.reload()'),
+    )
+    expect(rendererAuthorityScenario.indexOf("once('destroyed'")).toBeLessThan(
+      rendererAuthorityScenario.indexOf('win.destroy()'),
     )
   })
 

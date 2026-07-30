@@ -3,6 +3,9 @@ export const ELECTRON_SMOKE_SCENARIOS = [
   'viewer-position',
   'viewer-content',
   'git-workflow',
+  'workspace-remote',
+  'web-pane',
+  'renderer-authority',
   'platform-contracts',
   'diagnostic-report-restart',
   'renderer-recovery',
@@ -19,6 +22,9 @@ export type ElectronSmokeMode =
   | 'viewer-position'
   | 'viewer-content'
   | 'git-workflow'
+  | 'workspace-remote'
+  | 'web-pane'
+  | 'renderer-authority'
   | 'platform-contracts'
   | 'renderer-recovery'
   | 'development-performance'

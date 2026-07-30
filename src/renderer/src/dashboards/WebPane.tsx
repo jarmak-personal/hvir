@@ -6,11 +6,14 @@ import type {
   WebPaneDiagnosticEvent,
 } from '../../../shared'
 import { ElectronWebPaneSurface } from './ElectronWebPaneSurface'
+import {
+  appendWebPaneDiagnostic,
+  redactedWebPaneDiagnosticUrl,
+  webPaneDiagnosticReport,
+  type WebPaneDiagnosticRow,
+} from './web-pane-diagnostics'
 import type { WebPaneSurface, WebPaneSurfaceHandle } from './web-pane-surface'
 import { webPaneUrlFromInput } from './web-pane-url'
-
-const MAX_DIAGNOSTICS = 50
-const MAX_DIAGNOSTIC_TEXT = 1_000
 
 export interface WebViewState {
   readonly id: string
@@ -25,13 +28,6 @@ export interface WebViewState {
     readonly revision: number
     readonly event: WebPaneDiagnosticEvent
   }
-}
-
-interface DiagnosticRow {
-  readonly at: number
-  readonly kind: string
-  readonly message: string
-  readonly url?: string
 }
 
 /** Product chrome around the swappable, hostile-content guest surface. */
@@ -57,7 +53,7 @@ export function WebPane({
   const surfaceRef = useRef<WebPaneSurfaceHandle>(null)
   const editingRef = useRef(false)
   const [pathInput, setPathInput] = useState(() => pathOf(view.url))
-  const [diagnostics, setDiagnostics] = useState<readonly DiagnosticRow[]>([])
+  const [diagnostics, setDiagnostics] = useState<readonly WebPaneDiagnosticRow[]>([])
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false)
   const browserHandoffAvailable = view.workspaceRoot.hostId === 'local'
 
@@ -207,7 +203,9 @@ export function WebPane({
               type="button"
               disabled={diagnostics.length === 0}
               onClick={() =>
-                void navigator.clipboard.writeText(diagnosticReport(view, diagnostics))
+                void navigator.clipboard.writeText(
+                  webPaneDiagnosticReport(view, diagnostics),
+                )
               }
             >
               Copy report
@@ -220,7 +218,7 @@ export function WebPane({
               {diagnostics.map((row, index) => (
                 <li key={`${row.at}:${index}`}>
                   <code>{row.kind}</code> {row.message}
-                  {row.url ? ` — ${redactedDiagnosticUrl(row.url)}` : ''}
+                  {row.url ? ` — ${redactedWebPaneDiagnosticUrl(row.url)}` : ''}
                 </li>
               ))}
             </ol>
@@ -251,21 +249,11 @@ export function WebPane({
 
 function appendDiagnostic(
   update: (
-    value: (current: readonly DiagnosticRow[]) => readonly DiagnosticRow[],
+    value: (current: readonly WebPaneDiagnosticRow[]) => readonly WebPaneDiagnosticRow[],
   ) => void,
-  event: WebPaneDiagnosticEvent | Omit<DiagnosticRow, 'at'>,
+  event: WebPaneDiagnosticEvent | Omit<WebPaneDiagnosticRow, 'at'>,
 ): void {
-  update((current) =>
-    [
-      ...current,
-      {
-        at: Date.now(),
-        kind: event.kind,
-        message: event.message.slice(0, MAX_DIAGNOSTIC_TEXT),
-        url: 'url' in event ? event.url : undefined,
-      },
-    ].slice(-MAX_DIAGNOSTICS),
-  )
+  update((current) => appendWebPaneDiagnostic(current, event))
 }
 
 function pathOf(url: string): string {
@@ -291,28 +279,4 @@ function hostnameOf(url: string): string {
   } catch {
     return 'another site'
   }
-}
-
-function redactedDiagnosticUrl(url: string): string {
-  try {
-    const parsed = new URL(url)
-    return `${parsed.origin}${parsed.pathname}`
-  } catch {
-    return '[invalid URL]'
-  }
-}
-
-function diagnosticReport(
-  view: WebViewState,
-  diagnostics: readonly DiagnosticRow[],
-): string {
-  return [
-    `hvir web pane: ${view.origin}`,
-    `workspace host: ${view.workspaceRoot.hostId}`,
-    `source terminal: ${view.sourceTerminalId}`,
-    ...diagnostics.map(
-      (row) =>
-        `${new Date(row.at).toISOString()} ${row.kind}: ${row.message}${row.url ? ` (${redactedDiagnosticUrl(row.url)})` : ''}`,
-    ),
-  ].join('\n')
 }

@@ -164,17 +164,20 @@ blocking score threshold, and uses only Node and the locally installed test depe
 not launch Electron, require a display, or access the network.
 
 `npm run smoke` runs the focused `pty-native`, `viewer-position`, `viewer-content`,
-`git-workflow`, `renderer-recovery`, `terminal-presentation`, and `terminal-lifecycle` groups plus
-the transitional `legacy-workflow` group in separate Electron processes with fresh project and
-user-data roots, then reports a result for every scheduled group. Select one group locally with
-`HVIR_SMOKE_SCENARIO=<name> npm run smoke`; the complete name set is `pty-native`,
-`viewer-position`, `viewer-content`, `git-workflow`, `platform-contracts`,
+`git-workflow`, `workspace-remote`, `web-pane`, `renderer-authority`, `renderer-recovery`,
+`terminal-presentation`, and `terminal-lifecycle` groups plus the transitional `legacy-workflow`
+group in separate Electron processes with fresh project and user-data roots, then
+reports a result for every scheduled group. Select one group locally with
+`HVIR_SMOKE_SCENARIO=<name> npm run
+smoke`; the complete name set is `pty-native`, `viewer-position`, `viewer-content`,
+`git-workflow`, `workspace-remote`, `web-pane`, `renderer-authority`, `platform-contracts`,
 `diagnostic-report-restart`, `renderer-recovery`, `development-performance`,
 `terminal-presentation`, `terminal-lifecycle`, `legacy-workflow`, and `capacity`. The
 development-performance group starts a development renderer and is run separately with `npm run
 smoke:development-performance`; the restart scenario is reserved for the packaged multi-launch
-fixture. `npm run smoke:macos` runs the focused PTY, viewer, Git, platform-contract,
-renderer-recovery, terminal-presentation, and terminal-lifecycle correctness groups.
+fixture. `npm run smoke:macos` runs the focused PTY, viewer, Git, workspace/remote, web-pane,
+renderer-authority, platform-contract, renderer-recovery, terminal-presentation, and
+terminal-lifecycle correctness groups.
 
 Viewer and Git evidence follows the same ownership rule. `viewer-position` proves CodeMirror
 virtualization, source/rendered/diff anchors, remounts, pending and empty diffs, scoped commands,
@@ -184,6 +187,18 @@ proves the real system-Git path for diff bases, changes, paged history, graph de
 refresh, sync controls, and blame. View-mode, navigation, anchor, Git parsing, graph, mutation, and
 sync policy remain in their direct Vitest suites. Each focused process retains a bounded semantic
 snapshot for timeout diagnosis.
+
+Workspace, remote, web-pane, and renderer authority evidence follows the same split.
+`workspace-remote` proves independently runnable project/workspace transitions, contained local
+browse failures, missing-workspace suppression, synthetic SSH presentation, host-key trust,
+host-qualified project registration, and close cleanup. Deterministic `ProjectHost` local/SSH,
+reconnect, watcher, and late-completion policy remains in direct Vitest suites and never requires a
+real SSH host. `web-pane` starts its own authorized terminal source and proves guest isolation,
+authenticated routing, blocked navigation, ordinary input, full-page controls, workspace
+hide/restore without reload, bounded redacted diagnostics, reserved close, and route cleanup.
+`renderer-authority` owns real renderer reload/destruction revocation for routes and HTML previews;
+it does not depend on a terminal scenario. Each focused process records a bounded semantic
+snapshot when readiness fails.
 
 Terminal evidence remains split by its real owner. `pty-native` proves production-composed Custom
 profile launch, output, termination event, and cleanup through Electron's node-pty ABI without a
@@ -195,8 +210,9 @@ policy remain in their direct Vitest suites.
 The pre-push hook uses that full command on macOS. As a temporary containment while the observed
 macOS presentation-readiness and native PTY teardown flakes are hardened, hosted macOS CI runs
 `npm run smoke:macos:ci`, which omits terminal presentation and terminal lifecycle, and does not
-run capacity. Linux CI continues to gate on `npm run smoke:capacity`; both omitted macOS paths
-remain directly runnable locally and are not treated as allowed failures.
+run capacity. The workspace/remote, web-pane, and renderer-authority groups remain in that hosted
+gate. Linux CI continues to gate on `npm run smoke:capacity`; both omitted macOS paths remain
+directly runnable locally and are not treated as allowed failures.
 `npm run smoke:capacity`
 selects the capacity group: terminal
 topology, presentation, delivery, exact input, cleanup, and recovery contracts remain blocking,
