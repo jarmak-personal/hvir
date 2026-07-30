@@ -31,7 +31,7 @@
   padding: 1px 4px;
   border-radius: 8px;
   background: #24384b;
-  font-size: 8px;
+  font-size: calc(8px * var(--hvir-interface-scale));
   font-variant-numeric: tabular-nums;
 }
 
@@ -57,7 +57,7 @@
 .workbench-health-item p,
 .workbench-health-dropped {
   color: #929dab;
-  font-size: 11px;
+  font-size: calc(11px * var(--hvir-interface-scale));
 }
 
 .workbench-health-evidence {
@@ -66,7 +66,7 @@
   border: 1px solid #385b78;
   border-radius: 9px;
   color: #9ec8f2;
-  font-size: 9px;
+  font-size: calc(9px * var(--hvir-interface-scale));
 }
 
 .workbench-health-evidence.unavailable {
@@ -119,13 +119,13 @@
 
 .workbench-health-item-title span {
   color: #92a2b4;
-  font-size: 9px;
+  font-size: calc(9px * var(--hvir-interface-scale));
   text-transform: uppercase;
 }
 
 .workbench-health-item code {
   color: #8598ad;
-  font-size: 9px;
+  font-size: calc(9px * var(--hvir-interface-scale));
 }
 
 .workbench-health-item > button {
@@ -156,13 +156,13 @@
 
 .workbench-health-storage h3 {
   color: var(--text-strong);
-  font-size: 11px;
+  font-size: calc(11px * var(--hvir-interface-scale));
 }
 
 .workbench-health-storage p,
 .workbench-health-storage code {
   color: var(--text-muted);
-  font-size: 10px;
+  font-size: calc(10px * var(--hvir-interface-scale));
 }
 
 .workbench-health-storage code {

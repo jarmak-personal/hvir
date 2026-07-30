@@ -8,7 +8,11 @@ import type {
   HostPath,
   TerminalIdentityStatus,
 } from '../../../shared'
-import type { TerminalLinkActivation, TerminalPresentation } from './terminal-pane'
+import type {
+  TerminalLinkActivation,
+  TerminalPresentation,
+  TerminalTypography,
+} from './terminal-pane'
 
 export interface FreshTerminalStart {
   readonly sessionId: string
@@ -34,6 +38,7 @@ export interface TerminalRuntimeOptions {
   readonly modifiedKeyProtocol: HarnessModifiedKeyProtocol
   readonly metaEnterAliasesControl: boolean
   readonly composerSubmitMode: ComposerSubmitMode
+  readonly typography: TerminalTypography
   readonly cwd: HostPath
   readonly workspaceRoot: HostPath
   readonly connectionState: HostConnectionState

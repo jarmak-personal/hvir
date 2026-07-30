@@ -29,6 +29,7 @@ function options(
     modifiedKeyProtocol: 'csi-u',
     metaEnterAliasesControl: false,
     composerSubmitMode: 'enter',
+    typography: { fontFamily: 'ui-monospace, monospace', fontSize: 13 },
     cwd: localPath('/repo'),
     workspaceRoot,
     connectionState,

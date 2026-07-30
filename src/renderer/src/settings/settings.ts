@@ -2,17 +2,37 @@ import { useSyncExternalStore } from 'react'
 
 import { DEFAULT_KEYBINDINGS, parseKeybindingOverrides } from './keybindings'
 import type { AppSettings, TerminalPreferences } from './settings-model'
+import {
+  applyTypographyPresentation,
+  type TypographyPropertyTarget,
+} from './typography-presentation'
+import {
+  DEFAULT_INTERFACE_SCALE,
+  DEFAULT_TERMINAL_TEXT_SIZE,
+  fontFamilyStack,
+  normalizeFontPreference,
+  normalizeInterfaceScale,
+  normalizeTerminalTextSize,
+  systemFontPreference,
+} from './typography-settings'
 
 export type {
   AppSettings,
   TerminalPreferences,
   TerminalRecoveryMode,
   TerminalThemeOverride,
+  FontPreference,
+  FontPreferenceMode,
 } from './settings-model'
 
 const STORAGE_KEY = 'hvir:settings:v1'
 const listeners = new Set<() => void>()
 let settings = readSettings()
+let typographyTarget: TypographyPropertyTarget | undefined
+
+export function getAppSettings(): AppSettings {
+  return settings
+}
 
 export function useAppSettings(): AppSettings {
   return useSyncExternalStore(
@@ -25,8 +45,14 @@ export function useAppSettings(): AppSettings {
   )
 }
 
+export function initializeAppSettings(target: TypographyPropertyTarget): void {
+  typographyTarget = target
+  applyTypographyPresentation(settings, target)
+}
+
 export function setAppSettings(next: AppSettings): void {
-  settings = normalizeSettings(next)
+  settings = normalizeAppSettings(next)
+  if (typographyTarget) applyTypographyPresentation(settings, typographyTarget)
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(settings))
   } catch {
@@ -39,7 +65,7 @@ function readSettings(): AppSettings {
   try {
     const raw: unknown = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? 'null')
     if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
-      return normalizeSettings(raw)
+      return normalizeAppSettings(raw)
     }
     const legacyRecovery = localStorage.getItem('hvir:terminal-recovery-mode')
     return {
@@ -51,9 +77,13 @@ function readSettings(): AppSettings {
   }
 }
 
-function normalizeSettings(value: Partial<AppSettings>): AppSettings {
-  const idle = value.idleThresholdMs
-  const autoFetch = value.gitAutoFetchIntervalMs
+export function normalizeAppSettings(value: unknown): AppSettings {
+  const candidate =
+    value && typeof value === 'object' && !Array.isArray(value)
+      ? (value as Partial<AppSettings>)
+      : {}
+  const idle = candidate.idleThresholdMs
+  const autoFetch = candidate.gitAutoFetchIntervalMs
   return {
     idleThresholdMs:
       typeof idle === 'number' && Number.isFinite(idle)
@@ -65,14 +95,18 @@ function normalizeSettings(value: Partial<AppSettings>): AppSettings {
           ? 0
           : Math.min(60 * 60_000, Math.max(60_000, Math.round(autoFetch)))
         : 5 * 60_000,
-    terminalRecoveryMode: value.terminalRecoveryMode === 'auto' ? 'auto' : 'prompt',
+    terminalRecoveryMode: candidate.terminalRecoveryMode === 'auto' ? 'auto' : 'prompt',
     terminalTheme:
-      value.terminalTheme === 'dark' || value.terminalTheme === 'light'
-        ? value.terminalTheme
+      candidate.terminalTheme === 'dark' || candidate.terminalTheme === 'light'
+        ? candidate.terminalTheme
         : 'app',
+    interfaceFont: normalizeFontPreference(candidate.interfaceFont),
+    monospaceFont: normalizeFontPreference(candidate.monospaceFont),
+    interfaceScale: normalizeInterfaceScale(candidate.interfaceScale),
+    terminalTextSize: normalizeTerminalTextSize(candidate.terminalTextSize),
     composerSubmitMode:
-      value.composerSubmitMode === 'ctrl-enter' ? 'ctrl-enter' : 'enter',
-    keybindings: parseKeybindingOverrides(value.keybindings ?? DEFAULT_KEYBINDINGS),
+      candidate.composerSubmitMode === 'ctrl-enter' ? 'ctrl-enter' : 'enter',
+    keybindings: parseKeybindingOverrides(candidate.keybindings ?? DEFAULT_KEYBINDINGS),
   }
 }
 
@@ -82,6 +116,10 @@ function defaults(): AppSettings {
     gitAutoFetchIntervalMs: 5 * 60_000,
     terminalRecoveryMode: 'prompt',
     terminalTheme: 'app',
+    interfaceFont: systemFontPreference(),
+    monospaceFont: systemFontPreference(),
+    interfaceScale: DEFAULT_INTERFACE_SCALE,
+    terminalTextSize: DEFAULT_TERMINAL_TEXT_SIZE,
     composerSubmitMode: 'enter',
     keybindings: DEFAULT_KEYBINDINGS,
   }
@@ -92,6 +130,10 @@ export function terminalPreferences(settings: AppSettings): TerminalPreferences 
     idleThresholdMs: settings.idleThresholdMs,
     terminalRecoveryMode: settings.terminalRecoveryMode,
     terminalTheme: settings.terminalTheme,
+    terminalTypography: {
+      fontFamily: fontFamilyStack(settings.monospaceFont, 'monospace'),
+      fontSize: settings.terminalTextSize,
+    },
     composerSubmitMode: settings.composerSubmitMode,
   }
 }

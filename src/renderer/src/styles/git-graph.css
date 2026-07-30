@@ -1,6 +1,6 @@
 .git-graph-tab .tab-status {
   color: #69a7ff;
-  font-size: 12px;
+  font-size: calc(12px * var(--hvir-interface-scale));
 }
 
 .git-graph-view {
@@ -23,7 +23,7 @@
   border-bottom: 1px solid #282d36;
   background: #181b21;
   color: #cbd0d8;
-  font-size: 11px;
+  font-size: calc(11px * var(--hvir-interface-scale));
 }
 
 .git-graph-toolbar > div {
@@ -37,7 +37,7 @@
 .git-graph-count {
   overflow: hidden;
   color: #747e8d;
-  font-size: 10px;
+  font-size: calc(10px * var(--hvir-interface-scale));
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -72,7 +72,7 @@
   border-bottom: 1px solid #242933;
   background: #13161b;
   color: #697383;
-  font-size: 9px;
+  font-size: calc(9px * var(--hvir-interface-scale));
   letter-spacing: 0.04em;
   text-transform: uppercase;
 }
@@ -116,7 +116,7 @@
   border-bottom: 1px solid #1e232b;
   background: transparent;
   color: #b9c0ca;
-  font-size: 11px;
+  font-size: calc(11px * var(--hvir-interface-scale));
   text-align: left;
 }
 
@@ -144,11 +144,11 @@
 .git-graph-row > code,
 .git-graph-author {
   color: #7f8897;
-  font-size: 10px;
+  font-size: calc(10px * var(--hvir-interface-scale));
 }
 
 .git-graph-row > code {
-  font-family: 'JetBrains Mono', 'SFMono-Regular', Consolas, monospace;
+  font-family: var(--hvir-monospace-font);
 }
 
 .git-graph-subject {
@@ -191,7 +191,7 @@
   width: 9px;
   flex: 0 0 9px;
   color: #788392;
-  font-size: 12px;
+  font-size: calc(12px * var(--hvir-interface-scale));
   font-style: normal;
 }
 
@@ -223,7 +223,7 @@
   border-radius: 8px;
   background: #172532;
   color: #8fc3e8;
-  font-size: 9px;
+  font-size: calc(9px * var(--hvir-interface-scale));
   line-height: 14px;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -249,7 +249,7 @@
   border-radius: 4px;
   background: #171b21;
   color: #9ba4b1;
-  font-size: 10px;
+  font-size: calc(10px * var(--hvir-interface-scale));
 }
 
 .git-graph-banner {
@@ -257,7 +257,7 @@
   border-bottom: 1px solid #67383e;
   background: #25171a;
   color: #d98289;
-  font-size: 10px;
+  font-size: calc(10px * var(--hvir-interface-scale));
 }
 
 .git-graph-empty {
@@ -267,7 +267,7 @@
   place-items: center;
   padding: 20px;
   color: #747e8d;
-  font-size: 11px;
+  font-size: calc(11px * var(--hvir-interface-scale));
   text-align: center;
 }
 

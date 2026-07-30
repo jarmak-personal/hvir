@@ -12,7 +12,7 @@
 
 .settings-fields .settings-checkbox-copy small {
   color: #737d8b;
-  font-size: 9px;
+  font-size: calc(9px * var(--hvir-interface-scale));
 }
 
 .settings-fields .settings-checkbox-control input {

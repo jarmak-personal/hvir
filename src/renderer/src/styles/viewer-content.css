@@ -35,8 +35,8 @@
   padding: 12px 14px 48px;
   background: #15181e;
   color: #c9ced7;
-  font-family: 'JetBrains Mono', 'SFMono-Regular', Consolas, monospace;
-  font-size: 12px;
+  font-family: var(--hvir-monospace-font);
+  font-size: calc(12px * var(--hvir-interface-scale));
   line-height: 1.55;
   white-space: pre;
 }
@@ -51,7 +51,7 @@
   border-bottom: 1px solid #242933;
   color: #747e8d;
   background: #13161b;
-  font-size: 10px;
+  font-size: calc(10px * var(--hvir-interface-scale));
 }
 
 .source-shell .codemirror-host,
@@ -82,7 +82,7 @@
   border-block: 1px solid #2a3039;
   background: #171b21;
   color: #778190;
-  font-size: 10px;
+  font-size: calc(10px * var(--hvir-interface-scale));
   font-weight: 400;
 }
 
@@ -95,7 +95,7 @@
 .markdown-body {
   padding: 28px clamp(28px, 7vw, 92px) 72px;
   color: #c9ced7;
-  font-size: 14px;
+  font-size: calc(14px * var(--hvir-interface-scale));
   line-height: 1.7;
 }
 
@@ -166,14 +166,14 @@
   border-radius: 4px;
   color: #8c96a5;
   background: #111419;
-  font-size: 11px;
+  font-size: calc(11px * var(--hvir-interface-scale));
 }
 
 .markdown-body code {
   padding: 0.12em 0.32em;
   border-radius: 3px;
   background: #20242c;
-  font-family: 'JetBrains Mono', 'SFMono-Regular', Consolas, monospace;
+  font-family: var(--hvir-monospace-font);
   font-size: 0.9em;
 }
 
@@ -338,7 +338,7 @@
   border-radius: 4px;
   color: #8791a0;
   background: #111419e8;
-  font-size: 10px;
+  font-size: calc(10px * var(--hvir-interface-scale));
 }
 
 .csv-view {
@@ -353,7 +353,7 @@
   border-bottom: 1px solid #343a45;
   color: #c8a76b;
   background: #211d17;
-  font-size: 10px;
+  font-size: calc(10px * var(--hvir-interface-scale));
 }
 
 .csv-view table {
@@ -361,8 +361,8 @@
   border-collapse: separate;
   border-spacing: 0;
   color: #c9ced7;
-  font-family: 'JetBrains Mono', 'SFMono-Regular', Consolas, monospace;
-  font-size: 11px;
+  font-family: var(--hvir-monospace-font);
+  font-size: calc(11px * var(--hvir-interface-scale));
 }
 
 .csv-view th,
@@ -414,8 +414,8 @@
 .json-tree {
   padding: 22px 28px 60px;
   color: #c7ccd5;
-  font-family: 'JetBrains Mono', 'SFMono-Regular', Consolas, monospace;
-  font-size: 12px;
+  font-family: var(--hvir-monospace-font);
+  font-size: calc(12px * var(--hvir-interface-scale));
   line-height: 1.75;
 }
 
@@ -456,7 +456,7 @@
   background: #1c2129;
   color: #9ca6b5;
   font-family: inherit;
-  font-size: 11px;
+  font-size: calc(11px * var(--hvir-interface-scale));
 }
 
 .json-more:hover {
@@ -480,7 +480,7 @@
   place-items: center;
   padding: 24px;
   color: #707989;
-  font-size: 13px;
+  font-size: calc(13px * var(--hvir-interface-scale));
   text-align: center;
 }
 

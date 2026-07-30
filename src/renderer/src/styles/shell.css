@@ -88,7 +88,7 @@
   border-radius: 5px 5px 0 0;
   background: transparent;
   color: #77808e;
-  font-size: 10px;
+  font-size: calc(10px * var(--hvir-interface-scale));
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -145,7 +145,7 @@
 
 .harness-placeholder-copy strong {
   color: var(--text-strong);
-  font-size: 12px;
+  font-size: calc(12px * var(--hvir-interface-scale));
 }
 
 .harness-placeholder-copy span {
@@ -153,7 +153,7 @@
   border: 1px solid var(--border-strong);
   border-radius: 999px;
   color: var(--text-muted);
-  font-size: 8px;
+  font-size: calc(8px * var(--hvir-interface-scale));
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -162,6 +162,6 @@
 .harness-placeholder-copy p {
   margin: 0;
   color: var(--text-muted);
-  font-size: 10px;
+  font-size: calc(10px * var(--hvir-interface-scale));
   line-height: 1.45;
 }

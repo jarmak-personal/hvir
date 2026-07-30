@@ -249,7 +249,7 @@ body.pane-resizing-row * {
   border-bottom: 1px solid #282d36;
   background: #181b21;
   color: #d9dce2;
-  font-size: 12px;
+  font-size: calc(12px * var(--hvir-interface-scale));
   font-weight: 600;
   letter-spacing: 0.01em;
   white-space: nowrap;
@@ -259,7 +259,7 @@ body.pane-resizing-row * {
   min-width: 0;
   overflow: hidden;
   color: #7f8898;
-  font-size: 11px;
+  font-size: calc(11px * var(--hvir-interface-scale));
   font-weight: 400;
   text-overflow: ellipsis;
 }

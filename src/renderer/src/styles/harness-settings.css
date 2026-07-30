@@ -14,7 +14,7 @@
 
 .settings-harness-actions button {
   padding: 4px 7px;
-  font-size: 10px;
+  font-size: calc(10px * var(--hvir-interface-scale));
 }
 
 .settings-harness-state {
@@ -27,7 +27,7 @@
 .settings-harness-empty {
   margin: 0;
   color: var(--text-muted);
-  font-size: 10px;
+  font-size: calc(10px * var(--hvir-interface-scale));
 }
 
 .settings-harness-layout {
@@ -78,7 +78,7 @@
 }
 
 .settings-profile-list strong {
-  font-size: 10px;
+  font-size: calc(10px * var(--hvir-interface-scale));
 }
 
 .settings-profile-list small,
@@ -86,7 +86,7 @@
 .settings-profile-risk small,
 .settings-profile-previews small {
   color: var(--text-muted);
-  font-size: 9px;
+  font-size: calc(9px * var(--hvir-interface-scale));
 }
 
 .settings-profile-editor-shell {
@@ -120,7 +120,7 @@
   display: grid;
   gap: 5px;
   color: var(--text);
-  font-size: 10px;
+  font-size: calc(10px * var(--hvir-interface-scale));
 }
 
 .settings-profile-description {
@@ -161,7 +161,7 @@
   border: 1px solid var(--border-subtle);
   border-radius: 4px;
   color: var(--text);
-  font-size: 9px;
+  font-size: calc(9px * var(--hvir-interface-scale));
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -169,8 +169,8 @@
 .settings-profile-argv textarea {
   min-height: 56px;
   resize: vertical;
-  font-family: 'JetBrains Mono', 'SFMono-Regular', Consolas, monospace;
-  font-size: 10px;
+  font-family: var(--hvir-monospace-font);
+  font-size: calc(10px * var(--hvir-interface-scale));
   line-height: 1.5;
 }
 
@@ -190,18 +190,18 @@
   border: 1px solid var(--border-subtle);
   border-radius: 4px;
   color: var(--text);
-  font-size: 10px;
+  font-size: calc(10px * var(--hvir-interface-scale));
 }
 
 .settings-profile-capabilities small {
   color: var(--text-muted);
-  font-size: 9px;
+  font-size: calc(9px * var(--hvir-interface-scale));
   text-align: right;
 }
 
 .settings-profile-argv small {
   color: var(--text-muted);
-  font-size: 9px;
+  font-size: calc(9px * var(--hvir-interface-scale));
 }
 
 .settings-profile-rows {
@@ -211,7 +211,7 @@
 
 .settings-profile-rows > header {
   color: var(--text);
-  font-size: 10px;
+  font-size: calc(10px * var(--hvir-interface-scale));
 }
 
 .settings-profile-row {
@@ -237,7 +237,7 @@
   border-radius: 4px;
   background: var(--warning-surface);
   color: var(--warning-text);
-  font-size: 10px;
+  font-size: calc(10px * var(--hvir-interface-scale));
 }
 
 .settings-profile-previews {
@@ -252,7 +252,7 @@
 
 .settings-profile-previews strong {
   color: var(--text);
-  font-size: 9px;
+  font-size: calc(9px * var(--hvir-interface-scale));
   text-transform: uppercase;
 }
 
@@ -264,7 +264,7 @@
   border-radius: 4px;
   background: var(--surface-0);
   color: var(--text);
-  font-size: 9px;
+  font-size: calc(9px * var(--hvir-interface-scale));
   white-space: nowrap;
 }
 
@@ -278,7 +278,7 @@
 
 .settings-profile-actions button {
   padding: 4px 7px;
-  font-size: 10px;
+  font-size: calc(10px * var(--hvir-interface-scale));
 }
 
 .settings-profile-unsaved,
@@ -288,7 +288,7 @@
 
 .settings-profile-unsaved {
   color: var(--warning-text);
-  font-size: 10px;
+  font-size: calc(10px * var(--hvir-interface-scale));
 }
 
 .unsaved-harness-dialog h3,
@@ -323,7 +323,7 @@
 .add-harness-dialog .add-harness-candidates p {
   margin-top: 4px;
   color: var(--text-muted);
-  font-size: 10px;
+  font-size: calc(10px * var(--hvir-interface-scale));
 }
 
 .add-harness-candidates {
@@ -361,7 +361,7 @@
 .add-harness-dialog .add-harness-candidates small,
 .add-harness-dialog .add-harness-manual label > span {
   color: var(--text-muted);
-  font-size: 9px;
+  font-size: calc(9px * var(--hvir-interface-scale));
 }
 
 .add-harness-dialog .add-harness-candidates p {
@@ -391,7 +391,7 @@
 .harness-folder-picker > code {
   overflow-wrap: anywhere;
   color: var(--text);
-  font-size: 10px;
+  font-size: calc(10px * var(--hvir-interface-scale));
 }
 
 .harness-folder-list {

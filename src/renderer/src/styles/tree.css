@@ -70,7 +70,7 @@
 
 .filename-search-field > label {
   color: var(--text-muted);
-  font-size: 10px;
+  font-size: calc(10px * var(--hvir-interface-scale));
   text-transform: uppercase;
 }
 
@@ -84,7 +84,7 @@
   background: var(--surface-0);
   color: var(--text);
   font: inherit;
-  font-size: 12px;
+  font-size: calc(12px * var(--hvir-interface-scale));
 }
 
 .filename-search-field input:focus {
@@ -104,7 +104,7 @@
   border: 0;
   background: transparent;
   color: var(--text-muted);
-  font-size: 16px;
+  font-size: calc(16px * var(--hvir-interface-scale));
 }
 
 .filename-search-close {
@@ -115,7 +115,7 @@
   border-radius: 4px;
   background: transparent;
   color: var(--text-muted);
-  font-size: 16px;
+  font-size: calc(16px * var(--hvir-interface-scale));
 }
 
 .filename-search-close:hover,
@@ -132,7 +132,7 @@
   gap: 6px;
   padding: 0 10px 7px;
   color: var(--text-muted);
-  font-size: 10px;
+  font-size: calc(10px * var(--hvir-interface-scale));
 }
 
 .filename-search-ignored input {
@@ -149,7 +149,7 @@
 .filename-search-status {
   padding: 5px 10px;
   color: var(--text-muted);
-  font-size: 10px;
+  font-size: calc(10px * var(--hvir-interface-scale));
 }
 
 .filename-search-results {
@@ -185,7 +185,7 @@
   max-width: 100%;
   overflow: hidden;
   color: var(--text-muted);
-  font-size: 10px;
+  font-size: calc(10px * var(--hvir-interface-scale));
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -207,7 +207,7 @@
   border: 0;
   color: #aeb4bf;
   background: transparent;
-  font-size: 12px;
+  font-size: calc(12px * var(--hvir-interface-scale));
   text-align: left;
   cursor: default;
 }
@@ -244,7 +244,7 @@
   width: 9px;
   flex: 0 0 9px;
   color: #737d8c;
-  font-size: 15px;
+  font-size: calc(15px * var(--hvir-interface-scale));
   line-height: 1;
 }
 
@@ -306,7 +306,7 @@
 
 .tree-git-status.file {
   width: 11px;
-  font-size: 9px;
+  font-size: calc(9px * var(--hvir-interface-scale));
   font-weight: 700;
   text-align: center;
 }
@@ -361,7 +361,7 @@
 .tree-gitignored {
   flex: 0 0 auto;
   color: #626d7b;
-  font-size: 8px;
+  font-size: calc(8px * var(--hvir-interface-scale));
   letter-spacing: 0;
   text-transform: uppercase;
 }
@@ -379,14 +379,14 @@
   width: 9px;
   flex: 0 0 9px;
   color: #778b9f;
-  font-size: 10px;
+  font-size: calc(10px * var(--hvir-interface-scale));
 }
 
 .tree-error {
   padding-top: 3px;
   padding-bottom: 6px;
   color: #dc7b82;
-  font-size: 11px;
+  font-size: calc(11px * var(--hvir-interface-scale));
 }
 
 .tree-scope-notice {
@@ -395,7 +395,7 @@
   border: 1px solid var(--border-subtle);
   border-radius: 6px;
   color: var(--text-muted);
-  font-size: 11px;
+  font-size: calc(11px * var(--hvir-interface-scale));
   line-height: 1.35;
 }
 
@@ -410,14 +410,14 @@
   gap: 7px;
   padding: 24px;
   color: var(--text-muted);
-  font-size: 11px;
+  font-size: calc(11px * var(--hvir-interface-scale));
   line-height: 1.45;
   text-align: center;
 }
 
 .workspace-missing-notice strong {
   color: var(--text-strong);
-  font-size: 13px;
+  font-size: calc(13px * var(--hvir-interface-scale));
 }
 
 .workspace-missing-path {

@@ -13,7 +13,10 @@ import { asHarnessProfileId, localPath } from '../src/shared'
 const ghosttyState = vi.hoisted(() => ({
   instances: [] as Array<{
     readonly cursorBlinkValues: boolean[]
+    readonly fontFamilies: string[]
+    readonly fontSizes: number[]
     readonly presentationPausedValues: boolean[]
+    readonly resizes: Array<{ readonly cols: number; readonly rows: number }>
     readonly writes: string[]
     cursorBlinkResets: number
     emitData(data: string): void
@@ -24,6 +27,7 @@ const ghosttyState = vi.hoisted(() => ({
       readonly metaKey: boolean
       readonly shiftKey: boolean
     }): boolean
+    emitResize(size: { readonly cols: number; readonly rows: number }): void
     renders: number
     disposed: boolean
   }>,
@@ -31,7 +35,12 @@ const ghosttyState = vi.hoisted(() => ({
 
 vi.mock('ghostty-web', () => {
   class MockTerminal {
-    readonly options: { theme?: unknown; cursorBlink?: boolean }
+    readonly options: {
+      theme?: unknown
+      cursorBlink?: boolean
+      fontFamily?: string
+      fontSize?: number
+    }
     readonly buffer = { active: { getLine: () => undefined } }
     readonly wasmTerm = {}
     readonly viewportY = 0
@@ -50,14 +59,23 @@ vi.mock('ghostty-web', () => {
     private readonly state: (typeof ghosttyState.instances)[number]
     private presentationPaused = false
 
-    constructor(options: { theme?: unknown; cursorBlink?: boolean }) {
+    constructor(options: {
+      theme?: unknown
+      cursorBlink?: boolean
+      fontFamily?: string
+      fontSize?: number
+    }) {
       this.state = {
         cursorBlinkValues: [Boolean(options.cursorBlink)],
+        fontFamilies: [options.fontFamily ?? ''],
+        fontSizes: [options.fontSize ?? 0],
         presentationPausedValues: [],
+        resizes: [],
         writes: [],
         cursorBlinkResets: 0,
         emitData: () => undefined,
         emitCustomKey: () => false,
+        emitResize: () => undefined,
         renders: 0,
         disposed: false,
       }
@@ -70,6 +88,10 @@ vi.mock('ghostty-web', () => {
             if (property === 'cursorBlink') {
               this.state.cursorBlinkValues.push(Boolean(value))
             }
+            if (property === 'fontFamily') {
+              this.state.fontFamilies.push(String(value))
+            }
+            if (property === 'fontSize') this.state.fontSizes.push(Number(value))
             return true
           },
         },
@@ -99,8 +121,11 @@ vi.mock('ghostty-web', () => {
       }
     }
 
-    onResize(): { dispose(): void } {
-      return { dispose: () => undefined }
+    onResize(
+      callback: (size: { readonly cols: number; readonly rows: number }) => void,
+    ): { dispose(): void } {
+      this.state.emitResize = callback
+      return { dispose: () => (this.state.emitResize = () => undefined) }
     }
 
     onTitleChange(): { dispose(): void } {
@@ -116,7 +141,10 @@ vi.mock('ghostty-web', () => {
       this.renderer = {
         clear: () => undefined,
         getCanvas: () => this.canvas!,
-        getMetrics: () => ({ width: 8, height: 16 }),
+        getMetrics: () => {
+          const fontSize = this.options.fontSize ?? 13
+          return { width: fontSize * 0.6, height: fontSize * 1.2 }
+        },
         render: () => {
           this.state.renders += 1
         },
@@ -177,8 +205,12 @@ vi.mock('ghostty-web', () => {
     }
 
     resize(cols: number, rows: number): void {
+      if (cols === this.cols && rows === this.rows) return
       this.cols = cols
       this.rows = rows
+      const size = { cols, rows }
+      this.state.resizes.push(size)
+      this.state.emitResize(size)
     }
 
     focus(): void {}
@@ -224,7 +256,7 @@ describe('GhosttyTerminalPane lifecycle', () => {
     const firstContainer = document.createElement('div')
     const secondContainer = document.createElement('div')
     document.body.append(firstContainer, secondContainer)
-    const pane = await createGhosttyTerminalPane(theme(), {
+    const pane = await createGhosttyTerminalPane(theme(), typography(), {
       modifiedKeyProtocol: 'modify-other-keys',
       metaEnterAliasesControl: true,
       composerSubmitMode: 'enter',
@@ -248,7 +280,7 @@ describe('GhosttyTerminalPane lifecycle', () => {
   it('stops hidden cursor work and restores a current repaint on reveal', async () => {
     const container = document.createElement('div')
     document.body.append(container)
-    const pane = await createGhosttyTerminalPane(theme(), {
+    const pane = await createGhosttyTerminalPane(theme(), typography(), {
       modifiedKeyProtocol: 'modify-other-keys',
       metaEnterAliasesControl: true,
       composerSubmitMode: 'enter',
@@ -282,7 +314,7 @@ describe('GhosttyTerminalPane lifecycle', () => {
   it('resets cursor blinking for ordinary and adapter-owned input only while visible', async () => {
     const container = document.createElement('div')
     document.body.append(container)
-    const pane = await createGhosttyTerminalPane(theme(), {
+    const pane = await createGhosttyTerminalPane(theme(), typography(), {
       modifiedKeyProtocol: 'modify-other-keys',
       metaEnterAliasesControl: true,
       composerSubmitMode: 'enter',
@@ -400,6 +432,85 @@ describe('GhosttyTerminalPane lifecycle', () => {
     })
     expect(state.cursorBlinkValues).toEqual([true, false, true, false])
     expect(invoke).toHaveBeenCalledOnce()
+    expect(send).not.toHaveBeenCalledWith('pty:kill', expect.anything())
+
+    act(() => {
+      root.unmount()
+      registry.dispose()
+    })
+  })
+
+  it('reflows a retained pane and propagates its new grid without clearing output', async () => {
+    const invoke = vi.fn(() =>
+      Promise.resolve({
+        outcome: 'started' as const,
+        id: 'terminal-1',
+        pid: 4321,
+        resumed: false,
+        reattached: false,
+        harnessSessionId: undefined,
+        identityStatus: 'unsupported' as const,
+        capabilities: {
+          sessionIdentity: 'none' as const,
+          exactResume: false,
+          contextPresentation: 'none' as const,
+        },
+      }),
+    )
+    const send = vi.fn()
+    Object.defineProperty(window, 'hvir', {
+      configurable: true,
+      value: {
+        invoke,
+        send,
+        on: vi.fn(() => () => undefined),
+      },
+    })
+    const registry = new TerminalRuntimeRegistry()
+    const host = document.createElement('div')
+    document.body.append(host)
+    const root = createRoot(host)
+    const render = (fontSize: number) => (
+      <TerminalView
+        {...runtimeOptions()}
+        typography={{ fontFamily: 'Example Mono, monospace', fontSize }}
+        slot="primary"
+        visible
+        themeOverride="app"
+        runtimes={registry}
+      />
+    )
+
+    act(() => root.render(render(13)))
+    await act(async () => {
+      await vi.waitFor(() => expect(invoke).toHaveBeenCalledOnce())
+    })
+    const state = ghosttyState.instances[0]!
+    const surface = host.querySelector<HTMLElement>('.terminal-engine-host')!
+    const canvas = surface.querySelector('canvas')
+    Object.defineProperties(surface, {
+      clientWidth: { configurable: true, value: 800 },
+      clientHeight: { configurable: true, value: 320 },
+    })
+    state.writes.push('retained history')
+
+    act(() => root.render(render(18)))
+    await act(async () => {
+      await new Promise((resolve) => window.setTimeout(resolve, 100))
+    })
+
+    expect(host.querySelector('.terminal-engine-host')).toBe(surface)
+    expect(surface.querySelector('canvas')).toBe(canvas)
+    expect(state.disposed).toBe(false)
+    expect(state.writes).toContain('retained history')
+    expect(state.fontFamilies).toEqual(['Example Mono, monospace'])
+    expect(state.fontSizes).toEqual([13, 18])
+    expect(state.resizes.at(-1)).toEqual({ cols: 74, rows: 14 })
+    expect(send).toHaveBeenCalledWith('pty:resize', {
+      id: 'terminal-1',
+      cols: 74,
+      rows: 14,
+    })
     expect(send).not.toHaveBeenCalledWith('pty:kill', expect.anything())
 
     act(() => {
@@ -921,6 +1032,10 @@ function theme() {
   }
 }
 
+function typography() {
+  return { fontFamily: 'ui-monospace, monospace', fontSize: 13 }
+}
+
 function runtimeOptions(): TerminalRuntimeOptions & { readonly presented: boolean } {
   return {
     sessionId: 'terminal-1',
@@ -939,6 +1054,7 @@ function runtimeOptions(): TerminalRuntimeOptions & { readonly presented: boolea
     modifiedKeyProtocol: 'modify-other-keys',
     metaEnterAliasesControl: true,
     composerSubmitMode: 'enter',
+    typography: typography(),
     cwd: localPath('/repo'),
     workspaceRoot: localPath('/repo'),
     connectionState: 'connected',

@@ -473,7 +473,7 @@
   border-left: 1px solid var(--border-subtle);
   background: transparent;
   color: var(--text-muted);
-  font-size: 15px;
+  font-size: calc(15px * var(--hvir-interface-scale));
 }
 
 .theme-toggle:hover,

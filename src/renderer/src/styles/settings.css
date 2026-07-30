@@ -27,7 +27,7 @@
 
 .settings-shell-heading span {
   color: var(--text-muted);
-  font-size: 9px;
+  font-size: calc(9px * var(--hvir-interface-scale));
   font-weight: 650;
   letter-spacing: 0.12em;
   text-transform: uppercase;
@@ -35,7 +35,7 @@
 
 .settings-shell-heading h2 {
   color: var(--text-strong);
-  font-size: 20px;
+  font-size: calc(20px * var(--hvir-interface-scale));
   font-weight: 620;
   letter-spacing: -0.02em;
 }
@@ -43,7 +43,7 @@
 .settings-dialog .settings-shell-heading p {
   max-width: 420px;
   color: var(--text-muted);
-  font-size: 11px;
+  font-size: calc(11px * var(--hvir-interface-scale));
   text-align: right;
 }
 
@@ -72,7 +72,7 @@
   border-radius: 3px;
   color: var(--text-muted);
   background: transparent;
-  font-size: 11px;
+  font-size: calc(11px * var(--hvir-interface-scale));
   font-weight: 540;
   text-align: left;
 }
@@ -139,7 +139,7 @@
 
 .settings-dialog .settings-section-heading h3 {
   color: var(--text-strong);
-  font-size: 15px;
+  font-size: calc(15px * var(--hvir-interface-scale));
   font-weight: 620;
   outline: none;
 }
@@ -151,7 +151,7 @@
 
 .settings-dialog .settings-section-heading p {
   color: var(--text-muted);
-  font-size: 10px;
+  font-size: calc(10px * var(--hvir-interface-scale));
   line-height: 1.45;
 }
 
@@ -168,14 +168,61 @@
   gap: 16px;
 }
 
-.settings-dialog .settings-fields > label {
+.settings-dialog .settings-fields > :is(label, .settings-typography-field) {
   width: min(760px, 100%);
   display: grid;
   grid-template-columns: 190px minmax(0, 1fr);
   align-items: center;
   gap: 8px 16px;
   color: var(--text);
-  font-size: 11px;
+  font-size: calc(11px * var(--hvir-interface-scale));
+}
+
+.settings-typography-field {
+  align-items: start;
+}
+
+.settings-typography-field > span:first-child {
+  padding-top: 8px;
+}
+
+.settings-typography-control {
+  min-width: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.settings-typography-control small {
+  color: var(--text-muted);
+  font-size: calc(9px * var(--hvir-interface-scale));
+  line-height: 1.45;
+}
+
+.settings-font-preview {
+  min-height: 48px;
+  display: flex;
+  align-items: center;
+  overflow: hidden;
+  padding: 9px 11px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 4px;
+  color: var(--text-strong);
+  background: var(--surface-0);
+  line-height: 1.45;
+  white-space: nowrap;
+}
+
+.settings-slider {
+  display: grid;
+  grid-template-columns: minmax(160px, 1fr) 52px;
+  align-items: center;
+  gap: 10px;
+}
+
+.settings-slider output {
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
 }
 
 .settings-dialog .settings-fields select,
@@ -236,7 +283,7 @@
 .settings-checkbox-copy small,
 .settings-keybindings small {
   color: var(--text-muted);
-  font-size: 9px;
+  font-size: calc(9px * var(--hvir-interface-scale));
   line-height: 1.45;
 }
 
@@ -249,8 +296,8 @@
 .settings-keybindings textarea {
   min-height: min(360px, 44vh);
   resize: vertical;
-  font-family: 'JetBrains Mono', 'SFMono-Regular', Consolas, monospace;
-  font-size: 10px;
+  font-family: var(--hvir-monospace-font);
+  font-size: calc(10px * var(--hvir-interface-scale));
   line-height: 1.5;
 }
 
@@ -273,7 +320,7 @@
 .settings-footer-status {
   min-width: 0;
   color: var(--text-muted);
-  font-size: 9px;
+  font-size: calc(9px * var(--hvir-interface-scale));
 }
 
 .settings-dialog .settings-footer-status p {
@@ -332,7 +379,7 @@
     border-bottom: 1px solid var(--border-subtle);
     color: var(--text-muted);
     background: var(--surface-0);
-    font-size: 10px;
+    font-size: calc(10px * var(--hvir-interface-scale));
   }
 
   .settings-dialog .settings-section-selector select {
@@ -364,9 +411,13 @@
     gap: 2px;
   }
 
-  .settings-dialog .settings-fields > label {
+  .settings-dialog .settings-fields > :is(label, .settings-typography-field) {
     grid-template-columns: 1fr;
     align-items: stretch;
+  }
+
+  .settings-typography-field > span:first-child {
+    padding-top: 0;
   }
 
   .settings-dialog .settings-fields .dialog-error {

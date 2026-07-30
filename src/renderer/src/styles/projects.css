@@ -135,7 +135,7 @@
 .project-connection-chevron {
   width: 9px;
   flex: 0 0 9px;
-  font-size: 7px;
+  font-size: calc(7px * var(--hvir-interface-scale));
 }
 
 .project-tab:hover {
@@ -159,7 +159,7 @@
 
 .project-tab strong {
   overflow: hidden;
-  font-size: 12px;
+  font-size: calc(12px * var(--hvir-interface-scale));
   font-weight: 620;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -169,7 +169,7 @@
   width: 34px;
   flex: 0 0 34px;
   border-bottom: 1px solid var(--border-strong);
-  font-size: 20px;
+  font-size: calc(20px * var(--hvir-interface-scale));
 }
 
 .project-add:hover,
@@ -182,7 +182,7 @@
 }
 
 .settings-toggle {
-  font-size: 12px;
+  font-size: calc(12px * var(--hvir-interface-scale));
 }
 
 .projects-bar-spacer {
@@ -232,7 +232,7 @@
   min-width: 0;
   overflow: hidden;
   color: #dce1e8;
-  font-size: 11px;
+  font-size: calc(11px * var(--hvir-interface-scale));
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -240,13 +240,13 @@
 .project-connection-menu header span,
 .project-connection-menu > small {
   color: #8792a1;
-  font-size: 9px;
+  font-size: calc(9px * var(--hvir-interface-scale));
 }
 
 .project-connection-menu p {
   margin: 0;
   color: #d76d76;
-  font-size: 9px;
+  font-size: calc(9px * var(--hvir-interface-scale));
   line-height: 1.35;
 }
 
@@ -262,7 +262,7 @@
   border-radius: 4px;
   background: #20252d;
   color: #b9c0ca;
-  font-size: 9px;
+  font-size: calc(9px * var(--hvir-interface-scale));
 }
 
 .project-connection-actions button:hover:not(:disabled) {
@@ -302,7 +302,7 @@
   gap: 6px;
   padding: 0 8px;
   border-radius: 3px;
-  font-size: 10px;
+  font-size: calc(10px * var(--hvir-interface-scale));
 }
 
 .workspace-tab > button span {
@@ -314,7 +314,7 @@
 
 .workspace-tab small {
   color: #687384;
-  font-size: 8px;
+  font-size: calc(8px * var(--hvir-interface-scale));
 }
 
 .workspace-dismiss,
@@ -351,7 +351,7 @@
   overflow: hidden;
   padding: 0 6px;
   color: #d76d76;
-  font-size: 9px;
+  font-size: calc(9px * var(--hvir-interface-scale));
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -362,7 +362,7 @@
   height: 24px;
   padding: 0 8px;
   border-radius: 3px;
-  font-size: 9px;
+  font-size: calc(9px * var(--hvir-interface-scale));
 }
 
 .workspaces-prune {
@@ -382,7 +382,7 @@
   border-radius: 8px;
   background: #2a2114;
   color: #efbd67;
-  font-size: 8px;
+  font-size: calc(8px * var(--hvir-interface-scale));
   font-weight: 750;
   font-variant-numeric: tabular-nums;
 }

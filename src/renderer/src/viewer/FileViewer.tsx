@@ -904,8 +904,8 @@ const sourceTheme = EditorView.theme({
   '&': { height: '100%', backgroundColor: 'var(--viewer-bg)', color: 'var(--text)' },
   '.cm-scroller': {
     overflow: 'auto',
-    fontFamily: "'JetBrains Mono', 'SFMono-Regular', Consolas, monospace",
-    fontSize: '13px',
+    fontFamily: 'var(--hvir-monospace-font)',
+    fontSize: 'calc(13px * var(--hvir-interface-scale))',
     lineHeight: '1.55',
   },
   '.cm-content': { padding: '12px 0', caretColor: 'var(--text)' },

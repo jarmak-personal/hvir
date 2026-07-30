@@ -4,7 +4,7 @@
 
 .terminal-workspace-move-button {
   position: relative;
-  font-size: 14px;
+  font-size: calc(14px * var(--hvir-interface-scale));
 }
 
 .terminal-workspace-move-button.has-new-target {
@@ -20,7 +20,7 @@
   border-radius: 3px;
   background: #17283a;
   color: #b8d8fa;
-  font-size: 6px;
+  font-size: calc(6px * var(--hvir-interface-scale));
   font-weight: 800;
   line-height: 1;
   text-transform: uppercase;
@@ -43,7 +43,7 @@
 .terminal-move-menu p {
   margin: 2px 4px 5px;
   color: #8f99a7;
-  font-size: 9px;
+  font-size: calc(9px * var(--hvir-interface-scale));
 }
 
 .terminal-move-menu > button,
@@ -54,7 +54,7 @@
   border-radius: 3px;
   background: transparent;
   color: #cbd1da;
-  font-size: 10px;
+  font-size: calc(10px * var(--hvir-interface-scale));
   text-align: left;
 }
 
@@ -83,7 +83,7 @@
 
 .terminal-move-menu em {
   color: #9dc4f0;
-  font-size: 8px;
+  font-size: calc(8px * var(--hvir-interface-scale));
   font-style: normal;
   text-transform: uppercase;
 }
@@ -118,7 +118,7 @@
   align-items: center;
   gap: 7px;
   color: color-mix(in srgb, var(--accent) 58%, var(--text-strong));
-  font-size: 9px;
+  font-size: calc(9px * var(--hvir-interface-scale));
   font-weight: 650;
   letter-spacing: 0.11em;
   text-transform: uppercase;
@@ -134,7 +134,7 @@
 
 .terminal-move-header h2 {
   color: var(--text-strong);
-  font-size: 18px;
+  font-size: calc(18px * var(--hvir-interface-scale));
   letter-spacing: -0.01em;
 }
 
@@ -170,7 +170,7 @@
   min-width: 0;
   overflow: hidden;
   color: var(--text-strong);
-  font-size: 12px;
+  font-size: calc(12px * var(--hvir-interface-scale));
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -182,7 +182,7 @@
   border-radius: 9px;
   background: color-mix(in srgb, #67c993 8%, var(--surface-1));
   color: color-mix(in srgb, #67c993 76%, var(--text));
-  font-size: 8px;
+  font-size: calc(8px * var(--hvir-interface-scale));
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
@@ -202,7 +202,7 @@
   width: 22px;
   color: var(--text-muted);
   content: '→';
-  font-size: 14px;
+  font-size: calc(14px * var(--hvir-interface-scale));
   text-align: center;
   transform: translate(-50%, -50%);
 }
@@ -224,7 +224,7 @@
 .terminal-move-details dt {
   margin-bottom: 5px;
   color: var(--text-muted);
-  font-size: 8px;
+  font-size: calc(8px * var(--hvir-interface-scale));
   font-weight: 650;
   letter-spacing: 0.1em;
   text-transform: uppercase;
@@ -242,14 +242,14 @@
 
 .terminal-move-details strong {
   color: var(--text);
-  font-size: 11px;
+  font-size: calc(11px * var(--hvir-interface-scale));
 }
 
 .terminal-move-details code {
   overflow: hidden;
   margin-top: 3px;
   color: var(--text-muted);
-  font-size: 9px;
+  font-size: calc(9px * var(--hvir-interface-scale));
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -272,7 +272,7 @@
   display: grid;
   place-items: center;
   border-radius: 50%;
-  font-size: 10px;
+  font-size: calc(10px * var(--hvir-interface-scale));
   font-weight: 700;
 }
 
@@ -291,13 +291,13 @@
 .terminal-move-continuity strong,
 .terminal-move-warning strong {
   color: var(--text);
-  font-size: 10px;
+  font-size: calc(10px * var(--hvir-interface-scale));
 }
 
 .terminal-move-continuity p span,
 .terminal-move-warning p span {
   color: var(--text-muted);
-  font-size: 10px;
+  font-size: calc(10px * var(--hvir-interface-scale));
   line-height: 1.45;
 }
 
