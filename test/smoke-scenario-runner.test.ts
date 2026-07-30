@@ -10,6 +10,7 @@ import {
   runSmokeScenarioGroups,
   selectedSmokeScenarios,
   smokeScenarioEnvironment,
+  smokeAttemptTimeoutMs,
   type SmokeScenarioName,
 } from '../scripts/run-smoke-scenarios.mts'
 import {
@@ -201,6 +202,11 @@ describe('Electron smoke result aggregation', () => {
       HVIR_SMOKE_SCENARIO: 'pty-native',
       KEEP_ME: 'yes',
     })
+  })
+
+  it('keeps every attempt bounded while allowing the capacity sampling window', () => {
+    expect(smokeAttemptTimeoutMs('pty-native')).toBe(180_000)
+    expect(smokeAttemptTimeoutMs('capacity')).toBe(600_000)
   })
 })
 

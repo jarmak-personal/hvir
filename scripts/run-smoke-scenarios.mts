@@ -37,7 +37,14 @@ type InvokeSmokeScenario = (
 ) => Promise<Omit<SmokeScenarioResult, 'scenario' | 'iteration' | 'repetitionCount'>>
 
 const MAX_SMOKE_REPETITIONS = 100
-const SMOKE_ATTEMPT_TIMEOUT_MS = 180_000
+const DEFAULT_SMOKE_ATTEMPT_TIMEOUT_MS = 180_000
+const CAPACITY_SMOKE_ATTEMPT_TIMEOUT_MS = 600_000
+
+export function smokeAttemptTimeoutMs(scenario: SmokeScenarioName): number {
+  return scenario === 'capacity'
+    ? CAPACITY_SMOKE_ATTEMPT_TIMEOUT_MS
+    : DEFAULT_SMOKE_ATTEMPT_TIMEOUT_MS
+}
 
 export function parseSmokeRepetitionCount(value: string | undefined): number {
   if (value === undefined) return 1
@@ -186,7 +193,7 @@ function invokeSmokeScenario(
         spawnError: false,
         collector,
       }).finally(() => resolveResult(result))
-    }, SMOKE_ATTEMPT_TIMEOUT_MS)
+    }, smokeAttemptTimeoutMs(scenario))
     child.once('error', () => {
       if (settled) return
       settled = true
