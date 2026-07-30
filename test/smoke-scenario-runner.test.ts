@@ -273,6 +273,9 @@ describe('Electron smoke command contracts', () => {
     )
     expect(packageJson.scripts['smoke:macos:ci']).not.toContain('terminal-presentation')
     expect(packageJson.scripts['smoke:macos:ci']).not.toContain('terminal-lifecycle')
+    expect(packageJson.scripts['smoke:scenario']).toBe(
+      'electron-vite build && node scripts/run-smoke-scenarios.mts',
+    )
     expect(packageJson.scripts['smoke:macos']).not.toMatch(
       /terminal-presentation capacity/,
     )
@@ -301,6 +304,21 @@ describe('Electron smoke command contracts', () => {
     expect(invocationScript).toContain('HVIR_SMOKE_SOURCE_DIRTY="$source_dirty"')
     expect(invocationScript).toContain('create-smoke-repository.sh')
     expect(invocationScript).toContain('unset ELECTRON_RENDERER_URL')
+  })
+
+  it('includes bounded attempt duration in real aggregate results', () => {
+    expect(
+      formatSmokeScenarioResults([
+        {
+          scenario: 'pty-native',
+          iteration: 1,
+          repetitionCount: 1,
+          status: 'failed',
+          exitCode: 1,
+          durationMs: 1234.6,
+        },
+      ]),
+    ).toContain('failed (exit 1 · 1235ms)')
   })
 
   it('proves failed and interrupted predecessors cannot affect clean successors', () => {

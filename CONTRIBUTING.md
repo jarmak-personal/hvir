@@ -223,11 +223,20 @@ but enforces the quantitative budgets on a controlled machine. These commands us
 aggregate launcher, so a failing group does not prevent reporting its scheduled siblings.
 
 For a bounded local stress run, set `HVIR_SMOKE_REPEAT` to an integer from 1 through 100. For
-example, `HVIR_SMOKE_SCENARIO=pty-native HVIR_SMOKE_REPEAT=20 npm run smoke` schedules 20
+example, `HVIR_SMOKE_SCENARIO=pty-native HVIR_SMOKE_REPEAT=20 npm run smoke:scenario` schedules 20
 iterations of that group. Each iteration launches a fresh Electron process with fresh project and
 user-data roots. Iterations are fixed stress evidence, not retries: every scheduled iteration runs,
 and any failed iteration makes the aggregate command fail. Pull-request jobs omit the variable and
-therefore run one iteration.
+therefore run one iteration. Aggregate output includes every attempt and its duration.
+
+The `Electron smoke stress` workflow runs `pty-native`, `renderer-recovery`, and `web-pane` 20
+times each on Linux x64 and macOS ARM64 every Tuesday, and accepts a bounded scenario/count through
+manual dispatch. It is stress evidence, not a pull-request gate or retry loop. On failure, the
+launcher writes one JSON artifact per failed attempt when `HVIR_SMOKE_ARTIFACT_DIR` is set. The
+closed artifact contains the scenario and iteration, expected outcome, duration, process exit,
+last safe semantic phase, owned-resource counts/flags, and reviewed log-event booleans. It never
+retains raw logs, environment values, terminal transcripts, source/diff/file bodies, requests,
+cookies, headers, form values, console contents, or screenshots.
 
 Use `npm run smoke:isolation` for the real-process interruption proof. It stops focused PTY,
 Git/renderer-watch, and web-route scenarios at controlled owner checkpoints, exercises a

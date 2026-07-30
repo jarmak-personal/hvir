@@ -2,6 +2,11 @@ import { spawn } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { dirname, join, resolve } from 'node:path'
 import {
+  SmokeAttemptEvidenceCollector,
+  createSmokeFailureArtifact,
+  writeSmokeFailureArtifact,
+} from './smoke-failure-artifact.mts'
+import {
   parseElectronSmokeScenario,
   type ElectronSmokeScenario,
 } from '../src/main/smoke/scenario-selection.mts'
@@ -22,6 +27,7 @@ export interface SmokeScenarioResult {
   readonly exitCode?: number
   readonly signal?: NodeJS.Signals
   readonly error?: string
+  readonly durationMs?: number
 }
 
 type InvokeSmokeScenario = (
@@ -118,28 +124,89 @@ function invokeSmokeScenario(
   console.log(
     `[smoke:group] ${scenario} iteration ${iteration}/${repetitionCount} starting`,
   )
+  const startedAt = performance.now()
   return new Promise((resolveResult) => {
+    const collector = new SmokeAttemptEvidenceCollector()
     const child = spawn('bash', [join(repositoryRoot, 'scripts/run-smoke.sh')], {
       cwd: repositoryRoot,
       env: smokeScenarioEnvironment(process.env, scenario),
-      stdio: 'inherit',
+      stdio: ['inherit', 'pipe', 'pipe'],
+    })
+    child.stdout.setEncoding('utf8')
+    child.stderr.setEncoding('utf8')
+    child.stdout.on('data', (chunk: string) => {
+      process.stdout.write(chunk)
+      collector.observe('stdout', chunk)
+    })
+    child.stderr.on('data', (chunk: string) => {
+      process.stderr.write(chunk)
+      collector.observe('stderr', chunk)
     })
     let settled = false
-    child.once('error', (error) => {
+    child.once('error', () => {
       if (settled) return
       settled = true
-      resolveResult({ status: 'failed', error: error.message })
+      collector.finish()
+      const durationMs = performance.now() - startedAt
+      void retainFailureArtifact({
+        scenario,
+        iteration,
+        repetitionCount,
+        durationMs,
+        exitCode: null,
+        signal: null,
+        spawnError: true,
+        collector,
+      }).finally(() =>
+        resolveResult({ status: 'failed', error: 'process spawn failed', durationMs }),
+      )
     })
     child.once('close', (exitCode, signal) => {
       if (settled) return
       settled = true
-      resolveResult({
-        status: exitCode === 0 ? 'passed' : 'failed',
+      collector.finish()
+      const durationMs = performance.now() - startedAt
+      const successSentinel = collector.evidence().logs.successSentinel
+      const status = exitCode === 0 && successSentinel ? 'passed' : 'failed'
+      const result = {
+        status,
         ...(exitCode === null ? {} : { exitCode }),
         ...(signal === null ? {} : { signal }),
-      })
+        ...(!successSentinel && exitCode === 0
+          ? { error: 'missing success sentinel' }
+          : {}),
+        durationMs,
+      } as const
+      if (status === 'passed') {
+        resolveResult(result)
+        return
+      }
+      void retainFailureArtifact({
+        scenario,
+        iteration,
+        repetitionCount,
+        durationMs,
+        exitCode,
+        signal,
+        spawnError: false,
+        collector,
+      }).finally(() => resolveResult(result))
     })
   })
+}
+
+async function retainFailureArtifact(
+  options: Parameters<typeof createSmokeFailureArtifact>[0],
+): Promise<void> {
+  try {
+    const path = await writeSmokeFailureArtifact(
+      process.env.HVIR_SMOKE_ARTIFACT_DIR,
+      createSmokeFailureArtifact(options),
+    )
+    if (path) console.error('[smoke:artifact] retained bounded failure evidence')
+  } catch {
+    console.error('[smoke:artifact] failed to retain bounded failure evidence')
+  }
 }
 
 export function formatSmokeScenarioResults(
@@ -154,7 +221,9 @@ export function formatSmokeScenarioResults(
         (result.signal
           ? `signal ${result.signal}`
           : `exit ${result.exitCode ?? 'unknown'}`)
-      return `- ${result.scenario} iteration ${result.iteration}/${result.repetitionCount}: ${result.status} (${detail})`
+      const duration =
+        result.durationMs === undefined ? '' : ` · ${Math.round(result.durationMs)}ms`
+      return `- ${result.scenario} iteration ${result.iteration}/${result.repetitionCount}: ${result.status} (${detail}${duration})`
     }),
   ].join('\n')
 }

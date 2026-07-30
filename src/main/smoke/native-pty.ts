@@ -7,6 +7,10 @@ import { harnessProvider } from '../harness/harness-provider'
 import { LocalHost } from '../project-host'
 import { PtySupervisor } from '../pty/pty-supervisor'
 import { SmokeCleanup } from './cleanup'
+import {
+  reportSmokeFailureEvidence,
+  type SmokeFailurePhase,
+} from './failure-evidence.mts'
 import type { SmokeInterruptionCheckpoint } from './interruption-checkpoint'
 import { stopPtyAndWaitForExit, waitForPtyOutput } from './pty-lifecycle'
 
@@ -30,11 +34,14 @@ export async function runNativePtySmoke(
   cleanup.defer('PTY supervisor', () => supervisor.disposeAllAndWait())
 
   let scenarioFailed = false
+  let failurePhase: SmokeFailurePhase = 'resources-created'
   try {
     assertNoWindows('before native PTY launch')
     await host.connect()
+    failurePhase = 'host-connected'
     await host.exec('rm', ['-f', '--', profileStorePath.path])
     const profiles = await HarnessProfileStore.load(host, profileStorePath)
+    failurePhase = 'profile-loaded'
     const provider = harnessProvider(CUSTOM_PROFILE_PROVIDER_ID)
     const predecessorToken = interruptionCheckpoint.predecessorToken
     const predecessorProfileObserved = Boolean(
@@ -114,6 +121,7 @@ export async function runNativePtySmoke(
       cols: 80,
       rows: 24,
     })
+    failurePhase = 'pty-active'
     if (
       terminal.providerId !== provider.manifest.id ||
       terminal.identityStatus !== 'none' ||
@@ -127,6 +135,7 @@ export async function runNativePtySmoke(
       ptyCount: supervisor.list().length,
       predecessorProfileObserved,
     })
+    failurePhase = 'scenario-active'
     const output = waitForPtyOutput({
       supervisor,
       terminal,
@@ -156,12 +165,26 @@ export async function runNativePtySmoke(
     return 0
   } catch (error) {
     scenarioFailed = true
+    reportSmokeFailureEvidence(failurePhase, {
+      windowCount: BrowserWindow.getAllWindows().length,
+      ptyCount: supervisor.list().length,
+      watcherActive: false,
+      rendererOwnerActive: false,
+      rendererGeneration: null,
+    })
     console.error('HVIR_SMOKE_FAIL', error)
     return 1
   } finally {
     try {
       await cleanup.run()
     } catch (cleanupError) {
+      reportSmokeFailureEvidence('cleanup', {
+        windowCount: BrowserWindow.getAllWindows().length,
+        ptyCount: supervisor.list().length,
+        watcherActive: false,
+        rendererOwnerActive: false,
+        rendererGeneration: null,
+      })
       console.error('HVIR_SMOKE_CLEANUP_FAIL', cleanupError)
       // A successful scenario must still fail when cleanup does not complete.
       if (!scenarioFailed) {
