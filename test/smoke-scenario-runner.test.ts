@@ -368,10 +368,9 @@ describe('Electron smoke command contracts', () => {
     expect(typographyScenario.indexOf('supervisor.attach')).toBeLessThan(
       typographyScenario.indexOf('settingsButton.click()'),
     )
-    expect(typographyScenario).toContain('trap \\"printf')
-    expect(typographyScenario).toContain('\\" WINCH')
-    expect(typographyScenario).toContain('__HVIR_TYPO_TRAP_READY__')
-    expect(typographyScenario.match(/stty size/g)).toHaveLength(2)
+    expect(typographyScenario).not.toContain('WINCH')
+    expect(typographyScenario).toContain('queryCount')
+    expect(typographyScenario.match(/stty size/g)).toHaveLength(1)
     expect(typographyScenario).not.toContain(
       'new Promise<void>((resolve) => setTimeout(resolve, 100))',
     )

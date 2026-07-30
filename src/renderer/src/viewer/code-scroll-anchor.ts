@@ -1,5 +1,8 @@
 import type { EditorView } from '@codemirror/view'
 
+import type { ViewMode } from '../../../shared'
+import type { ViewerDocumentPosition } from './tab-state'
+
 export function captureTopLine(view: EditorView, scrollRoot: HTMLElement): number {
   const rootBounds = scrollRoot.getBoundingClientRect()
   const visibleMarker = [
@@ -24,13 +27,14 @@ export function captureTopLine(view: EditorView, scrollRoot: HTMLElement): numbe
   return view.state.doc.lineAt(position ?? 0).number
 }
 
-export function restoreTopLine(
+export function restoreCodePosition(
   view: EditorView,
   scrollRoot: HTMLElement,
-  lineNumber: number,
+  position: ViewerDocumentPosition,
+  mode: ViewMode,
 ): void {
   const line = view.state.doc.line(
-    Math.min(view.state.doc.lines, Math.max(1, Math.floor(lineNumber))),
+    Math.min(view.state.doc.lines, Math.max(1, Math.floor(position.line))),
   )
   view.requestMeasure({
     read: (measuredView) => ({
@@ -38,20 +42,8 @@ export function restoreTopLine(
       paddingTop: measuredView.documentPadding.top,
     }),
     write: ({ blockTop, paddingTop }) => {
-      scrollRoot.scrollTop = paddingTop + blockTop
-    },
-  })
-}
-
-export function restoreScrollTop(
-  view: EditorView,
-  scrollRoot: HTMLElement,
-  scrollTop: number,
-): void {
-  view.requestMeasure({
-    read: () => Math.max(0, scrollTop),
-    write: (measuredScrollTop) => {
-      scrollRoot.scrollTop = measuredScrollTop
+      scrollRoot.scrollTop =
+        position.mode === mode ? Math.max(0, position.scrollTop) : paddingTop + blockTop
     },
   })
 }

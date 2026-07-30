@@ -6,7 +6,7 @@ import {
   shouldPublishDiffPosition,
   usesUnsavedContent,
 } from '../src/renderer/src/viewer/diff-policy'
-import { restoreScrollTop } from '../src/renderer/src/viewer/code-scroll-anchor'
+import { restoreCodePosition } from '../src/renderer/src/viewer/code-scroll-anchor'
 import { INVOKE_CHANNELS } from '../src/shared'
 
 describe('renderer diff policy', () => {
@@ -29,22 +29,44 @@ describe('renderer diff policy', () => {
 })
 
 describe('CodeMirror scroll restoration', () => {
-  it('applies exact offsets through the editor measurement queue', () => {
-    let apply: (() => void) | undefined
+  it('measures the captured line before applying exact or cross-mode offsets', () => {
+    let request:
+      | {
+          readonly read: (view: {
+            readonly lineBlockAt: () => { readonly top: number }
+            readonly documentPadding: { readonly top: number }
+          }) => unknown
+          readonly write: (value: never) => void
+        }
+      | undefined
     const view = {
-      requestMeasure: (request: {
-        readonly read: () => number
-        readonly write: (value: number) => void
-      }) => {
-        apply = () => request.write(request.read())
-      },
+      state: { doc: { lines: 20, line: () => ({ from: 120 }) } },
+      requestMeasure: (next: typeof request) => (request = next),
     }
     const root = { scrollTop: 0 }
+    const measured = {
+      lineBlockAt: () => ({ top: 700 }),
+      documentPadding: { top: 8 },
+    }
 
-    restoreScrollTop(view as never, root as never, 320)
+    restoreCodePosition(
+      view as never,
+      root as never,
+      { mode: 'source', line: 13, scrollTop: 320 },
+      'source',
+    )
     expect(root.scrollTop).toBe(0)
-    apply?.()
+    request?.write(request.read(measured) as never)
     expect(root.scrollTop).toBe(320)
+
+    restoreCodePosition(
+      view as never,
+      root as never,
+      { mode: 'source', line: 13, scrollTop: 320 },
+      'diff',
+    )
+    request?.write(request.read(measured) as never)
+    expect(root.scrollTop).toBe(708)
   })
 })
 

@@ -45,6 +45,17 @@ function readViewerPositionState(win: BrowserWindow): Promise<unknown> {
       activeMode: document.querySelector('.mode-control button.active')
         ?.textContent?.trim(),
       source: Boolean(document.querySelector('.source-shell .cm-scroller')),
+      sourcePosition: (() => {
+        const root = document.querySelector('.source-shell .cm-scroller');
+        const marker = [...(root?.querySelectorAll('.cm-lineNumbers .cm-gutterElement') || [])]
+          .find((node) => node.getBoundingClientRect().bottom >
+            (root?.getBoundingClientRect().top || 0) + 1);
+        return root ? {
+          line: marker?.textContent?.trim(),
+          scroll: Math.round(root.scrollTop),
+          maxScroll: Math.round(root.scrollHeight - root.clientHeight)
+        } : undefined;
+      })(),
       diff: Boolean(document.querySelector('.cm-mergeView')),
       rendered: Boolean(document.querySelector('.markdown-body')),
       emptyState: document.querySelector('.viewer-empty')?.textContent?.trim().slice(0, 240),
