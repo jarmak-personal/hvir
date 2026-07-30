@@ -6,6 +6,7 @@ import {
   shouldPublishDiffPosition,
   usesUnsavedContent,
 } from '../src/renderer/src/viewer/diff-policy'
+import { restoreCodePosition } from '../src/renderer/src/viewer/code-scroll-anchor'
 import { INVOKE_CHANNELS } from '../src/shared'
 
 describe('renderer diff policy', () => {
@@ -24,6 +25,48 @@ describe('renderer diff policy', () => {
     expect(shouldPublishDiffPosition(true, false)).toBe(false)
     expect(shouldPublishDiffPosition(true, true)).toBe(true)
     expect(shouldPublishDiffPosition(false, true)).toBe(false)
+  })
+})
+
+describe('CodeMirror scroll restoration', () => {
+  it('measures the captured line before applying exact or cross-mode offsets', () => {
+    let request:
+      | {
+          readonly read: (view: {
+            readonly lineBlockAt: () => { readonly top: number }
+            readonly documentPadding: { readonly top: number }
+          }) => unknown
+          readonly write: (value: never) => void
+        }
+      | undefined
+    const view = {
+      state: { doc: { lines: 20, line: () => ({ from: 120 }) } },
+      requestMeasure: (next: typeof request) => (request = next),
+    }
+    const root = { scrollTop: 0 }
+    const measured = {
+      lineBlockAt: () => ({ top: 700 }),
+      documentPadding: { top: 8 },
+    }
+
+    restoreCodePosition(
+      view as never,
+      root as never,
+      { mode: 'source', line: 13, scrollTop: 320 },
+      'source',
+    )
+    expect(root.scrollTop).toBe(0)
+    request?.write(request.read(measured) as never)
+    expect(root.scrollTop).toBe(320)
+
+    restoreCodePosition(
+      view as never,
+      root as never,
+      { mode: 'source', line: 13, scrollTop: 320 },
+      'diff',
+    )
+    request?.write(request.read(measured) as never)
+    expect(root.scrollTop).toBe(708)
   })
 })
 

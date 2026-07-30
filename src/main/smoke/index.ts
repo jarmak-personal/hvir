@@ -1,4 +1,4 @@
-import { webContents, type BrowserWindow } from 'electron'
+import type { BrowserWindow } from 'electron'
 
 import { dispatchWorkerHostCall } from '../git/worker-host-broker'
 import { createFilenameSearchCoordinator } from '../filename-search'
@@ -21,9 +21,10 @@ import { verifyDevelopmentPerformanceMode } from './development-performance'
 import { verifyGitWorkflow } from './git-workflow'
 import { verifyPlatformContracts } from './platform-contracts'
 import {
-  verifyRendererLifecycleCleanup,
+  verifyTerminalRendererDestruction,
   verifyRendererRolloverRecovery,
 } from './renderer-lifecycle'
+import { verifyRendererAuthorityLifecycle } from './renderer-authority'
 import { verifyFocusedViewer } from './viewer-position'
 import { verifyViewerContent } from './viewer-content'
 import { verifyWorkbenchHealthFault } from './workbench-health'
@@ -37,7 +38,9 @@ import {
 } from './terminal-presentation'
 import { ensureExplicitBareShellLaunch } from './terminal-explicit-launch'
 import { verifyTerminalReconnectRemount } from './terminal-renderer-lifecycle'
-import { verifyWorkspaceCloseSmoke, workspaceCloseSmokeCommands } from './workspace-close'
+import { verifyWebPaneWorkflow } from './web-pane'
+import { verifyWorkspaceRemoteWorkflow } from './workspace-remote'
+import { workspaceCloseSmokeCommands } from './workspace-close'
 import {
   capacityRecoverySessions,
   runCapacityLoadSmoke,
@@ -494,24 +497,67 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
       const presentation = await verifyLegacyTerminalPresentation(win)
       console.log(`[smoke] terminal presentation OK (${presentation})`)
     }
-    if (mode === 'workflow') {
-      const workspaceCloseStatus = await verifyWorkspaceCloseSmoke({
+    if (mode === 'workspace-remote') {
+      const result = await verifyWorkspaceRemoteWorkflow({
         win,
         host,
         supervisor,
         resources: rendererResources,
-        routes: webPaneRoutes,
         activeRoot: smokeRoot,
         closeRoot: smokeWebSwitchRoot,
         getState: () => smokeIpcProjectState,
         setState: (state) => (smokeIpcProjectState = state),
         emitState: (state) => emit('project:state', state),
+        baseState: smokeProjectState,
+        remoteState: smokeRemoteProjectState,
+        emitHostKeyPrompt: () =>
+          emit('ssh:prompt', {
+            id: 9001,
+            hostId: 'smoke-host',
+            kind: 'host-key',
+            title: 'Trust smoke-host?',
+            instructions: 'Verify the SHA-256 fingerprint before trusting this host.',
+            fingerprint: `SHA256:${'abcdefghijklmnopqrstuvwxyz'.repeat(4)}`,
+            prompts: [],
+          }),
+        openedFolderSelections,
         recovery: {
           add: smokeTerminalSessionHarness.add,
           has: smokeTerminalSessionHarness.has,
         },
       })
-      console.log(`[smoke] workspace close OK (${workspaceCloseStatus})`)
+      console.log(`[smoke] workspace + remote workflow OK (${result})`)
+      console.log('HVIR_SMOKE_OK')
+      return 0
+    }
+    if (mode === 'web-pane') {
+      const result = await verifyWebPaneWorkflow({
+        win,
+        supervisor,
+        resources: rendererResources,
+        routes: webPaneRoutes,
+        activeRoot: smokeRoot,
+        switchRoot: smokeWebSwitchRoot,
+        baseState: smokeProjectState,
+        setState: (state) => (smokeIpcProjectState = state),
+        emitState: (state) => emit('project:state', state),
+      })
+      console.log(`[smoke] web pane workflow OK (${result})`)
+      console.log('HVIR_SMOKE_OK')
+      return 0
+    }
+    if (mode === 'renderer-authority') {
+      const result = await verifyRendererAuthorityLifecycle({
+        win,
+        resources: rendererResources,
+        routes: webPaneRoutes,
+        htmlPreviews,
+        root: smokeRoot,
+        host,
+      })
+      console.log(`[smoke] renderer authority lifecycle OK (${result})`)
+      console.log('HVIR_SMOKE_OK')
+      return 0
     }
     if (mode === 'viewer-position') {
       const result = await verifyFocusedViewer(win, liveReloadPath, viewerPositionPath)
@@ -579,14 +625,11 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
           smokeTerminalSessionHarness.set(sessions)
         },
       })
-      await verifyRendererLifecycleCleanup({
+      await verifyTerminalRendererDestruction({
         win,
         initialGeneration: initialRendererGeneration,
         resources: rendererResources,
-        routes: webPaneRoutes,
         supervisor,
-        root: smokeRoot,
-        host,
       })
       console.log(
         '[smoke] terminal renderer lifecycle OK (' +
@@ -722,355 +765,6 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
     }
     console.log('[smoke] structured profile catalog + preview OK')
 
-    const containedSessionError = (await win.webContents.executeJavaScript(`
-      window.hvir.invoke('project:browse-host', {
-        hostId: 'local',
-        path: '/tmp/hvir-smoke.missing'
-      }).then((result) => !result.ok && result.error)
-    `)) as string
-    if (!containedSessionError.includes('Folder not found')) {
-      throw new Error(
-        `session error escaped its result envelope: ${containedSessionError}`,
-      )
-    }
-    console.log('[smoke] expected session errors stay contained')
-
-    // Activate an agent-like server through a real rendered terminal link.
-    const { createServer: createHttpServer } = await import('node:http')
-    let dashboardRequests = 0
-    const dashboardServer = createHttpServer((request, response) => {
-      dashboardRequests++
-      if (request.url === '/sw.js') {
-        response.writeHead(200, {
-          'content-type': 'text/javascript',
-          'service-worker-allowed': '/',
-        })
-        response.end(
-          `self.addEventListener('install',()=>self.skipWaiting());self.addEventListener('activate',(event)=>event.waitUntil(self.clients.claim()));self.addEventListener('message',(event)=>event.waitUntil(fetch('/sw-origin').then((response)=>response.text()).then((text)=>event.ports[0].postMessage(text))))`,
-        )
-        return
-      }
-      if (request.url === '/sw-origin') {
-        response.writeHead(200, { 'content-type': 'text/plain' })
-        response.end('service-worker-route-ok')
-        return
-      }
-      response.writeHead(200, {
-        'content-type': 'text/html',
-        'x-frame-options': 'DENY',
-        'content-security-policy': "frame-ancestors 'none'",
-      })
-      response.end(
-        `<!doctype html><title>smoke dashboard</title><input aria-label="dashboard input"><script>onbeforeunload=()=>"stay";navigator.serviceWorker.register('/sw.js').then(()=>navigator.serviceWorker.ready).then((registration)=>{const channel=new MessageChannel();channel.port1.onmessage=(event)=>document.body.dataset.serviceWorker=event.data;registration.active.postMessage('probe',[channel.port2])})</script>smoke-dashboard-ok`,
-      )
-    })
-    await new Promise<void>((resolve, reject) => {
-      dashboardServer.once('error', reject)
-      dashboardServer.listen(0, '127.0.0.1', () => resolve())
-    })
-    const dashboardAddress = dashboardServer.address()
-    if (!dashboardAddress || typeof dashboardAddress === 'string') {
-      throw new Error('smoke dashboard server reported no port')
-    }
-    const dashboardPort = dashboardAddress.port
-    try {
-      const sourceTerminal = supervisor
-        .list()
-        .find((terminal) => terminal.ownerId === win.webContents.id)
-      if (!sourceTerminal) throw new Error('web pane source terminal was missing')
-      const dashboardUrl = `http://localhost:${dashboardPort}/reef?tab=1`
-      supervisor.write(
-        sourceTerminal.id,
-        sourceTerminal.ownerId,
-        `printf '\\033[2J\\033[H%s\\n' '${dashboardUrl}'\r`,
-      )
-      const linkPaneStatus = (await withTimeout(
-        win.webContents.executeJavaScript(`
-          new Promise((resolve, reject) => {
-            const deadline = Date.now() + 8000
-            const poll = () => {
-              const tab = document.querySelector('.web-pane-tab')
-              const guest = document.querySelector('webview.web-pane-frame')
-              const path = document.querySelector('.web-pane-path input')
-              if (tab && guest && path) {
-                if (path.value !== '/reef?tab=1') {
-                  return reject(new Error('web pane lost the link path: ' + path.value))
-                }
-                return resolve('opened')
-              }
-              if (Date.now() > deadline) {
-                return reject(new Error('web pane never opened from the link'))
-              }
-              const canvas = document.querySelector(
-                '.terminal-deck:not([hidden]) .terminal-surface.active canvas'
-              )
-              if (canvas instanceof HTMLCanvasElement) {
-                const rect = canvas.getBoundingClientRect()
-                const clientX = rect.left + 24
-                const clientY = rect.top + 8
-                const mac = navigator.platform.includes('Mac')
-                for (const type of ['mousemove', 'mousedown', 'mouseup', 'click']) {
-                  canvas.dispatchEvent(new MouseEvent(type, {
-                    bubbles: true,
-                    cancelable: true,
-                    clientX,
-                    clientY,
-                    button: 0,
-                    buttons: type === 'mousedown' ? 1 : 0,
-                    ctrlKey: !mac,
-                    metaKey: mac
-                  }))
-                }
-              }
-              setTimeout(poll, 100)
-            }
-            setTimeout(poll, 300)
-          })
-        `),
-        'link-to-pane smoke timed out',
-      )) as string
-      await withTimeout(
-        (async () => {
-          while (dashboardRequests === 0) {
-            await new Promise((resolve) => setTimeout(resolve, 50))
-          }
-        })(),
-        'web pane never reached the dashboard server',
-      )
-      const dashboardGuest = webContents
-        .getAllWebContents()
-        .find((contents) => contents.getType() === 'webview' && !contents.isDestroyed())
-      if (!dashboardGuest) throw new Error('authorized web pane guest was missing')
-      await withTimeout(
-        (async () => {
-          for (;;) {
-            const ready: unknown = await dashboardGuest
-              .executeJavaScript(
-                `document.body?.dataset.serviceWorker === 'service-worker-route-ok' && Boolean(document.querySelector('[aria-label="dashboard input"]'))`,
-              )
-              .catch(() => false)
-            if (ready) return
-            await new Promise<void>((resolve) => setTimeout(resolve, 25))
-          }
-        })(),
-        'web pane guest or service-worker route did not finish loading',
-      )
-      await dashboardGuest.executeJavaScript(`window.__hvirPaneState = 'preserved'`)
-      const requestsBeforeSwitch = dashboardRequests
-      const switchedState = smokeProjectState()
-      smokeIpcProjectState = {
-        ...switchedState,
-        root: smokeWebSwitchRoot,
-        activeWorkspaceId: 'smoke-web-switch',
-        projects: switchedState.projects.map((project) => ({
-          ...project,
-          activeWorkspaceId: 'smoke-web-switch',
-          workspaces: [
-            ...project.workspaces,
-            {
-              id: 'smoke-web-switch',
-              root: smokeWebSwitchRoot,
-              name: 'docs',
-              main: false,
-              closed: false,
-              missing: true,
-              repository: true,
-              changedFiles: 0,
-            },
-          ],
-        })),
-      }
-      emit('project:state', smokeIpcProjectState)
-      await withTimeout(
-        win.webContents.executeJavaScript(`
-          new Promise((resolve, reject) => {
-            const deadline = Date.now() + 5000
-            const poll = () => {
-              const guest = document.querySelector('webview.web-pane-frame')
-              if (guest && !document.querySelector('.web-pane-tab')) return resolve()
-              if (Date.now() > deadline) {
-                return reject(new Error('inactive workspace did not hide its web pane'))
-              }
-              setTimeout(poll, 25)
-            }
-            poll()
-          })
-        `),
-        'web pane workspace-hide smoke timed out',
-      )
-      // Let the unavailable synthetic workspace finish ordinary recovery reads.
-      await new Promise<void>((resolve) => setTimeout(resolve, 100))
-      smokeIpcProjectState = smokeProjectState()
-      emit('project:state', smokeIpcProjectState)
-      await withTimeout(
-        win.webContents.executeJavaScript(`
-          new Promise((resolve, reject) => {
-            const deadline = Date.now() + 5000
-            const poll = () => {
-              if (document.querySelector('.web-pane-tab')) return resolve()
-              if (Date.now() > deadline) {
-                return reject(new Error('web pane did not return with its workspace'))
-              }
-              setTimeout(poll, 25)
-            }
-            poll()
-          })
-        `),
-        'web pane workspace-return smoke timed out',
-      )
-      const preservedPaneState = (await dashboardGuest.executeJavaScript(
-        `window.__hvirPaneState`,
-      )) as string
-      if (
-        preservedPaneState !== 'preserved' ||
-        dashboardRequests !== requestsBeforeSwitch
-      ) {
-        throw new Error('workspace switching reloaded or replaced the web pane guest')
-      }
-      await dashboardGuest.executeJavaScript(
-        `document.querySelector('[aria-label="dashboard input"]').focus()`,
-      )
-      await dashboardGuest.insertText('typed-in-web-pane')
-      const typedValue = (await dashboardGuest.executeJavaScript(
-        `document.querySelector('[aria-label="dashboard input"]').value`,
-      )) as string
-      if (typedValue !== 'typed-in-web-pane') {
-        throw new Error('ordinary web-pane text input was blocked')
-      }
-      await win.webContents.executeJavaScript(`
-        (() => {
-          const focus = [...document.querySelectorAll('.web-pane-toolbar button')]
-            .find((button) => button.title === 'Full page')
-          if (!focus) throw new Error('web pane full-page control was missing')
-          focus.click()
-        })()
-      `)
-      await withTimeout(
-        (async () => {
-          for (;;) {
-            const focused = (await win.webContents.executeJavaScript(
-              `Boolean(document.querySelector('.workbench.web-focused'))`,
-            )) as boolean
-            if (focused) return
-            await new Promise<void>((resolve) => setTimeout(resolve, 25))
-          }
-        })(),
-        'web pane did not enter full-page mode',
-      )
-      await new Promise<void>((resolve) => setTimeout(resolve, 100))
-      dashboardGuest.sendInputEvent({ type: 'keyDown', keyCode: 'Escape' })
-      dashboardGuest.sendInputEvent({ type: 'keyUp', keyCode: 'Escape' })
-      await withTimeout(
-        (async () => {
-          for (;;) {
-            const focused = (await win.webContents.executeJavaScript(
-              `Boolean(document.querySelector('.workbench.web-focused'))`,
-            )) as boolean
-            if (!focused) return
-            await new Promise<void>((resolve) => setTimeout(resolve, 25))
-          }
-        })(),
-        'reserved Escape did not leave web-pane full-page mode',
-      )
-      await dashboardGuest
-        .executeJavaScript(`location.assign('https://example.com/leave-hvir'); true`)
-        .catch(() => undefined)
-      const blockedNavigation = (await withTimeout(
-        win.webContents.executeJavaScript(`
-          new Promise((resolve, reject) => {
-            const deadline = Date.now() + 5000
-            const poll = () => {
-              const action = document.querySelector('.web-pane-navigation-blocked button')
-              if (action?.textContent?.includes('Open in system browser')) {
-                return resolve(action.textContent.trim())
-              }
-              if (Date.now() > deadline) {
-                return reject(new Error('external navigation affordance was missing'))
-              }
-              setTimeout(poll, 50)
-            }
-            poll()
-          })
-        `),
-        'blocked web navigation smoke timed out',
-      )) as string
-      const closeModifier = process.platform === 'darwin' ? 'meta' : 'control'
-      dashboardGuest.sendInputEvent({
-        type: 'keyDown',
-        keyCode: 'W',
-        modifiers: [closeModifier],
-      })
-      dashboardGuest.sendInputEvent({
-        type: 'keyUp',
-        keyCode: 'W',
-        modifiers: [closeModifier],
-      })
-      const linkPaneClosed = (await withTimeout(
-        win.webContents.executeJavaScript(`
-          new Promise((resolve, reject) => {
-            const deadline = Date.now() + 5000
-            const poll = () => {
-              if (!document.querySelector('.web-pane-tab')) return resolve('closed')
-              if (Date.now() > deadline) {
-                return reject(new Error('web pane tab did not close'))
-              }
-              setTimeout(poll, 50)
-            }
-            poll()
-          })
-        `),
-        'web pane close smoke timed out',
-      )) as string
-      if (
-        linkPaneStatus !== 'opened' ||
-        typedValue !== 'typed-in-web-pane' ||
-        blockedNavigation !== 'Open in system browser' ||
-        linkPaneClosed !== 'closed'
-      ) {
-        throw new Error('web pane link flow did not complete')
-      }
-      console.log(
-        '[smoke] terminal link → isolated web pane → workspace preserve → blocked external affordance → reserved close OK',
-      )
-    } finally {
-      await new Promise<void>((resolve) => dashboardServer.close(() => resolve()))
-    }
-
-    emit('ssh:prompt', {
-      id: 9001,
-      hostId: 'smoke-host',
-      kind: 'host-key',
-      title: 'Trust smoke-host?',
-      instructions: 'Verify the SHA-256 fingerprint before trusting this host.',
-      fingerprint: `SHA256:${'abcdefghijklmnopqrstuvwxyz'.repeat(4)}`,
-      prompts: [],
-    })
-    const hostKeyPromptStatus = (await withTimeout(
-      win.webContents.executeJavaScript(`
-        new Promise((resolve, reject) => {
-          const deadline = Date.now() + 5000;
-          const poll = () => {
-            const dialog = document.querySelector('.project-dialog');
-            const fingerprint = document.querySelector('.ssh-host-fingerprint');
-            const trust = [...document.querySelectorAll('.project-dialog button')]
-              .find((node) => node.textContent?.trim() === 'Trust Host');
-            if (dialog && fingerprint && trust) {
-              const fits = dialog.scrollWidth <= dialog.clientWidth;
-              trust.click();
-              return fits
-                ? resolve('wrapped fingerprint · explicit trust')
-                : reject(new Error('host fingerprint overflowed its dialog'));
-            }
-            if (Date.now() > deadline) return reject(new Error('host-key prompt missing'));
-            setTimeout(poll, 25);
-          };
-          poll();
-        })
-      `),
-      'host-key prompt timed out',
-    )) as string
-    console.log(`[smoke] SSH host-key prompt OK (${hostKeyPromptStatus})`)
-
     const terminalMoveStatus = await verifyTerminalMoveSmoke({
       win,
       supervisor,
@@ -1191,238 +885,6 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
       'rail navigation did not preserve section state',
     )) as string
     console.log(`[smoke] rail navigation OK (${railNavigationStatus})`)
-
-    emit('project:state', smokeProjectState(host.connectionState, true))
-    const missingWorkspaceStatus = (await withTimeout(
-      win.webContents.executeJavaScript(`
-        new Promise((resolve, reject) => {
-          const deadline = Date.now() + 5000;
-          const inspect = () => {
-            const notices = [...document.querySelectorAll('.workspace-missing-notice')];
-            const git = [...document.querySelectorAll('.rail-nav button')]
-              .find((button) => button.textContent?.trim().startsWith('Git'));
-            const terminal = document.querySelector('.terminal-surface');
-            const newTerminal = document.querySelector('[aria-label="New terminal"]');
-            const splitTerminal = document.querySelector('[aria-label="Split terminal"]');
-            if (
-              notices.length >= 2 && !git && terminal &&
-              newTerminal?.disabled && splitTerminal?.disabled
-            ) {
-              const rawError = notices.some((notice) => notice.textContent?.includes('ENOENT'));
-              if (rawError) return reject(new Error('missing workspace exposes a raw filesystem error'));
-              return resolve(
-                notices.length + ' notices · Git/new PTYs suppressed · terminal retained'
-              );
-            }
-            if (Date.now() > deadline) {
-              return reject(new Error('missing workspace state did not settle'));
-            }
-            setTimeout(inspect, 25);
-          };
-          inspect();
-        })
-      `),
-      'missing workspace state timed out',
-    )) as string
-    console.log(`[smoke] missing workspace state OK (${missingWorkspaceStatus})`)
-    emit('project:state', smokeProjectState())
-    await withTimeout(
-      win.webContents.executeJavaScript(`
-        new Promise((resolve, reject) => {
-          const deadline = Date.now() + 5000;
-          const inspect = () => {
-            if (!document.querySelector('.workspace-missing-notice')) return resolve(true);
-            if (Date.now() > deadline) return reject(new Error('workspace did not recover'));
-            setTimeout(inspect, 25);
-          };
-          inspect();
-        })
-      `),
-      'workspace recovery timed out',
-    )
-
-    emit('project:state', smokeRemoteProjectState())
-    const remoteConnectionStatus = (await withTimeout(
-      win.webContents.executeJavaScript(`
-        new Promise((resolve, reject) => {
-          const deadline = Date.now() + 5000;
-          const inspect = () => {
-            const trigger = document.querySelector('.project-tab.active .project-connection-trigger');
-            if (!(trigger instanceof HTMLButtonElement)) {
-              if (Date.now() > deadline) return reject(new Error('active SSH connection control missing'));
-              return setTimeout(inspect, 25);
-            }
-            trigger.click();
-            const waitForMenu = () => {
-              const menu = document.querySelector('.project-connection-menu');
-              const text = menu?.textContent || '';
-              if (
-                menu && text.includes('ssh:smoke-remote') && text.includes('Connected') &&
-                text.includes('File watching: polling') && text.includes('Change') &&
-                text.includes('Disconnect')
-              ) {
-                window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
-                const waitForClose = () => {
-                  if (!document.querySelector('.project-connection-menu')) {
-                    return resolve('badge→status + controls→Escape');
-                  }
-                  if (Date.now() > deadline) {
-                    return reject(new Error('SSH connection menu ignored Escape'));
-                  }
-                  setTimeout(waitForClose, 25);
-                };
-                return waitForClose();
-              }
-              if (Date.now() > deadline) {
-                return reject(new Error('SSH connection menu content is incomplete: ' + text));
-              }
-              setTimeout(waitForMenu, 25);
-            };
-            waitForMenu();
-          };
-          inspect();
-        })
-      `),
-      'SSH connection controls timed out',
-    )) as string
-    console.log(`[smoke] SSH connection controls OK (${remoteConnectionStatus})`)
-    emit('project:state', smokeProjectState())
-    await win.webContents.executeJavaScript(`
-      new Promise((resolve, reject) => {
-        const deadline = Date.now() + 5000;
-        const poll = () => {
-          const active = document.querySelector('.project-tab.active');
-          if (active && !active.querySelector('.remote-connection-badge')) return resolve(true);
-          if (Date.now() > deadline) return reject(new Error('local project did not reactivate'));
-          setTimeout(poll, 25);
-        };
-        poll();
-      })
-    `)
-    win.focus()
-    win.webContents.focus()
-    win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Tab' })
-    win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Tab' })
-
-    const sessionFlowStatus = (await withTimeout(
-      win.webContents.executeJavaScript(`
-      new Promise((resolve, reject) => {
-        const deadline = Date.now() + 10000;
-        if (document.querySelector('.session-bar')) {
-          return reject(new Error('legacy host/session strip is still mounted'));
-        }
-        const activeProject = document.querySelector('.project-tab.active');
-        if (activeProject?.querySelector('.remote-connection-badge')) {
-          return reject(new Error('local project shows a remote connection badge'));
-        }
-        const projectMain = activeProject?.querySelector('.project-tab-main');
-        const focusedBefore = document.activeElement;
-        projectMain?.focus({ focusVisible: true });
-        if (!projectMain || getComputedStyle(projectMain).boxShadow === 'none') {
-          return reject(new Error(
-            'project tab focus ring is missing: before=' + focusedBefore?.className +
-            ' active=' + document.activeElement?.className +
-            ' focusVisible=' + projectMain?.matches(':focus-visible')
-          ));
-        }
-        if (document.querySelector('.workspaces-bar')) {
-          return reject(new Error('single-checkout project should hide the workspaces bar'));
-        }
-        const addProject = document.querySelector('.project-add');
-        if (!(addProject instanceof HTMLButtonElement)) {
-          return reject(new Error('project registration control is missing'));
-        }
-        addProject.click();
-        const waitForHost = () => {
-          const local = [...document.querySelectorAll('.session-host-option')]
-            .find((node) => node.textContent?.includes('Local'));
-          const choose = [...document.querySelectorAll('.project-dialog button')]
-            .find((node) => node.textContent?.trim() === 'Choose folder');
-          if (!local || !choose) {
-            if (Date.now() > deadline) return reject(new Error('session host step missing'));
-            return setTimeout(waitForHost, 50);
-          }
-          if (local.querySelector('.remote-connection-badge')) {
-            return reject(new Error('local host option shows a remote connection badge'));
-          }
-          local.click();
-          choose.click();
-          const waitForFolder = () => {
-            const input = document.querySelector('.folder-path-form input');
-            const selected = document.querySelector('.folder-selection code')?.textContent || '';
-            const selectedRow = document.querySelector('.folder-browser .directory-row.selected');
-            const browser = document.querySelector('.folder-browser');
-            const show = [...document.querySelectorAll('.project-dialog button')]
-              .find((node) => node.textContent?.trim() === 'Show in tree');
-            const use = [...document.querySelectorAll('.project-dialog button')]
-              .find((node) => node.textContent?.trim() === 'Use this folder');
-            const initialVisible = browser && selectedRow && (() => {
-              const bounds = browser.getBoundingClientRect();
-              const row = selectedRow.getBoundingClientRect();
-              return row.top >= bounds.top && row.bottom <= bounds.bottom;
-            })();
-            if (input && input.value && selected === input.value && initialVisible && show && use) {
-              if (input.form !== show.closest('form') || input.form !== use.closest('form')) {
-                return reject(new Error('folder actions are not adjacent to the path field'));
-              }
-              const setPath = (value) => {
-                Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, value);
-                input.dispatchEvent(new Event('input', { bubbles: true }));
-              };
-              setPath('/tmp/hvir-smoke.missing');
-              input.form.requestSubmit();
-              const waitForInvalid = () => {
-                const error = document.querySelector('.dialog-error')?.textContent || '';
-                if (error.includes('Folder not found') && use.disabled && document.activeElement === input) {
-                  const target = ${JSON.stringify(`${smokeRoot.path}/docs`)};
-                  setPath(target);
-                  browser.scrollTop = browser.scrollHeight;
-                  show.click();
-                  const waitForReveal = () => {
-                    const row = [...document.querySelectorAll('.folder-browser .directory-row')]
-                      .find((node) => node.getAttribute('title') === target);
-                    const bounds = browser.getBoundingClientRect();
-                    const rect = row?.getBoundingClientRect();
-                    const visible = rect && rect.top >= bounds.top && rect.bottom <= bounds.bottom;
-                    if (row?.classList.contains('selected') && visible && !use.disabled && document.activeElement === input) {
-                      use.click();
-                      const waitForClose = () => {
-                        if (!document.querySelector('.project-dialog')) return resolve('Local→invalid→reveal→use ' + target);
-                        if (Date.now() > deadline) return reject(new Error('folder confirmation did not close'));
-                        setTimeout(waitForClose, 25);
-                      };
-                      return waitForClose();
-                    }
-                    if (Date.now() > deadline) return reject(new Error('typed folder was not revealed'));
-                    setTimeout(waitForReveal, 25);
-                  };
-                  return waitForReveal();
-                }
-                if (Date.now() > deadline) return reject(new Error('invalid folder remained confirmable'));
-                setTimeout(waitForInvalid, 25);
-              };
-              return waitForInvalid();
-            }
-            if (Date.now() > deadline) return reject(new Error('session folder step missing'));
-            setTimeout(waitForFolder, 50);
-          };
-          waitForFolder();
-        };
-        waitForHost();
-      })
-    `),
-      'session flow timed out',
-    )) as string
-    if (
-      openedFolderSelections.length !== 1 ||
-      openedFolderSelections[0]?.hostId !== 'local' ||
-      openedFolderSelections[0]?.path !== `${smokeRoot.path}/docs`
-    ) {
-      throw new Error(
-        `folder selection opened an unexpected target: ${JSON.stringify(openedFolderSelections)}`,
-      )
-    }
-    console.log(`[smoke] staged session flow OK (${sessionFlowStatus})`)
 
     const resizeStatus = (await withTimeout(
       win.webContents.executeJavaScript(`
@@ -1933,74 +1395,6 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
       'harness profile editor smoke timed out',
     )) as string
     console.log(`[smoke] harness profile editor OK (${harnessRenameStatus})`)
-
-    const closeableState = smokeProjectState()
-    smokeIpcProjectState = {
-      ...closeableState,
-      projects: [
-        ...closeableState.projects,
-        {
-          id: 'smoke-closeable-project',
-          registeredRoot: smokeCloseableRoot,
-          displayName: 'Close me',
-          connectionState: host.connectionState,
-          watchTier: host.watchTier,
-          activeWorkspaceId: 'smoke-closeable-workspace',
-          workspaces: [
-            {
-              id: 'smoke-closeable-workspace',
-              root: smokeCloseableRoot,
-              name: 'Close me',
-              main: true,
-              closed: false,
-              missing: true,
-              repository: false,
-              changedFiles: 0,
-            },
-          ],
-        },
-      ],
-    }
-    emit('project:state', smokeIpcProjectState)
-    const projectCloseStatus = (await withTimeout(
-      win.webContents.executeJavaScript(`
-        new Promise((resolve, reject) => {
-          const deadline = Date.now() + 5000;
-          const waitForClose = () => {
-            const close = document.querySelector(
-              '[aria-label="Close project Close me"]'
-            );
-            if (!close) {
-              if (Date.now() > deadline) return reject(new Error('project close control missing'));
-              return setTimeout(waitForClose, 25);
-            }
-            if (close.disabled) return reject(new Error('secondary project close is disabled'));
-            close.click();
-            requestAnimationFrame(() => {
-              const dialog = document.querySelector('.close-project-dialog');
-              if (!dialog || !dialog.textContent?.includes('Files, Git branches, and worktrees are not changed')) {
-                return reject(new Error('project close confirmation incomplete'));
-              }
-              [...dialog.querySelectorAll('button')]
-                .find((button) => button.textContent?.trim() === 'Close project')?.click();
-              const waitForRemoval = () => {
-                const removed = document.querySelector('[aria-label="Close project Close me"]');
-                const remaining = document.querySelector('[aria-label="Close project hvir"]');
-                if (!removed && remaining?.disabled) {
-                  return resolve('confirmed unregister · final project protected');
-                }
-                if (Date.now() > deadline) return reject(new Error('project did not close safely'));
-                setTimeout(waitForRemoval, 25);
-              };
-              waitForRemoval();
-            });
-          };
-          waitForClose();
-        })
-      `),
-      'project close smoke timed out',
-    )) as string
-    console.log(`[smoke] project close OK (${projectCloseStatus})`)
 
     console.log('HVIR_SMOKE_OK')
     return 0
