@@ -283,7 +283,15 @@ async function runCloseDialog(
             }
             return setTimeout(waitForControl, 25);
           }
-          if (close.disabled) return reject(new Error('inactive workspace close is disabled'));
+          if (close.disabled) {
+            if (Date.now() > deadline) {
+              const active = close.closest('.workspace-tab')?.classList.contains('active');
+              return reject(new Error(
+                'inactive workspace close remained disabled: active=' + active
+              ));
+            }
+            return setTimeout(waitForControl, 25);
+          }
           if (document.querySelector('[aria-label="Closeable terminal workspace"]')) {
             return reject(new Error('inactive retained record materialized a workspace view'));
           }

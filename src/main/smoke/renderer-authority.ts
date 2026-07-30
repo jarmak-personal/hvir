@@ -99,7 +99,7 @@ export async function verifyRendererAuthorityLifecycle(options: {
       'webContents destruction retained its web route',
     )
     await waitFor(
-      () => previewStatus(destructionPreview.url).then((status) => status === 404),
+      () => previewRevokedAfterRuntimeSuspend(destructionPreview.url),
       'webContents destruction retained its HTML preview',
     )
 
@@ -145,6 +145,17 @@ async function assertPreviewStatus(
 
 function previewStatus(url: string): Promise<number> {
   return net.fetch(url).then((response) => response.status)
+}
+
+async function previewRevokedAfterRuntimeSuspend(url: string): Promise<boolean> {
+  try {
+    return (await previewStatus(url)) === 404
+  } catch (error) {
+    // Destroying the last window suspends the workbench and unregisters the
+    // entire preview protocol. Electron reports that fail-closed result as an
+    // unknown scheme on some platforms instead of routing one final 404.
+    return error instanceof Error && error.message.includes('ERR_UNKNOWN_URL_SCHEME')
+  }
 }
 
 async function safePreviewStatus(url: string | undefined): Promise<number | string> {

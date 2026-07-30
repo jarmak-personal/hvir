@@ -469,6 +469,7 @@ describe('Electron smoke command contracts', () => {
     expect(webPaneScenario).not.toMatch(/setTimeout\(poll, 100\)/)
     expect(webPaneScenario).not.toMatch(/setTimeout\(poll, 300\)/)
     expect(rendererAuthorityScenario).toContain('state=${JSON.stringify(state)}')
+    expect(rendererAuthorityScenario).toContain('ERR_UNKNOWN_URL_SCHEME')
     expect(rendererAuthorityScenario.indexOf("once('did-finish-load'")).toBeLessThan(
       rendererAuthorityScenario.indexOf('win.webContents.reload()'),
     )
