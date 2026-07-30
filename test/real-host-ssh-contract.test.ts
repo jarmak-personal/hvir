@@ -28,6 +28,7 @@ describe('real-host SSH acceptance contract', () => {
       cwd: new URL('..', import.meta.url),
       env: environment,
       encoding: 'utf8',
+      timeout: 30_000,
     })
 
     expect(result.status).toBe(2)
@@ -83,6 +84,7 @@ describe('real-host SSH acceptance contract', () => {
     onTestFinished(() => rm(directory, { recursive: true, force: true }))
     const evidence = createRealHostSshFailureEvidence({
       phase: 'loopback-stream',
+      reason: 'operation-timeout',
       durationMs: 1234.6,
       connectionState: 'connected',
       watchTier: 'polling',

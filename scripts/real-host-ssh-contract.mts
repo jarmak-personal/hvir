@@ -32,6 +32,20 @@ export const REAL_HOST_SSH_PHASES = [
 
 export type RealHostSshPhase = (typeof REAL_HOST_SSH_PHASES)[number]
 
+export const REAL_HOST_SSH_FAILURE_REASONS = [
+  'configuration-invalid',
+  'interrupted',
+  'operation-timeout',
+  'operation-failed',
+  'cleanup-failed',
+  'dispose-failed',
+  'incomplete',
+  'launcher-failed',
+] as const
+
+export type RealHostSshFailureReason =
+  (typeof REAL_HOST_SSH_FAILURE_REASONS)[number]
+
 export interface RealHostSshConfiguration {
   readonly alias: 'real-host-acceptance'
   readonly hostname: string
@@ -62,6 +76,7 @@ export interface RealHostSshFailureEvidence {
   readonly schema: 1
   readonly status: 'failed'
   readonly phase: RealHostSshPhase
+  readonly reason: RealHostSshFailureReason
   readonly durationMs: number
   readonly connection: {
     readonly state: HostConnectionState
@@ -132,6 +147,7 @@ export function readRealHostSshConfiguration(
 
 export function createRealHostSshFailureEvidence(options: {
   readonly phase: RealHostSshPhase
+  readonly reason: RealHostSshFailureReason
   readonly durationMs: number
   readonly connectionState: HostConnectionState
   readonly watchTier: HostWatchTier
@@ -142,6 +158,7 @@ export function createRealHostSshFailureEvidence(options: {
     schema: 1,
     status: 'failed',
     phase: options.phase,
+    reason: options.reason,
     durationMs: boundedDuration(options.durationMs),
     connection: {
       state: options.connectionState,
