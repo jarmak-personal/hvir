@@ -87,8 +87,8 @@ jobs:
         run: xvfb-run -a npm run smoke:capacity
 
   macos-electron-smoke:
-    # Temporary reduced gate: terminal-presentation and capacity remain available
-    # through local commands while their macOS lifecycle flakes are hardened.
+    # Temporary reduced gate: terminal-presentation, terminal-lifecycle, and capacity
+    # remain available through local commands while their macOS flakes are hardened.
     name: Electron correctness (macOS arm64; temporary reduced gate)
     runs-on: macos-15
     timeout-minutes: 15

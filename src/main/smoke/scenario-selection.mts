@@ -6,6 +6,7 @@ export const ELECTRON_SMOKE_SCENARIOS = [
   'renderer-recovery',
   'development-performance',
   'terminal-presentation',
+  'terminal-lifecycle',
   'legacy-workflow',
   'capacity',
 ] as const
@@ -18,6 +19,7 @@ export type ElectronSmokeMode =
   | 'renderer-recovery'
   | 'development-performance'
   | 'terminal-presentation'
+  | 'terminal-lifecycle'
   | 'capacity'
 
 /** Keep direct `HVIR_SMOKE=1` invocations compatible with the legacy workflow. */

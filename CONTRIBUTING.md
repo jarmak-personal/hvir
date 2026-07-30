@@ -163,21 +163,30 @@ This command is opt-in evidence: it stays outside `npm run verify` and pull-requ
 blocking score threshold, and uses only Node and the locally installed test dependencies. It does
 not launch Electron, require a display, or access the network.
 
-`npm run smoke` runs the focused `pty-native`, `viewer-position`, and `renderer-recovery` groups
-plus the transitional `legacy-workflow` group in separate Electron processes with fresh project
-and user-data roots, then reports a result for every scheduled group. Select one group locally with
-`HVIR_SMOKE_SCENARIO=<name> npm run smoke`; the complete name set is `pty-native`,
-`viewer-position`, `platform-contracts`, `diagnostic-report-restart`,
-`renderer-recovery`, `development-performance`, `terminal-presentation`, `legacy-workflow`, and
-`capacity`. The development-performance group starts a development renderer and is run separately
-with `npm run smoke:development-performance`; the restart scenario is reserved for the packaged
-multi-launch fixture. `npm run smoke:macos` runs the focused
-PTY, viewer, platform-contract, renderer-recovery, and terminal presentation correctness groups.
+`npm run smoke` runs the focused `pty-native`, `viewer-position`, `renderer-recovery`,
+`terminal-presentation`, and `terminal-lifecycle` groups plus the transitional `legacy-workflow`
+group in separate Electron processes with fresh project and user-data roots, then reports a result for
+every scheduled group. Select one group locally with `HVIR_SMOKE_SCENARIO=<name> npm run smoke`;
+the complete name set is `pty-native`, `viewer-position`, `platform-contracts`,
+`diagnostic-report-restart`, `renderer-recovery`, `development-performance`,
+`terminal-presentation`, `terminal-lifecycle`, `legacy-workflow`, and `capacity`. The
+development-performance group starts a development renderer and is run separately with `npm run
+smoke:development-performance`; the restart scenario is reserved for the packaged multi-launch
+fixture. `npm run smoke:macos` runs the focused PTY, viewer, platform-contract,
+renderer-recovery, terminal-presentation, and terminal-lifecycle correctness groups.
+
+Terminal evidence remains split by its real owner. `pty-native` proves production-composed Custom
+profile launch, output, termination event, and cleanup through Electron's node-pty ABI without a
+window. `terminal-presentation` proves Ghostty startup, input, selection, split/focus, attention,
+profile-menu, settings, and canvas behavior. `terminal-lifecycle` proves disconnect/reconnect
+remount, recovery selection with same-process reattachment, renderer generations, and
+webContents-destruction cleanup. Profile policy, recovery planning, split policy, and attention
+policy remain in their direct Vitest suites.
 The pre-push hook uses that full command on macOS. As a temporary containment while the observed
 macOS presentation-readiness and native PTY teardown flakes are hardened, hosted macOS CI runs
-`npm run smoke:macos:ci`, which omits terminal presentation, and does not run capacity. Linux CI
-continues to gate on `npm run smoke:capacity`; both omitted macOS paths remain directly runnable
-locally and are not treated as allowed failures.
+`npm run smoke:macos:ci`, which omits terminal presentation and terminal lifecycle, and does not
+run capacity. Linux CI continues to gate on `npm run smoke:capacity`; both omitted macOS paths
+remain directly runnable locally and are not treated as allowed failures.
 `npm run smoke:capacity`
 selects the capacity group: terminal
 topology, presentation, delivery, exact input, cleanup, and recovery contracts remain blocking,

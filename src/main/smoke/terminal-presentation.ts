@@ -427,7 +427,6 @@ export async function verifyTerminalPresentationLifecycle(
       inputProbe = (inputProbe + data).slice(-4_096)
     },
   })
-  await new Promise<void>((resolve) => setTimeout(resolve, 100))
   await focusTerminalEngine(win, secondTerminal.id)
   const cursorStatus = await verifyActiveCursorCadence(win, secondTerminal.id)
   for (const keyCode of ['H', 'V', 'I', 'R']) {
@@ -504,8 +503,63 @@ async function verifyLiveTerminalTypography(
     .list()
     .find((candidate) => candidate.ownerId === win.webContents.id)
   if (!terminal) throw new Error('live typography check has no retained terminal')
-  const presentation = (await withTimeout(
-    win.webContents.executeJavaScript(`
+  let probe = ''
+  let expectedSize: { readonly cols: number; readonly rows: number } | undefined
+  const observedSizes: Array<{ readonly cols: number; readonly rows: number }> = []
+  let trapReadyObserved = false
+  let resolveTrapReady: () => void = () => undefined
+  const trapReady = new Promise<void>((resolve) => {
+    resolveTrapReady = resolve
+  })
+  let resolveResize: () => void = () => undefined
+  const resizeObserved = new Promise<void>((resolve) => {
+    resolveResize = resolve
+  })
+  const detach = supervisor.attach(terminal.id, terminal.ownerId, {
+    onData: (data) => {
+      probe = (probe + data).slice(-8_192)
+      if (/[\r\n]__HVIR_TYPO_TRAP_READY__[\r\n]/.test(probe)) {
+        trapReadyObserved = true
+        resolveTrapReady()
+      }
+      const matches = [
+        ...probe.matchAll(
+          /[\r\n]__HVIR_TYPO_STTY__:[^\d]*(\d+)\s+(\d+)\s*:__HVIR_TYPO_END__/g,
+        ),
+      ]
+      const latest = matches.at(-1)
+      if (!latest) return
+      const observed = { rows: Number(latest[1]), cols: Number(latest[2]) }
+      if (
+        !observedSizes.some(
+          ({ rows, cols }) => rows === observed.rows && cols === observed.cols,
+        )
+      ) {
+        observedSizes.push(observed)
+      }
+      if (
+        expectedSize &&
+        observed.rows === expectedSize.rows &&
+        observed.cols === expectedSize.cols
+      ) {
+        resolveResize()
+      }
+    },
+  })
+  let presentation:
+    | { readonly cols: number; readonly rows: number; readonly fontSize: number }
+    | undefined
+  let failure: Error | undefined
+  try {
+    supervisor.write(terminal.id, terminal.ownerId, '\u0003\u0015')
+    supervisor.write(
+      terminal.id,
+      terminal.ownerId,
+      "trap \"printf '\\n__HVIR_TYPO_STTY__:'; stty size; printf ':__HVIR_TYPO_END__\\n'\" WINCH; printf '\\n__HVIR_TYPO_TRAP_READY__\\n'\n",
+    )
+    await withTimeout(trapReady, 'terminal typography resize trap was not installed')
+    presentation = (await withTimeout(
+      win.webContents.executeJavaScript(`
       new Promise((resolve, reject) => {
         const deadline = Date.now() + 8000;
         const fail = (message) => reject(new Error(message));
@@ -599,49 +653,41 @@ async function verifyLiveTerminalTypography(
         waitForSettings();
       })
     `),
-    'live terminal typography timed out',
-    10_000,
-  )) as { readonly cols: number; readonly rows: number; readonly fontSize: number }
+      'live terminal typography timed out',
+      10_000,
+    )) as { readonly cols: number; readonly rows: number; readonly fontSize: number }
 
-  let probe = ''
-  const detach = supervisor.attach(terminal.id, terminal.ownerId, {
-    onData: (data) => {
-      probe = (probe + data).slice(-8_192)
-    },
-  })
-  try {
-    await new Promise<void>((resolve) => setTimeout(resolve, 150))
-    supervisor.write(terminal.id, terminal.ownerId, '\u0003\u0015')
-    await new Promise<void>((resolve) => setTimeout(resolve, 100))
-    supervisor.write(
-      terminal.id,
-      terminal.ownerId,
-      "printf '\\n__HVIR_TYPO_STTY__'; stty size; printf '__HVIR_TYPO_END__\\n'\n",
-    )
-    const match = await withTimeout(
-      new Promise<RegExpMatchArray>((resolve) => {
-        const poll = (): void => {
-          const current = probe.match(
-            /__HVIR_TYPO_STTY__[^\d]*(\d+)\s+(\d+)[\s\S]*?__HVIR_TYPO_END__/,
-          )
-          if (current) return resolve(current)
-          setTimeout(poll, 25)
-        }
-        poll()
-      }),
-      `terminal typography PTY size was not reported: ${JSON.stringify(probe)}`,
-      5_000,
-    )
-    const rows = Number(match[1])
-    const cols = Number(match[2])
-    if (rows !== presentation.rows || cols !== presentation.cols) {
-      throw new Error(
-        `terminal typography grid ${presentation.rows}x${presentation.cols} did not reach PTY ${rows}x${cols}`,
+    expectedSize = presentation
+    if (
+      observedSizes.some(
+        ({ rows, cols }) => rows === presentation?.rows && cols === presentation?.cols,
       )
+    ) {
+      resolveResize()
     }
+    await withTimeout(resizeObserved, 'terminal typography PTY resize timed out', 5_000)
+  } catch (error) {
+    failure = new Error(
+      `${error instanceof Error ? error.message : String(error)}: ${JSON.stringify({
+        expectedSize,
+        observedSizes,
+        trapReadyObserved,
+        retainedOutputBytes: Buffer.byteLength(probe, 'utf8'),
+      })}`,
+      { cause: error },
+    )
   } finally {
+    try {
+      if (supervisor.get(terminal.id)) {
+        supervisor.write(terminal.id, terminal.ownerId, 'trap - WINCH\n')
+      }
+    } catch (error) {
+      failure ??= new Error('terminal typography trap cleanup failed', { cause: error })
+    }
     void detach()
   }
+  if (failure) throw failure
+  if (!presentation) throw new Error('terminal typography returned no presentation state')
   const retained = supervisor
     .list()
     .filter((candidate) => candidate.ownerId === win.webContents.id)
