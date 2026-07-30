@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg
+  xmlns="http://www.w3.org/2000/svg"
+  width="1024"
+  height="1024"
+  viewBox="0 0 1024 1024"
+  role="img"
+  aria-labelledby="title description"
+>
+  <title id="title">hvir Linux application icon</title>
+  <desc id="description">
+    The free-standing hvir mark with a dark legibility keyline and transparent framing.
+  </desc>
+
+  <defs>
+    <linearGradient id="mark-blue" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#7795c5" />
+      <stop offset="1" stop-color="#6684b6" />
+    </linearGradient>
+    <linearGradient id="mark-ivory" x1="0" y1="0" x2="0.85" y2="1">
+      <stop offset="0" stop-color="#fbf7f2" />
+      <stop offset="1" stop-color="#f1e9e2" />
+    </linearGradient>
+    <filter id="launcher-keyline" x="-18%" y="-16%" width="136%" height="138%">
+      <feMorphology in="SourceAlpha" operator="dilate" radius="11" result="keyline-mask" />
+      <feFlood flood-color="#080b12" flood-opacity="0.92" result="keyline-color" />
+      <feComposite
+        in="keyline-color"
+        in2="keyline-mask"
+        operator="in"
+        result="keyline"
+      />
+      <feGaussianBlur in="SourceAlpha" stdDeviation="16" result="shadow-mask" />
+      <feOffset in="shadow-mask" dy="10" result="shadow-offset" />
+      <feFlood flood-color="#000000" flood-opacity="0.42" result="shadow-color" />
+      <feComposite
+        in="shadow-color"
+        in2="shadow-offset"
+        operator="in"
+        result="shadow"
+      />
+      <feMerge>
+        <feMergeNode in="shadow" />
+        <feMergeNode in="keyline" />
+        <feMergeNode in="SourceGraphic" />
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- Keep this mark geometry identical to icon-macos.svg; framing is platform-owned. -->
+  <g filter="url(#launcher-keyline)">
+    <svg x="162" y="92" width="700" height="820" viewBox="292 236 668 782">
+      <path
+        fill="url(#mark-blue)"
+        d="M357 272H530Q558 272 558 300V382H482Q465 382 465 399V953Q465 982 436 982H357Q328 982 328 953V301Q328 272 357 272Z"
+      />
+      <path
+        fill="url(#mark-ivory)"
+        d="M620 272H895Q924 272 924 301V712Q924 741 895 741H827Q806 741 801 721C783 655 714 604 642 604C618 604 592 618 592 604V301Q592 272 620 272Z"
+      />
+      <path
+        fill="url(#mark-blue)"
+        d="M563 712C563 672 595 640 635 640C675 640 707 672 707 712V953Q707 982 678 982H592Q563 982 563 953Z"
+      />
+      <rect x="800" y="780" width="124" height="202" rx="28" fill="url(#mark-blue)" />
+    </svg>
+  </g>
+</svg>

@@ -38,6 +38,7 @@ const platformContracts = readFileSync(
 describe('Linux native package contract', () => {
   it('builds only Debian packages for both supported native architectures', () => {
     expect(builder.linux?.target).toEqual(['deb'])
+    expect(builder.linux?.icon).toBe('build/icons-linux')
     expect(packageJson.scripts['pack:linux:x64']).toContain(
       'electron-builder --linux deb --x64',
     )
@@ -106,6 +107,7 @@ describe('Linux native package contract', () => {
     expect(installedSmoke).toContain(
       'require_contains "$desktop_entry" \'Exec=/opt/hvir/hvir %U\'',
     )
+    expect(installedSmoke).toContain('"build/icons-linux/${icon_size}x${icon_size}.png"')
     expect(installedSmoke).toContain('test -d "$project_root/.git"')
     expect(installedSmoke).not.toContain('--no-sandbox')
     expect(preload).toContain('processSandboxed: process.sandboxed')

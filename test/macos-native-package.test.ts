@@ -56,6 +56,7 @@ const signedWorkflow = parse(signedWorkflowSource) as {
 describe('macOS native package contract', () => {
   it('builds one non-relocatable Apple-silicon package with atomic bundle upgrades', () => {
     expect(builder.mac?.target).toEqual(['pkg'])
+    expect(builder.mac?.icon).toBe('build/icon-macos.icns')
     expect(builder.mac).not.toHaveProperty('identity')
     expect(builder.mac?.hardenedRuntime).toBe(true)
     expect(builder.mac?.entitlements).toBe('build/entitlements.mac.plist')
@@ -121,7 +122,10 @@ describe('macOS native package contract', () => {
       'sudo /usr/bin/install -o root -g wheel -m 0755 "$unowned_command" "$command"',
     )
     expect(installedSmoke).toContain('"$current_installer" | tee "$install_log"')
-    expect(installedSmoke).toContain("grep -Fq 'installer: The upgrade was successful.'")
+    expect(installedSmoke).toContain('assert_installer_output "$install_log"')
+    expect(installedSmoke).toContain(
+      'Successful installer output exposed implementation diagnostics.',
+    )
     expect(installedSmoke).toContain(
       'run_installed_smoke retained-after-failed-update pty-native',
     )
@@ -143,6 +147,7 @@ describe('macOS native package contract', () => {
     expect(installedSmoke).toContain("-path '*/prebuilds/darwin-arm64/*'")
     expect(installedSmoke).toContain('Installed native module is not an arm64 Mach-O:')
     expect(installedSmoke).toContain('pkgutil --files "$receipt" |')
+    expect(installedSmoke).toContain('cmp build/icon-macos.icns "$installed_icon"')
     expect(installedSmoke).toContain("grep -Fx 'hvir.app/Contents/MacOS/hvir' >/dev/null")
     expect(installedSmoke).not.toContain('pkgutil --files "$receipt" | grep -Fq')
     expect(installedSmoke).toContain('test -d "$project_root/.git"')

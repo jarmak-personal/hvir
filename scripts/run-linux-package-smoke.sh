@@ -234,6 +234,18 @@ assert_package_contract() {
   desktop_entry=/usr/share/applications/hvir.desktop
   require_file "$desktop_entry" 'desktop entry'
   require_contains "$desktop_entry" 'Exec=/opt/hvir/hvir %U' 'desktop command'
+  for icon_size in 16 32 64 128 256 512 1024; do
+    installed_icon="/usr/share/icons/hicolor/${icon_size}x${icon_size}/apps/hvir.png"
+    require_file "$installed_icon" "${icon_size}px application icon"
+    if ! cmp \
+      "build/icons-linux/${icon_size}x${icon_size}.png" \
+      "$installed_icon"; then
+      echo \
+        "Installed ${icon_size}px icon differs from the platform-owned Linux asset." \
+        >&2
+      exit 1
+    fi
+  done
   notices=/opt/hvir/resources/THIRD_PARTY_NOTICES.md
   require_file "$notices" 'third-party notices'
   require_contains "$notices" 'Copyright (c) 2025 Coder' 'Coder notice'

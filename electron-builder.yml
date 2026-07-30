@@ -19,7 +19,7 @@ asarUnpack:
 # ssh2 has a supported JavaScript fallback when that optional module is absent.
 npmRebuild: false
 mac:
-  icon: build/icon.icns
+  icon: build/icon-macos.icns
   category: public.app-category.developer-tools
   target:
     - pkg
@@ -38,7 +38,7 @@ pkg:
   hasStrictIdentifier: true
   overwriteAction: upgrade
 linux:
-  icon: build/icons
+  icon: build/icons-linux
   executableName: hvir
   syncDesktopName: true
   category: Development
