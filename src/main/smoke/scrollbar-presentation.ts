@@ -19,8 +19,17 @@ interface ScrollbarFixtureSnapshot {
   readonly scrollbarWidth: string
 }
 
+interface ScrollbarVisibilitySnapshot {
+  readonly clientWidth: number
+  readonly clientHeight: number
+  readonly verticalVisible: boolean
+  readonly horizontalVisible: boolean
+}
+
 const FIXTURE_ID = 'hvir-scrollbar-smoke-fixture'
 const SURFACE_ID = 'hvir-scrollbar-smoke-surface'
+const VISIBILITY_TIMEOUT_MS = 3_000
+const VISIBILITY_POLL_MS = 25
 
 /** Exercise the real overlay geometry and native scroll input path in Electron. */
 export async function verifyScrollbarPresentation(win: BrowserWindow): Promise<string> {
@@ -81,11 +90,9 @@ export async function verifyScrollbarPresentation(win: BrowserWindow): Promise<s
       'keyboard input',
     )
 
-    const active = await fixtureDimensions(win)
-    await new Promise((resolve) => setTimeout(resolve, 600))
+    const active = await waitForFixtureVisibility(win, true, true, 'scrollbar activity')
     moveMouse(win, snapshot.emptyPoint)
-    await new Promise((resolve) => setTimeout(resolve, 400))
-    const idle = await fixtureDimensions(win)
+    const idle = await waitForFixtureVisibility(win, false, false, 'scrollbar idle')
     if (
       active.clientWidth !== snapshot.clientWidth ||
       active.clientHeight !== snapshot.clientHeight ||
@@ -354,12 +361,9 @@ async function waitForScrollTop(
   }
 }
 
-async function fixtureDimensions(win: BrowserWindow): Promise<{
-  readonly clientWidth: number
-  readonly clientHeight: number
-  readonly verticalVisible: boolean
-  readonly horizontalVisible: boolean
-}> {
+async function fixtureDimensions(
+  win: BrowserWindow,
+): Promise<ScrollbarVisibilitySnapshot> {
   return (await win.webContents.executeJavaScript(`
     (() => {
       const surface = document.getElementById(${JSON.stringify(SURFACE_ID)});
@@ -373,11 +377,32 @@ async function fixtureDimensions(win: BrowserWindow): Promise<{
           document.querySelector('.hvir-scrollbar[data-axis="horizontal"]')?.dataset.visible === 'true'
       };
     })()
-  `)) as {
-    readonly clientWidth: number
-    readonly clientHeight: number
-    readonly verticalVisible: boolean
-    readonly horizontalVisible: boolean
+  `)) as ScrollbarVisibilitySnapshot
+}
+
+async function waitForFixtureVisibility(
+  win: BrowserWindow,
+  verticalVisible: boolean,
+  horizontalVisible: boolean,
+  state: string,
+): Promise<ScrollbarVisibilitySnapshot> {
+  const deadline = Date.now() + VISIBILITY_TIMEOUT_MS
+  for (;;) {
+    const snapshot = await fixtureDimensions(win)
+    if (
+      snapshot.verticalVisible === verticalVisible &&
+      snapshot.horizontalVisible === horizontalVisible
+    ) {
+      return snapshot
+    }
+    if (Date.now() >= deadline) {
+      throw new Error(
+        `${state} did not reach expected overlay visibility ` +
+          `(vertical=${verticalVisible}, horizontal=${horizontalVisible}, ` +
+          `last=${JSON.stringify(snapshot)})`,
+      )
+    }
+    await new Promise((resolve) => setTimeout(resolve, VISIBILITY_POLL_MS))
   }
 }
 
