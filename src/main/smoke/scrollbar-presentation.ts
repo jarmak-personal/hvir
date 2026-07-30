@@ -308,22 +308,24 @@ function dragMouse(
 
 async function resetFixture(win: BrowserWindow): Promise<void> {
   await win.webContents.executeJavaScript(`
-    (() => {
+    new Promise((resolve) => {
       const surface = document.getElementById(${JSON.stringify(SURFACE_ID)});
       if (!(surface instanceof HTMLElement)) throw new Error('scrollbar fixture missing');
       surface.scrollTop = 0;
-    })()
+      requestAnimationFrame(() => requestAnimationFrame(resolve));
+    })
   `)
 }
 
 async function resetAndFocusFixture(win: BrowserWindow): Promise<void> {
   await win.webContents.executeJavaScript(`
-    (() => {
+    new Promise((resolve) => {
       const surface = document.getElementById(${JSON.stringify(SURFACE_ID)});
       if (!(surface instanceof HTMLElement)) throw new Error('scrollbar fixture missing');
       surface.scrollTop = 0;
       surface.focus();
-    })()
+      requestAnimationFrame(() => requestAnimationFrame(resolve));
+    })
   `)
 }
 
