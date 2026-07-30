@@ -1,13 +1,19 @@
-import { mkdir, mkdtemp, rm, symlink } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
+import { mkdir, rm, symlink } from 'node:fs/promises'
 import { join } from 'node:path'
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
-import { commandPreview, resolveHarnessLaunch } from '../src/main/harness/harness-launch'
+import {
+  commandPreview,
+  type ResolvedHarnessLaunch,
+} from '../src/main/harness/harness-launch'
 import { HarnessProfileStore } from '../src/main/harness/harness-profile-store'
 import { LocalHost } from '../src/main/project-host/local-host'
-import { asHarnessProviderId, localPath, type HarnessProfileInput } from '../src/shared'
+import { asHarnessProviderId, localPath, type HarnessProfile } from '../src/shared'
+import {
+  createHarnessProfileFixture,
+  type HarnessProfileFixture,
+} from './fixtures/harness-profile-fixture'
 
 describe('harness launch composition', () => {
   let directory: string
@@ -16,27 +22,30 @@ describe('harness launch composition', () => {
   let outside: string
   let host: LocalHost
   let store: HarnessProfileStore
+  let input: HarnessProfileFixture['input']
+  let literal: HarnessProfileFixture['literal']
+  let resolve: (
+    profile: HarnessProfile,
+    mode: 'fresh' | 'resume',
+    workspaceRoot?: ReturnType<typeof localPath>,
+    composerSubmitMode?: 'enter' | 'ctrl-enter',
+  ) => Promise<ResolvedHarnessLaunch>
 
   beforeEach(async () => {
-    directory = await mkdtemp(join(tmpdir(), 'hvir-launch-'))
-    project = join(directory, 'project')
-    workspace = join(directory, 'project-worktree')
-    outside = join(directory, 'outside path')
-    await mkdir(project)
-    await mkdir(workspace)
-    await mkdir(outside)
-    host = new LocalHost()
-    await host.connect()
-    store = await HarnessProfileStore.load(
-      host,
-      localPath(join(directory, 'profiles.json')),
-    )
+    const fixture = await createHarnessProfileFixture()
+    directory = fixture.directory
+    project = fixture.projectDirectory
+    workspace = fixture.workspaceDirectory
+    outside = fixture.outsideDirectory
+    host = fixture.host
+    store = fixture.store
+    input = fixture.input
+    literal = fixture.literal
+    resolve = fixture.resolve
   })
 
-  afterEach(async () => {
+  afterEach(() => {
     delete process.env['HVIR_PROFILE_TEST_SECRET']
-    await host.dispose()
-    await rm(directory, { recursive: true, force: true })
   })
 
   it('composes Claude bypass flags after provider-owned exact session identity', async () => {
@@ -240,45 +249,4 @@ describe('harness launch composition', () => {
     await symlink(secondTarget, link)
     await expect(resolve(profile, 'fresh')).rejects.toThrow(/launch grant/)
   })
-
-  async function resolve(
-    profile: Awaited<ReturnType<HarnessProfileStore['save']>>,
-    mode: 'fresh' | 'resume',
-    launchWorkspace = localPath(project),
-    composerSubmitMode?: 'enter' | 'ctrl-enter',
-  ) {
-    return resolveHarnessLaunch({
-      profile,
-      expectedLaunchRevision: profile.launchRevision,
-      projectRoot: localPath(project),
-      workspaceRoot: launchWorkspace,
-      host,
-      store,
-      mode,
-      context: {
-        sessionId: 'test-session-id',
-        cwd: launchWorkspace,
-        defaultShell: '/bin/zsh',
-        composerSubmitMode,
-      },
-    })
-  }
 })
-
-function literal(value: string) {
-  return { parts: [{ kind: 'literal' as const, value }] }
-}
-
-function input(overrides: Partial<HarnessProfileInput> = {}): HarnessProfileInput {
-  return {
-    displayName: 'Harness test',
-    providerId: asHarnessProviderId('codex'),
-    scope: { kind: 'global' },
-    executable: { kind: 'provider-default' },
-    args: [],
-    environment: [],
-    pathBindings: [],
-    order: 4,
-    ...overrides,
-  }
-}

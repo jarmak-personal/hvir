@@ -1,52 +1,22 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import { plainShellProvider } from '../src/main/harness/harness-provider'
-import type { ProjectHost, PtyExit, PtyProcess } from '../src/main/project-host'
-import { PtySupervisor } from '../src/main/pty/pty-supervisor'
-import { LOCAL_HOST_ID, localPath } from '../src/shared'
+import {
+  createPtySupervisorFixture,
+  plainShellProvider,
+  PTY_FIXTURE_OWNER_ID,
+} from './fixtures/pty-supervisor-fixture'
 
-const OWNER_ID = 17
-
-class FakePty implements PtyProcess {
-  readonly pid = 4242
-  readonly dataListeners = new Set<(data: string) => void>()
-  readonly exitListeners = new Set<(exit: PtyExit) => void>()
-  readonly write = vi.fn<(data: string) => void>()
-  readonly resize = vi.fn<(cols: number, rows: number) => void>()
-  readonly kill = vi.fn<(signal?: string) => void>()
-
-  onData(cb: (data: string) => void): () => void {
-    this.dataListeners.add(cb)
-    return () => this.dataListeners.delete(cb)
-  }
-
-  onExit(cb: (exit: PtyExit) => void): () => void {
-    this.exitListeners.add(cb)
-    return () => this.exitListeners.delete(cb)
-  }
-
-  emitData(data: string): void {
-    for (const cb of this.dataListeners) cb(data)
-  }
-}
+const OWNER_ID = PTY_FIXTURE_OWNER_ID
 
 async function fixture() {
-  const pty = new FakePty()
-  const host = {
-    hostId: LOCAL_HOST_ID,
-    defaultShell: () => Promise.resolve('/bin/sh'),
-    spawnPty: () => Promise.resolve(pty),
-  } as unknown as ProjectHost
-  const supervisor = new PtySupervisor()
-  const info = await supervisor.spawn({
-    host,
+  const ptyFixture = createPtySupervisorFixture({ provider: plainShellProvider })
+  const info = await ptyFixture.spawn({
     provider: plainShellProvider,
-    cwd: localPath('/tmp/project'),
     ownerId: OWNER_ID,
     ownerGeneration: 4,
     sessionId: 'renderer-rollover',
   })
-  return { info, pty, supervisor }
+  return { info, pty: ptyFixture.pty, supervisor: ptyFixture.supervisor }
 }
 
 describe('PtySupervisor renderer rollover', () => {
