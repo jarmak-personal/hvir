@@ -283,7 +283,7 @@ export async function verifyTerminalPresentationLifecycle(
                 if (
                   listStyle.overflowY !== 'auto' ||
                   markerList.scrollHeight <= markerList.clientHeight ||
-                  listStyle.scrollbarWidth !== 'thin' ||
+                  listStyle.scrollbarWidth !== 'none' ||
                   markerList.offsetWidth !== markerList.clientWidth ||
                   listBounds.left < railBounds.left - 1 ||
                   listBounds.right > railBounds.right + 1 ||
@@ -913,7 +913,7 @@ async function verifyTerminalLaunchMenuOverflow(
           menu.clientWidth -
           parseFloat(menuStyle.borderLeftWidth) -
           parseFloat(menuStyle.borderRightWidth);
-        if (menuStyle.scrollbarWidth !== 'thin' || Math.abs(scrollbarGutter) > 0.01) {
+        if (menuStyle.scrollbarWidth !== 'none' || Math.abs(scrollbarGutter) > 0.01) {
           throw new Error(
             'overflowing launch menu did not retain overlay scrolling: width=' +
             menuStyle.scrollbarWidth + ' gutter=' + scrollbarGutter

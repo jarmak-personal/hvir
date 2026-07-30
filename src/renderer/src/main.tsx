@@ -5,11 +5,14 @@ import { ErrorBoundary } from './ErrorBoundary'
 import './styles.css'
 import './themes.css'
 import { initializeAppTheme } from './theme'
+import { installScrollbarPresentation } from './scrollbars/scrollbar-presentation'
 
 initializeAppTheme()
 
 const container = document.getElementById('root')
 if (!container) throw new Error('hvir: #root element not found')
+const disposeScrollbarPresentation = installScrollbarPresentation(container)
+window.addEventListener('beforeunload', disposeScrollbarPresentation, { once: true })
 
 const root = createRoot(container)
 root.render(

@@ -20,7 +20,7 @@ interface ScrollbarFixtureSnapshot {
 const FIXTURE_ID = 'hvir-scrollbar-smoke-fixture'
 const SURFACE_ID = 'hvir-scrollbar-smoke-surface'
 
-/** Exercise Chromium's real scrollbar geometry and input path in the workbench renderer. */
+/** Exercise the real overlay geometry and native scroll input path in Electron. */
 export async function verifyScrollbarPresentation(win: BrowserWindow): Promise<string> {
   const snapshot = await installFixture(win)
   try {
@@ -40,12 +40,14 @@ export async function verifyScrollbarPresentation(win: BrowserWindow): Promise<s
     await resetFixture(win)
     moveMouse(win, snapshot.trackPoint)
     await new Promise((resolve) => setTimeout(resolve, 100))
+    await assertOverlayTarget(win, snapshot.trackPoint, 'track')
     clickMouse(win, snapshot.trackPoint)
     await waitForScrollTop(win, (position) => position > 0, 'scrollbar track input')
 
     await resetFixture(win)
     moveMouse(win, snapshot.thumbPoint)
     await new Promise((resolve) => setTimeout(resolve, 100))
+    await assertOverlayTarget(win, snapshot.thumbPoint, 'thumb')
     dragMouse(win, snapshot.thumbPoint, snapshot.thumbDragPoint)
     await waitForScrollTop(win, (position) => position > 0, 'scrollbar thumb drag')
 
@@ -65,13 +67,16 @@ export async function verifyScrollbarPresentation(win: BrowserWindow): Promise<s
       active.clientWidth !== snapshot.clientWidth ||
       active.clientHeight !== snapshot.clientHeight ||
       idle.clientWidth !== snapshot.clientWidth ||
-      idle.clientHeight !== snapshot.clientHeight
+      idle.clientHeight !== snapshot.clientHeight ||
+      !active.verticalVisible ||
+      !active.horizontalVisible ||
+      idle.verticalVisible ||
+      idle.horizontalVisible
     ) {
       throw new Error(
-        `scrollbar activity changed content geometry ` +
+        `scrollbar active/idle presentation contract failed ` +
           `(initial=${snapshot.clientWidth}x${snapshot.clientHeight}, ` +
-          `active=${active.clientWidth}x${active.clientHeight}, ` +
-          `idle=${idle.clientWidth}x${idle.clientHeight})`,
+          `active=${JSON.stringify(active)}, idle=${JSON.stringify(idle)})`,
       )
     }
 
@@ -100,7 +105,7 @@ async function installFixture(win: BrowserWindow): Promise<ScrollbarFixtureSnaps
       fixture.id = ${JSON.stringify(FIXTURE_ID)};
       Object.assign(fixture.style, {
         position: 'fixed',
-        zIndex: '2147483647',
+        zIndex: '1050',
         top: '12px',
         left: '12px',
         display: 'flex',
@@ -141,9 +146,9 @@ async function installFixture(win: BrowserWindow): Promise<ScrollbarFixtureSnaps
         const style = getComputedStyle(surface);
         resolve({
           point: [rect.left + rect.width / 2, rect.top + rect.height / 2],
-          trackPoint: [rect.right - 2, rect.bottom - 5],
-          thumbPoint: [rect.right - 2, rect.top + 7],
-          thumbDragPoint: [rect.right - 2, rect.top + 58],
+          trackPoint: [rect.right - 7, rect.top + 72],
+          thumbPoint: [rect.right - 7, rect.top + 7],
+          thumbDragPoint: [rect.right - 7, rect.top + 58],
           clientWidth: surface.clientWidth,
           clientHeight: surface.clientHeight,
           scrollWidth: surface.scrollWidth,
@@ -158,6 +163,23 @@ async function installFixture(win: BrowserWindow): Promise<ScrollbarFixtureSnaps
       }));
     })
   `)) as ScrollbarFixtureSnapshot
+}
+
+async function assertOverlayTarget(
+  win: BrowserWindow,
+  point: readonly [number, number],
+  expected: 'track' | 'thumb',
+): Promise<void> {
+  const className = (await win.webContents.executeJavaScript(`
+    document.elementFromPoint(${Math.round(point[0])}, ${Math.round(point[1])})?.className
+  `)) as unknown
+  const expectedClass = expected === 'track' ? 'hvir-scrollbar' : 'hvir-scrollbar-thumb'
+  if (typeof className !== 'string' || !className.split(/\s+/).includes(expectedClass)) {
+    throw new Error(
+      `overlay ${expected} was not pointer reachable at ${point.join(',')} ` +
+        `(target=${String(className)})`,
+    )
+  }
 }
 
 function assertOverlayGeometry(snapshot: ScrollbarFixtureSnapshot): void {
@@ -175,9 +197,9 @@ function assertOverlayGeometry(snapshot: ScrollbarFixtureSnapshot): void {
   ) {
     throw new Error(`scrollbar reserved layout space (${JSON.stringify(snapshot)})`)
   }
-  if (snapshot.scrollbarWidth !== 'thin' || snapshot.scrollbarColor === 'auto') {
+  if (snapshot.scrollbarWidth !== 'none') {
     throw new Error(
-      `shared scrollbar theme was not applied (${JSON.stringify(snapshot)})`,
+      `shared scrollbar gutter suppression was not applied (${JSON.stringify(snapshot)})`,
     )
   }
 }
@@ -279,16 +301,31 @@ async function waitForScrollTop(
   }
 }
 
-async function fixtureDimensions(
-  win: BrowserWindow,
-): Promise<{ readonly clientWidth: number; readonly clientHeight: number }> {
+async function fixtureDimensions(win: BrowserWindow): Promise<{
+  readonly clientWidth: number
+  readonly clientHeight: number
+  readonly verticalVisible: boolean
+  readonly horizontalVisible: boolean
+}> {
   return (await win.webContents.executeJavaScript(`
     (() => {
       const surface = document.getElementById(${JSON.stringify(SURFACE_ID)});
       if (!(surface instanceof HTMLElement)) throw new Error('scrollbar fixture missing');
-      return { clientWidth: surface.clientWidth, clientHeight: surface.clientHeight };
+      return {
+        clientWidth: surface.clientWidth,
+        clientHeight: surface.clientHeight,
+        verticalVisible:
+          document.querySelector('.hvir-scrollbar[data-axis="vertical"]')?.dataset.visible === 'true',
+        horizontalVisible:
+          document.querySelector('.hvir-scrollbar[data-axis="horizontal"]')?.dataset.visible === 'true'
+      };
     })()
-  `)) as { readonly clientWidth: number; readonly clientHeight: number }
+  `)) as {
+    readonly clientWidth: number
+    readonly clientHeight: number
+    readonly verticalVisible: boolean
+    readonly horizontalVisible: boolean
+  }
 }
 
 async function reachHorizontalEnd(

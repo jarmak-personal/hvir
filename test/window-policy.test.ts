@@ -22,9 +22,6 @@ describe('workbench window policy', () => {
       contextIsolation: true,
       nodeIntegration: false,
       webviewTag: true,
-      additionalArguments: [
-        '--enable-features=OverlayScrollbar,OverlayScrollbarFlashAfterAnyScrollUpdate,OverlayScrollbarFlashWhenMouseEnter',
-      ],
     })
   })
 

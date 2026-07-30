@@ -1,15 +1,72 @@
 /* Cross-feature scrollbar presentation for hvir-owned DOM beneath #root.
- * Chromium owns the overlay, flash, fade, and pointer-drag lifecycle through
- * the workbench renderer policy. TerminalPane and isolated web panes retain
+ * The renderer-owned overlay leaves scrolling and focus on each native surface
+ * while removing the platform gutter. TerminalPane and isolated web panes keep
  * their own rendering boundaries. */
-:where(#root, #root *) {
-  scrollbar-color: var(--text-muted) transparent;
-  scrollbar-width: thin;
+@media (forced-colors: none) {
+  :where(#root, #root *) {
+    scrollbar-width: none;
+  }
+
+  :where(#root, #root *)::-webkit-scrollbar {
+    display: none;
+  }
 }
 
-/* Keep native high-contrast colors instead of applying hvir's theme palette. */
+.hvir-scrollbar {
+  position: fixed;
+  z-index: 1100;
+  border-radius: 999px;
+  opacity: 0;
+  pointer-events: none;
+  touch-action: none;
+  transition: opacity 140ms ease;
+}
+
+.hvir-scrollbar[data-visible='true'] {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.hvir-scrollbar[data-axis='vertical'] {
+  width: 10px;
+}
+
+.hvir-scrollbar[data-axis='horizontal'] {
+  height: 10px;
+}
+
+.hvir-scrollbar-thumb {
+  position: absolute;
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--text-muted) 82%, transparent);
+  background-clip: padding-box;
+}
+
+.hvir-scrollbar:hover .hvir-scrollbar-thumb,
+.hvir-scrollbar[data-dragging='true'] .hvir-scrollbar-thumb {
+  background-color: var(--text-muted);
+}
+
+.hvir-scrollbar[data-axis='vertical'] .hvir-scrollbar-thumb {
+  width: 100%;
+}
+
+.hvir-scrollbar[data-axis='horizontal'] .hvir-scrollbar-thumb {
+  height: 100%;
+}
+
+body.hvir-scrollbar-dragging {
+  user-select: none;
+}
+
 @media (forced-colors: active) {
   :where(#root, #root *) {
     scrollbar-color: auto;
+    scrollbar-width: auto;
+  }
+
+  .hvir-scrollbar {
+    display: none;
   }
 }
