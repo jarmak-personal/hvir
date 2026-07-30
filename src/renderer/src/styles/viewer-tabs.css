@@ -72,7 +72,7 @@
   padding: 0 12px;
   border-bottom: 1px solid var(--border-strong);
   color: #687180;
-  font-size: 12px;
+  font-size: calc(12px * var(--hvir-interface-scale));
 }
 
 .tab-strip-spacer {
@@ -89,7 +89,7 @@
   border-left: 1px solid #282d36;
   background: #111419;
   color: #8993a1;
-  font-size: 15px;
+  font-size: calc(15px * var(--hvir-interface-scale));
 }
 
 .viewer-pane-action:hover,
@@ -156,7 +156,7 @@
 .tab-name {
   min-width: 0;
   overflow: hidden;
-  font-size: 12px;
+  font-size: calc(12px * var(--hvir-interface-scale));
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -165,13 +165,13 @@
   width: 9px;
   flex: 0 0 9px;
   color: #d8a85f;
-  font-size: 9px;
+  font-size: calc(9px * var(--hvir-interface-scale));
   text-align: center;
 }
 
 .tab-status.conflict {
   color: #e06c75;
-  font-size: 12px;
+  font-size: calc(12px * var(--hvir-interface-scale));
   font-weight: 700;
 }
 
@@ -179,7 +179,7 @@
   width: 25px;
   padding: 0;
   border-radius: 3px;
-  font-size: 16px;
+  font-size: calc(16px * var(--hvir-interface-scale));
   opacity: 0;
 }
 
@@ -214,7 +214,7 @@
   align-items: center;
   justify-content: flex-end;
   gap: 6px;
-  font-size: 11px;
+  font-size: calc(11px * var(--hvir-interface-scale));
   /* Recede while reading; conflict/save badges beside this group stay at
    * full strength because they demand attention. */
   opacity: 0.5;
@@ -237,7 +237,7 @@
   border-radius: 4px;
   background: #1c171b;
   color: #e18a90;
-  font-size: 10px;
+  font-size: calc(10px * var(--hvir-interface-scale));
   white-space: nowrap;
   cursor: pointer;
 }
@@ -251,7 +251,7 @@
   border-radius: 4px;
   background: #1c171b;
   color: #dc7b82;
-  font-size: 10px;
+  font-size: calc(10px * var(--hvir-interface-scale));
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -273,7 +273,7 @@
   background: #15181e;
   color: #8e97a5;
   cursor: pointer;
-  font-size: 10px;
+  font-size: calc(10px * var(--hvir-interface-scale));
   text-transform: capitalize;
 }
 
@@ -299,7 +299,7 @@
   background: #15181e;
   color: #8e97a5;
   cursor: pointer;
-  font-size: 10px;
+  font-size: calc(10px * var(--hvir-interface-scale));
 }
 
 .go-to-line {
@@ -314,7 +314,7 @@
   background: #15181e;
   color: #8e97a5;
   cursor: pointer;
-  font-size: 10px;
+  font-size: calc(10px * var(--hvir-interface-scale));
 }
 
 .go-to-line-popover {
@@ -331,7 +331,7 @@
   background: #11151b;
   color: #aeb6c2;
   box-shadow: 0 8px 24px rgb(0 0 0 / 45%);
-  font-size: 10px;
+  font-size: calc(10px * var(--hvir-interface-scale));
 }
 
 .go-to-line-popover input {
@@ -342,11 +342,7 @@
   outline: none;
   background: #171c23;
   color: #edf0f5;
-  font:
-    12px/1.35 'JetBrains Mono',
-    'SFMono-Regular',
-    Consolas,
-    monospace;
+  font: calc(12px * var(--hvir-interface-scale)) / 1.35 var(--hvir-monospace-font);
 }
 
 .go-to-line-popover input:focus {
@@ -377,7 +373,7 @@
   overflow: hidden;
   padding: 0 8px;
   color: #697383;
-  font-size: 10px;
+  font-size: calc(10px * var(--hvir-interface-scale));
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -421,7 +417,7 @@
   outline: none;
   background: #15181e;
   color: #b8bec8;
-  font-size: 10px;
+  font-size: calc(10px * var(--hvir-interface-scale));
 }
 
 .mode-select {
@@ -434,7 +430,7 @@
   outline: none;
   background: #15181e;
   color: #b8bec8;
-  font-size: 10px;
+  font-size: calc(10px * var(--hvir-interface-scale));
 }
 
 @container (max-width: 360px) {

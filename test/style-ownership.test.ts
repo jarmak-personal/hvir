@@ -52,4 +52,33 @@ describe('renderer style ownership', () => {
         .trim(),
     ).toBe('')
   })
+
+  it('routes renderer typography through the owned font and scale tokens', () => {
+    const root = process.cwd()
+    const styleRoot = join(root, 'src/renderer/src/styles')
+    const styles = readdirSync(styleRoot)
+      .filter((file) => file.endsWith('.css'))
+      .map((file) => readFileSync(join(styleRoot, file), 'utf8'))
+      .join('\n')
+    const base = readFileSync(join(styleRoot, 'base.css'), 'utf8')
+    const sourceView = readFileSync(
+      join(root, 'src/renderer/src/viewer/FileViewer.tsx'),
+      'utf8',
+    )
+    const diffView = readFileSync(
+      join(root, 'src/renderer/src/viewer/DiffView.tsx'),
+      'utf8',
+    )
+
+    expect(base).toContain('font-family: var(--hvir-interface-font)')
+    expect(base).toContain('ui-sans-serif, system-ui')
+    expect(base).toContain('ui-monospace')
+    expect(styles).not.toMatch(/font-size:\s*[\d.]+px/u)
+    expect(styles).not.toContain('JetBrains Mono')
+    expect(styles).not.toContain('Inter,')
+    expect(sourceView).toContain("fontFamily: 'var(--hvir-monospace-font)'")
+    expect(sourceView).toContain('var(--hvir-interface-scale)')
+    expect(diffView).toContain("fontFamily: 'var(--hvir-monospace-font)'")
+    expect(diffView).toContain('var(--hvir-interface-scale)')
+  })
 })

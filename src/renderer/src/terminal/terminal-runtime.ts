@@ -1,10 +1,9 @@
 import { hostPathEquals, type HostConnectionState, type HostPath } from '../../../shared'
-import { createGhosttyTerminalPane } from './ghostty-terminal-pane'
 import { SynchronizedOutputWriter } from './synchronized-output'
 import type { TerminalEventRouter } from './terminal-event-router'
 import type { TerminalPane } from './terminal-pane'
+import { createTerminalRuntimePane } from './terminal-pane-factory'
 import {
-  baseTerminalTheme,
   launchUnavailableStatus,
   resumeUnavailableStatus,
   type TerminalRecoveryFailure,
@@ -83,7 +82,11 @@ export class TerminalRuntime {
     ) {
       throw new Error('Live terminal launch context cannot change')
     }
+    const typographyChanged =
+      options.typography.fontFamily !== this.options.typography.fontFamily ||
+      options.typography.fontSize !== this.options.typography.fontSize
     this.options = options
+    if (typographyChanged) this.pane?.setTypography(options.typography)
     this.eventRoute?.setPresentation(options.presentation)
   }
 
@@ -243,16 +246,13 @@ export class TerminalRuntime {
       if (reconnect && this.options.supportsResume && !this.options.harnessSessionId) {
         throw new Error('Exact harness session id unavailable; start a new terminal')
       }
-      const pane = await createGhosttyTerminalPane(baseTerminalTheme(), {
-        modifiedKeyProtocol: this.options.modifiedKeyProtocol,
-        metaEnterAliasesControl: this.options.metaEnterAliasesControl,
-        composerSubmitMode: this.options.composerSubmitMode,
-      })
+      const pane = await createTerminalRuntimePane(this.options)
       if (!this.isCurrent(generation)) {
         pane.dispose()
         return
       }
       this.pane = pane
+      pane.setTypography(this.options.typography)
       this.installPaneListeners(pane)
       pane.setPresentation(this.options.presentation)
       pane.mount(this.container ?? container)

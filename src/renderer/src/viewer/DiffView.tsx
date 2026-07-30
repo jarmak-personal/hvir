@@ -160,8 +160,8 @@ export function DiffView({
 const diffTheme = EditorView.theme({
   '&': { height: '100%', backgroundColor: 'var(--viewer-bg)', color: 'var(--text)' },
   '.cm-scroller': {
-    fontFamily: "'JetBrains Mono', 'SFMono-Regular', Consolas, monospace",
-    fontSize: '12px',
+    fontFamily: 'var(--hvir-monospace-font)',
+    fontSize: 'calc(12px * var(--hvir-interface-scale))',
     lineHeight: '1.5',
   },
   '.cm-gutters': {

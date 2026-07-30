@@ -80,6 +80,7 @@ describe('terminal workspace materialization bridge', () => {
       onOpenWebLink: vi.fn(),
       preferences: {
         terminalTheme: 'app' as const,
+        terminalTypography: { fontFamily: 'monospace', fontSize: 13 },
         composerSubmitMode: 'enter' as const,
         idleThresholdMs: 10_000,
         terminalRecoveryMode: 'prompt' as const,
@@ -131,9 +132,7 @@ describe('terminal workspace materialization bridge', () => {
   })
 })
 
-function shellProvider(
-  id: HarnessProviderDescriptor['id'],
-): HarnessProviderDescriptor {
+function shellProvider(id: HarnessProviderDescriptor['id']): HarnessProviderDescriptor {
   return {
     id,
     displayName: 'Shell',

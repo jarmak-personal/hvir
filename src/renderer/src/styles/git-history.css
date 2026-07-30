@@ -52,7 +52,7 @@
   display: flex;
   align-items: center;
   gap: 3px;
-  font-size: 10px;
+  font-size: calc(10px * var(--hvir-interface-scale));
   font-weight: 600;
 }
 
@@ -60,13 +60,13 @@
   width: 8px;
   flex: 0 0 8px;
   color: #788392;
-  font-size: 9px;
+  font-size: calc(9px * var(--hvir-interface-scale));
   font-style: normal;
 }
 
 .git-rail-commit-copy small {
   color: #727c8a;
-  font-size: 9px;
+  font-size: calc(9px * var(--hvir-interface-scale));
 }
 
 .git-rail-open-full {
@@ -80,7 +80,7 @@
   border-radius: 3px;
   background: #1b2027;
   color: #8e98a7;
-  font-size: 13px;
+  font-size: calc(13px * var(--hvir-interface-scale));
   opacity: 0;
 }
 
@@ -116,7 +116,7 @@
   overflow: hidden;
   padding: 0 7px 0 4px;
   color: #747e8d;
-  font-size: 9px;
+  font-size: calc(9px * var(--hvir-interface-scale));
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -132,14 +132,14 @@
   gap: 6px;
   padding: 0 8px 0 4px;
   color: #8d96a4;
-  font-size: 9px;
+  font-size: calc(9px * var(--hvir-interface-scale));
   text-transform: uppercase;
 }
 
 .git-rail-history-summary small,
 .git-rail-history-tree small {
   flex: 0 0 auto;
-  font-size: 9px;
+  font-size: calc(9px * var(--hvir-interface-scale));
   font-variant-numeric: tabular-nums;
 }
 
@@ -166,7 +166,7 @@
   border: 0;
   background: transparent;
   color: #aeb5c0;
-  font-size: 9px;
+  font-size: calc(9px * var(--hvir-interface-scale));
   text-align: left;
 }
 
@@ -217,7 +217,7 @@
   border-radius: 4px;
   background: #1a1f26;
   color: #c2c9d3;
-  font-size: 11px;
+  font-size: calc(11px * var(--hvir-interface-scale));
   text-align: left;
 }
 

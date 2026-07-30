@@ -10,7 +10,7 @@
   border-radius: 8px;
   background: #252c36;
   color: #8fa6c2;
-  font-size: 8px;
+  font-size: calc(8px * var(--hvir-interface-scale));
   font-weight: 600;
   line-height: 1;
 }
@@ -19,7 +19,7 @@
   width: 10px;
   flex: 0 0 10px;
   color: #75bd84;
-  font-size: 9px;
+  font-size: calc(9px * var(--hvir-interface-scale));
   font-weight: 800;
   text-align: center;
 }
@@ -45,7 +45,7 @@
 
 .session-host-option .remote-connection-badge {
   height: 20px;
-  font-size: 10px;
+  font-size: calc(10px * var(--hvir-interface-scale));
 }
 
 .project-stale .viewer-body::after {
@@ -58,6 +58,6 @@
   border-radius: 4px;
   background: #211b15;
   color: #d4a85f;
-  font-size: 10px;
+  font-size: calc(10px * var(--hvir-interface-scale));
   pointer-events: none;
 }

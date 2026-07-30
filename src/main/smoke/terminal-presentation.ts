@@ -486,6 +486,7 @@ export async function verifyTerminalPresentationLifecycle(
     `),
     'revealed terminal close timed out',
   )) as string
+  const typographyStatus = await verifyLiveTerminalTypography(win, supervisor)
 
   return [
     explicitLaunch,
@@ -495,9 +496,165 @@ export async function verifyTerminalPresentationLifecycle(
     revealStatus,
     cursorStatus,
     inputStatus,
+    typographyStatus,
   ]
     .filter((status): status is string => status !== undefined)
     .join(' · ')
+}
+
+async function verifyLiveTerminalTypography(
+  win: BrowserWindow,
+  supervisor: PtySupervisor,
+): Promise<string> {
+  const terminal = supervisor
+    .list()
+    .find((candidate) => candidate.ownerId === win.webContents.id)
+  if (!terminal) throw new Error('live typography check has no retained terminal')
+  const presentation = (await withTimeout(
+    win.webContents.executeJavaScript(`
+      new Promise((resolve, reject) => {
+        const deadline = Date.now() + 8000;
+        const fail = (message) => reject(new Error(message));
+        const panel = document.querySelector('.terminal-surface.active');
+        const engine = panel?.querySelector('.terminal-engine-host');
+        const canvas = engine?.querySelector('canvas');
+        const before = engine?.__hvirTerminalPerformance;
+        const settingsButton = document.querySelector('.settings-toggle');
+        if (
+          !(engine instanceof HTMLElement) ||
+          !(canvas instanceof HTMLCanvasElement) ||
+          !(settingsButton instanceof HTMLButtonElement) ||
+          !before
+        ) {
+          return fail('live typography fixtures missing');
+        }
+        settingsButton.click();
+        const waitForSettings = () => {
+          const mode = document.querySelector('#settings-monospace-font-mode');
+          const size = document.querySelector('#settings-terminal-text-size');
+          if (
+            mode instanceof HTMLSelectElement &&
+            size instanceof HTMLInputElement
+          ) {
+            const selectSetter = Object.getOwnPropertyDescriptor(
+              HTMLSelectElement.prototype,
+              'value'
+            )?.set;
+            const inputSetter = Object.getOwnPropertyDescriptor(
+              HTMLInputElement.prototype,
+              'value'
+            )?.set;
+            selectSetter?.call(mode, 'custom');
+            mode.dispatchEvent(new Event('change', { bubbles: true }));
+            const waitForFamily = () => {
+              const family = document.querySelector('#settings-monospace-font');
+              if (family instanceof HTMLInputElement) {
+                inputSetter?.call(family, 'monospace');
+                family.dispatchEvent(new Event('input', { bubbles: true }));
+                const nextSize = before.fontSize === 18 ? 17 : 18;
+                inputSetter?.call(size, String(nextSize));
+                size.dispatchEvent(new Event('input', { bubbles: true }));
+                const save = [...document.querySelectorAll('button')].find(
+                  (candidate) => candidate.textContent?.trim() === 'Save app settings'
+                );
+                if (!(save instanceof HTMLButtonElement)) {
+                  return fail('typography Save control missing');
+                }
+                save.click();
+                return waitForApplied(nextSize);
+              }
+              if (Date.now() > deadline) return fail('custom font field did not appear');
+              setTimeout(waitForFamily, 25);
+            };
+            return waitForFamily();
+          }
+          if (Date.now() > deadline) return fail('Appearance typography controls missing');
+          setTimeout(waitForSettings, 25);
+        };
+        const waitForApplied = (nextSize) => {
+          const current = engine.__hvirTerminalPerformance;
+          const stack = getComputedStyle(document.documentElement)
+            .getPropertyValue('--hvir-monospace-font');
+          if (
+            !document.querySelector('.settings-dialog') &&
+            current?.fontSize === nextSize &&
+            stack.includes('"monospace"') &&
+            (current.cols !== before.cols || current.rows !== before.rows)
+          ) {
+            if (
+              !engine.isConnected ||
+              engine.querySelector('canvas') !== canvas ||
+              document.querySelectorAll('.terminal-engine-host').length !== 1
+            ) {
+              return fail('typography change replaced the retained terminal surface');
+            }
+            return resolve({
+              cols: current.cols,
+              rows: current.rows,
+              fontSize: current.fontSize,
+            });
+          }
+          if (Date.now() > deadline) {
+            return fail(
+              'typography did not reflow retained grid: before=' +
+              JSON.stringify(before) + ' current=' + JSON.stringify(current)
+            );
+          }
+          setTimeout(() => waitForApplied(nextSize), 25);
+        };
+        waitForSettings();
+      })
+    `),
+    'live terminal typography timed out',
+    10_000,
+  )) as { readonly cols: number; readonly rows: number; readonly fontSize: number }
+
+  let probe = ''
+  const detach = supervisor.attach(terminal.id, terminal.ownerId, {
+    onData: (data) => {
+      probe = (probe + data).slice(-8_192)
+    },
+  })
+  try {
+    await new Promise<void>((resolve) => setTimeout(resolve, 150))
+    supervisor.write(terminal.id, terminal.ownerId, '\u0003\u0015')
+    await new Promise<void>((resolve) => setTimeout(resolve, 100))
+    supervisor.write(
+      terminal.id,
+      terminal.ownerId,
+      "printf '\\n__HVIR_TYPO_STTY__'; stty size; printf '__HVIR_TYPO_END__\\n'\n",
+    )
+    const match = await withTimeout(
+      new Promise<RegExpMatchArray>((resolve) => {
+        const poll = (): void => {
+          const current = probe.match(
+            /__HVIR_TYPO_STTY__[^\d]*(\d+)\s+(\d+)[\s\S]*?__HVIR_TYPO_END__/,
+          )
+          if (current) return resolve(current)
+          setTimeout(poll, 25)
+        }
+        poll()
+      }),
+      `terminal typography PTY size was not reported: ${JSON.stringify(probe)}`,
+      5_000,
+    )
+    const rows = Number(match[1])
+    const cols = Number(match[2])
+    if (rows !== presentation.rows || cols !== presentation.cols) {
+      throw new Error(
+        `terminal typography grid ${presentation.rows}x${presentation.cols} did not reach PTY ${rows}x${cols}`,
+      )
+    }
+  } finally {
+    void detach()
+  }
+  const retained = supervisor
+    .list()
+    .filter((candidate) => candidate.ownerId === win.webContents.id)
+  if (retained.length !== 1 || retained[0]?.instanceId !== terminal.instanceId) {
+    throw new Error('terminal typography change replaced the live PTY')
+  }
+  return `custom font fallback + ${presentation.fontSize}px + ${presentation.rows}x${presentation.cols} live PTY reflow`
 }
 
 async function focusTerminalEngine(win: BrowserWindow, sessionId: string): Promise<void> {

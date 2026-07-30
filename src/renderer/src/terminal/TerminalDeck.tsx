@@ -9,6 +9,7 @@ import type {
 import { PaneResizer } from '../layout/PaneResizer'
 import type { TerminalThemeOverride } from '../settings/settings'
 import type { TerminalLinkActivation } from './terminal-pane'
+import type { TerminalTypography } from './terminal-pane'
 import type { TerminalSession } from './terminal-workspace-model'
 import type { FreshTerminalStart } from './terminal-runtime-options'
 import type { TerminalRuntimeRegistry } from './terminal-runtime-registry'
@@ -28,6 +29,7 @@ export function TerminalDeck({
   split,
   primaryWidth,
   terminalTheme,
+  terminalTypography,
   composerSubmitMode,
   workspaceRoot,
   connectionState,
@@ -56,6 +58,7 @@ export function TerminalDeck({
   readonly split: boolean
   readonly primaryWidth?: number
   readonly terminalTheme: TerminalThemeOverride
+  readonly terminalTypography: TerminalTypography
   readonly composerSubmitMode: ComposerSubmitMode
   readonly workspaceRoot: HostPath
   readonly connectionState: HostConnectionState
@@ -86,6 +89,7 @@ export function TerminalDeck({
       secondaryActiveId={secondaryActiveId}
       presented={visible}
       terminalTheme={terminalTheme}
+      terminalTypography={terminalTypography}
       composerSubmitMode={composerSubmitMode}
       workspaceRoot={workspaceRoot}
       connectionState={connectionState}

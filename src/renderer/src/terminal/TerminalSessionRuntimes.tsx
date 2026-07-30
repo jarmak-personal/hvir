@@ -7,7 +7,7 @@ import type {
   HostPath,
 } from '../../../shared'
 import type { TerminalThemeOverride } from '../settings/settings'
-import type { TerminalLinkActivation } from './terminal-pane'
+import type { TerminalLinkActivation, TerminalTypography } from './terminal-pane'
 import type { TerminalRuntimeRegistry } from './terminal-runtime-registry'
 import type { FreshTerminalStart } from './terminal-runtime-options'
 import { TerminalView } from './TerminalView'
@@ -21,6 +21,7 @@ export interface TerminalSessionRuntimesProps {
   readonly secondaryActiveId?: string
   readonly presented: boolean
   readonly terminalTheme: TerminalThemeOverride
+  readonly terminalTypography: TerminalTypography
   readonly composerSubmitMode: ComposerSubmitMode
   readonly workspaceRoot: HostPath
   readonly connectionState: HostConnectionState
@@ -46,6 +47,7 @@ export function TerminalSessionRuntimes({
   secondaryActiveId,
   presented,
   terminalTheme,
+  terminalTypography,
   composerSubmitMode,
   workspaceRoot,
   connectionState,
@@ -90,6 +92,7 @@ export function TerminalSessionRuntimes({
             modifiedKeyProtocol={provider.terminalInput.modifiedKeyProtocol}
             metaEnterAliasesControl={provider.terminalInput.metaEnterAliasesControl}
             themeOverride={terminalTheme}
+            typography={terminalTypography}
             composerSubmitMode={composerSubmitMode}
             cwd={session.cwd}
             workspaceRoot={workspaceRoot}

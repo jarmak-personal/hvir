@@ -137,13 +137,8 @@ export function TerminalWorkspace({
     connectionState,
     menuOpen,
   })
-  const {
-    providers,
-    profiles,
-    probes,
-    acceptCatalog,
-    acceptRecoveryProbes,
-  } = profileState
+  const { providers, profiles, probes, acceptCatalog, acceptRecoveryProbes } =
+    profileState
   const send = useCallback((action: TerminalWorkspaceAction): void => {
     modelRef.current = terminalWorkspaceReducer(modelRef.current, action)
     dispatch(action)
@@ -191,11 +186,7 @@ export function TerminalWorkspace({
       send,
     },
   })
-  const {
-    ready: recoveryReady,
-    defaultProvider,
-    defaultProfile,
-  } = recovery
+  const { ready: recoveryReady, defaultProvider, defaultProfile } = recovery
   useTerminalPersistence({ root: workspaceRoot, model, ready: recoveryReady })
   const commands = useTerminalSessionCommands({
     available,
@@ -278,12 +269,11 @@ export function TerminalWorkspace({
         split={terminalSplit}
         primaryWidth={model.primaryWidth}
         terminalTheme={preferences.terminalTheme}
+        terminalTypography={preferences.terminalTypography}
         composerSubmitMode={preferences.composerSubmitMode}
         workspaceRoot={workspaceRoot}
         connectionState={connectionState}
-        onCreateDefault={
-          defaultProfile ? commands.startDefault : undefined
-        }
+        onCreateDefault={defaultProfile ? commands.startDefault : undefined}
         onUpdateSession={updateSession}
         onFreshStarted={commands.acceptFreshStart}
         onInput={recordInput}

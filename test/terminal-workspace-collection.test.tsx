@@ -40,6 +40,7 @@ describe('terminal workspace collection', () => {
           onOpenWebLink={vi.fn()}
           preferences={{
             terminalTheme: 'app',
+            terminalTypography: { fontFamily: 'monospace', fontSize: 13 },
             composerSubmitMode: 'enter',
             idleThresholdMs: 10_000,
             terminalRecoveryMode: 'prompt',
@@ -62,9 +63,7 @@ describe('terminal workspace collection', () => {
     const state = projectStateWithOpenWorktrees(100)
 
     act(() => {
-      root.render(
-        collection({ state, materializedWorkspaceIds: [] }),
-      )
+      root.render(collection({ state, materializedWorkspaceIds: [] }))
     })
 
     expect(host.querySelectorAll('[data-mounted-workspace]')).toHaveLength(1)
@@ -136,14 +135,14 @@ describe('terminal workspace collection', () => {
     })
     expect(host.querySelectorAll('[data-mounted-workspace]')).toHaveLength(2)
     expect(
-      host.querySelector('[data-mounted-workspace="workspace-open"]')?.getAttribute(
-        'data-visible',
-      ),
+      host
+        .querySelector('[data-mounted-workspace="workspace-open"]')
+        ?.getAttribute('data-visible'),
     ).toBe('false')
     expect(
-      host.querySelector(`[data-mounted-workspace="${nextActiveId}"]`)?.getAttribute(
-        'data-visible',
-      ),
+      host
+        .querySelector(`[data-mounted-workspace="${nextActiveId}"]`)
+        ?.getAttribute('data-visible'),
     ).toBe('true')
     act(() => root.unmount())
   })
@@ -167,6 +166,7 @@ function collection({
       onOpenWebLink={vi.fn()}
       preferences={{
         terminalTheme: 'app',
+        terminalTypography: { fontFamily: 'monospace', fontSize: 13 },
         composerSubmitMode: 'enter',
         idleThresholdMs: 10_000,
         terminalRecoveryMode: 'prompt',
