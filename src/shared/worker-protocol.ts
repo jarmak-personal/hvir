@@ -48,6 +48,8 @@ export type WorkerHostCallInput =
       readonly maxBuffer?: number
       readonly allowTruncatedOutput?: boolean
       readonly maxStdoutNulRecords?: number
+      /** Narrow authority for status to persist refreshed index stat data. */
+      readonly allowIndexRefresh?: true
     }
   | {
       readonly hostId: string

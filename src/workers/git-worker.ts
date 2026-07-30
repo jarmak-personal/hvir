@@ -25,7 +25,7 @@ import {
   type WorkerHostResult,
   type HostId,
 } from '../shared'
-import type { GitHostPort } from '../main/git/git-command-context'
+import type { GitExecOptions, GitHostPort } from '../main/git/git-command-context'
 import { GitEngine } from '../main/git/git-engine'
 
 interface ParentPort {
@@ -156,7 +156,7 @@ class ProxyGitHost implements GitHostPort {
   exec(
     command: string,
     args: readonly string[],
-    opts: import('../main/project-host').ExecOptions = {},
+    opts: GitExecOptions = {},
   ): Promise<import('../shared').ExecResult> {
     return hostCall({
       operation: 'exec',
@@ -168,6 +168,7 @@ class ProxyGitHost implements GitHostPort {
       maxBuffer: opts.maxBuffer,
       allowTruncatedOutput: opts.allowTruncatedOutput,
       maxStdoutNulRecords: opts.maxStdoutNulRecords,
+      ...(opts.allowIndexRefresh ? { allowIndexRefresh: true } : {}),
     }) as Promise<import('../shared').ExecResult>
   }
   readTextFile(path: HostPath): Promise<string> {

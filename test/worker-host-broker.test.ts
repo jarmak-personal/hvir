@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, utimes, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -43,6 +43,49 @@ describe('Git worker host broker', () => {
     expect(lastCall?.[2]?.maxBuffer).toBe(10 * 1024 * 1024)
     expect(lastCall?.[2]?.signal).toBeInstanceOf(AbortSignal)
     expect(realpath).toHaveBeenCalledOnce()
+  })
+
+  it('permits index refresh only for the bounded workspace activity status', async () => {
+    const rootPath = await mkdtemp(join(tmpdir(), 'hvir-broker-index-refresh-'))
+    cleanups.push(rootPath)
+    const host = new LocalHost()
+    const exec = vi.spyOn(host, 'exec').mockResolvedValue({
+      code: 0,
+      signal: null,
+      stdout: '',
+      stderr: '',
+    })
+    const project = { host, root: localPath(rootPath) }
+    const activityCall: ExecHostCall = {
+      ...hostCall(rootPath),
+      args: [
+        '-C',
+        rootPath,
+        'status',
+        '--porcelain=v2',
+        '-z',
+        '--untracked-files=all',
+        '--',
+        '.',
+      ],
+      allowTruncatedOutput: true,
+      maxStdoutNulRecords: 4_002,
+      allowIndexRefresh: true,
+    }
+
+    await dispatchWorkerHostCall(activityCall, project)
+
+    expect(exec.mock.calls[0]?.[2]?.env).toBeUndefined()
+    await expect(
+      dispatchWorkerHostCall(
+        {
+          ...hostCall(rootPath),
+          args: ['-C', rootPath, 'rev-parse', '--show-toplevel'],
+          allowIndexRefresh: true,
+        },
+        project,
+      ),
+    ).rejects.toThrow('unsupported index refresh authority')
   })
 
   it('rejects arbitrary commands and paths outside the active root', async () => {
@@ -296,6 +339,79 @@ describe('Git worker host broker', () => {
     await expect(
       engine.blame(localPath(join(rootPath, 'file.txt'))),
     ).resolves.toHaveLength(1)
+    await actual.dispose()
+  })
+
+  it('persists clean-filter stat refreshes instead of filtering the same file again', async () => {
+    const rootPath = await mkdtemp(join(tmpdir(), 'hvir-broker-filter-'))
+    cleanups.push(rootPath)
+    git(rootPath, ['init', '-b', 'main'])
+    git(rootPath, ['config', 'user.email', 'hvir@example.test'])
+    git(rootPath, ['config', 'user.name', 'hvir test'])
+    const filterScript = join(rootPath, '.git', 'count-clean.cjs')
+    const counter = join(rootPath, '.git', 'clean-count')
+    const asset = join(rootPath, 'payload.asset')
+    await writeFile(
+      filterScript,
+      "const fs = require('node:fs')\nfs.appendFileSync(process.argv[2], 'x')\nprocess.stdin.pipe(process.stdout)\n",
+    )
+    await writeFile(counter, '')
+    await writeFile(join(rootPath, '.gitattributes'), '*.asset filter=count-clean\n')
+    await writeFile(asset, 'unchanged payload\n')
+    git(rootPath, [
+      'config',
+      'filter.count-clean.clean',
+      `${JSON.stringify(process.execPath)} ${JSON.stringify(filterScript)} ${JSON.stringify(counter)}`,
+    ])
+    git(rootPath, ['config', 'filter.count-clean.required', 'true'])
+    git(rootPath, ['add', '.gitattributes', 'payload.asset'])
+    git(rootPath, ['commit', '-m', 'filtered asset'])
+    await writeFile(counter, '')
+    const stablePast = new Date(Date.now() - 60_000)
+    await utimes(asset, stablePast, stablePast)
+
+    const actual = new LocalHost()
+    const project = { host: actual, root: localPath(rootPath) }
+    let callId = 0
+    const proxy = {
+      hostId: actual.hostId,
+      exec: (command: string, args: readonly string[], opts = {}) =>
+        dispatchWorkerHostCall(
+          {
+            kind: 'host-call',
+            callId: ++callId,
+            hostId: actual.hostId,
+            operation: 'exec',
+            command,
+            args,
+            ...opts,
+          },
+          project,
+        ),
+      readTextFile: (path: ReturnType<typeof localPath>) =>
+        dispatchWorkerHostCall(
+          {
+            kind: 'host-call',
+            callId: ++callId,
+            hostId: actual.hostId,
+            operation: 'readTextFile',
+            path,
+          },
+          project,
+        ),
+    } as unknown as ProjectHost
+    const engine = new GitEngine(proxy, localPath(rootPath))
+
+    await expect(engine.workspaceActivity(localPath(rootPath))).resolves.toMatchObject({
+      changedFiles: 0,
+    })
+    const afterFirst = (await readFile(counter, 'utf8')).length
+    expect(afterFirst).toBeGreaterThan(0)
+    await expect(engine.workspaceActivity(localPath(rootPath))).resolves.toMatchObject({
+      changedFiles: 0,
+    })
+
+    expect((await readFile(counter, 'utf8')).length).toBe(afterFirst)
     await actual.dispose()
   })
 

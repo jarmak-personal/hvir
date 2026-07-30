@@ -453,6 +453,7 @@ describe('ProjectCoordinator', () => {
 
     await expect(opening).rejects.toThrow('superseded')
     await switched
+    expect(workspaces.settleProject).toHaveBeenCalledWith(expect.any(String), 'skip')
     expect(registry.open).not.toHaveBeenCalled()
     expect(registry.activate).toHaveBeenCalledWith('project-2', 'workspace-2')
   })
