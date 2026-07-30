@@ -19,6 +19,7 @@
     "scripts/project-management/**/*.ts",
     "scripts/run-smoke-scenarios.mts",
     "scripts/run-smoke-interruption.mts",
+    "scripts/smoke-failure-artifact.mts",
     "test/**/*.ts",
     "electron.vite.config.ts",
     "vitest.config.ts"

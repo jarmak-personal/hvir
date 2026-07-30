@@ -15,6 +15,11 @@ import type { WebPaneRouteRegistry } from '../web-pane/web-pane-route-registry'
 import { createWorkerClient, workerPath } from '../worker-host'
 import { createWorkspaceCleanup } from '../workspace-cleanup'
 import { SmokeCleanup } from './cleanup'
+import {
+  reportSmokeFailureEvidence,
+  type SmokeFailurePhase,
+  type SmokeOwnedResourceEvidence,
+} from './failure-evidence.mts'
 import type { SmokeInterruptionCheckpoint } from './interruption-checkpoint'
 import { createSmokeImagePasteFallback } from './image-paste-fallback'
 import { verifyDiagnosticRestart } from './diagnostic-report-restart'
@@ -146,7 +151,10 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
   cleanup.defer('viewer position fixture', () =>
     host.exec('rm', ['-f', '--', viewerPositionPath.path]).then(() => undefined),
   )
-  cleanup.defer('project watch', async () => stopSmokeWatch?.())
+  cleanup.defer('project watch', async () => {
+    await stopSmokeWatch?.()
+    stopSmokeWatch = undefined
+  })
   cleanup.defer('supervised terminals', () => supervisor.disposeAllAndWait())
   cleanup.defer('smoke window', async () => {
     if (!smokeWindow || smokeWindow.isDestroyed()) return
@@ -224,6 +232,7 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
   const largeTextPath = joinHostPath(smokeRoot, '.hvir-smoke-large.txt')
   const harnessProfilesPath = joinHostPath(smokeRoot, '.hvir-smoke-harness-profiles.json')
   let scenarioFailed = false
+  let failurePhase: SmokeFailurePhase = 'resources-created'
   try {
     if (mode === 'workflow') {
       const echo = await worker.request(ECHO_REQUEST_TYPE, { text: 'ping' })
@@ -233,6 +242,7 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
     }
     // Exercise the real renderer → main → worker path.
     await host.connect()
+    failurePhase = 'host-connected'
     await host.exec('rm', ['-f', '--', harnessProfilesPath.path])
     const liveReloadBefore = `${Array.from({ length: 240 }, (_, index) => `line ${index}`).join('\n')}\n`
     await host.writeFile(liveReloadPath, liveReloadBefore)
@@ -416,6 +426,7 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
       recursive: true,
       excludeDirectoryNames: ['.git', 'node_modules', 'out', 'dist'],
     })
+    failurePhase = 'watch-active'
     if (mode === 'workflow') {
       const result = await host.exec('/bin/echo', ['hvir'])
       if (result.stdout.trim() !== 'hvir') {
@@ -437,6 +448,7 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
     const initialRendererGeneration = rendererResources.currentOwner(
       win.webContents.id,
     ).generation
+    failurePhase = 'window-ready'
     console.log('[smoke] window ready-to-show OK')
     // A real preload round-trip establishes more than ready-to-show paint.
     const rendererResult = (await withTimeout(
@@ -459,6 +471,7 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
       throw new Error('renderer echo ran in the main process')
     }
     console.log('[smoke] renderer IPC + echo worker round-trip OK')
+    failurePhase = 'renderer-ready'
     const predecessorSelectionObserved = await recordRendererIsolationSelection(
       win,
       interruptionCheckpoint,
@@ -469,6 +482,7 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
       watcherActive: stopSmokeWatch !== undefined,
       predecessorSelectionObserved,
     })
+    failurePhase = 'scenario-active'
     if (await verifyDevelopmentPerformanceMode(win, mode)) return 0
     if (mode === 'renderer-recovery') {
       const result = await verifyUnresponsiveRendererRecovery({
@@ -1416,12 +1430,30 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
     return 0
   } catch (err) {
     scenarioFailed = true
+    reportSmokeFailureEvidence(
+      failurePhase,
+      smokeOwnedResourceEvidence(
+        smokeWindow,
+        supervisor,
+        stopSmokeWatch !== undefined,
+        rendererResources,
+      ),
+    )
     console.error('HVIR_SMOKE_FAIL', err)
     return 1
   } finally {
     try {
       await cleanup.run()
     } catch (cleanupError) {
+      reportSmokeFailureEvidence(
+        'cleanup',
+        smokeOwnedResourceEvidence(
+          smokeWindow,
+          supervisor,
+          stopSmokeWatch !== undefined,
+          rendererResources,
+        ),
+      )
       console.error('HVIR_SMOKE_CLEANUP_FAIL', cleanupError)
       // A successful scenario must still fail when cleanup does not complete.
       if (!scenarioFailed) {
@@ -1429,6 +1461,29 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
         throw cleanupError
       }
     }
+  }
+}
+
+function smokeOwnedResourceEvidence(
+  win: BrowserWindow | undefined,
+  supervisor: PtySupervisor,
+  watcherActive: boolean,
+  rendererResources: RendererResourceScopes,
+): SmokeOwnedResourceEvidence {
+  let rendererGeneration: number | null = null
+  if (win && !win.isDestroyed()) {
+    try {
+      rendererGeneration = rendererResources.currentOwner(win.webContents.id).generation
+    } catch {
+      // A revoked owner is represented by the closed null/false fields below.
+    }
+  }
+  return {
+    windowCount: win && !win.isDestroyed() ? 1 : 0,
+    ptyCount: supervisor.list().length,
+    watcherActive,
+    rendererOwnerActive: rendererGeneration !== null,
+    rendererGeneration,
   }
 }
 
