@@ -1,14 +1,14 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import { RendererResourceScopes } from '../src/main/renderer-resource-scopes'
 import { localPath } from '../src/shared'
+import { createRendererResourceFixture } from './fixtures/renderer-resource-fixture'
 
 const firstRoot = localPath('/project/first')
 const secondRoot = localPath('/project/second')
 
 describe('RendererResourceScopes', () => {
   it('isolates owners and rolls generations before asynchronous cleanup', async () => {
-    const scopes = new RendererResourceScopes()
+    const scopes = createRendererResourceFixture().scopes
     const first = scopes.activateOwner(10)
     const other = scopes.activateOwner(20)
     let finishCleanup: (() => void) | undefined
@@ -34,7 +34,7 @@ describe('RendererResourceScopes', () => {
   })
 
   it('rejects registrations and late completions from revoked generations', async () => {
-    const scopes = new RendererResourceScopes()
+    const scopes = createRendererResourceFixture().scopes
     const stale = scopes.activateOwner(10)
     await scopes.rolloverOwner(10).cleanup
 
@@ -48,7 +48,7 @@ describe('RendererResourceScopes', () => {
   })
 
   it('blocks IPC between rollover and the replacement document commit', () => {
-    const scopes = new RendererResourceScopes()
+    const scopes = createRendererResourceFixture().scopes
     scopes.activateOwner(10)
     const replacement = scopes.rolloverOwner(10).owner
 
@@ -61,7 +61,7 @@ describe('RendererResourceScopes', () => {
   })
 
   it('transfers an opted-in resource to the next renderer generation', async () => {
-    const scopes = new RendererResourceScopes()
+    const scopes = createRendererResourceFixture().scopes
     const first = scopes.activateOwner(10)
     const dispose = vi.fn()
     const rollover = vi.fn(() => true)
@@ -87,7 +87,7 @@ describe('RendererResourceScopes', () => {
   })
 
   it('disposes resources that decline or fail renderer rollover', async () => {
-    const scopes = new RendererResourceScopes()
+    const scopes = createRendererResourceFixture().scopes
     const owner = scopes.activateOwner(10)
     const declined = vi.fn()
     const failed = vi.fn()
@@ -116,7 +116,7 @@ describe('RendererResourceScopes', () => {
   })
 
   it('bulk-revokes one workspace without flattening renderer resources', async () => {
-    const scopes = new RendererResourceScopes()
+    const scopes = createRendererResourceFixture().scopes
     const owner = scopes.activateOwner(10)
     const first = vi.fn()
     const second = vi.fn()
@@ -144,7 +144,7 @@ describe('RendererResourceScopes', () => {
   })
 
   it('reassigns a workspace resource without disposing its live capability', async () => {
-    const scopes = new RendererResourceScopes()
+    const scopes = createRendererResourceFixture().scopes
     const owner = scopes.activateOwner(10)
     const dispose = vi.fn()
     scopes.register(
@@ -183,7 +183,7 @@ describe('RendererResourceScopes', () => {
 
   it('tears down in reverse registration order and stays idempotent', async () => {
     const calls: string[] = []
-    const scopes = new RendererResourceScopes()
+    const scopes = createRendererResourceFixture().scopes
     const owner = scopes.activateOwner(10)
     scopes.register(owner, { lifetime: 'renderer', type: 'attention' }, () => {
       calls.push('first')
@@ -203,7 +203,7 @@ describe('RendererResourceScopes', () => {
   })
 
   it('rejects accidental duplicate registrations', () => {
-    const scopes = new RendererResourceScopes()
+    const scopes = createRendererResourceFixture().scopes
     const owner = scopes.activateOwner(10)
     scopes.register(owner, { lifetime: 'renderer', type: 'attention' }, vi.fn())
 
@@ -213,7 +213,7 @@ describe('RendererResourceScopes', () => {
   })
 
   it('reuses an explicitly equivalent idempotent registration', async () => {
-    const scopes = new RendererResourceScopes()
+    const scopes = createRendererResourceFixture().scopes
     const owner = scopes.activateOwner(10)
     const dispose = vi.fn()
     const duplicateDispose = vi.fn()
@@ -237,7 +237,7 @@ describe('RendererResourceScopes', () => {
 
   it('uses collision-proof tuple keys for host paths and resource ids', async () => {
     const calls: string[] = []
-    const scopes = new RendererResourceScopes()
+    const scopes = createRendererResourceFixture().scopes
     const owner = scopes.activateOwner(10)
     scopes.register(
       owner,

@@ -5,15 +5,9 @@ import { describe, expect, it, vi } from 'vitest'
 
 import {
   plainShellProvider,
-  type HarnessProvider,
   type HarnessTelemetryContext,
 } from '../src/main/harness/harness-provider'
-import type {
-  ProjectHost,
-  PtyExit,
-  PtyProcess,
-  SpawnPtyOptions,
-} from '../src/main/project-host'
+import type { ProjectHost, PtyExit, PtyProcess } from '../src/main/project-host'
 import {
   PtySupervisor,
   type ManagedPty,
@@ -28,92 +22,15 @@ import {
   hostPath,
   localPath,
 } from '../src/shared'
+import {
+  createPtySupervisorFixture,
+  PTY_FIXTURE_OWNER_ID,
+  TestPtyProcess,
+} from './fixtures/pty-supervisor-fixture'
 
-const OWNER_ID = 17
-
-class FakePty implements PtyProcess {
-  readonly pid = 4242
-  readonly dataListeners = new Set<(data: string) => void>()
-  readonly exitListeners = new Set<(exit: PtyExit) => void>()
-  readonly write = vi.fn<(data: string) => void>()
-  readonly resize = vi.fn<(cols: number, rows: number) => void>()
-  readonly kill = vi.fn<(signal?: string) => void>()
-
-  onData(cb: (data: string) => void): () => void {
-    this.dataListeners.add(cb)
-    return () => this.dataListeners.delete(cb)
-  }
-
-  onExit(cb: (exit: PtyExit) => void): () => void {
-    this.exitListeners.add(cb)
-    return () => this.exitListeners.delete(cb)
-  }
-
-  emitData(data: string): void {
-    for (const cb of this.dataListeners) cb(data)
-  }
-
-  emitExit(exit: PtyExit): void {
-    for (const cb of [...this.exitListeners]) cb(exit)
-  }
-}
-
-function fixture(onDiagnostic?: (event: PtySupervisorDiagnostic) => void): {
-  supervisor: PtySupervisor
-  pty: FakePty
-  host: ProjectHost
-  provider: HarnessProvider
-  spawnPty: ReturnType<typeof vi.fn<(opts: SpawnPtyOptions) => Promise<PtyProcess>>>
-  defaultShell: ReturnType<typeof vi.fn<() => Promise<string>>>
-} {
-  const pty = new FakePty()
-  const spawnPty = vi.fn((_opts: SpawnPtyOptions): Promise<PtyProcess> =>
-    Promise.resolve(pty),
-  )
-  const defaultShell = vi.fn(() => Promise.resolve('/remote/bin/bash'))
-  const host = {
-    hostId: LOCAL_HOST_ID,
-    defaultShell,
-    spawnPty,
-  } as unknown as ProjectHost
-  const provider: HarnessProvider = {
-    manifest: {
-      id: asHarnessProviderId('test'),
-      displayName: 'Test',
-      contextPresentation: 'none',
-    },
-    profile: {
-      version: 1,
-      reservedArguments: [],
-      reservedEnvironmentKeys: [],
-      artifactEnvironmentKeys: [],
-      artifactExecutable: false,
-      artifactPathBindings: [],
-      applyArgs: (_mode, providerArgs, profileArgs) => [...providerArgs, ...profileArgs],
-      classifyRisk: () => 'standard',
-    },
-    supportsResume: true,
-    sessionIdentity: 'preassigned',
-    probe: {
-      parseVersion: () => undefined,
-      effectiveCapabilities: () => ({
-        sessionIdentity: 'preassigned',
-        exactResume: true,
-        contextPresentation: 'none',
-      }),
-    },
-    launch: () => ({ file: 'test-harness', args: ['launch'] }),
-    resume: () => ({ file: 'test-harness', args: ['resume'] }),
-  }
-  return {
-    supervisor: new PtySupervisor({ onDiagnostic }),
-    pty,
-    host,
-    provider,
-    spawnPty,
-    defaultShell,
-  }
-}
+const OWNER_ID = PTY_FIXTURE_OWNER_ID
+const FakePty = TestPtyProcess
+const fixture = createPtySupervisorFixture
 
 describe('PtySupervisor', () => {
   it('launches a plain shell resolved by the owning host', async () => {
@@ -223,26 +140,22 @@ describe('PtySupervisor', () => {
   })
 
   it('does not classify old terminal output as a launch failure', async () => {
-    let now = 1_000
-    const clock = vi.spyOn(Date, 'now').mockImplementation(() => now)
-    const { supervisor, pty, host, provider } = fixture()
+    const ptyFixture = fixture()
+    const { supervisor, pty, host, provider } = ptyFixture
     const onClassifiedLaunchFailure = vi.fn()
-    try {
-      await supervisor.spawn({
-        host,
-        provider,
-        cwd: localPath('/tmp/project'),
-        ownerId: OWNER_ID,
-        sessionId: 'long-running-terminal',
-        onClassifiedLaunchFailure,
-      })
-      pty.emitData('earlier command output: unknown option\r\n')
-      now += 30_001
-      pty.emitExit({ exitCode: 2, signal: undefined })
-      expect(onClassifiedLaunchFailure).not.toHaveBeenCalled()
-    } finally {
-      clock.mockRestore()
-    }
+    ptyFixture.setNow(1_000)
+    await supervisor.spawn({
+      host,
+      provider,
+      cwd: localPath('/tmp/project'),
+      ownerId: OWNER_ID,
+      sessionId: 'long-running-terminal',
+      onClassifiedLaunchFailure,
+    })
+    pty.emitData('earlier command output: unknown option\r\n')
+    ptyFixture.advanceClock(30_001)
+    pty.emitExit({ exitCode: 2, signal: undefined })
+    expect(onClassifiedLaunchFailure).not.toHaveBeenCalled()
   })
 
   it('is the lifecycle and stream boundary for a spawned PTY', async () => {

@@ -1,40 +1,33 @@
-import { mkdir, mkdtemp, rm } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
+import { mkdir } from 'node:fs/promises'
 import { join } from 'node:path'
 
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import {
   HarnessProfileStore,
   providerTemplateProfiles,
 } from '../src/main/harness/harness-profile-store'
 import { LocalHost } from '../src/main/project-host/local-host'
+import { asHarnessProfileId, asHarnessProviderId, localPath } from '../src/shared'
 import {
-  asHarnessProfileId,
-  asHarnessProviderId,
-  localPath,
-  type HarnessProfileInput,
-} from '../src/shared'
+  createHarnessProfileFixture,
+  type HarnessProfileFixture,
+} from './fixtures/harness-profile-fixture'
 
 describe('HarnessProfileStore', () => {
   let directory: string
   let host: LocalHost
   let store: HarnessProfileStore
+  let input: HarnessProfileFixture['input']
+  let literal: HarnessProfileFixture['literal']
 
   beforeEach(async () => {
-    directory = await mkdtemp(join(tmpdir(), 'hvir-profiles-'))
-    host = new LocalHost()
-    await host.connect()
-    store = await HarnessProfileStore.load(
-      host,
-      localPath(join(directory, 'profiles.json')),
-    )
-  })
-
-  afterEach(async () => {
-    await store.flush().catch(() => undefined)
-    await host.dispose()
-    await rm(directory, { recursive: true, force: true })
+    const fixture = await createHarnessProfileFixture()
+    directory = fixture.directory
+    host = fixture.host
+    store = fixture.store
+    input = fixture.input
+    literal = fixture.literal
   })
 
   it('computes only immutable bare Shell and keeps harness defaults as templates', () => {
@@ -418,21 +411,3 @@ describe('HarnessProfileStore', () => {
     ).toThrow(/Invalid profile arguments/)
   })
 })
-
-function input(overrides: Partial<HarnessProfileInput> = {}): HarnessProfileInput {
-  return {
-    displayName: 'Codex workspace',
-    providerId: asHarnessProviderId('codex'),
-    scope: { kind: 'global' },
-    executable: { kind: 'provider-default' },
-    args: [],
-    environment: [],
-    pathBindings: [],
-    order: 4,
-    ...overrides,
-  }
-}
-
-function literal(value: string) {
-  return { parts: [{ kind: 'literal' as const, value }] }
-}
