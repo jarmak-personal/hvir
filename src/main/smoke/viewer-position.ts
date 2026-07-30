@@ -281,6 +281,7 @@ export function verifyViewerPositions(
           const line = visibleCodeLine(cleanSource, '.cm-lineNumbers .cm-gutterElement');
           return line !== undefined && line > 1 ? line : undefined;
         }, 'clean diff source did not scroll');
+        const cleanScroll = cleanSource.scrollTop;
         modeButton('diff')?.click();
         const emptyDiff = await waitFor(
           () => document.querySelector('.cm-mergeView'),
@@ -299,7 +300,10 @@ export function verifyViewerPositions(
             restoredCleanSource,
             '.cm-lineNumbers .cm-gutterElement'
           );
-          return line !== undefined && Math.abs(line - cleanLine) <= 2 ? line : undefined;
+          return line !== undefined && line > 1 &&
+            Math.abs(restoredCleanSource.scrollTop - cleanScroll) <= 2
+            ? line
+            : undefined;
         }, 'empty diff reset the source position');
       }
 

@@ -435,6 +435,7 @@ describe('Electron smoke command contracts', () => {
     expect(gitWorkflowScenario).not.toContain('requestAnimationFrame')
     expect(viewerContentScenario).not.toMatch(/setTimeout\([^\n]*100\)/)
     expect(viewerPositionScenario).not.toContain("querySelector('.terminal-panel')")
+    expect(viewerPositionScenario).toContain('cleanScroll')
     expect(viewerFindScenario).not.toContain("querySelector('.terminal-panel')")
     expect(viewerFindScenario).not.toContain(
       'requestAnimationFrame(() => requestAnimationFrame',
