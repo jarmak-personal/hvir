@@ -63,6 +63,7 @@
     "smoke": "electron-vite build && node scripts/run-smoke-scenarios.mts pty-native viewer-position viewer-content git-workflow workspace-remote web-pane renderer-authority renderer-recovery terminal-presentation terminal-lifecycle legacy-workflow",
     "smoke:macos": "electron-vite build && node scripts/run-smoke-scenarios.mts pty-native viewer-position viewer-content git-workflow workspace-remote web-pane renderer-authority platform-contracts renderer-recovery terminal-presentation terminal-lifecycle",
     "smoke:macos:ci": "electron-vite build && node scripts/run-smoke-scenarios.mts pty-native viewer-position viewer-content git-workflow workspace-remote web-pane renderer-authority platform-contracts renderer-recovery",
+    "smoke:isolation": "electron-vite build && node scripts/run-smoke-interruption.mts",
     "smoke:linux:installed": "bash scripts/run-linux-package-smoke.sh",
     "smoke:macos:installed": "bash scripts/run-macos-package-smoke.sh",
     "smoke:capacity": "electron-vite build && cross-env HVIR_SMOKE_SCENARIO=capacity node scripts/run-smoke-scenarios.mts",

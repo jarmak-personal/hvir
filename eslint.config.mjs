@@ -129,7 +129,7 @@ export default tseslint.config(
   // Contributor process launchers may use Node host primitives directly; the
   // ProjectHost boundary governs application source under src/.
   {
-    files: ['scripts/run-smoke-scenarios.mts'],
+    files: ['scripts/run-smoke-scenarios.mts', 'scripts/run-smoke-interruption.mts'],
     rules: {
       'no-restricted-imports': 'off',
     },

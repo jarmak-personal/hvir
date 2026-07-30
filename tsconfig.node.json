@@ -18,6 +18,7 @@
     "scripts/check-terminal-runtime-patch.mts",
     "scripts/project-management/**/*.ts",
     "scripts/run-smoke-scenarios.mts",
+    "scripts/run-smoke-interruption.mts",
     "test/**/*.ts",
     "electron.vite.config.ts",
     "vitest.config.ts"

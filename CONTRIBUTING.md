@@ -229,6 +229,19 @@ user-data roots. Iterations are fixed stress evidence, not retries: every schedu
 and any failed iteration makes the aggregate command fail. Pull-request jobs omit the variable and
 therefore run one iteration.
 
+Use `npm run smoke:isolation` for the real-process interruption proof. It stops focused PTY,
+Git/renderer-watch, and web-route scenarios at controlled owner checkpoints, exercises a
+scenario failure, graceful `SIGHUP`/`SIGINT`/`SIGTERM`, and process-group `SIGKILL`, then runs all
+three clean successors in parallel. Graceful paths must report reverse-order disposal and dead
+process groups. The force-killed path
+claims no in-process cleanup: its uniquely named temporary root must carry the exact hvir
+ownership marker, remain inert, never be reused by a successor, and pass marker-and-parent
+validation before bounded removal. The command records only closed resource counts, generation,
+route/port state, process outcome, and cleanup names; it does not capture terminal, file, web, or
+environment content.
+Deferred PTY-spawn and renderer-generation tests remain at their domain seams to prove that late
+completion after revocation fails closed and cannot recreate disposed authority.
+
 Native package acceptance is the distribution boundary, not a second product workflow. On a
 disposable matching host, build the native package and run `npm run smoke:linux:installed` or
 `npm run smoke:macos:installed` with the guarded environment documented in

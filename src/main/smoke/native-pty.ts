@@ -7,6 +7,7 @@ import { harnessProvider } from '../harness/harness-provider'
 import { LocalHost } from '../project-host'
 import { PtySupervisor } from '../pty/pty-supervisor'
 import { SmokeCleanup } from './cleanup'
+import type { SmokeInterruptionCheckpoint } from './interruption-checkpoint'
 import { stopPtyAndWaitForExit, waitForPtyOutput } from './pty-lifecycle'
 
 const MAIN_SMOKE_OWNER_ID = 0
@@ -14,26 +15,37 @@ const CUSTOM_PROFILE_PROVIDER_ID = 'custom'
 const CUSTOM_PROFILE_OUTPUT = 'hvir-profile-smoke:structured'
 
 /** Exercise a production-composed Custom profile through Electron's native node-pty ABI. */
-export async function runNativePtySmoke(projectRoot: HostPath): Promise<number> {
+export async function runNativePtySmoke(
+  projectRoot: HostPath,
+  interruptionCheckpoint: SmokeInterruptionCheckpoint,
+): Promise<number> {
   const host = new LocalHost()
   const supervisor = new PtySupervisor()
   const profileStorePath = joinHostPath(projectRoot, '.hvir-smoke-native-profile.json')
-  const cleanup = new SmokeCleanup()
+  const cleanup = new SmokeCleanup((name) => interruptionCheckpoint.disposed(name))
   cleanup.defer('local host', () => host.dispose())
   cleanup.defer('harness profile fixture', () =>
     host.exec('rm', ['-f', '--', profileStorePath.path]).then(() => undefined),
   )
   cleanup.defer('PTY supervisor', () => supervisor.disposeAllAndWait())
 
+  let scenarioFailed = false
   try {
     assertNoWindows('before native PTY launch')
     await host.connect()
     await host.exec('rm', ['-f', '--', profileStorePath.path])
     const profiles = await HarnessProfileStore.load(host, profileStorePath)
     const provider = harnessProvider(CUSTOM_PROFILE_PROVIDER_ID)
+    const predecessorToken = interruptionCheckpoint.predecessorToken
+    const predecessorProfileObserved = Boolean(
+      predecessorToken &&
+      profiles.list().some((profile) => profile.displayName.includes(predecessorToken)),
+    )
     const profile = await profiles.save({
       input: {
-        displayName: 'Smoke custom harness',
+        displayName: interruptionCheckpoint.runToken
+          ? `Smoke custom harness ${interruptionCheckpoint.runToken}`
+          : 'Smoke custom harness',
         providerId: provider.manifest.id,
         scope: { kind: 'project', projectRoot },
         executable: { kind: 'command', command: 'sh' },
@@ -109,6 +121,12 @@ export async function runNativePtySmoke(projectRoot: HostPath): Promise<number> 
     ) {
       throw new Error('Custom profile PTY identity did not preserve provider semantics')
     }
+    await interruptionCheckpoint.reach({
+      name: 'profile-pty-ready',
+      profileCount: profiles.list().length,
+      ptyCount: supervisor.list().length,
+      predecessorProfileObserved,
+    })
     const output = waitForPtyOutput({
       supervisor,
       terminal,
@@ -137,10 +155,20 @@ export async function runNativePtySmoke(projectRoot: HostPath): Promise<number> 
     console.log('HVIR_SMOKE_OK')
     return 0
   } catch (error) {
+    scenarioFailed = true
     console.error('HVIR_SMOKE_FAIL', error)
     return 1
   } finally {
-    await cleanup.run()
+    try {
+      await cleanup.run()
+    } catch (cleanupError) {
+      console.error('HVIR_SMOKE_CLEANUP_FAIL', cleanupError)
+      // A successful scenario must still fail when cleanup does not complete.
+      if (!scenarioFailed) {
+        // eslint-disable-next-line no-unsafe-finally
+        throw cleanupError
+      }
+    }
   }
 }
 

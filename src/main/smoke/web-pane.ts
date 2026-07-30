@@ -6,6 +6,7 @@ import { hostPathEquals, type HostPath, type ProjectState } from '../../shared'
 import type { RendererResourceScopes } from '../renderer-resource-scopes'
 import type { PtySupervisor } from '../pty/pty-supervisor'
 import type { WebPaneRouteRegistry } from '../web-pane/web-pane-route-registry'
+import type { SmokeInterruptionCheckpoint } from './interruption-checkpoint'
 import { ensureExplicitBareShellLaunch } from './terminal-explicit-launch'
 
 /** Exercise the real hostile guest, authenticated route, and workspace visibility contract. */
@@ -19,6 +20,8 @@ export async function verifyWebPaneWorkflow(options: {
   readonly baseState: () => ProjectState
   readonly setState: (state: ProjectState) => void
   readonly emitState: (state: ProjectState) => void
+  readonly interruptionCheckpoint: SmokeInterruptionCheckpoint
+  readonly predecessorSelectionObserved: boolean
 }): Promise<string> {
   const {
     win,
@@ -30,6 +33,8 @@ export async function verifyWebPaneWorkflow(options: {
     baseState,
     setState,
     emitState,
+    interruptionCheckpoint,
+    predecessorSelectionObserved,
   } = options
   const dashboardServer = createHttpServer()
   let dashboardRequests = 0
@@ -161,6 +166,20 @@ export async function verifyWebPaneWorkflow(options: {
         return false
       }
     }, 'isolated guest or service-worker route did not finish loading')
+
+    const predecessorPaneId = interruptionCheckpoint.predecessorPaneId
+    await interruptionCheckpoint.reach({
+      name: 'web-route-ready',
+      ownerGeneration: owner.generation,
+      ptyCount: supervisor.list().length,
+      routeOpen: routes.has(opened.paneId, owner.id, owner.generation),
+      paneId: opened.paneId,
+      loopbackPort: dashboardAddress.port,
+      predecessorRouteObserved: Boolean(
+        predecessorPaneId && routes.has(predecessorPaneId, owner.id, owner.generation),
+      ),
+      predecessorSelectionObserved,
+    })
 
     await dashboardGuest.executeJavaScript(`window.__hvirPaneState = 'preserved'`)
     const guestId = dashboardGuest.id

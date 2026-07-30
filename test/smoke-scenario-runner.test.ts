@@ -187,6 +187,10 @@ describe('Electron smoke command contracts', () => {
     new URL('../scripts/run-smoke.sh', import.meta.url),
     'utf8',
   )
+  const interruptionScript = readFileSync(
+    new URL('../scripts/run-smoke-interruption.mts', import.meta.url),
+    'utf8',
+  )
   const gauntletScript = readFileSync(
     new URL('../scripts/phase8-gauntlet.sh', import.meta.url),
     'utf8',
@@ -297,6 +301,23 @@ describe('Electron smoke command contracts', () => {
     expect(invocationScript).toContain('HVIR_SMOKE_SOURCE_DIRTY="$source_dirty"')
     expect(invocationScript).toContain('create-smoke-repository.sh')
     expect(invocationScript).toContain('unset ELECTRON_RENDERER_URL')
+  })
+
+  it('proves failed and interrupted predecessors cannot affect clean successors', () => {
+    expect(packageJson.scripts['smoke:isolation']).toContain(
+      'node scripts/run-smoke-interruption.mts',
+    )
+    expect(invocationScript).toContain(
+      "ownership_marker_value='hvir-smoke-owned-root-v1'",
+    )
+    expect(invocationScript).toContain("trap 'terminate_smoke 129' HUP")
+    expect(invocationScript).toContain("trap 'terminate_smoke 130' INT")
+    expect(invocationScript).toContain("trap 'terminate_smoke 143' TERM")
+    expect(invocationScript).toContain('kill -s TERM "$smoke_pid"')
+    expect(interruptionScript).toContain("action: 'fail'")
+    expect(interruptionScript).toContain("handle.killGroup('SIGKILL')")
+    expect(interruptionScript).toContain('cleanupOwnedSmokeRoot(killedWeb.root')
+    expect(interruptionScript).toContain('const successors = await Promise.all(')
   })
 
   it('enters capacity before unrelated legacy profile and viewer assertions', () => {
