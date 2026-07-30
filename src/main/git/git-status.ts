@@ -40,14 +40,11 @@ export class GitStatusCapability {
       ? (await this.context.project(workspaceRoot))?.repositoryPrefix
       : ''
     if (repositoryPrefix === undefined) return { changedFiles: 0 }
-    const status = await this.context.boundedStatus(workspaceRoot, [
-      'status',
-      '--porcelain=v2',
-      '-z',
-      '--untracked-files=all',
-      '--',
-      '.',
-    ])
+    const status = await this.context.boundedStatus(
+      workspaceRoot,
+      ['status', '--porcelain=v2', '-z', '--untracked-files=all', '--', '.'],
+      { allowIndexRefresh: true },
+    )
     const entries = excludeNestedWorktrees(
       parseStatus(status.output),
       workspaceRoot,

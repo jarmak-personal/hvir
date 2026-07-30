@@ -275,7 +275,7 @@ describe('WorkspaceCoordinator', () => {
     expect(watches.map((watch) => watch.target.projectId)).toEqual(['second'])
   })
 
-  it('deduplicates overlapping periodic refreshes', async () => {
+  it('deduplicates periodic discovery without sampling open workspace activity', async () => {
     vi.useFakeTimers()
     try {
       const { coordinator, discovery } = fixture()
@@ -294,10 +294,125 @@ describe('WorkspaceCoordinator', () => {
       coordinator.stopPolling()
       await vi.advanceTimersByTimeAsync(0)
 
+      expect(discovery.workspaceActivity).not.toHaveBeenCalled()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('suspends repeated passive status for a closed dirty workspace', async () => {
+    vi.useFakeTimers()
+    try {
+      const { coordinator, registry, discovery } = fixture()
+      const initial = projectState()
+      const closedState: ProjectState = {
+        ...initial,
+        projects: initial.projects.map((project) => ({
+          ...project,
+          workspaces: project.workspaces.map((workspace) => ({
+            ...workspace,
+            closed: true,
+          })),
+        })),
+      }
+      vi.mocked(registry.projectById).mockReturnValue(closedState.projects[0])
+      vi.mocked(registry.reconcileWorktrees).mockResolvedValue(closedState)
+      coordinator.startPolling(10)
+
+      await vi.advanceTimersByTimeAsync(40)
+      coordinator.stopPolling()
+      await vi.advanceTimersByTimeAsync(0)
+
+      expect(discovery.discover.mock.calls.length).toBeGreaterThan(1)
       expect(discovery.workspaceActivity).toHaveBeenCalledOnce()
     } finally {
       vi.useRealTimers()
     }
+  })
+
+  it('continues sampling a clean closed workspace for later activity', async () => {
+    vi.useFakeTimers()
+    try {
+      const { coordinator, registry, discovery } = fixture()
+      const initial = projectState()
+      const closedState: ProjectState = {
+        ...initial,
+        projects: initial.projects.map((project) => ({
+          ...project,
+          workspaces: project.workspaces.map((workspace) => ({
+            ...workspace,
+            closed: true,
+          })),
+        })),
+      }
+      vi.mocked(registry.projectById).mockReturnValue(closedState.projects[0])
+      vi.mocked(registry.reconcileWorktrees).mockResolvedValue(closedState)
+      discovery.workspaceActivity.mockResolvedValue({
+        ...workspaceActivity,
+        changedFiles: 0,
+        status: {
+          ...workspaceActivity.status!,
+          statusEntryCount: 0,
+          statusDigest: '0'.repeat(64),
+        },
+      })
+      coordinator.startPolling(10)
+
+      await vi.advanceTimersByTimeAsync(40)
+      coordinator.stopPolling()
+      await vi.advanceTimersByTimeAsync(0)
+
+      expect(discovery.workspaceActivity.mock.calls.length).toBeGreaterThan(1)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('does not settle an activity refresh after its generation is invalidated', async () => {
+    const { coordinator, discovery } = fixture()
+    let finish: ((value: WorkspaceActivityResult) => void) | undefined
+    discovery.workspaceActivity.mockImplementationOnce(
+      () =>
+        new Promise<WorkspaceActivityResult>((resolve) => {
+          finish = resolve
+        }),
+    )
+    const stale = coordinator.refresh('project-1')
+    await vi.waitFor(() => expect(finish).toBeTypeOf('function'))
+
+    coordinator.invalidateProject('project-1')
+    await coordinator.settleProject('project-1', 'skip')
+    await expect(coordinator.refresh('project-1')).resolves.toMatchObject({
+      activeProjectId: 'project-1',
+    })
+
+    expect(discovery.workspaceActivity).toHaveBeenCalledTimes(2)
+    finish?.(workspaceActivity)
+    await stale
+  })
+
+  it('still drains obsolete activity before a Git mutation', async () => {
+    const { coordinator, discovery } = fixture()
+    let finish: ((value: WorkspaceActivityResult) => void) | undefined
+    discovery.workspaceActivity.mockImplementationOnce(
+      () =>
+        new Promise<WorkspaceActivityResult>((resolve) => {
+          finish = resolve
+        }),
+    )
+    const stale = coordinator.refresh('project-1')
+    await vi.waitFor(() => expect(finish).toBeTypeOf('function'))
+    coordinator.invalidateProject('project-1')
+    let settled = false
+    const draining = coordinator.settleProject('project-1').then(() => {
+      settled = true
+    })
+
+    await Promise.resolve()
+    expect(settled).toBe(false)
+    finish?.(workspaceActivity)
+    await Promise.all([stale, draining])
+    expect(settled).toBe(true)
   })
 
   it('serializes transition operations at their behavioral boundary', async () => {

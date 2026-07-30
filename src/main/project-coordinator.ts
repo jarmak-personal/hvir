@@ -35,7 +35,7 @@ export interface ProjectWorkspacePort {
   refresh(projectId: string): Promise<ProjectState>
   replaceWatch(target?: ProjectWatchTarget): Promise<void>
   invalidateProject(projectId: string): void
-  settleProject(projectId: string): Promise<void>
+  settleProject(projectId: string, obsoleteRefresh?: 'wait' | 'skip'): Promise<void>
 }
 
 export interface ProjectCleanupPort {
@@ -351,7 +351,7 @@ export class ProjectCoordinator {
   private settleTransition(transition: Transition): Promise<void> {
     return Promise.all(
       transition.projects.map((projectId) =>
-        this.options.workspaces.settleProject(projectId),
+        this.options.workspaces.settleProject(projectId, 'skip'),
       ),
     ).then(() => undefined)
   }

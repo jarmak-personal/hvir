@@ -214,6 +214,12 @@ An explicit paste gesture may privately stage a bounded local clipboard PNG on a
 insert its path into an exact supported native harness composer, with no daemon, submission,
 generic prompt delivery, or repository artifact.
 
+### [ADR-027 — Demand-driven Git workspace activity](adr/ADR-027-demand-driven-workspace-activity.md)
+
+Periodic discovery no longer implies status for every open worktree; exact activity status is
+demand-driven, clean closed workspaces retain bounded sampling, and stable dirty filters cannot
+form an unbounded passive write loop.
+
 ## 5. Architecture
 
 ### Process model
