@@ -652,6 +652,8 @@ async function verifyLiveTerminalTypography(
 }
 
 async function focusTerminalEngine(win: BrowserWindow, sessionId: string): Promise<void> {
+  win.focus()
+  win.webContents.focus()
   await withTimeout(
     win.webContents.executeJavaScript(`
       new Promise((resolve, reject) => {
@@ -754,8 +756,8 @@ async function waitForCursorPhase(
           const surface = document.querySelector(
             '.terminal-surface[data-terminal-session="' + CSS.escape(sessionId) + '"]'
           );
-          const stats = surface?.querySelector('.terminal-engine-host')
-            ?.__hvirTerminalPerformance;
+          const engine = surface?.querySelector('.terminal-engine-host');
+          const stats = engine?.__hvirTerminalPerformance;
           if (
             stats && !stats.paused && !stats.pendingFrame &&
             stats.cursorVisible === ${JSON.stringify(visible)} &&
@@ -764,7 +766,17 @@ async function waitForCursorPhase(
             return resolve(stats.renderFrames);
           }
           if (Date.now() > deadline) {
-            return reject(new Error(${JSON.stringify(failure)}));
+            return reject(new Error(
+              ${JSON.stringify(failure)} + ': last=' + JSON.stringify({
+                engineFocused: document.activeElement === engine,
+                hasStats: Boolean(stats),
+                paused: stats?.paused,
+                pendingFrame: stats?.pendingFrame,
+                cursorVisible: stats?.cursorVisible,
+                renderFrames: stats?.renderFrames,
+                renderRequests: stats?.renderRequests
+              })
+            ));
           }
           setTimeout(poll, 25);
         };
