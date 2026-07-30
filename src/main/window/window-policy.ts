@@ -1,5 +1,11 @@
 import type { RendererOwner } from '../renderer-resource-scopes'
 
+const WORKBENCH_SCROLLBAR_FEATURES = [
+  'OverlayScrollbar',
+  'OverlayScrollbarFlashAfterAnyScrollUpdate',
+  'OverlayScrollbarFlashWhenMouseEnter',
+] as const
+
 export interface WorkbenchWindowOptions {
   readonly width: number
   readonly height: number
@@ -13,6 +19,7 @@ export interface WorkbenchWindowOptions {
     readonly contextIsolation: boolean
     readonly nodeIntegration: boolean
     readonly webviewTag: boolean
+    readonly additionalArguments: string[]
   }
 }
 
@@ -50,6 +57,10 @@ export function workbenchWindowOptions(preload: string): WorkbenchWindowOptions 
       nodeIntegration: false,
       // Webview guests support anti-framing pages and are confined by the route registry.
       webviewTag: true,
+      // Keep this renderer-only: isolated web-pane guests retain their own presentation.
+      additionalArguments: [
+        `--enable-features=${WORKBENCH_SCROLLBAR_FEATURES.join(',')}`,
+      ],
     },
   }
 }

@@ -1,0 +1,15 @@
+/* Cross-feature scrollbar presentation for hvir-owned DOM beneath #root.
+ * Chromium owns the overlay, flash, fade, and pointer-drag lifecycle through
+ * the workbench renderer policy. TerminalPane and isolated web panes retain
+ * their own rendering boundaries. */
+:where(#root, #root *) {
+  scrollbar-color: var(--text-muted) transparent;
+  scrollbar-width: thin;
+}
+
+/* Keep native high-contrast colors instead of applying hvir's theme palette. */
+@media (forced-colors: active) {
+  :where(#root, #root *) {
+    scrollbar-color: auto;
+  }
+}

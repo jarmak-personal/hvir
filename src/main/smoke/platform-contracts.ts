@@ -3,6 +3,7 @@ import { net, protocol, type BrowserWindow } from 'electron'
 import { HTML_PREVIEW_SCHEME } from '../../shared'
 import type { HtmlPreviewProtocol } from '../html-preview-protocol'
 import type { PtySupervisor } from '../pty/pty-supervisor'
+import { verifyScrollbarPresentation } from './scrollbar-presentation'
 import { ensureExplicitBareShellLaunch } from './terminal-explicit-launch'
 
 interface RectSnapshot {
@@ -52,6 +53,7 @@ export async function verifyPlatformContracts({
   const snapshot = await platformContractSnapshot(win)
   assertPlatformGeometry(snapshot)
   const paneDividerStatus = await verifyPaneDividerControlVisibility(win)
+  const scrollbarStatus = await verifyScrollbarPresentation(win)
   const processSandboxStatus =
     process.env['HVIR_SMOKE_REQUIRE_PROCESS_SANDBOX'] === '1'
       ? await verifyRequiredProcessSandbox(win)
@@ -81,7 +83,8 @@ export async function verifyPlatformContracts({
     `${process.platform} ${process.arch} · ${snapshot.viewport.width}×${snapshot.viewport.height} ` +
     `· terminal ${Math.round(snapshot.terminalPanel.height)}px · ` +
     `canvas remainder ${rightRemainder.toFixed(1)}×${bottomRemainder.toFixed(1)}px ` +
-    `${processSandboxStatus}· ${paneDividerStatus} · ${explicitLaunch} · ${protocolStatus}`
+    `${processSandboxStatus}· ${paneDividerStatus} · ${scrollbarStatus} ` +
+    `· ${explicitLaunch} · ${protocolStatus}`
   )
 }
 

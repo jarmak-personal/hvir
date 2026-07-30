@@ -279,19 +279,12 @@ export async function verifyTerminalPresentationLifecycle(
                 const railBounds = rail.getBoundingClientRect();
                 const listBounds = markerList.getBoundingClientRect();
                 const restoreBounds = restore.getBoundingClientRect();
-                const scrollbar = getComputedStyle(
-                  markerList,
-                  '::-webkit-scrollbar'
-                );
-                const thumb = getComputedStyle(
-                  markerList,
-                  '::-webkit-scrollbar-thumb'
-                );
+                const listStyle = getComputedStyle(markerList);
                 if (
-                  getComputedStyle(markerList).overflowY !== 'auto' ||
+                  listStyle.overflowY !== 'auto' ||
                   markerList.scrollHeight <= markerList.clientHeight ||
-                  scrollbar.width !== '3px' ||
-                  thumb.backgroundColor === 'rgba(0, 0, 0, 0)' ||
+                  listStyle.scrollbarWidth !== 'thin' ||
+                  markerList.offsetWidth !== markerList.clientWidth ||
                   listBounds.left < railBounds.left - 1 ||
                   listBounds.right > railBounds.right + 1 ||
                   restoreBounds.left < railBounds.left - 1 ||
@@ -300,9 +293,10 @@ export async function verifyTerminalPresentationLifecycle(
                 ) {
                   return fail(
                     'compact marker overflow escaped the rail or hid restore: ' +
-                    'overflow=' + getComputedStyle(markerList).overflowY +
+                    'overflow=' + listStyle.overflowY +
                     ' heights=' + markerList.clientHeight + '/' + markerList.scrollHeight +
-                    ' scrollbar=' + scrollbar.width +
+                    ' scrollbar=' + listStyle.scrollbarWidth +
+                    ' widths=' + markerList.clientWidth + '/' + markerList.offsetWidth +
                     ' rail=' + [railBounds.left, railBounds.right].join(',') +
                     ' list=' + [listBounds.left, listBounds.right].join(',') +
                     ' restore=' + [
@@ -913,12 +907,16 @@ async function verifyTerminalLaunchMenuOverflow(
             ' viewport=' + window.innerWidth + 'x' + window.innerHeight
           );
         }
-        const scrollbar = getComputedStyle(menu, '::-webkit-scrollbar');
-        const thumb = getComputedStyle(menu, '::-webkit-scrollbar-thumb');
-        if (scrollbar.width !== '8px' || thumb.backgroundColor === 'rgba(0, 0, 0, 0)') {
+        const menuStyle = getComputedStyle(menu);
+        const scrollbarGutter =
+          menu.offsetWidth -
+          menu.clientWidth -
+          parseFloat(menuStyle.borderLeftWidth) -
+          parseFloat(menuStyle.borderRightWidth);
+        if (menuStyle.scrollbarWidth !== 'thin' || Math.abs(scrollbarGutter) > 0.01) {
           throw new Error(
-            'overflowing launch menu has no visible scrollbar: width=' +
-            scrollbar.width + ' thumb=' + thumb.backgroundColor
+            'overflowing launch menu did not retain overlay scrolling: width=' +
+            menuStyle.scrollbarWidth + ' gutter=' + scrollbarGutter
           );
         }
 
@@ -944,7 +942,7 @@ async function verifyTerminalLaunchMenuOverflow(
           throw new Error('final harness profile and actions are not reachable by scrolling');
         }
         add.click();
-        return created.length + ' configured profiles · visible scrollbar · final actions';
+        return created.length + ' configured profiles · overlay scrollbar · final actions';
       })()
     `),
     'terminal launch menu overflow timed out',
