@@ -44,12 +44,14 @@ explicit product non-goal, close that loop before asking anyone to write code.
 
 ## Use agents deliberately
 
-The repository provides two lifecycle skills and two focused reviewers:
+The repository provides two lifecycle skills, one test-design skill, and two focused reviewers:
 
 - `hvir-create-issue` evaluates product and ADR alignment, sharpens the problem and outcome,
   and prepares a discussion-ready issue.
 - `hvir-implement-issue` performs architecture reconnaissance, raises design concerns before
   editing, and implements an aligned issue with verification.
+- `write-hvir-tests` selects the behavior owner and lowest real test altitude for test changes,
+  fixtures, flake diagnosis, and test review.
 - `hvir-review-issue` critiques broad issue drafts for hvir fit, scope, architecture creep,
   duplication, and unnecessary machinery.
 - `hvir-review-code` critiques a ready implementation for correctness, issue fidelity,
@@ -209,6 +211,11 @@ blocking non-growth ratchets and review signals, not targets and not a substitut
 ownership. Extract responsibilities rather than moving arbitrary blocks into smaller files.
 
 ## Verify at the owning seam
+
+Use the repository-owned
+[`write-hvir-tests`](.claude/skills/write-hvir-tests/SKILL.md) skill when designing, changing,
+diagnosing, or reviewing tests. It contains the procedural workflow and stable behavior-altitude
+matrix; this section keeps only the concise contributor rule.
 
 Tests should match the behavior's real boundary:
 

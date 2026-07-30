@@ -1,0 +1,4 @@
+interface:
+  display_name: 'Write hvir Tests'
+  short_description: 'Choose and prove behavior at its real seam'
+  default_prompt: "Use $write-hvir-tests to design or review hvir test coverage at the behavior's lowest real owning seam."
