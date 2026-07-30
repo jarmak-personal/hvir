@@ -503,7 +503,6 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
         host,
         supervisor,
         resources: rendererResources,
-        routes: webPaneRoutes,
         activeRoot: smokeRoot,
         closeRoot: smokeWebSwitchRoot,
         getState: () => smokeIpcProjectState,

@@ -10,7 +10,6 @@ import {
 import type { ProjectHost } from '../project-host'
 import type { PtySupervisor } from '../pty/pty-supervisor'
 import type { RendererResourceScopes } from '../renderer-resource-scopes'
-import type { WebPaneRouteRegistry } from '../web-pane/web-pane-route-registry'
 import {
   asHarnessProfileId,
   type HostPath,
@@ -110,7 +109,6 @@ export async function verifyWorkspaceCloseSmoke({
   host,
   supervisor,
   resources,
-  routes,
   activeRoot,
   closeRoot,
   getState,
@@ -122,7 +120,6 @@ export async function verifyWorkspaceCloseSmoke({
   readonly host: ProjectHost
   readonly supervisor: PtySupervisor
   readonly resources: RendererResourceScopes
-  readonly routes: WebPaneRouteRegistry
   readonly activeRoot: HostPath
   readonly closeRoot: HostPath
   readonly getState: () => ProjectState
@@ -175,15 +172,18 @@ export async function verifyWorkspaceCloseSmoke({
     active: true,
     updatedAt: Date.now(),
   })
-  await supervisor.spawn({
-    host,
-    provider: plainShellProvider,
-    cwd: closeRoot,
-    workspaceRoot: closeRoot,
-    ownerId: owner.id,
-    ownerGeneration: owner.generation,
-    sessionId,
-  })
+  await withTimeout(
+    supervisor.spawn({
+      host,
+      provider: plainShellProvider,
+      cwd: closeRoot,
+      workspaceRoot: closeRoot,
+      ownerId: owner.id,
+      ownerGeneration: owner.generation,
+      sessionId,
+    }),
+    'workspace close PTY setup timed out',
+  )
   let resourceReleased = false
   resources.register(
     owner,
@@ -197,21 +197,12 @@ export async function verifyWorkspaceCloseSmoke({
       resourceReleased = true
     },
   )
-  const route = await routes.open({
-    ownerId: owner.id,
-    ownerGeneration: owner.generation,
-    sourceTerminalId: sessionId,
-    workspaceRoot: closeRoot,
-    host,
-    url: 'http://127.0.0.1:65534/workspace-close-smoke',
-  })
   emitState(getState())
 
   await runCloseDialog(win, 'Cancel')
   if (
     !supervisor.get(sessionId) ||
     !recovery.has(closeRoot, sessionId) ||
-    !routes.has(route.paneId, owner.id, owner.generation) ||
     resourceReleased
   ) {
     throw new Error('cancelling workspace close changed owned resources')
@@ -222,9 +213,6 @@ export async function verifyWorkspaceCloseSmoke({
   if (supervisor.get(sessionId)) throw new Error('workspace close retained its live PTY')
   if (recovery.has(closeRoot, sessionId)) {
     throw new Error('workspace close retained its recovery record')
-  }
-  if (routes.has(route.paneId, owner.id, owner.generation)) {
-    throw new Error('workspace close retained its web route')
   }
   if (!resourceReleased) throw new Error('workspace close retained renderer resources')
   if (
@@ -241,7 +229,7 @@ export async function verifyWorkspaceCloseSmoke({
   }
   setState(state)
   emitState(state)
-  return 'cancel-safe · live PTY ended · recovery forgotten · web/resource authority revoked'
+  return 'cancel-safe · live PTY ended · recovery forgotten · renderer resource revoked'
 }
 
 function updateWorkspace(

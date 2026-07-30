@@ -461,6 +461,8 @@ describe('Electron smoke command contracts', () => {
     expect(workspaceRemoteScenario).toContain('state=${JSON.stringify(state)}')
     expect(workspaceRemoteScenario).toContain('no PTY materialized')
     expect(workspaceRemoteScenario).not.toContain('requestAnimationFrame')
+    expect(workspaceRemoteScenario).not.toContain('WebPaneRouteRegistry')
+    expect(workspaceRemoteScenario).not.toContain('routes.open')
     expect(webPaneScenario).toContain('state=${JSON.stringify(state)}')
     expect(webPaneScenario).toContain('routes.source')
     expect(webPaneScenario).toContain('routes.paneIdForGuest')

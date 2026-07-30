@@ -3,7 +3,6 @@ import type { BrowserWindow } from 'electron'
 import type { ProjectHost } from '../project-host'
 import type { PtySupervisor } from '../pty/pty-supervisor'
 import type { RendererResourceScopes } from '../renderer-resource-scopes'
-import type { WebPaneRouteRegistry } from '../web-pane/web-pane-route-registry'
 import type { HostPath, ProjectState, TerminalRecoverySession } from '../../shared'
 import { verifyWorkspaceCloseSmoke } from './workspace-close'
 
@@ -18,7 +17,6 @@ export async function verifyWorkspaceRemoteWorkflow(options: {
   readonly host: ProjectHost
   readonly supervisor: PtySupervisor
   readonly resources: RendererResourceScopes
-  readonly routes: WebPaneRouteRegistry
   readonly activeRoot: HostPath
   readonly closeRoot: HostPath
   readonly baseState: () => ProjectState
@@ -38,7 +36,6 @@ export async function verifyWorkspaceRemoteWorkflow(options: {
     host,
     supervisor,
     resources,
-    routes,
     activeRoot,
     closeRoot,
     baseState,
@@ -61,7 +58,6 @@ export async function verifyWorkspaceRemoteWorkflow(options: {
       host,
       supervisor,
       resources,
-      routes,
       activeRoot,
       closeRoot,
       getState,
