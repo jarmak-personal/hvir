@@ -665,6 +665,11 @@ async function verifyLiveTerminalTypography(
     ) {
       resolveResize()
     }
+    supervisor.write(
+      terminal.id,
+      terminal.ownerId,
+      "printf '\n__HVIR_TYPO_STTY__:'; stty size; printf ':__HVIR_TYPO_END__\n'\n",
+    )
     await withTimeout(resizeObserved, 'terminal typography PTY resize timed out', 5_000)
   } catch (error) {
     failure = new Error(

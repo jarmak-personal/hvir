@@ -360,7 +360,7 @@ describe('Electron smoke command contracts', () => {
     )
   })
 
-  it('subscribes to the native resize signal before changing live typography', () => {
+  it('observes the live PTY size after changing typography', () => {
     const typographyScenario = terminalPresentationScenario.slice(
       terminalPresentationScenario.indexOf('async function verifyLiveTerminalTypography'),
       terminalPresentationScenario.indexOf('async function focusTerminalEngine'),
@@ -371,6 +371,7 @@ describe('Electron smoke command contracts', () => {
     expect(typographyScenario).toContain('trap \\"printf')
     expect(typographyScenario).toContain('\\" WINCH')
     expect(typographyScenario).toContain('__HVIR_TYPO_TRAP_READY__')
+    expect(typographyScenario.match(/stty size/g)).toHaveLength(2)
     expect(typographyScenario).not.toContain(
       'new Promise<void>((resolve) => setTimeout(resolve, 100))',
     )
