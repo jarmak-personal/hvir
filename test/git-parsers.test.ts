@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+  assertBranchName,
+  assertRevision,
   decodeHistoryCursor,
   encodeHistoryCursor,
   parseBlame,
@@ -16,6 +18,50 @@ import { asHostId, hostPath } from '../src/shared'
 const hostId = asHostId('local')
 
 describe('Git pure parsers', () => {
+  it('accepts bounded branch names and rejects every command-line-unsafe form', () => {
+    expect(() => assertBranchName('feature/test-evidence')).not.toThrow()
+    expect(() => assertBranchName('a'.repeat(1_024))).not.toThrow()
+
+    for (const branch of [
+      '',
+      '-option',
+      'feature\0name',
+      'feature..name',
+      'feature@{name',
+      'feature.',
+      'feature/',
+      'feature//name',
+      'feature/name.lock',
+      'feature name',
+      'feature~name',
+      'feature^name',
+      'feature:name',
+      'feature?name',
+      'feature*name',
+      'feature\\name',
+      'feature[name',
+      'feature\u007fname',
+      'a'.repeat(1_025),
+    ]) {
+      expect(() => assertBranchName(branch)).toThrow('Invalid branch name')
+    }
+  })
+
+  it('accepts bounded hexadecimal revisions and rejects ambiguous revision syntax', () => {
+    expect(() => assertRevision('abc1234')).not.toThrow()
+    expect(() => assertRevision('A'.repeat(64))).not.toThrow()
+
+    for (const revision of [
+      'abc123',
+      'g'.repeat(40),
+      'a'.repeat(65),
+      'HEAD',
+      '-abc1234',
+    ]) {
+      expect(() => assertRevision(revision)).toThrow('Invalid git revision')
+    }
+  })
+
   it('normalizes modern worktree porcelain and ignores unknown fields', () => {
     const hash = 'a'.repeat(64)
     const parsed = parseWorktreeList(

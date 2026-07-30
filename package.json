@@ -50,6 +50,7 @@
     "hooks:install": "bash scripts/install-git-hooks.sh",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:mutation": "stryker run",
     "check-seams": "bash scripts/check-seams.sh",
     "check-adrs": "node scripts/check-adrs.mjs",
     "architecture:report": "node scripts/architecture-hotspots.mjs",
@@ -88,6 +89,8 @@
   "devDependencies": {
     "@electron/rebuild": "^4.2.0",
     "@eslint/js": "^10.0.1",
+    "@stryker-mutator/core": "^9.6.1",
+    "@stryker-mutator/vitest-runner": "^9.6.1",
     "@types/markdown-it": "^14.1.2",
     "@types/node": "^24.13.3",
     "@types/react": "^19.2.0",
