@@ -15,7 +15,7 @@
 .diagnostic-report-storage,
 .diagnostic-report-image > p {
   color: #929dab;
-  font-size: 11px;
+  font-size: calc(11px * var(--hvir-interface-scale));
 }
 
 .diagnostic-report-status {
@@ -30,7 +30,7 @@
 .diagnostic-report-dialog h3 {
   margin-bottom: 6px;
   color: #cbd5df;
-  font-size: 11px;
+  font-size: calc(11px * var(--hvir-interface-scale));
   text-transform: uppercase;
 }
 
@@ -43,7 +43,7 @@
   border-radius: 5px;
   background: #10151b;
   color: #b8c7d7;
-  font-size: 10px;
+  font-size: calc(10px * var(--hvir-interface-scale));
   white-space: pre-wrap;
   word-break: break-word;
 }
@@ -64,7 +64,7 @@
   gap: 3px 10px;
   margin: 0 0 8px;
   color: #9ba9b8;
-  font-size: 10px;
+  font-size: calc(10px * var(--hvir-interface-scale));
 }
 
 .diagnostic-report-image dt {

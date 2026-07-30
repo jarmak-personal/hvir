@@ -40,6 +40,7 @@ describe('terminal workspace collection', () => {
           onOpenWebLink={vi.fn()}
           preferences={{
             terminalTheme: 'app',
+            terminalTypography: { fontFamily: 'monospace', fontSize: 13 },
             composerSubmitMode: 'enter',
             idleThresholdMs: 10_000,
             terminalRecoveryMode: 'prompt',
@@ -167,6 +168,7 @@ function collection({
       onOpenWebLink={vi.fn()}
       preferences={{
         terminalTheme: 'app',
+        terminalTypography: { fontFamily: 'monospace', fontSize: 13 },
         composerSubmitMode: 'enter',
         idleThresholdMs: 10_000,
         terminalRecoveryMode: 'prompt',

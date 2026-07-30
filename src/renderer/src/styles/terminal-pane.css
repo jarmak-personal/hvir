@@ -39,7 +39,7 @@
   max-width: 280px;
   overflow: hidden;
   color: #aeb7c3;
-  font-size: 9px;
+  font-size: calc(9px * var(--hvir-interface-scale));
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -51,7 +51,7 @@
   border-radius: 3px;
   background: #191e25;
   color: #aeb7c3;
-  font-size: 9px;
+  font-size: calc(9px * var(--hvir-interface-scale));
 }
 
 .terminal-start-fresh {

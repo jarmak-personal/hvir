@@ -15,7 +15,7 @@
   padding: 0 10px 0 12px;
   border-bottom: 1px solid #282d36;
   color: #8d96a4;
-  font-size: 10px;
+  font-size: calc(10px * var(--hvir-interface-scale));
   text-transform: uppercase;
 }
 
@@ -33,7 +33,7 @@
   border-radius: 3px;
   background: transparent;
   color: #8d96a4;
-  font-size: 17px;
+  font-size: calc(17px * var(--hvir-interface-scale));
 }
 
 .git-commit-inspector > header button:hover {
@@ -58,7 +58,7 @@
 .git-inspector-summary > h2 {
   margin: 0 0 10px;
   color: #e1e5eb;
-  font-size: 13px;
+  font-size: calc(13px * var(--hvir-interface-scale));
   font-weight: 600;
   line-height: 1.35;
 }
@@ -81,7 +81,7 @@
   display: grid;
   grid-template-columns: 54px minmax(0, 1fr);
   gap: 8px;
-  font-size: 10px;
+  font-size: calc(10px * var(--hvir-interface-scale));
 }
 
 .git-inspector-summary dt {
@@ -102,7 +102,7 @@
   padding: 0;
   overflow: visible;
   color: #9ca5b2;
-  font-size: 11px;
+  font-size: calc(11px * var(--hvir-interface-scale));
   line-height: 1.55;
 }
 
@@ -118,12 +118,12 @@
   margin: 1em 0 0.5em;
   padding: 0;
   border: 0;
-  font-size: 12px;
+  font-size: calc(12px * var(--hvir-interface-scale));
 }
 
 .markdown-body.git-commit-message pre {
   padding: 9px 10px;
-  font-size: 10px;
+  font-size: calc(10px * var(--hvir-interface-scale));
 }
 
 .markdown-body.git-commit-message > :last-child {
@@ -135,7 +135,7 @@
   margin: 0;
   color: #7f8897;
   font: inherit;
-  font-size: 10px;
+  font-size: calc(10px * var(--hvir-interface-scale));
 }
 
 .markdown-fragment-fallback.git-commit-message {
@@ -175,7 +175,7 @@
   border-radius: 3px;
   background: #20252d;
   color: #8993a1;
-  font-size: 10px;
+  font-size: calc(10px * var(--hvir-interface-scale));
   line-height: 1;
   pointer-events: none;
 }
@@ -189,7 +189,7 @@
 
 .git-inspector-files > header span {
   color: #7f8897;
-  font-size: 10px;
+  font-size: calc(10px * var(--hvir-interface-scale));
   font-weight: 400;
   text-transform: none;
 }
@@ -229,7 +229,7 @@
   border: 0;
   background: transparent;
   color: #aeb5c0;
-  font-size: 10px;
+  font-size: calc(10px * var(--hvir-interface-scale));
   text-align: left;
 }
 

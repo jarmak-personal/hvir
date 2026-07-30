@@ -157,6 +157,75 @@ describe('SettingsDialog section workflow', () => {
     )
   })
 
+  it('previews custom fonts and applies typography only through Save', async () => {
+    const onSave = vi.fn()
+    renderDialog(undefined, onSave)
+
+    changeSelect(
+      document.querySelector<HTMLSelectElement>('#settings-interface-font-mode')!,
+      'custom',
+    )
+    changeValue(
+      document.querySelector<HTMLInputElement>('#settings-interface-font')!,
+      'Example Sans',
+    )
+    changeSelect(
+      document.querySelector<HTMLSelectElement>('#settings-monospace-font-mode')!,
+      'custom',
+    )
+    changeValue(
+      document.querySelector<HTMLInputElement>('#settings-monospace-font')!,
+      'Example Mono',
+    )
+    changeValue(
+      document.querySelector<HTMLInputElement>('#settings-interface-scale')!,
+      '1.25',
+    )
+    changeValue(
+      document.querySelector<HTMLInputElement>('#settings-terminal-text-size')!,
+      '18',
+    )
+
+    expect(onSave).not.toHaveBeenCalled()
+    const previews = document.querySelectorAll<HTMLElement>('.settings-font-preview')
+    expect(previews[0]?.style.fontFamily).toContain('Example Sans')
+    expect(previews[0]?.style.fontFamily).toContain('sans-serif')
+    expect(previews[1]?.style.fontFamily).toContain('Example Mono')
+    expect(previews[1]?.style.fontFamily).toContain('monospace')
+
+    await act(async () => {
+      button('Save app settings').click()
+      await Promise.resolve()
+    })
+    expect(onSave).toHaveBeenCalledWith(
+      'dark',
+      expect.objectContaining({
+        interfaceFont: { mode: 'custom', family: 'Example Sans' },
+        monospaceFont: { mode: 'custom', family: 'Example Mono' },
+        interfaceScale: 1.25,
+        terminalTextSize: 18,
+      }),
+    )
+  })
+
+  it('closes without applying an unsaved typography draft', async () => {
+    const onSave = vi.fn()
+    const onClose = vi.fn()
+    renderDialog(undefined, onSave, onClose)
+    changeValue(
+      document.querySelector<HTMLInputElement>('#settings-terminal-text-size')!,
+      '20',
+    )
+
+    await act(async () => {
+      button('Close settings').click()
+      await Promise.resolve()
+    })
+
+    expect(onClose).toHaveBeenCalledOnce()
+    expect(onSave).not.toHaveBeenCalled()
+  })
+
   it('contains focus and Escape inside the nested composer consent dialog', async () => {
     const onClose = vi.fn()
     renderDialog(undefined, vi.fn(), onClose)
@@ -231,6 +300,10 @@ function renderDialog(
           gitAutoFetchIntervalMs: 5 * 60_000,
           terminalRecoveryMode: 'prompt',
           terminalTheme: 'app',
+          interfaceFont: { mode: 'system', family: '' },
+          monospaceFont: { mode: 'system', family: '' },
+          interfaceScale: 1,
+          terminalTextSize: 13,
           composerSubmitMode: 'enter',
           keybindings: DEFAULT_KEYBINDINGS,
         },
@@ -284,6 +357,16 @@ function changeValue(
         : HTMLInputElement.prototype
     Object.getOwnPropertyDescriptor(prototype, 'value')?.set?.call(control, value)
     control.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+}
+
+function changeSelect(control: HTMLSelectElement, value: string): void {
+  act(() => {
+    Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')?.set?.call(
+      control,
+      value,
+    )
+    control.dispatchEvent(new Event('change', { bubbles: true }))
   })
 }
 

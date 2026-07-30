@@ -40,12 +40,12 @@
   border-radius: 4px;
   background: var(--surface-1);
   color: var(--text);
-  font-size: 10px;
+  font-size: calc(10px * var(--hvir-interface-scale));
 }
 
 .project-dialog .dialog-note {
   color: var(--text-muted);
-  font-size: 10px;
+  font-size: calc(10px * var(--hvir-interface-scale));
 }
 
 .worktree-prune-list {
@@ -76,12 +76,12 @@
 
 .worktree-prune-list code {
   color: var(--text);
-  font-size: 10px;
+  font-size: calc(10px * var(--hvir-interface-scale));
 }
 
 .worktree-prune-list small {
   color: var(--text-muted);
-  font-size: 9px;
+  font-size: calc(9px * var(--hvir-interface-scale));
 }
 
 .project-dialog .worktree-prune-warning {
@@ -95,7 +95,7 @@
 .terminal-recovery-summary {
   margin: 0;
   color: #8f99a7;
-  font-size: 10px;
+  font-size: calc(10px * var(--hvir-interface-scale));
   line-height: 1.45;
 }
 
@@ -152,7 +152,7 @@
   border-radius: 3px;
   background: #15181e;
   color: #aeb8c5;
-  font-size: 9px;
+  font-size: calc(9px * var(--hvir-interface-scale));
 }
 
 .terminal-recovery-option strong,
@@ -164,12 +164,12 @@
 
 .terminal-recovery-option strong {
   color: #d4d9e0;
-  font-size: 11px;
+  font-size: calc(11px * var(--hvir-interface-scale));
 }
 
 .terminal-recovery-option small {
   color: #7f8997;
-  font-size: 9px;
+  font-size: calc(9px * var(--hvir-interface-scale));
 }
 
 .terminal-recovery-option .terminal-recovery-skip-warning {
@@ -187,7 +187,7 @@
   border-radius: 5px;
   background: #101318;
   color: #b9c7d8;
-  font-size: 11px;
+  font-size: calc(11px * var(--hvir-interface-scale));
   line-height: 1.5;
   user-select: text;
   white-space: normal;
@@ -267,7 +267,7 @@
 
 .session-host-option small {
   color: #747e8d;
-  font-size: 10px;
+  font-size: calc(10px * var(--hvir-interface-scale));
 }
 
 .folder-path-form {
@@ -301,7 +301,7 @@
   border-radius: 10px;
   background: #14181e;
   color: #8c96a4;
-  font-size: 9px;
+  font-size: calc(9px * var(--hvir-interface-scale));
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -329,25 +329,25 @@
 
 .folder-selection small {
   color: #747e8d;
-  font-size: 9px;
+  font-size: calc(9px * var(--hvir-interface-scale));
 }
 
 .folder-selection code {
   overflow: hidden;
   color: #b8c0cb;
-  font-size: 10px;
+  font-size: calc(10px * var(--hvir-interface-scale));
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .project-dialog p {
   color: #949dab;
-  font-size: 12px;
+  font-size: calc(12px * var(--hvir-interface-scale));
 }
 .project-dialog label {
   display: flex;
   flex-direction: column;
   gap: 5px;
-  font-size: 11px;
+  font-size: calc(11px * var(--hvir-interface-scale));
 }
 .project-dialog input,
 .project-dialog select {
@@ -392,7 +392,7 @@
 .confirmation-dialog-content h3 {
   margin: 0;
   color: var(--text-strong);
-  font-size: 16px;
+  font-size: calc(16px * var(--hvir-interface-scale));
   font-weight: 650;
   letter-spacing: -0.01em;
   line-height: 1.3;
@@ -428,7 +428,7 @@
   background: var(--surface-2);
   color: var(--text);
   cursor: pointer;
-  font-size: 10px;
+  font-size: calc(10px * var(--hvir-interface-scale));
   font-weight: 560;
 }
 

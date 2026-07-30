@@ -11,6 +11,10 @@ const settings = {
   gitAutoFetchIntervalMs: 5 * 60_000,
   terminalRecoveryMode: 'prompt' as const,
   terminalTheme: 'app' as const,
+  interfaceFont: { mode: 'system' as const, family: '' },
+  monospaceFont: { mode: 'system' as const, family: '' },
+  interfaceScale: 1,
+  terminalTextSize: 13,
   composerSubmitMode: 'enter' as const,
   keybindings: DEFAULT_KEYBINDINGS,
 }
@@ -27,6 +31,47 @@ describe('settings draft validation', () => {
       valid: false,
       section: 'terminal',
       fieldId: 'settings-idle-threshold',
+    })
+  })
+
+  it('routes invalid text presentation bounds to their Appearance controls', () => {
+    expect(
+      validateSettingsDraft({
+        ...createSettingsDraft('dark', settings),
+        interfaceScale: '2',
+      }),
+    ).toMatchObject({
+      valid: false,
+      section: 'appearance',
+      fieldId: 'settings-interface-scale',
+    })
+    expect(
+      validateSettingsDraft({
+        ...createSettingsDraft('dark', settings),
+        terminalTextSize: '9',
+      }),
+    ).toMatchObject({
+      valid: false,
+      section: 'appearance',
+      fieldId: 'settings-terminal-text-size',
+    })
+  })
+
+  it('falls back from blank or invalid custom font families when saving', () => {
+    const result = validateSettingsDraft({
+      ...createSettingsDraft('dark', settings),
+      interfaceFontMode: 'custom',
+      interfaceFontFamily: '   ',
+      monospaceFontMode: 'custom',
+      monospaceFontFamily: 'One, Two',
+    })
+
+    expect(result).toMatchObject({
+      valid: true,
+      settings: {
+        interfaceFont: { mode: 'system', family: '' },
+        monospaceFont: { mode: 'system', family: '' },
+      },
     })
   })
 

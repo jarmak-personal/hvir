@@ -18,6 +18,7 @@ import type {
   TerminalSize,
   TerminalColorTheme,
   TerminalLinkActivation,
+  TerminalTypography,
 } from './terminal-pane'
 import {
   detectTerminalFileLinks,
@@ -45,11 +46,12 @@ export interface GhosttyTerminalPaneOptions {
 /** Load the shared WASM instance off the first paint, then create a pane. */
 export async function createGhosttyTerminalPane(
   theme: TerminalColorTheme,
+  typography: TerminalTypography,
   options: GhosttyTerminalPaneOptions,
 ): Promise<TerminalPane> {
   initializeGhostty ??= init()
   await initializeGhostty
-  return new GhosttyTerminalPane(theme, options)
+  return new GhosttyTerminalPane(theme, typography, options)
 }
 
 class ListenerSet<T> {
@@ -75,13 +77,17 @@ class GhosttyTerminalPane implements TerminalPane {
   private readonly terminal: GhosttyTerminal
   private readonly fit: TerminalFitController
 
-  constructor(theme: TerminalColorTheme, options: GhosttyTerminalPaneOptions) {
+  constructor(
+    theme: TerminalColorTheme,
+    private typography: TerminalTypography,
+    options: GhosttyTerminalPaneOptions,
+  ) {
     this.terminal = new GhosttyTerminal({
       allowTransparency: false,
       cursorBlink: true,
       cursorStyle: 'block',
-      fontFamily: "'JetBrains Mono', 'SFMono-Regular', Consolas, monospace",
-      fontSize: 13,
+      fontFamily: typography.fontFamily,
+      fontSize: typography.fontSize,
       scrollback: 10_000,
       theme,
     })
@@ -135,7 +141,13 @@ class GhosttyTerminalPane implements TerminalPane {
     // the engine-neutral TerminalPane seam does not learn ghostty counters.
     Object.defineProperty(surface, '__hvirTerminalPerformance', {
       configurable: true,
-      get: () => this.terminal.getRenderStats(),
+      get: () => ({
+        ...this.terminal.getRenderStats(),
+        cols: this.terminal.cols,
+        rows: this.terminal.rows,
+        fontFamily: this.typography.fontFamily,
+        fontSize: this.typography.fontSize,
+      }),
     })
     container.append(surface)
     this.surface = surface
@@ -198,6 +210,26 @@ class GhosttyTerminalPane implements TerminalPane {
     // forward it to the canvas renderer. Keep the seam correct for engines and
     // call the renderer's public theme method while upstream support matures.
     this.terminal.renderer?.setTheme(theme)
+    this.redraw()
+  }
+
+  setTypography(typography: TerminalTypography): void {
+    if (
+      this.disposed ||
+      (typography.fontFamily === this.typography.fontFamily &&
+        typography.fontSize === this.typography.fontSize)
+    ) {
+      return
+    }
+    const previous = this.typography
+    this.typography = typography
+    if (typography.fontFamily !== previous.fontFamily) {
+      this.terminal.options.fontFamily = typography.fontFamily
+    }
+    if (typography.fontSize !== previous.fontSize) {
+      this.terminal.options.fontSize = typography.fontSize
+    }
+    this.fit.fit()
     this.redraw()
   }
 
