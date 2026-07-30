@@ -270,9 +270,9 @@ in-memory loopback server and is not installed or retained by hvir. Cleanup requ
 per-run ownership marker before removing that root, stops all streams/PTYs/watches, disconnects
 transports, and installs no remote service. `SIGHUP`, `SIGINT`, and `SIGTERM` enter that same
 bounded cleanup path instead of exiting around it. Failure output and
-the optional `HVIR_REAL_SSH_ARTIFACT_DIR` artifact contain only the closed phase, connection/watch
-state, resource counts/flags, transport counts, and duration—never target configuration,
-credentials, fingerprints, paths, terminal output, or remote file contents.
+the optional `HVIR_REAL_SSH_ARTIFACT_DIR` artifact contain only the closed phase and failure
+reason, connection/watch state, resource counts/flags, transport counts, and duration—never
+target configuration, credentials, fingerprints, paths, terminal output, or remote file contents.
 
 The monthly/manual `Real-host SSH acceptance` workflow reads the same values from the protected
 `real-host-ssh` environment. With no configured target its acceptance job is visibly skipped; a

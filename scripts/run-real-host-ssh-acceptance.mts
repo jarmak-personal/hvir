@@ -28,6 +28,7 @@ import {
   writeRealHostSshFailureEvidence,
   type RealHostSshConfiguration,
   type RealHostSshFailureEvidence,
+  type RealHostSshFailureReason,
   type RealHostSshPhase,
   type RealHostSshResourceEvidence,
 } from './real-host-ssh-contract.mts'
@@ -129,6 +130,7 @@ async function main(): Promise<number> {
     )
     const evidence = createRealHostSshFailureEvidence({
       phase: 'configuration',
+      reason: 'configuration-invalid',
       durationMs: 0,
       connectionState: 'disconnected',
       watchTier: 'polling',
@@ -223,8 +225,8 @@ async function runConfiguredAcceptance(
     })
 
     await exerciseRealHost(configuration, host, state)
-  } catch {
-    failure = captureFailure(state, host)
+  } catch (error) {
+    failure = captureFailure(state, host, classifyFailure(state, error))
   } finally {
     state.phase = 'cleanup'
     const cleanupStartedAt = performance.now()
@@ -240,12 +242,12 @@ async function runConfiguredAcceptance(
         )
       }
     } catch {
-      failure = captureFailure(state, host)
+      failure = captureFailure(state, host, 'cleanup-failed')
     } finally {
       try {
         await host?.dispose()
       } catch {
-        failure ??= captureFailure(state, host)
+        failure ??= captureFailure(state, host, 'dispose-failed')
       }
       privateKey?.fill(0)
       for (const signal of ['SIGHUP', 'SIGINT', 'SIGTERM'] as const) {
@@ -263,7 +265,7 @@ async function runConfiguredAcceptance(
   if (
     state.completed.map(({ phase }) => phase).join(',') !== REAL_HOST_SSH_PHASES.join(',')
   ) {
-    const incomplete = captureFailure(state, host)
+    const incomplete = captureFailure(state, host, 'incomplete')
     await retainFailureEvidence(incomplete)
     console.error(`[real-host:ssh] failed ${JSON.stringify(incomplete)}`)
     return 1
@@ -767,15 +769,28 @@ function requireProject(state: AcceptanceState): DisposableRemoteProject {
 function captureFailure(
   state: AcceptanceState,
   host: SshHost | undefined,
+  reason: RealHostSshFailureReason,
 ): RealHostSshFailureEvidence {
   return createRealHostSshFailureEvidence({
     phase: state.phase,
+    reason,
     durationMs: performance.now() - state.startedAt,
     connectionState: host?.connectionState ?? 'disconnected',
     watchTier: host?.watchTier ?? 'polling',
     resources: resourceEvidence(state),
     transports: host?.transportDiagnostics() ?? [],
   })
+}
+
+function classifyFailure(
+  state: AcceptanceState,
+  error: unknown,
+): RealHostSshFailureReason {
+  if (state.interrupted) return 'interrupted'
+  if (error instanceof Error && error.message === 'Real-host SSH operation timed out') {
+    return 'operation-timeout'
+  }
+  return 'operation-failed'
 }
 
 function resourceEvidence(state: AcceptanceState): RealHostSshResourceEvidence {
@@ -860,6 +875,7 @@ void main().then(
   async () => {
     const evidence = createRealHostSshFailureEvidence({
       phase: 'configuration',
+      reason: 'launcher-failed',
       durationMs: 0,
       connectionState: 'disconnected',
       watchTier: 'polling',
