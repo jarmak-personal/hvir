@@ -13,9 +13,18 @@ const GIT_STATUS_MAX_BUFFER = 20 * 1024 * 1024
 const GIT_STATUS_MAX_RECORDS = (GIT_CHANGE_DISPLAY_LIMIT + 1) * 2
 
 /** The exact host operations used by the off-thread Git engine. */
+export interface GitExecOptions extends ExecOptions {
+  /** Permit one exact read-only Git command to persist refreshed index stat data. */
+  readonly allowIndexRefresh?: true
+}
+
 export interface GitHostPort {
   readonly hostId: HostId
-  exec(command: string, args: readonly string[], opts?: ExecOptions): Promise<ExecResult>
+  exec(
+    command: string,
+    args: readonly string[],
+    opts?: GitExecOptions,
+  ): Promise<ExecResult>
   readTextFile(path: HostPath): Promise<string>
 }
 
@@ -47,12 +56,15 @@ export class GitCommandContext {
   readOnly(
     root: HostPath,
     args: readonly string[],
-    opts: ExecOptions = {},
+    opts: GitExecOptions = {},
   ): Promise<ExecResult> {
     this.assertHost(root)
+    const { allowIndexRefresh, ...hostOptions } = opts
     return this.host.exec('git', ['-C', root.path, ...args], {
-      ...opts,
-      env: { ...opts.env, GIT_OPTIONAL_LOCKS: '0' },
+      ...hostOptions,
+      ...(allowIndexRefresh
+        ? { allowIndexRefresh: true }
+        : { env: { ...hostOptions.env, GIT_OPTIONAL_LOCKS: '0' } }),
     })
   }
 
@@ -83,11 +95,13 @@ export class GitCommandContext {
   async boundedStatus(
     root: HostPath,
     args: readonly string[],
+    options: { readonly allowIndexRefresh?: true } = {},
   ): Promise<{ readonly output: string; readonly truncated: boolean }> {
     const result = await this.readOnly(root, args, {
       maxBuffer: GIT_STATUS_MAX_BUFFER,
       allowTruncatedOutput: true,
       maxStdoutNulRecords: GIT_STATUS_MAX_RECORDS,
+      ...options,
     })
     if (!result.outputTruncated && result.code !== 0) {
       throw gitError(args, result.stderr, result.code)
