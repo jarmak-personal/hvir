@@ -24,7 +24,7 @@ import { FindControl } from './FindControl'
 import { GoToLineControl } from './GoToLineControl'
 import { CodeMirrorFindTarget, viewerFindDecorations } from './codemirror-find-target'
 import { DomFindTarget } from './dom-find-target'
-import { captureTopLine, restoreTopLine } from './code-scroll-anchor'
+import { captureTopLine, restoreScrollTop, restoreTopLine } from './code-scroll-anchor'
 import {
   languageForPath,
   type HighlightResponse,
@@ -708,11 +708,9 @@ function SourceView({
     }
     editor.scrollDOM.addEventListener('scroll', captureScroll, { passive: true })
     view.current = editor
-    requestAnimationFrame(() => {
-      if (restorePosition.mode === 'source') {
-        editor.scrollDOM.scrollTop = restorePosition.scrollTop
-      } else restoreTopLine(editor, editor.scrollDOM, restorePosition.line)
-    })
+    if (restorePosition.mode === 'source') {
+      restoreScrollTop(editor, editor.scrollDOM, restorePosition.scrollTop)
+    } else restoreTopLine(editor, editor.scrollDOM, restorePosition.line)
     return () => {
       editor.scrollDOM.removeEventListener('scroll', captureScroll)
       if (positionCapture.current === capturePosition) {

@@ -42,3 +42,16 @@ export function restoreTopLine(
     },
   })
 }
+
+export function restoreScrollTop(
+  view: EditorView,
+  scrollRoot: HTMLElement,
+  scrollTop: number,
+): void {
+  view.requestMeasure({
+    read: () => Math.max(0, scrollTop),
+    write: (measuredScrollTop) => {
+      scrollRoot.scrollTop = measuredScrollTop
+    },
+  })
+}

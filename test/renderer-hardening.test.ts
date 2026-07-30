@@ -6,6 +6,7 @@ import {
   shouldPublishDiffPosition,
   usesUnsavedContent,
 } from '../src/renderer/src/viewer/diff-policy'
+import { restoreScrollTop } from '../src/renderer/src/viewer/code-scroll-anchor'
 import { INVOKE_CHANNELS } from '../src/shared'
 
 describe('renderer diff policy', () => {
@@ -24,6 +25,26 @@ describe('renderer diff policy', () => {
     expect(shouldPublishDiffPosition(true, false)).toBe(false)
     expect(shouldPublishDiffPosition(true, true)).toBe(true)
     expect(shouldPublishDiffPosition(false, true)).toBe(false)
+  })
+})
+
+describe('CodeMirror scroll restoration', () => {
+  it('applies exact offsets through the editor measurement queue', () => {
+    let apply: (() => void) | undefined
+    const view = {
+      requestMeasure: (request: {
+        readonly read: () => number
+        readonly write: (value: number) => void
+      }) => {
+        apply = () => request.write(request.read())
+      },
+    }
+    const root = { scrollTop: 0 }
+
+    restoreScrollTop(view as never, root as never, 320)
+    expect(root.scrollTop).toBe(0)
+    apply?.()
+    expect(root.scrollTop).toBe(320)
   })
 })
 

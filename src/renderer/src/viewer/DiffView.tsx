@@ -4,7 +4,7 @@ import { MergeView } from '@codemirror/merge'
 import { useEffect, useRef, useState, type ReactElement } from 'react'
 
 import type { DiffBase, GitDiffResponse, HostPath } from '../../../shared'
-import { captureTopLine, restoreTopLine } from './code-scroll-anchor'
+import { captureTopLine, restoreScrollTop, restoreTopLine } from './code-scroll-anchor'
 import { CodeMirrorFindTarget, viewerFindDecorations } from './codemirror-find-target'
 import { shouldPublishDiffPosition, usesUnsavedContent } from './diff-policy'
 import type { ViewerDocumentPosition } from './tab-state'
@@ -121,12 +121,10 @@ export function DiffView({
     merge.dom.addEventListener('touchstart', markNavigation, { passive: true })
     merge.dom.addEventListener('wheel', markNavigation, { passive: true })
     merge.dom.addEventListener('keydown', markKeyboardNavigation)
-    const restoreFrame = requestAnimationFrame(() => {
-      if (restorePosition.mode === 'diff') merge.dom.scrollTop = restorePosition.scrollTop
-      else restoreTopLine(merge.b, merge.dom, restorePosition.line)
-    })
+    if (restorePosition.mode === 'diff') {
+      restoreScrollTop(merge.b, merge.dom, restorePosition.scrollTop)
+    } else restoreTopLine(merge.b, merge.dom, restorePosition.line)
     return () => {
-      cancelAnimationFrame(restoreFrame)
       merge.dom.removeEventListener('scroll', captureScroll)
       merge.dom.removeEventListener('pointerdown', markNavigation)
       merge.dom.removeEventListener('touchstart', markNavigation)
