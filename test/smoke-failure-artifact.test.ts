@@ -11,6 +11,14 @@ import {
 } from '../scripts/smoke-failure-artifact.mts'
 
 describe('bounded smoke failure evidence', () => {
+  it('recognizes the success sentinel across stdout chunk boundaries', () => {
+    const collector = new SmokeAttemptEvidenceCollector()
+    collector.observe('stdout', 'HVIR_SM')
+    collector.observe('stdout', 'OKE_OK\n')
+
+    expect(collector.evidence().logs.successSentinel).toBe(true)
+  })
+
   it('retains only the closed semantic, resource, process, and log-event schema', () => {
     const collector = new SmokeAttemptEvidenceCollector()
     collector.observe('stdout', 'terminal output TOKEN=do-not-retain\n')

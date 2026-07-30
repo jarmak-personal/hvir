@@ -4,11 +4,13 @@ import { describe, expect, it, vi } from 'vitest'
 
 import {
   DEFAULT_SMOKE_SCENARIOS,
+  classifySmokeAttempt,
   formatSmokeScenarioResults,
   parseSmokeRepetitionCount,
   runSmokeScenarioGroups,
   selectedSmokeScenarios,
   smokeScenarioEnvironment,
+  smokeAttemptTimeoutMs,
   type SmokeScenarioName,
 } from '../scripts/run-smoke-scenarios.mts'
 import {
@@ -65,6 +67,30 @@ describe('Electron smoke scenario selection', () => {
 })
 
 describe('Electron smoke result aggregation', () => {
+  it('requires exit zero and the semantic success sentinel', () => {
+    expect(
+      classifySmokeAttempt({
+        exitCode: 0,
+        signal: null,
+        successSentinel: false,
+        durationMs: 10,
+      }),
+    ).toEqual({
+      status: 'failed',
+      exitCode: 0,
+      error: 'missing success sentinel',
+      durationMs: 10,
+    })
+    expect(
+      classifySmokeAttempt({
+        exitCode: 0,
+        signal: null,
+        successSentinel: true,
+        durationMs: 10,
+      }),
+    ).toEqual({ status: 'passed', exitCode: 0, durationMs: 10 })
+  })
+
   it('runs every group for every iteration and continues after failures', async () => {
     const invoked: Array<readonly [SmokeScenarioName, number, number]> = []
     const invoke = vi.fn(
@@ -176,6 +202,11 @@ describe('Electron smoke result aggregation', () => {
       HVIR_SMOKE_SCENARIO: 'pty-native',
       KEEP_ME: 'yes',
     })
+  })
+
+  it('keeps every attempt bounded while allowing the capacity sampling window', () => {
+    expect(smokeAttemptTimeoutMs('pty-native')).toBe(180_000)
+    expect(smokeAttemptTimeoutMs('capacity')).toBe(600_000)
   })
 })
 
