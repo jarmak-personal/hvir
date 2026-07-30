@@ -16,17 +16,16 @@ import { createWorkerClient, workerPath } from '../worker-host'
 import { createWorkspaceCleanup } from '../workspace-cleanup'
 import { SmokeCleanup } from './cleanup'
 import { createSmokeImagePasteFallback } from './image-paste-fallback'
-import { verifyGitDiffBases } from './git-diff'
-import { verifyDirtyBranchSwitch } from './git-dirty-navigation'
 import { verifyDiagnosticRestart } from './diagnostic-report-restart'
 import { verifyDevelopmentPerformanceMode } from './development-performance'
+import { verifyGitWorkflow } from './git-workflow'
 import { verifyPlatformContracts } from './platform-contracts'
 import {
   verifyRendererLifecycleCleanup,
   verifyRendererRolloverRecovery,
 } from './renderer-lifecycle'
-import { verifyFocusedViewer, verifyViewerPositions } from './viewer-position'
-import { verifyFilenameSearch } from './filename-search'
+import { verifyFocusedViewer } from './viewer-position'
+import { verifyViewerContent } from './viewer-content'
 import { verifyWorkbenchHealthFault } from './workbench-health'
 import { verifyUnresponsiveRendererRecovery } from './renderer-recovery'
 import type { ElectronSmokeMode } from './scenario-selection.mts'
@@ -46,7 +45,6 @@ import {
 } from './capacity'
 import {
   ECHO_REQUEST_TYPE,
-  HTML_PREVIEW_SCHEME,
   MAX_PROJECT_WATCH_INTERESTS,
   asHostId,
   hostPath,
@@ -239,6 +237,8 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
           (_, index) => `## Position ${index + 1}\n\nParagraph ${index + 1}\n`,
         ).join('\n'),
       )
+    }
+    if (mode === 'workflow' || mode === 'viewer-content') {
       await host.writeFile(
         largeJsonPath,
         JSON.stringify(
@@ -248,6 +248,8 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
           })),
         ),
       )
+    }
+    if (mode === 'workflow' || mode === 'viewer-position' || mode === 'viewer-content') {
       await host.writeFile(
         largeTextPath,
         `${'large file responsiveness fixture 0123456789\n'.repeat(135_000)}end\n`,
@@ -514,6 +516,30 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
     if (mode === 'viewer-position') {
       const result = await verifyFocusedViewer(win, liveReloadPath, viewerPositionPath)
       console.log(`[smoke] source/diff viewer positions OK (${result})`)
+      console.log('HVIR_SMOKE_OK')
+      return 0
+    }
+    if (mode === 'viewer-content') {
+      const result = await verifyViewerContent({
+        win,
+        host,
+        liveReloadPath,
+        largeJsonPath,
+        largeTextPath,
+        liveReloadBefore,
+      })
+      console.log(`[smoke] viewer content OK (${result})`)
+      console.log('HVIR_SMOKE_OK')
+      return 0
+    }
+    if (mode === 'git-workflow') {
+      const result = await verifyGitWorkflow({
+        win,
+        host,
+        root: smokeRoot,
+        untrackedPath: liveReloadPath,
+      })
+      console.log(`[smoke] Git workflow OK (${result})`)
       console.log('HVIR_SMOKE_OK')
       return 0
     }
@@ -1053,171 +1079,6 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
     })
     console.log(`[smoke] live terminal worktree move OK (${terminalMoveStatus})`)
 
-    const viewerStatus = (await withTimeout(
-      win.webContents.executeJavaScript(`
-        new Promise((resolve, reject) => {
-          const deadline = Date.now() + 15000;
-          const poll = () => {
-            const file = [...document.querySelectorAll('.file-row')]
-              .find((node) =>
-                node.querySelector('.tree-file-name')?.textContent?.trim() === 'AGENTS.md'
-              );
-            if (!file) {
-              if (Date.now() > deadline) return reject(new Error('AGENTS.md missing from tree'));
-              return setTimeout(poll, 50);
-            }
-            file.click();
-            const waitForRender = () => {
-              const rendered = document.querySelector('.markdown-body');
-              const activeMode = document.querySelector('.mode-control button.active')?.textContent || '';
-              if (activeMode.trim() !== 'rendered') {
-                const renderedMode = [...document.querySelectorAll('.mode-control button')]
-                  .find((node) => node.textContent?.trim() === 'rendered');
-                renderedMode?.click();
-              }
-              if (rendered && activeMode.trim() === 'rendered') {
-                const source = [...document.querySelectorAll('.mode-control button')]
-                  .find((node) => node.textContent?.trim() === 'source');
-                if (!source) return reject(new Error('source mode control missing'));
-                source.click();
-                const sourceDeadline = Date.now() + 20000;
-                const waitForSource = () => {
-                  const status = document.querySelector('.source-meta')?.textContent || '';
-                  if (document.querySelector('.cm-editor') && status.includes('markdown')) {
-                    return resolve('rendered→source · ' + status);
-                  }
-                  if (Date.now() > sourceDeadline) return reject(new Error('source highlight timed out: ' + status));
-                  setTimeout(waitForSource, 50);
-                };
-                waitForSource();
-                return;
-              }
-              if (Date.now() > deadline) return reject(new Error('markdown render timed out'));
-              setTimeout(waitForRender, 50);
-            };
-            waitForRender();
-          };
-          poll();
-        })
-      `),
-      'tree/viewer/worker did not become ready',
-      40_000,
-    )) as string
-    console.log(`[smoke] ProjectHost tree + CodeMirror/Shiki worker OK (${viewerStatus})`)
-    console.log(`[smoke] filename search OK (${await verifyFilenameSearch(win)})`)
-
-    const renderedFixture = (await withTimeout(
-      win.webContents.executeJavaScript(`
-        new Promise((resolve, reject) => {
-          const deadline = Date.now() + 30000;
-          const findBySuffix = (suffix) => [...document.querySelectorAll('.tree-row')]
-            .find((node) => node.getAttribute('title')?.endsWith(suffix));
-          const openWhenReady = (suffix, next) => {
-            const node = findBySuffix(suffix);
-            if (node) {
-              const closedDirectory = node.classList.contains('directory-row') &&
-                node.querySelector('.tree-chevron')?.textContent?.trim() === '›';
-              if (!node.classList.contains('directory-row') || closedDirectory) node.click();
-              next();
-            } else if (Date.now() > deadline) {
-              reject(new Error('tree path missing: ' + suffix));
-            } else {
-              setTimeout(() => openWhenReady(suffix, next), 50);
-            }
-          };
-          openWhenReady('/test', () =>
-            openWhenReady('/test/fixtures', () =>
-              openWhenReady('/test/fixtures/rendered.md', () => {
-                const waitForRendered = () => {
-                  const tasks = document.querySelectorAll('.task-list-item-checkbox');
-                  const image = document.querySelector('img[alt="Repository image fixture"]');
-                  if (document.querySelector('.mermaid-diagram svg') &&
-                      document.querySelector('.markdown-body .shiki') &&
-                      image?.getAttribute('src')?.startsWith('blob:') &&
-                      image.complete && image.naturalWidth > 0 &&
-                      tasks.length === 4 &&
-                      document.querySelectorAll('.task-list-item-checkbox:checked').length === 1) {
-                    if (document.querySelectorAll('.task-list-item-checkbox.inapplicable').length !== 1) {
-                      return reject(new Error('GitLab inapplicable task did not render'));
-                    }
-                    const renderedTab = [...document.querySelectorAll('.viewer-tab')]
-                      .find((node) => node.querySelector('.tab-name')?.textContent?.trim() === 'rendered.md');
-                    renderedTab?.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
-                    const body = document.querySelector('.markdown-body');
-                    body?.dispatchEvent(new Event('scroll', { bubbles: true }));
-                    return setTimeout(() => {
-                      if (document.querySelector('.mermaid-diagram svg')) {
-                        resolve('Shiki + Mermaid + ProjectHost image + task lists + stable scroll');
-                      } else {
-                        reject(new Error('scroll destroyed Mermaid diagram'));
-                      }
-                    }, 100);
-                  }
-                  if (Date.now() > deadline) return reject(new Error(
-                    'rendered fixture timed out: mermaid=' + Boolean(document.querySelector('.mermaid-diagram svg')) +
-                    ' shiki=' + Boolean(document.querySelector('.markdown-body .shiki')) +
-                    ' image=' + Boolean(image) + '/' + (image?.complete ? image.naturalWidth : 'pending') +
-                    ' tasks=' + tasks.length
-                  ));
-                  setTimeout(waitForRendered, 50);
-                };
-                waitForRendered();
-              })
-            )
-          );
-        })
-      `),
-      'Markdown Mermaid fixture did not render',
-      35000,
-    )) as string
-    console.log(`[smoke] rendered Markdown fixture OK (${renderedFixture})`)
-
-    const richerViewerStatus = (await withTimeout(
-      win.webContents.executeJavaScript(`
-        new Promise((resolve, reject) => {
-          const deadline = Date.now() + 10000;
-          const findBySuffix = (suffix) => [...document.querySelectorAll('.tree-row')]
-            .find((node) => node.getAttribute('title')?.endsWith(suffix));
-          const openWhenReady = (suffix, next) => {
-            const node = findBySuffix(suffix);
-            if (node) {
-              node.click();
-              next();
-            } else if (Date.now() > deadline) {
-              reject(new Error('richer viewer fixture missing: ' + suffix));
-            } else {
-              setTimeout(() => openWhenReady(suffix, next), 50);
-            }
-          };
-          openWhenReady('/test/fixtures/rendered.csv', () => {
-            const waitForCsv = () => {
-              const cells = [...document.querySelectorAll('.csv-view td')]
-                .map((node) => node.textContent || '');
-              if (cells.includes('Ada Lovelace') && cells.includes('compiler pioneer')) {
-                openWhenReady('/test/fixtures/rendered-image.svg', () => {
-                  const waitForImage = () => {
-                    const image = document.querySelector('.image-view img');
-                    if (image?.getAttribute('src')?.startsWith('blob:') && image.complete) {
-                      return resolve('worker CSV table + repository image view');
-                    }
-                    if (Date.now() > deadline) return reject(new Error('image view timed out'));
-                    setTimeout(waitForImage, 50);
-                  };
-                  waitForImage();
-                });
-                return;
-              }
-              if (Date.now() > deadline) return reject(new Error('CSV table timed out'));
-              setTimeout(waitForCsv, 50);
-            };
-            waitForCsv();
-          });
-        })
-      `),
-      'CSV/image viewer smoke timed out',
-    )) as string
-    console.log(`[smoke] richer rendered views OK (${richerViewerStatus})`)
-
     const themeStatus = (await withTimeout(
       win.webContents.executeJavaScript(`
         new Promise((resolve, reject) => {
@@ -1269,556 +1130,26 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
     )) as string
     console.log(`[smoke] synchronized theme switch OK (${themeStatus})`)
 
-    const renderedLinkStatus = (await withTimeout(
-      win.webContents.executeJavaScript(`
-        new Promise((resolve, reject) => {
-          const deadline = Date.now() + 10000;
-          const link = (text) => [...document.querySelectorAll('.markdown-body a')]
-            .find((node) => node.textContent?.trim() === text);
-          let missingActivated = false;
-          const renderedTab = [...document.querySelectorAll('.viewer-tab')]
-            .find((node) => node.querySelector('.tab-name')?.textContent?.trim() === 'rendered.md');
-          renderedTab?.querySelector('.tab-main')?.click();
-          const waitForYaml = () => {
-            const title = document.querySelector('.viewer-tab.active .tab-name')?.textContent || '';
-            const keys = [...document.querySelectorAll('.json-key')]
-              .map((node) => node.textContent || '');
-            const fixturesOpen = [...document.querySelectorAll('.directory-row')]
-              .some((node) => node.getAttribute('title')?.endsWith('/test/fixtures') &&
-                node.querySelector('.tree-chevron')?.textContent?.trim() === '⌄');
-            if (title.includes('rendered.yml') && keys.some((key) => key.includes('name')) && fixturesOpen) {
-              return resolve('internal tab · YAML tree · tree preserved · ' + location.protocol);
-            }
-            if (Date.now() > deadline) return reject(new Error(
-              'internal YAML link timed out: ' + title + ' ' + keys.join(',')
-            ));
-            setTimeout(waitForYaml, 50);
-          };
-          const waitForContainedError = () => {
-            if (document.querySelector('.viewer-empty.error')) {
-              const renderedTab = [...document.querySelectorAll('.viewer-tab')]
-                .find((node) => node.querySelector('.tab-name')?.textContent?.trim() === 'rendered.md');
-              renderedTab?.querySelector('.tab-main')?.click();
-              const waitForOriginal = () => {
-                const yaml = link('Open the YAML fixture');
-                if (yaml) {
-                  yaml.click();
-                  return waitForYaml();
-                }
-                if (Date.now() > deadline) return reject(new Error('original rendered tab did not recover'));
-                setTimeout(waitForOriginal, 50);
-              };
-              return waitForOriginal();
-            }
-            const missing = missingActivated ? undefined : link('Missing target');
-            if (missing && !missingActivated) {
-              missingActivated = true;
-              missing.click();
-              return setTimeout(waitForContainedError, 50);
-            }
-            if (Date.now() > deadline) return reject(new Error(
-              'missing internal link escaped the viewer: ' +
-              (document.querySelector('.viewer-tab.active .tab-name')?.textContent || 'no title')
-            ));
-            setTimeout(waitForContainedError, 50);
-          };
-          waitForContainedError();
-        })
-      `),
-      'rendered internal link did not stay in hvir',
-      20_000,
-    )) as string
-    console.log(`[smoke] rendered link routing + YAML OK (${renderedLinkStatus})`)
-
-    const sandboxPolicy = (await withTimeout(
-      win.webContents.executeJavaScript(`
-        new Promise((resolve, reject) => {
-          const deadline = Date.now() + 10000;
-          const findBySuffix = (suffix) => [...document.querySelectorAll('.tree-row')]
-            .find((node) => node.getAttribute('title')?.endsWith(suffix));
-          const openWhenReady = (suffix, next) => {
-            const node = findBySuffix(suffix);
-            if (node) {
-              const closedDirectory = node.classList.contains('directory-row') &&
-                node.querySelector('.tree-chevron')?.textContent?.trim() === '›';
-              if (!node.classList.contains('directory-row') || closedDirectory) node.click();
-              next();
-            } else if (Date.now() > deadline) {
-              reject(new Error('tree path missing: ' + suffix));
-            } else {
-              setTimeout(() => openWhenReady(suffix, next), 50);
-            }
-          };
-          openWhenReady('/test', () =>
-            openWhenReady('/test/fixtures', () =>
-              openWhenReady('/test/fixtures/html-sandbox-attack.html', () => {
-                const waitForFrame = () => {
-                  const frame = document.querySelector('.html-preview');
-                  if (frame) return resolve(frame.getAttribute('sandbox') || '');
-                  if (Date.now() > deadline) return reject(new Error('HTML iframe missing'));
-                  setTimeout(waitForFrame, 50);
-                };
-                waitForFrame();
-              })
-            )
-          );
-        })
-      `),
-      'HTML sandbox preview did not open',
-    )) as string
-    if (sandboxPolicy !== 'allow-scripts') {
-      throw new Error(`unsafe HTML sandbox policy: ${sandboxPolicy}`)
-    }
-    const iframe = await withTimeout(
-      (async () => {
-        for (;;) {
-          const frame = win.webContents.mainFrame.frames.find((candidate) =>
-            candidate.url.startsWith(`${HTML_PREVIEW_SCHEME}://document/`),
-          )
-          if (frame) return frame
-          await new Promise<void>((resolve) => setTimeout(resolve, 25))
-        }
-      })(),
-      'sandboxed HTML frame was not created',
-    )
-    const sandboxProbe = await withTimeout(
-      (async (): Promise<{
-        ran?: string
-        node?: string
-        navigation?: string
-        popup?: string
-        preHead?: string
-      }> => {
-        for (;;) {
-          const probe = (await iframe.executeJavaScript(`({
-            ran: document.body?.dataset.ran,
-            node: document.body?.dataset.node,
-            navigation: document.body?.dataset.navigation,
-            popup: document.body?.dataset.popup,
-            preHead: globalThis.preHeadRan
-          })`)) as {
-            ran?: string
-            node?: string
-            navigation?: string
-            popup?: string
-            preHead?: string
-          }
-          if (probe.ran) return probe
-          await new Promise<void>((resolve) => setTimeout(resolve, 50))
-        }
-      })(),
-      'HTML sandbox probe script did not run',
-    )
-    if (
-      iframe.origin !== 'null' ||
-      sandboxProbe.ran !== 'yes' ||
-      sandboxProbe.node !== 'blocked' ||
-      sandboxProbe.navigation !== 'blocked' ||
-      sandboxProbe.popup !== 'blocked' ||
-      sandboxProbe.preHead !== 'yes'
-    ) {
-      throw new Error(
-        `HTML sandbox escape probe failed (${iframe.origin} ${JSON.stringify(sandboxProbe)})`,
-      )
-    }
-    console.log('[smoke] sandboxed HTML blocked node, navigation, and popups')
-
-    const viewerPositions = await withTimeout(
-      verifyViewerPositions(win, viewerPositionPath),
-      'viewer mode position matrix timed out',
-      25_000,
-    )
-    console.log(`[smoke] viewer mode positions OK (${viewerPositions})`)
-
-    const jsonStatus = (await withTimeout(
-      win.webContents.executeJavaScript(`
-        new Promise((resolve, reject) => {
-          const deadline = Date.now() + 15000;
-          const open = () => {
-            const file = [...document.querySelectorAll('.file-row')]
-              .find((node) => node.getAttribute('title') === ${JSON.stringify(largeJsonPath.path)});
-            if (!file) {
-              if (Date.now() > deadline) return reject(new Error('large JSON fixture missing'));
-              return setTimeout(open, 50);
-            }
-            file.click();
-            const waitForTree = () => {
-              const summary = document.querySelector('.json-tree summary')?.textContent || '';
-              const renderedNodes = document.querySelectorAll('.json-tree details').length;
-              if (summary.includes('[50000]') && renderedNodes > 1) {
-                if (renderedNodes > 205) return reject(new Error('JSON tree rendered eagerly: ' + renderedNodes));
-                return resolve(renderedNodes + ' nodes for 50000 entries');
-              }
-              if (Date.now() > deadline) return reject(new Error('worker JSON tree timed out: ' + summary));
-              setTimeout(waitForTree, 50);
-            };
-            waitForTree();
-          };
-          open();
-        })
-      `),
-      'large JSON did not render lazily',
-      20000,
-    )) as string
-    console.log(`[smoke] worker-backed lazy JSON OK (${jsonStatus})`)
-
-    const largeFileStatus = (await withTimeout(
-      win.webContents.executeJavaScript(`
-        new Promise((resolve, reject) => {
-          const deadline = Date.now() + 15000;
-          const open = () => {
-            const file = [...document.querySelectorAll('.file-row')]
-              .find((node) => node.getAttribute('title') === ${JSON.stringify(largeTextPath.path)});
-            if (!file) {
-              if (Date.now() > deadline) return reject(new Error('large text fixture missing'));
-              return setTimeout(open, 50);
-            }
-            const started = performance.now();
-            file.click();
-            requestAnimationFrame(() => {
-              const firstFrameMs = Math.round(performance.now() - started);
-              const waitForPreview = () => {
-                const preview = document.querySelector('.large-file-preview');
-                const meta = document.querySelector('.source-meta')?.textContent || '';
-                if (preview && meta.includes('preview')) {
-                  return resolve(meta + ' · first-frame evidence ' + firstFrameMs + 'ms');
-                }
-                if (Date.now() > deadline) return reject(new Error('bounded large-file preview timed out'));
-                setTimeout(waitForPreview, 50);
-              };
-              waitForPreview();
-            });
-          };
-          open();
-        })
-      `),
-      'large text preview smoke timed out',
-      20_000,
-    )) as string
-    console.log(`[smoke] bounded large-file view OK (${largeFileStatus})`)
-
-    const scrollBefore = (await withTimeout(
-      win.webContents.executeJavaScript(`
-        new Promise((resolve, reject) => {
-          const deadline = Date.now() + 10000;
-          const open = () => {
-            const discard = [...document.querySelectorAll('.dirty-tab-close-dialog button')]
-              .find((node) => node.textContent?.trim() === 'Close without saving');
-            if (discard) {
-              discard.click();
-              return setTimeout(open, 50);
-            }
-            const staleTab = [...document.querySelectorAll('.viewer-tab')].find((node) =>
-              node.querySelector('.tab-main')?.getAttribute('title') === ${JSON.stringify(liveReloadPath.path)} && node.querySelector('.tab-status')?.textContent?.includes('●')
-            );
-            if (staleTab) {
-              staleTab.querySelector('.tab-close')?.click();
-              return setTimeout(open, 50);
-            }
-            const file = [...document.querySelectorAll('.file-row')]
-              .find((node) => node.getAttribute('title') === ${JSON.stringify(liveReloadPath.path)});
-            if (!file) {
-              if (Date.now() > deadline) return reject(new Error('live-reload fixture missing'));
-              return setTimeout(open, 50);
-            }
-            file.click();
-            const waitForSource = () => {
-              const scroller = document.querySelector('.cm-scroller');
-              if (scroller) {
-                scroller.scrollTop = 220;
-                return requestAnimationFrame(() => resolve(scroller.scrollTop));
-              }
-              const source = [...document.querySelectorAll('.mode-control button')]
-                .find((node) => node.textContent?.trim() === 'source');
-              source?.click();
-              if (Date.now() > deadline) return reject(new Error('live-reload source missing'));
-              setTimeout(waitForSource, 50);
-            };
-            waitForSource();
-          };
-          open();
-        })
-      `),
-      'live-reload fixture did not open',
-    )) as number
-    await host.writeFile(
-      liveReloadPath,
-      liveReloadBefore.replace('line 20\n', 'line 20 external marker\n'),
-    )
-    const scrollAfter = (await withTimeout(
-      win.webContents.executeJavaScript(`
-        new Promise((resolve, reject) => {
-          const deadline = Date.now() + 10000;
-          const poll = () => {
-            const content = document.querySelector('.cm-content')?.textContent || '';
-            const scroller = document.querySelector('.cm-scroller');
-            if (content.includes('external marker') && scroller) return resolve(scroller.scrollTop);
-            if (Date.now() > deadline) return reject(new Error('external update did not reload'));
-            setTimeout(poll, 50);
-          };
-          poll();
-        })
-      `),
-      'open file did not live-reload',
-    )) as number
-    if (Math.abs(scrollAfter - scrollBefore) > 2) {
-      throw new Error(`live reload jumped scroll (${scrollBefore}→${scrollAfter})`)
-    }
-    console.log(`[smoke] clean tab live-reload preserved scroll (${scrollAfter}px)`)
-
-    await win.webContents.executeJavaScript(`
-      document.querySelector('.cm-content')?.focus();
-    `)
-    await win.webContents.insertText('saved marker\n')
-    await withTimeout(
-      win.webContents.executeJavaScript(`
-        new Promise((resolve, reject) => {
-          const deadline = Date.now() + 5000;
-          const poll = () => {
-            if (document.querySelector('.viewer-tab.active .tab-status')?.textContent?.includes('●')) {
-              return resolve(true);
-            }
-            if (Date.now() > deadline) return reject(new Error('source edit did not mark tab dirty'));
-            setTimeout(poll, 25);
-          };
-          poll();
-        })
-      `),
-      'source edit did not reach tab state',
-    )
-    const saveModifier = process.platform === 'darwin' ? 'meta' : 'control'
-    win.webContents.sendInputEvent({
-      type: 'keyDown',
-      keyCode: 'S',
-      modifiers: [saveModifier],
-    })
-    win.webContents.sendInputEvent({
-      type: 'keyUp',
-      keyCode: 'S',
-      modifiers: [saveModifier],
-    })
-    await withTimeout(
-      (async (): Promise<void> => {
-        for (;;) {
-          if ((await host.readTextFile(liveReloadPath)).includes('saved marker')) return
-          await new Promise<void>((resolve) => setTimeout(resolve, 25))
-        }
-      })(),
-      'Ctrl+S did not write the edited source through ProjectHost',
-    )
-    console.log('[smoke] source edit + Ctrl+S save OK')
-
-    const diffBases = await verifyGitDiffBases(win)
-    console.log(`[smoke] CodeMirror git diff bases OK (${diffBases})`)
-
-    const gitPanelStatus = (await withTimeout(
-      win.webContents.executeJavaScript(`
-        new Promise((resolve, reject) => {
-          const deadline = Date.now() + 15000;
-          const button = (text) => [...document.querySelectorAll('button')]
-            .find((node) => node.textContent?.trim().startsWith(text));
-          button('Git')?.click();
-          const waitForChanges = () => {
-            const changed = document.querySelector('.git-file');
-            if (!changed) {
-              if (Date.now() > deadline) return reject(new Error('Git changes did not load'));
-              return setTimeout(waitForChanges, 50);
-            }
-            if (!changed.querySelector('.git-file-name .tree-file-stem')) {
-              return reject(new Error('Git change filename does not match Files schema'));
-            }
-            const branchPoint = document.querySelector('.git-group.branch-point .git-group-toggle');
-            if (branchPoint && branchPoint.getAttribute('aria-expanded') !== 'false') {
-              return reject(new Error('Branch point is not collapsed by default'));
-            }
-            const branchSelect = document.querySelector('#git-branch-select');
-            if (!branchSelect || branchSelect.value !== 'smoke/workflow') {
-              return reject(new Error('Hermetic smoke branch is not active'));
-            }
-            if (branchSelect && branchSelect.options.length > 1 && branchSelect.disabled) {
-              return reject(new Error('Branch menu cannot be inspected while switching is blocked'));
-            }
-            const syncButtons = [...document.querySelectorAll('.git-sync-actions button')]
-              .map((node) => node.textContent?.trim());
-            if (!syncButtons.includes('Fetch') || !syncButtons.includes('Pull') ||
-                !document.querySelector('.git-sync-summary')) {
-              return reject(new Error('Git sync status/actions missing'));
-            }
-            const changedPath = changed.getAttribute('title') || '';
-            const untracked = changed.querySelector('small')?.textContent?.trim().startsWith('?');
-            changed.click();
-            const waitForView = () => {
-              const activePath = document.querySelector('.viewer-tab.active .tab-main')
-                ?.getAttribute('title') || '';
-              const activeMode = [...document.querySelectorAll('.mode-control button')]
-                .find((node) => node.getAttribute('aria-pressed') === 'true')
-                ?.textContent?.trim();
-              const expectedMode = untracked ? activeMode !== 'diff' : activeMode === 'diff';
-              if (activePath !== changedPath || !activeMode || !expectedMode) {
-                if (Date.now() <= deadline) return setTimeout(waitForView, 50);
-                return reject(new Error(
-                  'Git file did not settle: target=' + changedPath +
-                    ' active=' + activePath +
-                    ' mode=' + activeMode +
-                    (untracked ? ' for untracked file' : ' for tracked file')
-                ));
-              }
-              button('History')?.click();
-              const waitForHistory = () => {
-                const commit = document.querySelector('.git-rail-commit');
-                if (!commit) {
-                  if (Date.now() > deadline) return reject(new Error('Git history did not page'));
-                  return setTimeout(waitForHistory, 50);
-                }
-                commit.click();
-                const waitForRailDetail = () => {
-                  const openFull = commit.closest('.git-rail-history-row')
-                    ?.querySelector('.git-rail-open-full');
-                  if (
-                    document.querySelector('.git-rail-history-summary') &&
-                    document.querySelector('.git-rail-history-tree.file') &&
-                    openFull
-                  ) {
-                    openFull.click();
-                    return waitForDetail();
-                  }
-                  if (Date.now() > deadline) {
-                    return reject(new Error('Commit did not expand in rail history'));
-                  }
-                  setTimeout(waitForRailDetail, 50);
-                };
-                const waitForDetail = () => {
-                  if (
-                    document.querySelector('.git-graph-row.active') &&
-                    document.querySelector('.git-commit-inspector') &&
-                    document.querySelector('.git-commit-tree-row.file')
-                  ) {
-                    if (document.querySelectorAll('.viewer-tab.active').length !== 1) {
-                      return reject(new Error('Graph activation left two active tabs'));
-                    }
-                    return resolve(
-                      'changes→' + activeMode +
-                        ' · paged history→rail tree→graph detail'
-                    );
-                  }
-                  if (Date.now() > deadline) return reject(new Error('Commit graph detail did not load'));
-                  setTimeout(waitForDetail, 50);
-                };
-                waitForRailDetail();
-              };
-              waitForHistory();
-            };
-            waitForView();
-          };
-          waitForChanges();
-        })
-      `),
-      'Git panel integration timed out',
-      20000,
-    )) as string
-    console.log(`[smoke] mounted Git panel OK (${gitPanelStatus})`)
-    const dirtyBranch = await withTimeout(
-      verifyDirtyBranchSwitch(win),
-      'dirty branch switch timed out',
-      20000,
-    )
-    const [activeBranch, dirtyStatus] = await Promise.all([
-      host.exec('git', ['-C', smokeRoot.path, 'branch', '--show-current']),
-      host.exec('git', ['-C', smokeRoot.path, 'status', '--porcelain']),
-    ])
-    if (activeBranch.stdout.trim() !== dirtyBranch || !dirtyStatus.stdout.trim()) {
-      throw new Error('Dirty branch switch did not preserve the working tree')
-    }
-    console.log(`[smoke] dirty branch switch + refresh OK (${dirtyBranch})`)
-
-    const blameStatus = (await withTimeout(
-      win.webContents.executeJavaScript(`
-        new Promise((resolve, reject) => {
-          const deadline = Date.now() + 15000;
-          const button = (text) => [...document.querySelectorAll('button')]
-            .find((node) => node.textContent?.trim() === text);
-          button('Files')?.click();
-          const waitForSource = () => {
-            const blameButton = document.querySelector('.blame-toggle');
-            if (!blameButton || !document.querySelector('.source-shell .cm-editor')) {
-              if (Date.now() > deadline) return reject(new Error('source view missing for blame'));
-              return setTimeout(waitForSource, 50);
-            }
-            blameButton.click();
-            const waitForBlame = () => {
-              const marker = document.querySelector('.cm-blame-marker');
-              if (marker) {
-                const label = marker.textContent || 'blame marker';
-                blameButton.click();
-                return requestAnimationFrame(() => {
-                  document.querySelector('.cm-blame-gutter')
-                    ? reject(new Error('disabled blame gutter still reserves width'))
-                    : resolve(label + ' · compact when off');
-                });
-              }
-              const status = document.querySelector('.source-meta')?.textContent || '';
-              if (status.includes('blame unavailable')) return reject(new Error(status));
-              if (Date.now() > deadline) return reject(new Error('blame gutter did not load: ' + status));
-              setTimeout(waitForBlame, 50);
-            };
-            waitForBlame();
-          };
-          const openTracked = () => {
-            const tracked = [...document.querySelectorAll('.file-row')]
-              .find((node) => node.getAttribute('title')?.endsWith('/package-lock.json'));
-            if (!tracked) {
-              if (Date.now() > deadline) return reject(new Error('tracked blame fixture missing'));
-              return setTimeout(openTracked, 50);
-            }
-            tracked.click();
-            const activateTracked = () => {
-              const title = document.querySelector('.viewer-tab.active .tab-name')?.textContent || '';
-              if (!title.includes('package-lock.json')) {
-                if (Date.now() > deadline) return reject(new Error('large blame fixture did not activate'));
-                return setTimeout(activateTracked, 50);
-              }
-              button('source')?.click();
-              waitForSource();
-            };
-            activateTracked();
-          };
-          openTracked();
-        })
-      `),
-      'Blame integration timed out',
-      20000,
-    )) as string
-    console.log(`[smoke] lazy blame gutter OK (${blameStatus})`)
-
     const railNavigationStatus = (await withTimeout(
       win.webContents.executeJavaScript(`
         new Promise((resolve, reject) => {
+          const deadline = Date.now() + 5000;
           const railButtons = [...document.querySelectorAll('.rail-nav button')];
           const byLabel = (label) =>
             railButtons.find((node) => node.textContent?.trim().startsWith(label));
           const files = byLabel('Files');
-          const git = byLabel('Git');
           const harness = byLabel('Harness');
           const directory = [...document.querySelectorAll('[aria-label="Files"] .tree-directory')]
             .find((node) => node.querySelector(':scope > .directory-row')
               ?.getAttribute('title')?.endsWith('/src'));
-          const smokeFile = [...document.querySelectorAll('[aria-label="Files"] .file-row')]
-            .find((node) => node.getAttribute('title')
-              ?.startsWith(${JSON.stringify(liveReloadPath.path)}));
-          const rootStatus = document.querySelector(
-            '[aria-label="Files"] .directory-row .tree-git-status.directory'
-          );
-          if (!files || !git || !harness || !directory) {
+          if (!files || !harness || !directory) {
             return reject(new Error('stable rail navigation controls missing'));
-          }
-          if (!smokeFile?.querySelector('.tree-git-status.file.untracked') || !rootStatus) {
-            return reject(new Error('working-tree explorer decorations missing'));
           }
           const directoryRow = directory.querySelector(':scope > .directory-row');
           if (directoryRow?.getAttribute('aria-expanded') !== 'true') directoryRow?.click();
           const tabsBefore = document.querySelectorAll('.viewer-tab').length;
           harness.click();
-          requestAnimationFrame(() => {
+          const waitForHarness = () => {
             const placeholder = document.querySelector('.harness-placeholder');
             if (
               harness.disabled ||
@@ -1828,27 +1159,33 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
               placeholder.hidden ||
               !placeholder.textContent?.includes('Coming soon')
             ) {
-              return reject(new Error('Harness coming-soon route is not interactive'));
+              if (Date.now() > deadline) {
+                return reject(new Error('Harness coming-soon route is not interactive'));
+              }
+              return setTimeout(waitForHarness, 25);
             }
-            git.click();
             files.click();
-            git.click();
-            files.click();
-            requestAnimationFrame(() => {
-              if (!directory.isConnected || directoryRow?.getAttribute('aria-expanded') !== 'true') {
-                return reject(new Error('Files state was lost while switching rail views'));
+            const waitForFiles = () => {
+              const currentFiles = [...document.querySelectorAll('.rail-nav button')]
+                .find((node) => node.textContent?.trim().startsWith('Files'));
+              const ready = directory.isConnected &&
+                directoryRow?.getAttribute('aria-expanded') === 'true' &&
+                document.querySelectorAll('.viewer-tab').length === tabsBefore &&
+                currentFiles?.classList.contains('active') &&
+                !harness.disabled;
+              if (ready) {
+                return resolve(
+                  'stable tabs · Files state preserved · Harness coming soon'
+                );
               }
-              if (document.querySelectorAll('.viewer-tab').length !== tabsBefore) {
-                return reject(new Error('rail switching remounted viewer tabs'));
+              if (Date.now() > deadline) {
+                return reject(new Error('Files rail state did not restore after Harness'));
               }
-              if (!files.classList.contains('active') || harness.disabled) {
-                return reject(new Error('rail active states are incorrect'));
-              }
-              resolve(
-                'stable tabs · Files state preserved · Git decorations · Harness coming soon'
-              );
-            });
-          });
+              setTimeout(waitForFiles, 25);
+            };
+            waitForFiles();
+          };
+          waitForHarness();
         })
       `),
       'rail navigation did not preserve section state',
@@ -1979,7 +1316,6 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
           return reject(new Error('local project shows a remote connection badge'));
         }
         const projectMain = activeProject?.querySelector('.project-tab-main');
-        const viewerMain = document.querySelector('.viewer-tab.active .tab-main');
         const focusedBefore = document.activeElement;
         projectMain?.focus({ focusVisible: true });
         if (!projectMain || getComputedStyle(projectMain).boxShadow === 'none') {
@@ -1988,10 +1324,6 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
             ' active=' + document.activeElement?.className +
             ' focusVisible=' + projectMain?.matches(':focus-visible')
           ));
-        }
-        viewerMain?.focus({ focusVisible: true });
-        if (!viewerMain || getComputedStyle(viewerMain).boxShadow === 'none') {
-          return reject(new Error('viewer tab focus ring is missing'));
         }
         if (document.querySelector('.workspaces-bar')) {
           return reject(new Error('single-checkout project should hide the workspaces bar'));
@@ -2319,60 +1651,6 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
       win.webContents.executeJavaScript(`
         new Promise((resolve, reject) => {
           const deadline = Date.now() + 15000;
-          document.querySelector('[aria-label="Close secondary viewer"]')?.click();
-          const begin = () => {
-            const split = document.querySelector('[aria-label="Split viewer right"]');
-            const sourceTab = document.querySelector('.viewer-group-primary .viewer-tab');
-            if (!split || !sourceTab) {
-              if (Date.now() > deadline) return reject(new Error('viewer split controls missing'));
-              return setTimeout(begin, 50);
-            }
-            split.click();
-            requestAnimationFrame(() => {
-              const target = document.querySelector('.viewer-group-secondary .tab-strip');
-              if (!target) return reject(new Error('secondary viewer did not open'));
-              const transfer = new DataTransfer();
-              sourceTab.dispatchEvent(new DragEvent('dragstart', {
-                bubbles: true, dataTransfer: transfer
-              }));
-              target.dispatchEvent(new DragEvent('dragover', {
-                bubbles: true, cancelable: true, dataTransfer: transfer
-              }));
-              target.dispatchEvent(new DragEvent('drop', {
-                bubbles: true, cancelable: true, dataTransfer: transfer
-              }));
-              const waitForViewer = () => {
-                const secondaryTab = document.querySelector('.viewer-group-secondary .viewer-tab');
-                const divider = document.querySelector('.viewer-split-resizer');
-                if (secondaryTab && divider) {
-                  if (divider.getBoundingClientRect().width > 1.5) {
-                    return reject(new Error('viewer split divider is wider than its hairline'));
-                  }
-                  const before = document.querySelector('.viewer-group-primary')?.getBoundingClientRect().width || 0;
-                  divider.dispatchEvent(new KeyboardEvent('keydown', {
-                    key: 'ArrowRight', bubbles: true
-                  }));
-                  return requestAnimationFrame(() => {
-                    const after = document.querySelector('.viewer-group-primary')?.getBoundingClientRect().width || 0;
-                    if (after <= before) return reject(new Error('viewer split did not resize'));
-                    secondaryTab.querySelector('.tab-close')?.click();
-                    const waitForClose = () => {
-                      if (!document.querySelector('.viewer-group-secondary') &&
-                          document.querySelectorAll('.viewer-group-primary .viewer-tab').length > 0) {
-                        return terminalSplit();
-                      }
-                      if (Date.now() > deadline) return reject(new Error('empty viewer split did not auto-collapse'));
-                      setTimeout(waitForClose, 50);
-                    };
-                    waitForClose();
-                  });
-                }
-                if (Date.now() > deadline) return reject(new Error('tab did not move between viewer panes'));
-                setTimeout(waitForViewer, 50);
-              };
-              waitForViewer();
-            });
-          };
           const terminalSplit = () => {
             const button = document.querySelector('.terminal-split-button');
             const before = document.querySelectorAll('.terminal-list-row').length;
@@ -2400,7 +1678,7 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
                   const waitForCollapse = () => {
                     if (!deck.classList.contains('split') &&
                         document.querySelectorAll('.terminal-list-row').length === before) {
-                      return resolve('viewer drag/drop + terminal PTY split + keyboard dividers');
+                      return resolve('terminal PTY split + keyboard divider');
                     }
                     if (Date.now() > deadline) return reject(new Error('terminal split did not collapse'));
                     setTimeout(waitForCollapse, 50);
@@ -2413,7 +1691,7 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
             };
             waitForTerminal();
           };
-          begin();
+          terminalSplit();
         })
       `),
       'split layout smoke timed out',
