@@ -921,7 +921,18 @@ async function verifyTerminalLaunchMenuOverflow(
         }
 
         menu.scrollTop = menu.scrollHeight;
-        await new Promise((resolve) => requestAnimationFrame(() => resolve()));
+        await waitFor(() => {
+          const overlay = document.querySelector(
+            '.hvir-scrollbar[data-axis="vertical"][data-visible="true"]'
+          );
+          if (!(overlay instanceof HTMLElement)) return undefined;
+          const overlayBounds = overlay.getBoundingClientRect();
+          return Math.abs(overlayBounds.right - (bounds.right - 2)) <= 1 &&
+            overlayBounds.top >= bounds.top &&
+            overlayBounds.bottom <= bounds.bottom
+            ? overlay
+            : undefined;
+        }, 'launch menu did not activate the shared scrollbar overlay');
         const profileButtons = [...menu.children].filter(
           (node) => node instanceof HTMLButtonElement
         );

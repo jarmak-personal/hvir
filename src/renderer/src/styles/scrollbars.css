@@ -24,6 +24,9 @@
 
 .hvir-scrollbar[data-visible='true'] {
   opacity: 1;
+}
+
+.hvir-scrollbar[data-visible='true'][data-interactive='true'] {
   pointer-events: auto;
 }
 

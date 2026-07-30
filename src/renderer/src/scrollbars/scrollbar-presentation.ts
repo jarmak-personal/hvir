@@ -11,6 +11,8 @@ interface AxisPresentation {
 
 interface TrackPresentation extends AxisPresentation {
   readonly start: number
+  readonly crossStart: number
+  readonly trackLength: number
   readonly clientLength: number
 }
 
@@ -28,20 +30,15 @@ interface DragState {
   readonly scrollStart: number
 }
 
-interface VisibleRect {
-  readonly top: number
-  readonly right: number
-  readonly bottom: number
-  readonly left: number
-}
+type VisibleRect = Pick<DOMRectReadOnly, 'top' | 'right' | 'bottom' | 'left'>
 
 const TRACK_THICKNESS = 10
 const TRACK_INSET = 2
 const MINIMUM_THUMB_LENGTH = 24
 const IDLE_HIDE_DELAY_MS = 900
 const CLIPPING_OVERFLOW = new Set(['auto', 'clip', 'hidden', 'scroll'])
+const SCROLLING_OVERFLOW = new Set(['auto', 'scroll'])
 
-/** Pure thumb geometry shared by both axes. */
 export function scrollbarAxisPresentation(
   trackLength: number,
   clientLength: number,
@@ -64,7 +61,6 @@ export function scrollbarAxisPresentation(
   }
 }
 
-/** Install one delegated overlay policy for every hvir-owned DOM scroll surface. */
 export function installScrollbarPresentation(root: HTMLElement): () => void {
   const owner = new ScrollbarPresentationOwner(root)
   return () => owner.dispose()
@@ -75,11 +71,15 @@ class ScrollbarPresentationOwner {
   private readonly window: Window
   private readonly tracks: Record<ScrollbarAxis, ScrollbarTrack>
   private readonly resizeObserver: ResizeObserver
-  private readonly forcedColors: MediaQueryList
   private activeSurface?: HTMLElement
   private drag?: DragState
+  private pointerPosition?: Readonly<{ x: number; y: number }>
+  private pointerSurface?: HTMLElement
+  private pendingPointerPath?: readonly EventTarget[]
   private hideTimer?: number
   private updateFrame?: number
+  private pointerFrame?: number
+  private visible = false
   private disposed = false
 
   constructor(private readonly root: HTMLElement) {
@@ -92,7 +92,6 @@ class ScrollbarPresentationOwner {
       vertical: this.createTrack('vertical'),
     }
     this.resizeObserver = new ResizeObserver(() => this.queueUpdate())
-    this.forcedColors = this.window.matchMedia('(forced-colors: active)')
 
     this.document.addEventListener('scroll', this.handleScroll, true)
     this.document.addEventListener('pointermove', this.handlePointerMove, true)
@@ -101,7 +100,6 @@ class ScrollbarPresentationOwner {
     this.document.addEventListener('focusin', this.handleFocus, true)
     this.window.addEventListener('resize', this.handleViewportChange, { passive: true })
     this.window.addEventListener('blur', this.handleWindowBlur)
-    this.forcedColors.addEventListener('change', this.handleForcedColors)
   }
 
   dispose(): void {
@@ -114,10 +112,11 @@ class ScrollbarPresentationOwner {
     this.document.removeEventListener('focusin', this.handleFocus, true)
     this.window.removeEventListener('resize', this.handleViewportChange)
     this.window.removeEventListener('blur', this.handleWindowBlur)
-    this.forcedColors.removeEventListener('change', this.handleForcedColors)
     this.resizeObserver.disconnect()
     if (this.hideTimer !== undefined) this.window.clearTimeout(this.hideTimer)
     if (this.updateFrame !== undefined) this.window.cancelAnimationFrame(this.updateFrame)
+    if (this.pointerFrame !== undefined)
+      this.window.cancelAnimationFrame(this.pointerFrame)
     this.endDrag()
     this.tracks.horizontal.element.remove()
     this.tracks.vertical.element.remove()
@@ -127,7 +126,7 @@ class ScrollbarPresentationOwner {
   private readonly handleScroll = (event: Event): void => {
     if (!(event.target instanceof HTMLElement)) return
     if (!this.root.contains(event.target) || !this.isScrollable(event.target)) return
-    this.activate(event.target)
+    this.activate(event.target, true)
   }
 
   private readonly handlePointerMove = (event: PointerEvent): void => {
@@ -149,14 +148,30 @@ class ScrollbarPresentationOwner {
       return
     }
 
+    this.pointerPosition = { x: event.clientX, y: event.clientY }
     if (this.trackForTarget(event.target)) {
+      this.pointerSurface = this.activeSurface
+      this.updateTrackInteractivity()
       this.show()
       this.scheduleHide()
       return
     }
-    const surface = this.scrollableSurface(event.composedPath())
-    if (surface) this.activate(surface)
-    else this.scheduleHide()
+    this.pendingPointerPath = event.composedPath()
+    if (this.pointerFrame !== undefined) return
+    this.pointerFrame = this.window.requestAnimationFrame(() => {
+      this.pointerFrame = undefined
+      const path = this.pendingPointerPath
+      this.pendingPointerPath = undefined
+      const surface = path ? this.scrollableSurface(path) : undefined
+      if (surface) {
+        this.pointerSurface = surface
+        this.activate(surface)
+        this.updateTrackInteractivity()
+      } else {
+        this.pointerSurface = undefined
+        this.clearTrackInteractivity()
+      }
+    })
   }
 
   private readonly handlePointerEnd = (event: PointerEvent): void => {
@@ -166,23 +181,13 @@ class ScrollbarPresentationOwner {
   }
 
   private readonly handleFocus = (event: FocusEvent): void => {
-    const path: EventTarget[] = []
-    let candidate = event.target instanceof HTMLElement ? event.target : null
-    while (candidate) {
-      path.push(candidate)
-      candidate = candidate.parentElement
-    }
-    const surface = this.scrollableSurface(path)
+    const surface = this.scrollableSurface(event.composedPath())
     if (surface) this.activate(surface)
-    else this.scheduleHide()
+    else this.hide()
   }
 
   private readonly handleViewportChange = (): void => this.queueUpdate()
   private readonly handleWindowBlur = (): void => this.deactivate()
-  private readonly handleForcedColors = (): void => {
-    if (this.forcedColors.matches) this.deactivate()
-    else this.queueUpdate()
-  }
 
   private createTrack(axis: ScrollbarAxis): ScrollbarTrack {
     const element = this.document.createElement('div')
@@ -233,15 +238,16 @@ class ScrollbarPresentationOwner {
     this.scheduleHide()
   }
 
-  private activate(surface: HTMLElement): void {
-    if (this.disposed || this.forcedColors.matches) return
+  private activate(surface: HTMLElement, refreshGeometry = false): void {
+    if (this.disposed) return
+    const changed = this.activeSurface !== surface
     if (this.activeSurface !== surface) {
       this.resizeObserver.disconnect()
       this.activeSurface = surface
       this.resizeObserver.observe(surface)
     }
     this.show()
-    this.queueUpdate()
+    if (changed || refreshGeometry) this.queueUpdate()
     this.scheduleHide()
   }
 
@@ -249,25 +255,33 @@ class ScrollbarPresentationOwner {
     this.endDrag()
     this.resizeObserver.disconnect()
     this.activeSurface = undefined
+    this.pointerSurface = undefined
+    this.pointerPosition = undefined
     this.hide()
   }
 
   private show(): void {
+    this.visible = true
+    this.applyVisibility()
+  }
+
+  private applyVisibility(): void {
     for (const track of Object.values(this.tracks)) {
-      if (track.presentation) track.element.dataset.visible = 'true'
+      if (this.visible && track.presentation) track.element.dataset.visible = 'true'
+      else delete track.element.dataset.visible
     }
   }
 
   private hide(): void {
     this.clearHideTimer()
     if (this.drag) return
-    for (const track of Object.values(this.tracks)) {
-      delete track.element.dataset.visible
-    }
+    this.visible = false
+    this.clearTrackInteractivity()
+    this.applyVisibility()
   }
 
   private scheduleHide(): void {
-    if (this.drag || this.forcedColors.matches) return
+    if (this.drag) return
     this.clearHideTimer()
     this.hideTimer = this.window.setTimeout(() => {
       this.hideTimer = undefined
@@ -276,8 +290,7 @@ class ScrollbarPresentationOwner {
   }
 
   private clearHideTimer(): void {
-    if (this.hideTimer === undefined) return
-    this.window.clearTimeout(this.hideTimer)
+    if (this.hideTimer !== undefined) this.window.clearTimeout(this.hideTimer)
     this.hideTimer = undefined
   }
 
@@ -291,7 +304,7 @@ class ScrollbarPresentationOwner {
 
   private update(): void {
     const surface = this.activeSurface
-    if (!surface?.isConnected || this.forcedColors.matches) {
+    if (!surface?.isConnected) {
       this.deactivate()
       return
     }
@@ -300,8 +313,13 @@ class ScrollbarPresentationOwner {
       this.hide()
       return
     }
-    const hasHorizontal = surface.scrollWidth - surface.clientWidth > 1
-    const hasVertical = surface.scrollHeight - surface.clientHeight > 1
+    const style = this.window.getComputedStyle(surface)
+    const hasHorizontal =
+      SCROLLING_OVERFLOW.has(style.overflowX) &&
+      surface.scrollWidth - surface.clientWidth > 1
+    const hasVertical =
+      SCROLLING_OVERFLOW.has(style.overflowY) &&
+      surface.scrollHeight - surface.clientHeight > 1
     this.updateTrack(
       this.tracks.vertical,
       rect.top + TRACK_INSET,
@@ -322,7 +340,8 @@ class ScrollbarPresentationOwner {
       surface.scrollLeft,
       hasHorizontal,
     )
-    this.show()
+    this.updateTrackInteractivity()
+    this.applyVisibility()
   }
 
   private updateTrack(
@@ -343,7 +362,7 @@ class ScrollbarPresentationOwner {
       delete track.element.dataset.visible
       return
     }
-    track.presentation = { ...axis, start, clientLength }
+    track.presentation = { ...axis, start, crossStart, trackLength, clientLength }
     if (track.axis === 'vertical') {
       Object.assign(track.element.style, {
         top: `${start}px`,
@@ -411,11 +430,39 @@ class ScrollbarPresentationOwner {
   private isScrollable(element: HTMLElement): boolean {
     const style = this.window.getComputedStyle(element)
     return (
-      (CLIPPING_OVERFLOW.has(style.overflowY) &&
+      (SCROLLING_OVERFLOW.has(style.overflowY) &&
         element.scrollHeight - element.clientHeight > 1) ||
-      (CLIPPING_OVERFLOW.has(style.overflowX) &&
+      (SCROLLING_OVERFLOW.has(style.overflowX) &&
         element.scrollWidth - element.clientWidth > 1)
     )
+  }
+
+  private updateTrackInteractivity(): void {
+    const pointer = this.pointerPosition
+    for (const track of Object.values(this.tracks)) {
+      const presentation = track.presentation
+      const interactive =
+        pointer !== undefined &&
+        this.pointerSurface === this.activeSurface &&
+        presentation !== undefined &&
+        (track.axis === 'vertical'
+          ? pointer.x >= presentation.crossStart &&
+            pointer.x <= presentation.crossStart + TRACK_THICKNESS &&
+            pointer.y >= presentation.start &&
+            pointer.y <= presentation.start + presentation.trackLength
+          : pointer.y >= presentation.crossStart &&
+            pointer.y <= presentation.crossStart + TRACK_THICKNESS &&
+            pointer.x >= presentation.start &&
+            pointer.x <= presentation.start + presentation.trackLength)
+      if (interactive) track.element.dataset.interactive = 'true'
+      else delete track.element.dataset.interactive
+    }
+  }
+
+  private clearTrackInteractivity(): void {
+    for (const track of Object.values(this.tracks)) {
+      delete track.element.dataset.interactive
+    }
   }
 
   private trackForTarget(target: EventTarget | null): ScrollbarTrack | undefined {

@@ -2,6 +2,8 @@ import type { BrowserWindow } from 'electron'
 
 interface ScrollbarFixtureSnapshot {
   readonly point: readonly [number, number]
+  readonly emptyPoint: readonly [number, number]
+  readonly clippedPoint: readonly [number, number]
   readonly trackPoint: readonly [number, number]
   readonly thumbPoint: readonly [number, number]
   readonly thumbDragPoint: readonly [number, number]
@@ -27,6 +29,25 @@ export async function verifyScrollbarPresentation(win: BrowserWindow): Promise<s
     assertOverlayGeometry(snapshot)
     win.focus()
     win.webContents.focus()
+
+    await new Promise((resolve) => setTimeout(resolve, 1_200))
+    moveMouse(win, snapshot.emptyPoint)
+    await new Promise((resolve) => setTimeout(resolve, 100))
+    const nonOverflowing = await fixtureDimensions(win)
+    if (nonOverflowing.verticalVisible || nonOverflowing.horizontalVisible) {
+      throw new Error(
+        `non-overflowing surface exposed an overlay (${JSON.stringify(nonOverflowing)})`,
+      )
+    }
+
+    moveMouse(win, snapshot.clippedPoint)
+    await new Promise((resolve) => setTimeout(resolve, 100))
+    const clipped = await fixtureDimensions(win)
+    if (!clipped.verticalVisible || clipped.horizontalVisible) {
+      throw new Error(
+        `clipped axis exposed the wrong overlays (${JSON.stringify(clipped)})`,
+      )
+    }
 
     moveMouse(win, snapshot.point)
     win.webContents.sendInputEvent({
@@ -61,7 +82,9 @@ export async function verifyScrollbarPresentation(win: BrowserWindow): Promise<s
     )
 
     const active = await fixtureDimensions(win)
-    await new Promise((resolve) => setTimeout(resolve, 1_200))
+    await new Promise((resolve) => setTimeout(resolve, 600))
+    moveMouse(win, snapshot.emptyPoint)
+    await new Promise((resolve) => setTimeout(resolve, 400))
     const idle = await fixtureDimensions(win)
     if (
       active.clientWidth !== snapshot.clientWidth ||
@@ -79,6 +102,16 @@ export async function verifyScrollbarPresentation(win: BrowserWindow): Promise<s
           `active=${JSON.stringify(active)}, idle=${JSON.stringify(idle)})`,
       )
     }
+
+    await resizeFixture(win, 141)
+    await new Promise((resolve) => setTimeout(resolve, 100))
+    const resizedWhileIdle = await fixtureDimensions(win)
+    if (resizedWhileIdle.verticalVisible || resizedWhileIdle.horizontalVisible) {
+      throw new Error(
+        `idle resize resurrected the overlay (${JSON.stringify(resizedWhileIdle)})`,
+      )
+    }
+    await resizeFixture(win, 140)
 
     const horizontal = await reachHorizontalEnd(win)
     if (horizontal.position < horizontal.maximum - 1) {
@@ -138,14 +171,32 @@ async function installFixture(win: BrowserWindow): Promise<ScrollbarFixtureSnaps
         overflow: 'auto',
         background: '#17202b'
       });
-      fixture.append(surface, empty);
+
+      const clipped = document.createElement('div');
+      Object.assign(clipped.style, {
+        width: '140px',
+        height: '100px',
+        overflowX: 'hidden',
+        overflowY: 'auto',
+        background: '#17202b'
+      });
+      const clippedContent = content.cloneNode();
+      clipped.append(clippedContent);
+      fixture.append(surface, empty, clipped);
       root.append(fixture);
 
       requestAnimationFrame(() => requestAnimationFrame(() => {
         const rect = surface.getBoundingClientRect();
+        const emptyRect = empty.getBoundingClientRect();
+        const clippedRect = clipped.getBoundingClientRect();
         const style = getComputedStyle(surface);
         resolve({
           point: [rect.left + rect.width / 2, rect.top + rect.height / 2],
+          emptyPoint: [emptyRect.left + emptyRect.width / 2, emptyRect.top + emptyRect.height / 2],
+          clippedPoint: [
+            clippedRect.left + clippedRect.width / 2,
+            clippedRect.top + clippedRect.height / 2
+          ],
           trackPoint: [rect.right - 7, rect.top + 72],
           thumbPoint: [rect.right - 7, rect.top + 7],
           thumbDragPoint: [rect.right - 7, rect.top + 58],
@@ -328,6 +379,16 @@ async function fixtureDimensions(win: BrowserWindow): Promise<{
   }
 }
 
+async function resizeFixture(win: BrowserWindow, width: number): Promise<void> {
+  await win.webContents.executeJavaScript(`
+    (() => {
+      const surface = document.getElementById(${JSON.stringify(SURFACE_ID)});
+      if (!(surface instanceof HTMLElement)) throw new Error('scrollbar fixture missing');
+      surface.style.width = ${JSON.stringify(`${width}px`)};
+    })()
+  `)
+}
+
 async function reachHorizontalEnd(
   win: BrowserWindow,
 ): Promise<{ readonly position: number; readonly maximum: number }> {
@@ -343,24 +404,45 @@ async function reachHorizontalEnd(
 
 async function verifyForcedColors(win: BrowserWindow): Promise<void> {
   const chromiumDebugger = win.webContents.debugger
-  chromiumDebugger.attach('1.3')
+  const ownsDebugger = !chromiumDebugger.isAttached()
+  if (ownsDebugger) chromiumDebugger.attach('1.3')
   try {
     await chromiumDebugger.sendCommand('Emulation.setEmulatedMedia', {
       features: [{ name: 'forced-colors', value: 'active' }],
     })
-    const color = (await win.webContents.executeJavaScript(`
-      getComputedStyle(document.getElementById(${JSON.stringify(SURFACE_ID)})).scrollbarColor
-    `)) as string
-    if (color !== 'auto') {
+    const presentation = (await win.webContents.executeJavaScript(`
+      (() => {
+        const surface = document.getElementById(${JSON.stringify(SURFACE_ID)});
+        const overlay = document.querySelector('.hvir-scrollbar');
+        if (!(surface instanceof HTMLElement) || !(overlay instanceof HTMLElement)) {
+          throw new Error('forced-colors scrollbar fixture missing');
+        }
+        return {
+          scrollbarColor: getComputedStyle(surface).scrollbarColor,
+          scrollbarWidth: getComputedStyle(surface).scrollbarWidth,
+          overlayDisplay: getComputedStyle(overlay).display
+        };
+      })()
+    `)) as {
+      readonly scrollbarColor: string
+      readonly scrollbarWidth: string
+      readonly overlayDisplay: string
+    }
+    if (
+      presentation.scrollbarColor !== 'auto' ||
+      presentation.scrollbarWidth !== 'auto' ||
+      presentation.overlayDisplay !== 'none'
+    ) {
       throw new Error(
-        `forced-colors did not restore the native scrollbar palette (${color})`,
+        `forced-colors did not restore native scrollbar presentation ` +
+          `(${JSON.stringify(presentation)})`,
       )
     }
   } finally {
     try {
       await chromiumDebugger.sendCommand('Emulation.setEmulatedMedia', { features: [] })
     } finally {
-      if (chromiumDebugger.isAttached()) chromiumDebugger.detach()
+      if (ownsDebugger && chromiumDebugger.isAttached()) chromiumDebugger.detach()
     }
   }
 }
