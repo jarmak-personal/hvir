@@ -62,12 +62,22 @@ export interface WorkspaceCoordinatorOptions {
   readonly onError?: (message: string, error: unknown) => void
 }
 
+type RefreshMode = 'full' | 'passive'
+
+interface RefreshRecord {
+  readonly generation: number
+  readonly mode: RefreshMode
+  readonly promise: Promise<ProjectState>
+}
+
 /** Owns watch replacement, refresh deduplication, polling, and transition serialization. */
 export class WorkspaceCoordinator {
-  private readonly refreshes = new Map<string, Promise<ProjectState>>()
+  private readonly refreshes = new Map<string, RefreshRecord>()
+  private readonly inFlightRefreshes = new Set<Promise<ProjectState>>()
   private readonly exclusiveOperations = new Map<string, Promise<ProjectState>>()
   private readonly refreshTimers = new Map<string, ReturnType<typeof setTimeout>>()
   private readonly projectGenerations = new Map<string, number>()
+  private readonly suspendedPassiveActivity = new Map<string, Set<string>>()
   private watch?: WorkspaceWatchPort
   private watchGeneration = 0
   private watchInterestCache: ProjectWatchInterestCache = new Map()
@@ -87,18 +97,21 @@ export class WorkspaceCoordinator {
   }
 
   refresh(projectId: string): Promise<ProjectState> {
+    return this.requestRefresh(projectId, 'full')
+  }
+
+  private requestRefresh(projectId: string, mode: RefreshMode): Promise<ProjectState> {
     const exclusive = this.exclusiveOperations.get(projectId)
     if (exclusive) return exclusive
     const existing = this.refreshes.get(projectId)
-    if (existing) return existing
     const generation = this.projectGeneration(projectId)
-    const refresh = this.refreshProject(projectId, generation)
-    this.refreshes.set(projectId, refresh)
-    void refresh.then(
-      () => this.releaseRefresh(projectId, refresh),
-      () => this.releaseRefresh(projectId, refresh),
+    if (existing?.generation === generation) {
+      if (mode === 'passive' || existing.mode === 'full') return existing.promise
+      return this.upgradeRefresh(projectId, existing, generation)
+    }
+    return this.registerRefresh(projectId, generation, mode, () =>
+      this.refreshProject(projectId, generation, mode),
     )
-    return refresh
   }
 
   scheduleRefresh(projectId: string, delayMs = 350): void {
@@ -215,17 +228,23 @@ export class WorkspaceCoordinator {
     this.refreshTimers.delete(projectId)
   }
 
-  async settleProject(projectId: string): Promise<void> {
+  async settleProject(
+    projectId: string,
+    obsoleteRefresh: 'wait' | 'skip' = 'wait',
+  ): Promise<void> {
     const refresh = this.refreshes.get(projectId)
     const exclusive = this.exclusiveOperations.get(projectId)
-    await refresh?.catch(() => undefined)
+    const obsolete = refresh?.generation !== this.projectGeneration(projectId)
+    if (refresh && !(obsolete && obsoleteRefresh === 'skip')) {
+      await refresh.promise.catch(() => undefined)
+    }
     await exclusive?.catch(() => undefined)
   }
 
   async settle(): Promise<void> {
     await Promise.allSettled([
       this.operationTail,
-      ...this.refreshes.values(),
+      ...this.inFlightRefreshes,
       ...this.exclusiveOperations.values(),
     ])
   }
@@ -253,6 +272,7 @@ export class WorkspaceCoordinator {
   private async refreshProject(
     projectId: string,
     generation: number,
+    mode: RefreshMode,
   ): Promise<ProjectState> {
     const project = this.options.registry.projectById(projectId)
     if (!project) throw new Error('Unknown project')
@@ -267,19 +287,51 @@ export class WorkspaceCoordinator {
     if (!refreshed) return this.options.registry.state()
     const present = refreshed.workspaces.filter((workspace) => !workspace.missing)
     const relatedRoots = present.map((workspace) => workspace.root)
+    const previous = new Map(
+      project.workspaces.map((workspace) => [
+        workspace.id,
+        { head: workspace.head, branch: workspace.branch },
+      ]),
+    )
+    const suspended = this.suspendedFor(projectId)
+    const presentIds = new Set(present.map((workspace) => workspace.id))
+    for (const workspaceId of suspended) {
+      if (!presentIds.has(workspaceId)) suspended.delete(workspaceId)
+    }
+    const targets =
+      mode === 'full'
+        ? present
+        : present.filter((workspace) => {
+            if (!workspace.closed) return false
+            const prior = previous.get(workspace.id)
+            if (
+              prior &&
+              (prior.head !== workspace.head || prior.branch !== workspace.branch)
+            ) {
+              suspended.delete(workspace.id)
+            }
+            return !suspended.has(workspace.id)
+          })
     const activity = new Map<string, WorkspaceActivityResult>()
-    for (let index = 0; index < present.length; index += 3) {
+    for (let index = 0; index < targets.length; index += 3) {
       await Promise.all(
-        present.slice(index, index + 3).map(async (workspace) => {
-          activity.set(
-            workspace.id,
-            await this.options.discovery.workspaceActivity(workspace.root, relatedRoots),
+        targets.slice(index, index + 3).map(async (workspace) => {
+          const result = await this.options.discovery.workspaceActivity(
+            workspace.root,
+            relatedRoots,
           )
+          activity.set(workspace.id, result)
         }),
       )
       if (!this.isCurrent(projectId, generation)) return this.options.registry.state()
     }
-    return this.options.registry.updateWorkspaceActivity(projectId, activity)
+    if (activity.size === 0) return this.options.registry.state()
+    const state = await this.options.registry.updateWorkspaceActivity(projectId, activity)
+    for (const [workspaceId, result] of activity) {
+      if (result.changedFiles > 0) suspended.add(workspaceId)
+      else suspended.delete(workspaceId)
+    }
+    return state
   }
 
   private poll(): void {
@@ -291,7 +343,7 @@ export class WorkspaceCoordinator {
       ) {
         continue
       }
-      void this.refresh(project.id).catch((error) =>
+      void this.requestRefresh(project.id, 'passive').catch((error) =>
         this.report(`[workspace] periodic refresh failed for ${project.id}`, error),
       )
     }
@@ -305,8 +357,54 @@ export class WorkspaceCoordinator {
     return !this.disposed && generation === this.projectGeneration(projectId)
   }
 
-  private releaseRefresh(projectId: string, refresh: Promise<ProjectState>): void {
+  private registerRefresh(
+    projectId: string,
+    generation: number,
+    mode: RefreshMode,
+    operation: () => Promise<ProjectState>,
+  ): Promise<ProjectState> {
+    const promise = operation()
+    const record = { generation, mode, promise }
+    this.refreshes.set(projectId, record)
+    this.inFlightRefreshes.add(promise)
+    void promise.then(
+      () => this.releaseRefresh(projectId, record),
+      () => this.releaseRefresh(projectId, record),
+    )
+    return promise
+  }
+
+  private upgradeRefresh(
+    projectId: string,
+    existing: RefreshRecord,
+    generation: number,
+  ): Promise<ProjectState> {
+    return this.registerRefresh(projectId, generation, 'full', () =>
+      existing.promise.then(
+        () =>
+          this.isCurrent(projectId, generation)
+            ? this.refreshProject(projectId, generation, 'full')
+            : this.options.registry.state(),
+        () =>
+          this.isCurrent(projectId, generation)
+            ? this.refreshProject(projectId, generation, 'full')
+            : this.options.registry.state(),
+      ),
+    )
+  }
+
+  private releaseRefresh(projectId: string, refresh: RefreshRecord): void {
+    this.inFlightRefreshes.delete(refresh.promise)
     if (this.refreshes.get(projectId) === refresh) this.refreshes.delete(projectId)
+  }
+
+  private suspendedFor(projectId: string): Set<string> {
+    let suspended = this.suspendedPassiveActivity.get(projectId)
+    if (!suspended) {
+      suspended = new Set()
+      this.suspendedPassiveActivity.set(projectId, suspended)
+    }
+    return suspended
   }
 
   private releaseExclusive(projectId: string, result: Promise<ProjectState>): void {

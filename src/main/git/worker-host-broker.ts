@@ -83,6 +83,20 @@ export async function dispatchWorkerHostCall(
   ) {
     throw new Error('git worker supplied an invalid stdout record limit')
   }
+  if (
+    call.allowIndexRefresh !== undefined &&
+    (call.allowIndexRefresh !== true ||
+      !sameArgs(call.args.slice(2), [
+        'status',
+        '--porcelain=v2',
+        '-z',
+        '--untracked-files=all',
+        '--',
+        '.',
+      ]))
+  ) {
+    throw new Error('git worker supplied unsupported index refresh authority')
+  }
   const commandRoot = hostPath(root.hostId, call.args[1])
   await assertProjectPath(commandRoot, root, host)
   const maxBuffer = call.maxBuffer ?? 10 * 1024 * 1024
@@ -98,13 +112,16 @@ export async function dispatchWorkerHostCall(
     host.exec('git', [...SAFE_GIT_CONFIG, ...call.args], {
       cwd: root,
       // Background reads suppress optional index refresh writes so the .git
-      // watcher cannot feed a status request back into itself. The one
-      // explicitly authorized mutations retain Git's normal locking.
+      // watcher cannot feed a request back into itself. The bounded workspace
+      // activity status is the one read permitted to persist refreshed stat
+      // data; otherwise content filters can rerun forever against a stale index.
       ...(fetch || pull
         ? { env: { GIT_TERMINAL_PROMPT: '0', GCM_INTERACTIVE: 'Never' } }
         : worktreePrune || branchSwitch
           ? {}
-          : { env: { GIT_OPTIONAL_LOCKS: '0' } }),
+          : call.allowIndexRefresh
+            ? {}
+            : { env: { GIT_OPTIONAL_LOCKS: '0' } }),
       ...(call.input !== undefined ? { input: call.input } : {}),
       maxBuffer,
       ...(call.allowTruncatedOutput === true ? { allowTruncatedOutput: true } : {}),
