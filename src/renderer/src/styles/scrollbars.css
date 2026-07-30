@@ -1,0 +1,77 @@
+/* Cross-feature scrollbar presentation for hvir-owned DOM beneath #root.
+ * The renderer-owned overlay leaves scrolling and focus on each native surface
+ * while removing the platform gutter. TerminalPane and isolated web panes keep
+ * their own rendering boundaries. */
+@media (forced-colors: none) {
+  :where(#root, #root *) {
+    scrollbar-width: none;
+  }
+
+  :where(#root, #root *)::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+.hvir-scrollbar {
+  position: fixed;
+  z-index: 1100;
+  border-radius: 999px;
+  opacity: 0;
+  pointer-events: none;
+  touch-action: none;
+  transition: opacity 140ms ease;
+}
+
+.hvir-scrollbar[data-visible='true'] {
+  opacity: 1;
+}
+
+.hvir-scrollbar[data-visible='true'][data-interactive='true'] {
+  pointer-events: auto;
+}
+
+.hvir-scrollbar[data-axis='vertical'] {
+  width: 10px;
+}
+
+.hvir-scrollbar[data-axis='horizontal'] {
+  height: 10px;
+}
+
+.hvir-scrollbar-thumb {
+  position: absolute;
+  top: 0;
+  left: 0;
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--text-muted) 82%, transparent);
+  background-clip: padding-box;
+}
+
+.hvir-scrollbar:hover .hvir-scrollbar-thumb,
+.hvir-scrollbar[data-dragging='true'] .hvir-scrollbar-thumb {
+  background-color: var(--text-muted);
+}
+
+.hvir-scrollbar[data-axis='vertical'] .hvir-scrollbar-thumb {
+  width: 100%;
+}
+
+.hvir-scrollbar[data-axis='horizontal'] .hvir-scrollbar-thumb {
+  height: 100%;
+}
+
+body.hvir-scrollbar-dragging {
+  user-select: none;
+}
+
+@media (forced-colors: active) {
+  :where(#root, #root *) {
+    scrollbar-color: auto;
+    scrollbar-width: auto;
+  }
+
+  .hvir-scrollbar {
+    display: none;
+  }
+}

@@ -29,6 +29,7 @@ const expectedOrder = [
   'viewer-content.css',
   'terminal-pane.css',
   'web-pane.css',
+  'scrollbars.css',
 ] as const
 
 describe('renderer style ownership', () => {
@@ -51,6 +52,19 @@ describe('renderer style ownership', () => {
         .replace(/@import[^;]+;/g, '')
         .trim(),
     ).toBe('')
+  })
+
+  it('keeps scrollbar presentation in one cross-feature primitive', () => {
+    const stylesRoot = join(process.cwd(), 'src/renderer/src/styles')
+    const scrollbarOwners = readdirSync(stylesRoot)
+      .filter((file) => file.endsWith('.css'))
+      .filter((file) =>
+        /scrollbar-(?:color|gutter|width)|::-(?:webkit-)?scrollbar/.test(
+          readFileSync(join(stylesRoot, file), 'utf8'),
+        ),
+      )
+
+    expect(scrollbarOwners).toEqual(['scrollbars.css'])
   })
 
   it('routes renderer typography through the owned font and scale tokens', () => {

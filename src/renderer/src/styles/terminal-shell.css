@@ -150,21 +150,6 @@
   margin: 6px 0;
   overflow-x: hidden;
   overflow-y: auto;
-  scrollbar-color: #5e6876 transparent;
-  scrollbar-width: thin;
-}
-
-.terminal-rail-compact-markers::-webkit-scrollbar {
-  width: 3px;
-}
-
-.terminal-rail-compact-markers::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-.terminal-rail-compact-markers::-webkit-scrollbar-thumb {
-  border-radius: 2px;
-  background: #5e6876;
 }
 
 .terminal-rail-compact-marker-item {
@@ -339,22 +324,6 @@
   border-radius: 4px;
   background: #1b1f26;
   box-shadow: 0 8px 24px rgb(0 0 0 / 38%);
-  scrollbar-color: var(--text-muted) var(--surface-0);
-  scrollbar-width: thin;
-}
-
-.terminal-new-menu::-webkit-scrollbar {
-  width: 8px;
-}
-
-.terminal-new-menu::-webkit-scrollbar-track {
-  background: var(--surface-0);
-}
-
-.terminal-new-menu::-webkit-scrollbar-thumb {
-  border: 2px solid var(--surface-0);
-  border-radius: 999px;
-  background: var(--text-muted);
 }
 
 .terminal-new-menu button {

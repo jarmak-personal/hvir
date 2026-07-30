@@ -54,7 +54,6 @@
   overflow-x: auto;
   overflow-y: hidden;
   background: #111419;
-  scrollbar-width: thin;
 }
 
 /* Leading inset that still carries the baseline, like the rail-nav's padding. */
