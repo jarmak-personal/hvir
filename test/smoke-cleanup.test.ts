@@ -31,4 +31,16 @@ describe('SmokeCleanup', () => {
     await expect(cleanup.run()).rejects.toThrow('Electron smoke cleanup failed')
     expect(survivor).toHaveBeenCalledOnce()
   })
+
+  it('reports only resources whose disposal completed', async () => {
+    const disposed: string[] = []
+    const cleanup = new SmokeCleanup((name) => disposed.push(name))
+    cleanup.defer('completed', () => undefined)
+    cleanup.defer('failed', () => {
+      throw new Error('fixture failure')
+    })
+
+    await expect(cleanup.run()).rejects.toThrow('Electron smoke cleanup failed')
+    expect(disposed).toEqual(['completed'])
+  })
 })

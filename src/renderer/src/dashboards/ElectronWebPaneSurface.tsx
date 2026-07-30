@@ -13,6 +13,7 @@ import type {
   WebPaneSurfaceHandle,
   WebPaneSurfaceProps,
 } from './web-pane-surface'
+import { reviewedWebPaneConsoleDiagnostic } from './web-pane-diagnostics'
 
 interface WebViewElement extends HTMLElement {
   src: string
@@ -90,12 +91,8 @@ export const ElectronWebPaneSurface: WebPaneSurface = forwardRef<
     }
     const consoleMessage = (event: Event): void => {
       const detail = event as Event & { level?: number; message?: string }
-      if ((detail.level ?? 0) < 2 || !detail.message) return
-      callbacks.current.onDiagnostic({
-        kind: 'console',
-        level: detail.level === 3 ? 'error' : 'warning',
-        message: detail.message,
-      })
+      const diagnostic = reviewedWebPaneConsoleDiagnostic(detail.level, detail.message)
+      if (diagnostic) callbacks.current.onDiagnostic(diagnostic)
     }
     const crashed = (event: Event): void => {
       const reason = (event as Event & { reason?: string }).reason ?? 'unknown reason'

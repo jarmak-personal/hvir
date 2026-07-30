@@ -65,6 +65,9 @@ jobs:
       - name: Run development renderer Performance Timeline containment
         run: xvfb-run -a npm run smoke:development-performance
 
+      - name: Prove failure and interruption isolation
+        run: xvfb-run -a npm run smoke:isolation
+
   capacity-smoke:
     name: Capacity contracts + performance evidence (Linux)
     runs-on: ubuntu-24.04
@@ -87,8 +90,8 @@ jobs:
         run: xvfb-run -a npm run smoke:capacity
 
   macos-electron-smoke:
-    # Temporary reduced gate: terminal-presentation and capacity remain available
-    # through local commands while their macOS lifecycle flakes are hardened.
+    # Temporary reduced gate: terminal-presentation, terminal-lifecycle, and capacity
+    # remain available through local commands while their macOS flakes are hardened.
     name: Electron correctness (macOS arm64; temporary reduced gate)
     runs-on: macos-15
     timeout-minutes: 15

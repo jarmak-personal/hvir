@@ -2,6 +2,11 @@ import { spawn } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { dirname, join, resolve } from 'node:path'
 import {
+  SmokeAttemptEvidenceCollector,
+  createSmokeFailureArtifact,
+  writeSmokeFailureArtifact,
+} from './smoke-failure-artifact.mts'
+import {
   parseElectronSmokeScenario,
   type ElectronSmokeScenario,
 } from '../src/main/smoke/scenario-selection.mts'
@@ -22,6 +27,7 @@ export interface SmokeScenarioResult {
   readonly exitCode?: number
   readonly signal?: NodeJS.Signals
   readonly error?: string
+  readonly durationMs?: number
 }
 
 type InvokeSmokeScenario = (
@@ -31,6 +37,14 @@ type InvokeSmokeScenario = (
 ) => Promise<Omit<SmokeScenarioResult, 'scenario' | 'iteration' | 'repetitionCount'>>
 
 const MAX_SMOKE_REPETITIONS = 100
+const DEFAULT_SMOKE_ATTEMPT_TIMEOUT_MS = 180_000
+const CAPACITY_SMOKE_ATTEMPT_TIMEOUT_MS = 600_000
+
+export function smokeAttemptTimeoutMs(scenario: SmokeScenarioName): number {
+  return scenario === 'capacity'
+    ? CAPACITY_SMOKE_ATTEMPT_TIMEOUT_MS
+    : DEFAULT_SMOKE_ATTEMPT_TIMEOUT_MS
+}
 
 export function parseSmokeRepetitionCount(value: string | undefined): number {
   if (value === undefined) return 1
@@ -109,6 +123,25 @@ export function smokeScenarioEnvironment(
   return childEnvironment
 }
 
+export function classifySmokeAttempt(options: {
+  readonly exitCode: number | null
+  readonly signal: NodeJS.Signals | null
+  readonly successSentinel: boolean
+  readonly durationMs: number
+}): Omit<SmokeScenarioResult, 'scenario' | 'iteration' | 'repetitionCount'> {
+  const status =
+    options.exitCode === 0 && options.successSentinel ? 'passed' : 'failed'
+  return {
+    status,
+    ...(options.exitCode === null ? {} : { exitCode: options.exitCode }),
+    ...(options.signal === null ? {} : { signal: options.signal }),
+    ...(!options.successSentinel && options.exitCode === 0
+      ? { error: 'missing success sentinel' }
+      : {}),
+    durationMs: options.durationMs,
+  }
+}
+
 function invokeSmokeScenario(
   scenario: SmokeScenarioName,
   iteration: number,
@@ -118,28 +151,124 @@ function invokeSmokeScenario(
   console.log(
     `[smoke:group] ${scenario} iteration ${iteration}/${repetitionCount} starting`,
   )
+  const startedAt = performance.now()
   return new Promise((resolveResult) => {
+    const collector = new SmokeAttemptEvidenceCollector()
     const child = spawn('bash', [join(repositoryRoot, 'scripts/run-smoke.sh')], {
       cwd: repositoryRoot,
+      detached: process.platform !== 'win32',
       env: smokeScenarioEnvironment(process.env, scenario),
-      stdio: 'inherit',
+      stdio: ['inherit', 'pipe', 'pipe'],
+    })
+    child.stdout.setEncoding('utf8')
+    child.stderr.setEncoding('utf8')
+    child.stdout.on('data', (chunk: string) => {
+      process.stdout.write(chunk)
+      collector.observe('stdout', chunk)
+    })
+    child.stderr.on('data', (chunk: string) => {
+      process.stderr.write(chunk)
+      collector.observe('stderr', chunk)
     })
     let settled = false
-    child.once('error', (error) => {
+    const timer = setTimeout(() => {
       if (settled) return
       settled = true
-      resolveResult({ status: 'failed', error: error.message })
+      terminateSmokeAttempt(child.pid)
+      collector.finish()
+      const durationMs = performance.now() - startedAt
+      const result = {
+        status: 'failed',
+        signal: 'SIGKILL',
+        error: 'process timed out',
+        durationMs,
+      } as const
+      void retainFailureArtifact({
+        scenario,
+        iteration,
+        repetitionCount,
+        durationMs,
+        exitCode: null,
+        signal: 'SIGKILL',
+        spawnError: false,
+        collector,
+      }).finally(() => resolveResult(result))
+    }, smokeAttemptTimeoutMs(scenario))
+    child.once('error', () => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      collector.finish()
+      const durationMs = performance.now() - startedAt
+      void retainFailureArtifact({
+        scenario,
+        iteration,
+        repetitionCount,
+        durationMs,
+        exitCode: null,
+        signal: null,
+        spawnError: true,
+        collector,
+      }).finally(() =>
+        resolveResult({ status: 'failed', error: 'process spawn failed', durationMs }),
+      )
     })
     child.once('close', (exitCode, signal) => {
       if (settled) return
       settled = true
-      resolveResult({
-        status: exitCode === 0 ? 'passed' : 'failed',
-        ...(exitCode === null ? {} : { exitCode }),
-        ...(signal === null ? {} : { signal }),
+      clearTimeout(timer)
+      collector.finish()
+      const durationMs = performance.now() - startedAt
+      const successSentinel = collector.evidence().logs.successSentinel
+      const result = classifySmokeAttempt({
+        exitCode,
+        signal,
+        successSentinel,
+        durationMs,
       })
+      if (result.status === 'passed') {
+        resolveResult(result)
+        return
+      }
+      void retainFailureArtifact({
+        scenario,
+        iteration,
+        repetitionCount,
+        durationMs,
+        exitCode,
+        signal,
+        spawnError: false,
+        collector,
+      }).finally(() => resolveResult(result))
     })
   })
+}
+
+function terminateSmokeAttempt(pid: number | undefined): void {
+  if (!pid) return
+  try {
+    if (process.platform === 'win32') process.kill(pid, 'SIGKILL')
+    else process.kill(-pid, 'SIGKILL')
+  } catch (error) {
+    const code = (error as { code?: unknown } | undefined)?.code
+    if (code !== 'ESRCH') {
+      console.error('[smoke:launcher] failed to terminate timed-out process group')
+    }
+  }
+}
+
+async function retainFailureArtifact(
+  options: Parameters<typeof createSmokeFailureArtifact>[0],
+): Promise<void> {
+  try {
+    const path = await writeSmokeFailureArtifact(
+      process.env.HVIR_SMOKE_ARTIFACT_DIR,
+      createSmokeFailureArtifact(options),
+    )
+    if (path) console.error('[smoke:artifact] retained bounded failure evidence')
+  } catch {
+    console.error('[smoke:artifact] failed to retain bounded failure evidence')
+  }
 }
 
 export function formatSmokeScenarioResults(
@@ -154,7 +283,9 @@ export function formatSmokeScenarioResults(
         (result.signal
           ? `signal ${result.signal}`
           : `exit ${result.exitCode ?? 'unknown'}`)
-      return `- ${result.scenario} iteration ${result.iteration}/${result.repetitionCount}: ${result.status} (${detail})`
+      const duration =
+        result.durationMs === undefined ? '' : ` · ${Math.round(result.durationMs)}ms`
+      return `- ${result.scenario} iteration ${result.iteration}/${result.repetitionCount}: ${result.status} (${detail}${duration})`
     }),
   ].join('\n')
 }

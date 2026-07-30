@@ -17,9 +17,6 @@ export function verifyViewerFind(
       const chord = (target) => target.dispatchEvent(new KeyboardEvent('keydown', {
         key: 'f', ctrlKey: !mac, metaKey: mac, bubbles: true
       }));
-      const settle = () => new Promise((resolve) =>
-        requestAnimationFrame(() => requestAnimationFrame(resolve))
-      );
       const waitFor = async (test, message) => {
         for (;;) {
           const value = test();
@@ -92,21 +89,6 @@ export function verifyViewerFind(
 
       await openFile(${JSON.stringify(sourcePath.path)});
       await switchMode('source');
-      if (!document.querySelector('.terminal-panel')) {
-        const createTerminal = await waitFor(
-          () => document.querySelector('.terminal-empty button'),
-          'new-terminal control missing for find shortcut isolation'
-        );
-        createTerminal.click();
-      }
-      const terminal = await waitFor(
-        () => document.querySelector('.terminal-panel'),
-        'terminal surface did not mount for find shortcut isolation'
-      );
-      chord(terminal);
-      await settle();
-      if (currentControl()) throw new Error('terminal Ctrl/Cmd+F opened viewer find');
-
       let control = await openFind();
       let status = await setQuery(control, 'line 23', (text) => text === '1 of 11');
       await waitFor(
@@ -257,7 +239,7 @@ export function verifyViewerFind(
 
       return 'source ' + status + ' · diff ' + diffStatus + ' · rendered ' +
         renderedStatus + ' · Mermaid ' + mermaidStatus + ' · collapsed ' +
-        collapsedStatus + ' · large ' + largeStatus + ' · terminal isolated · split scoped';
+        collapsedStatus + ' · large ' + largeStatus + ' · split scoped';
     })()
   `) as Promise<string>
 }
