@@ -16,6 +16,12 @@ export async function verifyViewerContent(options: {
   const { win, host, liveReloadPath, largeJsonPath, largeTextPath, liveReloadBefore } =
     options
   try {
+    // Establish real Chromium keyboard modality before moving focus to the
+    // active tab. Programmatic focus alone does not guarantee :focus-visible.
+    win.focus()
+    win.webContents.focus()
+    win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Tab' })
+    win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Tab' })
     const viewerStatus = (await withTimeout(
       win.webContents.executeJavaScript(`
         new Promise((resolve, reject) => {
