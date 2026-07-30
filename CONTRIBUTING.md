@@ -251,6 +251,35 @@ environment content.
 Deferred PTY-spawn and renderer-generation tests remain at their domain seams to prove that late
 completion after revocation fails closed and cannot recreate disposed authority.
 
+Real SSH server behavior is an opt-in acceptance boundary, not a pull-request dependency. Run
+`npm run acceptance:ssh:real-host` only with an explicit target:
+
+- `HVIR_REAL_SSH_HOST`, `HVIR_REAL_SSH_PORT`, and `HVIR_REAL_SSH_USER` identify the target;
+- `HVIR_REAL_SSH_HOST_KEY` is the exact trusted `SHA256:` fingerprint;
+- `HVIR_REAL_SSH_ROOT_PARENT` is an existing absolute directory reserved for disposable runs; and
+- exactly one of `HVIR_REAL_SSH_PRIVATE_KEY` or `HVIR_REAL_SSH_IDENTITY_FILE` supplies the key.
+  `HVIR_REAL_SSH_PASSPHRASE` is optional for an encrypted key.
+
+The command never reads ambient SSH config, agents, default hosts, passwords, or trust stores. It
+exits with status 2 and reports `unavailable` when all target settings are absent; a partial or
+invalid configuration fails. One logical `SshHost` then exercises exec, SFTP, real watch/poll,
+supervised PTY plus provider observation, direct loopback streaming, pooled transport capacity,
+and explicit disconnect/reconnect. Every remote file stays under a fresh host-qualified project
+root. The target must provide POSIX `sh`, SFTP, and `python3`; Python runs only one bounded
+in-memory loopback server and is not installed or retained by hvir. Cleanup requires the exact
+per-run ownership marker before removing that root, stops all streams/PTYs/watches, disconnects
+transports, and installs no remote service. `SIGHUP`, `SIGINT`, and `SIGTERM` enter that same
+bounded cleanup path instead of exiting around it. Failure output and
+the optional `HVIR_REAL_SSH_ARTIFACT_DIR` artifact contain only the closed phase, connection/watch
+state, resource counts/flags, transport counts, and duration—never target configuration,
+credentials, fingerprints, paths, terminal output, or remote file contents.
+
+The monthly/manual `Real-host SSH acceptance` workflow reads the same values from the protected
+`real-host-ssh` environment. With no configured target its acceptance job is visibly skipped; a
+partially configured target fails the availability job. This leaves deterministic `SshHost` and
+transport tests as the first pull-request evidence while keeping mutable infrastructure outside
+the universal gate.
+
 Native package acceptance is the distribution boundary, not a second product workflow. On a
 disposable matching host, build the native package and run `npm run smoke:linux:installed` or
 `npm run smoke:macos:installed` with the guarded environment documented in
