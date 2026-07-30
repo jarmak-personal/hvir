@@ -1,0 +1,82 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg
+  xmlns="http://www.w3.org/2000/svg"
+  width="1024"
+  height="1024"
+  viewBox="0 0 1024 1024"
+  role="img"
+  aria-labelledby="title description"
+>
+  <title id="title">hvir macOS application icon</title>
+  <desc id="description">
+    The hvir mark on a rounded dark tile with transparent outer framing.
+  </desc>
+
+  <defs>
+    <radialGradient id="tile" cx="48%" cy="43%" r="76%">
+      <stop offset="0" stop-color="#171d2b" />
+      <stop offset="0.7" stop-color="#0d111b" />
+      <stop offset="1" stop-color="#080b12" />
+    </radialGradient>
+    <linearGradient id="mark-blue" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#7795c5" />
+      <stop offset="1" stop-color="#6684b6" />
+    </linearGradient>
+    <linearGradient id="mark-ivory" x1="0" y1="0" x2="0.85" y2="1">
+      <stop offset="0" stop-color="#fbf7f2" />
+      <stop offset="1" stop-color="#f1e9e2" />
+    </linearGradient>
+    <filter id="tile-shadow" x="-18%" y="-16%" width="136%" height="140%">
+      <feDropShadow
+        dx="0"
+        dy="18"
+        stdDeviation="22"
+        flood-color="#000000"
+        flood-opacity="0.34"
+      />
+    </filter>
+    <filter id="mark-shadow" x="-12%" y="-12%" width="124%" height="128%">
+      <feDropShadow
+        dx="0"
+        dy="5"
+        stdDeviation="7"
+        flood-color="#000000"
+        flood-opacity="0.3"
+      />
+    </filter>
+  </defs>
+
+  <g filter="url(#tile-shadow)">
+    <rect x="100" y="76" width="824" height="824" rx="188" fill="url(#tile)" />
+    <rect
+      x="101"
+      y="77"
+      width="822"
+      height="822"
+      rx="187"
+      fill="none"
+      stroke="#2b3345"
+      stroke-width="2"
+      stroke-opacity="0.75"
+    />
+  </g>
+
+  <!-- Keep this mark geometry identical to icon-linux.svg; framing is platform-owned. -->
+  <g filter="url(#mark-shadow)">
+    <svg x="219" y="151" width="586" height="686" viewBox="292 236 668 782">
+      <path
+        fill="url(#mark-blue)"
+        d="M357 272H530Q558 272 558 300V382H482Q465 382 465 399V953Q465 982 436 982H357Q328 982 328 953V301Q328 272 357 272Z"
+      />
+      <path
+        fill="url(#mark-ivory)"
+        d="M620 272H895Q924 272 924 301V712Q924 741 895 741H827Q806 741 801 721C783 655 714 604 642 604C618 604 592 618 592 604V301Q592 272 620 272Z"
+      />
+      <path
+        fill="url(#mark-blue)"
+        d="M563 712C563 672 595 640 635 640C675 640 707 672 707 712V953Q707 982 678 982H592Q563 982 563 953Z"
+      />
+      <rect x="800" y="780" width="124" height="202" rx="28" fill="url(#mark-blue)" />
+    </svg>
+  </g>
+</svg>

@@ -223,6 +223,21 @@ render_acceptance_installer() {
     --acceptance-unsigned-macos "$unsigned"
 }
 
+assert_installer_output() {
+  local log=$1 version=$2 action=$3
+  grep -Fq "Download integrity verified." "$log"
+  grep -Fq \
+    'macOS will request your local administrator password; typed characters will not appear.' \
+    "$log"
+  grep -Fq "hvir $version is $action. Open a project with: hvir ." "$log"
+  if grep -Eq \
+    'hvir-installer\.|/private/var|Processing:|installer:|The validate action worked|source=Notarized|removed [0-9]+ packages' \
+    "$log"; then
+    echo 'Successful installer output exposed implementation diagnostics.' >&2
+    exit 1
+  fi
+}
+
 render_acceptance_installer "$old_package" 0.0.0 "$old_installer" true
 if [[ "$package_mode" == 'signed' ]]; then
   render_acceptance_installer \
@@ -247,7 +262,8 @@ installed_by_smoke=1
 test ! -e "$legacy_launcher"
 test ! -e "$legacy_root/hvir-workbench"
 test ! -e "$home_root/Library/Caches/hvir/native"
-grep -Fq 'installer: The install was successful.' "$install_log"
+grep -Fq 'Removed the legacy npm installation.' "$install_log"
+assert_installer_output "$install_log" 0.0.0 installed
 [[ "$(pkgutil --pkg-info-plist "$receipt" | plutil -extract pkg-version raw -)" == '0.0.0' ]]
 test -f "$application/Contents/Resources/hvir-previous-only.txt"
 
@@ -301,7 +317,7 @@ run_installed_smoke retained-after-failed-update pty-native
 HOME="$home_root" \
   PATH='/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin' \
   "$current_installer" | tee "$install_log"
-grep -Fq 'installer: The upgrade was successful.' "$install_log"
+assert_installer_output "$install_log" "$package_version" updated
 receipt_version=$(pkgutil --pkg-info-plist "$receipt" |
   plutil -extract pkg-version raw -) || {
   echo 'Could not read the installed package receipt version.' >&2
@@ -361,6 +377,16 @@ grep -Fxq 'command=/usr/local/bin/hvir' "$inventory"
 grep -Fxq 'inventory=/Library/Application Support/hvir/package-inventory-v1.txt' \
   "$inventory"
 grep -Fxq 'receipt=dev.hvir.app' "$inventory"
+installed_icon="$application/Contents/Resources/icon.icns"
+if [[ "$(plutil -extract CFBundleIconFile raw "$application/Contents/Info.plist")" !=
+  'icon.icns' ]]; then
+  echo 'Installed application does not select its packaged macOS icon.' >&2
+  exit 1
+fi
+if ! cmp build/icon-macos.icns "$installed_icon"; then
+  echo 'Installed application icon differs from the platform-owned macOS asset.' >&2
+  exit 1
+fi
 if ! pkgutil --files "$receipt" |
   grep -Fx 'hvir.app/Contents/MacOS/hvir' >/dev/null; then
   echo 'Package receipt does not own the installed hvir executable.' >&2

@@ -16,10 +16,11 @@ readonly HVIR_ACCEPTANCE_UNSIGNED_MACOS=@@HVIR_ACCEPTANCE_UNSIGNED_MACOS@@
 stage='validating arguments'
 temporary_directory=''
 platform=''
-architecture=''
+platform_name=''
 artifact_name=''
 artifact_sha256=''
 native_command=''
+install_action='install'
 legacy_launcher=''
 legacy_npm=''
 legacy_cache=''
@@ -125,7 +126,7 @@ detect_target() {
   Linux:x86_64)
     read_linux_release
     platform='linux'
-    architecture='x64'
+    platform_name='Ubuntu 24.04 (x64)'
     artifact_name=$HVIR_LINUX_X64_ARTIFACT
     artifact_sha256=$HVIR_LINUX_X64_SHA256
     native_command='/usr/bin/hvir'
@@ -133,14 +134,14 @@ detect_target() {
   Linux:aarch64 | Linux:arm64)
     read_linux_release
     platform='linux'
-    architecture='arm64'
+    platform_name='Ubuntu 24.04 (Arm64)'
     artifact_name=$HVIR_LINUX_ARM64_ARTIFACT
     artifact_sha256=$HVIR_LINUX_ARM64_SHA256
     native_command='/usr/bin/hvir'
     ;;
   Darwin:arm64)
     platform='macos'
-    architecture='arm64'
+    platform_name='macOS (Apple silicon)'
     artifact_name=$HVIR_MACOS_ARM64_ARTIFACT
     artifact_sha256=$HVIR_MACOS_ARM64_SHA256
     native_command='/usr/local/bin/hvir'
@@ -186,6 +187,16 @@ create_private_temporary_directory() {
     "$temporary_parent/hvir-installer.XXXXXX")
 }
 
+run_with_failure_diagnostics() {
+  local log=$1 status
+  shift
+  "$@" >"$log" 2>&1 || {
+    status=$?
+    /bin/cat -- "$log" >&2
+    return "$status"
+  }
+}
+
 download_artifact() {
   local destination=$1
   stage="downloading $artifact_name"
@@ -222,24 +233,38 @@ verify_digest() {
 }
 
 verify_macos_package() {
-  local artifact=$1 signature_log
+  local artifact=$1 signature_log notarization_log gatekeeper_log
   if [[ "$HVIR_ACCEPTANCE_UNSIGNED_MACOS" == '1' ]]; then
     return
   fi
   signature_log="$temporary_directory/macos-package-signature.log"
   stage='validating the macOS installer signature'
-  /usr/sbin/pkgutil --check-signature "$artifact" >"$signature_log" 2>&1
+  run_with_failure_diagnostics \
+    "$signature_log" \
+    /usr/sbin/pkgutil --check-signature "$artifact"
   if ! /usr/bin/grep -Eq \
     "Developer ID Installer: .+ \\($HVIR_MACOS_TEAM_ID\\)" \
     "$signature_log"; then
+    /bin/cat -- "$signature_log" >&2
     echo "The package is not signed by the expected Apple team $HVIR_MACOS_TEAM_ID." >&2
     exit 1
   fi
-  /usr/bin/grep -Fq 'Signed with a trusted timestamp' "$signature_log"
+  if ! /usr/bin/grep -Fq 'Signed with a trusted timestamp' "$signature_log"; then
+    /bin/cat -- "$signature_log" >&2
+    echo 'The macOS installer signature has no trusted timestamp.' >&2
+    exit 1
+  fi
+  notarization_log="$temporary_directory/macos-package-notarization.log"
   stage='validating the stapled macOS notarization ticket'
-  /usr/bin/xcrun stapler validate "$artifact"
+  run_with_failure_diagnostics \
+    "$notarization_log" \
+    /usr/bin/xcrun stapler validate "$artifact"
+  gatekeeper_log="$temporary_directory/macos-package-gatekeeper.log"
   stage='assessing the macOS package with Gatekeeper'
-  /usr/sbin/spctl --assess --type install --verbose=2 "$artifact"
+  run_with_failure_diagnostics \
+    "$gatekeeper_log" \
+    /usr/sbin/spctl --assess --type install --verbose=2 "$artifact"
+  echo 'Apple signature, notarization, and Gatekeeper checks passed.'
 }
 
 native_install_present() {
@@ -329,7 +354,6 @@ discover_legacy_launcher() {
   fi
   legacy_launcher=$found
   legacy_cache=$(legacy_cache_root)
-  echo "Verified legacy hvir-workbench launcher: $legacy_launcher"
 }
 
 verify_native_command() {
@@ -361,15 +385,20 @@ safe_remove_legacy_cache() {
 }
 
 remove_legacy_launcher() {
+  local migration_log
   [[ -n "$legacy_launcher" ]] || return 0
   stage='removing the verified legacy hvir-workbench launcher'
-  "$legacy_npm" uninstall -g hvir-workbench
+  migration_log="$temporary_directory/npm-migration.log"
+  run_with_failure_diagnostics \
+    "$migration_log" \
+    "$legacy_npm" uninstall -g hvir-workbench
   if [[ -e "$legacy_launcher" || -L "$legacy_launcher" ]]; then
     echo "npm retained the legacy launcher: $legacy_launcher" >&2
     exit 1
   fi
   stage='removing the derived ADR-018 native cache'
   safe_remove_legacy_cache
+  echo 'Removed the legacy npm installation.'
 }
 
 verify_native_command_resolution() {
@@ -386,25 +415,46 @@ verify_native_command_resolution() {
 }
 
 install_or_update() {
-  local artifact
+  local artifact package_log
+  if native_install_present; then
+    install_action='update'
+    echo "Updating hvir to $HVIR_VERSION for $platform_name."
+  else
+    install_action='install'
+    echo "Installing hvir $HVIR_VERSION for $platform_name."
+  fi
+  stage='checking for a legacy npm installation'
   discover_legacy_launcher
+  stage='creating a private installer workspace'
   create_private_temporary_directory
   artifact="$temporary_directory/$artifact_name"
+  echo 'Downloading the native package...'
   download_artifact "$artifact"
   verify_digest "$artifact"
+  echo 'Download integrity verified.'
   if [[ "$platform" == 'macos' ]]; then
     verify_macos_package "$artifact"
     stage="installing hvir $HVIR_VERSION with the macOS package manager"
-    /usr/bin/sudo /usr/sbin/installer -pkg "$artifact" -target /
+    package_log="$temporary_directory/native-package-manager.log"
+    echo 'macOS will request your local administrator password; typed characters will not appear.'
+    run_with_failure_diagnostics \
+      "$package_log" \
+      /usr/bin/sudo /usr/sbin/installer -pkg "$artifact" -target /
   else
     stage="installing hvir $HVIR_VERSION with apt"
-    /usr/bin/sudo /usr/bin/apt install --no-install-recommends -y "$artifact"
+    package_log="$temporary_directory/native-package-manager.log"
+    run_with_failure_diagnostics \
+      "$package_log" \
+      /usr/bin/sudo /usr/bin/apt install --no-install-recommends -y "$artifact"
   fi
   verify_native_command
   remove_legacy_launcher
   verify_native_command_resolution
-  echo \
-    "Installed hvir $HVIR_VERSION for $platform $architecture from $artifact_name."
+  if [[ "$install_action" == 'update' ]]; then
+    echo "hvir $HVIR_VERSION is updated. Open a project with: hvir ."
+  else
+    echo "hvir $HVIR_VERSION is installed. Open a project with: hvir ."
+  fi
 }
 
 validate_macos_inventory() {
@@ -525,12 +575,11 @@ parse_arguments "$@"
 stage='detecting the supported platform'
 detect_target
 require_install_tools
-echo \
-  "hvir $HVIR_VERSION selected $platform $architecture ($artifact_name); operation: $operation."
 
 if [[ "$operation" == 'install' ]]; then
   install_or_update
 else
+  echo "Uninstalling hvir $HVIR_VERSION from $platform_name."
   uninstall_hvir
 fi
 
