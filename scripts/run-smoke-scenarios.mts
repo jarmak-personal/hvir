@@ -37,6 +37,14 @@ type InvokeSmokeScenario = (
 ) => Promise<Omit<SmokeScenarioResult, 'scenario' | 'iteration' | 'repetitionCount'>>
 
 const MAX_SMOKE_REPETITIONS = 100
+const DEFAULT_SMOKE_ATTEMPT_TIMEOUT_MS = 180_000
+const CAPACITY_SMOKE_ATTEMPT_TIMEOUT_MS = 600_000
+
+export function smokeAttemptTimeoutMs(scenario: SmokeScenarioName): number {
+  return scenario === 'capacity'
+    ? CAPACITY_SMOKE_ATTEMPT_TIMEOUT_MS
+    : DEFAULT_SMOKE_ATTEMPT_TIMEOUT_MS
+}
 
 export function parseSmokeRepetitionCount(value: string | undefined): number {
   if (value === undefined) return 1
@@ -115,6 +123,25 @@ export function smokeScenarioEnvironment(
   return childEnvironment
 }
 
+export function classifySmokeAttempt(options: {
+  readonly exitCode: number | null
+  readonly signal: NodeJS.Signals | null
+  readonly successSentinel: boolean
+  readonly durationMs: number
+}): Omit<SmokeScenarioResult, 'scenario' | 'iteration' | 'repetitionCount'> {
+  const status =
+    options.exitCode === 0 && options.successSentinel ? 'passed' : 'failed'
+  return {
+    status,
+    ...(options.exitCode === null ? {} : { exitCode: options.exitCode }),
+    ...(options.signal === null ? {} : { signal: options.signal }),
+    ...(!options.successSentinel && options.exitCode === 0
+      ? { error: 'missing success sentinel' }
+      : {}),
+    durationMs: options.durationMs,
+  }
+}
+
 function invokeSmokeScenario(
   scenario: SmokeScenarioName,
   iteration: number,
@@ -129,6 +156,7 @@ function invokeSmokeScenario(
     const collector = new SmokeAttemptEvidenceCollector()
     const child = spawn('bash', [join(repositoryRoot, 'scripts/run-smoke.sh')], {
       cwd: repositoryRoot,
+      detached: process.platform !== 'win32',
       env: smokeScenarioEnvironment(process.env, scenario),
       stdio: ['inherit', 'pipe', 'pipe'],
     })
@@ -143,9 +171,33 @@ function invokeSmokeScenario(
       collector.observe('stderr', chunk)
     })
     let settled = false
+    const timer = setTimeout(() => {
+      if (settled) return
+      settled = true
+      terminateSmokeAttempt(child.pid)
+      collector.finish()
+      const durationMs = performance.now() - startedAt
+      const result = {
+        status: 'failed',
+        signal: 'SIGKILL',
+        error: 'process timed out',
+        durationMs,
+      } as const
+      void retainFailureArtifact({
+        scenario,
+        iteration,
+        repetitionCount,
+        durationMs,
+        exitCode: null,
+        signal: 'SIGKILL',
+        spawnError: false,
+        collector,
+      }).finally(() => resolveResult(result))
+    }, smokeAttemptTimeoutMs(scenario))
     child.once('error', () => {
       if (settled) return
       settled = true
+      clearTimeout(timer)
       collector.finish()
       const durationMs = performance.now() - startedAt
       void retainFailureArtifact({
@@ -164,20 +216,17 @@ function invokeSmokeScenario(
     child.once('close', (exitCode, signal) => {
       if (settled) return
       settled = true
+      clearTimeout(timer)
       collector.finish()
       const durationMs = performance.now() - startedAt
       const successSentinel = collector.evidence().logs.successSentinel
-      const status = exitCode === 0 && successSentinel ? 'passed' : 'failed'
-      const result = {
-        status,
-        ...(exitCode === null ? {} : { exitCode }),
-        ...(signal === null ? {} : { signal }),
-        ...(!successSentinel && exitCode === 0
-          ? { error: 'missing success sentinel' }
-          : {}),
+      const result = classifySmokeAttempt({
+        exitCode,
+        signal,
+        successSentinel,
         durationMs,
-      } as const
-      if (status === 'passed') {
+      })
+      if (result.status === 'passed') {
         resolveResult(result)
         return
       }
@@ -193,6 +242,19 @@ function invokeSmokeScenario(
       }).finally(() => resolveResult(result))
     })
   })
+}
+
+function terminateSmokeAttempt(pid: number | undefined): void {
+  if (!pid) return
+  try {
+    if (process.platform === 'win32') process.kill(pid, 'SIGKILL')
+    else process.kill(-pid, 'SIGKILL')
+  } catch (error) {
+    const code = (error as { code?: unknown } | undefined)?.code
+    if (code !== 'ESRCH') {
+      console.error('[smoke:launcher] failed to terminate timed-out process group')
+    }
+  }
 }
 
 async function retainFailureArtifact(

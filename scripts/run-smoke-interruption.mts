@@ -11,6 +11,7 @@ import type {
   SmokeInterruptionCheckpointEvidence,
   SmokeInterruptionCheckpointName,
 } from '../src/main/smoke/interruption-checkpoint'
+import { isSmokeInterruptionUuid } from '../src/main/smoke/interruption-identity.mts'
 
 export const SMOKE_OWNERSHIP_MARKER = '.hvir-smoke-owner'
 export const SMOKE_OWNERSHIP_MARKER_VALUE = 'hvir-smoke-owned-root-v1\n'
@@ -95,7 +96,11 @@ export async function cleanupOwnedSmokeRoot(
 export function parseSmokeCheckpointLine(line: string): CheckpointRecord | undefined {
   if (!line.startsWith(CHECKPOINT_PREFIX)) return undefined
   const value: unknown = JSON.parse(line.slice(CHECKPOINT_PREFIX.length))
-  if (!isRecord(value) || value.schema !== 1 || !isUuid(value.runToken)) {
+  if (
+    !isRecord(value) ||
+    value.schema !== 1 ||
+    !isSmokeInterruptionUuid(value.runToken)
+  ) {
     throw new Error('Invalid smoke checkpoint envelope')
   }
   const name = value.name
@@ -139,7 +144,9 @@ export function parseSmokeCheckpointLine(line: string): CheckpointRecord | undef
     requireCount(value.ownerGeneration, 'ownerGeneration')
     requireCount(value.ptyCount, 'ptyCount')
     requirePort(value.loopbackPort)
-    if (!isUuid(value.paneId)) throw new Error('Invalid checkpoint paneId')
+    if (!isSmokeInterruptionUuid(value.paneId)) {
+      throw new Error('Invalid checkpoint paneId')
+    }
     requireBoolean(value.routeOpen, 'routeOpen')
     requireBoolean(value.predecessorRouteObserved, 'predecessorRouteObserved')
     requireBoolean(value.predecessorSelectionObserved, 'predecessorSelectionObserved')
@@ -371,37 +378,61 @@ function startInvocation(options: InvocationOptions): InvocationHandle {
   if (!child.pid || !child.stdout || !child.stderr) {
     throw new Error(`Failed to start isolated ${options.scenario} process`)
   }
-  const consume = (line: string): void => {
-    tail.push(line.slice(0, 500))
-    if (tail.length > MAX_TAIL_LINES) tail.shift()
-    const ownedRoot = parseOwnedRootLine(line, runToken)
-    if (ownedRoot) root.resolve(ownedRoot)
-    const checkpointRecord = parseSmokeCheckpointLine(line)
-    if (checkpointRecord) {
-      if (checkpointRecord.runToken !== runToken) {
-        checkpoint.reject(new Error('Smoke checkpoint token did not match its process'))
-      } else {
-        checkpoint.resolve(checkpointRecord)
-      }
-    }
-    const disposedResource = parseDisposedLine(line, runToken)
-    if (disposedResource) disposed.push(disposedResource)
-  }
-  createInterface({ input: child.stdout }).on('line', consume)
-  createInterface({ input: child.stderr }).on('line', consume)
   const outcome = new Promise<ProcessOutcome>((resolveOutcome, rejectOutcome) => {
-    const timer = setTimeout(() => {
-      killProcessGroup(child.pid!, 'SIGKILL')
-      rejectOutcome(new Error(`${options.scenario} isolation process timed out`))
-    }, PROCESS_TIMEOUT_MS)
-    child.once('error', (error) => {
-      clearTimeout(timer)
+    let settled = false
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const rejectInvocation = (reason: unknown): void => {
+      if (settled) return
+      settled = true
+      if (timer) {
+        clearTimeout(timer)
+        timer = undefined
+      }
+      const error = reason instanceof Error ? reason : new Error(String(reason))
       root.reject(error)
       checkpoint.reject(error)
+      killProcessGroup(child.pid!, 'SIGKILL')
       rejectOutcome(error)
+    }
+    const consume = (line: string): void => {
+      try {
+        tail.push(line.slice(0, 500))
+        if (tail.length > MAX_TAIL_LINES) tail.shift()
+        const ownedRoot = parseOwnedRootLine(line, runToken)
+        if (ownedRoot) root.resolve(ownedRoot)
+        const checkpointRecord = parseSmokeCheckpointLine(line)
+        if (checkpointRecord) {
+          if (checkpointRecord.runToken !== runToken) {
+            rejectInvocation(
+              new Error('Smoke checkpoint token did not match its process'),
+            )
+          } else {
+            checkpoint.resolve(checkpointRecord)
+          }
+        }
+        const disposedResource = parseDisposedLine(line, runToken)
+        if (disposedResource) disposed.push(disposedResource)
+      } catch (error) {
+        rejectInvocation(error)
+      }
+    }
+    createInterface({ input: child.stdout }).on('line', consume)
+    createInterface({ input: child.stderr }).on('line', consume)
+    timer = setTimeout(
+      () =>
+        rejectInvocation(new Error(`${options.scenario} isolation process timed out`)),
+      PROCESS_TIMEOUT_MS,
+    )
+    child.once('error', (error) => {
+      rejectInvocation(error)
     })
     child.once('close', (exitCode, signal) => {
-      clearTimeout(timer)
+      if (settled) return
+      settled = true
+      if (timer) {
+        clearTimeout(timer)
+        timer = undefined
+      }
       const early = new Error(
         `${options.scenario} exited before emitting required isolation evidence`,
       )
@@ -640,15 +671,6 @@ function requireBoolean(value: unknown, name: string): asserts value is boolean 
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
-}
-
-function isUuid(value: unknown): value is string {
-  return (
-    typeof value === 'string' &&
-    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
-      value,
-    )
-  )
 }
 
 function isMissing(error: unknown): boolean {

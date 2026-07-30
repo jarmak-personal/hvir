@@ -221,6 +221,8 @@ on Linux; the temporary macOS containment above leaves it local-only there. `npm
 performance:capacity` runs the same contracts and samples
 but enforces the quantitative budgets on a controlled machine. These commands use the same
 aggregate launcher, so a failing group does not prevent reporting its scheduled siblings.
+Each aggregate attempt is bounded: ordinary scenario processes receive three minutes, while the
+capacity process receives ten minutes for its six 30-second CPU samples plus setup and teardown.
 
 For a bounded local stress run, set `HVIR_SMOKE_REPEAT` to an integer from 1 through 100. For
 example, `HVIR_SMOKE_SCENARIO=pty-native HVIR_SMOKE_REPEAT=20 npm run smoke:scenario` schedules 20

@@ -1,3 +1,5 @@
+import { isSmokeInterruptionUuid } from './interruption-identity.mts'
+
 const CHECKPOINT_VARIABLE = 'HVIR_SMOKE_ISOLATION_CHECKPOINT'
 const ACTION_VARIABLE = 'HVIR_SMOKE_ISOLATION_ACTION'
 const RUN_TOKEN_VARIABLE = 'HVIR_SMOKE_ISOLATION_RUN'
@@ -179,11 +181,19 @@ function parseConfiguration(
   if (action !== 'observe' && action !== 'fail' && action !== 'pause') {
     throw new Error(`${ACTION_VARIABLE} must be observe, fail, or pause`)
   }
-  if (!isUuid(runToken)) throw new Error(`${RUN_TOKEN_VARIABLE} must be a UUID`)
-  if (predecessorToken !== undefined && !isUuid(predecessorToken)) {
+  if (!isSmokeInterruptionUuid(runToken)) {
+    throw new Error(`${RUN_TOKEN_VARIABLE} must be a UUID`)
+  }
+  if (
+    predecessorToken !== undefined &&
+    !isSmokeInterruptionUuid(predecessorToken)
+  ) {
     throw new Error(`${PREDECESSOR_TOKEN_VARIABLE} must be a UUID`)
   }
-  if (predecessorPaneId !== undefined && !isUuid(predecessorPaneId)) {
+  if (
+    predecessorPaneId !== undefined &&
+    !isSmokeInterruptionUuid(predecessorPaneId)
+  ) {
     throw new Error(`${PREDECESSOR_PANE_VARIABLE} must be a UUID`)
   }
   return {
@@ -193,15 +203,6 @@ function parseConfiguration(
     ...(predecessorToken === undefined ? {} : { predecessorToken }),
     ...(predecessorPaneId === undefined ? {} : { predecessorPaneId }),
   }
-}
-
-function isUuid(value: string | undefined): value is string {
-  return Boolean(
-    value &&
-    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
-      value,
-    ),
-  )
 }
 
 function interruptedError(signal: SupportedSignal): Error {
