@@ -21,7 +21,10 @@ import { verifyDirtyBranchSwitch } from './git-dirty-navigation'
 import { verifyDiagnosticRestart } from './diagnostic-report-restart'
 import { verifyDevelopmentPerformanceMode } from './development-performance'
 import { verifyPlatformContracts } from './platform-contracts'
-import { verifyRendererLifecycleCleanup, verifyRendererRolloverRecovery } from './renderer-lifecycle'
+import {
+  verifyRendererLifecycleCleanup,
+  verifyRendererRolloverRecovery,
+} from './renderer-lifecycle'
 import { verifyFocusedViewer, verifyViewerPositions } from './viewer-position'
 import { verifyFilenameSearch } from './filename-search'
 import { verifyWorkbenchHealthFault } from './workbench-health'
@@ -33,6 +36,8 @@ import {
   verifyLegacyTerminalPresentation,
   verifyTerminalPresentationLifecycle,
 } from './terminal-presentation'
+import { ensureExplicitBareShellLaunch } from './terminal-explicit-launch'
+import { verifyTerminalReconnectRemount } from './terminal-renderer-lifecycle'
 import { verifyWorkspaceCloseSmoke, workspaceCloseSmokeCommands } from './workspace-close'
 import {
   capacityRecoverySessions,
@@ -389,7 +394,8 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
       harnessProbes: harnessProbeManager,
       remoteImagePaste: createSmokeImagePasteFallback(supervisor),
       updateAttention: () => undefined,
-      updateWebPaneBindings: (owner, bindings) => updateWebPaneBindings(owner.id, bindings),
+      updateWebPaneBindings: (owner, bindings) =>
+        updateWebPaneBindings(owner.id, bindings),
       updateWebPaneFullPage: (owner, paneId) => updateWebPaneFullPage(owner.id, paneId),
       htmlPreviews,
       webPanes: webPaneRoutes,
@@ -518,6 +524,49 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
         smokeRoot,
       )
       console.log(`[smoke] terminal presentation lifecycle OK (${presentation})`)
+      console.log('HVIR_SMOKE_OK')
+      return 0
+    }
+    if (mode === 'terminal-lifecycle') {
+      const launchStatus = await ensureExplicitBareShellLaunch(win, supervisor)
+      const reconnectStatus = await withTimeout(
+        verifyTerminalReconnectRemount({
+          win,
+          supervisor,
+          resources: rendererResources,
+          root: smokeRoot,
+          connectedState: smokeProjectState('connected'),
+          disconnectedState: smokeProjectState('disconnected'),
+          emitProjectState: (state) => {
+            smokeIpcProjectState = state
+            emit('project:state', state)
+          },
+        }),
+        'terminal reconnect lifecycle timed out',
+      )
+      const recoveryStatus = await verifyRendererRolloverRecovery({
+        win,
+        supervisor,
+        root: smokeRoot,
+        providerId: defaultHarnessProviderId,
+        setRecoverySessions: (sessions) => {
+          smokeTerminalSessionHarness.set(sessions)
+        },
+      })
+      await verifyRendererLifecycleCleanup({
+        win,
+        initialGeneration: initialRendererGeneration,
+        resources: rendererResources,
+        routes: webPaneRoutes,
+        supervisor,
+        root: smokeRoot,
+        host,
+      })
+      console.log(
+        '[smoke] terminal renderer lifecycle OK (' +
+          [launchStatus, reconnectStatus, recoveryStatus].join(' · ') +
+          ' · renderer destruction cleanup)',
+      )
       console.log('HVIR_SMOKE_OK')
       return 0
     }
@@ -1004,139 +1053,6 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
     })
     console.log(`[smoke] live terminal worktree move OK (${terminalMoveStatus})`)
 
-    const reconnectTerminalStatus = await withTimeout(
-      (async () => {
-        const firstTerminal = supervisor.list()[0]
-        if (!firstTerminal)
-          throw new Error('initial terminal disappeared before reconnect')
-        let terminalProbe = ''
-        const detachProbe = supervisor.attach(firstTerminal.id, firstTerminal.ownerId, {
-          onData: (data) => {
-            terminalProbe = (terminalProbe + data).slice(-4_096)
-          },
-        })
-        supervisor.write(
-          firstTerminal.id,
-          firstTerminal.ownerId,
-          "printf '\\033[41m\\033[2J\\033[H\\033[0m'; sleep 1\n",
-        )
-        try {
-          await win.webContents.executeJavaScript(`
-            new Promise((resolve, reject) => {
-            const deadline = Date.now() + 5000;
-            let lastState = 'canvas missing';
-            const poll = () => {
-              const canvas = document.querySelector('.terminal-container canvas');
-              const context = canvas?.getContext('2d');
-              if (canvas && context) {
-                const pixel = context.getImageData(
-                  Math.floor(canvas.width / 2),
-                  Math.floor(canvas.height / 2),
-                  1,
-                  1
-                ).data;
-                const surface = canvas.closest('.terminal-surface');
-                const presentation = canvas.closest('.terminal-engine-host')
-                  ?.__hvirTerminalPerformance;
-                const rect = canvas.getBoundingClientRect();
-                lastState = 'canvas=' + canvas.width + 'x' + canvas.height +
-                  ' rect=' + rect.width + 'x' + rect.height +
-                  ' visibility=' + getComputedStyle(surface).visibility +
-                  ' pixel=' + [...pixel].join(',') +
-                  ' presentation=' + JSON.stringify(presentation);
-                if (pixel[0] > 120 && pixel[1] < 140) return resolve(true);
-              }
-              if (Date.now() > deadline) return reject(new Error(
-                'terminal fixture did not paint: ' + lastState
-              ));
-              setTimeout(poll, 25);
-            };
-            poll();
-            })
-          `)
-        } catch (error) {
-          console.error(`[smoke] PTY probe: ${JSON.stringify(terminalProbe)}`)
-          throw error
-        } finally {
-          void detachProbe()
-        }
-        await win.webContents.executeJavaScript(`
-          window.__hvirSmokeTerminalCanvas = document.querySelector('.terminal-container canvas');
-          window.__hvirSmokeTerminalHost = document.querySelector('.terminal-container');
-        `)
-        await rendererResources.revokeWorkspace(smokeRoot)
-        emit('project:state', smokeProjectState('disconnected'))
-        await win.webContents.executeJavaScript(`
-          new Promise((resolve, reject) => {
-            const deadline = Date.now() + 5000;
-            const poll = () => {
-              const container = document.querySelector('.terminal-container');
-              const status = document.querySelector('.terminal-panel')?.getAttribute('data-terminal-status') || '';
-              if (container?.childElementCount === 0 && status === 'disconnected') return resolve(true);
-              if (Date.now() > deadline) return reject(new Error('terminal did not clear on disconnect'));
-              setTimeout(poll, 25);
-            };
-            poll();
-          })
-        `)
-        emit('project:state', smokeProjectState('connected'))
-        const status: unknown = await win.webContents.executeJavaScript(`
-          new Promise((resolve, reject) => {
-            const deadline = Date.now() + 5000;
-            let lastState = 'not mounted';
-            const poll = () => {
-              const canvas = document.querySelector('.terminal-container canvas');
-              const host = document.querySelector('.terminal-container');
-              const status = document.querySelector('.terminal-panel')?.getAttribute('data-terminal-status') || '';
-              lastState = 'status=' + status +
-                ' canvas=' + Boolean(canvas) +
-                ' host=' + Boolean(host) +
-                ' hostRetained=' + (host === window.__hvirSmokeTerminalHost) +
-                ' hostConnected=' + Boolean(window.__hvirSmokeTerminalHost?.isConnected);
-              if (
-                canvas &&
-                host &&
-                canvas !== window.__hvirSmokeTerminalCanvas &&
-                host === window.__hvirSmokeTerminalHost &&
-                window.__hvirSmokeTerminalHost?.isConnected &&
-                status.startsWith('New shell · pid ')
-              ) {
-                const context = canvas.getContext('2d');
-                const pixel = context?.getImageData(
-                  Math.floor(canvas.width / 2),
-                  Math.floor(canvas.height / 2),
-                  1,
-                  1
-                ).data;
-                lastState = 'status=' + status +
-                  ' hostRetained=' + (host === window.__hvirSmokeTerminalHost) +
-                  ' hostConnected=' + Boolean(window.__hvirSmokeTerminalHost?.isConnected) +
-                  ' pixel=' + (pixel ? [...pixel].join(',') : 'missing');
-                if (pixel && pixel[0] < 50 && pixel[1] < 50 && pixel[2] < 60) {
-                  return resolve(status);
-                }
-              }
-              if (Date.now() > deadline) {
-                return reject(new Error('terminal did not remount cleanly: ' + lastState));
-              }
-              setTimeout(poll, 25);
-            };
-            poll();
-          })
-        `)
-        if (typeof status !== 'string')
-          throw new Error('terminal reconnect returned no status')
-        return status
-      })(),
-      'terminal reconnect lifecycle timed out',
-    )
-    console.log(`[smoke] terminal reconnect remount OK (${reconnectTerminalStatus})`)
-
-    const terminalLifecycleStatus = await verifyTerminalPresentationLifecycle(
-      win,
-      supervisor,
-    )
-    console.log(`[smoke] terminal presentation lifecycle OK (${terminalLifecycleStatus})`)
     const viewerStatus = (await withTimeout(
       win.webContents.executeJavaScript(`
         new Promise((resolve, reject) => {
@@ -2808,30 +2724,6 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
     )) as string
     console.log(`[smoke] project close OK (${projectCloseStatus})`)
 
-    const recoveryStatus = await verifyRendererRolloverRecovery({
-      win,
-      supervisor,
-      root: smokeRoot,
-      providerId: defaultHarnessProviderId,
-      setRecoverySessions: (sessions) => {
-        smokeTerminalSessionHarness.set(sessions)
-      },
-    })
-    console.log(
-      `[smoke] terminal recovery picker + same-PID reattach OK (${recoveryStatus})`,
-    )
-    await verifyRendererLifecycleCleanup({
-      win,
-      initialGeneration: initialRendererGeneration,
-      resources: rendererResources,
-      routes: webPaneRoutes,
-      supervisor,
-      root: smokeRoot,
-      host,
-    })
-    console.log(
-      '[smoke] renderer generation reload + webContents destruction owner cleanup OK',
-    )
     console.log('HVIR_SMOKE_OK')
     return 0
   } catch (err) {

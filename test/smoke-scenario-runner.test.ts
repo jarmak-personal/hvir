@@ -30,11 +30,11 @@ describe('Electron smoke scenario selection', () => {
   it('rejects unknown groups with the complete reproducible name set', () => {
     expect(() => parseElectronSmokeScenario('unknown')).toThrow(
       "Unknown Electron smoke scenario 'unknown'. Expected one of: " +
-        'pty-native, viewer-position, platform-contracts, diagnostic-report-restart, renderer-recovery, development-performance, terminal-presentation, legacy-workflow, capacity',
+        'pty-native, viewer-position, platform-contracts, diagnostic-report-restart, renderer-recovery, development-performance, terminal-presentation, terminal-lifecycle, legacy-workflow, capacity',
     )
     expect(() => selectedSmokeScenarios('unknown')).toThrow(
       "Unknown Electron smoke scenario 'unknown'. Expected one of: " +
-        'pty-native, viewer-position, platform-contracts, diagnostic-report-restart, renderer-recovery, development-performance, terminal-presentation, legacy-workflow, capacity',
+        'pty-native, viewer-position, platform-contracts, diagnostic-report-restart, renderer-recovery, development-performance, terminal-presentation, terminal-lifecycle, legacy-workflow, capacity',
     )
   })
 
@@ -223,16 +223,28 @@ describe('Electron smoke command contracts', () => {
     new URL('../src/main/smoke/terminal-presentation.ts', import.meta.url),
     'utf8',
   )
+  const terminalRendererLifecycleScenario = readFileSync(
+    new URL('../src/main/smoke/terminal-renderer-lifecycle.ts', import.meta.url),
+    'utf8',
+  )
+  const rendererLifecycleScenario = readFileSync(
+    new URL('../src/main/smoke/renderer-lifecycle.ts', import.meta.url),
+    'utf8',
+  )
 
   it('separates correctness, hosted evidence, and controlled performance commands', () => {
     expect(packageJson.scripts.smoke).toContain('node scripts/run-smoke-scenarios.mts')
+    expect(packageJson.scripts.smoke).toContain(
+      'renderer-recovery terminal-presentation terminal-lifecycle legacy-workflow',
+    )
     expect(packageJson.scripts['smoke:macos']).toContain(
-      'node scripts/run-smoke-scenarios.mts pty-native viewer-position platform-contracts renderer-recovery terminal-presentation',
+      'node scripts/run-smoke-scenarios.mts pty-native viewer-position platform-contracts renderer-recovery terminal-presentation terminal-lifecycle',
     )
     expect(packageJson.scripts['smoke:macos:ci']).toContain(
       'node scripts/run-smoke-scenarios.mts pty-native viewer-position platform-contracts renderer-recovery',
     )
     expect(packageJson.scripts['smoke:macos:ci']).not.toContain('terminal-presentation')
+    expect(packageJson.scripts['smoke:macos:ci']).not.toContain('terminal-lifecycle')
     expect(packageJson.scripts['smoke:macos']).not.toMatch(
       /terminal-presentation capacity/,
     )
@@ -322,6 +334,49 @@ describe('Electron smoke command contracts', () => {
     expect(layoutFocusScenario).not.toContain('app.focus(')
     expect(layoutFocusScenario).not.toContain(
       'requestAnimationFrame(() => requestAnimationFrame(resolve))',
+    )
+  })
+
+  it('subscribes to the native resize signal before changing live typography', () => {
+    const typographyScenario = terminalPresentationScenario.slice(
+      terminalPresentationScenario.indexOf('async function verifyLiveTerminalTypography'),
+      terminalPresentationScenario.indexOf('async function focusTerminalEngine'),
+    )
+    expect(typographyScenario.indexOf('supervisor.attach')).toBeLessThan(
+      typographyScenario.indexOf('settingsButton.click()'),
+    )
+    expect(typographyScenario).toContain('trap \\"printf')
+    expect(typographyScenario).toContain('\\" WINCH')
+    expect(typographyScenario).toContain('__HVIR_TYPO_TRAP_READY__')
+    expect(typographyScenario).not.toContain(
+      'new Promise<void>((resolve) => setTimeout(resolve, 100))',
+    )
+    expect(typographyScenario).not.toContain('new Promise<RegExpMatchArray>')
+  })
+
+  it('owns reconnect, recovery, and destruction in a focused renderer lifecycle group', () => {
+    const branch = smokeWorkflow.indexOf("if (mode === 'terminal-lifecycle')")
+    const legacyViewer = smokeWorkflow.indexOf('const viewerStatus')
+    expect(branch).toBeGreaterThan(-1)
+    expect(branch).toBeLessThan(smokeWorkflow.indexOf('const profileSmoke'))
+    expect(smokeWorkflow.slice(legacyViewer)).not.toContain(
+      'verifyTerminalReconnectRemount',
+    )
+    expect(smokeWorkflow.slice(legacyViewer)).not.toContain(
+      'verifyTerminalPresentationLifecycle',
+    )
+    expect(smokeWorkflow.slice(legacyViewer)).not.toContain(
+      'verifyRendererRolloverRecovery',
+    )
+    expect(terminalRendererLifecycleScenario.indexOf('supervisor.attach')).toBeLessThan(
+      terminalRendererLifecycleScenario.indexOf('supervisor.write'),
+    )
+    expect(terminalRendererLifecycleScenario).toContain('JSON.stringify({')
+    expect(rendererLifecycleScenario.indexOf("once('did-finish-load'")).toBeLessThan(
+      rendererLifecycleScenario.indexOf('win.webContents.reload()'),
+    )
+    expect(rendererLifecycleScenario.indexOf("once('destroyed'")).toBeLessThan(
+      rendererLifecycleScenario.indexOf('win.destroy()'),
     )
   })
 
