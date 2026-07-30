@@ -132,7 +132,9 @@ describe('terminal workspace materialization bridge', () => {
   })
 })
 
-function shellProvider(id: HarnessProviderDescriptor['id']): HarnessProviderDescriptor {
+function shellProvider(
+  id: HarnessProviderDescriptor['id'],
+): HarnessProviderDescriptor {
   return {
     id,
     displayName: 'Shell',
