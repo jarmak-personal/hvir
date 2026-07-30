@@ -163,17 +163,27 @@ This command is opt-in evidence: it stays outside `npm run verify` and pull-requ
 blocking score threshold, and uses only Node and the locally installed test dependencies. It does
 not launch Electron, require a display, or access the network.
 
-`npm run smoke` runs the focused `pty-native`, `viewer-position`, `renderer-recovery`,
-`terminal-presentation`, and `terminal-lifecycle` groups plus the transitional `legacy-workflow`
-group in separate Electron processes with fresh project and user-data roots, then reports a result for
-every scheduled group. Select one group locally with `HVIR_SMOKE_SCENARIO=<name> npm run smoke`;
-the complete name set is `pty-native`, `viewer-position`, `platform-contracts`,
+`npm run smoke` runs the focused `pty-native`, `viewer-position`, `viewer-content`,
+`git-workflow`, `renderer-recovery`, `terminal-presentation`, and `terminal-lifecycle` groups plus
+the transitional `legacy-workflow` group in separate Electron processes with fresh project and
+user-data roots, then reports a result for every scheduled group. Select one group locally with
+`HVIR_SMOKE_SCENARIO=<name> npm run smoke`; the complete name set is `pty-native`,
+`viewer-position`, `viewer-content`, `git-workflow`, `platform-contracts`,
 `diagnostic-report-restart`, `renderer-recovery`, `development-performance`,
 `terminal-presentation`, `terminal-lifecycle`, `legacy-workflow`, and `capacity`. The
 development-performance group starts a development renderer and is run separately with `npm run
 smoke:development-performance`; the restart scenario is reserved for the packaged multi-launch
-fixture. `npm run smoke:macos` runs the focused PTY, viewer, platform-contract,
+fixture. `npm run smoke:macos` runs the focused PTY, viewer, Git, platform-contract,
 renderer-recovery, terminal-presentation, and terminal-lifecycle correctness groups.
+
+Viewer and Git evidence follows the same ownership rule. `viewer-position` proves CodeMirror
+virtualization, source/rendered/diff anchors, remounts, pending and empty diffs, scoped commands,
+and find behavior. `viewer-content` proves ProjectHost reads and saves, worker-backed Shiki/JSON/CSV
+rendering, bounded large-file paint, external reload, and Chromium HTML isolation. `git-workflow`
+proves the real system-Git path for diff bases, changes, paged history, graph detail, dirty branch
+refresh, sync controls, and blame. View-mode, navigation, anchor, Git parsing, graph, mutation, and
+sync policy remain in their direct Vitest suites. Each focused process retains a bounded semantic
+snapshot for timeout diagnosis.
 
 Terminal evidence remains split by its real owner. `pty-native` proves production-composed Custom
 profile launch, output, termination event, and cleanup through Electron's node-pty ABI without a

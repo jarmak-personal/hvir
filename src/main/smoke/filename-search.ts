@@ -19,16 +19,13 @@ export async function verifyFilenameSearch(win: BrowserWindow): Promise<string> 
       };
       const waitForControl = () => {
         const trigger = document.querySelector('[data-filename-search-trigger]');
-        const terminal = document.querySelector('.terminal-panel canvas') ||
-          document.querySelector('.terminal-panel [tabindex]') ||
-          document.querySelector('.terminal-panel');
         const testDirectory = [...document.querySelectorAll('.directory-row')]
           .find((node) => node.getAttribute('title')?.endsWith('/test'));
         const rootRow = document.querySelector(
           '.files-panel .directory-tree > .tree-directory > .directory-row'
         );
         const rootGitStatus = rootRow?.querySelector('.tree-git-status.directory');
-        if (!trigger || !terminal || !testDirectory) {
+        if (!trigger || !testDirectory) {
           if (Date.now() > deadline) return reject(new Error('filename search controls missing'));
           return setTimeout(waitForControl, 50);
         }
@@ -47,47 +44,50 @@ export async function verifyFilenameSearch(win: BrowserWindow): Promise<string> 
           return reject(new Error('filename search action overlapped the root Git status badge'));
         }
         trigger.click();
-        requestAnimationFrame(() => {
-          const input = document.querySelector('[data-filename-search]');
-          if (!input || document.activeElement !== input) {
-            return reject(new Error('filename search action did not focus the input'));
-          }
-          input.dispatchEvent(new KeyboardEvent('keydown', {
-            key: 'Escape', bubbles: true, cancelable: true
-          }));
-          requestAnimationFrame(() => verifyShortcut(terminal, testDirectory));
-        });
+        waitForTriggeredInput(testDirectory);
       };
-      const verifyShortcut = (terminal, testDirectory) => {
-        if (document.querySelector('[data-filename-search]')) {
-          return reject(new Error('Escape did not dismiss filename search'));
-        }
-        terminal.focus();
-        key(terminal, 'p');
-        requestAnimationFrame(() => {
-          if (document.querySelector('[data-filename-search]')) {
-            return reject(new Error('terminal Mod+P was intercepted'));
+      const waitForTriggeredInput = (testDirectory) => {
+        const input = document.querySelector('[data-filename-search]');
+        if (!input) {
+          if (Date.now() > deadline) {
+            return reject(new Error('filename search action did not open the input'));
           }
-          key(document.body, 'p');
-          const waitForInput = () => {
-            const input = document.querySelector('[data-filename-search]');
-            if (!input) {
-              if (Date.now() > deadline) {
-                return reject(new Error('workbench Mod+P did not open filename search'));
-              }
-              return requestAnimationFrame(waitForInput);
+          return setTimeout(() => waitForTriggeredInput(testDirectory), 25);
+        }
+        if (document.activeElement !== input) {
+          return reject(new Error('filename search action did not focus the input'));
+        }
+        input.dispatchEvent(new KeyboardEvent('keydown', {
+          key: 'Escape', bubbles: true, cancelable: true
+        }));
+        waitForDismissal(testDirectory);
+      };
+      const waitForDismissal = (testDirectory) => {
+        if (document.querySelector('[data-filename-search]')) {
+          if (Date.now() > deadline) {
+            return reject(new Error('Escape did not dismiss filename search'));
+          }
+          return setTimeout(() => waitForDismissal(testDirectory), 25);
+        }
+        key(document.body, 'p');
+        const waitForInput = () => {
+          const input = document.querySelector('[data-filename-search]');
+          if (!input) {
+            if (Date.now() > deadline) {
+              return reject(new Error('workbench Mod+P did not open filename search'));
             }
-            if (document.activeElement !== input) {
-              return reject(new Error('workbench Mod+P did not focus filename search'));
-            }
-            if (testDirectory.querySelector('.tree-chevron')?.textContent?.trim() !== '›') {
-              return reject(new Error('test directory was not collapsed before filename search'));
-            }
-            inputValue(input, 'rendered*.yml');
-            waitForResult(input, testDirectory);
-          };
-          requestAnimationFrame(waitForInput);
-        });
+            return setTimeout(waitForInput, 25);
+          }
+          if (document.activeElement !== input) {
+            return reject(new Error('workbench Mod+P did not focus filename search'));
+          }
+          if (testDirectory.querySelector('.tree-chevron')?.textContent?.trim() !== '›') {
+            return reject(new Error('test directory was not collapsed before filename search'));
+          }
+          inputValue(input, 'rendered*.yml');
+          waitForResult(input, testDirectory);
+        };
+        waitForInput();
       };
       const waitForResult = (input, testDirectory) => {
         const result = [...document.querySelectorAll('.filename-search-result')]
@@ -115,9 +115,9 @@ export async function verifyFilenameSearch(win: BrowserWindow): Promise<string> 
                 !document.querySelector('[data-filename-search-trigger]')) {
               return reject(new Error('filename result did not restore the Files tree'));
             }
-            return requestAnimationFrame(() => resolve(
-              'on-demand · badge-safe · wildcard · terminal preserved · collapsed result · keyboard activation'
-            ));
+            return resolve(
+              'on-demand · badge-safe · wildcard · collapsed result · keyboard activation'
+            );
           }
           if (Date.now() > deadline) return reject(new Error('filename result did not open: ' + title));
           setTimeout(waitForOpen, 50);

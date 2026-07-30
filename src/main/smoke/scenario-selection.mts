@@ -1,6 +1,8 @@
 export const ELECTRON_SMOKE_SCENARIOS = [
   'pty-native',
   'viewer-position',
+  'viewer-content',
+  'git-workflow',
   'platform-contracts',
   'diagnostic-report-restart',
   'renderer-recovery',
@@ -15,6 +17,8 @@ export type ElectronSmokeScenario = (typeof ELECTRON_SMOKE_SCENARIOS)[number]
 export type ElectronSmokeMode =
   | 'workflow'
   | 'viewer-position'
+  | 'viewer-content'
+  | 'git-workflow'
   | 'platform-contracts'
   | 'renderer-recovery'
   | 'development-performance'

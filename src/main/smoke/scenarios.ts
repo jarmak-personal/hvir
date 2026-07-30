@@ -37,6 +37,8 @@ function rendererMode(
     return 'platform-contracts'
   if (scenario === 'terminal-presentation') return 'terminal-presentation'
   if (scenario === 'terminal-lifecycle') return 'terminal-lifecycle'
+  if (scenario === 'viewer-content') return 'viewer-content'
+  if (scenario === 'git-workflow') return 'git-workflow'
   if (scenario === 'renderer-recovery') return 'renderer-recovery'
   if (scenario === 'development-performance') return 'development-performance'
   return scenario === 'viewer-position' ? 'viewer-position' : 'workflow'

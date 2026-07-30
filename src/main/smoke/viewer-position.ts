@@ -8,21 +8,54 @@ export async function verifyFocusedViewer(
   sourcePath: HostPath,
   renderedPath: HostPath,
 ): Promise<string> {
-  const virtualized = await verifySourceDiffPosition(win, sourcePath)
-  const commands = await verifyViewerPositions(win, renderedPath, false)
-  const root = dirnameHostPath(sourcePath)
-  const find = await verifyViewerFind(
-    win,
-    sourcePath,
-    joinHostPath(root, 'test/fixtures/rendered.md'),
-    joinHostPath(root, '.hvir-smoke-large.txt'),
-    joinHostPath(root, 'README.md'),
-    joinHostPath(root, 'package.json'),
-  )
-  return `${virtualized} · ${commands} · ${find}`
+  try {
+    const virtualized = await verifySourceDiffPosition(win, sourcePath)
+    const commands = await verifyViewerPositions(win, renderedPath)
+    const root = dirnameHostPath(sourcePath)
+    const find = await verifyViewerFind(
+      win,
+      sourcePath,
+      joinHostPath(root, 'test/fixtures/rendered.md'),
+      joinHostPath(root, '.hvir-smoke-large.txt'),
+      joinHostPath(root, 'README.md'),
+      joinHostPath(root, 'package.json'),
+    )
+    return `${virtualized} · ${commands} · ${find}`
+  } catch (error) {
+    let state: unknown = { unavailable: true }
+    try {
+      state = await readViewerPositionState(win)
+    } catch {
+      // Preserve the original failure when the renderer is no longer inspectable.
+    }
+    throw new Error(
+      `Viewer position failed: ${
+        error instanceof Error ? error.message : String(error)
+      }; state=${JSON.stringify(state)}`,
+      { cause: error },
+    )
+  }
 }
 
-/** Retains keyboard routing and rendered-to-code position coverage in the legacy workflow. */
+function readViewerPositionState(win: BrowserWindow): Promise<unknown> {
+  return win.webContents.executeJavaScript(`
+    (() => ({
+      activePath: document.querySelector('.viewer-tab.active .tab-main')
+        ?.getAttribute('title'),
+      activeMode: document.querySelector('.mode-control button.active')
+        ?.textContent?.trim(),
+      source: Boolean(document.querySelector('.source-shell .cm-scroller')),
+      diff: Boolean(document.querySelector('.cm-mergeView')),
+      rendered: Boolean(document.querySelector('.markdown-body')),
+      emptyState: document.querySelector('.viewer-empty')?.textContent?.trim().slice(0, 240),
+      findStatus: document.querySelector('[aria-label="Find in file"] [role="status"]')
+        ?.textContent?.trim(),
+      split: Boolean(document.querySelector('[data-viewer-pane="secondary"]'))
+    }))()
+  `) as Promise<unknown>
+}
+
+/** Proves keyboard routing and rendered-to-code position coverage in the focused scenario. */
 export function verifyViewerPositions(
   win: BrowserWindow,
   path: HostPath,
@@ -44,9 +77,6 @@ export function verifyViewerPositions(
         .find((node) => node.textContent?.trim() === mode);
       const activeMode = () => document.querySelector('.mode-control button.active')
         ?.textContent?.trim();
-      const settle = () => new Promise((resolve) =>
-        requestAnimationFrame(() => requestAnimationFrame(resolve))
-      );
       const visibleCodeLine = (root, selector) => {
         const viewportTop = root.getBoundingClientRect().top;
         const marker = [...root.querySelectorAll(selector)]
@@ -67,18 +97,15 @@ export function verifyViewerPositions(
           .filter((anchor) => Number.isFinite(anchor.line) && anchor.top <= viewportTop)
           .sort((left, right) => right.top - left.top)[0]?.line;
       };
-      const terminal = document.querySelector('.terminal-panel');
       const before = activeMode();
       const mac = /Mac/.test(navigator.platform);
-      terminal?.dispatchEvent(new KeyboardEvent('keydown', {
-        key: 'M', ctrlKey: !mac, metaKey: mac, shiftKey: true, bubbles: true
-      }));
-      if (activeMode() !== before) throw new Error('terminal chord changed viewer mode');
       window.dispatchEvent(new KeyboardEvent('keydown', {
         key: 'M', ctrlKey: !mac, metaKey: mac, shiftKey: true, bubbles: true
       }));
-      await settle();
-      if (!activeMode() || activeMode() === before) throw new Error('mode chord did not cycle');
+      await waitFor(
+        () => activeMode() && activeMode() !== before ? activeMode() : undefined,
+        'mode chord did not cycle'
+      );
 
       const file = await waitFor(
         () => [...document.querySelectorAll('.file-row')]
@@ -103,7 +130,12 @@ export function verifyViewerPositions(
       );
       rendered.scrollTop += target.getBoundingClientRect().top - rendered.getBoundingClientRect().top;
       rendered.dispatchEvent(new Event('scroll'));
-      await settle();
+      await waitFor(() => {
+        const visible = visibleRenderedLine(rendered);
+        return visible !== undefined && Math.abs(visible - targetLine) <= 4
+          ? visible
+          : undefined;
+      }, 'rendered source anchor did not become visible');
 
       const transitions = [];
       const changeMode = async (from, to) => {
@@ -165,13 +197,6 @@ export function verifyViewerPositions(
 
       modeButton('rendered')?.click();
       await waitFor(() => activeMode() === 'rendered', 'go-to-line fixture did not render');
-      terminal?.dispatchEvent(new KeyboardEvent('keydown', {
-        key: 'g', ctrlKey: true, bubbles: true
-      }));
-      await settle();
-      if (document.querySelector('[aria-label="Go to line"]')) {
-        throw new Error('terminal Ctrl+G opened viewer navigation');
-      }
       window.dispatchEvent(new KeyboardEvent('keydown', {
         key: 'g', ctrlKey: true, bubbles: true
       }));
@@ -245,7 +270,6 @@ export function verifyViewerPositions(
           const line = visibleCodeLine(cleanSource, '.cm-lineNumbers .cm-gutterElement');
           return line !== undefined && line > 1 ? line : undefined;
         }, 'clean diff source did not scroll');
-        await settle();
         modeButton('diff')?.click();
         const emptyDiff = await waitFor(
           () => document.querySelector('.cm-mergeView'),
@@ -254,7 +278,6 @@ export function verifyViewerPositions(
         if (emptyDiff.querySelector('.cm-changedLine')) {
           throw new Error('clean diff unexpectedly contained changes');
         }
-        await settle();
         modeButton('source')?.click();
         const restoredCleanSource = await waitFor(
           () => document.querySelector('.source-shell .cm-scroller'),
@@ -303,17 +326,51 @@ export function verifyViewerPositions(
         () => !secondary.querySelector('[aria-label="Go to line"]'),
         'go-to-line did not close on Escape'
       );
+      const primary = document.querySelector('[data-viewer-pane="primary"]');
+      const divider = await waitFor(
+        () => document.querySelector('.viewer-split-resizer'),
+        'viewer split divider missing'
+      );
+      if (divider.getBoundingClientRect().width > 1.5) {
+        throw new Error('viewer split divider is wider than its hairline');
+      }
+      const widthBefore = primary?.getBoundingClientRect().width || 0;
+      divider.dispatchEvent(new KeyboardEvent('keydown', {
+        key: 'ArrowRight', bubbles: true
+      }));
+      await waitFor(
+        () => (primary?.getBoundingClientRect().width || 0) > widthBefore,
+        'viewer split did not resize from the keyboard'
+      );
+      const secondaryTab = secondary.querySelector('.viewer-tab');
+      const primaryStrip = primary?.querySelector('.tab-strip');
+      if (!secondaryTab || !primaryStrip) throw new Error('viewer drag fixtures missing');
+      const transfer = new DataTransfer();
+      secondaryTab.dispatchEvent(new DragEvent('dragstart', {
+        bubbles: true, dataTransfer: transfer
+      }));
+      primaryStrip.dispatchEvent(new DragEvent('dragover', {
+        bubbles: true, cancelable: true, dataTransfer: transfer
+      }));
+      primaryStrip.dispatchEvent(new DragEvent('drop', {
+        bubbles: true, cancelable: true, dataTransfer: transfer
+      }));
+      await waitFor(
+        () => secondary.querySelectorAll('.viewer-tab').length === 0 &&
+          [...primary.querySelectorAll('.viewer-tab')].some((tab) =>
+            tab.textContent?.includes('tsconfig.json')
+          ),
+        'viewer drag/drop did not move the tab to the primary pane'
+      );
       secondary.querySelector('[aria-label="Close secondary viewer"]')?.click();
       await waitFor(
         () => !document.querySelector('[data-viewer-pane="secondary"]'),
-        'secondary viewer did not close after scoped command coverage'
+        'empty secondary viewer did not close'
       );
-      document.querySelector('[data-viewer-pane="primary"]')?.dispatchEvent(
-        new PointerEvent('pointerdown', { bubbles: true })
-      );
+      primary.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
 
-      return 'keyboard isolated · line ' + targetLine + ' · ' + transitions.join(', ') +
-        ' · go-to 121:3 · split scoped' + (cleanLine === undefined
+      return 'mode command · line ' + targetLine + ' · ' + transitions.join(', ') +
+        ' · go-to 121:3 · split scoped + drag/drop + keyboard divider' + (cleanLine === undefined
           ? ''
           : ' · empty diff preserved line ' + cleanLine);
     })()
