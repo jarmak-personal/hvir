@@ -10,6 +10,8 @@ export class SmokeCleanup {
   private readonly tasks: RegisteredCleanup[] = []
   private completed = false
 
+  constructor(private readonly onDisposed?: (name: string) => void) {}
+
   defer(name: string, task: SmokeCleanupTask): void {
     if (this.completed) throw new Error('Smoke cleanup has already run')
     this.tasks.push({ name, task })
@@ -22,6 +24,7 @@ export class SmokeCleanup {
     for (const cleanup of this.tasks.reverse()) {
       try {
         await cleanup.task()
+        this.onDisposed?.(cleanup.name)
       } catch (reason) {
         failures.push(
           new Error(`Smoke cleanup failed for ${cleanup.name}`, { cause: reason }),

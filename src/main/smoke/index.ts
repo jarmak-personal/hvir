@@ -15,6 +15,7 @@ import type { WebPaneRouteRegistry } from '../web-pane/web-pane-route-registry'
 import { createWorkerClient, workerPath } from '../worker-host'
 import { createWorkspaceCleanup } from '../workspace-cleanup'
 import { SmokeCleanup } from './cleanup'
+import type { SmokeInterruptionCheckpoint } from './interruption-checkpoint'
 import { createSmokeImagePasteFallback } from './image-paste-fallback'
 import { verifyDiagnosticRestart } from './diagnostic-report-restart'
 import { verifyDevelopmentPerformanceMode } from './development-performance'
@@ -86,6 +87,7 @@ export interface ElectronSmokeDependencies {
   readonly updateWebPaneBindings: (ownerId: number, bindings: KeybindingMap) => void
   readonly updateWebPaneFullPage: (ownerId: number, paneId?: string) => void
   readonly openExternal: (url: string) => Promise<void>
+  readonly interruptionCheckpoint: SmokeInterruptionCheckpoint
 }
 
 /** Production-composed Electron acceptance workflow selected by `HVIR_SMOKE=1`. */
@@ -101,6 +103,7 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
     updateWebPaneBindings,
     updateWebPaneFullPage,
     webPaneRoutes,
+    interruptionCheckpoint,
   } = dependencies
   const defaultHarnessProviderId = harnessProviderCatalog().find(
     (provider) => provider.default,
@@ -123,7 +126,7 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
   const smokeRoot = projectRoot
   const smokeCloseableRoot = joinHostPath(smokeRoot, '.hvir-smoke-closed-project')
   const smokeWebSwitchRoot = joinHostPath(smokeRoot, 'docs')
-  const cleanup = new SmokeCleanup()
+  const cleanup = new SmokeCleanup((name) => interruptionCheckpoint.disposed(name))
   cleanup.defer('echo worker', () => worker.dispose())
   cleanup.defer('Git worker', () => git.dispose())
   cleanup.defer('filename search', () => filenameSearch.dispose())
@@ -220,6 +223,7 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
   const largeJsonPath = joinHostPath(smokeRoot, '.hvir-smoke-large.json')
   const largeTextPath = joinHostPath(smokeRoot, '.hvir-smoke-large.txt')
   const harnessProfilesPath = joinHostPath(smokeRoot, '.hvir-smoke-harness-profiles.json')
+  let scenarioFailed = false
   try {
     if (mode === 'workflow') {
       const echo = await worker.request(ECHO_REQUEST_TYPE, { text: 'ping' })
@@ -455,6 +459,16 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
       throw new Error('renderer echo ran in the main process')
     }
     console.log('[smoke] renderer IPC + echo worker round-trip OK')
+    const predecessorSelectionObserved = await recordRendererIsolationSelection(
+      win,
+      interruptionCheckpoint,
+    )
+    await interruptionCheckpoint.reach({
+      name: 'renderer-watch-ready',
+      ownerGeneration: initialRendererGeneration,
+      watcherActive: stopSmokeWatch !== undefined,
+      predecessorSelectionObserved,
+    })
     if (await verifyDevelopmentPerformanceMode(win, mode)) return 0
     if (mode === 'renderer-recovery') {
       const result = await verifyUnresponsiveRendererRecovery({
@@ -541,6 +555,8 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
         baseState: smokeProjectState,
         setState: (state) => (smokeIpcProjectState = state),
         emitState: (state) => emit('project:state', state),
+        interruptionCheckpoint,
+        predecessorSelectionObserved,
       })
       console.log(`[smoke] web pane workflow OK (${result})`)
       console.log('HVIR_SMOKE_OK')
@@ -1399,11 +1415,37 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
     console.log('HVIR_SMOKE_OK')
     return 0
   } catch (err) {
+    scenarioFailed = true
     console.error('HVIR_SMOKE_FAIL', err)
     return 1
   } finally {
-    await cleanup.run()
+    try {
+      await cleanup.run()
+    } catch (cleanupError) {
+      console.error('HVIR_SMOKE_CLEANUP_FAIL', cleanupError)
+      // A successful scenario must still fail when cleanup does not complete.
+      if (!scenarioFailed) {
+        // eslint-disable-next-line no-unsafe-finally
+        throw cleanupError
+      }
+    }
   }
+}
+
+async function recordRendererIsolationSelection(
+  win: BrowserWindow,
+  checkpoint: SmokeInterruptionCheckpoint,
+): Promise<boolean> {
+  const runToken = checkpoint.runToken
+  if (!runToken) return false
+  return (await win.webContents.executeJavaScript(`
+    (() => {
+      const key = 'hvir-smoke-isolation-run';
+      const predecessor = localStorage.getItem(key);
+      localStorage.setItem(key, ${JSON.stringify(runToken)});
+      return predecessor === ${JSON.stringify(checkpoint.predecessorToken ?? '')};
+    })()
+  `)) as boolean
 }
 
 type EmitSmokeEvent = <E extends IpcEventChannel>(
