@@ -1,0 +1,21 @@
+{
+  "$schema": "./node_modules/@stryker-mutator/core/schema/stryker-schema.json",
+  "testRunner": "vitest",
+  "mutate": ["src/main/git/git-parsers.ts"],
+  "ignorePatterns": [".agents/**"],
+  "reporters": ["clear-text"],
+  "clearTextReporter": {
+    "allowColor": false,
+    "logTests": false,
+    "reportTests": false,
+    "reportMutants": true,
+    "reportScoreTable": true,
+    "skipFull": false
+  },
+  "concurrency": 4,
+  "tempDirName": "out/stryker-tmp",
+  "vitest": {
+    "configFile": "vitest.config.ts",
+    "related": true
+  }
+}

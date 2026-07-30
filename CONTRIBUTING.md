@@ -135,6 +135,7 @@ Development requires Node 24 or newer; release CI uses Node 24.
 ```sh
 npm ci
 npm run verify
+npm run test:mutation    # opt-in pure-policy mutation evidence
 npm run smoke
 npm run smoke:macos        # matching Apple-silicon Mac
 npm run smoke:macos:ci     # temporary reduced hosted macOS subset
@@ -150,6 +151,17 @@ Linux, run Electron smoke tests under `xvfb-run`. Install the optional pre-push 
 ```sh
 npm run hooks:install
 ```
+
+`npm run test:mutation` runs StrykerJS through the existing Vitest runner against the bounded
+pure-policy modules listed in `stryker.config.json`; the initial scope is
+`src/main/git/git-parsers.ts`. Its plain-text report gives the mutation score and identifies every
+surviving mutant by file, line, mutator, and applied source change. Mutation testing measures
+whether the tests constrain implementation behavior. It does not establish that the tests assert
+the intended behavior.
+
+This command is opt-in evidence: it stays outside `npm run verify` and pull-request CI, has no
+blocking score threshold, and uses only Node and the locally installed test dependencies. It does
+not launch Electron, require a display, or access the network.
 
 `npm run smoke` runs the focused `pty-native`, `viewer-position`, and `renderer-recovery` groups
 plus the transitional `legacy-workflow` group in separate Electron processes with fresh project
