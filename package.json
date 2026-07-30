@@ -65,6 +65,7 @@
     "smoke:macos:ci": "electron-vite build && node scripts/run-smoke-scenarios.mts pty-native viewer-position viewer-content git-workflow workspace-remote web-pane renderer-authority platform-contracts renderer-recovery",
     "smoke:scenario": "electron-vite build && node scripts/run-smoke-scenarios.mts",
     "smoke:isolation": "electron-vite build && node scripts/run-smoke-interruption.mts",
+    "acceptance:ssh:real-host": "vite build --config scripts/real-host-ssh.vite.config.mts && node out/real-host-ssh/real-host-ssh-acceptance.cjs",
     "smoke:linux:installed": "bash scripts/run-linux-package-smoke.sh",
     "smoke:macos:installed": "bash scripts/run-macos-package-smoke.sh",
     "smoke:capacity": "electron-vite build && cross-env HVIR_SMOKE_SCENARIO=capacity node scripts/run-smoke-scenarios.mts",

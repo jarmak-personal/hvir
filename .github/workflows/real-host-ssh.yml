@@ -1,0 +1,100 @@
+name: Real-host SSH acceptance
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '41 7 1 * *'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: real-host-ssh-acceptance
+  cancel-in-progress: false
+
+jobs:
+  configuration:
+    name: Real-host target availability
+    runs-on: ubuntu-24.04
+    environment: real-host-ssh
+    outputs:
+      configured: ${{ steps.configuration.outputs.configured }}
+    steps:
+      - name: Classify explicit target configuration
+        id: configuration
+        env:
+          REAL_HOST: ${{ secrets.HVIR_REAL_SSH_HOST }}
+          REAL_PORT: ${{ secrets.HVIR_REAL_SSH_PORT }}
+          REAL_USER: ${{ secrets.HVIR_REAL_SSH_USER }}
+          REAL_HOST_KEY: ${{ secrets.HVIR_REAL_SSH_HOST_KEY }}
+          REAL_ROOT_PARENT: ${{ secrets.HVIR_REAL_SSH_ROOT_PARENT }}
+          REAL_PRIVATE_KEY: ${{ secrets.HVIR_REAL_SSH_PRIVATE_KEY }}
+        run: |
+          set +x
+          present=0
+          missing=0
+          for value in \
+            "$REAL_HOST" \
+            "$REAL_PORT" \
+            "$REAL_USER" \
+            "$REAL_HOST_KEY" \
+            "$REAL_ROOT_PARENT" \
+            "$REAL_PRIVATE_KEY"
+          do
+            if [ -n "$value" ]; then
+              present=$((present + 1))
+            else
+              missing=$((missing + 1))
+            fi
+          done
+          if [ "$present" -eq 0 ]; then
+            echo 'configured=false' >> "$GITHUB_OUTPUT"
+            echo '::notice::Real-host SSH infrastructure is unavailable; acceptance is skipped.'
+          elif [ "$missing" -ne 0 ]; then
+            echo '::error::Real-host SSH infrastructure is partially configured.'
+            exit 1
+          else
+            echo 'configured=true' >> "$GITHUB_OUTPUT"
+          fi
+
+  acceptance:
+    name: Real-host SSH acceptance (configured target)
+    needs: configuration
+    if: needs.configuration.outputs.configured == 'true'
+    runs-on: ubuntu-24.04
+    environment: real-host-ssh
+    timeout-minutes: 20
+    env:
+      HVIR_REAL_SSH_HOST: ${{ secrets.HVIR_REAL_SSH_HOST }}
+      HVIR_REAL_SSH_PORT: ${{ secrets.HVIR_REAL_SSH_PORT }}
+      HVIR_REAL_SSH_USER: ${{ secrets.HVIR_REAL_SSH_USER }}
+      HVIR_REAL_SSH_HOST_KEY: ${{ secrets.HVIR_REAL_SSH_HOST_KEY }}
+      HVIR_REAL_SSH_ROOT_PARENT: ${{ secrets.HVIR_REAL_SSH_ROOT_PARENT }}
+      HVIR_REAL_SSH_PRIVATE_KEY: ${{ secrets.HVIR_REAL_SSH_PRIVATE_KEY }}
+      HVIR_REAL_SSH_PASSPHRASE: ${{ secrets.HVIR_REAL_SSH_PASSPHRASE }}
+      HVIR_REAL_SSH_ARTIFACT_DIR: ${{ runner.temp }}/hvir-real-host-ssh
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          package-manager-cache: false
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Exercise the explicitly configured real SSH host
+        run: npm run acceptance:ssh:real-host
+
+      - name: Upload bounded failure evidence
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: real-host-ssh-failure-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/hvir-real-host-ssh
+          if-no-files-found: ignore
+          retention-days: 7

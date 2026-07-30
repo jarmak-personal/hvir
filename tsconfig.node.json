@@ -20,6 +20,9 @@
     "scripts/run-smoke-scenarios.mts",
     "scripts/run-smoke-interruption.mts",
     "scripts/smoke-failure-artifact.mts",
+    "scripts/real-host-ssh-contract.mts",
+    "scripts/real-host-ssh.vite.config.mts",
+    "scripts/run-real-host-ssh-acceptance.mts",
     "test/**/*.ts",
     "electron.vite.config.ts",
     "vitest.config.ts"
