@@ -40,6 +40,8 @@
 
 .hvir-scrollbar-thumb {
   position: absolute;
+  top: 0;
+  left: 0;
   border: 2px solid transparent;
   border-radius: 999px;
   background: color-mix(in srgb, var(--text-muted) 82%, transparent);
