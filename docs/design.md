@@ -220,6 +220,12 @@ Periodic discovery no longer implies status for every open worktree; exact activ
 demand-driven, clean closed workspaces retain bounded sampling, and stable dirty filters cannot
 form an unbounded passive write loop.
 
+### [ADR-028 — Defer rich presentation inside native harness terminals](adr/ADR-028-defer-rich-native-harness-presentation.md)
+
+No bundled provider currently exposes a supported native-interactive contract that lets hvir
+present a trustworthy assistant stream exactly once without parsing, replacing, or covering the
+provider's own terminal output, so the experiment stops until that boundary exists.
+
 ## 5. Architecture
 
 ### Process model
