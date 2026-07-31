@@ -8,6 +8,7 @@ export class BoundedLineReader {
   constructor(
     private readonly onLine: (line: string) => void,
     private readonly maxLineLength = DEFAULT_MAX_LINE_LENGTH,
+    private readonly onOverflow?: () => void,
   ) {}
 
   push(chunk: string): void {
@@ -22,6 +23,7 @@ export class BoundedLineReader {
         } else {
           this.buffer = ''
           this.discarding = true
+          this.onOverflow?.()
         }
       }
       if (newline === -1) return

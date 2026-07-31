@@ -26,6 +26,10 @@ import { configureClaudeComposerSubmit } from './claude-keybindings'
 import { observeClaudeContext } from './claude-context-telemetry'
 import { claudeResumeAvailability } from './claude-session-recovery'
 import { observeCodexContext } from './codex-context-telemetry'
+import {
+  admitsCodexAssistantOutput,
+  codexAssistantOutput,
+} from './codex-assistant-output'
 import { codexSessionDiscovery } from './codex-session-discovery'
 import { piProvider } from './providers/pi'
 import { geminiProvider } from './providers/gemini'
@@ -120,6 +124,45 @@ export interface HarnessTelemetryObserver {
   ): Disposer | Promise<Disposer>
 }
 
+export interface HarnessAssistantOutputRuntime {
+  readonly launchSpec: HarnessLaunchSpec
+  observe(cb: (event: import('../../shared').AssistantOutputEvent) => void): Disposer
+  /** Admit the one exact discovered/resumed provider thread. */
+  admitSession(sessionId: string): boolean
+  /** The proxy applies the choice only to the next agent-message start. */
+  setMode(enabled: boolean): Promise<boolean>
+  /** Stop body observation while leaving the in-path native transport alive. */
+  revoke(
+    reason?: Extract<
+      import('../../shared').AssistantOutputEvent,
+      { kind: 'abort' }
+    >['reason'],
+  ): void
+  dispose(
+    reason?: Extract<
+      import('../../shared').AssistantOutputEvent,
+      { kind: 'abort' }
+    >['reason'],
+  ): void
+}
+
+export interface HarnessAssistantOutputPreparationContext {
+  readonly terminalId: string
+  readonly generation: number
+  readonly cwd: HostPath
+  readonly defaultShell: string
+  readonly launchSpec: HarnessLaunchSpec
+  readonly unsetEnvironment: readonly string[]
+  readonly signal: AbortSignal
+}
+
+export interface HarnessAssistantOutputCapability {
+  prepare(
+    host: ProjectHost,
+    context: HarnessAssistantOutputPreparationContext,
+  ): Promise<HarnessAssistantOutputRuntime | undefined>
+}
+
 export type HarnessResumeAvailability = 'available' | 'missing' | 'unknown'
 
 export interface HarnessResumeValidationContext {
@@ -199,6 +242,8 @@ export interface HarnessProvider {
   readonly sessionDiscovery?: HarnessSessionDiscovery
   /** Optional structured, read-only operational state for this harness. */
   readonly telemetry?: HarnessTelemetryObserver
+  /** Optional provider-owned, typed assistant body stream for admitted versions. */
+  readonly assistantOutput?: HarnessAssistantOutputCapability
   /** Fail-closed check that the exact provider artifact can actually resume. */
   readonly resumeValidation?: HarnessResumeValidation
   readonly probe: HarnessProbeContract
@@ -316,7 +361,7 @@ export const codexProvider: HarnessProvider = {
       displayName: 'Codex',
       description: 'Codex with exact rollout discovery and recovery.',
     },
-    reservedArguments: ['resume'],
+    reservedArguments: ['resume', '--remote'],
     reservedEnvironmentKeys: ['CODEX_HOME'],
     artifactEnvironmentKeys: ['CODEX_HOME'],
     artifactExecutable: true,
@@ -338,7 +383,8 @@ export const codexProvider: HarnessProvider = {
   sessionIdentity: 'discovered',
   sessionDiscovery: codexSessionDiscovery,
   telemetry: { observe: observeCodexContext },
-  probe: versionProbe('discovered', true, 'pressure'),
+  probe: versionProbe('discovered', true, 'pressure', admitsCodexAssistantOutput),
+  assistantOutput: codexAssistantOutput,
   remoteImagePaste: pathImagePasteContract(),
 
   launch(ctx): HarnessLaunchSpec {
@@ -642,6 +688,7 @@ function versionProbe(
   sessionIdentity: HarnessSessionIdentity,
   exactResume: boolean,
   contextPresentation: HarnessContextPresentation,
+  admitsAssistantOutput: (version: string | undefined) => boolean = () => false,
 ): HarnessProbeContract {
   return {
     versionArgs: ['--version'],
@@ -651,10 +698,13 @@ function versionProbe(
         ? first
         : undefined
     },
-    effectiveCapabilities: () => ({
+    effectiveCapabilities: (version) => ({
       sessionIdentity,
       exactResume,
       contextPresentation,
+      ...(admitsAssistantOutput(version)
+        ? { assistantOutput: 'structured' as const }
+        : {}),
     }),
   }
 }

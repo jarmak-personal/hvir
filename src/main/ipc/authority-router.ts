@@ -44,6 +44,7 @@ export const OWNER_SCOPED_INVOKE_CHANNELS = [
   'terminal:move',
   'terminal:record-recovery-decision',
   'pty:start',
+  'pty:set-assistant-output-mode',
 ] as const satisfies readonly IpcInvokeChannel[]
 export const OWNER_SCOPED_SEND_CHANNELS = SEND_CHANNELS
 export const AUTHORITY_SCOPED_INVOKE_CHANNELS = [
@@ -110,7 +111,6 @@ export type IpcSendHandler<C extends IpcSendChannel> = (
   context: IpcSendContext,
 ) => void
 
-/** Narrow capability given to feature registrars; transport and lifecycle stay private. */
 export interface IpcRegistrar {
   readonly authority: IpcAuthority
   handle<C extends IpcInvokeChannel>(channel: C, handler: IpcInvokeHandler<C>): void

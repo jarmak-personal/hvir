@@ -10,6 +10,16 @@ import { PtyStartUnavailableError } from '../../pty/pty-supervisor'
 import type { IpcRegistrar } from '../authority-router'
 import type { IpcDeps } from '../deps'
 import { operationResult } from '../operation-result'
+import {
+  isClassifiedHarnessLaunchFailure,
+  isHarnessSessionId,
+  isTerminalAttention,
+  isTerminalId,
+  isTerminalTitle,
+  isUnknownRecord,
+  recoveryDecisionIds,
+  terminalDimension,
+} from '../terminal-validation'
 
 type TerminalIpcDeps = Pick<
   IpcDeps,
@@ -185,11 +195,17 @@ export function registerTerminalIpc(ipc: IpcRegistrar, deps: TerminalIpcDeps): v
         `${profile.risk === 'elevated' ? 'Elevated' : 'Unclassified'} harness profile requires acknowledgment`,
       )
     }
-    const effectiveCapabilities: HarnessProviderCapabilities = {
+    const baseCapabilities: HarnessProviderCapabilities = {
       sessionIdentity: provider.sessionIdentity,
       exactResume: provider.supportsResume,
       contextPresentation: provider.manifest.contextPresentation,
     }
+    const effectiveCapabilities =
+      deps.harnessProbes.effectiveCapabilities?.(
+        { host, projectRoot, workspaceRoot: cwd, profiles: [profile] },
+        profile,
+        baseCapabilities,
+      ) ?? baseCapabilities
     if (req.resume) {
       if (
         !effectiveCapabilities.exactResume ||
@@ -436,65 +452,4 @@ export function registerTerminalIpc(ipc: IpcRegistrar, deps: TerminalIpcDeps): v
       deps.ptySupervisor.kill(id, owner.id, undefined, owner.generation)
     }
   })
-}
-
-function isTerminalId(value: unknown): value is string {
-  return typeof value === 'string' && /^[a-zA-Z0-9-]{1,80}$/.test(value)
-}
-
-function recoveryDecisionIds(value: unknown): readonly string[] {
-  if (!Array.isArray(value) || value.length > 500) {
-    throw new Error('Invalid terminal recovery decision')
-  }
-  const ids = value.filter(isTerminalId)
-  if (ids.length !== value.length || new Set(ids).size !== ids.length) {
-    throw new Error('Invalid terminal recovery decision')
-  }
-  return ids
-}
-
-function isTerminalTitle(value: unknown): value is string {
-  return (
-    typeof value === 'string' &&
-    value.length > 0 &&
-    value.length <= 512 &&
-    !hasControlCharacter(value)
-  )
-}
-
-function isTerminalAttention(value: unknown): value is 'working' | 'bell' | 'idle' {
-  return value === 'working' || value === 'bell' || value === 'idle'
-}
-
-function isHarnessSessionId(value: unknown): value is string {
-  return (
-    typeof value === 'string' &&
-    value.length > 0 &&
-    value.length <= 240 &&
-    !/\s/.test(value) &&
-    !hasControlCharacter(value)
-  )
-}
-
-function hasControlCharacter(value: string): boolean {
-  return [...value].some((character) => {
-    const code = character.charCodeAt(0)
-    return code <= 31 || code === 127
-  })
-}
-
-function isClassifiedHarnessLaunchFailure(reason: unknown): boolean {
-  const message = reason instanceof Error ? reason.message : String(reason)
-  return /\bENOENT\b|command not found|unknown option|unrecognized option|unsupported option/i.test(
-    message,
-  )
-}
-
-function isUnknownRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
-}
-
-function terminalDimension(value: number): number {
-  if (!Number.isFinite(value)) return 80
-  return Math.max(2, Math.min(1000, Math.floor(value)))
 }
