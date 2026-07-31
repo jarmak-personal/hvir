@@ -279,6 +279,7 @@ export async function verifyTerminalPresentationLifecycle(
                 const railBounds = rail.getBoundingClientRect();
                 const listBounds = markerList.getBoundingClientRect();
                 const restoreBounds = restore.getBoundingClientRect();
+                const restoreTop = restoreBounds.top;
                 const listStyle = getComputedStyle(markerList);
                 if (
                   listStyle.overflowY !== 'auto' ||
@@ -289,10 +290,11 @@ export async function verifyTerminalPresentationLifecycle(
                   listBounds.right > railBounds.right + 1 ||
                   restoreBounds.left < railBounds.left - 1 ||
                   restoreBounds.right > railBounds.right + 1 ||
-                  restoreBounds.bottom > railBounds.bottom + 1
+                  restoreBounds.top < railBounds.top - 1 ||
+                  restoreBounds.bottom > listBounds.top + 1
                 ) {
                   return fail(
-                    'compact marker overflow escaped the rail or hid restore: ' +
+                    'compact marker overflow escaped the rail or moved above restore: ' +
                     'overflow=' + listStyle.overflowY +
                     ' heights=' + markerList.clientHeight + '/' + markerList.scrollHeight +
                     ' scrollbar=' + listStyle.scrollbarWidth +
@@ -302,6 +304,7 @@ export async function verifyTerminalPresentationLifecycle(
                     ' restore=' + [
                       restoreBounds.left,
                       restoreBounds.right,
+                      restoreBounds.top,
                       restoreBounds.bottom
                     ].join(',')
                   );
@@ -309,12 +312,18 @@ export async function verifyTerminalPresentationLifecycle(
                 marker.scrollIntoView({ block: 'nearest', inline: 'nearest' });
                 requestAnimationFrame(() => {
                   const markerBounds = marker.getBoundingClientRect();
+                  const restoreAfterScroll = restore.getBoundingClientRect();
                   if (
                     markerList.scrollTop <= 0 ||
                     markerBounds.top < listBounds.top - 1 ||
-                    markerBounds.bottom > listBounds.bottom + 1
+                    markerBounds.bottom > listBounds.bottom + 1 ||
+                    Math.abs(restoreAfterScroll.top - restoreTop) > 1
                   ) {
-                    return fail('final compact marker is not reachable by scrolling');
+                    return fail(
+                      'compact marker scroll moved restore or hid the final marker: ' +
+                      'scrollTop=' + markerList.scrollTop +
+                      ' restoreTop=' + restoreTop + '/' + restoreAfterScroll.top
+                    );
                   }
                   marker.focus();
                   marker.click();
@@ -982,13 +991,14 @@ async function verifyTerminalLayoutFocus(win: BrowserWindow): Promise<string> {
         if (
           railBounds.left < deckBounds.right - 1 ||
           railBounds.width > 32 ||
-          restoreBounds.bottom < railBounds.bottom - 8 ||
+          restoreBounds.top < railBounds.top - 1 ||
+          restoreBounds.top > railBounds.top + 8 ||
           deckEdgeTarget?.closest('.terminal-rail')
         ) {
           throw new Error(
             'compact terminal rail overlaps the deck or misplaces restore: deckRight=' +
             deckBounds.right + ' rail=' + [railBounds.left, railBounds.width].join(',') +
-            ' restoreBottom=' + restoreBounds.bottom + ' railBottom=' + railBounds.bottom
+            ' restoreTop=' + restoreBounds.top + ' railTop=' + railBounds.top
           );
         }
         if (

@@ -59,7 +59,13 @@ describe('compact terminal rail', () => {
     const strip = host.querySelector<HTMLElement>('.terminal-rail-compact-strip')
     const restore = button('Restore terminal rail')
     expect(strip?.hidden).toBe(false)
-    expect(strip?.lastElementChild).toBe(restore)
+    expect(strip?.firstElementChild).toBe(restore)
+    expect(strip?.querySelector('button')).toBe(restore)
+    expect([...(strip?.children ?? [])].map((child) => child.className)).toEqual([
+      'terminal-rail-restore',
+      'terminal-rail-compact-rollups',
+      'terminal-rail-compact-markers',
+    ])
     expect(restore.tabIndex).toBe(0)
 
     act(() => restore.click())
