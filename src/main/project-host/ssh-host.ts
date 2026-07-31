@@ -562,13 +562,10 @@ export class SshHost implements ProjectHost {
   async readFile(path: HostPath, opts: ReadFileOptions = {}): Promise<Buffer> {
     return this.files.readFile(path, opts)
   }
-  async readTextFile(
-    path: HostPath,
-    encoding: BufferEncoding = 'utf8',
-    opts: ReadFileOptions = {},
-  ): Promise<string> {
-    return this.files.readTextFile(path, encoding, opts)
-  }
+  readonly readTextFile: ProjectHost['readTextFile'] = (...args) =>
+    this.files.readTextFile(...args)
+  readonly readTextFilePrefix: ProjectHost['readTextFilePrefix'] = (...args) =>
+    this.files.readTextFilePrefix(...args)
   async writeFile(
     path: HostPath,
     value: Uint8Array | string,

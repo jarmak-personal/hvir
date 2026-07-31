@@ -7,7 +7,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { FileViewer } from '../src/renderer/src/viewer/FileViewer'
 import type { ViewerTab } from '../src/renderer/src/viewer/tab-state'
-import { localPath, type ViewMode } from '../src/shared'
+import {
+  DIFF_INTERACTIVE_BYTE_LIMIT,
+  localPath,
+  type GitDiffResponse,
+  type ViewMode,
+} from '../src/shared'
 
 let host: HTMLDivElement
 let root: Root
@@ -84,6 +89,110 @@ describe('FileViewer controls', () => {
       diffBase.dispatchEvent(new Event('change', { bubbles: true }))
     })
     expect(onDiffBase).toHaveBeenCalledWith('branch-point')
+  })
+
+  it('uses the disclosed bounded fallback instead of MergeView above the diff budget', async () => {
+    const response = diffResponse({
+      baseBytes: DIFF_INTERACTIVE_BYTE_LIMIT,
+      currentBytes: 1,
+    })
+    const invoke = vi.fn().mockResolvedValue(response)
+    Object.defineProperty(window, 'hvir', {
+      configurable: true,
+      value: { invoke },
+    })
+
+    renderViewer(tab({ mode: 'diff', loading: false }))
+    await act(async () => {
+      await settle()
+    })
+
+    expect(host.querySelector('.cm-mergeView')).toBeNull()
+    expect(host.querySelector('.diff-fallback')?.textContent).toContain(
+      'interactive diff byte budget',
+    )
+    expect(host.querySelector('.diff-fallback')?.textContent).toContain('/repo/design.md')
+    expect(host.querySelector('.diff-fallback')?.textContent).toContain(
+      'Requested comparison: HEAD → Working tree',
+    )
+  })
+
+  it('still constructs MergeView below the diff budget even for a large source file', async () => {
+    const invoke = vi
+      .fn()
+      .mockResolvedValue(diffResponse({ baseBytes: 5, currentBytes: 8 }))
+    Object.defineProperty(window, 'hvir', {
+      configurable: true,
+      value: { invoke },
+    })
+
+    renderViewer(
+      tab({
+        mode: 'diff',
+        loading: false,
+        size: 5 * 1024 * 1024 + 1,
+      }),
+    )
+    await act(async () => {
+      await settle()
+    })
+
+    expect(host.querySelector('.cm-mergeView')).toBeTruthy()
+    expect(host.querySelector('.large-file-shell')).toBeNull()
+  })
+
+  it('discloses partial Git input without presenting a complete diff', async () => {
+    const invoke = vi.fn().mockResolvedValue(
+      diffResponse({
+        baseBytes: 5,
+        currentBytes: 8,
+        baseComplete: false,
+      }),
+    )
+    Object.defineProperty(window, 'hvir', {
+      configurable: true,
+      value: { invoke },
+    })
+
+    renderViewer(tab({ mode: 'diff', loading: false }))
+    await act(async () => {
+      await settle()
+    })
+
+    expect(host.querySelector('.cm-mergeView')).toBeNull()
+    expect(host.querySelector('.diff-fallback')?.textContent).toContain(
+      'incomplete comparison is not shown',
+    )
+    expect(host.querySelector('.diff-fallback')?.textContent).toContain('partial input')
+  })
+
+  it('reports measured included lines for an oversized unsaved buffer', async () => {
+    const content = `${'x'.repeat(DIFF_INTERACTIVE_BYTE_LIMIT)}\nsecond`
+    const invoke = vi
+      .fn()
+      .mockResolvedValue(diffResponse({ baseBytes: 1, currentBytes: 1 }))
+    Object.defineProperty(window, 'hvir', {
+      configurable: true,
+      value: { invoke },
+    })
+
+    renderViewer(
+      tab({
+        mode: 'diff',
+        loading: false,
+        content,
+        size: new TextEncoder().encode(content).byteLength,
+        dirty: true,
+      }),
+    )
+    await act(async () => {
+      await settle()
+    })
+
+    expect(host.querySelector('.cm-mergeView')).toBeNull()
+    expect(host.querySelector('.diff-fallback')?.textContent).toContain(
+      'Working tree (unsaved)complete input · 2.0 MiB included · 2 included lines',
+    )
   })
 
   it('validates and submits a visible go-to-line control', () => {
@@ -323,7 +432,9 @@ describe('FileViewer controls', () => {
 })
 
 function tab(
-  overrides: Partial<Pick<ViewerTab, 'mode' | 'conflict' | 'loading' | 'navigation'>> & {
+  overrides: Partial<
+    Pick<ViewerTab, 'mode' | 'conflict' | 'dirty' | 'loading' | 'navigation'>
+  > & {
     mode: ViewMode
     content?: string
     size?: number
@@ -347,7 +458,7 @@ function tab(
     },
     loading: overrides.loading ?? true,
     navigation: overrides.navigation,
-    dirty: false,
+    dirty: overrides.dirty ?? false,
     conflict: overrides.conflict ?? false,
   }
 }
@@ -398,4 +509,40 @@ function renderViewer(
       />,
     )
   })
+}
+
+function diffResponse({
+  baseBytes,
+  currentBytes,
+  baseComplete = true,
+  currentComplete = true,
+}: {
+  readonly baseBytes: number
+  readonly currentBytes: number
+  readonly baseComplete?: boolean
+  readonly currentComplete?: boolean
+}): GitDiffResponse {
+  return {
+    path: localPath('/repo/design.md'),
+    base: 'head',
+    baseLabel: 'HEAD',
+    currentLabel: 'Working tree',
+    baseInput: {
+      content: 'base\n',
+      byteLength: baseBytes,
+      lineCount: 2,
+      complete: baseComplete,
+    },
+    currentInput: {
+      content: 'current\n',
+      byteLength: currentBytes,
+      lineCount: 2,
+      complete: currentComplete,
+    },
+  }
+}
+
+async function settle(): Promise<void> {
+  await Promise.resolve()
+  await Promise.resolve()
 }

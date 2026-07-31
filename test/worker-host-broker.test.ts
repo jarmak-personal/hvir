@@ -113,6 +113,90 @@ describe('Git worker host broker', () => {
     ).rejects.toThrow('escapes the active project')
   })
 
+  it('routes only bounded text-prefix reads inside the active project', async () => {
+    const rootPath = await mkdtemp(join(tmpdir(), 'hvir-broker-prefix-'))
+    cleanups.push(rootPath)
+    const host = new LocalHost()
+    const path = localPath(join(rootPath, 'file.txt'))
+    await writeFile(path.path, 'abcde')
+    const project = { host, root: localPath(rootPath) }
+    const call: WorkerHostCall = {
+      kind: 'host-call',
+      callId: 2,
+      hostId: host.hostId,
+      operation: 'readTextFilePrefix',
+      path,
+      maxBytes: 4,
+    }
+
+    await expect(dispatchWorkerHostCall(call, project)).resolves.toMatchObject({
+      content: 'abcd',
+      complete: false,
+    })
+    await expect(
+      dispatchWorkerHostCall({ ...call, maxBytes: 0 }, project),
+    ).rejects.toThrow('Invalid text prefix byte limit')
+  })
+
+  it('permits truncation only for status and bounded blob reads', async () => {
+    const rootPath = await mkdtemp(join(tmpdir(), 'hvir-broker-show-'))
+    cleanups.push(rootPath)
+    const host = new LocalHost()
+    const exec = vi.spyOn(host, 'exec').mockResolvedValue({
+      code: 0,
+      signal: null,
+      stdout: 'prefix',
+      stderr: '',
+      outputTruncated: true,
+    })
+    const project = { host, root: localPath(rootPath) }
+    const show: ExecHostCall = {
+      ...hostCall(rootPath),
+      args: ['-C', rootPath, 'show', 'HEAD:file.txt'],
+      maxBuffer: 1024,
+      allowTruncatedOutput: true,
+    }
+
+    await dispatchWorkerHostCall(show, project)
+
+    expect(exec.mock.calls[0]?.[2]).toMatchObject({
+      maxBuffer: 1024,
+      allowTruncatedOutput: true,
+    })
+    await expect(
+      dispatchWorkerHostCall(
+        {
+          ...show,
+          args: ['-C', rootPath, 'show-ref', '--verify', '--quiet', 'refs/heads/main'],
+        },
+        project,
+      ),
+    ).rejects.toThrow('unsupported output truncation')
+    await expect(
+      dispatchWorkerHostCall(
+        {
+          ...show,
+          args: [
+            '-C',
+            rootPath,
+            'show',
+            '--no-renames',
+            '--no-ext-diff',
+            '--no-textconv',
+            '--diff-merges=first-parent',
+            '--format=%H%x1f%h%x1f%P%x1f%an%x1f%aI%x1f%D%x1f%B%x1e',
+            '--numstat',
+            '-z',
+            '0123456789012345678901234567890123456789',
+            '--',
+            '.',
+          ],
+        },
+        project,
+      ),
+    ).rejects.toThrow('unsupported output truncation')
+  })
+
   it('requires one-shot authorization for the exact worktree prune grammar', async () => {
     const rootPath = await mkdtemp(join(tmpdir(), 'hvir-broker-prune-'))
     cleanups.push(rootPath)

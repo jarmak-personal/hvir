@@ -1,11 +1,16 @@
 import type { BrowserWindow } from 'electron'
 
+import type { HostPath } from '../../shared'
 import type { PtySupervisor } from '../pty/pty-supervisor'
 
 export async function verifyTerminalProjectReturn(
   win: BrowserWindow,
   supervisor: PtySupervisor,
+  oversizedDiffPath?: HostPath,
 ): Promise<string> {
+  const viewerStatus = oversizedDiffPath
+    ? await verifyViewerProjectReturn(win, oversizedDiffPath)
+    : undefined
   const terminal = supervisor
     .list()
     .find((candidate) => candidate.ownerId === win.webContents.id)
@@ -153,7 +158,133 @@ export async function verifyTerminalProjectReturn(
   if (retained?.id !== terminal.id || retained.instanceId !== terminal.instanceId) {
     throw new Error('project return replaced the live PTY session')
   }
-  return status
+  return viewerStatus ? `${viewerStatus} · ${status}` : status
+}
+
+async function verifyViewerProjectReturn(
+  win: BrowserWindow,
+  path: HostPath,
+): Promise<string> {
+  return (await withProjectReturnTimeout(
+    win.webContents.executeJavaScript(`
+      new Promise((resolve, reject) => {
+        const path = ${JSON.stringify(path.path)};
+        const deadline = Date.now() + 20000;
+        const fail = (message) => reject(new Error(message + ': ' + JSON.stringify({
+          project: document.querySelector('.project-tab.active .project-tab-main strong')
+            ?.textContent?.trim(),
+          activePath: document.querySelector('.viewer-tab.active .tab-main')
+            ?.getAttribute('title'),
+          mode: document.querySelector('.mode-control button.active')
+            ?.textContent?.trim(),
+          fallback: document.querySelector('.diff-fallback')?.textContent?.trim()
+            .slice(0, 300),
+          merge: Boolean(document.querySelector('.cm-mergeView')),
+          source: Boolean(document.querySelector('.source-shell .cm-scroller'))
+        })));
+        const waitFor = (test, message, next) => {
+          const value = test();
+          if (value) return next(value);
+          if (Date.now() > deadline) return fail(message);
+          setTimeout(() => waitFor(test, message, next), 25);
+        };
+        const projectButton = (name) =>
+          [...document.querySelectorAll('.project-tab-main')].find(
+            (button) => button.querySelector('strong')?.textContent?.trim() === name
+          );
+        const modeButton = (mode) =>
+          [...document.querySelectorAll('.mode-control button')].find(
+            (button) => button.textContent?.trim() === mode
+          );
+        const activeProject = () => document.querySelector(
+          '.project-tab.active .project-tab-main strong'
+        )?.textContent?.trim();
+        const activePath = () => document.querySelector(
+          '.viewer-tab.active .tab-main'
+        )?.getAttribute('title');
+        const fallbackReady = () => {
+          const fallback = document.querySelector('.diff-fallback');
+          const text = fallback?.textContent || '';
+          return fallback &&
+            activePath() === path &&
+            text.includes(path) &&
+            text.includes('Requested comparison: HEAD → Working tree') &&
+            text.includes('partial input') &&
+            !document.querySelector('.cm-mergeView')
+              ? fallback
+              : undefined;
+        };
+        waitFor(
+          () => [...document.querySelectorAll('.file-row')]
+            .find((node) => node.getAttribute('title')?.startsWith(path)),
+          'oversized diff fixture did not appear in the file tree',
+          (file) => {
+            file.click();
+            waitFor(
+              () => activePath() === path && modeButton('diff'),
+              'oversized fixture did not open',
+              (diff) => {
+                diff.click();
+                waitFor(
+                  fallbackReady,
+                  'oversized fixture did not disclose a bounded diff fallback',
+                  () => {
+                    const secondary = projectButton('return-fixture');
+                    if (!(secondary instanceof HTMLButtonElement)) {
+                      return fail('secondary project control missing');
+                    }
+                    secondary.click();
+                    waitFor(
+                      () => activeProject() === 'return-fixture',
+                      'viewer project switch did not leave the primary project',
+                      () => {
+                        const primary = projectButton('hvir');
+                        if (!(primary instanceof HTMLButtonElement)) {
+                          return fail('primary project control missing');
+                        }
+                        primary.click();
+                        waitFor(
+                          () => activeProject() === 'hvir' && fallbackReady(),
+                          'viewer project return did not restore the bounded fallback',
+                          () => {
+                            const source = modeButton('source');
+                            if (!(source instanceof HTMLButtonElement)) {
+                              return fail('source navigation control missing after return');
+                            }
+                            source.click();
+                            waitFor(
+                              () => document.querySelector('.source-shell .cm-scroller'),
+                              'source navigation timed out after project return',
+                              () => {
+                                const diffAgain = modeButton('diff');
+                                if (!(diffAgain instanceof HTMLButtonElement)) {
+                                  return fail('diff navigation control missing after return');
+                                }
+                                diffAgain.click();
+                                waitFor(
+                                  fallbackReady,
+                                  'bounded diff did not return after follow-up navigation',
+                                  () => resolve(
+                                    'oversized diff fallback + retained viewer + ' +
+                                    'source→diff navigation'
+                                  )
+                                );
+                              }
+                            );
+                          }
+                        );
+                      }
+                    );
+                  }
+                );
+              }
+            );
+          }
+        );
+      })
+    `),
+    22_000,
+  )) as string
 }
 
 function withProjectReturnTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
