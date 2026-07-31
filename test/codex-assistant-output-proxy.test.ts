@@ -75,15 +75,14 @@ describe('Codex assistant-output routing proxy', () => {
         item: { type: 'agentMessage', id: 'message-1', text: '' },
       })}\n`,
     )
-    serverPeer!.write(
-      `${record(3, 'item/agentMessage/delta', {
-        threadId: 'thread-1',
-        turnId: 'turn-1',
-        itemId: 'message-1',
-        delta: body,
-      })}\n`,
-    )
-    await waitUntil(() => rich.join('').split('\n').filter(Boolean).length === 3)
+    const delta = record(3, 'item/agentMessage/delta', {
+      threadId: 'thread-1',
+      turnId: 'turn-1',
+      itemId: 'message-1',
+      delta: body,
+    })
+    serverPeer!.write(`${delta}\n${delta}\n`)
+    await waitUntil(() => rich.join('').split('\n').filter(Boolean).length >= 3)
     proxy.stdin.write('MODE\t0\n')
     serverPeer!.write(
       `${record(4, 'item/completed', {
