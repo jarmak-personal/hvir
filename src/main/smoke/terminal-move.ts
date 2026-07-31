@@ -37,7 +37,7 @@ export function createTerminalMoveSmokeHarness({
   readonly supervisor: PtySupervisor
   readonly resources: RendererResourceScopes
   readonly webPanes: WebPaneRouteRegistry
-  readonly onState: (state: ProjectState) => void
+  readonly onState: (state: ProjectState) => ProjectState
 }): TerminalMoveSmokeHarness {
   const baseline = sourceState()
   const sourceProject = baseline.projects[0]!
@@ -90,7 +90,7 @@ export function createTerminalMoveSmokeHarness({
         (candidate) => candidate.id === workspaceId,
       )
       if (!workspace) return Promise.reject(new Error('Unknown smoke move workspace'))
-      state = {
+      state = onState({
         ...state,
         root: workspace.root,
         activeWorkspaceId: workspace.id,
@@ -103,8 +103,7 @@ export function createTerminalMoveSmokeHarness({
               : candidate,
           ),
         })),
-      }
-      onState(state)
+      })
       return Promise.resolve(state)
     },
   }
@@ -126,7 +125,7 @@ export function createTerminalMoveSmokeHarness({
     sourceRoot: sourceWorkspace.root,
     targetRoot,
     introduceTarget: () => {
-      state = {
+      state = onState({
         ...sourceState(),
         projects: [
           {
@@ -148,13 +147,11 @@ export function createTerminalMoveSmokeHarness({
             ],
           },
         ],
-      }
-      onState(state)
+      })
       return state
     },
     reset: () => {
-      state = sourceState()
-      onState(state)
+      state = onState(sourceState())
       return state
     },
   }

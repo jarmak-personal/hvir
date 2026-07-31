@@ -268,6 +268,7 @@ function browseResponse(hostId: string, path: string): BrowseHostResponse {
 
 function projectState(hostId: string, path: string): ProjectState {
   return {
+    revision: 0,
     root: hostPath(asHostId(hostId), path),
     connectionState: 'connected',
     watchTier: hostId === 'local' ? 'native' : 'polling',

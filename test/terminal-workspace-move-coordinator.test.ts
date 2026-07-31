@@ -54,6 +54,7 @@ function createFixture(settings: FixtureOptions = {}) {
     newlyDiscovered: true,
   }
   let state: ProjectState = {
+    revision: 0,
     root: SOURCE_ROOT,
     connectionState: 'connected',
     watchTier: 'native',

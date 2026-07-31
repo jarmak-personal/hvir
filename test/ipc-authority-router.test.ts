@@ -66,6 +66,7 @@ const owner = { id: 7, generation: 3 }
 
 function projectState(): ProjectState {
   return {
+    revision: 0,
     root,
     connectionState: 'connected',
     watchTier: 'native',

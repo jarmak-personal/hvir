@@ -162,10 +162,16 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
     await webPaneRoutes.closeOwner(ownerId)
     smokeWindow.destroy()
   })
+  let smokeProjectRevision = 0
+  const commitSmokeProjectState = (state: ProjectState): ProjectState => ({
+    ...state,
+    revision: (smokeProjectRevision += 1),
+  })
   const smokeProjectState = (
     connectionState = host.connectionState,
     missing = false,
   ): ProjectState => ({
+    revision: smokeProjectRevision,
     root: smokeRoot,
     connectionState,
     watchTier: host.watchTier,
@@ -197,6 +203,7 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
   })
   const smokeRemoteRoot = hostPath(asHostId('smoke-remote'), '/srv/hvir')
   const smokeRemoteProjectState = (): ProjectState => ({
+    revision: smokeProjectRevision,
     // Present remote chrome without widening the mounted local host authority.
     root: smokeRoot,
     connectionState: 'connected',
@@ -251,6 +258,7 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
     }
     const activeSecondary = activeProjectId === secondary.id
     return {
+      revision: smokeProjectRevision,
       root: activeSecondary ? smokeWebSwitchRoot : smokeRoot,
       connectionState: host.connectionState,
       watchTier: host.watchTier,
@@ -314,10 +322,16 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
     const smokeTerminalSessionHarness = createSmokeTerminalSessionStore(smokeRoot)
     const smokeTerminalSessions = smokeTerminalSessionHarness.store
     const smokeHarnessProfiles = await HarnessProfileStore.load(host, harnessProfilesPath)
-    let smokeIpcProjectState =
+    let smokeIpcProjectState = commitSmokeProjectState(
       mode === 'terminal-presentation'
         ? smokeProjectReturnState('smoke-project')
-        : smokeProjectState()
+        : smokeProjectState(),
+    )
+    const setSmokeProjectState = (state: ProjectState): ProjectState => {
+      const committed = commitSmokeProjectState(state)
+      smokeIpcProjectState = committed
+      return committed
+    }
     const openedFolderSelections: Array<{ hostId: string; path: string }> = []
     const terminalMoveSmoke = createTerminalMoveSmokeHarness({
       sourceState: smokeProjectState,
@@ -325,16 +339,12 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
       supervisor,
       resources: rendererResources,
       webPanes: webPaneRoutes,
-      onState: (state) => {
-        smokeIpcProjectState = state
-      },
+      onState: setSmokeProjectState,
     })
     const workspaceCloseCommands = workspaceCloseSmokeCommands({
       host,
       getState: () => smokeIpcProjectState,
-      setState: (state) => {
-        smokeIpcProjectState = state
-      },
+      setState: setSmokeProjectState,
       cleanup: createWorkspaceCleanup({
         ptys: supervisor,
         resources: rendererResources,
@@ -394,34 +404,38 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
       },
       openProject: (hostId, path) => {
         openedFolderSelections.push({ hostId, path })
-        return Promise.resolve(smokeProjectState())
+        return Promise.resolve(setSmokeProjectState(smokeProjectState()))
       },
       switchWorkspace: (projectId) => {
-        smokeIpcProjectState =
+        const state = setSmokeProjectState(
           mode === 'terminal-presentation'
             ? smokeProjectReturnState(projectId)
-            : smokeProjectState()
+            : smokeProjectState(),
+        )
         if (mode === 'terminal-presentation') {
-          emit('project:state', smokeIpcProjectState)
+          emit('project:state', state)
         }
-        return Promise.resolve(smokeIpcProjectState)
+        return Promise.resolve(state)
       },
-      refreshProject: () => Promise.resolve(smokeProjectState()),
+      refreshProject: () =>
+        Promise.resolve(setSmokeProjectState(smokeProjectState())),
       updateWatchInterests: (paths) =>
         Promise.resolve({
           accepted: Math.min(paths.length, MAX_PROJECT_WATCH_INTERESTS),
           limited: paths.length > MAX_PROJECT_WATCH_INTERESTS,
         }),
       closeProject: () => {
-        smokeIpcProjectState = smokeProjectState()
-        return Promise.resolve(smokeIpcProjectState)
+        return Promise.resolve(setSmokeProjectState(smokeProjectState()))
       },
-      pruneWorktrees: () => Promise.resolve(smokeProjectState()),
-      dismissWorkspace: () => Promise.resolve(smokeProjectState()),
+      pruneWorktrees: () =>
+        Promise.resolve(setSmokeProjectState(smokeProjectState())),
+      dismissWorkspace: () =>
+        Promise.resolve(setSmokeProjectState(smokeProjectState())),
       planWorkspaceClose: workspaceCloseCommands.planWorkspaceClose,
       closeWorkspace: workspaceCloseCommands.closeWorkspace,
       reopenWorkspace: workspaceCloseCommands.reopenWorkspace,
-      acknowledgeWorkspace: () => Promise.resolve(smokeProjectState()),
+      acknowledgeWorkspace: () =>
+        Promise.resolve(setSmokeProjectState(smokeProjectState())),
       switchGitBranch: async (_root, branch) => {
         const result = await host.exec('git', [
           '-C',
@@ -431,10 +445,10 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
           branch,
         ])
         if (result.code !== 0) throw new Error(result.stderr)
-        return smokeProjectState()
+        return setSmokeProjectState(smokeProjectState())
       },
-      fetchGit: () => Promise.resolve(smokeProjectState()),
-      pullGit: () => Promise.resolve(smokeProjectState()),
+      fetchGit: () => Promise.resolve(setSmokeProjectState(smokeProjectState())),
+      pullGit: () => Promise.resolve(setSmokeProjectState(smokeProjectState())),
       respondSshPrompt: () => undefined,
       rendererResources,
       rendererReady: dependencies.rendererReady,
@@ -581,7 +595,7 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
         activeRoot: smokeRoot,
         closeRoot: smokeWebSwitchRoot,
         getState: () => smokeIpcProjectState,
-        setState: (state) => (smokeIpcProjectState = state),
+        setState: setSmokeProjectState,
         emitState: (state) => emit('project:state', state),
         baseState: smokeProjectState,
         remoteState: smokeRemoteProjectState,
@@ -614,7 +628,7 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
         activeRoot: smokeRoot,
         switchRoot: smokeWebSwitchRoot,
         baseState: smokeProjectState,
-        setState: (state) => (smokeIpcProjectState = state),
+        setState: setSmokeProjectState,
         emitState: (state) => emit('project:state', state),
         interruptionCheckpoint,
         predecessorSelectionObserved,
@@ -687,8 +701,8 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
           connectedState: smokeProjectState('connected'),
           disconnectedState: smokeProjectState('disconnected'),
           emitProjectState: (state) => {
-            smokeIpcProjectState = state
-            emit('project:state', state)
+            const committed = setSmokeProjectState(state)
+            emit('project:state', committed)
           },
         }),
         'terminal reconnect lifecycle timed out',
