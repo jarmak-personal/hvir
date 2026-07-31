@@ -17,6 +17,8 @@ export interface HarnessProviderCapabilities {
   readonly sessionIdentity: HarnessSessionIdentity
   readonly exactResume: boolean
   readonly contextPresentation: HarnessContextPresentation
+  /** Present only when an exact probed provider version admits the pilot stream. */
+  readonly assistantOutput?: 'structured'
 }
 
 export type HarnessModifiedKeyProtocol = 'none' | 'modify-other-keys' | 'csi-u'

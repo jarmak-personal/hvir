@@ -278,6 +278,7 @@ describe('IpcAuthorityRouter', () => {
         'terminal:move',
         'terminal:record-recovery-decision',
         'pty:start',
+        'pty:set-assistant-output-mode',
         'diagnostic-report:create',
         'diagnostic-report:capture',
         'diagnostic-report:copy',
@@ -333,6 +334,7 @@ describe('IpcAuthorityRouter', () => {
     const featureDirectory = join(process.cwd(), 'src/main/ipc/features')
     const features = [
       'app.ts',
+      'assistant-output.ts',
       'filesystem.ts',
       'git.ts',
       'harness.ts',

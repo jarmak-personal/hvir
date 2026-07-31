@@ -15,6 +15,7 @@ import {
   hostPathEquals,
   LOCAL_HOST_ID,
   type HarnessTelemetry,
+  type AssistantOutputEvent,
   type HarnessProviderId,
   type HarnessProviderCapabilities,
   type HostId,
@@ -28,6 +29,7 @@ import type {
   HarnessProvider,
   HarnessSessionDiscovery,
   HarnessArtifactContext,
+  HarnessAssistantOutputRuntime,
 } from '../harness/harness-provider'
 import { harnessShellCommandArgs } from '../harness/harness-shell-environment'
 
@@ -85,6 +87,7 @@ export interface PtyStreamHandlers {
   onData?: (data: string) => void
   onExit?: (exit: PtyExit) => void
   onTelemetry?: (telemetry: HarnessTelemetry | undefined) => void
+  onAssistantOutput?: (event: AssistantOutputEvent) => void
 }
 
 interface Entry {
@@ -93,12 +96,17 @@ interface Entry {
   readonly dataListeners: Set<(data: string) => void>
   readonly exitListeners: Set<(exit: PtyExit) => void>
   readonly telemetryListeners: Set<(telemetry: HarnessTelemetry | undefined) => void>
+  readonly assistantOutputListeners: Set<(event: AssistantOutputEvent) => void>
   readonly disposers: Disposer[]
   readonly replay: string[]
   replayLength: number
   replayPending: boolean
   telemetry?: HarnessTelemetry
   telemetryStarted: boolean
+  assistantOutput?: HarnessAssistantOutputRuntime
+  assistantOutputGeneration?: number
+  assistantAvailability?: Extract<AssistantOutputEvent, { kind: 'availability' }>
+  assistantMessageAttached: boolean
   identityDiscoveryActive: boolean
   identityRetryPending: boolean
   launchDiagnostic: string
@@ -175,6 +183,7 @@ export class PtySupervisor {
   private readonly entries = new Map<string, Entry>()
   private readonly pendingIds = new Map<string, PendingEntry>()
   private generation = 0
+  private assistantOutputGeneration = 0
   private readonly globalExitListeners = new Set<
     (info: ManagedPty, exit: PtyExit) => void
   >()
@@ -193,7 +202,7 @@ export class PtySupervisor {
   /** Spawn a PTY. The one and only site that calls `host.spawnPty`. */
   async spawn(req: PtySpawnRequest): Promise<ManagedPty> {
     const sessionId = req.sessionId ?? randomUUID()
-    const effectiveCapabilities = req.effectiveCapabilities ?? {
+    let effectiveCapabilities = req.effectiveCapabilities ?? {
       sessionIdentity: req.provider.sessionIdentity,
       exactResume: req.provider.supportsResume,
       contextPresentation: req.provider.manifest.contextPresentation,
@@ -247,6 +256,8 @@ export class PtySupervisor {
     let releaseStartAdmission: Disposer | undefined
     let pty: PtyProcess
     let launchedAtMs: number
+    let assistantOutput: HarnessAssistantOutputRuntime | undefined
+    let assistantOutputGeneration: number | undefined
     try {
       if (req.admission === 'bulk') {
         releaseStartAdmission = await this.startAdmission.acquire(
@@ -278,8 +289,38 @@ export class PtySupervisor {
         defaultShell,
         effectiveCapabilities,
       }
-      const spec =
+      let spec =
         req.launchSpec ?? (resumed ? req.provider.resume(ctx) : req.provider.launch(ctx))
+      const nativeSpec = spec
+      if (
+        effectiveCapabilities.assistantOutput === 'structured' &&
+        req.provider.assistantOutput
+      ) {
+        assistantOutputGeneration = ++this.assistantOutputGeneration
+        assistantOutput = await req.provider.assistantOutput.prepare(req.host, {
+          terminalId: sessionId,
+          generation: assistantOutputGeneration,
+          cwd: req.cwd,
+          defaultShell,
+          launchSpec: spec,
+          unsetEnvironment: req.unsetEnvironment ?? [],
+          signal: pending.controller.signal,
+        })
+        if (assistantOutput) {
+          if (harnessSessionId && !assistantOutput.admitSession(harnessSessionId)) {
+            assistantOutput.dispose()
+            assistantOutput = undefined
+          } else {
+            spec = assistantOutput.launchSpec
+          }
+        }
+        if (!assistantOutput) {
+          spec = nativeSpec
+          assistantOutputGeneration = undefined
+          const { assistantOutput: _unsupported, ...remaining } = effectiveCapabilities
+          effectiveCapabilities = remaining
+        }
+      }
       const launch = spec.shellEnvironment
         ? {
             file: defaultShell,
@@ -306,6 +347,7 @@ export class PtySupervisor {
       void releaseDiscoveryLaunch?.()
       releaseDiscoveryLaunch = undefined
     } catch (error) {
+      assistantOutput?.dispose()
       void releaseDiscoveryLaunch?.()
       if (
         !(error instanceof PtyStartUnavailableError) &&
@@ -323,6 +365,7 @@ export class PtySupervisor {
     }
 
     if (pending.cancelled || this.generation !== generation) {
+      assistantOutput?.dispose()
       pty.kill()
       throw new Error(`PTY session '${sessionId}' was cancelled before it started`)
     }
@@ -354,11 +397,16 @@ export class PtySupervisor {
       dataListeners: new Set(),
       exitListeners: new Set(),
       telemetryListeners: new Set(),
+      assistantOutputListeners: new Set(),
       disposers: [],
       replay: [],
       replayLength: 0,
       replayPending: true,
       telemetryStarted: false,
+      assistantOutput,
+      assistantOutputGeneration,
+      assistantAvailability: undefined,
+      assistantMessageAttached: false,
       identityDiscoveryActive: false,
       identityRetryPending: false,
       launchDiagnostic: '',
@@ -369,6 +417,13 @@ export class PtySupervisor {
     // Publish before subscribing so even a host implementation that reports an
     // already-finished PTY synchronously can remove the right registry entry.
     this.entries.set(sessionId, entry)
+
+    if (assistantOutput) {
+      entry.disposers.push(
+        assistantOutput.observe((event) => this.publishAssistantOutput(entry, event)),
+        () => assistantOutput?.dispose(),
+      )
+    }
 
     entry.disposers.push(
       pty.onData((data) => {
@@ -385,6 +440,7 @@ export class PtySupervisor {
       pty.onExit((exit) => {
         if (entry.exited) return
         entry.exited = true
+        entry.assistantOutput?.dispose('session-exit')
         if (
           classifiedEarlyExit(
             exit,
@@ -414,6 +470,7 @@ export class PtySupervisor {
           entry.dataListeners.clear()
           entry.exitListeners.clear()
           entry.telemetryListeners.clear()
+          entry.assistantOutputListeners.clear()
           // The registry represents live sessions. Removing an exited entry
           // also permits a later deterministic resume with the same id.
           if (this.entries.get(sessionId) === entry) this.entries.delete(sessionId)
@@ -466,6 +523,9 @@ export class PtySupervisor {
     if (handlers.onData) entry.dataListeners.add(handlers.onData)
     if (handlers.onExit) entry.exitListeners.add(handlers.onExit)
     if (handlers.onTelemetry) entry.telemetryListeners.add(handlers.onTelemetry)
+    if (handlers.onAssistantOutput) {
+      entry.assistantOutputListeners.add(handlers.onAssistantOutput)
+    }
     if (handlers.onData && entry.replayPending) {
       entry.replayPending = false
       const replay = entry.replay.splice(0)
@@ -476,10 +536,16 @@ export class PtySupervisor {
     if (handlers.onTelemetry && entry.telemetry) {
       handlers.onTelemetry(entry.telemetry)
     }
+    if (handlers.onAssistantOutput && entry.assistantAvailability) {
+      handlers.onAssistantOutput(entry.assistantAvailability)
+    }
     return () => {
       if (handlers.onData) entry.dataListeners.delete(handlers.onData)
       if (handlers.onExit) entry.exitListeners.delete(handlers.onExit)
       if (handlers.onTelemetry) entry.telemetryListeners.delete(handlers.onTelemetry)
+      if (handlers.onAssistantOutput) {
+        entry.assistantOutputListeners.delete(handlers.onAssistantOutput)
+      }
     }
   }
 
@@ -507,6 +573,9 @@ export class PtySupervisor {
     entry.dataListeners.clear()
     entry.exitListeners.clear()
     entry.telemetryListeners.clear()
+    entry.assistantOutputListeners.clear()
+    entry.assistantMessageAttached = false
+    void entry.assistantOutput?.setMode(false)
     entry.replayPending = true
     entry.rendererReattachPending = true
     entry.info = {
@@ -537,6 +606,16 @@ export class PtySupervisor {
     const entry = this.requireOwned(id, ownerId, ownerGeneration)
     entry.pty.write(data)
     this.retryIdentityAfterInput(entry)
+  }
+
+  setAssistantOutputMode(
+    id: string,
+    ownerId: number,
+    enabled: boolean,
+    ownerGeneration?: number,
+  ): Promise<boolean> {
+    const output = this.requireOwned(id, ownerId, ownerGeneration).assistantOutput
+    return output?.setMode(enabled) ?? Promise.resolve(false)
   }
 
   resize(
@@ -692,6 +771,7 @@ export class PtySupervisor {
     for (const entry of this.entries.values()) {
       this.cancelPendingIdentity(entry.info.id)
       for (const dispose of entry.disposers) void dispose()
+      entry.assistantOutput?.dispose()
       if (waitForExit && !entry.exited) {
         let disposeExit: Disposer = () => undefined
         const promise = new Promise<void>((resolve) => {
@@ -779,12 +859,50 @@ export class PtySupervisor {
     return entry
   }
 
+  private publishAssistantOutput(entry: Entry, event: AssistantOutputEvent): void {
+    if (
+      entry.exited ||
+      this.entries.get(entry.info.id) !== entry ||
+      event.hostId !== entry.info.hostId ||
+      event.providerId !== entry.info.providerId ||
+      event.generation !== entry.assistantOutputGeneration
+    ) {
+      entry.assistantOutput?.revoke('source-lost')
+      return
+    }
+    if (event.kind === 'availability') {
+      entry.assistantAvailability = event
+      for (const listener of entry.assistantOutputListeners) listener(event)
+      return
+    }
+    if (!entry.info.harnessSessionId || event.sessionId !== entry.info.harnessSessionId) {
+      entry.assistantOutput?.revoke('source-lost')
+      return
+    }
+    if (event.kind === 'start') {
+      if (entry.assistantMessageAttached) {
+        entry.assistantOutput?.revoke('source-lost')
+        return
+      }
+      entry.assistantMessageAttached = true
+    } else if (!entry.assistantMessageAttached) {
+      // A renderer rollover deliberately does not replay or resume an already
+      // accepted body. Ignore its remainder until the next complete start.
+      return
+    } else if (event.kind === 'end' || event.kind === 'abort') {
+      entry.assistantMessageAttached = false
+    }
+    for (const listener of entry.assistantOutputListeners) listener(event)
+  }
+
   private disposeEntry(id: string, entry: Entry): void {
     this.cancelPendingIdentity(id)
+    entry.assistantOutput?.dispose('renderer-revoked')
     for (const dispose of entry.disposers) void dispose()
     entry.dataListeners.clear()
     entry.exitListeners.clear()
     entry.telemetryListeners.clear()
+    entry.assistantOutputListeners.clear()
     entry.replay.length = 0
     entry.replayLength = 0
     if (!entry.exited) entry.pty.kill()
@@ -867,6 +985,12 @@ export class PtySupervisor {
                 identityStatus: 'unavailable',
               }
           if (accepted) {
+            if (
+              entry.assistantOutput &&
+              !entry.assistantOutput.admitSession(result.sessionId)
+            ) {
+              entry.assistantOutput?.revoke('source-lost')
+            }
             entry.identityRetry = undefined
             entry.identityRetryPending = false
             this.startTelemetry(
@@ -877,16 +1001,21 @@ export class PtySupervisor {
               artifact,
               result.sessionData,
             )
+          } else {
+            entry.assistantOutput?.revoke('source-lost')
           }
         }
       } else if (result.status === 'ambiguous') {
+        entry.assistantOutput?.revoke('source-lost')
         entry.info = { ...entry.info, identityStatus: result.status }
         entry.identityRetry = undefined
         entry.identityRetryPending = false
       } else {
+        entry.assistantOutput?.revoke('source-lost')
         entry.info = { ...entry.info, identityStatus: result.status }
       }
     } catch (error) {
+      entry.assistantOutput?.revoke('source-lost')
       if (!entry.exited && this.entries.get(entry.info.id) === entry) {
         entry.info = { ...entry.info, identityStatus: 'unavailable' }
       }

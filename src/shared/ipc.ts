@@ -42,6 +42,10 @@ import type {
 } from './git-types'
 import type { HostConnectionState, HostWatchTier } from './fs-types'
 import type { HarnessTelemetry } from './harness-telemetry'
+import type {
+  AssistantOutputEvent,
+  SetAssistantOutputModeRequest,
+} from './assistant-output'
 import type { HarnessProviderDescriptor, HarnessProviderId } from './harness-provider'
 import type { HarnessProfileProbe } from './harness-provider'
 import type {
@@ -711,6 +715,10 @@ export interface IpcInvokeMap {
     response: TerminalRecoverySession
   }
   'pty:start': { request: StartPtyRequest; response: StartPtyResponse }
+  'pty:set-assistant-output-mode': {
+    request: SetAssistantOutputModeRequest
+    response: boolean
+  }
   'web-pane:open': {
     request: OpenWebPaneRequest
     response: OperationResult<OpenWebPaneResponse>
@@ -751,6 +759,10 @@ export interface IpcEventMap {
   'pty:telemetry': {
     readonly id: string
     readonly telemetry: HarnessTelemetry | undefined
+  }
+  'pty:assistant-output': {
+    readonly id: string
+    readonly event: AssistantOutputEvent
   }
   'pty:identity': {
     readonly id: string
@@ -874,6 +886,7 @@ export const INVOKE_CHANNELS = [
   'terminal:move',
   'terminal:rebind-profile',
   'pty:start',
+  'pty:set-assistant-output-mode',
   'web-pane:open',
   'web-pane:close',
   'web-pane:open-external',
@@ -904,6 +917,7 @@ export const EVENT_CHANNELS = [
   'pty:data',
   'pty:exit',
   'pty:telemetry',
+  'pty:assistant-output',
   'pty:identity',
   'web-pane:navigation-blocked',
   'web-pane:command',

@@ -1,4 +1,5 @@
 import {
+  type HarnessProviderCapabilities,
   type HarnessProfile,
   type HarnessProfileProbe,
   type HarnessProbeStatus,
@@ -74,6 +75,15 @@ export class HarnessProbeManager {
       const cached = state.cache.get(key) ?? state.advisory.get(key)
       return cached ? [cached] : []
     })
+  }
+
+  effectiveCapabilities(
+    request: HarnessProfileAvailabilityContext,
+    profile: HarnessProfile,
+    fallback: HarnessProviderCapabilities,
+  ): HarnessProviderCapabilities {
+    const probe = this.snapshotProfiles({ ...request, profiles: [profile] })[0]
+    return probe?.status === 'available' ? probe.capabilities : fallback
   }
 
   /** A supervised process start is useful advisory evidence without another probe. */

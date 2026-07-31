@@ -3,6 +3,7 @@
 import { IpcAuthorityRouter, type IpcMainRegistrationPort } from './ipc/authority-router'
 import type { IpcDeps } from './ipc/deps'
 import { registerAppIpc } from './ipc/features/app'
+import { registerAssistantOutputIpc } from './ipc/features/assistant-output'
 import { registerDiagnosticReportIpc } from './ipc/features/diagnostic-report'
 import { registerFilesystemIpc } from './ipc/features/filesystem'
 import { registerGitIpc } from './ipc/features/git'
@@ -31,6 +32,7 @@ export function registerIpcHandlers(
     registerPreviewIpc(router, deps)
     registerWebPaneIpc(router, deps)
     registerTerminalIpc(router, deps)
+    registerAssistantOutputIpc(router, deps)
     router.assertComplete()
     return router
   } catch (error) {

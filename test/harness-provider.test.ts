@@ -89,9 +89,14 @@ describe('Harness providers', () => {
       ),
     ).toThrow(/safe absolute path/)
     expect(
-      ['plain-shell', 'pi', 'gemini-cli', 'github-copilot-cli', 'cursor-cli', 'custom'].every(
-        (id) => harnessProvider(id).remoteImagePaste === undefined,
-      ),
+      [
+        'plain-shell',
+        'pi',
+        'gemini-cli',
+        'github-copilot-cli',
+        'cursor-cli',
+        'custom',
+      ].every((id) => harnessProvider(id).remoteImagePaste === undefined),
     ).toBe(true)
   })
 
@@ -144,6 +149,24 @@ describe('Harness providers', () => {
         ({ profileGuidance }) => profileGuidance.riskClassification === 'best-effort',
       ),
     ).toBe(true)
+  })
+
+  it('admits structured Codex output only for the explored 0.146.x source', () => {
+    expect(codexProvider.probe.effectiveCapabilities('codex-cli 0.146.0')).toMatchObject({
+      assistantOutput: 'structured',
+    })
+    expect(codexProvider.probe.effectiveCapabilities('codex-cli 0.146.19')).toMatchObject(
+      { assistantOutput: 'structured' },
+    )
+    expect(
+      codexProvider.probe.effectiveCapabilities('codex-cli 0.145.0').assistantOutput,
+    ).toBeUndefined()
+    expect(
+      codexProvider.probe.effectiveCapabilities('codex-cli 0.147.0').assistantOutput,
+    ).toBeUndefined()
+    expect(
+      codexProvider.probe.effectiveCapabilities(undefined).assistantOutput,
+    ).toBeUndefined()
   })
 
   it('ships Pi, Gemini, Copilot, and Cursor as truthful launch-only providers', () => {

@@ -83,6 +83,11 @@ export function attachRendererPty(
           sender.send('pty:telemetry', { id: managed.id, telemetry })
         }
       },
+      onAssistantOutput: (event) => {
+        if (deps.rendererResources.isCurrent(owner) && !sender.isDestroyed()) {
+          sender.send('pty:assistant-output', { id: managed.id, event })
+        }
+      },
     },
     owner.generation,
   )
