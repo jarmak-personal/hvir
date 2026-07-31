@@ -37,7 +37,7 @@ describe('native release automation', () => {
     expect(releaseWorkflow).toContain('node scripts/prepare-release-pr.mjs "$VERSION"')
     expect(
       releaseWorkflow.match(/if: needs\.prepare\.outputs\.ready == 'true'/g),
-    ).toHaveLength(4)
+    ).toHaveLength(3)
     expect(releaseWorkflow).not.toContain(
       'git push origin "HEAD:${{ github.event.repository.default_branch }}"',
     )
@@ -182,17 +182,10 @@ describe('native release automation', () => {
     }
   })
 
-  it('retires npm metadata only after release verification without unpublishing history', () => {
-    const publishJob = releaseWorkflow.indexOf('publish-native-release:')
-    const retireJob = releaseWorkflow.indexOf('retire-npm-distribution:')
-    expect(retireJob).toBeGreaterThan(publishJob)
-    expect(releaseWorkflow).toContain('- publish-native-release')
-    expect(releaseWorkflow).toContain('environment: npm-retirement')
-    expect(releaseWorkflow).toContain('NPM_RETIREMENT_TOKEN')
-    expect(releaseWorkflow).toContain('npm deprecate "${package}@*" "$message"')
-    expect(releaseWorkflow).toContain(
-      'releases/latest/download/install.sh. Published npm versions remain available only for migration.',
-    )
+  it('retains no npm registry mutation authority after one-time retirement', () => {
+    expect(releaseWorkflow).not.toContain('environment: npm-retirement')
+    expect(releaseWorkflow).not.toContain('NPM_RETIREMENT_TOKEN')
+    expect(releaseWorkflow).not.toMatch(/\bnpm deprecate\b/)
     expect(releaseWorkflow).not.toMatch(/\bnpm unpublish\b/)
   })
 })
