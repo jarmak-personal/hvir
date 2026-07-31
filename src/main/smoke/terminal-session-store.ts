@@ -34,7 +34,18 @@ export function createSmokeTerminalSessionStore(defaultRoot: HostPath) {
         hostPathEquals(stored.cwd, request.cwd),
       )
     },
-    authorizeResume: () => false,
+    authorizeResume: (request) => {
+      const stored = sessions.find((session) => session.id === request.id)
+      return Boolean(
+        stored &&
+        stored.providerId === request.providerId &&
+        stored.profileId === request.profileId &&
+        stored.launchRevision === request.launchRevision &&
+        stored.harnessSessionId === request.harnessSessionId &&
+        hostPathEquals(request.workspaceRoot, sessionRoot(stored.id)) &&
+        hostPathEquals(stored.cwd, request.cwd),
+      )
+    },
     authorizeReplacement: () => false,
     flush: () => Promise.resolve(),
   }

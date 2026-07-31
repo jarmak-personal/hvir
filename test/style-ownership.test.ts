@@ -28,6 +28,7 @@ const expectedOrder = [
   'tree.css',
   'viewer-content.css',
   'terminal-pane.css',
+  'rich-output.css',
   'web-pane.css',
   'scrollbars.css',
 ] as const

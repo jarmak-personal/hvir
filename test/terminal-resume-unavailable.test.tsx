@@ -125,6 +125,12 @@ describe('terminal resume unavailable state', () => {
       status: 'Launch unavailable · session recovery baseline could not be read',
       exited: true,
       recoveryFailure: undefined,
+      richOutput: {
+        control: 'hidden',
+        enabled: false,
+        changing: false,
+        messages: [],
+      },
     })
     expect(runtimeOptions.onStarted).not.toHaveBeenCalled()
     expect(runtimeOptions.onIdentity).not.toHaveBeenCalled()
@@ -174,6 +180,12 @@ describe('terminal resume unavailable state', () => {
         kind: 'resume-unavailable',
         reason: 'artifact-missing',
       },
+      richOutput: {
+        control: 'hidden',
+        enabled: false,
+        changing: false,
+        messages: [],
+      },
     })
     expect(runtimeOptions.onStatus).toHaveBeenCalledWith(
       'Resume unavailable · session data is missing',
@@ -190,6 +202,12 @@ describe('terminal resume unavailable state', () => {
       recoveryFailure: {
         kind: 'resume-unavailable',
         reason: 'artifact-missing',
+      },
+      richOutput: {
+        control: 'hidden',
+        enabled: false,
+        changing: false,
+        messages: [],
       },
     })
 
@@ -402,6 +420,13 @@ describe('terminal resume unavailable state', () => {
         title: 'Claude Code · repo',
         status: 'Resumed · pid 4321',
         exited: false,
+        recoveryFailure: undefined,
+        richOutput: {
+          control: 'hidden',
+          enabled: false,
+          changing: false,
+          messages: [],
+        },
       }),
     )
     expect(invoke).toHaveBeenCalledWith(
@@ -441,6 +466,13 @@ describe('terminal resume unavailable state', () => {
         title: 'Claude Code · repo',
         status: 'Reattached · pid 4321',
         exited: false,
+        recoveryFailure: undefined,
+        richOutput: {
+          control: 'hidden',
+          enabled: false,
+          changing: false,
+          messages: [],
+        },
       }),
     )
   })
@@ -557,8 +589,14 @@ function options(): TerminalRuntimeOptions {
     launchRevision: 1,
     riskAcknowledged: false,
     supportsResume: true,
+    capabilities: {
+      sessionIdentity: 'preassigned',
+      exactResume: true,
+      contextPresentation: 'count',
+    },
     fallbackTitle: 'Claude Code · repo',
     harnessSessionId: '05ea41ff-026f-4ab6-b930-64eb3b497806',
+    identityStatus: 'identified',
     resumeOnStart: true,
     startMode: 'interactive',
     position: 0,

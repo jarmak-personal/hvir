@@ -181,7 +181,8 @@ export class CodexAssistantOutputSource {
     reason: Extract<AssistantOutputEvent, { kind: 'abort' }>['reason'],
   ): void {
     if (!this.matchingActive(frame)) return this.failClosed()
-    this.emitAbort(reason)
+    this.active = undefined
+    this.options.emit({ ...this.eventBase(frame), kind: 'abort', reason })
     if (reason === 'source-invalid') {
       this.revoked = true
       this.options.revoke()

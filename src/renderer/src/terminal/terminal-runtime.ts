@@ -6,16 +6,19 @@ import { createTerminalRuntimePane } from './terminal-pane-factory'
 import {
   launchUnavailableStatus,
   resumeUnavailableStatus,
-  type TerminalRecoveryFailure,
+  terminalSnapshotsEqual,
+  terminalStartStatus,
   type TerminalRuntimeSnapshot,
 } from './terminal-runtime-presentation'
 import type { TerminalRuntimeOptions } from './terminal-runtime-options'
+import { TerminalRichOutputRuntime } from './terminal-rich-output-runtime'
 
 const PTY_RESIZE_DEBOUNCE_MS = 75
 
 export class TerminalRuntime {
   private options: TerminalRuntimeOptions
   private currentSnapshot: TerminalRuntimeSnapshot
+  private readonly richOutput: TerminalRichOutputRuntime
   private readonly listeners = new Set<() => void>()
   private container?: HTMLElement
   /** Last detached React container, retained so hidden SSH reconnect stays autonomous. */
@@ -56,24 +59,27 @@ export class TerminalRuntime {
     // Connected is the neutral initial value; the first synchronization must still
     // publish a disconnected/connecting state without requiring a mounted pane.
     this.appliedConnectionState = 'connected'
+    this.richOutput = new TerminalRichOutputRuntime(options.capabilities, {
+      activePtyId: () => this.activePtyId,
+      workspaceRoot: () => this.options.workspaceRoot,
+      onChange: (richOutput) => this.updateRichOutput(richOutput),
+    })
     this.currentSnapshot = {
       title: options.fallbackTitle,
       status: 'Starting…',
       exited: false,
+      richOutput: this.richOutput.snapshot(),
     }
+    this.richOutput.configure(options.capabilities, undefined, undefined)
   }
-
   get workspaceRoot(): HostPath {
     return this.options.workspaceRoot
   }
-
   snapshot = (): TerminalRuntimeSnapshot => this.currentSnapshot
-
   subscribe = (listener: () => void): (() => void) => {
     this.listeners.add(listener)
     return () => this.listeners.delete(listener)
   }
-
   update(options: TerminalRuntimeOptions): void {
     if (
       options.profileId !== this.options.profileId ||
@@ -86,10 +92,14 @@ export class TerminalRuntime {
       options.typography.fontFamily !== this.options.typography.fontFamily ||
       options.typography.fontSize !== this.options.typography.fontSize
     this.options = options
+    this.richOutput.configure(
+      options.capabilities,
+      this.started ? options.harnessSessionId : undefined,
+      this.started ? options.identityStatus : undefined,
+    )
     if (typographyChanged) this.pane?.setTypography(options.typography)
     this.eventRoute?.setPresentation(options.presentation)
   }
-
   synchronizeLifecycle(): void {
     this.pane?.setPresentation(this.options.presentation)
     const connectionState = this.options.connectionState
@@ -107,6 +117,7 @@ export class TerminalRuntime {
     if (this.started && connectionState !== 'disconnected') return
     this.releaseSurface(this.starting)
     this.updateSnapshot({
+      ...this.currentSnapshot,
       title: this.options.fallbackTitle,
       status: connectionState,
       exited: false,
@@ -114,7 +125,6 @@ export class TerminalRuntime {
     })
     this.options.onTelemetry(undefined)
   }
-
   attach(container: HTMLElement, presentation = this.options.presentation): void {
     if (this.disposed) return
     this.container = container
@@ -129,7 +139,6 @@ export class TerminalRuntime {
     }
     if (this.options.connectionState === 'connected') void this.ensureStarted()
   }
-
   detach(container: HTMLElement): void {
     if (this.container !== container) return
     this.retainedContainer = container
@@ -137,12 +146,10 @@ export class TerminalRuntime {
     this.pane?.setPresentation('hidden')
     this.eventRoute?.setPresentation('hidden')
   }
-
   focus(): void {
     this.pane?.focus()
     this.options.onFocus()
   }
-
   restart(): void {
     if (this.disposed || this.starting || this.started || !this.currentSnapshot.exited) {
       return
@@ -150,6 +157,7 @@ export class TerminalRuntime {
     this.restartRequested = true
     this.releaseSurface(true)
     this.updateSnapshot({
+      ...this.currentSnapshot,
       title: this.options.fallbackTitle,
       status: 'Starting…',
       exited: false,
@@ -157,7 +165,6 @@ export class TerminalRuntime {
     })
     void this.ensureStarted()
   }
-
   startFresh(): void {
     if (
       this.disposed ||
@@ -174,6 +181,7 @@ export class TerminalRuntime {
     this.restartRequested = false
     this.releaseSurface(true)
     this.updateSnapshot({
+      ...this.currentSnapshot,
       title: this.options.fallbackTitle,
       status: 'Starting fresh…',
       exited: false,
@@ -184,21 +192,22 @@ export class TerminalRuntime {
       replacesSessionId: this.options.sessionId,
     })
   }
-
   dispose(): void {
     if (this.disposed) return
     this.disposed = true
     this.releaseSurface(true)
+    this.richOutput.dispose()
     this.retainedContainer = undefined
     this.listeners.clear()
   }
-
   cancelPendingReplacement(): string | undefined {
     const id = this.pendingReplacementId
     this.pendingReplacementId = undefined
     return id
   }
-
+  setRichOutputEnabled(enabled: boolean): Promise<boolean> {
+    return this.richOutput.setEnabled(enabled)
+  }
   private async ensureStarted(
     replacement?: Readonly<{
       sessionId: string
@@ -311,19 +320,17 @@ export class TerminalRuntime {
       this.started = true
       this.hasStarted = true
       this.activePtyId = result.id
-      const status = result.reattached
-        ? `Reattached · pid ${result.pid}`
-        : result.resumed
-          ? `Resumed · pid ${result.pid}`
-          : replacement
-            ? `New session · pid ${result.pid}`
-            : resume
-              ? `New session · pid ${result.pid}`
-              : manualRestart
-                ? `Restarted · pid ${result.pid}`
-                : reconnect
-                  ? `New shell · pid ${result.pid}`
-                  : `pid ${result.pid}`
+      this.richOutput.configure(
+        result.capabilities,
+        result.harnessSessionId,
+        result.identityStatus,
+      )
+      const status = terminalStartStatus(result, {
+        replacement: Boolean(replacement),
+        resume,
+        manualRestart,
+        reconnect,
+      })
       if (this.pendingInput) {
         window.hvir.send('pty:write', {
           id: result.id,
@@ -372,7 +379,6 @@ export class TerminalRuntime {
       }
     }
   }
-
   private installPaneListeners(pane: TerminalPane): void {
     this.outputWriter = new SynchronizedOutputWriter(
       (data) => pane.write(data),
@@ -395,6 +401,7 @@ export class TerminalRuntime {
       }),
       pane.events.onResize(({ cols, rows }) => {
         this.terminalSize = { cols, rows }
+        this.richOutput.setWidth(cols)
         if (!this.started) return
         if (this.resizeTimer !== undefined) window.clearTimeout(this.resizeTimer)
         this.resizeTimer = window.setTimeout(() => {
@@ -437,8 +444,10 @@ export class TerminalRuntime {
         },
         onTelemetry: (telemetry) => this.options.onTelemetry(telemetry),
         onIdentity: (harnessSessionId, identityStatus) => {
+          this.richOutput.acceptIdentity(harnessSessionId, identityStatus)
           this.options.onIdentity(harnessSessionId, identityStatus)
         },
+        onAssistantOutput: (event) => this.richOutput.accept(event),
       },
     )
     if (this.container) this.eventRoute.exposeStats(this.container)
@@ -468,33 +477,24 @@ export class TerminalRuntime {
     }
     this.started = false
     this.activePtyId = undefined
+    if (!this.disposed) this.richOutput.reset()
   }
 
   private updateSnapshot(snapshot: TerminalRuntimeSnapshot): void {
-    if (
-      snapshot.title === this.currentSnapshot.title &&
-      snapshot.status === this.currentSnapshot.status &&
-      snapshot.exited === this.currentSnapshot.exited &&
-      recoveryFailureEquals(
-        snapshot.recoveryFailure,
-        this.currentSnapshot.recoveryFailure,
-      )
-    ) {
-      return
-    }
+    if (terminalSnapshotsEqual(snapshot, this.currentSnapshot)) return
+    const statusChanged = snapshot.status !== this.currentSnapshot.status
     this.currentSnapshot = snapshot
-    this.options.onStatus(snapshot.status)
+    if (statusChanged) this.options.onStatus(snapshot.status)
     for (const listener of this.listeners) listener()
+  }
+
+  private updateRichOutput(
+    richOutput: ReturnType<TerminalRichOutputRuntime['snapshot']>,
+  ): void {
+    this.updateSnapshot({ ...this.currentSnapshot, richOutput })
   }
 
   private isCurrent(generation: number): boolean {
     return !this.disposed && generation === this.startGeneration
   }
-}
-
-function recoveryFailureEquals(
-  left: TerminalRecoveryFailure | undefined,
-  right: TerminalRecoveryFailure | undefined,
-): boolean {
-  return left?.kind === right?.kind && left?.reason === right?.reason
 }

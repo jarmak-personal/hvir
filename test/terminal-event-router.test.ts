@@ -5,15 +5,17 @@ import {
   type TerminalEventHandlers,
   type TerminalEventScheduler,
 } from '../src/renderer/src/terminal/terminal-event-router'
-import type {
-  HvirApi,
-  IpcEventChannel,
-  IpcEventPayload,
-  IpcInvokeChannel,
-  IpcRequest,
-  IpcResponse,
-  IpcSendChannel,
-  IpcSendPayload,
+import {
+  LOCAL_HOST_ID,
+  asHarnessProviderId,
+  type HvirApi,
+  type IpcEventChannel,
+  type IpcEventPayload,
+  type IpcInvokeChannel,
+  type IpcRequest,
+  type IpcResponse,
+  type IpcSendChannel,
+  type IpcSendPayload,
 } from '../src/shared'
 
 describe('TerminalEventRouter', () => {
@@ -32,9 +34,10 @@ describe('TerminalEventRouter', () => {
       'pty:exit': 1,
       'pty:telemetry': 1,
       'pty:identity': 1,
+      'pty:assistant-output': 1,
     })
     expect(router.snapshot()).toMatchObject({
-      nativeSubscriptions: 4,
+      nativeSubscriptions: 5,
       registeredSessions: 12,
     })
 
@@ -92,6 +95,34 @@ describe('TerminalEventRouter', () => {
     scheduler.flushFrames()
 
     expect(handlers.onData).toHaveBeenCalledExactlyOnceWith(chunks.join(''))
+    router.dispose()
+  })
+
+  it('routes typed assistant output immediately without entering PTY coalescing', () => {
+    const api = new FakeHvirApi()
+    const scheduler = new ManualScheduler()
+    const handlers = handlersFixture()
+    const router = new TerminalEventRouter(api, { scheduler })
+    const route = router.register('terminal-1', 'hidden', handlers)
+    const event = {
+      kind: 'start',
+      hostId: LOCAL_HOST_ID,
+      providerId: asHarnessProviderId('codex'),
+      generation: 2,
+      sessionId: 'thread-1',
+      turnId: 'turn-1',
+      messageId: 'message-1',
+      order: 1,
+    } as const
+
+    api.emit('pty:assistant-output', { id: 'terminal-1', event })
+
+    expect(handlers.onAssistantOutput).toHaveBeenCalledExactlyOnceWith(event)
+    expect(handlers.onData).not.toHaveBeenCalled()
+    expect(route.snapshot()).toMatchObject({
+      nativeDataEvents: 0,
+      pending: false,
+    })
     router.dispose()
   })
 
@@ -227,6 +258,7 @@ function handlersFixture(
     onExit: vi.fn(overrides.onExit ?? (() => undefined)),
     onTelemetry: vi.fn(overrides.onTelemetry ?? (() => undefined)),
     onIdentity: vi.fn(overrides.onIdentity ?? (() => undefined)),
+    onAssistantOutput: vi.fn(overrides.onAssistantOutput ?? (() => undefined)),
   }
 }
 
@@ -235,6 +267,7 @@ interface MockTerminalEventHandlers extends TerminalEventHandlers {
   readonly onExit: Mock<(exitCode: number, signal?: number) => void>
   readonly onTelemetry: Mock<TerminalEventHandlers['onTelemetry']>
   readonly onIdentity: Mock<TerminalEventHandlers['onIdentity']>
+  readonly onAssistantOutput: Mock<TerminalEventHandlers['onAssistantOutput']>
 }
 
 class FakeHvirApi implements HvirApi {
