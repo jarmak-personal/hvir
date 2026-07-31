@@ -3,6 +3,7 @@ import type { BrowserWindow } from 'electron'
 import type { HostPath } from '../../shared'
 import type { PtySupervisor } from '../pty/pty-supervisor'
 import { ensureExplicitBareShellLaunch } from './terminal-explicit-launch'
+import { verifyTerminalProjectReturn } from './terminal-project-return'
 
 /** Retain broad terminal presentation assertions only in the legacy workflow. */
 export async function verifyLegacyTerminalPresentation(
@@ -53,6 +54,7 @@ export async function verifyTerminalPresentationLifecycle(
 ): Promise<string> {
   const explicitLaunch = await ensureExplicitBareShellLaunch(win, supervisor)
   const layoutFocusStatus = await verifyTerminalLayoutFocus(win)
+  const projectReturnStatus = await verifyTerminalProjectReturn(win, supervisor)
   const launchMenuStatus = launchMenuOverflowRoot
     ? await verifyTerminalLaunchMenuOverflow(win, launchMenuOverflowRoot)
     : undefined
@@ -484,6 +486,7 @@ export async function verifyTerminalPresentationLifecycle(
   return [
     explicitLaunch,
     layoutFocusStatus,
+    projectReturnStatus,
     launchMenuStatus,
     switchStatus,
     revealStatus,

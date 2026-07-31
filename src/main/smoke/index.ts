@@ -226,6 +226,41 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
       },
     ],
   })
+  const smokeProjectReturnState = (activeProjectId: string): ProjectState => {
+    const primary = smokeProjectState().projects[0]!
+    const secondaryWorkspaceId = 'smoke-project-return-workspace'
+    const secondary = {
+      id: 'smoke-project-return',
+      registeredRoot: smokeWebSwitchRoot,
+      displayName: 'return-fixture',
+      connectionState: host.connectionState,
+      watchTier: host.watchTier,
+      activeWorkspaceId: secondaryWorkspaceId,
+      workspaces: [
+        {
+          id: secondaryWorkspaceId,
+          root: smokeWebSwitchRoot,
+          name: 'return-fixture',
+          main: true,
+          closed: false,
+          missing: false,
+          repository: true,
+          changedFiles: 0,
+        },
+      ],
+    }
+    const activeSecondary = activeProjectId === secondary.id
+    return {
+      root: activeSecondary ? smokeWebSwitchRoot : smokeRoot,
+      connectionState: host.connectionState,
+      watchTier: host.watchTier,
+      activeProjectId: activeSecondary ? secondary.id : primary.id,
+      activeWorkspaceId: activeSecondary
+        ? secondaryWorkspaceId
+        : primary.activeWorkspaceId,
+      projects: [primary, secondary],
+    }
+  }
   const liveReloadPath = joinHostPath(smokeRoot, '.hvir-smoke-live.txt')
   const viewerPositionPath = joinHostPath(smokeRoot, '.hvir-smoke-position.md')
   const largeJsonPath = joinHostPath(smokeRoot, '.hvir-smoke-large.json')
@@ -279,7 +314,10 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
     const smokeTerminalSessionHarness = createSmokeTerminalSessionStore(smokeRoot)
     const smokeTerminalSessions = smokeTerminalSessionHarness.store
     const smokeHarnessProfiles = await HarnessProfileStore.load(host, harnessProfilesPath)
-    let smokeIpcProjectState = smokeProjectState()
+    let smokeIpcProjectState =
+      mode === 'terminal-presentation'
+        ? smokeProjectReturnState('smoke-project')
+        : smokeProjectState()
     const openedFolderSelections: Array<{ hostId: string; path: string }> = []
     const terminalMoveSmoke = createTerminalMoveSmokeHarness({
       sourceState: smokeProjectState,
@@ -358,7 +396,16 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
         openedFolderSelections.push({ hostId, path })
         return Promise.resolve(smokeProjectState())
       },
-      switchWorkspace: () => Promise.resolve(smokeProjectState()),
+      switchWorkspace: (projectId) => {
+        smokeIpcProjectState =
+          mode === 'terminal-presentation'
+            ? smokeProjectReturnState(projectId)
+            : smokeProjectState()
+        if (mode === 'terminal-presentation') {
+          emit('project:state', smokeIpcProjectState)
+        }
+        return Promise.resolve(smokeIpcProjectState)
+      },
       refreshProject: () => Promise.resolve(smokeProjectState()),
       updateWatchInterests: (paths) =>
         Promise.resolve({
