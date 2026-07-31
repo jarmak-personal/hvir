@@ -28,8 +28,10 @@ export interface TerminalRuntimeOptions {
   readonly launchRevision: number
   readonly riskAcknowledged: boolean
   readonly supportsResume: boolean
+  readonly capabilities: HarnessProviderCapabilities
   readonly fallbackTitle: string
   readonly harnessSessionId?: string
+  readonly identityStatus?: TerminalIdentityStatus
   readonly resumeOnStart: boolean
   readonly startMode: 'interactive' | 'bulk'
   readonly position: number

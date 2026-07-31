@@ -22,6 +22,7 @@ import {
 } from './failure-evidence.mts'
 import type { SmokeInterruptionCheckpoint } from './interruption-checkpoint'
 import { createSmokeImagePasteFallback } from './image-paste-fallback'
+import { installRichOutputSmokeFixture } from './rich-output-fixture'
 import { verifyDiagnosticRestart } from './diagnostic-report-restart'
 import { verifyDevelopmentPerformanceMode } from './development-performance'
 import { verifyGitWorkflow } from './git-workflow'
@@ -279,6 +280,62 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
     const smokeTerminalSessionHarness = createSmokeTerminalSessionStore(smokeRoot)
     const smokeTerminalSessions = smokeTerminalSessionHarness.store
     const smokeHarnessProfiles = await HarnessProfileStore.load(host, harnessProfilesPath)
+    let richOutputSmoke:
+      | {
+          readonly terminalId: string
+          readonly harnessSessionId: string
+        }
+      | undefined
+    if (mode === 'terminal-presentation') {
+      const fixture = await installRichOutputSmokeFixture(host, smokeRoot)
+      cleanup.defer('rich output executable fixture', fixture.dispose)
+      const providerId = harnessProviderCatalog().find((provider) =>
+        provider.profileGuidance.reservedArguments.includes('--remote'),
+      )?.id
+      if (!providerId) throw new Error('Rich output smoke provider is missing')
+      const executablePath = await host.realpath(fixture.executable)
+      const savedProfile = await smokeHarnessProfiles.save({
+        input: {
+          displayName: 'Rich output smoke agent',
+          description: 'Electron-only external transport fixture.',
+          providerId,
+          scope: { kind: 'global' },
+          executable: {
+            kind: 'path',
+            path: executablePath,
+          },
+          args: [],
+          environment: [],
+          pathBindings: [],
+          order: 0,
+        },
+      })
+      const profile = await smokeHarnessProfiles.acknowledgeRisk(
+        savedProfile.id,
+        savedProfile.launchRevision,
+      )
+      richOutputSmoke = {
+        terminalId: 'hvir-rich-output-smoke',
+        harnessSessionId: '8b60ec17-155b-4630-9fb1-ef20ef11f274',
+      }
+      smokeTerminalSessionHarness.set([
+        {
+          id: richOutputSmoke.terminalId,
+          providerId,
+          profileId: profile.id,
+          launchRevision: profile.launchRevision,
+          recoverySkipCount: 0,
+          riskAcknowledgedRevision: profile.riskAcknowledgedRevision,
+          harnessSessionId: richOutputSmoke.harnessSessionId,
+          hostId: smokeRoot.hostId,
+          cwd: smokeRoot,
+          title: 'Rich output smoke',
+          position: 0,
+          active: true,
+          updatedAt: Date.now(),
+        },
+      ])
+    }
     let smokeIpcProjectState = smokeProjectState()
     const openedFolderSelections: Array<{ hostId: string; path: string }> = []
     const terminalMoveSmoke = createTerminalMoveSmokeHarness({
@@ -620,10 +677,21 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
       return 0
     }
     if (mode === 'terminal-presentation') {
+      if (!richOutputSmoke) throw new Error('rich output smoke context is missing')
       const presentation = await verifyTerminalPresentationLifecycle(
         win,
         supervisor,
         smokeRoot,
+        {
+          ...richOutputSmoke,
+          resources: rendererResources,
+          connectedState: smokeProjectState('connected'),
+          disconnectedState: smokeProjectState('disconnected'),
+          emitProjectState: (state) => {
+            smokeIpcProjectState = state
+            emit('project:state', state)
+          },
+        },
       )
       console.log(`[smoke] terminal presentation lifecycle OK (${presentation})`)
       console.log('HVIR_SMOKE_OK')

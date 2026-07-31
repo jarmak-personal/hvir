@@ -76,8 +76,10 @@ export function TerminalSessionRuntimes({
             launchRevision={session.launchRevision}
             riskAcknowledged={session.riskAcknowledged}
             supportsResume={session.capabilities.exactResume}
+            capabilities={session.capabilities}
             fallbackTitle={session.fallbackTitle}
             harnessSessionId={session.harnessSessionId}
+            identityStatus={session.identityStatus}
             resumeOnStart={session.resumeOnStart}
             startMode={session.startMode ?? 'interactive'}
             position={position}

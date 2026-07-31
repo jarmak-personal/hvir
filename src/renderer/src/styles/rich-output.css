@@ -1,0 +1,132 @@
+.terminal-rich-control {
+  flex: 0 0 30px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 0 8px;
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--surface-1);
+  color: var(--text);
+  font-size: calc(9px * var(--hvir-interface-scale));
+}
+
+.terminal-rich-control[hidden],
+.terminal-rich-lane[hidden] {
+  display: none;
+}
+
+.terminal-rich-control label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 650;
+}
+
+.terminal-rich-control input {
+  width: 14px;
+  height: 14px;
+  margin: 0;
+}
+
+.terminal-rich-control small {
+  overflow: hidden;
+  color: var(--text-muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.terminal-rich-lane {
+  flex: 0 1 min(42%, 360px);
+  min-height: 72px;
+  overflow: auto;
+  padding: 7px 10px 10px;
+  border-bottom: 1px solid var(--border-strong);
+  background: var(--surface-0);
+  color: var(--text);
+  line-height: 1.35;
+  tab-size: 4;
+}
+
+.terminal-rich-message {
+  padding: 6px 0;
+  border-bottom: 1px dashed var(--border-subtle);
+}
+
+.terminal-rich-message:last-child {
+  border-bottom: 0;
+}
+
+.terminal-rich-row {
+  min-height: 1.35em;
+  white-space: pre;
+}
+
+.terminal-rich-row.heading,
+.terminal-rich-span.heading,
+.terminal-rich-span.strong {
+  font-weight: 750;
+}
+
+.terminal-rich-row.heading {
+  margin-top: 0.35em;
+}
+
+.terminal-rich-row.code,
+.terminal-rich-row.code-boundary,
+.terminal-rich-span.code {
+  background: var(--surface-2);
+}
+
+.terminal-rich-row.blockquote,
+.terminal-rich-span.quote {
+  font-style: italic;
+}
+
+.terminal-rich-row.status {
+  margin-top: 0.25em;
+  font-weight: 650;
+}
+
+.terminal-rich-span.emphasis {
+  font-style: italic;
+}
+
+.terminal-rich-link-group {
+  display: inline;
+}
+
+.terminal-rich-link {
+  display: inline;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font-family: inherit;
+  font-size: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.terminal-rich-link:hover,
+.terminal-rich-link:focus-visible,
+.terminal-rich-copy-target:hover,
+.terminal-rich-copy-target:focus-visible {
+  outline: 1px solid currentColor;
+  outline-offset: 1px;
+}
+
+.terminal-rich-copy-target {
+  width: 1.25em;
+  height: 1.25em;
+  margin: 0 0.15em;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-muted);
+  vertical-align: text-bottom;
+}
+
+.terminal-rich-copy-target::before {
+  content: '⧉';
+}

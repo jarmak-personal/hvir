@@ -16,6 +16,7 @@ import type { TerminalLinkActivation, TerminalTypography } from './terminal-pane
 import { useTerminalPaneController } from './use-terminal-pane-controller'
 import type { FreshTerminalStart } from './terminal-runtime-options'
 import type { TerminalRuntimeRegistry } from './terminal-runtime-registry'
+import { RichOutputLane } from './RichOutputLane'
 
 interface TerminalViewProps {
   readonly sessionId: string
@@ -23,8 +24,10 @@ interface TerminalViewProps {
   readonly launchRevision: number
   readonly riskAcknowledged: boolean
   readonly supportsResume: boolean
+  readonly capabilities: HarnessProviderCapabilities
   readonly fallbackTitle: string
   readonly harnessSessionId?: string
+  readonly identityStatus?: TerminalIdentityStatus
   readonly resumeOnStart: boolean
   readonly startMode: 'interactive' | 'bulk'
   readonly position: number
@@ -76,7 +79,17 @@ export function TerminalView(props: TerminalViewProps): ReactElement | null {
     props.runtimes,
     props.presented,
   )
-  const { containerRef, title, status, exited, restart, startFresh, focus } = controller
+  const {
+    containerRef,
+    title,
+    status,
+    exited,
+    richOutput,
+    restart,
+    startFresh,
+    setRichOutputEnabled,
+    focus,
+  } = controller
   const canRecoverHarness = supportsResume && Boolean(harnessSessionId)
 
   if (!props.presented) return null
@@ -119,6 +132,22 @@ export function TerminalView(props: TerminalViewProps): ReactElement | null {
           </button>
         </div>
       ) : null}
+      <RichOutputLane
+        snapshot={richOutput}
+        visible={visible}
+        onToggle={setRichOutputEnabled}
+        onActivateLink={(link) => {
+          if (link.kind === 'file') props.onLink({ kind: 'file', target: link.target })
+          else window.open(link.target, '_blank', 'noopener,noreferrer')
+        }}
+        disclosureTarget={(link) =>
+          link.kind === 'file'
+            ? `${props.workspaceRoot.hostId}:${link.target}`
+            : link.target
+        }
+        fontFamily={props.typography.fontFamily}
+        fontSize={props.typography.fontSize}
+      />
       <div
         className="terminal-container"
         data-terminal-theme={effectiveTheme}

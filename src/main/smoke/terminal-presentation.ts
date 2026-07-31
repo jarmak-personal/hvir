@@ -3,6 +3,19 @@ import type { BrowserWindow } from 'electron'
 import type { HostPath } from '../../shared'
 import type { PtySupervisor } from '../pty/pty-supervisor'
 import { ensureExplicitBareShellLaunch } from './terminal-explicit-launch'
+import {
+  focusTerminalEngine,
+  verifyActiveCursorCadence,
+} from './terminal-focus-presentation'
+import {
+  verifyHiddenRichOutput,
+  verifyRichOutputFallback,
+  verifyRichOutputReconnect,
+  verifyVisibleRichOutput,
+  waitForRichOutputPilot,
+  waitForTerminalRemoval,
+  type RichOutputSmokeContext,
+} from './rich-output-presentation'
 
 /** Retain broad terminal presentation assertions only in the legacy workflow. */
 export async function verifyLegacyTerminalPresentation(
@@ -50,7 +63,12 @@ export async function verifyTerminalPresentationLifecycle(
   win: BrowserWindow,
   supervisor: PtySupervisor,
   launchMenuOverflowRoot?: HostPath,
+  richOutput?: RichOutputSmokeContext,
 ): Promise<string> {
+  if (!richOutput || !launchMenuOverflowRoot) {
+    throw new Error('terminal presentation smoke requires the rich output fixture')
+  }
+  const pilotStatus = await waitForRichOutputPilot(win, supervisor, richOutput)
   const explicitLaunch = await ensureExplicitBareShellLaunch(win, supervisor)
   const layoutFocusStatus = await verifyTerminalLayoutFocus(win)
   const launchMenuStatus = launchMenuOverflowRoot
@@ -116,6 +134,12 @@ export async function verifyTerminalPresentationLifecycle(
     .list()
     .filter((terminal) => terminal.ownerId === win.webContents.id)[1]
   if (!secondTerminal) throw new Error('second terminal was not registered')
+  const richVisibleStatus = await verifyVisibleRichOutput({
+    win,
+    supervisor,
+    root: launchMenuOverflowRoot,
+    context: richOutput,
+  })
 
   supervisor.write(
     secondTerminal.id,
@@ -420,13 +444,39 @@ export async function verifyTerminalPresentationLifecycle(
     'hidden terminal compact switch timed out',
     12_000,
   )) as string
+  const hiddenRichStatus = await verifyHiddenRichOutput(
+    win,
+    supervisor,
+    richOutput.terminalId,
+    secondTerminal.id,
+  )
+  const reconnectStatus = await verifyRichOutputReconnect(win, supervisor, richOutput)
+  const fallbackStatus = await verifyRichOutputFallback(
+    win,
+    supervisor,
+    richOutput.terminalId,
+    secondTerminal.id,
+  )
+  const reconnectedShell = supervisor
+    .list()
+    .find((candidate) => candidate.id === secondTerminal.id)
+  if (!reconnectedShell) throw new Error('shell did not survive rich output reconnect')
+  supervisor.write(
+    reconnectedShell.id,
+    reconnectedShell.ownerId,
+    'IFS= read -r hvir_input; printf \'input:%s\\n\' "$hvir_input"\n',
+  )
 
   let inputProbe = ''
-  const detachInputProbe = supervisor.attach(secondTerminal.id, secondTerminal.ownerId, {
-    onData: (data) => {
-      inputProbe = (inputProbe + data).slice(-4_096)
+  const detachInputProbe = supervisor.attach(
+    reconnectedShell.id,
+    reconnectedShell.ownerId,
+    {
+      onData: (data) => {
+        inputProbe = (inputProbe + data).slice(-4_096)
+      },
     },
-  })
+  )
   await focusTerminalEngine(win, secondTerminal.id)
   const cursorStatus = await verifyActiveCursorCadence(win, secondTerminal.id)
   for (const keyCode of ['H', 'V', 'I', 'R']) {
@@ -459,15 +509,16 @@ export async function verifyTerminalPresentationLifecycle(
     win.webContents.executeJavaScript(`
       new Promise((resolve, reject) => {
         const sessionId = ${JSON.stringify(secondTerminal.id)};
+        const closeSessionId = ${JSON.stringify(richOutput.terminalId)};
         const deadline = Date.now() + 5000;
         const poll = () => {
           const button = document.querySelector(
-            '.terminal-list-main[data-terminal-session="' + CSS.escape(sessionId) + '"]'
+            '.terminal-list-main[data-terminal-session="' + CSS.escape(closeSessionId) + '"]'
           );
           const row = button?.closest('.terminal-list-row');
           if (row) {
             row.querySelector('.terminal-close-button')?.click();
-            return resolve('revealed input echo + close');
+            return resolve('revealed input echo + pilot close');
           }
           if (Date.now() > deadline) {
             return reject(new Error('revealed terminal row disappeared before close'));
@@ -479,14 +530,20 @@ export async function verifyTerminalPresentationLifecycle(
     `),
     'revealed terminal close timed out',
   )) as string
+  await waitForTerminalRemoval(supervisor, richOutput.terminalId)
   const typographyStatus = await verifyLiveTerminalTypography(win, supervisor)
 
   return [
+    pilotStatus,
     explicitLaunch,
     layoutFocusStatus,
     launchMenuStatus,
     switchStatus,
+    richVisibleStatus,
     revealStatus,
+    hiddenRichStatus,
+    reconnectStatus,
+    fallbackStatus,
     cursorStatus,
     inputStatus,
     typographyStatus,
@@ -689,143 +746,6 @@ async function verifyLiveTerminalTypography(
     throw new Error('terminal typography change replaced the live PTY')
   }
   return `custom font fallback + ${presentation.fontSize}px + ${presentation.rows}x${presentation.cols} live PTY reflow`
-}
-
-async function focusTerminalEngine(win: BrowserWindow, sessionId: string): Promise<void> {
-  win.focus()
-  win.webContents.focus()
-  await withTimeout(
-    win.webContents.executeJavaScript(`
-      new Promise((resolve, reject) => {
-        const deadline = Date.now() + 5000;
-        const sessionId = ${JSON.stringify(sessionId)};
-        const poll = () => {
-          const surface = document.querySelector(
-            '.terminal-surface[data-terminal-session="' + CSS.escape(sessionId) + '"]'
-          );
-          const engine = surface?.querySelector('.terminal-engine-host');
-          if (
-            surface?.classList.contains('active') &&
-            getComputedStyle(surface).visibility === 'visible' &&
-            engine instanceof HTMLElement
-          ) {
-            engine.focus();
-            if (document.activeElement === engine) return resolve();
-          }
-          if (Date.now() > deadline) {
-            return reject(new Error('revealed terminal engine did not regain focus'));
-          }
-          setTimeout(poll, 25);
-        };
-        poll();
-      })
-    `),
-    'revealed terminal engine focus timed out',
-  )
-}
-
-async function verifyActiveCursorCadence(
-  win: BrowserWindow,
-  sessionId: string,
-): Promise<string> {
-  const idleHiddenFrame = await waitForCursorPhase(
-    win,
-    sessionId,
-    false,
-    -1,
-    'cursor did not enter its idle hidden phase',
-  )
-
-  let activeVisibleFrame = idleHiddenFrame
-  for (let index = 0; index < 6; index += 1) {
-    win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'X' })
-    win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'X' })
-    activeVisibleFrame = await waitForCursorPhase(
-      win,
-      sessionId,
-      true,
-      activeVisibleFrame,
-      'sustained input did not keep the cursor visible',
-    )
-    if (index < 5) {
-      await new Promise<void>((resolve) => setTimeout(resolve, 200))
-    }
-  }
-  const resumedHiddenFrame = await waitForCursorPhase(
-    win,
-    sessionId,
-    false,
-    activeVisibleFrame,
-    'cursor did not resume blinking after input',
-  )
-  await waitForCursorPhase(
-    win,
-    sessionId,
-    true,
-    resumedHiddenFrame,
-    'cursor blink cadence did not return to visible',
-  )
-
-  // Remove the probe character before the surrounding canonical read submits.
-  win.webContents.sendInputEvent({
-    type: 'keyDown',
-    keyCode: 'U',
-    modifiers: ['control'],
-  })
-  win.webContents.sendInputEvent({
-    type: 'keyUp',
-    keyCode: 'U',
-    modifiers: ['control'],
-  })
-  return 'active cursor + idle blink'
-}
-
-async function waitForCursorPhase(
-  win: BrowserWindow,
-  sessionId: string,
-  visible: boolean,
-  afterFrame: number,
-  failure: string,
-): Promise<number> {
-  return (await withTimeout(
-    win.webContents.executeJavaScript(`
-      new Promise((resolve, reject) => {
-        const deadline = Date.now() + 2500;
-        const sessionId = ${JSON.stringify(sessionId)};
-        const poll = () => {
-          const surface = document.querySelector(
-            '.terminal-surface[data-terminal-session="' + CSS.escape(sessionId) + '"]'
-          );
-          const engine = surface?.querySelector('.terminal-engine-host');
-          const stats = engine?.__hvirTerminalPerformance;
-          if (
-            stats && !stats.paused && !stats.pendingFrame &&
-            stats.cursorVisible === ${JSON.stringify(visible)} &&
-            stats.renderFrames > ${JSON.stringify(afterFrame)}
-          ) {
-            return resolve(stats.renderFrames);
-          }
-          if (Date.now() > deadline) {
-            return reject(new Error(
-              ${JSON.stringify(failure)} + ': last=' + JSON.stringify({
-                engineFocused: document.activeElement === engine,
-                hasStats: Boolean(stats),
-                paused: stats?.paused,
-                pendingFrame: stats?.pendingFrame,
-                cursorVisible: stats?.cursorVisible,
-                renderFrames: stats?.renderFrames,
-                renderRequests: stats?.renderRequests
-              })
-            ));
-          }
-          setTimeout(poll, 25);
-        };
-        poll();
-      })
-    `),
-    failure,
-    3_000,
-  )) as number
 }
 
 async function verifyTerminalLayoutFocus(win: BrowserWindow): Promise<string> {

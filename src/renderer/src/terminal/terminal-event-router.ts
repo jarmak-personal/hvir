@@ -1,4 +1,9 @@
-import type { HvirApi, HarnessTelemetry, TerminalIdentityStatus } from '../../../shared'
+import type {
+  AssistantOutputEvent,
+  HvirApi,
+  HarnessTelemetry,
+  TerminalIdentityStatus,
+} from '../../../shared'
 import type { TerminalPresentation } from './terminal-pane'
 
 export const TERMINAL_HIDDEN_FLUSH_MS = 40
@@ -30,6 +35,7 @@ export interface TerminalEventHandlers {
     harnessSessionId: string | undefined,
     identityStatus: TerminalIdentityStatus,
   ) => void
+  readonly onAssistantOutput: (event: AssistantOutputEvent) => void
 }
 
 export interface TerminalEventRoute {
@@ -101,6 +107,11 @@ export class TerminalEventRouter {
       api.on('pty:identity', ({ id, harnessSessionId, identityStatus }) => {
         const route = this.routes.get(id)
         if (route) route.identity(harnessSessionId, identityStatus)
+        else this.unroutedEvents += 1
+      }),
+      api.on('pty:assistant-output', ({ id, event }) => {
+        const route = this.routes.get(id)
+        if (route) route.assistantOutput(event)
         else this.unroutedEvents += 1
       }),
     ]
@@ -207,6 +218,10 @@ class TerminalEventRouteState implements TerminalEventRoute {
     identityStatus: TerminalIdentityStatus,
   ): void {
     if (!this.disposed) this.handlers.onIdentity(harnessSessionId, identityStatus)
+  }
+
+  assistantOutput(event: AssistantOutputEvent): void {
+    if (!this.disposed) this.handlers.onAssistantOutput(event)
   }
 
   setPresentation(presentation: TerminalPresentation): void {

@@ -143,9 +143,16 @@ describe('CodexAssistantOutputSource', () => {
     source.admitSession('thread-1')
     source.accept(frame(1, 'start'))
     source.accept(frame(2, 'abort', { reason: 'turn-interrupted' }))
+    source.accept(
+      frame(3, 'start', {
+        turnId: 'turn-2',
+        itemId: 'message-2',
+      }),
+    )
 
-    expect(events.map((event) => event.kind)).toEqual(['start', 'abort'])
-    expect(events.at(-1)).toMatchObject({ reason: 'turn-interrupted' })
+    expect(events.map((event) => event.kind)).toEqual(['start', 'abort', 'start'])
+    expect(events[1]).toMatchObject({ order: 2, reason: 'turn-interrupted' })
+    expect(events.at(-1)).toMatchObject({ order: 3, turnId: 'turn-2' })
     expect(revoke).not.toHaveBeenCalled()
   })
 
