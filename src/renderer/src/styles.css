@@ -24,6 +24,7 @@
 @import './styles/workspace-catalog.css';
 @import './styles/tree.css';
 @import './styles/viewer-content.css';
+@import './styles/viewer-workload.css';
 @import './styles/terminal-pane.css';
 @import './styles/web-pane.css';
 @import './styles/scrollbars.css';

@@ -1,5 +1,5 @@
 import { EventEmitter } from 'node:events'
-import { Writable } from 'node:stream'
+import { PassThrough, Readable, Writable } from 'node:stream'
 
 import type { SFTPWrapper } from 'ssh2'
 import { describe, expect, it, vi } from 'vitest'
@@ -228,6 +228,59 @@ describe('SshFileAccess', () => {
 
     await expect(files.removeFile(path, { ignoreMissing: true })).resolves.toBeUndefined()
     expect(digests.has(path.path)).toBe(false)
+    files.dispose()
+  })
+
+  it('reads a bounded text prefix and discloses remote truncation', async () => {
+    const hostId = asHostId('ssh:test')
+    const path = hostPath(hostId, '/project/file.txt')
+    const session = {
+      createReadStream: vi.fn(() => Readable.from([Buffer.from('abcde')])),
+      once: vi.fn(),
+      end: vi.fn(),
+    }
+    const files = new SshFileAccess(
+      {
+        hostId,
+        openSftp: () => Promise.resolve(session as unknown as SFTPWrapper),
+      },
+      {},
+    )
+
+    await expect(files.readTextFilePrefix(path, 4)).resolves.toMatchObject({
+      content: 'abcd',
+      byteLength: 4,
+      complete: false,
+    })
+    expect(session.createReadStream).toHaveBeenCalledWith(path.path, {
+      start: 0,
+      end: 4,
+    })
+    files.dispose()
+  })
+
+  it('rejects a bounded text prefix when the SSH stream closes before ending', async () => {
+    const hostId = asHostId('ssh:test')
+    const path = hostPath(hostId, '/project/file.txt')
+    const stream = new PassThrough()
+    const session = {
+      createReadStream: vi.fn(() => stream),
+      once: vi.fn(),
+      end: vi.fn(),
+    }
+    const files = new SshFileAccess(
+      {
+        hostId,
+        openSftp: () => Promise.resolve(session as unknown as SFTPWrapper),
+      },
+      {},
+    )
+
+    const reading = files.readTextFilePrefix(path, 4)
+    await vi.waitFor(() => expect(session.createReadStream).toHaveBeenCalledOnce())
+    stream.destroy()
+
+    await expect(reading).rejects.toThrow('closed before completion')
     files.dispose()
   })
 })

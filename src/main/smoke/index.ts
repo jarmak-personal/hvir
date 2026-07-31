@@ -131,6 +131,7 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
   const smokeRoot = projectRoot
   const smokeCloseableRoot = joinHostPath(smokeRoot, '.hvir-smoke-closed-project')
   const smokeWebSwitchRoot = joinHostPath(smokeRoot, 'docs')
+  const oversizedDiffPath = joinHostPath(smokeRoot, '.hvir-smoke-oversized-diff.txt')
   const cleanup = new SmokeCleanup((name) => interruptionCheckpoint.disposed(name))
   cleanup.defer('echo worker', () => worker.dispose())
   cleanup.defer('Git worker', () => git.dispose())
@@ -150,6 +151,9 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
   )
   cleanup.defer('viewer position fixture', () =>
     host.exec('rm', ['-f', '--', viewerPositionPath.path]).then(() => undefined),
+  )
+  cleanup.defer('oversized diff fixture', () =>
+    host.exec('rm', ['-f', '--', oversizedDiffPath.path]).then(() => undefined),
   )
   cleanup.defer('project watch', async () => {
     await stopSmokeWatch?.()
@@ -315,6 +319,12 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
         `${'large file responsiveness fixture 0123456789\n'.repeat(135_000)}end\n`,
       )
     }
+    if (mode === 'terminal-presentation') {
+      await host.writeFile(
+        oversizedDiffPath,
+        `${'oversized diff fixture '.padEnd(255, 'x')}\n`.repeat(8_200),
+      )
+    }
     const emit: EmitSmokeEvent = (channel, payload) => {
       if (smokeWindow && !smokeWindow.isDestroyed())
         smokeWindow.webContents.send(channel, payload)
@@ -417,8 +427,7 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
         }
         return Promise.resolve(state)
       },
-      refreshProject: () =>
-        Promise.resolve(setSmokeProjectState(smokeProjectState())),
+      refreshProject: () => Promise.resolve(setSmokeProjectState(smokeProjectState())),
       updateWatchInterests: (paths) =>
         Promise.resolve({
           accepted: Math.min(paths.length, MAX_PROJECT_WATCH_INTERESTS),
@@ -427,10 +436,8 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
       closeProject: () => {
         return Promise.resolve(setSmokeProjectState(smokeProjectState()))
       },
-      pruneWorktrees: () =>
-        Promise.resolve(setSmokeProjectState(smokeProjectState())),
-      dismissWorkspace: () =>
-        Promise.resolve(setSmokeProjectState(smokeProjectState())),
+      pruneWorktrees: () => Promise.resolve(setSmokeProjectState(smokeProjectState())),
+      dismissWorkspace: () => Promise.resolve(setSmokeProjectState(smokeProjectState())),
       planWorkspaceClose: workspaceCloseCommands.planWorkspaceClose,
       closeWorkspace: workspaceCloseCommands.closeWorkspace,
       reopenWorkspace: workspaceCloseCommands.reopenWorkspace,

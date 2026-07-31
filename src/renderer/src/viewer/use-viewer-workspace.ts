@@ -34,15 +34,13 @@ import {
   restoreViewerTabs,
   viewerStorageKey,
   viewerTabId,
-  type RestoredViewerTabs,
 } from './viewer-workspace-persistence'
 import { ViewerCommandTargets, type ViewerCommandTarget } from './viewer-command-targets'
+import { RetainedViewerWorkspaceCache } from './retained-viewer-workspace-cache'
 
 interface UseViewerWorkspaceOptions {
   readonly onActivateFile: () => void
 }
-
-type WarmViewerWorkspace = RestoredViewerTabs
 
 export function useViewerWorkspace(options: UseViewerWorkspaceOptions) {
   const [model, dispatch] = useReducer(
@@ -51,7 +49,7 @@ export function useViewerWorkspace(options: UseViewerWorkspaceOptions) {
   )
   const modelRef = useRef(model)
   const optionsRef = useRef(options)
-  const warmWorkspaces = useRef(new Map<string, WarmViewerWorkspace>())
+  const warmWorkspaces = useRef(new RetainedViewerWorkspaceCache())
   const workspaceGeneration = useRef(0)
   const readGenerations = useRef(new Map<string, number>())
   const navigationSerial = useRef(0)
@@ -128,7 +126,7 @@ export function useViewerWorkspace(options: UseViewerWorkspaceOptions) {
         })
       }
       const restored =
-        warmWorkspaces.current.get(viewerStorageKey(root)) ?? restoreViewerTabs(root)
+        warmWorkspaces.current.take(viewerStorageKey(root)) ?? restoreViewerTabs(root)
       const generation = (workspaceGeneration.current += 1)
       send({
         type: 'workspace-activated',

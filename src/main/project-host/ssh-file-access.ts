@@ -9,12 +9,10 @@ import {
   type HostId,
   type HostPath,
   type Stat,
+  type TextWorkload,
 } from '../../shared'
-import type {
-  ReadFileOptions,
-  RemoveFileOptions,
-  WriteFileOptions,
-} from './project-host'
+import type { ReadFileOptions, RemoveFileOptions, WriteFileOptions } from './project-host'
+import { readSshTextPrefix } from './ssh-text-prefix'
 
 export interface SshFileAccessOptions {
   readonly fingerprintObservationWindowMs?: number
@@ -86,6 +84,11 @@ export class SshFileAccess {
     opts: ReadFileOptions = {},
   ): Promise<string> {
     return (await this.readFile(path, opts)).toString(encoding)
+  }
+
+  async readTextFilePrefix(path: HostPath, maxBytes: number): Promise<TextWorkload> {
+    this.assertPath(path)
+    return readSshTextPrefix(await this.getSftp(), path.path, maxBytes)
   }
 
   async writeFile(
