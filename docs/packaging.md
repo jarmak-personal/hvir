@@ -211,12 +211,10 @@ gh release verify v<version>
 gh release verify-asset v<version> ./hvir-<version>-linux-x64.deb
 ```
 
-The final one-time `npm-retirement` job runs only after release verification. Protect that
-environment with a required reviewer and a short-lived `NPM_RETIREMENT_TOKEN` authorized to
-deprecate the four historical packages. The job applies and verifies one migration message on
-every published `hvir-workbench`, `hvir-linux-x64`, `hvir-linux-arm64`, and
-`hvir-darwin-arm64` version. Revoke the token and remove the environment secret after the first
-successful native cutover. The job never publishes or unpublishes an npm version.
+The historical `hvir-workbench`, `hvir-linux-x64`, `hvir-linux-arm64`, and
+`hvir-darwin-arm64` versions are deprecated with the native-installer migration message after
+the successful native cutover. Release automation retains no npm credentials or registry
+mutation authority; it never publishes, deprecates, or unpublishes an npm version.
 
 Run the [Phase 8 gauntlet](phase8-performance-gauntlet.md) on a controlled matching host before
 release. Implementation and acceptance evidence belongs in the governing issues, commits, pull
