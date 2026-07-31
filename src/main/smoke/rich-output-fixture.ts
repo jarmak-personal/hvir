@@ -10,6 +10,8 @@ import socket
 import sys
 import time
 
+notification_order = 0
+
 def unix_path(value):
     return value.removeprefix("unix://")
 
@@ -26,8 +28,15 @@ def connect(path):
             time.sleep(0.025)
 
 def notification(method, params):
+    global notification_order
+    notification_order += 1
     return json.dumps(
-        {"jsonrpc": "2.0", "method": method, "params": params},
+        {
+            "jsonrpc": "2.0",
+            "method": method,
+            "params": params,
+            "emittedAtMs": notification_order,
+        },
         separators=(",", ":"),
     ).encode("utf-8") + b"\n"
 

@@ -20,7 +20,6 @@ desired_rich = False
 healthy = True
 mode_lock = threading.Lock()
 order = 0
-fallback_source = 0
 active = None
 seen = {}
 
@@ -86,9 +85,14 @@ def revoke(source_id):
         active["revoked"] = True
 
 def source_identity(message, raw):
-    global fallback_source
-    fallback_source += 1
-    return "n:" + str(fallback_source)
+    emitted_at = message.get("emittedAtMs")
+    if (
+        isinstance(emitted_at, bool)
+        or not isinstance(emitted_at, int)
+        or emitted_at < 0
+    ):
+        return None
+    return "h:" + hashlib.sha256(raw).hexdigest()
 
 def utf8_chunks(text):
     chunk = []
@@ -115,7 +119,19 @@ def classify(raw):
     if not isinstance(message, dict):
         revoke("invalid:" + str(order + 1))
         return True
+    method = message.get("method")
+    params = message.get("params")
+    if method not in (
+        "item/started",
+        "item/agentMessage/delta",
+        "item/completed",
+        "turn/completed",
+    ):
+        return True
     source_id = source_identity(message, raw)
+    if source_id is None:
+        revoke("unstamped:" + str(order + 1))
+        return True
     prior = seen.get(source_id)
     digest = hashlib.sha256(raw).digest()
     if prior is not None:
@@ -123,17 +139,7 @@ def classify(raw):
             revoke(source_id)
             return True
         return prior[1]
-    method = message.get("method")
-    params = message.get("params")
     forward = True
-    if method not in (
-        "item/started",
-        "item/agentMessage/delta",
-        "item/completed",
-        "turn/completed",
-    ):
-        seen[source_id] = (digest, True)
-        return True
     if not isinstance(params, dict):
         revoke(source_id)
         seen[source_id] = (digest, True)

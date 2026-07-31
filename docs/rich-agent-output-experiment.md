@@ -63,6 +63,11 @@ The provider accepts only an `agentMessage` item whose `threadId` equals the exa
 resumed Codex session. `turnId` and `itemId` become the turn and message identities. Source record
 order becomes a strictly increasing hvir order within one observer generation.
 
+The app-server `emittedAtMs` stamp and exact notification bytes form the bounded source identity.
+A participating notification without that stamp is forwarded unchanged and revokes rich routing.
+An exact repeat of the same stamped notification is idempotent; two separately emitted deltas
+remain distinct even when their text matches.
+
 `item/started` starts exactly one message. Append-only `item/agentMessage/delta` records append to
 that message. `item/completed` ends it only when the completed item is the same agent message and
 its final text equals the concatenated accepted deltas. A `turn/completed` notification with
