@@ -93,6 +93,7 @@ export class ProjectRegistry {
   private readonly hosts = new Map<string, ProjectHost>()
   private activeProject: ActiveProject
   private pendingWrite: Promise<void> = Promise.resolve()
+  private stateRevision = 0
 
   private constructor(
     private readonly local: LocalHost,
@@ -209,6 +210,7 @@ export class ProjectRegistry {
   state(): ProjectState {
     const activeHost = this.activeProject.host
     return {
+      revision: this.stateRevision,
       root: this.activeProject.root,
       connectionState: activeHost.connectionState,
       watchTier: activeHost.watchTier,
@@ -329,7 +331,6 @@ export class ProjectRegistry {
       )
     }
     await host.dispose()
-    this.emitState()
     return hostOption(host, hostId, 'ssh')
   }
 
@@ -397,8 +398,7 @@ export class ProjectRegistry {
       workspaceId: workspace.id,
     }
     await this.persist()
-    this.emitState()
-    return this.state()
+    return this.publishState()
   }
 
   async activate(
@@ -449,8 +449,7 @@ export class ProjectRegistry {
       this.activeProject = previousActive
       throw error
     }
-    if (options.emit !== false) this.emitState()
-    return this.state()
+    return this.publishState(options.emit !== false)
   }
 
   async acknowledgeWorkspace(
@@ -476,8 +475,7 @@ export class ProjectRegistry {
       )
       throw error
     }
-    this.emitState()
-    return this.state()
+    return this.publishState()
   }
 
   async reconcileWorktrees(
@@ -555,8 +553,7 @@ export class ProjectRegistry {
       return this.state()
     }
     await this.persist()
-    this.emitState()
-    return this.state()
+    return this.publishState()
   }
 
   async updateWorkspaceActivity(
@@ -607,8 +604,7 @@ export class ProjectRegistry {
     })
     if (before === workspaceSignature(project.workspaces)) return this.state()
     await this.persist()
-    this.emitState()
-    return this.state()
+    return this.publishState()
   }
 
   async closeWorkspace(projectId: string, id: string): Promise<ProjectState> {
@@ -639,8 +635,7 @@ export class ProjectRegistry {
       project.workspaces[index] = workspace
       throw error
     }
-    this.emitState()
-    return this.state()
+    return this.publishState()
   }
 
   async reopenWorkspace(projectId: string, id: string): Promise<ProjectState> {
@@ -681,8 +676,7 @@ export class ProjectRegistry {
       project.workspaces[index] = workspace
       throw error
     }
-    this.emitState()
-    return this.state()
+    return this.publishState()
   }
 
   async closeProject(projectId: string): Promise<ProjectState> {
@@ -716,8 +710,7 @@ export class ProjectRegistry {
 
     this.projects.splice(index, 1)
     await this.persist()
-    this.emitState()
-    return this.state()
+    return this.publishState()
   }
 
   async dismissWorkspace(projectId: string, id: string): Promise<ProjectState> {
@@ -732,11 +725,12 @@ export class ProjectRegistry {
       )
       if (!next) throw new Error('A project must keep one workspace')
       project.activeWorkspaceId = next.id
-      if (project.id === this.activeProjectId) await this.activate(project.id, next.id)
+      if (project.id === this.activeProjectId) {
+        await this.activate(project.id, next.id, { emit: false })
+      }
     }
     await this.persist()
-    this.emitState()
-    return this.state()
+    return this.publishState()
   }
 
   async dispose(): Promise<void> {
@@ -784,8 +778,11 @@ export class ProjectRegistry {
     }
   }
 
-  private emitState(): void {
-    this.onState(this.state())
+  private publishState(emit = true): ProjectState {
+    this.stateRevision += 1
+    const state = this.state()
+    if (emit) this.onState(state)
+    return state
   }
 
   private persist(): Promise<void> {
@@ -849,7 +846,7 @@ export class ProjectRegistry {
       rememberHostKey: (fingerprint) => this.trust.remember(config.alias, fingerprint),
     })
     host.onConnectionState(() => {
-      this.emitState()
+      this.publishState()
     })
     this.hosts.set(hostId, host)
     return host

@@ -269,6 +269,7 @@ function projectState(mainChanged: number, featureChanged: number): ProjectState
     changedFiles: featureChanged,
   }
   return {
+    revision: 0,
     root: main.root,
     activeProjectId: 'project:local:/repo',
     activeWorkspaceId: main.id,
@@ -316,6 +317,7 @@ function remoteProjectState(states: readonly HostConnectionState[]): ProjectStat
   const activeProject = projects[0]
   if (!activeProject) throw new Error('Expected at least one remote project')
   return {
+    revision: 0,
     root: activeProject.registeredRoot,
     activeProjectId: activeProject.id,
     activeWorkspaceId: activeProject.activeWorkspaceId,

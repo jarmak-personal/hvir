@@ -15,6 +15,7 @@ import {
   asHostId,
   hostPath,
   localPath,
+  type ProjectState,
   type WorkspaceActivityResult,
 } from '../src/shared'
 
@@ -198,14 +199,15 @@ describe('ProjectRegistry session flow', () => {
     await mkdir(join(root, 'alpha'))
     await mkdir(join(root, 'zeta'))
     await writeFile(join(root, 'file.txt'), 'not a folder')
-    const states: string[] = []
+    const states: ProjectState[] = []
     const registry = await ProjectRegistry.create(
       localPath(root),
       { prompt: () => Promise.resolve(undefined) },
       join(root, 'known-hosts.json'),
       join(root, 'projects.json'),
-      (state) => states.push(state.root.path),
+      (state) => states.push(state),
     )
+    expect(registry.state().revision).toBe(0)
 
     const connected = await registry.connectHost('local')
     expect(connected.host.connectionState).toBe('connected')
@@ -219,7 +221,16 @@ describe('ProjectRegistry session flow', () => {
 
     const opened = await registry.open('local', join(root, 'alpha'))
     expect(opened.root.path).toBe(join(canonicalRoot, 'alpha'))
-    expect(states).toEqual([join(canonicalRoot, 'alpha')])
+    expect(opened.revision).toBe(1)
+    expect(states).toEqual([opened])
+
+    const responseOnly = await registry.activate(
+      opened.activeProjectId,
+      opened.activeWorkspaceId,
+      { emit: false },
+    )
+    expect(responseOnly.revision).toBe(2)
+    expect(states).toEqual([opened])
     await registry.dispose()
   })
 

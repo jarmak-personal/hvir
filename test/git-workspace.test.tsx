@@ -106,6 +106,7 @@ function GitWorkspaceHarness({ ports }: { readonly ports: GitWorkspacePorts }): 
 function projectState(): ProjectState {
   const root = localPath('/repo')
   return {
+    revision: 0,
     root,
     connectionState: 'connected',
     watchTier: 'native',

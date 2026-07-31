@@ -21,6 +21,7 @@ describe('initial host connection', () => {
 
 function state(hostId: string, connectionState: HostConnectionState): ProjectState {
   return {
+    revision: 0,
     root: hostPath(asHostId(hostId), '/project'),
     connectionState,
     watchTier: hostId === 'local' ? 'native' : 'polling',

@@ -26,7 +26,7 @@ export function workspaceCloseSmokeCommands({
 }: {
   readonly host: ProjectHost
   readonly getState: () => ProjectState
-  readonly setState: (state: ProjectState) => void
+  readonly setState: (state: ProjectState) => ProjectState
   readonly cleanup: ProjectCleanupPort
 }) {
   const registry = {
@@ -43,12 +43,16 @@ export function workspaceCloseSmokeCommands({
     projectById: (projectId: string) =>
       getState().projects.find((project) => project.id === projectId),
     closeWorkspace: (projectId: string, workspaceId: string) => {
-      const state = updateWorkspace(getState(), projectId, workspaceId, (workspace) => ({
-        ...workspace,
-        closed: true,
-      }))
-      setState(state)
-      return Promise.resolve(state)
+      const state = updateWorkspace(
+        getState(),
+        projectId,
+        workspaceId,
+        (workspace) => ({
+          ...workspace,
+          closed: true,
+        }),
+      )
+      return Promise.resolve(setState(state))
     },
     reopenWorkspace: (projectId: string, workspaceId: string) => {
       const reopened = updateWorkspace(
@@ -72,8 +76,7 @@ export function workspaceCloseSmokeCommands({
             : candidate,
         ),
       }
-      setState(state)
-      return Promise.resolve(state)
+      return Promise.resolve(setState(state))
     },
   } as unknown as ProjectRegistryPort
   const workspaces: ProjectWorkspacePort = {
@@ -123,7 +126,7 @@ export async function verifyWorkspaceCloseSmoke({
   readonly activeRoot: HostPath
   readonly closeRoot: HostPath
   readonly getState: () => ProjectState
-  readonly setState: (state: ProjectState) => void
+  readonly setState: (state: ProjectState) => ProjectState
   readonly emitState: (state: ProjectState) => void
   readonly recovery: {
     readonly add: (root: HostPath, session: TerminalRecoverySession) => void
@@ -227,8 +230,8 @@ export async function verifyWorkspaceCloseSmoke({
   if (!closed?.closed || closed.missing) {
     throw new Error('workspace close did not retain a present catalog record')
   }
-  setState(state)
-  emitState(state)
+  const restoredState = setState(state)
+  emitState(restoredState)
   return 'cancel-safe · live PTY ended · recovery forgotten · renderer resource revoked'
 }
 
