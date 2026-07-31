@@ -4,11 +4,8 @@ import { MergeView } from '@codemirror/merge'
 import { useEffect, useMemo, useRef, useState, type ReactElement } from 'react'
 
 import {
-  diffPreview,
-  selectDiffWorkload,
   textLineCount,
   type DiffBase,
-  type DiffWorkloadSelection,
   type GitDiffResponse,
   type HostPath,
   type TextWorkload,
@@ -19,6 +16,11 @@ import { shouldPublishDiffPosition, usesUnsavedContent } from './diff-policy'
 import type { ViewerDocumentPosition } from './tab-state'
 import type { RegisterViewerFindTarget } from './viewer-find'
 import type { ViewerPositionCapture } from './viewer-position'
+import {
+  diffPreview,
+  selectDiffWorkload,
+  type DiffWorkloadSelection,
+} from './viewer-workload-policy'
 
 interface DiffViewProps {
   readonly path: HostPath

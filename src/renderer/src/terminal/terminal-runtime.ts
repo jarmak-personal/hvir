@@ -128,8 +128,8 @@ export class TerminalRuntime {
   }
 
   focus(): void {
-    if (this.disposed || !this.pane || !this.surface.canFocus()) return
-    this.pane.focus()
+    if (this.disposed || !this.surface.currentContainer) return
+    if (this.pane && this.surface.canFocus()) this.pane.focus()
     this.options.onFocus()
   }
 

@@ -2,19 +2,21 @@ import { describe, expect, it } from 'vitest'
 
 import {
   DIFF_INPUT_BYTE_LIMIT,
+  boundTextWorkload,
+} from '../src/shared'
+import {
   DIFF_INTERACTIVE_BYTE_LIMIT,
   DIFF_INTERACTIVE_LINE_LIMIT,
   DIFF_PREVIEW_CHARACTER_LIMIT,
   SOURCE_HIGHLIGHT_BYTE_LIMIT,
   SOURCE_INTERACTIVE_BYTE_LIMIT,
   SOURCE_PREVIEW_CHARACTER_LIMIT,
-  boundTextWorkload,
   canHighlightSource,
   canUseInteractiveSource,
   diffPreview,
   selectDiffWorkload,
   sourcePreview,
-} from '../src/shared'
+} from '../src/renderer/src/viewer/viewer-workload-policy'
 
 describe('viewer workload policy', () => {
   it('keeps source highlighting below and at its existing byte limit', () => {

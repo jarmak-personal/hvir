@@ -5,8 +5,8 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { useViewerWorkspace } from '../src/renderer/src/viewer/use-viewer-workspace'
+import { RETAINED_CLEAN_BYTE_LIMIT } from '../src/renderer/src/viewer/viewer-workload-policy'
 import {
-  RETAINED_CLEAN_BYTE_LIMIT,
   localPath,
   type ReadFileResponse,
 } from '../src/shared'

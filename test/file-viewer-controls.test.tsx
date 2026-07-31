@@ -7,8 +7,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { FileViewer } from '../src/renderer/src/viewer/FileViewer'
 import type { ViewerTab } from '../src/renderer/src/viewer/tab-state'
+import { DIFF_INTERACTIVE_BYTE_LIMIT } from '../src/renderer/src/viewer/viewer-workload-policy'
 import {
-  DIFF_INTERACTIVE_BYTE_LIMIT,
   localPath,
   type GitDiffResponse,
   type ViewMode,

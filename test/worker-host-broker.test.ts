@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { dispatchWorkerHostCall } from '../src/main/git/worker-host-broker'
 import { GIT_FETCH_ARGS, GIT_PULL_ARGS, GitEngine } from '../src/main/git/git-engine'
 import { LocalHost, type ProjectHost } from '../src/main/project-host'
-import { localPath, type WorkerHostCall } from '../src/shared'
+import { DIFF_INPUT_BYTE_LIMIT, localPath, type WorkerHostCall } from '../src/shared'
 
 type ExecHostCall = Extract<WorkerHostCall, { readonly operation: 'exec' }>
 
@@ -135,6 +135,12 @@ describe('Git worker host broker', () => {
     })
     await expect(
       dispatchWorkerHostCall({ ...call, maxBytes: 0 }, project),
+    ).rejects.toThrow('Invalid text prefix byte limit')
+    await expect(
+      dispatchWorkerHostCall(
+        { ...call, maxBytes: DIFF_INPUT_BYTE_LIMIT + 1 },
+        project,
+      ),
     ).rejects.toThrow('Invalid text prefix byte limit')
   })
 

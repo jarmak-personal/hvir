@@ -2,7 +2,7 @@ import {
   RETAINED_CLEAN_BYTE_LIMIT,
   RETAINED_CLEAN_FILE_LIMIT,
   RETAINED_WORKSPACE_LIMIT,
-} from '../../../shared'
+} from './viewer-workload-policy'
 import type { ViewerTab } from './tab-state'
 import type { RestoredViewerTabs } from './viewer-workspace-persistence'
 

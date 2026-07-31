@@ -12,13 +12,8 @@ import { useCallback, useEffect, useRef, useState, type ReactElement } from 'rea
 
 import {
   basenameHostPath,
-  canHighlightSource,
-  canUseInteractiveSource,
   canRender,
   renderedFileType,
-  sourcePreview,
-  SOURCE_HIGHLIGHT_BYTE_LIMIT,
-  SOURCE_INTERACTIVE_BYTE_LIMIT,
   type DiffBase,
   type ViewMode,
   type GitBlameRun,
@@ -54,10 +49,13 @@ import {
   documentLineCount,
   type ViewerPositionCapture,
 } from './viewer-position'
+import {
+  canHighlightSource,
+  canUseInteractiveSource,
+  sourcePreview,
+  SOURCE_INTERACTIVE_BYTE_LIMIT,
+} from './viewer-workload-policy'
 import { useAppTheme } from '../theme'
-
-export const HIGHLIGHT_SIZE_LIMIT = SOURCE_HIGHLIGHT_BYTE_LIMIT
-export const CODEMIRROR_SIZE_LIMIT = SOURCE_INTERACTIVE_BYTE_LIMIT
 
 let sharedHighlightWorker: Worker | undefined
 let nextHighlightRequestId = 0
@@ -149,7 +147,9 @@ export function FileViewer({
   const blameMode = tab?.mode
   const positionCapture = useRef<(() => ViewerDocumentPosition) | undefined>(undefined)
   const binaryImage = Boolean(tab?.file?.binary && renderedFileType(tab.path) === 'image')
-  const boundedPreview = Boolean(tab?.file && tab.file.size > CODEMIRROR_SIZE_LIMIT)
+  const boundedPreview = Boolean(
+    tab?.file && tab.file.size > SOURCE_INTERACTIVE_BYTE_LIMIT,
+  )
   const navigationContent =
     tab?.file && !tab.file.binary
       ? boundedPreview
