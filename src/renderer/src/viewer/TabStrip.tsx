@@ -1,6 +1,8 @@
 import { useEffect, useState, type DragEvent, type ReactElement } from 'react'
 
-import { basenameHostPath } from '../../../shared'
+import { basenameHostPath, type HostPath } from '../../../shared'
+import { PathCopyMenu } from '../path-copy/PathCopyMenu'
+import { usePathCopyMenu } from '../path-copy/use-path-copy-menu'
 import { ConfirmationDialog } from '../workbench/ConfirmationDialog'
 import type { ViewerPaneId, ViewerTab } from './tab-state'
 
@@ -9,6 +11,7 @@ const VIEWER_TAB_DRAG_TYPE = 'application/x-hvir-viewer-tab'
 interface TabStripProps {
   readonly tabs: readonly ViewerTab[]
   readonly pane: ViewerPaneId
+  readonly pathCopyRoot?: HostPath
   readonly activeId?: string
   readonly onActivate: (id: string) => void
   readonly onClose: (id: string) => void
@@ -31,6 +34,7 @@ interface TabStripProps {
 export function TabStrip({
   tabs,
   pane,
+  pathCopyRoot,
   activeId,
   onActivate,
   onClose,
@@ -50,6 +54,7 @@ export function TabStrip({
   onCloseWeb,
 }: TabStripProps): ReactElement {
   const [pendingCloseId, setPendingCloseId] = useState<string>()
+  const pathCopyMenu = usePathCopyMenu(pathCopyRoot)
   const pendingClose = tabs.find((tab) => tab.id === pendingCloseId)
 
   useEffect(() => {
@@ -82,6 +87,15 @@ export function TabStrip({
             role="tab"
             aria-selected={tab.id === activeId}
             draggable
+            onContextMenu={(event) =>
+              pathCopyRoot
+                ? pathCopyMenu.openFromPointer(
+                    event,
+                    tab.path,
+                    basenameHostPath(tab.path),
+                  )
+                : undefined
+            }
             onDragStart={(event: DragEvent) => {
               event.dataTransfer.setData(VIEWER_TAB_DRAG_TYPE, tab.id)
               event.dataTransfer.setData('text/plain', tab.id)
@@ -96,12 +110,23 @@ export function TabStrip({
               onMoveToPane(dragged, pane)
               if (dragged !== tab.id) onReorder(dragged, tab.id)
             }}
-            onDoubleClick={() => onPin(tab.id)}
+            onDoubleClick={(event) => {
+              if (event.button === 0) onPin(tab.id)
+            }}
           >
             <button
               className="tab-main"
               type="button"
               onClick={() => onActivate(tab.id)}
+              onKeyDown={(event) => {
+                if (pathCopyRoot) {
+                  pathCopyMenu.openFromKeyboard(
+                    event,
+                    tab.path,
+                    basenameHostPath(tab.path),
+                  )
+                }
+              }}
               title={tab.path.path}
             >
               <span className={`tab-status${tab.conflict ? ' conflict' : ''}`}>
@@ -201,6 +226,9 @@ export function TabStrip({
           </button>
         ) : null}
       </div>
+      {pathCopyRoot ? (
+        <PathCopyMenu workspaceRoot={pathCopyRoot} controller={pathCopyMenu} />
+      ) : null}
       {pendingClose ? (
         <ConfirmationDialog
           labelledBy={`dirty-tab-close-${pane}`}

@@ -120,6 +120,7 @@ export function FileTree({
                 ignoredRefreshVersion={ignoredRefreshVersion}
                 gitDecorations={gitDecorations}
                 selected={selected}
+                pathCopyRoot={root}
                 onOpenFile={onOpen}
                 onExpandedChange={onExpandedChange}
               />

@@ -26,6 +26,7 @@ const expectedOrder = [
   'dialogs.css',
   'workspace-catalog.css',
   'tree.css',
+  'path-copy.css',
   'viewer-content.css',
   'terminal-pane.css',
   'web-pane.css',
