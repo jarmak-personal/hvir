@@ -1,4 +1,5 @@
 import {
+  containsHostPath,
   dirnameHostPath,
   hostPathEquals,
   type GitChangedFile,
@@ -48,12 +49,12 @@ export function buildTreeGitDecorations(
   if (!complete) return { files, directories: new Map() }
 
   for (const file of changedFiles) {
-    if (!containsPath(root, file.path) || hostPathEquals(root, file.path)) continue
+    if (!containsHostPath(root, file.path) || hostPathEquals(root, file.path)) continue
     const decoration = fileGitDecoration(file)
     files.set(treeGitPathKey(file.path), decoration)
 
     let directory = dirnameHostPath(file.path)
-    while (containsPath(root, directory)) {
+    while (containsHostPath(root, directory)) {
       addDirectoryChange(directorySummaries, directory, decoration.tone)
       if (hostPathEquals(directory, root)) break
       const parent = dirnameHostPath(directory)
@@ -133,10 +134,4 @@ function countLabel(
   plural = singular,
 ): string | undefined {
   return count > 0 ? `${count} ${count === 1 ? singular : plural}` : undefined
-}
-
-function containsPath(parent: HostPath, candidate: HostPath): boolean {
-  if (parent.hostId !== candidate.hostId) return false
-  if (parent.path === '/') return candidate.path.startsWith('/')
-  return candidate.path === parent.path || candidate.path.startsWith(`${parent.path}/`)
 }

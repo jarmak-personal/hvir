@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import {
   asHostId,
   basenameHostPath,
+  containsHostPath,
   dirnameHostPath,
   displayHostPath,
   hostPath,
@@ -42,6 +43,15 @@ describe('HostPath', () => {
     expect(hostPathEquals(localPath('/a'), hostPath(asHostId('remote'), '/a'))).toBe(
       false,
     )
+  })
+
+  it('confines descendants to the same host-qualified parent', () => {
+    const root = localPath('/repo')
+    expect(containsHostPath(root, root)).toBe(true)
+    expect(containsHostPath(root, localPath('/repo/src'))).toBe(true)
+    expect(containsHostPath(root, localPath('/repository'))).toBe(false)
+    expect(containsHostPath(root, hostPath(asHostId('remote'), '/repo/src'))).toBe(false)
+    expect(containsHostPath(localPath('/'), localPath('/repo'))).toBe(true)
   })
 
   it('renders a human-readable form', () => {

@@ -8,7 +8,7 @@ import {
   type GitChangedFile,
   type HostPath,
 } from '../../../shared'
-import { DirectoryTree } from './DirectoryTree'
+import { DirectoryTree, type DirectoryTreeRevealRequest } from './DirectoryTree'
 import { MissingWorkspaceNotice } from '../workspaces/MissingWorkspaceNotice'
 import { buildTreeGitDecorations } from './git-status-decoration'
 import { FilenameSearch } from './FilenameSearch'
@@ -23,6 +23,7 @@ interface FileTreeProps {
   readonly changedFiles?: readonly GitChangedFile[]
   readonly gitChangesLimited?: boolean
   readonly selected?: HostPath
+  readonly revealRequest?: DirectoryTreeRevealRequest
   readonly onOpen: (path: HostPath, pinned: boolean) => void
   readonly connected?: boolean
   readonly missing?: boolean
@@ -40,6 +41,7 @@ export function FileTree({
   changedFiles = NO_CHANGED_FILES,
   gitChangesLimited = false,
   selected,
+  revealRequest,
   onOpen,
   connected = true,
   missing = false,
@@ -120,6 +122,7 @@ export function FileTree({
                 ignoredRefreshVersion={ignoredRefreshVersion}
                 gitDecorations={gitDecorations}
                 selected={selected}
+                revealRequest={revealRequest}
                 onOpenFile={onOpen}
                 onExpandedChange={onExpandedChange}
               />
