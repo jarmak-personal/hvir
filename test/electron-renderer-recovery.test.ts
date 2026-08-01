@@ -80,18 +80,21 @@ describe('ElectronRendererRecovery', () => {
   })
   afterEach(() => vi.restoreAllMocks())
 
-  it('reloads after the forced-exit callback and records success after load plus readiness', () => {
+  it('immediately replaces the process and defers final navigation past its exit', () => {
     const candidate = fixture()
 
     expect(candidate.recovery.reloadUnresponsive(INITIAL)).toBe(true)
     expect(candidate.recovery.reloadUnresponsive(INITIAL)).toBe(false)
     expect(candidate.forcefullyCrashRenderer).toHaveBeenCalledOnce()
     expect(candidate.rollover).toHaveBeenCalledOnce()
-    expect(candidate.reload).not.toHaveBeenCalled()
-    expect(candidate.recovery.rendererGone(candidate.owner(), 'killed')).toBe(true)
-    expect(candidate.reload).not.toHaveBeenCalled()
-    candidate.runScheduledReload()
     expect(candidate.reload).toHaveBeenCalledOnce()
+    expect(candidate.forcefullyCrashRenderer.mock.invocationCallOrder[0]).toBeLessThan(
+      candidate.reload.mock.invocationCallOrder[0] ?? 0,
+    )
+    expect(candidate.recovery.rendererGone(candidate.owner(), 'killed')).toBe(true)
+    expect(candidate.reload).toHaveBeenCalledOnce()
+    candidate.runScheduledReload()
+    expect(candidate.reload).toHaveBeenCalledTimes(2)
 
     candidate.recovery.rendererReady(candidate.owner())
     expect(outcomes(candidate.events)).toEqual(['reload-requested'])
@@ -115,6 +118,7 @@ describe('ElectronRendererRecovery', () => {
     expect(candidate.owner().generation).toBe(failedOwner.generation + 1)
     candidate.recovery.rendererGone(candidate.owner(), 'killed')
     candidate.runScheduledReload()
+    expect(candidate.reload).toHaveBeenCalledTimes(4)
 
     candidate.recovery.documentLoaded(failedOwner)
     candidate.recovery.rendererReady(failedOwner)
@@ -163,7 +167,7 @@ describe('ElectronRendererRecovery', () => {
     expect(consoleErrors).toContainEqual([expect.stringContaining('readiness-timeout')])
   })
 
-  it('does not run a queued reload after recovery ownership closes', () => {
+  it('does not run the deferred post-exit navigation after recovery ownership closes', () => {
     const candidate = fixture()
     candidate.recovery.reloadUnresponsive(INITIAL)
     candidate.recovery.rendererGone(candidate.owner(), 'killed')
@@ -171,7 +175,7 @@ describe('ElectronRendererRecovery', () => {
     candidate.recovery.close()
     candidate.runScheduledReload()
 
-    expect(candidate.reload).not.toHaveBeenCalled()
+    expect(candidate.reload).toHaveBeenCalledOnce()
   })
 
   it('defers an unexpected-exit reload beyond the process-gone callback', () => {
