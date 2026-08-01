@@ -27,6 +27,22 @@ describe('bounded smoke failure evidence', () => {
       '[smoke:failure-evidence] ' +
         JSON.stringify({
           schema: 1,
+          phase: 'renderer-ready',
+          owners: {
+            windowCount: 1,
+            ptyCount: 0,
+            watcherActive: true,
+            rendererOwnerActive: true,
+            rendererGeneration: 3,
+          },
+        }) +
+        '\n',
+    )
+    collector.observe(
+      'stderr',
+      '[smoke:failure-evidence] ' +
+        JSON.stringify({
+          schema: 1,
           phase: 'scenario-active',
           owners: {
             windowCount: 1,
@@ -104,9 +120,21 @@ describe('bounded smoke failure evidence', () => {
         '\n',
     )
 
-    expect(collector.evidence()).toEqual({
-      snapshot: null,
-      logs: {
+    const artifact = createSmokeFailureArtifact({
+      scenario: 'web-pane',
+      iteration: 1,
+      repetitionCount: 1,
+      durationMs: 200,
+      exitCode: 3,
+      signal: null,
+      spawnError: false,
+      collector,
+    })
+
+    expect(artifact).toMatchObject({
+      process: { exitCode: 3, signal: null, spawnError: false },
+      semanticSnapshot: null,
+      applicationLogs: {
         successSentinel: false,
         failureSentinel: false,
         startupFailure: false,
@@ -137,5 +165,28 @@ describe('bounded smoke failure evidence', () => {
 
     expect(path).toBe(join(directory, 'pty-native-iteration-1-of-5.json'))
     expect(JSON.parse(await readFile(path!, 'utf8'))).toEqual(artifact)
+  })
+
+  it('rejects fields outside the reviewed artifact schema', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'hvir-smoke-artifacts-'))
+    onTestFinished(() => rm(directory, { recursive: true, force: true }))
+    const collector = new SmokeAttemptEvidenceCollector()
+    const artifact = {
+      ...createSmokeFailureArtifact({
+        scenario: 'pty-native',
+        iteration: 1,
+        repetitionCount: 1,
+        durationMs: 20,
+        exitCode: 1,
+        signal: null,
+        spawnError: false,
+        collector,
+      }),
+      rawOutput: 'not allowed',
+    }
+
+    await expect(writeSmokeFailureArtifact(directory, artifact)).rejects.toThrow(
+      'contained unreviewed fields',
+    )
   })
 })

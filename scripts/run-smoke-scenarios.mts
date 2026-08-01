@@ -39,6 +39,16 @@ type InvokeSmokeScenario = (
 const MAX_SMOKE_REPETITIONS = 100
 const DEFAULT_SMOKE_ATTEMPT_TIMEOUT_MS = 180_000
 const CAPACITY_SMOKE_ATTEMPT_TIMEOUT_MS = 600_000
+const FAILURE_ARTIFACT_TIMEOUT_MS = 1_000
+
+export interface SmokeScenarioInvocationOptions {
+  readonly command?: string
+  readonly args?: readonly string[]
+  readonly cwd?: string
+  readonly environment?: NodeJS.ProcessEnv
+  readonly timeoutMs?: number
+  readonly artifactDirectory?: string
+}
 
 export function smokeAttemptTimeoutMs(scenario: SmokeScenarioName): number {
   return scenario === 'capacity'
@@ -129,8 +139,7 @@ export function classifySmokeAttempt(options: {
   readonly successSentinel: boolean
   readonly durationMs: number
 }): Omit<SmokeScenarioResult, 'scenario' | 'iteration' | 'repetitionCount'> {
-  const status =
-    options.exitCode === 0 && options.successSentinel ? 'passed' : 'failed'
+  const status = options.exitCode === 0 && options.successSentinel ? 'passed' : 'failed'
   return {
     status,
     ...(options.exitCode === null ? {} : { exitCode: options.exitCode }),
@@ -142,10 +151,11 @@ export function classifySmokeAttempt(options: {
   }
 }
 
-function invokeSmokeScenario(
+export function invokeSmokeScenario(
   scenario: SmokeScenarioName,
   iteration: number,
   repetitionCount: number,
+  options: SmokeScenarioInvocationOptions = {},
 ): Promise<Omit<SmokeScenarioResult, 'scenario' | 'iteration' | 'repetitionCount'>> {
   const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
   console.log(
@@ -154,12 +164,16 @@ function invokeSmokeScenario(
   const startedAt = performance.now()
   return new Promise((resolveResult) => {
     const collector = new SmokeAttemptEvidenceCollector()
-    const child = spawn('bash', [join(repositoryRoot, 'scripts/run-smoke.sh')], {
-      cwd: repositoryRoot,
-      detached: process.platform !== 'win32',
-      env: smokeScenarioEnvironment(process.env, scenario),
-      stdio: ['inherit', 'pipe', 'pipe'],
-    })
+    const child = spawn(
+      options.command ?? 'bash',
+      [...(options.args ?? [join(repositoryRoot, 'scripts/run-smoke.sh')])],
+      {
+        cwd: options.cwd ?? repositoryRoot,
+        detached: process.platform !== 'win32',
+        env: smokeScenarioEnvironment(options.environment ?? process.env, scenario),
+        stdio: ['inherit', 'pipe', 'pipe'],
+      },
+    )
     child.stdout.setEncoding('utf8')
     child.stderr.setEncoding('utf8')
     child.stdout.on('data', (chunk: string) => {
@@ -171,45 +185,54 @@ function invokeSmokeScenario(
       collector.observe('stderr', chunk)
     })
     let settled = false
-    const timer = setTimeout(() => {
-      if (settled) return
-      settled = true
-      terminateSmokeAttempt(child.pid)
-      collector.finish()
-      const durationMs = performance.now() - startedAt
-      const result = {
-        status: 'failed',
-        signal: 'SIGKILL',
-        error: 'process timed out',
-        durationMs,
-      } as const
-      void retainFailureArtifact({
-        scenario,
-        iteration,
-        repetitionCount,
-        durationMs,
-        exitCode: null,
-        signal: 'SIGKILL',
-        spawnError: false,
-        collector,
-      }).finally(() => resolveResult(result))
-    }, smokeAttemptTimeoutMs(scenario))
+    const timer = setTimeout(
+      () => {
+        if (settled) return
+        settled = true
+        terminateSmokeAttempt(child.pid)
+        collector.finish()
+        const durationMs = performance.now() - startedAt
+        const result = {
+          status: 'failed',
+          signal: 'SIGKILL',
+          error: 'process timed out',
+          durationMs,
+        } as const
+        void retainFailureArtifact(
+          {
+            scenario,
+            iteration,
+            repetitionCount,
+            durationMs,
+            exitCode: null,
+            signal: 'SIGKILL',
+            spawnError: false,
+            collector,
+          },
+          options.artifactDirectory,
+        ).finally(() => resolveResult(result))
+      },
+      options.timeoutMs ?? smokeAttemptTimeoutMs(scenario),
+    )
     child.once('error', () => {
       if (settled) return
       settled = true
       clearTimeout(timer)
       collector.finish()
       const durationMs = performance.now() - startedAt
-      void retainFailureArtifact({
-        scenario,
-        iteration,
-        repetitionCount,
-        durationMs,
-        exitCode: null,
-        signal: null,
-        spawnError: true,
-        collector,
-      }).finally(() =>
+      void retainFailureArtifact(
+        {
+          scenario,
+          iteration,
+          repetitionCount,
+          durationMs,
+          exitCode: null,
+          signal: null,
+          spawnError: true,
+          collector,
+        },
+        options.artifactDirectory,
+      ).finally(() =>
         resolveResult({ status: 'failed', error: 'process spawn failed', durationMs }),
       )
     })
@@ -230,16 +253,19 @@ function invokeSmokeScenario(
         resolveResult(result)
         return
       }
-      void retainFailureArtifact({
-        scenario,
-        iteration,
-        repetitionCount,
-        durationMs,
-        exitCode,
-        signal,
-        spawnError: false,
-        collector,
-      }).finally(() => resolveResult(result))
+      void retainFailureArtifact(
+        {
+          scenario,
+          iteration,
+          repetitionCount,
+          durationMs,
+          exitCode,
+          signal,
+          spawnError: false,
+          collector,
+        },
+        options.artifactDirectory,
+      ).finally(() => resolveResult(result))
     })
   })
 }
@@ -259,15 +285,38 @@ function terminateSmokeAttempt(pid: number | undefined): void {
 
 async function retainFailureArtifact(
   options: Parameters<typeof createSmokeFailureArtifact>[0],
+  directory = process.env.HVIR_SMOKE_ARTIFACT_DIR,
 ): Promise<void> {
   try {
-    const path = await writeSmokeFailureArtifact(
-      process.env.HVIR_SMOKE_ARTIFACT_DIR,
-      createSmokeFailureArtifact(options),
+    const path = await writeSmokeFailureArtifactWithinDeadline(() =>
+      writeSmokeFailureArtifact(directory, createSmokeFailureArtifact(options)),
     )
     if (path) console.error('[smoke:artifact] retained bounded failure evidence')
   } catch {
     console.error('[smoke:artifact] failed to retain bounded failure evidence')
+  }
+}
+
+export async function writeSmokeFailureArtifactWithinDeadline(
+  writeArtifact: () => Promise<string | undefined>,
+  timeoutMs = FAILURE_ARTIFACT_TIMEOUT_MS,
+): Promise<string | undefined> {
+  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+    throw new Error('Smoke failure artifact deadline was invalid')
+  }
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    return await Promise.race([
+      writeArtifact(),
+      new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(
+          () => reject(new Error('Smoke failure artifact retention timed out')),
+          timeoutMs,
+        )
+      }),
+    ])
+  } finally {
+    if (timer) clearTimeout(timer)
   }
 }
 
