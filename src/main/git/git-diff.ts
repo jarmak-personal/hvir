@@ -1,4 +1,9 @@
-import type { DiffBase, GitDiffResponse, HostPath } from '../../shared'
+import {
+  DIFF_INPUT_BYTE_LIMIT,
+  type DiffBase,
+  type GitDiffResponse,
+  type HostPath,
+} from '../../shared'
 import { shortRef, type GitCommandContext } from './git-command-context'
 import { assertRevision } from './git-parsers'
 
@@ -20,39 +25,50 @@ export class GitDiffCapability {
         revision,
         baseLabel: `${revision.slice(0, 8)}^`,
         currentLabel: revision.slice(0, 8),
-        baseContent: await this.context.showOrEmpty(
+        baseInput: await this.context.boundedShowOrEmpty(
           commandRoot,
           `${revision}^:${relativePath}`,
+          DIFF_INPUT_BYTE_LIMIT,
         ),
-        currentContent: await this.context.showOrEmpty(
+        currentInput: await this.context.boundedShowOrEmpty(
           commandRoot,
           `${revision}:${relativePath}`,
+          DIFF_INPUT_BYTE_LIMIT,
         ),
       }
     }
-    const currentContent = await this.context.readWorkingTreeOrEmpty(
-      path,
-      commandRoot,
-      relativePath,
-    )
-    if (base === 'working-tree') {
-      return {
+    if (base === 'working-tree' || base === 'head') {
+      const currentInput = await this.context.readWorkingTreeOrEmpty(
         path,
-        base,
-        baseLabel: 'Index',
-        currentLabel: 'Working tree',
-        baseContent: await this.context.showOrEmpty(commandRoot, `:${relativePath}`),
-        currentContent,
+        commandRoot,
+        relativePath,
+        DIFF_INPUT_BYTE_LIMIT,
+      )
+      if (base === 'working-tree') {
+        return {
+          path,
+          base,
+          baseLabel: 'Index',
+          currentLabel: 'Working tree',
+          baseInput: await this.context.boundedShowOrEmpty(
+            commandRoot,
+            `:${relativePath}`,
+            DIFF_INPUT_BYTE_LIMIT,
+          ),
+          currentInput,
+        }
       }
-    }
-    if (base === 'head') {
       return {
         path,
         base,
         baseLabel: 'HEAD',
         currentLabel: 'Working tree',
-        baseContent: await this.context.showOrEmpty(commandRoot, `HEAD:${relativePath}`),
-        currentContent,
+        baseInput: await this.context.boundedShowOrEmpty(
+          commandRoot,
+          `HEAD:${relativePath}`,
+          DIFF_INPUT_BYTE_LIMIT,
+        ),
+        currentInput,
       }
     }
     const defaultBranch = await this.context.defaultBranch(commandRoot)
@@ -68,11 +84,16 @@ export class GitDiffCapability {
       base,
       baseLabel: `Branch point (${shortRef(defaultBranch)})`,
       currentLabel: 'HEAD',
-      baseContent: await this.context.showOrEmpty(
+      baseInput: await this.context.boundedShowOrEmpty(
         commandRoot,
         `${commit}:${relativePath}`,
+        DIFF_INPUT_BYTE_LIMIT,
       ),
-      currentContent: await this.context.showOrEmpty(commandRoot, `HEAD:${relativePath}`),
+      currentInput: await this.context.boundedShowOrEmpty(
+        commandRoot,
+        `HEAD:${relativePath}`,
+        DIFF_INPUT_BYTE_LIMIT,
+      ),
     }
   }
 

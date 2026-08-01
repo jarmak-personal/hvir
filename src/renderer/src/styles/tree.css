@@ -236,7 +236,8 @@
   color: #59626f;
 }
 
-.tree-row:disabled {
+.tree-row:disabled,
+.tree-row[aria-disabled='true'] {
   color: #59616e;
 }
 

@@ -123,6 +123,7 @@ export function FileTree({
                 gitDecorations={gitDecorations}
                 selected={selected}
                 revealRequest={revealRequest}
+                pathCopyRoot={root}
                 onOpenFile={onOpen}
                 onExpandedChange={onExpandedChange}
               />

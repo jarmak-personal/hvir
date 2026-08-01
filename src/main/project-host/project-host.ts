@@ -21,6 +21,7 @@ import type {
   HostWatchTier,
   Disposer,
   LoopbackEndpoint,
+  TextWorkload,
 } from '../../shared'
 
 export type { Disposer }
@@ -180,6 +181,8 @@ export interface ProjectHost {
     encoding?: BufferEncoding,
     opts?: ReadFileOptions,
   ): Promise<string>
+  /** Read at most `maxBytes` of UTF-8 text and disclose whether the file ended. */
+  readTextFilePrefix(path: HostPath, maxBytes: number): Promise<TextWorkload>
   writeFile(
     path: HostPath,
     data: Uint8Array | string,

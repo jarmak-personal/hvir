@@ -18,7 +18,7 @@ export async function verifyWebPaneWorkflow(options: {
   readonly activeRoot: HostPath
   readonly switchRoot: HostPath
   readonly baseState: () => ProjectState
-  readonly setState: (state: ProjectState) => void
+  readonly setState: (state: ProjectState) => ProjectState
   readonly emitState: (state: ProjectState) => void
   readonly interruptionCheckpoint: SmokeInterruptionCheckpoint
   readonly predecessorSelectionObserved: boolean
@@ -206,8 +206,7 @@ export async function verifyWebPaneWorkflow(options: {
         ],
       })),
     }
-    setState(switchedState)
-    emitState(switchedState)
+    emitState(setState(switchedState))
     await rendererWait(
       win,
       `Boolean(document.querySelector('webview.web-pane-frame')) && !document.querySelector('.web-pane-tab')`,
@@ -215,8 +214,7 @@ export async function verifyWebPaneWorkflow(options: {
     )
 
     const restored = baseState()
-    setState(restored)
-    emitState(restored)
+    emitState(setState(restored))
     await rendererWait(
       win,
       `Boolean(document.querySelector('.web-pane-tab'))`,

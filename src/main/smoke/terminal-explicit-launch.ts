@@ -1,6 +1,7 @@
 import type { BrowserWindow } from 'electron'
 
 import type { PtySupervisor } from '../pty/pty-supervisor'
+import { withTerminalSmokeTimeout } from './terminal-smoke-timeout'
 
 /** Prove the empty workspace boundary before admitting one explicit Bare Shell. */
 export async function ensureExplicitBareShellLaunch(
@@ -10,7 +11,7 @@ export async function ensureExplicitBareShellLaunch(
   const existing = supervisor.list()
   if (existing.length > 0) return `retained explicit terminal pid ${existing[0]!.pid}`
 
-  const result = (await withTimeout(
+  const result = (await withTerminalSmokeTimeout(
     win.webContents.executeJavaScript(`
       (async () => {
         const deadline = Date.now() + 15000;
@@ -75,16 +76,4 @@ export async function ensureExplicitBareShellLaunch(
     )
   }
   return `zero sessions and PTYs before action · Bare Shell choice · ${result}`
-}
-
-function withTimeout<T>(promise: Promise<T>, label: string, ms: number): Promise<T> {
-  let timer: NodeJS.Timeout | undefined
-  return Promise.race([
-    promise.finally(() => {
-      if (timer) clearTimeout(timer)
-    }),
-    new Promise<T>((_, reject) => {
-      timer = setTimeout(() => reject(new Error(label)), ms)
-    }),
-  ])
 }

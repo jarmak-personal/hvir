@@ -156,6 +156,28 @@ describe('LocalHost', () => {
     expect(r.stdout).toBe('piped-input')
   })
 
+  it('reads text prefixes below and at a byte limit, then discloses truncation', async () => {
+    const path = localPath(join(dir, 'file.txt'))
+    await writeFile(path.path, 'abc')
+    await expect(host.readTextFilePrefix(path, 4)).resolves.toMatchObject({
+      content: 'abc',
+      byteLength: 3,
+      complete: true,
+    })
+    await writeFile(path.path, 'abcd')
+    await expect(host.readTextFilePrefix(path, 4)).resolves.toMatchObject({
+      content: 'abcd',
+      byteLength: 4,
+      complete: true,
+    })
+    await writeFile(path.path, 'abcde')
+    await expect(host.readTextFilePrefix(path, 4)).resolves.toMatchObject({
+      content: 'abcd',
+      byteLength: 4,
+      complete: false,
+    })
+  })
+
   it('decodes multibyte output split across process chunks', async () => {
     const script = [
       'process.stdout.write(Buffer.from([0xe2]))',

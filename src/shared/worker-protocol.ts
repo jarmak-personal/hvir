@@ -9,6 +9,7 @@
 import type { HostPath } from './host-path'
 import type { ExecResult } from './fs-types'
 import type { GitDiffRequest, GitDiffResponse } from './viewer-types'
+import type { TextWorkload } from './viewer-workload-policy'
 import type {
   GitBlameRun,
   GitBlameRequest,
@@ -56,6 +57,12 @@ export type WorkerHostCallInput =
       readonly operation: 'readTextFile'
       readonly path: HostPath
     }
+  | {
+      readonly hostId: string
+      readonly operation: 'readTextFilePrefix'
+      readonly path: HostPath
+      readonly maxBytes: number
+    }
 
 export type WorkerHostCall = WorkerHostCallInput & {
   readonly kind: 'host-call'
@@ -67,7 +74,7 @@ export type WorkerHostResult =
       readonly kind: 'host-result'
       readonly callId: number
       readonly ok: true
-      readonly result: ExecResult | string
+      readonly result: ExecResult | string | TextWorkload
     }
   | {
       readonly kind: 'host-result'

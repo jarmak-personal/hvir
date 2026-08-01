@@ -178,6 +178,17 @@ class ProxyGitHost implements GitHostPort {
       path,
     }) as Promise<string>
   }
+  readTextFilePrefix(
+    path: HostPath,
+    maxBytes: number,
+  ): Promise<import('../shared').TextWorkload> {
+    return hostCall({
+      operation: 'readTextFilePrefix',
+      hostId: this.hostId,
+      path,
+      maxBytes,
+    }) as Promise<import('../shared').TextWorkload>
+  }
 }
 
 function hostCall(call: WorkerHostCallInput): Promise<unknown> {
