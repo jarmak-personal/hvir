@@ -17,6 +17,7 @@ import { createWorkspaceCleanup } from '../workspace-cleanup'
 import { SmokeCleanup } from './cleanup'
 import {
   reportSmokeFailureEvidence,
+  type SmokeFailureCheckpoint,
   type SmokeFailurePhase,
   type SmokeOwnedResourceEvidence,
 } from './failure-evidence.mts'
@@ -280,8 +281,10 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
   const harnessProfilesPath = joinHostPath(smokeRoot, '.hvir-smoke-harness-profiles.json')
   let scenarioFailed = false
   let failurePhase: SmokeFailurePhase = 'resources-created'
+  let failureCheckpoint: SmokeFailureCheckpoint | null = null
   const recordSmokePhase = (phase: SmokeFailurePhase): void => {
     failurePhase = phase
+    failureCheckpoint = null
     reportSmokeFailureEvidence(
       phase,
       smokeOwnedResourceEvidence(
@@ -290,6 +293,19 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
         stopSmokeWatch !== undefined,
         rendererResources,
       ),
+    )
+  }
+  const recordSmokeCheckpoint = (checkpoint: SmokeFailureCheckpoint): void => {
+    failureCheckpoint = checkpoint
+    reportSmokeFailureEvidence(
+      failurePhase,
+      smokeOwnedResourceEvidence(
+        smokeWindow,
+        supervisor,
+        stopSmokeWatch !== undefined,
+        rendererResources,
+      ),
+      checkpoint,
     )
   }
   recordSmokePhase(failurePhase)
@@ -665,6 +681,7 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
         htmlPreviews,
         root: smokeRoot,
         host,
+        checkpoint: recordSmokeCheckpoint,
       })
       console.log(`[smoke] renderer authority lifecycle OK (${result})`)
       console.log('HVIR_SMOKE_OK')
@@ -1511,7 +1528,16 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
     return 0
   } catch (err) {
     scenarioFailed = true
-    recordSmokePhase(failurePhase)
+    reportSmokeFailureEvidence(
+      failurePhase,
+      smokeOwnedResourceEvidence(
+        smokeWindow,
+        supervisor,
+        stopSmokeWatch !== undefined,
+        rendererResources,
+      ),
+      failureCheckpoint,
+    )
     console.error('HVIR_SMOKE_FAIL', err)
     return 1
   } finally {

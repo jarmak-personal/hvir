@@ -3,6 +3,7 @@ import { constants as osConstants } from 'node:os'
 import { join, resolve } from 'node:path'
 
 import {
+  SMOKE_FAILURE_CHECKPOINTS,
   SMOKE_FAILURE_PHASES,
   type SmokeFailureEvidence,
 } from '../src/main/smoke/failure-evidence.mts'
@@ -149,10 +150,12 @@ function parseSmokeFailureEvidence(value: string): SmokeFailureEvidence {
 
 function validateSmokeFailureEvidence(parsed: unknown): SmokeFailureEvidence {
   if (!isRecord(parsed)) throw new Error('Smoke failure evidence must be an object')
-  requireExactKeys(parsed, ['owners', 'phase', 'schema'])
+  requireExactKeys(parsed, ['checkpoint', 'owners', 'phase', 'schema'])
   if (
     parsed.schema !== 1 ||
     !SMOKE_FAILURE_PHASES.includes(parsed.phase as never) ||
+    (parsed.checkpoint !== null &&
+      !SMOKE_FAILURE_CHECKPOINTS.includes(parsed.checkpoint as never)) ||
     !isRecord(parsed.owners)
   ) {
     throw new Error('Smoke failure evidence envelope was invalid')
