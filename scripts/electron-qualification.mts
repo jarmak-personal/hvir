@@ -10,12 +10,12 @@ import type { RequiredElectronSuiteResult } from './run-required-electron-suite.
 export const QUALIFICATION_CONFIDENCE = 0.95
 export const QUALIFICATION_FAILURE_TARGET = 0.005
 export const QUALIFICATION_INVOCATIONS_PER_PLATFORM = 598
-export const WEEKLY_INVOCATIONS_PER_PLATFORM = 20
+export const SAMPLE_INVOCATIONS_PER_PLATFORM = 20
 export const QUALIFICATION_PARTITION_SIZE = 1
 export const QUALIFICATION_MATRIX_BATCH_SIZE = 240
 export const QUALIFICATION_MATRIX_BATCH_COUNT = 5
 
-export type ElectronQualificationMode = 'qualification' | 'weekly'
+export type ElectronQualificationMode = 'qualification' | 'sample'
 
 export interface ElectronQualificationPlanEntry {
   readonly platform: RequiredElectronPlatform
@@ -99,7 +99,7 @@ export interface ElectronQualificationSummary {
   readonly schema: 1
   readonly mode: ElectronQualificationMode
   readonly confidenceClaim:
-    'one-sided-95-percent-upper-bound' | 'weekly-regression-signal-only'
+    'one-sided-95-percent-upper-bound' | 'manual-sample-only'
   readonly sourceSha: string
   readonly passed: boolean
   readonly platforms: readonly ElectronQualificationPlatformSummary[]
@@ -127,7 +127,7 @@ export function createElectronQualificationPlan(options: {
   const invocationsPerPlatform =
     options.mode === 'qualification'
       ? QUALIFICATION_INVOCATIONS_PER_PLATFORM
-      : WEEKLY_INVOCATIONS_PER_PLATFORM
+      : SAMPLE_INVOCATIONS_PER_PLATFORM
   const platformEntries = REQUIRED_ELECTRON_PLATFORMS.map((platform) =>
     partitionPlatform(platform, invocationsPerPlatform),
   )
@@ -320,7 +320,7 @@ export function combineElectronQualificationResults(
     confidenceClaim:
       plan.mode === 'qualification'
         ? 'one-sided-95-percent-upper-bound'
-        : 'weekly-regression-signal-only',
+        : 'manual-sample-only',
     sourceSha: plan.sourceSha,
     passed:
       evidenceProblems.length === 0 && platforms.every((platform) => platform.passed),
@@ -412,7 +412,7 @@ function parsePartitionResult(
   value: unknown,
 ): ElectronQualificationPartitionResult | undefined {
   if (!isRecord(value) || value.schema !== 1) return undefined
-  if (value.mode !== 'qualification' && value.mode !== 'weekly') return undefined
+  if (value.mode !== 'qualification' && value.mode !== 'sample') return undefined
   if (!isSourceSha(value.sourceSha)) return undefined
   if (!REQUIRED_ELECTRON_PLATFORMS.includes(value.platform as RequiredElectronPlatform)) {
     return undefined
@@ -523,7 +523,7 @@ export function formatElectronQualificationSummary(
   summary: ElectronQualificationSummary,
 ): string {
   const lines = [
-    `# Electron ${summary.mode === 'qualification' ? 'qualification' : 'weekly regression signal'}`,
+    `# Electron ${summary.mode === 'qualification' ? 'qualification' : 'manual sample'}`,
     '',
     `Source: \`${summary.sourceSha}\``,
     '',
@@ -537,9 +537,9 @@ export function formatElectronQualificationSummary(
     ),
     '',
   ]
-  if (summary.mode === 'weekly') {
+  if (summary.mode === 'sample') {
     lines.push(
-      'This 20-invocation sample is a regression signal only; it does not establish the 0.5% qualification target.',
+      'This manually dispatched 20-invocation-per-platform sample is screening evidence only; it does not establish the 0.5% qualification target.',
       '',
     )
   }

@@ -78,9 +78,9 @@ describe('Electron reliability qualification planning', () => {
     ).toThrow('cannot be replaced')
   })
 
-  it('plans the weekly twenty-run sample as regression evidence only', () => {
+  it('plans a manually dispatched twenty-run sample as screening evidence only', () => {
     const plan = createElectronQualificationPlan({
-      mode: 'weekly',
+      mode: 'sample',
       sourceSha,
       reviewedSourceSha: sourceSha,
       runAttempt: 2,
@@ -92,7 +92,7 @@ describe('Electron reliability qualification planning', () => {
     ).toEqual([40, 0, 0, 0, 0])
     const summary = combineElectronQualificationResults(plan, passingArtifacts(plan))
     expect(summary.passed).toBe(true)
-    expect(summary.confidenceClaim).toBe('weekly-regression-signal-only')
+    expect(summary.confidenceClaim).toBe('manual-sample-only')
     expect(summary.platforms[0]?.oneSided95UpperFailureProbability).toBeGreaterThan(0.1)
   })
 })
@@ -137,7 +137,7 @@ describe('Electron reliability qualification statistics and accounting', () => {
 
   it('counts a missing infrastructure partition and every missing invocation as failures', () => {
     const plan = createElectronQualificationPlan({
-      mode: 'weekly',
+      mode: 'sample',
       sourceSha,
       reviewedSourceSha: sourceSha,
       runAttempt: 1,
@@ -156,7 +156,7 @@ describe('Electron reliability qualification statistics and accounting', () => {
 
   it('counts an interrupted invocation whose initial record has no outcome', () => {
     const plan = createElectronQualificationPlan({
-      mode: 'weekly',
+      mode: 'sample',
       sourceSha,
       reviewedSourceSha: sourceSha,
       runAttempt: 1,
@@ -172,7 +172,7 @@ describe('Electron reliability qualification statistics and accounting', () => {
 
   it('fails closed when passing evidence changes the selected scenarios', () => {
     const plan = createElectronQualificationPlan({
-      mode: 'weekly',
+      mode: 'sample',
       sourceSha,
       reviewedSourceSha: sourceSha,
       runAttempt: 1,

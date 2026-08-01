@@ -4,20 +4,17 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: Evidence mode (weekly is a 20-run regression signal, not qualification)
+        description: Evidence mode (sample is manual screening, not qualification)
         required: true
         default: qualification
         type: choice
         options:
           - qualification
-          - weekly
+          - sample
       source_sha:
         description: Reviewed 40-character source SHA (must equal the selected ref HEAD)
         required: true
         type: string
-  schedule:
-    - cron: '23 6 * * 2'
-
 permissions:
   contents: read
 
@@ -59,9 +56,9 @@ jobs:
       - name: Create the fixed qualification plan
         id: plan
         env:
-          HVIR_QUALIFICATION_MODE: ${{ github.event_name == 'schedule' && 'weekly' || inputs.mode }}
+          HVIR_QUALIFICATION_MODE: ${{ inputs.mode }}
           HVIR_QUALIFICATION_SOURCE_SHA: ${{ github.sha }}
-          HVIR_QUALIFICATION_REVIEWED_SHA: ${{ github.event_name == 'schedule' && github.sha || inputs.source_sha }}
+          HVIR_QUALIFICATION_REVIEWED_SHA: ${{ inputs.source_sha }}
           HVIR_QUALIFICATION_RUN_ATTEMPT: ${{ github.run_attempt }}
           HVIR_QUALIFICATION_PLAN_PATH: ${{ runner.temp }}/electron-plan/plan.json
         run: node scripts/run-electron-qualification.mts plan
@@ -213,7 +210,7 @@ jobs:
           if-no-files-found: error
           retention-days: 90
 
-      - name: Enforce the qualification or weekly regression result
+      - name: Enforce the qualification or manual sample result
         if: always()
         env:
           HVIR_QUALIFICATION_SUMMARY_DIR: ${{ runner.temp }}/electron-summary

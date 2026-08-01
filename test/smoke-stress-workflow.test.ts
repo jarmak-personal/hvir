@@ -50,7 +50,6 @@ const parsed = parse(workflow) as {
         source_sha: { required: boolean; type: string }
       }
     }
-    schedule: unknown
   }
   permissions: Record<string, string>
   concurrency: { group: string; 'cancel-in-progress': boolean }
@@ -63,20 +62,20 @@ const parsedPartition = parse(partitionWorkflow) as {
 }
 
 describe('Electron reliability qualification workflow', () => {
-  it('fixes a reviewed SHA and plans qualification or weekly evidence', () => {
+  it('fixes a reviewed SHA and plans only explicitly dispatched evidence', () => {
     expect(parsed.on.workflow_dispatch.inputs.mode).toEqual({
       description:
-        'Evidence mode (weekly is a 20-run regression signal, not qualification)',
+        'Evidence mode (sample is manual screening, not qualification)',
       required: true,
       default: 'qualification',
       type: 'choice',
-      options: ['qualification', 'weekly'],
+      options: ['qualification', 'sample'],
     })
     expect(parsed.on.workflow_dispatch.inputs.source_sha).toMatchObject({
       required: true,
       type: 'string',
     })
-    expect(parsed.on).toHaveProperty('schedule')
+    expect(parsed.on).not.toHaveProperty('schedule')
     expect(parsed.on).not.toHaveProperty('pull_request')
     expect(parsed.permissions).toEqual({ contents: 'read' })
     expect(parsed.concurrency['cancel-in-progress']).toBe(false)
@@ -93,9 +92,11 @@ describe('Electron reliability qualification workflow', () => {
       },
     })
     expect(planStep?.env?.HVIR_QUALIFICATION_MODE).toBe(
-      "${{ github.event_name == 'schedule' && 'weekly' || inputs.mode }}",
+      '${{ inputs.mode }}',
     )
-    expect(planStep?.env?.HVIR_QUALIFICATION_REVIEWED_SHA).toContain('inputs.source_sha')
+    expect(planStep?.env?.HVIR_QUALIFICATION_REVIEWED_SHA).toBe(
+      '${{ inputs.source_sha }}',
+    )
   })
 
   it('allocates one observation per runner in bounded sequential matrix batches', () => {

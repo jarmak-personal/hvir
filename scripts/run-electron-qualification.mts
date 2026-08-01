@@ -239,8 +239,8 @@ async function readJson<T>(path: string): Promise<T> {
 }
 
 function qualificationMode(value: string): ElectronQualificationMode {
-  if (value === 'qualification' || value === 'weekly') return value
-  throw new Error('Qualification mode must be qualification or weekly')
+  if (value === 'qualification' || value === 'sample') return value
+  throw new Error('Qualification mode must be qualification or sample')
 }
 
 function requiredEnvironment(name: string): string {
