@@ -98,8 +98,11 @@ export async function runNativePtySmoke(
             parts: [
               {
                 kind: 'literal',
+                // Keep the same noninteractive shell blocked after the sentinel.
+                // Replacing its process image here races the production SIGHUP
+                // lifecycle with shell startup instead of testing node-pty.
                 value:
-                  'read trigger; printf hvir-profile-smoke:; printenv HVIR_PROFILE_SMOKE; exec /bin/sh',
+                  'read trigger; printf hvir-profile-smoke:; printenv HVIR_PROFILE_SMOKE; read hold',
               },
             ],
           },
