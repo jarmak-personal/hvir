@@ -3,7 +3,7 @@ import { BrowserWindow } from 'electron'
 import { joinHostPath, type HostPath } from '../../shared'
 import { resolveHarnessLaunch } from '../harness/harness-launch'
 import { HarnessProfileStore } from '../harness/harness-profile-store'
-import { harnessProvider } from '../harness/harness-provider'
+import { harnessProvider, plainShellProvider } from '../harness/harness-provider'
 import { LocalHost } from '../project-host'
 import { PtySupervisor } from '../pty/pty-supervisor'
 import { SmokeCleanup } from './cleanup'
@@ -17,8 +17,11 @@ import { stopPtyAndWaitForExit, waitForPtyOutput } from './pty-lifecycle'
 const MAIN_SMOKE_OWNER_ID = 0
 const CUSTOM_PROFILE_PROVIDER_ID = 'custom'
 const CUSTOM_PROFILE_OUTPUT = 'hvir-profile-smoke:structured'
+const MACOS_LOGIN_SHELL = '/bin/zsh'
+const MACOS_LOGIN_SHELL_OUTPUT =
+  'hvir-login-shell:login|interactive|hvir-login-path-ok|on|on'
 
-/** Exercise a production-composed Custom profile through Electron's native node-pty ABI. */
+/** Exercise production-composed harnesses through Electron's native node-pty ABI. */
 export async function runNativePtySmoke(
   projectRoot: HostPath,
   interruptionCheckpoint: SmokeInterruptionCheckpoint,
@@ -26,10 +29,14 @@ export async function runNativePtySmoke(
   const host = new LocalHost()
   const supervisor = new PtySupervisor()
   const profileStorePath = joinHostPath(projectRoot, '.hvir-smoke-native-profile.json')
+  const loginShellFixtureRoot = joinHostPath(projectRoot, '.hvir-smoke-login-shell')
   const cleanup = new SmokeCleanup((name) => interruptionCheckpoint.disposed(name))
   cleanup.defer('local host', () => host.dispose())
   cleanup.defer('harness profile fixture', () =>
     host.exec('rm', ['-f', '--', profileStorePath.path]).then(() => undefined),
+  )
+  cleanup.defer('login shell fixture', () =>
+    host.exec('rm', ['-rf', '--', loginShellFixtureRoot.path]).then(() => undefined),
   )
   cleanup.defer('PTY supervisor', () => supervisor.disposeAllAndWait())
 
@@ -157,10 +164,22 @@ export async function runNativePtySmoke(
     }
     await profiles.delete(acknowledgedProfile.id)
     await profiles.flush()
+    const loginShellPid =
+      process.platform === 'darwin'
+        ? await runMacosLoginShellSmoke(
+            host,
+            supervisor,
+            projectRoot,
+            loginShellFixtureRoot,
+          )
+        : undefined
     assertNoWindows('after native PTY exit')
     console.log(
       `[smoke] Custom profile + native node-pty ABI OK (pid ${terminal.pid} · no window)`,
     )
+    if (loginShellPid !== undefined) {
+      console.log(`[smoke] Bare Shell login environment OK (pid ${loginShellPid})`)
+    }
     console.log('HVIR_SMOKE_OK')
     return 0
   } catch (error) {
@@ -193,6 +212,76 @@ export async function runNativePtySmoke(
       }
     }
   }
+}
+
+async function runMacosLoginShellSmoke(
+  host: LocalHost,
+  supervisor: PtySupervisor,
+  projectRoot: HostPath,
+  fixtureRoot: HostPath,
+): Promise<number> {
+  const loginBin = joinHostPath(fixtureRoot, 'login-bin')
+  const executable = joinHostPath(loginBin, 'hvir-login-path')
+  await host.exec('rm', ['-rf', '--', fixtureRoot.path])
+  await host.exec('mkdir', ['-p', '--', loginBin.path])
+  await host.writeFile(
+    joinHostPath(fixtureRoot, '.zprofile'),
+    'export PATH="$HOME/login-bin:$PATH"\n' +
+      'export HVIR_LOGIN_STARTUP="${HVIR_LOGIN_STARTUP:+$HVIR_LOGIN_STARTUP,}login"\n',
+  )
+  await host.writeFile(
+    joinHostPath(fixtureRoot, '.zshrc'),
+    'export HVIR_INTERACTIVE_STARTUP="${HVIR_INTERACTIVE_STARTUP:+$HVIR_INTERACTIVE_STARTUP,}interactive"\n',
+  )
+  await host.writeFile(executable, '#!/bin/sh\nprintf hvir-login-path-ok\n')
+  await host.exec('chmod', ['0755', executable.path])
+
+  const spec = plainShellProvider.launch({
+    sessionId: 'plain-shell-login-smoke',
+    cwd: projectRoot,
+    cols: 80,
+    rows: 24,
+    defaultShell: MACOS_LOGIN_SHELL,
+  })
+  const terminal = await supervisor.spawn({
+    host,
+    provider: plainShellProvider,
+    launchSpec: {
+      ...spec,
+      env: {
+        HOME: fixtureRoot.path,
+        PATH: '/usr/bin:/bin:/usr/sbin:/sbin',
+      },
+    },
+    cwd: projectRoot,
+    workspaceRoot: projectRoot,
+    ownerId: MAIN_SMOKE_OWNER_ID,
+    sessionId: 'plain-shell-login-smoke',
+    cols: 80,
+    rows: 24,
+  })
+  await waitForPtyOutput({
+    supervisor,
+    terminal,
+    expected: MACOS_LOGIN_SHELL_OUTPUT,
+    scenario: 'Bare Shell login environment output',
+    trigger: () =>
+      supervisor.write(
+        terminal.id,
+        terminal.ownerId,
+        `printf 'hvir-login-shell:%s|%s|' "$HVIR_LOGIN_STARTUP" "$HVIR_INTERACTIVE_STARTUP"; hvir-login-path; printf '|%s|%s\\n' "$options[login]" "$options[interactive]"; exit\n`,
+        terminal.ownerGeneration,
+      ),
+  })
+  await stopPtyAndWaitForExit({
+    supervisor,
+    terminal,
+    scenario: 'Bare Shell login environment exit',
+  })
+  if (supervisor.get(terminal.id)) {
+    throw new Error(`Bare Shell remained supervised after exit (pid=${terminal.pid})`)
+  }
+  return terminal.pid
 }
 
 function assertNoWindows(phase: string): void {

@@ -18,6 +18,12 @@ const context = {
 }
 
 describe('Harness providers', () => {
+  it('launches and recreates Bare Shell as the host login shell', () => {
+    const expected = { file: context.defaultShell, args: ['-l'] }
+    expect(plainShellProvider.launch(context)).toEqual(expected)
+    expect(plainShellProvider.resume(context)).toEqual(expected)
+  })
+
   it('pre-assigns and deterministically resumes Claude Code sessions', () => {
     expect(claudeCodeProvider.launch(context)).toEqual({
       file: 'claude',
