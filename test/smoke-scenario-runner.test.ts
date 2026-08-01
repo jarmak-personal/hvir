@@ -1,16 +1,21 @@
 import { readFileSync } from 'node:fs'
+import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, onTestFinished, vi } from 'vitest'
 
 import {
   DEFAULT_SMOKE_SCENARIOS,
   classifySmokeAttempt,
   formatSmokeScenarioResults,
+  invokeSmokeScenario,
   parseSmokeRepetitionCount,
   runSmokeScenarioGroups,
   selectedSmokeScenarios,
   smokeScenarioEnvironment,
   smokeAttemptTimeoutMs,
+  writeSmokeFailureArtifactWithinDeadline,
   type SmokeScenarioName,
 } from '../scripts/run-smoke-scenarios.mts'
 import {
@@ -207,6 +212,132 @@ describe('Electron smoke result aggregation', () => {
   it('keeps every attempt bounded while allowing the capacity sampling window', () => {
     expect(smokeAttemptTimeoutMs('pty-native')).toBe(180_000)
     expect(smokeAttemptTimeoutMs('capacity')).toBe(600_000)
+  })
+})
+
+describe('Electron smoke process failure artifacts', () => {
+  async function invokeFixture(options: {
+    command: string
+    args?: readonly string[]
+    timeoutMs?: number
+  }) {
+    const directory = await mkdtemp(join(tmpdir(), 'hvir-smoke-launcher-'))
+    onTestFinished(() => rm(directory, { recursive: true, force: true }))
+    vi.mocked(console.error).mockImplementation(() => undefined)
+
+    const result = await invokeSmokeScenario('web-pane', 1, 1, {
+      ...options,
+      artifactDirectory: directory,
+      environment: {},
+    })
+    const artifact = JSON.parse(
+      await readFile(join(directory, 'web-pane-iteration-1-of-1.json'), 'utf8'),
+    ) as {
+      schema: number
+      scenario: string
+      iteration: number
+      repetitionCount: number
+      process: {
+        exitCode: number | null
+        signal: NodeJS.Signals | null
+        spawnError: boolean
+      }
+      semanticSnapshot: { phase: string } | null
+    }
+    return { artifact, result }
+  }
+
+  it('retains spawn, nonzero-exit, and signal outcomes', async () => {
+    const spawnFailure = await invokeFixture({
+      command: 'hvir-smoke-command-that-does-not-exist',
+      timeoutMs: 1_000,
+    })
+    expect(spawnFailure.artifact.process).toEqual({
+      exitCode: null,
+      signal: null,
+      spawnError: true,
+    })
+
+    const nonzero = await invokeFixture({
+      command: process.execPath,
+      args: ['-e', 'process.exit(7)'],
+      timeoutMs: 1_000,
+    })
+    expect(nonzero.artifact.process).toEqual({
+      exitCode: 7,
+      signal: null,
+      spawnError: false,
+    })
+
+    const signaled = await invokeFixture({
+      command: process.execPath,
+      args: ['-e', "process.kill(process.pid, 'SIGTERM')"],
+      timeoutMs: 1_000,
+    })
+    expect(signaled.artifact.process).toEqual({
+      exitCode: null,
+      signal: 'SIGTERM',
+      spawnError: false,
+    })
+  })
+
+  it('kills a never-settling attempt and retains its last completed phase first', async () => {
+    const evidence = JSON.stringify({
+      schema: 1,
+      phase: 'renderer-ready',
+      owners: {
+        windowCount: 1,
+        ptyCount: 0,
+        watcherActive: true,
+        rendererOwnerActive: true,
+        rendererGeneration: 2,
+      },
+    })
+    const fixture = await invokeFixture({
+      command: process.execPath,
+      args: [
+        '-e',
+        `process.stderr.write(${JSON.stringify(`[smoke:failure-evidence] ${evidence}\n`)}); setInterval(() => undefined, 1_000)`,
+      ],
+      timeoutMs: 500,
+    })
+
+    expect(fixture.result).toMatchObject({
+      status: 'failed',
+      signal: 'SIGKILL',
+      error: 'process timed out',
+    })
+    expect(fixture.artifact).toMatchObject({
+      schema: 1,
+      scenario: 'web-pane',
+      iteration: 1,
+      repetitionCount: 1,
+    })
+    expect(fixture.artifact.process).toEqual({
+      exitCode: null,
+      signal: 'SIGKILL',
+      spawnError: false,
+    })
+    expect(fixture.artifact.semanticSnapshot).toEqual({
+      schema: 1,
+      phase: 'renderer-ready',
+      owners: {
+        windowCount: 1,
+        ptyCount: 0,
+        watcherActive: true,
+        rendererOwnerActive: true,
+        rendererGeneration: 2,
+      },
+    })
+  })
+
+  it('bounds a stalled artifact writer independently of process termination', async () => {
+    await expect(
+      writeSmokeFailureArtifactWithinDeadline(
+        () => new Promise<string>(() => undefined),
+        10,
+      ),
+    ).rejects.toThrow('artifact retention timed out')
   })
 })
 

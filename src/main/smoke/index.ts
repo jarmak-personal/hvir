@@ -280,6 +280,19 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
   const harnessProfilesPath = joinHostPath(smokeRoot, '.hvir-smoke-harness-profiles.json')
   let scenarioFailed = false
   let failurePhase: SmokeFailurePhase = 'resources-created'
+  const recordSmokePhase = (phase: SmokeFailurePhase): void => {
+    failurePhase = phase
+    reportSmokeFailureEvidence(
+      phase,
+      smokeOwnedResourceEvidence(
+        smokeWindow,
+        supervisor,
+        stopSmokeWatch !== undefined,
+        rendererResources,
+      ),
+    )
+  }
+  recordSmokePhase(failurePhase)
   try {
     if (mode === 'workflow') {
       const echo = await worker.request(ECHO_REQUEST_TYPE, { text: 'ping' })
@@ -289,7 +302,7 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
     }
     // Exercise the real renderer → main → worker path.
     await host.connect()
-    failurePhase = 'host-connected'
+    recordSmokePhase('host-connected')
     await host.exec('rm', ['-f', '--', harnessProfilesPath.path])
     const liveReloadBefore = `${Array.from({ length: 240 }, (_, index) => `line ${index}`).join('\n')}\n`
     await host.writeFile(liveReloadPath, liveReloadBefore)
@@ -494,7 +507,7 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
       recursive: true,
       excludeDirectoryNames: ['.git', 'node_modules', 'out', 'dist'],
     })
-    failurePhase = 'watch-active'
+    recordSmokePhase('watch-active')
     if (mode === 'workflow') {
       const result = await host.exec('/bin/echo', ['hvir'])
       if (result.stdout.trim() !== 'hvir') {
@@ -516,7 +529,7 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
     const initialRendererGeneration = rendererResources.currentOwner(
       win.webContents.id,
     ).generation
-    failurePhase = 'window-ready'
+    recordSmokePhase('window-ready')
     console.log('[smoke] window ready-to-show OK')
     // A real preload round-trip establishes more than ready-to-show paint.
     const rendererResult = (await withTimeout(
@@ -539,7 +552,7 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
       throw new Error('renderer echo ran in the main process')
     }
     console.log('[smoke] renderer IPC + echo worker round-trip OK')
-    failurePhase = 'renderer-ready'
+    recordSmokePhase('renderer-ready')
     const predecessorSelectionObserved = await recordRendererIsolationSelection(
       win,
       interruptionCheckpoint,
@@ -550,7 +563,7 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
       watcherActive: stopSmokeWatch !== undefined,
       predecessorSelectionObserved,
     })
-    failurePhase = 'scenario-active'
+    recordSmokePhase('scenario-active')
     if (await verifyDevelopmentPerformanceMode(win, mode)) return 0
     if (mode === 'renderer-recovery') {
       const result = await verifyUnresponsiveRendererRecovery({
@@ -1498,15 +1511,7 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
     return 0
   } catch (err) {
     scenarioFailed = true
-    reportSmokeFailureEvidence(
-      failurePhase,
-      smokeOwnedResourceEvidence(
-        smokeWindow,
-        supervisor,
-        stopSmokeWatch !== undefined,
-        rendererResources,
-      ),
-    )
+    recordSmokePhase(failurePhase)
     console.error('HVIR_SMOKE_FAIL', err)
     return 1
   } finally {

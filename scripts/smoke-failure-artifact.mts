@@ -1,11 +1,15 @@
 import { mkdir, writeFile } from 'node:fs/promises'
+import { constants as osConstants } from 'node:os'
 import { join, resolve } from 'node:path'
 
 import {
   SMOKE_FAILURE_PHASES,
   type SmokeFailureEvidence,
 } from '../src/main/smoke/failure-evidence.mts'
-import type { ElectronSmokeScenario } from '../src/main/smoke/scenario-selection.mts'
+import {
+  ELECTRON_SMOKE_SCENARIOS,
+  type ElectronSmokeScenario,
+} from '../src/main/smoke/scenario-selection.mts'
 
 const FAILURE_EVIDENCE_PREFIX = '[smoke:failure-evidence] '
 const MAX_PARTIAL_LINE_LENGTH = 4_096
@@ -76,7 +80,7 @@ export class SmokeAttemptEvidenceCollector {
     if (line.startsWith('HVIR_SMOKE_FAIL')) this.logs.failureSentinel = true
     if (line.startsWith('HVIR_STARTUP_FAIL')) this.logs.startupFailure = true
     if (line.startsWith('HVIR_SMOKE_CLEANUP_FAIL')) this.logs.cleanupFailure = true
-    if (!this.snapshot && line.startsWith(FAILURE_EVIDENCE_PREFIX)) {
+    if (line.startsWith(FAILURE_EVIDENCE_PREFIX)) {
       try {
         this.snapshot = parseSmokeFailureEvidence(
           line.slice(FAILURE_EVIDENCE_PREFIX.length),
@@ -121,6 +125,7 @@ export async function writeSmokeFailureArtifact(
   artifact: SmokeFailureArtifact,
 ): Promise<string | undefined> {
   if (!directory) return undefined
+  validateSmokeFailureArtifact(artifact)
   const artifactDirectory = resolve(directory)
   await mkdir(artifactDirectory, { recursive: true })
   const path = join(
@@ -139,7 +144,10 @@ function parseSmokeFailureEvidence(value: string): SmokeFailureEvidence {
   if (value.length > MAX_PARTIAL_LINE_LENGTH) {
     throw new Error('Smoke failure evidence exceeded its line bound')
   }
-  const parsed: unknown = JSON.parse(value)
+  return validateSmokeFailureEvidence(JSON.parse(value) as unknown)
+}
+
+function validateSmokeFailureEvidence(parsed: unknown): SmokeFailureEvidence {
   if (!isRecord(parsed)) throw new Error('Smoke failure evidence must be an object')
   requireExactKeys(parsed, ['owners', 'phase', 'schema'])
   if (
@@ -177,6 +185,75 @@ function parseSmokeFailureEvidence(value: string): SmokeFailureEvidence {
     throw new Error('Smoke failure renderer ownership fields disagreed')
   }
   return parsed as unknown as SmokeFailureEvidence
+}
+
+function validateSmokeFailureArtifact(
+  artifact: unknown,
+): asserts artifact is SmokeFailureArtifact {
+  if (!isRecord(artifact)) throw new Error('Smoke failure artifact must be an object')
+  requireExactKeys(artifact, [
+    'applicationLogs',
+    'durationMs',
+    'expectedOutcome',
+    'iteration',
+    'process',
+    'repetitionCount',
+    'scenario',
+    'schema',
+    'semanticSnapshot',
+  ])
+  if (
+    artifact.schema !== 1 ||
+    !ELECTRON_SMOKE_SCENARIOS.includes(artifact.scenario as never) ||
+    artifact.expectedOutcome !== 'exit-zero-with-success-sentinel'
+  ) {
+    throw new Error('Smoke failure artifact envelope was invalid')
+  }
+  boundedCount(artifact.iteration as number)
+  boundedCount(artifact.repetitionCount as number)
+  boundedDuration(artifact.durationMs as number)
+
+  if (!isRecord(artifact.process)) {
+    throw new Error('Smoke failure process outcome was invalid')
+  }
+  requireExactKeys(artifact.process, ['exitCode', 'signal', 'spawnError'])
+  if (
+    (artifact.process.exitCode !== null &&
+      (!Number.isSafeInteger(artifact.process.exitCode) ||
+        (artifact.process.exitCode as number) < 0 ||
+        (artifact.process.exitCode as number) > 255)) ||
+    (artifact.process.signal !== null &&
+      (typeof artifact.process.signal !== 'string' ||
+        !Object.hasOwn(osConstants.signals, artifact.process.signal))) ||
+    typeof artifact.process.spawnError !== 'boolean'
+  ) {
+    throw new Error('Smoke failure process outcome was invalid')
+  }
+  const hasExit = artifact.process.exitCode !== null
+  const hasSignal = artifact.process.signal !== null
+  if (artifact.process.spawnError ? hasExit || hasSignal : hasExit === hasSignal) {
+    throw new Error('Smoke failure process outcome was inconsistent')
+  }
+
+  if (!isRecord(artifact.applicationLogs)) {
+    throw new Error('Smoke failure log evidence was invalid')
+  }
+  requireExactKeys(artifact.applicationLogs, [
+    'cleanupFailure',
+    'evidenceRejected',
+    'failureSentinel',
+    'startupFailure',
+    'successSentinel',
+  ])
+  if (
+    Object.values(artifact.applicationLogs).some((value) => typeof value !== 'boolean')
+  ) {
+    throw new Error('Smoke failure log evidence was invalid')
+  }
+
+  if (artifact.semanticSnapshot !== null) {
+    validateSmokeFailureEvidence(artifact.semanticSnapshot)
+  }
 }
 
 function boundedCount(value: number): number {
