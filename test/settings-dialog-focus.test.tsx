@@ -214,9 +214,32 @@ describe('SettingsDialog section workflow', () => {
 
     const checkbox = document.querySelector<HTMLInputElement>('#settings-rich-output')
     expect(checkbox?.checked).toBe(false)
+    expect(document.querySelector('[aria-label="Rich output preview"]')).toBeNull()
     act(() => checkbox?.click())
     expect(checkbox?.checked).toBe(true)
     expect(onSave).not.toHaveBeenCalled()
+    const preview = document.querySelector<HTMLElement>(
+      '[aria-label="Rich output preview"]',
+    )
+    expect(preview?.textContent).toContain('▸ A clearer agent response')
+    expect(preview?.textContent).not.toContain('## A clearer agent response')
+    expect(preview?.querySelector('.terminal-rich-span.strong')?.textContent).toBe(
+      'structured response',
+    )
+    expect(preview?.querySelector('.terminal-rich-span.code')?.textContent).toBe(
+      'inline code',
+    )
+    expect(preview?.textContent).toContain(
+      'Visual preview only · provider availability is evaluated separately',
+    )
+
+    changeValue(
+      document.querySelector<HTMLInputElement>('#settings-terminal-text-size')!,
+      '18',
+    )
+    expect(
+      preview?.querySelector<HTMLElement>('.terminal-rich-lane')?.style.fontSize,
+    ).toBe('18px')
 
     await act(async () => {
       button('Save app settings').click()

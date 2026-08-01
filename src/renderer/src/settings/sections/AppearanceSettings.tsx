@@ -4,11 +4,14 @@ import type { AppTheme } from '../../theme'
 import { SettingsSection } from '../SettingsSection'
 import type { SettingsDraft } from '../settings-draft'
 import {
+  fontFamilyStack,
   MAX_INTERFACE_SCALE,
   MAX_TERMINAL_TEXT_SIZE,
   MIN_INTERFACE_SCALE,
   MIN_TERMINAL_TEXT_SIZE,
+  normalizeFontPreference,
 } from '../typography-settings'
+import { RichOutputPreview } from './RichOutputPreview'
 import { TypographyFontField } from './TypographyFontField'
 
 export function AppearanceSettings({
@@ -24,6 +27,16 @@ export function AppearanceSettings({
   const previewScale = Number(draft.interfaceScale)
   const interfacePreviewScale = Number.isFinite(previewScale) ? previewScale : 1
   const previewTerminalTextSize = Number(draft.terminalTextSize)
+  const terminalPreviewFontFamily = fontFamilyStack(
+    normalizeFontPreference({
+      mode: draft.monospaceFontMode,
+      family: draft.monospaceFontFamily,
+    }),
+    'monospace',
+  )
+  const terminalPreviewFontSize = Number.isFinite(previewTerminalTextSize)
+    ? previewTerminalTextSize
+    : 13
   return (
     <SettingsSection
       section="appearance"
@@ -79,6 +92,15 @@ export function AppearanceSettings({
             </small>
           </span>
         </label>
+        {draft.richOutput ? (
+          <div className="settings-rich-output-preview-field">
+            <span>Preview</span>
+            <RichOutputPreview
+              fontFamily={terminalPreviewFontFamily}
+              fontSize={terminalPreviewFontSize}
+            />
+          </div>
+        ) : null}
         <TypographyFontField
           id="settings-interface-font"
           label="Interface font"
