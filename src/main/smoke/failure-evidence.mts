@@ -13,6 +13,22 @@ export const SMOKE_FAILURE_PHASES = [
 export type SmokeFailurePhase = (typeof SMOKE_FAILURE_PHASES)[number]
 
 export const SMOKE_FAILURE_CHECKPOINTS = [
+  'web-pane-terminal-launch-awaiting',
+  'web-pane-terminal-launch-ready',
+  'web-pane-dashboard-listen-awaiting',
+  'web-pane-dashboard-listening',
+  'web-pane-route-activation-awaiting',
+  'web-pane-route-activated',
+  'web-pane-dashboard-request-awaiting',
+  'web-pane-dashboard-requested',
+  'web-pane-guest-ready-awaiting',
+  'web-pane-guest-ready',
+  'web-pane-route-revocation-awaiting',
+  'web-pane-route-revoked',
+  'web-pane-terminal-disposal-awaiting',
+  'web-pane-terminal-disposed',
+  'web-pane-dashboard-close-awaiting',
+  'web-pane-dashboard-closed',
   'renderer-recovery-route-opening',
   'renderer-recovery-route-opened',
   'renderer-recovery-exit-awaiting',
