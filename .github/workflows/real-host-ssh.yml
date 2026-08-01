@@ -72,7 +72,6 @@ jobs:
       HVIR_REAL_SSH_ROOT_PARENT: ${{ secrets.HVIR_REAL_SSH_ROOT_PARENT }}
       HVIR_REAL_SSH_PRIVATE_KEY: ${{ secrets.HVIR_REAL_SSH_PRIVATE_KEY }}
       HVIR_REAL_SSH_PASSPHRASE: ${{ secrets.HVIR_REAL_SSH_PASSPHRASE }}
-      HVIR_REAL_SSH_ARTIFACT_DIR: ${{ runner.temp }}/hvir-real-host-ssh
 
     steps:
       - name: Check out repository
@@ -88,6 +87,8 @@ jobs:
         run: npm ci
 
       - name: Exercise the explicitly configured real SSH host
+        env:
+          HVIR_REAL_SSH_ARTIFACT_DIR: ${{ runner.temp }}/hvir-real-host-ssh
         run: npm run acceptance:ssh:real-host
 
       - name: Upload bounded failure evidence

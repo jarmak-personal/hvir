@@ -52,7 +52,6 @@ jobs:
     env:
       HVIR_SMOKE_SCENARIO: ${{ matrix.scenario }}
       HVIR_SMOKE_REPEAT: ${{ github.event_name == 'schedule' && '20' || inputs.repeat }}
-      HVIR_SMOKE_ARTIFACT_DIR: ${{ runner.temp }}/hvir-smoke-artifacts
 
     steps:
       - name: Check out repository
@@ -69,10 +68,14 @@ jobs:
 
       - name: Run Linux stress attempts
         if: runner.os == 'Linux'
+        env:
+          HVIR_SMOKE_ARTIFACT_DIR: ${{ runner.temp }}/hvir-smoke-artifacts
         run: xvfb-run -a npm run smoke:scenario
 
       - name: Run macOS ARM64 stress attempts
         if: runner.os == 'macOS'
+        env:
+          HVIR_SMOKE_ARTIFACT_DIR: ${{ runner.temp }}/hvir-smoke-artifacts
         run: npm run smoke:scenario
 
       - name: Upload bounded failure evidence
