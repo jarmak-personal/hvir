@@ -1,0 +1,55 @@
+.path-copy-menu {
+  width: 200px;
+  z-index: 40;
+  position: fixed;
+  display: flex;
+  flex-direction: column;
+  padding: 4px;
+  border: 1px solid var(--border-strong);
+  border-radius: 5px;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 45%);
+  background: #1b1f26;
+}
+
+.path-copy-menu button {
+  min-height: 27px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: calc(11px * var(--hvir-interface-scale));
+  text-align: left;
+}
+
+.path-copy-menu button:hover,
+.path-copy-menu button:focus-visible {
+  outline: none;
+  background: var(--surface-hover);
+}
+
+.path-copy-menu button:disabled {
+  color: var(--text-muted);
+}
+
+.path-copy-feedback {
+  z-index: 41;
+  position: fixed;
+  right: 14px;
+  bottom: 14px;
+  max-width: min(360px, calc(100vw - 28px));
+  padding: 7px 10px;
+  border: 1px solid #3b4653;
+  border-radius: 5px;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 38%);
+  background: #1b222b;
+  color: #d7dde6;
+  font-size: calc(11px * var(--hvir-interface-scale));
+}
+
+.path-copy-feedback.error {
+  border-color: #6e3940;
+  background: #2a1b1f;
+  color: #f0b8be;
+}
