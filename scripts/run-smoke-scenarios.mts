@@ -10,6 +10,7 @@ import {
   parseElectronSmokeScenario,
   type ElectronSmokeScenario,
 } from '../src/main/smoke/scenario-selection.mts'
+import type { SmokeFailureCheckpoint } from '../src/main/smoke/failure-evidence.mts'
 
 export const DEFAULT_SMOKE_SCENARIOS = [
   'pty-native',
@@ -39,6 +40,16 @@ type InvokeSmokeScenario = (
 const MAX_SMOKE_REPETITIONS = 100
 const DEFAULT_SMOKE_ATTEMPT_TIMEOUT_MS = 180_000
 const CAPACITY_SMOKE_ATTEMPT_TIMEOUT_MS = 600_000
+const RENDERER_AUTHORITY_CHECKPOINT_TIMEOUT_MS = 15_000
+const RENDERER_AUTHORITY_PENDING_CHECKPOINTS = new Set<SmokeFailureCheckpoint>([
+  'renderer-authority-route-opening',
+  'renderer-authority-reload-awaiting',
+  'renderer-authority-replacement-ipc-awaiting',
+  'renderer-authority-route-revocation-awaiting',
+  'renderer-authority-preview-fetch-awaiting',
+  'renderer-authority-destruction-awaiting',
+  'renderer-authority-preview-revocation-awaiting',
+])
 const FAILURE_ARTIFACT_TIMEOUT_MS = 1_000
 
 export interface SmokeScenarioInvocationOptions {
@@ -47,6 +58,7 @@ export interface SmokeScenarioInvocationOptions {
   readonly cwd?: string
   readonly environment?: NodeJS.ProcessEnv
   readonly timeoutMs?: number
+  readonly checkpointTimeoutMs?: number
   readonly artifactDirectory?: string
 }
 
@@ -54,6 +66,19 @@ export function smokeAttemptTimeoutMs(scenario: SmokeScenarioName): number {
   return scenario === 'capacity'
     ? CAPACITY_SMOKE_ATTEMPT_TIMEOUT_MS
     : DEFAULT_SMOKE_ATTEMPT_TIMEOUT_MS
+}
+
+export function smokeCheckpointTimeoutMs(
+  scenario: SmokeScenarioName,
+  checkpoint: SmokeFailureCheckpoint | null,
+): number | undefined {
+  return (
+    scenario === 'renderer-authority' &&
+      checkpoint !== null &&
+      RENDERER_AUTHORITY_PENDING_CHECKPOINTS.has(checkpoint)
+  )
+    ? RENDERER_AUTHORITY_CHECKPOINT_TIMEOUT_MS
+    : undefined
 }
 
 export function parseSmokeRepetitionCount(value: string | undefined): number {
@@ -176,48 +201,78 @@ export function invokeSmokeScenario(
     )
     child.stdout.setEncoding('utf8')
     child.stderr.setEncoding('utf8')
+    let settled = false
+    const timers: {
+      attempt?: ReturnType<typeof setTimeout>
+      checkpoint?: ReturnType<typeof setTimeout>
+    } = {}
+    let activeCheckpoint: SmokeFailureCheckpoint | null = null
+    const clearTimers = (): void => {
+      if (timers.attempt) clearTimeout(timers.attempt)
+      if (timers.checkpoint) clearTimeout(timers.checkpoint)
+    }
+    const finishTimedOutAttempt = (error: string): void => {
+      if (settled) return
+      settled = true
+      clearTimers()
+      terminateSmokeAttempt(child.pid)
+      collector.finish()
+      const durationMs = performance.now() - startedAt
+      const result = {
+        status: 'failed',
+        signal: 'SIGKILL',
+        error,
+        durationMs,
+      } as const
+      void retainFailureArtifact(
+        {
+          scenario,
+          iteration,
+          repetitionCount,
+          durationMs,
+          exitCode: null,
+          signal: 'SIGKILL',
+          spawnError: false,
+          collector,
+        },
+        options.artifactDirectory,
+      ).finally(() => resolveResult(result))
+    }
+    const refreshCheckpointDeadline = (): void => {
+      const checkpoint = collector.evidence().snapshot?.checkpoint ?? null
+      if (checkpoint === activeCheckpoint) return
+      activeCheckpoint = checkpoint
+      if (timers.checkpoint) clearTimeout(timers.checkpoint)
+      timers.checkpoint = undefined
+      const timeoutMs = smokeCheckpointTimeoutMs(scenario, checkpoint)
+      if (timeoutMs === undefined) return
+      const effectiveTimeoutMs = options.checkpointTimeoutMs ?? timeoutMs
+      timers.checkpoint = setTimeout(
+        () =>
+          finishTimedOutAttempt(
+            `process timed out at ${checkpoint} after ${effectiveTimeoutMs}ms`,
+          ),
+        effectiveTimeoutMs,
+      )
+    }
     child.stdout.on('data', (chunk: string) => {
       process.stdout.write(chunk)
       collector.observe('stdout', chunk)
+      refreshCheckpointDeadline()
     })
     child.stderr.on('data', (chunk: string) => {
       process.stderr.write(chunk)
       collector.observe('stderr', chunk)
+      refreshCheckpointDeadline()
     })
-    let settled = false
-    const timer = setTimeout(
-      () => {
-        if (settled) return
-        settled = true
-        terminateSmokeAttempt(child.pid)
-        collector.finish()
-        const durationMs = performance.now() - startedAt
-        const result = {
-          status: 'failed',
-          signal: 'SIGKILL',
-          error: 'process timed out',
-          durationMs,
-        } as const
-        void retainFailureArtifact(
-          {
-            scenario,
-            iteration,
-            repetitionCount,
-            durationMs,
-            exitCode: null,
-            signal: 'SIGKILL',
-            spawnError: false,
-            collector,
-          },
-          options.artifactDirectory,
-        ).finally(() => resolveResult(result))
-      },
+    timers.attempt = setTimeout(
+      () => finishTimedOutAttempt('process timed out'),
       options.timeoutMs ?? smokeAttemptTimeoutMs(scenario),
     )
     child.once('error', () => {
       if (settled) return
       settled = true
-      clearTimeout(timer)
+      clearTimers()
       collector.finish()
       const durationMs = performance.now() - startedAt
       void retainFailureArtifact(
@@ -239,7 +294,7 @@ export function invokeSmokeScenario(
     child.once('close', (exitCode, signal) => {
       if (settled) return
       settled = true
-      clearTimeout(timer)
+      clearTimers()
       collector.finish()
       const durationMs = performance.now() - startedAt
       const successSentinel = collector.evidence().logs.successSentinel
