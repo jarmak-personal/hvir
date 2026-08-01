@@ -22,7 +22,7 @@ export async function verifyWorkspaceRemoteWorkflow(options: {
   readonly baseState: () => ProjectState
   readonly remoteState: () => ProjectState
   readonly getState: () => ProjectState
-  readonly setState: (state: ProjectState) => void
+  readonly setState: (state: ProjectState) => ProjectState
   readonly emitState: (state: ProjectState) => void
   readonly emitHostKeyPrompt: () => void
   readonly openedFolderSelections: readonly FolderSelection[]
@@ -48,8 +48,7 @@ export async function verifyWorkspaceRemoteWorkflow(options: {
     recovery,
   } = options
   const publish = (state: ProjectState): void => {
-    setState(state)
-    emitState(state)
+    emitState(setState(state))
   }
 
   try {

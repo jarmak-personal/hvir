@@ -121,6 +121,8 @@ export interface ProjectHostOption {
 }
 
 export interface ProjectState extends ProjectRootResponse {
+  /** Main-owned identity for ordering and deduplicating authoritative state. */
+  readonly revision: number
   readonly connectionState: HostConnectionState
   readonly watchTier: HostWatchTier
   readonly projects: readonly RegisteredProjectState[]

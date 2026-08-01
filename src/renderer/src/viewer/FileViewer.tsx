@@ -49,11 +49,13 @@ import {
   documentLineCount,
   type ViewerPositionCapture,
 } from './viewer-position'
+import {
+  canHighlightSource,
+  canUseInteractiveSource,
+  sourcePreview,
+  SOURCE_INTERACTIVE_BYTE_LIMIT,
+} from './viewer-workload-policy'
 import { useAppTheme } from '../theme'
-
-export const HIGHLIGHT_SIZE_LIMIT = 1024 * 1024
-export const CODEMIRROR_SIZE_LIMIT = 5 * 1024 * 1024
-const LARGE_FILE_PREVIEW_LIMIT = 512 * 1024
 
 let sharedHighlightWorker: Worker | undefined
 let nextHighlightRequestId = 0
@@ -145,11 +147,13 @@ export function FileViewer({
   const blameMode = tab?.mode
   const positionCapture = useRef<(() => ViewerDocumentPosition) | undefined>(undefined)
   const binaryImage = Boolean(tab?.file?.binary && renderedFileType(tab.path) === 'image')
-  const boundedPreview = Boolean(tab?.file && tab.file.size > CODEMIRROR_SIZE_LIMIT)
+  const boundedPreview = Boolean(
+    tab?.file && tab.file.size > SOURCE_INTERACTIVE_BYTE_LIMIT,
+  )
   const navigationContent =
     tab?.file && !tab.file.binary
       ? boundedPreview
-        ? tab.file.content.slice(0, LARGE_FILE_PREVIEW_LIMIT)
+        ? sourcePreview(tab.file.content)
         : tab.file.content
       : undefined
 
@@ -446,7 +450,24 @@ function ActiveView({
       />
     )
   }
-  if (file.size > CODEMIRROR_SIZE_LIMIT) {
+  if (tab.mode === 'diff') {
+    return (
+      <DiffView
+        path={tab.path}
+        base={tab.diffBase}
+        currentContent={file.content}
+        currentSize={file.size}
+        dirty={tab.dirty}
+        revision={tab.diffRevision}
+        refreshVersion={refreshVersion}
+        position={tab.position}
+        onPosition={onPosition}
+        positionCapture={positionCapture}
+        registerFindTarget={registerFindTarget}
+      />
+    )
+  }
+  if (!canUseInteractiveSource(file.size)) {
     return (
       <LargeFileView
         content={file.content}
@@ -457,22 +478,6 @@ function ActiveView({
         positionCapture={positionCapture}
         navigation={navigation}
         onNavigationHandled={onNavigationHandled}
-        registerFindTarget={registerFindTarget}
-      />
-    )
-  }
-  if (tab.mode === 'diff') {
-    return (
-      <DiffView
-        path={tab.path}
-        base={tab.diffBase}
-        currentContent={file.content}
-        dirty={tab.dirty}
-        revision={tab.diffRevision}
-        refreshVersion={refreshVersion}
-        position={tab.position}
-        onPosition={onPosition}
-        positionCapture={positionCapture}
         registerFindTarget={registerFindTarget}
       />
     )
@@ -520,7 +525,7 @@ function LargeFileView({
   const container = useRef<HTMLPreElement>(null)
   const positionRef = useRef(position)
   const onPositionRef = useRef(onPosition)
-  const preview = content.slice(0, LARGE_FILE_PREVIEW_LIMIT)
+  const preview = sourcePreview(content)
   const lines = documentLineCount(preview)
   positionRef.current = position
   onPositionRef.current = onPosition
@@ -829,7 +834,7 @@ function highlight(
   setStatus: (status: string) => void,
 ): () => void {
   view.dispatch({ effects: resetTokens.of(null) })
-  if (size > HIGHLIGHT_SIZE_LIMIT) {
+  if (!canHighlightSource(size)) {
     setStatus('large file · highlighting off')
     return () => undefined
   }

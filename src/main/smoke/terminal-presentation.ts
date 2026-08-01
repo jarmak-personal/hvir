@@ -1,6 +1,6 @@
 import type { BrowserWindow } from 'electron'
 
-import type { HostPath } from '../../shared'
+import { joinHostPath, type HostPath } from '../../shared'
 import type { PtySupervisor } from '../pty/pty-supervisor'
 import { ensureExplicitBareShellLaunch } from './terminal-explicit-launch'
 import {
@@ -16,6 +16,8 @@ import {
   waitForTerminalRemoval,
   type RichOutputSmokeContext,
 } from './rich-output-presentation'
+import { verifyTerminalProjectReturn } from './terminal-project-return'
+import { withTerminalSmokeTimeout } from './terminal-smoke-timeout'
 
 /** Retain broad terminal presentation assertions only in the legacy workflow. */
 export async function verifyLegacyTerminalPresentation(
@@ -74,7 +76,7 @@ export async function verifyTerminalPresentationLifecycle(
   const launchMenuStatus = launchMenuOverflowRoot
     ? await verifyTerminalLaunchMenuOverflow(win, launchMenuOverflowRoot)
     : undefined
-  const switchStatus = (await withTimeout(
+  const switchStatus = (await withTerminalSmokeTimeout(
     win.webContents.executeJavaScript(`
       new Promise((resolve, reject) => {
         const deadline = Date.now() + 8000;
@@ -134,6 +136,12 @@ export async function verifyTerminalPresentationLifecycle(
     .list()
     .filter((terminal) => terminal.ownerId === win.webContents.id)[1]
   if (!secondTerminal) throw new Error('second terminal was not registered')
+  const projectReturnStatus = await verifyTerminalProjectReturn(
+    win,
+    supervisor,
+    joinHostPath(launchMenuOverflowRoot, '.hvir-smoke-oversized-diff.txt'),
+    secondTerminal.id,
+  )
   const richVisibleStatus = await verifyVisibleRichOutput({
     win,
     supervisor,
@@ -146,7 +154,7 @@ export async function verifyTerminalPresentationLifecycle(
     secondTerminal.ownerId,
     "printf '\\033[41m\\033[2J\\033[Hhidden-buffer\\033[0m\\033]0;Hidden buffered\\007\\007'; IFS= read -r hvir_input; printf 'input:%s\\n' \"$hvir_input\"; sleep 10\n",
   )
-  const revealStatus = (await withTimeout(
+  const revealStatus = (await withTerminalSmokeTimeout(
     win.webContents.executeJavaScript(`
       new Promise((resolve, reject) => {
         const sessionId = ${JSON.stringify(secondTerminal.id)};
@@ -303,6 +311,7 @@ export async function verifyTerminalPresentationLifecycle(
                 const railBounds = rail.getBoundingClientRect();
                 const listBounds = markerList.getBoundingClientRect();
                 const restoreBounds = restore.getBoundingClientRect();
+                const restoreTop = restoreBounds.top;
                 const listStyle = getComputedStyle(markerList);
                 if (
                   listStyle.overflowY !== 'auto' ||
@@ -313,10 +322,11 @@ export async function verifyTerminalPresentationLifecycle(
                   listBounds.right > railBounds.right + 1 ||
                   restoreBounds.left < railBounds.left - 1 ||
                   restoreBounds.right > railBounds.right + 1 ||
-                  restoreBounds.bottom > railBounds.bottom + 1
+                  restoreBounds.top < railBounds.top - 1 ||
+                  restoreBounds.bottom > listBounds.top + 1
                 ) {
                   return fail(
-                    'compact marker overflow escaped the rail or hid restore: ' +
+                    'compact marker overflow escaped the rail or moved above restore: ' +
                     'overflow=' + listStyle.overflowY +
                     ' heights=' + markerList.clientHeight + '/' + markerList.scrollHeight +
                     ' scrollbar=' + listStyle.scrollbarWidth +
@@ -326,6 +336,7 @@ export async function verifyTerminalPresentationLifecycle(
                     ' restore=' + [
                       restoreBounds.left,
                       restoreBounds.right,
+                      restoreBounds.top,
                       restoreBounds.bottom
                     ].join(',')
                   );
@@ -333,12 +344,18 @@ export async function verifyTerminalPresentationLifecycle(
                 marker.scrollIntoView({ block: 'nearest', inline: 'nearest' });
                 requestAnimationFrame(() => {
                   const markerBounds = marker.getBoundingClientRect();
+                  const restoreAfterScroll = restore.getBoundingClientRect();
                   if (
                     markerList.scrollTop <= 0 ||
                     markerBounds.top < listBounds.top - 1 ||
-                    markerBounds.bottom > listBounds.bottom + 1
+                    markerBounds.bottom > listBounds.bottom + 1 ||
+                    Math.abs(restoreAfterScroll.top - restoreTop) > 1
                   ) {
-                    return fail('final compact marker is not reachable by scrolling');
+                    return fail(
+                      'compact marker scroll moved restore or hid the final marker: ' +
+                      'scrollTop=' + markerList.scrollTop +
+                      ' restoreTop=' + restoreTop + '/' + restoreAfterScroll.top
+                    );
                   }
                   marker.focus();
                   marker.click();
@@ -486,7 +503,7 @@ export async function verifyTerminalPresentationLifecycle(
   win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Enter' })
   win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Enter' })
   try {
-    await withTimeout(
+    await withTerminalSmokeTimeout(
       new Promise<void>((resolve) => {
         const poll = (): void => {
           if (inputProbe.includes('input:hvir')) return resolve()
@@ -505,7 +522,7 @@ export async function verifyTerminalPresentationLifecycle(
   } finally {
     void detachInputProbe()
   }
-  const inputStatus = (await withTimeout(
+  const inputStatus = (await withTerminalSmokeTimeout(
     win.webContents.executeJavaScript(`
       new Promise((resolve, reject) => {
         const sessionId = ${JSON.stringify(secondTerminal.id)};
@@ -537,6 +554,7 @@ export async function verifyTerminalPresentationLifecycle(
     pilotStatus,
     explicitLaunch,
     layoutFocusStatus,
+    projectReturnStatus,
     launchMenuStatus,
     switchStatus,
     richVisibleStatus,
@@ -614,7 +632,7 @@ async function verifyLiveTerminalTypography(
     | undefined
   let failure: Error | undefined
   try {
-    presentation = (await withTimeout(
+    presentation = (await withTerminalSmokeTimeout(
       win.webContents.executeJavaScript(`
       new Promise((resolve, reject) => {
         const deadline = Date.now() + 8000;
@@ -722,7 +740,11 @@ async function verifyLiveTerminalTypography(
       resolveResize()
     }
     queryPtySize()
-    await withTimeout(resizeObserved, 'terminal typography PTY resize timed out', 5_000)
+    await withTerminalSmokeTimeout(
+      resizeObserved,
+      'terminal typography PTY resize timed out',
+      5_000,
+    )
   } catch (error) {
     failure = new Error(
       `${error instanceof Error ? error.message : String(error)}: ${JSON.stringify({
@@ -749,7 +771,7 @@ async function verifyLiveTerminalTypography(
 }
 
 async function verifyTerminalLayoutFocus(win: BrowserWindow): Promise<string> {
-  return (await withTimeout(
+  return (await withTerminalSmokeTimeout(
     win.webContents.executeJavaScript(`
       (async () => {
         const workbench = document.querySelector('.workbench');
@@ -902,13 +924,14 @@ async function verifyTerminalLayoutFocus(win: BrowserWindow): Promise<string> {
         if (
           railBounds.left < deckBounds.right - 1 ||
           railBounds.width > 32 ||
-          restoreBounds.bottom < railBounds.bottom - 8 ||
+          restoreBounds.top < railBounds.top - 1 ||
+          restoreBounds.top > railBounds.top + 8 ||
           deckEdgeTarget?.closest('.terminal-rail')
         ) {
           throw new Error(
             'compact terminal rail overlaps the deck or misplaces restore: deckRight=' +
             deckBounds.right + ' rail=' + [railBounds.left, railBounds.width].join(',') +
-            ' restoreBottom=' + restoreBounds.bottom + ' railBottom=' + railBounds.bottom
+            ' restoreTop=' + restoreBounds.top + ' railTop=' + railBounds.top
           );
         }
         if (
@@ -953,7 +976,7 @@ async function verifyTerminalLaunchMenuOverflow(
   win: BrowserWindow,
   root: HostPath,
 ): Promise<string> {
-  return (await withTimeout(
+  return (await withTerminalSmokeTimeout(
     win.webContents.executeJavaScript(`
       (async () => {
         const deadline = Date.now() + 15000;
@@ -1088,22 +1111,4 @@ async function verifyTerminalLaunchMenuOverflow(
     'terminal launch menu overflow timed out',
     20_000,
   )) as string
-}
-
-async function withTimeout<T>(
-  promise: Promise<T>,
-  message: string,
-  timeoutMs = 8_000,
-): Promise<T> {
-  let timer: ReturnType<typeof setTimeout> | undefined
-  try {
-    return await Promise.race([
-      promise,
-      new Promise<never>((_resolve, reject) => {
-        timer = setTimeout(() => reject(new Error(message)), timeoutMs)
-      }),
-    ])
-  } finally {
-    if (timer) clearTimeout(timer)
-  }
 }

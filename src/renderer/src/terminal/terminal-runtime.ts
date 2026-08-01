@@ -12,6 +12,7 @@ import {
 } from './terminal-runtime-presentation'
 import type { TerminalRuntimeOptions } from './terminal-runtime-options'
 import { TerminalRichOutputRuntime } from './terminal-rich-output-runtime'
+import { TerminalSurfaceAttachment } from './terminal-surface-attachment'
 
 const PTY_RESIZE_DEBOUNCE_MS = 75
 
@@ -20,9 +21,7 @@ export class TerminalRuntime {
   private currentSnapshot: TerminalRuntimeSnapshot
   private readonly richOutput: TerminalRichOutputRuntime
   private readonly listeners = new Set<() => void>()
-  private container?: HTMLElement
-  /** Last detached React container, retained so hidden SSH reconnect stays autonomous. */
-  private retainedContainer?: HTMLElement
+  private readonly surface = new TerminalSurfaceAttachment()
   private pane?: TerminalPane
   private outputWriter?: SynchronizedOutputWriter
   private paneDisposers: Array<() => void | Promise<void>> = []
@@ -100,10 +99,9 @@ export class TerminalRuntime {
       this.started ? options.identityStatus : undefined,
     )
     if (typographyChanged) this.pane?.setTypography(options.typography)
-    this.eventRoute?.setPresentation(options.presentation)
   }
   synchronizeLifecycle(): void {
-    this.pane?.setPresentation(this.options.presentation)
+    this.surface.synchronize(this.options.presentation)
     const connectionState = this.options.connectionState
     if (this.appliedConnectionState === connectionState) return
     this.appliedConnectionState = connectionState
@@ -127,29 +125,21 @@ export class TerminalRuntime {
     })
     this.options.onTelemetry(undefined)
   }
-  attach(container: HTMLElement, presentation = this.options.presentation): void {
+  attach(container: HTMLElement): void {
     if (this.disposed) return
-    this.container = container
-    this.retainedContainer = container
+    const changed = this.surface.attach(container, this.options.presentation)
     if (this.pane) {
-      this.pane.reparent(container)
-      this.pane.setPresentation(presentation)
-      this.eventRoute?.setPresentation(presentation)
-      this.eventRoute?.exposeStats(container)
-      if (this.options.active) this.focus()
+      if (changed && this.options.active) this.focus()
       return
     }
     if (this.options.connectionState === 'connected') void this.ensureStarted()
   }
   detach(container: HTMLElement): void {
-    if (this.container !== container) return
-    this.retainedContainer = container
-    this.container = undefined
-    this.pane?.setPresentation('hidden')
-    this.eventRoute?.setPresentation('hidden')
+    this.surface.detach(container)
   }
   focus(): void {
-    this.pane?.focus()
+    if (this.disposed || !this.surface.currentContainer) return
+    if (this.pane && this.surface.canFocus()) this.pane.focus()
     this.options.onFocus()
   }
   restart(): void {
@@ -199,7 +189,7 @@ export class TerminalRuntime {
     this.disposed = true
     this.releaseSurface(true)
     this.richOutput.dispose()
-    this.retainedContainer = undefined
+    this.surface.dispose()
     this.listeners.clear()
   }
   cancelPendingReplacement(): string | undefined {
@@ -214,7 +204,9 @@ export class TerminalRuntime {
     }>,
   ): Promise<void> {
     const reconnect = this.disconnected && this.hasStarted
-    const container = this.container ?? (reconnect ? this.retainedContainer : undefined)
+    const container =
+      this.surface.currentContainer ??
+      (reconnect ? this.surface.retainedContainer : undefined)
     if (
       this.disposed ||
       this.starting ||
@@ -262,10 +254,10 @@ export class TerminalRuntime {
       this.pane = pane
       pane.setTypography(this.options.typography)
       this.installPaneListeners(pane)
-      pane.setPresentation(this.options.presentation)
-      pane.mount(this.container ?? container)
+      this.surface.mountPane(pane, container)
       pane.redraw()
       this.installPtyListeners(sessionId)
+      this.surface.synchronize(this.options.presentation)
 
       const resume =
         !replacement &&
@@ -425,7 +417,7 @@ export class TerminalRuntime {
   private installPtyListeners(sessionId: string): void {
     this.eventRoute = this.terminalEvents().register(
       sessionId,
-      this.options.presentation,
+      this.surface.presentation,
       {
         onData: (data) => {
           this.options.onOutput()
@@ -449,7 +441,7 @@ export class TerminalRuntime {
         onAssistantOutput: (event) => this.richOutput.accept(event),
       },
     )
-    if (this.container) this.eventRoute.exposeStats(this.container)
+    this.surface.installRoute(this.eventRoute)
   }
 
   private releaseSurface(kill: boolean): void {
@@ -458,6 +450,7 @@ export class TerminalRuntime {
     this.startController = undefined
     this.startGeneration++
     this.starting = false
+    this.surface.hide()
     this.eventRoute?.dispose()
     for (const dispose of this.paneDisposers) void dispose()
     this.eventRoute = undefined
@@ -469,6 +462,7 @@ export class TerminalRuntime {
     this.pendingInput = ''
     this.pane?.dispose()
     this.pane = undefined
+    this.surface.releaseResources()
     if (kill && (this.started || wasStarting)) {
       window.hvir.send('pty:kill', {
         id: this.activePtyId ?? this.pendingReplacementId ?? this.options.sessionId,

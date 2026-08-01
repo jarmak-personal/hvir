@@ -26,11 +26,6 @@ export type WorkspaceAttentionRollups = Readonly<Record<string, WorkspaceAttenti
 export type ProjectSessionAction =
   | { readonly type: 'transition-started'; readonly generation: number }
   | {
-      readonly type: 'transition-project'
-      readonly generation: number
-      readonly state: ProjectState
-    }
-  | {
       readonly type: 'transition-connection'
       readonly generation: number
       readonly connectionState: HostConnectionState
@@ -69,9 +64,6 @@ export function projectSessionReducer(
         busy: true,
         error: undefined,
       }
-    case 'transition-project':
-      if (action.generation !== model.generation) return model
-      return applyProjectState(model, action.state)
     case 'transition-connection':
       if (action.generation !== model.generation) return model
       return {

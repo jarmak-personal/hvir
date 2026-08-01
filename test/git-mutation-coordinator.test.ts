@@ -18,6 +18,7 @@ const staleRoot = localPath('/project-stale')
 
 function projectState(): ProjectState {
   return {
+    revision: 0,
     root,
     connectionState: 'connected',
     watchTier: 'native',

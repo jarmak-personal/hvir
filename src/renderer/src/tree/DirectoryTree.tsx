@@ -8,6 +8,7 @@ import {
 } from 'react'
 
 import {
+  containsHostPath,
   hostPath,
   hostPathEquals,
   joinHostPath,
@@ -24,6 +25,11 @@ import {
   type TreeFileGitDecoration,
   type TreeGitDecorations,
 } from './git-status-decoration'
+import { PathCopyMenu } from '../path-copy/PathCopyMenu'
+import {
+  usePathCopyMenu,
+  type PathCopyMenuController,
+} from '../path-copy/use-path-copy-menu'
 
 export interface DirectoryTreeProps {
   readonly root: HostPath
@@ -39,6 +45,7 @@ export interface DirectoryTreeProps {
   readonly gitDecorations?: TreeGitDecorations
   readonly selected?: HostPath
   readonly revealRequest?: DirectoryTreeRevealRequest
+  readonly pathCopyRoot?: HostPath
   readonly showFiles?: boolean
   readonly onSelectDirectory?: (path: HostPath) => void
   readonly onOpenFile?: (path: HostPath, pinned: boolean) => void
@@ -67,36 +74,47 @@ export function DirectoryTree({
   gitDecorations,
   selected,
   revealRequest,
+  pathCopyRoot,
   showFiles = true,
   onSelectDirectory,
   onOpenFile,
   onExpandedChange,
 }: DirectoryTreeProps): ReactElement {
+  const pathCopyMenu = usePathCopyMenu(pathCopyRoot)
   return (
-    <div className="directory-tree" role="tree">
-      <DirectoryNode
-        path={root}
-        label={rootLabel}
-        depth={0}
-        initiallyOpen
-        loadEntries={loadEntries}
-        loadIgnoredEntries={loadIgnoredEntries}
-        resolveEntry={resolveEntry}
-        refreshVersion={refreshVersion}
-        ignoredRefreshVersion={ignoredRefreshVersion}
-        gitDecorations={gitDecorations}
-        selected={selected}
-        revealRequest={revealRequest}
-        showFiles={showFiles}
-        onSelectDirectory={onSelectDirectory}
-        onOpenFile={onOpenFile}
-        onExpandedChange={onExpandedChange}
-      />
-    </div>
+    <>
+      <div className="directory-tree" role="tree">
+        <DirectoryNode
+          path={root}
+          label={rootLabel}
+          depth={0}
+          initiallyOpen
+          loadEntries={loadEntries}
+          loadIgnoredEntries={loadIgnoredEntries}
+          resolveEntry={resolveEntry}
+          refreshVersion={refreshVersion}
+          ignoredRefreshVersion={ignoredRefreshVersion}
+          gitDecorations={gitDecorations}
+          selected={selected}
+          revealRequest={revealRequest}
+          showFiles={showFiles}
+          pathCopyMenu={pathCopyRoot ? pathCopyMenu : undefined}
+          onSelectDirectory={onSelectDirectory}
+          onOpenFile={onOpenFile}
+          onExpandedChange={onExpandedChange}
+        />
+      </div>
+      {pathCopyRoot ? (
+        <PathCopyMenu workspaceRoot={pathCopyRoot} controller={pathCopyMenu} />
+      ) : null}
+    </>
   )
 }
 
-interface DirectoryNodeProps extends Omit<DirectoryTreeProps, 'root' | 'rootLabel'> {
+interface DirectoryNodeProps extends Omit<
+  DirectoryTreeProps,
+  'root' | 'rootLabel' | 'pathCopyRoot'
+> {
   readonly path: HostPath
   readonly label: string
   readonly depth: number
@@ -107,6 +125,7 @@ interface DirectoryNodeProps extends Omit<DirectoryTreeProps, 'root' | 'rootLabe
   readonly refreshVersion: number
   readonly ignoredRefreshVersion: number
   readonly showFiles: boolean
+  readonly pathCopyMenu?: PathCopyMenuController
 }
 
 function DirectoryNode({
@@ -126,6 +145,7 @@ function DirectoryNode({
   selected,
   revealRequest,
   showFiles,
+  pathCopyMenu,
   onSelectDirectory,
   onOpenFile,
   onExpandedChange,
@@ -135,7 +155,7 @@ function DirectoryNode({
     [path.hostId, path.path],
   )
   const shouldReveal = Boolean(
-    revealRequest && containsPath(stablePath, revealRequest.path),
+    revealRequest && containsHostPath(stablePath, revealRequest.path),
   )
   const [open, setOpen] = useState(initiallyOpen || shouldReveal)
   const [entries, setEntries] = useState<readonly DirEntry[]>([])
@@ -233,6 +253,7 @@ function DirectoryNode({
         aria-selected={isSelected}
         className={`tree-row directory-row${isSelected ? ' selected' : ''}${linked ? ' symlink-row' : ''}${gitIgnored ? ' gitignored' : ''}${gitDecoration ? ` git-status-${gitDecoration.tone}` : ''}`}
         style={{ paddingLeft: 10 + depth * 14, zIndex: depth + 1 }}
+        onContextMenu={(event) => pathCopyMenu?.openFromPointer(event, stablePath, label)}
         onClick={() => {
           if (onSelectDirectory) {
             onSelectDirectory(stablePath)
@@ -242,6 +263,9 @@ function DirectoryNode({
           }
         }}
         onKeyDown={(event) => {
+          if (pathCopyMenu?.openFromKeyboard(event, stablePath, label)) {
+            return
+          }
           if (event.key === 'ArrowRight') {
             event.preventDefault()
             if (open) focusFirstTreeChild(event.currentTarget)
@@ -302,6 +326,7 @@ function DirectoryNode({
                   selected={selected}
                   revealRequest={revealRequest}
                   showFiles={showFiles}
+                  pathCopyMenu={pathCopyMenu}
                   onSelectDirectory={onSelectDirectory}
                   onOpenFile={onOpenFile}
                   onExpandedChange={onExpandedChange}
@@ -326,6 +351,7 @@ function DirectoryNode({
                   selected={selected}
                   revealRequest={revealRequest}
                   showFiles={showFiles}
+                  pathCopyMenu={pathCopyMenu}
                   onSelectDirectory={onSelectDirectory}
                   onOpenFile={onOpenFile}
                   onExpandedChange={onExpandedChange}
@@ -344,9 +370,21 @@ function DirectoryNode({
                 key={`${child.hostId}:${child.path}`}
                 className={`tree-row file-row${fileSelected ? ' selected' : ''}${childGitIgnored ? ' gitignored' : ''}${fileGitDecoration ? ` git-status-${fileGitDecoration.tone}` : ''}`}
                 style={{ paddingLeft: 24 + (depth + 1) * 14 }}
+                onContextMenu={(event) =>
+                  openable
+                    ? pathCopyMenu?.openFromPointer(event, child, entry.name)
+                    : undefined
+                }
                 onClick={() => openable && onOpenFile?.(child, false)}
                 onDoubleClick={() => openable && onOpenFile?.(child, true)}
-                onKeyDown={(event) => handleLeafTreeKey(event)}
+                onKeyDown={(event) => {
+                  if (
+                    !openable ||
+                    !pathCopyMenu?.openFromKeyboard(event, child, entry.name)
+                  ) {
+                    handleLeafTreeKey(event)
+                  }
+                }}
                 disabled={!openable}
                 title={`${child.path}${childGitIgnored ? ' · Git ignored' : ''}`}
               >
@@ -382,6 +420,7 @@ function SymlinkNode({
   selected,
   revealRequest,
   showFiles,
+  pathCopyMenu,
   onSelectDirectory,
   onOpenFile,
   onExpandedChange,
@@ -433,6 +472,7 @@ function SymlinkNode({
         selected={selected}
         revealRequest={revealRequest}
         showFiles={showFiles}
+        pathCopyMenu={pathCopyMenu}
         onSelectDirectory={onSelectDirectory}
         onOpenFile={onOpenFile}
         onExpandedChange={onExpandedChange}
@@ -450,9 +490,14 @@ function SymlinkNode({
         aria-selected={fileSelected}
         className={`tree-row file-row symlink-row${fileSelected ? ' selected' : ''}${gitIgnored ? ' gitignored' : ''}${fileGitDecoration ? ` git-status-${fileGitDecoration.tone}` : ''}`}
         style={{ paddingLeft: 24 + depth * 14 }}
+        onContextMenu={(event) => pathCopyMenu?.openFromPointer(event, stablePath, label)}
         onClick={() => onOpenFile?.(stablePath, false)}
         onDoubleClick={() => onOpenFile?.(stablePath, true)}
-        onKeyDown={(event) => handleLeafTreeKey(event)}
+        onKeyDown={(event) => {
+          if (!pathCopyMenu?.openFromKeyboard(event, stablePath, label)) {
+            handleLeafTreeKey(event)
+          }
+        }}
         title={`${stablePath.path} · symbolic link to file (target confined to project)${gitIgnored ? ' · Git ignored' : ''}`}
       >
         <TreeDepthGuides depth={depth} />
@@ -470,9 +515,15 @@ function SymlinkNode({
     <button
       type="button"
       role="treeitem"
+      aria-disabled="true"
       className={`tree-row file-row symlink-row${gitIgnored ? ' gitignored' : ''}`}
       style={{ paddingLeft: 24 + depth * 14 }}
-      disabled
+      onContextMenu={(event) => pathCopyMenu?.openFromPointer(event, stablePath, label)}
+      onKeyDown={(event) => {
+        if (!pathCopyMenu?.openFromKeyboard(event, stablePath, label)) {
+          handleLeafTreeKey(event)
+        }
+      }}
       title={
         error
           ? `${stablePath.path} · ${error}${gitIgnored ? ' · Git ignored' : ''}`
@@ -594,10 +645,4 @@ function visibleTreeItems(current: HTMLButtonElement): readonly HTMLButtonElemen
   return [
     ...tree.querySelectorAll<HTMLButtonElement>('button[role="treeitem"]:not(:disabled)'),
   ].filter((item) => item.offsetParent !== null)
-}
-
-function containsPath(parent: HostPath, candidate: HostPath): boolean {
-  if (parent.hostId !== candidate.hostId) return false
-  if (parent.path === '/') return candidate.path.startsWith('/')
-  return candidate.path === parent.path || candidate.path.startsWith(`${parent.path}/`)
 }

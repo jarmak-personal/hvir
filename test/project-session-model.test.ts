@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 
 import { subscribeProjectSessionEvents } from '../src/renderer/src/workspaces/project-session-events'
+import { ProjectStateDelivery } from '../src/renderer/src/workspaces/project-state-delivery'
 import {
   initialProjectSessionModel,
   projectSessionReducer,
@@ -17,7 +18,7 @@ import {
 } from '../src/shared'
 
 describe('project session model', () => {
-  it('ignores stale transition completions and failures', () => {
+  it('ignores stale transition connection completions and failures', () => {
     const first = projectSessionReducer(initialProjectSessionModel, {
       type: 'transition-started',
       generation: 1,
@@ -27,13 +28,6 @@ describe('project session model', () => {
       generation: 2,
     })
 
-    expect(
-      projectSessionReducer(second, {
-        type: 'transition-project',
-        generation: 1,
-        state: projectState('stale'),
-      }),
-    ).toBe(second)
     expect(
       projectSessionReducer(second, {
         type: 'transition-connection',
@@ -49,14 +43,8 @@ describe('project session model', () => {
       }),
     ).toBe(second)
 
-    const applied = projectSessionReducer(second, {
-      type: 'transition-project',
-      generation: 2,
-      state: projectState('current'),
-    })
-    expect(applied.projectState?.activeWorkspaceId).toBe('current')
     expect(
-      projectSessionReducer(applied, {
+      projectSessionReducer(second, {
         type: 'transition-finished',
         generation: 2,
       }).busy,
@@ -141,12 +129,76 @@ describe('project session model', () => {
       'ssh:prompt-cancel',
     ])
   })
+
+  it.each(['event-first', 'response-first'] as const)(
+    'applies one authoritative revision once when delivery is %s',
+    (arrivalOrder) => {
+      const reducerApplication = vi.fn()
+      const webPaneApplication = vi.fn()
+      const viewerSwitch = vi.fn()
+      const gitGraphReset = vi.fn()
+      const gitChangesClear = vi.fn()
+      const delivery = new ProjectStateDelivery((state) => {
+        reducerApplication(state)
+        webPaneApplication(state)
+        viewerSwitch(state.root)
+        gitGraphReset()
+        gitChangesClear()
+      })
+      delivery.open()
+      const eventState = projectState('remote', 7)
+      const responseState = { ...eventState }
+      const arrivals =
+        arrivalOrder === 'event-first'
+          ? [eventState, responseState]
+          : [responseState, eventState]
+
+      expect(arrivals.map((state) => delivery.accept(state))).toEqual([true, false])
+      for (const consumer of [
+        reducerApplication,
+        webPaneApplication,
+        viewerSwitch,
+        gitGraphReset,
+        gitChangesClear,
+      ]) {
+        expect(consumer).toHaveBeenCalledOnce()
+      }
+    },
+  )
+
+  it('orders unsolicited state and rejects stale or disposed delivery work', () => {
+    const applied = vi.fn()
+    const delivery = new ProjectStateDelivery(applied)
+    const close = delivery.open()
+    const remote = projectState('remote', 4)
+    const local = projectState('local', 5, 'local')
+
+    expect(delivery.accept(remote)).toBe(true)
+    expect(delivery.accept(projectState('stale', 3))).toBe(false)
+    expect(delivery.accept(local)).toBe(true)
+    expect(applied).toHaveBeenCalledTimes(2)
+
+    close()
+    close()
+    expect(delivery.accept(projectState('late', 6))).toBe(false)
+
+    const closeReplacement = delivery.open()
+    expect(delivery.accept(projectState('replayed', 5))).toBe(false)
+    expect(delivery.accept(projectState('current', 7))).toBe(true)
+    closeReplacement()
+    expect(applied).toHaveBeenCalledTimes(3)
+  })
 })
 
-function projectState(activeWorkspaceId: string): ProjectState {
-  const hostId = asHostId('ssh:ship')
+function projectState(
+  activeWorkspaceId: string,
+  revision = 0,
+  rawHostId = 'ssh:ship',
+): ProjectState {
+  const hostId = asHostId(rawHostId)
   const registeredRoot = hostPath(hostId, '/repo')
   return {
+    revision,
     root: hostPath(hostId, `/repo/${activeWorkspaceId}`),
     activeProjectId: projectId(),
     activeWorkspaceId,

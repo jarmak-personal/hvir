@@ -1,3 +1,5 @@
+// @vitest-environment happy-dom
+
 import { describe, expect, it, vi } from 'vitest'
 
 import type { TerminalRuntimeOptions } from '../src/renderer/src/terminal/terminal-runtime-options'
@@ -84,5 +86,21 @@ describe('TerminalRuntimeRegistry', () => {
     })
     expect(runtimeOptions.onStatus).toHaveBeenCalledWith('disconnected')
     expect(runtimeOptions.onTelemetry).toHaveBeenCalledWith(undefined)
+  })
+
+  it('selects an attached terminal while its pane is unavailable', () => {
+    const runtimeOptions = options(localPath('/repo'), 'disconnected')
+    const runtime = new TerminalRuntimeRegistry().acquire(runtimeOptions)
+    const container = document.createElement('div')
+
+    runtime.attach(container)
+    runtime.focus()
+
+    expect(runtimeOptions.onFocus).toHaveBeenCalledOnce()
+
+    runtime.detach(container)
+    runtime.focus()
+
+    expect(runtimeOptions.onFocus).toHaveBeenCalledOnce()
   })
 })

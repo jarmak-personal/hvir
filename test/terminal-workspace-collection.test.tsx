@@ -195,6 +195,7 @@ function projectStateWithClosedWorktrees(count: number): ProjectState {
     changedFiles: 0,
   }
   return {
+    revision: 0,
     root,
     activeProjectId: 'project',
     activeWorkspaceId: open.id,

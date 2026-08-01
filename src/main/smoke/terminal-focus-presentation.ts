@@ -16,6 +16,9 @@ export async function focusTerminalEngine(
             '.terminal-surface[data-terminal-session="' + CSS.escape(sessionId) + '"]'
           );
           const engine = surface?.querySelector('.terminal-engine-host');
+          const button = document.querySelector(
+            '.terminal-list-main[data-terminal-session="' + CSS.escape(sessionId) + '"]'
+          );
           if (
             surface?.classList.contains('active') &&
             getComputedStyle(surface).visibility === 'visible' &&
@@ -24,6 +27,7 @@ export async function focusTerminalEngine(
             engine.focus();
             if (document.activeElement === engine) return resolve();
           }
+          if (button instanceof HTMLButtonElement) button.click();
           if (Date.now() > deadline) {
             return reject(new Error('revealed terminal engine did not regain focus'));
           }

@@ -19,6 +19,7 @@ const ghosttyState = vi.hoisted(() => ({
     readonly resizes: Array<{ readonly cols: number; readonly rows: number }>
     readonly writes: string[]
     cursorBlinkResets: number
+    focusCalls: number
     emitData(data: string): void
     emitCustomKey(event: {
       readonly code: string
@@ -73,6 +74,7 @@ vi.mock('ghostty-web', () => {
         resizes: [],
         writes: [],
         cursorBlinkResets: 0,
+        focusCalls: 0,
         emitData: () => undefined,
         emitCustomKey: () => false,
         emitResize: () => undefined,
@@ -213,7 +215,9 @@ vi.mock('ghostty-web', () => {
       this.state.emitResize(size)
     }
 
-    focus(): void {}
+    focus(): void {
+      this.state.focusCalls += 1
+    }
 
     dispose(): void {
       this.state.disposed = true
@@ -774,7 +778,7 @@ describe('GhosttyTerminalPane lifecycle', () => {
     Reflect.deleteProperty(window, 'hvir')
   })
 
-  it('reasserts visible presentation after a retained runtime changes React owners', async () => {
+  it('hands a retained runtime between React owners while hidden', async () => {
     const invoke = vi.fn(() =>
       Promise.resolve({
         outcome: 'started' as const,
@@ -825,13 +829,91 @@ describe('GhosttyTerminalPane lifecycle', () => {
       await Promise.resolve()
     })
 
-    expect(state.presentationPausedValues).toEqual([true, false])
+    expect(state.presentationPausedValues).toEqual([true, false, true, false])
     expect(host.querySelectorAll('.terminal-engine-host')).toHaveLength(1)
 
     act(() => {
       root.unmount()
       registry.dispose()
     })
+  })
+
+  it('orders retained attachment, detachment, and focus through the current owner', async () => {
+    const invoke = vi.fn(() =>
+      Promise.resolve({
+        outcome: 'started' as const,
+        id: 'terminal-1',
+        pid: 4321,
+        resumed: false,
+        reattached: false,
+        harnessSessionId: undefined,
+        identityStatus: 'unsupported' as const,
+        capabilities: {
+          sessionIdentity: 'none' as const,
+          exactResume: false,
+          contextPresentation: 'none' as const,
+        },
+      }),
+    )
+    Object.defineProperty(window, 'hvir', {
+      configurable: true,
+      value: {
+        invoke,
+        send: vi.fn(),
+        on: vi.fn(() => () => undefined),
+      },
+    })
+    const registry = new TerminalRuntimeRegistry()
+    const options = runtimeOptions()
+    const runtime = registry.acquire(options)
+    const first = document.createElement('div')
+    const second = document.createElement('div')
+    const third = document.createElement('div')
+    document.body.append(first, second, third)
+
+    runtime.attach(first)
+    await vi.waitFor(() => expect(invoke).toHaveBeenCalledOnce())
+    const state = ghosttyState.instances[0]!
+    const surface = first.querySelector('.terminal-engine-host')
+    expect(state.presentationPausedValues).toEqual([true, false])
+    expect(deliveryPresentation(first)).toBe('visible')
+
+    // New-owner attachment may run before stale old-owner cleanup.
+    runtime.attach(second)
+    runtime.detach(first)
+    expect(second.querySelector('.terminal-engine-host')).toBe(surface)
+    expect(state.presentationPausedValues).toEqual([true, false, true, false])
+    expect(deliveryPresentation(second)).toBe('visible')
+
+    runtime.attach(second)
+    runtime.detach(first)
+    expect(state.presentationPausedValues).toEqual([true, false, true, false])
+
+    // Old-owner cleanup may also run before the replacement attaches.
+    runtime.detach(second)
+    runtime.detach(second)
+    const focusCallsWhileAttached = state.focusCalls
+    const focusEventsWhileAttached = vi.mocked(options.onFocus).mock.calls.length
+    runtime.focus()
+    runtime.synchronizeLifecycle()
+    expect(state.presentationPausedValues).toEqual([true, false, true, false, true])
+    expect(deliveryPresentation(second)).toBe('hidden')
+    expect(state.focusCalls).toBe(focusCallsWhileAttached)
+    expect(options.onFocus).toHaveBeenCalledTimes(focusEventsWhileAttached)
+
+    runtime.attach(third)
+    expect(third.querySelector('.terminal-engine-host')).toBe(surface)
+    expect(state.presentationPausedValues).toEqual([
+      true,
+      false,
+      true,
+      false,
+      true,
+      false,
+    ])
+    expect(deliveryPresentation(third)).toBe('visible')
+
+    registry.dispose()
   })
 
   it('starts fresh once and keeps React ownership through the identity handoff', async () => {
@@ -1034,6 +1116,14 @@ function theme() {
 
 function typography() {
   return { fontFamily: 'ui-monospace, monospace', fontSize: 13 }
+}
+
+function deliveryPresentation(container: HTMLElement): 'visible' | 'hidden' | undefined {
+  return (
+    container as HTMLElement & {
+      readonly __hvirTerminalDelivery?: { readonly presentation: 'visible' | 'hidden' }
+    }
+  ).__hvirTerminalDelivery?.presentation
 }
 
 function runtimeOptions(): TerminalRuntimeOptions & { readonly presented: boolean } {

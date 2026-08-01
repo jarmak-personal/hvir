@@ -21,6 +21,17 @@ export function TerminalRailCompact({
 
   return (
     <div className="terminal-rail-compact-strip" hidden={hidden}>
+      <button
+        type="button"
+        className="terminal-rail-restore"
+        aria-label="Restore terminal rail"
+        title="Restore terminal rail"
+        onClick={onRestore}
+      >
+        <svg aria-hidden="true" viewBox="0 0 16 16">
+          <path d="M11.5 3 7 8l4.5 5M7.5 3 3 8l4.5 5" />
+        </svg>
+      </button>
       <div
         className="terminal-rail-compact-rollups"
         role="status"
@@ -78,17 +89,6 @@ export function TerminalRailCompact({
           )
         })}
       </div>
-      <button
-        type="button"
-        className="terminal-rail-restore"
-        aria-label="Restore terminal rail"
-        title="Restore terminal rail"
-        onClick={onRestore}
-      >
-        <svg aria-hidden="true" viewBox="0 0 16 16">
-          <path d="M11.5 3 7 8l4.5 5M7.5 3 3 8l4.5 5" />
-        </svg>
-      </button>
     </div>
   )
 }

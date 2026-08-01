@@ -1,4 +1,4 @@
-import type { ExecResult, WorkerHostCall } from '../../shared'
+import type { ExecResult, TextWorkload, WorkerHostCall } from '../../shared'
 import {
   GitMutationAuthorization,
   type GitMutationAuthority,
@@ -19,10 +19,9 @@ export interface GitWorkerHostRouterOptions {
 export class GitWorkerHostRouter {
   constructor(private readonly options: GitWorkerHostRouterOptions) {}
 
-  route(call: WorkerHostCall): Promise<ExecResult | string> {
+  route(call: WorkerHostCall): Promise<ExecResult | string | TextWorkload> {
     return Promise.resolve().then(() => {
-      const path =
-        call.operation === 'readTextFile' ? call.path.path : (call.args[1] ?? '')
+      const path = call.operation === 'exec' ? (call.args[1] ?? '') : call.path.path
       const authority = this.options.authority.authorityForPath(call.hostId, path) ?? null
       const permissions = this.options.authorizations.permissionsFor(call, authority)
       return (this.options.dispatch ?? dispatchWorkerHostCall)(

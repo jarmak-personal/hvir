@@ -34,7 +34,6 @@ import { GitGraphView } from './git/GitGraphView'
 import { useGitWorkspace } from './git/use-git-workspace'
 import { FileViewer } from './viewer/FileViewer'
 import { TabStrip } from './viewer/TabStrip'
-import type { ViewerPaneId, ViewerTab } from './viewer/tab-state'
 import { useViewerWorkspace } from './viewer/use-viewer-workspace'
 import { setAppTheme, useAppTheme } from './theme'
 import { SettingsDialog } from './settings/SettingsDialog'
@@ -44,6 +43,7 @@ import { useWorkbenchLayout } from './workbench/use-workbench-layout'
 import { useWorkbenchOverlays } from './workbench/use-workbench-overlays'
 import { TerminalLayoutControls } from './workbench/TerminalLayoutControls'
 import { useRendererReady } from './workbench/use-renderer-ready'
+import { useTerminalPathActivation } from './workbench/use-terminal-path-activation'
 export function App(): ReactElement {
   const theme = useAppTheme()
   const settings = useAppSettings()
@@ -221,6 +221,13 @@ export function App(): ReactElement {
     fetch: fetchGit,
     pull: pullGit,
   } = git
+  const terminalPathActivation = useTerminalPathActivation({
+    root,
+    selectedFile: activeTab?.path,
+    openFile: (path, position) =>
+      openFile(path, true, 'file-tree', 'head', undefined, position),
+    revealDirectory: focusTree,
+  })
   rootRef.current = root
   sessionErrorRef.current = session.reportError
   workspaceSwitchRef.current = session.switchRelativeWorkspace
@@ -275,13 +282,11 @@ export function App(): ReactElement {
   }
   if (rootError) return <div className="startup-error">{rootError}</div>
   if (!root) return <div className="startup-loading">Starting hvir…</div>
-  const workspaceWebViews = webViews.filter((view) =>
-    hostPathEquals(view.workspaceRoot, root),
-  )
+  const rootWebViews = webViews.filter((view) => hostPathEquals(view.workspaceRoot, root))
   const renderViewerPane = (
-    pane: ViewerPaneId,
-    paneTabs: readonly ViewerTab[],
-    paneTab: ViewerTab | undefined,
+    pane: 'primary' | 'secondary',
+    paneTabs: typeof primaryTabs,
+    paneTab: typeof primaryActiveTab,
     graphPane: boolean,
   ): ReactElement => (
     <section
@@ -290,7 +295,8 @@ export function App(): ReactElement {
       data-diagnostic-capture="viewer"
       data-viewer-pane={pane}
       tabIndex={-1}
-      onPointerDownCapture={() => {
+      onPointerDownCapture={(event) => {
+        if (event.button !== 0) return
         if (
           paneTab &&
           !(graphPane && gitGraphActive) &&
@@ -304,6 +310,7 @@ export function App(): ReactElement {
     >
       <TabStrip
         tabs={paneTabs}
+        pathCopyRoot={root}
         pane={pane}
         activeId={
           (graphPane && gitGraphActive) || (pane === 'primary' && webViewActive)
@@ -324,7 +331,7 @@ export function App(): ReactElement {
         onCloseGraph={closeGitGraph}
         webTabs={
           pane === 'primary'
-            ? workspaceWebViews.map((view) => ({ id: view.id, title: view.title }))
+            ? rootWebViews.map((view) => ({ id: view.id, title: view.title }))
             : undefined
         }
         activeWebId={pane === 'primary' && webViewActive ? activeWebViewId : undefined}
@@ -469,7 +476,8 @@ export function App(): ReactElement {
               ignoredRefreshVersion={ignoredRefreshVersion}
               changedFiles={gitChanges?.workingTree}
               gitChangesLimited={gitChanges?.workingTreeLimited}
-              selected={activeTab?.path}
+              selected={terminalPathActivation.revealRequest?.path ?? activeTab?.path}
+              revealRequest={terminalPathActivation.revealRequest}
               onOpen={openFile}
               connected={connectionState === 'connected'}
               missing={activeWorkspace?.missing}
@@ -627,18 +635,7 @@ export function App(): ReactElement {
           railCompact={layout.terminalRailCompact}
           onRailCompact={layout.setTerminalRailCompact}
           onRollup={terminalAttention.updateRollup}
-          onOpenPath={(target) =>
-            openFile(
-              target.path,
-              true,
-              'file-tree',
-              'head',
-              undefined,
-              target.line === undefined
-                ? undefined
-                : { line: target.line, column: target.column },
-            )
-          }
+          onOpenPath={terminalPathActivation.activate}
           onOpenWebLink={openWebLink}
           preferences={terminalPreferences(settings)}
           onOpenSettings={() => overlays.openSettings()}

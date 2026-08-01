@@ -47,6 +47,13 @@ export function hostPathEquals(a: HostPath, b: HostPath): boolean {
   return a.hostId === b.hostId && a.path === b.path
 }
 
+/** Return whether a host-qualified path is the parent itself or one of its descendants. */
+export function containsHostPath(parent: HostPath, candidate: HostPath): boolean {
+  if (parent.hostId !== candidate.hostId) return false
+  if (parent.path === '/') return candidate.path.startsWith('/')
+  return candidate.path === parent.path || candidate.path.startsWith(`${parent.path}/`)
+}
+
 /** Join segments onto a HostPath, staying on the same host. */
 export function joinHostPath(base: HostPath, ...segments: string[]): HostPath {
   const joined = [base.path, ...segments].join('/')

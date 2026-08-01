@@ -20,7 +20,13 @@ import { basename, dirname, join, relative, sep } from 'node:path'
 import { StringDecoder } from 'node:string_decoder'
 import chokidar from 'chokidar'
 
-import { hostPath, LOCAL_HOST_ID } from '../../shared'
+import {
+  assertTextPrefixByteLimit,
+  boundTextWorkload,
+  hostPath,
+  LOCAL_HOST_ID,
+  type TextWorkload,
+} from '../../shared'
 import type {
   DirEntry,
   ExecResult,
@@ -359,6 +365,32 @@ export class LocalHost implements ProjectHost {
     _opts: ReadFileOptions = {},
   ): Promise<string> {
     return fsp.readFile(this.resolve(path), encoding)
+  }
+
+  async readTextFilePrefix(path: HostPath, maxBytes: number): Promise<TextWorkload> {
+    assertTextPrefixByteLimit(maxBytes)
+    const handle = await fsp.open(this.resolve(path), 'r')
+    const buffer = Buffer.allocUnsafe(maxBytes + 1)
+    let offset = 0
+    try {
+      while (offset < buffer.byteLength) {
+        const { bytesRead } = await handle.read(
+          buffer,
+          offset,
+          buffer.byteLength - offset,
+          offset,
+        )
+        if (bytesRead === 0) break
+        offset += bytesRead
+      }
+    } finally {
+      await handle.close()
+    }
+    return boundTextWorkload(
+      buffer.subarray(0, offset).toString('utf8'),
+      maxBytes,
+      offset <= maxBytes,
+    )
   }
 
   async writeFile(

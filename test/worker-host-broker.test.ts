@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { dispatchWorkerHostCall } from '../src/main/git/worker-host-broker'
 import { GIT_FETCH_ARGS, GIT_PULL_ARGS, GitEngine } from '../src/main/git/git-engine'
 import { LocalHost, type ProjectHost } from '../src/main/project-host'
-import { localPath, type WorkerHostCall } from '../src/shared'
+import { DIFF_INPUT_BYTE_LIMIT, localPath, type WorkerHostCall } from '../src/shared'
 
 type ExecHostCall = Extract<WorkerHostCall, { readonly operation: 'exec' }>
 
@@ -111,6 +111,96 @@ describe('Git worker host broker', () => {
         project,
       ),
     ).rejects.toThrow('escapes the active project')
+  })
+
+  it('routes only bounded text-prefix reads inside the active project', async () => {
+    const rootPath = await mkdtemp(join(tmpdir(), 'hvir-broker-prefix-'))
+    cleanups.push(rootPath)
+    const host = new LocalHost()
+    const path = localPath(join(rootPath, 'file.txt'))
+    await writeFile(path.path, 'abcde')
+    const project = { host, root: localPath(rootPath) }
+    const call: WorkerHostCall = {
+      kind: 'host-call',
+      callId: 2,
+      hostId: host.hostId,
+      operation: 'readTextFilePrefix',
+      path,
+      maxBytes: 4,
+    }
+
+    await expect(dispatchWorkerHostCall(call, project)).resolves.toMatchObject({
+      content: 'abcd',
+      complete: false,
+    })
+    await expect(
+      dispatchWorkerHostCall({ ...call, maxBytes: 0 }, project),
+    ).rejects.toThrow('Invalid text prefix byte limit')
+    await expect(
+      dispatchWorkerHostCall(
+        { ...call, maxBytes: DIFF_INPUT_BYTE_LIMIT + 1 },
+        project,
+      ),
+    ).rejects.toThrow('Invalid text prefix byte limit')
+  })
+
+  it('permits truncation only for status and bounded blob reads', async () => {
+    const rootPath = await mkdtemp(join(tmpdir(), 'hvir-broker-show-'))
+    cleanups.push(rootPath)
+    const host = new LocalHost()
+    const exec = vi.spyOn(host, 'exec').mockResolvedValue({
+      code: 0,
+      signal: null,
+      stdout: 'prefix',
+      stderr: '',
+      outputTruncated: true,
+    })
+    const project = { host, root: localPath(rootPath) }
+    const show: ExecHostCall = {
+      ...hostCall(rootPath),
+      args: ['-C', rootPath, 'show', 'HEAD:file.txt'],
+      maxBuffer: 1024,
+      allowTruncatedOutput: true,
+    }
+
+    await dispatchWorkerHostCall(show, project)
+
+    expect(exec.mock.calls[0]?.[2]).toMatchObject({
+      maxBuffer: 1024,
+      allowTruncatedOutput: true,
+    })
+    await expect(
+      dispatchWorkerHostCall(
+        {
+          ...show,
+          args: ['-C', rootPath, 'show-ref', '--verify', '--quiet', 'refs/heads/main'],
+        },
+        project,
+      ),
+    ).rejects.toThrow('unsupported output truncation')
+    await expect(
+      dispatchWorkerHostCall(
+        {
+          ...show,
+          args: [
+            '-C',
+            rootPath,
+            'show',
+            '--no-renames',
+            '--no-ext-diff',
+            '--no-textconv',
+            '--diff-merges=first-parent',
+            '--format=%H%x1f%h%x1f%P%x1f%an%x1f%aI%x1f%D%x1f%B%x1e',
+            '--numstat',
+            '-z',
+            '0123456789012345678901234567890123456789',
+            '--',
+            '.',
+          ],
+        },
+        project,
+      ),
+    ).rejects.toThrow('unsupported output truncation')
   })
 
   it('requires one-shot authorization for the exact worktree prune grammar', async () => {

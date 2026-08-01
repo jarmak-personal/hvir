@@ -290,7 +290,7 @@ export const plainShellProvider: HarnessProvider = {
   probe: staticProbe('none', false, 'none'),
 
   launch(ctx): HarnessLaunchSpec {
-    return { file: ctx.defaultShell, args: [] }
+    return { file: ctx.defaultShell, args: ['-l'] }
   },
 
   resume(ctx): HarnessLaunchSpec {

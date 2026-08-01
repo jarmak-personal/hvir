@@ -131,6 +131,7 @@ function projectState(
   linked: ReturnType<typeof localPath>,
 ): ProjectState {
   return {
+    revision: 0,
     root,
     connectionState: 'connected',
     watchTier: 'native',

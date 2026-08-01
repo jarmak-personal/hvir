@@ -51,6 +51,31 @@ describe('Git rail model', () => {
     expect(model.syncBusy).toBeUndefined()
   })
 
+  it('retains settled branch state during a current-context refresh', () => {
+    let model = reduce(initialGitRailModel, { type: 'context-reset', generation: 3 })
+    model = reduce(model, { type: 'branch-requested', generation: 3, requestId: 1 })
+    model = reduce(model, {
+      type: 'branch-loaded',
+      generation: 3,
+      requestId: 1,
+      model: branchModel('feature'),
+    })
+
+    const refreshing = reduce(model, {
+      type: 'branch-requested',
+      generation: 3,
+      requestId: 2,
+    })
+    expect(refreshing.branchModel).toBe(model.branchModel)
+    expect(refreshing.branchError).toBeUndefined()
+
+    const nextContext = reduce(refreshing, {
+      type: 'context-reset',
+      generation: 4,
+    })
+    expect(nextContext.branchModel).toBeUndefined()
+  })
+
   it('deduplicates paged history and ignores an older page completion', () => {
     let model = reduce(initialGitRailModel, { type: 'context-reset', generation: 4 })
     model = reduce(model, {
