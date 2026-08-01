@@ -20,6 +20,7 @@ export interface ElectronRendererRecoveryOptions {
   readonly isShuttingDown: () => boolean
   readonly deadlineMs?: number
   readonly scheduleDeadline?: (task: () => void, delayMs: number) => () => void
+  readonly scheduleReload?: (task: () => void) => void
 }
 
 /** Owns bounded renderer replacement attempts and their native failure presentation. */
@@ -80,9 +81,9 @@ export class ElectronRendererRecovery {
       const exitedOwner = this.forcedExitOwner
       this.forcedExitOwner = undefined
       this.options.health.rendererGone(exitedOwner, reason, 'forced-for-reload')
-      // The reload requested before the forced exit can be discarded with the old
-      // renderer. Reassert it at the exit boundary without rolling resources again.
-      if (this.monitor.owns(currentOwner)) this.reload(currentOwner)
+      // Leave Chromium's process-death notification before starting navigation.
+      // Synchronous crash + reload can stall the browser process on Linux.
+      if (this.monitor.owns(currentOwner)) this.scheduleReload(currentOwner)
       return true
     }
     if (!this.monitor.owns(currentOwner)) return false
@@ -93,8 +94,22 @@ export class ElectronRendererRecovery {
 
   reloadUnexpected(replacement: RendererOwner): void {
     this.options.health.documentStarted()
-    this.monitor.start(replacement)
-    this.reload(replacement)
+    if (this.monitor.start(replacement)) this.scheduleReload(replacement)
+  }
+
+  private scheduleReload(owner: RendererOwner): void {
+    const schedule = this.options.scheduleReload ?? setImmediate
+    schedule(() => {
+      if (
+        this.options.win.isDestroyed() ||
+        this.options.isShuttingDown() ||
+        !this.monitor.owns(owner) ||
+        !ownsUnresponsiveRecovery(this.options.currentOwner(), owner)
+      ) {
+        return
+      }
+      this.reload(owner)
+    })
   }
 
   private reload(owner: RendererOwner): void {
@@ -143,7 +158,6 @@ export class ElectronRendererRecovery {
     )
     try {
       win.webContents.forcefullyCrashRenderer()
-      win.webContents.reload()
     } catch (error) {
       this.forcedExitOwner = undefined
       console.error('[window] renderer reload could not be started', error)
