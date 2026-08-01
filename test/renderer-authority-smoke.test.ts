@@ -10,6 +10,10 @@ const rendererAuthoritySource = readFileSync(
   new URL('../src/main/smoke/renderer-authority.ts', import.meta.url),
   'utf8',
 )
+const mainEntrySource = readFileSync(
+  new URL('../src/main/index.ts', import.meta.url),
+  'utf8',
+)
 
 describe('renderer-authority smoke boundaries', () => {
   it('fails a never-settling Electron operation at its named inner boundary', async () => {
@@ -54,5 +58,11 @@ describe('renderer-authority smoke boundaries', () => {
     )
     expect(rendererAuthoritySource).not.toContain('rolloverPreview')
     expect(rendererAuthoritySource).not.toContain('destructionRoute')
+  })
+
+  it('keeps Linux last-window shutdown under the smoke cleanup owner', () => {
+    expect(mainEntrySource).toContain(
+      "if (!process.env['HVIR_SMOKE'] && process.platform !== 'darwin') app.quit()",
+    )
   })
 })
