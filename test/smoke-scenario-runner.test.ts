@@ -214,16 +214,25 @@ describe('Electron smoke result aggregation', () => {
     expect(smokeAttemptTimeoutMs('pty-native')).toBe(180_000)
     expect(smokeAttemptTimeoutMs('capacity')).toBe(600_000)
     expect(
+      smokeCheckpointTimeoutMs('renderer-recovery', 'renderer-recovery-route-opening'),
+    ).toBe(15_000)
+    expect(
+      smokeCheckpointTimeoutMs('renderer-recovery', 'renderer-recovery-reload-awaiting'),
+    ).toBe(15_000)
+    expect(
       smokeCheckpointTimeoutMs(
-        'renderer-authority',
-        'renderer-authority-reload-awaiting',
+        'renderer-recovery',
+        'renderer-recovery-replacement-ipc-awaiting',
       ),
     ).toBe(15_000)
     expect(
       smokeCheckpointTimeoutMs(
-        'renderer-authority',
-        'renderer-authority-reload-loaded',
+        'renderer-recovery',
+        'renderer-recovery-route-revocation-awaiting',
       ),
+    ).toBe(15_000)
+    expect(
+      smokeCheckpointTimeoutMs('renderer-recovery', 'renderer-recovery-reload-loaded'),
     ).toBeUndefined()
     expect(smokeCheckpointTimeoutMs('web-pane', null)).toBeUndefined()
   })
@@ -352,11 +361,11 @@ describe('Electron smoke process failure artifacts', () => {
     })
   })
 
-  it('kills a main-loop stall at its renderer-authority checkpoint deadline', async () => {
+  it('kills a main-loop stall at its renderer-recovery checkpoint deadline', async () => {
     const evidence = JSON.stringify({
       schema: 1,
       phase: 'scenario-active',
-      checkpoint: 'renderer-authority-reload-awaiting',
+      checkpoint: 'renderer-recovery-reload-awaiting',
       cleanupResource: null,
       owners: {
         windowCount: 1,
@@ -367,7 +376,7 @@ describe('Electron smoke process failure artifacts', () => {
       },
     })
     const fixture = await invokeFixture({
-      scenario: 'renderer-authority',
+      scenario: 'renderer-recovery',
       command: process.execPath,
       args: [
         '-e',
@@ -380,12 +389,11 @@ describe('Electron smoke process failure artifacts', () => {
     expect(fixture.result).toMatchObject({
       status: 'failed',
       signal: 'SIGKILL',
-      error:
-        'process timed out at renderer-authority-reload-awaiting after 50ms',
+      error: 'process timed out at renderer-recovery-reload-awaiting after 50ms',
     })
     expect(fixture.artifact.semanticSnapshot).toMatchObject({
       phase: 'scenario-active',
-      checkpoint: 'renderer-authority-reload-awaiting',
+      checkpoint: 'renderer-recovery-reload-awaiting',
     })
   })
 
@@ -730,9 +738,8 @@ describe('Electron smoke command contracts', () => {
     expect(webPaneScenario).not.toMatch(/setTimeout\(poll, 300\)/)
     expect(rendererAuthorityScenario).toContain('state=${JSON.stringify(state)}')
     expect(rendererAuthorityScenario).toContain('ERR_UNKNOWN_URL_SCHEME')
-    expect(rendererAuthorityScenario.indexOf("once('did-finish-load'")).toBeLessThan(
-      rendererAuthorityScenario.indexOf('location.reload()'),
-    )
+    expect(rendererAuthorityScenario).not.toContain('location.reload()')
+    expect(rendererAuthorityScenario).not.toContain("once('did-finish-load'")
     expect(rendererAuthorityScenario.indexOf("once('destroyed'")).toBeLessThan(
       rendererAuthorityScenario.indexOf('win.destroy()'),
     )

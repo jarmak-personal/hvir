@@ -10,6 +10,10 @@ const rendererAuthoritySource = readFileSync(
   new URL('../src/main/smoke/renderer-authority.ts', import.meta.url),
   'utf8',
 )
+const rendererRecoverySource = readFileSync(
+  new URL('../src/main/smoke/renderer-recovery.ts', import.meta.url),
+  'utf8',
+)
 const mainEntrySource = readFileSync(
   new URL('../src/main/index.ts', import.meta.url),
   'utf8',
@@ -23,7 +27,7 @@ describe('renderer-authority smoke boundaries', () => {
     })
     const checkpoints: string[] = []
     const operation = waitForRendererAuthorityCondition(
-      'renderer-authority-replacement-ipc-awaiting',
+      'renderer-authority-preview-fetch-awaiting',
       () => new Promise<never>(() => undefined),
       'replacement renderer did not regain IPC authority',
       (checkpoint) => checkpoints.push(checkpoint),
@@ -35,25 +39,33 @@ describe('renderer-authority smoke boundaries', () => {
       },
     )
     const failure = expect(operation).rejects.toThrow(
-      'renderer-authority-replacement-ipc-awaiting timed out after 25ms',
+      'renderer-authority-preview-fetch-awaiting timed out after 25ms',
     )
 
     await vi.advanceTimersByTimeAsync(25)
 
     await failure
-    expect(checkpoints).toEqual(['renderer-authority-replacement-ipc-awaiting'])
+    expect(checkpoints).toEqual(['renderer-authority-preview-fetch-awaiting'])
   })
 
-  it('keeps only the real-Electron route reload and preview destruction proofs', () => {
-    expect(rendererAuthoritySource.match(/routes\.open\(/g)).toHaveLength(1)
+  it('moves route revocation to production recovery and keeps real destruction proof', () => {
+    expect(rendererAuthoritySource).not.toContain('routes.open(')
     expect(rendererAuthoritySource.match(/htmlPreviews\.create\(/g)).toHaveLength(1)
-    expect(rendererAuthoritySource).toContain("'did-finish-load'")
     expect(rendererAuthoritySource).toContain("'destroyed'")
-    expect(rendererAuthoritySource).toContain('win.webContents.executeJavaScript')
-    expect(rendererAuthoritySource).toContain('location.reload()')
-    expect(rendererAuthoritySource).not.toContain('win.webContents.reload()')
-    expect(rendererAuthoritySource).toContain(
-      "'renderer-authority-route-revocation-awaiting'",
+    expect(rendererAuthoritySource).not.toContain('location.reload()')
+    expect(rendererAuthoritySource).not.toContain("'did-finish-load'")
+    expect(rendererRecoverySource).toContain('routes.open(')
+    expect(rendererRecoverySource).toContain("'did-finish-load'")
+    expect(rendererRecoverySource).toContain('reloadUnresponsiveRenderer(initialOwner)')
+    expect(rendererRecoverySource).toContain("window.hvir.invoke('app:info'")
+    expect(rendererRecoverySource).toContain(
+      "'renderer-recovery-replacement-ipc-awaiting'",
+    )
+    expect(rendererRecoverySource).toContain(
+      "'renderer-recovery-route-revocation-awaiting'",
+    )
+    expect(rendererRecoverySource).toContain(
+      '!routes.has(route.paneId, initialOwner.id, initialOwner.generation)',
     )
     expect(rendererAuthoritySource).toContain(
       "'renderer-authority-preview-revocation-awaiting'",

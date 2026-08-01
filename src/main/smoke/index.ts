@@ -604,7 +604,11 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
         resources: rendererResources,
         diagnostics: dependencies.runtimeDiagnostics,
         supervisor,
+        routes: webPaneRoutes,
+        root: smokeRoot,
+        host,
         reloadUnresponsiveRenderer: dependencies.reloadUnresponsiveRenderer,
+        checkpoint: recordSmokeCheckpoint,
       })
       if (discardedRendererGenerations !== 1) {
         throw new Error(
@@ -694,10 +698,8 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
       const result = await verifyRendererAuthorityLifecycle({
         win,
         resources: rendererResources,
-        routes: webPaneRoutes,
         htmlPreviews,
         root: smokeRoot,
-        host,
         checkpoint: recordSmokeCheckpoint,
       })
       console.log(`[smoke] renderer authority lifecycle OK (${result})`)
