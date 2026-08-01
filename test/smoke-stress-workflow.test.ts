@@ -9,80 +9,120 @@ const workflow = readFileSync(
 )
 
 interface WorkflowStep {
+  id?: string
   env?: Record<string, string>
   if?: string
   run?: string
   uses?: string
+  'continue-on-error'?: boolean
   with?: Record<string, unknown>
+}
+
+interface WorkflowJob {
+  if?: string
+  needs?: string | string[]
+  'runs-on': string
+  'timeout-minutes': number
+  strategy?: {
+    'fail-fast': boolean
+    'max-parallel': number
+    matrix: string
+  }
+  steps: WorkflowStep[]
 }
 
 const parsed = parse(workflow) as {
   on: {
-    workflow_dispatch: {
-      inputs: { scenario: { options: string[] } }
-    }
+    workflow_dispatch: { inputs: { source_sha: { required: boolean; type: string } } }
     schedule: unknown
   }
   permissions: Record<string, string>
-  jobs: {
-    stress: {
-      env: Record<string, string>
-      strategy: {
-        'fail-fast': boolean
-        matrix: { os: string[] }
-      }
-      steps: WorkflowStep[]
-    }
-  }
+  concurrency: { group: string; 'cancel-in-progress': boolean }
+  jobs: Record<string, WorkflowJob>
 }
 
-describe('Electron smoke stress workflow', () => {
-  it('schedules fixed, non-retry evidence on Linux and macOS ARM64', () => {
-    expect(parsed.on).toHaveProperty('workflow_dispatch')
+describe('Electron reliability qualification workflow', () => {
+  it('fixes a reviewed SHA and plans qualification or weekly evidence', () => {
+    expect(parsed.on.workflow_dispatch.inputs.source_sha).toMatchObject({
+      required: true,
+      type: 'string',
+    })
     expect(parsed.on).toHaveProperty('schedule')
     expect(parsed.on).not.toHaveProperty('pull_request')
-    expect(parsed.on.workflow_dispatch.inputs.scenario.options).toContain(
-      'renderer-authority',
-    )
     expect(parsed.permissions).toEqual({ contents: 'read' })
-    expect(parsed.jobs.stress.strategy['fail-fast']).toBe(false)
-    expect(parsed.jobs.stress.strategy.matrix.os).toEqual(['ubuntu-24.04', 'macos-15'])
-    expect(parsed.jobs.stress.env).toEqual({
-      HVIR_SMOKE_SCENARIO: '${{ matrix.scenario }}',
-      HVIR_SMOKE_REPEAT:
-        "${{ github.event_name == 'schedule' && '20' || inputs.repeat }}",
+    expect(parsed.concurrency['cancel-in-progress']).toBe(false)
+
+    const plan = parsed.jobs.plan!
+    const checkout = plan.steps.find((step) => step.uses === 'actions/checkout@v7')
+    const planStep = plan.steps.find((step) => step.id === 'plan')
+    expect(checkout?.with?.ref).toBe('${{ github.sha }}')
+    expect(planStep).toMatchObject({
+      run: 'node scripts/run-electron-qualification.mts plan',
+      env: {
+        HVIR_QUALIFICATION_SOURCE_SHA: '${{ github.sha }}',
+        HVIR_QUALIFICATION_RUN_ATTEMPT: '${{ github.run_attempt }}',
+      },
     })
+    expect(planStep?.env?.HVIR_QUALIFICATION_MODE).toContain("'weekly'")
+    expect(planStep?.env?.HVIR_QUALIFICATION_REVIEWED_SHA).toContain('inputs.source_sha')
   })
 
-  it('uploads only bounded failure artifacts for failed jobs', () => {
-    const runSteps = parsed.jobs.stress.steps.filter((step) => step.run)
-    expect(runSteps).toEqual(
+  it('runs bounded non-retry partitions and always retains partial evidence', () => {
+    const partition = parsed.jobs.partition!
+    expect(partition['timeout-minutes']).toBe(90)
+    expect(partition.strategy).toEqual({
+      'fail-fast': false,
+      'max-parallel': 20,
+      matrix: '${{ fromJSON(needs.plan.outputs.matrix) }}',
+    })
+    const invocation = partition.steps.find((step) => step.id === 'invoke')
+    expect(invocation).toMatchObject({
+      'continue-on-error': true,
+      run: 'node scripts/run-electron-qualification.mts partition',
+    })
+    expect(invocation?.env).toMatchObject({
+      HVIR_QUALIFICATION_SOURCE_SHA: '${{ needs.plan.outputs.source_sha }}',
+      HVIR_QUALIFICATION_PLATFORM: '${{ matrix.platform }}',
+      HVIR_QUALIFICATION_ATTEMPT_COUNT: '${{ matrix.attemptCount }}',
+    })
+    const upload = partition.steps.find(
+      (step) => step.uses === 'actions/upload-artifact@v7',
+    )
+    expect(upload).toMatchObject({
+      if: 'always()',
+      with: {
+        'if-no-files-found': 'error',
+        'retention-days': 30,
+      },
+    })
+    expect(partition.steps.at(-1)?.run).toBe(
+      'node scripts/run-electron-qualification.mts assert-partition',
+    )
+  })
+
+  it('summarizes every expected partition even when matrix jobs fail', () => {
+    const summarize = parsed.jobs.summarize!
+    expect(summarize.if).toBe("always() && needs.plan.result == 'success'")
+    expect(summarize.needs).toEqual(['plan', 'partition'])
+    expect(summarize.steps).toEqual(
       expect.arrayContaining([
+        expect.objectContaining({ uses: 'actions/download-artifact@v8' }),
         expect.objectContaining({
-          if: "runner.os == 'Linux'",
-          env: {
-            HVIR_SMOKE_ARTIFACT_DIR: '${{ runner.temp }}/hvir-smoke-artifacts',
-          },
-          run: 'xvfb-run -a npm run smoke:scenario',
+          id: 'summarize',
+          'continue-on-error': true,
+          run: 'node scripts/run-electron-qualification.mts summarize',
         }),
         expect.objectContaining({
-          if: "runner.os == 'macOS'",
-          env: {
-            HVIR_SMOKE_ARTIFACT_DIR: '${{ runner.temp }}/hvir-smoke-artifacts',
-          },
-          run: 'npm run smoke:scenario',
+          run: 'node scripts/run-electron-qualification.mts assert-summary',
         }),
       ]),
     )
-
-    const upload = parsed.jobs.stress.steps.find(
+    const upload = summarize.steps.find(
       (step) => step.uses === 'actions/upload-artifact@v7',
     )
-    expect(upload?.if).toBe('failure()')
     expect(upload?.with).toMatchObject({
-      path: '${{ runner.temp }}/hvir-smoke-artifacts',
-      'if-no-files-found': 'ignore',
-      'retention-days': 7,
+      'if-no-files-found': 'error',
+      'retention-days': 90,
     })
   })
 })

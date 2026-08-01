@@ -1,28 +1,12 @@
-name: Electron smoke stress
+name: Electron reliability qualification
 
 on:
   workflow_dispatch:
     inputs:
-      scenario:
-        description: Focused scenario to repeat
+      source_sha:
+        description: Reviewed 40-character source SHA (must equal the selected ref HEAD)
         required: true
-        default: pty-native
-        type: choice
-        options:
-          - pty-native
-          - renderer-recovery
-          - renderer-authority
-          - web-pane
-      repeat:
-        description: Fixed attempt count (not retries)
-        required: true
-        default: '20'
-        type: choice
-        options:
-          - '5'
-          - '10'
-          - '20'
-          - '50'
+        type: string
   schedule:
     - cron: '23 6 * * 2'
 
@@ -30,33 +14,64 @@ permissions:
   contents: read
 
 concurrency:
-  group: smoke-stress-${{ github.event_name }}-${{ github.ref }}
+  group: electron-reliability-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
-  stress:
-    name: ${{ matrix.name }} · ${{ matrix.scenario }} × ${{ github.event_name == 'schedule' && '20' || inputs.repeat }}
-    runs-on: ${{ matrix.os }}
+  plan:
+    name: Fix source and plan complete evidence
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+      mode: ${{ steps.plan.outputs.mode }}
+      source_sha: ${{ steps.plan.outputs.source_sha }}
+
+    steps:
+      - name: Check out the exact source
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          package-manager-cache: false
+
+      - name: Create the fixed qualification plan
+        id: plan
+        env:
+          HVIR_QUALIFICATION_MODE: ${{ github.event_name == 'schedule' && 'weekly' || 'qualification' }}
+          HVIR_QUALIFICATION_SOURCE_SHA: ${{ github.sha }}
+          HVIR_QUALIFICATION_REVIEWED_SHA: ${{ github.event_name == 'schedule' && github.sha || inputs.source_sha }}
+          HVIR_QUALIFICATION_RUN_ATTEMPT: ${{ github.run_attempt }}
+          HVIR_QUALIFICATION_PLAN_PATH: ${{ runner.temp }}/electron-plan/plan.json
+        run: node scripts/run-electron-qualification.mts plan
+
+      - name: Retain the exact plan
+        uses: actions/upload-artifact@v7
+        with:
+          name: electron-${{ steps.plan.outputs.mode }}-${{ steps.plan.outputs.source_sha }}-plan
+          path: ${{ runner.temp }}/electron-plan/plan.json
+          if-no-files-found: error
+          retention-days: 30
+
+  partition:
+    name: ${{ matrix.platform }} · partition ${{ matrix.partition }}
+    needs: plan
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 90
     strategy:
       fail-fast: false
-      matrix:
-        os:
-          - ubuntu-24.04
-          - macos-15
-        scenario: ${{ fromJSON(github.event_name == 'schedule' && '["pty-native","renderer-recovery","web-pane"]' || format('["{0}"]', inputs.scenario)) }}
-        include:
-          - os: ubuntu-24.04
-            name: Linux x64
-          - os: macos-15
-            name: macOS ARM64
-    env:
-      HVIR_SMOKE_SCENARIO: ${{ matrix.scenario }}
-      HVIR_SMOKE_REPEAT: ${{ github.event_name == 'schedule' && '20' || inputs.repeat }}
+      max-parallel: 20
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
 
     steps:
-      - name: Check out repository
+      - name: Check out the fixed source
         uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.plan.outputs.source_sha }}
 
       - name: Set up Node.js
         uses: actions/setup-node@v7
@@ -67,23 +82,82 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Run Linux stress attempts
-        if: runner.os == 'Linux'
+      - name: Run every planned full-suite invocation
+        id: invoke
+        continue-on-error: true
         env:
-          HVIR_SMOKE_ARTIFACT_DIR: ${{ runner.temp }}/hvir-smoke-artifacts
-        run: xvfb-run -a npm run smoke:scenario
+          HVIR_QUALIFICATION_MODE: ${{ needs.plan.outputs.mode }}
+          HVIR_QUALIFICATION_SOURCE_SHA: ${{ needs.plan.outputs.source_sha }}
+          HVIR_QUALIFICATION_PLATFORM: ${{ matrix.platform }}
+          HVIR_QUALIFICATION_PARTITION: ${{ matrix.partition }}
+          HVIR_QUALIFICATION_ATTEMPT_START: ${{ matrix.attemptStart }}
+          HVIR_QUALIFICATION_ATTEMPT_COUNT: ${{ matrix.attemptCount }}
+          HVIR_QUALIFICATION_RUN_ATTEMPT: ${{ github.run_attempt }}
+          HVIR_QUALIFICATION_OUTPUT_DIR: ${{ runner.temp }}/electron-partition
+        run: node scripts/run-electron-qualification.mts partition
 
-      - name: Run macOS ARM64 stress attempts
-        if: runner.os == 'macOS'
-        env:
-          HVIR_SMOKE_ARTIFACT_DIR: ${{ runner.temp }}/hvir-smoke-artifacts
-        run: npm run smoke:scenario
-
-      - name: Upload bounded failure evidence
-        if: failure()
+      - name: Upload the complete or interrupted partition record
+        if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: smoke-failure-${{ matrix.os }}-${{ matrix.scenario }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/hvir-smoke-artifacts
-          if-no-files-found: ignore
-          retention-days: 7
+          name: electron-${{ needs.plan.outputs.mode }}-${{ needs.plan.outputs.source_sha }}-${{ matrix.platform }}-partition-${{ matrix.partition }}
+          path: ${{ runner.temp }}/electron-partition
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Fail when any planned invocation lacks passing evidence
+        if: always()
+        env:
+          HVIR_QUALIFICATION_OUTPUT_DIR: ${{ runner.temp }}/electron-partition
+        run: node scripts/run-electron-qualification.mts assert-partition
+
+  summarize:
+    name: Count every partition and calculate the bound
+    if: always() && needs.plan.result == 'success'
+    needs:
+      - plan
+      - partition
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out the fixed source
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.plan.outputs.source_sha }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          package-manager-cache: false
+
+      - name: Download every available partition
+        uses: actions/download-artifact@v8
+        with:
+          path: ${{ runner.temp }}/electron-results
+
+      - name: Combine missing, failed, interrupted, and passing invocations
+        id: summarize
+        continue-on-error: true
+        env:
+          HVIR_QUALIFICATION_PLAN_PATH: ${{ runner.temp }}/electron-results/electron-${{ needs.plan.outputs.mode }}-${{ needs.plan.outputs.source_sha }}-plan/plan.json
+          HVIR_QUALIFICATION_RESULTS_ROOT: ${{ runner.temp }}/electron-results
+          HVIR_QUALIFICATION_SUMMARY_DIR: ${{ runner.temp }}/electron-summary
+          HVIR_QUALIFICATION_RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: node scripts/run-electron-qualification.mts summarize
+
+      - name: Retain the final machine-readable and human-readable result
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: electron-${{ needs.plan.outputs.mode }}-${{ needs.plan.outputs.source_sha }}-summary
+          path: ${{ runner.temp }}/electron-summary
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Enforce the qualification or weekly regression result
+        if: always()
+        env:
+          HVIR_QUALIFICATION_SUMMARY_DIR: ${{ runner.temp }}/electron-summary
+        run: node scripts/run-electron-qualification.mts assert-summary
