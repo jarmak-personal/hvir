@@ -44,7 +44,7 @@ async function main() {
     '41898282+github-actions[bot]@users.noreply.github.com',
   )
   await git('add', ...expectedVersionFiles)
-  await git('commit', '-m', `Bump hvir to ${version} [skip ci]`)
+  await git('commit', '-m', `Bump hvir to ${version}`)
 
   const localTree = await git('rev-parse', 'HEAD^{tree}')
   const remoteBranch = await run('git', [

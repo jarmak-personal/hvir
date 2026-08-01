@@ -22,6 +22,10 @@ const prepareReleaseScript = readFileSync(
   new URL('../scripts/prepare-release-pr.mjs', import.meta.url),
   'utf8',
 )
+const releaseCiEvidenceScript = readFileSync(
+  new URL('../scripts/require-release-ci-evidence.mts', import.meta.url),
+  'utf8',
+)
 
 describe('native release automation', () => {
   it('keeps every workflow valid and gates native release jobs on current package state', () => {
@@ -46,10 +50,11 @@ describe('native release automation', () => {
     expect(releaseWorkflow).not.toContain('smoke:packaged')
   })
 
-  it('creates one skip-CI maintenance commit and a changelog-style PR', () => {
+  it('creates one CI-eligible maintenance commit and a changelog-style PR', () => {
     expect(prepareReleaseScript).toContain(
-      "await git('commit', '-m', `Bump hvir to ${version} [skip ci]`)",
+      "await git('commit', '-m', `Bump hvir to ${version}`)",
     )
+    expect(prepareReleaseScript).not.toContain('[skip ci]')
     expect(prepareReleaseScript).toContain(
       "const expectedVersionFiles = ['package-lock.json', 'package.json']",
     )
@@ -69,6 +74,25 @@ describe('native release automation', () => {
       'git merge-base --is-ancestor "$SOURCE_SHA" "$default_sha"',
     )
     expect(releaseWorkflow).toContain('"$remote_tag_sha" != "$SOURCE_SHA"')
+  })
+
+  it('consumes exact-source CI evidence instead of rerunning generic current-source checks', () => {
+    expect(releaseWorkflow).toContain('      actions: read')
+    expect(releaseWorkflow).toContain(
+      'RELEASE_SOURCE_SHA: ${{ steps.version.outputs.sha }}',
+    )
+    expect(releaseWorkflow).toContain('run: node scripts/require-release-ci-evidence.mts')
+    expect(releaseWorkflow).toContain("if: inputs.bump == 'current'")
+    expect(releaseWorkflow.match(/if: inputs\.bump != 'current'/g)).toHaveLength(3)
+    expect(releaseWorkflow).toContain("if: failure() && inputs.bump != 'current'")
+    expect(releaseCiEvidenceScript).toContain(
+      "export const RELEASE_REPOSITORY = 'jarmak-personal/hvir'",
+    )
+    expect(releaseCiEvidenceScript).toContain(
+      "export const CI_WORKFLOW_PATH = '.github/workflows/ci.yml'",
+    )
+    expect(releaseCiEvidenceScript).toContain('run.runAttempt === 1')
+    expect(releaseCiEvidenceScript).not.toContain('response.text()')
   })
 
   it('dispatches only a merged same-repository bot release PR from trusted workflow code', () => {
@@ -150,18 +174,12 @@ describe('native release automation', () => {
     )
     expect(immutableStep).not.toContain('GH_TOKEN: ${{ github.token }}')
     const createDraftStep = releaseWorkflow.slice(createDraft, upload)
-    expect(createDraftStep).toContain(
-      'GH_TOKEN: ${{ github.token }}',
-    )
+    expect(createDraftStep).toContain('GH_TOKEN: ${{ github.token }}')
     expect(createDraftStep).toContain(
       'RELEASE_REF_WRITE_TOKEN: ${{ secrets.IMMUTABLE_RELEASES_READ_TOKEN }}',
     )
-    expect(createDraftStep).toContain(
-      'GH_TOKEN="$RELEASE_REF_WRITE_TOKEN" gh api',
-    )
-    expect(createDraftStep).toContain(
-      '"repos/$GITHUB_REPOSITORY/git/refs"',
-    )
+    expect(createDraftStep).toContain('GH_TOKEN="$RELEASE_REF_WRITE_TOKEN" gh api')
+    expect(createDraftStep).toContain('"repos/$GITHUB_REPOSITORY/git/refs"')
     expect(createDraftStep).not.toContain('git push origin "$TAG"')
     expect(releaseWorkflow).toContain('npm run assemble:native-release')
     expect(releaseWorkflow).toContain('--draft')

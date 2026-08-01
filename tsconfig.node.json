@@ -16,6 +16,7 @@
     "scripts/assemble-native-release.d.mts",
     "scripts/render-native-installer.d.mts",
     "scripts/check-terminal-runtime-patch.mts",
+    "scripts/require-release-ci-evidence.mts",
     "scripts/project-management/**/*.ts",
     "scripts/run-smoke-scenarios.mts",
     "scripts/run-smoke-interruption.mts",

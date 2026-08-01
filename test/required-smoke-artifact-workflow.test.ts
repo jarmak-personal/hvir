@@ -33,8 +33,12 @@ function requireStep(job: WorkflowJob, name: string): WorkflowStep {
   return step
 }
 
-function expectFailureUpload(step: WorkflowStep, artifactName: string): void {
-  expect(step.if).toBe('failure()')
+function expectFailureUpload(
+  step: WorkflowStep,
+  artifactName: string,
+  condition = 'failure()',
+): void {
+  expect(step.if).toBe(condition)
   expect(step.uses).toBe('actions/upload-artifact@v7')
   expect(step.with).toEqual({
     name: artifactName,
@@ -96,11 +100,12 @@ describe('required Electron smoke failure retention', () => {
     )
   })
 
-  it('retains the release preparation failure without changing release acceptance', () => {
+  it('retains the bump preparation failure without rerunning smoke for current', () => {
     const prepare = release.jobs.prepare!
     expect(
       requireStep(prepare, 'Exercise unpackaged Electron production workflow'),
     ).toMatchObject({
+      if: "inputs.bump != 'current'",
       env: {
         HVIR_SMOKE_ARTIFACT_DIR:
           '${{ runner.temp }}/hvir-smoke-artifacts/release-prepare',
@@ -110,6 +115,7 @@ describe('required Electron smoke failure retention', () => {
     expectFailureUpload(
       requireStep(prepare, 'Upload bounded Electron failure evidence'),
       'release-prepare-smoke-failure-${{ github.run_attempt }}',
+      "failure() && inputs.bump != 'current'",
     )
   })
 })
