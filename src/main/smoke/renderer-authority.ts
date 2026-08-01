@@ -72,7 +72,11 @@ export async function verifyRendererAuthorityLifecycle(options: {
     await waitForElectronEvent(
       win,
       'did-finish-load',
-      () => win.webContents.reload(),
+      () => {
+        void win.webContents
+          .executeJavaScript(`setTimeout(() => location.reload(), 0); true`)
+          .catch(() => undefined)
+      },
       'renderer-authority-reload-awaiting',
       checkpoint,
     )

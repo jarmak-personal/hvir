@@ -50,6 +50,8 @@ describe('renderer-authority smoke boundaries', () => {
     expect(rendererAuthoritySource).toContain("'did-finish-load'")
     expect(rendererAuthoritySource).toContain("'destroyed'")
     expect(rendererAuthoritySource).toContain('win.webContents.executeJavaScript')
+    expect(rendererAuthoritySource).toContain('location.reload()')
+    expect(rendererAuthoritySource).not.toContain('win.webContents.reload()')
     expect(rendererAuthoritySource).toContain(
       "'renderer-authority-route-revocation-awaiting'",
     )
