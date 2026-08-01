@@ -689,6 +689,7 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
         emitState: (state) => emit('project:state', state),
         interruptionCheckpoint,
         predecessorSelectionObserved,
+        checkpoint: recordSmokeCheckpoint,
       })
       console.log(`[smoke] web pane workflow OK (${result})`)
       console.log('HVIR_SMOKE_OK')

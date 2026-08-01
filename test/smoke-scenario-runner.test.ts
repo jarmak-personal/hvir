@@ -255,6 +255,10 @@ describe('Electron smoke result aggregation', () => {
         'renderer-authority-resource-revoked',
       ),
     ).toBeUndefined()
+    expect(smokeCheckpointTimeoutMs('web-pane', 'web-pane-guest-ready-awaiting')).toBe(
+      15_000,
+    )
+    expect(smokeCheckpointTimeoutMs('web-pane', 'web-pane-guest-ready')).toBeUndefined()
     expect(smokeCheckpointTimeoutMs('web-pane', null)).toBeUndefined()
   })
 })
@@ -415,6 +419,42 @@ describe('Electron smoke process failure artifacts', () => {
     expect(fixture.artifact.semanticSnapshot).toMatchObject({
       phase: 'scenario-active',
       checkpoint: 'renderer-recovery-reload-awaiting',
+    })
+  })
+
+  it('kills a main-loop stall at its web-pane checkpoint deadline', async () => {
+    const evidence = JSON.stringify({
+      schema: 1,
+      phase: 'scenario-active',
+      checkpoint: 'web-pane-guest-ready-awaiting',
+      cleanupResource: null,
+      owners: {
+        windowCount: 1,
+        ptyCount: 1,
+        watcherActive: true,
+        rendererOwnerActive: true,
+        rendererGeneration: 1,
+      },
+    })
+    const fixture = await invokeFixture({
+      scenario: 'web-pane',
+      command: process.execPath,
+      args: [
+        '-e',
+        `process.stderr.write(${JSON.stringify(`[smoke:failure-evidence] ${evidence}\n`)}); setInterval(() => undefined, 1_000)`,
+      ],
+      timeoutMs: 1_000,
+      checkpointTimeoutMs: 50,
+    })
+
+    expect(fixture.result).toMatchObject({
+      status: 'failed',
+      signal: 'SIGKILL',
+      error: 'process timed out at web-pane-guest-ready-awaiting after 50ms',
+    })
+    expect(fixture.artifact.semanticSnapshot).toMatchObject({
+      phase: 'scenario-active',
+      checkpoint: 'web-pane-guest-ready-awaiting',
     })
   })
 
@@ -755,6 +795,9 @@ describe('Electron smoke command contracts', () => {
     expect(webPaneScenario).toContain('state=${JSON.stringify(state)}')
     expect(webPaneScenario).toContain('routes.source')
     expect(webPaneScenario).toContain('routes.paneIdForGuest')
+    expect(webPaneScenario).toContain('closeWebPaneSmokeServer')
+    expect(webPaneScenario).toContain('http://127.0.0.1:')
+    expect(webPaneScenario).not.toContain('http://localhost:')
     expect(webPaneScenario).not.toMatch(/setTimeout\(poll, 100\)/)
     expect(webPaneScenario).not.toMatch(/setTimeout\(poll, 300\)/)
     expect(rendererAuthorityScenario).toContain('state=${JSON.stringify(state)}')
