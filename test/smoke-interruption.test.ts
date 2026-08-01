@@ -8,6 +8,7 @@ import {
   SMOKE_OWNERSHIP_MARKER,
   SMOKE_OWNERSHIP_MARKER_VALUE,
   cleanupOwnedSmokeRoot,
+  isolationProcessTimeoutError,
   parseSmokeCheckpointLine,
 } from '../scripts/run-smoke-interruption.mts'
 import { SmokeInterruptionCheckpoint } from '../src/main/smoke/interruption-checkpoint'
@@ -15,6 +16,18 @@ import { SmokeInterruptionCheckpoint } from '../src/main/smoke/interruption-chec
 const RUN_TOKEN = '019c0000-0000-7000-8000-000000000118'
 
 describe('smoke interruption checkpoints', () => {
+  it('keeps bounded child evidence when an isolated process times out', () => {
+    const tail = Array.from({ length: 25 }, (_, index) => `${index}:${'x'.repeat(600)}`)
+
+    const error = isolationProcessTimeoutError('web-pane', tail)
+
+    expect(error.message).toContain('web-pane isolation process timed out')
+    expect(error.message).not.toContain('"0:')
+    expect(error.message).toContain('"5:')
+    expect(error.message).toContain('"24:')
+    expect(error.message.length).toBeLessThan(10_500)
+  })
+
   it('emits a closed checkpoint and cleanup schema without changing authority', async () => {
     const output: string[] = []
     const checkpoint = SmokeInterruptionCheckpoint.fromEnvironment(

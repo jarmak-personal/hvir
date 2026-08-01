@@ -46,6 +46,19 @@ const EXTERNAL_WATCHDOG_CHECKPOINTS = new Map<
   SmokeFailureCheckpoint[]
 >([
   [
+    'web-pane',
+    [
+      'web-pane-terminal-launch-awaiting',
+      'web-pane-dashboard-listen-awaiting',
+      'web-pane-route-activation-awaiting',
+      'web-pane-dashboard-request-awaiting',
+      'web-pane-guest-ready-awaiting',
+      'web-pane-route-revocation-awaiting',
+      'web-pane-terminal-disposal-awaiting',
+      'web-pane-dashboard-close-awaiting',
+    ],
+  ],
+  [
     'renderer-recovery',
     [
       'renderer-recovery-route-opening',
