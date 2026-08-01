@@ -285,6 +285,8 @@ describe('Electron smoke process failure artifacts', () => {
     const evidence = JSON.stringify({
       schema: 1,
       phase: 'renderer-ready',
+      checkpoint: null,
+      cleanupResource: null,
       owners: {
         windowCount: 1,
         ptyCount: 0,
@@ -321,6 +323,8 @@ describe('Electron smoke process failure artifacts', () => {
     expect(fixture.artifact.semanticSnapshot).toEqual({
       schema: 1,
       phase: 'renderer-ready',
+      checkpoint: null,
+      cleanupResource: null,
       owners: {
         windowCount: 1,
         ptyCount: 0,

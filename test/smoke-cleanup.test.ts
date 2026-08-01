@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, onTestFinished, vi } from 'vitest'
 
 import { SmokeCleanup } from '../src/main/smoke/cleanup'
 
@@ -42,5 +42,28 @@ describe('SmokeCleanup', () => {
 
     await expect(cleanup.run()).rejects.toThrow('Electron smoke cleanup failed')
     expect(disposed).toEqual(['completed'])
+  })
+
+  it('bounds a stalled disposer and continues through remaining cleanup', async () => {
+    vi.useFakeTimers()
+    onTestFinished(() => {
+      vi.useRealTimers()
+    })
+    const survivor = vi.fn()
+    const failed: string[] = []
+    const cleanup = new SmokeCleanup(undefined, {
+      taskTimeoutMs: 25,
+      onFailure: (name) => failed.push(name),
+    })
+    cleanup.defer('survivor', survivor)
+    cleanup.defer('stalled', () => new Promise<void>(() => undefined))
+    const result = cleanup.run()
+    const failure = expect(result).rejects.toThrow('Electron smoke cleanup failed')
+
+    await vi.advanceTimersByTimeAsync(25)
+
+    await failure
+    expect(failed).toEqual(['stalled'])
+    expect(survivor).toHaveBeenCalledOnce()
   })
 })

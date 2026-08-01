@@ -17,6 +17,8 @@ import { createWorkspaceCleanup } from '../workspace-cleanup'
 import { SmokeCleanup } from './cleanup'
 import {
   reportSmokeFailureEvidence,
+  smokeCleanupResource,
+  type SmokeFailureCheckpoint,
   type SmokeFailurePhase,
   type SmokeOwnedResourceEvidence,
 } from './failure-evidence.mts'
@@ -126,13 +128,29 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
   const host = new LocalHost()
   const supervisor = new PtySupervisor()
   let smokeWindow: BrowserWindow | undefined
+  let cleanupFailureResource: ReturnType<typeof smokeCleanupResource> = null
   let discardedRendererGenerations = 0
   let stopSmokeWatch: Disposer | undefined
   const smokeRoot = projectRoot
   const smokeCloseableRoot = joinHostPath(smokeRoot, '.hvir-smoke-closed-project')
   const smokeWebSwitchRoot = joinHostPath(smokeRoot, 'docs')
   const oversizedDiffPath = joinHostPath(smokeRoot, '.hvir-smoke-oversized-diff.txt')
-  const cleanup = new SmokeCleanup((name) => interruptionCheckpoint.disposed(name))
+  const cleanup = new SmokeCleanup((name) => interruptionCheckpoint.disposed(name), {
+    onFailure: (name) => {
+      cleanupFailureResource = smokeCleanupResource(name)
+      reportSmokeFailureEvidence(
+        'cleanup',
+        smokeOwnedResourceEvidence(
+          smokeWindow,
+          supervisor,
+          stopSmokeWatch !== undefined,
+          rendererResources,
+        ),
+        null,
+        cleanupFailureResource,
+      )
+    },
+  })
   cleanup.defer('echo worker', () => worker.dispose())
   cleanup.defer('Git worker', () => git.dispose())
   cleanup.defer('filename search', () => filenameSearch.dispose())
@@ -280,8 +298,10 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
   const harnessProfilesPath = joinHostPath(smokeRoot, '.hvir-smoke-harness-profiles.json')
   let scenarioFailed = false
   let failurePhase: SmokeFailurePhase = 'resources-created'
+  let failureCheckpoint: SmokeFailureCheckpoint | null = null
   const recordSmokePhase = (phase: SmokeFailurePhase): void => {
     failurePhase = phase
+    failureCheckpoint = null
     reportSmokeFailureEvidence(
       phase,
       smokeOwnedResourceEvidence(
@@ -290,6 +310,19 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
         stopSmokeWatch !== undefined,
         rendererResources,
       ),
+    )
+  }
+  const recordSmokeCheckpoint = (checkpoint: SmokeFailureCheckpoint): void => {
+    failureCheckpoint = checkpoint
+    reportSmokeFailureEvidence(
+      failurePhase,
+      smokeOwnedResourceEvidence(
+        smokeWindow,
+        supervisor,
+        stopSmokeWatch !== undefined,
+        rendererResources,
+      ),
+      checkpoint,
     )
   }
   recordSmokePhase(failurePhase)
@@ -665,6 +698,7 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
         htmlPreviews,
         root: smokeRoot,
         host,
+        checkpoint: recordSmokeCheckpoint,
       })
       console.log(`[smoke] renderer authority lifecycle OK (${result})`)
       console.log('HVIR_SMOKE_OK')
@@ -1511,7 +1545,16 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
     return 0
   } catch (err) {
     scenarioFailed = true
-    recordSmokePhase(failurePhase)
+    reportSmokeFailureEvidence(
+      failurePhase,
+      smokeOwnedResourceEvidence(
+        smokeWindow,
+        supervisor,
+        stopSmokeWatch !== undefined,
+        rendererResources,
+      ),
+      failureCheckpoint,
+    )
     console.error('HVIR_SMOKE_FAIL', err)
     return 1
   } finally {
@@ -1526,6 +1569,8 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
           stopSmokeWatch !== undefined,
           rendererResources,
         ),
+        null,
+        cleanupFailureResource,
       )
       console.error('HVIR_SMOKE_CLEANUP_FAIL', cleanupError)
       // A successful scenario must still fail when cleanup does not complete.

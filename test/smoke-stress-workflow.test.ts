@@ -17,7 +17,12 @@ interface WorkflowStep {
 }
 
 const parsed = parse(workflow) as {
-  on: Record<string, unknown>
+  on: {
+    workflow_dispatch: {
+      inputs: { scenario: { options: string[] } }
+    }
+    schedule: unknown
+  }
   permissions: Record<string, string>
   jobs: {
     stress: {
@@ -36,12 +41,12 @@ describe('Electron smoke stress workflow', () => {
     expect(parsed.on).toHaveProperty('workflow_dispatch')
     expect(parsed.on).toHaveProperty('schedule')
     expect(parsed.on).not.toHaveProperty('pull_request')
+    expect(parsed.on.workflow_dispatch.inputs.scenario.options).toContain(
+      'renderer-authority',
+    )
     expect(parsed.permissions).toEqual({ contents: 'read' })
     expect(parsed.jobs.stress.strategy['fail-fast']).toBe(false)
-    expect(parsed.jobs.stress.strategy.matrix.os).toEqual([
-      'ubuntu-24.04',
-      'macos-15',
-    ])
+    expect(parsed.jobs.stress.strategy.matrix.os).toEqual(['ubuntu-24.04', 'macos-15'])
     expect(parsed.jobs.stress.env).toEqual({
       HVIR_SMOKE_SCENARIO: '${{ matrix.scenario }}',
       HVIR_SMOKE_REPEAT:
@@ -56,16 +61,14 @@ describe('Electron smoke stress workflow', () => {
         expect.objectContaining({
           if: "runner.os == 'Linux'",
           env: {
-            HVIR_SMOKE_ARTIFACT_DIR:
-              '${{ runner.temp }}/hvir-smoke-artifacts',
+            HVIR_SMOKE_ARTIFACT_DIR: '${{ runner.temp }}/hvir-smoke-artifacts',
           },
           run: 'xvfb-run -a npm run smoke:scenario',
         }),
         expect.objectContaining({
           if: "runner.os == 'macOS'",
           env: {
-            HVIR_SMOKE_ARTIFACT_DIR:
-              '${{ runner.temp }}/hvir-smoke-artifacts',
+            HVIR_SMOKE_ARTIFACT_DIR: '${{ runner.temp }}/hvir-smoke-artifacts',
           },
           run: 'npm run smoke:scenario',
         }),

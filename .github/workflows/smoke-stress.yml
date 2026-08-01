@@ -11,6 +11,7 @@ on:
         options:
           - pty-native
           - renderer-recovery
+          - renderer-authority
           - web-pane
       repeat:
         description: Fixed attempt count (not retries)
