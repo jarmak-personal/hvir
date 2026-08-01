@@ -152,6 +152,7 @@ function projectState(newWorkspaceNames: readonly string[]): ProjectState {
     newlyDiscovered: true,
   }))
   return {
+    revision: 0,
     root: main.root,
     activeProjectId: 'project:local:/repo',
     activeWorkspaceId: main.id,

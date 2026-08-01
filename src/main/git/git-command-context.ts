@@ -1,11 +1,14 @@
 import {
   basenameHostPath,
+  boundTextWorkload,
   dirnameHostPath,
   hostPath,
   GIT_CHANGE_DISPLAY_LIMIT,
+  measureTextWorkload,
   type ExecResult,
   type HostId,
   type HostPath,
+  type TextWorkload,
 } from '../../shared'
 import type { ExecOptions } from '../project-host'
 
@@ -26,6 +29,7 @@ export interface GitHostPort {
     opts?: GitExecOptions,
   ): Promise<ExecResult>
   readTextFile(path: HostPath): Promise<string>
+  readTextFilePrefix(path: HostPath, maxBytes: number): Promise<TextWorkload>
 }
 
 export interface GitProjectContext {
@@ -189,10 +193,19 @@ export class GitCommandContext {
     )
   }
 
-  async showOrEmpty(root: HostPath, revision: string): Promise<string> {
-    const result = await this.readOnly(root, ['show', revision])
-    if (result.code === 0) return result.stdout
-    if (result.code === 128) return ''
+  async boundedShowOrEmpty(
+    root: HostPath,
+    revision: string,
+    maxBytes: number,
+  ): Promise<TextWorkload> {
+    const result = await this.readOnly(root, ['show', revision], {
+      maxBuffer: maxBytes + 1,
+      allowTruncatedOutput: true,
+    })
+    if (result.code === 0 || result.outputTruncated) {
+      return boundTextWorkload(result.stdout, maxBytes, result.outputTruncated !== true)
+    }
+    if (result.code === 128) return measureTextWorkload('')
     throw gitError(['show', revision], result.stderr, result.code)
   }
 
@@ -200,9 +213,10 @@ export class GitCommandContext {
     path: HostPath,
     commandRoot: HostPath,
     relativePath: string,
-  ): Promise<string> {
+    maxBytes: number,
+  ): Promise<TextWorkload> {
     try {
-      return await this.host.readTextFile(path)
+      return await this.host.readTextFilePrefix(path, maxBytes)
     } catch (reason) {
       const trackedDeletion = await this.readOnly(commandRoot, [
         'ls-files',
@@ -211,7 +225,9 @@ export class GitCommandContext {
         '--',
         relativePath,
       ])
-      if (trackedDeletion.code === 0 && trackedDeletion.stdout.trim()) return ''
+      if (trackedDeletion.code === 0 && trackedDeletion.stdout.trim()) {
+        return measureTextWorkload('')
+      }
       throw reason
     }
   }

@@ -24,6 +24,7 @@ const localRoot = localPath('/other')
 function projectState(activeProjectId = 'project-1'): ProjectState {
   const activeRemote = activeProjectId === 'project-1'
   return {
+    revision: 0,
     root: activeRemote ? remoteRoot : localRoot,
     connectionState: 'connected',
     watchTier: activeRemote ? 'polling' : 'native',

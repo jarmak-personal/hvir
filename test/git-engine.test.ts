@@ -14,7 +14,12 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { GitEngine, parseWorktreeList } from '../src/main/git/git-engine'
 import { LocalHost, type ExecOptions, type ProjectHost } from '../src/main/project-host'
-import { GIT_CHANGE_DISPLAY_LIMIT, LOCAL_HOST_ID, localPath } from '../src/shared'
+import {
+  DIFF_INPUT_BYTE_LIMIT,
+  GIT_CHANGE_DISPLAY_LIMIT,
+  LOCAL_HOST_ID,
+  localPath,
+} from '../src/shared'
 
 const cleanups: string[] = []
 
@@ -550,11 +555,38 @@ describe('GitEngine', () => {
     const head = await engine.diffInputs(path, 'head')
     const branchPoint = await engine.diffInputs(path, 'branch-point')
 
-    expect(index.baseContent).toBe('feature\n')
-    expect(head.baseContent).toBe('feature\n')
-    expect(branchPoint.baseContent).toBe('base\n')
-    expect(branchPoint.currentContent).toBe('feature\n')
+    expect(index.baseInput.content).toBe('feature\n')
+    expect(head.baseInput.content).toBe('feature\n')
+    expect(branchPoint.baseInput.content).toBe('base\n')
+    expect(branchPoint.currentInput.content).toBe('feature\n')
     expect(branchPoint.currentLabel).toBe('HEAD')
+    await host.dispose()
+  })
+
+  it('bounds both Git and working-tree diff inputs and carries completeness', async () => {
+    const root = await repository()
+    const filename = join(root, 'large.txt')
+    await writeFile(filename, 'a'.repeat(DIFF_INPUT_BYTE_LIMIT + 1))
+    git(root, ['add', 'large.txt'])
+    git(root, ['commit', '-m', 'large base'])
+    await writeFile(filename, 'b'.repeat(DIFF_INPUT_BYTE_LIMIT + 1))
+    const host = new LocalHost()
+
+    const diff = await new GitEngine(host, localPath(root)).diffInputs(
+      localPath(filename),
+      'head',
+    )
+
+    expect(diff.baseInput).toMatchObject({
+      byteLength: DIFF_INPUT_BYTE_LIMIT,
+      complete: false,
+    })
+    expect(diff.currentInput).toMatchObject({
+      byteLength: DIFF_INPUT_BYTE_LIMIT,
+      complete: false,
+    })
+    expect(diff.baseInput.content).toHaveLength(DIFF_INPUT_BYTE_LIMIT)
+    expect(diff.currentInput.content).toHaveLength(DIFF_INPUT_BYTE_LIMIT)
     await host.dispose()
   })
 
@@ -575,8 +607,8 @@ describe('GitEngine', () => {
     const engine = new GitEngine(host)
     const result = await engine.diffInputs(localPath(join(link, 'file.txt')), 'head')
 
-    expect(result.baseContent).toBe('through link\n')
-    expect(result.currentContent).toBe('through link\n')
+    expect(result.baseInput.content).toBe('through link\n')
+    expect(result.currentInput.content).toBe('through link\n')
     await host.dispose()
   })
 
@@ -673,8 +705,8 @@ describe('GitEngine', () => {
     expect(deleted?.path.path).toBe(filename)
     expect(deleted).toEqual(expect.objectContaining({ additions: 0, deletions: 1 }))
     const diff = await engine.diffInputs(localPath(filename), 'head')
-    expect(diff.baseContent).toBe('base\n')
-    expect(diff.currentContent).toBe('')
+    expect(diff.baseInput.content).toBe('base\n')
+    expect(diff.currentInput.content).toBe('')
     await host.dispose()
   })
 
@@ -694,9 +726,9 @@ describe('GitEngine', () => {
     expect(changes.workingTree).toEqual([
       expect.objectContaining({ path: localPath(filename), deletions: 1 }),
     ])
-    await expect(engine.diffInputs(localPath(filename), 'head')).resolves.toEqual(
-      expect.objectContaining({ baseContent: 'nested\n', currentContent: '' }),
-    )
+    const diff = await engine.diffInputs(localPath(filename), 'head')
+    expect(diff.baseInput).toMatchObject({ content: 'nested\n', complete: true })
+    expect(diff.currentInput).toMatchObject({ content: '', complete: true })
     await host.dispose()
   })
 
@@ -843,8 +875,8 @@ describe('GitEngine', () => {
       join(project, 'inside.txt'),
     ])
     const diff = await engine.diffInputs(localPath(join(project, 'inside.txt')), 'head')
-    expect(diff.baseContent).toBe('inside base\n')
-    expect(diff.currentContent).toBe('inside changed\n')
+    expect(diff.baseInput.content).toBe('inside base\n')
+    expect(diff.currentInput.content).toBe('inside changed\n')
     const history = await engine.history(localPath(project), 50)
     expect(history.commits.map((commit) => commit.subject)).toContain('nested base')
     await host.dispose()
@@ -893,7 +925,7 @@ describe('GitEngine', () => {
       'head',
       commit!.hash,
     )
-    expect(diff.currentContent).toBe('sha256\n')
+    expect(diff.currentInput.content).toBe('sha256\n')
     expect(await engine.blame(localPath(join(root, 'file.txt')))).toEqual([
       expect.objectContaining({ hash: commit!.hash, startLine: 1, lineCount: 1 }),
     ])
@@ -925,8 +957,8 @@ describe('GitEngine', () => {
       'head',
       commit!.hash,
     )
-    expect(diff.baseContent).toBe('base\n')
-    expect(diff.currentContent).toBe('second\n')
+    expect(diff.baseInput.content).toBe('base\n')
+    expect(diff.currentInput.content).toBe('second\n')
     await host.dispose()
   })
 

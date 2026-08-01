@@ -1,5 +1,6 @@
 import type { HostPath } from './host-path'
 import { repositoryImageMimeType } from './rendered-link'
+import type { TextWorkload } from './viewer-workload-policy'
 
 export type ViewMode = 'rendered' | 'source' | 'diff'
 
@@ -31,8 +32,8 @@ export interface GitDiffResponse {
   readonly revision?: string
   readonly baseLabel: string
   readonly currentLabel: string
-  readonly baseContent: string
-  readonly currentContent: string
+  readonly baseInput: TextWorkload
+  readonly currentInput: TextWorkload
 }
 
 /**

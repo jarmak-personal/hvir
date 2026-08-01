@@ -44,6 +44,7 @@ const workspaceActivity: WorkspaceActivityResult = {
 
 function projectState(): ProjectState {
   return {
+    revision: 0,
     root,
     connectionState: 'connected',
     watchTier: 'native',

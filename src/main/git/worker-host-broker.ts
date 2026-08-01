@@ -1,7 +1,9 @@
 import {
+  assertTextPrefixByteLimit,
   hostPath,
   type ExecResult,
   type HostPath,
+  type TextWorkload,
   type WorkerHostCall,
 } from '../../shared'
 import type { ProjectHost } from '../project-host'
@@ -18,7 +20,7 @@ export async function dispatchWorkerHostCall(
   call: WorkerHostCall,
   project: { readonly host: ProjectHost; readonly root: HostPath } | null,
   permissions: GitHostCallPermissions = {},
-): Promise<ExecResult | string> {
+): Promise<ExecResult | string | TextWorkload> {
   if (!project || call.hostId !== project.host.hostId) {
     throw new Error('git worker requested an inactive host')
   }
@@ -26,6 +28,11 @@ export async function dispatchWorkerHostCall(
   if (call.operation === 'readTextFile') {
     await assertProjectPath(call.path, root, host)
     return host.readTextFile(call.path)
+  }
+  if (call.operation === 'readTextFilePrefix') {
+    await assertProjectPath(call.path, root, host)
+    assertTextPrefixByteLimit(call.maxBytes)
+    return host.readTextFilePrefix(call.path, call.maxBytes)
   }
   if (call.command !== 'git') throw new Error('git worker may execute only git')
   if (
@@ -51,6 +58,7 @@ export async function dispatchWorkerHostCall(
     call.args.length === 5 && call.args[2] === 'switch' && call.args[3] === '--no-guess'
   const fetch = sameArgs(call.args.slice(2), GIT_FETCH_ARGS)
   const pull = sameArgs(call.args.slice(2), GIT_PULL_ARGS)
+  const boundedBlobShow = call.args[2] === 'show' && isAllowedBlobShow(call.args.slice(3))
   validateGitInvocation(call.args)
   if (worktreePrune && !permissions.allowWorktreePrune) {
     throw new Error('git worker requested an unauthorized worktree prune')
@@ -69,7 +77,8 @@ export async function dispatchWorkerHostCall(
   }
   if (
     call.allowTruncatedOutput !== undefined &&
-    (call.allowTruncatedOutput !== true || call.args[2] !== 'status')
+    (call.allowTruncatedOutput !== true ||
+      (call.args[2] !== 'status' && !boundedBlobShow))
   ) {
     throw new Error('git worker supplied unsupported output truncation')
   }

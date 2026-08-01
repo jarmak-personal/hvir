@@ -11,6 +11,7 @@ import {
 } from '../../../shared'
 import { initialHostConnectionTarget } from './initial-host-connection'
 import { subscribeProjectSessionEvents } from './project-session-events'
+import { ProjectStateDelivery } from './project-state-delivery'
 import {
   initialProjectSessionModel,
   projectSessionReducer,
@@ -50,12 +51,16 @@ export function useProjectSession(options: UseProjectSessionOptions) {
   const callbacks = useRef(options)
   const modelRef = useRef(model)
   const generation = useRef(0)
+  const delivery = useRef<ProjectStateDelivery | undefined>(undefined)
   callbacks.current = options
   modelRef.current = model
-
-  const acceptProjectState = useCallback((state: ProjectState): void => {
+  delivery.current ??= new ProjectStateDelivery((state) => {
     dispatch({ type: 'project-state', state })
     callbacks.current.onProjectState(state)
+  })
+
+  const acceptProjectState = useCallback((state: ProjectState): void => {
+    delivery.current?.accept(state)
   }, [])
 
   const bumpVersions = useCallback((keys: readonly (keyof ProjectSessionVersions)[]) => {
@@ -82,12 +87,7 @@ export function useProjectSession(options: UseProjectSessionOptions) {
       try {
         const state = await operation()
         if (generation.current !== currentGeneration) return undefined
-        dispatch({
-          type: 'transition-project',
-          generation: currentGeneration,
-          state,
-        })
-        callbacks.current.onProjectState(state)
+        acceptProjectState(state)
         return state
       } catch (reason) {
         if (generation.current === currentGeneration) {
@@ -102,7 +102,7 @@ export function useProjectSession(options: UseProjectSessionOptions) {
         dispatch({ type: 'transition-finished', generation: currentGeneration })
       }
     },
-    [],
+    [acceptProjectState],
   )
 
   const configureComposerSubmit = useCallback(async (hostId: string): Promise<void> => {
@@ -349,6 +349,7 @@ export function useProjectSession(options: UseProjectSessionOptions) {
   useEffect(() => {
     let disposed = false
     const timers: Partial<Record<keyof ProjectSessionVersions, number>> = {}
+    const closeDelivery = delivery.current!.open()
     const scheduleVersion = (key: keyof ProjectSessionVersions): void => {
       if (timers[key] !== undefined) return
       timers[key] = window.setTimeout(() => {
@@ -361,8 +362,7 @@ export function useProjectSession(options: UseProjectSessionOptions) {
     void window.hvir.invoke('project:root', undefined).then(
       async (state) => {
         if (disposed || generation.current !== currentGeneration) return
-        dispatch({ type: 'transition-project', generation: currentGeneration, state })
-        callbacks.current.onProjectState(state)
+        acceptProjectState(state)
         if (state.connectionState === 'connected') {
           await configureComposerSubmitNonfatal(state.root.hostId)
         }
@@ -421,6 +421,7 @@ export function useProjectSession(options: UseProjectSessionOptions) {
     return () => {
       disposed = true
       generation.current += 1
+      closeDelivery()
       for (const timer of Object.values(timers)) {
         if (timer !== undefined) window.clearTimeout(timer)
       }
