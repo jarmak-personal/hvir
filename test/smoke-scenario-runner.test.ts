@@ -217,6 +217,9 @@ describe('Electron smoke result aggregation', () => {
       smokeCheckpointTimeoutMs('renderer-recovery', 'renderer-recovery-route-opening'),
     ).toBe(15_000)
     expect(
+      smokeCheckpointTimeoutMs('renderer-recovery', 'renderer-recovery-exit-awaiting'),
+    ).toBe(15_000)
+    expect(
       smokeCheckpointTimeoutMs('renderer-recovery', 'renderer-recovery-reload-awaiting'),
     ).toBe(15_000)
     expect(
