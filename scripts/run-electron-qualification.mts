@@ -7,6 +7,7 @@ import {
   combineElectronQualificationResults,
   createElectronQualificationPartitionResult,
   createElectronQualificationPlan,
+  electronQualificationMatrixBatches,
   formatElectronQualificationSummary,
   type ElectronQualificationAttempt,
   type ElectronQualificationMode,
@@ -135,9 +136,16 @@ async function planCommand(): Promise<void> {
   await writeJsonAtomically(outputPath, plan)
   const githubOutput = process.env.GITHUB_OUTPUT
   if (githubOutput) {
+    const batches = electronQualificationMatrixBatches(plan)
+    const batchOutputs = batches.flatMap((batch, index) => [
+      `matrix_${index + 1}=${JSON.stringify(batch)}`,
+      `matrix_${index + 1}_active=${String(batch.include.length > 0)}`,
+    ])
     await appendFile(
       githubOutput,
-      `matrix=${JSON.stringify(plan.matrix)}\nmode=${plan.mode}\nsource_sha=${plan.sourceSha}\n`,
+      `${[...batchOutputs, `mode=${plan.mode}`, `source_sha=${plan.sourceSha}`].join(
+        '\n',
+      )}\n`,
       'utf8',
     )
   }

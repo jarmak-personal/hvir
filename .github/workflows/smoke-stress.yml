@@ -31,7 +31,16 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     outputs:
-      matrix: ${{ steps.plan.outputs.matrix }}
+      matrix_1: ${{ steps.plan.outputs.matrix_1 }}
+      matrix_1_active: ${{ steps.plan.outputs.matrix_1_active }}
+      matrix_2: ${{ steps.plan.outputs.matrix_2 }}
+      matrix_2_active: ${{ steps.plan.outputs.matrix_2_active }}
+      matrix_3: ${{ steps.plan.outputs.matrix_3 }}
+      matrix_3_active: ${{ steps.plan.outputs.matrix_3_active }}
+      matrix_4: ${{ steps.plan.outputs.matrix_4 }}
+      matrix_4_active: ${{ steps.plan.outputs.matrix_4_active }}
+      matrix_5: ${{ steps.plan.outputs.matrix_5 }}
+      matrix_5_active: ${{ steps.plan.outputs.matrix_5_active }}
       mode: ${{ steps.plan.outputs.mode }}
       source_sha: ${{ steps.plan.outputs.source_sha }}
 
@@ -65,68 +74,108 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-  partition:
-    name: ${{ matrix.platform }} · partition ${{ matrix.partition }}
+  partition_1:
+    name: Independent invocations · batch 1
     needs: plan
-    runs-on: ${{ matrix.runner }}
-    timeout-minutes: 90
+    if: needs.plan.result == 'success' && needs.plan.outputs.matrix_1_active == 'true'
     strategy:
       fail-fast: false
       max-parallel: 12
-      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix_1) }}
+    uses: ./.github/workflows/electron-reliability-partition.yml
+    with:
+      mode: ${{ needs.plan.outputs.mode }}
+      source_sha: ${{ needs.plan.outputs.source_sha }}
+      platform: ${{ matrix.platform }}
+      runner: ${{ matrix.runner }}
+      partition: ${{ matrix.partition }}
+      attempt_start: ${{ matrix.attemptStart }}
+      attempt_count: ${{ matrix.attemptCount }}
 
-    steps:
-      - name: Check out the fixed source
-        uses: actions/checkout@v7
-        with:
-          ref: ${{ needs.plan.outputs.source_sha }}
+  partition_2:
+    name: Independent invocations · batch 2
+    needs: [plan, partition_1]
+    if: always() && needs.plan.result == 'success' && needs.plan.outputs.matrix_2_active == 'true'
+    strategy:
+      fail-fast: false
+      max-parallel: 12
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix_2) }}
+    uses: ./.github/workflows/electron-reliability-partition.yml
+    with:
+      mode: ${{ needs.plan.outputs.mode }}
+      source_sha: ${{ needs.plan.outputs.source_sha }}
+      platform: ${{ matrix.platform }}
+      runner: ${{ matrix.runner }}
+      partition: ${{ matrix.partition }}
+      attempt_start: ${{ matrix.attemptStart }}
+      attempt_count: ${{ matrix.attemptCount }}
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v7
-        with:
-          node-version: 24
-          package-manager-cache: false
+  partition_3:
+    name: Independent invocations · batch 3
+    needs: [plan, partition_2]
+    if: always() && needs.plan.result == 'success' && needs.plan.outputs.matrix_3_active == 'true'
+    strategy:
+      fail-fast: false
+      max-parallel: 12
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix_3) }}
+    uses: ./.github/workflows/electron-reliability-partition.yml
+    with:
+      mode: ${{ needs.plan.outputs.mode }}
+      source_sha: ${{ needs.plan.outputs.source_sha }}
+      platform: ${{ matrix.platform }}
+      runner: ${{ matrix.runner }}
+      partition: ${{ matrix.partition }}
+      attempt_start: ${{ matrix.attemptStart }}
+      attempt_count: ${{ matrix.attemptCount }}
 
-      - name: Install dependencies
-        run: npm ci
+  partition_4:
+    name: Independent invocations · batch 4
+    needs: [plan, partition_3]
+    if: always() && needs.plan.result == 'success' && needs.plan.outputs.matrix_4_active == 'true'
+    strategy:
+      fail-fast: false
+      max-parallel: 12
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix_4) }}
+    uses: ./.github/workflows/electron-reliability-partition.yml
+    with:
+      mode: ${{ needs.plan.outputs.mode }}
+      source_sha: ${{ needs.plan.outputs.source_sha }}
+      platform: ${{ matrix.platform }}
+      runner: ${{ matrix.runner }}
+      partition: ${{ matrix.partition }}
+      attempt_start: ${{ matrix.attemptStart }}
+      attempt_count: ${{ matrix.attemptCount }}
 
-      - name: Run every planned full-suite invocation
-        id: invoke
-        continue-on-error: true
-        env:
-          HVIR_QUALIFICATION_MODE: ${{ needs.plan.outputs.mode }}
-          HVIR_QUALIFICATION_SOURCE_SHA: ${{ needs.plan.outputs.source_sha }}
-          HVIR_QUALIFICATION_PLATFORM: ${{ matrix.platform }}
-          HVIR_QUALIFICATION_PARTITION: ${{ matrix.partition }}
-          HVIR_QUALIFICATION_ATTEMPT_START: ${{ matrix.attemptStart }}
-          HVIR_QUALIFICATION_ATTEMPT_COUNT: ${{ matrix.attemptCount }}
-          HVIR_QUALIFICATION_RUN_ATTEMPT: ${{ github.run_attempt }}
-          HVIR_QUALIFICATION_OUTPUT_DIR: ${{ runner.temp }}/electron-partition
-        run: node scripts/run-electron-qualification.mts partition
-
-      - name: Upload the complete or interrupted partition record
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: electron-${{ needs.plan.outputs.mode }}-${{ needs.plan.outputs.source_sha }}-${{ matrix.platform }}-partition-${{ matrix.partition }}
-          path: ${{ runner.temp }}/electron-partition
-          if-no-files-found: error
-          retention-days: 30
-
-      - name: Fail when any planned invocation lacks passing evidence
-        if: always()
-        env:
-          HVIR_QUALIFICATION_OUTPUT_DIR: ${{ runner.temp }}/electron-partition
-        run: node scripts/run-electron-qualification.mts assert-partition
+  partition_5:
+    name: Independent invocations · batch 5
+    needs: [plan, partition_4]
+    if: always() && needs.plan.result == 'success' && needs.plan.outputs.matrix_5_active == 'true'
+    strategy:
+      fail-fast: false
+      max-parallel: 12
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix_5) }}
+    uses: ./.github/workflows/electron-reliability-partition.yml
+    with:
+      mode: ${{ needs.plan.outputs.mode }}
+      source_sha: ${{ needs.plan.outputs.source_sha }}
+      platform: ${{ matrix.platform }}
+      runner: ${{ matrix.runner }}
+      partition: ${{ matrix.partition }}
+      attempt_start: ${{ matrix.attemptStart }}
+      attempt_count: ${{ matrix.attemptCount }}
 
   summarize:
-    name: Count every partition and calculate the bound
+    name: Count every invocation and calculate the bound
     if: always() && needs.plan.result == 'success'
     needs:
       - plan
-      - partition
+      - partition_1
+      - partition_2
+      - partition_3
+      - partition_4
+      - partition_5
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 30
 
     steps:
       - name: Check out the fixed source
@@ -140,7 +189,7 @@ jobs:
           node-version: 24
           package-manager-cache: false
 
-      - name: Download every available partition
+      - name: Download every available invocation
         uses: actions/download-artifact@v8
         with:
           path: ${{ runner.temp }}/electron-results

@@ -7,6 +7,10 @@ const workflow = readFileSync(
   new URL('../.github/workflows/smoke-stress.yml', import.meta.url),
   'utf8',
 )
+const partitionWorkflow = readFileSync(
+  new URL('../.github/workflows/electron-reliability-partition.yml', import.meta.url),
+  'utf8',
+)
 
 interface WorkflowStep {
   id?: string
@@ -21,8 +25,10 @@ interface WorkflowStep {
 interface WorkflowJob {
   if?: string
   needs?: string | string[]
-  'runs-on': string
-  'timeout-minutes': number
+  'runs-on'?: string
+  'timeout-minutes'?: number
+  uses?: string
+  with?: Record<string, string>
   strategy?: {
     'fail-fast': boolean
     'max-parallel': number
@@ -48,6 +54,11 @@ const parsed = parse(workflow) as {
   }
   permissions: Record<string, string>
   concurrency: { group: string; 'cancel-in-progress': boolean }
+  jobs: Record<string, WorkflowJob>
+}
+const parsedPartition = parse(partitionWorkflow) as {
+  on: { workflow_call: { inputs: Record<string, { required: boolean; type: string }> } }
+  permissions: Record<string, string>
   jobs: Record<string, WorkflowJob>
 }
 
@@ -87,23 +98,45 @@ describe('Electron reliability qualification workflow', () => {
     expect(planStep?.env?.HVIR_QUALIFICATION_REVIEWED_SHA).toContain('inputs.source_sha')
   })
 
-  it('runs bounded non-retry partitions and always retains partial evidence', () => {
-    const partition = parsed.jobs.partition!
+  it('allocates one observation per runner in bounded sequential matrix batches', () => {
+    const partitions = Array.from(
+      { length: 5 },
+      (_, index) => parsed.jobs[`partition_${index + 1}`]!,
+    )
+    for (const [index, partition] of partitions.entries()) {
+      expect(partition.uses).toBe(
+        './.github/workflows/electron-reliability-partition.yml',
+      )
+      expect(partition.strategy).toEqual({
+        'fail-fast': false,
+        'max-parallel': 12,
+        matrix: `\${{ fromJSON(needs.plan.outputs.matrix_${index + 1}) }}`,
+      })
+      expect(partition.with).toMatchObject({
+        platform: '${{ matrix.platform }}',
+        runner: '${{ matrix.runner }}',
+        partition: '${{ matrix.partition }}',
+        attempt_start: '${{ matrix.attemptStart }}',
+        attempt_count: '${{ matrix.attemptCount }}',
+      })
+    }
+    expect(partitions[0]?.needs).toBe('plan')
+    expect(partitions[1]?.needs).toEqual(['plan', 'partition_1'])
+    expect(partitions[4]?.needs).toEqual(['plan', 'partition_4'])
+
+    const partition = parsedPartition.jobs.partition!
+    expect(parsedPartition.permissions).toEqual({ contents: 'read' })
     expect(partition['timeout-minutes']).toBe(90)
-    expect(partition.strategy).toEqual({
-      'fail-fast': false,
-      'max-parallel': 12,
-      matrix: '${{ fromJSON(needs.plan.outputs.matrix) }}',
-    })
+    expect(partition['runs-on']).toBe('${{ inputs.runner }}')
     const invocation = partition.steps.find((step) => step.id === 'invoke')
     expect(invocation).toMatchObject({
       'continue-on-error': true,
       run: 'node scripts/run-electron-qualification.mts partition',
     })
     expect(invocation?.env).toMatchObject({
-      HVIR_QUALIFICATION_SOURCE_SHA: '${{ needs.plan.outputs.source_sha }}',
-      HVIR_QUALIFICATION_PLATFORM: '${{ matrix.platform }}',
-      HVIR_QUALIFICATION_ATTEMPT_COUNT: '${{ matrix.attemptCount }}',
+      HVIR_QUALIFICATION_SOURCE_SHA: '${{ inputs.source_sha }}',
+      HVIR_QUALIFICATION_PLATFORM: '${{ inputs.platform }}',
+      HVIR_QUALIFICATION_ATTEMPT_COUNT: '${{ inputs.attempt_count }}',
     })
     const upload = partition.steps.find(
       (step) => step.uses === 'actions/upload-artifact@v7',
@@ -123,7 +156,15 @@ describe('Electron reliability qualification workflow', () => {
   it('summarizes every expected partition even when matrix jobs fail', () => {
     const summarize = parsed.jobs.summarize!
     expect(summarize.if).toBe("always() && needs.plan.result == 'success'")
-    expect(summarize.needs).toEqual(['plan', 'partition'])
+    expect(summarize.needs).toEqual([
+      'plan',
+      'partition_1',
+      'partition_2',
+      'partition_3',
+      'partition_4',
+      'partition_5',
+    ])
+    expect(summarize['timeout-minutes']).toBe(30)
     expect(summarize.steps).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ uses: 'actions/download-artifact@v8' }),

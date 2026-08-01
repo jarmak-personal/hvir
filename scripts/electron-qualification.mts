@@ -11,7 +11,9 @@ export const QUALIFICATION_CONFIDENCE = 0.95
 export const QUALIFICATION_FAILURE_TARGET = 0.005
 export const QUALIFICATION_INVOCATIONS_PER_PLATFORM = 598
 export const WEEKLY_INVOCATIONS_PER_PLATFORM = 20
-export const QUALIFICATION_PARTITION_SIZE = 10
+export const QUALIFICATION_PARTITION_SIZE = 1
+export const QUALIFICATION_MATRIX_BATCH_SIZE = 240
+export const QUALIFICATION_MATRIX_BATCH_COUNT = 5
 
 export type ElectronQualificationMode = 'qualification' | 'weekly'
 
@@ -32,6 +34,7 @@ export interface ElectronQualificationPlan {
   readonly failureTarget: number
   readonly invocationsPerPlatform: number
   readonly partitionSize: number
+  readonly samplingUnit: 'one-full-suite-invocation-per-runner-allocation'
   readonly matrix: { readonly include: readonly ElectronQualificationPlanEntry[] }
 }
 
@@ -83,6 +86,7 @@ export interface ElectronQualificationPlatformSummary {
   readonly scenarioCount: number
   readonly exclusions: readonly RequiredElectronExclusion[]
   readonly fullSuiteInvocations: number
+  readonly runnerAllocations: number
   readonly passes: number
   readonly failures: number
   readonly failureArtifactCount: number
@@ -124,9 +128,12 @@ export function createElectronQualificationPlan(options: {
     options.mode === 'qualification'
       ? QUALIFICATION_INVOCATIONS_PER_PLATFORM
       : WEEKLY_INVOCATIONS_PER_PLATFORM
-  const include = REQUIRED_ELECTRON_PLATFORMS.flatMap((platform) =>
+  const platformEntries = REQUIRED_ELECTRON_PLATFORMS.map((platform) =>
     partitionPlatform(platform, invocationsPerPlatform),
   )
+  const include = Array.from({ length: invocationsPerPlatform }, (_, index) =>
+    platformEntries.map((entries) => entries[index]!),
+  ).flat()
   return {
     schema: 1,
     mode: options.mode,
@@ -136,6 +143,7 @@ export function createElectronQualificationPlan(options: {
     failureTarget: QUALIFICATION_FAILURE_TARGET,
     invocationsPerPlatform,
     partitionSize: QUALIFICATION_PARTITION_SIZE,
+    samplingUnit: 'one-full-suite-invocation-per-runner-allocation',
     matrix: { include },
   }
 }
@@ -158,6 +166,21 @@ function partitionPlatform(
     attemptStart += attemptCount
   }
   return entries
+}
+
+/** Keep every counted observation on its own runner while respecting GitHub's matrix limit. */
+export function electronQualificationMatrixBatches(
+  plan: ElectronQualificationPlan,
+): readonly { readonly include: readonly ElectronQualificationPlanEntry[] }[] {
+  const batches = Array.from({ length: QUALIFICATION_MATRIX_BATCH_COUNT }, () => ({
+    include: [] as ElectronQualificationPlanEntry[],
+  }))
+  for (const [index, entry] of plan.matrix.include.entries()) {
+    const batch = batches[Math.floor(index / QUALIFICATION_MATRIX_BATCH_SIZE)]
+    if (!batch) throw new Error('Qualification plan exceeded its reviewed matrix batches')
+    batch.include.push(entry)
+  }
+  return batches
 }
 
 export function createElectronQualificationPartitionResult(
@@ -275,6 +298,9 @@ export function combineElectronQualificationResults(
       scenarioCount: evidence.scenarioCount,
       exclusions: evidence.exclusions,
       fullSuiteInvocations: platformInvocations.length,
+      runnerAllocations: plan.matrix.include.filter(
+        (entry) => entry.platform === platform,
+      ).length,
       passes,
       failures,
       failureArtifactCount: platformInvocations.reduce(
@@ -501,11 +527,13 @@ export function formatElectronQualificationSummary(
     '',
     `Source: \`${summary.sourceSha}\``,
     '',
-    '| Platform | Suites/invocation | Scenarios/invocation | Passes | Failures | One-sided 95% upper bound | Result |',
-    '| --- | ---: | ---: | ---: | ---: | ---: | --- |',
+    'Sampling unit: one full-suite invocation per fresh GitHub-hosted runner allocation.',
+    '',
+    '| Platform | Runner allocations | Suites/invocation | Scenarios/invocation | Passes | Failures | One-sided 95% upper bound | Result |',
+    '| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |',
     ...summary.platforms.map(
       (platform) =>
-        `| ${platform.name} | ${platform.suiteCount} | ${platform.scenarioCount} | ${platform.passes} | ${platform.failures} | ${(platform.oneSided95UpperFailureProbability * 100).toFixed(4)}% | ${platform.passed ? 'pass' : 'fail'} |`,
+        `| ${platform.name} | ${platform.runnerAllocations} | ${platform.suiteCount} | ${platform.scenarioCount} | ${platform.passes} | ${platform.failures} | ${(platform.oneSided95UpperFailureProbability * 100).toFixed(4)}% | ${platform.passed ? 'pass' : 'fail'} |`,
     ),
     '',
   ]

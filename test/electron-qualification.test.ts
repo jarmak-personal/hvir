@@ -2,9 +2,12 @@ import { describe, expect, it } from 'vitest'
 
 import {
   QUALIFICATION_INVOCATIONS_PER_PLATFORM,
+  QUALIFICATION_MATRIX_BATCH_COUNT,
+  QUALIFICATION_MATRIX_BATCH_SIZE,
   combineElectronQualificationResults,
   createElectronQualificationPartitionResult,
   createElectronQualificationPlan,
+  electronQualificationMatrixBatches,
   oneSidedBinomialUpperBound,
   type ElectronQualificationAttempt,
   type ElectronQualificationPartitionResult,
@@ -21,14 +24,39 @@ describe('Electron reliability qualification planning', () => {
   it('plans at least 598 complete invocations per platform in bounded jobs', () => {
     const plan = qualificationPlan()
     expect(plan.invocationsPerPlatform).toBe(QUALIFICATION_INVOCATIONS_PER_PLATFORM)
-    expect(plan.matrix.include).toHaveLength(120)
+    expect(plan.matrix.include).toHaveLength(1_196)
+    expect(plan.partitionSize).toBe(1)
+    expect(plan.samplingUnit).toBe('one-full-suite-invocation-per-runner-allocation')
     for (const platform of ['linux-x64', 'macos-arm64'] as const) {
       const entries = plan.matrix.include.filter((entry) => entry.platform === platform)
-      expect(entries).toHaveLength(60)
+      expect(entries).toHaveLength(598)
       expect(entries.reduce((sum, entry) => sum + entry.attemptCount, 0)).toBe(598)
-      expect(Math.max(...entries.map((entry) => entry.attemptCount))).toBe(10)
-      expect(entries.at(-1)?.attemptCount).toBe(8)
+      expect(entries.every((entry) => entry.attemptCount === 1)).toBe(true)
+      expect(entries.map((entry) => entry.partition)).toEqual(
+        Array.from({ length: 598 }, (_, index) => index + 1),
+      )
     }
+    const batches = electronQualificationMatrixBatches(plan)
+    expect(batches).toHaveLength(QUALIFICATION_MATRIX_BATCH_COUNT)
+    expect(batches.map((batch) => batch.include.length)).toEqual([
+      QUALIFICATION_MATRIX_BATCH_SIZE,
+      QUALIFICATION_MATRIX_BATCH_SIZE,
+      QUALIFICATION_MATRIX_BATCH_SIZE,
+      QUALIFICATION_MATRIX_BATCH_SIZE,
+      236,
+    ])
+    expect(
+      batches.map((batch) => [
+        batch.include.filter((entry) => entry.platform === 'linux-x64').length,
+        batch.include.filter((entry) => entry.platform === 'macos-arm64').length,
+      ]),
+    ).toEqual([
+      [120, 120],
+      [120, 120],
+      [120, 120],
+      [120, 120],
+      [118, 118],
+    ])
   })
 
   it('rejects a different source SHA and qualification reruns', () => {
@@ -58,7 +86,10 @@ describe('Electron reliability qualification planning', () => {
       runAttempt: 2,
     })
     expect(plan.invocationsPerPlatform).toBe(20)
-    expect(plan.matrix.include).toHaveLength(4)
+    expect(plan.matrix.include).toHaveLength(40)
+    expect(
+      electronQualificationMatrixBatches(plan).map((batch) => batch.include.length),
+    ).toEqual([40, 0, 0, 0, 0])
     const summary = combineElectronQualificationResults(plan, passingArtifacts(plan))
     expect(summary.passed).toBe(true)
     expect(summary.confidenceClaim).toBe('weekly-regression-signal-only')
@@ -85,6 +116,7 @@ describe('Electron reliability qualification statistics and accounting', () => {
           suiteCount: 4,
           scenarioCount: 21,
           fullSuiteInvocations: 598,
+          runnerAllocations: 598,
           passes: 598,
           failures: 0,
           passed: true,
@@ -94,6 +126,7 @@ describe('Electron reliability qualification statistics and accounting', () => {
           suiteCount: 1,
           scenarioCount: 9,
           fullSuiteInvocations: 598,
+          runnerAllocations: 598,
           passes: 598,
           failures: 0,
           passed: true,
@@ -114,15 +147,14 @@ describe('Electron reliability qualification statistics and accounting', () => {
     const linux = summary.platforms.find((platform) => platform.platform === 'linux-x64')
     expect(summary.passed).toBe(false)
     expect(summary.invocations).toHaveLength(40)
-    expect(linux).toMatchObject({ passes: 10, failures: 10, passed: false })
-    expect(summary.invocations.slice(0, 10)).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ status: 'failed', failure: 'missing-partition' }),
-      ]),
-    )
+    expect(linux).toMatchObject({ passes: 19, failures: 1, passed: false })
+    expect(summary.invocations[0]).toMatchObject({
+      status: 'failed',
+      failure: 'missing-partition',
+    })
   })
 
-  it('counts an interrupted partial partition without discarding completed attempts', () => {
+  it('counts an interrupted invocation whose initial record has no outcome', () => {
     const plan = createElectronQualificationPlan({
       mode: 'weekly',
       sourceSha,
@@ -131,13 +163,11 @@ describe('Electron reliability qualification statistics and accounting', () => {
     })
     const artifacts = passingArtifacts(plan)
     const first = plan.matrix.include[0]!
-    artifacts[0] = createElectronQualificationPartitionResult(plan, first, [
-      passingAttempt(first.platform, first.attemptStart),
-    ])
+    artifacts[0] = createElectronQualificationPartitionResult(plan, first)
     const summary = combineElectronQualificationResults(plan, artifacts)
     const linux = summary.platforms.find((platform) => platform.platform === 'linux-x64')
-    expect(linux).toMatchObject({ passes: 11, failures: 9, passed: false })
-    expect(summary.evidenceProblems).toHaveLength(9)
+    expect(linux).toMatchObject({ passes: 19, failures: 1, passed: false })
+    expect(summary.evidenceProblems).toEqual(['linux-x64 invocation 1: missing evidence'])
   })
 
   it('fails closed when passing evidence changes the selected scenarios', () => {
