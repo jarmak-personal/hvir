@@ -43,6 +43,7 @@ import { useWorkbenchLayout } from './workbench/use-workbench-layout'
 import { useWorkbenchOverlays } from './workbench/use-workbench-overlays'
 import { TerminalLayoutControls } from './workbench/TerminalLayoutControls'
 import { useRendererReady } from './workbench/use-renderer-ready'
+import { useTerminalPathActivation } from './workbench/use-terminal-path-activation'
 export function App(): ReactElement {
   const theme = useAppTheme()
   const settings = useAppSettings()
@@ -220,6 +221,13 @@ export function App(): ReactElement {
     fetch: fetchGit,
     pull: pullGit,
   } = git
+  const terminalPathActivation = useTerminalPathActivation({
+    root,
+    selectedFile: activeTab?.path,
+    openFile: (path, position) =>
+      openFile(path, true, 'file-tree', 'head', undefined, position),
+    revealDirectory: focusTree,
+  })
   rootRef.current = root
   sessionErrorRef.current = session.reportError
   workspaceSwitchRef.current = session.switchRelativeWorkspace
@@ -468,7 +476,8 @@ export function App(): ReactElement {
               ignoredRefreshVersion={ignoredRefreshVersion}
               changedFiles={gitChanges?.workingTree}
               gitChangesLimited={gitChanges?.workingTreeLimited}
-              selected={activeTab?.path}
+              selected={terminalPathActivation.revealRequest?.path ?? activeTab?.path}
+              revealRequest={terminalPathActivation.revealRequest}
               onOpen={openFile}
               connected={connectionState === 'connected'}
               missing={activeWorkspace?.missing}
@@ -626,18 +635,7 @@ export function App(): ReactElement {
           railCompact={layout.terminalRailCompact}
           onRailCompact={layout.setTerminalRailCompact}
           onRollup={terminalAttention.updateRollup}
-          onOpenPath={(target) =>
-            openFile(
-              target.path,
-              true,
-              'file-tree',
-              'head',
-              undefined,
-              target.line === undefined
-                ? undefined
-                : { line: target.line, column: target.column },
-            )
-          }
+          onOpenPath={terminalPathActivation.activate}
           onOpenWebLink={openWebLink}
           preferences={terminalPreferences(settings)}
           onOpenSettings={() => overlays.openSettings()}

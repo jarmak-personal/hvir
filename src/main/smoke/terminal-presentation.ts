@@ -4,6 +4,7 @@ import { joinHostPath, type HostPath } from '../../shared'
 import type { PtySupervisor } from '../pty/pty-supervisor'
 import { ensureExplicitBareShellLaunch } from './terminal-explicit-launch'
 import { verifyTerminalProjectReturn } from './terminal-project-return'
+import { withTerminalSmokeTimeout } from './terminal-smoke-timeout'
 
 /** Retain broad terminal presentation assertions only in the legacy workflow. */
 export async function verifyLegacyTerminalPresentation(
@@ -64,7 +65,7 @@ export async function verifyTerminalPresentationLifecycle(
   const launchMenuStatus = launchMenuOverflowRoot
     ? await verifyTerminalLaunchMenuOverflow(win, launchMenuOverflowRoot)
     : undefined
-  const switchStatus = (await withTimeout(
+  const switchStatus = (await withTerminalSmokeTimeout(
     win.webContents.executeJavaScript(`
       new Promise((resolve, reject) => {
         const deadline = Date.now() + 8000;
@@ -130,7 +131,7 @@ export async function verifyTerminalPresentationLifecycle(
     secondTerminal.ownerId,
     "printf '\\033[41m\\033[2J\\033[Hhidden-buffer\\033[0m\\033]0;Hidden buffered\\007\\007'; IFS= read -r hvir_input; printf 'input:%s\\n' \"$hvir_input\"; sleep 10\n",
   )
-  const revealStatus = (await withTimeout(
+  const revealStatus = (await withTerminalSmokeTimeout(
     win.webContents.executeJavaScript(`
       new Promise((resolve, reject) => {
         const sessionId = ${JSON.stringify(secondTerminal.id)};
@@ -453,7 +454,7 @@ export async function verifyTerminalPresentationLifecycle(
   win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Enter' })
   win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Enter' })
   try {
-    await withTimeout(
+    await withTerminalSmokeTimeout(
       new Promise<void>((resolve) => {
         const poll = (): void => {
           if (inputProbe.includes('input:hvir')) return resolve()
@@ -472,7 +473,7 @@ export async function verifyTerminalPresentationLifecycle(
   } finally {
     void detachInputProbe()
   }
-  const inputStatus = (await withTimeout(
+  const inputStatus = (await withTerminalSmokeTimeout(
     win.webContents.executeJavaScript(`
       new Promise((resolve, reject) => {
         const sessionId = ${JSON.stringify(secondTerminal.id)};
@@ -575,7 +576,7 @@ async function verifyLiveTerminalTypography(
     | undefined
   let failure: Error | undefined
   try {
-    presentation = (await withTimeout(
+    presentation = (await withTerminalSmokeTimeout(
       win.webContents.executeJavaScript(`
       new Promise((resolve, reject) => {
         const deadline = Date.now() + 8000;
@@ -683,7 +684,11 @@ async function verifyLiveTerminalTypography(
       resolveResize()
     }
     queryPtySize()
-    await withTimeout(resizeObserved, 'terminal typography PTY resize timed out', 5_000)
+    await withTerminalSmokeTimeout(
+      resizeObserved,
+      'terminal typography PTY resize timed out',
+      5_000,
+    )
   } catch (error) {
     failure = new Error(
       `${error instanceof Error ? error.message : String(error)}: ${JSON.stringify({
@@ -712,7 +717,7 @@ async function verifyLiveTerminalTypography(
 async function focusTerminalEngine(win: BrowserWindow, sessionId: string): Promise<void> {
   win.focus()
   win.webContents.focus()
-  await withTimeout(
+  await withTerminalSmokeTimeout(
     win.webContents.executeJavaScript(`
       new Promise((resolve, reject) => {
         const deadline = Date.now() + 5000;
@@ -805,7 +810,7 @@ async function waitForCursorPhase(
   afterFrame: number,
   failure: string,
 ): Promise<number> {
-  return (await withTimeout(
+  return (await withTerminalSmokeTimeout(
     win.webContents.executeJavaScript(`
       new Promise((resolve, reject) => {
         const deadline = Date.now() + 2500;
@@ -847,7 +852,7 @@ async function waitForCursorPhase(
 }
 
 async function verifyTerminalLayoutFocus(win: BrowserWindow): Promise<string> {
-  return (await withTimeout(
+  return (await withTerminalSmokeTimeout(
     win.webContents.executeJavaScript(`
       (async () => {
         const workbench = document.querySelector('.workbench');
@@ -1052,7 +1057,7 @@ async function verifyTerminalLaunchMenuOverflow(
   win: BrowserWindow,
   root: HostPath,
 ): Promise<string> {
-  return (await withTimeout(
+  return (await withTerminalSmokeTimeout(
     win.webContents.executeJavaScript(`
       (async () => {
         const deadline = Date.now() + 15000;
@@ -1187,22 +1192,4 @@ async function verifyTerminalLaunchMenuOverflow(
     'terminal launch menu overflow timed out',
     20_000,
   )) as string
-}
-
-async function withTimeout<T>(
-  promise: Promise<T>,
-  message: string,
-  timeoutMs = 8_000,
-): Promise<T> {
-  let timer: ReturnType<typeof setTimeout> | undefined
-  try {
-    return await Promise.race([
-      promise,
-      new Promise<never>((_resolve, reject) => {
-        timer = setTimeout(() => reject(new Error(message)), timeoutMs)
-      }),
-    ])
-  } finally {
-    if (timer) clearTimeout(timer)
-  }
 }

@@ -8,6 +8,7 @@ import {
 } from 'react'
 
 import {
+  containsHostPath,
   hostPath,
   hostPathEquals,
   joinHostPath,
@@ -154,7 +155,7 @@ function DirectoryNode({
     [path.hostId, path.path],
   )
   const shouldReveal = Boolean(
-    revealRequest && containsPath(stablePath, revealRequest.path),
+    revealRequest && containsHostPath(stablePath, revealRequest.path),
   )
   const [open, setOpen] = useState(initiallyOpen || shouldReveal)
   const [entries, setEntries] = useState<readonly DirEntry[]>([])
@@ -644,10 +645,4 @@ function visibleTreeItems(current: HTMLButtonElement): readonly HTMLButtonElemen
   return [
     ...tree.querySelectorAll<HTMLButtonElement>('button[role="treeitem"]:not(:disabled)'),
   ].filter((item) => item.offsetParent !== null)
-}
-
-function containsPath(parent: HostPath, candidate: HostPath): boolean {
-  if (parent.hostId !== candidate.hostId) return false
-  if (parent.path === '/') return candidate.path.startsWith('/')
-  return candidate.path === parent.path || candidate.path.startsWith(`${parent.path}/`)
 }

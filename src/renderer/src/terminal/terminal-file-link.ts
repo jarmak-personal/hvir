@@ -1,4 +1,5 @@
 import {
+  containsHostPath,
   hostPath,
   joinHostPath,
   parseLoopbackHttpTarget,
@@ -96,15 +97,12 @@ export function resolveTerminalFileTarget(
   const candidate = parsed.path.startsWith('/')
     ? hostPath(workspaceRoot.hostId, parsed.path)
     : joinHostPath(workspaceRoot, parsed.path)
-  const root = workspaceRoot.path
   const resolved = {
     path: candidate,
     ...(parsed.line === undefined ? {} : { line: parsed.line }),
     ...(parsed.column === undefined ? {} : { column: parsed.column }),
   }
-  if (root === '/') return resolved
-  if (candidate.path !== root && !candidate.path.startsWith(`${root}/`)) return undefined
-  return resolved
+  return containsHostPath(workspaceRoot, candidate) ? resolved : undefined
 }
 
 export function isFileUri(target: string): boolean {
