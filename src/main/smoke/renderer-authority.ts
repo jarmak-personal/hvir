@@ -2,9 +2,7 @@ import { net, type BrowserWindow } from 'electron'
 
 import type { HostPath } from '../../shared'
 import type { HtmlPreviewProtocol } from '../html-preview-protocol'
-import type { ProjectHost } from '../project-host'
 import type { RendererOwner, RendererResourceScopes } from '../renderer-resource-scopes'
-import type { WebPaneRouteRegistry } from '../web-pane/web-pane-route-registry'
 import type { SmokeFailureCheckpoint } from './failure-evidence.mts'
 
 const OPERATION_TIMEOUT_MS = 10_000
@@ -37,76 +35,18 @@ class RendererAuthorityTimeoutError extends Error {}
 export async function verifyRendererAuthorityLifecycle(options: {
   readonly win: BrowserWindow
   readonly resources: RendererResourceScopes
-  readonly routes: WebPaneRouteRegistry
   readonly htmlPreviews: HtmlPreviewProtocol
   readonly root: HostPath
-  readonly host: ProjectHost
   readonly checkpoint: (checkpoint: SmokeFailureCheckpoint) => void
 }): Promise<string> {
-  const { win, resources, routes, htmlPreviews, root, host, checkpoint } = options
+  const { win, resources, htmlPreviews, root, checkpoint } = options
   const ownerId = win.webContents.id
-  let previous: RendererOwner | undefined
   let current: RendererOwner | undefined
-  let rolloverPaneId: string | undefined
   let destructionPreviewUrl: string | undefined
   try {
-    previous = resources.currentOwner(ownerId)
-    // Registry tests own route generation permutations; real Electron owns
-    // proving that a BrowserWindow document reload triggers that revocation.
-    const rolloverRoute = await runBoundedRendererAuthorityOperation(
-      'renderer-authority-route-opening',
-      () =>
-        routes.open({
-          ownerId,
-          ownerGeneration: previous!.generation,
-          sourceTerminalId: 'renderer-authority-rollover',
-          workspaceRoot: root,
-          host,
-          url: 'http://localhost:61337/renderer-rollover',
-        }),
-      { checkpoint },
-    )
-    rolloverPaneId = rolloverRoute.paneId
-    checkpoint('renderer-authority-route-opened')
-
-    await waitForElectronEvent(
-      win,
-      'did-finish-load',
-      () => {
-        void win.webContents
-          .executeJavaScript(`setTimeout(() => location.reload(), 0); true`)
-          .catch(() => undefined)
-      },
-      'renderer-authority-reload-awaiting',
-      checkpoint,
-    )
-    checkpoint('renderer-authority-reload-loaded')
-
-    await waitForRendererAuthorityCondition(
-      'renderer-authority-replacement-ipc-awaiting',
-      async () => {
-        current = resources.currentOwner(ownerId)
-        if (current.generation <= previous!.generation) return false
-        const version = (await win.webContents.executeJavaScript(
-          `window.hvir.invoke('app:info', undefined).then((info) => info.electronVersion)`,
-        )) as string
-        return Boolean(version)
-      },
-      'replacement renderer did not regain IPC authority',
-      checkpoint,
-    )
-    checkpoint('renderer-authority-replacement-ipc-ready')
-
-    await waitForRendererAuthorityCondition(
-      'renderer-authority-route-revocation-awaiting',
-      () => !routes.has(rolloverRoute.paneId, previous!.id, previous!.generation),
-      'renderer rollover retained its old web route',
-      checkpoint,
-    )
-    checkpoint('renderer-authority-route-revoked')
-
-    // Protocol tests own preview release permutations; real Electron owns
-    // proving that BrowserWindow destruction releases the active owner.
+    current = resources.currentOwner(ownerId)
+    // Renderer recovery owns the real replacement-document proof. This focused
+    // boundary proves the independent BrowserWindow destruction transition.
     const destructionPreview = htmlPreviews.create(
       '<p>renderer destruction authority</p>',
       current,
@@ -139,15 +79,12 @@ export async function verifyRendererAuthorityLifecycle(options: {
     )
     checkpoint('renderer-authority-preview-revoked')
 
-    return `generation ${previous.generation}→${current!.generation} · route revoked on reload · preview revoked on destruction`
+    return `generation ${current.generation} · preview revoked on destruction`
   } catch (error) {
     const state = await collectFailureStateWithinDeadline({
       win,
       resources,
-      routes,
-      previous,
       current,
-      rolloverPaneId,
       destructionPreviewUrl,
     })
     throw new Error(
@@ -175,7 +112,7 @@ function runBoundedRendererAuthorityOperation<T>(
 
 async function waitForElectronEvent(
   win: BrowserWindow,
-  event: 'did-finish-load' | 'destroyed',
+  event: 'destroyed',
   trigger: () => void,
   operation: SmokeFailureCheckpoint,
   checkpoint: (checkpoint: SmokeFailureCheckpoint) => void,
@@ -229,7 +166,7 @@ export async function waitForRendererAuthorityCondition(
       }
     } catch (error) {
       if (error instanceof RendererAuthorityTimeoutError) throw error
-      // Reload may briefly reject work submitted to the outgoing document.
+      // Destruction may briefly reject work while native cleanup settles.
     }
     if (Date.now() >= deadline) throw new Error(`${message} (${operation})`)
     await delay(Math.min(timing.pollIntervalMs, deadline - Date.now()))
@@ -251,34 +188,18 @@ async function previewRevokedAfterRuntimeSuspend(url: string): Promise<boolean> 
   }
 }
 
-function routeState(
-  routes: WebPaneRouteRegistry,
-  paneId: string | undefined,
-  owner: RendererOwner | undefined,
-): boolean | undefined {
-  return paneId && owner ? routes.has(paneId, owner.id, owner.generation) : undefined
-}
-
 async function collectFailureStateWithinDeadline(options: {
   readonly win: BrowserWindow
   readonly resources: RendererResourceScopes
-  readonly routes: WebPaneRouteRegistry
-  readonly previous: RendererOwner | undefined
   readonly current: RendererOwner | undefined
-  readonly rolloverPaneId: string | undefined
   readonly destructionPreviewUrl: string | undefined
 }): Promise<unknown> {
   const diagnosis = Promise.resolve().then(async () => ({
     destroyed: options.win.isDestroyed(),
-    previousGeneration: options.previous?.generation,
     currentGeneration: options.current?.generation,
-    previousCurrent: options.previous
-      ? options.resources.isCurrent(options.previous)
-      : undefined,
     currentCurrent: options.current
       ? options.resources.isCurrent(options.current)
       : undefined,
-    rolloverRoute: routeState(options.routes, options.rolloverPaneId, options.previous),
     destructionPreview: await classifyPreviewStatus(
       options.destructionPreviewUrl,
       DEFAULT_TIMING.diagnosisTimeoutMs,
