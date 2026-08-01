@@ -180,7 +180,7 @@ export function verifyViewerFind(
       control = await openFind();
       const collapsedStatus = await setQuery(
         control,
-        'hvir may surface rich read-only information',
+        'collapsed diff find target',
         (text) => text === '1 of 2 · base'
       );
       await waitFor(

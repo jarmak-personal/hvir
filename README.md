@@ -40,7 +40,7 @@ or Apple-silicon macOS before invoking the platform installation step.
 hvir does expect the system `git` binary. Claude Code and Codex launch options use those CLIs
 from the selected host's login-shell environment; plain shells work without either.
 
-## One application, many views
+## One window, many views
 
 The same workspace can move from reading to review to a terminal-focused handoff without
 turning the workbench into an IDE.
@@ -48,7 +48,7 @@ turning the workbench into an IDE.
 | Rendered documentation | Branch-point diff |
 | --- | --- |
 | [![hvir rendering the project README beside its file tree](docs/screenshots/rendered-markdown.png)](docs/screenshots/rendered-markdown.png) | [![hvir comparing a branch-point diff with the Git changes rail](docs/screenshots/branch-point-diff.png)](docs/screenshots/branch-point-diff.png) |
-| s| See exactly what changed from the branch point, with Git context kept close. |
+|  | See exactly what changed from the branch point, with Git context kept close. |
 | **Terminal focus** | **Live HTML beside the harness** |
 | [![hvir with a Codex terminal maximized across the workbench](docs/screenshots/terminal-focus.png)](docs/screenshots/terminal-focus.png) | [![hvir rendering an interactive HTML page above its originating agent terminal](docs/screenshots/live-html-viewer.png)](docs/screenshots/live-html-viewer.png) |
 |  | Inspect agent-built output in the same workspace and conversation that produced it. |
@@ -82,9 +82,8 @@ npm run dev
 `npm ci` downloads Electron and rebuilds native dependencies for Electron's ABI. On a
 headless Linux machine, run the Electron smoke under `xvfb-run`.
 
-Refs:
-- [performance gauntlet](docs/phase8-performance-gauntlet.md) and
-- [packaging guide](docs/packaging.md) for release acceptance.
+See the [performance gauntlet](docs/phase8-performance-gauntlet.md) and
+[packaging guide](docs/packaging.md) for release acceptance.
 
 ## Project documents
 
@@ -98,7 +97,6 @@ Refs:
 | [AGENTS.md](AGENTS.md) | Repository rules for AI collaborators |
 | [CLAUDE.md](CLAUDE.md) | Claude entrypoint for the shared repository instructions |
 
-                                           
 ## License
 
 hvir is available under the [MIT License](LICENSE). See
