@@ -53,9 +53,18 @@ describe('required Electron smoke failure retention', () => {
     const electron = ci.jobs['electron-smoke']!
     expect(requireStep(electron, 'Run production Electron workflow')).toMatchObject({
       env: {
-        HVIR_SMOKE_ARTIFACT_DIR: '${{ runner.temp }}/hvir-smoke-artifacts/core',
+        HVIR_SMOKE_ARTIFACT_DIR: '${{ runner.temp }}/hvir-smoke-artifacts/production',
       },
-      run: 'npm run smoke:required -- --platform linux-x64 --group core',
+      run: 'xvfb-run -a npm run smoke',
+    })
+    expect(
+      requireStep(electron, 'Run development renderer Performance Timeline containment'),
+    ).toMatchObject({
+      env: {
+        HVIR_SMOKE_ARTIFACT_DIR:
+          '${{ runner.temp }}/hvir-smoke-artifacts/development-performance',
+      },
+      run: 'xvfb-run -a npm run smoke:development-performance',
     })
     expectFailureUpload(
       requireStep(electron, 'Upload bounded Electron failure evidence'),
@@ -69,7 +78,7 @@ describe('required Electron smoke failure retention', () => {
       env: {
         HVIR_SMOKE_ARTIFACT_DIR: '${{ runner.temp }}/hvir-smoke-artifacts/capacity',
       },
-      run: 'npm run smoke:required -- --platform linux-x64 --group capacity',
+      run: 'xvfb-run -a npm run smoke:capacity',
     })
     expectFailureUpload(
       requireStep(capacity, 'Upload bounded capacity failure evidence'),
@@ -82,7 +91,7 @@ describe('required Electron smoke failure retention', () => {
         env: {
           HVIR_SMOKE_ARTIFACT_DIR: '${{ runner.temp }}/hvir-smoke-artifacts/macos-ci',
         },
-        run: 'npm run smoke:required -- --platform macos-arm64',
+        run: 'npm run smoke:macos:ci',
       },
     )
     expectFailureUpload(

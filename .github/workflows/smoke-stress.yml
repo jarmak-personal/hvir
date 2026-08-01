@@ -1,51 +1,59 @@
-name: Electron reliability qualification
+name: Electron smoke stress
 
 on:
   workflow_dispatch:
     inputs:
-      mode:
-        description: Evidence mode (sample is manual screening, not qualification)
+      scenario:
+        description: Focused scenario to repeat
         required: true
-        default: qualification
+        default: pty-native
         type: choice
         options:
-          - qualification
-          - sample
-      source_sha:
-        description: Reviewed 40-character source SHA (must equal the selected ref HEAD)
+          - pty-native
+          - renderer-recovery
+          - renderer-authority
+          - web-pane
+      repeat:
+        description: Fixed attempt count (not retries)
         required: true
-        type: string
+        default: '20'
+        type: choice
+        options:
+          - '5'
+          - '10'
+          - '20'
+          - '50'
+
 permissions:
   contents: read
 
 concurrency:
-  group: electron-reliability-${{ github.event_name }}-${{ github.ref }}
+  group: smoke-stress-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
-  plan:
-    name: Fix source and plan complete evidence
-    runs-on: ubuntu-24.04
-    timeout-minutes: 5
-    outputs:
-      matrix_1: ${{ steps.plan.outputs.matrix_1 }}
-      matrix_1_active: ${{ steps.plan.outputs.matrix_1_active }}
-      matrix_2: ${{ steps.plan.outputs.matrix_2 }}
-      matrix_2_active: ${{ steps.plan.outputs.matrix_2_active }}
-      matrix_3: ${{ steps.plan.outputs.matrix_3 }}
-      matrix_3_active: ${{ steps.plan.outputs.matrix_3_active }}
-      matrix_4: ${{ steps.plan.outputs.matrix_4 }}
-      matrix_4_active: ${{ steps.plan.outputs.matrix_4_active }}
-      matrix_5: ${{ steps.plan.outputs.matrix_5 }}
-      matrix_5_active: ${{ steps.plan.outputs.matrix_5_active }}
-      mode: ${{ steps.plan.outputs.mode }}
-      source_sha: ${{ steps.plan.outputs.source_sha }}
+  stress:
+    name: ${{ matrix.name }} · ${{ inputs.scenario }} × ${{ inputs.repeat }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-24.04
+          - macos-15
+        include:
+          - os: ubuntu-24.04
+            name: Linux x64
+          - os: macos-15
+            name: macOS ARM64
+    env:
+      HVIR_SMOKE_SCENARIO: ${{ inputs.scenario }}
+      HVIR_SMOKE_REPEAT: ${{ inputs.repeat }}
 
     steps:
-      - name: Check out the exact source
+      - name: Check out repository
         uses: actions/checkout@v7
-        with:
-          ref: ${{ github.sha }}
 
       - name: Set up Node.js
         uses: actions/setup-node@v7
@@ -53,165 +61,26 @@ jobs:
           node-version: 24
           package-manager-cache: false
 
-      - name: Create the fixed qualification plan
-        id: plan
-        env:
-          HVIR_QUALIFICATION_MODE: ${{ inputs.mode }}
-          HVIR_QUALIFICATION_SOURCE_SHA: ${{ github.sha }}
-          HVIR_QUALIFICATION_REVIEWED_SHA: ${{ inputs.source_sha }}
-          HVIR_QUALIFICATION_RUN_ATTEMPT: ${{ github.run_attempt }}
-          HVIR_QUALIFICATION_PLAN_PATH: ${{ runner.temp }}/electron-plan/plan.json
-        run: node scripts/run-electron-qualification.mts plan
+      - name: Install dependencies
+        run: npm ci
 
-      - name: Retain the exact plan
+      - name: Run Linux stress attempts
+        if: runner.os == 'Linux'
+        env:
+          HVIR_SMOKE_ARTIFACT_DIR: ${{ runner.temp }}/hvir-smoke-artifacts
+        run: xvfb-run -a npm run smoke:scenario
+
+      - name: Run macOS ARM64 stress attempts
+        if: runner.os == 'macOS'
+        env:
+          HVIR_SMOKE_ARTIFACT_DIR: ${{ runner.temp }}/hvir-smoke-artifacts
+        run: npm run smoke:scenario
+
+      - name: Upload bounded failure evidence
+        if: failure()
         uses: actions/upload-artifact@v7
         with:
-          name: electron-${{ steps.plan.outputs.mode }}-${{ steps.plan.outputs.source_sha }}-plan
-          path: ${{ runner.temp }}/electron-plan/plan.json
-          if-no-files-found: error
-          retention-days: 30
-
-  partition_1:
-    name: Independent invocations · batch 1
-    needs: plan
-    if: needs.plan.result == 'success' && needs.plan.outputs.matrix_1_active == 'true'
-    strategy:
-      fail-fast: false
-      max-parallel: 12
-      matrix: ${{ fromJSON(needs.plan.outputs.matrix_1) }}
-    uses: ./.github/workflows/electron-reliability-partition.yml
-    with:
-      mode: ${{ needs.plan.outputs.mode }}
-      source_sha: ${{ needs.plan.outputs.source_sha }}
-      platform: ${{ matrix.platform }}
-      runner: ${{ matrix.runner }}
-      partition: ${{ matrix.partition }}
-      attempt_start: ${{ matrix.attemptStart }}
-      attempt_count: ${{ matrix.attemptCount }}
-
-  partition_2:
-    name: Independent invocations · batch 2
-    needs: [plan, partition_1]
-    if: always() && needs.plan.result == 'success' && needs.plan.outputs.matrix_2_active == 'true'
-    strategy:
-      fail-fast: false
-      max-parallel: 12
-      matrix: ${{ fromJSON(needs.plan.outputs.matrix_2) }}
-    uses: ./.github/workflows/electron-reliability-partition.yml
-    with:
-      mode: ${{ needs.plan.outputs.mode }}
-      source_sha: ${{ needs.plan.outputs.source_sha }}
-      platform: ${{ matrix.platform }}
-      runner: ${{ matrix.runner }}
-      partition: ${{ matrix.partition }}
-      attempt_start: ${{ matrix.attemptStart }}
-      attempt_count: ${{ matrix.attemptCount }}
-
-  partition_3:
-    name: Independent invocations · batch 3
-    needs: [plan, partition_2]
-    if: always() && needs.plan.result == 'success' && needs.plan.outputs.matrix_3_active == 'true'
-    strategy:
-      fail-fast: false
-      max-parallel: 12
-      matrix: ${{ fromJSON(needs.plan.outputs.matrix_3) }}
-    uses: ./.github/workflows/electron-reliability-partition.yml
-    with:
-      mode: ${{ needs.plan.outputs.mode }}
-      source_sha: ${{ needs.plan.outputs.source_sha }}
-      platform: ${{ matrix.platform }}
-      runner: ${{ matrix.runner }}
-      partition: ${{ matrix.partition }}
-      attempt_start: ${{ matrix.attemptStart }}
-      attempt_count: ${{ matrix.attemptCount }}
-
-  partition_4:
-    name: Independent invocations · batch 4
-    needs: [plan, partition_3]
-    if: always() && needs.plan.result == 'success' && needs.plan.outputs.matrix_4_active == 'true'
-    strategy:
-      fail-fast: false
-      max-parallel: 12
-      matrix: ${{ fromJSON(needs.plan.outputs.matrix_4) }}
-    uses: ./.github/workflows/electron-reliability-partition.yml
-    with:
-      mode: ${{ needs.plan.outputs.mode }}
-      source_sha: ${{ needs.plan.outputs.source_sha }}
-      platform: ${{ matrix.platform }}
-      runner: ${{ matrix.runner }}
-      partition: ${{ matrix.partition }}
-      attempt_start: ${{ matrix.attemptStart }}
-      attempt_count: ${{ matrix.attemptCount }}
-
-  partition_5:
-    name: Independent invocations · batch 5
-    needs: [plan, partition_4]
-    if: always() && needs.plan.result == 'success' && needs.plan.outputs.matrix_5_active == 'true'
-    strategy:
-      fail-fast: false
-      max-parallel: 12
-      matrix: ${{ fromJSON(needs.plan.outputs.matrix_5) }}
-    uses: ./.github/workflows/electron-reliability-partition.yml
-    with:
-      mode: ${{ needs.plan.outputs.mode }}
-      source_sha: ${{ needs.plan.outputs.source_sha }}
-      platform: ${{ matrix.platform }}
-      runner: ${{ matrix.runner }}
-      partition: ${{ matrix.partition }}
-      attempt_start: ${{ matrix.attemptStart }}
-      attempt_count: ${{ matrix.attemptCount }}
-
-  summarize:
-    name: Count every invocation and calculate the bound
-    if: always() && needs.plan.result == 'success'
-    needs:
-      - plan
-      - partition_1
-      - partition_2
-      - partition_3
-      - partition_4
-      - partition_5
-    runs-on: ubuntu-24.04
-    timeout-minutes: 30
-
-    steps:
-      - name: Check out the fixed source
-        uses: actions/checkout@v7
-        with:
-          ref: ${{ needs.plan.outputs.source_sha }}
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v7
-        with:
-          node-version: 24
-          package-manager-cache: false
-
-      - name: Download every available invocation
-        uses: actions/download-artifact@v8
-        with:
-          path: ${{ runner.temp }}/electron-results
-
-      - name: Combine missing, failed, interrupted, and passing invocations
-        id: summarize
-        continue-on-error: true
-        env:
-          HVIR_QUALIFICATION_PLAN_PATH: ${{ runner.temp }}/electron-results/electron-${{ needs.plan.outputs.mode }}-${{ needs.plan.outputs.source_sha }}-plan/plan.json
-          HVIR_QUALIFICATION_RESULTS_ROOT: ${{ runner.temp }}/electron-results
-          HVIR_QUALIFICATION_SUMMARY_DIR: ${{ runner.temp }}/electron-summary
-          HVIR_QUALIFICATION_RUN_ATTEMPT: ${{ github.run_attempt }}
-        run: node scripts/run-electron-qualification.mts summarize
-
-      - name: Retain the final machine-readable and human-readable result
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: electron-${{ needs.plan.outputs.mode }}-${{ needs.plan.outputs.source_sha }}-summary
-          path: ${{ runner.temp }}/electron-summary
-          if-no-files-found: error
-          retention-days: 90
-
-      - name: Enforce the qualification or manual sample result
-        if: always()
-        env:
-          HVIR_QUALIFICATION_SUMMARY_DIR: ${{ runner.temp }}/electron-summary
-        run: node scripts/run-electron-qualification.mts assert-summary
+          name: smoke-failure-${{ matrix.os }}-${{ inputs.scenario }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/hvir-smoke-artifacts
+          if-no-files-found: ignore
+          retention-days: 7

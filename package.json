@@ -60,7 +60,6 @@
     "project:pr": "node scripts/project-management/sync-pull-request-planning.ts",
     "issue:context": "node scripts/project-management/read-issue-context.ts",
     "verify": "npm run check-seams && npm run check-adrs && npm run architecture:check && npm run lint && npm run typecheck && npm test",
-    "smoke:required": "node scripts/run-required-electron-suite.mts",
     "smoke": "electron-vite build && node scripts/run-smoke-scenarios.mts pty-native viewer-position viewer-content git-workflow workspace-remote web-pane renderer-authority renderer-recovery terminal-presentation terminal-lifecycle legacy-workflow",
     "smoke:macos": "electron-vite build && node scripts/run-smoke-scenarios.mts pty-native viewer-position viewer-content git-workflow workspace-remote web-pane renderer-authority platform-contracts renderer-recovery terminal-presentation terminal-lifecycle",
     "smoke:macos:ci": "electron-vite build && node scripts/run-smoke-scenarios.mts pty-native viewer-position viewer-content git-workflow workspace-remote web-pane renderer-authority platform-contracts renderer-recovery",

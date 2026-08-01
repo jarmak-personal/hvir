@@ -41,23 +41,6 @@ does not run capacity while the observed macOS presentation-readiness and native
 flakes are hardened. The full `smoke:macos` command remains the macOS pre-push check, capacity
 remains locally runnable, and Linux CI continues to gate on its deterministic capacity contracts.
 
-Normal CI and the Electron reliability workflow select those required commands from
-`scripts/required-electron-suites.mts`. Linux x64 requires production smoke, development
-Performance Timeline containment, interruption isolation, and capacity. Hosted macOS ARM64
-requires the reduced correctness command above; its terminal-presentation, terminal-lifecycle,
-and capacity exclusions are recorded in every qualification result and remain governed by this
-documented boundary.
-
-The manual qualification fixes one reviewed source SHA and counts 598 full-suite invocations per
-platform. Missing, failed, timed-out, interrupted, or infrastructure-terminated partition evidence
-counts as failure; a workflow rerun cannot replace the first result. The final artifact reports the
-one-sided 95% upper failure-probability bound and passes only at or below 0.5% on both platforms.
-Qualification runs cap partition concurrency at 12 so ordinary pull-request and release gates retain
-Actions capacity while the long-running sample is collected.
-The Tuesday schedule runs 20 invocations per platform as a regression signal only and explicitly
-does not claim qualification-level confidence. Pull-request CI retains one attempt with no retry or
-allowed failure.
-
 ## Controlled quantitative gate
 
 Run the quantitative budgets only on a maintainer-controlled supported machine:

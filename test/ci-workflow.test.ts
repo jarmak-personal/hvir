@@ -44,13 +44,13 @@ const linuxChecks = [
   {
     id: 'electron-smoke',
     name: 'Electron smoke (Linux)',
-    command: 'npm run smoke:required -- --platform linux-x64 --group core',
+    command: 'xvfb-run -a npm run smoke',
     fetchDepth: undefined,
   },
   {
     id: 'capacity-smoke',
     name: 'Capacity contracts + performance evidence (Linux)',
-    command: 'npm run smoke:required -- --platform linux-x64 --group capacity',
+    command: 'xvfb-run -a npm run smoke:capacity',
     fetchDepth: undefined,
   },
 ] as const
@@ -79,7 +79,7 @@ describe('CI workflow', () => {
     }
   })
 
-  it('runs the repository-owned stable macOS correctness selection', () => {
+  it('temporarily runs only the stable macOS correctness subset', () => {
     const job = workflow.jobs['macos-electron-smoke']
     if (!job) throw new Error('Missing CI job: macos-electron-smoke')
     expect(job.name).toBe('Electron correctness (macOS arm64; temporary reduced gate)')
@@ -88,16 +88,11 @@ describe('CI workflow', () => {
     expect(job.steps).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ run: 'npm ci' }),
-        expect.objectContaining({
-          run: 'npm run smoke:required -- --platform macos-arm64',
-        }),
+        expect.objectContaining({ run: 'npm run smoke:macos:ci' }),
       ]),
     )
     const commands = job.steps.flatMap((step) => (step.run ? [step.run] : []))
-    expect(commands).toEqual([
-      'npm ci',
-      'npm run smoke:required -- --platform macos-arm64',
-    ])
+    expect(commands).toEqual(['npm ci', 'npm run smoke:macos:ci'])
   })
 
   it('retires npm payload smoke and keeps native acceptance on both Linux architectures', () => {

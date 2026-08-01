@@ -61,8 +61,16 @@ jobs:
 
       - name: Run production Electron workflow
         env:
-          HVIR_SMOKE_ARTIFACT_DIR: ${{ runner.temp }}/hvir-smoke-artifacts/core
-        run: npm run smoke:required -- --platform linux-x64 --group core
+          HVIR_SMOKE_ARTIFACT_DIR: ${{ runner.temp }}/hvir-smoke-artifacts/production
+        run: xvfb-run -a npm run smoke
+
+      - name: Run development renderer Performance Timeline containment
+        env:
+          HVIR_SMOKE_ARTIFACT_DIR: ${{ runner.temp }}/hvir-smoke-artifacts/development-performance
+        run: xvfb-run -a npm run smoke:development-performance
+
+      - name: Prove failure and interruption isolation
+        run: xvfb-run -a npm run smoke:isolation
 
       - name: Upload bounded Electron failure evidence
         if: failure()
@@ -94,7 +102,7 @@ jobs:
       - name: Run capacity contracts and collect performance evidence
         env:
           HVIR_SMOKE_ARTIFACT_DIR: ${{ runner.temp }}/hvir-smoke-artifacts/capacity
-        run: npm run smoke:required -- --platform linux-x64 --group capacity
+        run: xvfb-run -a npm run smoke:capacity
 
       - name: Upload bounded capacity failure evidence
         if: failure()
@@ -128,7 +136,7 @@ jobs:
       - name: Run focused unpackaged Electron scenarios
         env:
           HVIR_SMOKE_ARTIFACT_DIR: ${{ runner.temp }}/hvir-smoke-artifacts/macos-ci
-        run: npm run smoke:required -- --platform macos-arm64
+        run: npm run smoke:macos:ci
 
       - name: Upload bounded macOS Electron failure evidence
         if: failure()
