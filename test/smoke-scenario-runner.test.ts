@@ -1,16 +1,22 @@
 import { readFileSync } from 'node:fs'
+import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, onTestFinished, vi } from 'vitest'
 
 import {
   DEFAULT_SMOKE_SCENARIOS,
   classifySmokeAttempt,
   formatSmokeScenarioResults,
+  invokeSmokeScenario,
   parseSmokeRepetitionCount,
   runSmokeScenarioGroups,
   selectedSmokeScenarios,
   smokeScenarioEnvironment,
   smokeAttemptTimeoutMs,
+  smokeCheckpointTimeoutMs,
+  writeSmokeFailureArtifactWithinDeadline,
   type SmokeScenarioName,
 } from '../scripts/run-smoke-scenarios.mts'
 import {
@@ -207,6 +213,258 @@ describe('Electron smoke result aggregation', () => {
   it('keeps every attempt bounded while allowing the capacity sampling window', () => {
     expect(smokeAttemptTimeoutMs('pty-native')).toBe(180_000)
     expect(smokeAttemptTimeoutMs('capacity')).toBe(600_000)
+    expect(
+      smokeCheckpointTimeoutMs('renderer-recovery', 'renderer-recovery-route-opening'),
+    ).toBe(15_000)
+    expect(
+      smokeCheckpointTimeoutMs('renderer-recovery', 'renderer-recovery-exit-awaiting'),
+    ).toBe(15_000)
+    expect(
+      smokeCheckpointTimeoutMs('renderer-recovery', 'renderer-recovery-reload-awaiting'),
+    ).toBe(15_000)
+    expect(
+      smokeCheckpointTimeoutMs(
+        'renderer-recovery',
+        'renderer-recovery-replacement-ipc-awaiting',
+      ),
+    ).toBe(15_000)
+    expect(
+      smokeCheckpointTimeoutMs(
+        'renderer-recovery',
+        'renderer-recovery-route-revocation-awaiting',
+      ),
+    ).toBe(15_000)
+    expect(
+      smokeCheckpointTimeoutMs('renderer-recovery', 'renderer-recovery-reload-loaded'),
+    ).toBeUndefined()
+    expect(
+      smokeCheckpointTimeoutMs(
+        'renderer-authority',
+        'renderer-authority-destruction-awaiting',
+      ),
+    ).toBe(15_000)
+    expect(
+      smokeCheckpointTimeoutMs(
+        'renderer-authority',
+        'renderer-authority-resource-revocation-awaiting',
+      ),
+    ).toBe(15_000)
+    expect(
+      smokeCheckpointTimeoutMs(
+        'renderer-authority',
+        'renderer-authority-resource-revoked',
+      ),
+    ).toBeUndefined()
+    expect(smokeCheckpointTimeoutMs('web-pane', 'web-pane-guest-ready-awaiting')).toBe(
+      15_000,
+    )
+    expect(smokeCheckpointTimeoutMs('web-pane', 'web-pane-guest-ready')).toBeUndefined()
+    expect(smokeCheckpointTimeoutMs('web-pane', null)).toBeUndefined()
+  })
+})
+
+describe('Electron smoke process failure artifacts', () => {
+  async function invokeFixture(options: {
+    command: string
+    args?: readonly string[]
+    timeoutMs?: number
+    checkpointTimeoutMs?: number
+    scenario?: SmokeScenarioName
+  }) {
+    const directory = await mkdtemp(join(tmpdir(), 'hvir-smoke-launcher-'))
+    onTestFinished(() => rm(directory, { recursive: true, force: true }))
+    vi.mocked(console.error).mockImplementation(() => undefined)
+
+    const scenario = options.scenario ?? 'web-pane'
+    const result = await invokeSmokeScenario(scenario, 1, 1, {
+      ...options,
+      artifactDirectory: directory,
+      environment: {},
+    })
+    const artifact = JSON.parse(
+      await readFile(join(directory, `${scenario}-iteration-1-of-1.json`), 'utf8'),
+    ) as {
+      schema: number
+      scenario: string
+      iteration: number
+      repetitionCount: number
+      process: {
+        exitCode: number | null
+        signal: NodeJS.Signals | null
+        spawnError: boolean
+      }
+      semanticSnapshot: { phase: string } | null
+    }
+    return { artifact, result }
+  }
+
+  it('retains spawn, nonzero-exit, and signal outcomes', async () => {
+    const spawnFailure = await invokeFixture({
+      command: 'hvir-smoke-command-that-does-not-exist',
+      timeoutMs: 1_000,
+    })
+    expect(spawnFailure.artifact.process).toEqual({
+      exitCode: null,
+      signal: null,
+      spawnError: true,
+    })
+
+    const nonzero = await invokeFixture({
+      command: process.execPath,
+      args: ['-e', 'process.exit(7)'],
+      timeoutMs: 1_000,
+    })
+    expect(nonzero.artifact.process).toEqual({
+      exitCode: 7,
+      signal: null,
+      spawnError: false,
+    })
+
+    const signaled = await invokeFixture({
+      command: process.execPath,
+      args: ['-e', "process.kill(process.pid, 'SIGTERM')"],
+      timeoutMs: 1_000,
+    })
+    expect(signaled.artifact.process).toEqual({
+      exitCode: null,
+      signal: 'SIGTERM',
+      spawnError: false,
+    })
+  })
+
+  it('kills a never-settling attempt and retains its last completed phase first', async () => {
+    const evidence = JSON.stringify({
+      schema: 1,
+      phase: 'renderer-ready',
+      checkpoint: null,
+      cleanupResource: null,
+      owners: {
+        windowCount: 1,
+        ptyCount: 0,
+        watcherActive: true,
+        rendererOwnerActive: true,
+        rendererGeneration: 2,
+      },
+    })
+    const fixture = await invokeFixture({
+      command: process.execPath,
+      args: [
+        '-e',
+        `process.stderr.write(${JSON.stringify(`[smoke:failure-evidence] ${evidence}\n`)}); setInterval(() => undefined, 1_000)`,
+      ],
+      timeoutMs: 500,
+    })
+
+    expect(fixture.result).toMatchObject({
+      status: 'failed',
+      signal: 'SIGKILL',
+      error: 'process timed out',
+    })
+    expect(fixture.artifact).toMatchObject({
+      schema: 1,
+      scenario: 'web-pane',
+      iteration: 1,
+      repetitionCount: 1,
+    })
+    expect(fixture.artifact.process).toEqual({
+      exitCode: null,
+      signal: 'SIGKILL',
+      spawnError: false,
+    })
+    expect(fixture.artifact.semanticSnapshot).toEqual({
+      schema: 1,
+      phase: 'renderer-ready',
+      checkpoint: null,
+      cleanupResource: null,
+      owners: {
+        windowCount: 1,
+        ptyCount: 0,
+        watcherActive: true,
+        rendererOwnerActive: true,
+        rendererGeneration: 2,
+      },
+    })
+  })
+
+  it('kills a main-loop stall at its renderer-recovery checkpoint deadline', async () => {
+    const evidence = JSON.stringify({
+      schema: 1,
+      phase: 'scenario-active',
+      checkpoint: 'renderer-recovery-reload-awaiting',
+      cleanupResource: null,
+      owners: {
+        windowCount: 1,
+        ptyCount: 0,
+        watcherActive: true,
+        rendererOwnerActive: true,
+        rendererGeneration: 1,
+      },
+    })
+    const fixture = await invokeFixture({
+      scenario: 'renderer-recovery',
+      command: process.execPath,
+      args: [
+        '-e',
+        `process.stderr.write(${JSON.stringify(`[smoke:failure-evidence] ${evidence}\n`)}); setInterval(() => undefined, 1_000)`,
+      ],
+      timeoutMs: 1_000,
+      checkpointTimeoutMs: 50,
+    })
+
+    expect(fixture.result).toMatchObject({
+      status: 'failed',
+      signal: 'SIGKILL',
+      error: 'process timed out at renderer-recovery-reload-awaiting after 50ms',
+    })
+    expect(fixture.artifact.semanticSnapshot).toMatchObject({
+      phase: 'scenario-active',
+      checkpoint: 'renderer-recovery-reload-awaiting',
+    })
+  })
+
+  it('kills a main-loop stall at its web-pane checkpoint deadline', async () => {
+    const evidence = JSON.stringify({
+      schema: 1,
+      phase: 'scenario-active',
+      checkpoint: 'web-pane-guest-ready-awaiting',
+      cleanupResource: null,
+      owners: {
+        windowCount: 1,
+        ptyCount: 1,
+        watcherActive: true,
+        rendererOwnerActive: true,
+        rendererGeneration: 1,
+      },
+    })
+    const fixture = await invokeFixture({
+      scenario: 'web-pane',
+      command: process.execPath,
+      args: [
+        '-e',
+        `process.stderr.write(${JSON.stringify(`[smoke:failure-evidence] ${evidence}\n`)}); setInterval(() => undefined, 1_000)`,
+      ],
+      timeoutMs: 1_000,
+      checkpointTimeoutMs: 50,
+    })
+
+    expect(fixture.result).toMatchObject({
+      status: 'failed',
+      signal: 'SIGKILL',
+      error: 'process timed out at web-pane-guest-ready-awaiting after 50ms',
+    })
+    expect(fixture.artifact.semanticSnapshot).toMatchObject({
+      phase: 'scenario-active',
+      checkpoint: 'web-pane-guest-ready-awaiting',
+    })
+  })
+
+  it('bounds a stalled artifact writer independently of process termination', async () => {
+    await expect(
+      writeSmokeFailureArtifactWithinDeadline(
+        () => new Promise<string>(() => undefined),
+        10,
+      ),
+    ).rejects.toThrow('artifact retention timed out')
   })
 })
 
@@ -403,6 +661,8 @@ describe('Electron smoke command contracts', () => {
     expect(capacityTerminalScenario).toContain('JSON.stringify(current)')
     expect(capacityTerminalScenario).toContain('current.surfaces === expected')
     expect(capacityTerminalScenario).toContain('actionStartedAtMs.push(Date.now())')
+    expect(capacityTerminalScenario).toContain('ready-awaiting-input:%s')
+    expect(capacityTerminalScenario).toContain('output.includes(awaitingInputMarker)')
     expect(capacityTerminalScenario).toContain('ready-input:%s')
     expect(capacityTerminalScenario).toContain('countOccurrences(output, marker) !== 1')
   })
@@ -537,13 +797,16 @@ describe('Electron smoke command contracts', () => {
     expect(webPaneScenario).toContain('state=${JSON.stringify(state)}')
     expect(webPaneScenario).toContain('routes.source')
     expect(webPaneScenario).toContain('routes.paneIdForGuest')
+    expect(webPaneScenario).toContain('closeWebPaneSmokeServer')
+    expect(webPaneScenario).toContain('http://127.0.0.1:')
+    expect(webPaneScenario).not.toContain('http://localhost:')
     expect(webPaneScenario).not.toMatch(/setTimeout\(poll, 100\)/)
     expect(webPaneScenario).not.toMatch(/setTimeout\(poll, 300\)/)
     expect(rendererAuthorityScenario).toContain('state=${JSON.stringify(state)}')
-    expect(rendererAuthorityScenario).toContain('ERR_UNKNOWN_URL_SCHEME')
-    expect(rendererAuthorityScenario.indexOf("once('did-finish-load'")).toBeLessThan(
-      rendererAuthorityScenario.indexOf('win.webContents.reload()'),
-    )
+    expect(rendererAuthorityScenario).not.toContain('net.fetch')
+    expect(rendererAuthorityScenario).toContain("type: 'filename-search'")
+    expect(rendererAuthorityScenario).not.toContain('location.reload()')
+    expect(rendererAuthorityScenario).not.toContain("once('did-finish-load'")
     expect(rendererAuthorityScenario.indexOf("once('destroyed'")).toBeLessThan(
       rendererAuthorityScenario.indexOf('win.destroy()'),
     )

@@ -12,6 +12,69 @@ export const SMOKE_FAILURE_PHASES = [
 
 export type SmokeFailurePhase = (typeof SMOKE_FAILURE_PHASES)[number]
 
+export const SMOKE_FAILURE_CHECKPOINTS = [
+  'web-pane-terminal-launch-awaiting',
+  'web-pane-terminal-launch-ready',
+  'web-pane-dashboard-listen-awaiting',
+  'web-pane-dashboard-listening',
+  'web-pane-route-activation-awaiting',
+  'web-pane-route-activated',
+  'web-pane-dashboard-request-awaiting',
+  'web-pane-dashboard-requested',
+  'web-pane-guest-ready-awaiting',
+  'web-pane-guest-ready',
+  'web-pane-route-revocation-awaiting',
+  'web-pane-route-revoked',
+  'web-pane-terminal-disposal-awaiting',
+  'web-pane-terminal-disposed',
+  'web-pane-dashboard-close-awaiting',
+  'web-pane-dashboard-closed',
+  'renderer-recovery-route-opening',
+  'renderer-recovery-route-opened',
+  'renderer-recovery-exit-awaiting',
+  'renderer-recovery-exit-observed',
+  'renderer-recovery-reload-awaiting',
+  'renderer-recovery-reload-loaded',
+  'renderer-recovery-replacement-ipc-awaiting',
+  'renderer-recovery-replacement-ipc-ready',
+  'renderer-recovery-controls-awaiting',
+  'renderer-recovery-controls-ready',
+  'renderer-recovery-terminal-lifecycle-awaiting',
+  'renderer-recovery-terminal-lifecycle-ready',
+  'renderer-recovery-route-revocation-awaiting',
+  'renderer-recovery-route-revoked',
+  'renderer-recovery-diagnostics-awaiting',
+  'renderer-recovery-diagnostics-ready',
+  'renderer-authority-resource-registered',
+  'renderer-authority-destruction-awaiting',
+  'renderer-authority-destroyed',
+  'renderer-authority-resource-revocation-awaiting',
+  'renderer-authority-resource-revoked',
+] as const
+
+export type SmokeFailureCheckpoint = (typeof SMOKE_FAILURE_CHECKPOINTS)[number]
+
+export const SMOKE_CLEANUP_RESOURCES = [
+  'echo worker',
+  'Git worker',
+  'filename search',
+  'local host',
+  'harness profile fixture',
+  'large text fixture',
+  'large JSON fixture',
+  'live reload fixture',
+  'viewer position fixture',
+  'oversized diff fixture',
+  'project watch',
+  'supervised terminals',
+  'smoke window',
+  'IPC authority router',
+  'login shell fixture',
+  'PTY supervisor',
+] as const
+
+export type SmokeCleanupResource = (typeof SMOKE_CLEANUP_RESOURCES)[number]
+
 export interface SmokeOwnedResourceEvidence {
   readonly windowCount: number
   readonly ptyCount: number
@@ -23,6 +86,8 @@ export interface SmokeOwnedResourceEvidence {
 export interface SmokeFailureEvidence {
   readonly schema: 1
   readonly phase: SmokeFailurePhase
+  readonly checkpoint: SmokeFailureCheckpoint | null
+  readonly cleanupResource: SmokeCleanupResource | null
   readonly owners: SmokeOwnedResourceEvidence
 }
 
@@ -30,12 +95,22 @@ export interface SmokeFailureEvidence {
 export function reportSmokeFailureEvidence(
   phase: SmokeFailurePhase,
   owners: SmokeOwnedResourceEvidence,
+  checkpoint: SmokeFailureCheckpoint | null = null,
+  cleanupResource: SmokeCleanupResource | null = null,
 ): void {
   console.error(
     `[smoke:failure-evidence] ${JSON.stringify({
       schema: 1,
       phase,
+      checkpoint,
+      cleanupResource,
       owners,
     } satisfies SmokeFailureEvidence)}`,
   )
+}
+
+export function smokeCleanupResource(name: string): SmokeCleanupResource | null {
+  return SMOKE_CLEANUP_RESOURCES.includes(name as SmokeCleanupResource)
+    ? (name as SmokeCleanupResource)
+    : null
 }

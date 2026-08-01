@@ -461,7 +461,7 @@ function createWorkbenchEntry(): void {
       app.exit(1)
     })
   app.on('window-all-closed', () => {
-    if (process.platform !== 'darwin') app.quit()
+    if (!process.env['HVIR_SMOKE'] && process.platform !== 'darwin') app.quit()
   })
   app.on('activate', () => {
     void runtime

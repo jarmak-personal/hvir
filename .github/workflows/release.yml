@@ -29,6 +29,7 @@ jobs:
     name: Prepare ${{ inputs.bump }} release
     runs-on: ubuntu-24.04
     permissions:
+      actions: read
       contents: write
       issues: read
       pull-requests: write
@@ -134,6 +135,7 @@ jobs:
           echo "current=$current" >> "$GITHUB_OUTPUT"
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
           {
             echo "### hvir $version"
             echo
@@ -141,13 +143,35 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Install dependencies
+        if: inputs.bump != 'current'
         run: npm ci
 
       - name: Verify release source
+        if: inputs.bump != 'current'
         run: npm run verify
 
       - name: Exercise unpackaged Electron production workflow
+        if: inputs.bump != 'current'
+        env:
+          HVIR_SMOKE_ARTIFACT_DIR: ${{ runner.temp }}/hvir-smoke-artifacts/release-prepare
         run: xvfb-run -a npm run smoke
+
+      - name: Upload bounded Electron failure evidence
+        if: failure() && inputs.bump != 'current'
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-prepare-smoke-failure-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/hvir-smoke-artifacts
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Require exact-source first-attempt CI evidence
+        if: inputs.bump == 'current'
+        env:
+          GITHUB_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          GITHUB_TOKEN: ${{ github.token }}
+          RELEASE_SOURCE_SHA: ${{ steps.version.outputs.sha }}
+        run: node scripts/require-release-ci-evidence.mts
 
       - name: Prepare pull request or native release source
         id: release
@@ -157,15 +181,15 @@ jobs:
           TAG: ${{ steps.version.outputs.tag }}
           GH_TOKEN: ${{ github.token }}
           GITHUB_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          RELEASE_SOURCE_SHA: ${{ steps.version.outputs.sha }}
         run: |
           if [ "$BUMP" != current ]; then
             node scripts/prepare-release-pr.mjs "$VERSION"
             echo "ready=false" >> "$GITHUB_OUTPUT"
           else
-            sha=$(git rev-parse HEAD)
             echo "ready=true" >> "$GITHUB_OUTPUT"
-            echo "sha=$sha" >> "$GITHUB_OUTPUT"
-            echo "Release source: $sha" >> "$GITHUB_STEP_SUMMARY"
+            echo "sha=$RELEASE_SOURCE_SHA" >> "$GITHUB_OUTPUT"
+            echo "Release source: $RELEASE_SOURCE_SHA" >> "$GITHUB_STEP_SUMMARY"
           fi
 
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"

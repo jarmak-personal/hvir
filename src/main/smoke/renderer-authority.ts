@@ -1,122 +1,79 @@
-import { net, type BrowserWindow } from 'electron'
+import type { BrowserWindow } from 'electron'
 
-import type { HostPath } from '../../shared'
-import type { HtmlPreviewProtocol } from '../html-preview-protocol'
-import type { ProjectHost } from '../project-host'
 import type { RendererOwner, RendererResourceScopes } from '../renderer-resource-scopes'
-import type { WebPaneRouteRegistry } from '../web-pane/web-pane-route-registry'
+import type { SmokeFailureCheckpoint } from './failure-evidence.mts'
 
-/** Exercise real Electron document rollover and destruction for renderer-owned resources. */
+const OPERATION_TIMEOUT_MS = 10_000
+const PREDICATE_TIMEOUT_MS = 2_000
+const POLL_INTERVAL_MS = 25
+const DIAGNOSIS_TIMEOUT_MS = 1_000
+
+export interface RendererAuthorityTiming {
+  readonly operationTimeoutMs: number
+  readonly predicateTimeoutMs: number
+  readonly pollIntervalMs: number
+  readonly diagnosisTimeoutMs: number
+}
+
+const DEFAULT_TIMING: RendererAuthorityTiming = {
+  operationTimeoutMs: OPERATION_TIMEOUT_MS,
+  predicateTimeoutMs: PREDICATE_TIMEOUT_MS,
+  pollIntervalMs: POLL_INTERVAL_MS,
+  diagnosisTimeoutMs: DIAGNOSIS_TIMEOUT_MS,
+}
+
+interface BoundedOperationOptions {
+  readonly timeoutMs?: number
+  readonly checkpoint?: (checkpoint: SmokeFailureCheckpoint) => void
+}
+
+class RendererAuthorityTimeoutError extends Error {}
+
+/** Exercise only the document and window transitions that require real Electron. */
 export async function verifyRendererAuthorityLifecycle(options: {
   readonly win: BrowserWindow
   readonly resources: RendererResourceScopes
-  readonly routes: WebPaneRouteRegistry
-  readonly htmlPreviews: HtmlPreviewProtocol
-  readonly root: HostPath
-  readonly host: ProjectHost
+  readonly checkpoint: (checkpoint: SmokeFailureCheckpoint) => void
 }): Promise<string> {
-  const { win, resources, routes, htmlPreviews, root, host } = options
+  const { win, resources, checkpoint } = options
   const ownerId = win.webContents.id
-  let previous: RendererOwner | undefined
   let current: RendererOwner | undefined
-  let rolloverPaneId: string | undefined
-  let destructionPaneId: string | undefined
-  let rolloverPreviewUrl: string | undefined
-  let destructionPreviewUrl: string | undefined
+  let resourceDisposed = false
   try {
-    previous = resources.currentOwner(ownerId)
-    const rolloverRoute = await routes.open({
-      ownerId,
-      ownerGeneration: previous.generation,
-      sourceTerminalId: 'renderer-authority-rollover',
-      workspaceRoot: root,
-      host,
-      url: 'http://localhost:61337/renderer-rollover',
+    current = resources.currentOwner(ownerId)
+    const owner = current
+    // Renderer recovery owns replacement-document and route revocation. This
+    // probe isolates the remaining real-Electron boundary: destroying the
+    // BrowserWindow must revoke a resource owned by its renderer generation.
+    resources.register(owner, { lifetime: 'renderer', type: 'filename-search' }, () => {
+      resourceDisposed = true
     })
-    rolloverPaneId = rolloverRoute.paneId
-    const rolloverPreview = htmlPreviews.create(
-      '<p>renderer rollover authority</p>',
-      previous,
-      root,
-    )
-    rolloverPreviewUrl = rolloverPreview.url
-    await assertPreviewStatus(rolloverPreview.url, 200, 'rollover preview did not open')
+    checkpoint('renderer-authority-resource-registered')
 
-    const loaded = new Promise<void>((resolve) =>
-      win.webContents.once('did-finish-load', () => resolve()),
+    await waitForElectronEvent(
+      win,
+      'destroyed',
+      () => win.destroy(),
+      'renderer-authority-destruction-awaiting',
+      checkpoint,
     )
-    win.webContents.reload()
-    await withTimeout(loaded, 'renderer authority reload timed out')
-    await waitFor(async () => {
-      try {
-        current = resources.currentOwner(ownerId)
-        if (current.generation <= previous!.generation) return false
-        const version = (await win.webContents.executeJavaScript(
-          `window.hvir.invoke('app:info', undefined).then((info) => info.electronVersion)`,
-        )) as string
-        return Boolean(version)
-      } catch {
-        return false
-      }
-    }, 'replacement renderer did not regain IPC authority')
-    await waitFor(
-      () => !routes.has(rolloverRoute.paneId, previous!.id, previous!.generation),
-      'renderer rollover retained its old web route',
+    checkpoint('renderer-authority-destroyed')
+    await waitForRendererAuthorityCondition(
+      'renderer-authority-resource-revocation-awaiting',
+      () => resourceDisposed && !resources.isCurrent(owner),
+      'webContents destruction retained its renderer resource',
+      checkpoint,
     )
-    await waitFor(
-      () => previewStatus(rolloverPreview.url).then((status) => status === 404),
-      'renderer rollover retained its old HTML preview',
-    )
+    checkpoint('renderer-authority-resource-revoked')
 
-    const destructionRoute = await routes.open({
-      ownerId,
-      ownerGeneration: current!.generation,
-      sourceTerminalId: 'renderer-authority-destruction',
-      workspaceRoot: root,
-      host,
-      url: 'http://localhost:61338/renderer-destruction',
-    })
-    destructionPaneId = destructionRoute.paneId
-    const destructionPreview = htmlPreviews.create(
-      '<p>renderer destruction authority</p>',
-      current,
-      root,
-    )
-    destructionPreviewUrl = destructionPreview.url
-    await assertPreviewStatus(
-      destructionPreview.url,
-      200,
-      'destruction preview did not open',
-    )
-
-    const destroyed = new Promise<void>((resolve) =>
-      win.webContents.once('destroyed', () => resolve()),
-    )
-    win.destroy()
-    await withTimeout(destroyed, 'renderer authority window was not destroyed')
-    await waitFor(
-      () => !routes.has(destructionRoute.paneId, current!.id, current!.generation),
-      'webContents destruction retained its web route',
-    )
-    await waitFor(
-      () => previewRevokedAfterRuntimeSuspend(destructionPreview.url),
-      'webContents destruction retained its HTML preview',
-    )
-
-    return `generation ${previous.generation}→${current!.generation} · routes revoked · previews expired · destruction revoked`
+    return `generation ${owner.generation} · resource revoked on destruction`
   } catch (error) {
-    const state = {
-      destroyed: win.isDestroyed(),
-      ownerId,
-      previousGeneration: previous?.generation,
-      currentGeneration: current?.generation,
-      previousCurrent: previous ? resources.isCurrent(previous) : undefined,
-      currentCurrent: current ? resources.isCurrent(current) : undefined,
-      rolloverRoute: routeState(routes, rolloverPaneId, previous),
-      destructionRoute: routeState(routes, destructionPaneId, current),
-      rolloverPreview: await safePreviewStatus(rolloverPreviewUrl),
-      destructionPreview: await safePreviewStatus(destructionPreviewUrl),
-    }
+    const state = await collectFailureStateWithinDeadline({
+      win,
+      resources,
+      current,
+      resourceDisposed,
+    })
     throw new Error(
       `Renderer authority lifecycle failed: ${
         error instanceof Error ? error.message : String(error)
@@ -126,75 +83,134 @@ export async function verifyRendererAuthorityLifecycle(options: {
   }
 }
 
-function routeState(
-  routes: WebPaneRouteRegistry,
-  paneId: string | undefined,
-  owner: RendererOwner | undefined,
-): boolean | undefined {
-  return paneId && owner ? routes.has(paneId, owner.id, owner.generation) : undefined
+/** Run one named Electron boundary with its own deadline and semantic checkpoint. */
+function runBoundedRendererAuthorityOperation<T>(
+  operation: SmokeFailureCheckpoint,
+  execute: () => T | PromiseLike<T>,
+  options: BoundedOperationOptions = {},
+): Promise<T> {
+  options.checkpoint?.(operation)
+  return withRendererAuthorityTimeout(
+    Promise.resolve().then(execute),
+    operation,
+    options.timeoutMs ?? OPERATION_TIMEOUT_MS,
+  )
 }
 
-async function assertPreviewStatus(
-  url: string,
-  expected: number,
-  message: string,
+async function waitForElectronEvent(
+  win: BrowserWindow,
+  event: 'destroyed',
+  trigger: () => void,
+  operation: SmokeFailureCheckpoint,
+  checkpoint: (checkpoint: SmokeFailureCheckpoint) => void,
 ): Promise<void> {
-  const status = await previewStatus(url)
-  if (status !== expected) throw new Error(`${message}: status ${status}`)
-}
-
-function previewStatus(url: string): Promise<number> {
-  return net.fetch(url).then((response) => response.status)
-}
-
-async function previewRevokedAfterRuntimeSuspend(url: string): Promise<boolean> {
+  const target = win.webContents as unknown as {
+    once(name: string, listener: () => void): void
+    removeListener(name: string, listener: () => void): void
+  }
+  let completed: () => void = () => undefined
   try {
-    return (await previewStatus(url)) === 404
-  } catch (error) {
-    // Destroying the last window suspends the workbench and unregisters the
-    // entire preview protocol. Electron reports that fail-closed result as an
-    // unknown scheme on some platforms instead of routing one final 404.
-    return error instanceof Error && error.message.includes('ERR_UNKNOWN_URL_SCHEME')
+    await runBoundedRendererAuthorityOperation(
+      operation,
+      () =>
+        new Promise<void>((resolve, reject) => {
+          completed = resolve
+          target.once(event, completed)
+          try {
+            trigger()
+          } catch (error) {
+            reject(error instanceof Error ? error : new Error(String(error)))
+          }
+        }),
+      { checkpoint },
+    )
+  } finally {
+    target.removeListener(event, completed)
   }
 }
 
-async function safePreviewStatus(url: string | undefined): Promise<number | string> {
-  if (!url) return 'not-created'
-  try {
-    return await previewStatus(url)
-  } catch (error) {
-    return error instanceof Error
-      ? error.message.slice(0, 160)
-      : String(error).slice(0, 160)
-  }
-}
-
-async function waitFor(
+export async function waitForRendererAuthorityCondition(
+  operation: SmokeFailureCheckpoint,
   predicate: () => boolean | Promise<boolean>,
   message: string,
+  checkpoint: (checkpoint: SmokeFailureCheckpoint) => void,
+  timing: RendererAuthorityTiming = DEFAULT_TIMING,
 ): Promise<void> {
-  const deadline = Date.now() + 10_000
+  checkpoint(operation)
+  const deadline = Date.now() + timing.operationTimeoutMs
   for (;;) {
-    if (await predicate()) return
-    if (Date.now() >= deadline) throw new Error(message)
-    await new Promise<void>((resolve) => setTimeout(resolve, 25))
+    const remaining = deadline - Date.now()
+    if (remaining <= 0) throw new Error(`${message} (${operation})`)
+    try {
+      if (
+        await withRendererAuthorityTimeout(
+          Promise.resolve().then(predicate),
+          operation,
+          Math.min(timing.predicateTimeoutMs, remaining),
+        )
+      ) {
+        return
+      }
+    } catch (error) {
+      if (error instanceof RendererAuthorityTimeoutError) throw error
+      // Destruction may briefly reject work while native cleanup settles.
+    }
+    if (Date.now() >= deadline) throw new Error(`${message} (${operation})`)
+    await delay(Math.min(timing.pollIntervalMs, deadline - Date.now()))
   }
 }
 
-async function withTimeout<T>(
+async function collectFailureStateWithinDeadline(options: {
+  readonly win: BrowserWindow
+  readonly resources: RendererResourceScopes
+  readonly current: RendererOwner | undefined
+  readonly resourceDisposed: boolean
+}): Promise<unknown> {
+  const diagnosis = Promise.resolve().then(() => ({
+    destroyed: options.win.isDestroyed(),
+    currentGeneration: options.current?.generation,
+    currentCurrent: options.current
+      ? options.resources.isCurrent(options.current)
+      : undefined,
+    resourceDisposed: options.resourceDisposed,
+  }))
+  try {
+    return await withRendererAuthorityTimeout(
+      diagnosis,
+      'failure-diagnosis',
+      DEFAULT_TIMING.diagnosisTimeoutMs,
+    )
+  } catch {
+    return 'diagnosis-timeout'
+  }
+}
+
+async function withRendererAuthorityTimeout<T>(
   promise: Promise<T>,
-  message: string,
-  timeoutMs = 15_000,
+  operation: string,
+  timeoutMs: number,
 ): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined
   try {
     return await Promise.race([
       promise,
       new Promise<never>((_resolve, reject) => {
-        timer = setTimeout(() => reject(new Error(message)), timeoutMs)
+        timer = setTimeout(
+          () =>
+            reject(
+              new RendererAuthorityTimeoutError(
+                `Renderer authority ${operation} timed out after ${timeoutMs}ms`,
+              ),
+            ),
+          timeoutMs,
+        )
       }),
     ])
   } finally {
     if (timer) clearTimeout(timer)
   }
+}
+
+function delay(timeoutMs: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, timeoutMs))
 }

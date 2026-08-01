@@ -60,13 +60,26 @@ jobs:
         run: npm ci
 
       - name: Run production Electron workflow
+        env:
+          HVIR_SMOKE_ARTIFACT_DIR: ${{ runner.temp }}/hvir-smoke-artifacts/production
         run: xvfb-run -a npm run smoke
 
       - name: Run development renderer Performance Timeline containment
+        env:
+          HVIR_SMOKE_ARTIFACT_DIR: ${{ runner.temp }}/hvir-smoke-artifacts/development-performance
         run: xvfb-run -a npm run smoke:development-performance
 
       - name: Prove failure and interruption isolation
         run: xvfb-run -a npm run smoke:isolation
+
+      - name: Upload bounded Electron failure evidence
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: ci-electron-smoke-failure-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/hvir-smoke-artifacts
+          if-no-files-found: ignore
+          retention-days: 7
 
   capacity-smoke:
     name: Capacity contracts + performance evidence (Linux)
@@ -87,7 +100,18 @@ jobs:
         run: npm ci
 
       - name: Run capacity contracts and collect performance evidence
+        env:
+          HVIR_SMOKE_ARTIFACT_DIR: ${{ runner.temp }}/hvir-smoke-artifacts/capacity
         run: xvfb-run -a npm run smoke:capacity
+
+      - name: Upload bounded capacity failure evidence
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: ci-capacity-smoke-failure-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/hvir-smoke-artifacts
+          if-no-files-found: ignore
+          retention-days: 7
 
   macos-electron-smoke:
     # Temporary reduced gate: terminal-presentation, terminal-lifecycle, and capacity
@@ -110,7 +134,18 @@ jobs:
         run: npm ci
 
       - name: Run focused unpackaged Electron scenarios
+        env:
+          HVIR_SMOKE_ARTIFACT_DIR: ${{ runner.temp }}/hvir-smoke-artifacts/macos-ci
         run: npm run smoke:macos:ci
+
+      - name: Upload bounded macOS Electron failure evidence
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: ci-macos-electron-smoke-failure-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/hvir-smoke-artifacts
+          if-no-files-found: ignore
+          retention-days: 7
 
   native-linux-package:
     name: Native package acceptance (${{ matrix.name }})

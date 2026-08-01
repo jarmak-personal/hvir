@@ -10,6 +10,7 @@ import {
   parseElectronSmokeScenario,
   type ElectronSmokeScenario,
 } from '../src/main/smoke/scenario-selection.mts'
+import type { SmokeFailureCheckpoint } from '../src/main/smoke/failure-evidence.mts'
 
 export const DEFAULT_SMOKE_SCENARIOS = [
   'pty-native',
@@ -39,11 +40,71 @@ type InvokeSmokeScenario = (
 const MAX_SMOKE_REPETITIONS = 100
 const DEFAULT_SMOKE_ATTEMPT_TIMEOUT_MS = 180_000
 const CAPACITY_SMOKE_ATTEMPT_TIMEOUT_MS = 600_000
+const RENDERER_OPERATION_CHECKPOINT_TIMEOUT_MS = 15_000
+const EXTERNAL_WATCHDOG_CHECKPOINTS = new Map<
+  SmokeScenarioName,
+  SmokeFailureCheckpoint[]
+>([
+  [
+    'web-pane',
+    [
+      'web-pane-terminal-launch-awaiting',
+      'web-pane-dashboard-listen-awaiting',
+      'web-pane-route-activation-awaiting',
+      'web-pane-dashboard-request-awaiting',
+      'web-pane-guest-ready-awaiting',
+      'web-pane-route-revocation-awaiting',
+      'web-pane-terminal-disposal-awaiting',
+      'web-pane-dashboard-close-awaiting',
+    ],
+  ],
+  [
+    'renderer-recovery',
+    [
+      'renderer-recovery-route-opening',
+      'renderer-recovery-exit-awaiting',
+      'renderer-recovery-reload-awaiting',
+      'renderer-recovery-replacement-ipc-awaiting',
+      'renderer-recovery-controls-awaiting',
+      'renderer-recovery-terminal-lifecycle-awaiting',
+      'renderer-recovery-route-revocation-awaiting',
+      'renderer-recovery-diagnostics-awaiting',
+    ],
+  ],
+  [
+    'renderer-authority',
+    [
+      'renderer-authority-destruction-awaiting',
+      'renderer-authority-resource-revocation-awaiting',
+    ],
+  ],
+])
+const FAILURE_ARTIFACT_TIMEOUT_MS = 1_000
+
+export interface SmokeScenarioInvocationOptions {
+  readonly command?: string
+  readonly args?: readonly string[]
+  readonly cwd?: string
+  readonly environment?: NodeJS.ProcessEnv
+  readonly timeoutMs?: number
+  readonly checkpointTimeoutMs?: number
+  readonly artifactDirectory?: string
+}
 
 export function smokeAttemptTimeoutMs(scenario: SmokeScenarioName): number {
   return scenario === 'capacity'
     ? CAPACITY_SMOKE_ATTEMPT_TIMEOUT_MS
     : DEFAULT_SMOKE_ATTEMPT_TIMEOUT_MS
+}
+
+export function smokeCheckpointTimeoutMs(
+  scenario: SmokeScenarioName,
+  checkpoint: SmokeFailureCheckpoint | null,
+): number | undefined {
+  return checkpoint !== null &&
+    EXTERNAL_WATCHDOG_CHECKPOINTS.get(scenario)?.includes(checkpoint)
+    ? RENDERER_OPERATION_CHECKPOINT_TIMEOUT_MS
+    : undefined
 }
 
 export function parseSmokeRepetitionCount(value: string | undefined): number {
@@ -129,8 +190,7 @@ export function classifySmokeAttempt(options: {
   readonly successSentinel: boolean
   readonly durationMs: number
 }): Omit<SmokeScenarioResult, 'scenario' | 'iteration' | 'repetitionCount'> {
-  const status =
-    options.exitCode === 0 && options.successSentinel ? 'passed' : 'failed'
+  const status = options.exitCode === 0 && options.successSentinel ? 'passed' : 'failed'
   return {
     status,
     ...(options.exitCode === null ? {} : { exitCode: options.exitCode }),
@@ -142,10 +202,11 @@ export function classifySmokeAttempt(options: {
   }
 }
 
-function invokeSmokeScenario(
+export function invokeSmokeScenario(
   scenario: SmokeScenarioName,
   iteration: number,
   repetitionCount: number,
+  options: SmokeScenarioInvocationOptions = {},
 ): Promise<Omit<SmokeScenarioResult, 'scenario' | 'iteration' | 'repetitionCount'>> {
   const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
   console.log(
@@ -154,69 +215,112 @@ function invokeSmokeScenario(
   const startedAt = performance.now()
   return new Promise((resolveResult) => {
     const collector = new SmokeAttemptEvidenceCollector()
-    const child = spawn('bash', [join(repositoryRoot, 'scripts/run-smoke.sh')], {
-      cwd: repositoryRoot,
-      detached: process.platform !== 'win32',
-      env: smokeScenarioEnvironment(process.env, scenario),
-      stdio: ['inherit', 'pipe', 'pipe'],
-    })
+    const child = spawn(
+      options.command ?? 'bash',
+      [...(options.args ?? [join(repositoryRoot, 'scripts/run-smoke.sh')])],
+      {
+        cwd: options.cwd ?? repositoryRoot,
+        detached: process.platform !== 'win32',
+        env: smokeScenarioEnvironment(options.environment ?? process.env, scenario),
+        stdio: ['inherit', 'pipe', 'pipe'],
+      },
+    )
     child.stdout.setEncoding('utf8')
     child.stderr.setEncoding('utf8')
-    child.stdout.on('data', (chunk: string) => {
-      process.stdout.write(chunk)
-      collector.observe('stdout', chunk)
-    })
-    child.stderr.on('data', (chunk: string) => {
-      process.stderr.write(chunk)
-      collector.observe('stderr', chunk)
-    })
     let settled = false
-    const timer = setTimeout(() => {
+    const timers: {
+      attempt?: ReturnType<typeof setTimeout>
+      checkpoint?: ReturnType<typeof setTimeout>
+    } = {}
+    let activeCheckpoint: SmokeFailureCheckpoint | null = null
+    const clearTimers = (): void => {
+      if (timers.attempt) clearTimeout(timers.attempt)
+      if (timers.checkpoint) clearTimeout(timers.checkpoint)
+    }
+    const finishTimedOutAttempt = (error: string): void => {
       if (settled) return
       settled = true
+      clearTimers()
       terminateSmokeAttempt(child.pid)
       collector.finish()
       const durationMs = performance.now() - startedAt
       const result = {
         status: 'failed',
         signal: 'SIGKILL',
-        error: 'process timed out',
+        error,
         durationMs,
       } as const
-      void retainFailureArtifact({
-        scenario,
-        iteration,
-        repetitionCount,
-        durationMs,
-        exitCode: null,
-        signal: 'SIGKILL',
-        spawnError: false,
-        collector,
-      }).finally(() => resolveResult(result))
-    }, smokeAttemptTimeoutMs(scenario))
+      void retainFailureArtifact(
+        {
+          scenario,
+          iteration,
+          repetitionCount,
+          durationMs,
+          exitCode: null,
+          signal: 'SIGKILL',
+          spawnError: false,
+          collector,
+        },
+        options.artifactDirectory,
+      ).finally(() => resolveResult(result))
+    }
+    const refreshCheckpointDeadline = (): void => {
+      const checkpoint = collector.evidence().snapshot?.checkpoint ?? null
+      if (checkpoint === activeCheckpoint) return
+      activeCheckpoint = checkpoint
+      if (timers.checkpoint) clearTimeout(timers.checkpoint)
+      timers.checkpoint = undefined
+      const timeoutMs = smokeCheckpointTimeoutMs(scenario, checkpoint)
+      if (timeoutMs === undefined) return
+      const effectiveTimeoutMs = options.checkpointTimeoutMs ?? timeoutMs
+      timers.checkpoint = setTimeout(
+        () =>
+          finishTimedOutAttempt(
+            `process timed out at ${checkpoint} after ${effectiveTimeoutMs}ms`,
+          ),
+        effectiveTimeoutMs,
+      )
+    }
+    child.stdout.on('data', (chunk: string) => {
+      process.stdout.write(chunk)
+      collector.observe('stdout', chunk)
+      refreshCheckpointDeadline()
+    })
+    child.stderr.on('data', (chunk: string) => {
+      process.stderr.write(chunk)
+      collector.observe('stderr', chunk)
+      refreshCheckpointDeadline()
+    })
+    timers.attempt = setTimeout(
+      () => finishTimedOutAttempt('process timed out'),
+      options.timeoutMs ?? smokeAttemptTimeoutMs(scenario),
+    )
     child.once('error', () => {
       if (settled) return
       settled = true
-      clearTimeout(timer)
+      clearTimers()
       collector.finish()
       const durationMs = performance.now() - startedAt
-      void retainFailureArtifact({
-        scenario,
-        iteration,
-        repetitionCount,
-        durationMs,
-        exitCode: null,
-        signal: null,
-        spawnError: true,
-        collector,
-      }).finally(() =>
+      void retainFailureArtifact(
+        {
+          scenario,
+          iteration,
+          repetitionCount,
+          durationMs,
+          exitCode: null,
+          signal: null,
+          spawnError: true,
+          collector,
+        },
+        options.artifactDirectory,
+      ).finally(() =>
         resolveResult({ status: 'failed', error: 'process spawn failed', durationMs }),
       )
     })
     child.once('close', (exitCode, signal) => {
       if (settled) return
       settled = true
-      clearTimeout(timer)
+      clearTimers()
       collector.finish()
       const durationMs = performance.now() - startedAt
       const successSentinel = collector.evidence().logs.successSentinel
@@ -230,16 +334,19 @@ function invokeSmokeScenario(
         resolveResult(result)
         return
       }
-      void retainFailureArtifact({
-        scenario,
-        iteration,
-        repetitionCount,
-        durationMs,
-        exitCode,
-        signal,
-        spawnError: false,
-        collector,
-      }).finally(() => resolveResult(result))
+      void retainFailureArtifact(
+        {
+          scenario,
+          iteration,
+          repetitionCount,
+          durationMs,
+          exitCode,
+          signal,
+          spawnError: false,
+          collector,
+        },
+        options.artifactDirectory,
+      ).finally(() => resolveResult(result))
     })
   })
 }
@@ -259,15 +366,38 @@ function terminateSmokeAttempt(pid: number | undefined): void {
 
 async function retainFailureArtifact(
   options: Parameters<typeof createSmokeFailureArtifact>[0],
+  directory = process.env.HVIR_SMOKE_ARTIFACT_DIR,
 ): Promise<void> {
   try {
-    const path = await writeSmokeFailureArtifact(
-      process.env.HVIR_SMOKE_ARTIFACT_DIR,
-      createSmokeFailureArtifact(options),
+    const path = await writeSmokeFailureArtifactWithinDeadline(() =>
+      writeSmokeFailureArtifact(directory, createSmokeFailureArtifact(options)),
     )
     if (path) console.error('[smoke:artifact] retained bounded failure evidence')
   } catch {
     console.error('[smoke:artifact] failed to retain bounded failure evidence')
+  }
+}
+
+export async function writeSmokeFailureArtifactWithinDeadline(
+  writeArtifact: () => Promise<string | undefined>,
+  timeoutMs = FAILURE_ARTIFACT_TIMEOUT_MS,
+): Promise<string | undefined> {
+  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+    throw new Error('Smoke failure artifact deadline was invalid')
+  }
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    return await Promise.race([
+      writeArtifact(),
+      new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(
+          () => reject(new Error('Smoke failure artifact retention timed out')),
+          timeoutMs,
+        )
+      }),
+    ])
+  } finally {
+    if (timer) clearTimeout(timer)
   }
 }
 

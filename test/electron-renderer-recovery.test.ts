@@ -23,6 +23,7 @@ function fixture() {
   const deadlines: { task: () => void; canceled: boolean }[] = []
   const forcefullyCrashRenderer = vi.fn()
   const reload = vi.fn()
+  const scheduledReloads: (() => void)[] = []
   const win = {
     isDestroyed: vi.fn(() => false),
     webContents: { forcefullyCrashRenderer, reload },
@@ -43,6 +44,7 @@ function fixture() {
     rollover,
     isShuttingDown: () => shuttingDown,
     deadlineMs: 50,
+    scheduleReload: (task) => scheduledReloads.push(task),
     scheduleDeadline: (task) => {
       const deadline = { task, canceled: false }
       deadlines.push(deadline)
@@ -58,6 +60,7 @@ function fixture() {
     deadlines,
     forcefullyCrashRenderer,
     reload,
+    runScheduledReload: () => scheduledReloads.shift()?.(),
     rollover,
     owner: () => owner,
     shutDown: () => {
@@ -77,14 +80,20 @@ describe('ElectronRendererRecovery', () => {
   })
   afterEach(() => vi.restoreAllMocks())
 
-  it('force-crashes once and records success only after load plus readiness', () => {
+  it('immediately replaces the process and defers final navigation past its exit', () => {
     const candidate = fixture()
 
     expect(candidate.recovery.reloadUnresponsive(INITIAL)).toBe(true)
     expect(candidate.recovery.reloadUnresponsive(INITIAL)).toBe(false)
     expect(candidate.forcefullyCrashRenderer).toHaveBeenCalledOnce()
     expect(candidate.rollover).toHaveBeenCalledOnce()
+    expect(candidate.reload).toHaveBeenCalledOnce()
+    expect(candidate.forcefullyCrashRenderer.mock.invocationCallOrder[0]).toBeLessThan(
+      candidate.reload.mock.invocationCallOrder[0] ?? 0,
+    )
     expect(candidate.recovery.rendererGone(candidate.owner(), 'killed')).toBe(true)
+    expect(candidate.reload).toHaveBeenCalledOnce()
+    candidate.runScheduledReload()
     expect(candidate.reload).toHaveBeenCalledTimes(2)
 
     candidate.recovery.rendererReady(candidate.owner())
@@ -100,6 +109,7 @@ describe('ElectronRendererRecovery', () => {
     candidate.recovery.reloadUnresponsive(INITIAL)
     const failedOwner = candidate.owner()
     candidate.recovery.rendererGone(failedOwner, 'killed')
+    candidate.runScheduledReload()
 
     candidate.recovery.documentFailed(failedOwner)
     await vi.waitFor(() =>
@@ -107,6 +117,8 @@ describe('ElectronRendererRecovery', () => {
     )
     expect(candidate.owner().generation).toBe(failedOwner.generation + 1)
     candidate.recovery.rendererGone(candidate.owner(), 'killed')
+    candidate.runScheduledReload()
+    expect(candidate.reload).toHaveBeenCalledTimes(4)
 
     candidate.recovery.documentLoaded(failedOwner)
     candidate.recovery.rendererReady(failedOwner)
@@ -153,6 +165,27 @@ describe('ElectronRendererRecovery', () => {
       'window-closed',
     ])
     expect(consoleErrors).toContainEqual([expect.stringContaining('readiness-timeout')])
+  })
+
+  it('does not run the deferred post-exit navigation after recovery ownership closes', () => {
+    const candidate = fixture()
+    candidate.recovery.reloadUnresponsive(INITIAL)
+    candidate.recovery.rendererGone(candidate.owner(), 'killed')
+
+    candidate.recovery.close()
+    candidate.runScheduledReload()
+
+    expect(candidate.reload).toHaveBeenCalledOnce()
+  })
+
+  it('defers an unexpected-exit reload beyond the process-gone callback', () => {
+    const candidate = fixture()
+
+    candidate.recovery.reloadUnexpected(INITIAL)
+    expect(candidate.reload).not.toHaveBeenCalled()
+
+    candidate.runScheduledReload()
+    expect(candidate.reload).toHaveBeenCalledOnce()
   })
 })
 

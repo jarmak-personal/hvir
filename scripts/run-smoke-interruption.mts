@@ -67,6 +67,17 @@ const DISPOSED_PREFIX = '[smoke:isolation:disposed] '
 const MAX_TAIL_LINES = 80
 const PROCESS_TIMEOUT_MS = 120_000
 
+export function isolationProcessTimeoutError(
+  scenario: IsolationScenario,
+  tail: readonly string[],
+): Error {
+  return new Error(
+    `${scenario} isolation process timed out; tail=${JSON.stringify(
+      tail.slice(-20).map((line) => line.slice(0, 500)),
+    )}`,
+  )
+}
+
 export async function cleanupOwnedSmokeRoot(
   root: string,
   temporaryParent: string,
@@ -419,8 +430,7 @@ function startInvocation(options: InvocationOptions): InvocationHandle {
     createInterface({ input: child.stdout }).on('line', consume)
     createInterface({ input: child.stderr }).on('line', consume)
     timer = setTimeout(
-      () =>
-        rejectInvocation(new Error(`${options.scenario} isolation process timed out`)),
+      () => rejectInvocation(isolationProcessTimeoutError(options.scenario, tail)),
       PROCESS_TIMEOUT_MS,
     )
     child.once('error', (error) => {
@@ -441,6 +451,9 @@ function startInvocation(options: InvocationOptions): InvocationHandle {
       resolveOutcome({ exitCode, signal })
     })
   })
+  void root.promise.catch(() => undefined)
+  void checkpoint.promise.catch(() => undefined)
+  void outcome.catch(() => undefined)
   return {
     scenario: options.scenario,
     runToken,

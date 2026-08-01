@@ -6,8 +6,14 @@ import { hostPathEquals, type HostPath, type ProjectState } from '../../shared'
 import type { RendererResourceScopes } from '../renderer-resource-scopes'
 import type { PtySupervisor } from '../pty/pty-supervisor'
 import type { WebPaneRouteRegistry } from '../web-pane/web-pane-route-registry'
+import type { SmokeFailureCheckpoint } from './failure-evidence.mts'
 import type { SmokeInterruptionCheckpoint } from './interruption-checkpoint'
 import { ensureExplicitBareShellLaunch } from './terminal-explicit-launch'
+import {
+  closeWebPaneSmokeServer,
+  withWebPaneDiagnosisTimeout,
+  withWebPaneSmokeTimeout,
+} from './web-pane-boundary'
 
 /** Exercise the real hostile guest, authenticated route, and workspace visibility contract. */
 export async function verifyWebPaneWorkflow(options: {
@@ -22,6 +28,7 @@ export async function verifyWebPaneWorkflow(options: {
   readonly emitState: (state: ProjectState) => void
   readonly interruptionCheckpoint: SmokeInterruptionCheckpoint
   readonly predecessorSelectionObserved: boolean
+  readonly checkpoint: (checkpoint: SmokeFailureCheckpoint) => void
 }): Promise<string> {
   const {
     win,
@@ -35,11 +42,15 @@ export async function verifyWebPaneWorkflow(options: {
     emitState,
     interruptionCheckpoint,
     predecessorSelectionObserved,
+    checkpoint,
   } = options
   const dashboardServer = createHttpServer()
   let dashboardRequests = 0
+  let workflowCompleted = false
   try {
+    checkpoint('web-pane-terminal-launch-awaiting')
     const launchStatus = await ensureExplicitBareShellLaunch(win, supervisor)
+    checkpoint('web-pane-terminal-launch-ready')
     const sourceTerminal = supervisor
       .list()
       .find((terminal) => terminal.ownerId === win.webContents.id)
@@ -71,22 +82,28 @@ export async function verifyWebPaneWorkflow(options: {
         `<!doctype html><title>smoke dashboard</title><input aria-label="dashboard input"><script>document.body.dataset.isolated=String(typeof require==='undefined'&&typeof window.hvir==='undefined');onbeforeunload=()=>"stay";navigator.serviceWorker.register('/sw.js').then(()=>navigator.serviceWorker.ready).then((registration)=>{const channel=new MessageChannel();channel.port1.onmessage=(event)=>document.body.dataset.serviceWorker=event.data;registration.active.postMessage('probe',[channel.port2])})</script>smoke-dashboard-ok`,
       )
     })
-    await new Promise<void>((resolve, reject) => {
-      dashboardServer.once('error', reject)
-      dashboardServer.listen(0, '127.0.0.1', () => resolve())
-    })
+    checkpoint('web-pane-dashboard-listen-awaiting')
+    await withWebPaneSmokeTimeout(
+      new Promise<void>((resolve, reject) => {
+        dashboardServer.once('error', reject)
+        dashboardServer.listen(0, '127.0.0.1', () => resolve())
+      }),
+      'web pane dashboard server listen timed out',
+    )
+    checkpoint('web-pane-dashboard-listening')
     const dashboardAddress = dashboardServer.address()
     if (!dashboardAddress || typeof dashboardAddress === 'string') {
       throw new Error('smoke dashboard server reported no port')
     }
-    const dashboardUrl = `http://localhost:${dashboardAddress.port}/reef?tab=1`
+    const dashboardUrl = `http://127.0.0.1:${dashboardAddress.port}/reef?tab=1`
     supervisor.write(
       sourceTerminal.id,
       sourceTerminal.ownerId,
       `printf '\\033[2J\\033[H%s\\n' '${dashboardUrl}'\r`,
     )
 
-    const opened = (await withTimeout(
+    checkpoint('web-pane-route-activation-awaiting')
+    const opened = (await withWebPaneSmokeTimeout(
       win.webContents.executeJavaScript(`
         new Promise((resolve, reject) => {
           const deadline = Date.now() + 10000;
@@ -132,6 +149,7 @@ export async function verifyWebPaneWorkflow(options: {
       'terminal-link web pane activation timed out',
     )) as { paneId?: string; path: string }
     if (!opened.paneId) throw new Error('authorized web pane exposed no opaque pane id')
+    checkpoint('web-pane-route-activated')
 
     const owner = resources.currentOwner(win.webContents.id)
     const provenance = routes.source(opened.paneId, owner.id, owner.generation)
@@ -142,10 +160,12 @@ export async function verifyWebPaneWorkflow(options: {
     ) {
       throw new Error(`web pane source provenance changed: ${JSON.stringify(provenance)}`)
     }
+    checkpoint('web-pane-dashboard-request-awaiting')
     await waitFor(
       () => dashboardRequests > 0,
       'authenticated web pane route never reached the dashboard server',
     )
+    checkpoint('web-pane-dashboard-requested')
     const dashboardGuest = webContents
       .getAllWebContents()
       .find(
@@ -155,6 +175,7 @@ export async function verifyWebPaneWorkflow(options: {
           routes.paneIdForGuest(contents.id) === opened.paneId,
       )
     if (!dashboardGuest) throw new Error('authorized web pane guest was missing')
+    checkpoint('web-pane-guest-ready-awaiting')
     await waitFor(async () => {
       try {
         return Boolean(
@@ -166,6 +187,7 @@ export async function verifyWebPaneWorkflow(options: {
         return false
       }
     }, 'isolated guest or service-worker route did not finish loading')
+    checkpoint('web-pane-guest-ready')
 
     const predecessorPaneId = interruptionCheckpoint.predecessorPaneId
     await interruptionCheckpoint.reach({
@@ -181,7 +203,10 @@ export async function verifyWebPaneWorkflow(options: {
       predecessorSelectionObserved,
     })
 
-    await dashboardGuest.executeJavaScript(`window.__hvirPaneState = 'preserved'`)
+    await withWebPaneSmokeTimeout(
+      dashboardGuest.executeJavaScript(`window.__hvirPaneState = 'preserved'`),
+      'web pane guest state setup timed out',
+    )
     const guestId = dashboardGuest.id
     const switched = baseState()
     const switchedState: ProjectState = {
@@ -223,30 +248,45 @@ export async function verifyWebPaneWorkflow(options: {
     if (
       dashboardGuest.isDestroyed() ||
       dashboardGuest.id !== guestId ||
-      (await dashboardGuest.executeJavaScript(`window.__hvirPaneState`)) !== 'preserved'
+      (await withWebPaneSmokeTimeout(
+        dashboardGuest.executeJavaScript(`window.__hvirPaneState`),
+        'web pane guest state read timed out',
+      )) !== 'preserved'
     ) {
       throw new Error('workspace switching reloaded or replaced the web pane guest')
     }
 
-    await dashboardGuest.executeJavaScript(
-      `document.querySelector('[aria-label="dashboard input"]').focus()`,
+    await withWebPaneSmokeTimeout(
+      dashboardGuest.executeJavaScript(
+        `document.querySelector('[aria-label="dashboard input"]').focus()`,
+      ),
+      'web pane input focus timed out',
     )
-    await dashboardGuest.insertText('typed-in-web-pane')
-    const typedValue = (await dashboardGuest.executeJavaScript(
-      `document.querySelector('[aria-label="dashboard input"]').value`,
+    await withWebPaneSmokeTimeout(
+      dashboardGuest.insertText('typed-in-web-pane'),
+      'web pane text input timed out',
+    )
+    const typedValue = (await withWebPaneSmokeTimeout(
+      dashboardGuest.executeJavaScript(
+        `document.querySelector('[aria-label="dashboard input"]').value`,
+      ),
+      'web pane input read timed out',
     )) as string
     if (typedValue !== 'typed-in-web-pane') {
       throw new Error('ordinary web-pane text input was blocked')
     }
 
-    await win.webContents.executeJavaScript(`
+    await withWebPaneSmokeTimeout(
+      win.webContents.executeJavaScript(`
       (() => {
         const focus = [...document.querySelectorAll('.web-pane-toolbar button')]
           .find((button) => button.title === 'Full page');
         if (!focus) throw new Error('web pane full-page control was missing');
         focus.click();
       })()
-    `)
+    `),
+      'web pane full-page activation timed out',
+    )
     await rendererWait(
       win,
       `Boolean(document.querySelector('.workbench.web-focused'))`,
@@ -260,11 +300,12 @@ export async function verifyWebPaneWorkflow(options: {
       'reserved Escape did not leave web-pane full-page mode',
     )
 
-    await dashboardGuest
-      .executeJavaScript(
+    await withWebPaneSmokeTimeout(
+      dashboardGuest.executeJavaScript(
         `location.assign('https://example.com/leave-hvir?token=secret#fragment'); true`,
-      )
-      .catch(() => undefined)
+      ),
+      'web pane blocked navigation timed out',
+    ).catch(() => undefined)
     const blockedNavigation = (await rendererValue(
       win,
       `(() => {
@@ -275,7 +316,10 @@ export async function verifyWebPaneWorkflow(options: {
       })()`,
       'external navigation affordance was missing',
     )) as string
-    await dashboardGuest.executeJavaScript(`console.warn('web-pane-smoke-warning')`)
+    await withWebPaneSmokeTimeout(
+      dashboardGuest.executeJavaScript(`console.warn('web-pane-smoke-warning')`),
+      'web pane diagnostic emission timed out',
+    )
     const diagnosticStatus = (await rendererValue(
       win,
       `(() => {
@@ -311,19 +355,27 @@ export async function verifyWebPaneWorkflow(options: {
       `!document.querySelector('.web-pane-tab')`,
       'reserved close did not remove the web pane tab',
     )
+    checkpoint('web-pane-route-revocation-awaiting')
     await waitFor(
       () => !routes.has(opened.paneId!, owner.id, owner.generation),
       'web pane close retained its authenticated route',
     )
+    checkpoint('web-pane-route-revoked')
 
-    await win.webContents.executeJavaScript(
-      `window.hvir.send('pty:kill', { id: ${JSON.stringify(sourceTerminal.id)} })`,
+    checkpoint('web-pane-terminal-disposal-awaiting')
+    await withWebPaneSmokeTimeout(
+      win.webContents.executeJavaScript(
+        `window.hvir.send('pty:kill', { id: ${JSON.stringify(sourceTerminal.id)} })`,
+      ),
+      'web pane source terminal kill timed out',
     )
     await waitFor(
       () => !supervisor.get(sourceTerminal.id),
       'web pane source terminal did not dispose after explicit close',
     )
+    checkpoint('web-pane-terminal-disposed')
 
+    workflowCompleted = true
     return [
       launchStatus,
       'authenticated + isolated guest',
@@ -335,7 +387,9 @@ export async function verifyWebPaneWorkflow(options: {
       'reserved close + route revoked',
     ].join(' · ')
   } catch (error) {
-    const state = await readWebPaneState(win, supervisor)
+    const state = await withWebPaneDiagnosisTimeout(
+      readWebPaneState(win, supervisor),
+    ).catch(() => ({ unavailable: true }))
     throw new Error(
       `Web pane workflow failed: ${
         error instanceof Error ? error.message : String(error)
@@ -344,7 +398,13 @@ export async function verifyWebPaneWorkflow(options: {
     )
   } finally {
     if (dashboardServer.listening) {
-      await new Promise<void>((resolve) => dashboardServer.close(() => resolve()))
+      if (workflowCompleted) {
+        checkpoint('web-pane-dashboard-close-awaiting')
+        await closeWebPaneSmokeServer(dashboardServer)
+        checkpoint('web-pane-dashboard-closed')
+      } else {
+        await closeWebPaneSmokeServer(dashboardServer).catch(() => undefined)
+      }
     }
   }
 }
@@ -395,8 +455,9 @@ function rendererValue(
   expression: string,
   message: string,
 ): Promise<unknown> {
-  return win.webContents.executeJavaScript(`
-    new Promise((resolve, reject) => {
+  return withWebPaneSmokeTimeout(
+    win.webContents.executeJavaScript(`
+      new Promise((resolve, reject) => {
       const deadline = Date.now() + 10000;
       const poll = () => {
         try {
@@ -409,36 +470,24 @@ function rendererValue(
         setTimeout(poll, 25);
       };
       poll();
-    })
-  `) as Promise<unknown>
+      })
+    `) as Promise<unknown>,
+    message,
+  )
 }
 
 async function waitFor(
   predicate: () => boolean | Promise<boolean>,
   message: string,
 ): Promise<void> {
-  const deadline = Date.now() + 10_000
-  for (;;) {
-    if (await predicate()) return
-    if (Date.now() >= deadline) throw new Error(message)
-    await new Promise<void>((resolve) => setTimeout(resolve, 25))
-  }
-}
-
-async function withTimeout<T>(
-  promise: Promise<T>,
-  message: string,
-  timeoutMs = 15_000,
-): Promise<T> {
-  let timer: ReturnType<typeof setTimeout> | undefined
-  try {
-    return await Promise.race([
-      promise,
-      new Promise<never>((_resolve, reject) => {
-        timer = setTimeout(() => reject(new Error(message)), timeoutMs)
-      }),
-    ])
-  } finally {
-    if (timer) clearTimeout(timer)
-  }
+  await withWebPaneSmokeTimeout(
+    (async () => {
+      for (;;) {
+        if (await predicate()) return
+        await new Promise<void>((resolve) => setTimeout(resolve, 25))
+      }
+    })(),
+    message,
+    10_000,
+  )
 }
