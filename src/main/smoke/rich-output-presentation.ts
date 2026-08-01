@@ -116,6 +116,7 @@ export async function waitForRichOutputPilot(
             }
           } else {
             const checkbox = document.querySelector('#settings-rich-output');
+            const preview = document.querySelector('[aria-label="Rich output preview"]');
             const save = [...document.querySelectorAll('button')].find(
               (candidate) => candidate.textContent?.trim() === 'Save app settings'
             );
@@ -128,7 +129,12 @@ export async function waitForRichOutputPilot(
                 checkbox.click();
                 return setTimeout(poll, 25);
               }
-              if (checkbox.checked) {
+              if (
+                checkbox.checked &&
+                preview?.textContent?.includes('▸ A clearer agent response') &&
+                preview.querySelector('.terminal-rich-span.strong')?.textContent ===
+                  'structured response'
+              ) {
                 save.click();
                 return setTimeout(poll, 25);
               }

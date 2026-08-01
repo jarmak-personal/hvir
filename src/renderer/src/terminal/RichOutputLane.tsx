@@ -63,7 +63,7 @@ export function RichOutputLane({
   )
 }
 
-function RichOutputRow({
+export function RichOutputRow({
   row,
   onActivateLink,
   disclosureTarget,

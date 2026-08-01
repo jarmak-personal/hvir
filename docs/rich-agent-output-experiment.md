@@ -143,6 +143,11 @@ preference rather than capability-dependent terminal chrome. Provider eligibilit
 implementation detail: unsupported providers and versions continue on the native PTY path
 without hiding or disabling the preference.
 
+Checking the Appearance draft reveals a deterministic visual preview built by the same bounded
+Markdown policy, row renderer, typography, and rich-lane styles as live output. The preview does
+not require a harness connection and explicitly does not claim provider availability; it lets
+maintainers evaluate the presentation independently from the routing experiment.
+
 The preference applies to current and later eligible sessions. A session coordinator sends its
 owner-qualified desired mode only after the provider admits a healthy exact stream. The provider
 acknowledges the boundary at which it takes effect. Changing the preference does not start,
