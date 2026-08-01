@@ -15,6 +15,7 @@ import {
   selectedSmokeScenarios,
   smokeScenarioEnvironment,
   smokeAttemptTimeoutMs,
+  smokeCheckpointTimeoutMs,
   writeSmokeFailureArtifactWithinDeadline,
   type SmokeScenarioName,
 } from '../scripts/run-smoke-scenarios.mts'
@@ -212,6 +213,19 @@ describe('Electron smoke result aggregation', () => {
   it('keeps every attempt bounded while allowing the capacity sampling window', () => {
     expect(smokeAttemptTimeoutMs('pty-native')).toBe(180_000)
     expect(smokeAttemptTimeoutMs('capacity')).toBe(600_000)
+    expect(
+      smokeCheckpointTimeoutMs(
+        'renderer-authority',
+        'renderer-authority-reload-awaiting',
+      ),
+    ).toBe(15_000)
+    expect(
+      smokeCheckpointTimeoutMs(
+        'renderer-authority',
+        'renderer-authority-reload-loaded',
+      ),
+    ).toBeUndefined()
+    expect(smokeCheckpointTimeoutMs('web-pane', null)).toBeUndefined()
   })
 })
 
@@ -220,18 +234,21 @@ describe('Electron smoke process failure artifacts', () => {
     command: string
     args?: readonly string[]
     timeoutMs?: number
+    checkpointTimeoutMs?: number
+    scenario?: SmokeScenarioName
   }) {
     const directory = await mkdtemp(join(tmpdir(), 'hvir-smoke-launcher-'))
     onTestFinished(() => rm(directory, { recursive: true, force: true }))
     vi.mocked(console.error).mockImplementation(() => undefined)
 
-    const result = await invokeSmokeScenario('web-pane', 1, 1, {
+    const scenario = options.scenario ?? 'web-pane'
+    const result = await invokeSmokeScenario(scenario, 1, 1, {
       ...options,
       artifactDirectory: directory,
       environment: {},
     })
     const artifact = JSON.parse(
-      await readFile(join(directory, 'web-pane-iteration-1-of-1.json'), 'utf8'),
+      await readFile(join(directory, `${scenario}-iteration-1-of-1.json`), 'utf8'),
     ) as {
       schema: number
       scenario: string
@@ -332,6 +349,43 @@ describe('Electron smoke process failure artifacts', () => {
         rendererOwnerActive: true,
         rendererGeneration: 2,
       },
+    })
+  })
+
+  it('kills a main-loop stall at its renderer-authority checkpoint deadline', async () => {
+    const evidence = JSON.stringify({
+      schema: 1,
+      phase: 'scenario-active',
+      checkpoint: 'renderer-authority-reload-awaiting',
+      cleanupResource: null,
+      owners: {
+        windowCount: 1,
+        ptyCount: 0,
+        watcherActive: true,
+        rendererOwnerActive: true,
+        rendererGeneration: 1,
+      },
+    })
+    const fixture = await invokeFixture({
+      scenario: 'renderer-authority',
+      command: process.execPath,
+      args: [
+        '-e',
+        `process.stderr.write(${JSON.stringify(`[smoke:failure-evidence] ${evidence}\n`)}); setInterval(() => undefined, 1_000)`,
+      ],
+      timeoutMs: 1_000,
+      checkpointTimeoutMs: 50,
+    })
+
+    expect(fixture.result).toMatchObject({
+      status: 'failed',
+      signal: 'SIGKILL',
+      error:
+        'process timed out at renderer-authority-reload-awaiting after 50ms',
+    })
+    expect(fixture.artifact.semanticSnapshot).toMatchObject({
+      phase: 'scenario-active',
+      checkpoint: 'renderer-authority-reload-awaiting',
     })
   })
 
@@ -677,7 +731,7 @@ describe('Electron smoke command contracts', () => {
     expect(rendererAuthorityScenario).toContain('state=${JSON.stringify(state)}')
     expect(rendererAuthorityScenario).toContain('ERR_UNKNOWN_URL_SCHEME')
     expect(rendererAuthorityScenario.indexOf("once('did-finish-load'")).toBeLessThan(
-      rendererAuthorityScenario.indexOf('win.webContents.reload()'),
+      rendererAuthorityScenario.indexOf('location.reload()'),
     )
     expect(rendererAuthorityScenario.indexOf("once('destroyed'")).toBeLessThan(
       rendererAuthorityScenario.indexOf('win.destroy()'),
