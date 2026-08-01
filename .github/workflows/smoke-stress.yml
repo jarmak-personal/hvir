@@ -3,6 +3,14 @@ name: Electron reliability qualification
 on:
   workflow_dispatch:
     inputs:
+      mode:
+        description: Evidence mode (weekly is a 20-run regression signal, not qualification)
+        required: true
+        default: qualification
+        type: choice
+        options:
+          - qualification
+          - weekly
       source_sha:
         description: Reviewed 40-character source SHA (must equal the selected ref HEAD)
         required: true
@@ -42,7 +50,7 @@ jobs:
       - name: Create the fixed qualification plan
         id: plan
         env:
-          HVIR_QUALIFICATION_MODE: ${{ github.event_name == 'schedule' && 'weekly' || 'qualification' }}
+          HVIR_QUALIFICATION_MODE: ${{ github.event_name == 'schedule' && 'weekly' || inputs.mode }}
           HVIR_QUALIFICATION_SOURCE_SHA: ${{ github.sha }}
           HVIR_QUALIFICATION_REVIEWED_SHA: ${{ github.event_name == 'schedule' && github.sha || inputs.source_sha }}
           HVIR_QUALIFICATION_RUN_ATTEMPT: ${{ github.run_attempt }}

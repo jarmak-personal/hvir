@@ -33,7 +33,17 @@ interface WorkflowJob {
 
 const parsed = parse(workflow) as {
   on: {
-    workflow_dispatch: { inputs: { source_sha: { required: boolean; type: string } } }
+    workflow_dispatch: {
+      inputs: {
+        mode: {
+          required: boolean
+          default: string
+          type: string
+          options: string[]
+        }
+        source_sha: { required: boolean; type: string }
+      }
+    }
     schedule: unknown
   }
   permissions: Record<string, string>
@@ -43,6 +53,14 @@ const parsed = parse(workflow) as {
 
 describe('Electron reliability qualification workflow', () => {
   it('fixes a reviewed SHA and plans qualification or weekly evidence', () => {
+    expect(parsed.on.workflow_dispatch.inputs.mode).toEqual({
+      description:
+        'Evidence mode (weekly is a 20-run regression signal, not qualification)',
+      required: true,
+      default: 'qualification',
+      type: 'choice',
+      options: ['qualification', 'weekly'],
+    })
     expect(parsed.on.workflow_dispatch.inputs.source_sha).toMatchObject({
       required: true,
       type: 'string',
@@ -63,7 +81,9 @@ describe('Electron reliability qualification workflow', () => {
         HVIR_QUALIFICATION_RUN_ATTEMPT: '${{ github.run_attempt }}',
       },
     })
-    expect(planStep?.env?.HVIR_QUALIFICATION_MODE).toContain("'weekly'")
+    expect(planStep?.env?.HVIR_QUALIFICATION_MODE).toBe(
+      "${{ github.event_name == 'schedule' && 'weekly' || inputs.mode }}",
+    )
     expect(planStep?.env?.HVIR_QUALIFICATION_REVIEWED_SHA).toContain('inputs.source_sha')
   })
 
