@@ -292,10 +292,7 @@ export class PtySupervisor {
       let spec =
         req.launchSpec ?? (resumed ? req.provider.resume(ctx) : req.provider.launch(ctx))
       const nativeSpec = spec
-      if (
-        effectiveCapabilities.assistantOutput === 'structured' &&
-        req.provider.assistantOutput
-      ) {
+      if (req.provider.assistantOutput) {
         assistantOutputGeneration = ++this.assistantOutputGeneration
         assistantOutput = await req.provider.assistantOutput.prepare(req.host, {
           terminalId: sessionId,
@@ -312,6 +309,10 @@ export class PtySupervisor {
             assistantOutput = undefined
           } else {
             spec = assistantOutput.launchSpec
+            effectiveCapabilities = {
+              ...effectiveCapabilities,
+              assistantOutput: 'structured',
+            }
           }
         }
         if (!assistantOutput) {

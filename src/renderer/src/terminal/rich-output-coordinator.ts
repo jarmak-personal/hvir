@@ -43,8 +43,9 @@ export interface RichOutputCoordinatorOptions {
 }
 
 /**
- * Memory-only owner for one live terminal's rich-output choice and bounded
- * presentation state. It does not own the PTY, attention, persistence, or UI.
+ * Owner for one live terminal's rich-output mode and bounded presentation
+ * state. It receives the appearance preference but does not own its
+ * persistence, the PTY, attention, or UI.
  */
 export class RichOutputCoordinator {
   private capability?: HarnessProviderCapabilities['assistantOutput']
@@ -54,6 +55,7 @@ export class RichOutputCoordinator {
   private sourceGeneration?: number
   private lastOrder?: number
   private width = 80
+  private preferredEnabled = false
   private desiredEnabled = false
   private requestedEnabled?: boolean
   private modeRequest = 0
@@ -85,13 +87,22 @@ export class RichOutputCoordinator {
     this.harnessSessionId = harnessSessionId
     this.identityStatus = identityStatus
     this.publish()
+    void this.reconcileMode()
   }
 
   setWidth(width: number): void {
     if (Number.isFinite(width)) this.width = Math.max(8, Math.min(500, Math.floor(width)))
   }
 
-  async setEnabled(enabled: boolean): Promise<boolean> {
+  setPreference(enabled: boolean): Promise<boolean> {
+    if (this.disposed || enabled === this.preferredEnabled) {
+      return Promise.resolve(false)
+    }
+    this.preferredEnabled = enabled
+    return this.reconcileMode()
+  }
+
+  private async setEnabled(enabled: boolean): Promise<boolean> {
     if (
       this.disposed ||
       this.changing ||
@@ -116,6 +127,7 @@ export class RichOutputCoordinator {
     if (accepted) this.desiredEnabled = enabled
     else this.revokeLocally('source-lost')
     this.publish()
+    void this.reconcileMode()
     return accepted
   }
 
@@ -213,6 +225,7 @@ export class RichOutputCoordinator {
       this.finishActive('source-lost')
     }
     this.publish()
+    void this.reconcileMode()
   }
 
   private start(event: Extract<AssistantOutputEvent, { kind: 'start' }>): void {
@@ -337,6 +350,18 @@ export class RichOutputCoordinator {
       Boolean(this.harnessSessionId)
       ? 'available'
       : 'waiting'
+  }
+
+  private reconcileMode(): Promise<boolean> {
+    if (
+      this.disposed ||
+      this.changing ||
+      this.controlState() !== 'available' ||
+      this.preferredEnabled === this.desiredEnabled
+    ) {
+      return Promise.resolve(false)
+    }
+    return this.setEnabled(this.preferredEnabled)
   }
 
   private publish(): void {

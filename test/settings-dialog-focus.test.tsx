@@ -208,6 +208,26 @@ describe('SettingsDialog section workflow', () => {
     )
   })
 
+  it('exposes rich output as a saved Appearance preference', async () => {
+    const onSave = vi.fn()
+    renderDialog(undefined, onSave)
+
+    const checkbox = document.querySelector<HTMLInputElement>('#settings-rich-output')
+    expect(checkbox?.checked).toBe(false)
+    act(() => checkbox?.click())
+    expect(checkbox?.checked).toBe(true)
+    expect(onSave).not.toHaveBeenCalled()
+
+    await act(async () => {
+      button('Save app settings').click()
+      await Promise.resolve()
+    })
+    expect(onSave).toHaveBeenCalledWith(
+      'dark',
+      expect.objectContaining({ richOutput: true }),
+    )
+  })
+
   it('closes without applying an unsaved typography draft', async () => {
     const onSave = vi.fn()
     const onClose = vi.fn()
@@ -304,6 +324,7 @@ function renderDialog(
           monospaceFont: { mode: 'system', family: '' },
           interfaceScale: 1,
           terminalTextSize: 13,
+          richOutput: false,
           composerSubmitMode: 'enter',
           keybindings: DEFAULT_KEYBINDINGS,
         },

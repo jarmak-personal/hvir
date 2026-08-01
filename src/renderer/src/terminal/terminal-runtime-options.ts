@@ -41,6 +41,7 @@ export interface TerminalRuntimeOptions {
   readonly metaEnterAliasesControl: boolean
   readonly composerSubmitMode: ComposerSubmitMode
   readonly typography: TerminalTypography
+  readonly richOutput: boolean
   readonly cwd: HostPath
   readonly workspaceRoot: HostPath
   readonly connectionState: HostConnectionState

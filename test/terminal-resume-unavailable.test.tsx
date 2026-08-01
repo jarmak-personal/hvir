@@ -599,6 +599,7 @@ function options(): TerminalRuntimeOptions {
     identityStatus: 'identified',
     resumeOnStart: true,
     startMode: 'interactive',
+    richOutput: false,
     position: 0,
     active: true,
     presentation: 'visible',

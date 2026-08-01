@@ -104,6 +104,7 @@ export function normalizeAppSettings(value: unknown): AppSettings {
     monospaceFont: normalizeFontPreference(candidate.monospaceFont),
     interfaceScale: normalizeInterfaceScale(candidate.interfaceScale),
     terminalTextSize: normalizeTerminalTextSize(candidate.terminalTextSize),
+    richOutput: candidate.richOutput === true,
     composerSubmitMode:
       candidate.composerSubmitMode === 'ctrl-enter' ? 'ctrl-enter' : 'enter',
     keybindings: parseKeybindingOverrides(candidate.keybindings ?? DEFAULT_KEYBINDINGS),
@@ -120,6 +121,7 @@ function defaults(): AppSettings {
     monospaceFont: systemFontPreference(),
     interfaceScale: DEFAULT_INTERFACE_SCALE,
     terminalTextSize: DEFAULT_TERMINAL_TEXT_SIZE,
+    richOutput: false,
     composerSubmitMode: 'enter',
     keybindings: DEFAULT_KEYBINDINGS,
   }
@@ -134,6 +136,7 @@ export function terminalPreferences(settings: AppSettings): TerminalPreferences 
       fontFamily: fontFamilyStack(settings.monospaceFont, 'monospace'),
       fontSize: settings.terminalTextSize,
     },
+    richOutput: settings.richOutput,
     composerSubmitMode: settings.composerSubmitMode,
   }
 }

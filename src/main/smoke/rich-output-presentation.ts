@@ -95,33 +95,62 @@ export async function waitForRichOutputPilot(
       new Promise((resolve, reject) => {
         const sessionId = ${JSON.stringify(context.terminalId)};
         const deadline = Date.now() + 10000;
+        let settingsOpened = false;
+        let preferenceSelected = false;
         const poll = () => {
           const surface = document.querySelector(
             '.terminal-surface[data-terminal-session="' + CSS.escape(sessionId) + '"]'
           );
-          const control = surface?.querySelector('.terminal-rich-control');
-          const checkbox = control?.querySelector('input[type="checkbox"]');
           const status = surface?.getAttribute('data-terminal-status') || '';
-          if (
-            surface &&
-            control instanceof HTMLElement &&
-            checkbox instanceof HTMLInputElement &&
-            !checkbox.checked &&
-            !checkbox.disabled &&
-            control.textContent.includes('This session only') &&
-            status.startsWith('Resumed · pid ')
-          ) {
-            return resolve(true);
+          if (!settingsOpened) {
+            const settings = document.querySelector('button[aria-label="Open settings"]');
+            if (
+              surface instanceof HTMLElement &&
+              !surface.querySelector('.terminal-rich-control') &&
+              status.startsWith('Resumed · pid ') &&
+              settings instanceof HTMLButtonElement
+            ) {
+              settingsOpened = true;
+              settings.click();
+              return setTimeout(poll, 25);
+            }
+          } else {
+            const checkbox = document.querySelector('#settings-rich-output');
+            const save = [...document.querySelectorAll('button')].find(
+              (candidate) => candidate.textContent?.trim() === 'Save app settings'
+            );
+            if (
+              checkbox instanceof HTMLInputElement &&
+              save instanceof HTMLButtonElement
+            ) {
+              if (!checkbox.checked && !preferenceSelected) {
+                preferenceSelected = true;
+                checkbox.click();
+                return setTimeout(poll, 25);
+              }
+              if (checkbox.checked) {
+                save.click();
+                return setTimeout(poll, 25);
+              }
+            }
+            if (
+              preferenceSelected &&
+              !document.querySelector('.settings-dialog') &&
+              surface?.getAttribute('data-rich-output') === 'on'
+            ) {
+              return resolve(true);
+            }
           }
           if (Date.now() > deadline) {
             return reject(new Error(
-              'rich output pilot control did not become available: ' +
+              'rich output Appearance preference did not become active: ' +
               JSON.stringify({
                 surface: Boolean(surface),
-                control: Boolean(control),
-                checked: checkbox?.checked,
-                disabled: checkbox?.disabled,
-                status
+                settingsOpened,
+                preferenceSelected,
+                settings: Boolean(document.querySelector('.settings-dialog')),
+                mode: surface?.getAttribute('data-rich-output'),
+                status,
               })
             ));
           }
@@ -130,10 +159,10 @@ export async function waitForRichOutputPilot(
         poll();
       })
     `),
-    'rich output pilot presentation timed out',
+    'rich output Appearance preference timed out',
     12_000,
   )
-  return 'eligible 0.146.x pilot · default off · session-only control'
+  return 'eligible 0.146.x pilot · default-off Appearance preference · no terminal control'
 }
 
 export async function verifyVisibleRichOutput(options: {
@@ -160,56 +189,10 @@ export async function verifyVisibleRichOutput(options: {
           const sessionId = ${JSON.stringify(context.terminalId)};
           const deadline = Date.now() + 5000;
           const poll = () => {
-            const button = document.querySelector(
-              '.terminal-list-main[data-terminal-session="' + CSS.escape(sessionId) + '"]'
-            );
             const surface = document.querySelector(
               '.terminal-surface[data-terminal-session="' + CSS.escape(sessionId) + '"]'
             );
-            const checkbox = surface?.querySelector(
-              '.terminal-rich-control input[type="checkbox"]'
-            );
-            if (
-              button instanceof HTMLButtonElement &&
-              surface instanceof HTMLElement &&
-              checkbox instanceof HTMLInputElement &&
-              !checkbox.disabled
-            ) {
-              if (!surface.classList.contains('active')) {
-                button.click();
-                return setTimeout(poll, 25);
-              }
-              checkbox.click();
-              return resolve(true);
-            }
-            if (Date.now() > deadline) {
-              return reject(new Error('rich output toggle was not actionable'));
-            }
-            setTimeout(poll, 25);
-          };
-          poll();
-        })
-      `),
-      'rich output enable timed out',
-      7_000,
-    )
-    await withTimeout(
-      win.webContents.executeJavaScript(`
-        new Promise((resolve, reject) => {
-          const sessionId = ${JSON.stringify(context.terminalId)};
-          const deadline = Date.now() + 5000;
-          const poll = () => {
-            const surface = document.querySelector(
-              '.terminal-surface[data-terminal-session="' + CSS.escape(sessionId) + '"]'
-            );
-            const checkbox = surface?.querySelector(
-              '.terminal-rich-control input[type="checkbox"]'
-            );
-            if (
-              checkbox instanceof HTMLInputElement &&
-              checkbox.checked &&
-              !checkbox.disabled
-            ) {
+            if (surface?.getAttribute('data-rich-output') === 'on') {
               return resolve(true);
             }
             if (Date.now() > deadline) {
@@ -220,7 +203,7 @@ export async function verifyVisibleRichOutput(options: {
           poll();
         })
       `),
-      'rich output source enable acknowledgement timed out',
+      'rich output Appearance preference acknowledgement timed out',
       7_000,
     )
 
@@ -430,14 +413,10 @@ export async function verifyRichOutputReconnect(
             '.terminal-surface[data-terminal-session="' + CSS.escape(sessionId) + '"]'
           );
           const container = surface?.querySelector('.terminal-container');
-          const checkbox = surface?.querySelector(
-            '.terminal-rich-control input[type="checkbox"]'
-          );
           if (
             surface?.getAttribute('data-terminal-status') === 'disconnected' &&
             container?.childElementCount === 0 &&
-            checkbox instanceof HTMLInputElement &&
-            !checkbox.checked &&
+            surface.getAttribute('data-rich-output') === 'waiting' &&
             !surface.querySelector('.terminal-rich-message')
           ) {
             return resolve(true);
@@ -484,26 +463,20 @@ export async function verifyRichOutputReconnect(
           const surface = document.querySelector(
             '.terminal-surface[data-terminal-session="' + CSS.escape(sessionId) + '"]'
           );
-          const checkbox = surface?.querySelector(
-            '.terminal-rich-control input[type="checkbox"]'
-          );
           const status = surface?.getAttribute('data-terminal-status') || '';
           if (
             status.startsWith('Resumed · pid ') &&
-            checkbox instanceof HTMLInputElement &&
-            !checkbox.checked &&
-            !checkbox.disabled &&
+            surface?.getAttribute('data-rich-output') === 'on' &&
             !surface.querySelector('.terminal-rich-message')
           ) {
             return resolve(true);
           }
           if (Date.now() > deadline) {
             return reject(new Error(
-              'rich output reconnect revived content or did not default off: ' +
+              'rich output reconnect revived content or lost the Appearance preference: ' +
               JSON.stringify({
                 status,
-                checked: checkbox?.checked,
-                disabled: checkbox?.disabled,
+                mode: surface?.getAttribute('data-rich-output'),
                 messages: surface?.querySelectorAll('.terminal-rich-message').length
               })
             ));
@@ -516,7 +489,7 @@ export async function verifyRichOutputReconnect(
     'rich output reconnect presentation timed out',
     12_000,
   )
-  return 'reconnect generation · no replay · default off'
+  return 'reconnect generation · no replay · Appearance preference reapplied'
 }
 
 export async function verifyRichOutputFallback(
@@ -531,7 +504,9 @@ export async function verifyRichOutputFallback(
     win.webContents.executeJavaScript(`
       new Promise((resolve, reject) => {
         const richId = ${JSON.stringify(richTerminalId)};
-        const deadline = Date.now() + 5000;
+        const deadline = Date.now() + 8000;
+        let settingsOpened = false;
+        let preferenceCleared = false;
         const poll = () => {
           const button = document.querySelector(
             '.terminal-list-main[data-terminal-session="' + CSS.escape(richId) + '"]'
@@ -539,58 +514,43 @@ export async function verifyRichOutputFallback(
           const surface = document.querySelector(
             '.terminal-surface[data-terminal-session="' + CSS.escape(richId) + '"]'
           );
-          const checkbox = surface?.querySelector(
-            '.terminal-rich-control input[type="checkbox"]'
-          );
-          if (
-            button instanceof HTMLButtonElement &&
-            checkbox instanceof HTMLInputElement &&
-            !checkbox.disabled
-          ) {
-            if (!surface?.classList.contains('active')) {
+          if (!surface?.classList.contains('active')) {
+            if (button instanceof HTMLButtonElement) {
               button.click();
               return setTimeout(poll, 25);
             }
-            if (!checkbox.checked) {
-              checkbox.click();
-              return setTimeout(waitEnabled, 25);
+          } else if (!settingsOpened) {
+            const settings = document.querySelector('button[aria-label="Open settings"]');
+            if (
+              surface.getAttribute('data-rich-output') === 'on' &&
+              settings instanceof HTMLButtonElement
+            ) {
+              settingsOpened = true;
+              settings.click();
+              return setTimeout(poll, 25);
             }
-            return waitEnabled();
+          } else if (!preferenceCleared) {
+            const checkbox = document.querySelector('#settings-rich-output');
+            const save = [...document.querySelectorAll('button')].find(
+              (candidate) => candidate.textContent?.trim() === 'Save app settings'
+            );
+            if (
+              checkbox instanceof HTMLInputElement &&
+              checkbox.checked &&
+              save instanceof HTMLButtonElement
+            ) {
+              preferenceCleared = true;
+              checkbox.click();
+              save.click();
+              return setTimeout(poll, 25);
+            }
           }
-          if (Date.now() > deadline) {
-            return reject(new Error('fallback pilot control was unavailable'));
-          }
-          setTimeout(poll, 25);
-        };
-        const waitEnabled = () => {
-          const surface = document.querySelector(
-            '.terminal-surface[data-terminal-session="' + CSS.escape(richId) + '"]'
-          );
-          const checkbox = surface?.querySelector(
-            '.terminal-rich-control input[type="checkbox"]'
-          );
-          if (checkbox instanceof HTMLInputElement && checkbox.checked) {
-            checkbox.click();
-            return setTimeout(waitDisabled, 25);
-          }
-          if (Date.now() > deadline) {
-            return reject(new Error('fallback pilot did not enable'));
-          }
-          setTimeout(waitEnabled, 25);
-        };
-        const waitDisabled = () => {
-          const surface = document.querySelector(
-            '.terminal-surface[data-terminal-session="' + CSS.escape(richId) + '"]'
-          );
-          const checkbox = surface?.querySelector(
-            '.terminal-rich-control input[type="checkbox"]'
-          );
           const container = surface?.querySelector('.terminal-container');
           const delivery = container?.__hvirTerminalDelivery;
           if (
-            checkbox instanceof HTMLInputElement &&
-            !checkbox.checked &&
-            !checkbox.disabled &&
+            preferenceCleared &&
+            !document.querySelector('.settings-dialog') &&
+            surface?.getAttribute('data-rich-output') === 'off' &&
             delivery
           ) {
             return resolve({
@@ -599,15 +559,24 @@ export async function verifyRichOutputFallback(
             });
           }
           if (Date.now() > deadline) {
-            return reject(new Error('fallback pilot did not disable'));
+            return reject(new Error(
+              'fallback Appearance preference did not disable rich output: ' +
+              JSON.stringify({
+                active: surface?.classList.contains('active'),
+                settingsOpened,
+                preferenceCleared,
+                settings: Boolean(document.querySelector('.settings-dialog')),
+                mode: surface?.getAttribute('data-rich-output')
+              })
+            ));
           }
-          setTimeout(waitDisabled, 25);
+          setTimeout(poll, 25);
         };
         poll();
       })
     `),
     'rich output fallback transition timed out',
-    7_000,
+    10_000,
   )) as { readonly bytes: number; readonly messages: number }
 
   supervisor.write(terminal.id, terminal.ownerId, 'render-native\n')

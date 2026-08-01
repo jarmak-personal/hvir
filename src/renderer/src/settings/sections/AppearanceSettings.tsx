@@ -59,6 +59,26 @@ export function AppearanceSettings({
             <option value="light">Always light</option>
           </select>
         </label>
+        <label className="settings-checkbox">
+          <span>Agent responses</span>
+          <span className="settings-checkbox-copy">
+            <span className="settings-checkbox-control">
+              <input
+                id="settings-rich-output"
+                type="checkbox"
+                checked={draft.richOutput}
+                onChange={(event) =>
+                  onChange('richOutput', event.currentTarget.checked)
+                }
+              />
+              Rich output
+            </span>
+            <small>
+              Present supported agent responses as formatted Markdown while keeping the
+              native terminal interactive.
+            </small>
+          </span>
+        </label>
         <TypographyFontField
           id="settings-interface-font"
           label="Interface font"

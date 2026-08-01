@@ -71,8 +71,8 @@ export class TerminalRichOutputRuntime {
     this.coordinator.accept(event)
   }
 
-  setEnabled(enabled: boolean): Promise<boolean> {
-    return this.coordinator.setEnabled(enabled)
+  setPreference(enabled: boolean): void {
+    void this.coordinator.setPreference(enabled)
   }
 
   setWidth(width: number): void {

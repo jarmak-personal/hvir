@@ -1,39 +1,5 @@
-.terminal-rich-control {
-  flex: 0 0 30px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  padding: 0 8px;
-  border-bottom: 1px solid var(--border-subtle);
-  background: var(--surface-1);
-  color: var(--text);
-  font-size: calc(9px * var(--hvir-interface-scale));
-}
-
-.terminal-rich-control[hidden],
 .terminal-rich-lane[hidden] {
   display: none;
-}
-
-.terminal-rich-control label {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-weight: 650;
-}
-
-.terminal-rich-control input {
-  width: 14px;
-  height: 14px;
-  margin: 0;
-}
-
-.terminal-rich-control small {
-  overflow: hidden;
-  color: var(--text-muted);
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .terminal-rich-lane {

@@ -279,6 +279,7 @@ export function TerminalWorkspace({
         primaryWidth={model.primaryWidth}
         terminalTheme={preferences.terminalTheme}
         terminalTypography={preferences.terminalTypography}
+        richOutput={preferences.richOutput}
         composerSubmitMode={preferences.composerSubmitMode}
         workspaceRoot={workspaceRoot}
         connectionState={connectionState}

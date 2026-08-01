@@ -30,6 +30,7 @@ describe('app settings typography persistence', () => {
       monospaceFont: { mode: 'system', family: '' },
       interfaceScale: 1,
       terminalTextSize: 10,
+      richOutput: false,
     })
   })
 
@@ -45,6 +46,7 @@ describe('app settings typography persistence', () => {
       monospaceFont: { mode: 'custom', family: 'Example Mono' },
       interfaceScale: 1.25,
       terminalTextSize: 18,
+      richOutput: true,
       composerSubmitMode: 'enter',
       keybindings: DEFAULT_KEYBINDINGS,
     })
@@ -67,11 +69,13 @@ describe('app settings typography persistence', () => {
       monospaceFont: { mode: 'custom', family: 'Example Mono' },
       interfaceScale: 1.25,
       terminalTextSize: 18,
+      richOutput: true,
     })
     const preferences = restarted.terminalPreferences(restarted.getAppSettings())
     expect(preferences.terminalTypography.fontFamily).toMatch(
       /^"Example Mono".*monospace$/,
     )
     expect(preferences.terminalTypography.fontSize).toBe(18)
+    expect(preferences.richOutput).toBe(true)
   })
 })

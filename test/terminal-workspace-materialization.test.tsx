@@ -81,6 +81,7 @@ describe('terminal workspace materialization bridge', () => {
       preferences: {
         terminalTheme: 'app' as const,
         terminalTypography: { fontFamily: 'monospace', fontSize: 13 },
+        richOutput: false,
         composerSubmitMode: 'enter' as const,
         idleThresholdMs: 10_000,
         terminalRecoveryMode: 'prompt' as const,

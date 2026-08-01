@@ -19,6 +19,7 @@ export interface SettingsDraft {
   readonly monospaceFontFamily: string
   readonly interfaceScale: string
   readonly terminalTextSize: string
+  readonly richOutput: boolean
   readonly composerSubmitMode: AppSettings['composerSubmitMode']
   readonly idleSeconds: string
   readonly recoveryMode: AppSettings['terminalRecoveryMode']
@@ -52,6 +53,7 @@ export function createSettingsDraft(
     monospaceFontFamily: settings.monospaceFont.family,
     interfaceScale: String(settings.interfaceScale),
     terminalTextSize: String(settings.terminalTextSize),
+    richOutput: settings.richOutput,
     composerSubmitMode: settings.composerSubmitMode,
     idleSeconds: String(settings.idleThresholdMs / 1000),
     recoveryMode: settings.terminalRecoveryMode,
@@ -137,6 +139,7 @@ export function validateSettingsDraft(draft: SettingsDraft): SettingsDraftValida
       }),
       interfaceScale,
       terminalTextSize: Math.round(terminalTextSize),
+      richOutput: draft.richOutput,
       composerSubmitMode: draft.composerSubmitMode,
       keybindings,
     },

@@ -46,6 +46,10 @@ and an SSH session use the same commands on their owning host. The helpers are s
 use private host-local Unix sockets, install no files or service, and are disposed with the
 session.
 
+Launch-menu availability probes are advisory and may not have run before a profile starts. The
+provider therefore repeats its bounded exact-version and dependency admission at session launch;
+only a successfully prepared runtime advertises structured assistant output.
+
 ## Typed assistant lifecycle
 
 The main process exposes this bounded vocabulary to the renderer:
@@ -122,8 +126,9 @@ falling back to PTY parsing.
 - The **PTY supervisor** owns the provider runtime because it already owns the only PTY spawn and
   exact session lifecycle. It routes typed events to the current renderer owner and otherwise
   remains provider-agnostic.
-- A renderer **rich-output session coordinator** owns the memory-only opt-in, presentation
-  generation, bounded live messages, and the visible lane.
+- A renderer **rich-output session coordinator** receives the persisted Appearance preference
+  and owns its per-session application, presentation generation, bounded live messages, and the
+  visible lane.
 - The **streaming Markdown policy** is pure. It depends only on ordered text, terminal width,
   theme capabilities, and typed link inputs. It imports no provider, IPC, PTY, or Ghostty code.
 - `TerminalPane` remains provider-blind and mounted. The rich lane is a sibling presentation
@@ -133,14 +138,17 @@ falling back to PTY parsing.
 
 ## Control and presentation lifecycle
 
-The visible control is labelled **Rich output** and states **This session only**. It is available
-only after the provider reports a healthy admitted stream. It defaults off for every fresh,
-resumed, or renderer-reattached session.
+Appearance always exposes one **Rich output** checkbox. It is a default-off, persisted app
+preference rather than capability-dependent terminal chrome. Provider eligibility remains an
+implementation detail: unsupported providers and versions continue on the native PTY path
+without hiding or disabling the preference.
 
-The choice lives only in renderer memory for the current live session. It is not a global
-default, profile option, persisted setting, recovery field, or inferred provider preference.
-Changing it sends an owner-qualified desired mode to the provider; the provider acknowledges the
-boundary at which it takes effect.
+The preference applies to current and later eligible sessions. A session coordinator sends its
+owner-qualified desired mode only after the provider admits a healthy exact stream. The provider
+acknowledges the boundary at which it takes effect. Changing the preference does not start,
+restart, resume, replace, close, or focus a session. A reconnect or renderer reattachment clears
+transient bodies and source generations, then reapplies the saved preference after the new exact
+stream is admitted.
 
 Hidden sessions continue receiving raw PTY data and provider notifications without a mounted
 presentation. Their bounded rich state may advance only while that live session remains opted
@@ -215,9 +223,10 @@ marker; the missing remainder is not duplicated from terminal output. This is de
 fail-closed for the affected message and fail-open for subsequent native presentation.
 
 Message bodies exist only in the transient proxy buffers, typed IPC event, and bounded renderer
-lane. They are never written to settings, recovery, diagnostics, logs, telemetry, crash labels,
-or hvir-owned files. Diagnostics may record only provider/version, availability reason,
-generation, lifecycle kind, and bounded outcome buckets.
+lane. The boolean Appearance preference is the only persisted rich-output state; bodies are
+never written to settings, recovery, diagnostics, logs, telemetry, crash labels, or hvir-owned
+files. Diagnostics may record only provider/version, availability reason, generation, lifecycle
+kind, and bounded outcome buckets.
 
 ## Acceptance gate
 

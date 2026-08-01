@@ -30,6 +30,7 @@ export function TerminalDeck({
   primaryWidth,
   terminalTheme,
   terminalTypography,
+  richOutput,
   composerSubmitMode,
   workspaceRoot,
   connectionState,
@@ -59,6 +60,7 @@ export function TerminalDeck({
   readonly primaryWidth?: number
   readonly terminalTheme: TerminalThemeOverride
   readonly terminalTypography: TerminalTypography
+  readonly richOutput: boolean
   readonly composerSubmitMode: ComposerSubmitMode
   readonly workspaceRoot: HostPath
   readonly connectionState: HostConnectionState
@@ -90,6 +92,7 @@ export function TerminalDeck({
       presented={visible}
       terminalTheme={terminalTheme}
       terminalTypography={terminalTypography}
+      richOutput={richOutput}
       composerSubmitMode={composerSubmitMode}
       workspaceRoot={workspaceRoot}
       connectionState={connectionState}

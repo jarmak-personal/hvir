@@ -53,7 +53,6 @@ export function useTerminalPaneController(
     ...snapshot,
     restart: () => runtime.restart(),
     startFresh: () => runtime.startFresh(),
-    setRichOutputEnabled: (enabled: boolean) => runtime.setRichOutputEnabled(enabled),
     focus: () => {
       runtime.focus()
       options.onFocus()
