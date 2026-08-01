@@ -27,12 +27,11 @@ export const SMOKE_FAILURE_CHECKPOINTS = [
   'renderer-recovery-route-revoked',
   'renderer-recovery-diagnostics-awaiting',
   'renderer-recovery-diagnostics-ready',
-  'renderer-authority-preview-fetch-awaiting',
-  'renderer-authority-preview-available',
+  'renderer-authority-resource-registered',
   'renderer-authority-destruction-awaiting',
   'renderer-authority-destroyed',
-  'renderer-authority-preview-revocation-awaiting',
-  'renderer-authority-preview-revoked',
+  'renderer-authority-resource-revocation-awaiting',
+  'renderer-authority-resource-revoked',
 ] as const
 
 export type SmokeFailureCheckpoint = (typeof SMOKE_FAILURE_CHECKPOINTS)[number]

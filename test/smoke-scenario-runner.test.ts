@@ -234,6 +234,24 @@ describe('Electron smoke result aggregation', () => {
     expect(
       smokeCheckpointTimeoutMs('renderer-recovery', 'renderer-recovery-reload-loaded'),
     ).toBeUndefined()
+    expect(
+      smokeCheckpointTimeoutMs(
+        'renderer-authority',
+        'renderer-authority-destruction-awaiting',
+      ),
+    ).toBe(15_000)
+    expect(
+      smokeCheckpointTimeoutMs(
+        'renderer-authority',
+        'renderer-authority-resource-revocation-awaiting',
+      ),
+    ).toBe(15_000)
+    expect(
+      smokeCheckpointTimeoutMs(
+        'renderer-authority',
+        'renderer-authority-resource-revoked',
+      ),
+    ).toBeUndefined()
     expect(smokeCheckpointTimeoutMs('web-pane', null)).toBeUndefined()
   })
 })
@@ -739,7 +757,8 @@ describe('Electron smoke command contracts', () => {
     expect(webPaneScenario).not.toMatch(/setTimeout\(poll, 100\)/)
     expect(webPaneScenario).not.toMatch(/setTimeout\(poll, 300\)/)
     expect(rendererAuthorityScenario).toContain('state=${JSON.stringify(state)}')
-    expect(rendererAuthorityScenario).toContain('ERR_UNKNOWN_URL_SCHEME')
+    expect(rendererAuthorityScenario).not.toContain('net.fetch')
+    expect(rendererAuthorityScenario).toContain("type: 'filename-search'")
     expect(rendererAuthorityScenario).not.toContain('location.reload()')
     expect(rendererAuthorityScenario).not.toContain("once('did-finish-load'")
     expect(rendererAuthorityScenario.indexOf("once('destroyed'")).toBeLessThan(

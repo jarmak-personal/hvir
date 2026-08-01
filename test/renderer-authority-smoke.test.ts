@@ -2,8 +2,6 @@ import { readFileSync } from 'node:fs'
 
 import { describe, expect, it, onTestFinished, vi } from 'vitest'
 
-vi.mock('electron', () => ({ net: { fetch: vi.fn() } }))
-
 import { waitForRendererAuthorityCondition } from '../src/main/smoke/renderer-authority'
 
 const rendererAuthoritySource = readFileSync(
@@ -12,6 +10,10 @@ const rendererAuthoritySource = readFileSync(
 )
 const rendererRecoverySource = readFileSync(
   new URL('../src/main/smoke/renderer-recovery.ts', import.meta.url),
+  'utf8',
+)
+const windowManagerSource = readFileSync(
+  new URL('../src/main/window/electron-window-manager.ts', import.meta.url),
   'utf8',
 )
 const mainEntrySource = readFileSync(
@@ -27,9 +29,9 @@ describe('renderer-authority smoke boundaries', () => {
     })
     const checkpoints: string[] = []
     const operation = waitForRendererAuthorityCondition(
-      'renderer-authority-preview-fetch-awaiting',
+      'renderer-authority-resource-revocation-awaiting',
       () => new Promise<never>(() => undefined),
-      'replacement renderer did not regain IPC authority',
+      'renderer resource was not revoked',
       (checkpoint) => checkpoints.push(checkpoint),
       {
         operationTimeoutMs: 100,
@@ -39,18 +41,20 @@ describe('renderer-authority smoke boundaries', () => {
       },
     )
     const failure = expect(operation).rejects.toThrow(
-      'renderer-authority-preview-fetch-awaiting timed out after 25ms',
+      'renderer-authority-resource-revocation-awaiting timed out after 25ms',
     )
 
     await vi.advanceTimersByTimeAsync(25)
 
     await failure
-    expect(checkpoints).toEqual(['renderer-authority-preview-fetch-awaiting'])
+    expect(checkpoints).toEqual(['renderer-authority-resource-revocation-awaiting'])
   })
 
-  it('moves route revocation to production recovery and keeps real destruction proof', () => {
+  it('keeps only the real destruction-to-resource-revocation boundary', () => {
     expect(rendererAuthoritySource).not.toContain('routes.open(')
-    expect(rendererAuthoritySource.match(/htmlPreviews\.create\(/g)).toHaveLength(1)
+    expect(rendererAuthoritySource).not.toContain('htmlPreviews')
+    expect(rendererAuthoritySource).not.toContain('net.fetch')
+    expect(rendererAuthoritySource).toContain("type: 'filename-search'")
     expect(rendererAuthoritySource).toContain("'destroyed'")
     expect(rendererAuthoritySource).not.toContain('location.reload()')
     expect(rendererAuthoritySource).not.toContain("'did-finish-load'")
@@ -68,8 +72,12 @@ describe('renderer-authority smoke boundaries', () => {
       '!routes.has(route.paneId, initialOwner.id, initialOwner.generation)',
     )
     expect(rendererAuthoritySource).toContain(
-      "'renderer-authority-preview-revocation-awaiting'",
+      "'renderer-authority-resource-revocation-awaiting'",
     )
+    expect(windowManagerSource).toContain(
+      "win.webContents.once('destroyed', revokeRendererResources)",
+    )
+    expect(windowManagerSource).toContain('dependencies.revokeRenderer(rendererOwner)')
     expect(rendererAuthoritySource).not.toContain('rolloverPreview')
     expect(rendererAuthoritySource).not.toContain('destructionRoute')
   })
