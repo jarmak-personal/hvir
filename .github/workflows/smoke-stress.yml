@@ -23,19 +23,17 @@ on:
           - '10'
           - '20'
           - '50'
-  schedule:
-    - cron: '23 6 * * 2'
 
 permissions:
   contents: read
 
 concurrency:
-  group: smoke-stress-${{ github.event_name }}-${{ github.ref }}
+  group: smoke-stress-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
   stress:
-    name: ${{ matrix.name }} · ${{ matrix.scenario }} × ${{ github.event_name == 'schedule' && '20' || inputs.repeat }}
+    name: ${{ matrix.name }} · ${{ inputs.scenario }} × ${{ inputs.repeat }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 90
     strategy:
@@ -44,15 +42,14 @@ jobs:
         os:
           - ubuntu-24.04
           - macos-15
-        scenario: ${{ fromJSON(github.event_name == 'schedule' && '["pty-native","renderer-recovery","web-pane"]' || format('["{0}"]', inputs.scenario)) }}
         include:
           - os: ubuntu-24.04
             name: Linux x64
           - os: macos-15
             name: macOS ARM64
     env:
-      HVIR_SMOKE_SCENARIO: ${{ matrix.scenario }}
-      HVIR_SMOKE_REPEAT: ${{ github.event_name == 'schedule' && '20' || inputs.repeat }}
+      HVIR_SMOKE_SCENARIO: ${{ inputs.scenario }}
+      HVIR_SMOKE_REPEAT: ${{ inputs.repeat }}
 
     steps:
       - name: Check out repository
@@ -83,7 +80,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v7
         with:
-          name: smoke-failure-${{ matrix.os }}-${{ matrix.scenario }}-${{ github.run_attempt }}
+          name: smoke-failure-${{ matrix.os }}-${{ inputs.scenario }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/hvir-smoke-artifacts
           if-no-files-found: ignore
           retention-days: 7

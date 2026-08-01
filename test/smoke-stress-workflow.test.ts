@@ -19,9 +19,11 @@ interface WorkflowStep {
 const parsed = parse(workflow) as {
   on: {
     workflow_dispatch: {
-      inputs: { scenario: { options: string[] } }
+      inputs: {
+        scenario: { options: string[] }
+        repeat: { options: string[] }
+      }
     }
-    schedule: unknown
   }
   permissions: Record<string, string>
   jobs: {
@@ -37,20 +39,21 @@ const parsed = parse(workflow) as {
 }
 
 describe('Electron smoke stress workflow', () => {
-  it('schedules fixed, non-retry evidence on Linux and macOS ARM64', () => {
-    expect(parsed.on).toHaveProperty('workflow_dispatch')
-    expect(parsed.on).toHaveProperty('schedule')
+  it('keeps focused stress evidence manual, bounded, and off recurring triggers', () => {
+    expect(Object.keys(parsed.on)).toEqual(['workflow_dispatch'])
+    expect(parsed.on).not.toHaveProperty('schedule')
     expect(parsed.on).not.toHaveProperty('pull_request')
+    expect(parsed.on).not.toHaveProperty('push')
     expect(parsed.on.workflow_dispatch.inputs.scenario.options).toContain(
       'renderer-authority',
     )
+    expect(parsed.on.workflow_dispatch.inputs.repeat.options).toEqual(['5', '10', '20', '50'])
     expect(parsed.permissions).toEqual({ contents: 'read' })
     expect(parsed.jobs.stress.strategy['fail-fast']).toBe(false)
     expect(parsed.jobs.stress.strategy.matrix.os).toEqual(['ubuntu-24.04', 'macos-15'])
     expect(parsed.jobs.stress.env).toEqual({
-      HVIR_SMOKE_SCENARIO: '${{ matrix.scenario }}',
-      HVIR_SMOKE_REPEAT:
-        "${{ github.event_name == 'schedule' && '20' || inputs.repeat }}",
+      HVIR_SMOKE_SCENARIO: '${{ inputs.scenario }}',
+      HVIR_SMOKE_REPEAT: '${{ inputs.repeat }}',
     })
   })
 

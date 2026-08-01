@@ -231,10 +231,12 @@ user-data roots. Iterations are fixed stress evidence, not retries: every schedu
 and any failed iteration makes the aggregate command fail. Pull-request jobs omit the variable and
 therefore run one iteration. Aggregate output includes every attempt and its duration.
 
-The `Electron smoke stress` workflow runs `pty-native`, `renderer-recovery`, and `web-pane` 20
-times each on Linux x64 and macOS ARM64 every Tuesday, and accepts a bounded scenario/count through
-manual dispatch. It is stress evidence, not a pull-request gate or retry loop. On failure, the
-launcher writes one JSON artifact per failed attempt when `HVIR_SMOKE_ARTIFACT_DIR` is set. The
+The `Electron smoke stress` workflow accepts one bounded scenario/count through manual dispatch on
+Linux x64 and macOS ARM64. It has no schedule: normal exact-SHA CI and release evidence is already
+the recurring signal, while repetition is reserved for a suspected boundary that needs targeted
+diagnosis. It is stress evidence, not a reliability-percentage claim, pull-request gate, or retry
+loop. On failure, the launcher writes one JSON artifact per failed attempt when
+`HVIR_SMOKE_ARTIFACT_DIR` is set. The
 closed artifact contains the scenario and iteration, expected outcome, duration, process exit,
 last safe semantic phase, owned-resource counts/flags, and reviewed log-event booleans. It never
 retains raw logs, environment values, terminal transcripts, source/diff/file bodies, requests,

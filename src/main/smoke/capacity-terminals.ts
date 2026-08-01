@@ -246,6 +246,7 @@ export async function measureAdditionalTerminalReadiness(
       throw new Error(`${label} terminal ${index + 1} identity was not registered`)
 
     const input = `${label}${String.fromCharCode(97 + index)}`
+    const awaitingInputMarker = `ready-awaiting-input:${input}`
     const marker = `ready-input:${input}`
     let output = ''
     const detach = supervisor.attach(terminal.id, terminal.ownerId, {
@@ -257,9 +258,12 @@ export async function measureAdditionalTerminalReadiness(
       supervisor.write(
         terminal.id,
         terminal.ownerId,
-        `stty -echo; IFS= read -r hvir_input; stty echo; printf '\\r\\nready-input:%s\\r\\n' "$hvir_input"\n`,
+        `stty -echo; printf '\\r\\nready-awaiting-input:%s\\r\\n' ${JSON.stringify(input)}; IFS= read -r hvir_input; stty echo; printf '\\r\\nready-input:%s\\r\\n' "$hvir_input"\n`,
       )
-      await delay(150)
+      await waitFor(
+        () => output.includes(awaitingInputMarker),
+        `${label} terminal ${index + 1} did not become input-ready: ${JSON.stringify(output)}`,
+      )
       await win.webContents.executeJavaScript(`
         (() => {
           const sessionId = ${JSON.stringify(terminal.id)};
