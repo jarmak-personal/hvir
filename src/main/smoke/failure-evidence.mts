@@ -15,6 +15,8 @@ export type SmokeFailurePhase = (typeof SMOKE_FAILURE_PHASES)[number]
 export const SMOKE_FAILURE_CHECKPOINTS = [
   'renderer-recovery-route-opening',
   'renderer-recovery-route-opened',
+  'renderer-recovery-exit-awaiting',
+  'renderer-recovery-exit-observed',
   'renderer-recovery-reload-awaiting',
   'renderer-recovery-reload-loaded',
   'renderer-recovery-replacement-ipc-awaiting',
