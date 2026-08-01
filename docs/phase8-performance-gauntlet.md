@@ -52,6 +52,8 @@ The manual qualification fixes one reviewed source SHA and counts 598 full-suite
 platform. Missing, failed, timed-out, interrupted, or infrastructure-terminated partition evidence
 counts as failure; a workflow rerun cannot replace the first result. The final artifact reports the
 one-sided 95% upper failure-probability bound and passes only at or below 0.5% on both platforms.
+Qualification runs cap partition concurrency at 12 so ordinary pull-request and release gates retain
+Actions capacity while the long-running sample is collected.
 The Tuesday schedule runs 20 invocations per platform as a regression signal only and explicitly
 does not claim qualification-level confidence. Pull-request CI retains one attempt with no retry or
 allowed failure.

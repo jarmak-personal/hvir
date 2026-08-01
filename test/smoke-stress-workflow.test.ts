@@ -72,7 +72,7 @@ describe('Electron reliability qualification workflow', () => {
     expect(partition['timeout-minutes']).toBe(90)
     expect(partition.strategy).toEqual({
       'fail-fast': false,
-      'max-parallel': 20,
+      'max-parallel': 12,
       matrix: '${{ fromJSON(needs.plan.outputs.matrix) }}',
     })
     const invocation = partition.steps.find((step) => step.id === 'invoke')
