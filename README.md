@@ -6,7 +6,9 @@ A lightweight, view-first workbench for agentic development: a polished code and
 explorer wrapped around the terminals where Claude Code, Codex, and your shell do the
 work.
 
-![hvir dark theme with compact project, viewer, and terminal controls](docs/screenshots/workbench-dark.png)
+![hvir showing the file tree, a working Codex session, and live terminal status](docs/screenshots/workbench-agents.png)
+
+<p align="center"><sub>One workspace. Several agents. The work stays visible.</sub></p>
 
 ## Why hvir?
 
@@ -46,6 +48,19 @@ update, uninstall, and purge behavior.
 
 hvir expects the system `git` binary. Claude Code and Codex launch options use those CLIs
 from the selected host's login-shell environment; plain shells work without either.
+
+## One session, several lenses
+
+The same workspace can move from reading to review to a terminal-focused handoff without
+turning the workbench into an IDE.
+
+| Rendered documentation | Branch-point diff |
+| --- | --- |
+| [![hvir rendering the project README beside its file tree](docs/screenshots/rendered-markdown.png)](docs/screenshots/rendered-markdown.png) | [![hvir comparing a branch-point diff with the Git changes rail](docs/screenshots/branch-point-diff.png)](docs/screenshots/branch-point-diff.png) |
+| Read Markdown as documentation, then switch explicitly to source or diff. | See exactly what changed from the branch point, with Git context kept close. |
+| **Terminal focus** | **Live HTML beside the harness** |
+| [![hvir with a Codex terminal maximized across the workbench](docs/screenshots/terminal-focus.png)](docs/screenshots/terminal-focus.png) | [![hvir rendering an interactive HTML page above its originating agent terminal](docs/screenshots/live-html-viewer.png)](docs/screenshots/live-html-viewer.png) |
+| Give the harness the whole window when the conversation needs your attention. | Inspect agent-built output in the same workspace and conversation that produced it. |
 
 ## Runtime diagnostics
 
