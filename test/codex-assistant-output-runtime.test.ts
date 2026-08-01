@@ -67,14 +67,19 @@ class TestExecStream implements ExecStreamHandle {
 function hostFixture(hostId: HostId) {
   const streams: TestExecStream[] = []
   const connectionListeners = new Set<(state: HostConnectionState) => void>()
-  const exec = vi.fn<ProjectHost['exec']>(() =>
-    Promise.resolve({
-      code: 0,
-      signal: null,
-      stdout: 'codex-cli 0.146.0',
-      stderr: '',
-    }),
-  )
+  const socketDirectory =
+    hostId === LOCAL_HOST_ID
+      ? '/private/tmp/hvir-codex.ABC123'
+      : '/tmp/hvir-codex.XYZ789'
+  const exec = vi.fn<ProjectHost['exec']>((command, args) => {
+    if (command === '/bin/zsh') {
+      return Promise.resolve(execResult('codex-cli 0.146.0'))
+    }
+    if (command === 'sh' && args[2] === 'hvir-codex-mktemp') {
+      return Promise.resolve(execResult(`${socketDirectory}\n`))
+    }
+    return Promise.resolve(execResult())
+  })
   const execStream = vi.fn<ProjectHost['execStream']>(() => {
     const stream = new TestExecStream()
     streams.push(stream)
@@ -92,7 +97,18 @@ function hostFixture(hostId: HostId) {
       }
     },
   } as unknown as ProjectHost
-  return { host, exec, execStream, streams, connectionListeners }
+  return {
+    host,
+    exec,
+    execStream,
+    streams,
+    connectionListeners,
+    socketDirectory,
+  }
+}
+
+function execResult(stdout = '', code = 0) {
+  return { code, signal: null, stdout, stderr: '' }
 }
 
 function sourceFrame(
@@ -136,7 +152,18 @@ describe('Codex assistant-output runtime', () => {
       expect(fixture.execStream.mock.calls[0]?.[0]).toBe('/bin/zsh')
       expect(fixture.execStream.mock.calls[1]?.[0]).toBe('python3')
       expect(runtime?.launchSpec.args[0]).toBe('--remote')
-      expect(runtime?.launchSpec.args[1]).toMatch(/^unix:\/\/\/tmp\/hvir-codex-/)
+      expect(runtime?.launchSpec.args[1]).toBe(
+        `unix://${fixture.socketDirectory}/client.sock`,
+      )
+      expect(fixture.exec).toHaveBeenCalledWith(
+        'sh',
+        [
+          '-c',
+          expect.stringContaining('mktemp -d /tmp/hvir-codex.XXXXXX'),
+          'hvir-codex-mktemp',
+        ],
+        expect.objectContaining({ maxBuffer: 1024 }),
+      )
 
       const events: AssistantOutputEvent[] = []
       runtime?.observe((event) => events.push(event))
@@ -155,6 +182,20 @@ describe('Codex assistant-output runtime', () => {
       expect(fixture.streams[1]?.writes).toContain('MODE\t1\n')
 
       runtime?.dispose()
+      await vi.waitFor(() =>
+        expect(fixture.exec).toHaveBeenCalledWith(
+          'sh',
+          [
+            '-c',
+            expect.stringContaining('rmdir -- "$3"'),
+            'hvir-codex-clean',
+            `${fixture.socketDirectory}/server.sock`,
+            `${fixture.socketDirectory}/client.sock`,
+            fixture.socketDirectory,
+          ],
+          expect.objectContaining({ maxBuffer: 1024 }),
+        ),
+      )
       expect(
         fixture.streams.every((stream) => stream.dispose.mock.calls.length === 1),
       ).toBe(true)
@@ -199,7 +240,6 @@ describe('Codex assistant-output runtime', () => {
   it('reports unsupported helper setup without changing the requested launch', async () => {
     const fixture = hostFixture(LOCAL_HOST_ID)
     fixture.exec
-      .mockResolvedValueOnce({ code: 0, signal: null, stdout: '', stderr: '' })
       .mockResolvedValueOnce({
         code: 0,
         signal: null,
@@ -224,14 +264,33 @@ describe('Codex assistant-output runtime', () => {
 
   it('rechecks the exact executable version at launch time', async () => {
     const fixture = hostFixture(LOCAL_HOST_ID)
+    fixture.exec.mockResolvedValueOnce({
+      code: 0,
+      signal: null,
+      stdout: 'codex-cli 0.147.0',
+      stderr: '',
+    })
+
+    const runtime = await codexAssistantOutput.prepare(fixture.host, {
+      terminalId: 'terminal-1',
+      generation: 10,
+      cwd: hostPath(LOCAL_HOST_ID, '/work/project'),
+      defaultShell: '/bin/zsh',
+      launchSpec: { file: 'codex', args: [], shellEnvironment: true },
+      unsetEnvironment: [],
+      signal: new AbortController().signal,
+    })
+
+    expect(runtime).toBeUndefined()
+    expect(fixture.execStream).not.toHaveBeenCalled()
+  })
+
+  it('fails closed when the private socket directory is not exact', async () => {
+    const fixture = hostFixture(LOCAL_HOST_ID)
     fixture.exec
-      .mockResolvedValueOnce({ code: 0, signal: null, stdout: '', stderr: '' })
-      .mockResolvedValueOnce({
-        code: 0,
-        signal: null,
-        stdout: 'codex-cli 0.147.0',
-        stderr: '',
-      })
+      .mockResolvedValueOnce(execResult('codex-cli 0.146.0'))
+      .mockResolvedValueOnce(execResult())
+      .mockResolvedValueOnce(execResult('/private/tmp/not-provider-owned\n'))
 
     const runtime = await codexAssistantOutput.prepare(fixture.host, {
       terminalId: 'terminal-1',
@@ -286,7 +345,6 @@ describe('Codex assistant-output runtime', () => {
   it('releases runtime listeners when preparation aborts after proxy creation', async () => {
     const fixture = hostFixture(LOCAL_HOST_ID)
     fixture.exec
-      .mockResolvedValueOnce({ code: 0, signal: null, stdout: '', stderr: '' })
       .mockResolvedValueOnce({
         code: 0,
         signal: null,
@@ -294,6 +352,12 @@ describe('Codex assistant-output runtime', () => {
         stderr: '',
       })
       .mockResolvedValueOnce({ code: 0, signal: null, stdout: '', stderr: '' })
+      .mockResolvedValueOnce({
+        code: 0,
+        signal: null,
+        stdout: `${fixture.socketDirectory}\n`,
+        stderr: '',
+      })
       .mockResolvedValueOnce({ code: 0, signal: null, stdout: '', stderr: '' })
       .mockRejectedValueOnce(new Error('aborted'))
 

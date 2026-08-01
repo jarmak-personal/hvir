@@ -350,7 +350,10 @@ describe('Codex session recovery lifecycle', () => {
     ).toHaveLength(2)
     expect(
       remoteCommands.some((command) => command.includes('hvir-codex-clean')),
-    ).toBe(true)
+    ).toBe(false)
+    expect(
+      remoteCommands.some((command) => command.includes('hvir-codex-mktemp')),
+    ).toBe(false)
     expect(remoteCommands.some((command) => command.includes('--version'))).toBe(true)
     expect(
       remoteCommands.some((command) =>
