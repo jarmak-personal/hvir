@@ -698,8 +698,6 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
       const result = await verifyRendererAuthorityLifecycle({
         win,
         resources: rendererResources,
-        htmlPreviews,
-        root: smokeRoot,
         checkpoint: recordSmokeCheckpoint,
       })
       console.log(`[smoke] renderer authority lifecycle OK (${result})`)

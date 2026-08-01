@@ -1,7 +1,5 @@
-import { net, type BrowserWindow } from 'electron'
+import type { BrowserWindow } from 'electron'
 
-import type { HostPath } from '../../shared'
-import type { HtmlPreviewProtocol } from '../html-preview-protocol'
 import type { RendererOwner, RendererResourceScopes } from '../renderer-resource-scopes'
 import type { SmokeFailureCheckpoint } from './failure-evidence.mts'
 
@@ -35,33 +33,22 @@ class RendererAuthorityTimeoutError extends Error {}
 export async function verifyRendererAuthorityLifecycle(options: {
   readonly win: BrowserWindow
   readonly resources: RendererResourceScopes
-  readonly htmlPreviews: HtmlPreviewProtocol
-  readonly root: HostPath
   readonly checkpoint: (checkpoint: SmokeFailureCheckpoint) => void
 }): Promise<string> {
-  const { win, resources, htmlPreviews, root, checkpoint } = options
+  const { win, resources, checkpoint } = options
   const ownerId = win.webContents.id
   let current: RendererOwner | undefined
-  let destructionPreviewUrl: string | undefined
+  let resourceDisposed = false
   try {
     current = resources.currentOwner(ownerId)
-    // Renderer recovery owns the real replacement-document proof. This focused
-    // boundary proves the independent BrowserWindow destruction transition.
-    const destructionPreview = htmlPreviews.create(
-      '<p>renderer destruction authority</p>',
-      current,
-      root,
-    )
-    destructionPreviewUrl = destructionPreview.url
-    const previewStatus = await runBoundedRendererAuthorityOperation(
-      'renderer-authority-preview-fetch-awaiting',
-      () => fetchPreviewStatus(destructionPreview.url),
-      { checkpoint },
-    )
-    if (previewStatus !== 200) {
-      throw new Error(`destruction preview did not open: status ${previewStatus}`)
-    }
-    checkpoint('renderer-authority-preview-available')
+    const owner = current
+    // Renderer recovery owns replacement-document and route revocation. This
+    // probe isolates the remaining real-Electron boundary: destroying the
+    // BrowserWindow must revoke a resource owned by its renderer generation.
+    resources.register(owner, { lifetime: 'renderer', type: 'filename-search' }, () => {
+      resourceDisposed = true
+    })
+    checkpoint('renderer-authority-resource-registered')
 
     await waitForElectronEvent(
       win,
@@ -72,20 +59,20 @@ export async function verifyRendererAuthorityLifecycle(options: {
     )
     checkpoint('renderer-authority-destroyed')
     await waitForRendererAuthorityCondition(
-      'renderer-authority-preview-revocation-awaiting',
-      () => previewRevokedAfterRuntimeSuspend(destructionPreview.url),
-      'webContents destruction retained its HTML preview',
+      'renderer-authority-resource-revocation-awaiting',
+      () => resourceDisposed && !resources.isCurrent(owner),
+      'webContents destruction retained its renderer resource',
       checkpoint,
     )
-    checkpoint('renderer-authority-preview-revoked')
+    checkpoint('renderer-authority-resource-revoked')
 
-    return `generation ${current.generation} · preview revoked on destruction`
+    return `generation ${owner.generation} · resource revoked on destruction`
   } catch (error) {
     const state = await collectFailureStateWithinDeadline({
       win,
       resources,
       current,
-      destructionPreviewUrl,
+      resourceDisposed,
     })
     throw new Error(
       `Renderer authority lifecycle failed: ${
@@ -173,37 +160,19 @@ export async function waitForRendererAuthorityCondition(
   }
 }
 
-function fetchPreviewStatus(url: string): Promise<number> {
-  return net.fetch(url).then((response) => response.status)
-}
-
-async function previewRevokedAfterRuntimeSuspend(url: string): Promise<boolean> {
-  try {
-    return (await fetchPreviewStatus(url)) === 404
-  } catch (error) {
-    // Destroying the last window suspends the workbench and unregisters the
-    // entire preview protocol. Electron reports that fail-closed result as an
-    // unknown scheme on some platforms instead of routing one final 404.
-    return error instanceof Error && error.message.includes('ERR_UNKNOWN_URL_SCHEME')
-  }
-}
-
 async function collectFailureStateWithinDeadline(options: {
   readonly win: BrowserWindow
   readonly resources: RendererResourceScopes
   readonly current: RendererOwner | undefined
-  readonly destructionPreviewUrl: string | undefined
+  readonly resourceDisposed: boolean
 }): Promise<unknown> {
-  const diagnosis = Promise.resolve().then(async () => ({
+  const diagnosis = Promise.resolve().then(() => ({
     destroyed: options.win.isDestroyed(),
     currentGeneration: options.current?.generation,
     currentCurrent: options.current
       ? options.resources.isCurrent(options.current)
       : undefined,
-    destructionPreview: await classifyPreviewStatus(
-      options.destructionPreviewUrl,
-      DEFAULT_TIMING.diagnosisTimeoutMs,
-    ),
+    resourceDisposed: options.resourceDisposed,
   }))
   try {
     return await withRendererAuthorityTimeout(
@@ -213,25 +182,6 @@ async function collectFailureStateWithinDeadline(options: {
     )
   } catch {
     return 'diagnosis-timeout'
-  }
-}
-
-async function classifyPreviewStatus(
-  url: string | undefined,
-  timeoutMs: number,
-): Promise<'not-created' | 'available' | 'revoked' | 'unavailable'> {
-  if (!url) return 'not-created'
-  try {
-    const status = await withRendererAuthorityTimeout(
-      fetchPreviewStatus(url),
-      'failure-preview-status',
-      timeoutMs,
-    )
-    if (status === 200) return 'available'
-    if (status === 404) return 'revoked'
-    return 'unavailable'
-  } catch {
-    return 'unavailable'
   }
 }
 

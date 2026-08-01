@@ -60,9 +60,8 @@ const EXTERNAL_WATCHDOG_CHECKPOINTS = new Map<
   [
     'renderer-authority',
     [
-      'renderer-authority-preview-fetch-awaiting',
       'renderer-authority-destruction-awaiting',
-      'renderer-authority-preview-revocation-awaiting',
+      'renderer-authority-resource-revocation-awaiting',
     ],
   ],
 ])
