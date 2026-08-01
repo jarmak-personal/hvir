@@ -1,6 +1,10 @@
-import { createHash } from 'node:crypto'
-
-import { asHarnessProviderId, hostPath, type AssistantOutputEvent } from '../../shared'
+import {
+  asHarnessProviderId,
+  hostPath,
+  joinHostPath,
+  type AssistantOutputEvent,
+  type HostPath,
+} from '../../shared'
 import type { Disposer, ExecStreamHandle, ProjectHost } from '../project-host'
 import { BoundedLineReader } from './bounded-line-reader'
 import { CODEX_ASSISTANT_OUTPUT_PROXY_SCRIPT } from './codex-assistant-output-proxy-script'
@@ -21,29 +25,38 @@ while [ "$i" -lt 40 ]; do
 done
 exit 1
 `
-const CLEAN_SOCKET_SCRIPT = 'rm -f -- "$1" "$2"'
+const CREATE_SOCKET_DIRECTORY_SCRIPT = [
+  'set -eu',
+  'umask 077',
+  'directory=$(mktemp -d /tmp/hvir-codex.XXXXXX)',
+  'canonical=$(cd "$directory" && pwd -P)',
+  'case "$canonical" in /*/hvir-codex.??????) ;; *) rmdir "$directory"; exit 1 ;; esac',
+  '[ "${#canonical}" -le 80 ] || { rmdir "$directory"; exit 1; }',
+  'printf \'%s\\n\' "$canonical"',
+].join('\n')
+const CLEAN_SOCKET_DIRECTORY_SCRIPT = 'rm -f -- "$1" "$2"\nrmdir -- "$3"'
 const MAX_PROXY_FRAME_LENGTH = 64 * 1024
 const MAX_PREPARATION_MS = 4_000
 
+interface CodexSocketPaths {
+  readonly directory: HostPath
+  readonly backend: HostPath
+  readonly frontend: HostPath
+}
+
 export const codexAssistantOutput: HarnessAssistantOutputCapability = {
   async prepare(host, context) {
-    const token = createHash('sha256')
-      .update(`${host.hostId}:${context.terminalId}`)
-      .digest('hex')
-      .slice(0, 24)
-    const backend = hostPath(host.hostId, `/tmp/hvir-codex-${token}-server.sock`)
-    const frontend = hostPath(host.hostId, `/tmp/hvir-codex-${token}-client.sock`)
     const startup = new AbortController()
     const abortStartup = (): void => startup.abort()
     context.signal.addEventListener('abort', abortStartup, { once: true })
     if (context.signal.aborted) startup.abort()
     const timer = setTimeout(abortStartup, MAX_PREPARATION_MS)
     const preparation = { ...context, signal: startup.signal }
+    let sockets: CodexSocketPaths | undefined
     let backendStream: ExecStreamHandle | undefined
     let proxyStream: ExecStreamHandle | undefined
     let runtime: CodexAssistantOutputRuntime | undefined
     try {
-      await cleanupSockets(host, backend.path, frontend.path, preparation.signal)
       const version = await host.exec(
         preparation.defaultShell,
         harnessShellCommandArgs(preparation.launchSpec.file, ['--version']),
@@ -67,12 +80,14 @@ export const codexAssistantOutput: HarnessAssistantOutputCapability = {
         maxBuffer: 1024,
       })
       if (python.code !== 0) return undefined
+      sockets = await createSocketPaths(host, preparation.signal)
+      if (!sockets) return undefined
       backendStream = host.execStream(
         preparation.defaultShell,
         harnessShellCommandArgs(preparation.launchSpec.file, [
           'app-server',
           '--listen',
-          `unix://${backend.path}`,
+          `unix://${sockets.backend.path}`,
         ]),
         {
           cwd: preparation.cwd,
@@ -81,14 +96,20 @@ export const codexAssistantOutput: HarnessAssistantOutputCapability = {
           signal: preparation.signal,
         },
       )
-      if (!(await waitForSocket(host, backend.path, preparation))) {
+      if (!(await waitForSocket(host, sockets.backend.path, preparation))) {
         backendStream.dispose()
-        await cleanupSockets(host, backend.path, frontend.path, preparation.signal)
+        await cleanupSockets(host, sockets, preparation.signal)
         return undefined
       }
       proxyStream = host.execStream(
         'python3',
-        ['-u', '-c', CODEX_ASSISTANT_OUTPUT_PROXY_SCRIPT, frontend.path, backend.path],
+        [
+          '-u',
+          '-c',
+          CODEX_ASSISTANT_OUTPUT_PROXY_SCRIPT,
+          sockets.frontend.path,
+          sockets.backend.path,
+        ],
         {
           cwd: preparation.cwd,
           keepStdinOpen: true,
@@ -98,12 +119,11 @@ export const codexAssistantOutput: HarnessAssistantOutputCapability = {
       runtime = new CodexAssistantOutputRuntime(
         host,
         preparation,
-        backend,
-        frontend,
+        sockets,
         backendStream,
         proxyStream,
       )
-      if (!(await waitForSocket(host, frontend.path, preparation))) {
+      if (!(await waitForSocket(host, sockets.frontend.path, preparation))) {
         runtime.dispose()
         return undefined
       }
@@ -113,7 +133,9 @@ export const codexAssistantOutput: HarnessAssistantOutputCapability = {
       else {
         backendStream?.dispose()
         proxyStream?.dispose()
-        await cleanupSockets(host, backend.path, frontend.path).catch(() => undefined)
+        if (sockets) {
+          await cleanupSockets(host, sockets).catch(() => undefined)
+        }
       }
       return undefined
     } finally {
@@ -136,15 +158,18 @@ class CodexAssistantOutputRuntime implements HarnessAssistantOutputRuntime {
   constructor(
     private readonly host: ProjectHost,
     context: HarnessAssistantOutputPreparationContext,
-    private readonly backendPath: ReturnType<typeof hostPath>,
-    private readonly frontendPath: ReturnType<typeof hostPath>,
+    private readonly sockets: CodexSocketPaths,
     private readonly backend: ExecStreamHandle,
     private readonly proxy: ExecStreamHandle,
   ) {
     this.generation = context.generation
     this.launchSpec = {
       ...context.launchSpec,
-      args: ['--remote', `unix://${frontendPath.path}`, ...context.launchSpec.args],
+      args: [
+        '--remote',
+        `unix://${sockets.frontend.path}`,
+        ...context.launchSpec.args,
+      ],
     }
     this.source = new CodexAssistantOutputSource({
       hostId: host.hostId,
@@ -225,9 +250,7 @@ class CodexAssistantOutputRuntime implements HarnessAssistantOutputRuntime {
     this.proxy.dispose()
     this.backend.dispose()
     this.listeners.clear()
-    void cleanupSockets(this.host, this.backendPath.path, this.frontendPath.path).catch(
-      () => undefined,
-    )
+    void cleanupSockets(this.host, this.sockets).catch(() => undefined)
   }
 
   private emit(event: AssistantOutputEvent): void {
@@ -266,15 +289,45 @@ async function waitForSocket(
   return result.code === 0
 }
 
+async function createSocketPaths(
+  host: ProjectHost,
+  signal: AbortSignal,
+): Promise<CodexSocketPaths | undefined> {
+  const result = await host.exec(
+    'sh',
+    ['-c', CREATE_SOCKET_DIRECTORY_SCRIPT, 'hvir-codex-mktemp'],
+    { signal, maxBuffer: 1024 },
+  )
+  const directoryPath = result.stdout.trim()
+  if (
+    result.code !== 0 ||
+    !/^\/(?:[^\0\r\n/]+\/)*hvir-codex\.[A-Za-z0-9]{6}$/u.test(directoryPath)
+  ) {
+    return undefined
+  }
+  const directory = hostPath(host.hostId, directoryPath)
+  return {
+    directory,
+    backend: joinHostPath(directory, 'server.sock'),
+    frontend: joinHostPath(directory, 'client.sock'),
+  }
+}
+
 async function cleanupSockets(
   host: ProjectHost,
-  backend: string,
-  frontend: string,
+  sockets: CodexSocketPaths,
   signal?: AbortSignal,
 ): Promise<void> {
   await host.exec(
     'sh',
-    ['-c', CLEAN_SOCKET_SCRIPT, 'hvir-codex-clean', backend, frontend],
+    [
+      '-c',
+      CLEAN_SOCKET_DIRECTORY_SCRIPT,
+      'hvir-codex-clean',
+      sockets.backend.path,
+      sockets.frontend.path,
+      sockets.directory.path,
+    ],
     { signal, maxBuffer: 1024 },
   )
 }
