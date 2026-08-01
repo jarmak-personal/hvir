@@ -40,15 +40,31 @@ type InvokeSmokeScenario = (
 const MAX_SMOKE_REPETITIONS = 100
 const DEFAULT_SMOKE_ATTEMPT_TIMEOUT_MS = 180_000
 const CAPACITY_SMOKE_ATTEMPT_TIMEOUT_MS = 600_000
-const RENDERER_AUTHORITY_CHECKPOINT_TIMEOUT_MS = 15_000
-const RENDERER_AUTHORITY_PENDING_CHECKPOINTS = new Set<SmokeFailureCheckpoint>([
-  'renderer-authority-route-opening',
-  'renderer-authority-reload-awaiting',
-  'renderer-authority-replacement-ipc-awaiting',
-  'renderer-authority-route-revocation-awaiting',
-  'renderer-authority-preview-fetch-awaiting',
-  'renderer-authority-destruction-awaiting',
-  'renderer-authority-preview-revocation-awaiting',
+const RENDERER_OPERATION_CHECKPOINT_TIMEOUT_MS = 15_000
+const EXTERNAL_WATCHDOG_CHECKPOINTS = new Map<
+  SmokeScenarioName,
+  SmokeFailureCheckpoint[]
+>([
+  [
+    'renderer-recovery',
+    [
+      'renderer-recovery-route-opening',
+      'renderer-recovery-reload-awaiting',
+      'renderer-recovery-replacement-ipc-awaiting',
+      'renderer-recovery-controls-awaiting',
+      'renderer-recovery-terminal-lifecycle-awaiting',
+      'renderer-recovery-route-revocation-awaiting',
+      'renderer-recovery-diagnostics-awaiting',
+    ],
+  ],
+  [
+    'renderer-authority',
+    [
+      'renderer-authority-preview-fetch-awaiting',
+      'renderer-authority-destruction-awaiting',
+      'renderer-authority-preview-revocation-awaiting',
+    ],
+  ],
 ])
 const FAILURE_ARTIFACT_TIMEOUT_MS = 1_000
 
@@ -72,12 +88,9 @@ export function smokeCheckpointTimeoutMs(
   scenario: SmokeScenarioName,
   checkpoint: SmokeFailureCheckpoint | null,
 ): number | undefined {
-  return (
-    scenario === 'renderer-authority' &&
-      checkpoint !== null &&
-      RENDERER_AUTHORITY_PENDING_CHECKPOINTS.has(checkpoint)
-  )
-    ? RENDERER_AUTHORITY_CHECKPOINT_TIMEOUT_MS
+  return checkpoint !== null &&
+    EXTERNAL_WATCHDOG_CHECKPOINTS.get(scenario)?.includes(checkpoint)
+    ? RENDERER_OPERATION_CHECKPOINT_TIMEOUT_MS
     : undefined
 }
 

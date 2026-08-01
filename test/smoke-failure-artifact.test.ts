@@ -46,7 +46,7 @@ describe('bounded smoke failure evidence', () => {
         JSON.stringify({
           schema: 1,
           phase: 'scenario-active',
-          checkpoint: 'renderer-authority-replacement-ipc-awaiting',
+          checkpoint: 'renderer-recovery-reload-awaiting',
           cleanupResource: null,
           owners: {
             windowCount: 1,
@@ -83,7 +83,7 @@ describe('bounded smoke failure evidence', () => {
       semanticSnapshot: {
         schema: 1,
         phase: 'scenario-active',
-        checkpoint: 'renderer-authority-replacement-ipc-awaiting',
+        checkpoint: 'renderer-recovery-reload-awaiting',
         cleanupResource: null,
         owners: {
           windowCount: 1,
