@@ -286,6 +286,7 @@ describe('Electron smoke process failure artifacts', () => {
       schema: 1,
       phase: 'renderer-ready',
       checkpoint: null,
+      cleanupResource: null,
       owners: {
         windowCount: 1,
         ptyCount: 0,
@@ -323,6 +324,7 @@ describe('Electron smoke process failure artifacts', () => {
       schema: 1,
       phase: 'renderer-ready',
       checkpoint: null,
+      cleanupResource: null,
       owners: {
         windowCount: 1,
         ptyCount: 0,

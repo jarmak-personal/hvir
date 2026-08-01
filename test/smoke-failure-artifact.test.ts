@@ -29,6 +29,7 @@ describe('bounded smoke failure evidence', () => {
           schema: 1,
           phase: 'renderer-ready',
           checkpoint: null,
+          cleanupResource: null,
           owners: {
             windowCount: 1,
             ptyCount: 0,
@@ -46,6 +47,7 @@ describe('bounded smoke failure evidence', () => {
           schema: 1,
           phase: 'scenario-active',
           checkpoint: 'renderer-authority-replacement-ipc-awaiting',
+          cleanupResource: null,
           owners: {
             windowCount: 1,
             ptyCount: 2,
@@ -82,6 +84,7 @@ describe('bounded smoke failure evidence', () => {
         schema: 1,
         phase: 'scenario-active',
         checkpoint: 'renderer-authority-replacement-ipc-awaiting',
+        cleanupResource: null,
         owners: {
           windowCount: 1,
           ptyCount: 2,
@@ -112,6 +115,7 @@ describe('bounded smoke failure evidence', () => {
           schema: 1,
           phase: 'scenario-active',
           checkpoint: null,
+          cleanupResource: null,
           owners: {
             windowCount: 1,
             ptyCount: 0,
@@ -146,6 +150,46 @@ describe('bounded smoke failure evidence', () => {
         evidenceRejected: true,
       },
     })
+  })
+
+  it('retains a failed cleanup owner without retaining its output', () => {
+    const collector = new SmokeAttemptEvidenceCollector()
+    collector.observe(
+      'stderr',
+      '[smoke:failure-evidence] ' +
+        JSON.stringify({
+          schema: 1,
+          phase: 'cleanup',
+          checkpoint: null,
+          cleanupResource: 'project watch',
+          owners: {
+            windowCount: 0,
+            ptyCount: 0,
+            watcherActive: true,
+            rendererOwnerActive: false,
+            rendererGeneration: null,
+          },
+        }) +
+        '\nHVIR_SMOKE_CLEANUP_FAIL Error: /private/project\n',
+    )
+
+    const artifact = createSmokeFailureArtifact({
+      scenario: 'renderer-authority',
+      iteration: 1,
+      repetitionCount: 20,
+      durationMs: 10_200,
+      exitCode: 1,
+      signal: null,
+      spawnError: false,
+      collector,
+    })
+
+    expect(artifact.semanticSnapshot).toMatchObject({
+      phase: 'cleanup',
+      cleanupResource: 'project watch',
+      owners: { windowCount: 0, watcherActive: true },
+    })
+    expect(JSON.stringify(artifact)).not.toContain('/private/project')
   })
 
   it('writes a bounded per-attempt artifact only to the requested directory', async () => {

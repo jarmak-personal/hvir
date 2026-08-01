@@ -31,6 +31,27 @@ export const SMOKE_FAILURE_CHECKPOINTS = [
 
 export type SmokeFailureCheckpoint = (typeof SMOKE_FAILURE_CHECKPOINTS)[number]
 
+export const SMOKE_CLEANUP_RESOURCES = [
+  'echo worker',
+  'Git worker',
+  'filename search',
+  'local host',
+  'harness profile fixture',
+  'large text fixture',
+  'large JSON fixture',
+  'live reload fixture',
+  'viewer position fixture',
+  'oversized diff fixture',
+  'project watch',
+  'supervised terminals',
+  'smoke window',
+  'IPC authority router',
+  'login shell fixture',
+  'PTY supervisor',
+] as const
+
+export type SmokeCleanupResource = (typeof SMOKE_CLEANUP_RESOURCES)[number]
+
 export interface SmokeOwnedResourceEvidence {
   readonly windowCount: number
   readonly ptyCount: number
@@ -43,6 +64,7 @@ export interface SmokeFailureEvidence {
   readonly schema: 1
   readonly phase: SmokeFailurePhase
   readonly checkpoint: SmokeFailureCheckpoint | null
+  readonly cleanupResource: SmokeCleanupResource | null
   readonly owners: SmokeOwnedResourceEvidence
 }
 
@@ -51,13 +73,21 @@ export function reportSmokeFailureEvidence(
   phase: SmokeFailurePhase,
   owners: SmokeOwnedResourceEvidence,
   checkpoint: SmokeFailureCheckpoint | null = null,
+  cleanupResource: SmokeCleanupResource | null = null,
 ): void {
   console.error(
     `[smoke:failure-evidence] ${JSON.stringify({
       schema: 1,
       phase,
       checkpoint,
+      cleanupResource,
       owners,
     } satisfies SmokeFailureEvidence)}`,
   )
+}
+
+export function smokeCleanupResource(name: string): SmokeCleanupResource | null {
+  return SMOKE_CLEANUP_RESOURCES.includes(name as SmokeCleanupResource)
+    ? (name as SmokeCleanupResource)
+    : null
 }

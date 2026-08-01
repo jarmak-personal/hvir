@@ -9,6 +9,7 @@ import { PtySupervisor } from '../pty/pty-supervisor'
 import { SmokeCleanup } from './cleanup'
 import {
   reportSmokeFailureEvidence,
+  smokeCleanupResource,
   type SmokeFailurePhase,
 } from './failure-evidence.mts'
 import type { SmokeInterruptionCheckpoint } from './interruption-checkpoint'
@@ -28,9 +29,26 @@ export async function runNativePtySmoke(
 ): Promise<number> {
   const host = new LocalHost()
   const supervisor = new PtySupervisor()
+  let cleanupFailureResource: ReturnType<typeof smokeCleanupResource> = null
   const profileStorePath = joinHostPath(projectRoot, '.hvir-smoke-native-profile.json')
   const loginShellFixtureRoot = joinHostPath(projectRoot, '.hvir-smoke-login-shell')
-  const cleanup = new SmokeCleanup((name) => interruptionCheckpoint.disposed(name))
+  const cleanup = new SmokeCleanup((name) => interruptionCheckpoint.disposed(name), {
+    onFailure: (name) => {
+      cleanupFailureResource = smokeCleanupResource(name)
+      reportSmokeFailureEvidence(
+        'cleanup',
+        {
+          windowCount: BrowserWindow.getAllWindows().length,
+          ptyCount: supervisor.list().length,
+          watcherActive: false,
+          rendererOwnerActive: false,
+          rendererGeneration: null,
+        },
+        null,
+        cleanupFailureResource,
+      )
+    },
+  })
   cleanup.defer('local host', () => host.dispose())
   cleanup.defer('harness profile fixture', () =>
     host.exec('rm', ['-f', '--', profileStorePath.path]).then(() => undefined),
@@ -202,13 +220,18 @@ export async function runNativePtySmoke(
     try {
       await cleanup.run()
     } catch (cleanupError) {
-      reportSmokeFailureEvidence('cleanup', {
-        windowCount: BrowserWindow.getAllWindows().length,
-        ptyCount: supervisor.list().length,
-        watcherActive: false,
-        rendererOwnerActive: false,
-        rendererGeneration: null,
-      })
+      reportSmokeFailureEvidence(
+        'cleanup',
+        {
+          windowCount: BrowserWindow.getAllWindows().length,
+          ptyCount: supervisor.list().length,
+          watcherActive: false,
+          rendererOwnerActive: false,
+          rendererGeneration: null,
+        },
+        null,
+        cleanupFailureResource,
+      )
       console.error('HVIR_SMOKE_CLEANUP_FAIL', cleanupError)
       // A successful scenario must still fail when cleanup does not complete.
       if (!scenarioFailed) {
