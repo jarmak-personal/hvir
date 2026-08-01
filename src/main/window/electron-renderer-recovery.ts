@@ -81,8 +81,10 @@ export class ElectronRendererRecovery {
       const exitedOwner = this.forcedExitOwner
       this.forcedExitOwner = undefined
       this.options.health.rendererGone(exitedOwner, reason, 'forced-for-reload')
-      // Leave Chromium's process-death notification before starting navigation.
-      // Synchronous crash + reload can stall the browser process on Linux.
+      // The immediate reload forces Chromium to allocate a replacement process.
+      // Reassert the workbench navigation after teardown because that first
+      // navigation can be discarded with the crashing renderer. Deferral keeps
+      // navigation out of Electron's process-gone notification stack.
       if (this.monitor.owns(currentOwner)) this.scheduleReload(currentOwner)
       return true
     }
@@ -157,7 +159,10 @@ export class ElectronRendererRecovery {
       `[window] renderer recovery requested from generation ${observedOwner.generation} to ${replacement.generation}`,
     )
     try {
+      // Electron requires reload to follow the forced crash immediately so the
+      // unusable renderer is replaced by a new process.
       win.webContents.forcefullyCrashRenderer()
+      win.webContents.reload()
     } catch (error) {
       this.forcedExitOwner = undefined
       console.error('[window] renderer reload could not be started', error)
