@@ -47,7 +47,7 @@ describe('PtySupervisor', () => {
     expect(spawnPty).toHaveBeenCalledWith(
       expect.objectContaining({
         file: '/remote/bin/bash',
-        args: [],
+        args: ['-l'],
         env: {
           TERM: 'xterm-256color',
           COLORTERM: 'truecolor',
