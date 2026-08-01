@@ -45,13 +45,12 @@ from the selected host's login-shell environment; plain shells work without eith
 The same workspace can move from reading to review to a terminal-focused handoff without
 turning the workbench into an IDE.
 
-| Rendered documentation | Branch-point diff |
+| | |
 | --- | --- |
+| **Rendered documentation** | **Branch-point diff** |
 | [![hvir rendering the project README beside its file tree](docs/screenshots/rendered-markdown.png)](docs/screenshots/rendered-markdown.png) | [![hvir comparing a branch-point diff with the Git changes rail](docs/screenshots/branch-point-diff.png)](docs/screenshots/branch-point-diff.png) |
-|  | See exactly what changed from the branch point, with Git context kept close. |
-| **Terminal focus** | **Live HTML beside the harness** |
 | [![hvir with a Codex terminal maximized across the workbench](docs/screenshots/terminal-focus.png)](docs/screenshots/terminal-focus.png) | [![hvir rendering an interactive HTML page above its originating agent terminal](docs/screenshots/live-html-viewer.png)](docs/screenshots/live-html-viewer.png) |
-|  | Inspect agent-built output in the same workspace and conversation that produced it. |
+| **Terminal focus** | **Live HTML beside the harness** |
 
 
 ## Feedback and project tracking
