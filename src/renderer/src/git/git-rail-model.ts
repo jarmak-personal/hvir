@@ -161,7 +161,6 @@ export function gitRailReducer(model: GitRailModel, action: GitRailAction): GitR
     case 'branch-requested':
       return {
         ...model,
-        branchModel: undefined,
         branchError: undefined,
         branchRequestId: action.requestId,
       }
