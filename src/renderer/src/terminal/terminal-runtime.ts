@@ -64,6 +64,7 @@ export class TerminalRuntime {
       workspaceRoot: () => this.options.workspaceRoot,
       onChange: (richOutput) => this.updateRichOutput(richOutput),
     })
+    this.richOutput.setPreference(options.richOutput)
     this.currentSnapshot = {
       title: options.fallbackTitle,
       status: 'Starting…',
@@ -92,6 +93,7 @@ export class TerminalRuntime {
       options.typography.fontFamily !== this.options.typography.fontFamily ||
       options.typography.fontSize !== this.options.typography.fontSize
     this.options = options
+    this.richOutput.setPreference(options.richOutput)
     this.richOutput.configure(
       options.capabilities,
       this.started ? options.harnessSessionId : undefined,
@@ -204,9 +206,6 @@ export class TerminalRuntime {
     const id = this.pendingReplacementId
     this.pendingReplacementId = undefined
     return id
-  }
-  setRichOutputEnabled(enabled: boolean): Promise<boolean> {
-    return this.richOutput.setEnabled(enabled)
   }
   private async ensureStarted(
     replacement?: Readonly<{

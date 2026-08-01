@@ -23,25 +23,36 @@ afterEach(() => {
 })
 
 describe('RichOutputLane', () => {
-  it('labels the default-off control as session-only and exposes keyboard input', () => {
-    const onToggle = vi.fn(() => Promise.resolve(true))
-    render(snapshot(), { onToggle })
+  it('keeps presentation chrome absent until a rich message exists', () => {
+    render(snapshot())
 
-    const checkbox = host.querySelector<HTMLInputElement>('input[type="checkbox"]')
-    expect(checkbox?.checked).toBe(false)
-    expect(checkbox?.disabled).toBe(false)
-    expect(host.textContent).toContain('Rich output')
-    expect(host.textContent).toContain('This session only · Off')
-
-    act(() => checkbox?.click())
-    expect(onToggle).toHaveBeenCalledExactlyOnceWith(true)
+    expect(host.innerHTML).toBe('')
   })
 
-  it('shows an explicit unavailable state without an actionable toggle', () => {
-    render(snapshot({ control: 'unavailable' }))
+  it('retains a safely aborted message after the source becomes unavailable', () => {
+    render(
+      snapshot({
+        control: 'unavailable',
+        messages: [
+          {
+            id: 'message-1',
+            turnId: 'turn-1',
+            state: 'aborted',
+            bytes: 4,
+            rows: [
+              {
+                kind: 'status',
+                prefix: '!',
+                spans: [{ text: ' Interrupted', styles: [] }],
+              },
+            ],
+          },
+        ],
+      }),
+    )
 
-    expect(host.querySelector<HTMLInputElement>('input')?.disabled).toBe(true)
-    expect(host.textContent).toContain('Unavailable for this session')
+    expect(host.querySelector('[aria-label="Rich assistant output"]')).not.toBeNull()
+    expect(host.textContent).toContain('Interrupted')
   })
 
   it('renders selectable plain text with link activation and a dedicated copy action', () => {
@@ -111,7 +122,6 @@ function render(
       <RichOutputLane
         snapshot={value}
         visible
-        onToggle={() => Promise.resolve(true)}
         onActivateLink={() => undefined}
         disclosureTarget={(link) => link.target}
         fontFamily="ui-monospace"

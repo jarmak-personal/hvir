@@ -22,6 +22,7 @@ export interface TerminalSessionRuntimesProps {
   readonly presented: boolean
   readonly terminalTheme: TerminalThemeOverride
   readonly terminalTypography: TerminalTypography
+  readonly richOutput: boolean
   readonly composerSubmitMode: ComposerSubmitMode
   readonly workspaceRoot: HostPath
   readonly connectionState: HostConnectionState
@@ -48,6 +49,7 @@ export function TerminalSessionRuntimes({
   presented,
   terminalTheme,
   terminalTypography,
+  richOutput,
   composerSubmitMode,
   workspaceRoot,
   connectionState,
@@ -95,6 +97,7 @@ export function TerminalSessionRuntimes({
             metaEnterAliasesControl={provider.terminalInput.metaEnterAliasesControl}
             themeOverride={terminalTheme}
             typography={terminalTypography}
+            richOutput={richOutput}
             composerSubmitMode={composerSubmitMode}
             cwd={session.cwd}
             workspaceRoot={workspaceRoot}

@@ -87,6 +87,23 @@ function output(
 }
 
 describe('PTY assistant-output ownership', () => {
+  it('lets the provider admit its runtime when the launch-menu probe was absent', async () => {
+    const { harness } = fixture()
+    const managed = await harness.spawn({
+      effectiveCapabilities: {
+        sessionIdentity: 'preassigned',
+        exactResume: true,
+        contextPresentation: 'pressure',
+      },
+    })
+
+    expect(managed.capabilities.assistantOutput).toBe('structured')
+    expect(harness.snapshot().spawns[0]).toMatchObject({
+      file: 'codex',
+      args: ['--remote', 'unix:///tmp/test'],
+    })
+  })
+
   it('qualifies events and mode changes by the exact terminal owner', async () => {
     const { harness, runtime } = fixture()
     await harness.spawn({

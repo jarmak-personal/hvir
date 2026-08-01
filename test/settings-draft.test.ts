@@ -15,6 +15,7 @@ const settings = {
   monospaceFont: { mode: 'system' as const, family: '' },
   interfaceScale: 1,
   terminalTextSize: 13,
+  richOutput: false,
   composerSubmitMode: 'enter' as const,
   keybindings: DEFAULT_KEYBINDINGS,
 }

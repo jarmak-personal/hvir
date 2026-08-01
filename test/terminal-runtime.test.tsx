@@ -36,6 +36,7 @@ function options(
     metaEnterAliasesControl: false,
     composerSubmitMode: 'enter',
     typography: { fontFamily: 'ui-monospace, monospace', fontSize: 13 },
+    richOutput: false,
     cwd: localPath('/repo'),
     workspaceRoot,
     connectionState,

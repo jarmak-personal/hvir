@@ -62,8 +62,9 @@ function makeAvailable(coordinator: RichOutputCoordinator): void {
 }
 
 describe('RichOutputCoordinator', () => {
-  it('defaults off and becomes available only after capability, source, and identity', async () => {
+  it('applies the saved preference only after capability, source, and identity', async () => {
     const { coordinator, setMode } = fixture()
+    await expect(coordinator.setPreference(true)).resolves.toBe(false)
     coordinator.accept({
       kind: 'availability',
       state: 'available',
@@ -81,15 +82,14 @@ describe('RichOutputCoordinator', () => {
     coordinator.configure(capabilities, 'thread-1', 'identified')
     expect(coordinator.snapshot().control).toBe('available')
 
-    await expect(coordinator.setEnabled(true)).resolves.toBe(true)
+    await vi.waitFor(() => expect(coordinator.snapshot().enabled).toBe(true))
     expect(setMode).toHaveBeenCalledExactlyOnceWith(true)
-    expect(coordinator.snapshot().enabled).toBe(true)
   })
 
   it('publishes stable Markdown rows before the response ends', async () => {
     const { coordinator } = fixture()
     makeAvailable(coordinator)
-    await coordinator.setEnabled(true)
+    await coordinator.setPreference(true)
 
     coordinator.accept(event('start', 1))
     coordinator.accept(event('delta', 2, { text: '# Heading\npartial' }))
@@ -125,7 +125,7 @@ describe('RichOutputCoordinator', () => {
     })
     makeAvailable(coordinator)
 
-    const enabling = coordinator.setEnabled(true)
+    const enabling = coordinator.setPreference(true)
     coordinator.accept(event('start', 1))
     coordinator.accept(event('delta', 2, { text: 'accepted boundary\n' }))
     acceptMode?.(true)
@@ -166,7 +166,7 @@ describe('RichOutputCoordinator', () => {
   it('adopts the first complete start order after renderer rollover', async () => {
     const { coordinator } = fixture()
     makeAvailable(coordinator)
-    await coordinator.setEnabled(true)
+    await coordinator.setPreference(true)
 
     coordinator.accept(event('start', 41))
     coordinator.accept(event('delta', 42, { text: 'new renderer body\n' }))
@@ -187,7 +187,7 @@ describe('RichOutputCoordinator', () => {
   it('continues in order after an interrupted rich message', async () => {
     const { coordinator } = fixture()
     makeAvailable(coordinator)
-    await coordinator.setEnabled(true)
+    await coordinator.setPreference(true)
     coordinator.accept(event('start', 1))
     coordinator.accept(event('abort', 2, { reason: 'turn-interrupted' }))
     coordinator.accept(
@@ -206,11 +206,11 @@ describe('RichOutputCoordinator', () => {
   it('keeps an in-flight rich response when the desired mode turns off', async () => {
     const { coordinator, setMode } = fixture()
     makeAvailable(coordinator)
-    await coordinator.setEnabled(true)
+    await coordinator.setPreference(true)
     coordinator.accept(event('start', 1))
     coordinator.accept(event('delta', 2, { text: 'first ' }))
 
-    await expect(coordinator.setEnabled(false)).resolves.toBe(true)
+    await expect(coordinator.setPreference(false)).resolves.toBe(true)
     coordinator.accept(event('delta', 3, { text: 'response\n' }))
     coordinator.accept(event('end', 4))
 
@@ -229,7 +229,7 @@ describe('RichOutputCoordinator', () => {
   it('fails closed on a gap and rejects all later content', async () => {
     const { coordinator, setMode } = fixture()
     makeAvailable(coordinator)
-    await coordinator.setEnabled(true)
+    await coordinator.setPreference(true)
     coordinator.accept(event('start', 1))
     coordinator.accept(event('delta', 3, { text: 'gap' }))
     coordinator.accept(event('end', 4))
@@ -247,10 +247,10 @@ describe('RichOutputCoordinator', () => {
     expect(setMode).toHaveBeenLastCalledWith(false)
   })
 
-  it('resets retained bodies and desired mode for a new source generation', async () => {
-    const { coordinator } = fixture()
+  it('resets retained bodies and reapplies the preference for a new source generation', async () => {
+    const { coordinator, setMode } = fixture()
     makeAvailable(coordinator)
-    await coordinator.setEnabled(true)
+    await coordinator.setPreference(true)
     coordinator.accept(event('start', 1))
     coordinator.accept(event('delta', 2, { text: 'body\n' }))
     coordinator.accept(event('end', 3))
@@ -263,24 +263,23 @@ describe('RichOutputCoordinator', () => {
       generation: 4,
     })
 
-    expect(coordinator.snapshot()).toMatchObject({
-      enabled: false,
-      messages: [],
-    })
+    await vi.waitFor(() => expect(coordinator.snapshot().enabled).toBe(true))
+    expect(coordinator.snapshot().messages).toEqual([])
+    expect(setMode.mock.calls.map(([enabled]) => enabled)).toEqual([true, true])
   })
 
   it('does not revive a superseded mode request after a generation reset', async () => {
-    let acceptMode: ((accepted: boolean) => void) | undefined
+    const acceptModes: Array<(accepted: boolean) => void> = []
     const coordinator = new RichOutputCoordinator({
       setMode: () =>
         new Promise<boolean>((resolve) => {
-          acceptMode = resolve
+          acceptModes.push(resolve)
         }),
       resolveFileLink: () => undefined,
       onChange: () => undefined,
     })
     makeAvailable(coordinator)
-    const enabling = coordinator.setEnabled(true)
+    const enabling = coordinator.setPreference(true)
 
     coordinator.accept({
       kind: 'availability',
@@ -289,20 +288,24 @@ describe('RichOutputCoordinator', () => {
       providerId: asHarnessProviderId('codex'),
       generation: 4,
     })
-    acceptMode?.(true)
+    acceptModes[0]?.(true)
 
     await expect(enabling).resolves.toBe(false)
     expect(coordinator.snapshot()).toMatchObject({
       enabled: false,
-      changing: false,
+      changing: true,
       messages: [],
     })
+    acceptModes[1]?.(true)
+    await vi.waitFor(() =>
+      expect(coordinator.snapshot()).toMatchObject({ enabled: true, changing: false }),
+    )
   })
 
   it('retains at most 32 completed messages', async () => {
     const { coordinator } = fixture()
     makeAvailable(coordinator)
-    await coordinator.setEnabled(true)
+    await coordinator.setPreference(true)
     let order = 0
     for (let index = 0; index < 33; index++) {
       coordinator.accept(

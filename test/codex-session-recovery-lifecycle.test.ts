@@ -249,7 +249,15 @@ describe('Codex session recovery lifecycle', () => {
             callback(undefined, bufferedExecChannel(remoteMetadata))
             return
           }
-          if (command.includes("'sh'")) {
+          if (command.includes('hvir-codex-clean')) {
+            callback(undefined, bufferedExecChannel(''))
+            return
+          }
+          if (command.includes('--version')) {
+            callback(undefined, bufferedExecChannel('codex-cli 0.145.0\n'))
+            return
+          }
+          if (command.includes('hvir-clock:')) {
             scanCount += 1
             const paths = scanCount === 1 ? '' : `${remoteRollout}\0`
             callback(
@@ -337,7 +345,13 @@ describe('Codex session recovery lifecycle', () => {
         identityStatus: 'identified',
       }),
     )
-    expect(remoteCommands.filter((command) => command.includes("'sh'"))).toHaveLength(2)
+    expect(
+      remoteCommands.filter((command) => command.includes('hvir-clock:')),
+    ).toHaveLength(2)
+    expect(
+      remoteCommands.some((command) => command.includes('hvir-codex-clean')),
+    ).toBe(true)
+    expect(remoteCommands.some((command) => command.includes('--version'))).toBe(true)
     expect(
       remoteCommands.some((command) =>
         command.includes("CODEX_HOME='/srv/codex-home'"),

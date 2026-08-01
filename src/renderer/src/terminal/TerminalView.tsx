@@ -39,6 +39,7 @@ interface TerminalViewProps {
   readonly metaEnterAliasesControl: boolean
   readonly themeOverride: TerminalThemeOverride
   readonly typography: TerminalTypography
+  readonly richOutput: boolean
   readonly composerSubmitMode: ComposerSubmitMode
   readonly cwd: HostPath
   readonly workspaceRoot: HostPath
@@ -87,7 +88,6 @@ export function TerminalView(props: TerminalViewProps): ReactElement | null {
     richOutput,
     restart,
     startFresh,
-    setRichOutputEnabled,
     focus,
   } = controller
   const canRecoverHarness = supportsResume && Boolean(harnessSessionId)
@@ -102,6 +102,15 @@ export function TerminalView(props: TerminalViewProps): ReactElement | null {
       aria-hidden={!visible}
       data-terminal-session={sessionId}
       data-terminal-status={status}
+      data-rich-output={
+        richOutput.control !== 'available'
+          ? richOutput.control
+          : richOutput.changing
+            ? 'applying'
+            : richOutput.enabled
+              ? 'on'
+              : 'off'
+      }
     >
       {visible && connectionState === 'connected' && exited ? (
         <div
@@ -135,7 +144,6 @@ export function TerminalView(props: TerminalViewProps): ReactElement | null {
       <RichOutputLane
         snapshot={richOutput}
         visible={visible}
-        onToggle={setRichOutputEnabled}
         onActivateLink={(link) => {
           if (link.kind === 'file') props.onLink({ kind: 'file', target: link.target })
           else window.open(link.target, '_blank', 'noopener,noreferrer')

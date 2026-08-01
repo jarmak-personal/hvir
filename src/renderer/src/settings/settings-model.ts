@@ -23,6 +23,7 @@ export interface AppSettings {
   readonly monospaceFont: FontPreference
   readonly interfaceScale: number
   readonly terminalTextSize: number
+  readonly richOutput: boolean
   readonly composerSubmitMode: ComposerSubmitMode
   readonly keybindings: KeybindingMap
 }
@@ -32,5 +33,6 @@ export interface TerminalPreferences {
   readonly terminalRecoveryMode: TerminalRecoveryMode
   readonly terminalTheme: TerminalThemeOverride
   readonly terminalTypography: TextTypography
+  readonly richOutput: boolean
   readonly composerSubmitMode: ComposerSubmitMode
 }

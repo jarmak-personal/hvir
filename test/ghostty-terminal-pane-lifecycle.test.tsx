@@ -1053,6 +1053,7 @@ function runtimeOptions(): TerminalRuntimeOptions & { readonly presented: boolea
     identityStatus: 'identified',
     resumeOnStart: true,
     startMode: 'interactive',
+    richOutput: false,
     position: 0,
     active: true,
     presented: true,
