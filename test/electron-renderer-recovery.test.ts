@@ -25,12 +25,13 @@ function fixture() {
   const reload = vi.fn()
   const scheduledReloads: (() => void)[] = []
   let crashed = false
+  let processId = 202
   const win = {
     isDestroyed: vi.fn(() => false),
     webContents: {
       forcefullyCrashRenderer,
       reload,
-      getOSProcessId: vi.fn(() => 202),
+      getOSProcessId: vi.fn(() => processId),
       isCrashed: vi.fn(() => crashed),
     },
   }
@@ -74,6 +75,9 @@ function fixture() {
     },
     crashCurrentRenderer: () => {
       crashed = true
+    },
+    replaceCurrentProcess: () => {
+      processId += 1
     },
   }
 }
@@ -135,6 +139,43 @@ describe('ElectronRendererRecovery', () => {
 
     expect(candidate.recovery.rendererGone(candidate.owner(), 'crashed')).toBe(false)
     expect(outcomes(candidate.events)).toEqual(['reload-requested', 'reload-succeeded'])
+  })
+
+  it('does not absorb an exit from a process other than the usable replacement', () => {
+    const candidate = fixture()
+
+    candidate.recovery.reloadUnresponsive(INITIAL)
+    candidate.recovery.documentLoaded(candidate.owner())
+    candidate.recovery.rendererReady(candidate.owner())
+    candidate.replaceCurrentProcess()
+
+    expect(candidate.recovery.rendererGone(candidate.owner(), 'killed')).toBe(false)
+    expect(outcomes(candidate.events)).toEqual(['reload-requested', 'reload-succeeded'])
+  })
+
+  it('does not read replacement process state after the window is destroyed', () => {
+    const candidate = fixture()
+
+    candidate.recovery.reloadUnresponsive(INITIAL)
+    candidate.recovery.documentLoaded(candidate.owner())
+    candidate.recovery.rendererReady(candidate.owner())
+    expect(candidate.win.webContents.getOSProcessId).toHaveBeenCalledOnce()
+
+    candidate.win.isDestroyed.mockReturnValue(true)
+    expect(candidate.recovery.rendererGone(candidate.owner(), 'killed')).toBe(false)
+    expect(candidate.win.webContents.getOSProcessId).toHaveBeenCalledOnce()
+    expect(candidate.win.webContents.isCrashed).not.toHaveBeenCalled()
+  })
+
+  it('does not record replacement process identity after window teardown', () => {
+    const candidate = fixture()
+
+    candidate.recovery.reloadUnresponsive(INITIAL)
+    candidate.win.isDestroyed.mockReturnValue(true)
+    candidate.recovery.documentLoaded(candidate.owner())
+    candidate.recovery.rendererReady(candidate.owner())
+
+    expect(candidate.win.webContents.getOSProcessId).not.toHaveBeenCalled()
   })
 
   it('presents load failure, retries the current generation, and accepts retry success', async () => {

@@ -7,6 +7,10 @@ const workflowSource = readFileSync(
   new URL('../.github/workflows/ci.yml', import.meta.url),
   'utf8',
 )
+const releaseValidatorSource = readFileSync(
+  new URL('../scripts/validate-release-pr.mts', import.meta.url),
+  'utf8',
+)
 
 interface WorkflowJob {
   if?: string
@@ -57,6 +61,12 @@ const ordinaryCodeqlCondition = [
   'github.event.pull_request.head.repo.full_name != github.repository',
   "!startsWith(github.event.pull_request.head.ref, 'release/v')",
 ].join(' || ')
+const releaseValidatorCheckout = [
+  'scripts/validate-release-pr.mts',
+  ...[...releaseValidatorSource.matchAll(/from\s+['"]\.\/([^'"]+)['"]/g)].map(
+    (match) => `scripts/${match[1]}`,
+  ),
+].join('\n')
 
 const linuxChecks = [
   {
@@ -178,7 +188,7 @@ describe('CI workflow', () => {
           with: {
             ref: '${{ github.event.pull_request.base.sha }}',
             'persist-credentials': false,
-            'sparse-checkout': 'scripts/validate-release-pr.mts',
+            'sparse-checkout': releaseValidatorCheckout,
             'sparse-checkout-cone-mode': false,
           },
         }),

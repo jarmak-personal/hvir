@@ -38,7 +38,9 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.base.sha }}
           persist-credentials: false
-          sparse-checkout: scripts/validate-release-pr.mts
+          sparse-checkout: |-
+            scripts/validate-release-pr.mts
+            scripts/release-github-evidence.mts
           sparse-checkout-cone-mode: false
 
       - name: Set up Node.js

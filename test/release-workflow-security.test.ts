@@ -33,6 +33,12 @@ const releasePrIntegrityScript = readFileSync(
 const nodeTsconfig = JSON.parse(
   readFileSync(new URL('../tsconfig.node.json', import.meta.url), 'utf8'),
 ) as { include: string[] }
+const releaseValidatorCheckout = [
+  'scripts/validate-release-pr.mts',
+  ...[...releasePrIntegrityScript.matchAll(/from\s+['"]\.\/([^'"]+)['"]/g)].map(
+    (match) => `scripts/${match[1]}`,
+  ),
+].join('\n')
 
 describe('native release automation', () => {
   it('keeps every workflow valid and gates native release jobs on current package state', () => {
@@ -130,9 +136,16 @@ describe('native release automation', () => {
       'ref: ${{ github.event.repository.default_branch }}',
     )
     expect(mergedReleaseWorkflow).toContain('persist-credentials: false')
-    expect(mergedReleaseWorkflow).toContain(
-      'sparse-checkout: scripts/validate-release-pr.mts',
+    const parsedMergedReleaseWorkflow = parse(mergedReleaseWorkflow) as {
+      jobs: Record<
+        string,
+        { steps: Array<{ name?: string; with?: Record<string, unknown> }> }
+      >
+    }
+    const checkout = parsedMergedReleaseWorkflow.jobs.dispatch?.steps.find(
+      (step) => step.name === 'Check out trusted release validation',
     )
+    expect(checkout?.with?.['sparse-checkout']).toBe(releaseValidatorCheckout)
     expect(mergedReleaseWorkflow).not.toMatch(/npm (?:ci|install)|git fetch/)
     expect(mergedReleaseWorkflow).not.toMatch(/^\s+run:.*\$\{\{/m)
   })

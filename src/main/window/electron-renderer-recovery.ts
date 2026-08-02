@@ -86,6 +86,7 @@ export class ElectronRendererRecovery {
     if (forcedExit) {
       const awaitingForcedExit = forcedExit.replacementProcessId === undefined
       const replacementStillAlive =
+        !this.options.win.isDestroyed() &&
         forcedExit.replacementProcessId !== undefined &&
         this.options.win.webContents.getOSProcessId() ===
           forcedExit.replacementProcessId &&
@@ -191,7 +192,7 @@ export class ElectronRendererRecovery {
   }
 
   private succeeded(attempt: RendererRecoveryAttempt): void {
-    if (this.forcedExit) {
+    if (this.forcedExit && !this.options.win.isDestroyed()) {
       // Keep enough identity to absorb a late old-process notification, but
       // never let it hide a later crash of the usable replacement.
       this.forcedExit = {
