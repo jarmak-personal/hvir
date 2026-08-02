@@ -173,7 +173,12 @@ and migration contract passes cumulative acceptance.
 
 The `Release` workflow is the only publication path. `patch`, `minor`, and `major` dispatches keep
 the version-only release pull-request flow. A `current` dispatch builds one exact commit already
-merged into the default branch and produces exactly these assets:
+merged into the default branch. Its lightweight preparation job observes GitHub Actions for up to
+ten minutes when that commit's first-attempt `push` CI is not yet registered or is still running.
+It never starts or reruns CI. Exact CI success continues the release automatically; a terminal
+failure or exhausted wait fails closed before native build or publication work.
+
+A trusted `current` dispatch produces exactly these assets:
 
 - `hvir-<version>-linux-x64.deb`;
 - `hvir-<version>-linux-arm64.deb`;

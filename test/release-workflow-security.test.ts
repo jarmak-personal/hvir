@@ -82,6 +82,9 @@ describe('native release automation', () => {
       'RELEASE_SOURCE_SHA: ${{ steps.version.outputs.sha }}',
     )
     expect(releaseWorkflow).toContain('run: node scripts/require-release-ci-evidence.mts')
+    expect(releaseWorkflow).toContain(
+      "      - name: Require exact-source first-attempt CI evidence\n        if: inputs.bump == 'current'\n        timeout-minutes: 11\n        env:",
+    )
     expect(releaseWorkflow).toContain("if: inputs.bump == 'current'")
     expect(releaseWorkflow.match(/if: inputs\.bump != 'current'/g)).toHaveLength(3)
     expect(releaseWorkflow).toContain("if: failure() && inputs.bump != 'current'")
@@ -92,6 +95,9 @@ describe('native release automation', () => {
       "export const CI_WORKFLOW_PATH = '.github/workflows/ci.yml'",
     )
     expect(releaseCiEvidenceScript).toContain('run.runAttempt === 1')
+    expect(releaseCiEvidenceScript).toContain('RELEASE_CI_MAX_WAIT_MS = 10 * 60_000')
+    expect(releaseCiEvidenceScript).not.toMatch(/\/rerun|\/dispatches/)
+    expect(releaseCiEvidenceScript).not.toContain('method:')
     expect(releaseCiEvidenceScript).not.toContain('response.text()')
   })
 

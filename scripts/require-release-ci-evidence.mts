@@ -3,6 +3,8 @@ import { pathToFileURL } from 'node:url'
 export const RELEASE_REPOSITORY = 'jarmak-personal/hvir'
 export const CI_WORKFLOW_NAME = 'CI'
 export const CI_WORKFLOW_PATH = '.github/workflows/ci.yml'
+export const RELEASE_CI_POLL_INTERVAL_MS = 10_000
+export const RELEASE_CI_MAX_WAIT_MS = 10 * 60_000
 
 export const REQUIRED_CI_JOBS = [
   'Verification (Linux)',
@@ -55,6 +57,15 @@ export interface ReleaseCiEvidence {
   repository: string
   runs: readonly CiWorkflowRun[]
   jobs: readonly CiWorkflowJob[]
+}
+
+export interface ReleaseCiEvidenceWaitOptions {
+  loadEvidence: () => Promise<ReleaseCiEvidence>
+  sleep?: (milliseconds: number) => Promise<void>
+  now?: () => number
+  pollIntervalMs?: number
+  maxWaitMs?: number
+  onTransient?: (rejection: 'missing-run' | 'pending-run') => void
 }
 
 function isExactRun(run: CiWorkflowRun, evidence: ReleaseCiEvidence): boolean {
@@ -229,6 +240,65 @@ async function loadFirstAttemptJobs(
   }))
 }
 
+async function loadReleaseCiEvidence(
+  repository: string,
+  defaultBranch: string,
+  sourceSha: string,
+  token: string,
+): Promise<ReleaseCiEvidence> {
+  const runs = await loadMatchingRuns(repository, defaultBranch, sourceSha, token)
+  const exactFirstAttempts = runs.filter(
+    (run) =>
+      isExactRun(run, { sourceSha, defaultBranch, repository, runs, jobs: [] }) &&
+      run.runAttempt === 1,
+  )
+  const exactRun = exactFirstAttempts.length === 1 ? exactFirstAttempts[0]! : null
+  const jobs =
+    exactRun?.status === 'completed' && exactRun.conclusion === 'success'
+      ? await loadFirstAttemptJobs(repository, exactRun.id, token)
+      : []
+
+  return { sourceSha, defaultBranch, repository, runs, jobs }
+}
+
+function rejectEvidence(rejection: EvidenceRejection): never {
+  throw new Error(`Trusted CI evidence rejected: ${rejection}`)
+}
+
+export async function waitForReleaseCiEvidence(
+  options: ReleaseCiEvidenceWaitOptions,
+): Promise<number> {
+  const sleep =
+    options.sleep ??
+    ((milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)))
+  const now = options.now ?? Date.now
+  const pollIntervalMs = options.pollIntervalMs ?? RELEASE_CI_POLL_INTERVAL_MS
+  const maxWaitMs = options.maxWaitMs ?? RELEASE_CI_MAX_WAIT_MS
+  if (pollIntervalMs <= 0 || maxWaitMs < 0) {
+    throw new Error('Release CI evidence wait configuration is invalid')
+  }
+
+  const startedAt = now()
+  while (true) {
+    const decision = evaluateReleaseCiEvidence(await options.loadEvidence())
+    if (decision.accepted) return decision.runId
+
+    if (decision.rejection !== 'missing-run' && decision.rejection !== 'pending-run') {
+      rejectEvidence(decision.rejection)
+    }
+
+    const remainingMs = maxWaitMs - (now() - startedAt)
+    if (remainingMs <= 0) {
+      throw new Error(
+        `Trusted CI evidence rejected after bounded wait: ${decision.rejection}`,
+      )
+    }
+
+    options.onTransient?.(decision.rejection)
+    await sleep(Math.min(pollIntervalMs, remainingMs))
+  }
+}
+
 function requireEnvironment(name: string): string {
   const value = process.env[name]
   if (!value) throw new Error(`${name} is required`)
@@ -251,26 +321,15 @@ export async function requireReleaseCiEvidence(): Promise<void> {
   const sourceSha = requireFullSha(requireEnvironment('RELEASE_SOURCE_SHA'))
   const token = requireEnvironment('GITHUB_TOKEN')
 
-  const runs = await loadMatchingRuns(repository, defaultBranch, sourceSha, token)
-  const exactFirstAttempts = runs.filter(
-    (run) =>
-      isExactRun(run, { sourceSha, defaultBranch, repository, runs, jobs: [] }) &&
-      run.runAttempt === 1,
-  )
-  const jobs =
-    exactFirstAttempts.length === 1
-      ? await loadFirstAttemptJobs(repository, exactFirstAttempts[0]!.id, token)
-      : []
-  const decision = evaluateReleaseCiEvidence({
-    sourceSha,
-    defaultBranch,
-    repository,
-    runs,
-    jobs,
+  await waitForReleaseCiEvidence({
+    loadEvidence: () =>
+      loadReleaseCiEvidence(repository, defaultBranch, sourceSha, token),
+    onTransient: (rejection) => {
+      process.stdout.write(
+        `Trusted CI evidence is not ready (${rejection}); checking again.\n`,
+      )
+    },
   })
-  if (!decision.accepted) {
-    throw new Error(`Trusted CI evidence rejected: ${decision.rejection}`)
-  }
 
   process.stdout.write(`Trusted first-attempt CI evidence accepted for ${sourceSha}.\n`)
 }
