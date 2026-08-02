@@ -172,11 +172,19 @@ and migration contract passes cumulative acceptance.
 ## Release contents and atomicity
 
 The `Release` workflow is the only publication path. `patch`, `minor`, and `major` dispatches keep
-the version-only release pull-request flow. A `current` dispatch builds one exact commit already
-merged into the default branch. Its lightweight preparation job observes GitHub Actions for up to
-ten minutes when that commit's first-attempt `push` CI is not yet registered or is still running.
-It never starts or reruns CI. Exact CI success continues the release automatically; a terminal
-failure or exhausted wait fails closed before native build or publication work.
+the version-only release pull-request flow. Preparation validates only the generated version
+change; it does not install dependencies or rerun product verification and Electron smoke. An
+untouched same-repository bot release pull request runs one read-only integrity job that proves
+its identity, exact two-file change set, synchronized semantic versions, and absence of other
+package or lockfile changes. Product verification, Electron, capacity, native-package, assembly,
+and CodeQL jobs are condition-skipped for only that pull-request event. Any ordinary pull request
+or non-bot release-branch update retains the complete CI and CodeQL gates.
+
+Merging the release pull request creates the exact default-branch source commit. Its `push` event
+runs the complete CI matrix once. A `current` dispatch observes GitHub Actions for up to ten
+minutes when that commit's first-attempt CI is not yet registered or is still running. It never
+starts or reruns CI. Exact CI success continues the release automatically; a terminal failure or
+exhausted wait fails closed before native build or publication work.
 
 A trusted `current` dispatch produces exactly these assets:
 

@@ -9,9 +9,11 @@ const workflowSource = readFileSync(
 )
 
 interface WorkflowJob {
+  if?: string
   name: string
   'runs-on': string
   needs?: string | string[]
+  permissions?: Record<string, string>
   strategy?: {
     'fail-fast': boolean
     matrix: {
@@ -19,6 +21,7 @@ interface WorkflowJob {
     }
   }
   steps: Array<{
+    env?: Record<string, string>
     name: string
     run?: string
     uses?: string
@@ -33,6 +36,27 @@ const workflow = parse(workflowSource) as {
   }
   jobs: Record<string, WorkflowJob>
 }
+const codeqlWorkflow = parse(
+  readFileSync(new URL('../.github/workflows/codeql.yml', import.meta.url), 'utf8'),
+) as { jobs: Record<string, WorkflowJob> }
+
+const fullCiCondition = "always() && needs.release-version-integrity.result == 'skipped'"
+const releasePrIdentityCondition = [
+  "github.event_name == 'pull_request'",
+  "github.actor == 'github-actions[bot]'",
+  "github.event.pull_request.user.login == 'github-actions[bot]'",
+  'github.event.pull_request.base.ref == github.event.repository.default_branch',
+  'github.event.pull_request.head.repo.full_name == github.repository',
+  "startsWith(github.event.pull_request.head.ref, 'release/v')",
+].join(' && ')
+const ordinaryCodeqlCondition = [
+  "github.event_name != 'pull_request'",
+  "github.actor != 'github-actions[bot]'",
+  "github.event.pull_request.user.login != 'github-actions[bot]'",
+  'github.event.pull_request.base.ref != github.event.repository.default_branch',
+  'github.event.pull_request.head.repo.full_name != github.repository',
+  "!startsWith(github.event.pull_request.head.ref, 'release/v')",
+].join(' || ')
 
 const linuxChecks = [
   {
@@ -64,7 +88,8 @@ describe('CI workflow', () => {
       }
 
       expect(job.name).toBe(expected.name)
-      expect(job.needs).toBeUndefined()
+      expect(job.needs).toBe('release-version-integrity')
+      expect(job.if).toBe(fullCiCondition)
       expect(job.steps).toEqual(
         expect.arrayContaining([
           expect.objectContaining({ run: 'npm ci' }),
@@ -84,7 +109,8 @@ describe('CI workflow', () => {
     if (!job) throw new Error('Missing CI job: macos-electron-smoke')
     expect(job.name).toBe('Electron correctness (macOS arm64; temporary reduced gate)')
     expect(job['runs-on']).toBe('macos-15')
-    expect(job.needs).toBeUndefined()
+    expect(job.needs).toBe('release-version-integrity')
+    expect(job.if).toBe(fullCiCondition)
     expect(job.steps).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ run: 'npm ci' }),
@@ -100,6 +126,8 @@ describe('CI workflow', () => {
     const job = workflow.jobs['native-linux-package']
     if (!job) throw new Error('Missing CI job: native-linux-package')
     expect(job.name).toBe('Native package acceptance (${{ matrix.name }})')
+    expect(job.needs).toBe('release-version-integrity')
+    expect(job.if).toBe(fullCiCondition)
     expect(job.strategy?.['fail-fast']).toBe(false)
     expect(job.strategy?.matrix.include).toEqual([
       {
@@ -132,6 +160,49 @@ describe('CI workflow', () => {
     expect(commands).toContain('bash -n dist/release/install.sh')
     expect(commands).toContain('sha256sum --check SHA256SUMS')
     expect(commands).not.toMatch(/gh release (?:create|upload|edit)/)
+  })
+
+  it('uses one trusted release classifier and preserves ordinary CI and CodeQL', () => {
+    const integrity = workflow.jobs['release-version-integrity']
+    if (!integrity) throw new Error('Missing CI job: release-version-integrity')
+    expect(integrity.if).toBe(releasePrIdentityCondition)
+    expect(integrity.permissions).toEqual({
+      contents: 'read',
+      'pull-requests': 'read',
+    })
+    expect(integrity.steps).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          name: 'Check out trusted release validation',
+          uses: 'actions/checkout@v7',
+          with: {
+            ref: '${{ github.event.pull_request.base.sha }}',
+            'persist-credentials': false,
+            'sparse-checkout': 'scripts/validate-release-pr.mts',
+            'sparse-checkout-cone-mode': false,
+          },
+        }),
+        expect.objectContaining({
+          name: 'Validate version-only release change',
+          run: 'node scripts/validate-release-pr.mts',
+        }),
+      ]),
+    )
+
+    for (const id of [
+      'verify',
+      'electron-smoke',
+      'capacity-smoke',
+      'macos-electron-smoke',
+      'native-linux-package',
+      'native-macos-package',
+    ]) {
+      expect(workflow.jobs[id]).toMatchObject({
+        needs: 'release-version-integrity',
+        if: fullCiCondition,
+      })
+    }
+    expect(codeqlWorkflow.jobs.analyze?.if).toBe(ordinaryCodeqlCondition)
   })
 
   it('keeps cancellation scoped to the current pull request or branch', () => {

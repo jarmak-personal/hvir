@@ -26,6 +26,10 @@ const releaseCiEvidenceScript = readFileSync(
   new URL('../scripts/require-release-ci-evidence.mts', import.meta.url),
   'utf8',
 )
+const releasePrIntegrityScript = readFileSync(
+  new URL('../scripts/validate-release-pr.mts', import.meta.url),
+  'utf8',
+)
 
 describe('native release automation', () => {
   it('keeps every workflow valid and gates native release jobs on current package state', () => {
@@ -86,8 +90,12 @@ describe('native release automation', () => {
       "      - name: Require exact-source first-attempt CI evidence\n        if: inputs.bump == 'current'\n        timeout-minutes: 11\n        env:",
     )
     expect(releaseWorkflow).toContain("if: inputs.bump == 'current'")
-    expect(releaseWorkflow.match(/if: inputs\.bump != 'current'/g)).toHaveLength(3)
-    expect(releaseWorkflow).toContain("if: failure() && inputs.bump != 'current'")
+    expect(releaseWorkflow).not.toContain("if: inputs.bump != 'current'")
+    expect(releaseWorkflow).not.toContain('Verify release source')
+    expect(releaseWorkflow).not.toContain(
+      'Exercise unpackaged Electron production workflow',
+    )
+    expect(releaseWorkflow).not.toContain('release-prepare-smoke-failure')
     expect(releaseCiEvidenceScript).toContain(
       "export const RELEASE_REPOSITORY = 'jarmak-personal/hvir'",
     )
@@ -115,20 +123,30 @@ describe('native release automation', () => {
     )
     expect(mergedReleaseWorkflow).toContain('actions: write')
     expect(mergedReleaseWorkflow).toContain('pull-requests: read')
-    expect(mergedReleaseWorkflow).not.toMatch(
-      /actions\/checkout|npm (?:ci|install)|git fetch/,
+    expect(mergedReleaseWorkflow).toContain(
+      'ref: ${{ github.event.repository.default_branch }}',
     )
+    expect(mergedReleaseWorkflow).toContain('persist-credentials: false')
+    expect(mergedReleaseWorkflow).toContain(
+      'sparse-checkout: scripts/validate-release-pr.mts',
+    )
+    expect(mergedReleaseWorkflow).not.toMatch(/npm (?:ci|install)|git fetch/)
     expect(mergedReleaseWorkflow).not.toMatch(/^\s+run:.*\$\{\{/m)
   })
 
   it('revalidates release identity and contents before dispatching current', () => {
-    expect(mergedReleaseWorkflow).toContain('<!-- hvir-release-pr:v1 -->')
-    expect(mergedReleaseWorkflow).toContain(
-      "expected_files=$'package-lock.json\\npackage.json'",
+    expect(mergedReleaseWorkflow).toContain('node scripts/validate-release-pr.mts')
+    expect(releasePrIntegrityScript).toContain(
+      "export const RELEASE_PR_MARKER = '<!-- hvir-release-pr:v1 -->'",
     )
-    expect(mergedReleaseWorkflow).toContain(
-      '.version == $version and .packages[""].version == $version',
+    expect(releasePrIntegrityScript).toContain(
+      "export const RELEASE_VERSION_FILES = ['package-lock.json', 'package.json']",
     )
+    expect(releasePrIntegrityScript).toContain('withoutPackageVersion')
+    expect(releasePrIntegrityScript).toContain('withoutLockfileVersions')
+    expect(releasePrIntegrityScript).toContain("'release-source-mismatch'")
+    expect(releasePrIntegrityScript).not.toContain('response.text()')
+    expect(releasePrIntegrityScript).not.toContain('method:')
     expect(mergedReleaseWorkflow).toContain('gh workflow run release.yml')
     expect(mergedReleaseWorkflow).toContain('-f bump=current')
     expect(mergedReleaseWorkflow).toContain('-f source_sha="$MERGE_SHA"')
