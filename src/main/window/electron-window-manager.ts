@@ -60,7 +60,6 @@ export interface ElectronWindowManager {
   readonly updateWebPaneBindings: (ownerId: number, bindings: KeybindingMap) => void
   readonly updateWebPaneFullPage: (ownerId: number, paneId?: string) => void
   readonly rendererReady: (owner: RendererOwner, reportedGeneration: number) => boolean
-  readonly reloadUnresponsiveRenderer: (owner: RendererOwner) => boolean
   readonly dispose: () => Promise<void>
 }
 
@@ -75,7 +74,6 @@ export function createElectronWindowManager(
     number,
     (owner: RendererOwner, reportedGeneration: number) => boolean
   >()
-  const unresponsiveReloadHandlers = new Map<number, (owner: RendererOwner) => boolean>()
   const windowRecoveryDisposers = new Map<number, () => void>()
   const webPaneRoutes = new WebPaneRouteRegistry({
     prepareSession: prepareWebPaneSession,
@@ -311,7 +309,6 @@ export function createElectronWindowManager(
       recovery.rendererReady(owner)
       return true
     })
-    unresponsiveReloadHandlers.set(ownerId, (owner) => recovery.reloadUnresponsive(owner))
     windowRecoveryDisposers.set(ownerId, () => recovery.dispose())
     // Renderer reload/crash cannot run React cleanup for its main-owned resources.
     installRendererDocumentLifecycle(win.webContents, entryUrl, {
@@ -390,7 +387,6 @@ export function createElectronWindowManager(
     win.on('closed', () => {
       recovery.close()
       rendererReadyHandlers.delete(ownerId)
-      unresponsiveReloadHandlers.delete(ownerId)
       windowRecoveryDisposers.delete(ownerId)
       revokeRendererResources()
       if (
@@ -482,14 +478,11 @@ export function createElectronWindowManager(
     },
     rendererReady: (owner, reportedGeneration) =>
       rendererReadyHandlers.get(owner.id)?.(owner, reportedGeneration) ?? false,
-    reloadUnresponsiveRenderer: (owner) =>
-      unresponsiveReloadHandlers.get(owner.id)?.(owner) ?? false,
     dispose: async () => {
       app.off('login', handleLogin)
       for (const disposeRecovery of windowRecoveryDisposers.values()) disposeRecovery()
       windowRecoveryDisposers.clear()
       rendererReadyHandlers.clear()
-      unresponsiveReloadHandlers.clear()
       webPaneBindings.clear()
       fullPageWebPanes.clear()
       await webPaneRoutes.closeAll()

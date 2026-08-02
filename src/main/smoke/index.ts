@@ -36,7 +36,7 @@ import { verifyRendererAuthorityLifecycle } from './renderer-authority'
 import { verifyFocusedViewer } from './viewer-position'
 import { verifyViewerContent } from './viewer-content'
 import { verifyWorkbenchHealthFault } from './workbench-health'
-import { verifyUnresponsiveRendererRecovery } from './renderer-recovery'
+import { verifyRendererProcessRecovery } from './renderer-recovery'
 import type { ElectronSmokeMode } from './scenario-selection.mts'
 import { createTerminalMoveSmokeHarness, verifyTerminalMoveSmoke } from './terminal-move'
 import { createSmokeTerminalSessionStore } from './terminal-session-store'
@@ -87,9 +87,6 @@ export interface ElectronSmokeDependencies {
   readonly rendererReady: (
     owner: import('../renderer-resource-scopes').RendererOwner,
     reportedGeneration: number,
-  ) => boolean
-  readonly reloadUnresponsiveRenderer: (
-    owner: import('../renderer-resource-scopes').RendererOwner,
   ) => boolean
   readonly updateWebPaneBindings: (ownerId: number, bindings: KeybindingMap) => void
   readonly updateWebPaneFullPage: (ownerId: number, paneId?: string) => void
@@ -599,7 +596,7 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
     recordSmokePhase('scenario-active')
     if (await verifyDevelopmentPerformanceMode(win, mode)) return 0
     if (mode === 'renderer-recovery') {
-      const result = await verifyUnresponsiveRendererRecovery({
+      const result = await verifyRendererProcessRecovery({
         win,
         resources: rendererResources,
         diagnostics: dependencies.runtimeDiagnostics,
@@ -607,7 +604,6 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
         routes: webPaneRoutes,
         root: smokeRoot,
         host,
-        reloadUnresponsiveRenderer: dependencies.reloadUnresponsiveRenderer,
         checkpoint: recordSmokeCheckpoint,
       })
       if (discardedRendererGenerations !== 1) {

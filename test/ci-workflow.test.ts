@@ -149,18 +149,25 @@ describe('CI workflow', () => {
         name: 'Linux x64',
         os: 'ubuntu-24.04',
         build: 'npm run pack:linux:x64',
-        artifact: 'dist/hvir_*_amd64.deb',
+        deb_arch: 'amd64',
+        release_arch: 'x64',
+        artifact: 'dist/hvir-*-linux-x64.deb',
       },
       {
         name: 'Linux arm64',
         os: 'ubuntu-24.04-arm',
         build: 'npm run pack:linux:arm64',
-        artifact: 'dist/hvir_*_arm64.deb',
+        deb_arch: 'arm64',
+        release_arch: 'arm64',
+        artifact: 'dist/hvir-*-linux-arm64.deb',
       },
     ])
     expect(job.steps).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ run: 'xvfb-run -a npm run smoke:linux:installed' }),
+        expect.objectContaining({
+          name: 'Give the accepted artifact its public release name',
+        }),
       ]),
     )
   })
@@ -175,6 +182,8 @@ describe('CI workflow', () => {
     expect(commands).toContain('npm run assemble:native-release')
     expect(commands).toContain('bash -n dist/release/install.sh')
     expect(commands).toContain('sha256sum --check SHA256SUMS')
+    expect(commands).not.toContain('hvir_${version}_amd64.deb')
+    expect(commands).not.toContain('hvir_${version}_arm64.deb')
     expect(commands).not.toMatch(/gh release (?:create|upload|edit)/)
   })
 

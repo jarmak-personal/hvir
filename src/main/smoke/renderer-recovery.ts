@@ -8,7 +8,7 @@ import type { RendererOwner, RendererResourceScopes } from '../renderer-resource
 import type { WebPaneRouteRegistry } from '../web-pane/web-pane-route-registry'
 import type { SmokeFailureCheckpoint } from './failure-evidence.mts'
 
-export async function verifyUnresponsiveRendererRecovery(options: {
+export async function verifyRendererProcessRecovery(options: {
   readonly win: BrowserWindow
   readonly resources: RendererResourceScopes
   readonly diagnostics: RuntimeDiagnostics
@@ -16,7 +16,6 @@ export async function verifyUnresponsiveRendererRecovery(options: {
   readonly routes: WebPaneRouteRegistry
   readonly root: HostPath
   readonly host: ProjectHost
-  readonly reloadUnresponsiveRenderer: (owner: RendererOwner) => boolean
   readonly checkpoint: (checkpoint: SmokeFailureCheckpoint) => void
 }): Promise<string> {
   const {
@@ -27,11 +26,13 @@ export async function verifyUnresponsiveRendererRecovery(options: {
     routes,
     root,
     host,
-    reloadUnresponsiveRenderer,
     checkpoint,
   } = options
   const initialOwner = resources.currentOwner(win.webContents.id)
   const initialProcessId = win.webContents.getOSProcessId()
+  if (initialProcessId <= 0) {
+    throw new Error('renderer recovery could not identify the initial OS process')
+  }
   if (supervisor.list().length !== 0) {
     throw new Error('empty renderer-recovery fixture started a PTY before user action')
   }
@@ -53,9 +54,7 @@ export async function verifyUnresponsiveRendererRecovery(options: {
   )
 
   checkpoint('renderer-recovery-reload-awaiting')
-  if (!reloadUnresponsiveRenderer(initialOwner)) {
-    throw new Error('window manager rejected renderer recovery fault injection')
-  }
+  process.kill(initialProcessId, 'SIGKILL')
   await timeout(loaded, 'replacement renderer document did not load')
   checkpoint('renderer-recovery-reload-loaded')
 
@@ -144,11 +143,7 @@ export async function verifyUnresponsiveRendererRecovery(options: {
     )
   }
   const replacementProcessId = win.webContents.getOSProcessId()
-  if (
-    initialProcessId <= 0 ||
-    replacementProcessId <= 0 ||
-    initialProcessId === replacementProcessId
-  ) {
+  if (replacementProcessId <= 0 || initialProcessId === replacementProcessId) {
     throw new Error('renderer recovery did not create a replacement OS process')
   }
   checkpoint('renderer-recovery-route-revocation-awaiting')
@@ -161,6 +156,7 @@ export async function verifyUnresponsiveRendererRecovery(options: {
   await waitForRecoveryEvidence(diagnostics, initialOwner)
   checkpoint('renderer-recovery-diagnostics-ready')
   return (
+    `killed renderer ${initialProcessId} → ${replacementProcessId} · ` +
     `generation ${initialOwner.generation} → ${replacement.generation} · ` +
     `${functionalControl} · old route revoked · empty workspace retained zero PTYs`
   )
@@ -191,20 +187,15 @@ async function waitForRecoveryEvidence(
           event['ownerId'] === initialOwner.id &&
           event.ownerGeneration === initialOwner.generation,
       )
-    const unresponsive = events.find((event) => event.kind === 'renderer-unresponsive')
-    const outcomes = events
-      .filter((event) => event.kind === 'workbench-health-recovered')
-      .map((event) => event['outcome'])
-    if (
-      unresponsive &&
-      outcomes.includes('reload-requested') &&
-      outcomes.includes('reload-succeeded')
-    ) {
+    const exited = events.find(
+      (event) => event.kind === 'renderer-process-exited' && event.reason === 'killed',
+    )
+    if (exited) {
       return
     }
     await new Promise<void>((resolve) => setTimeout(resolve, 25))
   }
-  throw new Error('renderer recovery diagnostics did not record request and success')
+  throw new Error('renderer recovery diagnostics did not record the killed process')
 }
 
 async function timeout<T>(

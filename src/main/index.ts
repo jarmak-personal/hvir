@@ -443,7 +443,6 @@ function createWorkbenchEntry(): void {
           runtimeDiagnostics: diagnostics,
           webPaneRoutes,
           rendererReady: windowManager.rendererReady,
-          reloadUnresponsiveRenderer: windowManager.reloadUnresponsiveRenderer,
           updateWebPaneBindings: windowManager.updateWebPaneBindings,
           updateWebPaneFullPage: windowManager.updateWebPaneFullPage,
           openExternal: (url) => shell.openExternal(url),
