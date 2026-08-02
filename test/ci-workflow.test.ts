@@ -45,6 +45,11 @@ const codeqlWorkflow = parse(
 ) as { jobs: Record<string, WorkflowJob> }
 
 const fullCiCondition = "always() && needs.release-version-integrity.result == 'skipped'"
+const nativeAssemblyCondition = [
+  'always()',
+  "needs.native-linux-package.result == 'success'",
+  "needs.native-macos-package.result == 'success'",
+].join(' && ')
 const releasePrIdentityCondition = [
   "github.event_name == 'pull_request'",
   "github.actor == 'github-actions[bot]'",
@@ -165,6 +170,7 @@ describe('CI workflow', () => {
     if (!job) throw new Error('Missing CI job: native-release-assembly')
     expect(job.name).toBe('Native release assembly (unsigned structure)')
     expect(job.needs).toEqual(['native-linux-package', 'native-macos-package'])
+    expect(job.if).toBe(nativeAssemblyCondition)
     const commands = job.steps.map((step) => step.run ?? '').join('\n')
     expect(commands).toContain('npm run assemble:native-release')
     expect(commands).toContain('bash -n dist/release/install.sh')

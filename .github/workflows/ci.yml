@@ -289,6 +289,10 @@ jobs:
     needs:
       - native-linux-package
       - native-macos-package
+    if: >-
+      always() &&
+      needs.native-linux-package.result == 'success' &&
+      needs.native-macos-package.result == 'success'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
 
