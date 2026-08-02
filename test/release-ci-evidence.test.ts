@@ -9,6 +9,7 @@ import {
   evaluateReleaseCiEvidence,
   REQUIRED_CI_JOBS,
   RELEASE_REPOSITORY,
+  waitForReleaseCiEvidence,
   type CiWorkflowJob,
   type CiWorkflowRun,
   type ReleaseCiEvidence,
@@ -156,4 +157,104 @@ describe('release CI evidence', () => {
       rejection: 'missing-job',
     })
   })
+
+  it('waits through absent and pending evidence until exact CI succeeds', async () => {
+    const observations = [
+      evidence({ runs: [] }),
+      evidence({
+        runs: [successfulRun({ status: 'in_progress', conclusion: null })],
+      }),
+      evidence(),
+    ]
+    const sleeps: number[] = []
+    let now = 0
+    let loadCount = 0
+
+    await expect(
+      waitForReleaseCiEvidence({
+        loadEvidence: () => Promise.resolve(observations[loadCount++]!),
+        now: () => now,
+        sleep: (milliseconds) => {
+          sleeps.push(milliseconds)
+          now += milliseconds
+          return Promise.resolve()
+        },
+        pollIntervalMs: 10,
+        maxWaitMs: 20,
+      }),
+    ).resolves.toBe(42)
+    expect(loadCount).toBe(3)
+    expect(sleeps).toEqual([10, 10])
+  })
+
+  it.each([
+    [
+      'an unsuccessful first attempt',
+      evidence({ runs: [successfulRun({ conclusion: 'failure' })] }),
+      'unsuccessful-run',
+    ],
+    [
+      'rerun-only evidence',
+      evidence({ runs: [successfulRun({ runAttempt: 2 })] }),
+      'rerun-only',
+    ],
+  ] satisfies Array<[string, ReleaseCiEvidence, string]>)(
+    'fails immediately for %s',
+    async (_description, observation, rejection) => {
+      let sleepCount = 0
+      let loadCount = 0
+
+      await expect(
+        waitForReleaseCiEvidence({
+          loadEvidence: () => {
+            loadCount += 1
+            return Promise.resolve(observation)
+          },
+          sleep: () => {
+            sleepCount += 1
+            return Promise.resolve()
+          },
+        }),
+      ).rejects.toThrow(`Trusted CI evidence rejected: ${rejection}`)
+      expect(loadCount).toBe(1)
+      expect(sleepCount).toBe(0)
+    },
+  )
+
+  it.each([
+    ['absent', evidence({ runs: [] }), 'missing-run'],
+    [
+      'pending',
+      evidence({
+        runs: [successfulRun({ status: 'in_progress', conclusion: null })],
+      }),
+      'pending-run',
+    ],
+  ] satisfies Array<[string, ReleaseCiEvidence, string]>)(
+    'fails closed when %s evidence outlives the bounded wait',
+    async (_description, observation, rejection) => {
+      const sleeps: number[] = []
+      let now = 0
+      let loadCount = 0
+
+      await expect(
+        waitForReleaseCiEvidence({
+          loadEvidence: () => {
+            loadCount += 1
+            return Promise.resolve(observation)
+          },
+          now: () => now,
+          sleep: (milliseconds) => {
+            sleeps.push(milliseconds)
+            now += milliseconds
+            return Promise.resolve()
+          },
+          pollIntervalMs: 10,
+          maxWaitMs: 20,
+        }),
+      ).rejects.toThrow(`Trusted CI evidence rejected after bounded wait: ${rejection}`)
+      expect(loadCount).toBe(3)
+      expect(sleeps).toEqual([10, 10])
+    },
+  )
 })
