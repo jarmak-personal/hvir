@@ -26,56 +26,41 @@ jobs:
       contents: read
       pull-requests: read
     steps:
-      - name: Validate release PR and dispatch publishing
+      - name: Check out trusted release validation
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+          sparse-checkout: scripts/validate-release-pr.mts
+          sparse-checkout-cone-mode: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          package-manager-cache: false
+
+      - name: Validate merged release PR
+        id: validate
+        env:
+          GITHUB_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          GITHUB_TOKEN: ${{ github.token }}
+          RELEASE_PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          RELEASE_PR_MODE: merged
+          RELEASE_PR_NUMBER: ${{ github.event.pull_request.number }}
+          RELEASE_SOURCE_SHA: ${{ github.event.pull_request.merge_commit_sha }}
+        run: node scripts/validate-release-pr.mts
+
+      - name: Dispatch exact merged release
         env:
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
           GH_TOKEN: ${{ github.token }}
-          HEAD_REF: ${{ github.event.pull_request.head.ref }}
           MERGE_SHA: ${{ github.event.pull_request.merge_commit_sha }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-          PR_TITLE: ${{ github.event.pull_request.title }}
+          VERSION: ${{ steps.validate.outputs.version }}
         run: |
-          version=${HEAD_REF#release/v}
-          if [[ ! "$version" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
-            echo "::error::Release branch does not contain an exact semantic version"
-            exit 1
-          fi
-          if [ "$PR_TITLE" != "Release hvir $version" ]; then
-            echo "::error::Release PR title does not match version $version"
-            exit 1
-          fi
-          if [[ ! "$MERGE_SHA" =~ ^[0-9a-f]{40}$ ]]; then
-            echo "::error::Merged release source is not a full commit SHA"
-            exit 1
-          fi
-
-          marker=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" --jq '.body | contains("<!-- hvir-release-pr:v1 -->")')
-          if [ "$marker" != "true" ]; then
-            echo "::error::Release PR is missing its trusted automation marker"
-            exit 1
-          fi
-
-          changed_files=$(gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/files" --jq '.[].filename' | sort)
-          expected_files=$'package-lock.json\npackage.json'
-          if [ "$changed_files" != "$expected_files" ]; then
-            echo "::error::Release PR changed files outside the package version pair"
-            exit 1
-          fi
-
-          package_json=$(gh api "repos/$GITHUB_REPOSITORY/contents/package.json?ref=$MERGE_SHA" --jq .content | base64 --decode)
-          if ! jq -e --arg version "$version" '.version == $version' <<< "$package_json" >/dev/null; then
-            echo "::error::Merged package.json version does not match $version"
-            exit 1
-          fi
-          lockfile=$(gh api "repos/$GITHUB_REPOSITORY/contents/package-lock.json?ref=$MERGE_SHA" --jq .content | base64 --decode)
-          if ! jq -e --arg version "$version" '.version == $version and .packages[""].version == $version' <<< "$lockfile" >/dev/null; then
-            echo "::error::Merged package-lock.json version does not match $version"
-            exit 1
-          fi
-
           gh workflow run release.yml \
             --repo "$GITHUB_REPOSITORY" \
             --ref "$DEFAULT_BRANCH" \
             -f bump=current \
             -f source_sha="$MERGE_SHA"
-          echo "Dispatched hvir $version from $MERGE_SHA" >> "$GITHUB_STEP_SUMMARY"
+          echo "Dispatched hvir $VERSION from $MERGE_SHA" >> "$GITHUB_STEP_SUMMARY"

@@ -142,29 +142,6 @@ jobs:
             echo "Version: $current -> $version ($BUMP)"
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Install dependencies
-        if: inputs.bump != 'current'
-        run: npm ci
-
-      - name: Verify release source
-        if: inputs.bump != 'current'
-        run: npm run verify
-
-      - name: Exercise unpackaged Electron production workflow
-        if: inputs.bump != 'current'
-        env:
-          HVIR_SMOKE_ARTIFACT_DIR: ${{ runner.temp }}/hvir-smoke-artifacts/release-prepare
-        run: xvfb-run -a npm run smoke
-
-      - name: Upload bounded Electron failure evidence
-        if: failure() && inputs.bump != 'current'
-        uses: actions/upload-artifact@v7
-        with:
-          name: release-prepare-smoke-failure-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/hvir-smoke-artifacts
-          if-no-files-found: ignore
-          retention-days: 7
-
       - name: Require exact-source first-attempt CI evidence
         if: inputs.bump == 'current'
         timeout-minutes: 11

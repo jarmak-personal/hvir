@@ -30,7 +30,9 @@ const ciWorkflow = parse(
 
 function requiredWorkflowJobNames(): string[] {
   return Object.entries(ciWorkflow.jobs).flatMap(([id, job]) => {
-    if (id === 'signed-macos-epic-acceptance') return []
+    if (id === 'release-version-integrity' || id === 'signed-macos-epic-acceptance') {
+      return []
+    }
     const matrix = job.strategy?.matrix?.include
     if (!matrix) return [job.name]
     return matrix.map((entry) => job.name.replace('${{ matrix.name }}', entry.name ?? ''))
@@ -74,7 +76,7 @@ function evidence(overrides: Partial<ReleaseCiEvidence> = {}): ReleaseCiEvidence
 }
 
 describe('release CI evidence', () => {
-  it('enumerates every required CI job while excluding only the conditional bootstrap', () => {
+  it('enumerates every required main-push job while excluding conditional PR-only jobs', () => {
     expect([...REQUIRED_CI_JOBS]).toEqual(requiredWorkflowJobNames())
   })
 

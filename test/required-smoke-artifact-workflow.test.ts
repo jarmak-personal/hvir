@@ -100,22 +100,14 @@ describe('required Electron smoke failure retention', () => {
     )
   })
 
-  it('retains the bump preparation failure without rerunning smoke for current', () => {
+  it('does not rerun Electron or generic verification during version-bump preparation', () => {
     const prepare = release.jobs.prepare!
-    expect(
-      requireStep(prepare, 'Exercise unpackaged Electron production workflow'),
-    ).toMatchObject({
-      if: "inputs.bump != 'current'",
-      env: {
-        HVIR_SMOKE_ARTIFACT_DIR:
-          '${{ runner.temp }}/hvir-smoke-artifacts/release-prepare',
-      },
-      run: 'xvfb-run -a npm run smoke',
-    })
-    expectFailureUpload(
-      requireStep(prepare, 'Upload bounded Electron failure evidence'),
-      'release-prepare-smoke-failure-${{ github.run_attempt }}',
-      "failure() && inputs.bump != 'current'",
+    const preparationSteps = prepare.steps.map((step) => step.name)
+    expect(preparationSteps).not.toContain('Install dependencies')
+    expect(preparationSteps).not.toContain('Verify release source')
+    expect(preparationSteps).not.toContain(
+      'Exercise unpackaged Electron production workflow',
     )
+    expect(preparationSteps).not.toContain('Upload bounded Electron failure evidence')
   })
 })
