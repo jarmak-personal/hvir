@@ -31,8 +31,6 @@ export const SMOKE_FAILURE_CHECKPOINTS = [
   'web-pane-dashboard-closed',
   'renderer-recovery-route-opening',
   'renderer-recovery-route-opened',
-  'renderer-recovery-exit-awaiting',
-  'renderer-recovery-exit-observed',
   'renderer-recovery-reload-awaiting',
   'renderer-recovery-reload-loaded',
   'renderer-recovery-replacement-ipc-awaiting',

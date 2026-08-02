@@ -62,7 +62,6 @@ const EXTERNAL_WATCHDOG_CHECKPOINTS = new Map<
     'renderer-recovery',
     [
       'renderer-recovery-route-opening',
-      'renderer-recovery-exit-awaiting',
       'renderer-recovery-reload-awaiting',
       'renderer-recovery-replacement-ipc-awaiting',
       'renderer-recovery-controls-awaiting',

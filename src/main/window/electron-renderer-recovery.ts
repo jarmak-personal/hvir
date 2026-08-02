@@ -23,10 +23,15 @@ export interface ElectronRendererRecoveryOptions {
   readonly scheduleReload?: (task: () => void) => void
 }
 
+interface ForcedRendererExit {
+  readonly owner: RendererOwner
+  readonly replacementProcessId?: number
+}
+
 /** Owns bounded renderer replacement attempts and their native failure presentation. */
 export class ElectronRendererRecovery {
   private readonly monitor: RendererRecoveryMonitor
-  private forcedExitOwner?: RendererOwner
+  private forcedExit?: ForcedRendererExit
   private episode?: WindowUnresponsiveEpisode
 
   constructor(private readonly options: ElectronRendererRecoveryOptions) {
@@ -77,16 +82,31 @@ export class ElectronRendererRecovery {
     currentOwner: RendererOwner,
     reason: Electron.RenderProcessGoneDetails['reason'],
   ): boolean {
-    if (this.forcedExitOwner) {
-      const exitedOwner = this.forcedExitOwner
-      this.forcedExitOwner = undefined
-      this.options.health.rendererGone(exitedOwner, reason, 'forced-for-reload')
-      // The immediate reload forces Chromium to allocate a replacement process.
-      // Reassert the workbench navigation after teardown because that first
-      // navigation can be discarded with the crashing renderer. Deferral keeps
-      // navigation out of Electron's process-gone notification stack.
-      if (this.monitor.owns(currentOwner)) this.scheduleReload(currentOwner)
-      return true
+    const forcedExit = this.forcedExit
+    if (forcedExit) {
+      const awaitingForcedExit = forcedExit.replacementProcessId === undefined
+      const replacementStillAlive =
+        !this.options.win.isDestroyed() &&
+        forcedExit.replacementProcessId !== undefined &&
+        this.options.win.webContents.getOSProcessId() ===
+          forcedExit.replacementProcessId &&
+        !this.options.win.webContents.isCrashed()
+      if (!awaitingForcedExit && !replacementStillAlive) {
+        this.forcedExit = undefined
+      } else {
+        this.forcedExit = undefined
+        this.options.health.rendererGone(
+          forcedExit.owner,
+          reason,
+          'forced-for-reload',
+        )
+        // The immediate reload forces Chromium to allocate a replacement process.
+        // Reassert the workbench navigation after teardown because that first
+        // navigation can be discarded with the crashing renderer. Deferral keeps
+        // navigation out of Electron's process-gone notification stack.
+        if (this.monitor.owns(currentOwner)) this.scheduleReload(currentOwner)
+        return true
+      }
     }
     if (!this.monitor.owns(currentOwner)) return false
     this.options.health.rendererGone(currentOwner, reason, 'replacement-failed')
@@ -129,7 +149,7 @@ export class ElectronRendererRecovery {
       this.options.health.recoverUnresponsive(this.episode, 'window-closed')
       this.episode = undefined
     }
-    this.forcedExitOwner = undefined
+    this.forcedExit = undefined
   }
 
   dispose(): void {
@@ -154,7 +174,7 @@ export class ElectronRendererRecovery {
     if (episode) this.options.health.recoverUnresponsive(episode, 'reload-requested')
     this.options.health.documentStarted()
     if (!this.monitor.start(replacement)) return false
-    this.forcedExitOwner = observedOwner
+    this.forcedExit = { owner: observedOwner }
     console.info(
       `[window] renderer recovery requested from generation ${observedOwner.generation} to ${replacement.generation}`,
     )
@@ -164,7 +184,7 @@ export class ElectronRendererRecovery {
       win.webContents.forcefullyCrashRenderer()
       win.webContents.reload()
     } catch (error) {
-      this.forcedExitOwner = undefined
+      this.forcedExit = undefined
       console.error('[window] renderer reload could not be started', error)
       this.monitor.fail(replacement, 'reload-failed')
     }
@@ -172,6 +192,14 @@ export class ElectronRendererRecovery {
   }
 
   private succeeded(attempt: RendererRecoveryAttempt): void {
+    if (this.forcedExit && !this.options.win.isDestroyed()) {
+      // Keep enough identity to absorb a late old-process notification, but
+      // never let it hide a later crash of the usable replacement.
+      this.forcedExit = {
+        ...this.forcedExit,
+        replacementProcessId: this.options.win.webContents.getOSProcessId(),
+      }
+    }
     if (this.episode) {
       this.options.health.recoverUnresponsive(this.episode, 'reload-succeeded')
       this.episode = undefined

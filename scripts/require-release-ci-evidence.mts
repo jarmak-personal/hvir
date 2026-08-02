@@ -1,5 +1,11 @@
 import { pathToFileURL } from 'node:url'
 
+import {
+  ReleaseGitHubEvidenceReader,
+  requireFullCommitSha,
+  requireReleaseEnvironment,
+} from './release-github-evidence.mts'
+
 export const RELEASE_REPOSITORY = 'jarmak-personal/hvir'
 export const CI_WORKFLOW_NAME = 'CI'
 export const CI_WORKFLOW_PATH = '.github/workflows/ci.yml'
@@ -147,43 +153,7 @@ interface GitHubJobsResponse {
     conclusion?: unknown
   }>
 }
-
-function requiredString(value: unknown): string {
-  if (typeof value !== 'string') {
-    throw new Error('GitHub Actions evidence response was incomplete')
-  }
-  return value
-}
-
-function optionalString(value: unknown): string | null {
-  if (value === null) return null
-  return requiredString(value)
-}
-
-function requiredNumber(value: unknown): number {
-  if (typeof value !== 'number' || !Number.isSafeInteger(value)) {
-    throw new Error('GitHub Actions evidence response was incomplete')
-  }
-  return value
-}
-
-async function requestJson<T>(url: URL, token: string): Promise<T> {
-  const response = await fetch(url, {
-    headers: {
-      Accept: 'application/vnd.github+json',
-      Authorization: `Bearer ${token}`,
-      'X-GitHub-Api-Version': '2022-11-28',
-    },
-  })
-  if (!response.ok) {
-    throw new Error(`GitHub Actions evidence request failed (${response.status})`)
-  }
-  try {
-    return (await response.json()) as T
-  } catch {
-    throw new Error('GitHub Actions evidence response was invalid')
-  }
-}
+const githubEvidence = new ReleaseGitHubEvidenceReader('GitHub Actions evidence')
 
 async function loadMatchingRuns(
   repository: string,
@@ -198,25 +168,25 @@ async function loadMatchingRuns(
   url.searchParams.set('event', 'push')
   url.searchParams.set('head_sha', sourceSha)
   url.searchParams.set('per_page', '100')
-  const response = await requestJson<GitHubRunResponse>(url, token)
+  const response = await githubEvidence.requestJson<GitHubRunResponse>(url, token)
   if (!Array.isArray(response.workflow_runs)) {
     throw new Error('GitHub Actions evidence response was incomplete')
   }
   return response.workflow_runs.map((run) => ({
-    id: requiredNumber(run.id),
-    name: requiredString(run.name),
-    path: requiredString(run.path),
-    repository: requiredString(run.repository?.full_name),
+    id: githubEvidence.requiredNumber(run.id),
+    name: githubEvidence.requiredString(run.name),
+    path: githubEvidence.requiredString(run.path),
+    repository: githubEvidence.requiredString(run.repository?.full_name),
     headRepository:
       run.head_repository === null
         ? null
-        : requiredString(run.head_repository?.full_name),
-    event: requiredString(run.event),
-    headBranch: optionalString(run.head_branch),
-    headSha: requiredString(run.head_sha),
-    runAttempt: requiredNumber(run.run_attempt),
-    status: requiredString(run.status),
-    conclusion: optionalString(run.conclusion),
+        : githubEvidence.requiredString(run.head_repository?.full_name),
+    event: githubEvidence.requiredString(run.event),
+    headBranch: githubEvidence.nullableString(run.head_branch),
+    headSha: githubEvidence.requiredString(run.head_sha),
+    runAttempt: githubEvidence.requiredNumber(run.run_attempt),
+    status: githubEvidence.requiredString(run.status),
+    conclusion: githubEvidence.nullableString(run.conclusion),
   }))
 }
 
@@ -229,14 +199,14 @@ async function loadFirstAttemptJobs(
     `https://api.github.com/repos/${repository}/actions/runs/${runId}/attempts/1/jobs`,
   )
   url.searchParams.set('per_page', '100')
-  const response = await requestJson<GitHubJobsResponse>(url, token)
+  const response = await githubEvidence.requestJson<GitHubJobsResponse>(url, token)
   if (!Array.isArray(response.jobs)) {
     throw new Error('GitHub Actions evidence response was incomplete')
   }
   return response.jobs.map((job) => ({
-    name: requiredString(job.name),
-    status: requiredString(job.status),
-    conclusion: optionalString(job.conclusion),
+    name: githubEvidence.requiredString(job.name),
+    status: githubEvidence.requiredString(job.status),
+    conclusion: githubEvidence.nullableString(job.conclusion),
   }))
 }
 
@@ -299,27 +269,17 @@ export async function waitForReleaseCiEvidence(
   }
 }
 
-function requireEnvironment(name: string): string {
-  const value = process.env[name]
-  if (!value) throw new Error(`${name} is required`)
-  return value
-}
-
-function requireFullSha(value: string): string {
-  if (!/^[0-9a-f]{40}$/.test(value)) {
-    throw new Error('RELEASE_SOURCE_SHA must be a full lowercase commit SHA')
-  }
-  return value
-}
-
 export async function requireReleaseCiEvidence(): Promise<void> {
-  const repository = requireEnvironment('GITHUB_REPOSITORY')
+  const repository = requireReleaseEnvironment('GITHUB_REPOSITORY')
   if (repository !== RELEASE_REPOSITORY) {
     throw new Error('Release CI evidence is restricted to the canonical repository')
   }
-  const defaultBranch = requireEnvironment('GITHUB_DEFAULT_BRANCH')
-  const sourceSha = requireFullSha(requireEnvironment('RELEASE_SOURCE_SHA'))
-  const token = requireEnvironment('GITHUB_TOKEN')
+  const defaultBranch = requireReleaseEnvironment('GITHUB_DEFAULT_BRANCH')
+  const sourceSha = requireFullCommitSha(
+    'RELEASE_SOURCE_SHA',
+    requireReleaseEnvironment('RELEASE_SOURCE_SHA'),
+  )
+  const token = requireReleaseEnvironment('GITHUB_TOKEN')
 
   await waitForReleaseCiEvidence({
     loadEvidence: () =>

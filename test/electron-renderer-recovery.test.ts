@@ -24,9 +24,16 @@ function fixture() {
   const forcefullyCrashRenderer = vi.fn()
   const reload = vi.fn()
   const scheduledReloads: (() => void)[] = []
+  let crashed = false
+  let processId = 202
   const win = {
     isDestroyed: vi.fn(() => false),
-    webContents: { forcefullyCrashRenderer, reload },
+    webContents: {
+      forcefullyCrashRenderer,
+      reload,
+      getOSProcessId: vi.fn(() => processId),
+      isCrashed: vi.fn(() => crashed),
+    },
   }
   let owner: RendererOwner = INITIAL
   let shuttingDown = false
@@ -66,6 +73,12 @@ function fixture() {
     shutDown: () => {
       shuttingDown = true
     },
+    crashCurrentRenderer: () => {
+      crashed = true
+    },
+    replaceCurrentProcess: () => {
+      processId += 1
+    },
   }
 }
 
@@ -101,6 +114,68 @@ describe('ElectronRendererRecovery', () => {
     candidate.recovery.documentLoaded(candidate.owner())
 
     expect(outcomes(candidate.events)).toEqual(['reload-requested', 'reload-succeeded'])
+  })
+
+  it('attributes a late forced exit without hiding a later replacement crash', () => {
+    const candidate = fixture()
+
+    candidate.recovery.reloadUnresponsive(INITIAL)
+    candidate.recovery.documentLoaded(candidate.owner())
+    candidate.recovery.rendererReady(candidate.owner())
+
+    expect(candidate.recovery.rendererGone(candidate.owner(), 'killed')).toBe(true)
+    candidate.crashCurrentRenderer()
+    expect(candidate.recovery.rendererGone(candidate.owner(), 'crashed')).toBe(false)
+    expect(outcomes(candidate.events)).toEqual(['reload-requested', 'reload-succeeded'])
+  })
+
+  it('does not hide a replacement crash when the forced exit event was omitted', () => {
+    const candidate = fixture()
+
+    candidate.recovery.reloadUnresponsive(INITIAL)
+    candidate.recovery.documentLoaded(candidate.owner())
+    candidate.recovery.rendererReady(candidate.owner())
+    candidate.crashCurrentRenderer()
+
+    expect(candidate.recovery.rendererGone(candidate.owner(), 'crashed')).toBe(false)
+    expect(outcomes(candidate.events)).toEqual(['reload-requested', 'reload-succeeded'])
+  })
+
+  it('does not absorb an exit from a process other than the usable replacement', () => {
+    const candidate = fixture()
+
+    candidate.recovery.reloadUnresponsive(INITIAL)
+    candidate.recovery.documentLoaded(candidate.owner())
+    candidate.recovery.rendererReady(candidate.owner())
+    candidate.replaceCurrentProcess()
+
+    expect(candidate.recovery.rendererGone(candidate.owner(), 'killed')).toBe(false)
+    expect(outcomes(candidate.events)).toEqual(['reload-requested', 'reload-succeeded'])
+  })
+
+  it('does not read replacement process state after the window is destroyed', () => {
+    const candidate = fixture()
+
+    candidate.recovery.reloadUnresponsive(INITIAL)
+    candidate.recovery.documentLoaded(candidate.owner())
+    candidate.recovery.rendererReady(candidate.owner())
+    expect(candidate.win.webContents.getOSProcessId).toHaveBeenCalledOnce()
+
+    candidate.win.isDestroyed.mockReturnValue(true)
+    expect(candidate.recovery.rendererGone(candidate.owner(), 'killed')).toBe(false)
+    expect(candidate.win.webContents.getOSProcessId).toHaveBeenCalledOnce()
+    expect(candidate.win.webContents.isCrashed).not.toHaveBeenCalled()
+  })
+
+  it('does not record replacement process identity after window teardown', () => {
+    const candidate = fixture()
+
+    candidate.recovery.reloadUnresponsive(INITIAL)
+    candidate.win.isDestroyed.mockReturnValue(true)
+    candidate.recovery.documentLoaded(candidate.owner())
+    candidate.recovery.rendererReady(candidate.owner())
+
+    expect(candidate.win.webContents.getOSProcessId).not.toHaveBeenCalled()
   })
 
   it('presents load failure, retries the current generation, and accepts retry success', async () => {
