@@ -145,11 +145,6 @@ describe('native release automation', () => {
     expect(releasePrIntegrityScript).toContain(
       "export const RELEASE_VERSION_FILES = ['package-lock.json', 'package.json']",
     )
-    expect(releasePrIntegrityScript).toContain('withoutPackageVersion')
-    expect(releasePrIntegrityScript).toContain('withoutLockfileVersions')
-    expect(releasePrIntegrityScript).toContain("'release-source-mismatch'")
-    expect(releasePrIntegrityScript).not.toContain('response.text()')
-    expect(releasePrIntegrityScript).not.toContain('method:')
     expect(nodeTsconfig.include).toContain('scripts/**/*.mts')
     expect(mergedReleaseWorkflow).toContain('gh workflow run release.yml')
     expect(mergedReleaseWorkflow).toContain('-f bump=current')

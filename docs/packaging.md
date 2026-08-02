@@ -179,6 +179,8 @@ its identity, exact two-file change set, synchronized semantic versions, and abs
 package or lockfile changes. Product verification, Electron, capacity, native-package, assembly,
 and CodeQL jobs are condition-skipped for only that pull-request event. Any ordinary pull request
 or non-bot release-branch update retains the complete CI and CodeQL gates.
+GitHub marks workflows opened by the repository `GITHUB_TOKEN` as approval-required; approving
+that bot pull request starts the focused integrity job, not the skipped matrices.
 
 Merging the release pull request creates the exact default-branch source commit. Its `push` event
 runs the complete CI matrix once. A `current` dispatch observes GitHub Actions for up to ten

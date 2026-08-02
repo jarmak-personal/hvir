@@ -2,6 +2,13 @@ import { appendFile } from 'node:fs/promises'
 import { isDeepStrictEqual } from 'node:util'
 import { pathToFileURL } from 'node:url'
 
+import {
+  FULL_COMMIT_SHA_PATTERN,
+  ReleaseGitHubEvidenceReader,
+  requireFullCommitSha,
+  requireReleaseEnvironment,
+} from './release-github-evidence.mts'
+
 export const RELEASE_PR_AUTHOR = 'github-actions[bot]'
 export const RELEASE_PR_MARKER = '<!-- hvir-release-pr:v1 -->'
 export const RELEASE_VERSION_FILES = ['package-lock.json', 'package.json'] as const
@@ -63,7 +70,6 @@ interface JsonObject {
   [key: string]: unknown
 }
 
-const fullShaPattern = /^[0-9a-f]{40}$/
 const versionPattern = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/
 
 function isJsonObject(value: unknown): value is JsonObject {
@@ -126,12 +132,12 @@ export function evaluateReleasePrIntegrity(
     return { accepted: false, rejection: 'invalid-head-repository' }
   }
   if (
-    !fullShaPattern.test(evidence.headSha) ||
+    !FULL_COMMIT_SHA_PATTERN.test(evidence.headSha) ||
     evidence.headSha !== evidence.expectedHeadSha
   ) {
     return { accepted: false, rejection: 'invalid-head-sha' }
   }
-  if (!fullShaPattern.test(evidence.sourceSha)) {
+  if (!FULL_COMMIT_SHA_PATTERN.test(evidence.sourceSha)) {
     return { accepted: false, rejection: 'invalid-source-sha' }
   }
   if (
@@ -245,40 +251,12 @@ interface GitHubContentResponse {
   content?: unknown
 }
 
-function requiredEnvironment(name: string): string {
-  const value = process.env[name]
-  if (!value) throw new Error(`${name} is required`)
-  return value
-}
-
-function requiredString(value: unknown): string {
-  if (typeof value !== 'string') {
-    throw new Error('GitHub release PR evidence response was incomplete')
-  }
-  return value
-}
-
-function nullableString(value: unknown): string | null {
-  if (value === null) return null
-  return requiredString(value)
-}
-
-function requiredNumber(value: unknown): number {
-  if (typeof value !== 'number' || !Number.isSafeInteger(value)) {
-    throw new Error('GitHub release PR evidence response was incomplete')
-  }
-  return value
-}
+const githubEvidence = new ReleaseGitHubEvidenceReader('GitHub release PR evidence')
 
 function requiredBoolean(value: unknown): boolean {
   if (typeof value !== 'boolean') {
     throw new Error('GitHub release PR evidence response was incomplete')
   }
-  return value
-}
-
-function requireFullSha(name: string, value: string): string {
-  if (!fullShaPattern.test(value)) throw new Error(`${name} must be a full commit SHA`)
   return value
 }
 
@@ -294,24 +272,6 @@ function requireMode(value: string): ReleasePrMode {
   return value
 }
 
-async function requestJson<T>(url: URL, token: string): Promise<T> {
-  const response = await fetch(url, {
-    headers: {
-      Accept: 'application/vnd.github+json',
-      Authorization: `Bearer ${token}`,
-      'X-GitHub-Api-Version': '2022-11-28',
-    },
-  })
-  if (!response.ok) {
-    throw new Error(`GitHub release PR evidence request failed (${response.status})`)
-  }
-  try {
-    return (await response.json()) as T
-  } catch {
-    throw new Error('GitHub release PR evidence response was invalid')
-  }
-}
-
 async function loadJsonFile(
   repository: string,
   path: string,
@@ -320,7 +280,7 @@ async function loadJsonFile(
 ): Promise<unknown> {
   const url = new URL(`https://api.github.com/repos/${repository}/contents/${path}`)
   url.searchParams.set('ref', ref)
-  const response = await requestJson<GitHubContentResponse>(url, token)
+  const response = await githubEvidence.requestJson<GitHubContentResponse>(url, token)
   if (
     response.type !== 'file' ||
     response.encoding !== 'base64' ||
@@ -336,50 +296,53 @@ async function loadJsonFile(
 }
 
 export async function validateReleasePullRequest(): Promise<string> {
-  const repository = requiredEnvironment('GITHUB_REPOSITORY')
-  const defaultBranch = requiredEnvironment('GITHUB_DEFAULT_BRANCH')
-  const workflowActor = requiredEnvironment('GITHUB_ACTOR')
-  const token = requiredEnvironment('GITHUB_TOKEN')
-  const mode = requireMode(requiredEnvironment('RELEASE_PR_MODE'))
+  const repository = requireReleaseEnvironment('GITHUB_REPOSITORY')
+  const defaultBranch = requireReleaseEnvironment('GITHUB_DEFAULT_BRANCH')
+  const workflowActor = requireReleaseEnvironment('GITHUB_ACTOR')
+  const token = requireReleaseEnvironment('GITHUB_TOKEN')
+  const mode = requireMode(requireReleaseEnvironment('RELEASE_PR_MODE'))
   const pullRequestNumber = requirePullRequestNumber(
-    requiredEnvironment('RELEASE_PR_NUMBER'),
+    requireReleaseEnvironment('RELEASE_PR_NUMBER'),
   )
-  const expectedHeadSha = requireFullSha(
+  const expectedHeadSha = requireFullCommitSha(
     'RELEASE_PR_HEAD_SHA',
-    requiredEnvironment('RELEASE_PR_HEAD_SHA'),
+    requireReleaseEnvironment('RELEASE_PR_HEAD_SHA'),
   )
-  const sourceSha = requireFullSha(
+  const sourceSha = requireFullCommitSha(
     'RELEASE_SOURCE_SHA',
-    requiredEnvironment('RELEASE_SOURCE_SHA'),
+    requireReleaseEnvironment('RELEASE_SOURCE_SHA'),
   )
 
   const pullRequestUrl = new URL(
     `https://api.github.com/repos/${repository}/pulls/${pullRequestNumber}`,
   )
-  const pullRequest = await requestJson<GitHubPullRequestResponse>(pullRequestUrl, token)
-  if (requiredNumber(pullRequest.number) !== pullRequestNumber) {
-    throw new Error('GitHub release PR evidence response was incomplete')
+  const pullRequest = await githubEvidence.requestJson<GitHubPullRequestResponse>(
+    pullRequestUrl,
+    token,
+  )
+  if (githubEvidence.requiredNumber(pullRequest.number) !== pullRequestNumber) {
+    githubEvidence.incomplete()
   }
 
   const filesUrl = new URL(
     `https://api.github.com/repos/${repository}/pulls/${pullRequestNumber}/files`,
   )
   filesUrl.searchParams.set('per_page', '100')
-  const files = await requestJson<GitHubPullRequestFile[]>(filesUrl, token)
+  const files = await githubEvidence.requestJson<GitHubPullRequestFile[]>(filesUrl, token)
   if (
     !Array.isArray(files) ||
-    requiredNumber(pullRequest.changed_files) !== files.length
+    githubEvidence.requiredNumber(pullRequest.changed_files) !== files.length
   ) {
     throw new Error('GitHub release PR file evidence was incomplete')
   }
 
-  const baseSha = requireFullSha(
+  const baseSha = requireFullCommitSha(
     'release PR base SHA',
-    requiredString(pullRequest.base?.sha),
+    githubEvidence.requiredString(pullRequest.base?.sha),
   )
-  const headSha = requireFullSha(
+  const headSha = requireFullCommitSha(
     'release PR head SHA',
-    requiredString(pullRequest.head?.sha),
+    githubEvidence.requiredString(pullRequest.head?.sha),
   )
   const fileCache = new Map<string, Promise<unknown>>()
   const loadFile = (path: string, ref: string): Promise<unknown> => {
@@ -410,19 +373,20 @@ export async function validateReleasePullRequest(): Promise<string> {
     defaultBranch,
     workflowActor,
     pullRequestNumber,
-    pullRequestState: requiredString(pullRequest.state),
+    pullRequestState: githubEvidence.requiredString(pullRequest.state),
     merged: requiredBoolean(pullRequest.merged),
-    author: requiredString(pullRequest.user?.login),
-    baseBranch: requiredString(pullRequest.base?.ref),
-    headRepository: requiredString(pullRequest.head?.repo?.full_name),
-    headBranch: requiredString(pullRequest.head?.ref),
+    author: githubEvidence.requiredString(pullRequest.user?.login),
+    baseBranch: githubEvidence.requiredString(pullRequest.base?.ref),
+    headRepository: githubEvidence.requiredString(pullRequest.head?.repo?.full_name),
+    headBranch: githubEvidence.requiredString(pullRequest.head?.ref),
     headSha,
     expectedHeadSha,
-    mergeCommitSha: nullableString(pullRequest.merge_commit_sha),
+    mergeCommitSha: githubEvidence.nullableString(pullRequest.merge_commit_sha),
     sourceSha,
-    title: requiredString(pullRequest.title),
-    body: pullRequest.body === null ? '' : requiredString(pullRequest.body),
-    changedFiles: files.map((file) => requiredString(file.filename)),
+    title: githubEvidence.requiredString(pullRequest.title),
+    body:
+      pullRequest.body === null ? '' : githubEvidence.requiredString(pullRequest.body),
+    changedFiles: files.map((file) => githubEvidence.requiredString(file.filename)),
     basePackage,
     headPackage,
     baseLockfile,
