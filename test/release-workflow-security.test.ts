@@ -30,6 +30,9 @@ const releasePrIntegrityScript = readFileSync(
   new URL('../scripts/validate-release-pr.mts', import.meta.url),
   'utf8',
 )
+const nodeTsconfig = JSON.parse(
+  readFileSync(new URL('../tsconfig.node.json', import.meta.url), 'utf8'),
+) as { include: string[] }
 
 describe('native release automation', () => {
   it('keeps every workflow valid and gates native release jobs on current package state', () => {
@@ -147,6 +150,7 @@ describe('native release automation', () => {
     expect(releasePrIntegrityScript).toContain("'release-source-mismatch'")
     expect(releasePrIntegrityScript).not.toContain('response.text()')
     expect(releasePrIntegrityScript).not.toContain('method:')
+    expect(nodeTsconfig.include).toContain('scripts/**/*.mts')
     expect(mergedReleaseWorkflow).toContain('gh workflow run release.yml')
     expect(mergedReleaseWorkflow).toContain('-f bump=current')
     expect(mergedReleaseWorkflow).toContain('-f source_sha="$MERGE_SHA"')
