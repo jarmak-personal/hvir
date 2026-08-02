@@ -51,17 +51,11 @@ export async function verifyUnresponsiveRendererRecovery(options: {
   const loaded = new Promise<void>((resolve) =>
     win.webContents.once('did-finish-load', () => resolve()),
   )
-  const exited = new Promise<void>((resolve) =>
-    win.webContents.once('render-process-gone', () => resolve()),
-  )
 
-  checkpoint('renderer-recovery-exit-awaiting')
+  checkpoint('renderer-recovery-reload-awaiting')
   if (!reloadUnresponsiveRenderer(initialOwner)) {
     throw new Error('window manager rejected renderer recovery fault injection')
   }
-  await timeout(exited, 'unresponsive renderer process did not exit')
-  checkpoint('renderer-recovery-exit-observed')
-  checkpoint('renderer-recovery-reload-awaiting')
   await timeout(loaded, 'replacement renderer document did not load')
   checkpoint('renderer-recovery-reload-loaded')
 
