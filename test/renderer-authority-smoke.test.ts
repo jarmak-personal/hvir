@@ -61,8 +61,9 @@ describe('renderer-authority smoke boundaries', () => {
     expect(rendererRecoverySource).toContain('routes.open(')
     expect(rendererRecoverySource).toContain("'did-finish-load'")
     expect(rendererRecoverySource).toContain('reloadUnresponsiveRenderer(initialOwner)')
-    expect(rendererRecoverySource).toContain("'render-process-gone'")
-    expect(rendererRecoverySource).toContain("'renderer-recovery-exit-awaiting'")
+    expect(rendererRecoverySource).not.toContain("'render-process-gone'")
+    expect(rendererRecoverySource).not.toContain("'renderer-recovery-exit-awaiting'")
+    expect(rendererRecoverySource).toContain('getOSProcessId()')
     expect(rendererRecoverySource).toContain("window.hvir.invoke('app:info'")
     expect(rendererRecoverySource).toContain(
       "'renderer-recovery-replacement-ipc-awaiting'",

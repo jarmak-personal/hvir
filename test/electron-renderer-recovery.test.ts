@@ -24,9 +24,15 @@ function fixture() {
   const forcefullyCrashRenderer = vi.fn()
   const reload = vi.fn()
   const scheduledReloads: (() => void)[] = []
+  let crashed = false
   const win = {
     isDestroyed: vi.fn(() => false),
-    webContents: { forcefullyCrashRenderer, reload },
+    webContents: {
+      forcefullyCrashRenderer,
+      reload,
+      getOSProcessId: vi.fn(() => 202),
+      isCrashed: vi.fn(() => crashed),
+    },
   }
   let owner: RendererOwner = INITIAL
   let shuttingDown = false
@@ -66,6 +72,9 @@ function fixture() {
     shutDown: () => {
       shuttingDown = true
     },
+    crashCurrentRenderer: () => {
+      crashed = true
+    },
   }
 }
 
@@ -100,6 +109,31 @@ describe('ElectronRendererRecovery', () => {
     expect(outcomes(candidate.events)).toEqual(['reload-requested'])
     candidate.recovery.documentLoaded(candidate.owner())
 
+    expect(outcomes(candidate.events)).toEqual(['reload-requested', 'reload-succeeded'])
+  })
+
+  it('attributes a late forced exit without hiding a later replacement crash', () => {
+    const candidate = fixture()
+
+    candidate.recovery.reloadUnresponsive(INITIAL)
+    candidate.recovery.documentLoaded(candidate.owner())
+    candidate.recovery.rendererReady(candidate.owner())
+
+    expect(candidate.recovery.rendererGone(candidate.owner(), 'killed')).toBe(true)
+    candidate.crashCurrentRenderer()
+    expect(candidate.recovery.rendererGone(candidate.owner(), 'crashed')).toBe(false)
+    expect(outcomes(candidate.events)).toEqual(['reload-requested', 'reload-succeeded'])
+  })
+
+  it('does not hide a replacement crash when the forced exit event was omitted', () => {
+    const candidate = fixture()
+
+    candidate.recovery.reloadUnresponsive(INITIAL)
+    candidate.recovery.documentLoaded(candidate.owner())
+    candidate.recovery.rendererReady(candidate.owner())
+    candidate.crashCurrentRenderer()
+
+    expect(candidate.recovery.rendererGone(candidate.owner(), 'crashed')).toBe(false)
     expect(outcomes(candidate.events)).toEqual(['reload-requested', 'reload-succeeded'])
   })
 
