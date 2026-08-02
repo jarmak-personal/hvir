@@ -210,11 +210,15 @@ jobs:
           - name: Linux x64
             os: ubuntu-24.04
             build: npm run pack:linux:x64
-            artifact: dist/hvir_*_amd64.deb
+            deb_arch: amd64
+            release_arch: x64
+            artifact: dist/hvir-*-linux-x64.deb
           - name: Linux arm64
             os: ubuntu-24.04-arm
             build: npm run pack:linux:arm64
-            artifact: dist/hvir_*_arm64.deb
+            deb_arch: arm64
+            release_arch: arm64
+            artifact: dist/hvir-*-linux-arm64.deb
     env:
       HVIR_LINUX_PACKAGE_ACCEPTANCE: '1'
 
@@ -236,6 +240,20 @@ jobs:
 
       - name: Install, update, launch, and remove native package
         run: xvfb-run -a npm run smoke:linux:installed
+
+      - name: Give the accepted artifact its public release name
+        env:
+          DEB_ARCH: ${{ matrix.deb_arch }}
+          RELEASE_ARCH: ${{ matrix.release_arch }}
+        run: |
+          version=$(node -p "require('./package.json').version")
+          source="dist/hvir_${version}_${DEB_ARCH}.deb"
+          target="dist/hvir-${version}-linux-${RELEASE_ARCH}.deb"
+          if [ ! -f "$source" ] || [ -e "$target" ]; then
+            echo "::error::Expected exactly one accepted package at $source"
+            exit 1
+          fi
+          mv -- "$source" "$target"
 
       - name: Retain accepted native package
         uses: actions/upload-artifact@v7
@@ -324,12 +342,6 @@ jobs:
           RELEASE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
           version=$(node -p "require('./package.json').version")
-          mv -- \
-            "dist/release/hvir_${version}_amd64.deb" \
-            "dist/release/hvir-${version}-linux-x64.deb"
-          mv -- \
-            "dist/release/hvir_${version}_arm64.deb" \
-            "dist/release/hvir-${version}-linux-arm64.deb"
           mv -- \
             "dist/release/hvir-${version}-macos-arm64.pkg" \
             "dist/release/hvir-${version}-darwin-arm64.pkg"

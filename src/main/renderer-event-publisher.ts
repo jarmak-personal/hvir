@@ -12,7 +12,7 @@ export class RendererEventPublisher {
     payload: IpcEventPayload<E>,
   ): void => {
     for (const window of BrowserWindow.getAllWindows()) {
-      if (!window.isDestroyed()) window.webContents.send(channel, payload)
+      if (canSendTo(window)) window.webContents.send(channel, payload)
     }
   }
 
@@ -25,6 +25,14 @@ export class RendererEventPublisher {
     const window = BrowserWindow.getAllWindows().find(
       (candidate) => candidate.webContents.id === owner.id,
     )
-    if (window && !window.isDestroyed()) window.webContents.send(channel, payload)
+    if (window && canSendTo(window)) window.webContents.send(channel, payload)
   }
+}
+
+function canSendTo(window: BrowserWindow): boolean {
+  return (
+    !window.isDestroyed() &&
+    !window.webContents.isDestroyed() &&
+    !window.webContents.isCrashed()
+  )
 }

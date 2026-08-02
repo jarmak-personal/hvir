@@ -1,3 +1,4 @@
+import { appendFile } from 'node:fs/promises'
 import { pathToFileURL } from 'node:url'
 
 import {
@@ -269,7 +270,7 @@ export async function waitForReleaseCiEvidence(
   }
 }
 
-export async function requireReleaseCiEvidence(): Promise<void> {
+export async function requireReleaseCiEvidence(): Promise<number> {
   const repository = requireReleaseEnvironment('GITHUB_REPOSITORY')
   if (repository !== RELEASE_REPOSITORY) {
     throw new Error('Release CI evidence is restricted to the canonical repository')
@@ -280,8 +281,9 @@ export async function requireReleaseCiEvidence(): Promise<void> {
     requireReleaseEnvironment('RELEASE_SOURCE_SHA'),
   )
   const token = requireReleaseEnvironment('GITHUB_TOKEN')
+  const outputPath = requireReleaseEnvironment('GITHUB_OUTPUT')
 
-  await waitForReleaseCiEvidence({
+  const runId = await waitForReleaseCiEvidence({
     loadEvidence: () =>
       loadReleaseCiEvidence(repository, defaultBranch, sourceSha, token),
     onTransient: (rejection) => {
@@ -291,7 +293,9 @@ export async function requireReleaseCiEvidence(): Promise<void> {
     },
   })
 
+  await appendFile(outputPath, `run_id=${runId}\n`)
   process.stdout.write(`Trusted first-attempt CI evidence accepted for ${sourceSha}.\n`)
+  return runId
 }
 
 const invokedPath = process.argv[1]

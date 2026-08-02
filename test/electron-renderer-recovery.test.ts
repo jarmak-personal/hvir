@@ -82,6 +82,12 @@ function fixture() {
   }
 }
 
+function requestUnresponsiveReload(candidate: ReturnType<typeof fixture>) {
+  const episode = candidate.recovery.unresponsive(INITIAL)
+  candidate.recovery.resolveUnresponsiveChoice(episode, true)
+  return episode
+}
+
 describe('ElectronRendererRecovery', () => {
   beforeEach(() => {
     electron.quit.mockReset()
@@ -96,8 +102,8 @@ describe('ElectronRendererRecovery', () => {
   it('immediately replaces the process and defers final navigation past its exit', () => {
     const candidate = fixture()
 
-    expect(candidate.recovery.reloadUnresponsive(INITIAL)).toBe(true)
-    expect(candidate.recovery.reloadUnresponsive(INITIAL)).toBe(false)
+    const episode = requestUnresponsiveReload(candidate)
+    candidate.recovery.resolveUnresponsiveChoice(episode, true)
     expect(candidate.forcefullyCrashRenderer).toHaveBeenCalledOnce()
     expect(candidate.rollover).toHaveBeenCalledOnce()
     expect(candidate.reload).toHaveBeenCalledOnce()
@@ -119,7 +125,7 @@ describe('ElectronRendererRecovery', () => {
   it('attributes a late forced exit without hiding a later replacement crash', () => {
     const candidate = fixture()
 
-    candidate.recovery.reloadUnresponsive(INITIAL)
+    requestUnresponsiveReload(candidate)
     candidate.recovery.documentLoaded(candidate.owner())
     candidate.recovery.rendererReady(candidate.owner())
 
@@ -132,7 +138,7 @@ describe('ElectronRendererRecovery', () => {
   it('does not hide a replacement crash when the forced exit event was omitted', () => {
     const candidate = fixture()
 
-    candidate.recovery.reloadUnresponsive(INITIAL)
+    requestUnresponsiveReload(candidate)
     candidate.recovery.documentLoaded(candidate.owner())
     candidate.recovery.rendererReady(candidate.owner())
     candidate.crashCurrentRenderer()
@@ -144,7 +150,7 @@ describe('ElectronRendererRecovery', () => {
   it('does not absorb an exit from a process other than the usable replacement', () => {
     const candidate = fixture()
 
-    candidate.recovery.reloadUnresponsive(INITIAL)
+    requestUnresponsiveReload(candidate)
     candidate.recovery.documentLoaded(candidate.owner())
     candidate.recovery.rendererReady(candidate.owner())
     candidate.replaceCurrentProcess()
@@ -156,7 +162,7 @@ describe('ElectronRendererRecovery', () => {
   it('does not read replacement process state after the window is destroyed', () => {
     const candidate = fixture()
 
-    candidate.recovery.reloadUnresponsive(INITIAL)
+    requestUnresponsiveReload(candidate)
     candidate.recovery.documentLoaded(candidate.owner())
     candidate.recovery.rendererReady(candidate.owner())
     expect(candidate.win.webContents.getOSProcessId).toHaveBeenCalledOnce()
@@ -170,7 +176,7 @@ describe('ElectronRendererRecovery', () => {
   it('does not record replacement process identity after window teardown', () => {
     const candidate = fixture()
 
-    candidate.recovery.reloadUnresponsive(INITIAL)
+    requestUnresponsiveReload(candidate)
     candidate.win.isDestroyed.mockReturnValue(true)
     candidate.recovery.documentLoaded(candidate.owner())
     candidate.recovery.rendererReady(candidate.owner())
@@ -181,7 +187,7 @@ describe('ElectronRendererRecovery', () => {
   it('presents load failure, retries the current generation, and accepts retry success', async () => {
     electron.showMessageBox.mockResolvedValue({ response: 0 })
     const candidate = fixture()
-    candidate.recovery.reloadUnresponsive(INITIAL)
+    requestUnresponsiveReload(candidate)
     const failedOwner = candidate.owner()
     candidate.recovery.rendererGone(failedOwner, 'killed')
     candidate.runScheduledReload()
@@ -214,7 +220,7 @@ describe('ElectronRendererRecovery', () => {
   it('shows the bounded timeout fallback and its quit action', async () => {
     electron.showMessageBox.mockResolvedValue({ response: 1 })
     const candidate = fixture()
-    candidate.recovery.reloadUnresponsive(INITIAL)
+    requestUnresponsiveReload(candidate)
 
     candidate.deadlines[0]?.task()
     await vi.waitFor(() => expect(electron.quit).toHaveBeenCalledOnce())
@@ -226,7 +232,7 @@ describe('ElectronRendererRecovery', () => {
 
   it('cancels timeout and fallback presentation during shutdown', async () => {
     const candidate = fixture()
-    candidate.recovery.reloadUnresponsive(INITIAL)
+    requestUnresponsiveReload(candidate)
     candidate.shutDown()
     candidate.deadlines[0]?.task()
     candidate.recovery.close()
@@ -244,7 +250,7 @@ describe('ElectronRendererRecovery', () => {
 
   it('does not run the deferred post-exit navigation after recovery ownership closes', () => {
     const candidate = fixture()
-    candidate.recovery.reloadUnresponsive(INITIAL)
+    requestUnresponsiveReload(candidate)
     candidate.recovery.rendererGone(candidate.owner(), 'killed')
 
     candidate.recovery.close()

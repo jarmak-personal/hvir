@@ -1,12 +1,16 @@
 import { readFileSync } from 'node:fs'
+import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 import { parse } from 'yaml'
 
 import {
   CI_WORKFLOW_NAME,
   CI_WORKFLOW_PATH,
   evaluateReleaseCiEvidence,
+  requireReleaseCiEvidence,
   REQUIRED_CI_JOBS,
   RELEASE_REPOSITORY,
   waitForReleaseCiEvidence,
@@ -75,7 +79,63 @@ function evidence(overrides: Partial<ReleaseCiEvidence> = {}): ReleaseCiEvidence
   }
 }
 
+function githubJson(value: unknown): Response {
+  return new Response(JSON.stringify(value), {
+    status: 200,
+    headers: { 'Content-Type': 'application/json' },
+  })
+}
+
+function releaseCiFetch(): ReturnType<typeof vi.fn> {
+  return vi.fn((input: string | URL | Request) => {
+    const url = input instanceof Request ? new URL(input.url) : new URL(input)
+    if (url.pathname.endsWith('/actions/workflows/ci.yml/runs')) {
+      return Promise.resolve(
+        githubJson({
+          workflow_runs: [
+            {
+              id: 42,
+              name: CI_WORKFLOW_NAME,
+              path: CI_WORKFLOW_PATH,
+              repository: { full_name: RELEASE_REPOSITORY },
+              head_repository: { full_name: RELEASE_REPOSITORY },
+              event: 'push',
+              head_branch: 'main',
+              head_sha: sourceSha,
+              run_attempt: 1,
+              status: 'completed',
+              conclusion: 'success',
+            },
+          ],
+        }),
+      )
+    }
+    if (url.pathname.endsWith('/actions/runs/42/attempts/1/jobs')) {
+      return Promise.resolve(githubJson({ jobs: successfulJobs() }))
+    }
+    return Promise.resolve(new Response(null, { status: 404 }))
+  })
+}
+
+function stubReleaseEnvironment(outputPath = ''): void {
+  for (const [name, value] of Object.entries({
+    GITHUB_REPOSITORY: RELEASE_REPOSITORY,
+    GITHUB_DEFAULT_BRANCH: 'main',
+    GITHUB_TOKEN: 'test-token',
+    GITHUB_OUTPUT: outputPath,
+    RELEASE_SOURCE_SHA: sourceSha,
+  })) {
+    vi.stubEnv(name, value)
+  }
+}
+
 describe('release CI evidence', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs()
+    vi.unstubAllGlobals()
+    vi.restoreAllMocks()
+  })
+
   it('enumerates every required main-push job while excluding conditional PR-only jobs', () => {
     expect([...REQUIRED_CI_JOBS]).toEqual(requiredWorkflowJobNames())
   })
@@ -85,6 +145,32 @@ describe('release CI evidence', () => {
       accepted: true,
       runId: 42,
     })
+  })
+
+  it('exposes the accepted exact-source run for immutable artifact download', async () => {
+    const temporaryDirectory = await mkdtemp(join(tmpdir(), 'hvir-release-ci-'))
+    onTestFinished(() => rm(temporaryDirectory, { recursive: true, force: true }))
+    const outputPath = join(temporaryDirectory, 'output')
+    stubReleaseEnvironment(outputPath)
+    const fetchMock = releaseCiFetch()
+    vi.stubGlobal('fetch', fetchMock)
+    vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
+
+    await expect(requireReleaseCiEvidence()).resolves.toBe(42)
+
+    await expect(readFile(outputPath, 'utf8')).resolves.toBe('run_id=42\n')
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('requires the workflow output channel before loading CI evidence', async () => {
+    stubReleaseEnvironment()
+    const fetchMock = releaseCiFetch()
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(requireReleaseCiEvidence()).rejects.toThrow(
+      'GITHUB_OUTPUT is required',
+    )
+    expect(fetchMock).not.toHaveBeenCalled()
   })
 
   it('rejects missing and pending evidence', () => {

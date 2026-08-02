@@ -38,6 +38,7 @@ jobs:
       version: ${{ steps.release.outputs.version }}
       tag: ${{ steps.release.outputs.tag }}
       sha: ${{ steps.release.outputs.sha }}
+      ci_run_id: ${{ steps.ci_evidence.outputs.run_id }}
     steps:
       - name: Require the default branch
         env:
@@ -143,6 +144,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Require exact-source first-attempt CI evidence
+        id: ci_evidence
         if: inputs.bump == 'current'
         timeout-minutes: 11
         env:
@@ -173,72 +175,6 @@ jobs:
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
 
-  build-linux:
-    name: Build and accept ${{ matrix.name }}
-    needs: prepare
-    if: needs.prepare.outputs.ready == 'true'
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 30
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - name: Linux x64
-            os: ubuntu-24.04
-            build: npm run pack:linux:x64
-            deb_arch: amd64
-            release_arch: x64
-          - name: Linux arm64
-            os: ubuntu-24.04-arm
-            build: npm run pack:linux:arm64
-            deb_arch: arm64
-            release_arch: arm64
-    env:
-      HVIR_LINUX_PACKAGE_ACCEPTANCE: '1'
-    steps:
-      - name: Check out exact release source
-        uses: actions/checkout@v7
-        with:
-          ref: ${{ needs.prepare.outputs.sha }}
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v7
-        with:
-          node-version: 24
-          package-manager-cache: false
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Build native package
-        run: ${{ matrix.build }}
-
-      - name: Install, update, launch, and remove native package
-        run: xvfb-run -a npm run smoke:linux:installed
-
-      - name: Give the accepted artifact its public release name
-        env:
-          DEB_ARCH: ${{ matrix.deb_arch }}
-          RELEASE_ARCH: ${{ matrix.release_arch }}
-          VERSION: ${{ needs.prepare.outputs.version }}
-        run: |
-          source="dist/hvir_${VERSION}_${DEB_ARCH}.deb"
-          target="dist/hvir-${VERSION}-linux-${RELEASE_ARCH}.deb"
-          if [ ! -f "$source" ] || [ -e "$target" ]; then
-            echo "::error::Expected exactly one accepted package at $source"
-            exit 1
-          fi
-          mv -- "$source" "$target"
-
-      - name: Upload accepted artifact
-        uses: actions/upload-artifact@v7
-        with:
-          name: release-linux-${{ matrix.release_arch }}
-          path: dist/hvir-${{ needs.prepare.outputs.version }}-linux-${{ matrix.release_arch }}.deb
-          if-no-files-found: error
-          compression-level: 0
-          retention-days: 1
-
   build-macos:
     name: Build and accept macOS arm64
     needs: prepare
@@ -253,13 +189,13 @@ jobs:
     name: Assemble, verify, and publish immutable release
     needs:
       - prepare
-      - build-linux
       - build-macos
     if: needs.prepare.outputs.ready == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     environment: native-release-signing
     permissions:
+      actions: read
       contents: write
     steps:
       - name: Check out exact release source
@@ -275,12 +211,38 @@ jobs:
           node-version: 24
           package-manager-cache: false
 
-      - name: Download every accepted native package
+      - name: Require exact CI artifact source
+        env:
+          CI_RUN_ID: ${{ needs.prepare.outputs.ci_run_id }}
+        run: |
+          if [[ ! "$CI_RUN_ID" =~ ^[1-9][0-9]*$ ]]; then
+            echo "::error::Exact-source CI run ID is unavailable"
+            exit 1
+          fi
+
+      - name: Download accepted Linux x64 package from exact CI
         uses: actions/download-artifact@v8
         with:
-          pattern: release-*
+          name: hvir-Linux x64-deb
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ needs.prepare.outputs.ci_run_id }}
           path: dist/release
-          merge-multiple: true
+
+      - name: Download accepted Linux arm64 package from exact CI
+        uses: actions/download-artifact@v8
+        with:
+          name: hvir-Linux arm64-deb
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ needs.prepare.outputs.ci_run_id }}
+          path: dist/release
+
+      - name: Download protected accepted macOS package
+        uses: actions/download-artifact@v8
+        with:
+          name: release-macos-arm64
+          path: dist/release
 
       - name: Require repository release immutability
         env:

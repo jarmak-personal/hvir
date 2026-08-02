@@ -57,11 +57,6 @@ export class ElectronRendererRecovery {
     else this.options.health.recoverUnresponsive(episode, 'wait-selected')
   }
 
-  reloadUnresponsive(owner: RendererOwner): boolean {
-    if (this.monitor.owns(owner)) return false
-    return this.start(owner, this.options.health.unresponsive(owner))
-  }
-
   documentLoaded(owner: RendererOwner): void {
     this.monitor.documentLoaded(owner)
   }

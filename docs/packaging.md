@@ -183,10 +183,18 @@ GitHub marks workflows opened by the repository `GITHUB_TOKEN` as approval-requi
 that bot pull request starts the focused integrity job, not the skipped matrices.
 
 Merging the release pull request creates the exact default-branch source commit. Its `push` event
-runs the complete CI matrix once. A `current` dispatch observes GitHub Actions for up to ten
-minutes when that commit's first-attempt CI is not yet registered or is still running. It never
-starts or reruns CI. Exact CI success continues the release automatically; a terminal failure or
-exhausted wait fails closed before native build or publication work.
+runs the complete CI matrix once, including Linux native-package build and installed acceptance.
+A `current` dispatch observes GitHub Actions for up to ten minutes when that commit's
+first-attempt CI is not yet registered or is still running. It never starts or reruns CI. Exact CI
+success continues the release automatically; a terminal failure or exhausted wait fails closed
+before protected native build or publication work.
+
+The release downloads the exact named Linux x64 and arm64 artifacts retained by that accepted CI
+run instead of rebuilding or re-exercising them. Cross-workflow download is pinned to the accepted
+run ID and repository, and GitHub's artifact digest check remains fail-closed. A missing, expired,
+renamed, inaccessible, or digest-invalid artifact stops the release before tag or draft creation.
+The protected release environment still builds, signs, notarizes, staples, and exercises the
+macOS package because those guarantees are release-specific.
 
 A trusted `current` dispatch produces exactly these assets:
 
@@ -204,11 +212,12 @@ digest. `SHA256SUMS` covers every release asset except itself. The assembler ref
 unexpected, or misnamed native inputs and proves that the installer embeds the same native
 artifact names and digests.
 
-Linux x64, Linux arm64, and macOS arm64 artifacts are built and exercised on matching native
-runners. The macOS package additionally passes application and installer signature validation,
-Gatekeeper assessment, notarization, and stapled-ticket validation. Native installation
-acceptance proves the installed command, one real `node-pty` load, one worker round-trip, and
-platform-specific system integration.
+Linux x64 and Linux arm64 artifacts are built and exercised on matching native runners in the
+exact-source CI run; the accepted immutable artifacts flow into Release. The macOS arm64 artifact
+is built and exercised on its matching native runner in the protected Release workflow. It
+additionally passes application and installer signature validation, Gatekeeper assessment,
+notarization, and stapled-ticket validation. Native installation acceptance proves the installed
+command, one real `node-pty` load, one worker round-trip, and platform-specific system integration.
 
 Before cutover, enable immutable releases in the repository Releases settings. The workflow checks
 the repository setting through GitHub's API before creating a tag or draft and fails closed when

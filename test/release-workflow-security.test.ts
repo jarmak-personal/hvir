@@ -8,7 +8,40 @@ const releaseWorkflow = readFileSync(
   'utf8',
 )
 const release = parse(releaseWorkflow) as {
-  jobs: Record<string, { secrets?: string }>
+  jobs: Record<
+    string,
+    {
+      needs?: string | string[]
+      outputs?: Record<string, string>
+      permissions?: Record<string, string>
+      secrets?: string
+      steps?: Array<{
+        id?: string
+        name?: string
+        uses?: string
+        run?: string
+        with?: Record<string, string | number | boolean>
+      }>
+    }
+  >
+}
+const ciWorkflow = readFileSync(
+  new URL('../.github/workflows/ci.yml', import.meta.url),
+  'utf8',
+)
+const ci = parse(ciWorkflow) as {
+  jobs: Record<
+    string,
+    {
+      strategy?: { matrix?: { include?: Array<{ name?: string }> } }
+      steps?: Array<{
+        name?: string
+        uses?: string
+        run?: string
+        with?: Record<string, string | number | boolean>
+      }>
+    }
+  >
 }
 const macosWorkflow = readFileSync(
   new URL('../.github/workflows/macos-package-release.yml', import.meta.url),
@@ -54,7 +87,7 @@ describe('native release automation', () => {
     expect(releaseWorkflow).toContain('node scripts/prepare-release-pr.mjs "$VERSION"')
     expect(
       releaseWorkflow.match(/if: needs\.prepare\.outputs\.ready == 'true'/g),
-    ).toHaveLength(3)
+    ).toHaveLength(2)
     expect(releaseWorkflow).not.toContain(
       'git push origin "HEAD:${{ github.event.repository.default_branch }}"',
     )
@@ -96,7 +129,7 @@ describe('native release automation', () => {
     )
     expect(releaseWorkflow).toContain('run: node scripts/require-release-ci-evidence.mts')
     expect(releaseWorkflow).toContain(
-      "      - name: Require exact-source first-attempt CI evidence\n        if: inputs.bump == 'current'\n        timeout-minutes: 11\n        env:",
+      "      - name: Require exact-source first-attempt CI evidence\n        id: ci_evidence\n        if: inputs.bump == 'current'\n        timeout-minutes: 11\n        env:",
     )
     expect(releaseWorkflow).toContain("if: inputs.bump == 'current'")
     expect(releaseWorkflow).not.toContain("if: inputs.bump != 'current'")
@@ -164,13 +197,78 @@ describe('native release automation', () => {
     expect(mergedReleaseWorkflow).toContain('-f source_sha="$MERGE_SHA"')
   })
 
-  it('builds and accepts every native package from the same exact source', () => {
-    expect(releaseWorkflow).toContain('runs-on: ${{ matrix.os }}')
-    expect(releaseWorkflow).toContain('os: ubuntu-24.04')
-    expect(releaseWorkflow).toContain('os: ubuntu-24.04-arm')
-    expect(releaseWorkflow).toContain('build: npm run pack:linux:x64')
-    expect(releaseWorkflow).toContain('build: npm run pack:linux:arm64')
-    expect(releaseWorkflow).toContain('xvfb-run -a npm run smoke:linux:installed')
+  it('reuses exact accepted Linux artifacts and keeps protected macOS acceptance', () => {
+    const prepare = release.jobs.prepare
+    const evidenceStep = prepare?.steps?.find(
+      (step) => step.name === 'Require exact-source first-attempt CI evidence',
+    )
+    const publish = release.jobs['publish-native-release']
+    const crossRunDownloads = publish?.steps?.filter(
+      (step) =>
+        step.uses === 'actions/download-artifact@v8' && step.with?.['run-id'],
+    )
+    const protectedMacosDownload = publish?.steps?.find(
+      (step) => step.name === 'Download protected accepted macOS package',
+    )
+    const linuxProducer = ci.jobs['native-linux-package']
+    const retainLinuxArtifact = linuxProducer?.steps?.find(
+      (step) => step.name === 'Retain accepted native package',
+    )
+    const nameLinuxArtifact = linuxProducer?.steps?.find(
+      (step) => step.name === 'Give the accepted artifact its public release name',
+    )
+
+    expect(release.jobs['build-linux']).toBeUndefined()
+    expect(linuxProducer?.strategy?.matrix?.include?.map((entry) => entry.name)).toEqual(
+      ['Linux x64', 'Linux arm64'],
+    )
+    expect(retainLinuxArtifact).toMatchObject({
+      uses: 'actions/upload-artifact@v7',
+      with: {
+        name: 'hvir-${{ matrix.name }}-deb',
+        path: '${{ matrix.artifact }}',
+        'if-no-files-found': 'error',
+        'retention-days': 14,
+      },
+    })
+    expect(nameLinuxArtifact?.run).toContain(
+      'target="dist/hvir-${version}-linux-${RELEASE_ARCH}.deb"',
+    )
+    expect(
+      ciWorkflow.match(/hvir_\$\{version\}_(?:amd64|arm64)\.deb/g) ?? [],
+    ).toHaveLength(0)
+    expect(prepare?.outputs?.ci_run_id).toBe(
+      '${{ steps.ci_evidence.outputs.run_id }}',
+    )
+    expect(evidenceStep?.id).toBe('ci_evidence')
+    expect(publish?.needs).toEqual(['prepare', 'build-macos'])
+    expect(publish?.permissions).toEqual({ actions: 'read', contents: 'write' })
+    expect(crossRunDownloads?.map((step) => step.with)).toEqual([
+      {
+        name: 'hvir-Linux x64-deb',
+        'github-token': '${{ github.token }}',
+        repository: '${{ github.repository }}',
+        'run-id': '${{ needs.prepare.outputs.ci_run_id }}',
+        path: 'dist/release',
+      },
+      {
+        name: 'hvir-Linux arm64-deb',
+        'github-token': '${{ github.token }}',
+        repository: '${{ github.repository }}',
+        'run-id': '${{ needs.prepare.outputs.ci_run_id }}',
+        path: 'dist/release',
+      },
+    ])
+    expect(protectedMacosDownload?.with).toEqual({
+      name: 'release-macos-arm64',
+      path: 'dist/release',
+    })
+    expect(releaseWorkflow).toContain('[[ ! "$CI_RUN_ID" =~ ^[1-9][0-9]*$ ]]')
+    expect(releaseWorkflow).not.toContain('hvir_${VERSION}_amd64.deb')
+    expect(releaseWorkflow).not.toContain('hvir_${VERSION}_arm64.deb')
+    expect(releaseWorkflow).not.toContain('npm run pack:linux:')
+    expect(releaseWorkflow).not.toContain('npm run smoke:linux:installed')
+    expect(releaseWorkflow).not.toContain('run: npm ci')
     expect(releaseWorkflow).toContain(
       'uses: ./.github/workflows/macos-package-release.yml',
     )
@@ -179,6 +277,24 @@ describe('native release automation', () => {
     expect(macosWorkflow).toContain('workflow_call:')
     expect(macosWorkflow).toContain('npm run smoke:macos:installed')
     expect(macosWorkflow).toContain('dist/hvir-*-darwin-arm64.pkg')
+
+    const publishSteps = publish?.steps ?? []
+    const createDraftIndex = publishSteps.findIndex(
+      (step) => step.name === 'Create or repair a private draft',
+    )
+    for (const requiredPreDraftStep of [
+      'Require exact CI artifact source',
+      'Download accepted Linux x64 package from exact CI',
+      'Download accepted Linux arm64 package from exact CI',
+      'Download protected accepted macOS package',
+      'Assemble exact release metadata and installer',
+    ]) {
+      const stepIndex = publishSteps.findIndex(
+        (step) => step.name === requiredPreDraftStep,
+      )
+      expect(stepIndex, requiredPreDraftStep).toBeGreaterThan(-1)
+      expect(stepIndex, requiredPreDraftStep).toBeLessThan(createDraftIndex)
+    }
   })
 
   it('assembles a private complete draft before one immutable publication', () => {
