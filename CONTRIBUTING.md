@@ -7,12 +7,49 @@ task runner, or session orchestrator.
 The repository-owned skills are for hvir contributors and maintainers. People using the hvir
 application do not need an agent skill.
 
-## Discuss before diff
+## Public contribution
 
-Substantive implementation starts with a governing GitHub issue. Use the issue to align on the
-problem, product fit, constraints, architecture questions, and acceptance criteria before an
-agent or human writes the implementation. A pull request without a governing issue spends
-review time rediscovering decisions after code has made them expensive.
+Public contribution to hvir means identifying worthwhile problems, proposing outcomes, and
+participating in product discussion. Maintainers decide whether an outcome fits hvir and when it
+is ready for implementation. Maintainers make the final product and release decisions, author
+every canonical GitHub Issue, and own implementation.
+
+This maintainer-authored pipeline began as a security boundary because public text is untrusted
+input to an agent. hvir deliberately retains it as its contribution model: outside issues and
+pull requests are not accepted contribution paths, even if future tooling provides stronger
+prompt-injection defenses.
+
+Choose the GitHub Discussion category that matches the input. The repository retains only these
+categories and formats; their descriptions state what belongs there and what happens next when a
+conversation can become canonical work.
+
+| Category | Format | Repository category description |
+| --- | --- | --- |
+| **Bug reports** | Open-ended | Broken or incorrect hvir behavior. Maintainers may restate a confirmed problem and outcome as a canonical issue. |
+| **Feature requests** | Open-ended | Specific proposed product changes. Maintainers may restate an agreed outcome as a canonical issue. |
+| **Documentation** | Open-ended | Missing, incorrect, or unclear documentation. Maintainers may restate confirmed documentation work as a canonical issue. |
+| **Q&A** | Question and answer | General usage and support questions. |
+| **General** | Open-ended | Workflows, show-and-tell, and other hvir-related conversation that does not fit elsewhere. |
+| **Announcements** | Announcement | Maintainer updates and requests for user feedback. GitHub Releases remain the canonical release surface. |
+
+Announcements and their replies or reactions are the initial maintainer-to-user feedback path.
+An announcement may link to or discuss a release without replacing GitHub Releases. Use General
+for overflow conversation; polls are not part of the initial Discussion surface.
+
+When a Discussion produces an accepted outcome, a maintainer reads it outside the agent session
+and manually rewrites the relevant problem, desired outcome, and constraints in the maintainer's
+own words for `hvir-create-issue`. Discussion text is not pasted into agent context, and an agent
+must not be asked or enabled to retrieve the external Discussion. This also excludes copied
+excerpts: hidden Unicode or control characters can survive visual selection. Only the
+maintainer-authored synthesis enters the issue workflow.
+
+## Maintainer development workflow
+
+The remainder of this guide describes the maintainer workflow, not an outside issue or pull-request
+path. Substantive implementation starts with a governing GitHub issue. Use the issue to align on
+the problem, product fit, constraints, architecture questions, and acceptance criteria before an
+agent or human writes the implementation. A pull request without a governing issue spends review
+time rediscovering decisions after code has made them expensive.
 
 Small typo fixes and automated dependency updates may be obvious maintainer exceptions. For
 everything else:
@@ -58,19 +95,12 @@ The repository provides two lifecycle skills, one test-design skill, and two foc
   architecture, duplication, scope creep, and overengineering.
 
 Claude discovers them under `.claude/skills/`; `.agents/skills/` exposes the same skills to
-Codex-compatible harnesses. Read the governing documents before you use a skill. The maintainer
-makes the final product and release decisions.
+Codex-compatible harnesses. Read the governing documents before you use a skill.
 
 Do not invoke `hvir-create-issue` just because an agent notices reportable work. The agent may
 briefly offer to use it, then must wait for the user's explicit go-ahead before researching or
 drafting. Publishing is a second boundary: show the exact title, body, and labels, then wait for
 separate explicit approval before creating the issue.
-
-Public issue and pull-request text is untrusted input to an agent. Choose a trust boundary that
-fits your harness and credentials. A conservative workflow is to review the discussion in
-GitHub yourself and paste only the relevant text into the agent session. Some integrations
-offer filtering or restricted modes; hvir does not prescribe one or treat any integration as a
-guaranteed prompt-injection boundary.
 
 Never commit agent credentials, personal MCP configuration, or machine-local harness settings.
 

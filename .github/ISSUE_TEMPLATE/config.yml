@@ -1,8 +1,17 @@
 blank_issues_enabled: false
 contact_links:
-  - name: Ask a question or report a problem
+  - name: Report broken behavior
+    url: https://github.com/jarmak-personal/hvir/discussions/categories/bug-reports
+    about: Describe broken or incorrect hvir behavior in Bug reports.
+  - name: Request a feature
+    url: https://github.com/jarmak-personal/hvir/discussions/categories/feature-requests
+    about: Propose a specific product change in Feature requests.
+  - name: Improve documentation
+    url: https://github.com/jarmak-personal/hvir/discussions/categories/documentation
+    about: Report missing, incorrect, or unclear documentation.
+  - name: Ask a question
     url: https://github.com/jarmak-personal/hvir/discussions/categories/q-a
-    about: Get help or share a problem in Q&A.
-  - name: Propose an idea
-    url: https://github.com/jarmak-personal/hvir/discussions/categories/ideas
-    about: Suggest and discuss a possible improvement.
+    about: Ask a general usage or support question in Q&A.
+  - name: Start a general discussion
+    url: https://github.com/jarmak-personal/hvir/discussions/categories/general
+    about: Share a workflow, show-and-tell, or other hvir-related conversation.
