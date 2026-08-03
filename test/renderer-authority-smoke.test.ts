@@ -94,7 +94,7 @@ describe('renderer-authority smoke boundaries', () => {
 
   it('keeps Linux last-window shutdown under the smoke cleanup owner', () => {
     expect(mainEntrySource).toContain(
-      "if (!process.env['HVIR_SMOKE'] && process.platform !== 'darwin') app.quit()",
+      "if (!__HVIR_SMOKE_BUILD__ && process.platform !== 'darwin') app.quit()",
     )
   })
 })

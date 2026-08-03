@@ -133,6 +133,8 @@ export default tseslint.config(
       'scripts/run-smoke-scenarios.mts',
       'scripts/run-smoke-interruption.mts',
       'scripts/smoke-failure-artifact.mts',
+      'scripts/inspect-packaged-runtime.mts',
+      'scripts/installed-startup-probe.mts',
       'scripts/real-host-ssh-contract.mts',
       'scripts/run-real-host-ssh-acceptance.mts',
       'scripts/require-release-ci-evidence.mts',

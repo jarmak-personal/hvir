@@ -22,6 +22,14 @@ const installedSmokeUrl = new URL(
   import.meta.url,
 )
 const installedSmoke = readFileSync(installedSmokeUrl, 'utf8')
+const packagedRuntimeInspection = readFileSync(
+  new URL('../scripts/inspect-packaged-runtime.mts', import.meta.url),
+  'utf8',
+)
+const installedStartupProbe = readFileSync(
+  new URL('../scripts/installed-startup-probe.mts', import.meta.url),
+  'utf8',
+)
 const ciSource = readFileSync(
   new URL('../.github/workflows/ci.yml', import.meta.url),
   'utf8',
@@ -106,7 +114,7 @@ describe('macOS native package contract', () => {
     )
   })
 
-  it('accepts install, failed update retention, replacement, runtime, and removal', () => {
+  it('accepts install, failed update retention, package runtime structure, startup, and removal', () => {
     expect(statSync(installedSmokeUrl).mode & 0o111).not.toBe(0)
     expect(installedSmoke).toContain("GITHUB_ACTIONS:-}\" != 'true'")
     expect(installedSmoke).toContain('pkgutil --check-signature')
@@ -126,11 +134,11 @@ describe('macOS native package contract', () => {
     expect(installedSmoke).toContain(
       'Successful installer output exposed implementation diagnostics.',
     )
-    expect(installedSmoke).toContain(
-      'run_installed_smoke retained-after-failed-update pty-native',
-    )
-    expect(installedSmoke).toContain('run_installed_smoke current platform-contracts')
-    expect(installedSmoke).toContain('"$command" . \\')
+    expect(installedSmoke).toContain('run_installed_startup retained-after-failed-update')
+    expect(installedSmoke).toContain('assert_packaged_runtime')
+    expect(installedSmoke).toContain('--native-platform darwin')
+    expect(installedSmoke).toContain('run_installed_startup current')
+    expect(installedSmoke).not.toContain('run_installed_smoke')
     expect(installedSmoke).toContain('"$current_installer" --uninstall --purge')
     expect(installedSmoke).toContain('scripts/render-native-installer.mjs')
     expect(installedSmoke).toContain('HVIR_FAKE_NPM_PREFIX="$legacy_prefix"')
@@ -146,12 +154,22 @@ describe('macOS native package contract', () => {
     expect(installedSmoke).toContain('find "$application" -type f -name \'*.node\'')
     expect(installedSmoke).toContain("-path '*/prebuilds/darwin-arm64/*'")
     expect(installedSmoke).toContain('Installed native module is not an arm64 Mach-O:')
+    expect(installedSmoke).toContain(
+      'codesign --verify --strict --verbose=2 "$packaged_pty"',
+    )
+    expect(installedSmoke).toContain("grep -Eq 'flags=.*runtime'")
+    expect(installedSmoke).toContain('com.apple.security.cs.allow-jit')
     expect(installedSmoke).toContain('pkgutil --files "$receipt" |')
     expect(installedSmoke).toContain('cmp build/icon-macos.icns "$installed_icon"')
     expect(installedSmoke).toContain("grep -Fx 'hvir.app/Contents/MacOS/hvir' >/dev/null")
     expect(installedSmoke).not.toContain('pkgutil --files "$receipt" | grep -Fq')
     expect(installedSmoke).toContain('test -d "$project_root/.git"')
     expect(installedSmoke).not.toMatch(/open -a|Installer\.app|\/usr\/bin\/open/)
+    expect(packagedRuntimeInspection).toContain("'/out/main/echo-worker.js'")
+    expect(packagedRuntimeInspection).toContain("'/out/main/git-worker.js'")
+    expect(packagedRuntimeInspection).toContain("'HVIR_SMOKE'")
+    expect(installedStartupProbe).toContain("process.command.includes('--type=renderer')")
+    expect(installedStartupProbe).toContain("HVIR_SMOKE: '1'")
   })
 
   it('keeps credentials out of PR YAML and gates signing behind exact protected sources', () => {

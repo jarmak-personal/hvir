@@ -101,6 +101,7 @@ if [[ "${HVIR_SMOKE_SCENARIO:-legacy-workflow}" == 'development-performance' ]];
     ELECTRON_CLI_ARGS="[\"--user-data-dir=$user_data_root\"]" \
     "$source_checkout/node_modules/.bin/electron-vite" \
     "$source_checkout" \
+    --mode smoke \
     --noSandbox \
     --clearScreen false | tee "$development_smoke_log"
   if ! grep -qx 'HVIR_SMOKE_OK' "$development_smoke_log"; then

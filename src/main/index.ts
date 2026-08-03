@@ -73,7 +73,7 @@ function createWorkbenchEntry(): void {
   const rendererEvents = new RendererEventPublisher(rendererScopes)
   const diagnostics = RuntimeDiagnostics.create(
     app.getPath('userData'),
-    app.isPackaged || process.env['HVIR_SMOKE'] === '1',
+    app.isPackaged || __HVIR_SMOKE_BUILD__,
     (state) => rendererEvents.toWindows('workbench-health:state', state),
   )
   const diagnosticReports = runtime.own(
@@ -430,7 +430,7 @@ function createWorkbenchEntry(): void {
   void app
     .whenReady()
     .then(async () => {
-      if (process.env['HVIR_SMOKE']) {
+      if (__HVIR_SMOKE_BUILD__ && process.env['HVIR_SMOKE']) {
         const { runElectronSmokeScenario } = await import('./smoke/scenarios')
         const code = await runElectronSmokeScenario({
           scenario: process.env['HVIR_SMOKE_SCENARIO'],
@@ -460,7 +460,7 @@ function createWorkbenchEntry(): void {
       app.exit(1)
     })
   app.on('window-all-closed', () => {
-    if (!process.env['HVIR_SMOKE'] && process.platform !== 'darwin') app.quit()
+    if (!__HVIR_SMOKE_BUILD__ && process.platform !== 'darwin') app.quit()
   })
   app.on('activate', () => {
     void runtime

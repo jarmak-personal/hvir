@@ -32,6 +32,14 @@ multi-terminal contracts and machine-dependent evidence. These commands are loca
 only on a matching supported platform; CI supplies the remaining cross-platform contract evidence,
 not an authoritative quantitative performance verdict.
 
+Installed-package acceptance launches the public command with fresh disposable roots, waits for
+the package-owned main process and a live renderer, and then proves the complete test-owned
+process group stops. It also inspects the actual packaged application for production worker
+entrypoints, the matching native `node-pty` payload, and absence of the Electron smoke graph and
+activation path. This exact-artifact boundary does not claim that the installed application
+loaded `node-pty` or completed a utility-process round trip; matching-target unpackaged Electron
+smoke owns those behavioral contracts.
+
 ## Supported targets
 
 | Platform | Architecture | Artifact | Compatibility contract |
@@ -232,7 +240,9 @@ macOS arm64 artifact is built and exercised on its matching native runner in the
 Release workflow. It
 additionally passes application and installer signature validation, Gatekeeper assessment,
 notarization, and stapled-ticket validation. Native installation acceptance proves the installed
-command, one real `node-pty` load, one worker round-trip, and platform-specific system integration.
+command, ordinary main/renderer startup, production payload structure, smoke-runner absence, and
+platform-specific system integration. Matching-target Electron smoke separately proves the real
+`node-pty` ABI/lifecycle and production worker/renderer IPC behavior before publication.
 
 Before cutover, enable immutable releases in the repository Releases settings. The workflow checks
 the repository setting through GitHub's API before creating a tag or draft and fails closed when
