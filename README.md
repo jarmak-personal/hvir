@@ -53,21 +53,41 @@ turning the workbench into an IDE.
 | **Terminal focus** | **Live HTML beside the harness** |
 
 
-## Feedback and project tracking
+## Feedback and contributions
 
-hvir uses GitHub Issues and Pull Requests as agent-friendly items, owned by the maintainers.
+hvir's maintainer-authored issue pipeline began as a security boundary: public text is untrusted
+input to an agent. It is now also a deliberate contribution model. Public contribution ends with
+defining worthwhile problems and outcomes through discussion; maintainers decide product fit and
+readiness, author every canonical GitHub Issue, and own implementation. Outside issues and pull
+requests are not accepted contribution paths, even if future tooling provides stronger
+prompt-injection defenses.
 
-Public questions and problem reports belong in the
-[Q&A Discussions](https://github.com/jarmak-personal/hvir/discussions/categories/q-a), while
-proposals should go in [Ideas](https://github.com/jarmak-personal/hvir/discussions/categories/ideas).
+Start in the Discussion category that best fits:
+
+- [Bug reports](https://github.com/jarmak-personal/hvir/discussions/categories/bug-reports) for
+  broken or incorrect hvir behavior.
+- [Feature requests](https://github.com/jarmak-personal/hvir/discussions/categories/feature-requests)
+  for a specific proposed product change.
+- [Documentation](https://github.com/jarmak-personal/hvir/discussions/categories/documentation) for
+  missing, incorrect, or unclear project documentation.
+- [Q&A](https://github.com/jarmak-personal/hvir/discussions/categories/q-a) for usage and support
+  questions.
+- [General](https://github.com/jarmak-personal/hvir/discussions/categories/general) for workflows,
+  show-and-tell, and other hvir-related conversation.
+
+[Announcements](https://github.com/jarmak-personal/hvir/discussions/categories/announcements) is
+the maintainer-to-user surface for updates and requests for feedback. GitHub Releases remains the
+canonical release surface; an announcement may discuss or link to a release, but does not replace
+it.
 
 ## Development
 
 Development requires Node 24 or newer; release CI uses Node 24.
 
-Start with the [contributor guide](CONTRIBUTING.md). Substantive implementation is discussed in
-a governing issue before code or a pull request; the repository also includes optional,
-contributor-only agent skills for creating and implementing issues.
+Start with the [contributor guide](CONTRIBUTING.md). It separates public product discussion from
+the maintainer development workflow. Substantive implementation is aligned in a governing issue
+before code or a pull request; the repository also includes optional, contributor-only agent
+skills for creating and implementing issues.
 
 ```sh
 npm ci
