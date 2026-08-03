@@ -93,6 +93,71 @@ describe('release-owned native installer', () => {
     expect(await readdir(fixture.temporaryParent)).toEqual([])
   })
 
+  it('rejects an older Linux runtime ABI before elevation', async () => {
+    const executable = await createExecutableLinuxPreflightFixture({
+      glibcVersion: '2.34',
+    })
+
+    let error: unknown
+    try {
+      await execFileAsync(executable.script, { env: executable.env })
+    } catch (caught) {
+      error = caught
+    }
+
+    expect(error).toBeInstanceOf(Error)
+    expect((error as Error & { stderr: string }).stderr).toContain(
+      'hvir requires glibc 2.35 or newer; found 2.34.',
+    )
+    expect((error as Error & { stderr: string }).stderr).toContain(
+      'failed while checking the Linux runtime ABI',
+    )
+    await expect(readFile(executable.sudoMarker)).rejects.toThrow()
+  })
+
+  it('reports unavailable Linux package dependencies before elevation', async () => {
+    const executable = await createExecutableLinuxPreflightFixture({
+      dependencyFailure: true,
+      glibcVersion: '2.35',
+    })
+
+    let error: unknown
+    try {
+      await execFileAsync(executable.script, { env: executable.env })
+    } catch (caught) {
+      error = caught
+    }
+
+    expect(error).toBeInstanceOf(Error)
+    const stderr = (error as Error & { stderr: string }).stderr
+    expect(stderr).toContain('fixture dependency is unavailable')
+    expect(stderr).toContain(
+      "The hvir package dependencies are not available from this host's configured apt repositories.",
+    )
+    expect(stderr).toContain('failed while checking Linux package dependencies')
+    await expect(readFile(executable.sudoMarker)).rejects.toThrow()
+  })
+
+  it('reports required AppArmor integration before elevation', async () => {
+    const executable = await createExecutableLinuxPreflightFixture({
+      apparmorRestricted: true,
+      glibcVersion: '2.35',
+    })
+
+    let error: unknown
+    try {
+      await execFileAsync(executable.script, { env: executable.env })
+    } catch (caught) {
+      error = caught
+    }
+
+    expect(error).toBeInstanceOf(Error)
+    const stderr = (error as Error & { stderr: string }).stderr
+    expect(stderr).toContain(`hvir requires ${executable.apparmorParser}.`)
+    expect(stderr).toContain('failed while checking the Linux Chromium sandbox')
+    await expect(readFile(executable.sudoMarker)).rejects.toThrow()
+  })
+
   it('presents a concise successful macOS install and npm migration', async () => {
     const executable = await createExecutableMacosFixture({ legacy: true })
     const result = await execFileAsync(executable.script, {
@@ -207,8 +272,13 @@ describe('release-owned native installer', () => {
     expect(template).toContain('Linux:x86_64)')
     expect(template).toContain('Linux:aarch64 | Linux:arm64)')
     expect(template).toContain('Darwin:arm64)')
-    expect(template).toContain("linux_id\" != 'ubuntu'")
-    expect(template).toContain("linux_version\" != '24.04'")
+    expect(template).not.toMatch(/\b(?:ID|ID_LIKE|VERSION_ID)=/)
+    expect(template).not.toContain('/etc/os-release')
+    expect(template).toContain('readonly HVIR_LINUX_MINIMUM_GLIBC=2.35')
+    expect(template).toContain('/usr/bin/getconf GNU_LIBC_VERSION')
+    expect(template).toContain('/usr/bin/apt-get \\\n    --simulate')
+    expect(template).toContain('linux_requires_apparmor_profile')
+    expect(template).toContain('/usr/sbin/apparmor_parser')
     expect(template).toContain("--proto '=https'")
     expect(template).toContain('Digest mismatch for $artifact_name.')
     expect(template).toContain('/usr/sbin/pkgutil --check-signature')
@@ -417,6 +487,113 @@ esac
   await chmod(script, 0o755)
 
   return { env, script }
+}
+
+async function createExecutableLinuxPreflightFixture(options: {
+  apparmorRestricted?: boolean
+  dependencyFailure?: boolean
+  glibcVersion: string
+}) {
+  vi.stubEnv('CI', 'true')
+  vi.stubEnv('GITHUB_ACTIONS', 'true')
+  const fixture = await createFixture({ acceptance: true })
+  const script = join(fixture.root, 'install.sh')
+  await renderNativeInstaller({ ...fixture.options, output: script })
+
+  const toolDirectory = join(fixture.root, 'linux-tools')
+  const sudoMarker = join(fixture.root, 'sudo-invoked')
+  const apparmorRestriction = join(fixture.root, 'apparmor-restriction')
+  await mkdir(toolDirectory)
+  await writeFile(apparmorRestriction, options.apparmorRestricted ? '1\n' : '0\n')
+  const digest = createHash('sha256').update('native-package').digest('hex')
+  const tools = {
+    apt: join(toolDirectory, 'apt'),
+    aptGet: join(toolDirectory, 'apt-get'),
+    apparmorParser: join(toolDirectory, 'apparmor-parser'),
+    dpkgDeb: join(toolDirectory, 'dpkg-deb'),
+    dpkgQuery: join(toolDirectory, 'dpkg-query'),
+    getconf: join(toolDirectory, 'getconf'),
+    sha256sum: join(toolDirectory, 'sha256sum'),
+    sudo: join(toolDirectory, 'sudo'),
+    uname: join(toolDirectory, 'uname'),
+    unshare: join(toolDirectory, 'unshare'),
+  }
+  await Promise.all([
+    writeExecutable(tools.apt, '#!/bin/bash\nexit 0\n'),
+    writeExecutable(
+      tools.aptGet,
+      options.dependencyFailure
+        ? '#!/bin/bash\necho "fixture dependency is unavailable" >&2\nexit 100\n'
+        : '#!/bin/bash\nexit 0\n',
+    ),
+    writeExecutable(tools.dpkgDeb, '#!/bin/bash\nexit 0\n'),
+    writeExecutable(tools.dpkgQuery, '#!/bin/bash\nexit 1\n'),
+    writeExecutable(
+      tools.getconf,
+      `#!/bin/bash
+test "$1" = GNU_LIBC_VERSION
+echo 'glibc ${options.glibcVersion}'
+`,
+    ),
+    writeExecutable(
+      tools.sha256sum,
+      `#!/bin/bash
+printf '%s  %s\\n' '${digest}' "$1"
+`,
+    ),
+    writeExecutable(
+      tools.sudo,
+      `#!/bin/bash
+touch "$HVIR_TEST_SUDO_MARKER"
+exit 99
+`,
+    ),
+    writeExecutable(
+      tools.uname,
+      `#!/bin/bash
+case "$1" in
+-s) echo Linux ;;
+-m) echo x86_64 ;;
+*) exit 64 ;;
+esac
+`,
+    ),
+    writeExecutable(
+      tools.unshare,
+      options.apparmorRestricted ? '#!/bin/bash\nexit 1\n' : '#!/bin/bash\nexit 0\n',
+    ),
+  ])
+
+  const replacements = new Map([
+    ['/usr/bin/apt-get', tools.aptGet],
+    ['/usr/sbin/apparmor_parser', tools.apparmorParser],
+    ['/proc/sys/kernel/apparmor_restrict_unprivileged_userns', apparmorRestriction],
+    ['/usr/bin/dpkg-query', tools.dpkgQuery],
+    ['/usr/bin/dpkg-deb', tools.dpkgDeb],
+    ['/usr/bin/sha256sum', tools.sha256sum],
+    ['/usr/bin/getconf', tools.getconf],
+    ['/usr/bin/unshare', tools.unshare],
+    ['/usr/bin/uname', tools.uname],
+    ['/usr/bin/sudo', tools.sudo],
+    ['/usr/bin/apt', tools.apt],
+  ])
+  let source = await readFile(script, 'utf8')
+  for (const [from, to] of replacements) source = source.replaceAll(from, to)
+  await writeFile(script, source)
+  await chmod(script, 0o755)
+
+  return {
+    apparmorParser: tools.apparmorParser,
+    env: {
+      ...process.env,
+      HOME: fixture.home,
+      HVIR_TEST_SUDO_MARKER: sudoMarker,
+      PATH: `${toolDirectory}:/usr/bin:/bin:/usr/sbin:/sbin`,
+      TMPDIR: fixture.temporaryParent,
+    },
+    script,
+    sudoMarker,
+  }
 }
 
 async function writeExecutable(path: string, source: string) {

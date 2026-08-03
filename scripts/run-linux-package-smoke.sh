@@ -5,28 +5,24 @@ cd "$(dirname "$0")/.."
 source_checkout=$PWD
 
 if [[ "${HVIR_LINUX_PACKAGE_ACCEPTANCE:-}" != '1' ]]; then
-  echo 'Set HVIR_LINUX_PACKAGE_ACCEPTANCE=1 on a disposable Ubuntu 24.04 host.' >&2
+  echo 'Set HVIR_LINUX_PACKAGE_ACCEPTANCE=1 on a disposable compatible Linux host.' >&2
   exit 2
 fi
 
-source /etc/os-release
-if [[ "${ID:-}" != 'ubuntu' || "${VERSION_ID:-}" != '24.04' ]]; then
-  echo "Native package acceptance requires Ubuntu 24.04; found ${ID:-unknown} ${VERSION_ID:-unknown}." >&2
-  exit 2
-fi
 if [[ "$(id -u)" -eq 0 ]]; then
   echo 'Run native package acceptance as an unprivileged user with sudo access.' >&2
   exit 2
 fi
-if ! command -v apparmor_status >/dev/null 2>&1 ||
-  ! apparmor_status --enabled >/dev/null 2>&1; then
-  echo 'Native package acceptance requires active Ubuntu AppArmor enforcement.' >&2
-  exit 2
-fi
-if [[ ! -r /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]] ||
-  [[ "$(< /proc/sys/kernel/apparmor_restrict_unprivileged_userns)" != '1' ]]; then
-  echo 'Ubuntu unprivileged-user-namespace restriction is not active.' >&2
-  exit 2
+apparmor_integration_required=0
+apparmor_userns_restriction=/proc/sys/kernel/apparmor_restrict_unprivileged_userns
+if [[ -r "$apparmor_userns_restriction" ]] &&
+  [[ "$(<"$apparmor_userns_restriction")" == '1' ]]; then
+  apparmor_integration_required=1
+  if ! command -v apparmor_status >/dev/null 2>&1 ||
+    ! apparmor_status --enabled >/dev/null 2>&1; then
+    echo 'Native package acceptance requires active AppArmor enforcement on this host.' >&2
+    exit 2
+  fi
 fi
 
 case "$(uname -m)" in
@@ -255,21 +251,26 @@ assert_package_contract() {
     'Ghostty notice'
 
   apparmor_profile=/etc/apparmor.d/hvir
-  require_file "$apparmor_profile" 'AppArmor profile'
-  require_equal \
-    "$(stat -c '%U:%G:%a' "$apparmor_profile")" \
-    'root:root:644' \
-    'AppArmor profile ownership and mode'
-  require_contains \
-    "$apparmor_profile" \
-    'profile "hvir" "/opt/hvir/hvir" flags=(unconfined)' \
-    'AppArmor executable attachment'
-  require_contains "$apparmor_profile" 'userns,' 'AppArmor user namespace permission'
-  sudo apparmor_parser --skip-kernel-load --debug /etc/apparmor.d/hvir >/dev/null
-  apparmor_summary=$(sudo apparmor_status)
-  if ! grep -Eq '^[[:space:]]+hvir$' <<<"$apparmor_summary"; then
-    echo 'Native package contract failed for loaded AppArmor profile:' >&2
-    printf '%s\n' "$apparmor_summary" >&2
+  if [[ "$apparmor_integration_required" -eq 1 ]]; then
+    require_file "$apparmor_profile" 'AppArmor profile'
+    require_equal \
+      "$(stat -c '%U:%G:%a' "$apparmor_profile")" \
+      'root:root:644' \
+      'AppArmor profile ownership and mode'
+    require_contains \
+      "$apparmor_profile" \
+      'profile "hvir" "/opt/hvir/hvir" flags=(unconfined)' \
+      'AppArmor executable attachment'
+    require_contains "$apparmor_profile" 'userns,' 'AppArmor user namespace permission'
+    sudo apparmor_parser --skip-kernel-load --debug /etc/apparmor.d/hvir >/dev/null
+    apparmor_summary=$(sudo apparmor_status)
+    if ! grep -Eq '^[[:space:]]+hvir$' <<<"$apparmor_summary"; then
+      echo 'Native package contract failed for loaded AppArmor profile:' >&2
+      printf '%s\n' "$apparmor_summary" >&2
+      exit 1
+    fi
+  elif [[ -e "$apparmor_profile" ]]; then
+    echo 'Native package installed an AppArmor profile on a host that does not require it.' >&2
     exit 1
   fi
 
@@ -381,7 +382,8 @@ if [[ -e /usr/bin/hvir || -e /opt/hvir || -e /etc/apparmor.d/hvir ]]; then
   echo 'Native package removal left package-owned files behind.' >&2
   exit 1
 fi
-if sudo apparmor_status | grep -Eq '^[[:space:]]+hvir$'; then
+if [[ "$apparmor_integration_required" -eq 1 ]] &&
+  sudo apparmor_status | grep -Eq '^[[:space:]]+hvir$'; then
   echo 'Native package removal left the hvir AppArmor profile loaded.' >&2
   exit 1
 fi

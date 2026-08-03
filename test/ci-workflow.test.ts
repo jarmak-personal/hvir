@@ -13,6 +13,10 @@ const releaseValidatorSource = readFileSync(
 )
 
 interface WorkflowJob {
+  container?: {
+    image: string
+    options?: string
+  }
   if?: string
   name: string
   'runs-on': string
@@ -48,7 +52,14 @@ const fullCiCondition = "always() && needs.release-version-integrity.result == '
 const nativeAssemblyCondition = [
   'always()',
   "needs.native-linux-package.result == 'success'",
+  "needs.native-linux-ubuntu-24.result == 'success'",
+  "needs.native-linux-debian.result == 'success'",
   "needs.native-macos-package.result == 'success'",
+].join(' && ')
+const nativeCompatibilityCondition = [
+  'always()',
+  "needs.release-version-integrity.result == 'skipped'",
+  "needs.native-linux-package.result == 'success'",
 ].join(' && ')
 const releasePrIdentityCondition = [
   "github.event_name == 'pull_request'",
@@ -147,7 +158,7 @@ describe('CI workflow', () => {
     expect(job.strategy?.matrix.include).toEqual([
       {
         name: 'Linux x64',
-        os: 'ubuntu-24.04',
+        os: 'ubuntu-22.04',
         build: 'npm run pack:linux:x64',
         deb_arch: 'amd64',
         release_arch: 'x64',
@@ -155,7 +166,7 @@ describe('CI workflow', () => {
       },
       {
         name: 'Linux arm64',
-        os: 'ubuntu-24.04-arm',
+        os: 'ubuntu-22.04-arm',
         build: 'npm run pack:linux:arm64',
         deb_arch: 'arm64',
         release_arch: 'arm64',
@@ -172,11 +183,79 @@ describe('CI workflow', () => {
     )
   })
 
+  it('accepts the exact baseline artifacts on Ubuntu 24.04 and Debian stable for both architectures', () => {
+    const ubuntu = workflow.jobs['native-linux-ubuntu-24']
+    const debian = workflow.jobs['native-linux-debian']
+    if (!ubuntu || !debian) throw new Error('Missing Linux compatibility jobs')
+
+    for (const job of [ubuntu, debian]) {
+      expect(job.needs).toEqual(['release-version-integrity', 'native-linux-package'])
+      expect(job.if).toBe(nativeCompatibilityCondition)
+      expect(job.strategy?.['fail-fast']).toBe(false)
+      expect(job.steps).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            name: 'Download the accepted baseline package',
+            uses: 'actions/download-artifact@v8',
+          }),
+          expect.objectContaining({
+            name: 'Install, update, launch, and remove native package',
+          }),
+        ]),
+      )
+      expect(job.steps.map((step) => step.run ?? '').join('\n')).not.toContain(
+        'pack:linux',
+      )
+    }
+
+    expect(ubuntu.strategy?.matrix.include).toEqual([
+      {
+        name: 'Ubuntu 24.04 x64',
+        os: 'ubuntu-24.04',
+        artifact_name: 'hvir-Linux x64-deb',
+        deb_arch: 'amd64',
+        release_arch: 'x64',
+      },
+      {
+        name: 'Ubuntu 24.04 arm64',
+        os: 'ubuntu-24.04-arm',
+        artifact_name: 'hvir-Linux arm64-deb',
+        deb_arch: 'arm64',
+        release_arch: 'arm64',
+      },
+    ])
+    expect(debian.container).toEqual({
+      image: 'node:24-trixie',
+      options: '--security-opt seccomp=unconfined',
+    })
+    expect(debian.strategy?.matrix.include).toEqual([
+      {
+        name: 'Debian 13 x64',
+        os: 'ubuntu-22.04',
+        artifact_name: 'hvir-Linux x64-deb',
+        deb_arch: 'amd64',
+        release_arch: 'x64',
+      },
+      {
+        name: 'Debian 13 arm64',
+        os: 'ubuntu-22.04-arm',
+        artifact_name: 'hvir-Linux arm64-deb',
+        deb_arch: 'arm64',
+        release_arch: 'arm64',
+      },
+    ])
+  })
+
   it('assembles the accepted native matrix without publishing from pull-request CI', () => {
     const job = workflow.jobs['native-release-assembly']
     if (!job) throw new Error('Missing CI job: native-release-assembly')
     expect(job.name).toBe('Native release assembly (unsigned structure)')
-    expect(job.needs).toEqual(['native-linux-package', 'native-macos-package'])
+    expect(job.needs).toEqual([
+      'native-linux-package',
+      'native-linux-ubuntu-24',
+      'native-linux-debian',
+      'native-macos-package',
+    ])
     expect(job.if).toBe(nativeAssemblyCondition)
     const commands = job.steps.map((step) => step.run ?? '').join('\n')
     expect(commands).toContain('npm run assemble:native-release')

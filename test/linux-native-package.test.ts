@@ -46,7 +46,11 @@ describe('Linux native package contract', () => {
       'electron-builder --linux deb --arm64',
     )
     expect(builder.deb?.packageCategory).toBe('devel')
-    expect(builder.deb?.depends).toContain('apparmor')
+    expect(builder.deb?.depends).not.toContain('apparmor')
+    expect(builder.deb?.depends).toContain('libc6 (>= 2.35)')
+    expect(builder.deb?.depends).toContain('libstdc++6 (>= 12)')
+    expect(builder.deb?.depends).toContain('libatspi2.0-0 | libatspi2.0-0t64')
+    expect(builder.deb?.depends).toContain('libgtk-3-0 | libgtk-3-0t64')
     expect(builder.deb?.appArmorProfile).toBe('build/linux/hvir.apparmor')
   })
 
@@ -66,6 +70,10 @@ describe('Linux native package contract', () => {
       "HVIR_COMMAND='/opt/${sanitizedProductName}/resources/hvir-command'",
     )
     expect(afterInstall).toContain('apparmor_parser --skip-kernel-load --debug')
+    expect(afterInstall).toContain(
+      'APPARMOR_USERNS_RESTRICTION=/proc/sys/kernel/apparmor_restrict_unprivileged_userns',
+    )
+    expect(afterInstall).toContain('runuser -u nobody -- unshare --user true')
     expect(afterInstall).toContain('chmod 4755')
     expect(afterInstall).toContain('hvir package configuration failed while $stage')
   })
@@ -81,10 +89,9 @@ describe('Linux native package contract', () => {
     expect(afterRemove).not.toMatch(/config|projects|HOME/)
   })
 
-  it('accepts install, update, sandbox, native bindings, and removal on Ubuntu 24.04', () => {
-    expect(installedSmoke).toContain(
-      '"${ID:-}" != \'ubuntu\' || "${VERSION_ID:-}" != \'24.04\'',
-    )
+  it('accepts install, update, sandbox, native bindings, and removal across the Linux matrix', () => {
+    expect(installedSmoke).not.toMatch(/\b(?:ID|ID_LIKE|VERSION_ID)=/)
+    expect(installedSmoke).not.toContain('/etc/os-release')
     expect(installedSmoke).toContain('scripts/render-native-installer.mjs')
     expect(installedSmoke).toContain('"$previous_installer" 2>&1 | tee "$install_log"')
     expect(installedSmoke).toContain('"$current_installer" 2>&1 | tee "$update_log"')
@@ -115,7 +122,9 @@ describe('Linux native package contract', () => {
       'window.hvir?.diagnostics?.processSandboxed === true',
     )
     expect(ciWorkflow).toContain('Native package acceptance (${{ matrix.name }})')
+    expect(ciWorkflow).toContain('ubuntu-22.04-arm')
     expect(ciWorkflow).toContain('ubuntu-24.04-arm')
+    expect(ciWorkflow).toContain('node:24-trixie')
     expect(ciWorkflow).toContain('xvfb-run -a npm run smoke:linux:installed')
   })
 })

@@ -19,7 +19,10 @@ platform. Native packages are installer payloads and release evidence, not separ
 installation methods. [ADR-022](adr/ADR-022-platform-native-github-release-installation.md) owns
 the durable distribution, trust, privilege, update, removal, and migration boundaries.
 
-Pull-request CI runs native package acceptance on Linux x64, Linux arm64, and macOS arm64.
+Pull-request CI builds the Linux release artifacts on the Ubuntu 22.04 ABI baseline, then runs
+native package acceptance for those same artifacts on Ubuntu 22.04, Ubuntu 24.04, and current
+Debian stable userspaces on both x64 and arm64. It also runs native package acceptance on macOS
+arm64.
 It temporarily runs `npm run smoke:macos:ci` against the unpackaged build on Apple silicon,
 covering the focused custom-profile PTY lifecycle, source/diff position, platform, and renderer
 recovery contracts. Terminal presentation remains in the full local/pre-push `npm run
@@ -31,15 +34,18 @@ not an authoritative quantitative performance verdict.
 
 ## Supported targets
 
-| Platform | Architecture | Artifact | Native installation |
+| Platform | Architecture | Artifact | Compatibility contract |
 | --- | --- | --- | --- |
-| Ubuntu 24.04 LTS | x64 | `.deb` | `apt` |
-| Ubuntu 24.04 LTS | arm64 | `.deb` | `apt` |
+| Linux | x64 | `.deb` | Debian package tools, glibc 2.35+, GCC 12 libstdc++6+, required libraries, production Chromium sandbox |
+| Linux | arm64 | `.deb` | Debian package tools, glibc 2.35+, GCC 12 libstdc++6+, required libraries, production Chromium sandbox |
 | modern macOS | Apple silicon (`arm64`) | flat `.pkg` | `/usr/sbin/installer` |
 
-Other Debian-family systems are not supported until they pass the same native acceptance as the
-Ubuntu 24.04 baseline. Intel macOS, Windows, direct package installation, DMG, ZIP, AppImage,
-Homebrew, Snap, Flatpak, and other package formats are not release targets.
+Linux support is capability-based, not an `ID`, `ID_LIKE`, or `VERSION_ID` allowlist. The
+continuing matrix exercises Ubuntu 22.04 LTS, Ubuntu 24.04 LTS, and current Debian stable on both
+released architectures. Compatible Debian-package derivatives and future versions do not need an
+identity exception. Non-Debian package managers, Intel macOS, Windows, direct package
+installation, DMG, ZIP, AppImage, Homebrew, Snap, Flatpak, and other package formats are not
+release targets.
 
 The installed package owns the `hvir` command. Pass a local project directory to open it
 directly:
@@ -58,13 +64,17 @@ terminal.
 `releases/latest/download/install.sh` resolves to an installer stored with a specific immutable
 GitHub Release. That installer:
 
-1. Detects one supported operating system and architecture without elevation.
+1. Detects one supported operating system and architecture and checks its required capabilities
+   without elevation.
 2. Selects one exact artifact from the same release.
 3. Downloads it over GitHub HTTPS.
 4. Verifies its SHA-256 digest against the release-specific digest embedded in the installer.
 5. Invokes only the exact native package operation that requires elevation.
 
-The installer never executes an unverified native package. A clean installation requires Bash
+The installer never executes an unverified native package. Before Linux elevation it requires
+the Debian `dpkg` and `apt` tools, verifies glibc 2.35 or newer, checks the available Chromium
+sandbox path, and simulates installation of the verified package so missing system libraries or
+repository dependencies fail without changing the system. A clean installation requires Bash
 and the platform's native package tools; it does not require GitHub CLI, Node.js, npm, `cosign`,
 or an hvir-specific verifier.
 
@@ -79,9 +89,12 @@ auditors can independently verify the published release and assets with `gh rele
 
 The installer downloads the matching x64 or arm64 `.deb`, verifies it, and asks `apt` to perform
 the installation or update. The package installs hvir into a root-owned system location and owns
-the Ubuntu AppArmor profile required for Chromium sandboxing. Its package lifecycle loads,
-updates, unloads, and removes that policy. Production launch never adds `--no-sandbox` and does
-not require a user to edit AppArmor, change a sysctl, or repair ownership or permissions.
+Chromium's setuid sandbox helper. When the active kernel exposes the Ubuntu 24.04-style
+`apparmor_restrict_unprivileged_userns` policy, the installer validates the packaged AppArmor 4
+profile before elevation and the package lifecycle loads, updates, unloads, and removes it. Hosts
+without that restriction receive no hvir AppArmor profile. Production launch never adds
+`--no-sandbox` and does not require a user to edit AppArmor, change a sysctl, or repair ownership
+or permissions.
 
 ### macOS
 
@@ -212,9 +225,11 @@ digest. `SHA256SUMS` covers every release asset except itself. The assembler ref
 unexpected, or misnamed native inputs and proves that the installer embeds the same native
 artifact names and digests.
 
-Linux x64 and Linux arm64 artifacts are built and exercised on matching native runners in the
-exact-source CI run; the accepted immutable artifacts flow into Release. The macOS arm64 artifact
-is built and exercised on its matching native runner in the protected Release workflow. It
+Linux x64 and Linux arm64 artifacts are built and exercised on matching native Ubuntu 22.04
+runners in the exact-source CI run, then those same artifacts are exercised on Ubuntu 24.04 and
+Debian stable userspaces on matching native architectures before they flow into Release. The
+macOS arm64 artifact is built and exercised on its matching native runner in the protected
+Release workflow. It
 additionally passes application and installer signature validation, Gatekeeper assessment,
 notarization, and stapled-ticket validation. Native installation acceptance proves the installed
 command, one real `node-pty` load, one worker round-trip, and platform-specific system integration.
