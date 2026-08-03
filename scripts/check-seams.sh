@@ -66,7 +66,7 @@ report "IPC features use central owner/path authority" "$hits"
 # consumers continue to depend on ProjectHost and host-qualified paths only.
 hits=$(grep -rnE "from ['\"]ssh2['\"]|import\(['\"]ssh2['\"]\)" \
   "$SRC" --include='*.ts' --include='*.tsx' --include='*.mts' \
-  | grep -vE '^src/main/project-host/ssh-(host|file-access|transport-pool|watch-service)\.ts' || true)
+  | grep -vE '^src/main/project-host/ssh-(host|host-options|file-access|transport-pool|watch-service)\.ts' || true)
 report "ssh2 details stay inside the SshHost adapter" "$hits"
 
 # 9. Host-local collaborators share SshHost's authentication lifecycle. They
@@ -81,13 +81,23 @@ hits=$(grep -nE 'Ssh(FileAccess|TransportPool|WatchService)' \
   src/main/project-host/index.ts || true)
 report "only SshHost is exported as the remote host façade" "$hits"
 
-# 11. Git capability modules share one command/cancellation/root policy. No
+# 11. The project-host catalog is the only main-process owner allowed to
+# construct SSH hosts. Project persistence cannot import the moved SSH owners.
+hits=$({
+  grep -rnE '\bnew SshHost\(' src/main --include='*.ts' --include='*.mts' \
+    | grep -v '^src/main/project-host/project-host-catalog.ts' || true
+  grep -nE "RendererSshPrompter|SshHostTrustStore|parseSshConfig|known-hosts|identityFileCandidates|from ['\"]\./project-host/(ssh-host|ssh-host-trust|renderer-ssh-prompter|project-host-catalog)['\"]" \
+    src/main/project-registry.ts || true
+})
+report "SSH construction and implementation owners stay in the host catalog" "$hits"
+
+# 12. Git capability modules share one command/cancellation/root policy. No
 # capability constructs a git invocation against the host directly.
 hits=$(grep -rnF ".exec('git'" src/main/git --include='*.ts' --include='*.mts' \
   | grep -vE '^src/main/git/(git-command-context|worker-host-broker)\.ts' || true)
 report "Git commands use the shared command context" "$hits"
 
-# 12. The utility-process proxy implements only Git's exact exec/read port,
+# 13. The utility-process proxy implements only Git's exact exec/read port,
 # rather than pretending to be a complete ProjectHost with never placeholders.
 hits=$(grep -nE 'implements ProjectHost|execStream\(\): never|spawnPty\(\): never|connectLoopback\(\): never|readFile\(\): never|writeFile\(\): never|readdir\(\): never|stat\(\): never|realpath\(\): never|watch\(\): never' \
   src/workers/git-worker.ts || true)

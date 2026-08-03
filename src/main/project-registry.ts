@@ -1,6 +1,4 @@
-import { AsyncLocalStorage } from 'node:async_hooks'
 import { homedir } from 'node:os'
-import { join } from 'node:path'
 
 import {
   asHostId,
@@ -14,22 +12,12 @@ import {
   type ProjectHostOption,
   type ProjectState,
   type RegisteredProjectState,
-  type SshPromptRequest,
   type WorktreeDiscovery,
   type WorkspaceActivityResult,
   type WorkspaceActivitySnapshot,
   type WorkspaceState,
 } from '../shared'
-import {
-  LocalHost,
-  SshHost,
-  parseSshConfig,
-  type ProjectHost,
-  type SshAliasConfig,
-  type SshAuthPrompter,
-  type SshPrompt,
-} from './project-host'
-import type { RendererOwner } from './renderer-resource-scopes'
+import type { Disposer, ProjectHost } from './project-host'
 import {
   comparableWorkspaceActivity,
   validActivitySnapshot,
@@ -42,6 +30,18 @@ export interface ActiveProject {
   readonly root: HostPath
   readonly projectId: string
   readonly workspaceId: string
+}
+
+/** ProjectRegistry's consumer-owned view of the live host catalog. */
+export interface ProjectRegistryHostCatalog {
+  readonly local: ProjectHost
+  listHosts(): readonly ProjectHostOption[]
+  hostById(hostId: string): ProjectHost | undefined
+  connectedHosts(): readonly ProjectHost[]
+  materializeHost(hostId: string): Promise<ProjectHost>
+  disconnectHost(hostId: string): Promise<ProjectHostOption>
+  disconnectSshHosts(): Promise<void>
+  onHostStateChange(listener: () => void): Disposer
 }
 
 type WorkspaceRecord = WorkspaceState & {
@@ -90,70 +90,58 @@ const MAX_PROJECTS = 100
 const MAX_WORKSPACES = 1_000
 
 export class ProjectRegistry {
-  private readonly hosts = new Map<string, ProjectHost>()
   private activeProject: ActiveProject
   private pendingWrite: Promise<void> = Promise.resolve()
   private stateRevision = 0
+  private readonly stopHostState: Disposer
 
   private constructor(
-    private readonly local: LocalHost,
+    private readonly hostCatalog: ProjectRegistryHostCatalog,
     initialRoot: HostPath,
-    private readonly aliases: readonly SshAliasConfig[],
-    private readonly prompter: SshAuthPrompter,
-    private readonly trust: HostTrustStore,
     private readonly file: HostPath,
     private readonly projects: ProjectRecord[],
     private activeProjectId: string,
     private readonly onState: (state: ProjectState) => void,
   ) {
-    this.hosts.set(local.hostId, local)
     const initialProject = projects[0] ?? createProject(initialRoot)
     if (projects.length === 0) projects.push(initialProject)
     const initialWorkspace = initialProject.workspaces[0]!
     this.activeProject = {
-      host: local,
+      host: hostCatalog.local,
       root: initialWorkspace.root,
       projectId: initialProject.id,
       workspaceId: initialWorkspace.id,
     }
+    this.stopHostState = hostCatalog.onHostStateChange(() => this.publishState())
   }
 
   static async create(
     initialRoot: HostPath,
-    prompter: SshAuthPrompter,
-    trustFile: string,
+    hostCatalog: ProjectRegistryHostCatalog,
     registryFile: string,
     onState: (state: ProjectState) => void,
   ): Promise<ProjectRegistry>
   static async create(
     initialRoot: HostPath | undefined,
-    prompter: SshAuthPrompter,
-    trustFile: string,
+    hostCatalog: ProjectRegistryHostCatalog,
     registryFile: string,
     onState: (state: ProjectState) => void,
     selectInitialRoot: () => Promise<HostPath | undefined>,
   ): Promise<ProjectRegistry | undefined>
   static async create(
     initialRoot: HostPath | undefined,
-    prompter: SshAuthPrompter,
-    trustFile: string,
+    hostCatalog: ProjectRegistryHostCatalog,
     registryFile: string,
     onState: (state: ProjectState) => void,
     selectInitialRoot?: () => Promise<HostPath | undefined>,
   ): Promise<ProjectRegistry | undefined> {
-    const local = new LocalHost()
-    await local.connect()
-    const aliases = await loadSshAliases(local)
-    const trust = await HostTrustStore.load(local, localPath(trustFile))
+    const local = hostCatalog.local
     const file = localPath(registryFile)
     const stored = await loadProjects(local, file)
     let canonicalRoot = initialRoot ? await local.realpath(initialRoot) : undefined
     if (!canonicalRoot && !stored?.projects.length) {
       const selected = await selectInitialRoot?.()
-      if (!selected) {
-        await local.dispose()
-        return undefined
-      }
+      if (!selected) return undefined
       canonicalRoot = await local.realpath(selected)
     }
     const projects = stored?.projects.length ? stored.projects : []
@@ -183,24 +171,23 @@ export class ProjectRegistry {
       activeProjectId = selectedProject.id
     }
     const fallbackRoot = canonicalRoot ?? projects[0]?.registeredRoot
-    if (!fallbackRoot || !activeProjectId) {
-      await local.dispose()
-      return undefined
-    }
+    if (!fallbackRoot || !activeProjectId) return undefined
     const registry = new ProjectRegistry(
-      local,
+      hostCatalog,
       fallbackRoot,
-      aliases,
-      prompter,
-      trust,
       file,
       projects,
       activeProjectId,
       onState,
     )
-    await registry.restoreActive()
-    if (!stored || canonicalRoot) await registry.persist()
-    return registry
+    try {
+      await registry.restoreActive()
+      if (!stored || canonicalRoot) await registry.persist()
+      return registry
+    } catch (error) {
+      await registry.dispose()
+      throw error
+    }
   }
 
   get active(): ActiveProject {
@@ -250,7 +237,7 @@ export class ProjectRegistry {
       (left, right) => right.root.path.length - left.root.path.length,
     )[0]
     if (!match) return undefined
-    const host = this.hosts.get(hostId)
+    const host = this.hostCatalog.hostById(hostId)
     if (!host) return undefined
     const workspace =
       match.workspace ??
@@ -268,31 +255,15 @@ export class ProjectRegistry {
   }
 
   listHosts(): readonly ProjectHostOption[] {
-    return [
-      hostOption(this.local, 'Local', 'local'),
-      ...this.aliases.map((config) => {
-        const host = this.hosts.get(config.alias)
-        return host
-          ? hostOption(host, config.alias, 'ssh')
-          : {
-              hostId: config.alias,
-              label: config.alias,
-              kind: 'ssh' as const,
-              connectionState: 'disconnected' as const,
-              watchTier: 'polling' as const,
-            }
-      }),
-    ]
+    return this.hostCatalog.listHosts()
   }
 
   hostById(hostId: string): ProjectHost | undefined {
-    return this.hosts.get(hostId)
+    return this.hostCatalog.hostById(hostId)
   }
 
   connectedHosts(): readonly ProjectHost[] {
-    return [...this.hosts.values()].filter(
-      ({ connectionState }) => connectionState === 'connected',
-    )
+    return this.hostCatalog.connectedHosts()
   }
 
   async connectHost(hostId: string): Promise<ConnectedHost> {
@@ -300,7 +271,7 @@ export class ProjectRegistry {
     await host.connect()
     let suggestedPath =
       this.activeProject.host.hostId === host.hostId ? this.activeProject.root.path : '/'
-    if (host.hostId === this.local.hostId) {
+    if (host.hostId === this.hostCatalog.local.hostId) {
       suggestedPath =
         this.activeProject.host.hostId === host.hostId
           ? this.activeProject.root.path
@@ -311,39 +282,26 @@ export class ProjectRegistry {
         suggestedPath = pwd.stdout.trim()
       }
     }
+    const option = this.hostCatalog
+      .listHosts()
+      .find((candidate) => candidate.hostId === hostId)
+    if (!option) throw new Error(`Unknown project host: ${hostId}`)
     return {
-      host: hostOption(
-        host,
-        hostId === this.local.hostId ? 'Local' : hostId,
-        hostId === this.local.hostId ? 'local' : 'ssh',
-      ),
+      host: option,
       suggestedPath,
     }
   }
 
   async disconnectHost(hostId: string): Promise<ProjectHostOption> {
-    if (hostId === this.local.hostId) throw new Error('The local host cannot disconnect')
-    const host = this.hosts.get(hostId)
-    if (!host) throw new Error(`SSH host is not connected: ${hostId}`)
-    if ('cancelHost' in this.prompter) {
-      ;(this.prompter as SshAuthPrompter & { cancelHost(id: string): void }).cancelHost(
-        hostId,
-      )
-    }
-    await host.dispose()
-    return hostOption(host, hostId, 'ssh')
+    return this.hostCatalog.disconnectHost(hostId)
   }
 
   async disconnectSshHosts(): Promise<void> {
-    await Promise.all(
-      [...this.hosts.values()]
-        .filter((host) => host.hostId !== this.local.hostId)
-        .map((host) => host.dispose()),
-    )
+    await this.hostCatalog.disconnectSshHosts()
   }
 
   async browseHost(hostId: string, rawPath: string): Promise<BrowseHostResponse> {
-    const host = this.hosts.get(hostId)
+    const host = this.hostCatalog.hostById(hostId)
     if (!host || host.connectionState !== 'connected') {
       throw new Error(`Connect to ${hostId} before browsing folders`)
     }
@@ -734,8 +692,8 @@ export class ProjectRegistry {
   }
 
   async dispose(): Promise<void> {
+    await this.stopHostState()
     await this.pendingWrite
-    await Promise.all([...this.hosts.values()].map((host) => host.dispose()))
   }
 
   private async restoreActive(): Promise<void> {
@@ -763,7 +721,7 @@ export class ProjectRegistry {
   }
 
   private rendererProject(project: ProjectRecord): RegisteredProjectState {
-    const host = this.hosts.get(project.registeredRoot.hostId)
+    const host = this.hostCatalog.hostById(project.registeredRoot.hostId)
     return {
       id: project.id,
       registeredRoot: project.registeredRoot,
@@ -816,7 +774,7 @@ export class ProjectRegistry {
           })),
         })),
       }
-      await this.local.writeFile(this.file, JSON.stringify(stored, null, 2))
+      await this.hostCatalog.local.writeFile(this.file, JSON.stringify(stored, null, 2))
     }
     const next = this.pendingWrite.then(write, write)
     this.pendingWrite = next.catch(() => undefined)
@@ -824,225 +782,7 @@ export class ProjectRegistry {
   }
 
   private async host(hostId: string): Promise<ProjectHost> {
-    const existing = this.hosts.get(hostId)
-    if (existing) return existing
-    const config = this.aliases.find((candidate) => candidate.alias === hostId)
-    if (!config) throw new Error(`Unknown SSH host alias: ${hostId}`)
-    const identities = await Promise.all(
-      identityFileCandidates(config).map(async (path) => {
-        try {
-          return { path, privateKey: await this.local.readFile(localPath(path)) }
-        } catch {
-          return undefined
-        }
-      }),
-    )
-    const host = new SshHost({
-      config,
-      identities: identities.filter((identity) => identity !== undefined),
-      agentSocket: process.env['SSH_AUTH_SOCK'],
-      prompter: this.prompter,
-      trustedHostKey: () => this.trust.fingerprint(config.alias),
-      rememberHostKey: (fingerprint) => this.trust.remember(config.alias, fingerprint),
-    })
-    host.onConnectionState(() => {
-      this.publishState()
-    })
-    this.hosts.set(hostId, host)
-    return host
-  }
-}
-
-const DEFAULT_IDENTITY_NAMES = [
-  'id_rsa',
-  'id_ecdsa',
-  'id_ecdsa_sk',
-  'id_ed25519',
-  'id_ed25519_sk',
-  'id_xmss',
-  'id_dsa',
-] as const
-
-/** OpenSSH's conventional identity set applies when no IdentityFile is configured. */
-export function identityFileCandidates(
-  config: SshAliasConfig,
-  home = homedir(),
-): readonly string[] {
-  if (config.identityFiles.length) return [...new Set(config.identityFiles)]
-  return DEFAULT_IDENTITY_NAMES.map((name) => join(home, '.ssh', name))
-}
-
-export class RendererSshPrompter implements SshAuthPrompter {
-  private nextId = 0
-  private readonly ownerContext = new AsyncLocalStorage<RendererOwner>()
-  private readonly activeOwners = new Map<number, RendererOwner>()
-  private readonly pending = new Map<
-    number,
-    {
-      readonly hostId: string
-      readonly request: SshPrompt
-      owner: RendererOwner
-      presented: boolean
-      readonly resolve: (answers: readonly string[] | undefined) => void
-    }
-  >()
-
-  constructor(
-    private readonly emit: (owner: RendererOwner, prompt: SshPromptRequest) => void,
-    private readonly emitCancel: (owner: RendererOwner, hostId: string) => void = () =>
-      undefined,
-  ) {}
-
-  runForOwner<T>(owner: RendererOwner, operation: () => T): T {
-    return this.ownerContext.run(owner, operation)
-  }
-
-  activateOwner(owner: RendererOwner): void {
-    this.activeOwners.set(owner.id, owner)
-    for (const [id, pending] of this.pending) {
-      if (pending.owner.id !== owner.id || pending.presented) continue
-      pending.owner = owner
-      pending.presented = true
-      this.emit(owner, { id, ...pending.request })
-    }
-  }
-
-  revokeOwner(owner: RendererOwner): void {
-    const active = this.activeOwners.get(owner.id)
-    if (active?.generation === owner.generation) this.activeOwners.delete(owner.id)
-    for (const pending of this.pending.values()) {
-      if (!sameRendererOwner(pending.owner, owner)) continue
-      pending.presented = false
-    }
-  }
-
-  prompt(request: SshPrompt): Promise<readonly string[] | undefined> {
-    const contextualOwner = this.ownerContext.getStore()
-    const activeOwner = contextualOwner
-      ? this.activeOwners.get(contextualOwner.id)
-      : this.activeOwners.values().next().value
-    const owner = activeOwner ?? contextualOwner
-    if (!owner) return Promise.resolve(undefined)
-    const id = ++this.nextId
-    return new Promise((resolve) => {
-      const presented = activeOwner !== undefined
-      this.pending.set(id, {
-        hostId: request.hostId,
-        request,
-        owner,
-        presented,
-        resolve,
-      })
-      if (presented) this.emit(owner, { id, ...request })
-    })
-  }
-
-  respond(owner: RendererOwner, id: number, answers?: readonly string[]): void {
-    const pending = this.pending.get(id)
-    const activeOwner = this.activeOwners.get(owner.id)
-    if (
-      !pending ||
-      !pending.presented ||
-      !sameRendererOwner(pending.owner, owner) ||
-      !activeOwner ||
-      !sameRendererOwner(activeOwner, owner)
-    ) {
-      return
-    }
-    this.pending.delete(id)
-    pending.resolve(answers)
-  }
-
-  cancelAll(): void {
-    const presentations = new Map<string, RendererOwner>()
-    for (const pending of this.pending.values()) {
-      presentations.set(pending.hostId, pending.owner)
-    }
-    for (const pending of this.pending.values()) pending.resolve(undefined)
-    this.pending.clear()
-    for (const [hostId, owner] of presentations) this.emitCancel(owner, hostId)
-  }
-
-  cancelHost(hostId: string): void {
-    const owners = new Map<string, RendererOwner>()
-    for (const [id, pending] of this.pending) {
-      if (pending.hostId !== hostId) continue
-      owners.set(`${pending.owner.id}:${pending.owner.generation}`, pending.owner)
-      pending.resolve(undefined)
-      this.pending.delete(id)
-    }
-    for (const owner of owners.values()) this.emitCancel(owner, hostId)
-  }
-}
-
-function sameRendererOwner(left: RendererOwner, right: RendererOwner): boolean {
-  return left.id === right.id && left.generation === right.generation
-}
-
-class HostTrustStore {
-  private constructor(
-    private readonly host: LocalHost,
-    private readonly file: HostPath,
-    private readonly fingerprints: Record<string, string>,
-  ) {}
-
-  static async load(host: LocalHost, file: HostPath): Promise<HostTrustStore> {
-    try {
-      const parsed: unknown = JSON.parse(await host.readTextFile(file))
-      const fingerprints: Record<string, string> = {}
-      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-        for (const [alias, fingerprint] of Object.entries(parsed)) {
-          if (
-            /^[^\s]{1,255}$/.test(alias) &&
-            typeof fingerprint === 'string' &&
-            /^SHA256:[A-Za-z0-9+/]{20,}$/.test(fingerprint)
-          ) {
-            fingerprints[alias] = fingerprint
-          }
-        }
-      }
-      return new HostTrustStore(host, file, fingerprints)
-    } catch {
-      return new HostTrustStore(host, file, {})
-    }
-  }
-
-  fingerprint(alias: string): string | undefined {
-    return this.fingerprints[alias]
-  }
-
-  async remember(alias: string, fingerprint: string): Promise<void> {
-    if (!/^SHA256:[A-Za-z0-9+/]{20,}$/.test(fingerprint)) {
-      throw new Error('Invalid SSH host-key fingerprint')
-    }
-    this.fingerprints[alias] = fingerprint
-    await this.host.writeFile(this.file, JSON.stringify(this.fingerprints, null, 2))
-  }
-}
-
-async function loadSshAliases(host: LocalHost): Promise<readonly SshAliasConfig[]> {
-  const home = homedir()
-  try {
-    return parseSshConfig(
-      await host.readTextFile(localPath(join(home, '.ssh/config'))),
-      home,
-    )
-  } catch {
-    return []
-  }
-}
-
-function hostOption(
-  host: ProjectHost,
-  label: string,
-  kind: 'local' | 'ssh',
-): ProjectHostOption {
-  return {
-    hostId: host.hostId,
-    label,
-    kind,
-    connectionState: host.connectionState,
-    watchTier: host.watchTier,
+    return this.hostCatalog.materializeHost(hostId)
   }
 }
 
@@ -1150,7 +890,7 @@ function restoredActivity(
 }
 
 async function loadProjects(
-  host: LocalHost,
+  host: ProjectHost,
   file: HostPath,
 ): Promise<{ activeProjectId: string; projects: ProjectRecord[] } | undefined> {
   try {

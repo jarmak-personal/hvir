@@ -1,13 +1,10 @@
 import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import {
-  ProjectRegistry,
-  RendererSshPrompter,
-  identityFileCandidates,
-} from '../src/main/project-registry'
+import { ProjectHostCatalog, type SshAuthPrompter } from '../src/main/project-host'
+import { ProjectRegistry } from '../src/main/project-registry'
 import {
   WORKSPACE_ACTIVITY_FIELDS,
   WORKSPACE_ACTIVITY_SCHEMA,
@@ -15,15 +12,58 @@ import {
   asHostId,
   hostPath,
   localPath,
+  type HostPath,
   type ProjectState,
   type WorkspaceActivityResult,
 } from '../src/shared'
 
 const cleanups: string[] = []
+const catalogs: ProjectHostCatalog[] = []
 
 afterEach(async () => {
+  await Promise.all(catalogs.splice(0).map((catalog) => catalog.dispose()))
   await Promise.all(cleanups.splice(0).map((path) => rm(path, { recursive: true })))
 })
+
+async function createRegistry(
+  initialRoot: HostPath,
+  prompter: SshAuthPrompter,
+  trustFile: string,
+  registryFile: string,
+  onState: (state: ProjectState) => void,
+): Promise<ProjectRegistry>
+async function createRegistry(
+  initialRoot: HostPath | undefined,
+  prompter: SshAuthPrompter,
+  trustFile: string,
+  registryFile: string,
+  onState: (state: ProjectState) => void,
+  selectInitialRoot: () => Promise<HostPath | undefined>,
+): Promise<ProjectRegistry | undefined>
+async function createRegistry(
+  initialRoot: HostPath | undefined,
+  prompter: SshAuthPrompter,
+  trustFile: string,
+  registryFile: string,
+  onState: (state: ProjectState) => void,
+  selectInitialRoot?: () => Promise<HostPath | undefined>,
+): Promise<ProjectRegistry | undefined> {
+  const catalog = await ProjectHostCatalog.create({
+    prompter,
+    trustFile: localPath(trustFile),
+    home: dirname(trustFile),
+  })
+  catalogs.push(catalog)
+  return selectInitialRoot
+    ? ProjectRegistry.create(
+        initialRoot,
+        catalog,
+        registryFile,
+        onState,
+        selectInitialRoot,
+      )
+    : ProjectRegistry.create(initialRoot!, catalog, registryFile, onState)
+}
 
 function activityResult(
   digestCharacter: string,
@@ -48,7 +88,7 @@ describe('ProjectRegistry session flow', () => {
     cleanups.push(metadata)
     const select = vi.fn(() => Promise.resolve(undefined))
 
-    const registry = await ProjectRegistry.create(
+    const registry = await createRegistry(
       undefined,
       { prompt: () => Promise.resolve(undefined) },
       join(metadata, 'known-hosts.json'),
@@ -70,7 +110,7 @@ describe('ProjectRegistry session flow', () => {
     cleanups.push(metadata)
     const registryFile = join(metadata, 'projects.json')
     const trustFile = join(metadata, 'known-hosts.json')
-    const initial = await ProjectRegistry.create(
+    const initial = await createRegistry(
       localPath(first),
       { prompt: () => Promise.resolve(undefined) },
       trustFile,
@@ -81,7 +121,7 @@ describe('ProjectRegistry session flow', () => {
     await initial.dispose()
 
     const select = vi.fn(() => Promise.resolve(localPath(metadata)))
-    const restored = await ProjectRegistry.create(
+    const restored = await createRegistry(
       undefined,
       { prompt: () => Promise.resolve(undefined) },
       trustFile,
@@ -93,7 +133,7 @@ describe('ProjectRegistry session flow', () => {
     expect(select).not.toHaveBeenCalled()
     await restored?.dispose()
 
-    const explicit = await ProjectRegistry.create(
+    const explicit = await createRegistry(
       localPath(first),
       { prompt: () => Promise.resolve(undefined) },
       trustFile,
@@ -116,7 +156,7 @@ describe('ProjectRegistry session flow', () => {
     const canonicalLinked = localPath(await realpath(linked))
     const registryFile = join(metadata, 'projects.json')
     const trustFile = join(metadata, 'known-hosts.json')
-    const initial = await ProjectRegistry.create(
+    const initial = await createRegistry(
       canonicalRoot,
       { prompt: () => Promise.resolve(undefined) },
       trustFile,
@@ -136,7 +176,7 @@ describe('ProjectRegistry session flow', () => {
     await initial.closeWorkspace(initial.state().activeProjectId, linkedId)
     await initial.dispose()
 
-    const restored = await ProjectRegistry.create(
+    const restored = await createRegistry(
       canonicalLinked,
       { prompt: () => Promise.resolve(undefined) },
       trustFile,
@@ -154,44 +194,6 @@ describe('ProjectRegistry session flow', () => {
     await restored.dispose()
   })
 
-  it('uses configured identities without adding OpenSSH defaults', () => {
-    expect(
-      identityFileCandidates(
-        {
-          alias: 'example',
-          hostname: 'example.test',
-          user: 'picard',
-          port: 22,
-          identityFiles: ['/home/test/custom', '/home/test/custom'],
-        },
-        '/home/test',
-      ),
-    ).toEqual(['/home/test/custom'])
-  })
-
-  it('loads conventional OpenSSH identities when none are configured', () => {
-    expect(
-      identityFileCandidates(
-        {
-          alias: 'example',
-          hostname: 'example.test',
-          user: 'picard',
-          port: 22,
-          identityFiles: [],
-        },
-        '/home/test',
-      ),
-    ).toEqual([
-      '/home/test/.ssh/id_rsa',
-      '/home/test/.ssh/id_ecdsa',
-      '/home/test/.ssh/id_ecdsa_sk',
-      '/home/test/.ssh/id_ed25519',
-      '/home/test/.ssh/id_ed25519_sk',
-      '/home/test/.ssh/id_xmss',
-      '/home/test/.ssh/id_dsa',
-    ])
-  })
-
   it('connects before browsing and opens a selected local folder', async () => {
     const root = await mkdtemp(join(tmpdir(), 'hvir-registry-'))
     const canonicalRoot = await realpath(root)
@@ -200,7 +202,7 @@ describe('ProjectRegistry session flow', () => {
     await mkdir(join(root, 'zeta'))
     await writeFile(join(root, 'file.txt'), 'not a folder')
     const states: ProjectState[] = []
-    const registry = await ProjectRegistry.create(
+    const registry = await createRegistry(
       localPath(root),
       { prompt: () => Promise.resolve(undefined) },
       join(root, 'known-hosts.json'),
@@ -242,7 +244,7 @@ describe('ProjectRegistry session flow', () => {
     const canonicalSecond = await realpath(second)
     const projectsFile = join(root, 'projects.json')
     cleanups.push(root)
-    const registry = await ProjectRegistry.create(
+    const registry = await createRegistry(
       localPath(root),
       { prompt: () => Promise.resolve(undefined) },
       join(root, 'known-hosts.json'),
@@ -263,7 +265,7 @@ describe('ProjectRegistry session flow', () => {
     )
     await registry.dispose()
 
-    const restored = await ProjectRegistry.create(
+    const restored = await createRegistry(
       localPath(root),
       { prompt: () => Promise.resolve(undefined) },
       join(root, 'known-hosts.json'),
@@ -278,7 +280,7 @@ describe('ProjectRegistry session flow', () => {
   it('rejects browsing a host that has not connected', async () => {
     const root = await mkdtemp(join(tmpdir(), 'hvir-registry-'))
     cleanups.push(root)
-    const registry = await ProjectRegistry.create(
+    const registry = await createRegistry(
       localPath(root),
       { prompt: () => Promise.resolve(undefined) },
       join(root, 'known-hosts.json'),
@@ -295,7 +297,7 @@ describe('ProjectRegistry session flow', () => {
   it('does not allow the local host to disconnect', async () => {
     const root = await mkdtemp(join(tmpdir(), 'hvir-registry-'))
     cleanups.push(root)
-    const registry = await ProjectRegistry.create(
+    const registry = await createRegistry(
       localPath(root),
       { prompt: () => Promise.resolve(undefined) },
       join(root, 'known-hosts.json'),
@@ -354,7 +356,7 @@ describe('ProjectRegistry session flow', () => {
         ],
       }),
     )
-    const registry = await ProjectRegistry.create(
+    const registry = await createRegistry(
       localPath(root),
       { prompt: () => Promise.resolve(undefined) },
       join(root, 'known-hosts.json'),
@@ -381,7 +383,7 @@ describe('ProjectRegistry session flow', () => {
     const canonicalLinked = await realpath(linked)
     cleanups.push(root)
     const projectsFile = join(root, 'projects.json')
-    const registry = await ProjectRegistry.create(
+    const registry = await createRegistry(
       localPath(root),
       { prompt: () => Promise.resolve(undefined) },
       join(root, 'known-hosts.json'),
@@ -424,7 +426,7 @@ describe('ProjectRegistry session flow', () => {
     )
     await registry.dispose()
 
-    const restored = await ProjectRegistry.create(
+    const restored = await createRegistry(
       localPath(root),
       { prompt: () => Promise.resolve(undefined) },
       join(root, 'known-hosts.json'),
@@ -472,7 +474,7 @@ describe('ProjectRegistry session flow', () => {
     const projectsFile = join(root, 'projects.json')
     const trustFile = join(root, 'known-hosts.json')
     cleanups.push(root)
-    const registry = await ProjectRegistry.create(
+    const registry = await createRegistry(
       canonicalRoot,
       { prompt: () => Promise.resolve(undefined) },
       trustFile,
@@ -541,7 +543,7 @@ describe('ProjectRegistry session flow', () => {
     expect(JSON.stringify(storedLinked)).not.toMatch(/mtime|fileSize|terminal|output/)
     await registry.dispose()
 
-    const restored = await ProjectRegistry.create(
+    const restored = await createRegistry(
       canonicalRoot,
       { prompt: () => Promise.resolve(undefined) },
       trustFile,
@@ -658,7 +660,7 @@ describe('ProjectRegistry session flow', () => {
     const canonicalRoot = localPath(await realpath(root))
     const canonicalLinked = localPath(await realpath(linked))
     cleanups.push(root)
-    const registry = await ProjectRegistry.create(
+    const registry = await createRegistry(
       canonicalRoot,
       { prompt: () => Promise.resolve(undefined) },
       join(root, 'known-hosts.json'),
@@ -721,7 +723,7 @@ describe('ProjectRegistry session flow', () => {
     const projectsFile = join(root, 'projects.json')
     const trustFile = join(root, 'known-hosts.json')
     cleanups.push(root)
-    const registry = await ProjectRegistry.create(
+    const registry = await createRegistry(
       canonicalRoot,
       { prompt: () => Promise.resolve(undefined) },
       trustFile,
@@ -761,7 +763,7 @@ describe('ProjectRegistry session flow', () => {
     )
     await registry.dispose()
 
-    const restored = await ProjectRegistry.create(
+    const restored = await createRegistry(
       canonicalRoot,
       { prompt: () => Promise.resolve(undefined) },
       trustFile,
@@ -810,7 +812,7 @@ describe('ProjectRegistry session flow', () => {
     const root = await mkdtemp(join(tmpdir(), 'hvir-registry-plain-'))
     const canonicalRoot = localPath(await realpath(root))
     cleanups.push(root)
-    const registry = await ProjectRegistry.create(
+    const registry = await createRegistry(
       canonicalRoot,
       { prompt: () => Promise.resolve(undefined) },
       join(root, 'known-hosts.json'),
@@ -846,7 +848,7 @@ describe('ProjectRegistry session flow', () => {
     const staleRoot = localPath(`${canonicalRoot}-stale`)
     const projectsFile = join(root, 'projects.json')
     cleanups.push(root)
-    const registry = await ProjectRegistry.create(
+    const registry = await createRegistry(
       localPath(root),
       { prompt: () => Promise.resolve(undefined) },
       join(root, 'known-hosts.json'),
@@ -879,7 +881,7 @@ describe('ProjectRegistry session flow', () => {
     )
     await registry.dispose()
 
-    const restored = await ProjectRegistry.create(
+    const restored = await createRegistry(
       localPath(root),
       { prompt: () => Promise.resolve(undefined) },
       join(root, 'known-hosts.json'),
@@ -917,73 +919,5 @@ describe('ProjectRegistry session flow', () => {
         ?.prunableReason,
     ).toBeUndefined()
     await restored.dispose()
-  })
-})
-
-describe('RendererSshPrompter', () => {
-  it('keeps concurrent prompts independently addressable and cancels by host', async () => {
-    const emitted: { id: number; hostId: string }[] = []
-    const cancelled: string[] = []
-    const prompter = new RendererSshPrompter(
-      (_owner, prompt) => emitted.push(prompt),
-      (_owner, hostId) => cancelled.push(hostId),
-    )
-    const owner = { id: 7, generation: 1 }
-    prompter.activateOwner(owner)
-    const first = prompter.runForOwner(owner, () =>
-      prompter.prompt({
-        hostId: 'alpha',
-        kind: 'password',
-        title: 'Alpha',
-        prompts: [],
-      }),
-    )
-    const second = prompter.runForOwner(owner, () =>
-      prompter.prompt({
-        hostId: 'beta',
-        kind: 'password',
-        title: 'Beta',
-        prompts: [],
-      }),
-    )
-
-    expect(emitted).toEqual([
-      expect.objectContaining({ id: 1, hostId: 'alpha' }),
-      expect.objectContaining({ id: 2, hostId: 'beta' }),
-    ])
-    prompter.cancelHost('alpha')
-    prompter.respond(owner, 2, ['secret'])
-    await expect(first).resolves.toBeUndefined()
-    await expect(second).resolves.toEqual(['secret'])
-    expect(cancelled).toEqual(['alpha'])
-  })
-
-  it('moves a prompt presentation lease across a renderer reload', async () => {
-    const emitted: { owner: number; generation: number; id: number }[] = []
-    const prompter = new RendererSshPrompter((owner, prompt) =>
-      emitted.push({ owner: owner.id, generation: owner.generation, id: prompt.id }),
-    )
-    const previous = { id: 7, generation: 1 }
-    const current = { id: 7, generation: 2 }
-    prompter.activateOwner(previous)
-    const response = prompter.runForOwner(previous, () =>
-      prompter.prompt({
-        hostId: 'alpha',
-        kind: 'password',
-        title: 'Alpha',
-        prompts: [],
-      }),
-    )
-
-    prompter.revokeOwner(previous)
-    prompter.respond(previous, 1, ['stale'])
-    prompter.activateOwner(current)
-    prompter.respond(current, 1, ['current'])
-
-    await expect(response).resolves.toEqual(['current'])
-    expect(emitted).toEqual([
-      { owner: 7, generation: 1, id: 1 },
-      { owner: 7, generation: 2, id: 1 },
-    ])
   })
 })
