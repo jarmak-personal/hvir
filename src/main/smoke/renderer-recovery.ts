@@ -18,21 +18,9 @@ export async function verifyRendererProcessRecovery(options: {
   readonly host: ProjectHost
   readonly checkpoint: (checkpoint: SmokeFailureCheckpoint) => void
 }): Promise<string> {
-  const {
-    win,
-    resources,
-    diagnostics,
-    supervisor,
-    routes,
-    root,
-    host,
-    checkpoint,
-  } = options
+  const { win, resources, diagnostics, supervisor, routes, root, host, checkpoint } =
+    options
   const initialOwner = resources.currentOwner(win.webContents.id)
-  const initialProcessId = win.webContents.getOSProcessId()
-  if (initialProcessId <= 0) {
-    throw new Error('renderer recovery could not identify the initial OS process')
-  }
   if (supervisor.list().length !== 0) {
     throw new Error('empty renderer-recovery fixture started a PTY before user action')
   }
@@ -49,6 +37,17 @@ export async function verifyRendererProcessRecovery(options: {
     'renderer recovery route did not open',
   )
   checkpoint('renderer-recovery-route-opened')
+  const initialPresentation = await timeout(
+    win.webContents.capturePage(),
+    'renderer recovery initial workbench did not present',
+  )
+  if (initialPresentation.isEmpty()) {
+    throw new Error('renderer recovery initial workbench captured an empty frame')
+  }
+  const initialProcessId = win.webContents.getOSProcessId()
+  if (initialProcessId <= 0) {
+    throw new Error('renderer recovery could not identify the presented OS process')
+  }
   const loaded = new Promise<void>((resolve) =>
     win.webContents.once('did-finish-load', () => resolve()),
   )
