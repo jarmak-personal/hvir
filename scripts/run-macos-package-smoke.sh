@@ -58,7 +58,6 @@ temporary_parent=$(cd "${TMPDIR:-/tmp}" && pwd -P)
 invocation_root=$(mktemp -d "$temporary_parent/hvir-macos-package-smoke.XXXXXX")
 project_root="$invocation_root/repository"
 home_root="$invocation_root/home"
-user_data_root="$invocation_root/user-data"
 legacy_prefix="$invocation_root/legacy-npm"
 legacy_root="$legacy_prefix/lib/node_modules"
 legacy_launcher="$legacy_prefix/bin/hvir"
@@ -103,7 +102,6 @@ trap 'exit 143' TERM
 mkdir -p \
   "$home_root/Library/Application Support/hvir" \
   "$home_root/Library/Caches/hvir/native" \
-  "$user_data_root" \
   "$legacy_prefix/bin" \
   "$legacy_root/hvir-workbench/bin" \
   "$old_root"
@@ -267,32 +265,25 @@ assert_installer_output "$install_log" 0.0.0 installed
 [[ "$(pkgutil --pkg-info-plist "$receipt" | plutil -extract pkg-version raw -)" == '0.0.0' ]]
 test -f "$application/Contents/Resources/hvir-previous-only.txt"
 
-run_installed_smoke() {
-  local phase=$1
-  local scenario=$2
-  local log="$invocation_root/${phase}-${scenario}.log"
-  local status
-  set +e
-  (
-    cd "$project_root"
-    HOME="$home_root" \
-      PATH='/usr/bin:/bin:/usr/sbin:/sbin' \
-      HVIR_SMOKE=1 \
-      HVIR_SMOKE_SCENARIO="$scenario" \
-      "$command" . \
-      --user-data-dir="$user_data_root"
-  ) >"$log" 2>&1
-  status=$?
-  set -e
-  cat "$log"
-  if [[ "$status" -ne 0 ]]; then
-    echo "Installed hvir smoke failed during $phase $scenario with status $status." >&2
-    exit "$status"
-  fi
-  grep -Fq 'HVIR_SMOKE_OK' "$log"
+assert_packaged_runtime() {
+  node scripts/inspect-packaged-runtime.mts \
+    --archive "$application/Contents/Resources/app.asar" \
+    --native-architecture arm64 \
+    --native-platform darwin
 }
 
-run_installed_smoke previous pty-native
+run_installed_startup() {
+  local phase=$1
+  node scripts/installed-startup-probe.mts \
+    --command "$command" \
+    --expected-main "$executable" \
+    --project-root "$project_root" \
+    --runtime-root "$invocation_root/runtime-$phase" \
+    --path '/usr/bin:/bin:/usr/sbin:/sbin'
+}
+
+assert_packaged_runtime
+run_installed_startup previous
 
 cp "$command" "$previous_command"
 printf '%s\n' '#!/bin/sh' '# deliberately-unowned-hvir-command' 'exit 75' \
@@ -312,7 +303,8 @@ fi
 sudo /usr/bin/install -o root -g wheel -m 0755 "$previous_command" "$command"
 [[ "$(pkgutil --pkg-info-plist "$receipt" | plutil -extract pkg-version raw -)" == '0.0.0' ]]
 test -f "$application/Contents/Resources/hvir-previous-only.txt"
-run_installed_smoke retained-after-failed-update pty-native
+assert_packaged_runtime
+run_installed_startup retained-after-failed-update
 
 HOME="$home_root" \
   PATH='/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin' \
@@ -378,8 +370,7 @@ grep -Fxq 'inventory=/Library/Application Support/hvir/package-inventory-v1.txt'
   "$inventory"
 grep -Fxq 'receipt=dev.hvir.app' "$inventory"
 installed_icon="$application/Contents/Resources/icon.icns"
-if [[ "$(plutil -extract CFBundleIconFile raw "$application/Contents/Info.plist")" !=
-  'icon.icns' ]]; then
+if [[ "$(plutil -extract CFBundleIconFile raw "$application/Contents/Info.plist")" != 'icon.icns' ]]; then
   echo 'Installed application does not select its packaged macOS icon.' >&2
   exit 1
 fi
@@ -432,6 +423,20 @@ if [[ "$package_mode" == 'signed' ]]; then
   codesign --verify --deep --strict --verbose=2 "$application"
   codesign -dvvv "$application" 2>"$invocation_root/app-signature.log"
   grep -Fq "TeamIdentifier=$expected_team_id" "$invocation_root/app-signature.log"
+  grep -Eq 'flags=.*runtime' "$invocation_root/app-signature.log"
+  codesign -d --entitlements :- "$application" \
+    >"$invocation_root/app-entitlements.plist"
+  for entitlement in \
+    com.apple.security.cs.allow-jit \
+    com.apple.security.cs.allow-unsigned-executable-memory \
+    com.apple.security.cs.disable-library-validation; do
+    [[ "$(plutil -extract "$entitlement" raw \
+      "$invocation_root/app-entitlements.plist")" == 'true' ]]
+  done
+  packaged_pty="$application/Contents/Resources/app.asar.unpacked/node_modules/node-pty/build/Release/pty.node"
+  codesign --verify --strict --verbose=2 "$packaged_pty"
+  codesign -dvvv "$packaged_pty" 2>"$invocation_root/pty-signature.log"
+  grep -Fq "TeamIdentifier=$expected_team_id" "$invocation_root/pty-signature.log"
   spctl --assess --type exec --verbose=2 "$application"
 else
   if codesign -dvvv "$application" 2>"$invocation_root/app-signature.log" &&
@@ -441,8 +446,8 @@ else
   fi
 fi
 
-run_installed_smoke current pty-native
-run_installed_smoke current platform-contracts
+assert_packaged_runtime
+run_installed_startup current
 
 if HOME="$home_root" \
   PATH='/usr/bin:/bin:/usr/sbin:/sbin' \

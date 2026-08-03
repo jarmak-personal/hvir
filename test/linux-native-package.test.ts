@@ -29,9 +29,12 @@ const ciWorkflow = readFileSync(
   new URL('../.github/workflows/ci.yml', import.meta.url),
   'utf8',
 )
-const preload = readFileSync(new URL('../src/preload/index.ts', import.meta.url), 'utf8')
-const platformContracts = readFileSync(
-  new URL('../src/main/smoke/platform-contracts.ts', import.meta.url),
+const packagedRuntimeInspection = readFileSync(
+  new URL('../scripts/inspect-packaged-runtime.mts', import.meta.url),
+  'utf8',
+)
+const installedStartupProbe = readFileSync(
+  new URL('../scripts/installed-startup-probe.mts', import.meta.url),
   'utf8',
 )
 
@@ -90,22 +93,26 @@ describe('Linux native package contract', () => {
     expect(afterRemove).not.toMatch(/config|projects|HOME/)
   })
 
-  it('accepts install, update, sandbox, native bindings, and removal across the Linux matrix', () => {
+  it('accepts package structure, ordinary startup, sandbox integration, and removal across the Linux matrix', () => {
     expect(installedSmoke).not.toMatch(/\b(?:ID|ID_LIKE|VERSION_ID)=/)
     expect(installedSmoke).not.toContain('/etc/os-release')
     expect(installedSmoke).toContain('scripts/render-native-installer.mjs')
     expect(installedSmoke).toContain('"$previous_installer" 2>&1 | tee "$install_log"')
     expect(installedSmoke).toContain('"$current_installer" 2>&1 | tee "$update_log"')
-    expect(installedSmoke).toContain('run_installed_smoke previous pty-native')
-    expect(installedSmoke).toContain('run_installed_smoke current platform-contracts')
-    expect(installedSmoke).toContain('HVIR_SMOKE_REQUIRE_PROCESS_SANDBOX=1')
+    expect(installedSmoke).toContain('assert_packaged_runtime')
+    expect(installedSmoke).toContain('run_installed_startup previous')
+    expect(installedSmoke).toContain('run_installed_startup current')
+    expect(installedSmoke).not.toContain('run_installed_smoke')
+    expect(installedSmoke).not.toContain('HVIR_SMOKE_REQUIRE_PROCESS_SANDBOX')
     expect(installedSmoke).toContain(
       '/proc/sys/kernel/apparmor_restrict_unprivileged_userns',
     )
     expect(installedSmoke).toContain(
       'PATH="$blocked_tools_root:/usr/sbin:/usr/bin:/sbin:/bin"',
     )
-    expect(installedSmoke).toContain('/usr/bin/hvir \\\n      . \\')
+    expect(installedSmoke).toContain('--command /usr/bin/hvir')
+    expect(installedSmoke).toContain('--expected-main /opt/hvir/hvir')
+    expect(installedSmoke).toContain('--native-platform linux')
     expect(installedSmoke).toContain('"$current_installer" --uninstall --purge')
     expect(installedSmoke).toContain('HVIR_FAKE_NPM_PREFIX="$legacy_prefix"')
     expect(installedSmoke).toContain('test ! -e "$legacy_launcher"')
@@ -118,14 +125,20 @@ describe('Linux native package contract', () => {
     expect(installedSmoke).toContain('"build/icons-linux/${icon_size}x${icon_size}.png"')
     expect(installedSmoke).toContain('test -d "$project_root/.git"')
     expect(installedSmoke).not.toContain('--no-sandbox')
-    expect(preload).toContain('processSandboxed: process.sandboxed')
-    expect(platformContracts).toContain(
-      'window.hvir?.diagnostics?.processSandboxed === true',
+    expect(packagedRuntimeInspection).toContain("'/out/main/echo-worker.js'")
+    expect(packagedRuntimeInspection).toContain("'/out/main/git-worker.js'")
+    expect(packagedRuntimeInspection).toContain(
+      "'/node_modules/node-pty/build/Release/pty.node'",
     )
+    expect(packagedRuntimeInspection).toContain("'HVIR_SMOKE'")
+    expect(installedStartupProbe).toContain("process.command.includes('--type=renderer')")
+    expect(installedStartupProbe).toContain("await stopProcessGroup(child, 'SIGTERM'")
+    expect(installedStartupProbe).toContain("HVIR_SMOKE: '1'")
     expect(ciWorkflow).toContain('Native package acceptance (${{ matrix.name }})')
     expect(ciWorkflow).toContain('ubuntu-22.04-arm')
     expect(ciWorkflow).toContain('ubuntu-24.04-arm')
     expect(ciWorkflow).toContain('node:24-trixie')
     expect(ciWorkflow).toContain('xvfb-run -a npm run smoke:linux:installed')
+    expect(ciWorkflow).toContain('xvfb-run -a npm run smoke')
   })
 })

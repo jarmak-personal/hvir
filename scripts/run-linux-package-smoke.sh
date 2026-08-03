@@ -284,40 +284,21 @@ assert_package_contract() {
   esac
 }
 
-run_installed_smoke() {
+assert_packaged_runtime() {
+  node scripts/inspect-packaged-runtime.mts \
+    --archive /opt/hvir/resources/app.asar \
+    --native-architecture "$binary_arch" \
+    --native-platform linux
+}
+
+run_installed_startup() {
   stage=$1
-  scenario=$2
-  log="$invocation_root/$stage-$scenario.log"
-  user_data_root="$invocation_root/user-data-$stage-$scenario"
-  mkdir -p "$user_data_root"
-  if (
-    unset ELECTRON_RUN_AS_NODE NODE_OPTIONS NODE_PATH
-    cd "$project_root"
-    HOME="$home_root" \
-      PATH="$blocked_tools_root:/usr/sbin:/usr/bin:/sbin:/bin" \
-      XDG_CONFIG_HOME="$config_root" \
-      HVIR_SMOKE=1 \
-      HVIR_SMOKE_REQUIRE_PROCESS_SANDBOX=1 \
-      HVIR_SMOKE_SCENARIO="$scenario" \
-      /usr/bin/hvir \
-      . \
-      --user-data-dir="$user_data_root"
-  ) >"$log" 2>&1; then
-    smoke_status=0
-  else
-    smoke_status=$?
-  fi
-  sed -n '1,240p' "$log"
-  if [[ "$smoke_status" -ne 0 ]]; then
-    echo \
-      "Installed hvir smoke failed during $stage $scenario with status $smoke_status." \
-      >&2
-    exit "$smoke_status"
-  fi
-  if ! grep -Fq 'HVIR_SMOKE_OK' "$log"; then
-    echo "Installed hvir smoke lacked success evidence during $stage $scenario." >&2
-    exit 1
-  fi
+  node scripts/installed-startup-probe.mts \
+    --command /usr/bin/hvir \
+    --expected-main /opt/hvir/hvir \
+    --project-root "$project_root" \
+    --runtime-root "$invocation_root/runtime-$stage" \
+    --path "$blocked_tools_root:/usr/sbin:/usr/bin:/sbin:/bin"
 }
 
 if HOME="$home_root" \
@@ -346,7 +327,8 @@ HOME="$home_root" \
   XDG_CACHE_HOME="$invocation_root/cache" \
   "$previous_installer" 2>&1 | tee "$install_log"
 assert_package_contract "$previous_version"
-run_installed_smoke previous pty-native
+assert_packaged_runtime
+run_installed_startup previous
 
 HOME="$home_root" \
   PATH="$blocked_tools_root:/usr/sbin:/usr/bin:/sbin:/bin" \
@@ -354,12 +336,8 @@ HOME="$home_root" \
   XDG_CACHE_HOME="$invocation_root/cache" \
   "$current_installer" 2>&1 | tee "$update_log"
 assert_package_contract "$package_version"
-run_installed_smoke current pty-native
-run_installed_smoke current platform-contracts
-grep -Fq 'renderer sandbox active' \
-  "$invocation_root/current-platform-contracts.log"
-grep -Fq 'renderer IPC + echo worker round-trip OK' \
-  "$invocation_root/current-platform-contracts.log"
+assert_packaged_runtime
+run_installed_startup current
 
 if HOME="$home_root" \
   PATH="$blocked_tools_root:/usr/sbin:/usr/bin:/sbin:/bin" \

@@ -1,5 +1,5 @@
 import { resolve } from 'node:path'
-import { defineConfig, externalizeDepsPlugin } from 'electron-vite'
+import { defineConfig, externalizeDepsPlugin, type UserConfig } from 'electron-vite'
 import react from '@vitejs/plugin-react'
 import type { Plugin } from 'vite'
 
@@ -24,10 +24,36 @@ function excludeDevelopmentPerformancePolicyFromProduction(): Plugin {
   }
 }
 
+function excludeSmokeRuntimeFromProduction(smokeBuild: boolean): Plugin {
+  return {
+    name: 'exclude-smoke-runtime-from-production',
+    apply: 'build',
+    generateBundle(_options, bundle): void {
+      if (smokeBuild) return
+      for (const output of Object.values(bundle)) {
+        if (output.type !== 'chunk') continue
+        const smokeModule = Object.keys(output.modules).find((moduleId) =>
+          moduleId.replaceAll('\\', '/').includes('/src/main/smoke/'),
+        )
+        if (smokeModule) {
+          this.error(
+            `Production main chunk ${output.fileName} retained smoke module ${smokeModule}`,
+          )
+        }
+        if (output.code.includes('HVIR_SMOKE')) {
+          this.error(
+            `Production main chunk ${output.fileName} retained the HVIR_SMOKE activation path`,
+          )
+        }
+      }
+    },
+  }
+}
+
 // Three build targets. `externalizeDepsPlugin` keeps `dependencies` (node-pty,
 // chokidar) out of the main/preload bundles so native modules load from
 // node_modules at runtime instead of being bundled.
-export default defineConfig({
+const baseConfig: UserConfig = {
   main: {
     plugins: [externalizeDepsPlugin()],
     build: {
@@ -96,4 +122,22 @@ export default defineConfig({
     },
     plugins: [react(), excludeDevelopmentPerformancePolicyFromProduction()],
   },
+}
+
+export default defineConfig(({ mode }) => {
+  const smokeBuild = mode === 'smoke'
+  return {
+    ...baseConfig,
+    main: {
+      ...baseConfig.main,
+      plugins: [
+        ...(baseConfig.main?.plugins ?? []),
+        excludeSmokeRuntimeFromProduction(smokeBuild),
+      ],
+      define: {
+        ...baseConfig.main?.define,
+        __HVIR_SMOKE_BUILD__: JSON.stringify(smokeBuild),
+      },
+    },
+  }
 })

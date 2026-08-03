@@ -318,8 +318,10 @@ Native package acceptance is the distribution boundary, not a second product wor
 disposable matching host, build the native package and run `npm run smoke:linux:installed` or
 `npm run smoke:macos:installed` with the guarded environment documented in
 [`docs/packaging.md`](docs/packaging.md). These checks exercise installer-owned install, update,
-launch, `hvir .`, migration, uninstall, reinstall, and purge behavior, including the real worker
-and native PTY. Ordinary behavior remains in the unpackaged groups.
+ordinary launch, `hvir .`, migration, uninstall, reinstall, and purge behavior. They inspect the
+actual package for production worker entrypoints and the matching native PTY payload but do not
+execute either from the installed artifact. Real worker round trips and native PTY lifecycle stay
+in the matching-target unpackaged Electron groups.
 
 Use `npm run gauntlet` for the full release gate on a controlled machine; it includes
 `performance:capacity`. Packaging and performance work has additional acceptance guidance in

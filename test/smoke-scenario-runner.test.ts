@@ -560,8 +560,9 @@ describe('Electron smoke command contracts', () => {
     expect(packageJson.scripts['smoke:macos:ci']).not.toContain('terminal-presentation')
     expect(packageJson.scripts['smoke:macos:ci']).not.toContain('terminal-lifecycle')
     expect(packageJson.scripts['smoke:scenario']).toBe(
-      'electron-vite build && node scripts/run-smoke-scenarios.mts',
+      'npm run build:smoke && node scripts/run-smoke-scenarios.mts',
     )
+    expect(packageJson.scripts['build:smoke']).toBe('electron-vite build --mode smoke')
     expect(packageJson.scripts['smoke:macos']).not.toMatch(
       /terminal-presentation capacity/,
     )
@@ -590,6 +591,7 @@ describe('Electron smoke command contracts', () => {
     expect(invocationScript).toContain('HVIR_SMOKE_SOURCE_DIRTY="$source_dirty"')
     expect(invocationScript).toContain('create-smoke-repository.sh')
     expect(invocationScript).toContain('unset ELECTRON_RENDERER_URL')
+    expect(invocationScript).toContain('--mode smoke')
   })
 
   it('includes bounded attempt duration in real aggregate results', () => {
