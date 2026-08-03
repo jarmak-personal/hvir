@@ -12,6 +12,8 @@ readonly HVIR_MACOS_ARM64_SHA256=@@HVIR_MACOS_ARM64_SHA256@@
 readonly HVIR_MACOS_TEAM_ID=@@HVIR_MACOS_TEAM_ID@@
 readonly HVIR_ACCEPTANCE_ASSET_DIRECTORY=@@HVIR_ACCEPTANCE_ASSET_DIRECTORY@@
 readonly HVIR_ACCEPTANCE_UNSIGNED_MACOS=@@HVIR_ACCEPTANCE_UNSIGNED_MACOS@@
+readonly HVIR_LINUX_MINIMUM_GLIBC=2.35
+readonly HVIR_APPARMOR_USERNS_RESTRICTION=/proc/sys/kernel/apparmor_restrict_unprivileged_userns
 
 stage='validating arguments'
 temporary_directory=''
@@ -94,47 +96,21 @@ parse_arguments() {
   esac
 }
 
-read_linux_release() {
-  local key value
-  linux_id=''
-  linux_version=''
-  [[ -r /etc/os-release ]] || {
-    echo 'hvir supports Linux only on Ubuntu 24.04 LTS.' >&2
-    exit 69
-  }
-  while IFS='=' read -r key value; do
-    value=${value#\"}
-    value=${value%\"}
-    case "$key" in
-    ID) linux_id=$value ;;
-    VERSION_ID) linux_version=$value ;;
-    esac
-  done </etc/os-release
-  if [[ "$linux_id" != 'ubuntu' || "$linux_version" != '24.04' ]]; then
-    echo \
-      "hvir supports Linux only on Ubuntu 24.04 LTS; found ${linux_id:-unknown} ${linux_version:-unknown}." \
-      >&2
-    exit 69
-  fi
-}
-
 detect_target() {
   local kernel machine
   kernel=$(/usr/bin/uname -s)
   machine=$(/usr/bin/uname -m)
   case "$kernel:$machine" in
   Linux:x86_64)
-    read_linux_release
     platform='linux'
-    platform_name='Ubuntu 24.04 (x64)'
+    platform_name='Linux (x64)'
     artifact_name=$HVIR_LINUX_X64_ARTIFACT
     artifact_sha256=$HVIR_LINUX_X64_SHA256
     native_command='/usr/bin/hvir'
     ;;
   Linux:aarch64 | Linux:arm64)
-    read_linux_release
     platform='linux'
-    platform_name='Ubuntu 24.04 (Arm64)'
+    platform_name='Linux (Arm64)'
     artifact_name=$HVIR_LINUX_ARM64_ARTIFACT
     artifact_sha256=$HVIR_LINUX_ARM64_SHA256
     native_command='/usr/bin/hvir'
@@ -148,7 +124,7 @@ detect_target() {
     ;;
   *)
     echo \
-      "hvir does not support $kernel $machine. Supported targets are Ubuntu 24.04 x64/arm64 and Apple-silicon macOS." \
+      "hvir does not support $kernel $machine. Supported targets are compatible Linux x64/arm64 hosts and Apple-silicon macOS." \
       >&2
     exit 69
     ;;
@@ -169,8 +145,12 @@ require_install_tools() {
   fi
   if [[ "$platform" == 'linux' ]]; then
     require_absolute_tool /usr/bin/apt
+    require_absolute_tool /usr/bin/apt-get
+    require_absolute_tool /usr/bin/dpkg-deb
     require_absolute_tool /usr/bin/dpkg-query
+    require_absolute_tool /usr/bin/getconf
     require_absolute_tool /usr/bin/sha256sum
+    require_absolute_tool /usr/bin/unshare
   else
     require_absolute_tool /usr/bin/shasum
     require_absolute_tool /usr/sbin/pkgutil
@@ -178,6 +158,55 @@ require_install_tools() {
     require_absolute_tool /usr/sbin/spctl
     require_absolute_tool /usr/bin/xcrun
   fi
+}
+
+version_at_least() {
+  local actual=$1 minimum=$2 actual_major actual_minor minimum_major minimum_minor
+  [[ "$actual" =~ ^([0-9]+)\.([0-9]+)$ ]] || return 1
+  actual_major=${BASH_REMATCH[1]}
+  actual_minor=${BASH_REMATCH[2]}
+  [[ "$minimum" =~ ^([0-9]+)\.([0-9]+)$ ]] || return 1
+  minimum_major=${BASH_REMATCH[1]}
+  minimum_minor=${BASH_REMATCH[2]}
+  ((actual_major > minimum_major)) ||
+    ((actual_major == minimum_major && actual_minor >= minimum_minor))
+}
+
+linux_requires_apparmor_profile() {
+  [[ -r "$HVIR_APPARMOR_USERNS_RESTRICTION" ]] &&
+    [[ "$(<"$HVIR_APPARMOR_USERNS_RESTRICTION")" == '1' ]]
+}
+
+verify_linux_host_capabilities() {
+  local glibc_output glibc_version
+  stage='checking the Linux runtime ABI'
+  glibc_output=$(/usr/bin/getconf GNU_LIBC_VERSION 2>/dev/null) || {
+    echo "hvir requires glibc $HVIR_LINUX_MINIMUM_GLIBC or newer." >&2
+    exit 69
+  }
+  glibc_version=${glibc_output#glibc }
+  if ! version_at_least "$glibc_version" "$HVIR_LINUX_MINIMUM_GLIBC"; then
+    echo \
+      "hvir requires glibc $HVIR_LINUX_MINIMUM_GLIBC or newer; found ${glibc_version:-unknown}." \
+      >&2
+    exit 69
+  fi
+
+  stage='checking the Linux Chromium sandbox capability'
+  if /usr/bin/unshare --user true >/dev/null 2>&1; then
+    return
+  fi
+  if linux_requires_apparmor_profile; then
+    require_absolute_tool /usr/sbin/apparmor_parser
+    require_absolute_tool /usr/sbin/apparmor_status
+    if ! /usr/sbin/apparmor_status --enabled >/dev/null 2>&1; then
+      echo \
+        'This host restricts unprivileged user namespaces, but AppArmor enforcement is unavailable.' \
+        >&2
+      exit 69
+    fi
+  fi
+  # Otherwise the root-owned package supplies Chromium's setuid sandbox helper.
 }
 
 create_private_temporary_directory() {
@@ -229,6 +258,46 @@ verify_digest() {
     echo "Expected: $artifact_sha256" >&2
     echo "Actual:   $actual_digest" >&2
     exit 1
+  fi
+}
+
+verify_linux_package_capabilities() {
+  local artifact=$1 dependency_log package_root profile profile_log
+  dependency_log="$temporary_directory/linux-package-dependencies.log"
+  stage='checking Linux package dependencies'
+  if ! run_with_failure_diagnostics \
+    "$dependency_log" \
+    /usr/bin/apt-get \
+    --simulate \
+    --no-install-recommends \
+    install \
+    "$artifact"; then
+    echo \
+      "The hvir package dependencies are not available from this host's configured apt repositories." \
+      >&2
+    exit 69
+  fi
+
+  if ! linux_requires_apparmor_profile; then
+    return
+  fi
+  package_root="$temporary_directory/linux-package"
+  profile="$package_root/opt/hvir/resources/apparmor-profile"
+  profile_log="$temporary_directory/apparmor-profile.log"
+  stage='checking the required AppArmor integration'
+  /usr/bin/dpkg-deb --extract "$artifact" "$package_root"
+  if [[ ! -f "$profile" ]]; then
+    echo 'The verified hvir package does not contain its required AppArmor profile.' >&2
+    exit 1
+  fi
+  if ! run_with_failure_diagnostics \
+    "$profile_log" \
+    /usr/sbin/apparmor_parser \
+    --skip-kernel-load \
+    --debug \
+    "$profile"; then
+    echo "This host cannot parse hvir's required AppArmor user-namespace profile." >&2
+    exit 69
   fi
 }
 
@@ -416,6 +485,9 @@ verify_native_command_resolution() {
 
 install_or_update() {
   local artifact package_log
+  if [[ "$platform" == 'linux' ]]; then
+    verify_linux_host_capabilities
+  fi
   if native_install_present; then
     install_action='update'
     echo "Updating hvir to $HVIR_VERSION for $platform_name."
@@ -441,6 +513,7 @@ install_or_update() {
       "$package_log" \
       /usr/bin/sudo /usr/sbin/installer -pkg "$artifact" -target /
   else
+    verify_linux_package_capabilities "$artifact"
     stage="installing hvir $HVIR_VERSION with apt"
     package_log="$temporary_directory/native-package-manager.log"
     run_with_failure_diagnostics \

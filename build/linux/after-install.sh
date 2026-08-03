@@ -27,7 +27,8 @@ fi
 
 stage='configuring the Chromium sandbox helper'
 chown root:root '/opt/${sanitizedProductName}/chrome-sandbox'
-if [ -L /proc/self/ns/user ] && unshare --user true; then
+if command -v runuser >/dev/null 2>&1 &&
+  runuser -u nobody -- unshare --user true >/dev/null 2>&1; then
   chmod 0755 '/opt/${sanitizedProductName}/chrome-sandbox'
 else
   chmod 4755 '/opt/${sanitizedProductName}/chrome-sandbox'
@@ -44,20 +45,33 @@ fi
 stage='installing the AppArmor profile'
 APPARMOR_PROFILE_SOURCE='/opt/${sanitizedProductName}/resources/apparmor-profile'
 APPARMOR_PROFILE_TARGET='/etc/apparmor.d/${executable}'
-if ! command -v apparmor_parser >/dev/null 2>&1; then
-  echo 'hvir requires apparmor_parser to install its Chromium sandbox profile' >&2
-  false
-fi
-apparmor_parser --skip-kernel-load --debug "$APPARMOR_PROFILE_SOURCE" >/dev/null
-install -o root -g root -m 0644 "$APPARMOR_PROFILE_SOURCE" "$APPARMOR_PROFILE_TARGET"
+APPARMOR_USERNS_RESTRICTION=/proc/sys/kernel/apparmor_restrict_unprivileged_userns
+if [ -r "$APPARMOR_USERNS_RESTRICTION" ] &&
+  [ "$(cat "$APPARMOR_USERNS_RESTRICTION")" = '1' ]; then
+  if ! command -v apparmor_parser >/dev/null 2>&1 ||
+    ! command -v apparmor_status >/dev/null 2>&1 ||
+    ! apparmor_status --enabled >/dev/null 2>&1; then
+    echo 'hvir requires active AppArmor tooling for this host user-namespace policy' >&2
+    false
+  fi
+  apparmor_parser --skip-kernel-load --debug "$APPARMOR_PROFILE_SOURCE" >/dev/null
+  install -o root -g root -m 0644 "$APPARMOR_PROFILE_SOURCE" "$APPARMOR_PROFILE_TARGET"
 
-if apparmor_status --enabled >/dev/null 2>&1 &&
-  ! { [ -x /usr/bin/ischroot ] && /usr/bin/ischroot; }; then
-  apparmor_parser \
-    --replace \
-    --write-cache \
-    --skip-read-cache \
-    "$APPARMOR_PROFILE_TARGET"
+  if ! { [ -x /usr/bin/ischroot ] && /usr/bin/ischroot; }; then
+    apparmor_parser \
+      --replace \
+      --write-cache \
+      --skip-read-cache \
+      "$APPARMOR_PROFILE_TARGET"
+  fi
+elif [ -f "$APPARMOR_PROFILE_TARGET" ]; then
+  if command -v apparmor_status >/dev/null 2>&1 &&
+    apparmor_status --enabled >/dev/null 2>&1 &&
+    ! { [ -x /usr/bin/ischroot ] && /usr/bin/ischroot; } &&
+    command -v apparmor_parser >/dev/null 2>&1; then
+    apparmor_parser --remove "$APPARMOR_PROFILE_TARGET"
+  fi
+  rm -f "$APPARMOR_PROFILE_TARGET"
 fi
 
 stage='finalizing package configuration'

@@ -208,13 +208,13 @@ jobs:
       matrix:
         include:
           - name: Linux x64
-            os: ubuntu-24.04
+            os: ubuntu-22.04
             build: npm run pack:linux:x64
             deb_arch: amd64
             release_arch: x64
             artifact: dist/hvir-*-linux-x64.deb
           - name: Linux arm64
-            os: ubuntu-24.04-arm
+            os: ubuntu-22.04-arm
             build: npm run pack:linux:arm64
             deb_arch: arm64
             release_arch: arm64
@@ -264,6 +264,136 @@ jobs:
           compression-level: 0
           retention-days: 14
 
+  native-linux-ubuntu-24:
+    name: Native package compatibility (${{ matrix.name }})
+    needs:
+      - release-version-integrity
+      - native-linux-package
+    if: >-
+      always() &&
+      needs.release-version-integrity.result == 'skipped' &&
+      needs.native-linux-package.result == 'success'
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Ubuntu 24.04 x64
+            os: ubuntu-24.04
+            artifact_name: hvir-Linux x64-deb
+            deb_arch: amd64
+            release_arch: x64
+          - name: Ubuntu 24.04 arm64
+            os: ubuntu-24.04-arm
+            artifact_name: hvir-Linux arm64-deb
+            deb_arch: arm64
+            release_arch: arm64
+    env:
+      HVIR_LINUX_PACKAGE_ACCEPTANCE: '1'
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          package-manager-cache: false
+
+      - name: Download the accepted baseline package
+        uses: actions/download-artifact@v8
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: dist
+
+      - name: Restore the package builder name for acceptance
+        env:
+          DEB_ARCH: ${{ matrix.deb_arch }}
+          RELEASE_ARCH: ${{ matrix.release_arch }}
+        run: |
+          version=$(node -p "require('./package.json').version")
+          mv -- \
+            "dist/hvir-${version}-linux-${RELEASE_ARCH}.deb" \
+            "dist/hvir_${version}_${DEB_ARCH}.deb"
+
+      - name: Install, update, launch, and remove native package
+        run: xvfb-run -a npm run smoke:linux:installed
+
+  native-linux-debian:
+    name: Native package compatibility (${{ matrix.name }})
+    needs:
+      - release-version-integrity
+      - native-linux-package
+    if: >-
+      always() &&
+      needs.release-version-integrity.result == 'skipped' &&
+      needs.native-linux-package.result == 'success'
+    runs-on: ${{ matrix.os }}
+    container:
+      image: node:24-trixie
+      options: --security-opt seccomp=unconfined
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Debian 13 x64
+            os: ubuntu-22.04
+            artifact_name: hvir-Linux x64-deb
+            deb_arch: amd64
+            release_arch: x64
+          - name: Debian 13 arm64
+            os: ubuntu-22.04-arm
+            artifact_name: hvir-Linux arm64-deb
+            deb_arch: arm64
+            release_arch: arm64
+    env:
+      HVIR_LINUX_PACKAGE_ACCEPTANCE: '1'
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Download the accepted baseline package
+        uses: actions/download-artifact@v8
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: dist
+
+      - name: Prepare the disposable Debian acceptance host
+        env:
+          DEB_ARCH: ${{ matrix.deb_arch }}
+          RELEASE_ARCH: ${{ matrix.release_arch }}
+        run: |
+          apt-get update
+          DEBIAN_FRONTEND=noninteractive apt-get install \
+            --no-install-recommends \
+            -y \
+            file \
+            git \
+            sudo \
+            xauth \
+            xvfb
+          useradd --create-home --shell /bin/bash hvir-acceptance
+          printf 'hvir-acceptance ALL=(ALL) NOPASSWD: ALL\n' \
+            >/etc/sudoers.d/hvir-acceptance
+          chmod 0440 /etc/sudoers.d/hvir-acceptance
+          version=$(node -p "require('./package.json').version")
+          mv -- \
+            "dist/hvir-${version}-linux-${RELEASE_ARCH}.deb" \
+            "dist/hvir_${version}_${DEB_ARCH}.deb"
+          chown -R hvir-acceptance:hvir-acceptance "$GITHUB_WORKSPACE"
+
+      - name: Install, update, launch, and remove native package
+        run: |
+          sudo -u hvir-acceptance env \
+            HOME=/home/hvir-acceptance \
+            HVIR_LINUX_PACKAGE_ACCEPTANCE=1 \
+            PATH=/usr/local/bin:/usr/bin:/bin \
+            xvfb-run -a npm run smoke:linux:installed
+
   native-macos-package:
     name: Native package acceptance (macOS arm64, unsigned structure)
     needs: release-version-integrity
@@ -306,10 +436,14 @@ jobs:
     name: Native release assembly (unsigned structure)
     needs:
       - native-linux-package
+      - native-linux-ubuntu-24
+      - native-linux-debian
       - native-macos-package
     if: >-
       always() &&
       needs.native-linux-package.result == 'success' &&
+      needs.native-linux-ubuntu-24.result == 'success' &&
+      needs.native-linux-debian.result == 'success' &&
       needs.native-macos-package.result == 'success'
     runs-on: ubuntu-24.04
     timeout-minutes: 10

@@ -1,5 +1,10 @@
 # ADR-022: Platform-native installation from immutable GitHub Releases
 
+> **Superseded in part:** [ADR-028](ADR-028-capability-based-debian-linux-installation.md)
+> replaces this record's Ubuntu 24.04-only Linux support matrix and unconditional AppArmor
+> framing with capability-based Debian package compatibility. The release, trust, privilege,
+> lifecycle, and atomicity decisions below remain in force.
+
 ## Context
 
 ADR-011 selected npm as hvir's installation, update, removal, integrity, and provenance

@@ -50,14 +50,17 @@ deb:
   afterInstall: build/linux/after-install.sh
   afterRemove: build/linux/after-remove.sh
   depends:
-    - apparmor
-    - libatspi2.0-0
-    - libgtk-3-0
+    - libc6 (>= 2.35)
+    - libstdc++6 (>= 12)
+    - libasound2 | libasound2t64
+    - libatspi2.0-0 | libatspi2.0-0t64
+    - libgtk-3-0 | libgtk-3-0t64
     - libnotify4
     - libnss3
     - libsecret-1-0
     - libuuid1
     - libxss1
     - libxtst6
+    - util-linux
     - xdg-utils
   recommends: []

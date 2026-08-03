@@ -220,6 +220,13 @@ Periodic discovery no longer implies status for every open worktree; exact activ
 demand-driven, clean closed workspaces retain bounded sampling, and stable dirty filters cannot
 form an unbounded passive write loop.
 
+### [ADR-028 — Capability-based Debian Linux installation](adr/ADR-028-capability-based-debian-linux-installation.md)
+
+Linux installation depends on Debian package tools, runtime ABI, libraries, and a production
+Chromium sandbox rather than distribution identity; Ubuntu 24.04 remains the conditional
+AppArmor integration case and the same release artifacts are accepted across representative
+userspaces on both architectures.
+
 ## 5. Architecture
 
 ### Process model

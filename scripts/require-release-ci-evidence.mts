@@ -20,6 +20,10 @@ export const REQUIRED_CI_JOBS = [
   'Electron correctness (macOS arm64; temporary reduced gate)',
   'Native package acceptance (Linux x64)',
   'Native package acceptance (Linux arm64)',
+  'Native package compatibility (Ubuntu 24.04 x64)',
+  'Native package compatibility (Ubuntu 24.04 arm64)',
+  'Native package compatibility (Debian 13 x64)',
+  'Native package compatibility (Debian 13 arm64)',
   'Native package acceptance (macOS arm64, unsigned structure)',
   'Native release assembly (unsigned structure)',
 ] as const
