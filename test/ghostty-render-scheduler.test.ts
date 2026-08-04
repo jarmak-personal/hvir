@@ -26,7 +26,9 @@ interface SchedulerHarness {
   renderer: {
     cursorVisible: boolean
     render: ReturnType<typeof vi.fn>
+    getCursorVisible(): boolean
     resetCursorBlink: ReturnType<typeof vi.fn>
+    setRenderPaused: ReturnType<typeof vi.fn>
   }
   wasmTerm: { getCursor(): { y: number } }
   cursorMoveEmitter: { fire: ReturnType<typeof vi.fn> }
@@ -48,6 +50,7 @@ interface CursorBlinkHarness {
   cursorBlink: boolean
   cursorVisible: boolean
   cursorBlinkInterval?: number
+  renderPaused: boolean
   requestRender: ReturnType<typeof vi.fn>
   resetCursorBlink(): void
   setCursorBlink(enabled: boolean): void
@@ -73,7 +76,9 @@ function createHarness(): SchedulerHarness {
     renderer: {
       cursorVisible: true,
       render: vi.fn(),
+      getCursorVisible: () => true,
       resetCursorBlink: vi.fn(),
+      setRenderPaused: vi.fn(),
     },
     wasmTerm: { getCursor: () => ({ y: 0 }) },
     cursorMoveEmitter: { fire: vi.fn() },
@@ -85,11 +90,12 @@ function createCursorBlinkHarness(): CursorBlinkHarness {
     cursorBlink: true,
     cursorVisible: false,
     cursorBlinkInterval: undefined,
+    renderPaused: false,
     requestRender: vi.fn(),
   }) as CursorBlinkHarness
 }
 
-describe('ghostty demand render scheduler patch', () => {
+describe('ghostty demand render scheduler contract', () => {
   afterEach(() => {
     vi.useRealTimers()
     vi.restoreAllMocks()
