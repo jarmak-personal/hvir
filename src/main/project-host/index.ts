@@ -23,12 +23,12 @@ export {
   SSH_TERMINAL_CHANNEL_BUDGET,
   SSH_TRANSPORT_IDLE_GRACE_MS,
 } from './ssh-host'
-export type {
-  SshAuthPrompter,
-  SshHostOptions,
-  SshIdentity,
-  SshPrompt,
-  SshTransportDiagnostic,
-} from './ssh-host'
+export type { SshTransportDiagnostic } from './ssh-host'
+export type { SshAuthPrompter, SshPrompt } from './ssh-auth'
+export type { SshHostOptions, SshIdentity } from './ssh-host-options'
+export { ProjectHostCatalog, identityFileCandidates } from './project-host-catalog'
+export { RendererSshPrompter } from './renderer-ssh-prompter'
+export { SshHostTrustStore } from './ssh-host-trust'
+export type { SshHostTrust } from './ssh-host-trust'
 export { parseSshConfig } from './ssh-config'
 export type { SshAliasConfig } from './ssh-config'

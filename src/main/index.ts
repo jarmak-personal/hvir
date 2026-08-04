@@ -10,7 +10,8 @@ import { GitMutationAuthorization } from './git/mutation-authorization'
 import { GitWorkerHostRouter } from './git/worker-host-router'
 import { HtmlPreviewProtocol } from './html-preview-protocol'
 import { createWorkerClient, workerPath, type WorkerClient } from './worker-host'
-import { ProjectRegistry, RendererSshPrompter } from './project-registry'
+import { ProjectHostCatalog, RendererSshPrompter } from './project-host'
+import { ProjectRegistry } from './project-registry'
 import { ProjectCoordinator } from './project-coordinator'
 import { PtySupervisor } from './pty/pty-supervisor'
 import { AttentionBadge } from './attention-badge'
@@ -37,7 +38,6 @@ import {
   GIT_SWITCH_BRANCH_TYPE,
   GIT_WORKTREES_TYPE,
   localPath,
-  LOCAL_HOST_ID,
   type EchoWorkerProtocol,
   type GitWorkerProtocol,
   HTML_PREVIEW_SCHEME,
@@ -81,10 +81,7 @@ function createWorkbenchEntry(): void {
     createDiagnosticReportCoordinator(diagnostics, rendererScopes),
     (reports) => reports.dispose(),
   )
-  const diagnosticIpc = {
-    reports: diagnosticReports,
-    evidence: diagnostics,
-  }
+  const diagnosticIpc = { reports: diagnosticReports, evidence: diagnostics }
   diagnostics.recordApplication('application-starting')
   const gitMutationAuthorizations = runtime.own(
     'Git mutation authorizations',
@@ -156,8 +153,7 @@ function createWorkbenchEntry(): void {
     }),
     (manager) => manager.dispose(),
   )
-  const webPaneRoutes = windowManager.routes
-  const createWindow = windowManager.createWindow
+  const { routes: webPaneRoutes, createWindow } = windowManager
   async function startup(): Promise<void> {
     htmlPreviews.register()
     const emit = rendererEvents.toWindows
@@ -170,11 +166,18 @@ function createWorkbenchEntry(): void {
       ),
       (prompter) => prompter.cancelAll(),
     )
+    const hostCatalog = runtime.own(
+      'project host catalog',
+      await ProjectHostCatalog.create({
+        prompter: sshPrompter,
+        trustFile: localPath(join(app.getPath('userData'), 'known-hosts.json')),
+      }),
+      (catalog) => catalog.dispose(),
+    )
     const requestedProjectRoot = projectRootArgument()
     const registry = await ProjectRegistry.create(
       requestedProjectRoot ? localPath(requestedProjectRoot) : undefined,
-      sshPrompter,
-      join(app.getPath('userData'), 'known-hosts.json'),
+      hostCatalog,
       join(app.getPath('userData'), 'projects.json'),
       (state) => emit('project:state', state),
       async () => {
@@ -195,12 +198,10 @@ function createWorkbenchEntry(): void {
     projectRegistry = runtime.own('project registry', registry, (ownedRegistry) =>
       ownedRegistry.dispose(),
     )
-    const metadataHost = projectRegistry.hostById(LOCAL_HOST_ID)
-    if (!metadataHost) throw new Error('Local metadata host is unavailable')
     terminalSessionRegistry = runtime.own(
       'terminal session registry',
       await TerminalSessionRegistry.load(
-        metadataHost,
+        hostCatalog.local,
         localPath(join(app.getPath('userData'), 'terminal-sessions.json')),
         (event) => diagnostics.recordSessionRegistry(event),
       ),
@@ -209,7 +210,7 @@ function createWorkbenchEntry(): void {
     harnessProfileStore = runtime.own(
       'harness profile store',
       await HarnessProfileStore.load(
-        metadataHost,
+        hostCatalog.local,
         localPath(join(app.getPath('userData'), 'harness-profiles.json')),
       ),
       (profiles) => profiles.flush(),

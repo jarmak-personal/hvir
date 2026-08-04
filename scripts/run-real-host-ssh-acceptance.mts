@@ -207,7 +207,11 @@ async function runConfiguredAcceptance(
         identityFiles: [],
       },
       identities: [{ path: 'explicit-real-host-identity', privateKey }],
-      trustedHostKey: () => configuration.trustedHostKey,
+      trust: {
+        trustedHostKey: () => configuration.trustedHostKey,
+        rememberHostKey: () =>
+          Promise.reject(new Error('Real-host acceptance trust is pinned')),
+      },
       prompter: {
         prompt: (request) => {
           if (request.kind === 'passphrase' && passphrase) {

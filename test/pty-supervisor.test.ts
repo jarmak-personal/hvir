@@ -13,7 +13,6 @@ import {
   type ManagedPty,
   type PtySupervisorDiagnostic,
 } from '../src/main/pty/pty-supervisor'
-import { SshHost } from '../src/main/project-host'
 import {
   LOCAL_HOST_ID,
   asHostId,
@@ -27,6 +26,7 @@ import {
   PTY_FIXTURE_OWNER_ID,
   TestPtyProcess,
 } from './fixtures/pty-supervisor-fixture'
+import { createTestSshHost } from './ssh-host-test-fixture'
 
 const OWNER_ID = PTY_FIXTURE_OWNER_ID
 const FakePty = TestPtyProcess
@@ -601,7 +601,7 @@ describe('PtySupervisor', () => {
       end: vi.fn(() => primaryClient.emit('close')),
       destroy: vi.fn(() => primaryClient.emit('close')),
     })
-    const host = new SshHost({
+    const host = createTestSshHost({
       config: {
         alias: 'remote',
         hostname: 'remote.test',

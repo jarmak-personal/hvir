@@ -27,8 +27,9 @@ import type {
   WriteFileOptions,
 } from './project-host'
 import { assertLoopbackEndpoint, MAX_EXEC_STREAM_WRITE_BYTES } from './project-host'
-import type { SshAliasConfig } from './ssh-config'
+import type { SshPrompt } from './ssh-auth'
 import { SshFileAccess } from './ssh-file-access'
+import type { SshHostOptions } from './ssh-host-options'
 import {
   SshTransportPool,
   type SshTransportDiagnostic,
@@ -44,54 +45,6 @@ export {
   SSH_TRANSPORT_IDLE_GRACE_MS,
   type SshTransportDiagnostic,
 } from './ssh-transport-pool'
-
-export interface SshIdentity {
-  readonly path: string
-  readonly privateKey: Buffer | string
-}
-export interface SshPrompt {
-  readonly hostId: string
-  readonly kind:
-    'password' | 'passphrase' | 'keyboard-interactive' | 'host-key' | 'host-key-changed'
-  readonly title: string
-  readonly instructions?: string
-  readonly fingerprint?: string
-  readonly previousFingerprint?: string
-  readonly prompts: readonly { readonly text: string; readonly echo: boolean }[]
-}
-export interface SshAuthPrompter {
-  prompt(request: SshPrompt): Promise<readonly string[] | undefined>
-}
-export interface SshHostOptions {
-  readonly config: SshAliasConfig
-  readonly identities?: readonly SshIdentity[]
-  readonly agentSocket?: string
-  readonly prompter: SshAuthPrompter
-  readonly pollIntervalMs?: number
-  /** Slower snapshot safety net when inotify stays alive but emits no usable events. */
-  readonly watchdogIntervalMs?: number
-  /** Lightweight cache/tree refresh cadence, independent of recursive snapshots. */
-  readonly refreshPulseIntervalMs?: number
-  /** Idle delay between bounded recursive safety-scan cycles. */
-  readonly slowScanIntervalMs?: number
-  /** Maximum adaptive idle delay between unchanged safety-scan cycles. */
-  readonly maxSlowScanIntervalMs?: number
-  /** Maximum directories enumerated in one polling tick. */
-  readonly pollDirectoryBatchSize?: number
-  /** Local window for catching multiple writes hidden by SFTP's second-level mtime. */
-  readonly fingerprintObservationWindowMs?: number
-  /**
-   * Maximum short-lived buffered exec channels. Long-lived PTY, watcher, and
-   * telemetry channels plus SFTP share the control transport budget. The
-   * default admits bounded parallel Git/filesystem reads while pool admission
-   * still protects every transport's reserved capacity.
-   */
-  readonly maxConcurrentExecs?: number
-  readonly trustedHostKey?: () => string | undefined
-  readonly rememberHostKey?: (fingerprint: string) => Promise<void>
-  /** Test seam for transport lifecycle races; production always constructs ssh2.Client. */
-  readonly clientFactory?: () => Client
-}
 
 export const SSH_DEFAULT_MAX_CONCURRENT_EXECS = 4
 export const SSH_MAX_KEYBOARD_INTERACTIVE_ROUNDS = 4
@@ -123,6 +76,7 @@ export class SshHost implements ProjectHost {
   private cachedPassword?: string
   private readonly cachedPassphrases = new Map<string, string>()
   private acceptedHostFingerprint?: string
+  private promptAbort?: AbortController
   private poolGrowthPromptBlocked = false
   private lifecycleAbort = new AbortController()
   private readonly maxConcurrentExecs: number
@@ -216,6 +170,7 @@ export class SshHost implements ProjectHost {
   async dispose(): Promise<void> {
     this.disposed = true
     this.lifecycleAbort.abort()
+    this.promptAbort?.abort()
     this.clientGeneration++
     this.cancelConnecting?.(new Error('SSH connection cancelled'))
     this.cancelConnecting = undefined
@@ -594,6 +549,9 @@ export class SshHost implements ProjectHost {
 
   private async open(): Promise<void> {
     this.promptedDuringConnect = false
+    this.promptAbort?.abort()
+    const promptAbort = new AbortController()
+    this.promptAbort = promptAbort
     const client = this.options.clientFactory?.() ?? new Client()
     this.pendingClients.add(client)
     const generation = ++this.clientGeneration
@@ -616,6 +574,7 @@ export class SshHost implements ProjectHost {
       () =>
         !this.disposed && this.client === client && this.clientGeneration === generation,
       credentialAttempt,
+      AbortSignal.any([this.lifecycleAbort.signal, promptAbort.signal]),
     )
     await new Promise<void>((resolve, reject) => {
       let ready = false
@@ -662,6 +621,8 @@ export class SshHost implements ProjectHost {
         finish(asError(reason))
       }
     }).finally(() => {
+      promptAbort.abort()
+      if (this.promptAbort === promptAbort) this.promptAbort = undefined
       this.pendingClients.delete(client)
       this.cancelConnecting = undefined
     })
@@ -698,6 +659,7 @@ export class SshHost implements ProjectHost {
     markPrompt?: () => void,
     isActive: () => boolean = () => !this.disposed,
     credentialAttempt: SshCredentialAttempt = this.createCredentialAttempt(),
+    promptSignal: AbortSignal = this.lifecycleAbort.signal,
   ): ConnectConfig {
     const { config, agentSocket, identities = [], prompter } = this.options
     const attempted = new Set<string>()
@@ -714,7 +676,9 @@ export class SshHost implements ProjectHost {
               title: `Additional SSH capacity — ${request.title}`,
             }
           : request
-      const answers = await this.serializedPrompt(() => prompter.prompt(presentedRequest))
+      const answers = await this.serializedPrompt(() =>
+        prompter.prompt(presentedRequest, promptSignal),
+      )
       if (!isActive()) {
         authenticationCancelled = true
         return undefined
@@ -744,7 +708,7 @@ export class SshHost implements ProjectHost {
           .digest('base64')
           .replace(/=+$/, '')}`
         const trustedFingerprint =
-          this.acceptedHostFingerprint ?? this.options.trustedHostKey?.()
+          this.acceptedHostFingerprint ?? this.options.trust.trustedHostKey()
         if (trustedFingerprint === fingerprint) {
           verify(true)
           return
@@ -764,11 +728,17 @@ export class SshHost implements ProjectHost {
         })
           .then(async (a) => {
             const trusted = a?.[0]?.toLowerCase() === 'yes'
-            if (trusted) {
-              this.acceptedHostFingerprint = fingerprint
-              await this.options.rememberHostKey?.(fingerprint)
+            if (!trusted || !isActive()) {
+              verify(false)
+              return
             }
-            verify(trusted)
+            await this.options.trust.rememberHostKey(fingerprint)
+            if (!isActive()) {
+              verify(false)
+              return
+            }
+            this.acceptedHostFingerprint = fingerprint
+            verify(true)
           })
           .catch(() => verify(false))
         // This verifier is callback-only: returning a boolean would make
@@ -950,6 +920,7 @@ export class SshHost implements ProjectHost {
     let ready = false
     let closed = false
     let prompted = false
+    const promptAbort = new AbortController()
     const credentialAttempt = this.createCredentialAttempt()
     const config = this.connectConfig(
       'pool',
@@ -958,6 +929,7 @@ export class SshHost implements ProjectHost {
       },
       () => !this.disposed && !closed,
       credentialAttempt,
+      AbortSignal.any([this.lifecycleAbort.signal, promptAbort.signal]),
     )
     try {
       await new Promise<void>((resolve, reject) => {
@@ -979,6 +951,7 @@ export class SshHost implements ProjectHost {
         })
         client.on('close', () => {
           closed = true
+          promptAbort.abort()
           this.transportPool.retireClient(client)
           if (!ready) {
             finish(new Error('SSH pool transport closed before authentication completed'))
@@ -1005,6 +978,7 @@ export class SshHost implements ProjectHost {
       }
       throw error
     } finally {
+      promptAbort.abort()
       this.pendingClients.delete(client)
     }
   }

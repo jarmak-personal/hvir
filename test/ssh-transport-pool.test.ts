@@ -22,6 +22,7 @@ import {
 } from '../src/main/project-host'
 import { PtySupervisor } from '../src/main/pty/pty-supervisor'
 import { hostPath } from '../src/shared'
+import { createTestSshHost } from './ssh-host-test-fixture'
 
 const OWNER_ID = 71
 
@@ -294,7 +295,7 @@ describe('SshHost transport pool', () => {
 describe('SshHost pooled authentication bounds', () => {
   it('reuses a password in memory for pool growth without another prompt', async () => {
     const prompt = vi.fn(() => Promise.resolve(['secret']))
-    const host = new SshHost({
+    const host = createTestSshHost({
       config: aliasConfig(),
       prompter: { prompt },
     })
@@ -324,7 +325,7 @@ describe('SshHost pooled authentication bounds', () => {
       .fn<() => Promise<readonly string[] | undefined>>()
       .mockResolvedValueOnce(['wrong'])
       .mockResolvedValueOnce(['right'])
-    const host = new SshHost({
+    const host = createTestSshHost({
       config: aliasConfig(),
       prompter: { prompt },
     })
@@ -343,7 +344,7 @@ describe('SshHost pooled authentication bounds', () => {
     const prompt = vi.fn<(request: SshPrompt) => Promise<readonly string[] | undefined>>(
       () => Promise.resolve(['answer']),
     )
-    const host = new SshHost({
+    const host = createTestSshHost({
       config: aliasConfig(),
       prompter: { prompt },
     })
@@ -374,7 +375,7 @@ describe('SshHost pooled authentication bounds', () => {
   })
 
   it('attempts each offered authentication method once despite method oscillation', async () => {
-    const host = new SshHost({
+    const host = createTestSshHost({
       config: aliasConfig(),
       prompter: { prompt: () => Promise.resolve(['secret']) },
     })
@@ -397,7 +398,7 @@ describe('SshHost pooled authentication bounds', () => {
           answer = resolve
         }),
     )
-    const host = new SshHost({
+    const host = createTestSshHost({
       config: aliasConfig(),
       prompter: { prompt },
     })
@@ -428,7 +429,7 @@ describe('SshHost pooled authentication bounds', () => {
       clients.push(client)
       return client as unknown as Client
     })
-    const host = new SshHost({
+    const host = createTestSshHost({
       config: aliasConfig(),
       prompter: { prompt },
       clientFactory: factory,
@@ -471,7 +472,7 @@ describe('SshHost pooled authentication bounds', () => {
       clients.push(client)
       return client as unknown as Client
     })
-    const host = new SshHost({
+    const host = createTestSshHost({
       config: aliasConfig(),
       prompter: { prompt },
       clientFactory: factory,
@@ -526,7 +527,7 @@ async function poolFixture(
       clients.push(client)
       return client as unknown as Client
     })
-  const host = new SshHost({
+  const host = createTestSshHost({
     config: aliasConfig(),
     prompter: { prompt: () => Promise.resolve(undefined) },
     clientFactory: factory,
