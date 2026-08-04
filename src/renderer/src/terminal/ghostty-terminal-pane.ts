@@ -151,6 +151,7 @@ class GhosttyTerminalPane implements TerminalPane {
     })
     container.append(surface)
     this.surface = surface
+    this.terminal.setRenderPaused(true)
     this.engineDisposers.push(
       this.terminal.onData((data) => this.emitInput(data)),
       this.terminal.onResize((size) => this.resizeListeners.emit(size)),
@@ -169,18 +170,7 @@ class GhosttyTerminalPane implements TerminalPane {
     // the terminal just freed during reconnect. Reset only after the initial
     // fit: resizing the temporary 80x24 buffer can copy recycled cells back in.
     this.terminal.write('\u001bc')
-    this.fit.observeResize()
-    this.redraw()
-    if (canvas) canvas.style.visibility = ''
-    requestAnimationFrame(() => {
-      if (!this.disposed) {
-        this.fit.fit()
-        // Paint the complete blank grid as well as dirty cells. Canvas/GPU
-        // backing stores can otherwise expose pixels from a disposed terminal
-        // until the first physical resize forces a full render.
-        this.redraw()
-      }
-    })
+    if (this.presentation === 'visible') this.revealAfterSettledFit()
   }
 
   reparent(container: HTMLElement): void {
@@ -189,8 +179,7 @@ class GhosttyTerminalPane implements TerminalPane {
       throw new Error('Cannot move a terminal pane before it is mounted')
     }
     container.append(this.surface)
-    this.fit.fit()
-    this.redraw()
+    if (this.presentation === 'visible') this.revealAfterSettledFit()
   }
 
   write(data: string): void {
@@ -210,7 +199,7 @@ class GhosttyTerminalPane implements TerminalPane {
     // forward it to the canvas renderer. Keep the seam correct for engines and
     // call the renderer's public theme method while upstream support matures.
     this.terminal.renderer?.setTheme(theme)
-    this.redraw()
+    if (this.presentation === 'visible') this.redraw()
   }
 
   setTypography(typography: TerminalTypography): void {
@@ -229,8 +218,7 @@ class GhosttyTerminalPane implements TerminalPane {
     if (typography.fontSize !== previous.fontSize) {
       this.terminal.options.fontSize = typography.fontSize
     }
-    this.fit.fit()
-    this.redraw()
+    if (this.presentation === 'visible') this.revealAfterSettledFit()
   }
 
   setPresentation(presentation: TerminalPresentation): void {
@@ -238,10 +226,12 @@ class GhosttyTerminalPane implements TerminalPane {
     this.presentation = presentation
     this.terminal.options.cursorBlink = presentation === 'visible'
     if (presentation === 'hidden') {
+      this.fit.suspend()
       this.terminal.setRenderPaused(true)
+      const canvas = this.terminal.renderer?.getCanvas()
+      if (canvas) canvas.style.visibility = 'hidden'
     } else {
-      if (this.mounted) this.fit.fit()
-      this.terminal.setRenderPaused(false)
+      if (this.mounted) this.revealAfterSettledFit()
     }
   }
 
@@ -319,6 +309,19 @@ class GhosttyTerminalPane implements TerminalPane {
       this.dataListeners.emit(data)
     }
     return result.handled
+  }
+
+  private revealAfterSettledFit(): void {
+    this.fit.resume(() => {
+      if (this.disposed || this.presentation !== 'visible' || !this.mounted) return
+      this.terminal.setRenderPaused(false)
+      // Paint the complete retained grid after final reveal geometry settles.
+      // Canvas/GPU backing stores can otherwise remain stale until a later
+      // physical resize happens to force a full render.
+      this.redraw()
+      const canvas = this.terminal.renderer?.getCanvas()
+      if (canvas) canvas.style.visibility = ''
+    })
   }
 }
 

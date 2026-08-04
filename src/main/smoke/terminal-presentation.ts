@@ -70,12 +70,12 @@ export async function verifyTerminalPresentationLifecycle(
       new Promise((resolve, reject) => {
         const deadline = Date.now() + 8000;
         let menuOpened = false;
-        const waitForSecond = () => {
+        const waitForTerminals = () => {
           const rows = [...document.querySelectorAll('.terminal-list-row')];
           const surfaces = [...document.querySelectorAll('.terminal-surface')];
           const active = document.querySelector('.terminal-surface.active');
           const status = active?.getAttribute('data-terminal-status') || '';
-          if (rows.length === 2 && surfaces.length === 2 && status.startsWith('pid ')) {
+          if (rows.length === 3 && surfaces.length === 3 && status.startsWith('pid ')) {
             const visible = surfaces.filter(
               (surface) => getComputedStyle(surface).visibility === 'visible'
             );
@@ -85,7 +85,7 @@ export async function verifyTerminalPresentationLifecycle(
             rows[0]?.querySelector('.terminal-list-main')?.click();
             const waitForSwitch = () => {
               if (document.querySelector('.terminal-list-row.active') === rows[0]) {
-                return resolve('2 live canvases · switch');
+                return resolve('3 live canvases · switch');
               }
               if (Date.now() > deadline) {
                 return reject(new Error('terminal selection did not switch'));
@@ -94,28 +94,27 @@ export async function verifyTerminalPresentationLifecycle(
             };
             return waitForSwitch();
           }
-          if (Date.now() > deadline) return reject(new Error(
-            'second terminal did not start: rows=' + rows.length +
-            ' surfaces=' + surfaces.length + ' status=' + status
-          ));
-          setTimeout(waitForSecond, 25);
-        };
-        const waitForMenu = () => {
           const add = document.querySelector('button[aria-label="New terminal"]');
-          if (!menuOpened && add && !add.disabled) {
+          if (
+            !menuOpened && rows.length < 3 && status.startsWith('pid ') &&
+            add instanceof HTMLButtonElement && !add.disabled
+          ) {
             add.click();
             menuOpened = true;
           }
           const shell = [...document.querySelectorAll('.terminal-new-menu button')]
             .find((node) => node.querySelector('strong')?.textContent?.trim() === 'Shell');
-          if (shell) {
+          if (menuOpened && shell) {
             shell.click();
-            return waitForSecond();
+            menuOpened = false;
           }
-          if (Date.now() > deadline) return reject(new Error('new-terminal menu did not open'));
-          setTimeout(waitForMenu, 25);
+          if (Date.now() > deadline) return reject(new Error(
+            'three terminals did not start: rows=' + rows.length +
+            ' surfaces=' + surfaces.length + ' status=' + status
+          ));
+          setTimeout(waitForTerminals, 25);
         };
-        waitForMenu();
+        waitForTerminals();
       })
     `),
     'multi-terminal interaction timed out',
@@ -125,7 +124,6 @@ export async function verifyTerminalPresentationLifecycle(
     .list()
     .filter((terminal) => terminal.ownerId === win.webContents.id)[1]
   if (!secondTerminal) throw new Error('second terminal was not registered')
-
   supervisor.write(
     secondTerminal.id,
     secondTerminal.ownerId,
@@ -154,18 +152,17 @@ export async function verifyTerminalPresentationLifecycle(
             getComputedStyle(surface).visibility === 'hidden' && stats &&
             stats.paused && !stats.pendingFrame && stats.parsedWrites > 0
           ) {
-            const hiddenFrames = stats.renderFrames;
-            const hiddenFullFrames = stats.fullRenderFrames;
+            const hiddenStats = stats;
             return setTimeout(() => {
               const settled = engine.__hvirTerminalPerformance;
               if (
-                settled.renderFrames !== hiddenFrames ||
+                settled.renderFrames !== hiddenStats.renderFrames ||
                 !settled.paused ||
                 settled.pendingFrame
               ) {
                 return fail('hidden terminal continued presentation work');
               }
-              selectFromCompactRail(surface, row, hiddenFullFrames);
+              selectFromCompactRail(surface, row, hiddenStats);
             }, 650);
           }
           if (Date.now() > deadline) {
@@ -174,7 +171,7 @@ export async function verifyTerminalPresentationLifecycle(
           }
           setTimeout(waitForHiddenOutput, 25);
         };
-        const selectFromCompactRail = (surface, row, hiddenFullFrames) => {
+        const selectFromCompactRail = (surface, row, hiddenStats) => {
           const workbench = document.querySelector('.workbench');
           const rail = document.querySelector('.terminal-rail:not([hidden])');
           const collapse = document.querySelector(
@@ -203,7 +200,7 @@ export async function verifyTerminalPresentationLifecycle(
               workbench.classList.contains('terminal-rail-compact') &&
               markerList instanceof HTMLElement &&
               restore instanceof HTMLButtonElement &&
-              markers.length === 2
+              markers.length === 3
             ) {
               const markerOrder = markers
                 .map((entry) => entry.getAttribute('data-terminal-session'))
@@ -212,6 +209,8 @@ export async function verifyTerminalPresentationLifecycle(
               const marker = markers.find(
                 (entry) => entry.getAttribute('data-terminal-session') === sessionId
               );
+              const currentStats = surface.querySelector('.terminal-engine-host')
+                ?.__hvirTerminalPerformance;
               if (
                 markerOrder !== expandedOrder ||
                 !(firstMarker instanceof HTMLButtonElement) ||
@@ -220,7 +219,8 @@ export async function verifyTerminalPresentationLifecycle(
                 marker.dataset.terminalState !== 'bell' ||
                 marker.getAttribute('aria-label') !== 'Hidden buffered, Bell' ||
                 marker.title !== 'Hidden buffered, Bell' ||
-                marker.tabIndex !== 0
+                marker.tabIndex !== 0 || currentStats?.cols !== hiddenStats.cols ||
+                currentStats?.rows !== hiddenStats.rows
               ) {
                 return fail(
                   'compact markers lost row order, state, or accessible naming: order=' +
@@ -339,7 +339,7 @@ export async function verifyTerminalPresentationLifecycle(
                   waitForReveal(
                     surface,
                     row,
-                    hiddenFullFrames,
+                    hiddenStats,
                     workbench,
                     markerList,
                     restore
@@ -357,7 +357,7 @@ export async function verifyTerminalPresentationLifecycle(
         const waitForReveal = (
           surface,
           row,
-          hiddenFullFrames,
+          hiddenStats,
           workbench,
           markerList,
           restore
@@ -383,6 +383,7 @@ export async function verifyTerminalPresentationLifecycle(
             getComputedStyle(surface).visibility === 'visible' &&
             pixel && pixel[0] > 120 && pixel[1] < 160 && stats &&
             !stats.paused && !stats.pendingFrame &&
+            stats.cols > hiddenStats.cols &&
             workbench.classList.contains('terminal-rail-compact') &&
             marker instanceof HTMLButtonElement &&
             marker.getAttribute('aria-current') === 'true' &&
@@ -391,10 +392,10 @@ export async function verifyTerminalPresentationLifecycle(
               'Hidden buffered, Neutral, active terminal' &&
             !row.querySelector('.terminal-attention-badge')
           ) {
-            if (stats.fullRenderFrames - hiddenFullFrames !== 1) {
+            if (stats.fullRenderFrames - hiddenStats.fullRenderFrames !== 1) {
               return fail(
                 'terminal reveal full repaint count was ' +
-                (stats.fullRenderFrames - hiddenFullFrames)
+                (stats.fullRenderFrames - hiddenStats.fullRenderFrames)
               );
             }
             markerList.style.removeProperty('flex');
@@ -424,7 +425,7 @@ export async function verifyTerminalPresentationLifecycle(
               waitForReveal(
                 surface,
                 row,
-                hiddenFullFrames,
+                hiddenStats,
                 workbench,
                 markerList,
                 restore
@@ -438,7 +439,6 @@ export async function verifyTerminalPresentationLifecycle(
     'hidden terminal compact switch timed out',
     12_000,
   )) as string
-
   let inputProbe = ''
   const detachInputProbe = supervisor.attach(secondTerminal.id, secondTerminal.ownerId, {
     onData: (data) => {
@@ -478,14 +478,21 @@ export async function verifyTerminalPresentationLifecycle(
       new Promise((resolve, reject) => {
         const sessionId = ${JSON.stringify(secondTerminal.id)};
         const deadline = Date.now() + 5000;
+        let closing = false;
         const poll = () => {
+          const rows = [...document.querySelectorAll('.terminal-list-row')];
+          if (closing && rows.length === 1) {
+            return resolve('revealed input echo + close');
+          }
           const button = document.querySelector(
             '.terminal-list-main[data-terminal-session="' + CSS.escape(sessionId) + '"]'
           );
           const row = button?.closest('.terminal-list-row');
-          if (row) {
+          if (!closing && row) {
+            const extra = rows.at(-1);
+            if (extra && extra !== row) extra.querySelector('.terminal-close-button')?.click();
             row.querySelector('.terminal-close-button')?.click();
-            return resolve('revealed input echo + close');
+            closing = true;
           }
           if (Date.now() > deadline) {
             return reject(new Error('revealed terminal row disappeared before close'));
@@ -498,7 +505,6 @@ export async function verifyTerminalPresentationLifecycle(
     'revealed terminal close timed out',
   )) as string
   const typographyStatus = await verifyLiveTerminalTypography(win, supervisor)
-
   return [
     explicitLaunch,
     layoutFocusStatus,
@@ -789,7 +795,6 @@ async function verifyActiveCursorCadence(
     'cursor blink cadence did not return to visible',
   )
 
-  // Remove the probe character before the surrounding canonical read submits.
   win.webContents.sendInputEvent({
     type: 'keyDown',
     keyCode: 'U',

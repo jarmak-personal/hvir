@@ -283,7 +283,8 @@ describe('GhosttyTerminalPane lifecycle', () => {
 
   it('stops hidden cursor work and restores a current repaint on reveal', async () => {
     const container = document.createElement('div')
-    document.body.append(container)
+    const nextContainer = document.createElement('div')
+    document.body.append(container, nextContainer)
     const pane = await createGhosttyTerminalPane(theme(), typography(), {
       modifiedKeyProtocol: 'modify-other-keys',
       metaEnterAliasesControl: true,
@@ -294,17 +295,32 @@ describe('GhosttyTerminalPane lifecycle', () => {
     pane.setPresentation('hidden')
     pane.mount(container)
     pane.write('\u001b]0;Hidden output\u0007buffered')
+    const surface = container.querySelector<HTMLElement>('.terminal-engine-host')!
+    Object.defineProperties(surface, {
+      clientWidth: { configurable: true, value: 780 },
+      clientHeight: { configurable: true, value: 360 },
+    })
     const hiddenRenderCount = state.renders
+    const hiddenResizeCount = state.resizes.length
+
+    pane.reparent(nextContainer)
+    pane.setTypography({ fontFamily: 'Deferred Mono', fontSize: 18 })
+    await settleTerminalFit()
 
     expect(state.cursorBlinkValues).toEqual([true, false])
     expect(state.presentationPausedValues).toEqual([true])
     expect(state.writes).toContain('\u001b]0;Hidden output\u0007buffered')
+    expect(state.renders).toBe(hiddenRenderCount)
+    expect(state.resizes).toHaveLength(hiddenResizeCount)
+    expect(nextContainer.firstElementChild).toBe(surface)
 
     pane.setPresentation('visible')
+    await settleTerminalFit()
 
     expect(state.cursorBlinkValues).toEqual([true, false, true])
     expect(state.presentationPausedValues).toEqual([true, false])
     expect(state.renders).toBeGreaterThan(hiddenRenderCount)
+    expect(state.resizes).toEqual([{ cols: 72, rows: 16 }])
 
     pane.setPresentation('hidden')
     pane.dispose()
@@ -500,7 +516,7 @@ describe('GhosttyTerminalPane lifecycle', () => {
 
     act(() => root.render(render(18)))
     await act(async () => {
-      await new Promise((resolve) => window.setTimeout(resolve, 100))
+      await settleTerminalFit(180)
     })
 
     expect(host.querySelector('.terminal-engine-host')).toBe(surface)
@@ -825,9 +841,11 @@ describe('GhosttyTerminalPane lifecycle', () => {
     const state = ghosttyState.instances[0]!
 
     await act(async () => {
+      await settleTerminalFit()
       root.render(renderOwner('target'))
       await Promise.resolve()
     })
+    await settleTerminalFit()
 
     expect(state.presentationPausedValues).toEqual([true, false, true, false])
     expect(host.querySelectorAll('.terminal-engine-host')).toHaveLength(1)
@@ -873,6 +891,7 @@ describe('GhosttyTerminalPane lifecycle', () => {
 
     runtime.attach(first)
     await vi.waitFor(() => expect(invoke).toHaveBeenCalledOnce())
+    await settleTerminalFit()
     const state = ghosttyState.instances[0]!
     const surface = first.querySelector('.terminal-engine-host')
     expect(state.presentationPausedValues).toEqual([true, false])
@@ -881,6 +900,7 @@ describe('GhosttyTerminalPane lifecycle', () => {
     // New-owner attachment may run before stale old-owner cleanup.
     runtime.attach(second)
     runtime.detach(first)
+    await settleTerminalFit()
     expect(second.querySelector('.terminal-engine-host')).toBe(surface)
     expect(state.presentationPausedValues).toEqual([true, false, true, false])
     expect(deliveryPresentation(second)).toBe('visible')
@@ -902,6 +922,7 @@ describe('GhosttyTerminalPane lifecycle', () => {
     expect(options.onFocus).toHaveBeenCalledTimes(focusEventsWhileAttached)
 
     runtime.attach(third)
+    await settleTerminalFit()
     expect(third.querySelector('.terminal-engine-host')).toBe(surface)
     expect(state.presentationPausedValues).toEqual([
       true,
@@ -1116,6 +1137,10 @@ function theme() {
 
 function typography() {
   return { fontFamily: 'ui-monospace, monospace', fontSize: 13 }
+}
+
+function settleTerminalFit(delay = 100): Promise<void> {
+  return new Promise((resolve) => window.setTimeout(resolve, delay))
 }
 
 function deliveryPresentation(container: HTMLElement): 'visible' | 'hidden' | undefined {
