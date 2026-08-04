@@ -11,6 +11,7 @@ import type { ProjectHost } from '../src/main/project-host/project-host'
 import { SshHost } from '../src/main/project-host/ssh-host'
 import { LoopbackHttpProxy } from '../src/main/web-pane/loopback-http-proxy'
 import { asHostId, parseLoopbackHttpTarget } from '../src/shared'
+import { createTestSshHost } from './ssh-host-test-fixture'
 
 const cleanups: (() => Promise<void> | void)[] = []
 
@@ -54,7 +55,7 @@ function fakeForwardClient(
 function connectedHost(
   client: EventEmitter & { forwardOut: ReturnType<typeof vi.fn> },
 ): SshHost {
-  const host = new SshHost({
+  const host = createTestSshHost({
     config: aliasConfig(),
     prompter: { prompt: () => Promise.resolve(undefined) },
     clientFactory: () => fakeForwardClient(client.forwardOut) as unknown as Client,

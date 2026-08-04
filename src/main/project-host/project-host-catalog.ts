@@ -156,13 +156,12 @@ export class ProjectHostCatalog {
     if (this.disposed) throw new Error('Project host catalog is disposed')
     const existing = this.hosts.get(hostId)
     if (existing) return existing
-    const hostTrust = this.trust.forAlias(config.alias)
     const host = new SshHost({
       config,
       identities: identities.filter((identity) => identity !== undefined),
       agentSocket: this.agentSocket,
       prompter: this.prompter,
-      ...hostTrust,
+      trust: this.trust.forAlias(config.alias),
     })
     this.hosts.set(hostId, host)
     this.hostStateDisposers.set(

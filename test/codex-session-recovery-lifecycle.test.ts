@@ -13,7 +13,6 @@ import {
   type HarnessProvider,
 } from '../src/main/harness/harness-provider'
 import { LocalHost } from '../src/main/project-host/local-host'
-import { SshHost } from '../src/main/project-host'
 import type {
   PtyExit,
   PtyProcess,
@@ -22,6 +21,7 @@ import type {
 import { PtySupervisor, type ManagedPty } from '../src/main/pty/pty-supervisor'
 import { TerminalSessionRegistry } from '../src/main/terminal/session-registry'
 import { asHarnessProfileId, hostPath, localPath } from '../src/shared'
+import { createTestSshHost } from './ssh-host-test-fixture'
 
 const TERMINAL_ID = 'codex-lifecycle-terminal'
 const SESSION_ID = '019ab123-4567-7890-abcd-ef0123456789'
@@ -264,7 +264,7 @@ describe('Codex session recovery lifecycle', () => {
       end: vi.fn(() => primaryClient.emit('close')),
       destroy: vi.fn(() => primaryClient.emit('close')),
     })
-    const sshHost = new SshHost({
+    const sshHost = createTestSshHost({
       config: {
         alias: 'codex-recovery',
         hostname: 'remote.test',

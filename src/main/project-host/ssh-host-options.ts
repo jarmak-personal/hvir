@@ -2,6 +2,7 @@ import type { Client } from 'ssh2'
 
 import type { SshAuthPrompter } from './ssh-auth'
 import type { SshAliasConfig } from './ssh-config'
+import type { SshHostTrust } from './ssh-host-trust'
 
 export interface SshIdentity {
   readonly path: string
@@ -13,6 +14,7 @@ export interface SshHostOptions {
   readonly identities?: readonly SshIdentity[]
   readonly agentSocket?: string
   readonly prompter: SshAuthPrompter
+  readonly trust: SshHostTrust
   readonly pollIntervalMs?: number
   /** Slower snapshot safety net when inotify stays alive but emits no usable events. */
   readonly watchdogIntervalMs?: number
@@ -33,8 +35,6 @@ export interface SshHostOptions {
    * still protects every transport's reserved capacity.
    */
   readonly maxConcurrentExecs?: number
-  readonly trustedHostKey?: () => string | undefined
-  readonly rememberHostKey?: (fingerprint: string) => Promise<void>
   /** Test seam for transport lifecycle races; production always constructs ssh2.Client. */
   readonly clientFactory?: () => Client
 }

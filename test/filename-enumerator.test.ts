@@ -9,9 +9,10 @@ import {
   enumerateFilenames,
   type GitIgnorePort,
 } from '../src/main/filename-search/filename-enumerator'
-import { LocalHost, SshHost } from '../src/main/project-host'
+import { LocalHost } from '../src/main/project-host'
 import type { SshFileAccess } from '../src/main/project-host/ssh-file-access'
 import { hostPath, localPath } from '../src/shared'
+import { createTestSshHost } from './ssh-host-test-fixture'
 
 const cleanupPaths: string[] = []
 
@@ -81,7 +82,7 @@ describe('filename enumeration', () => {
         },
       ),
     })
-    const host = new SshHost({
+    const host = createTestSshHost({
       config: {
         alias: 'test',
         hostname: 'example.test',

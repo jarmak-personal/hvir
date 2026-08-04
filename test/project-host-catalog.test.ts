@@ -1,6 +1,8 @@
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { createHash } from 'node:crypto'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import type { ConnectConfig } from 'ssh2'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import {
@@ -49,6 +51,120 @@ describe('ProjectHostCatalog', () => {
     expect(first).toBeInstanceOf(SshHost)
     expect(second).toBe(first)
     expect(readIdentity).toHaveBeenCalledWith(localPath(identity))
+  })
+
+  it('binds alias trust to the configured local metadata record', async () => {
+    const home = await sshHome(
+      'Host work\n  HostName work.example.test\n  User picard\n',
+    )
+    const trustFile = join(home, 'known-hosts.json')
+    const rememberedKey = Buffer.from('remembered-work-host-key')
+    await writeFile(
+      trustFile,
+      JSON.stringify({ work: fingerprint(rememberedKey) }, null, 2),
+    )
+    const prompt = vi.fn(() => Promise.resolve(['yes']))
+    const catalog = await ProjectHostCatalog.create({
+      prompter: { prompt },
+      trustFile: localPath(trustFile),
+      home,
+      agentSocket: '',
+    })
+    catalogs.push(catalog)
+    const host = (await catalog.materializeHost('work')) as SshHost
+    const verifier = hostVerifier(host)
+    const remembered = vi.fn()
+
+    verifier(rememberedKey, remembered)
+
+    expect(remembered).toHaveBeenCalledWith(true)
+    expect(prompt).not.toHaveBeenCalled()
+
+    const replacementKey = Buffer.from('replacement-work-host-key')
+    const replaced = vi.fn()
+    verifier(replacementKey, replaced)
+    await vi.waitFor(() => expect(replaced).toHaveBeenCalledWith(true))
+
+    expect(JSON.parse(await readFile(trustFile, 'utf8'))).toEqual({
+      work: fingerprint(replacementKey),
+    })
+    expect(prompt).toHaveBeenCalledOnce()
+  })
+
+  it('aborts a materialized host prompt when that host disconnects', async () => {
+    const home = await sshHome(
+      'Host work\n  HostName work.example.test\n  User picard\n',
+    )
+    const signals: AbortSignal[] = []
+    const catalog = await ProjectHostCatalog.create({
+      prompter: {
+        prompt: (_request, signal) => {
+          signals.push(signal)
+          return new Promise((resolve) =>
+            signal.addEventListener('abort', () => resolve(undefined), { once: true }),
+          )
+        },
+      },
+      trustFile: localPath(join(home, 'known-hosts.json')),
+      home,
+    })
+    catalogs.push(catalog)
+    const host = (await catalog.materializeHost('work')) as SshHost
+    const verify = vi.fn()
+    hostVerifier(host)(Buffer.from('unknown-work-host-key'), verify)
+    await vi.waitFor(() => expect(signals).toHaveLength(1))
+
+    const disconnected = await catalog.disconnectHost('work')
+
+    expect(disconnected).toMatchObject({
+      hostId: 'work',
+      connectionState: 'disconnected',
+    })
+    expect(signals[0]?.aborted).toBe(true)
+    await vi.waitFor(() => expect(verify).toHaveBeenCalledWith(false))
+  })
+
+  it('aborts prompts for every materialized SSH host during bulk disconnect', async () => {
+    const home = await sshHome(
+      [
+        'Host alpha',
+        '  HostName alpha.example.test',
+        '  User picard',
+        'Host beta',
+        '  HostName beta.example.test',
+        '  User riker',
+      ].join('\n'),
+    )
+    const signals = new Map<string, AbortSignal>()
+    const catalog = await ProjectHostCatalog.create({
+      prompter: {
+        prompt: (request, signal) => {
+          signals.set(request.hostId, signal)
+          return new Promise((resolve) =>
+            signal.addEventListener('abort', () => resolve(undefined), { once: true }),
+          )
+        },
+      },
+      trustFile: localPath(join(home, 'known-hosts.json')),
+      home,
+    })
+    catalogs.push(catalog)
+    const alpha = (await catalog.materializeHost('alpha')) as SshHost
+    const beta = (await catalog.materializeHost('beta')) as SshHost
+    const alphaVerify = vi.fn()
+    const betaVerify = vi.fn()
+    hostVerifier(alpha)(Buffer.from('unknown-alpha-key'), alphaVerify)
+    hostVerifier(beta)(Buffer.from('unknown-beta-key'), betaVerify)
+    await vi.waitFor(() => expect(signals.size).toBe(2))
+
+    await catalog.disconnectSshHosts()
+
+    expect(signals.get('alpha')?.aborted).toBe(true)
+    expect(signals.get('beta')?.aborted).toBe(true)
+    await vi.waitFor(() => {
+      expect(alphaVerify).toHaveBeenCalledWith(false)
+      expect(betaVerify).toHaveBeenCalledWith(false)
+    })
   })
 
   it('rejects late materialization after its application owner disposes', async () => {
@@ -103,4 +219,25 @@ function aliasConfig(identityFiles: readonly string[]) {
     port: 22,
     identityFiles,
   }
+}
+
+type HostVerifier = (key: Buffer, verify: (valid: boolean) => void) => void
+
+function hostVerifier(host: SshHost): HostVerifier {
+  return (
+    host as unknown as { connectConfig(): ConnectConfig }
+  ).connectConfig().hostVerifier as HostVerifier
+}
+
+function fingerprint(key: Buffer): string {
+  return `SHA256:${createHash('sha256').update(key).digest('base64').replace(/=+$/, '')}`
+}
+
+async function sshHome(config: string): Promise<string> {
+  const home = await mkdtemp(join(tmpdir(), 'hvir-host-catalog-'))
+  cleanups.push(home)
+  const ssh = join(home, '.ssh')
+  await mkdir(ssh)
+  await writeFile(join(ssh, 'config'), config)
+  return home
 }

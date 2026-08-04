@@ -708,7 +708,7 @@ export class SshHost implements ProjectHost {
           .digest('base64')
           .replace(/=+$/, '')}`
         const trustedFingerprint =
-          this.acceptedHostFingerprint ?? this.options.trustedHostKey?.()
+          this.acceptedHostFingerprint ?? this.options.trust.trustedHostKey()
         if (trustedFingerprint === fingerprint) {
           verify(true)
           return
@@ -728,11 +728,11 @@ export class SshHost implements ProjectHost {
         })
           .then(async (a) => {
             const trusted = a?.[0]?.toLowerCase() === 'yes'
-            if (!trusted || !this.options.rememberHostKey || !isActive()) {
+            if (!trusted || !isActive()) {
               verify(false)
               return
             }
-            await this.options.rememberHostKey(fingerprint)
+            await this.options.trust.rememberHostKey(fingerprint)
             if (!isActive()) {
               verify(false)
               return

@@ -8,6 +8,10 @@ import type { AnyAuthMethod, Client, ConnectConfig } from 'ssh2'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { SshHost, type SshPrompt } from '../src/main/project-host'
+import {
+  createTestSshHost,
+  inMemorySshHostTrust,
+} from './ssh-host-test-fixture'
 
 const cleanups: string[] = []
 
@@ -25,7 +29,7 @@ describe('SshHost authentication', () => {
     expect(privateKey.toString()).toContain('OPENSSH PRIVATE KEY')
     expect(privateKey.toString()).not.toContain('ENCRYPTED')
     const prompts: SshPrompt[] = []
-    const host = new SshHost({
+    const host = createTestSshHost({
       config: aliasConfig(),
       agentSocket: '/tmp/agent.sock',
       identities: [{ path: keyPath, privateKey }],
@@ -48,10 +52,10 @@ describe('SshHost authentication', () => {
 
   it('accepts a remembered host fingerprint without prompting again', () => {
     const prompt = vi.fn<() => Promise<readonly string[] | undefined>>()
-    const host = new SshHost({
+    const host = createTestSshHost({
       config: aliasConfig(),
       prompter: { prompt },
-      trustedHostKey: () => fingerprint(Buffer.from('trusted-host-key')),
+      trust: inMemorySshHostTrust(fingerprint(Buffer.from('trusted-host-key'))),
     })
     const verifier = hostVerifier(host)
     const verify = vi.fn()
@@ -63,11 +67,13 @@ describe('SshHost authentication', () => {
 
   it('waits for an unknown host to be persisted before verifying it', async () => {
     const remember = vi.fn<() => Promise<void>>(() => Promise.resolve())
-    const host = new SshHost({
+    const host = createTestSshHost({
       config: aliasConfig(),
       prompter: { prompt: () => Promise.resolve(['yes']) },
-      trustedHostKey: () => undefined,
-      rememberHostKey: remember,
+      trust: {
+        trustedHostKey: () => undefined,
+        rememberHostKey: remember,
+      },
     })
     const verify = vi.fn()
 
@@ -86,11 +92,13 @@ describe('SshHost authentication', () => {
       .fn<() => Promise<void>>()
       .mockRejectedValueOnce(new Error('disk full'))
       .mockResolvedValueOnce(undefined)
-    const host = new SshHost({
+    const host = createTestSshHost({
       config: aliasConfig(),
       prompter: { prompt },
-      trustedHostKey: () => undefined,
-      rememberHostKey: remember,
+      trust: {
+        trustedHostKey: () => undefined,
+        rememberHostKey: remember,
+      },
     })
     const verifier = hostVerifier(host)
     const first = vi.fn()
@@ -108,7 +116,7 @@ describe('SshHost authentication', () => {
   it('presents a saved-key mismatch as a distinct high-risk prompt', async () => {
     const prompts: SshPrompt[] = []
     const remember = vi.fn<() => Promise<void>>(() => Promise.resolve())
-    const host = new SshHost({
+    const host = createTestSshHost({
       config: aliasConfig(),
       prompter: {
         prompt: (request) => {
@@ -116,8 +124,10 @@ describe('SshHost authentication', () => {
           return Promise.resolve(['yes'])
         },
       },
-      trustedHostKey: () => 'SHA256:oldSavedFingerprint0123456789',
-      rememberHostKey: remember,
+      trust: {
+        trustedHostKey: () => 'SHA256:oldSavedFingerprint0123456789',
+        rememberHostKey: remember,
+      },
     })
     const verify = vi.fn()
 
@@ -138,7 +148,7 @@ describe('SshHost authentication', () => {
     const keyPath = join(root, 'id_ed25519')
     execFileSync('ssh-keygen', ['-q', '-t', 'ed25519', '-N', 'secret', '-f', keyPath])
     const prompt = vi.fn(() => Promise.resolve(undefined))
-    const host = new SshHost({
+    const host = createTestSshHost({
       config: aliasConfig(),
       identities: [{ path: keyPath, privateKey: await readFile(keyPath) }],
       prompter: { prompt },
@@ -154,7 +164,7 @@ describe('SshHost authentication', () => {
 
   it('does not fall through to password after keyboard-interactive is cancelled', async () => {
     const prompt = vi.fn(() => Promise.resolve(undefined))
-    const host = new SshHost({
+    const host = createTestSshHost({
       config: aliasConfig(),
       prompter: { prompt },
     })
@@ -189,7 +199,7 @@ describe('SshHost authentication', () => {
         execFileSync('ssh-keygen', ['-q', '-t', 'ed25519', '-N', 'secret', '-f', keyPath])
       }
       const signals: AbortSignal[] = []
-      const host = new SshHost({
+      const host = createTestSshHost({
         config: aliasConfig(),
         ...(kind === 'passphrase'
           ? { identities: [{ path: keyPath, privateKey: await readFile(keyPath) }] }
@@ -217,7 +227,7 @@ describe('SshHost authentication', () => {
   it('aborts a failed connection generation before an explicit replacement prompts', async () => {
     const clients = [fakeAuthClient(), fakeAuthClient()]
     const signals: AbortSignal[] = []
-    const host = new SshHost({
+    const host = createTestSshHost({
       config: aliasConfig(),
       prompter: {
         prompt: (_request, signal) => {
@@ -227,7 +237,7 @@ describe('SshHost authentication', () => {
           )
         },
       },
-      rememberHostKey: () => Promise.resolve(),
+      trust: inMemorySshHostTrust(),
       clientFactory: () =>
         clients.find((client) => !client.connect.mock.calls.length)! as unknown as Client,
     })

@@ -12,6 +12,7 @@ import {
 import type { SshFileAccess } from '../src/main/project-host/ssh-file-access'
 import type { SshWatchService } from '../src/main/project-host/ssh-watch-service'
 import { asHostId, hostPath, type HostPath, type WatchEvent } from '../src/shared'
+import { createTestSshHost } from './ssh-host-test-fixture'
 
 describe('SshHost remote behavior', () => {
   it('connects, probes, and executes through the default buffered slot', async () => {
@@ -38,7 +39,7 @@ describe('SshHost remote behavior', () => {
         ),
       },
     )
-    const host = new SshHost({
+    const host = createTestSshHost({
       config: aliasConfig(),
       prompter: { prompt: () => Promise.resolve(undefined) },
       clientFactory: () => client as unknown as Client,
@@ -60,7 +61,7 @@ describe('SshHost remote behavior', () => {
         client.emit('ready')
       })
     })
-    const host = new SshHost({
+    const host = createTestSshHost({
       config: aliasConfig(),
       prompter: { prompt: () => Promise.resolve(undefined) },
       clientFactory: () => client as unknown as Client,
@@ -90,7 +91,7 @@ describe('SshHost remote behavior', () => {
         )
       })
     })
-    const host = new SshHost({
+    const host = createTestSshHost({
       config: aliasConfig(),
       prompter: { prompt: () => Promise.resolve(undefined) },
       clientFactory: () => client as unknown as Client,
@@ -105,7 +106,7 @@ describe('SshHost remote behavior', () => {
     try {
       const silent = fakeClient(() => undefined)
       silent.end.mockImplementation(() => undefined)
-      const host = new SshHost({
+      const host = createTestSshHost({
         config: aliasConfig(),
         prompter: { prompt: () => Promise.resolve(undefined) },
         clientFactory: () => silent as unknown as Client,
@@ -127,7 +128,7 @@ describe('SshHost remote behavior', () => {
     const closing = fakeClient(() => queueMicrotask(() => closing.emit('close')))
     const ready = fakeClient(() => queueMicrotask(() => ready.emit('ready')))
     const clients = [closing, ready]
-    const host = new SshHost({
+    const host = createTestSshHost({
       config: aliasConfig(),
       prompter: { prompt: () => Promise.resolve(undefined) },
       clientFactory: () => clients.shift() as unknown as Client,
@@ -151,7 +152,7 @@ describe('SshHost remote behavior', () => {
     const oldClient = fakeClient(() => queueMicrotask(() => oldClient.emit('ready')))
     const newClient = fakeClient(() => queueMicrotask(() => newClient.emit('ready')))
     const clients = [oldClient, newClient]
-    const host = new SshHost({
+    const host = createTestSshHost({
       config: aliasConfig(),
       prompter: { prompt: () => Promise.resolve(undefined) },
       clientFactory: () => clients.shift() as unknown as Client,
@@ -178,7 +179,7 @@ describe('SshHost remote behavior', () => {
 
   it('keeps an authenticated transport when capability detection fails', async () => {
     const client = fakeClient(() => queueMicrotask(() => client.emit('ready')))
-    const host = new SshHost({
+    const host = createTestSshHost({
       config: aliasConfig(),
       prompter: { prompt: () => Promise.resolve(undefined) },
       clientFactory: () => client as unknown as Client,
@@ -194,7 +195,7 @@ describe('SshHost remote behavior', () => {
   it('waits briefly for the SSH transport to close during disposal', async () => {
     vi.useFakeTimers()
     try {
-      const host = new SshHost({
+      const host = createTestSshHost({
         config: aliasConfig(),
         prompter: { prompt: () => Promise.resolve(undefined) },
       })
@@ -224,7 +225,7 @@ describe('SshHost remote behavior', () => {
       const client = fakeClient(() => undefined)
       client.end.mockImplementation(() => undefined)
       client.destroy.mockImplementation(() => undefined)
-      const host = new SshHost({
+      const host = createTestSshHost({
         config: aliasConfig(),
         prompter: { prompt: () => Promise.resolve(undefined) },
       })
@@ -242,7 +243,7 @@ describe('SshHost remote behavior', () => {
   })
 
   it('does not implicitly reconnect after an explicit disconnect', async () => {
-    const host = new SshHost({
+    const host = createTestSshHost({
       config: aliasConfig(),
       prompter: { prompt: () => Promise.resolve(undefined) },
     })
@@ -259,7 +260,7 @@ describe('SshHost remote behavior', () => {
     vi.useFakeTimers()
     try {
       const factory = vi.fn<() => Client>()
-      const host = new SshHost({
+      const host = createTestSshHost({
         config: aliasConfig(),
         prompter: { prompt: () => Promise.resolve(undefined) },
         clientFactory: factory,
@@ -279,7 +280,7 @@ describe('SshHost remote behavior', () => {
   it('does not loop modal authentication after one automatic reconnect failure', async () => {
     vi.useFakeTimers()
     try {
-      const host = new SshHost({
+      const host = createTestSshHost({
         config: aliasConfig(),
         prompter: { prompt: () => Promise.resolve(['wrong']) },
       })
@@ -315,7 +316,7 @@ describe('SshHost remote behavior', () => {
         ),
       },
     )
-    const host = new SshHost({
+    const host = createTestSshHost({
       config: aliasConfig(),
       prompter: { prompt: () => Promise.resolve(undefined) },
     })
@@ -359,7 +360,7 @@ describe('SshHost remote behavior', () => {
           ]),
       ),
     }
-    const host = new SshHost({
+    const host = createTestSshHost({
       config: aliasConfig(),
       prompter: { prompt: () => Promise.resolve(undefined) },
     })
@@ -404,7 +405,7 @@ describe('SshHost remote behavior', () => {
       rename: vi.fn(),
       unlink: vi.fn(),
     }
-    const host = new SshHost({
+    const host = createTestSshHost({
       config: aliasConfig(),
       prompter: { prompt: () => Promise.resolve(undefined) },
     })
@@ -452,7 +453,7 @@ describe('SshHost remote behavior', () => {
       rename: vi.fn(),
       unlink: vi.fn((_path: string, callback: (error?: Error) => void) => callback()),
     }
-    const host = new SshHost({
+    const host = createTestSshHost({
       config: aliasConfig(),
       prompter: { prompt: () => Promise.resolve(undefined) },
     })
@@ -488,7 +489,7 @@ describe('SshHost remote behavior', () => {
       rename: vi.fn(),
       unlink: vi.fn((_path: string, callback: (error?: Error) => void) => callback()),
     }
-    const host = new SshHost({
+    const host = createTestSshHost({
       config: aliasConfig(),
       prompter: { prompt: () => Promise.resolve(undefined) },
     })
@@ -529,7 +530,7 @@ describe('SshHost remote behavior', () => {
         ),
       },
     )
-    const host = new SshHost({
+    const host = createTestSshHost({
       config: aliasConfig(),
       prompter: { prompt: () => Promise.resolve(undefined) },
     })
@@ -569,7 +570,7 @@ describe('SshHost remote behavior', () => {
         ),
       },
     )
-    const host = new SshHost({
+    const host = createTestSshHost({
       config: aliasConfig(),
       prompter: { prompt: () => Promise.resolve(undefined) },
     })
@@ -611,7 +612,7 @@ describe('SshHost remote behavior', () => {
         ),
       },
     )
-    const host = new SshHost({
+    const host = createTestSshHost({
       config: aliasConfig(),
       prompter: { prompt: () => Promise.resolve(undefined) },
     })
@@ -657,7 +658,7 @@ describe('SshHost remote behavior', () => {
         ),
       },
     )
-    const host = new SshHost({
+    const host = createTestSshHost({
       config: aliasConfig(),
       prompter: { prompt: () => Promise.resolve(undefined) },
     })
@@ -705,7 +706,7 @@ describe('SshHost remote behavior', () => {
         ),
       },
     )
-    const host = new SshHost({
+    const host = createTestSshHost({
       config: aliasConfig(),
       prompter: { prompt: () => Promise.resolve(undefined) },
     })
@@ -754,7 +755,7 @@ describe('SshHost remote behavior', () => {
         ),
       },
     )
-    const host = new SshHost({
+    const host = createTestSshHost({
       config: aliasConfig(),
       maxConcurrentExecs: 2,
       prompter: { prompt: () => Promise.resolve(undefined) },
@@ -801,7 +802,7 @@ describe('SshHost remote behavior', () => {
         ),
       },
     )
-    const host = new SshHost({
+    const host = createTestSshHost({
       config: aliasConfig(),
       prompter: { prompt: () => Promise.resolve(undefined) },
     })
@@ -846,7 +847,7 @@ describe('SshHost remote behavior', () => {
           ),
       },
     )
-    const host = new SshHost({
+    const host = createTestSshHost({
       config: aliasConfig(),
       prompter: { prompt: () => Promise.resolve(undefined) },
     })
@@ -864,7 +865,7 @@ describe('SshHost remote behavior', () => {
   })
 
   it('resolves and caches the remote host shell', async () => {
-    const host = new SshHost({
+    const host = createTestSshHost({
       config: aliasConfig(),
       prompter: { prompt: () => Promise.resolve(undefined) },
     })
@@ -897,7 +898,7 @@ describe('SshHost remote behavior', () => {
           callback(undefined, contents),
       ),
     }
-    const host = new SshHost({
+    const host = createTestSshHost({
       config: aliasConfig(),
       prompter: { prompt: () => Promise.resolve(undefined) },
     })
@@ -951,7 +952,7 @@ describe('SshHost remote behavior', () => {
             callback(undefined, Buffer.from('stable')),
         ),
       }
-      const host = new SshHost({
+      const host = createTestSshHost({
         config: aliasConfig(),
         fingerprintObservationWindowMs: 10,
         prompter: { prompt: () => Promise.resolve(undefined) },
@@ -990,7 +991,7 @@ describe('SshHost remote behavior', () => {
           callback(undefined, Buffer.from('contents')),
       ),
     }
-    const host = new SshHost({
+    const host = createTestSshHost({
       config: aliasConfig(),
       prompter: { prompt: () => Promise.resolve(undefined) },
     })
@@ -1031,7 +1032,7 @@ describe('SshHost remote behavior', () => {
           callback(undefined, Buffer.from(path)),
       ),
     }
-    const host = new SshHost({
+    const host = createTestSshHost({
       config: aliasConfig(),
       prompter: { prompt: () => Promise.resolve(undefined) },
     })
@@ -1078,7 +1079,7 @@ describe('SshHost remote behavior', () => {
           ]),
       ),
     }
-    const host = new SshHost({
+    const host = createTestSshHost({
       config: aliasConfig(),
       prompter: { prompt: () => Promise.resolve(undefined) },
     })
@@ -1105,7 +1106,7 @@ describe('SshHost remote behavior', () => {
   it('never overlaps remote polling snapshots', async () => {
     vi.useFakeTimers()
     try {
-      const host = new SshHost({
+      const host = createTestSshHost({
         config: aliasConfig(),
         pollIntervalMs: 10,
         prompter: { prompt: () => Promise.resolve(undefined) },
@@ -1156,7 +1157,7 @@ describe('SshHost remote behavior', () => {
   it('bounds recursive safety work and adaptively backs off idle cycles', async () => {
     vi.useFakeTimers()
     try {
-      const host = new SshHost({
+      const host = createTestSshHost({
         config: aliasConfig(),
         pollIntervalMs: 10,
         slowScanIntervalMs: 20,
@@ -1235,7 +1236,7 @@ describe('SshHost remote behavior', () => {
           ),
       ),
     }
-    const host = new SshHost({
+    const host = createTestSshHost({
       config: aliasConfig(),
       prompter: { prompt: () => Promise.resolve(undefined) },
     })
@@ -1264,7 +1265,7 @@ describe('SshHost remote behavior', () => {
   it('uses a polling watchdog when inotify stays silent', async () => {
     vi.useFakeTimers()
     try {
-      const host = new SshHost({
+      const host = createTestSshHost({
         config: aliasConfig(),
         watchdogIntervalMs: 10,
         slowScanIntervalMs: 10,
@@ -1354,7 +1355,7 @@ describe('SshHost remote behavior', () => {
       kill: () => undefined,
       dispose: vi.fn(),
     }
-    const host = new SshHost({
+    const host = createTestSshHost({
       config: aliasConfig(),
       watchdogIntervalMs: 60_000,
       prompter: { prompt: () => Promise.resolve(undefined) },
@@ -1396,7 +1397,7 @@ describe('SshHost remote behavior', () => {
   it('emits a bounded tree refresh pulse even when the watch backend stalls', async () => {
     vi.useFakeTimers()
     try {
-      const host = new SshHost({
+      const host = createTestSshHost({
         config: aliasConfig(),
         refreshPulseIntervalMs: 10,
         prompter: { prompt: () => Promise.resolve(undefined) },
@@ -1435,7 +1436,7 @@ describe('SshHost remote behavior', () => {
   })
 
   it('suppresses an in-flight polling error after the watcher stops', async () => {
-    const host = new SshHost({
+    const host = createTestSshHost({
       config: aliasConfig(),
       prompter: { prompt: () => Promise.resolve(undefined) },
     })
