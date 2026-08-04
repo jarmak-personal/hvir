@@ -3,6 +3,7 @@ import type { BrowserWindow } from 'electron'
 import { joinHostPath, type HostPath } from '../../shared'
 import type { PtySupervisor } from '../pty/pty-supervisor'
 import { ensureExplicitBareShellLaunch } from './terminal-explicit-launch'
+import { verifyTerminalHorizonPresentation } from './terminal-horizon-presentation'
 import { verifyTerminalProjectReturn } from './terminal-project-return'
 import { withTerminalSmokeTimeout } from './terminal-smoke-timeout'
 
@@ -54,6 +55,7 @@ export async function verifyTerminalPresentationLifecycle(
   launchMenuOverflowRoot?: HostPath,
 ): Promise<string> {
   const explicitLaunch = await ensureExplicitBareShellLaunch(win, supervisor)
+  const horizonStatus = await verifyTerminalHorizonPresentation(win)
   const layoutFocusStatus = await verifyTerminalLayoutFocus(win)
   const projectReturnStatus = await verifyTerminalProjectReturn(
     win,
@@ -501,6 +503,7 @@ export async function verifyTerminalPresentationLifecycle(
 
   return [
     explicitLaunch,
+    horizonStatus,
     layoutFocusStatus,
     projectReturnStatus,
     launchMenuStatus,

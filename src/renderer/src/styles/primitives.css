@@ -95,6 +95,11 @@
   cursor: row-resize;
 }
 
+/* Keep a deliberate full-width horizon only while both primary surfaces are visible. */
+.workbench:not(.terminal-focused):not(.terminal-collapsed) > .terminal-resizer {
+  background: var(--border-strong);
+}
+
 .terminal-resizer::before {
   inset: -3px 0;
   background:
