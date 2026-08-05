@@ -4,6 +4,7 @@ import { joinHostPath, type HostPath } from '../../shared'
 import type { PtySupervisor } from '../pty/pty-supervisor'
 import { ensureExplicitBareShellLaunch } from './terminal-explicit-launch'
 import { verifyTerminalHorizonPresentation } from './terminal-horizon-presentation'
+import { verifyNegotiatedTerminalKeyboard } from './terminal-keyboard-negotiation'
 import { verifyTerminalProjectReturn } from './terminal-project-return'
 import { withTerminalSmokeTimeout } from './terminal-smoke-timeout'
 
@@ -55,6 +56,7 @@ export async function verifyTerminalPresentationLifecycle(
   launchMenuOverflowRoot?: HostPath,
 ): Promise<string> {
   const explicitLaunch = await ensureExplicitBareShellLaunch(win, supervisor)
+  await verifyNegotiatedTerminalKeyboard(win, supervisor)
   const horizonStatus = await verifyTerminalHorizonPresentation(win)
   const layoutFocusStatus = await verifyTerminalLayoutFocus(win)
   const projectReturnStatus = await verifyTerminalProjectReturn(
