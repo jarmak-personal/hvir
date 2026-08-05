@@ -8,6 +8,13 @@ import {
   assertTerminalRuntimeContract,
   verifyTerminalRuntimeContract,
 } from '../scripts/check-terminal-runtime.mts'
+import { GHOSTTY_TERMINAL_CAPABILITY_PROFILE } from '../scripts/ghostty-terminal-capability-profile.mts'
+
+class CompatibleParser {
+  isSynchronizedOutput(): void {}
+  getSynchronizedOutputGeneration(): void {}
+  resetSynchronizedOutput(): void {}
+}
 
 describe('terminal runtime capability preflight', () => {
   it('accepts the installed ghostty-web runtime contract', () => {
@@ -23,8 +30,13 @@ describe('terminal runtime capability preflight', () => {
   it('reports every missing presentation capability and the recovery command', () => {
     class IncompatibleTerminal {}
 
-    expect(() => assertTerminalRuntimeContract(IncompatibleTerminal)).toThrow(
-      /requestRender, setRenderPaused, resetCursorBlink, getRenderStats, resolveEventProvenance, custom link-provider priority.*npm ci.*retry the command/,
+    expect(() =>
+      assertTerminalRuntimeContract({
+        Terminal: IncompatibleTerminal,
+        GhosttyTerminal: IncompatibleTerminal,
+      }),
+    ).toThrow(
+      /requestRender, setRenderPaused, resetCursorBlink, getRenderStats, resolveEventProvenance, isSynchronizedOutput, getSynchronizedOutputGeneration, resetSynchronizedOutput, custom link-provider priority.*npm ci.*retry the command/,
     )
   })
 
@@ -38,9 +50,12 @@ describe('terminal runtime capability preflight', () => {
       registerLinkProvider(): void {}
     }
 
-    expect(() => assertTerminalRuntimeContract(UnprioritizedTerminal)).toThrow(
-      /custom link-provider priority/,
-    )
+    expect(() =>
+      assertTerminalRuntimeContract({
+        Terminal: UnprioritizedTerminal,
+        GhosttyTerminal: CompatibleParser,
+      }),
+    ).toThrow(/custom link-provider priority/)
   })
 
   it('reports an install mismatch when ghostty-web cannot be loaded', async () => {
@@ -55,8 +70,39 @@ describe('terminal runtime capability preflight', () => {
     await expect(
       verifyTerminalRuntimeContract(() => Promise.resolve(undefined)),
     ).rejects.toThrow(
-      /ghostty-web does not export the required Terminal constructor.*npm ci.*retry the command/,
+      /ghostty-web does not export the required Terminal and GhosttyTerminal constructors.*npm ci.*retry the command/,
     )
+  })
+
+  it('pins the reviewed synchronized-output profile to the consumed artifact', () => {
+    const packageJson = JSON.parse(
+      readFileSync(new URL('../package.json', import.meta.url), 'utf8'),
+    ) as { dependencies: Record<string, string> }
+    const packageLock = JSON.parse(
+      readFileSync(new URL('../package-lock.json', import.meta.url), 'utf8'),
+    ) as { packages: Record<string, { resolved?: string }> }
+    const profile = GHOSTTY_TERMINAL_CAPABILITY_PROFILE
+
+    expect(packageJson.dependencies['ghostty-web']).toBe(profile.artifact.url)
+    expect(packageLock.packages['node_modules/ghostty-web']?.resolved).toBe(
+      profile.artifact.url,
+    )
+    expect(profile).toMatchObject({
+      artifact: {
+        sha256: '5c81639af9d6a6359627195a585ad81ac70551e7f8b3fb6a827aa60d32213d87',
+        sourceCommit: '00e3e1ff7f44300e4a7a80b55108cdb03a0ed271',
+        ghosttyCommit: '332b2aefc6e72d363aa93ab6ecfc86eeeeb5ed28',
+      },
+      identity: {
+        term: 'xterm-256color',
+        termProgram: 'hvir',
+        terminfo: 'unchanged',
+      },
+      synchronizedOutput: {
+        recoveryTimeoutMs: 1_000,
+        hvirOutputBuffering: false,
+      },
+    })
   })
 
   it('runs the preflight before development and production builds', () => {

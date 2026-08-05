@@ -9,6 +9,8 @@ export interface TerminalRenderStats {
   readonly fullRenderFrames: number
   readonly paused: boolean
   readonly pendingFrame: boolean
+  readonly synchronizedOutput: boolean
+  readonly synchronizedOutputRecoveries: number
 }
 
 export interface TerminalPresentationSample extends TerminalRenderStats {
@@ -39,6 +41,7 @@ export interface TerminalActivityReport {
   readonly deliveryCallbacks: number
   readonly terminalWrites: number
   readonly peakBufferedBytes: number
+  readonly synchronizedPanes: number
 }
 
 export interface TerminalReadinessSampleReport {
@@ -232,7 +235,11 @@ export function startCapacityOutputFixtures(supervisor: PtySupervisor): void {
     `i=0; while :; do printf 'plain-visible-%06d abcdefghijklmnopqrstuvwxyz\\r\\n' "$i"; i=$((i+1)); sleep 0.01; done\n`,
     `i=0; while :; do printf 'plain-hidden-%06d abcdefghijklmnopqrstuvwxyz\\r\\n' "$i"; i=$((i+1)); sleep 0.01; done\n`,
     `i=0; while :; do printf '\\r\\033[2K\\033[36mThinking %04d…\\033[0m' "$i"; i=$((i+1)); sleep 0.01; done\n`,
-    `i=0; while :; do printf '\\033[?2026h\\033[33msync-%04d\\033[0m\\r\\nline-a\\r\\nline-b\\033[?2026l' "$i"; i=$((i+1)); sleep 0.04; done\n`,
+    ...Array.from(
+      { length: 9 },
+      () =>
+        `i=0; while :; do printf '\\033[?2026h\\033[33msync-%04d\\033[0m\\r\\nline-a\\r\\nline-b' "$i"; i=$((i+1)); sleep 0.2; done\n`,
+    ),
   ]
   commands.forEach((command, index) => {
     const terminal = terminals[index]!
@@ -345,6 +352,7 @@ export function verifyTerminalActivity(
   let deliveryCallbacks = 0
   let terminalWrites = 0
   let peakBufferedBytes = 0
+  let synchronizedPanes = 0
 
   for (const current of after) {
     const previous = beforeById.get(current.sessionId)
@@ -360,6 +368,12 @@ export function verifyTerminalActivity(
     deliveryCallbacks += deliveryDelta
     terminalWrites += parsedDelta
     peakBufferedBytes = Math.max(peakBufferedBytes, current.delivery.peakBufferedBytes)
+    if (current.synchronizedOutput) synchronizedPanes += 1
+    if (current.synchronizedOutputRecoveries !== previous.synchronizedOutputRecoveries) {
+      throw new Error(
+        `terminal ${current.sessionId} unexpectedly recovered synchronized output`,
+      )
+    }
     if (
       current.semanticRegionLimit <= 0 ||
       current.semanticRegions < 0 ||
@@ -406,6 +420,11 @@ export function verifyTerminalActivity(
       `terminal output was not coalesced: events=${nativeDataEvents} deliveries=${deliveryCallbacks}`,
     )
   }
+  if (synchronizedPanes !== 9) {
+    throw new Error(
+      `capacity synchronized-output topology was ${synchronizedPanes}/9 panes`,
+    )
+  }
   return {
     hiddenPanes: after.filter((sample) => !sample.visible).length,
     hiddenParsedWrites,
@@ -415,6 +434,7 @@ export function verifyTerminalActivity(
     deliveryCallbacks,
     terminalWrites,
     peakBufferedBytes,
+    synchronizedPanes,
   }
 }
 
