@@ -5,7 +5,7 @@
  * reach channels declared in `INVOKE_CHANNELS`.
  */
 
-import { contextBridge, ipcRenderer } from 'electron'
+import { contextBridge, ipcRenderer, webUtils } from 'electron'
 
 import {
   EVENT_CHANNELS,
@@ -22,6 +22,7 @@ import {
   type IpcSendPayload,
 } from '../shared'
 import { RendererDiagnosticsAdapter } from './renderer-diagnostics'
+import { terminalClipboardFilePasteText } from './terminal-clipboard-file-paste'
 
 const rendererDiagnostics = new RendererDiagnosticsAdapter({
   send: (batch) => ipcRenderer.send('diagnostics:render-containment', batch),
@@ -49,6 +50,10 @@ const api: HvirApi = {
     readyRequested = true
     signalRendererReady()
   },
+  resolveTerminalClipboardFilePaste: (file) =>
+    terminalClipboardFilePasteText(file, (candidate) =>
+      webUtils.getPathForFile(candidate),
+    ),
   diagnostics: {
     processSandboxed: process.sandboxed,
     recordRenderContainment: (occurrenceId) =>

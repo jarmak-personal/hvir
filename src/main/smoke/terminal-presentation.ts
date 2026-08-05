@@ -3,6 +3,7 @@ import type { BrowserWindow } from 'electron'
 import { joinHostPath, type HostPath } from '../../shared'
 import type { PtySupervisor } from '../pty/pty-supervisor'
 import { ensureExplicitBareShellLaunch } from './terminal-explicit-launch'
+import { verifyTerminalClipboardFilePaste } from './terminal-file-paste'
 import { verifyTerminalHorizonPresentation } from './terminal-horizon-presentation'
 import { verifyNegotiatedTerminalKeyboard } from './terminal-keyboard-negotiation'
 import { verifyTerminalProjectReturn } from './terminal-project-return'
@@ -20,9 +21,7 @@ export async function verifyLegacyTerminalPresentation(
       if (!(inputHost instanceof HTMLElement)) throw new Error('terminal input host missing');
       const panel = host.closest('.terminal-panel');
       if (!(panel instanceof HTMLElement)) throw new Error('terminal panel missing');
-      if (panel.querySelector(':scope > .panel-header')) {
-        throw new Error('redundant terminal header is still mounted');
-      }
+      if (panel.querySelector(':scope > .panel-header')) throw new Error('redundant terminal header is still mounted');
       if (Math.abs(panel.getBoundingClientRect().top - host.getBoundingClientRect().top) > 1) {
         throw new Error('terminal canvas does not begin at the deck edge');
       }
@@ -42,9 +41,7 @@ export async function verifyLegacyTerminalPresentation(
       }
       inputHost.focus();
       const caret = getComputedStyle(inputHost).caretColor;
-      if (caret !== 'transparent' && caret !== 'rgba(0, 0, 0, 0)') {
-        throw new Error('browser caret is visible in terminal input host: ' + caret);
-      }
+      if (caret !== 'transparent' && caret !== 'rgba(0, 0, 0, 0)') throw new Error('browser caret is visible in terminal input host: ' + caret);
       return 'headerless · canvas cursor only · flush active rail';
     })()
   `)) as string
@@ -57,6 +54,9 @@ export async function verifyTerminalPresentationLifecycle(
 ): Promise<string> {
   const explicitLaunch = await ensureExplicitBareShellLaunch(win, supervisor)
   await verifyNegotiatedTerminalKeyboard(win, supervisor)
+  if (launchMenuOverflowRoot) {
+    await verifyTerminalClipboardFilePaste(win, supervisor, launchMenuOverflowRoot)
+  }
   const horizonStatus = await verifyTerminalHorizonPresentation(win)
   const layoutFocusStatus = await verifyTerminalLayoutFocus(win)
   const projectReturnStatus = await verifyTerminalProjectReturn(

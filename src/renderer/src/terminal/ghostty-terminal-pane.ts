@@ -90,6 +90,8 @@ class GhosttyTerminalPane implements TerminalPane {
       fontSize: typography.fontSize,
       scrollback: 10_000,
       theme,
+      resolveClipboardFilePaste: (file) =>
+        window.hvir.resolveTerminalClipboardFilePaste(file),
     })
     this.fit = new TerminalFitController(this.terminal)
     this.terminal.attachCustomKeyEventHandler((event) => {

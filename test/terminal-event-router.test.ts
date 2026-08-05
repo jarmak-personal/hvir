@@ -239,6 +239,9 @@ interface MockTerminalEventHandlers extends TerminalEventHandlers {
 
 class FakeHvirApi implements HvirApi {
   rendererReady(): void {}
+  resolveTerminalClipboardFilePaste(): string | undefined {
+    return undefined
+  }
   readonly diagnostics = {
     processSandboxed: true,
     recordRenderContainment: vi.fn(),

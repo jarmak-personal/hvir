@@ -787,6 +787,8 @@ export type IpcEventPayload<E extends IpcEventChannel> = IpcEventMap[E]
 export interface HvirApi {
   /** Signals that the workbench surface committed for the preload's exact generation. */
   rendererReady(): void
+  /** Resolve one disk-backed clipboard File to safe local terminal paste text. */
+  resolveTerminalClipboardFilePaste(file: File): string | undefined
   invoke<C extends IpcInvokeChannel>(
     channel: C,
     request: IpcRequest<C>,
