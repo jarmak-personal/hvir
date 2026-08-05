@@ -2,12 +2,14 @@
 
 import { act } from 'react'
 import { createRoot } from 'react-dom/client'
+import type { TerminalEvent as GhosttyTerminalEvent } from 'ghostty-web'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { createGhosttyTerminalPane } from '../src/renderer/src/terminal/ghostty-terminal-pane'
 import { TerminalView } from '../src/renderer/src/terminal/TerminalView'
 import type { TerminalRuntimeOptions } from '../src/renderer/src/terminal/terminal-runtime-options'
 import { TerminalRuntimeRegistry } from '../src/renderer/src/terminal/terminal-runtime-registry'
+import type { TerminalEvent } from '../src/renderer/src/terminal/terminal-pane'
 import { asHarnessProfileId, localPath } from '../src/shared'
 
 const ghosttyState = vi.hoisted(() => ({
@@ -21,6 +23,7 @@ const ghosttyState = vi.hoisted(() => ({
     cursorBlinkResets: number
     focusCalls: number
     emitData(data: string): void
+    emitTerminalEvent(event: GhosttyTerminalEvent): void
     emitCustomKey(event: {
       readonly code: string
       readonly ctrlKey: boolean
@@ -76,6 +79,7 @@ vi.mock('ghostty-web', () => {
         cursorBlinkResets: 0,
         focusCalls: 0,
         emitData: () => undefined,
+        emitTerminalEvent: () => undefined,
         emitCustomKey: () => false,
         emitResize: () => undefined,
         renders: 0,
@@ -130,8 +134,11 @@ vi.mock('ghostty-web', () => {
       return { dispose: () => (this.state.emitResize = () => undefined) }
     }
 
-    onTitleChange(): { dispose(): void } {
-      return { dispose: () => undefined }
+    onTerminalEvent(callback: (event: GhosttyTerminalEvent) => void): {
+      dispose(): void
+    } {
+      this.state.emitTerminalEvent = callback
+      return { dispose: () => (this.state.emitTerminalEvent = () => undefined) }
     }
 
     open(element: HTMLElement): void {
@@ -200,6 +207,10 @@ vi.mock('ghostty-web', () => {
         pendingFrame: false,
         cursorVisible: true,
       }
+    }
+
+    resolveEventProvenance(provenance: { screen: 'normal' | 'alternate'; row: number }) {
+      return { screen: provenance.screen, row: provenance.row }
     }
 
     write(data: string): void {
@@ -279,6 +290,27 @@ describe('GhosttyTerminalPane lifecycle', () => {
     pane.dispose()
     expect(secondContainer.isConnected).toBe(true)
     expect(secondContainer.childElementCount).toBe(0)
+  })
+
+  it('uses only structured parser events and releases their source on disposal', async () => {
+    const pane = await createGhosttyTerminalPane(theme(), typography(), {
+      modifiedKeyProtocol: 'modify-other-keys',
+      metaEnterAliasesControl: true,
+      composerSubmitMode: 'enter',
+    })
+    const events: TerminalEvent[] = []
+    pane.events.onEvent((event) => events.push(event))
+    pane.setPresentation('hidden')
+    pane.mount(document.createElement('div'))
+    const state = ghosttyState.instances[0]!
+    state.emitTerminalEvent({ type: 'title', title: 'Structured' })
+    state.emitTerminalEvent({ type: 'notification', title: 'Done', body: 'Review' })
+    state.emitTerminalEvent({ type: 'bell' })
+    pane.write('\u001b]2;Raw duplicate\u0007')
+    expect(events.map((event) => event.type)).toEqual(['title', 'notification', 'bell'])
+    pane.dispose()
+    state.emitTerminalEvent({ type: 'bell' })
+    expect(events).toHaveLength(3)
   })
 
   it('stops hidden cursor work and restores a current repaint on reveal', async () => {

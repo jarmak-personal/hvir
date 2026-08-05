@@ -7,7 +7,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { TerminalRail } from '../src/renderer/src/terminal/TerminalRail'
 import type { TerminalRuntimeOptions } from '../src/renderer/src/terminal/terminal-runtime-options'
 import { TerminalRuntimeRegistry } from '../src/renderer/src/terminal/terminal-runtime-registry'
-import type { TerminalPane } from '../src/renderer/src/terminal/terminal-pane'
+import type {
+  TerminalEvent,
+  TerminalPane,
+} from '../src/renderer/src/terminal/terminal-pane'
 import type { TerminalSession } from '../src/renderer/src/terminal/terminal-workspace-model'
 import {
   asHarnessProfileId,
@@ -21,13 +24,14 @@ import {
 const paneState = vi.hoisted(() => ({
   instances: [] as Array<{
     readonly emitTitle: (title: string) => void
+    readonly emitEvent: (event: TerminalEvent) => void
     readonly emitClipboardPaste: (fallbackData: string) => void
   }>,
 }))
 
 vi.mock('../src/renderer/src/terminal/ghostty-terminal-pane', () => ({
   createGhosttyTerminalPane: vi.fn(() => {
-    let titleListener: ((title: string) => void) | undefined
+    let eventListener: ((event: TerminalEvent) => void) | undefined
     let clipboardPasteListener: ((fallbackData: string) => void) | undefined
     let surface: HTMLDivElement | undefined
     const pane = {
@@ -49,6 +53,7 @@ vi.mock('../src/renderer/src/terminal/ghostty-terminal-pane', () => ({
       setTypography: vi.fn(),
       setPresentation: vi.fn(),
       redraw: vi.fn(),
+      resolveEventProvenance: vi.fn(() => undefined),
       focus: vi.fn(),
       events: {
         onData: vi.fn(() => () => undefined),
@@ -56,18 +61,19 @@ vi.mock('../src/renderer/src/terminal/ghostty-terminal-pane', () => ({
           clipboardPasteListener = listener
           return () => undefined
         }),
-        onTitle: vi.fn((listener: (title: string) => void) => {
-          titleListener = listener
-          return () => undefined
+        onEvent: vi.fn((listener: (event: TerminalEvent) => void) => {
+          eventListener = listener
+          return () => {
+            if (eventListener === listener) eventListener = undefined
+          }
         }),
-        onBell: vi.fn(() => () => undefined),
-        onOsc: vi.fn(() => () => undefined),
         onResize: vi.fn(() => () => undefined),
         onLink: vi.fn(() => () => undefined),
       },
     } satisfies TerminalPane
     paneState.instances.push({
-      emitTitle: (title) => titleListener?.(title),
+      emitTitle: (title) => eventListener?.({ type: 'title', title }),
+      emitEvent: (event) => eventListener?.(event),
       emitClipboardPaste: (fallbackData) => clipboardPasteListener?.(fallbackData),
     })
     return Promise.resolve(pane)
@@ -183,6 +189,8 @@ describe('terminal resume unavailable state', () => {
     expect(send).not.toHaveBeenCalledWith('pty:kill', expect.anything())
 
     paneState.instances[0]?.emitTitle('Harness title')
+    paneState.instances[0]?.emitTitle('Harness title')
+    expect(runtimeOptions.onTitle).toHaveBeenCalledExactlyOnceWith('Harness title')
     expect(runtime.snapshot()).toEqual({
       title: 'Harness title',
       status: 'Resume unavailable · session data is missing',
@@ -192,6 +200,38 @@ describe('terminal resume unavailable state', () => {
         reason: 'artifact-missing',
       },
     })
+    const authorityFreeEvents: TerminalEvent[] = [
+      { type: 'working-directory', uri: 'file://untrusted/path' },
+      {
+        type: 'notification',
+        title: 'Untrusted request',
+        body: 'No attention authority',
+      },
+      { type: 'progress', state: 'set', progress: 50 },
+      {
+        type: 'semantic',
+        action: 'prompt-start',
+        options: '',
+        provenance: { id: 1, screen: 'normal', row: 2 },
+      },
+      {
+        type: 'palette',
+        operation: 3,
+        request: { type: 'reset-palette' },
+      },
+      { type: 'clipboard', operation: 'read', selection: 'c' },
+      {
+        type: 'clipboard',
+        operation: 'write',
+        selection: 'p',
+        data: 'untrusted payload',
+      },
+    ]
+    for (const event of authorityFreeEvents) paneState.instances[0]?.emitEvent(event)
+    expect(runtimeOptions.onBell).not.toHaveBeenCalled()
+    expect(send).not.toHaveBeenCalled()
+    paneState.instances[0]?.emitEvent({ type: 'bell' })
+    expect(runtimeOptions.onBell).toHaveBeenCalledOnce()
 
     runtime.restart()
     await vi.waitFor(() => expect(invoke).toHaveBeenCalledTimes(2))

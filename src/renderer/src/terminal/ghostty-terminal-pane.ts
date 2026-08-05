@@ -11,7 +11,9 @@ import type {
   HarnessModifiedKeyProtocol,
 } from '../../../shared'
 import type {
-  OscEvent,
+  TerminalEvent,
+  TerminalEventLocation,
+  TerminalEventProvenance,
   TerminalPane,
   TerminalPaneEvents,
   TerminalPresentation,
@@ -20,6 +22,7 @@ import type {
   TerminalLinkActivation,
   TerminalTypography,
 } from './terminal-pane'
+import { translateGhosttyTerminalEvent } from './ghostty-terminal-events'
 import {
   detectTerminalFileLinks,
   detectTerminalWebLinks,
@@ -31,7 +34,6 @@ import {
   ghosttyClipboardPasteFallback,
   ghosttyKeyboardOverride,
 } from './ghostty-terminal-keyboard'
-import { TerminalSignalParser } from './terminal-signals'
 import { writePreservingViewport } from './terminal-viewport'
 import { TerminalWheelController } from './terminal-wheel'
 
@@ -107,9 +109,7 @@ class GhosttyTerminalPane implements TerminalPane {
 
   private readonly dataListeners = new ListenerSet<string>()
   private readonly clipboardPasteListeners = new ListenerSet<string>()
-  private readonly titleListeners = new ListenerSet<string>()
-  private readonly bellListeners = new ListenerSet<void>()
-  private readonly oscListeners = new ListenerSet<OscEvent>()
+  private readonly eventListeners = new ListenerSet<TerminalEvent>()
   private readonly resizeListeners = new ListenerSet<TerminalSize>()
   private readonly linkListeners = new ListenerSet<TerminalLinkActivation>()
   private readonly engineDisposers: Array<{ dispose(): void }> = []
@@ -117,16 +117,12 @@ class GhosttyTerminalPane implements TerminalPane {
   private mounted = false
   private disposed = false
   private presentation: TerminalPresentation = 'visible'
-  private readonly signalParser = new TerminalSignalParser()
   private readonly wheel = new TerminalWheelController()
-  private lastTitle = ''
 
   readonly events: TerminalPaneEvents = {
     onData: (callback) => this.dataListeners.on(callback),
     onClipboardPaste: (callback) => this.clipboardPasteListeners.on(callback),
-    onTitle: (callback) => this.titleListeners.on(callback),
-    onBell: (callback) => this.bellListeners.on(callback),
-    onOsc: (callback) => this.oscListeners.on(callback),
+    onEvent: (callback) => this.eventListeners.on(callback),
     onResize: (callback) => this.resizeListeners.on(callback),
     onLink: (callback) => this.linkListeners.on(callback),
   }
@@ -154,7 +150,10 @@ class GhosttyTerminalPane implements TerminalPane {
     this.engineDisposers.push(
       this.terminal.onData((data) => this.emitInput(data)),
       this.terminal.onResize((size) => this.resizeListeners.emit(size)),
-      this.terminal.onTitleChange((title) => this.emitTitle(title)),
+      this.terminal.onTerminalEvent((event) => {
+        const translated = translateGhosttyTerminalEvent(event)
+        if (translated) this.eventListeners.emit(translated)
+      }),
     )
     this.terminal.open(surface)
     this.terminal.registerLinkProvider(
@@ -195,7 +194,6 @@ class GhosttyTerminalPane implements TerminalPane {
 
   write(data: string): void {
     if (this.disposed) return
-    this.inspectSignals(data)
     writePreservingViewport(this.terminal, data)
   }
 
@@ -250,6 +248,13 @@ class GhosttyTerminalPane implements TerminalPane {
     this.terminal.requestRender(true)
   }
 
+  resolveEventProvenance(
+    provenance: TerminalEventProvenance,
+  ): TerminalEventLocation | undefined {
+    if (this.disposed) return undefined
+    return this.terminal.resolveEventProvenance({ ...provenance }) ?? undefined
+  }
+
   focus(): void {
     if (!this.disposed) this.terminal.focus()
   }
@@ -269,28 +274,9 @@ class GhosttyTerminalPane implements TerminalPane {
     this.surface = undefined
     this.dataListeners.clear()
     this.clipboardPasteListeners.clear()
-    this.titleListeners.clear()
-    this.bellListeners.clear()
-    this.oscListeners.clear()
+    this.eventListeners.clear()
     this.resizeListeners.clear()
     this.linkListeners.clear()
-    this.signalParser.reset()
-  }
-
-  /** ghostty-web does not distinguish real BEL from BEL-terminated OSC. */
-  private inspectSignals(chunk: string): void {
-    const signals = this.signalParser.consume(chunk)
-    for (const title of signals.titles) this.emitTitle(title)
-    for (const event of signals.oscillators) this.oscListeners.emit(event)
-    for (let index = 0; index < signals.bells; index += 1) {
-      this.bellListeners.emit()
-    }
-  }
-
-  private emitTitle(title: string): void {
-    if (title === this.lastTitle) return
-    this.lastTitle = title
-    this.titleListeners.emit(title)
   }
 
   private emitInput(data: string): void {
