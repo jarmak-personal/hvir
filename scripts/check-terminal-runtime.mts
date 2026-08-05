@@ -51,7 +51,7 @@ function isTerminalConstructor(value: unknown): value is TerminalConstructor {
   return typeof prototype === 'object' && prototype !== null
 }
 
-export function assertTerminalRuntimePatch(terminal: TerminalConstructor): void {
+export function assertTerminalRuntimeContract(terminal: TerminalConstructor): void {
   const missing: string[] = REQUIRED_PRESENTATION_METHODS.filter(
     (method) => typeof Reflect.get(terminal.prototype, method) !== 'function',
   )
@@ -61,11 +61,11 @@ export function assertTerminalRuntimePatch(terminal: TerminalConstructor): void 
   if (missing.length === 0) return
 
   throw new Error(
-    `Installed dependencies do not match this checkout: ghostty-web is missing the required terminal runtime patch (${missing.join(', ')}). ${RECOVERY}`,
+    `Installed dependencies do not match this checkout: ghostty-web is missing required terminal runtime capabilities (${missing.join(', ')}). ${RECOVERY}`,
   )
 }
 
-export async function verifyTerminalRuntimePatch(
+export async function verifyTerminalRuntimeContract(
   loadTerminal: LoadTerminal = async () => (await import('ghostty-web')).Terminal,
 ): Promise<void> {
   let terminal: unknown
@@ -82,12 +82,12 @@ export async function verifyTerminalRuntimePatch(
       `Installed dependencies do not match this checkout: ghostty-web does not export the required Terminal constructor. ${RECOVERY}`,
     )
   }
-  assertTerminalRuntimePatch(terminal)
+  assertTerminalRuntimeContract(terminal)
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   try {
-    await verifyTerminalRuntimePatch()
+    await verifyTerminalRuntimeContract()
   } catch (error) {
     console.error(error instanceof Error ? error.message : error)
     process.exitCode = 1
