@@ -1,4 +1,16 @@
-import { readFileSync, statSync } from 'node:fs'
+import { spawnSync } from 'node:child_process'
+import {
+  chmodSync,
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 import { describe, expect, it } from 'vitest'
 import { parse } from 'yaml'
@@ -46,6 +58,7 @@ describe('macOS SSH acceptance channel', () => {
       directories: { output: 'dist/ssh-acceptance', buildResources: 'build' },
       mac: {
         target: null,
+        notarize: false,
         extendInfo: {
           NSLocalNetworkUsageDescription:
             'hvir SSH Acceptance connects to contributor-selected SSH hosts on the local network.',
@@ -55,23 +68,56 @@ describe('macOS SSH acceptance channel', () => {
     expect(acceptanceBuilder).not.toHaveProperty('pkg')
   })
 
-  it('fails closed on signing inputs and launches only the inspected bundle', () => {
+  it('fails closed before building when protected signing inputs are missing', () => {
+    const temporaryDirectory = mkdtempSync(join(tmpdir(), 'hvir-ssh-acceptance-'))
+    const attemptedBuild = join(temporaryDirectory, 'attempted-build')
+    const fakeNpm = join(temporaryDirectory, 'npm')
+    writeFileSync(fakeNpm, `#!/bin/sh\ntouch "${attemptedBuild}"\nexit 99\n`)
+    chmodSync(fakeNpm, 0o755)
+    const environment: NodeJS.ProcessEnv = {
+      ...process.env,
+      PATH: `${temporaryDirectory}:${process.env.PATH}`,
+    }
+    delete environment.MACOS_APPLICATION_CERTIFICATE
+    delete environment.MACOS_APPLICATION_CERTIFICATE_PASSWORD
+    delete environment.MACOS_TEAM_ID
+
+    const result = spawnSync('/bin/bash', [fileURLToPath(buildScriptUrl)], {
+      encoding: 'utf8',
+      env: environment,
+    })
+
+    try {
+      expect(result.status).toBe(1)
+      expect(result.stderr).toContain(
+        'MACOS_APPLICATION_CERTIFICATE is required for the Apple-issued SSH acceptance identity.',
+      )
+      expect(result.stderr).toContain(
+        'MACOS_APPLICATION_CERTIFICATE_PASSWORD is required for the Apple-issued SSH acceptance identity.',
+      )
+      expect(result.stderr).toContain(
+        'MACOS_TEAM_ID is required for the Apple-issued SSH acceptance identity.',
+      )
+      expect(result.stderr).toContain(
+        'Refusing to build or launch an ad-hoc or raw Electron SSH acceptance app.',
+      )
+      expect(existsSync(attemptedBuild)).toBe(false)
+    } finally {
+      rmSync(temporaryDirectory, { recursive: true, force: true })
+    }
+  })
+
+  it('leaves signing policy intact and launches only the inspected bundle through LaunchServices', () => {
     expect(statSync(buildScriptUrl).mode & 0o111).not.toBe(0)
-    expect(buildScript).toContain('MACOS_APPLICATION_CERTIFICATE')
-    expect(buildScript).toContain('MACOS_APPLICATION_CERTIFICATE_PASSWORD')
-    expect(buildScript).toContain('MACOS_TEAM_ID')
-    expect(buildScript).toContain(
-      'Refusing to build or launch an ad-hoc or raw Electron SSH acceptance app.',
-    )
-    expect(buildScript.indexOf('if [[ "$missing" == true ]]')).toBeLessThan(
-      buildScript.indexOf('npm run build -- --mode ssh-acceptance'),
-    )
-    expect(buildScript).toContain('CSC_IDENTITY_AUTO_DISCOVERY=false')
+    expect(buildScript).not.toContain('CSC_IDENTITY_AUTO_DISCOVERY')
+    expect(buildScript).not.toContain('CSC_FOR_PULL_REQUEST')
     expect(buildScript).toContain('--config electron-builder.ssh-acceptance.yml')
     expect(buildScript).toContain(
       'scripts/record-macos-ssh-identity.sh --acceptance "$application"',
     )
-    expect(buildScript).toContain('exec "$executable"')
+    expect(buildScript).toContain('application="$PWD/dist/ssh-acceptance/')
+    expect(buildScript).toContain('exec /usr/bin/open -n "$application"')
+    expect(buildScript).not.toContain('/Contents/MacOS/')
     expect(buildScript).not.toMatch(
       /npm run dev|electron-vite dev|codesign[^\n]*--sign -/,
     )

@@ -13,8 +13,8 @@ import {
   type DiagnosticReportState,
   type DiagnosticReportStateResult,
   type HostPath,
-  type ApplicationBuildChannel,
 } from '../../shared'
+import type { ApplicationRuntime } from '../application-runtime-policy'
 import { LocalHost } from '../project-host/local-host'
 import type { RendererOwner } from '../renderer-resource-scopes'
 import {
@@ -383,10 +383,7 @@ export function createDiagnosticReportCoordinator(
     isReportSnapshotCurrent(revision: number): boolean
   },
   renderers: { isCurrent(owner: RendererOwner): boolean },
-  applicationRuntime: {
-    readonly buildChannel: ApplicationBuildChannel
-    readonly userDataRoot: string
-  },
+  applicationRuntime: ApplicationRuntime,
 ): DiagnosticReportCoordinator {
   const host = new LocalHost()
   const coordinator = new DiagnosticReportCoordinator(

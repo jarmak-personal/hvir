@@ -30,7 +30,7 @@ Build without launching:
 npm run build:macos:ssh-acceptance
 ```
 
-Build and directly launch the exact signed application:
+Build and ask LaunchServices to start a new instance of the exact signed application bundle:
 
 ```sh
 npm run acceptance:ssh:macos
@@ -41,7 +41,11 @@ checks the bundle identifier, Developer ID signing class, Team ID, designated re
 main-executable UUID, and Local Network usage description before launch. Missing signing input,
 an unsigned or ad-hoc bundle, a mismatched Team ID, or incomplete identity evidence stops the
 command; it never launches `npm run dev`, raw Electron, or an unsigned fallback. Signing inputs
-are removed from the launched application's environment.
+are removed before the LaunchServices request. The command passes the inspected bundle's absolute
+path to `/usr/bin/open -n`; it never resolves an application by name. LaunchServices owns the new
+application's lifetime, so the command returns after the request instead of keeping the application
+as a child of the release terminal. Quit and relaunch the acceptance application through this same
+command when the matrix calls for a fresh application lifetime.
 
 ## Coexistence matrix
 
