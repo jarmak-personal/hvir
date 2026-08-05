@@ -13,10 +13,10 @@ import {
 import type { ProjectHost } from '../project-host'
 import {
   boundedProjectFileReason,
-  isMissingProjectPathError,
   proveProjectEntry,
   proveRealProjectDirectory,
 } from './project-file-confinement'
+import { isMissingProjectPathError } from './project-file-path-errors'
 import type { ProjectFileCopyLimits } from './project-file-copy-limits'
 
 interface DeletionPlanEntry {

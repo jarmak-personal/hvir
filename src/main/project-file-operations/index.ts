@@ -6,11 +6,15 @@ import {
   type ProjectFileWorkspaceAuthority,
 } from './project-file-operation-coordinator'
 import { ElectronClipboardFileSource } from './electron-clipboard-files'
+import type { ExternalMovePickerPort } from './electron-external-move-picker'
+import { createElectronExternalMovePicker } from './electron-external-move-picker'
 import { ExternalFileGrantRegistry } from './external-file-grants'
 
 export * from './project-file-operation-coordinator'
 export * from './clipboard-file-list'
 export * from './external-file-grants'
+export * from './electron-external-move-picker'
+export * from './external-file-move'
 export * from './verified-project-copy'
 export * from './project-entry-organization'
 export * from './project-entry-removal'
@@ -20,6 +24,7 @@ export * from './staging-cleanup'
 export function createProjectFileOperationCoordinator(
   projects: Pick<ProjectRegistry, 'state' | 'hostById'>,
   resources: RendererResourceScopes,
+  externalMovePicker?: ExternalMovePickerPort,
 ): ProjectFileOperationCoordinator {
   const resolveWorkspace = (
     root: HostPath,
@@ -77,6 +82,7 @@ export function createProjectFileOperationCoordinator(
   return new ProjectFileOperationCoordinator({
     resolveWorkspace,
     externalFiles,
+    externalMovePicker: externalMovePicker ?? createElectronExternalMovePicker(),
     readClipboardPaths: () => clipboardFiles.readPaths(),
     resources: {
       isRendererCurrent: (owner) => resources.isCurrent(owner),

@@ -15,6 +15,10 @@ import type { FilenameSearchRequest, FilenameSearchResponse } from './filename-s
 import type { HostPath } from './host-path'
 import type {
   ExternalFileGrantResult,
+  ExternalMoveGrantResult,
+  ProjectFileExternalMoveAcquireRequest,
+  ProjectFileExternalMoveDisclosure,
+  ProjectFileExternalMoveRequest,
   ProjectFileCreateRequest,
   ProjectFileDeleteRequest,
   ProjectFileDeletionDisclosure,
@@ -652,6 +656,18 @@ export interface IpcInvokeMap {
     request: ProjectFileExternalCopyRequest
     response: OperationResult<ProjectFileOperationStartResult>
   }
+  'fs:external-move-disclosure': {
+    request: void
+    response: OperationResult<ProjectFileExternalMoveDisclosure>
+  }
+  'fs:acquire-external-move-files': {
+    request: ProjectFileExternalMoveAcquireRequest
+    response: OperationResult<ExternalMoveGrantResult>
+  }
+  'fs:move-external': {
+    request: ProjectFileExternalMoveRequest
+    response: OperationResult<ProjectFileOperationStartResult>
+  }
   'fs:organize-entry': {
     request: ProjectFileOrganizationRequest
     response: OperationResult<ProjectFileOperationStartResult>
@@ -910,6 +926,9 @@ export const INVOKE_CHANNELS = [
   'fs:acquire-clipboard-files',
   'fs:acquire-dropped-files',
   'fs:copy-external',
+  'fs:external-move-disclosure',
+  'fs:acquire-external-move-files',
+  'fs:move-external',
   'fs:organize-entry',
   'fs:deletion-disclosure',
   'fs:delete-entry',

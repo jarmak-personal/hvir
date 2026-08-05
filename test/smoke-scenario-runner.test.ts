@@ -529,6 +529,10 @@ describe('Electron smoke command contracts', () => {
     new URL('../src/main/smoke/project-file-operations.ts', import.meta.url),
     'utf8',
   )
+  const externalFileMoveScenario = readFileSync(
+    new URL('../src/main/smoke/external-file-move.ts', import.meta.url),
+    'utf8',
+  )
   const webPaneScenario = readFileSync(
     new URL('../src/main/smoke/web-pane.ts', import.meta.url),
     'utf8',
@@ -801,6 +805,10 @@ describe('Electron smoke command contracts', () => {
     expect(projectFileOperationsScenario).toContain('remoteRoot')
     expect(projectFileOperationsScenario).toContain("entry: 'pointer'")
     expect(projectFileOperationsScenario).toContain("entry: 'keyboard'")
+    expect(externalFileMoveScenario).toContain('createExternalMoveSmokeControl')
+    expect(externalFileMoveScenario).toContain('Move External Items Here…')
+    expect(externalFileMoveScenario).toContain('1 copied with source retained.')
+    expect(externalFileMoveScenario).toContain('control.assertSelection')
     expect(projectFileOperationsScenario).toContain('workspace switch preserved snapshot')
     expect(projectFileOperationsScenario).toContain("'.mode-control button")
     expect(projectFileOperationsScenario).not.toContain('requestAnimationFrame')

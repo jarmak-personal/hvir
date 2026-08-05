@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -16,12 +16,14 @@ describe('ExternalFileGrantRegistry', () => {
   let host: LocalHost
   let resources: GrantResources
   let registry: ExternalFileGrantRegistry
+  let trashItem: (path: string) => Promise<void>
 
   beforeEach(async () => {
     directory = await mkdtemp(join(tmpdir(), 'hvir-grant-'))
     project = join(directory, 'registered', 'project')
     await mkdir(project, { recursive: true })
-    host = new LocalHost()
+    trashItem = (path) => rm(path)
+    host = new LocalHost({ trashItem: (path) => trashItem(path.path) })
     resources = new GrantResources()
     registry = new ExternalFileGrantRegistry({
       sourceHost: host,
@@ -116,6 +118,150 @@ describe('ExternalFileGrantRegistry', () => {
     expect(() =>
       registry.consume(owner, firstResult.grant.grantId, firstResult.grant.generation),
     ).toThrow('unavailable')
+  })
+
+  it('binds source removal only to native-picker move grants', async () => {
+    const outside = join(directory, 'move-only.txt')
+    await writeFile(outside, 'move')
+
+    const copyResult = await registry.acquire(owner, [outside])
+    if (copyResult.outcome !== 'available') throw new Error('expected copy grant')
+    expect(() =>
+      registry.consume(
+        owner,
+        copyResult.grant.grantId,
+        copyResult.grant.generation,
+        'move',
+      ),
+    ).toThrow('unavailable')
+    const copy = registry.consume(
+      owner,
+      copyResult.grant.grantId,
+      copyResult.grant.generation,
+    )
+    expect(copy.purpose).toBe('copy')
+    expect('trashSource' in copy).toBe(false)
+
+    const moveResult = await registry.acquire(owner, [outside], 'move')
+    if (moveResult.outcome !== 'available') throw new Error('expected move grant')
+    expect(() =>
+      registry.consume(owner, moveResult.grant.grantId, moveResult.grant.generation),
+    ).toThrow('unavailable')
+  })
+
+  it('confirms resolved Trash only when the exact granted path is absent', async () => {
+    const outside = join(directory, 'removed.txt')
+    await writeFile(outside, 'move')
+    const result = await registry.acquire(owner, [outside], 'move')
+    if (result.outcome !== 'available') throw new Error('expected move grant')
+    const grant = registry.consume(
+      owner,
+      result.grant.grantId,
+      result.grant.generation,
+      'move',
+    )
+    let submitted = false
+
+    await expect(
+      grant.trashSource('external:0', {
+        signal: new AbortController().signal,
+        onSubmitted: () => {
+          submitted = true
+        },
+        confirmExpectedSource: () => Promise.resolve(true),
+      }),
+    ).resolves.toBe('removed')
+    expect(submitted).toBe(true)
+    await expect(readFile(outside)).rejects.toThrow()
+  })
+
+  it('reports submitted Trash rejection retained only after full expected-source confirmation', async () => {
+    const outside = join(directory, 'rejected.txt')
+    await writeFile(outside, 'original')
+    trashItem = () => Promise.reject(new Error('Trash rejected'))
+    const result = await registry.acquire(owner, [outside], 'move')
+    if (result.outcome !== 'available') throw new Error('expected move grant')
+    const grant = registry.consume(
+      owner,
+      result.grant.grantId,
+      result.grant.generation,
+      'move',
+    )
+
+    await expect(
+      grant.trashSource('external:0', {
+        signal: new AbortController().signal,
+        onSubmitted: () => undefined,
+        confirmExpectedSource: async () =>
+          (await readFile(outside, 'utf8')) === 'original',
+      }),
+    ).resolves.toBe('retained')
+  })
+
+  it.each([
+    {
+      name: 'removed before rejection',
+      mutate: (path: string) => rm(path),
+    },
+    {
+      name: 'replaced before rejection',
+      mutate: (path: string) => writeFile(path, 'replacement'),
+    },
+  ])('reports submitted Trash rejection unknown when $name', async ({ mutate }) => {
+    const outside = join(directory, 'uncertain.txt')
+    await writeFile(outside, 'original')
+    trashItem = async (path) => {
+      await mutate(path)
+      throw new Error('Trash rejected after submission')
+    }
+    const result = await registry.acquire(owner, [outside], 'move')
+    if (result.outcome !== 'available') throw new Error('expected move grant')
+    const grant = registry.consume(
+      owner,
+      result.grant.grantId,
+      result.grant.generation,
+      'move',
+    )
+
+    await expect(
+      grant.trashSource('external:0', {
+        signal: new AbortController().signal,
+        onSubmitted: () => undefined,
+        confirmExpectedSource: async () => {
+          try {
+            return (await readFile(outside, 'utf8')) === 'original'
+          } catch {
+            return false
+          }
+        },
+      }),
+    ).resolves.toBe('unknown')
+  })
+
+  it('does not call a replacement at the granted path a successful move', async () => {
+    const outside = join(directory, 'replaced-after-trash.txt')
+    await writeFile(outside, 'original')
+    trashItem = async (path) => {
+      await rm(path)
+      await writeFile(path, 'replacement')
+    }
+    const result = await registry.acquire(owner, [outside], 'move')
+    if (result.outcome !== 'available') throw new Error('expected move grant')
+    const grant = registry.consume(
+      owner,
+      result.grant.grantId,
+      result.grant.generation,
+      'move',
+    )
+
+    await expect(
+      grant.trashSource('external:0', {
+        signal: new AbortController().signal,
+        onSubmitted: () => undefined,
+        confirmExpectedSource: () => Promise.resolve(true),
+      }),
+    ).resolves.toBe('unknown')
+    await expect(readFile(outside, 'utf8')).resolves.toBe('replacement')
   })
 })
 

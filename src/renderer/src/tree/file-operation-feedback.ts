@@ -1,6 +1,11 @@
 import type { ProjectFileOperationResult } from '../../../shared'
-import type { FileActionFeedback } from './use-file-create-actions'
 import type { ViewerPathRemovalResult } from '../viewer/viewer-path-removal'
+
+export interface FileActionFeedback {
+  readonly kind: 'success' | 'error'
+  readonly message: string
+  readonly details?: readonly string[]
+}
 
 export function projectFileResultHasEffect(
   result: ProjectFileOperationResult | undefined,
@@ -55,6 +60,47 @@ export function copyFeedback(
     details: result.items.map((item) => {
       const name = item.destination.path.split('/').at(-1) || item.destination.path
       return `${name}: ${item.status}${item.reason ? ` — ${item.reason}` : ''}`
+    }),
+  }
+}
+
+export function externalMoveFeedback(
+  result: ProjectFileOperationResult | undefined,
+): FileActionFeedback {
+  if (!result || result.outcome !== 'completed') {
+    return { kind: 'error', message: 'The external move ended without a result.' }
+  }
+  const moved = result.items.filter((item) =>
+    ['moved-external-file', 'moved-external-directory'].includes(item.effect),
+  ).length
+  const retained = result.items.filter(
+    (item) =>
+      ['copied-file', 'copied-directory'].includes(item.effect) &&
+      item.sourceDisposition?.outcome === 'retained',
+  ).length
+  const copiedUnknown = result.items.filter(
+    (item) =>
+      ['copied-file', 'copied-directory'].includes(item.effect) &&
+      item.sourceDisposition?.outcome === 'unknown',
+  ).length
+  const unknown = result.items.filter(
+    (item) => item.effect === 'external-move-state-unknown',
+  ).length
+  const notCopied = result.items.length - moved - retained - copiedUnknown - unknown
+  const parts = [
+    moved ? `${moved} moved` : '',
+    retained ? `${retained} copied with source retained` : '',
+    copiedUnknown ? `${copiedUnknown} copied with source outcome unknown` : '',
+    unknown ? `${unknown} outcome unknown` : '',
+    notCopied ? `${notCopied} not copied` : '',
+  ].filter(Boolean)
+  return {
+    kind: moved === result.items.length ? 'success' : 'error',
+    message: `${parts.join('; ') || 'No entries moved'}.`,
+    details: result.items.map((item) => {
+      const name = item.destination.path.split('/').at(-1) || item.destination.path
+      const source = item.sourceDisposition?.outcome
+      return `${name}: ${item.status}${source ? ` — source ${source}` : ''}${item.reason ? ` — ${item.reason}` : ''}`
     }),
   }
 }

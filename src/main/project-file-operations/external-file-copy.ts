@@ -6,7 +6,7 @@ import {
 } from '../../shared'
 import type { ProjectHost } from '../project-host'
 import type {
-  ExternalFileGrantUse,
+  ExternalFileCopyGrantUse,
   GrantedExternalFileItem,
 } from './external-file-grants'
 import {
@@ -22,7 +22,7 @@ export async function copyExternalFileGrant(options: {
   readonly visibleDestinationDirectory: HostPath
   readonly canonicalDestinationDirectory: HostPath
   readonly destinationHost: ProjectHost
-  readonly grant: ExternalFileGrantUse
+  readonly grant: ExternalFileCopyGrantUse
   readonly signal: AbortSignal
   readonly assertCurrent: () => void
   readonly revalidateDestinationDirectory: () => Promise<HostPath>

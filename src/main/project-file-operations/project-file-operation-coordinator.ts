@@ -3,9 +3,12 @@ import {
   isProjectFileEntryName,
   joinHostPath,
   type ExternalFileGrantResult,
+  type ExternalMoveGrantResult,
+  type ExternalMovePickerSelection,
   type HostPath,
   type ProjectFileCreateKind,
   type ProjectFileDeletionDisclosure,
+  type ProjectFileExternalMoveDisclosure,
   type ProjectFileOperationProgress,
   type ProjectFileOperationResult,
   type ProjectFileOperationStartResult,
@@ -15,6 +18,12 @@ import type { RendererOwner } from '../renderer-resource-scopes'
 import { createProjectEntry } from './create-project-entry'
 import type { ExternalFileGrantRegistry } from './external-file-grants'
 import { copyExternalFileGrant } from './external-file-copy'
+import type { ExternalMovePickerPort } from './electron-external-move-picker'
+import {
+  acquireExternalMove as acquireExternalMoveGrant,
+  discloseExternalMove as discloseExternalMoveCapability,
+  startExternalMove,
+} from './external-file-move-operation'
 import {
   assertNormalizedAbsoluteProjectPath,
   boundedProjectFileReason,
@@ -85,6 +94,7 @@ export class ProjectFileOperationCoordinator {
       ) => ProjectFileWorkspaceAuthority | undefined
       readonly resources: ProjectFileOperationResourcePort
       readonly externalFiles?: ExternalFileGrantRegistry
+      readonly externalMovePicker?: ExternalMovePickerPort
       readonly readClipboardPaths?: () => readonly string[]
       readonly createOperationId?: () => string
       readonly createStagingId?: () => string
@@ -145,6 +155,28 @@ export class ProjectFileOperationCoordinator {
   ): Promise<ExternalFileGrantResult> {
     this.runtime.assertRenderer(owner)
     return this.requireExternalFiles().acquire(owner, paths)
+  }
+
+  discloseExternalMove(owner: RendererOwner): ProjectFileExternalMoveDisclosure {
+    return discloseExternalMoveCapability(
+      this.runtime,
+      this.requireExternalFiles(),
+      this.options.externalMovePicker,
+      owner,
+    )
+  }
+
+  async acquireExternalMove(
+    owner: RendererOwner,
+    selection: ExternalMovePickerSelection,
+  ): Promise<ExternalMoveGrantResult> {
+    return acquireExternalMoveGrant(
+      this.runtime,
+      this.requireExternalFiles(),
+      this.options.externalMovePicker,
+      owner,
+      selection,
+    )
   }
 
   async copyExternal(
@@ -247,6 +279,20 @@ export class ProjectFileOperationCoordinator {
       },
     )
     return started(identity.operationId, identity.generation, grant.items.length)
+  }
+
+  async moveExternal(
+    input: ProjectFileExternalCopyInput,
+  ): Promise<ProjectFileOperationStartResult> {
+    this.assertExternalCopyInput(input)
+    return startExternalMove({
+      runtime: this.runtime,
+      externalFiles: this.requireExternalFiles(),
+      stagingCleanup: this.stagingCleanup,
+      limits: this.options.copyLimits ?? PROJECT_FILE_COPY_LIMITS,
+      createStagingId: this.options.createStagingId,
+      input,
+    })
   }
 
   async organize(

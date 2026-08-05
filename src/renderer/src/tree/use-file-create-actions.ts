@@ -11,20 +11,26 @@ import {
   type ProjectFileOperationProgress,
   type ProjectFileOperationResult,
 } from '../../../shared'
-import { copyHostPath, PATH_COPY_LABELS, type PathCopyKind } from '../path-copy/path-copy'
+import {
+  copyHostPath,
+  PATH_COPY_LABELS,
+  writeApplicationClipboard,
+  type PathCopyKind,
+} from '../path-copy/path-copy'
 import type {
   DirectoryTreeEntryActions,
   DirectoryTreeRevealRequest,
 } from './DirectoryTree'
 import { fileActionDestination } from './file-action-destination'
 import {
-  copyFeedback,
   deletionFeedback,
   organizationFeedback,
   projectFileResultHasEffect,
+  type FileActionFeedback,
 } from './file-operation-feedback'
 import { projectFileEntryNameError } from './project-file-entry-name'
-import { useExternalFileCopy } from './use-external-file-copy'
+import { useExternalFileActions } from './use-external-file-actions'
+import type { ExternalFileMoveController } from './use-external-file-move'
 import {
   canOrganizeAction,
   useFileOrganizationActions,
@@ -37,9 +43,6 @@ import {
   type FileDeletionActionsController,
 } from './use-file-deletion-actions'
 import type { ViewerPathRemovalCapability } from '../viewer/viewer-path-removal'
-
-export { fileActionDestination } from './file-action-destination'
-export { projectFileEntryNameError } from './project-file-entry-name'
 
 export interface FileActionMenuRequest {
   readonly id: number
@@ -59,12 +62,6 @@ export interface FileCreateDialogRequest {
   readonly kind: ProjectFileCreateKind
 }
 
-export interface FileActionFeedback {
-  readonly kind: 'success' | 'error'
-  readonly message: string
-  readonly details?: readonly string[]
-}
-
 export interface FileCreateActionsController {
   readonly entryActions: DirectoryTreeEntryActions
   readonly menu?: FileActionMenuRequest
@@ -78,11 +75,13 @@ export interface FileCreateActionsController {
   readonly copyProgress?: ProjectFileOperationProgress
   readonly organization: FileOrganizationActionsController
   readonly deletion: FileDeletionActionsController
+  readonly externalMove: ExternalFileMoveController
   canOrganizeMenu(action: FileOrganizationAction): boolean
   openRootFromPointer(event: MouseEvent<HTMLElement>): void
   beginCreate(kind: ProjectFileCreateKind): void
   beginOrganization(action: FileOrganizationAction): void
   beginDeletion(): void
+  beginExternalMove(): void
   submitCreate(name: string): void
   copyPath(kind: PathCopyKind): void
   pasteFiles(target: HostPath, targetType: FileType): void
@@ -150,22 +149,19 @@ export function useFileCreateActions(
     setMenu(undefined)
     setFeedback(undefined)
   }, [])
-  const handleCopyComplete = useCallback(
-    (result: ProjectFileOperationResult | undefined) => {
-      setRefreshVersion((value) => value + 1)
-      setFeedback(copyFeedback(result))
-      if (projectFileResultHasEffect(result)) onWorkspaceContentChanged()
-    },
-    [onWorkspaceContentChanged],
-  )
   const handleCopyError = useCallback((message: string) => {
     setFeedback({ kind: 'error', message })
   }, [])
-  const externalCopy = useExternalFileCopy({
+  const handleExternalRefresh = useCallback(
+    () => setRefreshVersion((value) => value + 1),
+    [],
+  )
+  const externalFiles = useExternalFileActions({
     root,
     onStart: handleCopyStart,
-    onComplete: handleCopyComplete,
-    onError: handleCopyError,
+    onRefresh: handleExternalRefresh,
+    onFeedback: setFeedback,
+    onWorkspaceContentChanged,
   })
   const handleOrganizationComplete = useCallback(
     (result: ProjectFileOperationResult | undefined) => {
@@ -206,7 +202,7 @@ export function useFileCreateActions(
     onError: handleCopyError,
   })
   const operationPending =
-    pending || externalCopy.pending || organization.pending || deletion.pending
+    pending || externalFiles.pending || organization.pending || deletion.pending
 
   const openMenu = useCallback(
     (
@@ -412,10 +408,11 @@ export function useFileCreateActions(
     feedback,
     organization,
     deletion,
+    externalMove: externalFiles.move,
     selectedDirectory,
     revealRequest,
     refreshVersion,
-    copyProgress: externalCopy.progress ?? organization.progress ?? deletion.progress,
+    copyProgress: externalFiles.progress ?? organization.progress ?? deletion.progress,
     canOrganizeMenu(action) {
       return canOrganizeAction(root, menu?.target, menu?.targetType, action)
     },
@@ -452,22 +449,24 @@ export function useFileCreateActions(
         deletion.begin()
       }
     },
+    beginExternalMove() {
+      if (!menu || operationPending) return
+      externalFiles.beginMove(menu.target, menu.targetType)
+    },
     submitCreate,
     copyPath,
     pasteFiles(target, targetType) {
-      externalCopy.copyClipboard(fileActionDestination(root, target, targetType))
+      externalFiles.copyClipboard(target, targetType)
     },
     pasteFilesFromMenu() {
       if (!menu) return
-      externalCopy.copyClipboard(
-        fileActionDestination(root, menu.target, menu.targetType),
-      )
+      externalFiles.copyClipboard(menu.target, menu.targetType)
     },
     dropFiles(files, target, targetType) {
-      externalCopy.copyDropped(files, fileActionDestination(root, target, targetType))
+      externalFiles.copyDropped(files, target, targetType)
     },
     cancelCopy() {
-      if (externalCopy.pending) externalCopy.cancel()
+      if (externalFiles.pending) externalFiles.cancel()
       else if (organization.pending) organization.cancel()
       else deletion.cancel()
     },
@@ -486,12 +485,6 @@ export function useFileCreateActions(
       setRevealRequest(undefined)
     },
   }
-}
-
-function writeApplicationClipboard(value: string): Promise<void> {
-  return navigator.clipboard?.writeText
-    ? navigator.clipboard.writeText(value)
-    : Promise.reject(new Error('Clipboard writing is unavailable'))
 }
 
 function focusedElement(): HTMLElement | undefined {

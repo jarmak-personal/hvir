@@ -26,6 +26,7 @@ import {
   type PlannedTree,
   type TreeReadPort,
 } from './verified-project-copy-manifest'
+import { isMissingProjectPathError } from './project-file-path-errors'
 
 export { PROJECT_FILE_COPY_LIMITS, type ProjectFileCopyLimits }
 export interface VerifiedProjectCopySource extends TreeReadPort {
@@ -225,12 +226,7 @@ export async function verifyProjectCopyReceipt(options: {
   readonly signal: AbortSignal
 }): Promise<void> {
   const [sourceManifest, destinationManifest] = await Promise.all([
-    manifestTree(
-      options.source,
-      options.source.root,
-      options.signal,
-      options.receipt.plan,
-    ),
+    readProjectCopySourceReceipt(options),
     manifestTree(
       destinationReadPort(options.destinationHost),
       options.destination,
@@ -244,6 +240,31 @@ export async function verifyProjectCopyReceipt(options: {
   ) {
     throw new Error('The source or published destination changed after copy')
   }
+}
+
+export async function verifyProjectCopySourceReceipt(options: {
+  readonly receipt: VerifiedProjectCopyReceipt
+  readonly source: VerifiedProjectCopySource
+  readonly signal: AbortSignal
+}): Promise<void> {
+  if (
+    !manifestsEqual(options.receipt.manifest, await readProjectCopySourceReceipt(options))
+  ) {
+    throw new Error('The source changed after copy')
+  }
+}
+
+function readProjectCopySourceReceipt(options: {
+  readonly receipt: VerifiedProjectCopyReceipt
+  readonly source: VerifiedProjectCopySource
+  readonly signal: AbortSignal
+}): Promise<readonly ManifestRow[]> {
+  return manifestTree(
+    options.source,
+    options.source.root,
+    options.signal,
+    options.receipt.plan,
+  )
 }
 
 export function projectHostCopySource(
@@ -352,7 +373,7 @@ async function pathExists(host: ProjectHost, path: HostPath): Promise<boolean> {
     await host.stat(path)
     return true
   } catch (reason) {
-    if (isMissingPathError(reason)) return false
+    if (isMissingProjectPathError(reason)) return false
     throw reason
   }
 }
@@ -377,15 +398,6 @@ function cancelledItem(
     effect: 'none',
     reason: boundedReason(options.signal.reason, 'The operation was cancelled'),
   }
-}
-
-function isMissingPathError(reason: unknown): boolean {
-  const code = (reason as { code?: unknown } | undefined)?.code
-  return (
-    code === 'ENOENT' ||
-    code === 2 ||
-    /no such file|not found/i.test(reason instanceof Error ? reason.message : '')
-  )
 }
 
 function isAbortError(reason: unknown): boolean {

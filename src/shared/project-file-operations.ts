@@ -15,6 +15,8 @@ export interface ExternalFileGrantDescriptor {
   readonly items: readonly ExternalFileGrantItemDescriptor[]
 }
 
+export type ExternalFileGrantPurpose = 'copy' | 'move'
+
 export interface ExternalFileGrantItemDescriptor {
   readonly itemId: string
   readonly name: string
@@ -32,12 +34,44 @@ export type ExternalFileGrantResult =
       readonly reason: string
     }
 
+export type ExternalMoveGrantResult =
+  ExternalFileGrantResult | { readonly outcome: 'cancelled' }
+
+export type ExternalMovePickerSelection = 'mixed' | 'files' | 'directory'
+
+export type ExternalMovePickerPolicy =
+  | {
+      readonly kind: 'mixed-multiple'
+      readonly limitation: string
+    }
+  | {
+      readonly kind: 'files-or-single-directory'
+      readonly limitation: string
+    }
+
+export type ProjectFileExternalMoveDisclosure =
+  | {
+      readonly outcome: 'available'
+      readonly picker: ExternalMovePickerPolicy
+      readonly recovery: 'recoverable'
+    }
+  | {
+      readonly outcome: 'unavailable'
+      readonly reason: string
+    }
+
+export interface ProjectFileExternalMoveAcquireRequest {
+  readonly selection: ExternalMovePickerSelection
+}
+
 export interface ProjectFileExternalCopyRequest {
   readonly workspaceRoot: HostPath
   readonly destinationDirectory: HostPath
   readonly grantId: string
   readonly grantGeneration: number
 }
+
+export type ProjectFileExternalMoveRequest = ProjectFileExternalCopyRequest
 
 export type ProjectFileOrganizationRequest =
   | {
@@ -113,6 +147,7 @@ export interface ProjectFileOperationProgress {
     | 'copying'
     | 'renaming'
     | 'moving'
+    | 'moving-external'
     | 'duplicating'
     | 'deleting'
     | 'cancelling'
@@ -136,6 +171,9 @@ export type ProjectFileEffect =
   | 'moved-entry'
   | 'duplicated-file'
   | 'duplicated-directory'
+  | 'moved-external-file'
+  | 'moved-external-directory'
+  | 'external-move-state-unknown'
   | 'trashed-entry'
   | 'permanently-deleted-entry'
   | 'partially-deleted-entry'

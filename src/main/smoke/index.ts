@@ -34,6 +34,7 @@ import {
   verifyRendererRolloverRecovery,
 } from './renderer-lifecycle'
 import { verifyRendererAuthorityLifecycle } from './renderer-authority'
+import { createExternalMoveSmokeControl } from './external-file-move'
 import {
   createRemoteProjectFileSmokeHost,
   verifyProjectFileOperationsSmoke,
@@ -135,9 +136,13 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
     `.hvir-smoke-trash-recovery-${process.pid}-${basenameHostPath(smokeRoot)}`,
   )
   let smokeTrashSequence = 0
+  let smokeTrashFailurePath: HostPath | undefined
   const smokeRecoveredPaths = new Set<HostPath>()
   const host = new LocalHost({
     trashItem: async (path) => {
+      if (smokeTrashFailurePath && hostPathEquals(path, smokeTrashFailurePath)) {
+        throw new Error('Injected recoverable Trash failure')
+      }
       const recovered = joinHostPath(
         smokeTrashRecoveryRoot,
         `${(smokeTrashSequence += 1)}-${basenameHostPath(path)}`,
@@ -146,6 +151,7 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
       smokeRecoveredPaths.add(recovered)
     },
   })
+  const externalMoveSmoke = createExternalMoveSmokeControl()
   const supervisor = new PtySupervisor()
   let smokeWindow: BrowserWindow | undefined
   let cleanupFailureResource: ReturnType<typeof smokeCleanupResource> = null
@@ -184,7 +190,7 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
   cleanup.defer('local host', () => host.dispose())
   cleanup.defer('recoverable deletion fixture', async () => {
     for (const recovered of smokeRecoveredPaths) {
-      await host.removeFile(recovered, { ignoreMissing: true })
+      await host.exec('rm', ['-rf', '--', recovered.path])
     }
     await host.fileTransfer.removeDirectory(smokeTrashRecoveryRoot, {
       ignoreMissing: true,
@@ -514,6 +520,7 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
           hostId === smokeRemoteHost.hostId ? smokeRemoteHost : host,
       },
       rendererResources,
+      externalMoveSmoke.picker,
     )
     cleanup.defer('project file operations', () => projectFiles.dispose())
     const ipcRouter = registerIpcHandlers({
@@ -763,6 +770,10 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
         remoteRoot: smokeRemoteRoot,
         switchedRoot: smokeWebSwitchRoot,
         trashRecoveryRoot: smokeTrashRecoveryRoot,
+        externalMove: externalMoveSmoke,
+        failTrashFor: (path) => {
+          smokeTrashFailurePath = path
+        },
         localState: smokeProjectState,
         remoteState: smokeRemoteFileProjectState,
         switchedState: () => smokeProjectReturnState('smoke-project-return'),
