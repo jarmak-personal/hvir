@@ -204,6 +204,7 @@ describe('terminal resume unavailable state', () => {
       { type: 'working-directory', uri: 'file://untrusted/path' },
       {
         type: 'notification',
+        source: 'osc-777',
         title: 'Untrusted request',
         body: 'No attention authority',
       },
@@ -230,8 +231,15 @@ describe('terminal resume unavailable state', () => {
     for (const event of authorityFreeEvents) paneState.instances[0]?.emitEvent(event)
     expect(runtimeOptions.onBell).not.toHaveBeenCalled()
     expect(send).not.toHaveBeenCalled()
-    paneState.instances[0]?.emitEvent({ type: 'bell' })
+    paneState.instances[0]?.emitEvent({
+      type: 'notification',
+      source: 'osc-9',
+      title: '',
+      body: 'Legacy attention',
+    })
     expect(runtimeOptions.onBell).toHaveBeenCalledOnce()
+    paneState.instances[0]?.emitEvent({ type: 'bell' })
+    expect(runtimeOptions.onBell).toHaveBeenCalledTimes(2)
 
     runtime.restart()
     await vi.waitFor(() => expect(invoke).toHaveBeenCalledTimes(2))

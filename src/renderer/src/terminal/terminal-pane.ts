@@ -64,6 +64,8 @@ export type TerminalSemanticAction =
 
 export type TerminalProgressState = 'remove' | 'set' | 'error' | 'indeterminate' | 'pause'
 
+export type TerminalNotificationSource = 'osc-9' | 'osc-777'
+
 export type TerminalPaletteTarget =
   | { readonly kind: 'palette'; readonly index: number }
   | {
@@ -109,6 +111,7 @@ export type TerminalEvent =
   | { readonly type: 'bell' }
   | {
       readonly type: 'notification'
+      readonly source: TerminalNotificationSource
       readonly title: string
       readonly body: string
     }

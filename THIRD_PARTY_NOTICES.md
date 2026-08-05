@@ -10,7 +10,7 @@ components only; hvir is not affiliated with or endorsed by their authors.
 Source: <https://github.com/coder/ghostty-web>
 
 hvir currently consumes a provenance-recorded artifact from its bounded
-[ghostty-web compatibility fork](https://github.com/jarmak-personal/ghostty-web/releases/tag/hvir-v0.4.0-3).
+[ghostty-web compatibility fork](https://github.com/jarmak-personal/ghostty-web/releases/tag/hvir-v0.4.0-4).
 That artifact retains ghostty-web's upstream license and authorship.
 
 The fork maintains hvir's demand-driven rendering, terminal presentation lifecycle, and

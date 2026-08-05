@@ -17,8 +17,18 @@ describe('Ghostty terminal event translation', () => {
       ],
       [{ type: 'bell' }, { type: 'bell' }],
       [
-        { type: 'notification', title: 'Done', body: 'Review requested' },
-        { type: 'notification', title: 'Done', body: 'Review requested' },
+        {
+          type: 'notification',
+          source: 'osc-777',
+          title: 'Done',
+          body: 'Review requested',
+        },
+        {
+          type: 'notification',
+          source: 'osc-777',
+          title: 'Done',
+          body: 'Review requested',
+        },
       ],
       [
         { type: 'progress', state: 'set', progress: 42 },
@@ -123,5 +133,32 @@ describe('Ghostty terminal event translation', () => {
         type: 'future-family',
       } as unknown as GhosttyTerminalEvent),
     ).toBeUndefined()
+  })
+
+  it('fails closed for unknown notification and palette variants', () => {
+    const unknownEvents = [
+      {
+        type: 'notification',
+        source: 'future-source',
+        title: 'Untrusted',
+        body: 'No attention authority',
+      },
+      {
+        type: 'palette',
+        operation: 8,
+        request: { type: 'future-request' },
+      },
+      {
+        type: 'palette',
+        operation: 9,
+        request: { type: 'query', target: { kind: 'future-target' } },
+      },
+    ] as unknown as GhosttyTerminalEvent[]
+
+    expect(unknownEvents.map(translateGhosttyTerminalEvent)).toEqual([
+      undefined,
+      undefined,
+      undefined,
+    ])
   })
 })

@@ -22,7 +22,13 @@ export function translateGhosttyTerminalEvent(
     case 'bell':
       return { type: 'bell' }
     case 'notification':
-      return { type: 'notification', title: event.title, body: event.body }
+      if (event.source !== 'osc-9' && event.source !== 'osc-777') return undefined
+      return {
+        type: 'notification',
+        source: event.source,
+        title: event.title,
+        body: event.body,
+      }
     case 'progress':
       return event.progress === undefined
         ? { type: 'progress', state: event.state }
@@ -34,12 +40,15 @@ export function translateGhosttyTerminalEvent(
         options: event.options,
         provenance: { ...event.provenance },
       }
-    case 'palette':
+    case 'palette': {
+      const request = translatePaletteRequest(event.request)
+      if (!request) return undefined
       return {
         type: 'palette',
         operation: event.operation,
-        request: translatePaletteRequest(event.request),
+        request,
       }
+    }
     case 'clipboard':
       return event.operation === 'read'
         ? { type: 'clipboard', operation: 'read', selection: event.selection }
@@ -56,20 +65,26 @@ export function translateGhosttyTerminalEvent(
 
 function translatePaletteRequest(
   request: GhosttyTerminalPaletteRequest,
-): TerminalPaletteRequest {
+): TerminalPaletteRequest | undefined {
   switch (request.type) {
-    case 'set':
+    case 'set': {
+      const target = translatePaletteTarget(request.target)
+      if (!target) return undefined
       return {
         type: 'set',
-        target: translatePaletteTarget(request.target),
+        target,
         color: { ...request.color },
       }
+    }
     case 'query':
-    case 'reset':
+    case 'reset': {
+      const target = translatePaletteTarget(request.target)
+      if (!target) return undefined
       return {
         type: request.type,
-        target: translatePaletteTarget(request.target),
+        target,
       }
+    }
     case 'reset-palette':
     case 'reset-special':
       return { type: request.type }
@@ -78,7 +93,7 @@ function translatePaletteRequest(
 
 function translatePaletteTarget(
   target: GhosttyTerminalPaletteTarget,
-): TerminalPaletteTarget {
+): TerminalPaletteTarget | undefined {
   switch (target.kind) {
     case 'palette':
       return { kind: 'palette', index: target.index }

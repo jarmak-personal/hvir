@@ -403,12 +403,13 @@ export class TerminalRuntime {
   }
 
   private handlePaneEvent(event: TerminalEvent): void {
-    if (event.type === 'title') {
+    const type = event.type
+    if (type === 'title') {
       const next = event.title.trim() || this.options.fallbackTitle
       if (next === this.currentSnapshot.title) return
       this.updateSnapshot({ ...this.currentSnapshot, title: next })
       this.options.onTitle(next)
-    } else if (event.type === 'bell') {
+    } else if (type === 'bell' || (type === 'notification' && event.source === 'osc-9')) {
       this.options.onBell()
     }
   }

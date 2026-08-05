@@ -117,7 +117,6 @@ vi.mock('ghostty-web', () => {
     }
 
     attachCustomWheelEventHandler(): void {}
-
     onData(callback: (data: string) => void): { dispose(): void } {
       this.state.emitData = callback
       return {
@@ -304,7 +303,12 @@ describe('GhosttyTerminalPane lifecycle', () => {
     pane.mount(document.createElement('div'))
     const state = ghosttyState.instances[0]!
     state.emitTerminalEvent({ type: 'title', title: 'Structured' })
-    state.emitTerminalEvent({ type: 'notification', title: 'Done', body: 'Review' })
+    state.emitTerminalEvent({
+      type: 'notification',
+      source: 'osc-9',
+      title: '',
+      body: '',
+    })
     state.emitTerminalEvent({ type: 'bell' })
     pane.write('\u001b]2;Raw duplicate\u0007')
     expect(events.map((event) => event.type)).toEqual(['title', 'notification', 'bell'])
