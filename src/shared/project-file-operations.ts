@@ -139,10 +139,11 @@ export type ProjectFileEffect =
   | 'trashed-entry'
   | 'permanently-deleted-entry'
   | 'partially-deleted-entry'
+  | 'deletion-state-unknown'
 
 export interface ProjectFileSourceDisposition {
-  readonly outcome: 'retained' | 'removed' | 'partially-removed'
-  /** Exact recovery location when any of the source remains. */
+  readonly outcome: 'retained' | 'removed' | 'partially-removed' | 'unknown'
+  /** Observed source/recovery path; `unknown` does not assert that it still exists. */
   readonly path?: HostPath
   readonly removedEntries?: number
   readonly totalEntries?: number

@@ -14,9 +14,22 @@ import {
   type ProjectFileOrganizationRequest,
 } from '../../../shared'
 import { projectFileEntryNameError } from './project-file-entry-name'
+import { projectFileOwnerKey } from './project-file-owner-key'
 import { useProjectFileOperation } from './use-project-file-operation'
 
 export type FileOrganizationAction = 'rename' | 'move' | 'duplicate'
+
+export function canOrganizeAction(
+  root: HostPath,
+  target: HostPath | undefined,
+  targetType: FileType | undefined,
+  action: FileOrganizationAction,
+): boolean {
+  if (!target || !targetType || hostPathEquals(target, root)) return false
+  return action === 'duplicate'
+    ? targetType === 'file' || targetType === 'dir'
+    : targetType !== 'other'
+}
 
 export interface FileOrganizationDialogRequest {
   readonly id: number
@@ -52,7 +65,7 @@ export function useFileOrganizationActions(options: {
   const [dialogError, setDialogError] = useState<string>()
   const nextId = useRef(0)
   const activeRequest = useRef<ProjectFileOrganizationRequest | undefined>(undefined)
-  const ownerKey = pathKey(root)
+  const ownerKey = projectFileOwnerKey(root)
   const latestOwnerKey = useRef(ownerKey)
   latestOwnerKey.current = ownerKey
   const finish = useCallback(
@@ -207,8 +220,4 @@ function requestDestination(request: ProjectFileOrganizationRequest): HostPath {
         request.destinationDirectory,
         request.action === 'move' ? basenameHostPath(request.source) : request.name,
       )
-}
-
-function pathKey(path: HostPath): string {
-  return `${path.hostId}\0${path.path}`
 }

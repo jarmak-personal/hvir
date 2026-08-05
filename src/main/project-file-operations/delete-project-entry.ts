@@ -13,6 +13,7 @@ import {
 import type { ProjectHost } from '../project-host'
 import {
   boundedProjectFileReason,
+  isMissingProjectPathError,
   proveProjectEntry,
   proveRealProjectDirectory,
 } from './project-file-confinement'
@@ -44,6 +45,8 @@ export async function deleteProjectEntry(options: {
   let committed = false
   let removedEntries = 0
   let totalEntries = 0
+  let canonicalSource: HostPath | undefined
+  let plannedSource: DeletionPlanEntry | undefined
   try {
     options.assertCurrent()
     if (hostPathEquals(options.source, options.workspaceRoot)) {
@@ -55,6 +58,7 @@ export async function deleteProjectEntry(options: {
       options.canonicalRoot,
       options.source,
     )
+    canonicalSource = source.canonicalPath
     const capability = options.host.fileDeletion.capability
     if (capability === 'unavailable') {
       return failed(options.source, 'Deletion is unavailable for this project host')
@@ -72,6 +76,7 @@ export async function deleteProjectEntry(options: {
       options.limits,
     )
     totalEntries = plan.entries.length
+    plannedSource = plan.entries[0]
     await revalidateDeletionPlan(options.host, plan, options.signal)
     options.assertCurrent()
 
@@ -106,6 +111,21 @@ export async function deleteProjectEntry(options: {
     }
     return completed(options.source, 'permanently-deleted-entry', totalEntries)
   } catch (reason) {
+    if (
+      committed &&
+      options.confirmedRecovery === 'recoverable' &&
+      canonicalSource &&
+      plannedSource
+    ) {
+      return recoverableFailure(
+        options.host,
+        options.source,
+        canonicalSource,
+        plannedSource,
+        totalEntries,
+        reason,
+      )
+    }
     const cancelled = options.signal.aborted && !committed
     const disposition = deletionDisposition(options.source, removedEntries, totalEntries)
     return {
@@ -123,6 +143,26 @@ export async function deleteProjectEntry(options: {
       ),
     }
   }
+}
+
+async function recoverableFailure(
+  host: ProjectHost,
+  source: HostPath,
+  canonicalSource: HostPath,
+  plannedSource: DeletionPlanEntry,
+  totalEntries: number,
+  reason: unknown,
+): Promise<ProjectFileItemResult> {
+  try {
+    if (sameEntry(plannedSource, await host.stat(canonicalSource))) {
+      return failed(source, boundedProjectFileReason(reason, 'Trash rejected the entry'))
+    }
+  } catch (observationError) {
+    if (!isMissingProjectPathError(observationError)) {
+      return unknownFailure(source, totalEntries, reason)
+    }
+  }
+  return unknownFailure(source, totalEntries, reason)
 }
 
 async function planDeletion(
@@ -241,6 +281,22 @@ function failed(source: HostPath, reason: string): ProjectFileItemResult {
     effect: 'none',
     sourceDisposition: { outcome: 'retained', path: source },
     reason,
+  }
+}
+
+function unknownFailure(
+  source: HostPath,
+  totalEntries: number,
+  reason: unknown,
+): ProjectFileItemResult {
+  return {
+    itemId: 'delete:0',
+    source,
+    destination: source,
+    status: 'failed',
+    effect: 'deletion-state-unknown',
+    sourceDisposition: { outcome: 'unknown', path: source, totalEntries },
+    reason: boundedProjectFileReason(reason, 'Trash outcome could not be verified'),
   }
 }
 

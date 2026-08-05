@@ -16,7 +16,7 @@ import type {
   DirectoryTreeEntryActions,
   DirectoryTreeRevealRequest,
 } from './DirectoryTree'
-import { canOrganizeAction, fileActionDestination } from './file-action-destination'
+import { fileActionDestination } from './file-action-destination'
 import {
   copyFeedback,
   deletionFeedback,
@@ -26,10 +26,12 @@ import {
 import { projectFileEntryNameError } from './project-file-entry-name'
 import { useExternalFileCopy } from './use-external-file-copy'
 import {
+  canOrganizeAction,
   useFileOrganizationActions,
   type FileOrganizationAction,
   type FileOrganizationActionsController,
 } from './use-file-organization-actions'
+import { projectFileOwnerKey } from './project-file-owner-key'
 import {
   useFileDeletionActions,
   type FileDeletionActionsController,
@@ -119,7 +121,7 @@ export function useFileCreateActions(
   const nextRevealToken = useRef(0)
   const activeDialogId = useRef<number | undefined>(undefined)
   const alive = useRef(true)
-  const ownerKey = `${root.hostId}\0${root.path}`
+  const ownerKey = projectFileOwnerKey(root)
   const latestOwnerKey = useRef(ownerKey)
   latestOwnerKey.current = ownerKey
 
@@ -191,10 +193,8 @@ export function useFileCreateActions(
   })
   const deletion = useFileDeletionActions({
     root,
-    viewer: {
-      reviewPathRemoval: options.reviewPathRemoval,
-      closeCleanPath: options.closeCleanPath,
-    },
+    reviewPathRemoval: options.reviewPathRemoval,
+    closeCleanPath: options.closeCleanPath,
     onStart: handleCopyStart,
     onComplete(result, viewerCleanup) {
       setRefreshVersion((value) => value + 1)
@@ -304,7 +304,7 @@ export function useFileCreateActions(
         return
       }
       const request = dialog
-      const requestOwnerKey = `${request.workspaceRoot.hostId}\0${request.workspaceRoot.path}`
+      const requestOwnerKey = projectFileOwnerKey(request.workspaceRoot)
       const requestIsCurrent = (): boolean =>
         alive.current &&
         latestOwnerKey.current === requestOwnerKey &&

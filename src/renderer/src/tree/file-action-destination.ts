@@ -1,12 +1,4 @@
-import {
-  dirnameHostPath,
-  hostPath,
-  hostPathEquals,
-  type FileType,
-  type HostPath,
-} from '../../../shared'
-
-type FileOrganizationAction = 'rename' | 'move' | 'duplicate'
+import { dirnameHostPath, hostPath, type FileType, type HostPath } from '../../../shared'
 
 export function fileActionDestination(
   root: HostPath,
@@ -17,16 +9,4 @@ export function fileActionDestination(
   return targetType === 'dir'
     ? hostPath(target.hostId, target.path)
     : dirnameHostPath(target)
-}
-
-export function canOrganizeAction(
-  root: HostPath,
-  target: HostPath | undefined,
-  targetType: FileType | undefined,
-  action: FileOrganizationAction,
-): boolean {
-  if (!target || !targetType || hostPathEquals(target, root)) return false
-  return action === 'duplicate'
-    ? targetType === 'file' || targetType === 'dir'
-    : targetType !== 'other'
 }

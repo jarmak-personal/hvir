@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent, type ReactElement } from 'react'
+import { useEffect, useRef, useState, type FormEvent, type ReactElement } from 'react'
 
 import { basenameHostPath, displayHostPath } from '../../../shared'
 import type { FileDeletionActionsController } from './use-file-deletion-actions'
@@ -10,7 +10,11 @@ export function FileDeletionDialog({
 }): ReactElement | null {
   const { dialog } = controller
   const [confirmation, setConfirmation] = useState('')
-  useEffect(() => setConfirmation(''), [dialog?.id])
+  const cancelRef = useRef<HTMLButtonElement>(null)
+  useEffect(() => {
+    setConfirmation('')
+    if (dialog?.recovery === 'recoverable') cancelRef.current?.focus()
+  }, [dialog?.id, dialog?.recovery])
   if (!dialog) return null
   const permanent = dialog.recovery === 'permanent'
   const entryName = basenameHostPath(dialog.source)
@@ -78,6 +82,7 @@ export function FileDeletionDialog({
         ) : null}
         <div className="file-create-actions">
           <button
+            ref={cancelRef}
             type="button"
             disabled={controller.pending}
             onClick={() => controller.dismiss()}

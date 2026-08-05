@@ -11,9 +11,10 @@ import {
   type ProjectFileOperationResult,
 } from '../../../shared'
 import type {
-  ViewerPathRemovalCapability,
+  ViewerPathRemovalReview,
   ViewerPathRemovalResult,
 } from '../viewer/viewer-path-removal'
+import { projectFileOwnerKey } from './project-file-owner-key'
 import { useProjectFileOperation } from './use-project-file-operation'
 
 export type FileDeletionMenuState =
@@ -54,7 +55,8 @@ export interface FileDeletionActionsController {
 
 export function useFileDeletionActions(options: {
   readonly root: HostPath
-  readonly viewer: ViewerPathRemovalCapability
+  readonly reviewPathRemoval: (target: HostPath) => ViewerPathRemovalReview
+  readonly closeCleanPath: (target: HostPath) => ViewerPathRemovalResult
   readonly onStart: () => void
   readonly onComplete: (
     result: ProjectFileOperationResult | undefined,
@@ -62,39 +64,35 @@ export function useFileDeletionActions(options: {
   ) => void
   readonly onError: (message: string) => void
 }): FileDeletionActionsController {
-  const { root, viewer, onStart, onComplete, onError } = options
+  const { root, onStart } = options
+  const latest = useRef(options)
+  latest.current = options
   const [menu, setMenu] = useState<FileDeletionMenuState>({ state: 'idle' })
   const [dialog, setDialog] = useState<FileDeletionDialogRequest>()
   const [dialogError, setDialogError] = useState<string>()
   const nextId = useRef(0)
   const inspectionId = useRef(0)
   const activeSource = useRef<HostPath | undefined>(undefined)
-  const ownerKey = pathKey(root)
-  const finish = useCallback(
-    (result: ProjectFileOperationResult | undefined) => {
-      const source = activeSource.current
-      activeSource.current = undefined
-      const item = result?.outcome === 'completed' ? result.items[0] : undefined
-      const cleanup =
-        source &&
-        item?.status === 'completed' &&
-        (item.effect === 'trashed-entry' || item.effect === 'permanently-deleted-entry')
-          ? viewer.closeCleanPath(source)
-          : undefined
-      setDialog(undefined)
-      setDialogError(undefined)
-      onComplete(result, cleanup)
-    },
-    [onComplete, viewer],
-  )
-  const fail = useCallback(
-    (message: string) => {
-      activeSource.current = undefined
-      setDialogError(message)
-      onError(message)
-    },
-    [onError],
-  )
+  const ownerKey = projectFileOwnerKey(root)
+  const finish = useCallback((result: ProjectFileOperationResult | undefined) => {
+    const source = activeSource.current
+    activeSource.current = undefined
+    const item = result?.outcome === 'completed' ? result.items[0] : undefined
+    const cleanup =
+      source &&
+      item?.status === 'completed' &&
+      (item.effect === 'trashed-entry' || item.effect === 'permanently-deleted-entry')
+        ? latest.current.closeCleanPath(source)
+        : undefined
+    setDialog(undefined)
+    setDialogError(undefined)
+    latest.current.onComplete(result, cleanup)
+  }, [])
+  const fail = useCallback((message: string) => {
+    activeSource.current = undefined
+    setDialogError(message)
+    latest.current.onError(message)
+  }, [])
   const operation = useProjectFileOperation({
     root,
     onStart,
@@ -160,9 +158,9 @@ export function useFileDeletionActions(options: {
     },
     begin() {
       if (operation.pending || menu.state !== 'available') return
-      const review = viewer.reviewPathRemoval(menu.disclosure.source)
+      const review = latest.current.reviewPathRemoval(menu.disclosure.source)
       if (review.dirtyPaths.length > 0) {
-        onError(dirtyBufferMessage(review.dirtyPaths.length))
+        latest.current.onError(dirtyBufferMessage(review.dirtyPaths.length))
         return
       }
       setDialog({
@@ -175,7 +173,7 @@ export function useFileDeletionActions(options: {
     },
     confirm(permanentEntryName) {
       if (!dialog || operation.pending) return
-      const review = viewer.reviewPathRemoval(dialog.source)
+      const review = latest.current.reviewPathRemoval(dialog.source)
       if (review.dirtyPaths.length > 0) {
         setDialogError(dirtyBufferMessage(review.dirtyPaths.length))
         return
@@ -211,8 +209,4 @@ export function useFileDeletionActions(options: {
 
 function dirtyBufferMessage(count: number): string {
   return `${count} open ${count === 1 ? 'buffer has' : 'buffers have'} unsaved changes at or beneath this entry. Save or close ${count === 1 ? 'it' : 'them'} before deleting.`
-}
-
-function pathKey(path: HostPath): string {
-  return `${path.hostId}\0${path.path}`
 }

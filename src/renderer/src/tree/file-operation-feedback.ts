@@ -77,6 +77,11 @@ export function deletionFeedback(
           `${partial.removedEntries ?? 0} of ${partial.totalEntries ?? 0} entries removed; retained state remains at ${partial.path?.path ?? item.destination.path}.`,
         ]
       : []),
+    ...(partial?.outcome === 'unknown'
+      ? [
+          `The Trash request was submitted, but source state at ${partial.path?.path ?? item.destination.path} no longer matches the confirmed entry. Recovery was not confirmed.`,
+        ]
+      : []),
     ...(retainedDirty > 0
       ? [
           `${retainedDirty} tab${retainedDirty === 1 ? '' : 's'} became dirty after confirmation and ${retainedDirty === 1 ? 'was' : 'were'} retained with unsaved content.`,
@@ -92,7 +97,9 @@ export function deletionFeedback(
           ? 'Entry deleted permanently.'
           : item.effect === 'partially-deleted-entry'
             ? 'Entry was only partially deleted.'
-            : 'Entry was not deleted.',
+            : item.effect === 'deletion-state-unknown'
+              ? 'Deletion outcome could not be verified.'
+              : 'Entry was not deleted.',
     details,
   }
 }

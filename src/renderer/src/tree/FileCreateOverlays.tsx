@@ -24,6 +24,8 @@ export function FileCreateOverlays({
 }): ReactElement | null {
   const { menu, dialog, feedback, copyProgress } = controller
   const menuRef = useRef<HTMLDivElement>(null)
+  const controllerRef = useRef(controller)
+  controllerRef.current = controller
   const [name, setName] = useState('')
   const validation = projectFileEntryNameError(name)
 
@@ -34,10 +36,12 @@ export function FileCreateOverlays({
       menuRef.current?.querySelector<HTMLButtonElement>('[role="menuitem"]')?.focus()
     }
     const dismissPointer = (event: PointerEvent) => {
-      if (!menuRef.current?.contains(event.target as Node)) controller.dismissMenu()
+      if (!menuRef.current?.contains(event.target as Node)) {
+        controllerRef.current.dismissMenu()
+      }
     }
     const dismissEscape = (event: globalThis.KeyboardEvent) => {
-      if (event.key === 'Escape') controller.dismissMenu(true)
+      if (event.key === 'Escape') controllerRef.current.dismissMenu(true)
     }
     document.addEventListener('pointerdown', dismissPointer)
     document.addEventListener('keydown', dismissEscape)
@@ -45,7 +49,7 @@ export function FileCreateOverlays({
       document.removeEventListener('pointerdown', dismissPointer)
       document.removeEventListener('keydown', dismissEscape)
     }
-  }, [controller, menu])
+  }, [menu])
 
   if (
     !menu &&

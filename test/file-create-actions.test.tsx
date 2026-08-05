@@ -53,6 +53,7 @@ let acquireDropped: ReturnType<typeof vi.fn>
 let organizeEntry: (request: ProjectFileOrganizationRequest) => Promise<unknown>
 let deletionDisclosure: (request: { readonly source: HostPath }) => Promise<unknown>
 let deleteEntry: () => Promise<unknown>
+let onHvir: ReturnType<typeof vi.fn>
 
 beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true)
@@ -95,6 +96,16 @@ beforeEach(() => {
         itemCount: 1,
       },
     })
+  onHvir = vi.fn(
+    (channel: string, callback: (event: ProjectFileOperationProgress) => void) => {
+      if (channel === 'fs:project-file-operation') projectFileEvents.push(callback)
+      return () => {
+        projectFileEvents = projectFileEvents.filter(
+          (candidate) => candidate !== callback,
+        )
+      }
+    },
+  )
   invoke = vi.fn((channel: string, request: { readonly path?: HostPath }) => {
     if (channel === 'fs:readdir') {
       return Promise.resolve({ ok: true, value: entries.get(request.path!.path) ?? [] })
@@ -135,16 +146,7 @@ beforeEach(() => {
       invoke,
       send: vi.fn(),
       externalFiles: { acquireDropped },
-      on: vi.fn(
-        (channel: string, callback: (event: ProjectFileOperationProgress) => void) => {
-          if (channel === 'fs:project-file-operation') projectFileEvents.push(callback)
-          return () => {
-            projectFileEvents = projectFileEvents.filter(
-              (candidate) => candidate !== callback,
-            )
-          }
-        },
-      ),
+      on: onHvir,
     },
   })
   container = document.createElement('div')
@@ -700,6 +702,53 @@ describe('Files rail create actions', () => {
     expect(invoke).not.toHaveBeenCalledWith('fs:delete-entry', expect.anything())
   })
 
+  it('focuses a safe control when keyboard-opening recoverable confirmation', async () => {
+    makeDeletionAvailable('recoverable')
+    renderFileTree(rootPath, vi.fn())
+    await waitFor(() => treeRow('/repo/existing.md') !== undefined)
+    openKeyboardMenu(treeRow('/repo/existing.md')!)
+    await waitFor(() => menuItem('Move to Trash…') !== undefined)
+    const action = menuItem('Move to Trash…')!
+    act(() => action.focus())
+    act(() => action.click())
+
+    expect(document.activeElement?.textContent?.trim()).toBe('Cancel')
+    act(() => {
+      document.activeElement?.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }),
+      )
+    })
+    expect(document.querySelector('.file-deletion-dialog')).toBeNull()
+  })
+
+  it('does not reset keyboard menu focus when deletion disclosure resolves', async () => {
+    const inspection = deferred<unknown>()
+    deletionDisclosure = () => inspection.promise
+    renderFileTree(rootPath, vi.fn())
+    await waitFor(() => treeRow('/repo/existing.md') !== undefined)
+    openKeyboardMenu(treeRow('/repo/existing.md')!)
+    const duplicate = menuItem('Duplicate…')!
+    act(() => duplicate.focus())
+    const initialOperationSubscriptions = projectFileOperationSubscriptionCount()
+
+    await act(async () => {
+      inspection.resolve({
+        ok: true,
+        value: {
+          outcome: 'available',
+          workspaceRoot: rootPath,
+          source: localPath('/repo/existing.md'),
+          recovery: 'recoverable',
+        },
+      })
+      await settle()
+    })
+
+    expect(menuItem('Move to Trash…')).toBeDefined()
+    expect(document.activeElement).toBe(duplicate)
+    expect(projectFileOperationSubscriptionCount()).toBe(initialOperationSubscriptions)
+  })
+
   it('confirms recoverable deletion and closes clean descendants only after success', async () => {
     makeDeletionAvailable('recoverable')
     const closeCleanPath = vi.fn(() => ({
@@ -766,6 +815,67 @@ describe('Files rail create actions', () => {
     expect(onWorkspaceContentChanged).toHaveBeenCalledOnce()
     expect(document.querySelector('.file-operation-feedback')?.textContent).toContain(
       'moved to Trash',
+    )
+  })
+
+  it('refreshes unknown submitted-Trash state without closing viewer tabs', async () => {
+    makeDeletionAvailable('recoverable')
+    const closeCleanPath = vi.fn()
+    const onWorkspaceContentChanged = vi.fn()
+    act(() => {
+      reactRoot.render(
+        <FileTree
+          root={rootPath}
+          refreshVersion={0}
+          searchRefreshVersion={0}
+          ignoredRefreshVersion={0}
+          onOpen={vi.fn()}
+          viewerPathRebind={{ ...TEST_VIEWER_PATH_REBIND, closeCleanPath }}
+          onWorkspaceContentChanged={onWorkspaceContentChanged}
+          gitEnabled={false}
+        />,
+      )
+    })
+    await waitFor(() => treeRow('/repo/existing.md') !== undefined)
+    openPointerMenu('/repo/existing.md')
+    await waitFor(() => menuItem('Move to Trash…') !== undefined)
+    clickMenuItem('Move to Trash…')
+    act(() =>
+      document.querySelector<HTMLFormElement>('.file-deletion-dialog')!.requestSubmit(),
+    )
+    await waitFor(() =>
+      invoke.mock.calls.some(([channel]) => channel === 'fs:delete-entry'),
+    )
+
+    broadcastProjectFileEvent({
+      outcome: 'completed',
+      operationId: 'delete-1',
+      generation: 1,
+      items: [
+        {
+          itemId: 'delete:0',
+          source: localPath('/repo/existing.md'),
+          destination: localPath('/repo/existing.md'),
+          status: 'failed',
+          effect: 'deletion-state-unknown',
+          sourceDisposition: {
+            outcome: 'unknown',
+            path: localPath('/repo/existing.md'),
+            totalEntries: 1,
+          },
+          reason: 'Trash callback rejected after moving',
+        },
+      ],
+    })
+    await act(settle)
+
+    expect(closeCleanPath).not.toHaveBeenCalled()
+    expect(onWorkspaceContentChanged).toHaveBeenCalledOnce()
+    expect(document.querySelector('.file-operation-feedback')?.textContent).toContain(
+      'could not be verified',
+    )
+    expect(document.querySelector('.file-operation-feedback')?.textContent).toContain(
+      'Recovery was not confirmed',
     )
   })
 
@@ -947,6 +1057,11 @@ function broadcastProjectFileEvent(
   act(() => {
     for (const listener of projectFileEvents) listener(event)
   })
+}
+
+function projectFileOperationSubscriptionCount(): number {
+  return onHvir.mock.calls.filter(([channel]) => channel === 'fs:project-file-operation')
+    .length
 }
 
 function dialogText(): string {

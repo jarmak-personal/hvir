@@ -85,6 +85,33 @@ describe('project entry deletion policy', () => {
     await expect(readFile(source.path, 'utf8')).resolves.toBe('must remain')
   })
 
+  it('reports unknown source state when submitted Trash moves then rejects', async () => {
+    const source = joinHostPath(root, 'submitted.txt')
+    const recovered = joinHostPath(root, '.submitted-recovered.txt')
+    await writeFile(source.path, 'submitted bytes')
+    await host.dispose()
+    host = new LocalHost({
+      trashItem: async (path) => {
+        await rename(path.path, recovered.path)
+        throw new Error('Trash callback rejected after moving')
+      },
+    })
+    await host.connect()
+    const removeFile = vi.spyOn(host, 'removeFile')
+
+    const result = await run(host, source, 'recoverable')
+
+    expect(result).toMatchObject({
+      status: 'failed',
+      effect: 'deletion-state-unknown',
+      sourceDisposition: { outcome: 'unknown', path: source, totalEntries: 1 },
+      reason: 'Trash callback rejected after moving',
+    })
+    expect(removeFile).not.toHaveBeenCalled()
+    await expect(readFile(source.path)).rejects.toThrow()
+    await expect(readFile(recovered.path, 'utf8')).resolves.toBe('submitted bytes')
+  })
+
   it('removes a permanent directory bottom-up without following its symbolic link', async () => {
     const source = joinHostPath(root, 'tree')
     const outside = join(outsideDirectory, 'outside.txt')
