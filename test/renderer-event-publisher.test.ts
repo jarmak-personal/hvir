@@ -7,7 +7,10 @@ const electron = vi.hoisted(() => ({
       id: number
       isCrashed: ReturnType<typeof vi.fn>
       isDestroyed: ReturnType<typeof vi.fn>
-      send: ReturnType<typeof vi.fn>
+      mainFrame: {
+        isDestroyed: ReturnType<typeof vi.fn>
+        postMessage: ReturnType<typeof vi.fn>
+      }
     }
   }>,
 }))
@@ -32,7 +35,10 @@ function windowFixture(id: number) {
       id,
       isCrashed: vi.fn(() => false),
       isDestroyed: vi.fn(() => false),
-      send: vi.fn(),
+      mainFrame: {
+        isDestroyed: vi.fn(() => false),
+        postMessage: vi.fn(),
+      },
     },
   }
 }
@@ -53,9 +59,9 @@ describe('RendererEventPublisher', () => {
 
     publisher.toWindows('workbench-health:state', healthSnapshot)
 
-    expect(alive.webContents.send).toHaveBeenCalledOnce()
-    expect(crashed.webContents.send).not.toHaveBeenCalled()
-    expect(destroyedContents.webContents.send).not.toHaveBeenCalled()
+    expect(alive.webContents.mainFrame.postMessage).toHaveBeenCalledOnce()
+    expect(crashed.webContents.mainFrame.postMessage).not.toHaveBeenCalled()
+    expect(destroyedContents.webContents.mainFrame.postMessage).not.toHaveBeenCalled()
   })
 
   it('requires both current ownership and a live target process', () => {
@@ -71,6 +77,6 @@ describe('RendererEventPublisher', () => {
     isCurrent.mockReturnValue(false)
     publisher.toRenderer(owner, 'workbench-health:state', healthSnapshot)
 
-    expect(target.webContents.send).not.toHaveBeenCalled()
+    expect(target.webContents.mainFrame.postMessage).not.toHaveBeenCalled()
   })
 })

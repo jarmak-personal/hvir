@@ -1,6 +1,7 @@
 import { BrowserWindow } from 'electron'
 
 import type { IpcEventChannel, IpcEventPayload } from '../shared'
+import { sendRendererEvent } from './renderer-event-delivery'
 import type { RendererOwner, RendererResourceScopes } from './renderer-resource-scopes'
 
 /** Generation-aware Electron delivery edge for typed main-to-renderer events. */
@@ -12,7 +13,7 @@ export class RendererEventPublisher {
     payload: IpcEventPayload<E>,
   ): void => {
     for (const window of BrowserWindow.getAllWindows()) {
-      if (canSendTo(window)) window.webContents.send(channel, payload)
+      if (canSendTo(window)) sendRendererEvent(window.webContents, channel, payload)
     }
   }
 
@@ -25,7 +26,9 @@ export class RendererEventPublisher {
     const window = BrowserWindow.getAllWindows().find(
       (candidate) => candidate.webContents.id === owner.id,
     )
-    if (window && canSendTo(window)) window.webContents.send(channel, payload)
+    if (window && canSendTo(window)) {
+      sendRendererEvent(window.webContents, channel, payload)
+    }
   }
 }
 
