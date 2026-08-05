@@ -109,17 +109,29 @@ suggest review.
 
 ## Isolate issue implementation
 
-`hvir-implement-issue` uses native Git to create or reuse `agent/issue-N` at the deterministic
-sibling path `<primary-repository>-worktrees/issue-N` from an exact base agreed by the governing
-workflow. All implementation, testing, verification, commits, pre-push checks, and pushes happen
-there; the invoking checkout and unrelated worktrees stay untouched.
+`hvir-implement-issue` starts ordinary and epic-child work through one repository command:
 
-Each invocation fetches/prunes and inspects existing worktrees before creation. Cleanup uses
-ordinary `git worktree`, status, and ref commands plus bounded `gh` PR metadata. Remove only when
-the worktree is inactive, unlocked, clean except for plainly disposable ignored artifacts, its
-upstream is gone, and a merged PR records the exact local head and expected base. Never force or
-recursively delete; retain uncertain state with a reason. This is a contributor convention, not
-a custom worktree registry or an hvir application capability.
+```sh
+npm run issue:start -- --issue N
+npm run issue:start -- --issue N --apply
+```
+
+Planning refreshes/prunes remote-tracking refs and prints the complete setup without changing a
+local branch, worktree, dependency tree, or Project value. Apply recomputes the current plan,
+creates or reuses `agent/issue-N` at `<primary-repository>-worktrees/issue-N` from the exact
+resolved start ref, and runs locked dependency preparation there. All implementation, testing,
+verification, commits, pre-push checks, and pushes then happen in that selected worktree; the
+invoking checkout and unrelated worktrees stay untouched.
+
+The command composes the read-only delivery context with ordinary native Git status, worktree,
+and ref operations plus bounded content-free PR evidence. Cleanup requires an inactive, unlocked
+worktree; clean tracked and untracked state; only plainly disposable ignored artifacts; a gone
+upstream; no open PR; and a merged PR that records the exact local head and that issue's expected
+delivery base.
+It never forces a Git operation or recursively deletes a worktree. Uncertain state is retained
+with a reason and does not block an unrelated selected issue unless its branch or path collides.
+This is a contributor convention, not a custom worktree registry or an hvir application
+capability.
 
 This lifecycle belongs only to repository contributor tooling. The hvir application continues
 to discover worktrees without creating, moving, repairing, merging, or removing them.
@@ -130,11 +142,13 @@ An authorized open `kind:epic` uses one `epic/N-slug` integration branch from cu
 Keep its history append-only. Start each direct child's issue worktree at the current epic branch.
 Continue to use `main` for ordinary issues.
 
-Use `npm run issue:context -- --issue N` to resolve the native parent, exact base, deterministic
-issue branch and worktree, planning state, related open PRs, and conflicts. Add `--json` when an
-agent needs the structured record. Reuse one unambiguous epic branch. Creating the first branch
-requires authorization for the epic and its intended child set. Retain state and report a blocker
-when metadata, refs, or worktrees conflict.
+Use `npm run issue:start -- --issue N` to plan a child's native parent, exact base, deterministic
+issue branch and worktree, planning state, related open PRs, cleanup, and dependency preparation.
+Add `--json` when an agent needs the structured record; pass `--apply` only after reviewing the
+plan. `issue:context` remains available for read-only delivery diagnosis. Reuse one unambiguous
+epic branch. Creating the first branch requires authorization for the epic and its intended child
+set; `issue:start` never creates or pushes it. Retain state and report a blocker when metadata,
+refs, or worktrees conflict.
 
 An epic-child PR targets the exact epic branch and names its direct child once:
 
