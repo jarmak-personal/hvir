@@ -712,6 +712,10 @@ export interface IpcInvokeMap {
     request: RebindTerminalProfileRequest
     response: TerminalRecoverySession
   }
+  'terminal:resolve-file-clipboard': {
+    request: Record<string, never>
+    response: string | undefined
+  }
   'pty:start': { request: StartPtyRequest; response: StartPtyResponse }
   'web-pane:open': {
     request: OpenWebPaneRequest
@@ -877,6 +881,7 @@ export const INVOKE_CHANNELS = [
   'terminal:plan-move',
   'terminal:move',
   'terminal:rebind-profile',
+  'terminal:resolve-file-clipboard',
   'pty:start',
   'web-pane:open',
   'web-pane:close',
