@@ -11,8 +11,14 @@ import {
   type Stat,
   type TextWorkload,
 } from '../../shared'
-import type { ReadFileOptions, RemoveFileOptions, WriteFileOptions } from './project-host'
+import type {
+  ExclusiveCreateOptions,
+  ReadFileOptions,
+  RemoveFileOptions,
+  WriteFileOptions,
+} from './project-host'
 import { readSshTextPrefix } from './ssh-text-prefix'
+import { SshExclusiveCreate } from './ssh-exclusive-create'
 
 export interface SshFileAccessOptions {
   readonly fingerprintObservationWindowMs?: number
@@ -25,6 +31,7 @@ export interface SshFileAccessOwner {
 
 /** Transport-scoped SFTP/cache state plus content-scoped optimistic save authority. */
 export class SshFileAccess {
+  private readonly exclusiveCreate: SshExclusiveCreate
   private generation = 0
   private sftpSession?: Promise<SFTPWrapper>
   private readonly cache = new Map<
@@ -43,7 +50,14 @@ export class SshFileAccess {
   constructor(
     private readonly owner: SshFileAccessOwner,
     private readonly options: SshFileAccessOptions,
-  ) {}
+  ) {
+    this.exclusiveCreate = new SshExclusiveCreate({
+      hostId: owner.hostId,
+      getSftp: () => this.getSftp(),
+      lstat: (path) => this.lstat(path),
+      invalidate: (path) => this.invalidate(path),
+    })
+  }
 
   advanceGeneration(): void {
     this.generation++
@@ -159,6 +173,17 @@ export class SshFileAccess {
     this.invalidate(path.path)
   }
 
+  async createFileExclusive(path: HostPath, opts: ExclusiveCreateOptions): Promise<void> {
+    return this.exclusiveCreate.file(path, opts)
+  }
+
+  async createDirectoryExclusive(
+    path: HostPath,
+    opts: ExclusiveCreateOptions,
+  ): Promise<void> {
+    return this.exclusiveCreate.directory(path, opts)
+  }
+
   async removeFile(path: HostPath, opts: RemoveFileOptions = {}): Promise<void> {
     this.assertPath(path)
     if (opts.expectedMtimeMs !== undefined) {
@@ -193,7 +218,7 @@ export class SshFileAccess {
     return [...value]
   }
 
-  async stat(path: HostPath): Promise<Stat> {
+  async lstat(path: HostPath): Promise<Stat> {
     this.assertPath(path)
     const attrs = await this.sftp<import('ssh2').Stats>((s, done) =>
       s.lstat(path.path, done),
@@ -205,6 +230,8 @@ export class SshFileAccess {
       mode: attrs.mode,
     }
   }
+
+  readonly stat = (path: HostPath): Promise<Stat> => this.lstat(path)
 
   async realpath(path: HostPath): Promise<HostPath> {
     this.assertPath(path)

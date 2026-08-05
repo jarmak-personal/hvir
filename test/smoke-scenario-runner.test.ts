@@ -525,6 +525,10 @@ describe('Electron smoke command contracts', () => {
     new URL('../src/main/smoke/workspace-remote.ts', import.meta.url),
     'utf8',
   )
+  const projectFileOperationsScenario = readFileSync(
+    new URL('../src/main/smoke/project-file-operations.ts', import.meta.url),
+    'utf8',
+  )
   const webPaneScenario = readFileSync(
     new URL('../src/main/smoke/web-pane.ts', import.meta.url),
     'utf8',
@@ -793,6 +797,13 @@ describe('Electron smoke command contracts', () => {
     expect(workspaceRemoteScenario).not.toContain('requestAnimationFrame')
     expect(workspaceRemoteScenario).not.toContain('WebPaneRouteRegistry')
     expect(workspaceRemoteScenario).not.toContain('routes.open')
+    expect(projectFileOperationsScenario).toContain('createRemoteProjectFileSmokeHost')
+    expect(projectFileOperationsScenario).toContain('remoteRoot')
+    expect(projectFileOperationsScenario).toContain("entry: 'pointer'")
+    expect(projectFileOperationsScenario).toContain("entry: 'keyboard'")
+    expect(projectFileOperationsScenario).toContain('workspace switch preserved snapshot')
+    expect(projectFileOperationsScenario).toContain("'.mode-control button")
+    expect(projectFileOperationsScenario).not.toContain('requestAnimationFrame')
     expect(webPaneScenario).toContain('state=${JSON.stringify(state)}')
     expect(webPaneScenario).toContain('routes.source')
     expect(webPaneScenario).toContain('routes.paneIdForGuest')

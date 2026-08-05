@@ -528,10 +528,18 @@ export class SshHost implements ProjectHost {
   ): Promise<void> {
     return this.files.writeFile(path, value, opts)
   }
+  readonly createFileExclusive: ProjectHost['createFileExclusive'] = (...args) =>
+    this.files.createFileExclusive(...args)
+  readonly createDirectoryExclusive: ProjectHost['createDirectoryExclusive'] = (
+    ...args
+  ) => this.files.createDirectoryExclusive(...args)
   readonly removeFile: ProjectHost['removeFile'] = (...args) =>
     this.files.removeFile(...args)
   async readdir(path: HostPath): Promise<DirEntry[]> {
     return this.files.readdir(path)
+  }
+  async lstat(path: HostPath): Promise<Stat> {
+    return this.files.lstat(path)
   }
   async stat(path: HostPath): Promise<Stat> {
     return this.files.stat(path)

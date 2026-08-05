@@ -1,11 +1,20 @@
-import { hostPath, hostPathEquals, repositoryImageMimeType } from '../../../shared'
+import {
+  containsHostPath,
+  hostPath,
+  hostPathEquals,
+  repositoryImageMimeType,
+} from '../../../shared'
 import type { IpcRegistrar } from '../authority-router'
 import type { IpcDeps } from '../deps'
 import { operationResult } from '../operation-result'
 
 type FilesystemIpcDeps = Pick<
   IpcDeps,
-  'getProject' | 'getProjectState' | 'filenameSearch' | 'rendererResources'
+  | 'getProject'
+  | 'getProjectState'
+  | 'filenameSearch'
+  | 'projectFiles'
+  | 'rendererResources'
 >
 
 export function registerFilesystemIpc(ipc: IpcRegistrar, deps: FilesystemIpcDeps): void {
@@ -156,6 +165,27 @@ export function registerFilesystemIpc(ipc: IpcRegistrar, deps: FilesystemIpcDeps
       )
       const written = await host.stat(canonical)
       return { path, size: written.size, mtimeMs: written.mtimeMs }
+    }),
+  )
+
+  ipc.handle('fs:create-entry', (req, context) =>
+    operationResult(async () => {
+      const workspaceRoot = ipc.authority.workspaceRoot(
+        ipc.authority.reconstructHostPath(req.workspaceRoot),
+      )
+      const destinationDirectory = ipc.authority.reconstructHostPath(
+        req.destinationDirectory,
+      )
+      if (!containsHostPath(workspaceRoot, destinationDirectory)) {
+        throw new Error('The destination directory escapes the workspace')
+      }
+      return deps.projectFiles.create({
+        owner: context.owner(),
+        workspaceRoot,
+        destinationDirectory,
+        name: req.name,
+        kind: req.kind,
+      })
     }),
   )
 }

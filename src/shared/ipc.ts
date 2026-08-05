@@ -14,6 +14,10 @@ import type { DirEntry, FileType, WatchEvent } from './fs-types'
 import type { FilenameSearchRequest, FilenameSearchResponse } from './filename-search'
 import type { HostPath } from './host-path'
 import type {
+  ProjectFileCreateRequest,
+  ProjectFileOperationResult,
+} from './project-file-operations'
+import type {
   CreateHtmlPreviewRequest,
   CreateHtmlPreviewResponse,
   ReleaseHtmlPreviewRequest,
@@ -618,6 +622,10 @@ export interface IpcInvokeMap {
     response: OperationResult<ReadAssetResponse>
   }
   'fs:write': { request: WriteFileRequest; response: OperationResult<WriteFileResponse> }
+  'fs:create-entry': {
+    request: ProjectFileCreateRequest
+    response: OperationResult<ProjectFileOperationResult>
+  }
   'git:diff-inputs': { request: GitDiffRequest; response: GitDiffResponse }
   'git:changes': { request: GitChangesRequest; response: GitChanges }
   'git:history': { request: GitHistoryRequest; response: GitHistoryPage }
@@ -844,6 +852,7 @@ export const INVOKE_CHANNELS = [
   'fs:read',
   'fs:read-asset',
   'fs:write',
+  'fs:create-entry',
   'git:diff-inputs',
   'git:changes',
   'git:history',

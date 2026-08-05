@@ -1,5 +1,4 @@
 /** Electron main-process entry and current application composition root. */
-
 import { join } from 'node:path'
 import { app, BrowserWindow, dialog, protocol, shell } from 'electron'
 
@@ -30,6 +29,7 @@ import { RuntimeDiagnostics } from './diagnostics/runtime-diagnostics'
 import { createDiagnosticReportCoordinator } from './diagnostics/diagnostic-report-coordinator'
 import { RendererEventPublisher } from './renderer-event-publisher'
 import { createFilenameSearchCoordinator } from './filename-search'
+import { createProjectFileOperationCoordinator } from './project-file-operations'
 import {
   GIT_WORKSPACE_ACTIVITY_TYPE,
   GIT_FETCH_TYPE,
@@ -114,7 +114,6 @@ function createWorkbenchEntry(): void {
     )
     return owner
   }
-
   const windowManager = runtime.own(
     'Electron window manager',
     createElectronWindowManager({
@@ -243,6 +242,11 @@ function createWorkbenchEntry(): void {
       createFilenameSearchCoordinator(gitWorker),
       (search) => search.dispose(),
     )
+    const projectFiles = runtime.own(
+      'project file operations',
+      createProjectFileOperationCoordinator(projectRegistry, rendererScopes),
+      (operations) => operations.dispose(),
+    )
     workspaceCoordinator = runtime.own(
       'workspace coordinator',
       new WorkspaceCoordinator({
@@ -348,7 +352,6 @@ function createWorkbenchEntry(): void {
         },
       )
     })
-
     const withSshPresentation = <T>(owner: RendererOwner, operation: () => T): T => {
       if (!sshPrompter) throw new Error('SSH prompting is unavailable')
       return sshPrompter.runForOwner(owner, operation)
@@ -365,6 +368,7 @@ function createWorkbenchEntry(): void {
         echoWorker,
         gitWorker,
         filenameSearch,
+        projectFiles,
         getProject: () => registry.active,
         getHost: (hostId) => projectRegistry?.hostById(hostId),
         connectedHosts: () => projectRegistry?.connectedHosts() ?? [],
@@ -468,7 +472,6 @@ function createWorkbenchEntry(): void {
       .reopen()
       .catch((error) => console.error('[window] failed to reopen workbench', error))
   })
-
   app.on('before-quit', (event) => {
     if (runtime.isShutdown) return
     event.preventDefault()
@@ -486,7 +489,6 @@ function createWorkbenchEntry(): void {
         app.quit()
       })
   })
-
   async function suspendWorkbenchSessions(): Promise<void> {
     await workspaceCoordinator?.stopWatch()
     await workspaceCoordinator?.settle()
@@ -507,7 +509,6 @@ function createWorkbenchEntry(): void {
     await harnessProfileStore?.flush()
     await projectRegistry?.disconnectSshHosts()
   }
-
   async function shutdown(): Promise<void> {
     workspaceCoordinator?.stopPolling()
     await workspaceCoordinator
@@ -516,5 +517,4 @@ function createWorkbenchEntry(): void {
     await workspaceCoordinator?.settle()
   }
 }
-
 createWorkbenchEntry()

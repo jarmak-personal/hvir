@@ -13,7 +13,7 @@
 
 import { spawn } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
-import { realpathSync } from 'node:fs'
+import { constants, realpathSync } from 'node:fs'
 import { promises as fsp } from 'node:fs'
 import { connect } from 'node:net'
 import { basename, dirname, join, relative, sep } from 'node:path'
@@ -42,6 +42,7 @@ import type {
 } from '../../shared'
 import type {
   Disposer,
+  ExclusiveCreateOptions,
   ExecOptions,
   ExecStreamHandle,
   ProjectHost,
@@ -53,7 +54,11 @@ import type {
   WatchOptions,
   WriteFileOptions,
 } from './project-host'
-import { assertLoopbackEndpoint, MAX_EXEC_STREAM_WRITE_BYTES } from './project-host'
+import {
+  assertLoopbackEndpoint,
+  MAX_EXEC_STREAM_WRITE_BYTES,
+  ProjectPathExistsError,
+} from './project-host'
 
 const DEFAULT_MAX_BUFFER = 10 * 1024 * 1024 // 10 MiB
 
@@ -428,6 +433,55 @@ export class LocalHost implements ProjectHost {
     }
   }
 
+  async createFileExclusive(path: HostPath, opts: ExclusiveCreateOptions): Promise<void> {
+    opts.signal?.throwIfAborted()
+    const destination = this.resolve(path)
+    let created = false
+    let handle: import('node:fs/promises').FileHandle | undefined
+    try {
+      handle = await fsp.open(
+        destination,
+        constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY,
+        opts.mode,
+      )
+      created = true
+      opts.signal?.throwIfAborted()
+      await handle.chmod(opts.mode)
+      await handle.close()
+      handle = undefined
+      opts.signal?.throwIfAborted()
+    } catch (reason) {
+      await handle?.close().catch(() => undefined)
+      if (created) await fsp.unlink(destination).catch(() => undefined)
+      if ((reason as NodeJS.ErrnoException).code === 'EEXIST') {
+        throw new ProjectPathExistsError()
+      }
+      throw reason
+    }
+  }
+
+  async createDirectoryExclusive(
+    path: HostPath,
+    opts: ExclusiveCreateOptions,
+  ): Promise<void> {
+    opts.signal?.throwIfAborted()
+    const destination = this.resolve(path)
+    let created = false
+    try {
+      await fsp.mkdir(destination, { mode: opts.mode })
+      created = true
+      opts.signal?.throwIfAborted()
+      await fsp.chmod(destination, opts.mode)
+      opts.signal?.throwIfAborted()
+    } catch (reason) {
+      if (created) await fsp.rmdir(destination).catch(() => undefined)
+      if ((reason as NodeJS.ErrnoException).code === 'EEXIST') {
+        throw new ProjectPathExistsError()
+      }
+      throw reason
+    }
+  }
+
   async removeFile(path: HostPath, opts: RemoveFileOptions = {}): Promise<void> {
     const destination = this.resolve(path)
     if (opts.expectedMtimeMs !== undefined) {
@@ -463,7 +517,7 @@ export class LocalHost implements ProjectHost {
     }))
   }
 
-  async stat(path: HostPath): Promise<Stat> {
+  async lstat(path: HostPath): Promise<Stat> {
     // lstat preserves the distinction promised by Stat.type; stat() follows a
     // symlink and makes the `symlink` branch unreachable.
     const s = await fsp.lstat(this.resolve(path))
@@ -473,6 +527,8 @@ export class LocalHost implements ProjectHost {
     else if (s.isSymbolicLink()) type = 'symlink'
     return { type, size: s.size, mtimeMs: s.mtimeMs, mode: s.mode }
   }
+
+  readonly stat: ProjectHost['stat'] = (path) => this.lstat(path)
 
   async realpath(path: HostPath): Promise<HostPath> {
     return this.wrap(await fsp.realpath(this.resolve(path)))

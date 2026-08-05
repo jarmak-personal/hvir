@@ -29,6 +29,7 @@ import type { IpcContractDiagnostic } from './authority-router'
 import type { DiagnosticReportCoordinator } from '../diagnostics/diagnostic-report-coordinator'
 import type { RuntimeDiagnostics } from '../diagnostics/runtime-diagnostics'
 import type { FilenameSearchCoordinator } from '../filename-search/filename-search-coordinator'
+import type { ProjectFileOperationCoordinator } from '../project-file-operations'
 
 export type EmitRendererEvent = <E extends IpcEventChannel>(
   channel: E,
@@ -39,6 +40,7 @@ export interface IpcDeps {
   readonly echoWorker: WorkerClient<EchoWorkerProtocol>
   readonly gitWorker: WorkerClient<GitWorkerProtocol>
   readonly filenameSearch: Pick<FilenameSearchCoordinator, 'search' | 'cancel' | 'revoke'>
+  readonly projectFiles: Pick<ProjectFileOperationCoordinator, 'create'>
   readonly getProject: () => { readonly host: ProjectHost; readonly root: HostPath }
   readonly getHost: (hostId: string) => ProjectHost | undefined
   readonly connectedHosts: () => readonly ProjectHost[]

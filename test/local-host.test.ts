@@ -47,6 +47,47 @@ describe('LocalHost', () => {
     expect((await host.readFile(p)).toString('utf8')).toBe('hi there')
   })
 
+  it('creates exclusive empty files and directories with approved modes', async () => {
+    const file = localPath(join(dir, 'created.txt'))
+    const directory = localPath(join(dir, 'created-dir'))
+
+    await host.createFileExclusive(file, { mode: 0o644 })
+    await host.createDirectoryExclusive(directory, { mode: 0o755 })
+
+    await expect(host.readFile(file)).resolves.toHaveLength(0)
+    expect(await host.lstat(file)).toMatchObject({ type: 'file', size: 0 })
+    expect((await host.lstat(file)).mode & 0o777).toBe(0o644)
+    expect(await host.lstat(directory)).toMatchObject({ type: 'dir' })
+    expect((await host.lstat(directory)).mode & 0o777).toBe(0o755)
+  })
+
+  it('never replaces an existing entry during exclusive creation', async () => {
+    const file = localPath(join(dir, 'existing.txt'))
+    const directory = localPath(join(dir, 'existing-dir'))
+    await host.writeFile(file, 'keep')
+    await mkdir(directory.path)
+
+    await expect(host.createFileExclusive(file, { mode: 0o644 })).rejects.toMatchObject({
+      code: 'EEXIST',
+    })
+    await expect(
+      host.createDirectoryExclusive(directory, { mode: 0o755 }),
+    ).rejects.toMatchObject({ code: 'EEXIST' })
+    await expect(host.readTextFile(file)).resolves.toBe('keep')
+    await expect(host.readdir(directory)).resolves.toEqual([])
+  })
+
+  it('rejects exclusive creation before an aborted effect begins', async () => {
+    const controller = new AbortController()
+    controller.abort()
+    const file = localPath(join(dir, 'cancelled.txt'))
+
+    await expect(
+      host.createFileExclusive(file, { mode: 0o644, signal: controller.signal }),
+    ).rejects.toMatchObject({ name: 'AbortError' })
+    await expect(host.lstat(file)).rejects.toThrow()
+  })
+
   it('rejects an aborted atomic write without publishing the file', async () => {
     const p = localPath(join(dir, 'aborted.txt'))
     const controller = new AbortController()
