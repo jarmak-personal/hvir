@@ -12,10 +12,9 @@ import { displayHostPath } from '../../../shared'
 import { PATH_COPY_LABELS, type PathCopyKind } from '../path-copy/path-copy'
 import { FileOrganizationDialog } from './FileOrganizationDialog'
 import { FileDeletionDialog } from './FileDeletionDialog'
-import {
-  projectFileEntryNameError,
-  type FileCreateActionsController,
-} from './use-file-create-actions'
+import { FileExternalMoveDialog } from './FileExternalMoveDialog'
+import { projectFileEntryNameError } from './project-file-entry-name'
+import type { FileCreateActionsController } from './use-file-create-actions'
 
 export function FileCreateOverlays({
   controller,
@@ -56,6 +55,7 @@ export function FileCreateOverlays({
     !dialog &&
     !controller.organization.dialog &&
     !controller.deletion.dialog &&
+    !controller.externalMove.dialog &&
     !feedback &&
     !copyProgress
   ) {
@@ -137,6 +137,14 @@ export function FileCreateOverlays({
           >
             Paste Files
           </button>
+          <button
+            type="button"
+            role="menuitem"
+            disabled={controller.pending}
+            onClick={() => controller.beginExternalMove()}
+          >
+            Move External Items Here…
+          </button>
           <div className="file-action-menu-separator" role="separator" />
           {(Object.keys(PATH_COPY_LABELS) as PathCopyKind[]).map((kind) => (
             <button
@@ -215,6 +223,7 @@ export function FileCreateOverlays({
       ) : null}
       <FileOrganizationDialog controller={controller.organization} />
       <FileDeletionDialog controller={controller.deletion} />
+      <FileExternalMoveDialog controller={controller.externalMove} />
       {feedback ? (
         <div
           className={`file-operation-feedback ${feedback.kind}`}
@@ -268,6 +277,8 @@ function progressLabel(
       return 'Renaming'
     case 'moving':
       return 'Moving'
+    case 'moving-external':
+      return 'Moving external items'
     case 'duplicating':
       return 'Duplicating'
     case 'deleting':

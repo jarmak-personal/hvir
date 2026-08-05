@@ -16,11 +16,11 @@ import {
 } from '../project-host'
 import {
   boundedProjectFileReason,
-  isMissingProjectPathError,
   proveProjectEntry,
   proveRealProjectDirectory,
   type ProvenProjectEntry,
 } from './project-file-confinement'
+import { isMissingProjectPathError } from './project-file-path-errors'
 import type { ProjectFileCopyLimits } from './project-file-copy-limits'
 import { removeVerifiedProjectEntry } from './project-entry-removal'
 import { caseOnlyProjectEntryRename } from './case-only-project-entry-rename'

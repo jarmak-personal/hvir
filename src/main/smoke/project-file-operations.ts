@@ -15,6 +15,10 @@ import type {
   ReadFileOptions,
 } from '../project-host'
 import { ElectronClipboardFileSource } from '../project-file-operations/electron-clipboard-files'
+import {
+  verifyExternalFileMoveSmoke,
+  type ExternalMoveSmokeControl,
+} from './external-file-move'
 import { writeMacFilePasteboard } from './macos-file-pasteboard'
 import {
   deleteProjectEntryFromRenderer,
@@ -101,6 +105,8 @@ export async function verifyProjectFileOperationsSmoke(options: {
   readonly remoteRoot: HostPath
   readonly switchedRoot: HostPath
   readonly trashRecoveryRoot: HostPath
+  readonly externalMove: ExternalMoveSmokeControl
+  readonly failTrashFor: (path?: HostPath) => void
   readonly localState: () => ProjectState
   readonly remoteState: () => ProjectState
   readonly switchedState: () => ProjectState
@@ -113,6 +119,8 @@ export async function verifyProjectFileOperationsSmoke(options: {
     remoteRoot,
     switchedRoot,
     trashRecoveryRoot,
+    externalMove,
+    failTrashFor,
     localState,
     remoteState,
     switchedState,
@@ -145,7 +153,6 @@ export async function verifyProjectFileOperationsSmoke(options: {
   if (containsHostPath(localRoot, trashRecoveryRoot)) {
     throw new Error('Smoke Trash recovery must remain outside the registered workspace')
   }
-
   try {
     publish(localState())
     await createFromRenderer({
@@ -327,7 +334,19 @@ export async function verifyProjectFileOperationsSmoke(options: {
       throw new Error('remote drop copy did not preserve exact file content')
     }
 
-    publish(localState())
+    const externalMoveResult = await verifyExternalFileMoveSmoke({
+      win,
+      localHost,
+      localRoot,
+      remoteRoot,
+      trashRecoveryRoot,
+      control: externalMove,
+      failTrashFor,
+      localState,
+      remoteState,
+      publish,
+    })
+
     const originalCreate = localHost.createFileExclusive.bind(localHost)
     let releaseCreate: (() => void) | undefined
     let markEntered: (() => void) | undefined
@@ -373,7 +392,7 @@ export async function verifyProjectFileOperationsSmoke(options: {
       localHost.createFileExclusive = originalCreate
     }
 
-    return 'pointer create + clean rename · dirty-tab move + deletion block · recoverable local deletion + outside-workspace recovery + Files/search/Git/tab refresh · permanent remote keyboard deletion · clipboard local copy · preload drop remote copy · workspace switch preserved snapshot'
+    return `pointer create + clean rename · dirty-tab move + deletion block · recoverable local deletion + outside-workspace recovery + Files/search/Git/tab refresh · permanent remote keyboard deletion · clipboard local copy · preload drop remote copy · ${externalMoveResult} · workspace switch preserved snapshot`
   } catch (reason) {
     const state = await readProjectFileSmokeState(win)
     throw new Error(

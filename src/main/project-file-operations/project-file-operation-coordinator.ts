@@ -1,11 +1,13 @@
 import {
   containsHostPath,
   isProjectFileEntryName,
-  joinHostPath,
   type ExternalFileGrantResult,
+  type ExternalMoveGrantResult,
+  type ExternalMovePickerSelection,
   type HostPath,
   type ProjectFileCreateKind,
   type ProjectFileDeletionDisclosure,
+  type ProjectFileExternalMoveDisclosure,
   type ProjectFileOperationProgress,
   type ProjectFileOperationResult,
   type ProjectFileOperationStartResult,
@@ -15,10 +17,16 @@ import type { RendererOwner } from '../renderer-resource-scopes'
 import { createProjectEntry } from './create-project-entry'
 import type { ExternalFileGrantRegistry } from './external-file-grants'
 import { copyExternalFileGrant } from './external-file-copy'
+import { startExternalFileOperation } from './external-file-operation'
+import type { ExternalMovePickerPort } from './electron-external-move-picker'
+import {
+  acquireExternalMove as acquireExternalMoveGrant,
+  discloseExternalMove as discloseExternalMoveCapability,
+  startExternalMove,
+} from './external-file-move-operation'
 import {
   assertNormalizedAbsoluteProjectPath,
   boundedProjectFileReason,
-  proveRealProjectDirectory,
 } from './project-file-confinement'
 import { organizeProjectEntry } from './project-entry-organization'
 import {
@@ -85,6 +93,7 @@ export class ProjectFileOperationCoordinator {
       ) => ProjectFileWorkspaceAuthority | undefined
       readonly resources: ProjectFileOperationResourcePort
       readonly externalFiles?: ExternalFileGrantRegistry
+      readonly externalMovePicker?: ExternalMovePickerPort
       readonly readClipboardPaths?: () => readonly string[]
       readonly createOperationId?: () => string
       readonly createStagingId?: () => string
@@ -147,106 +156,82 @@ export class ProjectFileOperationCoordinator {
     return this.requireExternalFiles().acquire(owner, paths)
   }
 
+  discloseExternalMove(owner: RendererOwner): ProjectFileExternalMoveDisclosure {
+    return discloseExternalMoveCapability(
+      this.runtime,
+      this.requireExternalFiles(),
+      this.options.externalMovePicker,
+      owner,
+    )
+  }
+
+  async acquireExternalMove(
+    owner: RendererOwner,
+    selection: ExternalMovePickerSelection,
+  ): Promise<ExternalMoveGrantResult> {
+    return acquireExternalMoveGrant(
+      this.runtime,
+      this.requireExternalFiles(),
+      this.options.externalMovePicker,
+      owner,
+      selection,
+    )
+  }
+
+  releaseExternalMove(
+    owner: RendererOwner,
+    grantId: string,
+    grantGeneration: number,
+  ): boolean {
+    this.runtime.assertRenderer(owner)
+    if (
+      !grantId ||
+      grantId.length > 256 ||
+      !Number.isSafeInteger(grantGeneration) ||
+      grantGeneration < 1
+    ) {
+      throw new Error('Invalid external file grant')
+    }
+    return this.requireExternalFiles().release(owner, grantId, grantGeneration, 'move')
+  }
+
   async copyExternal(
     input: ProjectFileExternalCopyInput,
   ): Promise<ProjectFileOperationStartResult> {
     this.assertExternalCopyInput(input)
-    const identity = await this.runtime.prepare(input.owner, input.workspaceRoot)
-    const canonicalDestinationDirectory = await proveRealProjectDirectory(
-      identity.host,
-      identity.workspaceRoot,
-      identity.canonicalRoot,
-      input.destinationDirectory,
-    )
-    const stagingReservation = this.stagingCleanup.reserve(identity.host)
-    if (!stagingReservation) return stagingBusy()
-    let grant
-    try {
-      grant = this.requireExternalFiles().consume(
-        input.owner,
-        input.grantId,
-        input.grantGeneration,
-      )
-    } catch (reason) {
-      stagingReservation.release()
-      throw reason
-    }
-    let admission
-    try {
-      admission = this.runtime.activate(identity, input.publish, grant.items.length)
-    } catch (reason) {
-      grant.revoke()
-      stagingReservation.release()
-      throw reason
-    }
-    if (admission.outcome === 'busy') {
-      grant.revoke()
-      stagingReservation.release()
-      return admission
-    }
-    const { operation } = admission
-    this.runtime.launch(
-      operation,
-      () =>
-        copyExternalFileGrant({
-          operationId: identity.operationId,
-          generation: identity.generation,
-          visibleDestinationDirectory: input.destinationDirectory,
-          canonicalDestinationDirectory,
-          destinationHost: identity.host,
-          grant,
-          signal: operation.abort.signal,
-          assertCurrent: () => {
-            this.runtime.assertCurrent(identity, operation.abort.signal)
-            grant.assertCurrent()
-          },
-          revalidateDestinationDirectory: () =>
-            proveRealProjectDirectory(
-              identity.host,
-              identity.workspaceRoot,
-              identity.canonicalRoot,
-              input.destinationDirectory,
-            ),
-          limits: this.options.copyLimits ?? PROJECT_FILE_COPY_LIMITS,
-          createStagingId: this.options.createStagingId,
-          cleanupStaging: (host, path) => this.stagingCleanup.cleanup(host, path),
-          onProgress: (completedItems, totalItems, currentName) => {
-            operation.latestCompletedItems = completedItems
-            this.runtime.publish(operation, {
-              workspaceRoot: identity.workspaceRoot,
-              operationId: identity.operationId,
-              generation: identity.generation,
-              phase: operation.abort.signal.aborted ? 'cancelling' : 'copying',
-              completedItems,
-              totalItems,
-              ...(currentName ? { currentName } : {}),
-            })
-          },
-        }),
-      (failure) => {
-        const reason = boundedProjectFileReason(
-          operation.abort.signal.reason ?? failure,
-          'The external file operation stopped unexpectedly',
-        )
-        return {
-          outcome: 'completed',
-          operationId: identity.operationId,
-          generation: identity.generation,
-          items: grant.items.map((item) => ({
-            itemId: item.itemId,
-            destination: joinHostPath(input.destinationDirectory, item.name),
-            status: operation.abort.signal.aborted ? 'cancelled' : 'failed',
-            effect: 'none',
-            reason,
-          })),
-        }
-      },
-      () => {
-        grant.revoke()
-        stagingReservation.release()
-      },
-    )
-    return started(identity.operationId, identity.generation, grant.items.length)
+    return startExternalFileOperation({
+      runtime: this.runtime,
+      externalFiles: this.requireExternalFiles(),
+      stagingCleanup: this.stagingCleanup,
+      limits: this.options.copyLimits ?? PROJECT_FILE_COPY_LIMITS,
+      createStagingId: this.options.createStagingId,
+      input,
+      purpose: 'copy',
+      phase: 'copying',
+      failureReason: 'The external file operation stopped unexpectedly',
+      execute: copyExternalFileGrant,
+      fallbackItem: ({ item, destination, reason, aborted }) => ({
+        itemId: item.itemId,
+        destination,
+        status: aborted ? 'cancelled' : 'failed',
+        effect: 'none',
+        reason,
+      }),
+    })
+  }
+
+  async moveExternal(
+    input: ProjectFileExternalCopyInput,
+  ): Promise<ProjectFileOperationStartResult> {
+    this.assertExternalCopyInput(input)
+    return startExternalMove({
+      runtime: this.runtime,
+      externalFiles: this.requireExternalFiles(),
+      stagingCleanup: this.stagingCleanup,
+      limits: this.options.copyLimits ?? PROJECT_FILE_COPY_LIMITS,
+      createStagingId: this.options.createStagingId,
+      input,
+    })
   }
 
   async organize(

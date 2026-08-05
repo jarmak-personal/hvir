@@ -5,10 +5,8 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { FileTree } from '../src/renderer/src/tree/FileTree'
-import {
-  fileActionDestination,
-  projectFileEntryNameError,
-} from '../src/renderer/src/tree/use-file-create-actions'
+import { fileActionDestination } from '../src/renderer/src/tree/file-action-destination'
+import { projectFileEntryNameError } from '../src/renderer/src/tree/project-file-entry-name'
 import {
   localPath,
   type DirEntry,

@@ -133,6 +133,27 @@ function fixture() {
     generation: 3,
     itemCount: 1,
   })
+  const discloseExternalMove = vi
+    .fn<IpcDeps['projectFiles']['discloseExternalMove']>()
+    .mockReturnValue({
+      outcome: 'available',
+      picker: { kind: 'mixed-multiple', limitation: 'mixed selection' },
+      recovery: 'recoverable',
+    })
+  const acquireExternalMove = vi
+    .fn<IpcDeps['projectFiles']['acquireExternalMove']>()
+    .mockResolvedValue({ outcome: 'cancelled' })
+  const releaseExternalMove = vi
+    .fn<IpcDeps['projectFiles']['releaseExternalMove']>()
+    .mockReturnValue(true)
+  const moveExternal = vi
+    .fn<IpcDeps['projectFiles']['moveExternal']>()
+    .mockResolvedValue({
+      outcome: 'started',
+      operationId: 'external-move-1',
+      generation: 4,
+      itemCount: 1,
+    })
   const deps = {
     rendererResources,
     recordIpcContractDiagnostic,
@@ -141,6 +162,10 @@ function fixture() {
       organize: organizeProjectFile,
       discloseDeletion,
       delete: deleteProjectFile,
+      discloseExternalMove,
+      acquireExternalMove,
+      releaseExternalMove,
+      moveExternal,
     },
     getProjectState: () => projectState(),
     getRegisteredWorkspaceRoot: (candidate: typeof root) =>
@@ -164,6 +189,10 @@ function fixture() {
     organizeProjectFile,
     discloseDeletion,
     deleteProjectFile,
+    discloseExternalMove,
+    acquireExternalMove,
+    releaseExternalMove,
+    moveExternal,
     recordIpcContractDiagnostic,
   }
 }
@@ -312,6 +341,10 @@ describe('IpcAuthorityRouter', () => {
         'fs:acquire-clipboard-files',
         'fs:acquire-dropped-files',
         'fs:copy-external',
+        'fs:external-move-disclosure',
+        'fs:acquire-external-move-files',
+        'fs:release-external-move-grant',
+        'fs:move-external',
         'fs:organize-entry',
         'fs:deletion-disclosure',
         'fs:delete-entry',
@@ -347,6 +380,7 @@ describe('IpcAuthorityRouter', () => {
         'fs:write',
         'fs:create-entry',
         'fs:copy-external',
+        'fs:move-external',
         'fs:organize-entry',
         'fs:deletion-disclosure',
         'fs:delete-entry',
@@ -575,6 +609,46 @@ describe('IpcAuthorityRouter', () => {
     }
     deletion?.publish(progress)
     expect(send).toHaveBeenCalledWith('fs:project-file-operation', progress)
+  })
+
+  it('keeps native move acquisition owner-scoped and reconstructs only destination authority', async () => {
+    const {
+      deps,
+      transport,
+      discloseExternalMove,
+      acquireExternalMove,
+      releaseExternalMove,
+      moveExternal,
+    } = fixture()
+    registerIpcHandlers(deps, transport)
+    const event = ipcEvent()
+
+    await transport.invokes.get('fs:external-move-disclosure')?.[0]?.(event, undefined)
+    await transport.invokes.get('fs:acquire-external-move-files')?.[0]?.(event, {
+      selection: 'files',
+    })
+    expect(discloseExternalMove).toHaveBeenCalledWith(owner)
+    expect(acquireExternalMove).toHaveBeenCalledWith(owner, 'files')
+    await transport.invokes.get('fs:release-external-move-grant')?.[0]?.(event, {
+      grantId: 'opaque-grant',
+      grantGeneration: 8,
+    })
+    expect(releaseExternalMove).toHaveBeenCalledWith(owner, 'opaque-grant', 8)
+
+    await transport.invokes.get('fs:move-external')?.[0]?.(event, {
+      workspaceRoot: { hostId: 'local', path: '/project' },
+      destinationDirectory: { hostId: 'local', path: '/project/imports' },
+      grantId: 'opaque-grant',
+      grantGeneration: 8,
+    })
+    expect(moveExternal).toHaveBeenCalledOnce()
+    expect(moveExternal.mock.calls[0]?.[0]).toMatchObject({
+      owner,
+      workspaceRoot: localPath('/project'),
+      destinationDirectory: localPath('/project/imports'),
+      grantId: 'opaque-grant',
+      grantGeneration: 8,
+    })
   })
 })
 
