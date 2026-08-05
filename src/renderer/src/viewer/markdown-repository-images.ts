@@ -9,6 +9,7 @@ import {
 export class MarkdownRepositoryImages {
   private readonly generations = new Map<HTMLImageElement, number>()
   private readonly objectUrls = new Map<HTMLImageElement, string>()
+  private readonly unavailableMessages = new Map<HTMLImageElement, HTMLElement>()
   private disposed = false
 
   constructor(private readonly documentPath: HostPath) {}
@@ -41,8 +42,10 @@ export class MarkdownRepositoryImages {
       this.generations.set(image, (this.generations.get(image) ?? 0) + 1)
     }
     for (const objectUrl of this.objectUrls.values()) URL.revokeObjectURL(objectUrl)
+    for (const unavailable of this.unavailableMessages.values()) unavailable.remove()
     this.generations.clear()
     this.objectUrls.clear()
+    this.unavailableMessages.clear()
   }
 
   private dependency(image: HTMLImageElement): HostPath | undefined {
@@ -77,23 +80,29 @@ export class MarkdownRepositoryImages {
       const previous = this.objectUrls.get(image)
       this.objectUrls.set(image, objectUrl)
       image.src = objectUrl
+      image.hidden = false
+      image.removeAttribute('aria-hidden')
       image.classList.remove('markdown-image-loading')
+      this.unavailableMessages.get(image)?.remove()
+      this.unavailableMessages.delete(image)
       if (previous) URL.revokeObjectURL(previous)
     } catch (reason) {
-      if (
-        this.disposed ||
-        this.generations.get(image) !== generation ||
-        preserveCurrent
-      ) {
+      if (this.disposed || this.generations.get(image) !== generation) {
         return
       }
-      const unavailable = document.createElement('span')
+      if (preserveCurrent && this.objectUrls.has(image)) return
+      const unavailable =
+        this.unavailableMessages.get(image) ?? document.createElement('span')
       unavailable.className = 'markdown-image-unavailable'
       unavailable.textContent = image.alt
         ? `[Image unavailable: ${image.alt}]`
         : '[Repository image unavailable]'
       unavailable.title = reason instanceof Error ? reason.message : String(reason)
-      image.replaceWith(unavailable)
+      image.hidden = true
+      image.setAttribute('aria-hidden', 'true')
+      image.classList.remove('markdown-image-loading')
+      if (!this.unavailableMessages.has(image)) image.after(unavailable)
+      this.unavailableMessages.set(image, unavailable)
     }
   }
 }

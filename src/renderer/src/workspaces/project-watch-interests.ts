@@ -12,6 +12,7 @@ interface UseProjectWatchInterestsOptions {
   readonly connected: boolean
   readonly missing?: boolean
   readonly openPaths: readonly HostPath[]
+  readonly dependencyPaths: readonly HostPath[]
 }
 
 export function useProjectWatchInterests({
@@ -19,6 +20,7 @@ export function useProjectWatchInterests({
   connected,
   missing,
   openPaths,
+  dependencyPaths,
 }: UseProjectWatchInterestsOptions) {
   const expandedPaths = useRef(new Map<string, HostPath>())
   const scope = root ? hostPathKey(root) : undefined
@@ -53,6 +55,10 @@ export function useProjectWatchInterests({
       const parent = dirnameHostPath(path)
       unique.set(hostPathKey(parent), parent)
     }
+    for (const path of dependencyPaths) {
+      const parent = dirnameHostPath(path)
+      unique.set(hostPathKey(parent), parent)
+    }
     for (const path of expandedPaths.current.values()) {
       unique.set(hostPathKey(path), path)
     }
@@ -72,7 +78,7 @@ export function useProjectWatchInterests({
     return () => {
       cancelled = true
     }
-  }, [connected, missing, openPaths, root, version])
+  }, [connected, dependencyPaths, missing, openPaths, root, version])
 
   return { limited, updateExpandedPath }
 }

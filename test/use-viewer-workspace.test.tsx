@@ -131,22 +131,32 @@ describe('viewer document refresh', () => {
       await settle()
     })
 
-    expect(workspace.activeTab?.refresh).toEqual({ version: 1, path })
+    expect(workspace.activeTab?.refresh).toEqual({
+      version: 1,
+      changes: [{ version: 1, path }],
+    })
     expect(invoke).toHaveBeenCalledOnce()
     expect(invoke).toHaveBeenCalledWith('fs:read', { path })
   })
 
-  it('refreshes only a matching declared rendered dependency', async () => {
+  it('retains two matching declared dependency events from one React batch', async () => {
     const project = localPath('/project')
     const documentPath = localPath('/project/readme.md')
-    const imagePath = localPath('/project/assets/diagram.png')
+    const firstImagePath = localPath('/project/assets/first.png')
+    const secondImagePath = localPath('/project/assets/second.png')
     invoke.mockResolvedValue({ ok: true, value: file(documentPath, '# Readme', 8) })
     act(() => workspace.switchWorkspace(project))
     await act(async () => {
       workspace.openFile(documentPath, true)
       await settle()
     })
-    act(() => workspace.setRenderedDependencies(workspace.activeTab!.id, [imagePath]))
+    act(() =>
+      workspace.setRenderedDependencies(workspace.activeTab!.id, [
+        firstImagePath,
+        secondImagePath,
+      ]),
+    )
+    expect(workspace.renderedWatchPaths).toEqual([firstImagePath, secondImagePath])
     invoke.mockClear()
 
     act(() => {
@@ -156,14 +166,23 @@ describe('viewer document refresh', () => {
       })
       workspace.handleWatchEvent({
         type: 'change',
-        path: hostPath(asHostId('ssh:fixture'), imagePath.path),
+        path: hostPath(asHostId('ssh:fixture'), firstImagePath.path),
       })
     })
     expect(workspace.activeTab?.refresh).toBeUndefined()
 
-    act(() => workspace.handleWatchEvent({ type: 'change', path: imagePath }))
+    act(() => {
+      workspace.handleWatchEvent({ type: 'change', path: firstImagePath })
+      workspace.handleWatchEvent({ type: 'change', path: secondImagePath })
+    })
 
-    expect(workspace.activeTab?.refresh).toEqual({ version: 1, path: imagePath })
+    expect(workspace.activeTab?.refresh).toEqual({
+      version: 2,
+      changes: [
+        { version: 1, path: firstImagePath },
+        { version: 2, path: secondImagePath },
+      ],
+    })
     expect(invoke).not.toHaveBeenCalled()
   })
 

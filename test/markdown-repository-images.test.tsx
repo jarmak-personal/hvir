@@ -82,6 +82,43 @@ describe('Markdown repository images', () => {
     await settle()
     expect(revokeObjectUrl).toHaveBeenCalledWith('blob:late')
   })
+
+  it('keeps a failed image owner retryable and recovers it after a matching event', async () => {
+    const documentPath = localPath('/repo/docs/readme.md')
+    const dependency = localPath('/repo/assets/diagram.png')
+    invoke
+      .mockRejectedValueOnce(new Error('transient read failure'))
+      .mockResolvedValueOnce(asset(dependency, 2))
+    createObjectUrl.mockReturnValueOnce('blob:recovered')
+    const root = document.createElement('div')
+    root.innerHTML = '<img alt="diagram" src="../assets/diagram.png">'
+    const image = root.querySelector<HTMLImageElement>('img')!
+    const images = new MarkdownRepositoryImages(documentPath)
+
+    expect(images.hydrate(root)).toEqual([dependency])
+    await settle()
+
+    expect(root.querySelector('img')).toBe(image)
+    expect(image.hidden).toBe(true)
+    expect(image.getAttribute('aria-hidden')).toBe('true')
+    expect(root.querySelector('.markdown-image-unavailable')).toMatchObject({
+      textContent: '[Image unavailable: diagram]',
+      title: 'transient read failure',
+    })
+
+    images.refresh(root, dependency)
+    expect(invoke).toHaveBeenCalledTimes(2)
+    await settle()
+
+    expect(root.querySelector('img')).toBe(image)
+    expect(image.hidden).toBe(false)
+    expect(image.hasAttribute('aria-hidden')).toBe(false)
+    expect(image.getAttribute('src')).toBe('blob:recovered')
+    expect(root.querySelector('.markdown-image-unavailable')).toBeNull()
+
+    images.dispose()
+    expect(revokeObjectUrl).toHaveBeenCalledWith('blob:recovered')
+  })
 })
 
 type AssetResult = { readonly ok: true; readonly value: ReadAssetResponse }

@@ -347,10 +347,14 @@ function MarkdownView({
 
   useEffect(() => {
     if (!refresh || refresh.version === appliedRefreshVersion.current) return
-    appliedRefreshVersion.current = refresh.version
     const root = container.current
     if (!root || !html) return
-    repositoryImages.current?.refresh(root, refresh.path)
+    for (const change of refresh.changes) {
+      if (change.version > appliedRefreshVersion.current) {
+        repositoryImages.current?.refresh(root, change.path)
+      }
+    }
+    appliedRefreshVersion.current = refresh.version
   }, [html, path, refresh])
 
   useRenderedPosition(container, content, position, onPosition, positionCapture, html)

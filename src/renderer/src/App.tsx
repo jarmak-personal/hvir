@@ -161,6 +161,7 @@ export function App(): ReactElement {
     connected: connectionState === 'connected',
     missing: activeWorkspace?.missing,
     openPaths: openWatchPaths,
+    dependencyPaths: viewer.renderedWatchPaths,
   })
   const gitEnabled = workspaceGitEnabled(activeWorkspace)
   const terminalWorkspaces = useTerminalWorkspaceRuntime({
