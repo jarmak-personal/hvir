@@ -1,0 +1,6 @@
+interface:
+  display_name: 'hvir Implement Epic'
+  short_description: 'Coordinate coherent hvir epic delivery'
+  default_prompt: 'Use $hvir-implement-epic to coordinate this authorized hvir epic through child delivery and final handoff.'
+policy:
+  allow_implicit_invocation: false
