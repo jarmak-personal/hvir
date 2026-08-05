@@ -51,12 +51,11 @@ describe('source highlighting language inference', () => {
     ['Makefile', 'make'],
     ['GNUmakefile', 'make'],
     ['Makefile.release', 'make'],
-    ['Makefile.md', 'make'],
     ['CMakeLists.txt', 'cmake'],
     ['CODEOWNERS', 'codeowners'],
     ['.env.local', 'dotenv'],
-    ['.env.ts', 'dotenv'],
     ['Justfile', 'just'],
+    ['Justfile.release', 'just'],
     ['Jenkinsfile', 'groovy'],
     ['Gemfile', 'ruby'],
     ['nginx.conf', 'nginx'],
@@ -66,6 +65,19 @@ describe('source highlighting language inference', () => {
       language,
     )
   })
+
+  it.each([
+    ['Makefile.md', 'markdown'],
+    ['.env.ts', 'typescript'],
+    ['Justfile.toml', 'toml'],
+  ] as const)(
+    'prefers the recognized final extension of %s over a fallback filename prefix',
+    (path, language) => {
+      expect(resolveViewerGrammar(languageForPath(`/project/${path}`) ?? '')?.id).toBe(
+        language,
+      )
+    },
+  )
 
   it.each(['Dockerfilex', 'myDockerfile', 'notes', 'program.v', 'poster.ps'])(
     'leaves unsupported or ambiguous filename %s plain',

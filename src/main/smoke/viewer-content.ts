@@ -108,7 +108,8 @@ export async function verifyViewerContent(options: {
                   const image = document.querySelector('img[alt="Repository image fixture"]');
                   const toml = [...document.querySelectorAll('.markdown-body pre.shiki')]
                     .find((node) => node.textContent?.includes('[language_catalog_fixture]'));
-                  if (document.querySelector('.mermaid-diagram svg') &&
+                  const mermaidDiagrams = document.querySelectorAll('.mermaid-diagram svg');
+                  if (mermaidDiagrams.length === 1 &&
                       document.querySelector('.markdown-body .shiki') &&
                       toml?.querySelector('span') &&
                       image?.getAttribute('src')?.startsWith('blob:') &&
@@ -123,12 +124,28 @@ export async function verifyViewerContent(options: {
                     renderedTab?.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
                     const body = document.querySelector('.markdown-body');
                     body?.dispatchEvent(new Event('scroll', { bubbles: true }));
-                    return document.querySelector('.mermaid-diagram svg')
-                      ? resolve('lazy TOML Shiki + mmd Mermaid + ProjectHost image + task lists + stable scroll')
-                      : reject(new Error('scroll destroyed Mermaid diagram'));
+                    if (document.querySelectorAll('.mermaid-diagram svg').length !== 1) {
+                      return reject(new Error('scroll destroyed the canonical Mermaid diagram'));
+                    }
+                    return openWhenReady('/test/fixtures/rendered-mmd.md', () => {
+                      const mmdDeadline = Date.now() + 10000;
+                      const waitForMmd = () => {
+                        const activeTitle = document.querySelector('.viewer-tab.active .tab-name')?.textContent?.trim();
+                        if (activeTitle === 'rendered-mmd.md' &&
+                            document.querySelectorAll('.mermaid-diagram svg').length === 1) {
+                          return resolve('lazy TOML Shiki + canonical Mermaid + mmd alias + ProjectHost image + task lists + stable scroll');
+                        }
+                        if (Date.now() > mmdDeadline) return reject(new Error(
+                          'mmd Mermaid fixture timed out: title=' + activeTitle +
+                          ' mermaid=' + document.querySelectorAll('.mermaid-diagram svg').length
+                        ));
+                        setTimeout(waitForMmd, 50);
+                      };
+                      waitForMmd();
+                    });
                   }
                   if (Date.now() > deadline) return reject(new Error(
-                    'rendered fixture timed out: mermaid=' + Boolean(document.querySelector('.mermaid-diagram svg')) +
+                    'rendered fixture timed out: mermaid=' + mermaidDiagrams.length +
                     ' shiki=' + Boolean(document.querySelector('.markdown-body .shiki')) +
                     ' toml=' + Boolean(toml?.querySelector('span')) +
                     ' image=' + Boolean(image) + '/' + (image?.complete ? image.naturalWidth : 'pending') +

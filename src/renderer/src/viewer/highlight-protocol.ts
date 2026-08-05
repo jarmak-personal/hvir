@@ -35,9 +35,8 @@ const SPECIAL_FILENAMES: Readonly<Record<string, string>> = {
   vagrantfile: 'ruby',
 }
 
-const SPECIAL_FILENAME_PREFIXES: readonly (readonly [string, string])[] = [
+const FALLBACK_SPECIAL_FILENAME_PREFIXES: readonly (readonly [string, string])[] = [
   ['.env.', 'dotenv'],
-  ['dockerfile.', 'docker'],
   ['justfile.', 'just'],
   ['makefile.', 'make'],
 ]
@@ -48,13 +47,21 @@ export function languageForPath(path: string): HighlightLanguage | undefined {
   const special = SPECIAL_FILENAMES[name]
   if (special) return viewerGrammarName(special)
 
-  for (const [prefix, language] of SPECIAL_FILENAME_PREFIXES) {
+  // Dockerfile.* is an explicit association even when its suffix is also a grammar name.
+  if (name.startsWith('dockerfile.')) return viewerGrammarName('docker')
+
+  const extension = name.includes('.') ? name.slice(name.lastIndexOf('.') + 1) : ''
+  const extensionLanguage =
+    extension && !AMBIGUOUS_EXTENSIONS.has(extension)
+      ? viewerGrammarName(EXTENSION_OVERRIDES[extension] ?? extension)
+      : undefined
+  if (extensionLanguage) return extensionLanguage
+
+  for (const [prefix, language] of FALLBACK_SPECIAL_FILENAME_PREFIXES) {
     if (name.startsWith(prefix)) return viewerGrammarName(language)
   }
 
-  const extension = name.includes('.') ? name.slice(name.lastIndexOf('.') + 1) : ''
-  if (!extension || AMBIGUOUS_EXTENSIONS.has(extension)) return undefined
-  return viewerGrammarName(EXTENSION_OVERRIDES[extension] ?? extension)
+  return undefined
 }
 
 export interface HighlightToken {

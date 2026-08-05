@@ -1,6 +1,6 @@
 # Rendered fixture
 
-```mmd
+```mermaid
 flowchart LR
   Harness --> View
   View --> Respond
