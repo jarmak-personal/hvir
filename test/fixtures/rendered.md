@@ -10,6 +10,11 @@ flowchart LR
 const mode: 'rendered' | 'source' | 'diff' = 'rendered'
 ```
 
+```toml
+[language_catalog_fixture]
+lazy = true
+```
+
 [Open the YAML fixture](rendered.yml)
 [Missing target](missing.md)
 

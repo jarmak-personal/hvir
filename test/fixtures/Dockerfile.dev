@@ -1,0 +1,4 @@
+FROM node:24 AS build
+WORKDIR /workspace
+COPY package.json ./
+RUN npm install
