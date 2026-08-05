@@ -12,6 +12,13 @@ export interface TerminalRuntimeSnapshot {
   readonly recoveryFailure?: TerminalRecoveryFailure
 }
 
+export function terminalRecoveryFailureEquals(
+  left: TerminalRecoveryFailure | undefined,
+  right: TerminalRecoveryFailure | undefined,
+): boolean {
+  return left?.kind === right?.kind && left?.reason === right?.reason
+}
+
 export function resumeUnavailableStatus(reason: 'artifact-missing'): string {
   switch (reason) {
     case 'artifact-missing':

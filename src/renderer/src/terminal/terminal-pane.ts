@@ -183,6 +183,10 @@ export interface TerminalPane {
   resolveEventProvenance(
     provenance: TerminalEventProvenance,
   ): TerminalEventLocation | undefined
+  /** Report the screen whose retained rows are currently presented. */
+  activeEventScreen(): TerminalEventScreen
+  /** Reveal a retained event on the currently presented screen without selecting text. */
+  revealEventLocation(location: TerminalEventLocation): boolean
   focus(): void
   readonly events: TerminalPaneEvents
 }

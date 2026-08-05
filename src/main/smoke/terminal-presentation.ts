@@ -5,8 +5,8 @@ import type { PtySupervisor } from '../pty/pty-supervisor'
 import { ensureExplicitBareShellLaunch } from './terminal-explicit-launch'
 import { verifyTerminalHorizonPresentation } from './terminal-horizon-presentation'
 import { verifyTerminalProjectReturn } from './terminal-project-return'
+import { verifyTerminalSemanticNavigation } from './terminal-semantic-navigation'
 import { withTerminalSmokeTimeout } from './terminal-smoke-timeout'
-
 /** Retain broad terminal presentation assertions only in the legacy workflow. */
 export async function verifyLegacyTerminalPresentation(
   win: BrowserWindow,
@@ -55,6 +55,7 @@ export async function verifyTerminalPresentationLifecycle(
   launchMenuOverflowRoot?: HostPath,
 ): Promise<string> {
   const explicitLaunch = await ensureExplicitBareShellLaunch(win, supervisor)
+  const semanticStatus = await verifyTerminalSemanticNavigation(win, supervisor)
   const horizonStatus = await verifyTerminalHorizonPresentation(win)
   const layoutFocusStatus = await verifyTerminalLayoutFocus(win)
   const projectReturnStatus = await verifyTerminalProjectReturn(
@@ -503,6 +504,7 @@ export async function verifyTerminalPresentationLifecycle(
 
   return [
     explicitLaunch,
+    semanticStatus,
     horizonStatus,
     layoutFocusStatus,
     projectReturnStatus,

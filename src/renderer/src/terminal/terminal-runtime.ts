@@ -1,12 +1,14 @@
 import { hostPathEquals, type HostConnectionState, type HostPath } from '../../../shared'
 import { SynchronizedOutputWriter } from './synchronized-output'
 import type { TerminalEventRouter } from './terminal-event-router'
-import type { TerminalEvent, TerminalPane } from './terminal-pane'
+import type { TerminalPane } from './terminal-pane'
+import { TerminalPaneEventCoordinator } from './terminal-pane-event-coordinator'
+import type { TerminalSemanticRegionDirection } from './terminal-semantic-regions'
 import { createTerminalRuntimePane } from './terminal-pane-factory'
 import {
   launchUnavailableStatus,
   resumeUnavailableStatus,
-  type TerminalRecoveryFailure,
+  terminalRecoveryFailureEquals,
   type TerminalRuntimeSnapshot,
 } from './terminal-runtime-presentation'
 import type { TerminalRuntimeOptions } from './terminal-runtime-options'
@@ -36,6 +38,7 @@ export class TerminalRuntime {
   private pendingReplacementId?: string
   private activePtyId?: string
   private startController?: AbortController
+  readonly paneEvents: TerminalPaneEventCoordinator
   private disposed = false
 
   constructor(
@@ -52,6 +55,7 @@ export class TerminalRuntime {
     ) => Promise<() => void>,
   ) {
     this.options = options
+    this.paneEvents = new TerminalPaneEventCoordinator(options.fallbackTitle)
     // Connected is the neutral initial value; the first synchronization must still
     // publish a disconnected/connecting state without requiring a mounted pane.
     this.appliedConnectionState = 'connected'
@@ -116,6 +120,7 @@ export class TerminalRuntime {
   attach(container: HTMLElement): void {
     if (this.disposed) return
     const changed = this.surface.attach(container, this.options.presentation)
+    this.paneEvents.attach(container)
     if (this.pane) {
       if (changed && this.options.active) this.focus()
       return
@@ -125,12 +130,19 @@ export class TerminalRuntime {
 
   detach(container: HTMLElement): void {
     this.surface.detach(container)
+    this.paneEvents.detach(container)
   }
 
   focus(): void {
     if (this.disposed || !this.surface.currentContainer) return
     if (this.pane && this.surface.canFocus()) this.pane.focus()
     this.options.onFocus()
+  }
+
+  navigateSemanticRegion(direction: TerminalSemanticRegionDirection): void {
+    const pane = this.pane
+    if (this.disposed || !pane || !this.options.active || !this.surface.canFocus()) return
+    this.paneEvents.navigate(direction, pane)
   }
 
   restart(): void {
@@ -397,21 +409,15 @@ export class TerminalRuntime {
           })
         }, PTY_RESIZE_DEBOUNCE_MS)
       }),
-      pane.events.onEvent((event) => this.handlePaneEvent(event)),
+      pane.events.onEvent((event) => {
+        const effect = this.paneEvents.handle(event)
+        if (effect && 'title' in effect) {
+          this.updateSnapshot({ ...this.currentSnapshot, title: effect.title })
+          this.options.onTitle(effect.title)
+        } else if (effect?.bell) this.options.onBell()
+      }),
       pane.events.onLink((target) => this.options.onLink(target)),
     ]
-  }
-
-  private handlePaneEvent(event: TerminalEvent): void {
-    const type = event.type
-    if (type === 'title') {
-      const next = event.title.trim() || this.options.fallbackTitle
-      if (next === this.currentSnapshot.title) return
-      this.updateSnapshot({ ...this.currentSnapshot, title: next })
-      this.options.onTitle(next)
-    } else if (type === 'bell' || (type === 'notification' && event.source === 'osc-9')) {
-      this.options.onBell()
-    }
   }
 
   private installPtyListeners(sessionId: string): void {
@@ -458,6 +464,7 @@ export class TerminalRuntime {
     this.outputWriter?.dispose()
     this.outputWriter = undefined
     this.pendingInput = ''
+    this.paneEvents.clear()
     this.pane?.dispose()
     this.pane = undefined
     this.surface.releaseResources()
@@ -475,7 +482,7 @@ export class TerminalRuntime {
       snapshot.title === this.currentSnapshot.title &&
       snapshot.status === this.currentSnapshot.status &&
       snapshot.exited === this.currentSnapshot.exited &&
-      recoveryFailureEquals(
+      terminalRecoveryFailureEquals(
         snapshot.recoveryFailure,
         this.currentSnapshot.recoveryFailure,
       )
@@ -490,11 +497,4 @@ export class TerminalRuntime {
   private isCurrent(generation: number): boolean {
     return !this.disposed && generation === this.startGeneration
   }
-}
-
-function recoveryFailureEquals(
-  left: TerminalRecoveryFailure | undefined,
-  right: TerminalRecoveryFailure | undefined,
-): boolean {
-  return left?.kind === right?.kind && left?.reason === right?.reason
 }
