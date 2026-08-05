@@ -55,6 +55,13 @@ export class TerminalRuntimeRegistry {
     }
   }
 
+  openSearch(): boolean {
+    for (const runtime of this.runtimes.values()) {
+      if (runtime.interactions.search.open()) return true
+    }
+    return false
+  }
+
   dispose(): void {
     for (const runtime of this.runtimes.values()) runtime.dispose()
     this.runtimes.clear()

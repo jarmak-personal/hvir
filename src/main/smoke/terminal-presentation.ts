@@ -7,6 +7,7 @@ import { verifyTerminalContextMenu } from './terminal-context-menu'
 import { verifyTerminalHorizonPresentation } from './terminal-horizon-presentation'
 import { verifyTerminalProjectReturn } from './terminal-project-return'
 import { verifyTerminalSemanticNavigation } from './terminal-semantic-navigation'
+import { verifyTerminalSearch } from './terminal-search'
 import { withTerminalSmokeTimeout } from './terminal-smoke-timeout'
 import { verifySynchronizedOutput } from './terminal-synchronized-output'
 export async function verifyTerminalPresentationLifecycle(
@@ -16,6 +17,7 @@ export async function verifyTerminalPresentationLifecycle(
 ): Promise<string> {
   const explicitLaunch = await ensureExplicitBareShellLaunch(win, supervisor)
   const semanticStatus = await verifyTerminalSemanticNavigation(win, supervisor)
+  const searchStatus = await verifyTerminalSearch(win, supervisor)
   const horizonStatus = await verifyTerminalHorizonPresentation(win)
   const layoutFocusStatus = await verifyTerminalLayoutFocus(win)
   const projectReturnStatus = await verifyTerminalProjectReturn(
@@ -469,6 +471,7 @@ export async function verifyTerminalPresentationLifecycle(
   return [
     explicitLaunch,
     semanticStatus,
+    searchStatus,
     horizonStatus,
     layoutFocusStatus,
     projectReturnStatus,

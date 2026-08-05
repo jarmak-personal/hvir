@@ -251,6 +251,7 @@ export function App(): ReactElement {
     cycleViewMode: cycleActiveMode,
     findFile: layout.focusFilenameSearch,
     findInFile: viewerCommands.findInFile,
+    findInTerminal: terminalWorkspaces.openTerminalSearch,
     goToLine: viewerCommands.goToLine,
     toggleTerminalFocus,
     focusTerminal,

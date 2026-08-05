@@ -57,6 +57,27 @@ describe('workbench command listener', () => {
     expect(findFile.defaultPrevented).toBe(true)
     expect(ports.findFile).toHaveBeenCalledOnce()
   })
+
+  it('claims Mod+F only while keyboard focus belongs to a terminal panel', () => {
+    const ports = commandPorts()
+    act(() => root.render(<TerminalCommandHarness ports={ports} />))
+    const terminal = container.querySelector('textarea')!
+    const primaryModifier = /Mac/.test(navigator.platform)
+      ? { metaKey: true }
+      : { ctrlKey: true }
+    const find = keydown('f', primaryModifier)
+    const terminalInput = vi.fn()
+    terminal.addEventListener('keydown', terminalInput)
+
+    act(() => {
+      terminal.dispatchEvent(find)
+    })
+
+    expect(find.defaultPrevented).toBe(true)
+    expect(ports.findInTerminal).toHaveBeenCalledOnce()
+    expect(ports.findInFile).not.toHaveBeenCalled()
+    expect(terminalInput).not.toHaveBeenCalled()
+  })
 })
 
 function CommandHarness({
@@ -68,6 +89,19 @@ function CommandHarness({
   return (
     <div className="web-pane">
       <input aria-label="Web pane path" />
+    </div>
+  )
+}
+
+function TerminalCommandHarness({
+  ports,
+}: {
+  readonly ports: WorkbenchCommandPorts
+}): ReactElement {
+  useWorkbenchCommands(DEFAULT_KEYBINDINGS, ports)
+  return (
+    <div className="terminal-panel">
+      <textarea aria-label="Terminal input" />
     </div>
   )
 }
@@ -92,6 +126,7 @@ function commandPorts(): WorkbenchCommandPorts {
     cycleViewMode: vi.fn(),
     findFile: vi.fn(),
     findInFile: vi.fn(),
+    findInTerminal: vi.fn(),
     goToLine: vi.fn(),
     toggleTerminalFocus: vi.fn(),
     focusTerminal: vi.fn(),

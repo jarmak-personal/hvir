@@ -9,6 +9,10 @@ import {
 import { createPortal } from 'react-dom'
 
 import { boundTerminalContextMenuPosition } from './terminal-context-menu-position'
+import {
+  readApplicationClipboard,
+  writeApplicationClipboard,
+} from './terminal-clipboard'
 import type {
   TerminalContextMenuController,
   TerminalContextMenuRequest,
@@ -19,6 +23,7 @@ type TerminalMenuAction = 'copy' | 'paste' | 'select-all' | 'clear' | 'reset'
 interface TerminalContextMenuProps {
   readonly controller: TerminalContextMenuController
   readonly onSplit: () => void
+  readonly onSearch: () => void
   readonly onOpenSettings: () => void
   readonly readText?: () => Promise<string>
   readonly writeText?: (value: string) => Promise<void>
@@ -27,6 +32,7 @@ interface TerminalContextMenuProps {
 export function TerminalContextMenu({
   controller,
   onSplit,
+  onSearch,
   onOpenSettings,
   readText = readApplicationClipboard,
   writeText = writeApplicationClipboard,
@@ -198,6 +204,15 @@ export function TerminalContextMenu({
             role="menuitem"
             disabled={pending !== undefined}
             onPointerDown={retainTerminalFocus}
+            onClick={() => runWorkspaceAction(onSearch)}
+          >
+            Search Terminal…
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            disabled={pending !== undefined}
+            onPointerDown={retainTerminalFocus}
             onClick={() => act('select-all', ({ target }) => target.selectAll())}
           >
             Select All
@@ -250,20 +265,6 @@ export function TerminalContextMenu({
     </>,
     document.body,
   )
-}
-
-function readApplicationClipboard(): Promise<string> {
-  if (!navigator.clipboard?.readText) {
-    return Promise.reject(new Error('Clipboard reading is unavailable'))
-  }
-  return navigator.clipboard.readText()
-}
-
-function writeApplicationClipboard(value: string): Promise<void> {
-  if (!navigator.clipboard?.writeText) {
-    return Promise.reject(new Error('Clipboard writing is unavailable'))
-  }
-  return navigator.clipboard.writeText(value)
 }
 
 function retainTerminalFocus(event: ReactPointerEvent<HTMLButtonElement>): void {

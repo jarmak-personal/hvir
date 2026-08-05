@@ -89,6 +89,8 @@ function samples(): readonly TerminalPresentationSample[] {
     pendingFrame: false,
     synchronizedOutput: index >= 3,
     synchronizedOutputRecoveries: 0,
+    retainedRows: 75_600,
+    retainedByteLimit: 10_000_000,
     semanticRegions: 256,
     semanticRegionLimit: 256,
     delivery: {

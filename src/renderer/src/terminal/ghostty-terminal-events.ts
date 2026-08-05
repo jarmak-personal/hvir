@@ -1,11 +1,13 @@
 import type {
   TerminalEvent as GhosttyTerminalEvent,
+  TerminalEventProvenance as GhosttyTerminalEventProvenance,
   TerminalPaletteRequest as GhosttyTerminalPaletteRequest,
   TerminalPaletteTarget as GhosttyTerminalPaletteTarget,
 } from 'ghostty-web'
 
 import type {
   TerminalEvent,
+  TerminalEventProvenance,
   TerminalPaletteRequest,
   TerminalPaletteTarget,
 } from './terminal-pane'
@@ -13,6 +15,9 @@ import type {
 /** Translate the closed Ghostty event union without leaking its types past the pane. */
 export function translateGhosttyTerminalEvent(
   event: GhosttyTerminalEvent,
+  retainProvenance: (
+    provenance: GhosttyTerminalEventProvenance,
+  ) => TerminalEventProvenance,
 ): TerminalEvent | undefined {
   switch (event.type) {
     case 'title':
@@ -38,7 +43,7 @@ export function translateGhosttyTerminalEvent(
         type: 'semantic',
         action: event.action,
         options: event.options,
-        provenance: { ...event.provenance },
+        provenance: retainProvenance(event.provenance),
       }
     case 'palette': {
       const request = translatePaletteRequest(event.request)

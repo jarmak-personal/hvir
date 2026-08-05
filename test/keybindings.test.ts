@@ -16,13 +16,13 @@ describe('configurable keybindings', () => {
     expect(bindings.goToLine).toBe('Ctrl+G')
   })
 
-  it('keeps viewer navigation out of terminal and web-pane input', () => {
+  it('reserves Mod+F for terminal search while keeping other viewer navigation out', () => {
     expect(keybindingAvailableInContext('findFile', 'workbench')).toBe(true)
     expect(keybindingAvailableInContext('findFile', 'terminal')).toBe(false)
     expect(keybindingAvailableInContext('findFile', 'web-pane')).toBe(true)
     expect(keybindingAvailableInContext('goToLine', 'workbench')).toBe(true)
     expect(keybindingAvailableInContext('findInFile', 'workbench')).toBe(true)
-    expect(keybindingAvailableInContext('findInFile', 'terminal')).toBe(false)
+    expect(keybindingAvailableInContext('findInFile', 'terminal')).toBe(true)
     expect(keybindingAvailableInContext('findInFile', 'web-pane')).toBe(false)
     expect(keybindingAvailableInContext('goToLine', 'terminal')).toBe(false)
     expect(keybindingAvailableInContext('goToLine', 'web-pane')).toBe(false)

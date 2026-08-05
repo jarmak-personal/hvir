@@ -155,9 +155,9 @@ function marker(
   row: number,
   screen: 'normal' | 'alternate' = 'normal',
 ) {
-  return { action, provenance: { id, row, screen } }
+  return { action, provenance: { id, row, column: 0, screen } }
 }
 
 function retain(provenance: TerminalEventProvenance): TerminalEventLocation {
-  return { screen: provenance.screen, row: provenance.row }
+  return { screen: provenance.screen, row: provenance.row, column: provenance.column }
 }

@@ -1,8 +1,11 @@
 import {
   Terminal as GhosttyTerminal,
   init,
+  type IRetainedBufferRange as GhosttyRetainedBufferRange,
+  type IRetainedBufferSearchResult as GhosttyRetainedBufferSearchResult,
   type ILink,
   type ILinkProvider,
+  type TerminalEventProvenance as GhosttyTerminalEventProvenance,
 } from 'ghostty-web'
 
 import type {
@@ -21,6 +24,8 @@ import type {
   TerminalSize,
   TerminalColorTheme,
   TerminalLinkActivation,
+  TerminalRetainedBufferRange,
+  TerminalRetainedBufferSearch,
   TerminalTypography,
 } from './terminal-pane'
 import { translateGhosttyTerminalEvent } from './ghostty-terminal-events'
@@ -39,6 +44,7 @@ import { writePreservingViewport } from './terminal-viewport'
 import { TerminalWheelController } from './terminal-wheel'
 
 let initializeGhostty: Promise<void> | undefined
+const TERMINAL_SCROLLBACK_BYTES = 10_000_000
 
 export interface GhosttyTerminalPaneOptions {
   readonly modifiedKeyProtocol: HarnessModifiedKeyProtocol
@@ -79,6 +85,10 @@ class ListenerSet<T> {
 class GhosttyTerminalPane implements TerminalPane {
   private readonly terminal: GhosttyTerminal
   private readonly fit: TerminalFitController
+  private readonly nativeProvenance = new WeakMap<
+    TerminalEventProvenance,
+    GhosttyTerminalEventProvenance
+  >()
 
   constructor(
     theme: TerminalColorTheme,
@@ -91,7 +101,7 @@ class GhosttyTerminalPane implements TerminalPane {
       cursorStyle: 'block',
       fontFamily: typography.fontFamily,
       fontSize: typography.fontSize,
-      scrollback: 10_000,
+      scrollback: TERMINAL_SCROLLBACK_BYTES,
       theme,
       disableContextMenu: true,
     })
@@ -143,6 +153,8 @@ class GhosttyTerminalPane implements TerminalPane {
         ...this.terminal.getRenderStats(),
         cols: this.terminal.cols,
         rows: this.terminal.rows,
+        retainedRows: this.terminal.getScrollbackLength(),
+        retainedByteLimit: TERMINAL_SCROLLBACK_BYTES,
         fontFamily: this.typography.fontFamily,
         fontSize: this.typography.fontSize,
       }),
@@ -153,7 +165,9 @@ class GhosttyTerminalPane implements TerminalPane {
       this.terminal.onData((data) => this.emitInput(data)),
       this.terminal.onResize((size) => this.resizeListeners.emit(size)),
       this.terminal.onTerminalEvent((event) => {
-        const translated = translateGhosttyTerminalEvent(event)
+        const translated = translateGhosttyTerminalEvent(event, (provenance) =>
+          this.retainProvenance(provenance),
+        )
         if (translated) this.eventListeners.emit(translated)
       }),
     )
@@ -254,7 +268,12 @@ class GhosttyTerminalPane implements TerminalPane {
     provenance: TerminalEventProvenance,
   ): TerminalEventLocation | undefined {
     if (this.disposed) return undefined
-    return this.terminal.resolveEventProvenance({ ...provenance }) ?? undefined
+    const native = this.nativeProvenance.get(provenance)
+    if (!native) return undefined
+    const location = this.terminal.resolveEventProvenance(native)
+    return location
+      ? { screen: location.screen, row: location.row, column: location.column }
+      : undefined
   }
 
   activeEventScreen(): TerminalEventScreen {
@@ -271,6 +290,48 @@ class GhosttyTerminalPane implements TerminalPane {
     this.terminal.scrollToLine(Math.max(0, scrollbackLength - location.row))
     this.redraw()
     return true
+  }
+
+  async searchRetainedBuffer(
+    query: string,
+    options: Readonly<{ caseSensitive: boolean; signal?: AbortSignal }>,
+  ): Promise<TerminalRetainedBufferSearch> {
+    if (this.disposed) throw new Error('Cannot search a disposed terminal pane')
+    const result = await this.terminal.searchRetainedBuffer(query, options)
+    if (this.disposed) {
+      result.dispose()
+      throw new Error('Terminal pane was disposed during search')
+    }
+    return new GhosttyRetainedBufferSearch(result, (match) =>
+      this.revealRetainedBufferRange(match),
+    )
+  }
+
+  cancelRetainedBufferSearch(): void {
+    if (!this.disposed) this.terminal.cancelRetainedBufferSearch()
+  }
+
+  captureRetainedBufferBoundary(): TerminalEventProvenance | undefined {
+    if (this.disposed) return undefined
+    return this.retainProvenance(this.terminal.captureRetainedBufferBoundary())
+  }
+
+  extractRetainedBufferRange(
+    start: TerminalEventProvenance,
+    end: TerminalEventProvenance,
+    options: Readonly<{ signal?: AbortSignal }> = {},
+  ): Promise<string> {
+    if (this.disposed) return Promise.reject(new Error('Terminal pane is disposed'))
+    const nativeStart = this.nativeProvenance.get(start)
+    const nativeEnd = this.nativeProvenance.get(end)
+    if (!nativeStart || !nativeEnd) {
+      return Promise.reject(new Error('Terminal region boundaries are stale or foreign'))
+    }
+    return this.terminal.extractRetainedBufferRange(nativeStart, nativeEnd, options)
+  }
+
+  cancelRetainedBufferExtraction(): void {
+    if (!this.disposed) this.terminal.cancelRetainedBufferExtraction()
   }
 
   hasSelection(): boolean {
@@ -326,6 +387,27 @@ class GhosttyTerminalPane implements TerminalPane {
     this.dataListeners.emit(data)
   }
 
+  private retainProvenance(
+    provenance: GhosttyTerminalEventProvenance,
+  ): TerminalEventProvenance {
+    const retained: TerminalEventProvenance = Object.freeze({
+      id: provenance.id,
+      screen: provenance.screen,
+      row: provenance.row,
+      column: provenance.column,
+    })
+    this.nativeProvenance.set(retained, provenance)
+    return retained
+  }
+
+  private revealRetainedBufferRange(match: GhosttyRetainedBufferRange): boolean {
+    return this.revealEventLocation({
+      screen: 'normal',
+      row: match.start.row,
+      column: match.start.column,
+    })
+  }
+
   private emitClipboardPaste(fallbackData: string): void {
     this.terminal.resetCursorBlink()
     this.clipboardPasteListeners.emit(fallbackData)
@@ -347,6 +429,56 @@ class GhosttyTerminalPane implements TerminalPane {
       this.dataListeners.emit(data)
     }
     return result.handled
+  }
+}
+
+class GhosttyRetainedBufferSearch implements TerminalRetainedBufferSearch {
+  readonly query: string
+  readonly caseSensitive: boolean
+  readonly matches: readonly TerminalRetainedBufferRange[]
+  private readonly nativeRanges = new WeakMap<
+    TerminalRetainedBufferRange,
+    GhosttyRetainedBufferRange
+  >()
+  private disposed = false
+
+  constructor(
+    private readonly native: GhosttyRetainedBufferSearchResult,
+    private readonly revealRange: (match: GhosttyRetainedBufferRange) => boolean,
+  ) {
+    this.query = native.query
+    this.caseSensitive = native.caseSensitive
+    this.matches = native.matches.map((match) => {
+      const retained: TerminalRetainedBufferRange = Object.freeze({
+        start: Object.freeze({ row: match.start.row, column: match.start.column }),
+        end: Object.freeze({ row: match.end.row, column: match.end.column }),
+      })
+      this.nativeRanges.set(retained, match)
+      return retained
+    })
+  }
+
+  reveal(match: TerminalRetainedBufferRange): boolean {
+    const native = this.nativeRange(match)
+    if (!native || this.native.extract(native) === undefined) return false
+    return this.revealRange(native)
+  }
+
+  extract(match: TerminalRetainedBufferRange): string | undefined {
+    const native = this.nativeRange(match)
+    return native ? this.native.extract(native) : undefined
+  }
+
+  dispose(): void {
+    if (this.disposed) return
+    this.disposed = true
+    this.native.dispose()
+  }
+
+  private nativeRange(
+    match: TerminalRetainedBufferRange,
+  ): GhosttyRetainedBufferRange | undefined {
+    return this.disposed ? undefined : this.nativeRanges.get(match)
   }
 }
 

@@ -62,6 +62,7 @@ export function useTerminalWorkspaceRuntime({
 
   return {
     materializedWorkspaceIds,
+    openTerminalSearch: () => owner.runtimes.openSearch(),
     moveProps: (project: RegisteredProjectState, workspace: WorkspaceState) => ({
       runtimes: owner.runtimes,
       moveTargets: project.workspaces.filter(

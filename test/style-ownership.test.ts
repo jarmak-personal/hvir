@@ -31,6 +31,7 @@ const expectedOrder = [
   'viewer-content.css',
   'viewer-workload.css',
   'terminal-pane.css',
+  'terminal-search.css',
   'web-pane.css',
   'scrollbars.css',
 ] as const

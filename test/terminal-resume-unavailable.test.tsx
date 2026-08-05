@@ -56,6 +56,20 @@ vi.mock('../src/renderer/src/terminal/ghostty-terminal-pane', () => ({
       resolveEventProvenance: vi.fn(() => undefined),
       activeEventScreen: vi.fn(() => 'normal' as const),
       revealEventLocation: vi.fn(() => false),
+      searchRetainedBuffer: vi.fn(() =>
+        Promise.resolve({
+          query: '',
+          caseSensitive: false,
+          matches: [],
+          reveal: () => false,
+          extract: () => undefined,
+          dispose: () => undefined,
+        }),
+      ),
+      cancelRetainedBufferSearch: vi.fn(),
+      captureRetainedBufferBoundary: vi.fn(() => undefined),
+      extractRetainedBufferRange: vi.fn(() => Promise.resolve('')),
+      cancelRetainedBufferExtraction: vi.fn(),
       hasSelection: vi.fn(() => false),
       getSelection: vi.fn(() => ''),
       paste: vi.fn(),
@@ -174,6 +188,34 @@ describe('terminal resume unavailable state', () => {
     )
   })
 
+  it('restores search for the same pane and PTY after a hidden detach and reattach', async () => {
+    invoke.mockResolvedValue(startedResponse())
+    const runtimeOptions = {
+      ...options(),
+      harnessSessionId: undefined,
+      resumeOnStart: false,
+    }
+    const runtime = registry.acquire(runtimeOptions)
+    const initialContainer = document.createElement('div')
+    runtime.attach(initialContainer)
+    await vi.waitFor(() => expect(runtime.interactions.search.open()).toBe(true))
+    runtime.interactions.search.close()
+
+    runtime.update({ ...runtimeOptions, presentation: 'hidden' })
+    runtime.synchronizeLifecycle()
+    runtime.detach(initialContainer)
+    expect(runtime.interactions.search.open()).toBe(false)
+
+    runtime.update(runtimeOptions)
+    runtime.synchronizeLifecycle()
+    expect(runtime.interactions.search.open()).toBe(false)
+    runtime.attach(document.createElement('div'))
+
+    expect(runtime.interactions.search.open()).toBe(true)
+    expect(paneState.instances).toHaveLength(1)
+    expect(invoke).toHaveBeenCalledOnce()
+  })
+
   it('keeps typed missing-artifact state sticky while preserving the retained identity', async () => {
     const runtimeOptions = options()
     const runtime = registry.acquire(runtimeOptions)
@@ -221,7 +263,7 @@ describe('terminal resume unavailable state', () => {
         type: 'semantic',
         action: 'prompt-start',
         options: '',
-        provenance: { id: 1, screen: 'normal', row: 2 },
+        provenance: { id: 1, screen: 'normal', row: 2, column: 0 },
       },
       {
         type: 'palette',

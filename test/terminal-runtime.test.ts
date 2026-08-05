@@ -36,7 +36,7 @@ describe('terminal runtime capability preflight', () => {
         GhosttyTerminal: IncompatibleTerminal,
       }),
     ).toThrow(
-      /requestRender, setRenderPaused, resetCursorBlink, getRenderStats, resolveEventProvenance, hasSelection, getSelection, paste, selectAll, clear, reset, isSynchronizedOutput, getSynchronizedOutputGeneration, resetSynchronizedOutput, custom link-provider priority.*npm ci.*retry the command/,
+      /requestRender, setRenderPaused, resetCursorBlink, getRenderStats, resolveEventProvenance, hasSelection, getSelection, paste, selectAll, clear, reset, searchRetainedBuffer, cancelRetainedBufferSearch, extractRetainedBufferRange, cancelRetainedBufferExtraction, captureRetainedBufferBoundary, isSynchronizedOutput, getSynchronizedOutputGeneration, resetSynchronizedOutput, custom link-provider priority.*npm ci.*retry the command/,
     )
   })
 
@@ -95,8 +95,8 @@ describe('terminal runtime capability preflight', () => {
     )
     expect(profile).toMatchObject({
       artifact: {
-        sha256: '28139b0e10740b2e02b48251aaa0aa8877094a9c73d16461d97eb9e5e175a0e0',
-        sourceCommit: '4c3a26ed046a927425c4b00416215d78647879ae',
+        sha256: '01a91219de2d1bdc07d599f38125a84eb1b24881b619b8d3097d6835996fa26d',
+        sourceCommit: 'dae8a581c6ea6b86c1b59d09efdf2c9407fac559',
         ghosttyCommit: '332b2aefc6e72d363aa93ab6ecfc86eeeeb5ed28',
       },
       identity: {
@@ -112,6 +112,11 @@ describe('terminal runtime capability preflight', () => {
         browserMenuDisabled: true,
         clipboardOwner: 'hvir-renderer',
         imagePasteOwner: 'adr-026-main-coordinator',
+      },
+      retainedBuffer: {
+        owner: 'ghostty-web-native-snapshot',
+        maxQueryBytes: 64 * 1024,
+        maxExtractionBytes: 4 * 1024 * 1024,
       },
     })
   })

@@ -13,6 +13,7 @@ import type {
 import type { TerminalThemeOverride } from '../settings/settings'
 import { useAppTheme, type AppTheme } from '../theme'
 import { TerminalContextMenu } from './TerminalContextMenu'
+import { TerminalSearch } from './TerminalSearch'
 import type { TerminalLinkActivation, TerminalTypography } from './terminal-pane'
 import { useTerminalPaneController } from './use-terminal-pane-controller'
 import type { FreshTerminalStart } from './terminal-runtime-options'
@@ -91,6 +92,8 @@ export function TerminalView(props: TerminalViewProps): ReactElement | null {
     startFresh,
     previousSemanticRegion,
     nextSemanticRegion,
+    searchController,
+    openSearch,
     getContextMenuTarget,
     focus,
   } = controller
@@ -179,8 +182,13 @@ export function TerminalView(props: TerminalViewProps): ReactElement | null {
         onContextMenu={contextMenu.openFromPointer}
         onKeyDownCapture={contextMenu.openFromKeyboard}
       />
+      <TerminalSearch
+        controller={searchController}
+        canCopyRegion={semanticRegionsAvailable}
+      />
       <TerminalContextMenu
         controller={contextMenu}
+        onSearch={openSearch}
         onSplit={props.onSplit}
         onOpenSettings={props.onOpenTerminalSettings}
       />

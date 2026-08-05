@@ -2,7 +2,9 @@
 
 import { act } from 'react'
 import { createRoot } from 'react-dom/client'
-import type { TerminalEvent as GhosttyTerminalEvent } from 'ghostty-web'
+import type {
+  TerminalEvent as GhosttyTerminalEvent,
+} from 'ghostty-web'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { createGhosttyTerminalPane } from '../src/renderer/src/terminal/ghostty-terminal-pane'
@@ -207,15 +209,14 @@ vi.mock('ghostty-web', () => {
         cursorVisible: true,
       }
     }
-
     resolveEventProvenance(provenance: { screen: 'normal' | 'alternate'; row: number }) {
-      return { screen: provenance.screen, row: provenance.row }
+      return { screen: provenance.screen, row: provenance.row, column: 0 }
     }
-
+    cancelRetainedBufferSearch(): void {}
+    cancelRetainedBufferExtraction(): void {}
     write(data: string): void {
       this.state.writes.push(data)
     }
-
     resize(cols: number, rows: number): void {
       if (cols === this.cols && rows === this.rows) return
       this.cols = cols
@@ -224,7 +225,6 @@ vi.mock('ghostty-web', () => {
       this.state.resizes.push(size)
       this.state.emitResize(size)
     }
-
     focus(): void {
       this.state.focusCalls += 1
     }

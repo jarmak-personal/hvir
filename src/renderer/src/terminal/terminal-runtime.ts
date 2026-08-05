@@ -1,9 +1,6 @@
 import { hostPathEquals, type HostConnectionState, type HostPath } from '../../../shared'
 import type { TerminalEventRouter } from './terminal-event-router'
-import { TerminalContextMenuOwner } from './terminal-context-menu-target'
 import type { TerminalPane } from './terminal-pane'
-import { TerminalPaneEventCoordinator } from './terminal-pane-event-coordinator'
-import type { TerminalSemanticRegionDirection } from './terminal-semantic-regions'
 import { createTerminalRuntimePane } from './terminal-pane-factory'
 import {
   launchUnavailableStatus,
@@ -12,6 +9,7 @@ import {
   type TerminalRuntimeSnapshot,
 } from './terminal-runtime-presentation'
 import type { TerminalRuntimeOptions } from './terminal-runtime-options'
+import { TerminalRuntimeInteractions } from './terminal-runtime-interactions'
 import { TerminalSurfaceAttachment } from './terminal-surface-attachment'
 
 const PTY_RESIZE_DEBOUNCE_MS = 75
@@ -37,11 +35,7 @@ export class TerminalRuntime {
   private pendingReplacementId?: string
   private activePtyId?: string
   private startController?: AbortController
-  readonly paneEvents: TerminalPaneEventCoordinator
-  private readonly contextMenu = new TerminalContextMenuOwner(() =>
-    this.surface.canFocus(),
-  )
-  readonly contextMenuTarget = this.contextMenu.target
+  readonly interactions: TerminalRuntimeInteractions
   private disposed = false
 
   constructor(
@@ -58,7 +52,13 @@ export class TerminalRuntime {
     ) => Promise<() => void>,
   ) {
     this.options = options
-    this.paneEvents = new TerminalPaneEventCoordinator(options.fallbackTitle)
+    this.interactions = new TerminalRuntimeInteractions(
+      options.fallbackTitle,
+      () => this.surface.canFocus(),
+      () => this.focus(),
+      () => this.options.onFocus(),
+    )
+    this.interactions.updateAvailability(options.active && options.presentation === 'visible')
     // Connected is the neutral initial value; the first synchronization must still
     // publish a disconnected/connecting state without requiring a mounted pane.
     this.appliedConnectionState = 'connected'
@@ -92,11 +92,16 @@ export class TerminalRuntime {
       options.typography.fontFamily !== this.options.typography.fontFamily ||
       options.typography.fontSize !== this.options.typography.fontSize
     this.options = options
+    this.interactions.updateAvailability(
+      options.active && options.presentation === 'visible',
+    )
     if (typographyChanged) this.pane?.setTypography(options.typography)
+    if (typographyChanged) this.interactions.retainedBufferChanged()
   }
 
   synchronizeLifecycle(): void {
     this.surface.synchronize(this.options.presentation)
+    this.interactions.synchronizeAvailability()
     const connectionState = this.options.connectionState
     if (this.appliedConnectionState === connectionState) return
     this.appliedConnectionState = connectionState
@@ -123,7 +128,7 @@ export class TerminalRuntime {
   attach(container: HTMLElement): void {
     if (this.disposed) return
     const changed = this.surface.attach(container, this.options.presentation)
-    this.paneEvents.attach(container)
+    this.interactions.attachSurface(container)
     if (this.pane) {
       if (changed && this.options.active) this.focus()
       return
@@ -133,19 +138,13 @@ export class TerminalRuntime {
 
   detach(container: HTMLElement): void {
     this.surface.detach(container)
-    this.paneEvents.detach(container)
+    this.interactions.detachSurface(container)
   }
 
   focus(): void {
     if (this.disposed || !this.surface.currentContainer) return
     if (this.pane && this.surface.canFocus()) this.pane.focus()
     this.options.onFocus()
-  }
-
-  navigateSemanticRegion(direction: TerminalSemanticRegionDirection): void {
-    const pane = this.pane
-    if (this.disposed || !pane || !this.options.active || !this.surface.canFocus()) return
-    this.paneEvents.navigate(direction, pane)
   }
 
   restart(): void {
@@ -318,7 +317,7 @@ export class TerminalRuntime {
       this.started = true
       this.hasStarted = true
       this.activePtyId = result.id
-      this.contextMenu.bind(pane, result.id, () => this.options.onFocus())
+      this.interactions.bind(pane, result.id)
       const status = result.reattached
         ? `Reattached · pid ${result.pid}`
         : result.resumed
@@ -398,6 +397,7 @@ export class TerminalRuntime {
         } else this.pendingInput += fallbackData
       }),
       pane.events.onResize(({ cols, rows }) => {
+        this.interactions.retainedBufferChanged()
         this.terminalSize = { cols, rows }
         if (!this.started) return
         if (this.resizeTimer !== undefined) window.clearTimeout(this.resizeTimer)
@@ -410,7 +410,7 @@ export class TerminalRuntime {
         }, PTY_RESIZE_DEBOUNCE_MS)
       }),
       pane.events.onEvent((event) => {
-        const effect = this.paneEvents.handle(event)
+        const effect = this.interactions.paneEvents.handle(event)
         if (effect && 'title' in effect) {
           this.updateSnapshot({ ...this.currentSnapshot, title: effect.title })
           this.options.onTitle(effect.title)
@@ -428,11 +428,12 @@ export class TerminalRuntime {
         onData: (data) => {
           this.options.onOutput()
           pane.write(data)
+          this.interactions.retainedBufferChanged()
         },
         onExit: (exitCode) => {
           this.started = false
           this.activePtyId = undefined
-          this.contextMenu.revoke()
+          this.interactions.revoke(false)
           this.updateSnapshot({
             ...this.currentSnapshot,
             status: `Exited (${exitCode})`,
@@ -463,8 +464,7 @@ export class TerminalRuntime {
     if (this.resizeTimer !== undefined) window.clearTimeout(this.resizeTimer)
     this.resizeTimer = undefined
     this.pendingInput = ''
-    this.paneEvents.clear()
-    this.contextMenu.revoke()
+    this.interactions.revoke(true)
     this.pane?.dispose()
     this.pane = undefined
     this.surface.releaseResources()

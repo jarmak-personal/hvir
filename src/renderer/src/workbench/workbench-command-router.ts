@@ -7,6 +7,7 @@ export interface WorkbenchCommandPorts {
   readonly cycleViewMode: () => void
   readonly findFile: () => void
   readonly findInFile: () => void
+  readonly findInTerminal: () => void
   readonly goToLine: () => void
   readonly toggleTerminalFocus: () => void
   readonly focusTerminal: () => void
@@ -19,6 +20,7 @@ export function dispatchWorkbenchCommand(
   action: WebPaneCommandAction,
   paneId: string | undefined,
   ports: WorkbenchCommandPorts,
+  context: 'terminal' | 'web-pane' | 'workbench' = 'workbench',
 ): void {
   switch (action) {
     case 'closeWebPane':
@@ -31,7 +33,8 @@ export function dispatchWorkbenchCommand(
       if (ports.canUseViewerCommands()) ports.cycleViewMode()
       return
     case 'findInFile':
-      if (ports.canUseViewerCommands()) ports.findInFile()
+      if (context === 'terminal') ports.findInTerminal()
+      else if (ports.canUseViewerCommands()) ports.findInFile()
       return
     case 'findFile':
       ports.findFile()

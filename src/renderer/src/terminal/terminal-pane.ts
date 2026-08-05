@@ -45,11 +45,30 @@ export interface TerminalEventProvenance {
   readonly id: number
   readonly screen: TerminalEventScreen
   readonly row: number
+  readonly column: number
 }
 
 export interface TerminalEventLocation {
   readonly screen: TerminalEventScreen
   readonly row: number
+  readonly column: number
+}
+
+export interface TerminalRetainedBufferRange {
+  readonly start: Readonly<{ row: number; column: number }>
+  readonly end: Readonly<{ row: number; column: number }>
+}
+
+/** One immutable, pane-owned native search snapshot. */
+export interface TerminalRetainedBufferSearch {
+  readonly query: string
+  readonly caseSensitive: boolean
+  readonly matches: readonly TerminalRetainedBufferRange[]
+  /** Reveal a current match without mutating terminal selection. */
+  reveal(match: TerminalRetainedBufferRange): boolean
+  /** Extract exact plain text, or fail closed for stale/foreign ranges. */
+  extract(match: TerminalRetainedBufferRange): string | undefined
+  dispose(): void
 }
 
 export type TerminalSemanticAction =
@@ -187,6 +206,23 @@ export interface TerminalPane {
   activeEventScreen(): TerminalEventScreen
   /** Reveal a retained event on the currently presented screen without selecting text. */
   revealEventLocation(location: TerminalEventLocation): boolean
+  /** Search this pane's retained normal buffer through its bounded engine primitive. */
+  searchRetainedBuffer(
+    query: string,
+    options: Readonly<{ caseSensitive: boolean; signal?: AbortSignal }>,
+  ): Promise<TerminalRetainedBufferSearch>
+  /** Cancel the current query and revoke its ranges. */
+  cancelRetainedBufferSearch(): void
+  /** Capture an authenticated boundary at the current parser cursor. */
+  captureRetainedBufferBoundary(): TerminalEventProvenance | undefined
+  /** Extract exact plain text for one authenticated half-open semantic range. */
+  extractRetainedBufferRange(
+    start: TerminalEventProvenance,
+    end: TerminalEventProvenance,
+    options?: Readonly<{ signal?: AbortSignal }>,
+  ): Promise<string>
+  /** Cancel the current exact semantic-range extraction. */
+  cancelRetainedBufferExtraction(): void
   /** Report whether this exact pane owns a text selection. */
   hasSelection(): boolean
   /** Read this exact pane's selected plain text without acquiring clipboard authority. */

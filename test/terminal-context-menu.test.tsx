@@ -251,12 +251,25 @@ describe('terminal context menu ownership', () => {
     })
     expect(fixture.paste).not.toHaveBeenCalled()
   })
+
+  it('opens terminal search only through the exact current menu target', async () => {
+    const fixture = targetFixture('')
+    const onSearch = vi.fn()
+    renderMenu(fixture.target, { onSearch })
+
+    openFromPointer(terminalTarget())
+    await clickMenuButton('Search Terminal…')
+
+    expect(onSearch).toHaveBeenCalledOnce()
+    expect(document.querySelector('[role="menu"]')).toBeNull()
+  })
 })
 
 function renderMenu(
   target: TerminalContextMenuTarget,
   options: {
     readonly onSplit?: () => void
+    readonly onSearch?: () => void
     readonly onOpenSettings?: () => void
     readonly readText?: () => Promise<string>
     readonly writeText?: (value: string) => Promise<void>
@@ -266,6 +279,7 @@ function renderMenu(
     root.render(
       <MenuHarness
         target={target}
+        onSearch={options.onSearch ?? vi.fn()}
         onSplit={options.onSplit ?? vi.fn()}
         onOpenSettings={options.onOpenSettings ?? vi.fn()}
         readText={options.readText}
@@ -277,12 +291,14 @@ function renderMenu(
 
 function MenuHarness({
   target,
+  onSearch,
   onSplit,
   onOpenSettings,
   readText,
   writeText,
 }: {
   readonly target: TerminalContextMenuTarget
+  readonly onSearch: () => void
   readonly onSplit: () => void
   readonly onOpenSettings: () => void
   readonly readText?: () => Promise<string>
@@ -299,6 +315,7 @@ function MenuHarness({
       />
       <TerminalContextMenu
         controller={controller}
+        onSearch={onSearch}
         onSplit={onSplit}
         onOpenSettings={onOpenSettings}
         readText={readText}
@@ -367,6 +384,18 @@ function paneFixture() {
     resolveEventProvenance: vi.fn(() => undefined),
     activeEventScreen: vi.fn(() => 'normal' as const),
     revealEventLocation: vi.fn(() => false),
+    searchRetainedBuffer: vi.fn(() => Promise.resolve({
+      query: '',
+      caseSensitive: false,
+      matches: [],
+      reveal: () => false,
+      extract: () => undefined,
+      dispose: () => undefined,
+    })),
+    cancelRetainedBufferSearch: vi.fn(),
+    captureRetainedBufferBoundary: vi.fn(() => undefined),
+    extractRetainedBufferRange: vi.fn(() => Promise.resolve('')),
+    cancelRetainedBufferExtraction: vi.fn(),
     hasSelection: vi.fn(() => false),
     getSelection: vi.fn(() => ''),
     paste: vi.fn(),
