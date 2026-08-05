@@ -46,16 +46,10 @@
   bottom: 14px;
   max-width: min(360px, calc(100vw - 28px));
   padding: 7px 10px;
-  border: 1px solid #3b4653;
+  border: 1px solid #6e3940;
   border-radius: 5px;
   box-shadow: 0 8px 24px rgb(0 0 0 / 38%);
-  background: #1b222b;
-  color: #d7dde6;
-  font-size: calc(11px * var(--hvir-interface-scale));
-}
-
-.terminal-context-feedback.error {
-  border-color: #6e3940;
   background: #2a1b1f;
   color: #f0b8be;
+  font-size: calc(11px * var(--hvir-interface-scale));
 }

@@ -65,6 +65,7 @@ interface TerminalWorkspaceProps {
   }) => void
   readonly preferences: TerminalPreferences
   readonly onOpenSettings: () => void
+  readonly onOpenTerminalSettings: () => void
   readonly onOpenHarnessSettings: () => void
   readonly onAddHarness: () => void
   readonly runtimes: TerminalRuntimeRegistry
@@ -104,6 +105,7 @@ export function TerminalWorkspace({
   onOpenWebLink,
   preferences,
   onOpenSettings,
+  onOpenTerminalSettings,
   onOpenHarnessSettings,
   onAddHarness,
   runtimes,
@@ -290,7 +292,7 @@ export function TerminalWorkspace({
           if (url) onOpenWebLink({ terminalId: session.id, workspaceRoot, url })
         }}
         onSplit={commands.split}
-        onOpenTerminalSettings={onOpenSettings}
+        onOpenTerminalSettings={onOpenTerminalSettings}
         onSetPrimaryWidth={setTerminalPrimaryWidth}
         onResetPrimaryWidth={resetTerminalPrimaryWidth}
         runtimes={runtimes}

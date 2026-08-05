@@ -55,7 +55,7 @@ describe('terminal context menu ownership', () => {
     const owner = new TerminalContextMenuOwner(() => available)
     const original = paneFixture()
     const successor = paneFixture()
-    owner.bind('terminal-1', original.pane, 'pty-instance-1', vi.fn())
+    owner.bind(original.pane, 'pty-instance-1', vi.fn())
     const originalTarget = owner.target()
 
     expect(originalTarget?.reset()).toBe(true)
@@ -64,7 +64,7 @@ describe('terminal context menu ownership', () => {
     expect(originalTarget?.clear()).toBe(false)
 
     available = true
-    owner.bind('terminal-1', successor.pane, 'pty-instance-2', vi.fn())
+    owner.bind(successor.pane, 'pty-instance-2', vi.fn())
     expect(originalTarget?.reset()).toBe(false)
     expect(owner.target()?.reset()).toBe(true)
     expect(original.reset).toHaveBeenCalledOnce()
@@ -104,6 +104,31 @@ describe('terminal context menu ownership', () => {
     expect(menuButton('Paste')).toBe(document.activeElement)
   })
 
+  it('captures pointer-menu Escape before the focused terminal can emit it', () => {
+    const fixture = targetFixture('')
+    renderMenu(fixture.target)
+    const terminal = terminalTarget()
+    const terminalKeydown = vi.fn()
+    terminal.addEventListener('keydown', terminalKeydown)
+    terminal.focus()
+    openFromPointer(terminal)
+
+    const escape = new KeyboardEvent('keydown', {
+      key: 'Escape',
+      bubbles: true,
+      cancelable: true,
+    })
+    act(() => {
+      terminal.dispatchEvent(escape)
+    })
+
+    expect(escape.defaultPrevented).toBe(true)
+    expect(terminalKeydown).not.toHaveBeenCalled()
+    expect(document.querySelector('[role="menu"]')).toBeNull()
+    expect(fixture.focus).toHaveBeenCalledOnce()
+    expect(terminal).toBe(document.activeElement)
+  })
+
   it('copies exact plain text and preserves selection when clipboard writing fails', async () => {
     const fixture = targetFixture('first\nsecond')
     const writeText = vi.fn<(value: string) => Promise<void>>()
@@ -134,6 +159,7 @@ describe('terminal context menu ownership', () => {
 
     expect(readText).toHaveBeenCalledOnce()
     expect(fixture.paste).toHaveBeenCalledExactlyOnceWith('line one\nline two')
+    expect(document.querySelector('.terminal-context-feedback')).toBeNull()
   })
 
   it('injects nothing and reports visible feedback when text clipboard access fails', async () => {
@@ -295,7 +321,6 @@ function targetFixture(selection: string) {
   const clear = vi.fn(() => current)
   const reset = vi.fn(() => current)
   const target: TerminalContextMenuTarget = {
-    sessionId: 'terminal-1',
     isCurrent: () => current,
     hasSelection: () => current && selection.length > 0,
     getSelection,

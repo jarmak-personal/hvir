@@ -16,11 +16,6 @@ import type {
 
 type TerminalMenuAction = 'copy' | 'paste' | 'select-all' | 'clear' | 'reset'
 
-interface TerminalContextMenuFeedback {
-  readonly kind: 'success' | 'error'
-  readonly message: string
-}
-
 interface TerminalContextMenuProps {
   readonly controller: TerminalContextMenuController
   readonly onSplit: () => void
@@ -41,7 +36,7 @@ export function TerminalContextMenu({
   const alive = useRef(true)
   const currentRequest = useRef(request)
   const [pending, setPending] = useState<TerminalMenuAction>()
-  const [feedback, setFeedback] = useState<TerminalContextMenuFeedback>()
+  const [feedback, setFeedback] = useState<string>()
   currentRequest.current = request
 
   useEffect(() => {
@@ -59,6 +54,7 @@ export function TerminalContextMenu({
 
   useLayoutEffect(() => {
     setPending(undefined)
+    if (request) setFeedback(undefined)
     if (!request || !menuRef.current) return
     const menu = menuRef.current
     const bounds = menu.getBoundingClientRect()
@@ -81,6 +77,7 @@ export function TerminalContextMenu({
     const handleKeyboard = (event: globalThis.KeyboardEvent): void => {
       if (event.key === 'Escape') {
         event.preventDefault()
+        event.stopPropagation()
         controller.dismiss(true)
         return
       }
@@ -91,10 +88,10 @@ export function TerminalContextMenu({
       focusRelativeMenuItem(menu, event.key)
     }
     document.addEventListener('pointerdown', dismissOnPointer)
-    document.addEventListener('keydown', handleKeyboard)
+    document.addEventListener('keydown', handleKeyboard, true)
     return () => {
       document.removeEventListener('pointerdown', dismissOnPointer)
-      document.removeEventListener('keydown', handleKeyboard)
+      document.removeEventListener('keydown', handleKeyboard, true)
     }
   }, [controller, request])
 
@@ -115,15 +112,11 @@ export function TerminalContextMenu({
     void writeText(selection).then(
       () => {
         if (!acceptAsyncResult(actionRequest)) return
-        setFeedback({ kind: 'success', message: 'Selection copied.' })
         controller.dismiss(true)
       },
       () => {
         if (!acceptAsyncResult(actionRequest)) return
-        setFeedback({
-          kind: 'error',
-          message: 'Could not copy the selection to the clipboard.',
-        })
+        setFeedback('Could not copy the selection to the clipboard.')
         controller.dismiss(true)
       },
     )
@@ -137,21 +130,15 @@ export function TerminalContextMenu({
       (value) => {
         if (!acceptAsyncResult(actionRequest)) return
         if (value.length === 0) {
-          setFeedback({
-            kind: 'error',
-            message: 'Clipboard does not contain plain text.',
-          })
-        } else if (actionRequest.target.paste(value)) {
-          setFeedback({ kind: 'success', message: 'Clipboard text pasted.' })
+          setFeedback('Clipboard does not contain plain text.')
+        } else {
+          actionRequest.target.paste(value)
         }
         controller.dismiss(true)
       },
       () => {
         if (!acceptAsyncResult(actionRequest)) return
-        setFeedback({
-          kind: 'error',
-          message: 'Could not read plain text from the clipboard.',
-        })
+        setFeedback('Could not read plain text from the clipboard.')
         controller.dismiss(true)
       },
     )
@@ -256,12 +243,8 @@ export function TerminalContextMenu({
         </div>
       ) : null}
       {feedback ? (
-        <div
-          className={`terminal-context-feedback ${feedback.kind}`}
-          role={feedback.kind === 'error' ? 'alert' : 'status'}
-          aria-live={feedback.kind === 'error' ? 'assertive' : 'polite'}
-        >
-          {feedback.message}
+        <div className="terminal-context-feedback" role="alert" aria-live="assertive">
+          {feedback}
         </div>
       ) : null}
     </>,

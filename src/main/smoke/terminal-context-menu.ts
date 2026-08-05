@@ -31,7 +31,7 @@ export async function verifyTerminalContextMenu(
     supervisor.write(
       terminal.id,
       terminal.ownerId,
-      "stty -echo -icanon min 0 time 50; printf '\n__HVIR_MENU_READY__\n'; hvir_menu_leak=$(dd bs=1 count=1 2>/dev/null | od -An -tx1 | tr -d ' \\n'); stty icanon min 1 time 0; if [ -n \"$hvir_menu_leak\" ]; then printf '\n__HVIR_MENU_LEAK__:%s\n' \"$hvir_menu_leak\"; fi; printf '\n__HVIR_MENU_ACTIONS_READY__\n'; IFS= read -r hvir_menu_input; printf '\n__HVIR_MENU_INPUT__:%s:END\n' \"$hvir_menu_input\"; stty echo\n",
+      "stty -echo -icanon min 0 time 50; printf '\\033[?1000h\\033[?1006h\n__HVIR_MENU_READY__\n'; hvir_menu_leak=$(dd bs=1 count=1 2>/dev/null | od -An -tx1 | tr -d ' \\n'); printf '\\033[?1000l\\033[?1006l'; stty icanon min 1 time 0; if [ -n \"$hvir_menu_leak\" ]; then printf '\n__HVIR_MENU_LEAK__:%s\n' \"$hvir_menu_leak\"; fi; printf '\n__HVIR_MENU_ACTIONS_READY__\n'; IFS= read -r hvir_menu_input; printf '\n__HVIR_MENU_INPUT__:%s:END\n' \"$hvir_menu_input\"; stty echo\n",
     )
     await waitForOutput(
       () => containsOutputLine(output, READY),
@@ -55,7 +55,7 @@ export async function verifyTerminalContextMenu(
             if (Date.now() > deadline) return fail('terminal context menu did not open');
             setTimeout(() => waitForMenu(check), 20);
           };
-          const openPointer = (engine, check) => {
+          const openPointer = (canvas, check) => {
             const init = {
               bubbles: true,
               cancelable: true,
@@ -64,9 +64,9 @@ export async function verifyTerminalContextMenu(
               button: 2,
               buttons: 2
             };
-            engine.dispatchEvent(new MouseEvent('mousedown', init));
-            engine.dispatchEvent(new MouseEvent('mouseup', { ...init, buttons: 0 }));
-            engine.dispatchEvent(new MouseEvent('contextmenu', init));
+            canvas.dispatchEvent(new MouseEvent('mousedown', init));
+            canvas.dispatchEvent(new MouseEvent('mouseup', { ...init, buttons: 0 }));
+            canvas.dispatchEvent(new MouseEvent('contextmenu', init));
             waitForMenu(check);
           };
           const waitForDismissal = (next) => {
@@ -95,7 +95,7 @@ export async function verifyTerminalContextMenu(
             engine,
             canvas
           };
-          openPointer(engine, (menu) => {
+          openPointer(canvas, (menu) => {
             const bounds = menu.getBoundingClientRect();
             if (
               bounds.left < 7 || bounds.top < 7 ||
@@ -104,79 +104,94 @@ export async function verifyTerminalContextMenu(
             ) {
               return fail('pointer terminal menu escaped viewport bounds');
             }
-            const selectAll = findAction('Select All');
-            if (!(selectAll instanceof HTMLButtonElement)) {
-              return fail('Select All action missing');
+            engine.focus();
+            const pointerEscape = new KeyboardEvent('keydown', {
+              key: 'Escape',
+              code: 'Escape',
+              bubbles: true,
+              cancelable: true
+            });
+            engine.dispatchEvent(pointerEscape);
+            if (!pointerEscape.defaultPrevented) {
+              return fail('pointer-menu Escape was not captured before terminal input');
             }
-            selectAll.click();
             waitForDismissal(() => {
-              engine.focus();
-              const shiftF10 = new KeyboardEvent('keydown', {
-                key: 'F10',
-                code: 'F10',
-                shiftKey: true,
-                bubbles: true,
-                cancelable: true
-              });
-              engine.dispatchEvent(shiftF10);
-              if (!shiftF10.defaultPrevented) {
-                return fail('Shift+F10 was not captured before terminal input');
-              }
-              waitForMenu(() => {
-                const copy = findAction('Copy Selection');
-                if (
-                  !(copy instanceof HTMLButtonElement) ||
-                  copy.disabled ||
-                  document.activeElement !== copy
-                ) {
-                  return fail(
-                    'keyboard menu did not focus enabled Copy Selection: copy=' +
-                    (copy instanceof HTMLButtonElement) +
-                    ' disabled=' + (copy instanceof HTMLButtonElement && copy.disabled) +
-                    ' active=' + document.activeElement?.textContent?.trim()
-                  );
+              openPointer(canvas, () => {
+                const selectAll = findAction('Select All');
+                if (!(selectAll instanceof HTMLButtonElement)) {
+                  return fail('Select All action missing');
                 }
-                copy.click();
+                selectAll.click();
                 waitForDismissal(() => {
                   engine.focus();
-                  const contextKey = new KeyboardEvent('keydown', {
-                    key: 'ContextMenu',
-                    code: 'ContextMenu',
+                  const shiftF10 = new KeyboardEvent('keydown', {
+                    key: 'F10',
+                    code: 'F10',
+                    shiftKey: true,
                     bubbles: true,
                     cancelable: true
                   });
-                  engine.dispatchEvent(contextKey);
-                  if (!contextKey.defaultPrevented) {
-                    return fail('Context Menu key was not captured before terminal input');
+                  engine.dispatchEvent(shiftF10);
+                  if (!shiftF10.defaultPrevented) {
+                    return fail('Shift+F10 was not captured before terminal input');
                   }
                   waitForMenu(() => {
-                    const clear = findAction('Clear Screen and Scrollback');
-                    if (!(clear instanceof HTMLButtonElement)) {
-                      return fail('Clear action missing');
+                    const copy = findAction('Copy Selection');
+                    if (
+                      !(copy instanceof HTMLButtonElement) ||
+                      copy.disabled ||
+                      document.activeElement !== copy
+                    ) {
+                      return fail(
+                        'keyboard menu did not focus enabled Copy Selection: copy=' +
+                        (copy instanceof HTMLButtonElement) +
+                        ' disabled=' + (copy instanceof HTMLButtonElement && copy.disabled) +
+                        ' active=' + document.activeElement?.textContent?.trim()
+                      );
                     }
-                    clear.click();
+                    copy.click();
                     waitForDismissal(() => {
-                      openPointer(engine, () => {
-                        const reset = findAction('Reset Terminal');
-                        if (!(reset instanceof HTMLButtonElement)) {
-                          return fail('Reset action missing');
+                      engine.focus();
+                      const contextKey = new KeyboardEvent('keydown', {
+                        key: 'ContextMenu',
+                        code: 'ContextMenu',
+                        bubbles: true,
+                        cancelable: true
+                      });
+                      engine.dispatchEvent(contextKey);
+                      if (!contextKey.defaultPrevented) {
+                        return fail('Context Menu key was not captured before terminal input');
+                      }
+                      waitForMenu(() => {
+                        const clear = findAction('Clear Screen and Scrollback');
+                        if (!(clear instanceof HTMLButtonElement)) {
+                          return fail('Clear action missing');
                         }
-                        reset.click();
+                        clear.click();
                         waitForDismissal(() => {
-                          const retained = window.__hvirSmokeContextMenu;
-                          if (
-                            retained.engine !== engine ||
-                            retained.canvas !== canvas ||
-                            engine.querySelector('canvas') !== canvas ||
-                            textarea.style.cssText !== textareaState.style ||
-                            textarea.value !== textareaState.value ||
-                            document.activeElement === textarea
-                          ) {
-                            return fail(
-                              'terminal actions replaced presentation or mutated hidden textarea'
-                            );
-                          }
-                          resolve('pointer + Shift+F10 + Context Menu key');
+                          openPointer(canvas, () => {
+                            const reset = findAction('Reset Terminal');
+                            if (!(reset instanceof HTMLButtonElement)) {
+                              return fail('Reset action missing');
+                            }
+                            reset.click();
+                            waitForDismissal(() => {
+                              const retained = window.__hvirSmokeContextMenu;
+                              if (
+                                retained.engine !== engine ||
+                                retained.canvas !== canvas ||
+                                engine.querySelector('canvas') !== canvas ||
+                                textarea.style.cssText !== textareaState.style ||
+                                textarea.value !== textareaState.value ||
+                                document.activeElement === textarea
+                              ) {
+                                return fail(
+                                  'terminal actions replaced presentation or mutated hidden textarea'
+                                );
+                              }
+                              resolve('tracked Canvas pointer + Escape + keyboard menu keys');
+                            });
+                          });
                         });
                       });
                     });

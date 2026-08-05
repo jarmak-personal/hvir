@@ -318,7 +318,7 @@ export class TerminalRuntime {
       this.started = true
       this.hasStarted = true
       this.activePtyId = result.id
-      this.contextMenu.bind(sessionId, pane, result.id, () => this.options.onFocus())
+      this.contextMenu.bind(pane, result.id, () => this.options.onFocus())
       const status = result.reattached
         ? `Reattached · pid ${result.pid}`
         : result.resumed
