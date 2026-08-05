@@ -13,6 +13,19 @@ export interface GitHubPullRequestRepositoryOptions {
   client: GitHubClient
 }
 
+export interface WorkflowPullRequestEvidence {
+  number: number
+  state: PullRequestState
+  baseRefName: string
+  headRefName: string
+  headRefOid: string
+}
+
+export interface WorkflowPullRequestEvidencePage {
+  pullRequests: WorkflowPullRequestEvidence[]
+  complete: boolean
+}
+
 interface IssueConnectionNode {
   number: number
   state: 'OPEN' | 'CLOSED'
@@ -166,6 +179,58 @@ export class GitHubPullRequestRepository {
     } while (cursor !== null)
 
     return [...new Set(branches)].sort()
+  }
+
+  async listWorkflowPullRequestEvidence(
+    headRefName: string,
+  ): Promise<WorkflowPullRequestEvidencePage> {
+    const data: {
+      repository: {
+        pullRequests: {
+          nodes: Array<{
+            number: number
+            state: PullRequestState
+            baseRefName: string
+            headRefName: string
+            headRefOid: string
+            headRepository: { nameWithOwner: string } | null
+          }>
+          pageInfo: PageInfo
+        }
+      } | null
+    } = await this.#client.graphql(
+      `query WorkflowPullRequestEvidence($owner: String!, $name: String!, $head: String!) {
+        repository(owner: $owner, name: $name) {
+          pullRequests(first: 100, headRefName: $head, states: [OPEN, CLOSED, MERGED], orderBy: {field: CREATED_AT, direction: DESC}) {
+            nodes { number state baseRefName headRefName headRefOid headRepository { nameWithOwner } }
+            pageInfo { endCursor hasNextPage }
+          }
+        }
+      }`,
+      { owner: this.#owner, name: this.#name, head: headRefName },
+    )
+    const connection = data.repository?.pullRequests
+    if (connection === undefined) {
+      throw new Error(
+        `Pull request evidence for ${headRefName} in ${this.repository} could not be read.`,
+      )
+    }
+    const repository = this.repository.toLowerCase()
+    return {
+      pullRequests: connection.nodes
+        .filter(
+          (pullRequest) =>
+            pullRequest.headRepository?.nameWithOwner.toLowerCase() === repository,
+        )
+        .map((pullRequest) => ({
+          number: pullRequest.number,
+          state: pullRequest.state,
+          baseRefName: pullRequest.baseRefName,
+          headRefName: pullRequest.headRefName,
+          headRefOid: pullRequest.headRefOid,
+        })),
+      complete: !connection.pageInfo.hasNextPage,
+    }
   }
 
   get repository(): string {

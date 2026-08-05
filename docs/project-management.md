@@ -167,6 +167,48 @@ When invoked from the primary checkout or deterministic sibling issue worktree, 
 infers the primary root without running Git. Set `HVIR_PRIMARY_ROOT` only for a nonstandard local
 layout.
 
+### Issue startup
+
+Plan and apply the complete ordinary or epic-child implementation setup through one command:
+
+```sh
+npm run issue:start -- --issue 168
+npm run issue:start -- --issue 168 --apply
+npm run issue:start -- --issue 168 --json
+```
+
+Every mode first runs `git fetch --prune origin`, then reads fresh delivery context and local Git
+state. That ref refresh is planning mode's only mutation. Planning prints the worktree cleanup,
+selection, and dependency operations it would perform without changing any local branch,
+worktree, dependency tree, or Project value. Apply recomputes the plan rather than applying a
+stored result.
+
+Ordinary issues start at current `origin/main`. Direct epic children start at the one current
+`origin/epic/<parent>-<slug>` ref selected by delivery context. A missing or ambiguous epic branch
+is a conflict; this command never creates or pushes an epic branch. The selected local branch is
+`agent/issue-N`, and its path is the deterministic sibling
+`<primary-repository>-worktrees/issue-N`.
+
+Cleanup is limited to exact workflow-owned issue branches and sibling paths. It preserves the
+invoking worktree, locked or prunable registrations, tracked or untracked changes, unrecognized
+ignored content, live or unproven upstreams, incomplete PR evidence, nonmatching merged heads,
+and branches with open PRs. Eligible cleanup uses exact `git worktree remove` and compare-and-
+delete `git update-ref` operations without force or recursive filesystem deletion. Retained
+unrelated state is reported and does not block startup unless it collides with the selected branch
+or path.
+
+Apply creates or reuses the exact selected worktree, then runs `npm ci` with streamed output,
+interrupt handling, and a 15-minute timeout. Failed network, installer, native-rebuild, timeout,
+or other npm outcomes retain the worktree for an in-place retry. The report lists operations that
+already completed; it never rolls back by deleting uncertain state.
+
+Human output is the default. JSON reports only bounded issue and delivery identity, selected HEAD,
+dependency state, operations, retained state, conflicts, and operational failures. It excludes
+issue and PR prose, credentials, internal GitHub IDs, and raw API responses. Exit code 0 means a
+successful plan, apply, or idempotent reuse; 2 means a safe-delivery conflict; and 1 means an
+operational or partial-apply failure. The command reads Project state through `issue:context` but
+never changes Project membership, Kind, or Status.
+
 ## Pull request relationships and Status
 
 Issues remain the canonical planning records; pull requests are relationship and lifecycle

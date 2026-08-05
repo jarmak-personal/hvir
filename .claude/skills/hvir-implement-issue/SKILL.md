@@ -28,12 +28,21 @@ issue. Resolve these questions before changing files:
 If an answer could materially change product behavior, ownership, authority, or scope,
 surface it and pause for alignment. Otherwise state the assumption and continue.
 
-## Select the delivery path
+## Select the delivery path and isolated worktree
 
-Read the issue with `npm run issue:context -- --issue <number> --json`. Supply credentials through
-the environment described in `docs/project-management.md`. The context is the delivery record for
-the issue, native parent, expected base, deterministic branch and worktree, planning state, open
-PRs, and conflicts.
+Supply credentials through the environment described in `docs/project-management.md`. Plan the
+complete startup, review the result, then apply a freshly recomputed plan:
+
+```sh
+npm run issue:start -- --issue <number> --json
+npm run issue:start -- --issue <number> --apply --json
+```
+
+The command refreshes/prunes remote refs, reads the normalized issue, parent, expected base,
+deterministic branch and worktree, planning state, and open PRs, conservatively reconciles prior
+workflow-owned issue worktrees, creates or reuses the selected worktree, and prepares locked
+dependencies. Planning changes only remote-tracking refs. Apply retains partial or ambiguous state
+with reasons and never mutates Project membership, Kind, or Status.
 
 - Use `origin/main` when context selects ordinary delivery with base `main`. Target `main`. Add
   `Closes #<number>` to the PR.
@@ -42,33 +51,10 @@ PRs, and conflicts.
   exact epic base from context.
 
 Stop on context conflicts. An authorized epic may resolve a missing first epic branch through the
-bounded creation path in `references/epic-delivery.md`; rerun context afterward. Record the
-selected issue, parent, base, and delivery path before work begins.
-
-## Establish the isolated issue worktree
-
-Use the exact base selected above and keep it fixed for the issue. Use native Git from the
-invoking checkout. Preserve its branch and working state:
-
-```sh
-git fetch --prune origin
-git worktree list --porcelain
-git worktree add -b "agent/issue-<number>" "<primary-root>-worktrees/issue-<number>" "<base-ref>"
-```
-
-Before creating anything, reconcile prior `agent/issue-*` worktrees conservatively with
-`git worktree list`, `git status`, ref/upstream checks, and bounded `gh pr list` metadata. Remove
-one only when it is not current or locked, its tracked and untracked state is clean, any ignored
-content is plainly disposable, its upstream is gone after pruning, and a merged PR records its
-exact local HEAD and expected base with no later commits or open PR. Use exact native Git
-operations without force or recursive filesystem deletion; compare-and-delete a squash- or
-rebase-merged local ref with `git update-ref -d <ref> <expected-head>`. Retain ambiguous state
-with a reason, then continue unrelated work unless the selected branch or path collides.
-
-Reuse an existing worktree only when `agent/issue-<number>` is registered at the exact sibling
-path above. Stop on any mismatched branch, path, detached state, or ambiguous base. After
-selection, perform all reconnaissance, edits, checks, commits, and push operations from that
-worktree.
+bounded creation path in `references/epic-delivery.md`; rerun `issue:start` afterward. The startup
+command itself never creates or pushes an epic branch. Record the returned issue, parent, PR base,
+start ref, branch, worktree, selected HEAD, and delivery path before work begins. After selection,
+perform all reconnaissance, edits, checks, commits, and push operations from that worktree.
 
 ## Perform architecture reconnaissance
 
