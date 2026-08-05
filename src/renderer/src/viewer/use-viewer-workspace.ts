@@ -23,6 +23,7 @@ import {
   viewerWorkspaceReducer,
   type ViewerWorkspaceAction,
 } from './viewer-workspace-model'
+import { canRebindViewerPath, reboundHostPath } from './viewer-path-rebind'
 import {
   sameViewerWorkspace,
   selectActiveTab,
@@ -311,6 +312,38 @@ export function useViewerWorkspace(options: UseViewerWorkspaceOptions) {
     }
   }, [loadFileAt])
 
+  const canRebindPath = useCallback(
+    (source: HostPath, destination: HostPath): boolean =>
+      canRebindViewerPath(modelRef.current, source, destination),
+    [],
+  )
+
+  const rebindPath = useCallback(
+    (source: HostPath, destination: HostPath): boolean => {
+      const current = modelRef.current
+      if (!canRebindViewerPath(current, source, destination)) return false
+      for (const tab of current.tabs) {
+        const path = reboundHostPath(tab.path, source, destination)
+        if (hostPathEquals(path, tab.path)) continue
+        const nextId = viewerTabId(path)
+        const pending = pendingPositions.current.get(tab.id)
+        pendingPositions.current.delete(tab.id)
+        pendingPositions.current.delete(nextId)
+        if (pending) pendingPositions.current.set(nextId, pending)
+        const generation =
+          Math.max(
+            readGenerations.current.get(tab.id) ?? 0,
+            readGenerations.current.get(nextId) ?? 0,
+          ) + 1
+        readGenerations.current.delete(tab.id)
+        readGenerations.current.set(nextId, generation)
+      }
+      send({ type: 'rebind-path', source, destination })
+      return true
+    },
+    [send],
+  )
+
   const focusPane = useCallback(
     (pane: ViewerPaneId, id?: string): void => {
       send({ type: 'focus-pane', pane, id })
@@ -433,6 +466,8 @@ export function useViewerWorkspace(options: UseViewerWorkspaceOptions) {
     saveTab,
     handleWatchEvent,
     reloadCleanFiles,
+    canRebindPath,
+    rebindPath,
     focusPane,
     getActivePane,
     openSplit,

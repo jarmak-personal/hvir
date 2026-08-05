@@ -6,10 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { useViewerWorkspace } from '../src/renderer/src/viewer/use-viewer-workspace'
 import { RETAINED_CLEAN_BYTE_LIMIT } from '../src/renderer/src/viewer/viewer-workload-policy'
-import {
-  localPath,
-  type ReadFileResponse,
-} from '../src/shared'
+import { localPath, type ReadFileResponse } from '../src/shared'
 
 let host: HTMLDivElement
 let reactRoot: Root
@@ -98,6 +95,90 @@ describe('viewer workspace retention', () => {
     })
     expect(invoke).toHaveBeenCalledTimes(1)
   })
+
+  it('remaps pending position state and ignores an in-flight read from the old path', async () => {
+    const project = localPath('/project')
+    const source = localPath('/project/directory')
+    const destination = localPath('/project/renamed')
+    const oldPath = localPath('/project/directory/file.ts')
+    const newPath = localPath('/project/renamed/file.ts')
+    const pending = deferred<{ ok: true; value: ReadFileResponse }>()
+    invoke.mockReturnValueOnce(pending.promise)
+
+    act(() => workspace.switchWorkspace(project))
+    act(() => workspace.openFile(oldPath, true))
+    const oldId = workspace.activeTab!.id
+    act(() => {
+      workspace.schedulePosition(oldId, {
+        mode: 'source',
+        line: 19,
+        scrollTop: 240,
+      })
+      expect(workspace.rebindPath(source, destination)).toBe(true)
+    })
+
+    expect(workspace.activeTab).toMatchObject({
+      path: newPath,
+      dirty: false,
+      loading: true,
+    })
+    await act(async () => {
+      pending.resolve({ ok: true, value: file(oldPath, 'stale old bytes', 15) })
+      await settle()
+    })
+    expect(workspace.activeTab).toMatchObject({
+      path: newPath,
+      file: undefined,
+      position: { mode: 'source', line: 19, scrollTop: 240 },
+    })
+  })
+
+  it('drops only a clean destination identity and invalidates both pending reads', async () => {
+    const project = localPath('/project')
+    const source = localPath('/project/source.ts')
+    const destination = localPath('/project/destination.ts')
+    const destinationRead = deferred<{ ok: true; value: ReadFileResponse }>()
+    const sourceRead = deferred<{ ok: true; value: ReadFileResponse }>()
+    invoke
+      .mockReturnValueOnce(destinationRead.promise)
+      .mockReturnValueOnce(sourceRead.promise)
+
+    act(() => workspace.switchWorkspace(project))
+    act(() => workspace.openFile(destination, true))
+    const destinationId = workspace.activeTab!.id
+    act(() => workspace.openFile(source, true))
+    const sourceId = workspace.activeTab!.id
+    act(() => {
+      workspace.schedulePosition(destinationId, {
+        mode: 'source',
+        line: 3,
+        scrollTop: 20,
+      })
+      workspace.schedulePosition(sourceId, {
+        mode: 'source',
+        line: 41,
+        scrollTop: 500,
+      })
+      expect(workspace.rebindPath(source, destination)).toBe(true)
+    })
+    await act(nextAnimationFrame)
+
+    expect(workspace.tabs).toHaveLength(1)
+    expect(workspace.activeTab).toMatchObject({
+      path: destination,
+      file: undefined,
+      position: { mode: 'source', line: 41, scrollTop: 500 },
+    })
+    await act(async () => {
+      destinationRead.resolve({
+        ok: true,
+        value: file(destination, 'late destination bytes', 22),
+      })
+      sourceRead.resolve({ ok: true, value: file(source, 'late source bytes', 17) })
+      await settle()
+    })
+    expect(workspace.activeTab).toMatchObject({ path: destination, file: undefined })
+  })
 })
 
 function ViewerWorkspaceHarness(): null {
@@ -129,4 +210,8 @@ function deferred<T>(): {
 async function settle(): Promise<void> {
   await Promise.resolve()
   await Promise.resolve()
+}
+
+function nextAnimationFrame(): Promise<void> {
+  return new Promise((resolve) => window.requestAnimationFrame(() => resolve()))
 }

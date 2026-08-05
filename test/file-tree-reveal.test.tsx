@@ -83,6 +83,11 @@ describe('Files rail directory reveal', () => {
           selected={target}
           revealRequest={{ path: target, token: 1 }}
           onOpen={onOpen}
+          viewerPathRebind={{
+            canRebindPath: () => true,
+            rebindPath: () => true,
+          }}
+          onWorkspaceContentChanged={() => undefined}
           gitEnabled={false}
         />,
       )

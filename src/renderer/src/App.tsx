@@ -479,6 +479,8 @@ export function App(): ReactElement {
               selected={terminalPathActivation.revealRequest?.path ?? activeTab?.path}
               revealRequest={terminalPathActivation.revealRequest}
               onOpen={openFile}
+              viewerPathRebind={viewer}
+              onWorkspaceContentChanged={session.refreshWorkspaceContent}
               connected={connectionState === 'connected'}
               missing={activeWorkspace?.missing}
               hidden={railMode !== 'files'}

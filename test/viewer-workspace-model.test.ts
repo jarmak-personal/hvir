@@ -7,6 +7,7 @@ import {
   type ViewerWorkspaceModel,
 } from '../src/renderer/src/viewer/viewer-workspace-model'
 import { selectPaneActiveTab } from '../src/renderer/src/viewer/viewer-workspace-selectors'
+import { canRebindViewerPath } from '../src/renderer/src/viewer/viewer-path-rebind'
 import {
   decodeViewerTabs,
   encodeViewerTabs,
@@ -77,6 +78,126 @@ describe('viewer workspace model', () => {
       written: { path: localPath('/repo/a.ts'), size: 5, mtimeMs: 3 },
     })
     expect(model.tabs[0]).toMatchObject({ dirty: false, conflict: false })
+  })
+
+  it('rebinds directory descendants in place and rejects an old-path read completion', () => {
+    const source = localPath('/repo/dir')
+    const destination = localPath('/repo/renamed')
+    const dirtyPath = localPath('/repo/dir/a.ts')
+    const cleanPath = localPath('/repo/dir/nested/b.ts')
+    const dirtyId = viewerTabId(dirtyPath)
+    const cleanId = viewerTabId(cleanPath)
+    let model = reduce(activate('/repo', 1), open(dirtyPath.path, true))
+    model = reduce(model, readStarted(dirtyId, 1, 1))
+    model = reduce(model, {
+      ...readSucceeded(dirtyId, 1, 1, 'original'),
+      file: file(dirtyPath, 'original'),
+    })
+    model = reduce(model, { type: 'set-content', id: dirtyId, content: 'draft' })
+    model = reduce(model, {
+      type: 'set-position',
+      id: dirtyId,
+      position: { mode: 'source', line: 27, scrollTop: 320 },
+    })
+    model = reduce(model, { type: 'move', id: dirtyId, pane: 'secondary' })
+    model = reduce(model, open(cleanPath.path, true))
+    model = reduce(model, readStarted(cleanId, 1, 3))
+
+    model = reduce(model, { type: 'rebind-path', source, destination })
+
+    const reboundDirtyId = viewerTabId(localPath('/repo/renamed/a.ts'))
+    const reboundCleanId = viewerTabId(localPath('/repo/renamed/nested/b.ts'))
+    const reboundDirty = model.tabs.find((tab) => tab.id === reboundDirtyId)
+    expect(reboundDirty).toMatchObject({
+      id: reboundDirtyId,
+      path: localPath('/repo/renamed/a.ts'),
+      pane: 'secondary',
+      dirty: true,
+      position: { mode: 'source', line: 27, scrollTop: 320 },
+    })
+    expect(reboundDirty?.file).toMatchObject({
+      path: localPath('/repo/renamed/a.ts'),
+      content: 'draft',
+    })
+    expect(model.tabs).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: reboundCleanId,
+          path: localPath('/repo/renamed/nested/b.ts'),
+        }),
+      ]),
+    )
+    expect(model.activeId).toBe(reboundCleanId)
+    expect(model.activeByPane.secondary).toBe(reboundCleanId)
+    expect(model.readGenerations).not.toHaveProperty(dirtyId)
+    expect(model.readGenerations[reboundCleanId]).toBe(4)
+
+    const stale = reduce(model, {
+      ...readSucceeded(cleanId, 1, 3, 'late old path'),
+      file: file(cleanPath, 'late old path'),
+    })
+    expect(stale).toBe(model)
+  })
+
+  it('refuses to discard a dirty destination buffer during path rebinding', () => {
+    const source = localPath('/repo/source.ts')
+    const destination = localPath('/repo/destination.ts')
+    const sourceId = viewerTabId(source)
+    const destinationId = viewerTabId(destination)
+    let model = reduce(activate('/repo', 1), open(source.path, true))
+    model = reduce(model, readStarted(sourceId, 1, 1))
+    model = reduce(model, readSucceeded(sourceId, 1, 1, 'source'))
+    model = reduce(model, open(destination.path, true))
+    model = reduce(model, readStarted(destinationId, 1, 1))
+    model = reduce(model, {
+      ...readSucceeded(destinationId, 1, 1, 'destination'),
+      file: file(destination, 'destination'),
+    })
+    model = reduce(model, {
+      type: 'set-content',
+      id: destinationId,
+      content: 'unsaved destination',
+    })
+
+    expect(canRebindViewerPath(model, source, destination)).toBe(false)
+    expect(reduce(model, { type: 'rebind-path', source, destination })).toBe(model)
+    expect(model.tabs.find((tab) => tab.id === destinationId)).toMatchObject({
+      dirty: true,
+      file: { content: 'unsaved destination' },
+    })
+  })
+
+  it('remaps the remembered non-focused pane tab without selecting its first tab', () => {
+    const firstSecondary = localPath('/repo/first.ts')
+    const affected = localPath('/repo/directory/affected.ts')
+    const primary = localPath('/repo/primary.ts')
+    let model = reduce(activate('/repo', 1), open(firstSecondary.path, true))
+    model = reduce(model, {
+      type: 'move',
+      id: viewerTabId(firstSecondary),
+      pane: 'secondary',
+    })
+    model = reduce(model, { type: 'focus-pane', pane: 'primary' })
+    model = reduce(model, open(affected.path, true))
+    model = reduce(model, {
+      type: 'move',
+      id: viewerTabId(affected),
+      pane: 'secondary',
+    })
+    model = reduce(model, { type: 'focus-pane', pane: 'primary' })
+    model = reduce(model, open(primary.path, true))
+
+    model = reduce(model, {
+      type: 'rebind-path',
+      source: localPath('/repo/directory'),
+      destination: localPath('/repo/renamed'),
+    })
+
+    expect(model.activeId).toBe(viewerTabId(primary))
+    expect(model.activeByPane.secondary).toBe(
+      viewerTabId(localPath('/repo/renamed/affected.ts')),
+    )
+    expect(model.activeByPane.secondary).not.toBe(viewerTabId(firstSecondary))
   })
 })
 
@@ -267,7 +388,7 @@ function readSucceeded(
   workspaceGeneration: number,
   readGeneration: number,
   content: string,
-): ViewerWorkspaceAction {
+): Extract<ViewerWorkspaceAction, { readonly type: 'read-succeeded' }> {
   return {
     type: 'read-succeeded',
     id,

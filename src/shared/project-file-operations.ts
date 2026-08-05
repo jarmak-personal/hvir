@@ -39,6 +39,27 @@ export interface ProjectFileExternalCopyRequest {
   readonly grantGeneration: number
 }
 
+export type ProjectFileOrganizationRequest =
+  | {
+      readonly action: 'rename'
+      readonly workspaceRoot: HostPath
+      readonly source: HostPath
+      readonly name: string
+    }
+  | {
+      readonly action: 'move'
+      readonly workspaceRoot: HostPath
+      readonly source: HostPath
+      readonly destinationDirectory: HostPath
+    }
+  | {
+      readonly action: 'duplicate'
+      readonly workspaceRoot: HostPath
+      readonly source: HostPath
+      readonly destinationDirectory: HostPath
+      readonly name: string
+    }
+
 export interface ProjectFileCancelRequest {
   readonly operationId: string
   readonly generation: number
@@ -60,7 +81,8 @@ export interface ProjectFileOperationProgress {
   readonly workspaceRoot: HostPath
   readonly operationId: string
   readonly generation: number
-  readonly phase: 'copying' | 'cancelling' | 'completed'
+  readonly phase:
+    'copying' | 'renaming' | 'moving' | 'duplicating' | 'cancelling' | 'completed'
   readonly completedItems: number
   readonly totalItems: number
   readonly currentName?: string
@@ -71,13 +93,31 @@ export type ProjectFileItemStatus =
   'completed' | 'skipped' | 'conflicted' | 'cancelled' | 'failed'
 
 export type ProjectFileEffect =
-  'none' | 'created-file' | 'created-directory' | 'copied-file' | 'copied-directory'
+  | 'none'
+  | 'created-file'
+  | 'created-directory'
+  | 'copied-file'
+  | 'copied-directory'
+  | 'renamed-entry'
+  | 'moved-entry'
+  | 'duplicated-file'
+  | 'duplicated-directory'
+
+export interface ProjectFileSourceDisposition {
+  readonly outcome: 'retained' | 'removed' | 'partially-removed'
+  /** Exact recovery location when any of the source remains. */
+  readonly path?: HostPath
+  readonly removedEntries?: number
+  readonly totalEntries?: number
+}
 
 export interface ProjectFileItemResult {
   readonly itemId: string
+  readonly source?: HostPath
   readonly destination: HostPath
   readonly status: ProjectFileItemStatus
   readonly effect: ProjectFileEffect
+  readonly sourceDisposition?: ProjectFileSourceDisposition
   readonly reason?: string
 }
 

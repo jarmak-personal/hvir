@@ -15,6 +15,7 @@ import type {
   ReadFileOptions,
 } from '../project-host'
 import { ElectronClipboardFileSource } from '../project-file-operations/electron-clipboard-files'
+import { writeMacFilePasteboard } from './macos-file-pasteboard'
 
 /**
  * Immediate deterministic remote filesystem boundary for the renderer smoke.
@@ -108,12 +109,22 @@ export async function verifyProjectFileOperationsSmoke(options: {
     publish,
   } = options
   const pointerName = '.hvir-smoke-created-pointer.txt'
+  const renamedName = '.hvir-smoke-renamed-pointer.txt'
   const keyboardName = '.hvir-smoke-created-keyboard'
+  const organizationDirectoryName = '.hvir-smoke-organization-target'
+  const duplicatedName = '.hvir-smoke-duplicated-pointer.txt'
   const snapshotName = '.hvir-smoke-created-snapshot.txt'
   const clipboardName = '.hvir-smoke-copied-clipboard.txt'
   const droppedName = '.hvir-smoke-copied-drop.txt'
   const pointerPath = joinHostPath(localRoot, pointerName)
+  const renamedPath = joinHostPath(localRoot, renamedName)
   const keyboardPath = joinHostPath(localRoot, keyboardName)
+  const organizationDirectory = joinHostPath(localRoot, organizationDirectoryName)
+  const movedPointerPath = joinHostPath(organizationDirectory, renamedName)
+  const duplicatedPath = joinHostPath(organizationDirectory, duplicatedName)
+  const remoteKeyboardPath = joinHostPath(remoteRoot, keyboardName)
+  const remoteOrganizationDirectory = joinHostPath(remoteRoot, organizationDirectoryName)
+  const movedKeyboardPath = joinHostPath(organizationDirectory, keyboardName)
   const snapshotPath = joinHostPath(localRoot, snapshotName)
   const switchedPath = joinHostPath(switchedRoot, snapshotName)
   const externalDirectory = dirnameHostPath(localRoot)
@@ -133,6 +144,63 @@ export async function verifyProjectFileOperationsSmoke(options: {
     if (pointerStat.type !== 'file' || pointerStat.size !== 0) {
       throw new Error('pointer create did not produce one empty regular file')
     }
+    const organizationPayload = 'organization smoke payload\n'
+    await localHost.writeFile(pointerPath, organizationPayload)
+    await waitForEditorContent(win, organizationPayload)
+    await organizeFromRenderer({
+      win,
+      root: localRoot,
+      source: pointerPath,
+      action: 'rename',
+      name: renamedName,
+      destination: renamedPath,
+      entry: 'pointer',
+      expectActiveTab: true,
+    })
+    await expectMissingHostPath(localHost, pointerPath)
+    if ((await localHost.readTextFile(renamedPath)) !== organizationPayload) {
+      throw new Error('rename did not preserve exact file content')
+    }
+
+    await createFromRenderer({
+      win,
+      root: localRoot,
+      name: organizationDirectoryName,
+      kind: 'directory',
+      entry: 'pointer',
+    })
+    await markActiveEditorDirty(win, 'unsaved organization marker')
+    await organizeFromRenderer({
+      win,
+      root: localRoot,
+      source: renamedPath,
+      action: 'move',
+      destinationDirectory: organizationDirectory,
+      destination: movedPointerPath,
+      entry: 'pointer',
+      expectActiveTab: true,
+      expectDirtyText: 'unsaved organization marker',
+    })
+    await expectMissingHostPath(localHost, renamedPath)
+    if ((await localHost.readTextFile(movedPointerPath)) !== organizationPayload) {
+      throw new Error('move did not preserve the saved file bytes')
+    }
+
+    await revealTreeDirectory(win, organizationDirectory)
+    await organizeFromRenderer({
+      win,
+      root: localRoot,
+      source: movedPointerPath,
+      action: 'duplicate',
+      name: duplicatedName,
+      destinationDirectory: organizationDirectory,
+      destination: duplicatedPath,
+      entry: 'pointer',
+    })
+    if ((await localHost.readTextFile(duplicatedPath)) !== organizationPayload) {
+      throw new Error('duplicate did not preserve exact saved file bytes')
+    }
+    await verifyOrganizationRefresh(win, duplicatedPath)
 
     publish(remoteState())
     await createFromRenderer({
@@ -145,6 +213,19 @@ export async function verifyProjectFileOperationsSmoke(options: {
     if ((await localHost.stat(keyboardPath)).type !== 'dir') {
       throw new Error('remote keyboard create did not produce one directory')
     }
+    await organizeFromRenderer({
+      win,
+      root: remoteRoot,
+      source: remoteKeyboardPath,
+      action: 'move',
+      destinationDirectory: remoteOrganizationDirectory,
+      destination: joinHostPath(remoteOrganizationDirectory, keyboardName),
+      entry: 'keyboard',
+    })
+    await expectMissingHostPath(localHost, keyboardPath)
+    if ((await localHost.stat(movedKeyboardPath)).type !== 'dir') {
+      throw new Error('remote keyboard move did not preserve the directory')
+    }
 
     publish(localState())
     await localHost.writeFile(clipboardSource, 'clipboard smoke payload')
@@ -152,25 +233,18 @@ export async function verifyProjectFileOperationsSmoke(options: {
     const clipboardFormat =
       process.platform === 'darwin' ? 'public.file-url' : 'text/uri-list'
     if (process.platform === 'darwin') {
-      const result = await localHost.exec('/usr/bin/osascript', [
-        '-e',
-        'on run argv',
-        '-e',
-        'set the clipboard to POSIX file (item 1 of argv)',
-        '-e',
-        'end run',
-        clipboardSource.path,
-      ])
-      if (result.code !== 0) {
-        throw new Error('macOS did not create the disk-file clipboard fixture')
-      }
+      await writeMacFilePasteboard(localHost, clipboardSource)
     } else {
       clipboard.writeBuffer(
         clipboardFormat,
         Buffer.from(`${pathToFileURL(clipboardSource.path).href}\r\n`),
       )
     }
-    if (!new ElectronClipboardFileSource().readPaths().includes(clipboardSource.path)) {
+    if (process.platform === 'darwin') {
+      await waitForMacClipboardFileList(clipboardSource.path)
+    } else if (
+      !new ElectronClipboardFileSource().readPaths().includes(clipboardSource.path)
+    ) {
       const availableFormats = clipboard.availableFormats()
       throw new Error(
         `smoke clipboard did not retain reviewed ${clipboardFormat} file-list data; available=${availableFormats.join(',')}`,
@@ -239,7 +313,7 @@ export async function verifyProjectFileOperationsSmoke(options: {
       localHost.createFileExclusive = originalCreate
     }
 
-    return 'pointer file→source + tree · keyboard remote directory→selected · clipboard local copy · preload drop remote copy · workspace switch preserved snapshot'
+    return 'pointer create + clean rename · dirty-tab move · verified duplicate + tree/search/Git refresh · keyboard remote directory move · clipboard local copy · preload drop remote copy · workspace switch preserved snapshot'
   } catch (reason) {
     const state = await readProjectFileSmokeState(win)
     throw new Error(
@@ -256,6 +330,282 @@ export async function verifyProjectFileOperationsSmoke(options: {
     ])
     publish(localState())
   }
+}
+
+async function organizeFromRenderer(options: {
+  readonly win: BrowserWindow
+  readonly root: HostPath
+  readonly source: HostPath
+  readonly action: 'rename' | 'move' | 'duplicate'
+  readonly destination: HostPath
+  readonly destinationDirectory?: HostPath
+  readonly name?: string
+  readonly entry: 'pointer' | 'keyboard'
+  readonly expectActiveTab?: boolean
+  readonly expectDirtyText?: string
+}): Promise<void> {
+  const {
+    win,
+    root,
+    source,
+    action,
+    destination,
+    destinationDirectory,
+    name,
+    entry,
+    expectActiveTab = false,
+    expectDirtyText,
+  } = options
+  const label = `${action[0]!.toUpperCase()}${action.slice(1)}…`
+  const workspaceDisplay = `${root.hostId}:${root.path}`
+  const sourceDisplay = `${source.hostId}:${source.path}`
+  const destinationDisplay = destinationDirectory
+    ? `${destinationDirectory.hostId}:${destinationDirectory.path}`
+    : undefined
+  try {
+    await rendererValue(
+      win,
+      `(() => {
+        if (window.__hvirOrganizationSubmitted) {
+          const feedback = document.querySelector('.file-operation-feedback.error');
+          if (feedback) throw new Error(feedback.textContent || 'organization failed');
+          if (document.querySelector('.file-organization-dialog')) return undefined;
+          ${
+            expectActiveTab
+              ? `const tab = document.querySelector(
+                  '.viewer-tab.active .tab-main[title=${JSON.stringify(destination.path)}]'
+                );
+                if (!tab) return undefined;`
+              : ''
+          }
+          ${
+            expectDirtyText
+              ? `if (!document.querySelector('.viewer-tab.active .tab-status')
+                    ?.textContent?.trim()) return undefined;
+                if (!document.querySelector('.cm-content')?.textContent
+                    ?.includes(${JSON.stringify(expectDirtyText)})) return undefined;`
+              : ''
+          }
+          return true;
+        }
+        const source = document.querySelector(
+          '.files-panel [role="treeitem"][title=${JSON.stringify(source.path)}]'
+        );
+        if (!(source instanceof HTMLButtonElement)) return undefined;
+        if (!window.__hvirOrganizationMenu) {
+          ${
+            entry === 'pointer'
+              ? `source.dispatchEvent(new MouseEvent('contextmenu', {
+                  bubbles: true, clientX: 34, clientY: 42
+                }));`
+              : `source.focus();
+                source.dispatchEvent(new KeyboardEvent('keydown', {
+                  key: 'F10', shiftKey: true, bubbles: true
+                }));`
+          }
+          window.__hvirOrganizationMenu = true;
+          return undefined;
+        }
+        const action = [...document.querySelectorAll('.file-action-menu [role="menuitem"]')]
+          .find((node) => node.textContent?.trim() === ${JSON.stringify(label)});
+        if (!window.__hvirOrganizationDialog) {
+          if (!(action instanceof HTMLButtonElement) || action.disabled) return undefined;
+          if (${JSON.stringify(entry)} === 'keyboard' && document.activeElement !== action) {
+            const focused = document.activeElement;
+            if (focused instanceof HTMLButtonElement &&
+                focused.getAttribute('role') === 'menuitem') {
+              focused.dispatchEvent(new KeyboardEvent('keydown', {
+                key: 'ArrowDown', bubbles: true
+              }));
+            }
+            return undefined;
+          }
+          action.click();
+          window.__hvirOrganizationDialog = true;
+          return undefined;
+        }
+        const dialog = document.querySelector('.file-organization-dialog');
+        if (!(dialog instanceof HTMLFormElement)) return undefined;
+        const facts = new Map([...dialog.querySelectorAll('dl > div')].map((row) => [
+          row.querySelector('dt')?.textContent?.trim(),
+          row.querySelector('code')?.textContent?.trim()
+        ]));
+        if (facts.get('Workspace') !== ${JSON.stringify(workspaceDisplay)} ||
+            facts.get('Source') !== ${JSON.stringify(sourceDisplay)}) {
+          throw new Error('organization dialog lost its workspace/source snapshot');
+        }
+        ${
+          destinationDirectory
+            ? `const target = dialog.querySelector(
+                '.file-organization-picker [role="treeitem"][title=${JSON.stringify(
+                  destinationDirectory.path,
+                )}]'
+              );
+              if (!(target instanceof HTMLButtonElement)) return undefined;
+              if (target.getAttribute('aria-selected') !== 'true') {
+                if (${JSON.stringify(entry)} === 'keyboard' &&
+                    document.activeElement !== target) {
+                  const focused = document.activeElement;
+                  if (focused instanceof HTMLButtonElement &&
+                      focused.getAttribute('role') === 'treeitem') {
+                    focused.dispatchEvent(new KeyboardEvent('keydown', {
+                      key: 'ArrowDown', bubbles: true
+                    }));
+                  }
+                  return undefined;
+                }
+                target.click();
+                return undefined;
+              }
+              if (facts.get('Destination') !== ${JSON.stringify(destinationDisplay)}) {
+                return undefined;
+              }`
+            : ''
+        }
+        ${
+          name
+            ? `const input = dialog.querySelector('input');
+              if (!(input instanceof HTMLInputElement)) return undefined;
+              if (input.value !== ${JSON.stringify(name)}) {
+                Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')
+                  ?.set?.call(input, ${JSON.stringify(name)});
+                input.dispatchEvent(new Event('input', { bubbles: true }));
+                return undefined;
+              }`
+            : ''
+        }
+        dialog.requestSubmit();
+        window.__hvirOrganizationSubmitted = true;
+        return undefined;
+      })()`,
+      `${entry} ${action} did not settle`,
+      20_000,
+    )
+  } finally {
+    await win.webContents.executeJavaScript(`
+      delete window.__hvirOrganizationMenu;
+      delete window.__hvirOrganizationDialog;
+      delete window.__hvirOrganizationSubmitted;
+    `)
+  }
+}
+
+async function waitForEditorContent(win: BrowserWindow, content: string): Promise<void> {
+  await rendererValue(
+    win,
+    `document.querySelector('.cm-content')?.textContent?.includes(${JSON.stringify(
+      content.trim(),
+    )}) ? true : undefined`,
+    'clean open file did not refresh after its saved content changed',
+    15_000,
+  )
+}
+
+async function markActiveEditorDirty(win: BrowserWindow, marker: string): Promise<void> {
+  await win.webContents.executeJavaScript(
+    `document.querySelector('.cm-content')?.focus()`,
+  )
+  await win.webContents.insertText(`${marker}\n`)
+  await rendererValue(
+    win,
+    `document.querySelector('.viewer-tab.active .tab-status')?.textContent?.includes('●') &&
+      document.querySelector('.cm-content')?.textContent?.includes(${JSON.stringify(marker)})
+        ? true
+        : undefined`,
+    'editor did not retain the unsaved organization marker',
+  )
+}
+
+async function revealTreeDirectory(win: BrowserWindow, path: HostPath): Promise<void> {
+  await rendererValue(
+    win,
+    `(() => {
+      const row = document.querySelector(
+        '.files-panel .directory-row[title=${JSON.stringify(path.path)}]'
+      );
+      if (!(row instanceof HTMLButtonElement)) return undefined;
+      if (row.getAttribute('aria-expanded') !== 'true') {
+        row.click();
+        return undefined;
+      }
+      return true;
+    })()`,
+    'organization destination did not expand in the Files tree',
+  )
+}
+
+async function verifyOrganizationRefresh(
+  win: BrowserWindow,
+  duplicatedPath: HostPath,
+): Promise<void> {
+  await rendererValue(
+    win,
+    `document.querySelector(
+      '.files-panel [role="treeitem"][title=${JSON.stringify(duplicatedPath.path)}]'
+    ) ? true : undefined`,
+    'Files tree did not refresh for the duplicate',
+    15_000,
+  )
+  await rendererValue(
+    win,
+    `(() => {
+      const trigger = document.querySelector('[data-filename-search-trigger]');
+      if (!window.__hvirOrganizationSearch) {
+        if (!(trigger instanceof HTMLButtonElement)) return undefined;
+        trigger.click();
+        window.__hvirOrganizationSearch = true;
+        return undefined;
+      }
+      const input = document.querySelector('[data-filename-search]');
+      if (!(input instanceof HTMLInputElement)) return undefined;
+      if (input.value !== ${JSON.stringify(duplicatedPath.path.split('/').pop())}) {
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')
+          ?.set?.call(input, ${JSON.stringify(duplicatedPath.path.split('/').pop())});
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        return undefined;
+      }
+      return document.querySelector(
+        '.filename-search-result[title=${JSON.stringify(duplicatedPath.path)}]'
+      ) ? true : undefined;
+    })()`,
+    'filename search did not refresh for the duplicate',
+    20_000,
+  )
+  await win.webContents.executeJavaScript(`
+    document.querySelector('.filename-search-close')?.click();
+    delete window.__hvirOrganizationSearch;
+  `)
+  await rendererValue(
+    win,
+    `(() => {
+      const git = [...document.querySelectorAll('.rail-nav button')]
+        .find((node) => node.textContent?.trim().startsWith('Git'));
+      if (!(git instanceof HTMLButtonElement)) return undefined;
+      if (git.getAttribute('aria-current') !== 'page') {
+        git.click();
+        return undefined;
+      }
+      return document.querySelector(
+        '.git-panel .git-file[title=${JSON.stringify(duplicatedPath.path)}]'
+      ) ? true : undefined;
+    })()`,
+    'Git view did not refresh for the duplicate',
+    20_000,
+  )
+  await win.webContents.executeJavaScript(`
+    [...document.querySelectorAll('.rail-nav button')]
+      .find((node) => node.textContent?.trim() === 'Files')?.click();
+  `)
+}
+
+async function expectMissingHostPath(host: ProjectHost, path: HostPath): Promise<void> {
+  try {
+    await host.stat(path)
+  } catch (reason) {
+    if (isMissingPathError(reason)) return
+    throw reason
+  }
+  throw new Error(`source remained after organization: ${path.path}`)
 }
 
 async function pasteClipboardFromRenderer(
@@ -521,6 +871,19 @@ async function waitForHostPath(host: ProjectHost, path: HostPath): Promise<void>
     await new Promise<void>((resolve) => setTimeout(resolve, 25))
   }
   throw new Error('accepted create did not complete at its snapshotted path')
+}
+
+async function waitForMacClipboardFileList(expectedPath: string): Promise<void> {
+  const source = new ElectronClipboardFileSource()
+  const deadline = Date.now() + 5_000
+  while (Date.now() <= deadline) {
+    if (source.readPaths().includes(expectedPath)) return
+    await new Promise<void>((resolve) => setTimeout(resolve, 25))
+  }
+  const availableFormats = clipboard.availableFormats()
+  throw new Error(
+    `smoke clipboard did not retain reviewed public.file-url file-list data; available=${availableFormats.join(',')}`,
+  )
 }
 
 function clearRendererCreateMarkers(win: BrowserWindow): Promise<unknown> {

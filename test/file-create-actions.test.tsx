@@ -16,7 +16,9 @@ import {
   type HostPath,
   type ProjectFileOperationResult,
   type ProjectFileOperationProgress,
+  type ProjectFileOrganizationRequest,
 } from '../src/shared'
+import type { ViewerPathRebindCapability } from '../src/renderer/src/viewer/viewer-path-rebind'
 
 const rootPath = localPath('/repo')
 const entries = new Map<string, DirEntry[]>([
@@ -44,15 +46,20 @@ let createEntry: (request: {
   readonly name: string
   readonly kind: 'file' | 'directory'
 }) => Promise<ProjectFileOperationResult>
-let projectFileEvent: ((event: ProjectFileOperationProgress) => void) | undefined
+let projectFileEvents: ((event: ProjectFileOperationProgress) => void)[]
 let copyExternal: () => Promise<unknown>
 let acquireDropped: ReturnType<typeof vi.fn>
+let organizeEntry: (request: ProjectFileOrganizationRequest) => Promise<unknown>
 
 beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true)
+  entries.set('/repo', [
+    { name: 'src', type: 'dir' },
+    { name: 'existing.md', type: 'file' },
+  ])
   entries.set('/repo/src', [])
   createEntry = (request) => Promise.resolve(completedResult(request))
-  projectFileEvent = undefined
+  projectFileEvents = []
   copyExternal = () =>
     Promise.resolve({
       ok: true,
@@ -64,12 +71,25 @@ beforeEach(() => {
       },
     })
   acquireDropped = vi.fn(() => Promise.reject(new Error('not configured')))
+  organizeEntry = () =>
+    Promise.resolve({
+      ok: true,
+      value: {
+        outcome: 'started',
+        operationId: 'organize-1',
+        generation: 1,
+        itemCount: 1,
+      },
+    })
   invoke = vi.fn((channel: string, request: { readonly path?: HostPath }) => {
     if (channel === 'fs:readdir') {
       return Promise.resolve({ ok: true, value: entries.get(request.path!.path) ?? [] })
     }
     if (channel === 'fs:create-entry') {
       return createEntry(request as never).then((value) => ({ ok: true, value }))
+    }
+    if (channel === 'fs:resolve-entry') {
+      return Promise.resolve({ ok: true, value: { type: 'file' } })
     }
     if (channel === 'fs:acquire-clipboard-files') {
       return Promise.resolve({
@@ -85,6 +105,7 @@ beforeEach(() => {
       })
     }
     if (channel === 'fs:copy-external') return copyExternal()
+    if (channel === 'fs:organize-entry') return organizeEntry(request as never)
     if (channel === 'fs:cancel-file-operation') {
       return Promise.resolve({ ok: true, value: true })
     }
@@ -98,8 +119,12 @@ beforeEach(() => {
       externalFiles: { acquireDropped },
       on: vi.fn(
         (channel: string, callback: (event: ProjectFileOperationProgress) => void) => {
-          if (channel === 'fs:project-file-operation') projectFileEvent = callback
-          return () => undefined
+          if (channel === 'fs:project-file-operation') projectFileEvents.push(callback)
+          return () => {
+            projectFileEvents = projectFileEvents.filter(
+              (candidate) => candidate !== callback,
+            )
+          }
         },
       ),
     },
@@ -109,7 +134,8 @@ beforeEach(() => {
   reactRoot = createRoot(container)
 })
 
-afterEach(() => {
+afterEach(async () => {
+  await act(settle)
   act(() => reactRoot.unmount())
   document
     .querySelectorAll(
@@ -344,7 +370,7 @@ describe('Files rail create actions', () => {
   it('reconciles an immediate final event and keeps detailed failures until dismissed', async () => {
     vi.useFakeTimers()
     copyExternal = () => {
-      projectFileEvent?.({
+      const event: ProjectFileOperationProgress = {
         workspaceRoot: rootPath,
         operationId: 'copy-1',
         generation: 1,
@@ -365,7 +391,8 @@ describe('Files rail create actions', () => {
             },
           ],
         },
-      })
+      }
+      for (const listener of projectFileEvents) listener(event)
       return Promise.resolve({
         ok: true,
         value: {
@@ -441,6 +468,188 @@ describe('Files rail create actions', () => {
     expect(acquireDropped).toHaveBeenCalledWith([file])
     expect(invoke).not.toHaveBeenCalledWith('fs:acquire-dropped-files', expect.anything())
   })
+
+  it('gates root and entry types while allowing symbolic-link rename and move only', async () => {
+    entries
+      .get('/repo')!
+      .push({ name: 'link', type: 'symlink' }, { name: 'socket', type: 'other' })
+    renderFileTree(rootPath, vi.fn())
+    await waitFor(() => treeRow('/repo/link') !== undefined)
+
+    act(() => {
+      container
+        .querySelector('.tree-scroll')!
+        .dispatchEvent(
+          new MouseEvent('contextmenu', { bubbles: true, clientX: 5, clientY: 5 }),
+        )
+    })
+    expect(menuItem('Rename…')?.disabled).toBe(true)
+    expect(menuItem('Move…')?.disabled).toBe(true)
+    expect(menuItem('Duplicate…')?.disabled).toBe(true)
+    void act(() =>
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })),
+    )
+
+    openPointerMenu('/repo/link')
+    expect(menuItem('Rename…')?.disabled).toBe(false)
+    expect(menuItem('Move…')?.disabled).toBe(false)
+    expect(menuItem('Duplicate…')?.disabled).toBe(true)
+    void act(() =>
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })),
+    )
+
+    openPointerMenu('/repo/socket')
+    expect(menuItem('Rename…')?.disabled).toBe(true)
+    expect(menuItem('Move…')?.disabled).toBe(true)
+    expect(menuItem('Duplicate…')?.disabled).toBe(true)
+  })
+
+  it('renames from the pointer menu and rebinds only after a completed result', async () => {
+    const viewerPathRebind: ViewerPathRebindCapability = {
+      canRebindPath: vi.fn(() => true),
+      rebindPath: vi.fn(() => true),
+    }
+    renderFileTree(rootPath, vi.fn(), viewerPathRebind)
+    await waitFor(() => treeRow('/repo/existing.md') !== undefined)
+    openPointerMenu('/repo/existing.md')
+    clickMenuItem('Rename…')
+    expect(dialogText()).toContain('Source')
+    expect(dialogText()).toContain('local:/repo/existing.md')
+    setDialogName('renamed.md')
+    act(() =>
+      document
+        .querySelector<HTMLFormElement>('.file-organization-dialog')!
+        .requestSubmit(),
+    )
+    await waitFor(() =>
+      invoke.mock.calls.some(([channel]) => channel === 'fs:organize-entry'),
+    )
+    expect(viewerPathRebind.rebindPath).not.toHaveBeenCalled()
+    expect(invoke).toHaveBeenCalledWith('fs:organize-entry', {
+      action: 'rename',
+      workspaceRoot: rootPath,
+      source: localPath('/repo/existing.md'),
+      name: 'renamed.md',
+    })
+
+    broadcastProjectFileEvent({
+      outcome: 'completed',
+      operationId: 'organize-1',
+      generation: 1,
+      items: [
+        {
+          itemId: 'organize:0',
+          source: localPath('/repo/existing.md'),
+          destination: localPath('/repo/renamed.md'),
+          status: 'completed',
+          effect: 'renamed-entry',
+        },
+      ],
+    })
+    await act(settle)
+    expect(viewerPathRebind.rebindPath).toHaveBeenCalledWith(
+      localPath('/repo/existing.md'),
+      localPath('/repo/renamed.md'),
+    )
+  })
+
+  it('moves through keyboard menu and keyboard directory selection', async () => {
+    renderFileTree(rootPath, vi.fn())
+    await waitFor(() => treeRow('/repo/existing.md') !== undefined)
+    openKeyboardMenu(treeRow('/repo/existing.md')!)
+    await waitFor(() => document.activeElement?.textContent?.trim() === 'New File…')
+    clickMenuItem('Move…')
+    await waitFor(() => document.activeElement?.getAttribute('title') === '/repo')
+    await waitFor(() => organizationTreeRow('/repo/src') !== undefined)
+    act(() => {
+      document.activeElement?.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }),
+      )
+    })
+    expect(document.activeElement).toBe(organizationTreeRow('/repo/src'))
+    act(() => organizationTreeRow('/repo/src')!.click())
+    await act(settle)
+    act(() =>
+      document
+        .querySelector<HTMLFormElement>('.file-organization-dialog')!
+        .requestSubmit(),
+    )
+    await waitFor(() =>
+      invoke.mock.calls.some(([channel]) => channel === 'fs:organize-entry'),
+    )
+    expect(invoke).toHaveBeenCalledWith('fs:organize-entry', {
+      action: 'move',
+      workspaceRoot: rootPath,
+      source: localPath('/repo/existing.md'),
+      destinationDirectory: localPath('/repo/src'),
+    })
+    broadcastProjectFileEvent({
+      outcome: 'completed',
+      operationId: 'organize-1',
+      generation: 1,
+      items: [
+        {
+          itemId: 'organize:0',
+          source: localPath('/repo/existing.md'),
+          destination: localPath('/repo/src/existing.md'),
+          status: 'completed',
+          effect: 'moved-entry',
+        },
+      ],
+    })
+    await act(settle)
+  })
+
+  it('duplicates into a selected workspace directory without rebinding viewer tabs', async () => {
+    const viewerPathRebind: ViewerPathRebindCapability = {
+      canRebindPath: vi.fn(() => true),
+      rebindPath: vi.fn(() => true),
+    }
+    renderFileTree(rootPath, vi.fn(), viewerPathRebind)
+    await waitFor(() => treeRow('/repo/existing.md') !== undefined)
+    openPointerMenu('/repo/existing.md')
+    clickMenuItem('Duplicate…')
+    await waitFor(() => organizationTreeRow('/repo/src') !== undefined)
+    act(() => organizationTreeRow('/repo/src')!.click())
+    await act(settle)
+    setDialogName('exact duplicate.md')
+    act(() =>
+      document
+        .querySelector<HTMLFormElement>('.file-organization-dialog')!
+        .requestSubmit(),
+    )
+    await waitFor(() =>
+      invoke.mock.calls.some(([channel]) => channel === 'fs:organize-entry'),
+    )
+
+    expect(invoke).toHaveBeenCalledWith('fs:organize-entry', {
+      action: 'duplicate',
+      workspaceRoot: rootPath,
+      source: localPath('/repo/existing.md'),
+      destinationDirectory: localPath('/repo/src'),
+      name: 'exact duplicate.md',
+    })
+    broadcastProjectFileEvent({
+      outcome: 'completed',
+      operationId: 'organize-1',
+      generation: 1,
+      items: [
+        {
+          itemId: 'organize:0',
+          source: localPath('/repo/existing.md'),
+          destination: localPath('/repo/src/exact duplicate.md'),
+          status: 'completed',
+          effect: 'duplicated-file',
+          sourceDisposition: {
+            outcome: 'retained',
+            path: localPath('/repo/existing.md'),
+          },
+        },
+      ],
+    })
+    await act(settle)
+    expect(viewerPathRebind.rebindPath).not.toHaveBeenCalled()
+  })
 })
 
 describe('Files create targeting policy', () => {
@@ -467,6 +676,7 @@ describe('Files create targeting policy', () => {
 function renderFileTree(
   root: HostPath,
   onOpen: (path: HostPath, pinned: boolean, context?: FileOpenContext) => void,
+  viewerPathRebind?: ViewerPathRebindCapability,
 ): void {
   act(() => {
     reactRoot.render(
@@ -476,10 +686,17 @@ function renderFileTree(
         searchRefreshVersion={0}
         ignoredRefreshVersion={0}
         onOpen={onOpen}
+        viewerPathRebind={viewerPathRebind ?? TEST_VIEWER_PATH_REBIND}
+        onWorkspaceContentChanged={() => undefined}
         gitEnabled={false}
       />,
     )
   })
+}
+
+const TEST_VIEWER_PATH_REBIND: ViewerPathRebindCapability = {
+  canRebindPath: () => true,
+  rebindPath: () => true,
 }
 
 function openPointerMenu(path: string): void {
@@ -511,8 +728,33 @@ function menuItem(label: string): HTMLButtonElement | undefined {
 
 function treeRow(path: string): HTMLButtonElement | undefined {
   return [...container.querySelectorAll<HTMLButtonElement>('[role="treeitem"]')].find(
-    (row) => row.title === path,
+    (row) => row.dataset.filePath === path,
   )
+}
+
+function organizationTreeRow(path: string): HTMLButtonElement | undefined {
+  return [
+    ...document.querySelectorAll<HTMLButtonElement>(
+      '.file-organization-picker [role="treeitem"]',
+    ),
+  ].find((row) => row.title === path)
+}
+
+function broadcastProjectFileEvent(
+  result: Extract<ProjectFileOperationResult, { readonly outcome: 'completed' }>,
+): void {
+  const event: ProjectFileOperationProgress = {
+    workspaceRoot: rootPath,
+    operationId: result.operationId,
+    generation: result.generation,
+    phase: 'completed',
+    completedItems: result.items.length,
+    totalItems: result.items.length,
+    result,
+  }
+  act(() => {
+    for (const listener of projectFileEvents) listener(event)
+  })
 }
 
 function dialogText(): string {
@@ -578,4 +820,9 @@ async function waitFor(condition: () => boolean): Promise<void> {
     await act(async () => Promise.resolve())
   }
   throw new Error('Timed out waiting for Files create UI')
+}
+
+async function settle(): Promise<void> {
+  await Promise.resolve()
+  await Promise.resolve()
 }

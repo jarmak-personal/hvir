@@ -138,7 +138,12 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
   const smokeWebSwitchRoot = joinHostPath(smokeRoot, 'docs')
   const oversizedDiffPath = joinHostPath(smokeRoot, '.hvir-smoke-oversized-diff.txt')
   const createdPointerPath = joinHostPath(smokeRoot, '.hvir-smoke-created-pointer.txt')
+  const renamedPointerPath = joinHostPath(smokeRoot, '.hvir-smoke-renamed-pointer.txt')
   const createdKeyboardPath = joinHostPath(smokeRoot, '.hvir-smoke-created-keyboard')
+  const organizationTargetPath = joinHostPath(
+    smokeRoot,
+    '.hvir-smoke-organization-target',
+  )
   const createdSnapshotPath = joinHostPath(smokeRoot, '.hvir-smoke-created-snapshot.txt')
   const cleanup = new SmokeCleanup((name) => interruptionCheckpoint.disposed(name), {
     onFailure: (name) => {
@@ -179,10 +184,14 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
     host.exec('rm', ['-f', '--', oversizedDiffPath.path]).then(() => undefined),
   )
   cleanup.defer('created pointer fixture', () =>
-    host.exec('rm', ['-f', '--', createdPointerPath.path]).then(() => undefined),
+    host
+      .exec('rm', ['-f', '--', createdPointerPath.path, renamedPointerPath.path])
+      .then(() => undefined),
   )
   cleanup.defer('created keyboard fixture', () =>
-    host.exec('rmdir', ['--', createdKeyboardPath.path]).then(() => undefined),
+    host
+      .exec('rm', ['-rf', '--', createdKeyboardPath.path, organizationTargetPath.path])
+      .then(() => undefined),
   )
   cleanup.defer('created snapshot fixture', () =>
     host.exec('rm', ['-f', '--', createdSnapshotPath.path]).then(() => undefined),
@@ -425,9 +434,15 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
         '-f',
         '--',
         createdPointerPath.path,
+        renamedPointerPath.path,
         createdSnapshotPath.path,
       ])
-      await host.exec('rmdir', ['--', createdKeyboardPath.path])
+      await host.exec('rm', [
+        '-rf',
+        '--',
+        createdKeyboardPath.path,
+        organizationTargetPath.path,
+      ])
     }
     const emit: EmitSmokeEvent = (channel, payload) => {
       if (smokeWindow && !smokeWindow.isDestroyed())

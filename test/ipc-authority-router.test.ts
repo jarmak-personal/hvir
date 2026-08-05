@@ -105,16 +105,24 @@ function fixture() {
     assertCurrent,
   } as unknown as RendererResourceScopes
   const recordIpcContractDiagnostic = vi.fn<(event: IpcContractDiagnostic) => void>()
-  const createProjectFile = vi.fn().mockResolvedValue({
+  const createProjectFile = vi.fn<IpcDeps['projectFiles']['create']>().mockResolvedValue({
     outcome: 'completed',
     operationId: 'operation-1',
     generation: 1,
     items: [],
   })
+  const organizeProjectFile = vi
+    .fn<IpcDeps['projectFiles']['organize']>()
+    .mockResolvedValue({
+      outcome: 'started',
+      operationId: 'organize-1',
+      generation: 2,
+      itemCount: 1,
+    })
   const deps = {
     rendererResources,
     recordIpcContractDiagnostic,
-    projectFiles: { create: createProjectFile },
+    projectFiles: { create: createProjectFile, organize: organizeProjectFile },
     getProjectState: () => projectState(),
     getRegisteredWorkspaceRoot: (candidate: typeof root) =>
       candidate.path === root.path && candidate.hostId === root.hostId ? root : undefined,
@@ -134,6 +142,7 @@ function fixture() {
     currentIpcOwner,
     assertCurrent,
     createProjectFile,
+    organizeProjectFile,
     recordIpcContractDiagnostic,
   }
 }
@@ -282,6 +291,7 @@ describe('IpcAuthorityRouter', () => {
         'fs:acquire-clipboard-files',
         'fs:acquire-dropped-files',
         'fs:copy-external',
+        'fs:organize-entry',
         'fs:cancel-file-operation',
         'html-preview:create',
         'web-pane:open',
@@ -314,6 +324,7 @@ describe('IpcAuthorityRouter', () => {
         'fs:write',
         'fs:create-entry',
         'fs:copy-external',
+        'fs:organize-entry',
         'git:diff-inputs',
         'git:changes',
         'git:history',
@@ -423,6 +434,79 @@ describe('IpcAuthorityRouter', () => {
       }),
     ).resolves.toEqual({ ok: false, error: 'Project paths must already be normalized' })
     expect(createProjectFile).not.toHaveBeenCalled()
+  })
+
+  it('reconstructs an exact organization request and qualifies progress to its sender', async () => {
+    const { deps, transport, organizeProjectFile } = fixture()
+    registerIpcHandlers(deps, transport)
+    const event = ipcEvent()
+    const send = vi.spyOn(event.sender, 'send')
+
+    const response = await transport.invokes.get('fs:organize-entry')?.[0]?.(event, {
+      action: 'duplicate',
+      workspaceRoot: { hostId: 'local', path: '/project' },
+      source: { hostId: 'local', path: '/project/src/source.ts' },
+      destinationDirectory: { hostId: 'local', path: '/project/copies' },
+      name: 'exact copy.ts',
+    })
+
+    expect(response).toEqual({
+      ok: true,
+      value: {
+        outcome: 'started',
+        operationId: 'organize-1',
+        generation: 2,
+        itemCount: 1,
+      },
+    })
+    expect(organizeProjectFile).toHaveBeenCalledOnce()
+    const organization = organizeProjectFile.mock.calls[0]?.[0]
+    expect(organization).toMatchObject({
+      owner,
+      request: {
+        action: 'duplicate',
+        workspaceRoot: localPath('/project'),
+        source: localPath('/project/src/source.ts'),
+        destinationDirectory: localPath('/project/copies'),
+        name: 'exact copy.ts',
+      },
+    })
+    expect(typeof organization?.publish).toBe('function')
+    const progress = {
+      workspaceRoot: root,
+      operationId: 'organize-1',
+      generation: 2,
+      phase: 'moving' as const,
+      completedItems: 0,
+      totalItems: 1,
+    }
+    organization?.publish(progress)
+    expect(send).toHaveBeenCalledWith('fs:project-file-operation', {
+      ...progress,
+    })
+  })
+
+  it('rejects hostile organization discriminants and paths before the coordinator', async () => {
+    const { deps, transport, organizeProjectFile } = fixture()
+    registerIpcHandlers(deps, transport)
+    const invoke = transport.invokes.get('fs:organize-entry')?.[0]
+
+    await expect(
+      invoke?.(ipcEvent(), {
+        action: 'erase',
+        workspaceRoot: { hostId: 'local', path: '/project' },
+        source: { hostId: 'local', path: '/project/source.ts' },
+      }),
+    ).resolves.toEqual({ ok: false, error: 'Invalid project entry action' })
+    await expect(
+      invoke?.(ipcEvent(), {
+        action: 'move',
+        workspaceRoot: { hostId: 'local', path: '/project' },
+        source: { hostId: 'local', path: '/project/src/../source.ts' },
+        destinationDirectory: { hostId: 'local', path: '/project/copies' },
+      }),
+    ).resolves.toEqual({ ok: false, error: 'Project paths must already be normalized' })
+    expect(organizeProjectFile).not.toHaveBeenCalled()
   })
 })
 

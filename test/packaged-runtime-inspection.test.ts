@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 import {
+  inspectRenameNoReplaceApi,
   inspectPackagedRuntimeGraph,
   readAsarArchive,
 } from '../scripts/inspect-packaged-runtime.mts'
@@ -17,8 +18,10 @@ const productionEntries = [
   '/out/renderer/index.js',
   '/node_modules/node-pty/build/Release/pty.node',
   '/node_modules/node-pty/build/Release/spawn-helper',
-  '/node_modules/@skill-steward/rename-noreplace-darwin-arm64/rename_noreplace.node',
-  '/node_modules/@skill-steward/rename-noreplace-linux-arm64-gnu/rename_noreplace.node',
+  '/node_modules/@hvir/rename-noreplace/index.js',
+  '/node_modules/@hvir/rename-noreplace/package.json',
+  '/node_modules/@hvir/rename-noreplace/LICENSE',
+  '/node_modules/@hvir/rename-noreplace/build/Release/rename_noreplace.node',
 ]
 const buildConfig = readFileSync(
   new URL('../electron.vite.config.ts', import.meta.url),
@@ -54,6 +57,24 @@ function stringPickle(value: string): Buffer {
 }
 
 describe('packaged runtime inspection', () => {
+  it('requires the approved no-replace binding metadata and API', () => {
+    expect(() =>
+      inspectRenameNoReplaceApi({
+        metadata: () => 'hvir.rename-noreplace.v1',
+        renameNoReplace: () => 0,
+      }),
+    ).not.toThrow()
+    expect(() =>
+      inspectRenameNoReplaceApi({
+        metadata: () => 'another-helper',
+        renameNoReplace: () => 0,
+      }),
+    ).toThrow('approved API')
+    expect(() =>
+      inspectRenameNoReplaceApi({ metadata: () => 'hvir.rename-noreplace.v1' }),
+    ).toThrow('approved API')
+  })
+
   it('keeps smoke activation behind the smoke-only build while packages use production', () => {
     expect(buildConfig).toContain("const smokeBuild = mode === 'smoke'")
     expect(buildConfig).toContain('excludeSmokeRuntimeFromProduction(smokeBuild)')
@@ -121,7 +142,7 @@ describe('packaged runtime inspection', () => {
       nativeEntries: [
         '/node_modules/node-pty/build/Release/pty.node',
         '/node_modules/node-pty/build/Release/spawn-helper',
-        '/node_modules/@skill-steward/rename-noreplace-darwin-arm64/rename_noreplace.node',
+        '/node_modules/@hvir/rename-noreplace/build/Release/rename_noreplace.node',
       ],
     })
   })
@@ -135,7 +156,7 @@ describe('packaged runtime inspection', () => {
     ).toMatchObject({
       nativeEntries: [
         '/node_modules/node-pty/build/Release/pty.node',
-        '/node_modules/@skill-steward/rename-noreplace-linux-arm64-gnu/rename_noreplace.node',
+        '/node_modules/@hvir/rename-noreplace/build/Release/rename_noreplace.node',
       ],
     })
     expect(() =>
@@ -148,7 +169,10 @@ describe('packaged runtime inspection', () => {
     '/out/main/git-worker.js',
     '/node_modules/node-pty/build/Release/pty.node',
     '/node_modules/node-pty/build/Release/spawn-helper',
-    '/node_modules/@skill-steward/rename-noreplace-darwin-arm64/rename_noreplace.node',
+    '/node_modules/@hvir/rename-noreplace/build/Release/rename_noreplace.node',
+    '/node_modules/@hvir/rename-noreplace/index.js',
+    '/node_modules/@hvir/rename-noreplace/package.json',
+    '/node_modules/@hvir/rename-noreplace/LICENSE',
   ])('rejects a package missing %s', (missing) => {
     expect(() =>
       inspectPackagedRuntimeGraph(
@@ -158,6 +182,24 @@ describe('packaged runtime inspection', () => {
         'arm64',
       ),
     ).toThrow(missing)
+  })
+
+  it.each([
+    'binding.gyp',
+    'rename_noreplace.c',
+    'build/Makefile',
+    'build/config.gypi',
+    'build/rename_noreplace.target.mk',
+    'build/Release/.deps/rename_noreplace.node.d',
+  ])('rejects unexpected no-replace build metadata %s', (entry) => {
+    expect(() =>
+      inspectPackagedRuntimeGraph(
+        [...productionEntries, `/node_modules/@hvir/rename-noreplace/${entry}`],
+        () => 'production',
+        'darwin',
+        'arm64',
+      ),
+    ).toThrow('unexpected build entry')
   })
 
   it('rejects an emitted scenarios chunk', () => {

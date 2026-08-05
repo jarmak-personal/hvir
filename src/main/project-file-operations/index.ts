@@ -12,6 +12,8 @@ export * from './project-file-operation-coordinator'
 export * from './clipboard-file-list'
 export * from './external-file-grants'
 export * from './verified-project-copy'
+export * from './project-entry-organization'
+export * from './project-entry-removal'
 export * from './staging-cleanup'
 
 export function createProjectFileOperationCoordinator(

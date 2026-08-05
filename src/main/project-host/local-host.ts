@@ -49,6 +49,7 @@ import type {
   ExecStreamHandle,
   ProjectHost,
   ProjectFileMetadataOptions,
+  ProjectFileRenameOptions,
   ProjectFileStreamOptions,
   ProjectFileTransferPort,
   ProjectFileWriteStreamOptions,
@@ -68,12 +69,18 @@ import {
 } from './project-host'
 
 const DEFAULT_MAX_BUFFER = 10 * 1024 * 1024 // 10 MiB
-const ATOMIC_RENAME_HELPER_VERSION = '0.5.0-beta.1'
+const ATOMIC_RENAME_HELPER_VERSION = '0.1.0'
+const ATOMIC_RENAME_HELPER_PACKAGE = '@hvir/rename-noreplace'
 const atomicRenameRequire = createRequire(import.meta.url)
 
 interface AtomicRenameBinding {
   metadata(): unknown
-  renameNoReplace(parentFd: number, source: string, destination: string): unknown
+  renameNoReplace(
+    sourceParentFd: number,
+    source: string,
+    destinationParentFd: number,
+    destination: string,
+  ): unknown
 }
 
 export class LocalHost implements ProjectHost {
@@ -587,29 +594,40 @@ export class LocalHost implements ProjectHost {
   private async renameProjectFileNoReplace(
     source: HostPath,
     destination: HostPath,
-    opts: ProjectFileStreamOptions = {},
+    opts: ProjectFileRenameOptions = {},
   ): Promise<void> {
     opts.signal?.throwIfAborted()
     const from = this.resolve(source)
     const to = this.resolve(destination)
-    if (dirname(from) !== dirname(to)) {
-      throw new Error('Atomic no-replace publication requires one parent directory')
-    }
-    const parent = await fsp.open(dirname(from), 'r')
+    const sourceParent = await fsp.open(dirname(from), 'r')
+    let destinationParent: Awaited<ReturnType<typeof fsp.open>> | undefined
+    let operationFailed = false
+    let operationReason: unknown
     try {
+      destinationParent =
+        dirname(from) === dirname(to) ? sourceParent : await fsp.open(dirname(to), 'r')
       opts.signal?.throwIfAborted()
+      opts.onSubmitted?.()
       const result = loadAtomicRenameBinding().renameNoReplace(
-        parent.fd,
+        sourceParent.fd,
         basename(from),
+        destinationParent.fd,
         basename(to),
       )
       if (!Number.isInteger(result) || (result as number) < 0) {
         throw new Error('Atomic no-replace helper returned an invalid result')
       }
       if (result !== 0) throw atomicRenameError(result as number)
+    } catch (reason) {
+      operationFailed = true
+      operationReason = reason
     } finally {
-      await parent.close()
+      if (destinationParent && destinationParent !== sourceParent) {
+        await destinationParent.close().catch(() => undefined)
+      }
+      await sourceParent.close().catch(() => undefined)
     }
+    if (operationFailed) throw operationReason
   }
 
   private async removeDirectory(
@@ -803,39 +821,28 @@ function fileChangedError(): Error {
 }
 
 function loadAtomicRenameBinding(): AtomicRenameBinding {
-  const libc =
-    process.platform === 'linux' &&
-    (process.report.getReport() as { header: { glibcVersionRuntime?: string } }).header
-      .glibcVersionRuntime === undefined
-      ? 'musl'
-      : process.platform === 'linux'
-        ? 'gnu'
-        : 'none'
-  const target = `${process.platform}:${process.arch}:${libc}`
-  const packageName = new Map<string, string>([
-    ['darwin:arm64:none', '@skill-steward/rename-noreplace-darwin-arm64'],
-    ['linux:x64:gnu', '@skill-steward/rename-noreplace-linux-x64-gnu'],
-    ['linux:arm64:gnu', '@skill-steward/rename-noreplace-linux-arm64-gnu'],
-  ]).get(target)
-  if (!packageName) {
+  if (process.platform !== 'darwin' && process.platform !== 'linux') {
     throw new Error('Atomic no-replace publication is unavailable on this platform')
   }
-  const manifest = atomicRenameRequire(`${packageName}/package.json`) as {
+  const manifest = atomicRenameRequire(
+    `${ATOMIC_RENAME_HELPER_PACKAGE}/package.json`,
+  ) as {
     name?: unknown
     version?: unknown
   }
   if (
-    manifest.name !== packageName ||
+    manifest.name !== ATOMIC_RENAME_HELPER_PACKAGE ||
     manifest.version !== ATOMIC_RENAME_HELPER_VERSION
   ) {
     throw new Error('Atomic no-replace helper metadata does not match hvir')
   }
-  const candidate = atomicRenameRequire(packageName) as Partial<AtomicRenameBinding>
+  const candidate = atomicRenameRequire(
+    ATOMIC_RENAME_HELPER_PACKAGE,
+  ) as Partial<AtomicRenameBinding>
   if (
     typeof candidate.metadata !== 'function' ||
     typeof candidate.renameNoReplace !== 'function' ||
-    candidate.metadata() !==
-      `skill-steward.owned-tree-native.v3:${ATOMIC_RENAME_HELPER_VERSION}:${target}`
+    candidate.metadata() !== 'hvir.rename-noreplace.v1'
   ) {
     throw new Error('Atomic no-replace helper exports do not match hvir')
   }

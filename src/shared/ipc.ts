@@ -18,6 +18,7 @@ import type {
   ProjectFileCreateRequest,
   ProjectFileCancelRequest,
   ProjectFileExternalCopyRequest,
+  ProjectFileOrganizationRequest,
   ProjectFileOperationProgress,
   ProjectFileOperationResult,
   ProjectFileOperationStartResult,
@@ -648,6 +649,10 @@ export interface IpcInvokeMap {
     request: ProjectFileExternalCopyRequest
     response: OperationResult<ProjectFileOperationStartResult>
   }
+  'fs:organize-entry': {
+    request: ProjectFileOrganizationRequest
+    response: OperationResult<ProjectFileOperationStartResult>
+  }
   'fs:cancel-file-operation': {
     request: ProjectFileCancelRequest
     response: OperationResult<boolean>
@@ -894,6 +899,7 @@ export const INVOKE_CHANNELS = [
   'fs:acquire-clipboard-files',
   'fs:acquire-dropped-files',
   'fs:copy-external',
+  'fs:organize-entry',
   'fs:cancel-file-operation',
   'git:diff-inputs',
   'git:changes',

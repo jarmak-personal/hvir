@@ -14,6 +14,7 @@ import {
 import type {
   ExclusiveCreateOptions,
   ProjectFileMetadataOptions,
+  ProjectFileRenameOptions,
   ProjectFileStreamOptions,
   ProjectFileWriteStreamOptions,
   ReadFileOptions,
@@ -221,7 +222,7 @@ export class SshFileAccess {
   async renameProjectFileNoReplace(
     source: HostPath,
     destination: HostPath,
-    opts: ProjectFileStreamOptions = {},
+    opts: ProjectFileRenameOptions = {},
   ): Promise<void> {
     return this.projectTransfer.renameNoReplace(source, destination, opts)
   }

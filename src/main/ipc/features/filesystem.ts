@@ -210,6 +210,45 @@ export function registerFilesystemIpc(ipc: IpcRegistrar, deps: FilesystemIpcDeps
     }),
   )
 
+  ipc.handle('fs:organize-entry', (req, context) =>
+    operationResult(async () => {
+      const workspaceRoot = ipc.authority.workspaceRoot(
+        ipc.authority.reconstructHostPath(req.workspaceRoot),
+      )
+      const source = ipc.authority.reconstructHostPath(req.source)
+      const request =
+        req.action === 'rename'
+          ? { action: req.action, workspaceRoot, source, name: req.name }
+          : req.action === 'move'
+            ? {
+                action: req.action,
+                workspaceRoot,
+                source,
+                destinationDirectory: ipc.authority.reconstructHostPath(
+                  req.destinationDirectory,
+                ),
+              }
+            : req.action === 'duplicate'
+              ? {
+                  action: req.action,
+                  workspaceRoot,
+                  source,
+                  destinationDirectory: ipc.authority.reconstructHostPath(
+                    req.destinationDirectory,
+                  ),
+                  name: req.name,
+                }
+              : (() => {
+                  throw new Error('Invalid project entry action')
+                })()
+      return deps.projectFiles.organize({
+        owner: context.owner(),
+        request,
+        publish: (progress) => context.sender.send('fs:project-file-operation', progress),
+      })
+    }),
+  )
+
   ipc.handle('fs:cancel-file-operation', (req, context) =>
     operationResult(() =>
       Promise.resolve(

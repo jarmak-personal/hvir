@@ -6,6 +6,11 @@ directories:
 files:
   - out/**
   - package.json
+  - '!node_modules/@hvir/rename-noreplace/**'
+  - node_modules/@hvir/rename-noreplace/index.js
+  - node_modules/@hvir/rename-noreplace/package.json
+  - node_modules/@hvir/rename-noreplace/LICENSE
+  - node_modules/@hvir/rename-noreplace/build/Release/rename_noreplace.node
 extraResources:
   - from: THIRD_PARTY_NOTICES.md
     to: THIRD_PARTY_NOTICES.md

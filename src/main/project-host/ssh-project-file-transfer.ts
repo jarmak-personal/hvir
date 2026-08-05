@@ -1,10 +1,17 @@
 import type { SFTPWrapper } from 'ssh2'
 
-import type { HostId, HostPath, Stat } from '../../shared'
+import {
+  dirnameHostPath,
+  hostPathEquals,
+  type HostId,
+  type HostPath,
+  type Stat,
+} from '../../shared'
 import {
   PROJECT_FILE_STREAM_CHUNK_BYTES,
   ProjectPathExistsError,
   type ProjectFileMetadataOptions,
+  type ProjectFileRenameOptions,
   type ProjectFileStreamOptions,
   type ProjectFileWriteStreamOptions,
 } from './project-host'
@@ -138,26 +145,85 @@ export class SshProjectFileTransfer {
   async renameNoReplace(
     source: HostPath,
     destination: HostPath,
-    opts: ProjectFileStreamOptions = {},
+    opts: ProjectFileRenameOptions = {},
   ): Promise<void> {
     this.assertPath(source)
     this.assertPath(destination)
+    let submitted = false
     try {
       await this.request<void>(
         (session, done) => session.rename(source.path, destination.path, done),
         opts.signal,
+        () => {
+          submitted = true
+          opts.onSubmitted?.()
+        },
       )
     } catch (reason) {
-      try {
-        await this.port.stat(destination)
+      if (!submitted) throw reason
+      this.port.invalidate(source.path)
+      this.port.invalidate(destination.path)
+      const [sourceState, destinationState] = await Promise.all([
+        this.inspectPath(source),
+        this.inspectPath(destination),
+      ])
+      if (sourceState === 'missing' && destinationState === 'present') {
+        return
+      }
+      if (sourceState === 'present' && destinationState === 'present') {
         throw new ProjectPathExistsError()
-      } catch (statReason) {
-        if (statReason instanceof ProjectPathExistsError) throw statReason
+      }
+      if (
+        sourceState === 'present' &&
+        destinationState === 'missing' &&
+        (await this.provesCrossDeviceRename(source, destination))
+      ) {
+        throw remoteCrossDeviceError(reason)
       }
       throw reason
     }
     this.port.invalidate(source.path)
     this.port.invalidate(destination.path)
+  }
+
+  private async inspectPath(path: HostPath): Promise<'present' | 'missing' | 'unknown'> {
+    try {
+      await this.port.stat(path)
+      return 'present'
+    } catch (reason) {
+      return isNoSuchFile(reason) ? 'missing' : 'unknown'
+    }
+  }
+
+  private async provesCrossDeviceRename(
+    source: HostPath,
+    destination: HostPath,
+  ): Promise<boolean> {
+    const sourceParent = dirnameHostPath(source)
+    const destinationParent = dirnameHostPath(destination)
+    if (hostPathEquals(sourceParent, destinationParent)) return false
+    const [sourceFilesystem, destinationFilesystem] = await Promise.all([
+      this.inspectFilesystemId(sourceParent),
+      this.inspectFilesystemId(destinationParent),
+    ])
+    return (
+      sourceFilesystem !== undefined &&
+      destinationFilesystem !== undefined &&
+      sourceFilesystem !== destinationFilesystem
+    )
+  }
+
+  private async inspectFilesystemId(path: HostPath): Promise<string | undefined> {
+    try {
+      const info = await this.perform<unknown>((session, done) =>
+        session.ext_openssh_statvfs(path.path, (error, value: unknown) =>
+          done(error, value),
+        ),
+      )
+      return statvfsFilesystemId(info)
+    } catch {
+      return undefined
+    }
   }
 
   async removeDirectory(
@@ -180,11 +246,12 @@ export class SshProjectFileTransfer {
       done: (error: Error | null | undefined, value: T) => void,
     ) => void,
     signal?: AbortSignal,
+    onSubmitted?: () => void,
   ): Promise<T> {
     signal?.throwIfAborted()
     const session = await this.port.getSftp()
     signal?.throwIfAborted()
-    return callbackRequest(session, operation)
+    return callbackRequest(session, operation, onSubmitted)
   }
 
   private async perform<T>(
@@ -209,14 +276,28 @@ function callbackRequest<T>(
     session: SFTPWrapper,
     done: (error: Error | null | undefined, value: T) => void,
   ) => void,
+  onSubmitted?: () => void,
 ): Promise<T> {
   return new Promise<T>((resolve, reject) => {
+    let synchronous = true
+    let synchronousResult:
+      { readonly reason: Error | null | undefined; readonly value: T } | undefined
+    const settle = (reason: Error | null | undefined, value: T): void => {
+      if (reason) reject(reason)
+      else resolve(value)
+    }
     try {
       operation(session, (reason, value) => {
-        if (reason) reject(reason)
-        else resolve(value)
+        if (synchronous) synchronousResult = { reason, value }
+        else settle(reason, value)
       })
+      synchronous = false
+      onSubmitted?.()
+      if (synchronousResult) {
+        settle(synchronousResult.reason, synchronousResult.value)
+      }
     } catch (reason) {
+      synchronous = false
       reject(reason instanceof Error ? reason : new Error(String(reason)))
     }
   })
@@ -225,4 +306,22 @@ function callbackRequest<T>(
 function isNoSuchFile(reason: unknown): boolean {
   const code = (reason as { code?: unknown } | undefined)?.code
   return code === 2 || code === 'ENOENT'
+}
+
+function statvfsFilesystemId(value: unknown): string | undefined {
+  if (typeof value !== 'object' || value === null) return undefined
+  const id = (value as { readonly f_sid?: unknown }).f_sid
+  if (typeof id === 'bigint' && id >= 0n) return id.toString()
+  return typeof id === 'number' && Number.isSafeInteger(id) && id >= 0
+    ? id.toString()
+    : undefined
+}
+
+function remoteCrossDeviceError(cause: unknown): Error & { readonly code: 'EXDEV' } {
+  return Object.assign(
+    new Error('The remote source and destination are on different filesystems', {
+      cause,
+    }),
+    { code: 'EXDEV' as const },
+  )
 }
