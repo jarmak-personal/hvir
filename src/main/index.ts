@@ -1,5 +1,4 @@
 /** Electron main-process entry and current application composition root. */
-import { join } from 'node:path'
 import { app, BrowserWindow, dialog, protocol, shell } from 'electron'
 import { registerIpcHandlers } from './ipc'
 import { createProjectCommands } from './ipc/project-commands'
@@ -29,6 +28,7 @@ import { createDiagnosticReportCoordinator } from './diagnostics/diagnostic-repo
 import { RendererEventPublisher } from './renderer-event-publisher'
 import { createFilenameSearchCoordinator } from './filename-search'
 import { createProjectFileOperationCoordinator } from './project-file-operations'
+import { applicationRuntime, applicationUserDataPath } from './application-runtime'
 import {
   GIT_WORKSPACE_ACTIVITY_TYPE,
   GIT_FETCH_TYPE,
@@ -71,13 +71,13 @@ function createWorkbenchEntry(): void {
   )
   const rendererEvents = new RendererEventPublisher(rendererScopes)
   const diagnostics = RuntimeDiagnostics.create(
-    app.getPath('userData'),
+    applicationRuntime.userDataRoot,
     app.isPackaged || __HVIR_SMOKE_BUILD__,
     (state) => rendererEvents.toWindows('workbench-health:state', state),
   )
   const diagnosticReports = runtime.own(
     'Diagnostic reports',
-    createDiagnosticReportCoordinator(diagnostics, rendererScopes),
+    createDiagnosticReportCoordinator(diagnostics, rendererScopes, applicationRuntime),
     (reports) => reports.dispose(),
   )
   const diagnosticIpc = { reports: diagnosticReports, evidence: diagnostics }
@@ -168,7 +168,7 @@ function createWorkbenchEntry(): void {
       'project host catalog',
       await ProjectHostCatalog.create({
         prompter: sshPrompter,
-        trustFile: localPath(join(app.getPath('userData'), 'known-hosts.json')),
+        trustFile: localPath(applicationUserDataPath('known-hosts.json')),
         trashItem: electronTrash(shell),
       }),
       (catalog) => catalog.dispose(),
@@ -177,7 +177,7 @@ function createWorkbenchEntry(): void {
     const registry = await ProjectRegistry.create(
       requestedProjectRoot ? localPath(requestedProjectRoot) : undefined,
       hostCatalog,
-      join(app.getPath('userData'), 'projects.json'),
+      applicationUserDataPath('projects.json'),
       (state) => emit('project:state', state),
       async () => {
         const selection = await dialog.showOpenDialog({
@@ -201,7 +201,7 @@ function createWorkbenchEntry(): void {
       'terminal session registry',
       await TerminalSessionRegistry.load(
         hostCatalog.local,
-        localPath(join(app.getPath('userData'), 'terminal-sessions.json')),
+        localPath(applicationUserDataPath('terminal-sessions.json')),
         (event) => diagnostics.recordSessionRegistry(event),
       ),
       (sessions) => sessions.flush(),
@@ -210,7 +210,7 @@ function createWorkbenchEntry(): void {
       'harness profile store',
       await HarnessProfileStore.load(
         hostCatalog.local,
-        localPath(join(app.getPath('userData'), 'harness-profiles.json')),
+        localPath(applicationUserDataPath('harness-profiles.json')),
       ),
       (profiles) => profiles.flush(),
     )

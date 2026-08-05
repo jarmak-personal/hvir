@@ -20,6 +20,10 @@ import type {
   ProjectHost,
 } from '../src/main/project-host/project-host.ts'
 import { SshHost } from '../src/main/project-host/ssh-host.ts'
+import {
+  LocalSshIdentitySource,
+  type SshIdentitySource,
+} from '../src/main/project-host/ssh-identity-source.ts'
 import { PtySupervisor } from '../src/main/pty/pty-supervisor.ts'
 import {
   REAL_HOST_SSH_PHASES,
@@ -172,7 +176,6 @@ async function runConfiguredAcceptance(
     supervisor: new PtySupervisor(),
     capacityStreams: [],
   }
-  let privateKey: Buffer | undefined
   let host: SshHost | undefined
   let failure: RealHostSshFailureEvidence | undefined
   const interrupt = (): void => {
@@ -191,13 +194,15 @@ async function runConfiguredAcceptance(
         configuration.credential.kind === 'inline'
           ? inlinePrivateKey
           : await readFile(configuration.credential.path)
-      if (!loaded || loaded.length === 0) {
-        throw new Error('Explicit SSH identity was empty')
+      try {
+        if (!loaded || loaded.length === 0) {
+          throw new Error('Explicit SSH identity was empty')
+        }
+      } finally {
+        if (loaded !== inlinePrivateKey) loaded?.fill(0)
       }
-      privateKey = loaded
     })
 
-    if (!privateKey) throw new Error('Explicit SSH identity was not loaded')
     host = new SshHost({
       config: {
         alias: configuration.alias,
@@ -206,7 +211,7 @@ async function runConfiguredAcceptance(
         port: configuration.port,
         identityFiles: [],
       },
-      identities: [{ path: 'explicit-real-host-identity', privateKey }],
+      identitySource: acceptanceIdentitySource(configuration, inlinePrivateKey),
       trust: {
         trustedHostKey: () => configuration.trustedHostKey,
         rememberHostKey: () =>
@@ -253,7 +258,6 @@ async function runConfiguredAcceptance(
       } catch {
         failure ??= captureFailure(state, host, 'dispose-failed')
       }
-      privateKey?.fill(0)
       for (const signal of ['SIGHUP', 'SIGINT', 'SIGTERM'] as const) {
         process.removeListener(signal, interrupt)
       }
@@ -286,6 +290,43 @@ async function runConfiguredAcceptance(
     })}`,
   )
   return 0
+}
+
+function acceptanceIdentitySource(
+  configuration: RealHostSshConfiguration,
+  inlinePrivateKey: Buffer | undefined,
+): SshIdentitySource {
+  if (configuration.credential.kind === 'file') {
+    const path = configuration.credential.path
+    const local: Pick<ProjectHost, 'readFile'> = {
+      readFile: (qualifiedPath) => readFile(qualifiedPath.path),
+    }
+    return new LocalSshIdentitySource(local, [path])
+  }
+  const path = 'explicit-real-host-identity'
+  return {
+    candidatePaths: [path],
+    acquire(candidate, signal) {
+      if (candidate !== path || signal.aborted) return Promise.resolve(undefined)
+      let privateKey = inlinePrivateKey ? Buffer.from(inlinePrivateKey) : undefined
+      if (!privateKey) return Promise.resolve(undefined)
+      if (signal.aborted) {
+        privateKey.fill(0)
+        return Promise.resolve(undefined)
+      }
+      return Promise.resolve({
+        path,
+        get privateKey() {
+          if (!privateKey) throw new Error('SSH identity lease is released')
+          return privateKey
+        },
+        release() {
+          privateKey?.fill(0)
+          privateKey = undefined
+        },
+      })
+    },
+  }
 }
 
 async function exerciseRealHost(

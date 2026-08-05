@@ -19,6 +19,7 @@ export interface DiagnosticReportApplicationFacts {
   readonly platform: DiagnosticReport['application']['platform']
   readonly architecture: DiagnosticReport['application']['architecture']
   readonly mode: DiagnosticReport['application']['mode']
+  readonly buildChannel: DiagnosticReport['application']['buildChannel']
 }
 
 /** Builds the closed report envelope from already-sanitized snapshot ports. */

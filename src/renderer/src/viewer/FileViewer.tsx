@@ -106,6 +106,7 @@ const tokenDecorations = StateField.define<DecorationSet>({
 
 interface FileViewerProps {
   readonly tab?: ViewerTab
+  readonly gitRefreshVersion: number
   readonly onMode: (mode: ViewMode, position?: ViewerDocumentPosition) => void
   readonly onDiffBase: (base: DiffBase) => void
   readonly onContent: (content: string) => void
@@ -115,11 +116,12 @@ interface FileViewerProps {
   readonly onNavigationHandled: (serial: number) => void
   readonly registerCommands: RegisterViewerCommandTarget
   readonly onOpenPath: (path: HostPath) => void
-  readonly refreshVersion: number
+  readonly onRenderedDependencies: (tabId: string, paths: readonly HostPath[]) => void
 }
 
 export function FileViewer({
   tab,
+  gitRefreshVersion,
   onMode,
   onDiffBase,
   onContent,
@@ -129,7 +131,7 @@ export function FileViewer({
   onNavigationHandled,
   registerCommands,
   onOpenPath,
-  refreshVersion,
+  onRenderedDependencies,
 }: FileViewerProps): ReactElement {
   const [showBlame, setShowBlame] = useState(false)
   const [blame, setBlame] = useState<readonly GitBlameRun[]>([])
@@ -156,6 +158,7 @@ export function FileViewer({
         ? sourcePreview(tab.file.content)
         : tab.file.content
       : undefined
+  const documentRefreshVersion = tab?.refresh?.version ?? 0
 
   const registerFindTarget: RegisterViewerFindTarget = useCallback((target) => {
     setFindTarget(target)
@@ -166,6 +169,13 @@ export function FileViewer({
       setFindTarget((current) => (current === target ? undefined : current))
     }
   }, [])
+
+  const reportRenderedDependencies = useCallback(
+    (paths: readonly HostPath[]): void => {
+      if (tabId) onRenderedDependencies(tabId, paths)
+    },
+    [onRenderedDependencies, tabId],
+  )
 
   const navigate = (coordinate: SourceCoordinate): void => {
     setManualNavigation({
@@ -215,7 +225,7 @@ export function FileViewer({
     return () => {
       cancelled = true
     }
-  }, [blameMode, currentPath, refreshVersion, showBlame])
+  }, [blameMode, currentPath, documentRefreshVersion, gitRefreshVersion, showBlame])
 
   useEffect(() => {
     if (!modeControlExpanded) return
@@ -379,7 +389,9 @@ export function FileViewer({
           blame={showBlame ? blame : []}
           blameStatus={showBlame ? blameStatus : ''}
           onOpenPath={onOpenPath}
-          refreshVersion={refreshVersion}
+          refresh={tab.refresh}
+          gitRefreshVersion={gitRefreshVersion}
+          onRenderedDependencies={reportRenderedDependencies}
           positionCapture={positionCapture}
           navigation={manualNavigation ?? tab.navigation}
           onNavigationHandled={handleNavigation}
@@ -416,7 +428,9 @@ function ActiveView({
   blame,
   blameStatus,
   onOpenPath,
-  refreshVersion,
+  refresh,
+  gitRefreshVersion,
+  onRenderedDependencies,
   positionCapture,
   navigation,
   onNavigationHandled,
@@ -430,7 +444,9 @@ function ActiveView({
   readonly blame: readonly GitBlameRun[]
   readonly blameStatus: string
   readonly onOpenPath: (path: HostPath) => void
-  readonly refreshVersion: number
+  readonly refresh?: ViewerTab['refresh']
+  readonly gitRefreshVersion: number
+  readonly onRenderedDependencies: (paths: readonly HostPath[]) => void
   readonly positionCapture: ViewerPositionCapture
   readonly navigation?: ViewerNavigationPosition
   readonly onNavigationHandled: (serial: number) => void
@@ -445,7 +461,8 @@ function ActiveView({
         onPosition={onPosition}
         positionCapture={positionCapture}
         onOpenPath={onOpenPath}
-        refreshVersion={refreshVersion}
+        refresh={refresh}
+        onDependencies={onRenderedDependencies}
         registerFindTarget={registerFindTarget}
       />
     )
@@ -459,7 +476,8 @@ function ActiveView({
         currentSize={file.size}
         dirty={tab.dirty}
         revision={tab.diffRevision}
-        refreshVersion={refreshVersion}
+        documentRefreshVersion={refresh?.version ?? 0}
+        gitRefreshVersion={gitRefreshVersion}
         position={tab.position}
         onPosition={onPosition}
         positionCapture={positionCapture}

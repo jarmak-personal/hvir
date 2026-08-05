@@ -48,6 +48,7 @@ const APPLICATION: DiagnosticReportApplicationFacts = {
   platform: 'linux',
   architecture: 'x64',
   mode: 'packaged',
+  buildChannel: 'release',
 }
 
 describe('diagnostic report boundary', () => {
@@ -74,7 +75,13 @@ describe('diagnostic report boundary', () => {
     ])
     expect(JSON.stringify(local)).not.toContain(SENTINEL)
     expect(isDiagnosticReport({ ...local, futureField: true })).toBe(false)
-    expect(isDiagnosticReport({ ...local, version: 3 })).toBe(false)
+    expect(isDiagnosticReport({ ...local, version: 4 })).toBe(false)
+    expect(
+      isDiagnosticReport({
+        ...local,
+        application: { ...local.application, buildChannel: 'unbounded' },
+      }),
+    ).toBe(false)
     expect(
       isDiagnosticReport({
         ...local,

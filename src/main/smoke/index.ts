@@ -8,6 +8,7 @@ import { harnessProviderCatalog } from '../harness/harness-provider'
 import type { HarnessProbeManager } from '../harness/harness-probe'
 import type { HtmlPreviewProtocol } from '../html-preview-protocol'
 import type { RuntimeDiagnostics } from '../diagnostics/runtime-diagnostics'
+import { sendRendererEvent } from '../renderer-event-delivery'
 import { registerIpcHandlers } from '../ipc'
 import type { RendererResourceScopes } from '../renderer-resource-scopes'
 import { LocalHost } from '../project-host'
@@ -478,7 +479,7 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
     }
     const emit: EmitSmokeEvent = (channel, payload) => {
       if (smokeWindow && !smokeWindow.isDestroyed())
-        smokeWindow.webContents.send(channel, payload)
+        sendRendererEvent(smokeWindow.webContents, channel, payload)
     }
     const smokeTerminalSessionHarness = createSmokeTerminalSessionStore(smokeRoot)
     const smokeTerminalSessions = smokeTerminalSessionHarness.store
@@ -726,6 +727,7 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
         supervisor,
         routes: webPaneRoutes,
         root: smokeRoot,
+        liveReloadPath,
         host,
         checkpoint: recordSmokeCheckpoint,
       })

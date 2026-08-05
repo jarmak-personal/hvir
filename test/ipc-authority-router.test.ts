@@ -311,6 +311,23 @@ describe('IpcAuthorityRouter', () => {
     expect(assertCurrent).toHaveBeenCalledWith(owner)
   })
 
+  it('reads the native file clipboard only for a current renderer owner', () => {
+    const { deps, transport, currentIpcOwner, assertCurrent } = fixture()
+    const read = vi.fn(() => '/home/user/Downloads/requirements.txt')
+    const router = new IpcAuthorityRouter(deps, transport)
+    router.handle('terminal:resolve-file-clipboard', (_request, context) => {
+      context.owner()
+      return read()
+    })
+
+    expect(
+      transport.invokes.get('terminal:resolve-file-clipboard')?.[0]?.(ipcEvent(), {}),
+    ).toBe('/home/user/Downloads/requirements.txt')
+    expect(read).toHaveBeenCalledTimes(1)
+    expect(currentIpcOwner).toHaveBeenCalledTimes(1)
+    expect(assertCurrent).toHaveBeenCalledExactlyOnceWith(owner)
+  })
+
   it('rejects duplicate registration and removes every handler on dispose', () => {
     const { deps, transport } = fixture()
     const router = registerIpcHandlers(deps, transport)
@@ -357,6 +374,7 @@ describe('IpcAuthorityRouter', () => {
         'terminal:plan-move',
         'terminal:move',
         'terminal:record-recovery-decision',
+        'terminal:resolve-file-clipboard',
         'pty:start',
         'diagnostic-report:create',
         'diagnostic-report:capture',
@@ -428,6 +446,7 @@ describe('IpcAuthorityRouter', () => {
       'web-pane.ts',
       'diagnostic-report.ts',
       'image-paste.ts',
+      'terminal-file-paste.ts',
     ]
     const source = (
       await Promise.all(

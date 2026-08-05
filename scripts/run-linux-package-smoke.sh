@@ -293,12 +293,17 @@ assert_packaged_runtime() {
 
 run_installed_startup() {
   stage=$1
+  harness_probe_args=()
+  if [[ "$stage" == 'current' ]]; then
+    harness_probe_args+=(--exercise-harness-dialogs)
+  fi
   node scripts/installed-startup-probe.mts \
     --command /usr/bin/hvir \
     --expected-main /opt/hvir/hvir \
     --project-root "$project_root" \
     --runtime-root "$invocation_root/runtime-$stage" \
-    --path "$blocked_tools_root:/usr/sbin:/usr/bin:/sbin:/bin"
+    --path "$blocked_tools_root:/usr/sbin:/usr/bin:/sbin:/bin" \
+    "${harness_probe_args[@]}"
 }
 
 if HOME="$home_root" \

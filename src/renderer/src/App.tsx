@@ -1,11 +1,4 @@
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type ReactElement,
-} from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react'
 import {
   GIT_CHANGE_DISPLAY_LIMIT,
   hostPathEquals,
@@ -153,13 +146,13 @@ export function App(): ReactElement {
   } = session
   const { watch: watchVersion, ignored: ignoredRefreshVersion } = session.versions
   const { content: contentVersion, git: gitVersion } = session.versions
-  const openWatchPaths = useMemo(() => tabs.map((tab) => tab.path), [tabs])
   useRendererReady(Boolean(root))
   const watchInterests = useProjectWatchInterests({
     root,
     connected: connectionState === 'connected',
     missing: activeWorkspace?.missing,
-    openPaths: openWatchPaths,
+    openPaths: viewer.openWatchPaths,
+    dependencyPaths: viewer.renderedWatchPaths,
   })
   const gitEnabled = workspaceGitEnabled(activeWorkspace)
   const terminalWorkspaces = useTerminalWorkspaceRuntime({
@@ -374,6 +367,7 @@ export function App(): ReactElement {
           <FileViewer
             key={`${pane}:${paneTab?.id ?? 'empty'}`}
             tab={paneTab}
+            gitRefreshVersion={gitVersion}
             onMode={(mode, at) => paneTab && setViewerMode(paneTab.id, mode, at)}
             onDiffBase={(diffBase) => paneTab && setViewerDiffBase(paneTab.id, diffBase)}
             onContent={(content) => paneTab && setViewerContent(paneTab.id, content)}
@@ -389,7 +383,7 @@ export function App(): ReactElement {
               if (paneTab) pinTab(paneTab.id)
               openFile(path, true)
             }}
-            refreshVersion={contentVersion}
+            onRenderedDependencies={viewer.setRenderedDependencies}
           />
         )}
       </div>

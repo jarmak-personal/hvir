@@ -14,6 +14,7 @@ import {
 import type { HtmlPreviewProtocol } from '../html-preview-protocol'
 import type { WindowHealthDiagnostic } from '../health/workbench-health-events'
 import { isSafeExternalUrl, isWorkbenchDocument } from '../navigation-policy'
+import { sendRendererEvent } from '../renderer-event-delivery'
 import type { RendererOwner } from '../renderer-resource-scopes'
 import { installRendererDocumentLifecycle } from './electron-renderer-document-lifecycle'
 import { ElectronRendererRecovery } from './electron-renderer-recovery'
@@ -86,7 +87,7 @@ export function createElectronWindowManager(
       if (!dependencies.isRendererCurrent(rendererOwner)) return
       const owner = webContents.fromId(ownerId)
       if (owner && !owner.isDestroyed()) {
-        owner.send('web-pane:diagnostic', { paneId, event })
+        sendRendererEvent(owner, 'web-pane:diagnostic', { paneId, event })
       }
     },
   })
@@ -168,7 +169,7 @@ export function createElectronWindowManager(
       if (!dependencies.isRendererCurrent(rendererOwner)) return
       const owner = webContents.fromId(ownerId)
       if (!owner || owner.isDestroyed()) return
-      owner.send('web-pane:navigation-blocked', { paneId, kind, url })
+      sendRendererEvent(owner, 'web-pane:navigation-blocked', { paneId, kind, url })
     }
     const enforceNavigation = (event: Electron.Event, url: string): void => {
       const decision = webPaneRoutes.navigation(guest.id, url)
@@ -233,7 +234,7 @@ export function createElectronWindowManager(
       if (!dependencies.isRendererCurrent(rendererOwner)) return
       const owner = webContents.fromId(ownerId)
       if (owner && !owner.isDestroyed()) {
-        owner.send('web-pane:command', { paneId, action })
+        sendRendererEvent(owner, 'web-pane:command', { paneId, action })
       }
     })
   }
@@ -323,7 +324,8 @@ export function createElectronWindowManager(
       loaded: () => {
         committedDocument = true
         windowHealth.documentReady()
-        win.webContents.send(
+        sendRendererEvent(
+          win.webContents,
           'diagnostics:session',
           dependencies.startRendererDiagnostics(rendererOwner),
         )

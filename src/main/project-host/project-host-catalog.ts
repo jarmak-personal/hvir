@@ -8,6 +8,7 @@ import type { SshAuthPrompter } from './ssh-auth'
 import { parseSshConfig, type SshAliasConfig } from './ssh-config'
 import { SshHost } from './ssh-host'
 import { SshHostTrustStore } from './ssh-host-trust'
+import { LocalSshIdentitySource } from './ssh-identity-source'
 
 export interface ProjectHostCatalogOptions {
   readonly prompter: SshAuthPrompter
@@ -102,9 +103,11 @@ export class ProjectHostCatalog {
     if (existing) return Promise.resolve(existing)
     const pending = this.pendingHosts.get(hostId)
     if (pending) return pending
-    const creation = this.createSshHost(hostId).finally(() => {
-      if (this.pendingHosts.get(hostId) === creation) this.pendingHosts.delete(hostId)
-    })
+    const creation = Promise.resolve()
+      .then(() => this.createSshHost(hostId))
+      .finally(() => {
+        if (this.pendingHosts.get(hostId) === creation) this.pendingHosts.delete(hostId)
+      })
     this.pendingHosts.set(hostId, creation)
     return creation
   }
@@ -142,24 +145,18 @@ export class ProjectHostCatalog {
     this.listeners.clear()
   }
 
-  private async createSshHost(hostId: string): Promise<ProjectHost> {
+  private createSshHost(hostId: string): ProjectHost {
     const config = this.aliases.find((candidate) => candidate.alias === hostId)
     if (!config) throw new Error(`Unknown SSH host alias: ${hostId}`)
-    const identities = await Promise.all(
-      identityFileCandidates(config, this.home).map(async (path) => {
-        try {
-          return { path, privateKey: await this.local.readFile(localPath(path)) }
-        } catch {
-          return undefined
-        }
-      }),
-    )
     if (this.disposed) throw new Error('Project host catalog is disposed')
     const existing = this.hosts.get(hostId)
     if (existing) return existing
     const host = new SshHost({
       config,
-      identities: identities.filter((identity) => identity !== undefined),
+      identitySource: new LocalSshIdentitySource(
+        this.local,
+        identityFileCandidates(config, this.home),
+      ),
       agentSocket: this.agentSocket,
       prompter: this.prompter,
       trust: this.trust.forAlias(config.alias),

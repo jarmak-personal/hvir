@@ -27,6 +27,7 @@ import {
   isTerminalWebTarget,
 } from './terminal-file-link'
 import { TerminalFitController } from './ghostty-terminal-fit'
+import { resolveGhosttyTerminalFilePaste } from './ghostty-terminal-file-paste'
 import {
   ghosttyClipboardPasteFallback,
   ghosttyKeyboardOverride,
@@ -90,6 +91,8 @@ class GhosttyTerminalPane implements TerminalPane {
       fontSize: typography.fontSize,
       scrollback: 10_000,
       theme,
+      resolveClipboardFilePaste: (file) =>
+        resolveGhosttyTerminalFilePaste(window.hvir, file),
     })
     this.fit = new TerminalFitController(this.terminal)
     this.terminal.attachCustomKeyEventHandler((event) => {

@@ -783,6 +783,10 @@ export interface IpcInvokeMap {
     request: RebindTerminalProfileRequest
     response: TerminalRecoverySession
   }
+  'terminal:resolve-file-clipboard': {
+    request: Record<string, never>
+    response: string | undefined
+  }
   'pty:start': { request: StartPtyRequest; response: StartPtyResponse }
   'web-pane:open': {
     request: OpenWebPaneRequest
@@ -864,6 +868,8 @@ export type IpcEventPayload<E extends IpcEventChannel> = IpcEventMap[E]
 export interface HvirApi {
   /** Signals that the workbench surface committed for the preload's exact generation. */
   rendererReady(): void
+  /** Resolve one disk-backed clipboard File to safe local terminal paste text. */
+  resolveTerminalClipboardFilePaste(file: File): string | undefined
   invoke<C extends RendererIpcInvokeChannel>(
     channel: C,
     request: IpcRequest<C>,
@@ -970,6 +976,7 @@ export const INVOKE_CHANNELS = [
   'terminal:plan-move',
   'terminal:move',
   'terminal:rebind-profile',
+  'terminal:resolve-file-clipboard',
   'pty:start',
   'web-pane:open',
   'web-pane:close',

@@ -100,6 +100,7 @@ describe('Linux native package contract', () => {
     expect(installedSmoke).toContain('"$previous_installer" 2>&1 | tee "$install_log"')
     expect(installedSmoke).toContain('"$current_installer" 2>&1 | tee "$update_log"')
     expect(installedSmoke).toContain('assert_packaged_runtime')
+    expect(installedSmoke).toContain('--exercise-harness-dialogs')
     expect(installedSmoke).toContain('run_installed_startup previous')
     expect(installedSmoke).toContain('run_installed_startup current')
     expect(installedSmoke).not.toContain('run_installed_smoke')

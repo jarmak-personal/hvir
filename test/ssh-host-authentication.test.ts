@@ -7,10 +7,11 @@ import { join } from 'node:path'
 import type { AnyAuthMethod, Client, ConnectConfig } from 'ssh2'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { SshHost, type SshPrompt } from '../src/main/project-host'
+import { SshHost, type SshIdentitySource, type SshPrompt } from '../src/main/project-host'
 import {
   createTestSshHost,
   inMemorySshHostTrust,
+  testSshIdentitySource,
 } from './ssh-host-test-fixture'
 
 const cleanups: string[] = []
@@ -32,7 +33,7 @@ describe('SshHost authentication', () => {
     const host = createTestSshHost({
       config: aliasConfig(),
       agentSocket: '/tmp/agent.sock',
-      identities: [{ path: keyPath, privateKey }],
+      identitySource: testSshIdentitySource([{ path: keyPath, privateKey }]),
       prompter: {
         prompt: (request) => {
           prompts.push(request)
@@ -48,9 +49,174 @@ describe('SshHost authentication', () => {
 
     expect(prompts).toEqual([expect.objectContaining({ kind: 'passphrase' })])
     expect(key).toMatchObject({ type: 'publickey', passphrase: 'key secret' })
+    await host.dispose()
   })
 
-  it('accepts a remembered host fingerprint without prompting again', () => {
+  it('reloads and releases identity buffers for each primary authentication', async () => {
+    const first = Buffer.from('first-authentication-sentinel')
+    const replacement = Buffer.from('replacement-authentication-sentinel')
+    const identities = trackingIdentitySource(['/identity'], [first, replacement])
+    const clients = [fakeAuthClient(), fakeAuthClient()]
+    const host = createTestSshHost({
+      config: aliasConfig(),
+      identitySource: identities.source,
+      prompter: { prompt: () => Promise.resolve(undefined) },
+      clientFactory: () =>
+        clients.find((client) => !client.connect.mock.calls.length)! as unknown as Client,
+    })
+    vi.spyOn(host, 'exec').mockResolvedValue({
+      code: 1,
+      signal: null,
+      stdout: '',
+      stderr: '',
+    })
+
+    await connectWithIdentity(host, clients[0]!, first)
+    expect(identities.active.size).toBe(0)
+    expect(first.equals(Buffer.alloc(first.length))).toBe(true)
+
+    await host.dispose()
+    await connectWithIdentity(host, clients[1]!, replacement)
+    expect(identities.active.size).toBe(0)
+    expect(replacement.equals(Buffer.alloc(replacement.length))).toBe(true)
+    expect(identities.acquire).toHaveBeenCalledTimes(2)
+    await host.dispose()
+  })
+
+  it('does not reuse a released identity when the next source read is unavailable', async () => {
+    const first = Buffer.from('removed-identity-sentinel')
+    const identities = trackingIdentitySource(['/identity'], [first, undefined])
+    const clients = [fakeAuthClient(), fakeAuthClient()]
+    const host = createTestSshHost({
+      config: aliasConfig(),
+      identitySource: identities.source,
+      prompter: { prompt: () => Promise.resolve(undefined) },
+      clientFactory: () =>
+        clients.find((client) => !client.connect.mock.calls.length)! as unknown as Client,
+    })
+    vi.spyOn(host, 'exec').mockResolvedValue({
+      code: 1,
+      signal: null,
+      stdout: '',
+      stderr: '',
+    })
+
+    await connectWithIdentity(host, clients[0]!, first)
+    await host.dispose()
+
+    const reconnecting = host.connect()
+    await vi.waitFor(() => expect(clients[1]?.config).toBeDefined())
+    await expect(nextAuth(clients[1]!.config!, ['publickey'])).resolves.toBe(false)
+    clients[1]!.emit('close')
+    await expect(reconnecting).rejects.toThrow(
+      'SSH connection closed before authentication completed',
+    )
+    expect(identities.acquire).toHaveBeenCalledTimes(2)
+    expect(identities.active.size).toBe(0)
+    await host.dispose()
+  })
+
+  it('releases identity buffers after failed and disposed authentication', async () => {
+    const failureSentinel = Buffer.from('failed-authentication-sentinel')
+    const failureSource = trackingIdentitySource(['/identity'], [failureSentinel])
+    const failedClient = fakeAuthClient()
+    const failedHost = createTestSshHost({
+      config: aliasConfig(),
+      identitySource: failureSource.source,
+      prompter: { prompt: () => Promise.resolve(undefined) },
+      clientFactory: () => failedClient as unknown as Client,
+    })
+    const failing = failedHost.connect()
+    await vi.waitFor(() => expect(failedClient.config).toBeDefined())
+    await nextAuth(failedClient.config!, ['publickey'])
+    failedClient.emit(
+      'error',
+      Object.assign(new Error('socket failed'), { level: 'client-socket' }),
+    )
+
+    await expect(failing).rejects.toThrow('socket failed')
+    expect(failureSource.active.size).toBe(0)
+    expect(failureSentinel.equals(Buffer.alloc(failureSentinel.length))).toBe(true)
+    await failedHost.dispose()
+
+    const disposedSentinel = Buffer.from('disposed-authentication-sentinel')
+    const disposedSource = trackingIdentitySource(['/identity'], [disposedSentinel])
+    const pendingClient = fakeAuthClient()
+    const pendingHost = createTestSshHost({
+      config: aliasConfig(),
+      identitySource: disposedSource.source,
+      prompter: { prompt: () => Promise.resolve(undefined) },
+      clientFactory: () => pendingClient as unknown as Client,
+    })
+    const connecting = pendingHost.connect()
+    const cancelled = expect(connecting).rejects.toThrow('SSH connection cancelled')
+    await vi.waitFor(() => expect(pendingClient.config).toBeDefined())
+    await nextAuth(pendingClient.config!, ['publickey'])
+
+    await pendingHost.dispose()
+
+    await cancelled
+    expect(disposedSource.active.size).toBe(0)
+    expect(disposedSentinel.equals(Buffer.alloc(disposedSentinel.length))).toBe(true)
+  })
+
+  it('releases auxiliary identity buffers at the ready boundary', async () => {
+    const sentinel = Buffer.from('auxiliary-authentication-sentinel')
+    const identities = trackingIdentitySource(['/identity'], [sentinel])
+    const client = fakeAuthClient()
+    const host = createTestSshHost({
+      config: aliasConfig(),
+      identitySource: identities.source,
+      prompter: { prompt: () => Promise.resolve(undefined) },
+      clientFactory: () => client as unknown as Client,
+    })
+    const opening = (
+      host as unknown as {
+        openAuxiliaryTransport(role: 'control'): Promise<Client>
+      }
+    ).openAuxiliaryTransport('control')
+    await vi.waitFor(() => expect(client.config).toBeDefined())
+    await nextAuth(client.config!, ['publickey'])
+
+    client.emit('ready')
+
+    await expect(opening).resolves.toBe(client)
+    expect(identities.active.size).toBe(0)
+    expect(sentinel.equals(Buffer.alloc(sentinel.length))).toBe(true)
+    await host.dispose()
+  })
+
+  it('defers identity reads until public-key auth and preserves candidate order', async () => {
+    const first = Buffer.from('first-candidate-sentinel')
+    const second = Buffer.from('second-candidate-sentinel')
+    const identities = trackingIdentitySource(['/first', '/second'], [first, second])
+    const host = createTestSshHost({
+      config: aliasConfig(),
+      agentSocket: '/tmp/agent.sock',
+      identitySource: identities.source,
+      prompter: { prompt: () => Promise.resolve(undefined) },
+    })
+    const config = connectConfig(host)
+
+    await expect(nextAuth(config, null)).resolves.toMatchObject({ type: 'agent' })
+    expect(identities.acquire).not.toHaveBeenCalled()
+    await expect(nextAuth(config, ['publickey'])).resolves.toMatchObject({
+      type: 'publickey',
+      key: first,
+    })
+    await expect(nextAuth(config, ['publickey'])).resolves.toMatchObject({
+      type: 'publickey',
+      key: second,
+    })
+    expect(identities.requested).toEqual(['/first', '/second'])
+
+    await host.dispose()
+    expect(identities.active.size).toBe(0)
+    expect(first.equals(Buffer.alloc(first.length))).toBe(true)
+    expect(second.equals(Buffer.alloc(second.length))).toBe(true)
+  })
+
+  it('accepts a remembered host fingerprint without prompting again', async () => {
     const prompt = vi.fn<() => Promise<readonly string[] | undefined>>()
     const host = createTestSshHost({
       config: aliasConfig(),
@@ -63,6 +229,7 @@ describe('SshHost authentication', () => {
     expect(verifier(Buffer.from('trusted-host-key'), verify)).toBeUndefined()
     expect(verify).toHaveBeenCalledWith(true)
     expect(prompt).not.toHaveBeenCalled()
+    await host.dispose()
   })
 
   it('waits for an unknown host to be persisted before verifying it', async () => {
@@ -84,6 +251,7 @@ describe('SshHost authentication', () => {
     expect(remember.mock.invocationCallOrder[0]).toBeLessThan(
       verify.mock.invocationCallOrder[0]!,
     )
+    await host.dispose()
   })
 
   it('rejects a failed trust write and prompts again on the next explicit verification', async () => {
@@ -111,6 +279,7 @@ describe('SshHost authentication', () => {
 
     expect(prompt).toHaveBeenCalledTimes(2)
     expect(remember).toHaveBeenCalledTimes(2)
+    await host.dispose()
   })
 
   it('presents a saved-key mismatch as a distinct high-risk prompt', async () => {
@@ -140,6 +309,7 @@ describe('SshHost authentication', () => {
       previousFingerprint: 'SHA256:oldSavedFingerprint0123456789',
     })
     expect(remember).toHaveBeenCalledOnce()
+    await host.dispose()
   })
 
   it('stops the entire auth ladder when an identity prompt is cancelled', async () => {
@@ -150,7 +320,9 @@ describe('SshHost authentication', () => {
     const prompt = vi.fn(() => Promise.resolve(undefined))
     const host = createTestSshHost({
       config: aliasConfig(),
-      identities: [{ path: keyPath, privateKey: await readFile(keyPath) }],
+      identitySource: testSshIdentitySource([
+        { path: keyPath, privateKey: await readFile(keyPath) },
+      ]),
       prompter: { prompt },
     })
     const config = connectConfig(host)
@@ -160,6 +332,7 @@ describe('SshHost authentication', () => {
       false,
     )
     expect(prompt).toHaveBeenCalledOnce()
+    await host.dispose()
   })
 
   it('does not fall through to password after keyboard-interactive is cancelled', async () => {
@@ -187,6 +360,7 @@ describe('SshHost authentication', () => {
     expect(answers).toEqual([])
     await expect(nextAuth(config, ['password'])).resolves.toBe(false)
     expect(prompt).toHaveBeenCalledOnce()
+    await host.dispose()
   })
 
   it.each(['host-key', 'password', 'passphrase', 'keyboard-interactive'] as const)(
@@ -202,7 +376,11 @@ describe('SshHost authentication', () => {
       const host = createTestSshHost({
         config: aliasConfig(),
         ...(kind === 'passphrase'
-          ? { identities: [{ path: keyPath, privateKey: await readFile(keyPath) }] }
+          ? {
+              identitySource: testSshIdentitySource([
+                { path: keyPath, privateKey: await readFile(keyPath) },
+              ]),
+            }
           : {}),
         prompter: {
           prompt: (_request, signal) => {
@@ -325,6 +503,64 @@ async function triggerPrompt(
   )
 }
 
+async function connectWithIdentity(
+  host: SshHost,
+  client: ReturnType<typeof fakeAuthClient>,
+  expected: Buffer,
+): Promise<void> {
+  const connecting = host.connect()
+  await vi.waitFor(() => expect(client.config).toBeDefined())
+  await expect(nextAuth(client.config!, ['publickey'])).resolves.toMatchObject({
+    type: 'publickey',
+    key: expected,
+  })
+  client.emit('ready')
+  await connecting
+}
+
+function trackingIdentitySource(
+  candidatePaths: readonly string[],
+  values: readonly (Buffer | undefined)[],
+): {
+  readonly source: SshIdentitySource
+  readonly acquire: ReturnType<typeof vi.fn>
+  readonly active: ReadonlySet<Buffer>
+  readonly requested: readonly string[]
+} {
+  const pending = [...values]
+  const active = new Set<Buffer>()
+  const requested: string[] = []
+  const acquire = vi.fn((_path: string, signal: AbortSignal) => {
+    requested.push(_path)
+    let privateKey = pending.shift()
+    if (!privateKey) return Promise.resolve(undefined)
+    if (signal.aborted) {
+      privateKey.fill(0)
+      return Promise.resolve(undefined)
+    }
+    active.add(privateKey)
+    return Promise.resolve({
+      path: _path,
+      get privateKey() {
+        if (!privateKey) throw new Error('SSH identity lease is released')
+        return privateKey
+      },
+      release() {
+        if (!privateKey) return
+        active.delete(privateKey)
+        privateKey.fill(0)
+        privateKey = undefined
+      },
+    })
+  })
+  return {
+    source: { candidatePaths, acquire },
+    acquire,
+    active,
+    requested,
+  }
+}
+
 function fingerprint(key: Buffer): string {
   return `SHA256:${createHash('sha256').update(key).digest('base64').replace(/=+$/, '')}`
 }
@@ -340,7 +576,11 @@ function aliasConfig() {
 }
 
 function connectConfig(host: SshHost): ConnectConfig {
-  return (host as unknown as { connectConfig(): ConnectConfig }).connectConfig()
+  const internals = host as unknown as {
+    createCredentialAttempt(): unknown
+    connectConfig(attempt: unknown): ConnectConfig
+  }
+  return internals.connectConfig(internals.createCredentialAttempt())
 }
 
 function hostVerifier(
