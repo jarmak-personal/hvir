@@ -229,7 +229,11 @@ function hostVerifier(host: SshHost): HostVerifier {
 }
 
 function connectConfig(host: SshHost): ConnectConfig {
-  return (host as unknown as { connectConfig(): ConnectConfig }).connectConfig()
+  const internals = host as unknown as {
+    createCredentialAttempt(): unknown
+    connectConfig(attempt: unknown): ConnectConfig
+  }
+  return internals.connectConfig(internals.createCredentialAttempt())
 }
 
 function nextAuth(

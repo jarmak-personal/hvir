@@ -49,6 +49,7 @@ describe('SshHost authentication', () => {
 
     expect(prompts).toEqual([expect.objectContaining({ kind: 'passphrase' })])
     expect(key).toMatchObject({ type: 'publickey', passphrase: 'key secret' })
+    await host.dispose()
   })
 
   it('reloads and releases identity buffers for each primary authentication', async () => {
@@ -215,7 +216,7 @@ describe('SshHost authentication', () => {
     expect(second.equals(Buffer.alloc(second.length))).toBe(true)
   })
 
-  it('accepts a remembered host fingerprint without prompting again', () => {
+  it('accepts a remembered host fingerprint without prompting again', async () => {
     const prompt = vi.fn<() => Promise<readonly string[] | undefined>>()
     const host = createTestSshHost({
       config: aliasConfig(),
@@ -228,6 +229,7 @@ describe('SshHost authentication', () => {
     expect(verifier(Buffer.from('trusted-host-key'), verify)).toBeUndefined()
     expect(verify).toHaveBeenCalledWith(true)
     expect(prompt).not.toHaveBeenCalled()
+    await host.dispose()
   })
 
   it('waits for an unknown host to be persisted before verifying it', async () => {
@@ -249,6 +251,7 @@ describe('SshHost authentication', () => {
     expect(remember.mock.invocationCallOrder[0]).toBeLessThan(
       verify.mock.invocationCallOrder[0]!,
     )
+    await host.dispose()
   })
 
   it('rejects a failed trust write and prompts again on the next explicit verification', async () => {
@@ -276,6 +279,7 @@ describe('SshHost authentication', () => {
 
     expect(prompt).toHaveBeenCalledTimes(2)
     expect(remember).toHaveBeenCalledTimes(2)
+    await host.dispose()
   })
 
   it('presents a saved-key mismatch as a distinct high-risk prompt', async () => {
@@ -305,6 +309,7 @@ describe('SshHost authentication', () => {
       previousFingerprint: 'SHA256:oldSavedFingerprint0123456789',
     })
     expect(remember).toHaveBeenCalledOnce()
+    await host.dispose()
   })
 
   it('stops the entire auth ladder when an identity prompt is cancelled', async () => {
@@ -327,6 +332,7 @@ describe('SshHost authentication', () => {
       false,
     )
     expect(prompt).toHaveBeenCalledOnce()
+    await host.dispose()
   })
 
   it('does not fall through to password after keyboard-interactive is cancelled', async () => {
@@ -354,6 +360,7 @@ describe('SshHost authentication', () => {
     expect(answers).toEqual([])
     await expect(nextAuth(config, ['password'])).resolves.toBe(false)
     expect(prompt).toHaveBeenCalledOnce()
+    await host.dispose()
   })
 
   it.each(['host-key', 'password', 'passphrase', 'keyboard-interactive'] as const)(
@@ -569,7 +576,11 @@ function aliasConfig() {
 }
 
 function connectConfig(host: SshHost): ConnectConfig {
-  return (host as unknown as { connectConfig(): ConnectConfig }).connectConfig()
+  const internals = host as unknown as {
+    createCredentialAttempt(): unknown
+    connectConfig(attempt: unknown): ConnectConfig
+  }
+  return internals.connectConfig(internals.createCredentialAttempt())
 }
 
 function hostVerifier(

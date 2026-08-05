@@ -575,11 +575,11 @@ export class SshHost implements ProjectHost {
     }
     const credentialAttempt = this.createCredentialAttempt()
     const config = this.connectConfig(
+      credentialAttempt,
       'primary',
       undefined,
       () =>
         !this.disposed && this.client === client && this.clientGeneration === generation,
-      credentialAttempt,
       AbortSignal.any([this.lifecycleAbort.signal, promptAbort.signal]),
     )
     const authentication = startSshAuthentication(client, config, {
@@ -637,10 +637,10 @@ export class SshHost implements ProjectHost {
   }
 
   private connectConfig(
+    credentialAttempt: SshCredentialAttempt,
     purpose: 'primary' | 'pool' = 'primary',
     markPrompt?: () => void,
     isActive: () => boolean = () => !this.disposed,
-    credentialAttempt: SshCredentialAttempt = this.createCredentialAttempt(),
     promptSignal: AbortSignal = this.lifecycleAbort.signal,
   ): ConnectConfig {
     const { config, agentSocket, prompter } = this.options
@@ -916,12 +916,12 @@ export class SshHost implements ProjectHost {
     const promptAbort = new AbortController()
     const credentialAttempt = this.createCredentialAttempt()
     const config = this.connectConfig(
+      credentialAttempt,
       'pool',
       () => {
         prompted = true
       },
       () => !this.disposed && !closed,
-      credentialAttempt,
       AbortSignal.any([this.lifecycleAbort.signal, promptAbort.signal]),
     )
     try {

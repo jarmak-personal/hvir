@@ -20,7 +20,10 @@ import type {
   ProjectHost,
 } from '../src/main/project-host/project-host.ts'
 import { SshHost } from '../src/main/project-host/ssh-host.ts'
-import type { SshIdentitySource } from '../src/main/project-host/ssh-identity-source.ts'
+import {
+  LocalSshIdentitySource,
+  type SshIdentitySource,
+} from '../src/main/project-host/ssh-identity-source.ts'
 import { PtySupervisor } from '../src/main/pty/pty-supervisor.ts'
 import {
   REAL_HOST_SSH_PHASES,
@@ -293,26 +296,25 @@ function acceptanceIdentitySource(
   configuration: RealHostSshConfiguration,
   inlinePrivateKey: Buffer | undefined,
 ): SshIdentitySource {
-  const path =
-    configuration.credential.kind === 'file'
-      ? configuration.credential.path
-      : 'explicit-real-host-identity'
+  if (configuration.credential.kind === 'file') {
+    const path = configuration.credential.path
+    const local: Pick<ProjectHost, 'readFile'> = {
+      readFile: (qualifiedPath) => readFile(qualifiedPath.path),
+    }
+    return new LocalSshIdentitySource(local, [path])
+  }
+  const path = 'explicit-real-host-identity'
   return {
     candidatePaths: [path],
-    async acquire(candidate, signal) {
-      if (candidate !== path || signal.aborted) return undefined
-      let privateKey =
-        configuration.credential.kind === 'file'
-          ? await readFile(configuration.credential.path)
-          : inlinePrivateKey
-            ? Buffer.from(inlinePrivateKey)
-            : undefined
-      if (!privateKey) return undefined
+    acquire(candidate, signal) {
+      if (candidate !== path || signal.aborted) return Promise.resolve(undefined)
+      let privateKey = inlinePrivateKey ? Buffer.from(inlinePrivateKey) : undefined
+      if (!privateKey) return Promise.resolve(undefined)
       if (signal.aborted) {
         privateKey.fill(0)
-        return undefined
+        return Promise.resolve(undefined)
       }
-      return {
+      return Promise.resolve({
         path,
         get privateKey() {
           if (!privateKey) throw new Error('SSH identity lease is released')
@@ -322,7 +324,7 @@ function acceptanceIdentitySource(
           privateKey?.fill(0)
           privateKey = undefined
         },
-      }
+      })
     },
   }
 }
