@@ -15,6 +15,7 @@ import type {
   ReadFileOptions,
 } from '../project-host'
 import { ElectronClipboardFileSource } from '../project-file-operations/electron-clipboard-files'
+import { writeMacFilePasteboard } from './macos-file-pasteboard'
 
 /**
  * Immediate deterministic remote filesystem boundary for the renderer smoke.
@@ -232,18 +233,7 @@ export async function verifyProjectFileOperationsSmoke(options: {
     const clipboardFormat =
       process.platform === 'darwin' ? 'public.file-url' : 'text/uri-list'
     if (process.platform === 'darwin') {
-      const result = await localHost.exec('/usr/bin/osascript', [
-        '-e',
-        'on run argv',
-        '-e',
-        'set the clipboard to POSIX file (item 1 of argv)',
-        '-e',
-        'end run',
-        clipboardSource.path,
-      ])
-      if (result.code !== 0) {
-        throw new Error('macOS did not create the disk-file clipboard fixture')
-      }
+      await writeMacFilePasteboard(localHost, clipboardSource)
     } else {
       clipboard.writeBuffer(
         clipboardFormat,
