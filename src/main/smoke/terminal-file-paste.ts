@@ -1,8 +1,11 @@
-import type { BrowserWindow } from 'electron'
+import { pathToFileURL } from 'node:url'
+
+import { clipboard, type BrowserWindow } from 'electron'
 
 import { isLocal, joinHostPath, type HostPath } from '../../shared'
 import { plainShellProvider } from '../harness/harness-provider'
 import type { ManagedPty, PtySupervisor } from '../pty/pty-supervisor'
+import { GNOME_COPIED_FILES_FORMAT } from '../terminal/electron-clipboard-file-paste'
 import { withTerminalSmokeTimeout } from './terminal-smoke-timeout'
 
 const INPUT_ID = '__hvir-terminal-file-paste-probe'
@@ -64,9 +67,9 @@ if (!process.stdin.isTTY || typeof process.stdin.setRawMode !== 'function') {
 `
 
 /**
- * Exercise one disk-backed Chromium File through preload, ghostty-web, and the
- * exact live PTY. Installed Linux acceptance still owns the OS clipboard and
- * Ctrl+Shift+V chord; this scenario proves only the Electron consumer seam.
+ * Exercise Linux native clipboard formats through main IPC, ghostty-web, and
+ * the exact live PTY. Other local platforms retain the disk-backed Chromium
+ * File proof for the synchronous webUtils fallback.
  */
 export async function verifyTerminalClipboardFilePaste(
   win: BrowserWindow,
@@ -81,6 +84,7 @@ export async function verifyTerminalClipboardFilePaste(
 
   const observation = new FilePasteObservation()
   let terminalExit: string | undefined
+  let restoreClipboard: (() => void) | undefined
   const detach = supervisor.attach(terminal.id, terminal.ownerId, {
     onData: (data) => observation.consume(data),
     onExit: (exit) => {
@@ -100,7 +104,11 @@ export async function verifyTerminalClipboardFilePaste(
       READY_MARKER,
       'terminal file-paste probe did not become ready',
     )
-    await dispatchDiskBackedFilePaste(win, terminal.id, fixturePath)
+    if (process.platform === 'linux') {
+      restoreClipboard = await dispatchNativeLinuxFilePaste(win, terminal.id, fixturePath)
+    } else {
+      await dispatchDiskBackedFilePaste(win, terminal.id, fixturePath)
+    }
     await waitForObservation(
       observation,
       () => terminalExit,
@@ -129,6 +137,7 @@ export async function verifyTerminalClipboardFilePaste(
         // Preserve the original failure; scenario teardown owns an unresponsive PTY.
       }
     }
+    restoreClipboard?.()
     await detach()
     await removeProbeInput(win)
   }
@@ -149,6 +158,68 @@ function filePasteProbeLaunchCommand(expectedPath: string): string {
   const source = Buffer.from(FILE_PASTE_PROBE_SOURCE).toString('base64')
   const expected = Buffer.from(expectedPath).toString('base64')
   return `node -e "eval(Buffer.from(process.argv[1],'base64').toString())" '${source}' '${expected}'\n`
+}
+
+async function dispatchNativeLinuxFilePaste(
+  win: BrowserWindow,
+  terminalId: string,
+  fixturePath: string,
+): Promise<() => void> {
+  const restore = captureClipboardRestore()
+  try {
+    clipboard.writeBuffer(
+      GNOME_COPIED_FILES_FORMAT,
+      Buffer.from(`copy\n${pathToFileURL(fixturePath).href}\n`),
+    )
+    const focused: unknown = await win.webContents.executeJavaScript(`
+      (() => {
+        const surface = document.querySelector(
+          '.terminal-surface[data-terminal-session="' +
+            CSS.escape(${JSON.stringify(terminalId)}) + '"]'
+        );
+        const textarea = surface?.querySelector('.terminal-engine-host textarea');
+        if (!(textarea instanceof HTMLTextAreaElement)) return false;
+        textarea.focus();
+        return document.activeElement === textarea;
+      })()
+    `)
+    if (focused !== true) throw new Error('terminal file-paste input was not focused')
+
+    win.focus()
+    win.webContents.focus()
+    win.webContents.sendInputEvent({
+      type: 'keyDown',
+      keyCode: 'V',
+      modifiers: ['control', 'shift'],
+    })
+    win.webContents.sendInputEvent({
+      type: 'keyUp',
+      keyCode: 'V',
+      modifiers: ['control', 'shift'],
+    })
+    return restore
+  } catch (error) {
+    restore()
+    throw error
+  }
+}
+
+function captureClipboardRestore(): () => void {
+  const previous = {
+    text: clipboard.readText(),
+    html: clipboard.readHTML(),
+    rtf: clipboard.readRTF(),
+    image: clipboard.readImage(),
+  }
+  return () => {
+    const data: Parameters<typeof clipboard.write>[0] = {}
+    if (previous.text) data.text = previous.text
+    if (previous.html) data.html = previous.html
+    if (previous.rtf) data.rtf = previous.rtf
+    if (!previous.image.isEmpty()) data.image = previous.image
+    if (Object.keys(data).length > 0) clipboard.write(data)
+    else clipboard.clear()
+  }
 }
 
 async function dispatchDiskBackedFilePaste(
