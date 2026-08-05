@@ -1,4 +1,4 @@
-import type { BrowserWindow } from 'electron'
+import type { BrowserWindow, InputEvent as ElectronInputEvent } from 'electron'
 
 import { plainShellProvider } from '../harness/harness-provider'
 import type { ManagedPty, PtySupervisor } from '../pty/pty-supervisor'
@@ -8,30 +8,96 @@ interface KeyboardProbePhase {
   readonly name: string
   readonly activateHex: string
   readonly queryResponseHex: string
-  readonly expectedKeyHex: string
+  readonly inputs: readonly KeyboardProbeInput[]
   readonly deactivateHex: string
 }
 
+interface KeyboardProbeInput {
+  readonly name: string
+  readonly keyCode: string
+  readonly modifiers: readonly KeyboardModifier[]
+  readonly expectedHex: string
+}
+
+type KeyboardModifier = NonNullable<ElectronInputEvent['modifiers']>[number]
+
 const KEYBOARD_PROBE_PHASES = [
+  {
+    name: 'ordinary-initial',
+    activateHex: '1b5b356e',
+    queryResponseHex: '1b5b306e',
+    inputs: [
+      { name: 'ctrl-u', keyCode: 'U', modifiers: ['control'], expectedHex: '15' },
+      { name: 'shift-enter', keyCode: 'Enter', modifiers: ['shift'], expectedHex: '0d' },
+    ],
+    deactivateHex: '',
+  },
   {
     name: 'kitty',
     activateHex: '1b5b3e31751b5b3f75',
     queryResponseHex: '1b5b3f3175',
-    expectedKeyHex: '1b5b31333b3275',
+    inputs: [
+      {
+        name: 'shift-enter',
+        keyCode: 'Enter',
+        modifiers: ['shift'],
+        expectedHex: '1b5b31333b3275',
+      },
+      {
+        name: 'ctrl-a',
+        keyCode: 'A',
+        modifiers: ['control'],
+        expectedHex: '1b5b39373b3575',
+      },
+      {
+        name: 'ctrl-c',
+        keyCode: 'C',
+        modifiers: ['control'],
+        expectedHex: '1b5b39393b3575',
+      },
+      {
+        name: 'ctrl-u',
+        keyCode: 'U',
+        modifiers: ['control'],
+        expectedHex: '1b5b3131373b3575',
+      },
+      {
+        name: 'ctrl-w',
+        keyCode: 'W',
+        modifiers: ['control'],
+        expectedHex: '1b5b3131393b3575',
+      },
+    ],
     deactivateHex: '1b5b3c75',
+  },
+  {
+    name: 'kitty-restored',
+    activateHex: '1b5b3f75',
+    queryResponseHex: '1b5b3f3075',
+    inputs: [{ name: 'ctrl-u', keyCode: 'U', modifiers: ['control'], expectedHex: '15' }],
+    deactivateHex: '',
   },
   {
     name: 'modify-other-keys',
     activateHex: '1b5b3e343b326d1b5b356e',
     queryResponseHex: '1b5b306e',
-    expectedKeyHex: '1b5b32373b323b31337e',
+    inputs: [
+      {
+        name: 'shift-enter',
+        keyCode: 'Enter',
+        modifiers: ['shift'],
+        expectedHex: '1b5b32373b323b31337e',
+      },
+    ],
     deactivateHex: '1b5b3e343b306d',
   },
   {
-    name: 'ordinary',
+    name: 'ordinary-final',
     activateHex: '1b5b356e',
     queryResponseHex: '1b5b306e',
-    expectedKeyHex: '0d',
+    inputs: [
+      { name: 'shift-enter', keyCode: 'Enter', modifiers: ['shift'], expectedHex: '0d' },
+    ],
     deactivateHex: '',
   },
 ] as const satisfies readonly KeyboardProbePhase[]
@@ -42,8 +108,9 @@ const SUCCESS_PREFIX = '__HVIR_KEYBOARD_OK__:'
 const FAILURE_PREFIX = '__HVIR_KEYBOARD_FAIL__:'
 const CLOSED_PREFIX = '__HVIR_KEYBOARD_CLOSED__:'
 const CLOSED_SUCCESS_MARKER = `${CLOSED_PREFIX}0`
-const EXPECTED_SUCCESS_MARKER = `${SUCCESS_PREFIX}${KEYBOARD_PROBE_PHASES.map(
-  ({ name, expectedKeyHex }) => `${name}=${expectedKeyHex}`,
+const EXPECTED_SUCCESS_MARKER = `${SUCCESS_PREFIX}${KEYBOARD_PROBE_PHASES.flatMap(
+  (phase) =>
+    phase.inputs.map((input) => `${phase.name}.${input.name}=${input.expectedHex}`),
 ).join(',')}`
 const RESET_PROTOCOLS_HEX = '1b5b3c751b5b3e343b306d'
 const PROBE_SOURCE_VARIABLE = 'HVIR_KEYBOARD_PROBE_B64'
@@ -58,6 +125,7 @@ const abortedMarker = '__HVIR_' + 'KEYBOARD_ABORTED__';
 const closedPrefix = '__HVIR_' + 'KEYBOARD_CLOSED__:';
 const resetProtocols = Buffer.from('${RESET_PROTOCOLS_HEX}', 'hex');
 let phaseIndex = 0;
+let inputIndex = 0;
 let waitingFor = 'query';
 let buffered = Buffer.alloc(0);
 let finished = false;
@@ -88,23 +156,34 @@ const advance = () => {
   const phase = phases[phaseIndex];
   if (!phase) return fail('missing-phase');
   const queryResponse = Buffer.from(phase.queryResponseHex, 'hex');
-  const expectedKey = Buffer.from(phase.expectedKeyHex, 'hex');
   if (waitingFor === 'query') {
     const responseIndex = buffered.indexOf(queryResponse);
     if (responseIndex < 0) return;
     buffered = buffered.subarray(responseIndex + queryResponse.length);
     waitingFor = 'key';
-    process.stdout.write(readyPrefix + phase.name + '\\r\\n');
+    inputIndex = 0;
+    process.stdout.write(
+      readyPrefix + phase.name + ':' + phase.inputs[inputIndex].name + '\\r\\n',
+    );
   }
   if (waitingFor !== 'key' || buffered.length === 0) return;
+  const input = phase.inputs[inputIndex];
+  if (!input) return fail(phase.name + ':missing-input');
+  const expectedKey = Buffer.from(input.expectedHex, 'hex');
   const prefixLength = Math.min(buffered.length, expectedKey.length);
   if (!buffered.subarray(0, prefixLength).equals(expectedKey.subarray(0, prefixLength))) {
-    return fail(phase.name + ':unexpected-key');
+    return fail(phase.name + ':' + input.name + ':unexpected-key');
   }
   if (buffered.length < expectedKey.length) return;
   buffered = buffered.subarray(expectedKey.length);
   if (buffered.length > 0) return fail(phase.name + ':trailing-input');
-  observed.push(phase.name + '=' + phase.expectedKeyHex);
+  observed.push(phase.name + '.' + input.name + '=' + input.expectedHex);
+  inputIndex += 1;
+  const nextInput = phase.inputs[inputIndex];
+  if (nextInput) {
+    process.stdout.write(readyPrefix + phase.name + ':' + nextInput.name + '\\r\\n');
+    return;
+  }
   if (phase.deactivateHex) {
     process.stdout.write(Buffer.from(phase.deactivateHex, 'hex'));
   }
@@ -114,6 +193,7 @@ const advance = () => {
     return finish(0, successPrefix + observed.join(','));
   }
   waitingFor = 'query';
+  inputIndex = 0;
   process.stdout.write(Buffer.from(next.activateHex, 'hex'));
 };
 
@@ -147,7 +227,9 @@ const DELIVERY_MARKERS = Array.from(
 const EXPECTED_EVENTS = [
   ...DELIVERY_MARKERS,
   CLIENT_STARTED_MARKER,
-  ...KEYBOARD_PROBE_PHASES.map(({ name }) => `${READY_PREFIX}${name}`),
+  ...KEYBOARD_PROBE_PHASES.flatMap((phase) =>
+    phase.inputs.map((input) => keyboardProbeInputMarker(phase, input)),
+  ),
   EXPECTED_SUCCESS_MARKER,
   CLOSED_SUCCESS_MARKER,
 ] as const
@@ -196,24 +278,26 @@ export async function verifyNegotiatedTerminalKeyboard(
       'keyboard probe client did not execute',
     )
     for (const phase of KEYBOARD_PROBE_PHASES) {
-      const marker = `${READY_PREFIX}${phase.name}`
-      await waitForProbeObservation(
-        observation,
-        () => terminalExit,
-        marker,
-        `${phase.name} keyboard negotiation did not become ready`,
-      )
-      await requireActiveTerminalEngine(win, terminal.id)
-      win.webContents.sendInputEvent({
-        type: 'keyDown',
-        keyCode: 'Enter',
-        modifiers: ['shift'],
-      })
-      win.webContents.sendInputEvent({
-        type: 'keyUp',
-        keyCode: 'Enter',
-        modifiers: ['shift'],
-      })
+      for (const input of phase.inputs) {
+        const marker = keyboardProbeInputMarker(phase, input)
+        await waitForProbeObservation(
+          observation,
+          () => terminalExit,
+          marker,
+          `${phase.name} ${input.name} keyboard input did not become ready`,
+        )
+        await requireActiveTerminalEngine(win, terminal.id)
+        win.webContents.sendInputEvent({
+          type: 'keyDown',
+          keyCode: input.keyCode,
+          modifiers: [...input.modifiers],
+        })
+        win.webContents.sendInputEvent({
+          type: 'keyUp',
+          keyCode: input.keyCode,
+          modifiers: [...input.modifiers],
+        })
+      }
     }
 
     await waitForProbeObservation(
@@ -262,6 +346,13 @@ function requireSolePlainShellTerminal(
     throw new Error('explicit launch did not retain one exact Shell-provider PTY')
   }
   return owned[0]!
+}
+
+function keyboardProbeInputMarker(
+  phase: KeyboardProbePhase,
+  input: KeyboardProbeInput,
+): string {
+  return `${READY_PREFIX}${phase.name}:${input.name}`
 }
 
 function chunkProbeSource(encoded: string): readonly string[] {
