@@ -95,6 +95,20 @@ describe('Electron smoke result aggregation', () => {
         durationMs: 10,
       }),
     ).toEqual({ status: 'passed', exitCode: 0, durationMs: 10 })
+    expect(
+      classifySmokeAttempt({
+        exitCode: 0,
+        signal: null,
+        successSentinel: true,
+        disposedFrameDeliveryFailure: true,
+        durationMs: 10,
+      }),
+    ).toEqual({
+      status: 'failed',
+      exitCode: 0,
+      error: 'disposed renderer frame delivery reached standard error',
+      durationMs: 10,
+    })
   })
 
   it('runs every group for every iteration and continues after failures', async () => {
@@ -326,6 +340,30 @@ describe('Electron smoke process failure artifacts', () => {
       exitCode: null,
       signal: 'SIGTERM',
       spawnError: false,
+    })
+  })
+
+  it('fails a successful process when disposed-frame delivery reaches stderr', async () => {
+    const stderr = vi.spyOn(process.stderr, 'write').mockReturnValue(true)
+    const stdout = vi.spyOn(process.stdout, 'write').mockReturnValue(true)
+    onTestFinished(() => {
+      stderr.mockRestore()
+      stdout.mockRestore()
+    })
+    const fixture = await invokeFixture({
+      scenario: 'renderer-recovery',
+      command: process.execPath,
+      args: [
+        '-e',
+        `process.stderr.write('Render frame was disposed before '); setImmediate(() => { process.stderr.write('WebFrameMain could be accessed\\n'); console.log('HVIR_SMOKE_OK') })`,
+      ],
+      timeoutMs: 1_000,
+    })
+
+    expect(fixture.result).toMatchObject({
+      status: 'failed',
+      exitCode: 0,
+      error: 'disposed renderer frame delivery reached standard error',
     })
   })
 

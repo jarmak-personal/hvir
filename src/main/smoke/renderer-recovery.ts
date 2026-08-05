@@ -1,12 +1,28 @@
 import type { BrowserWindow } from 'electron'
 
-import type { HostPath } from '../../shared'
+import { asHostId, hostPath, joinHostPath, type HostPath } from '../../shared'
 import type { RuntimeDiagnostics } from '../diagnostics/runtime-diagnostics'
+import { plainShellProvider } from '../harness/harness-provider'
 import type { ProjectHost } from '../project-host'
-import type { PtySupervisor } from '../pty/pty-supervisor'
+import { LocalHost } from '../project-host/local-host'
+import type { ManagedPty, PtySupervisor } from '../pty/pty-supervisor'
 import type { RendererOwner, RendererResourceScopes } from '../renderer-resource-scopes'
+import {
+  attachRendererPty,
+  registerRendererPty,
+  rendererPtyQualifier,
+} from '../terminal/renderer-pty-lifecycle'
 import type { WebPaneRouteRegistry } from '../web-pane/web-pane-route-registry'
 import type { SmokeFailureCheckpoint } from './failure-evidence.mts'
+import { waitForPtyOutput } from './pty-lifecycle'
+
+const RECOVERY_WATCH_PATH = '.hvir-smoke-live.txt'
+const SYNTHETIC_REMOTE_HOST_ID = asHostId('smoke-renderer-recovery-ssh')
+
+interface RecoveryPtyFixture {
+  readonly root: HostPath
+  readonly terminal: ManagedPty
+}
 
 export async function verifyRendererProcessRecovery(options: {
   readonly win: BrowserWindow
@@ -48,14 +64,76 @@ export async function verifyRendererProcessRecovery(options: {
   if (initialProcessId <= 0) {
     throw new Error('renderer recovery could not identify the presented OS process')
   }
+  const localPty = await startRecoveryPty({
+    host,
+    root,
+    id: 'renderer-recovery-local',
+    owner: initialOwner,
+    resources,
+    supervisor,
+    sender: win.webContents,
+  })
+  const syntheticRemoteHost = new SyntheticRemotePtyHost()
+  const remotePty = await startRecoveryPty({
+    host: syntheticRemoteHost,
+    root: hostPath(SYNTHETIC_REMOTE_HOST_ID, root.path),
+    id: 'renderer-recovery-ssh',
+    owner: initialOwner,
+    resources,
+    supervisor,
+    sender: win.webContents,
+  }).finally(() => syntheticRemoteHost.dispose())
+  await Promise.all([
+    startPtyProducer(supervisor, localPty, 'local'),
+    startPtyProducer(supervisor, remotePty, 'ssh'),
+  ])
   const loaded = new Promise<void>((resolve) =>
     win.webContents.once('did-finish-load', () => resolve()),
   )
 
   checkpoint('renderer-recovery-reload-awaiting')
   process.kill(initialProcessId, 'SIGKILL')
+  await host.writeFile(
+    joinHostPath(root, RECOVERY_WATCH_PATH),
+    'renderer recovery stale generation watch event\n',
+  )
   await timeout(loaded, 'replacement renderer document did not load')
   checkpoint('renderer-recovery-reload-loaded')
+
+  const replacement = resources.currentOwner(win.webContents.id)
+  await installReplacementDeliveryObserver(win)
+  reattachRecoveryPty(resources, supervisor, localPty, replacement, win.webContents)
+  reattachRecoveryPty(resources, supervisor, remotePty, replacement, win.webContents)
+  supervisor.write(
+    localPty.terminal.id,
+    replacement.id,
+    "printf 'hvir-replacement-local\\n'\n",
+    replacement.generation,
+  )
+  supervisor.write(
+    remotePty.terminal.id,
+    replacement.id,
+    "printf 'hvir-replacement-ssh\\n'\n",
+    replacement.generation,
+  )
+  await host.writeFile(
+    joinHostPath(root, RECOVERY_WATCH_PATH),
+    'renderer recovery replacement watch event\n',
+  )
+  diagnostics.recordWindowHealth({
+    kind: 'renderer-unresponsive',
+    ownerId: replacement.id,
+    ownerGeneration: replacement.generation,
+    occurrenceId: 'renderer-recovery-delivery',
+  })
+  diagnostics.recordWindowHealth({
+    kind: 'workbench-health-recovered',
+    ownerId: replacement.id,
+    ownerGeneration: replacement.generation,
+    occurrenceId: 'renderer-recovery-delivery',
+    outcome: 'responsive',
+  })
+  await waitForReplacementDeliveries(win)
 
   checkpoint('renderer-recovery-replacement-ipc-awaiting')
   const replacementElectronVersion = (await timeout(
@@ -131,11 +209,10 @@ export async function verifyRendererProcessRecovery(options: {
     'replacement empty terminal lifecycle timed out',
   )
   checkpoint('renderer-recovery-terminal-lifecycle-ready')
-  if (supervisor.list().length !== 0) {
-    throw new Error('renderer replacement implicitly started a PTY')
+  if (supervisor.list().length !== 2) {
+    throw new Error('renderer replacement changed the active PTY producer set')
   }
 
-  const replacement = resources.currentOwner(win.webContents.id)
   if (replacement.generation !== initialOwner.generation + 1) {
     throw new Error(
       `renderer recovery advanced ${replacement.generation - initialOwner.generation} generations`,
@@ -157,7 +234,149 @@ export async function verifyRendererProcessRecovery(options: {
   return (
     `killed renderer ${initialProcessId} → ${replacementProcessId} · ` +
     `generation ${initialOwner.generation} → ${replacement.generation} · ` +
-    `${functionalControl} · old route revoked · empty workspace retained zero PTYs`
+    `${functionalControl} · old route revoked · local/SSH-shaped PTYs, watch, and health delivered`
+  )
+}
+
+/**
+ * Supplies a host-qualified remote producer after the transport boundary. The renderer
+ * delivery contract is host-neutral; deterministic SshHost transport remains at its own seam.
+ */
+class SyntheticRemotePtyHost extends LocalHost {
+  override readonly hostId = SYNTHETIC_REMOTE_HOST_ID
+  override readonly watchTier = 'polling' as const
+}
+
+async function startRecoveryPty(options: {
+  readonly host: ProjectHost
+  readonly root: HostPath
+  readonly id: string
+  readonly owner: RendererOwner
+  readonly resources: RendererResourceScopes
+  readonly supervisor: PtySupervisor
+  readonly sender: BrowserWindow['webContents']
+}): Promise<RecoveryPtyFixture> {
+  const { host, root, id, owner, resources, supervisor, sender } = options
+  const dependencies = {
+    rendererResources: resources,
+    ptySupervisor: supervisor,
+  }
+  const lease = registerRendererPty(dependencies, owner, root, id)
+  try {
+    const terminal = await supervisor.spawn({
+      host,
+      provider: plainShellProvider,
+      cwd: root,
+      workspaceRoot: root,
+      ownerId: owner.id,
+      ownerGeneration: owner.generation,
+      sessionId: id,
+      cols: 80,
+      rows: 24,
+    })
+    attachRendererPty(dependencies, terminal, lease, owner, sender)
+    return { root, terminal }
+  } catch (error) {
+    await lease.dispose()
+    throw error
+  }
+}
+
+function startPtyProducer(
+  supervisor: PtySupervisor,
+  fixture: RecoveryPtyFixture,
+  label: 'local' | 'ssh',
+): Promise<string> {
+  const marker = `hvir-${label}-producer-ready`
+  return waitForPtyOutput({
+    supervisor,
+    terminal: fixture.terminal,
+    expected: marker,
+    scenario: `renderer recovery ${label} producer`,
+    trigger: () =>
+      supervisor.write(
+        fixture.terminal.id,
+        fixture.terminal.ownerId,
+        `printf '${marker}\\n'; i=0; while [ "$i" -lt 500 ]; do printf 'hvir-${label}-active\\n'; i=$((i+1)); sleep 0.01; done &\n`,
+        fixture.terminal.ownerGeneration,
+      ),
+  })
+}
+
+function reattachRecoveryPty(
+  resources: RendererResourceScopes,
+  supervisor: PtySupervisor,
+  fixture: RecoveryPtyFixture,
+  owner: RendererOwner,
+  sender: BrowserWindow['webContents'],
+): void {
+  const lease = resources.claimTransferredResource(
+    owner,
+    rendererPtyQualifier(fixture.root, fixture.terminal.id),
+  )
+  const terminal = supervisor.get(fixture.terminal.id)
+  if (!lease || !terminal) {
+    throw new Error(`renderer recovery did not transfer ${fixture.terminal.id}`)
+  }
+  attachRendererPty(
+    { rendererResources: resources, ptySupervisor: supervisor },
+    terminal,
+    lease,
+    owner,
+    sender,
+  )
+}
+
+function installReplacementDeliveryObserver(win: BrowserWindow): Promise<unknown> {
+  return win.webContents.executeJavaScript(`
+    (() => {
+      window.__hvirRendererRecoveryDeliveries = {
+        local: false,
+        ssh: false,
+        watch: false,
+        health: false
+      };
+      window.hvir.on('pty:data', ({ id, data }) => {
+        if (id === 'renderer-recovery-local' && data.includes('hvir-replacement-local')) {
+          window.__hvirRendererRecoveryDeliveries.local = true;
+        }
+        if (id === 'renderer-recovery-ssh' && data.includes('hvir-replacement-ssh')) {
+          window.__hvirRendererRecoveryDeliveries.ssh = true;
+        }
+      });
+      window.hvir.on('project:watch', ({ path }) => {
+        if (path.path.endsWith('/${RECOVERY_WATCH_PATH}')) {
+          window.__hvirRendererRecoveryDeliveries.watch = true;
+        }
+      });
+      window.hvir.on('workbench-health:state', () => {
+        window.__hvirRendererRecoveryDeliveries.health = true;
+      });
+    })()
+  `)
+}
+
+async function waitForReplacementDeliveries(win: BrowserWindow): Promise<void> {
+  await timeout(
+    win.webContents.executeJavaScript(`
+      new Promise((resolve, reject) => {
+        const deadline = Date.now() + 10000;
+        const inspect = () => {
+          const deliveries = window.__hvirRendererRecoveryDeliveries;
+          if (deliveries?.local && deliveries.ssh && deliveries.watch && deliveries.health) {
+            return resolve();
+          }
+          if (Date.now() >= deadline) {
+            return reject(new Error(
+              'replacement renderer delivery did not settle: ' + JSON.stringify(deliveries)
+            ));
+          }
+          setTimeout(inspect, 25);
+        };
+        inspect();
+      })
+    `),
+    'replacement renderer event delivery timed out',
   )
 }
 
