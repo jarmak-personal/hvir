@@ -264,7 +264,9 @@ async function moveExternalFromRenderer(options: {
           const choose = [...dialog.querySelectorAll('button')]
             .find((node) => node.textContent?.trim() === ${JSON.stringify(chooseLabel)});
           if (!(choose instanceof HTMLButtonElement) || choose.disabled) return undefined;
-          if (document.activeElement !== choose) return undefined;
+          if (${JSON.stringify(entry)} === 'keyboard' && document.activeElement !== choose) {
+            return undefined;
+          }
           choose.click();
           window.__hvirExternalMoveSelected = true;
           return undefined;

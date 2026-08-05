@@ -809,6 +809,12 @@ describe('Electron smoke command contracts', () => {
     expect(externalFileMoveScenario).toContain('Move External Items Here…')
     expect(externalFileMoveScenario).toContain('1 copied with source retained.')
     expect(externalFileMoveScenario).toContain('control.assertSelection')
+    expect(externalFileMoveScenario).toContain(
+      "${JSON.stringify(entry)} === 'keyboard' && document.activeElement !== choose",
+    )
+    expect(externalFileMoveScenario).not.toContain(
+      'if (document.activeElement !== choose) return undefined;',
+    )
     expect(projectFileOperationsScenario).toContain('workspace switch preserved snapshot')
     expect(projectFileOperationsScenario).toContain("'.mode-control button")
     expect(projectFileOperationsScenario).not.toContain('requestAnimationFrame')
