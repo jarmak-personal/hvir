@@ -67,7 +67,7 @@ export class LocalHost implements ProjectHost {
 
   /** Prepare one host-qualified local root during synchronous application bootstrap. */
   static ensureBootstrapDirectory(path: HostPath): void {
-    mkdirSync(resolveLocalPath(path), { recursive: true })
+    mkdirSync(resolveHostPath(path, LOCAL_HOST_ID), { recursive: true })
   }
 
   connect(): Promise<void> {
@@ -579,7 +579,7 @@ export class LocalHost implements ProjectHost {
 
   /** Unwrap a same-host HostPath to a raw string, rejecting foreign hosts. */
   private resolve(p: HostPath): string {
-    return resolveLocalPath(p)
+    return resolveHostPath(p, this.hostId)
   }
 
   /** Re-qualify a raw local path back into a HostPath. */
@@ -588,10 +588,10 @@ export class LocalHost implements ProjectHost {
   }
 }
 
-function resolveLocalPath(path: HostPath): string {
-  if (path.hostId !== LOCAL_HOST_ID) {
+function resolveHostPath(path: HostPath, expectedHostId: HostId): string {
+  if (path.hostId !== expectedHostId) {
     throw new Error(
-      `LocalHost received a path for host '${path.hostId}' (expected '${LOCAL_HOST_ID}')`,
+      `LocalHost received a path for host '${path.hostId}' (expected '${expectedHostId}')`,
     )
   }
   return path.path
