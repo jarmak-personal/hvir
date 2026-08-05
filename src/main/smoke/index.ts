@@ -604,6 +604,7 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
         supervisor,
         routes: webPaneRoutes,
         root: smokeRoot,
+        liveReloadPath,
         host,
         checkpoint: recordSmokeCheckpoint,
       })

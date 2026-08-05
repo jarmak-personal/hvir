@@ -1,8 +1,21 @@
 import { describe, expect, it } from 'vitest'
 
-import { classifyRendererEventDeliveryFailure } from '../src/main/renderer-event-delivery'
+import {
+  classifyRendererEventDeliveryFailure,
+  classifyRendererEventDeliveryTarget,
+} from '../src/main/renderer-event-delivery'
 
 describe('renderer event delivery failure classification', () => {
+  it.each([
+    { destroyed: false, expected: 'available' },
+    { destroyed: true, expected: 'disposed-frame' },
+  ] as const)(
+    'classifies frame liveness before delivery ($destroyed)',
+    ({ destroyed, expected }) => {
+      expect(classifyRendererEventDeliveryTarget(destroyed)).toBe(expected)
+    },
+  )
+
   it('classifies only Electron disposed-frame delivery as stale', () => {
     expect(
       classifyRendererEventDeliveryFailure(
