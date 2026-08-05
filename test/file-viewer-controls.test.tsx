@@ -211,7 +211,10 @@ describe('FileViewer controls', () => {
 
     const documentRefreshed = {
       ...activeTab,
-      refresh: { version: 1, path: activeTab.path },
+      refresh: {
+        version: 1,
+        changes: [{ version: 1, path: activeTab.path }],
+      },
     }
     renderViewer(documentRefreshed, { gitRefreshVersion: 0 })
     await act(async () => settle())
@@ -240,7 +243,13 @@ describe('FileViewer controls', () => {
     expect(invoke).toHaveBeenCalledTimes(2)
 
     renderViewer(
-      { ...activeTab, refresh: { version: 1, path: activeTab.path } },
+      {
+        ...activeTab,
+        refresh: {
+          version: 1,
+          changes: [{ version: 1, path: activeTab.path }],
+        },
+      },
       { gitRefreshVersion: 1 },
     )
     await act(async () => settle())

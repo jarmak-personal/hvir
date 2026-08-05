@@ -64,21 +64,24 @@ afterEach(() => {
 })
 
 describe('RenderedView Markdown repository image refresh', () => {
-  it('keeps the Markdown tree and nonmatching image mounted while replacing one dependency', async () => {
+  it('keeps the Markdown tree mounted while applying two coalesced dependency events', async () => {
     const documentPath = localPath('/repo/docs/readme.md')
     const firstPath = localPath('/repo/assets/first.png')
     const secondPath = localPath('/repo/assets/second.png')
     const first = deferred<AssetResult>()
     const second = deferred<AssetResult>()
-    const replacement = deferred<AssetResult>()
+    const firstReplacement = deferred<AssetResult>()
+    const secondReplacement = deferred<AssetResult>()
     invoke
       .mockReturnValueOnce(first.promise)
       .mockReturnValueOnce(second.promise)
-      .mockReturnValueOnce(replacement.promise)
+      .mockReturnValueOnce(firstReplacement.promise)
+      .mockReturnValueOnce(secondReplacement.promise)
     createObjectUrl
       .mockReturnValueOnce('blob:first')
       .mockReturnValueOnce('blob:second')
       .mockReturnValueOnce('blob:first-replacement')
+      .mockReturnValueOnce('blob:second-replacement')
     vi.mocked(renderMarkdown).mockResolvedValue(
       [
         '<p data-render-sentinel="true">Stable prose</p>',
@@ -116,9 +119,21 @@ describe('RenderedView Markdown repository image refresh', () => {
     expect(firstImage?.getAttribute('src')).toBe('blob:first')
     expect(secondImage?.getAttribute('src')).toBe('blob:second')
 
-    render(<RenderedView {...props} refresh={{ version: 1, path: firstPath }} />)
-    expect(invoke).toHaveBeenCalledTimes(3)
-    expect(invoke).toHaveBeenLastCalledWith('fs:read-asset', { path: firstPath })
+    render(
+      <RenderedView
+        {...props}
+        refresh={{
+          version: 2,
+          changes: [
+            { version: 1, path: firstPath },
+            { version: 2, path: secondPath },
+          ],
+        }}
+      />,
+    )
+    expect(invoke).toHaveBeenCalledTimes(4)
+    expect(invoke).toHaveBeenNthCalledWith(3, 'fs:read-asset', { path: firstPath })
+    expect(invoke).toHaveBeenNthCalledWith(4, 'fs:read-asset', { path: secondPath })
     expect(host.querySelector('.markdown-body')).toBe(container)
     expect(host.querySelector('[data-render-sentinel]')).toBe(sentinel)
     expect(host.querySelector('img[alt="first"]')).toBe(firstImage)
@@ -127,7 +142,8 @@ describe('RenderedView Markdown repository image refresh', () => {
     expect(secondImage?.getAttribute('src')).toBe('blob:second')
 
     await act(async () => {
-      replacement.resolve(asset(firstPath, 3))
+      firstReplacement.resolve(asset(firstPath, 3))
+      secondReplacement.resolve(asset(secondPath, 4))
       await settle()
     })
     expect(host.querySelector('.markdown-body')).toBe(container)
@@ -135,9 +151,9 @@ describe('RenderedView Markdown repository image refresh', () => {
     expect(host.querySelector('img[alt="first"]')).toBe(firstImage)
     expect(host.querySelector('img[alt="second"]')).toBe(secondImage)
     expect(firstImage?.getAttribute('src')).toBe('blob:first-replacement')
-    expect(secondImage?.getAttribute('src')).toBe('blob:second')
+    expect(secondImage?.getAttribute('src')).toBe('blob:second-replacement')
     expect(revokeObjectUrl).toHaveBeenCalledWith('blob:first')
-    expect(revokeObjectUrl).not.toHaveBeenCalledWith('blob:second')
+    expect(revokeObjectUrl).toHaveBeenCalledWith('blob:second')
   })
 })
 
