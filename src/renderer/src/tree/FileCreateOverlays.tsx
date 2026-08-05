@@ -11,6 +11,7 @@ import { createPortal } from 'react-dom'
 import { displayHostPath } from '../../../shared'
 import { PATH_COPY_LABELS, type PathCopyKind } from '../path-copy/path-copy'
 import { FileOrganizationDialog } from './FileOrganizationDialog'
+import { FileDeletionDialog } from './FileDeletionDialog'
 import {
   projectFileEntryNameError,
   type FileCreateActionsController,
@@ -46,7 +47,14 @@ export function FileCreateOverlays({
     }
   }, [controller, menu])
 
-  if (!menu && !dialog && !controller.organization.dialog && !feedback && !copyProgress) {
+  if (
+    !menu &&
+    !dialog &&
+    !controller.organization.dialog &&
+    !controller.deletion.dialog &&
+    !feedback &&
+    !copyProgress
+  ) {
     return null
   }
   return createPortal(
@@ -100,6 +108,21 @@ export function FileCreateOverlays({
             onClick={() => controller.beginOrganization('duplicate')}
           >
             Duplicate…
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            disabled={
+              controller.pending || controller.deletion.menu.state !== 'available'
+            }
+            title={
+              controller.deletion.menu.state === 'unavailable'
+                ? controller.deletion.menu.reason
+                : undefined
+            }
+            onClick={() => controller.beginDeletion()}
+          >
+            {deletionMenuLabel(controller.deletion.menu)}
           </button>
           <div className="file-action-menu-separator" role="separator" />
           <button
@@ -187,6 +210,7 @@ export function FileCreateOverlays({
         </div>
       ) : null}
       <FileOrganizationDialog controller={controller.organization} />
+      <FileDeletionDialog controller={controller.deletion} />
       {feedback ? (
         <div
           className={`file-operation-feedback ${feedback.kind}`}
@@ -242,9 +266,23 @@ function progressLabel(
       return 'Moving'
     case 'duplicating':
       return 'Duplicating'
+    case 'deleting':
+      return 'Deleting'
     default:
       return 'Copying'
   }
+}
+
+function deletionMenuLabel(
+  menu: FileCreateActionsController['deletion']['menu'],
+): string {
+  if (menu.state === 'loading') return 'Checking deletion…'
+  if (menu.state === 'available') {
+    return menu.disclosure.recovery === 'recoverable'
+      ? 'Move to Trash…'
+      : 'Delete Permanently…'
+  }
+  return 'Delete Unavailable'
 }
 
 function moveMenuFocus(event: KeyboardEvent<HTMLDivElement>): void {

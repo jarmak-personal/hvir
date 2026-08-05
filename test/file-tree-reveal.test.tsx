@@ -86,6 +86,12 @@ describe('Files rail directory reveal', () => {
           viewerPathRebind={{
             canRebindPath: () => true,
             rebindPath: () => true,
+            reviewPathRemoval: () => ({ openCount: 0, dirtyPaths: [] }),
+            closeCleanPath: () => ({
+              openCount: 0,
+              dirtyPaths: [],
+              closedCount: 0,
+            }),
           }}
           onWorkspaceContentChanged={() => undefined}
           gitEnabled={false}

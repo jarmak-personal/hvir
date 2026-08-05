@@ -47,6 +47,8 @@ export interface IpcDeps {
     | 'acquireDropped'
     | 'copyExternal'
     | 'organize'
+    | 'discloseDeletion'
+    | 'delete'
     | 'cancel'
   >
   readonly getProject: () => { readonly host: ProjectHost; readonly root: HostPath }

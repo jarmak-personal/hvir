@@ -111,6 +111,24 @@ export interface ProjectFileRenameOptions extends ProjectFileStreamOptions {
   readonly onSubmitted?: () => void
 }
 
+export interface ProjectFileTrashOptions extends ProjectFileStreamOptions {
+  /** The immediate recoverable-trash primitive has been submitted. */
+  readonly onSubmitted?: () => void
+}
+
+/** Truthful immediate deletion mechanics; recursive policy remains coordinator-owned. */
+export type ProjectFileDeletionPort =
+  | {
+      readonly capability: 'recoverable'
+      trashEntry(path: HostPath, opts?: ProjectFileTrashOptions): Promise<void>
+    }
+  | {
+      readonly capability: 'permanent'
+    }
+  | {
+      readonly capability: 'unavailable'
+    }
+
 /** Immediate transfer mechanics. Recursive policy remains coordinator-owned. */
 export interface ProjectFileTransferPort {
   readFileChunks(
@@ -217,6 +235,8 @@ export interface ProjectHost {
   readonly watchTier: HostWatchTier
   /** Present when this host can participate in verified project-file transfers. */
   readonly fileTransfer?: ProjectFileTransferPort
+  /** Exact recovery guarantee and immediate top-level trash mechanic, when available. */
+  readonly fileDeletion: ProjectFileDeletionPort
 
   /** Establish the connection (a no-op for LocalHost). */
   connect(): Promise<void>

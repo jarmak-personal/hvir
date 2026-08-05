@@ -135,6 +135,11 @@
   gap: 8px;
 }
 
+.file-create-actions .file-destructive-action {
+  border-color: color-mix(in srgb, var(--danger-text) 55%, var(--border-strong));
+  color: var(--danger-text);
+}
+
 .file-operation-feedback {
   z-index: 1001;
   position: fixed;

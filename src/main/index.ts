@@ -1,7 +1,6 @@
 /** Electron main-process entry and current application composition root. */
 import { join } from 'node:path'
 import { app, BrowserWindow, dialog, protocol, shell } from 'electron'
-
 import { registerIpcHandlers } from './ipc'
 import { createProjectCommands } from './ipc/project-commands'
 import { GitMutationCoordinator } from './git/mutation-coordinator'
@@ -9,7 +8,7 @@ import { GitMutationAuthorization } from './git/mutation-authorization'
 import { GitWorkerHostRouter } from './git/worker-host-router'
 import { HtmlPreviewProtocol } from './html-preview-protocol'
 import { createWorkerClient, workerPath, type WorkerClient } from './worker-host'
-import { ProjectHostCatalog, RendererSshPrompter } from './project-host'
+import { electronTrash, ProjectHostCatalog, RendererSshPrompter } from './project-host'
 import { ProjectRegistry } from './project-registry'
 import { ProjectCoordinator } from './project-coordinator'
 import { PtySupervisor } from './pty/pty-supervisor'
@@ -170,6 +169,7 @@ function createWorkbenchEntry(): void {
       await ProjectHostCatalog.create({
         prompter: sshPrompter,
         trustFile: localPath(join(app.getPath('userData'), 'known-hosts.json')),
+        trashItem: electronTrash(shell),
       }),
       (catalog) => catalog.dispose(),
     )

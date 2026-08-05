@@ -16,6 +16,9 @@ import type { HostPath } from './host-path'
 import type {
   ExternalFileGrantResult,
   ProjectFileCreateRequest,
+  ProjectFileDeleteRequest,
+  ProjectFileDeletionDisclosure,
+  ProjectFileDeletionDisclosureRequest,
   ProjectFileCancelRequest,
   ProjectFileExternalCopyRequest,
   ProjectFileOrganizationRequest,
@@ -653,6 +656,14 @@ export interface IpcInvokeMap {
     request: ProjectFileOrganizationRequest
     response: OperationResult<ProjectFileOperationStartResult>
   }
+  'fs:deletion-disclosure': {
+    request: ProjectFileDeletionDisclosureRequest
+    response: OperationResult<ProjectFileDeletionDisclosure>
+  }
+  'fs:delete-entry': {
+    request: ProjectFileDeleteRequest
+    response: OperationResult<ProjectFileOperationStartResult>
+  }
   'fs:cancel-file-operation': {
     request: ProjectFileCancelRequest
     response: OperationResult<boolean>
@@ -900,6 +911,8 @@ export const INVOKE_CHANNELS = [
   'fs:acquire-dropped-files',
   'fs:copy-external',
   'fs:organize-entry',
+  'fs:deletion-disclosure',
+  'fs:delete-entry',
   'fs:cancel-file-operation',
   'git:diff-inputs',
   'git:changes',

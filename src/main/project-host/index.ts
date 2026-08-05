@@ -26,6 +26,7 @@ export {
   ProjectPathExistsError,
 } from './project-host'
 export { LocalHost } from './local-host'
+export { electronTrash } from './electron-project-trash'
 export { SshHost } from './ssh-host'
 export {
   SSH_CONTROL_CHANNEL_BUDGET,

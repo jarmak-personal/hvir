@@ -1,7 +1,10 @@
 import {
+  basenameHostPath,
   containsHostPath,
+  dirnameHostPath,
   isProjectFileEntryName,
   joinHostPath,
+  type FileType,
   type HostPath,
 } from '../../shared'
 import type { ProjectHost } from '../project-host'
@@ -35,6 +38,42 @@ export async function proveRealProjectDirectory(
     }
   }
   return candidate
+}
+
+export interface ProvenProjectEntry {
+  readonly visiblePath: HostPath
+  readonly visibleParent: HostPath
+  readonly canonicalPath: HostPath
+  readonly canonicalParent: HostPath
+  readonly type: FileType
+}
+
+/** Prove one visible leaf while never following it when it is a symbolic link. */
+export async function proveProjectEntry(
+  host: ProjectHost,
+  workspaceRoot: HostPath,
+  canonicalRoot: HostPath,
+  source: HostPath,
+): Promise<ProvenProjectEntry> {
+  const visibleParent = dirnameHostPath(source)
+  const canonicalParent = await proveRealProjectDirectory(
+    host,
+    workspaceRoot,
+    canonicalRoot,
+    visibleParent,
+  )
+  const canonicalPath = joinHostPath(canonicalParent, basenameHostPath(source))
+  const stat = await host.stat(canonicalPath)
+  if (!['file', 'dir', 'symlink'].includes(stat.type)) {
+    throw new Error('The source is not a supported project entry')
+  }
+  return {
+    visiblePath: source,
+    visibleParent,
+    canonicalPath,
+    canonicalParent,
+    type: stat.type,
+  }
 }
 
 export function assertNormalizedAbsoluteProjectPath(path: HostPath): void {

@@ -24,6 +24,7 @@ import {
   type ViewerWorkspaceAction,
 } from './viewer-workspace-model'
 import { canRebindViewerPath, reboundHostPath } from './viewer-path-rebind'
+import { closeCleanViewerPath, reviewViewerPathRemoval } from './viewer-path-removal'
 import {
   sameViewerWorkspace,
   selectActiveTab,
@@ -344,6 +345,16 @@ export function useViewerWorkspace(options: UseViewerWorkspaceOptions) {
     [send],
   )
 
+  const reviewPathRemoval = useCallback(
+    (target: HostPath) => reviewViewerPathRemoval(modelRef.current, target),
+    [],
+  )
+
+  const closeCleanPath = useCallback(
+    (target: HostPath) => closeCleanViewerPath(modelRef.current, target, closeTab),
+    [closeTab],
+  )
+
   const focusPane = useCallback(
     (pane: ViewerPaneId, id?: string): void => {
       send({ type: 'focus-pane', pane, id })
@@ -468,6 +479,8 @@ export function useViewerWorkspace(options: UseViewerWorkspaceOptions) {
     reloadCleanFiles,
     canRebindPath,
     rebindPath,
+    reviewPathRemoval,
+    closeCleanPath,
     focusPane,
     getActivePane,
     openSplit,
