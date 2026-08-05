@@ -22,6 +22,11 @@ export function useTerminalPaneController(
     runtime.snapshot,
     runtime.snapshot,
   )
+  const paneEventSnapshot = useSyncExternalStore(
+    runtime.paneEvents.subscribe,
+    runtime.paneEvents.snapshot,
+    runtime.paneEvents.snapshot,
+  )
 
   useEffect(() => {
     if (!presented) return
@@ -46,8 +51,11 @@ export function useTerminalPaneController(
     workspaceRoot: options.workspaceRoot,
     containerRef,
     ...snapshot,
+    ...paneEventSnapshot,
     restart: () => runtime.restart(),
     startFresh: () => runtime.startFresh(),
+    previousSemanticRegion: () => runtime.navigateSemanticRegion('previous'),
+    nextSemanticRegion: () => runtime.navigateSemanticRegion('next'),
     focus: () => runtime.focus(),
   }
 }

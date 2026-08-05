@@ -54,6 +54,8 @@ vi.mock('../src/renderer/src/terminal/ghostty-terminal-pane', () => ({
       setPresentation: vi.fn(),
       redraw: vi.fn(),
       resolveEventProvenance: vi.fn(() => undefined),
+      activeEventScreen: vi.fn(() => 'normal' as const),
+      revealEventLocation: vi.fn(() => false),
       focus: vi.fn(),
       events: {
         onData: vi.fn(() => () => undefined),

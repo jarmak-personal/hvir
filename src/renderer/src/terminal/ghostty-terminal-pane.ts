@@ -14,6 +14,7 @@ import type {
   TerminalEvent,
   TerminalEventLocation,
   TerminalEventProvenance,
+  TerminalEventScreen,
   TerminalPane,
   TerminalPaneEvents,
   TerminalPresentation,
@@ -253,6 +254,22 @@ class GhosttyTerminalPane implements TerminalPane {
   ): TerminalEventLocation | undefined {
     if (this.disposed) return undefined
     return this.terminal.resolveEventProvenance({ ...provenance }) ?? undefined
+  }
+
+  activeEventScreen(): TerminalEventScreen {
+    return this.terminal.wasmTerm?.isAlternateScreen() ? 'alternate' : 'normal'
+  }
+
+  revealEventLocation(location: TerminalEventLocation): boolean {
+    if (this.disposed || !this.mounted) return false
+    if (location.screen !== this.activeEventScreen()) return false
+
+    const scrollbackLength = this.terminal.getScrollbackLength()
+    const retainedRows = scrollbackLength + this.terminal.rows
+    if (location.row < 0 || location.row >= retainedRows) return false
+    this.terminal.scrollToLine(Math.max(0, scrollbackLength - location.row))
+    this.redraw()
+    return true
   }
 
   focus(): void {

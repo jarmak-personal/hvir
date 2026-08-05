@@ -76,7 +76,19 @@ export function TerminalView(props: TerminalViewProps): ReactElement | null {
     props.runtimes,
     props.presented,
   )
-  const { containerRef, title, status, exited, restart, startFresh, focus } = controller
+  const {
+    containerRef,
+    title,
+    status,
+    exited,
+    semanticRegionsAvailable,
+    semanticRegion,
+    restart,
+    startFresh,
+    previousSemanticRegion,
+    nextSemanticRegion,
+    focus,
+  } = controller
   const canRecoverHarness = supportsResume && Boolean(harnessSessionId)
 
   if (!props.presented) return null
@@ -119,6 +131,36 @@ export function TerminalView(props: TerminalViewProps): ReactElement | null {
           </button>
         </div>
       ) : null}
+      {visible && active && semanticRegionsAvailable ? (
+        <div
+          className="terminal-semantic-navigation"
+          role="group"
+          aria-label="Transcript regions"
+          onMouseDown={(event) => event.preventDefault()}
+        >
+          <button
+            type="button"
+            aria-label="Previous transcript region"
+            title="Previous transcript region"
+            onClick={previousSemanticRegion}
+          >
+            ↑
+          </button>
+          <span className="terminal-semantic-region" role="status" aria-live="polite">
+            {semanticRegion
+              ? `${regionLabel(semanticRegion.kind)} ${semanticRegion.index} of ${semanticRegion.total}`
+              : 'Transcript regions'}
+          </span>
+          <button
+            type="button"
+            aria-label="Next transcript region"
+            title="Next transcript region"
+            onClick={nextSemanticRegion}
+          >
+            ↓
+          </button>
+        </div>
+      ) : null}
       <div
         className="terminal-container"
         data-terminal-theme={effectiveTheme}
@@ -131,4 +173,8 @@ export function TerminalView(props: TerminalViewProps): ReactElement | null {
       />
     </section>
   )
+}
+
+function regionLabel(kind: 'prompt' | 'command' | 'output'): string {
+  return `${kind[0]!.toUpperCase()}${kind.slice(1)}`
 }

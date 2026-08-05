@@ -51,6 +51,25 @@ describe('capacity terminal presentation accounting', () => {
       verifyTerminalActivity(before, after, ['terminal-1', 'terminal-2', 'terminal-3']),
     ).toThrow('hidden terminal terminal-2 presented work')
   })
+
+  it('rejects semantic metadata beyond its per-terminal bound', () => {
+    const before = samples()
+    const after = before.map((sample, index) => ({
+      ...sample,
+      parsedWrites: sample.parsedWrites + (index <= 3 ? 1 : 0),
+      renderFrames: sample.renderFrames + (index === 0 ? 1 : 0),
+      semanticRegions: index === 4 ? 257 : sample.semanticRegions,
+      delivery: {
+        ...sample.delivery,
+        nativeDataEvents: sample.delivery.nativeDataEvents + 4,
+        deliveryCallbacks: sample.delivery.deliveryCallbacks + 1,
+      },
+    }))
+
+    expect(() =>
+      verifyTerminalActivity(before, after, ['terminal-1', 'terminal-2', 'terminal-3']),
+    ).toThrow('terminal terminal-4 exceeded its semantic-region cap: 257/256')
+  })
 })
 
 function samples(): readonly TerminalPresentationSample[] {
@@ -63,6 +82,8 @@ function samples(): readonly TerminalPresentationSample[] {
     fullRenderFrames: 1,
     paused: index !== 0,
     pendingFrame: false,
+    semanticRegions: 256,
+    semanticRegionLimit: 256,
     delivery: {
       nativeDataEvents: 10,
       deliveryCallbacks: 5,

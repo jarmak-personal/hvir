@@ -15,6 +15,8 @@ export interface TerminalPresentationSample extends TerminalRenderStats {
   readonly sessionId: string
   readonly visible: boolean
   readonly delivery: TerminalDeliverySample
+  readonly semanticRegions: number
+  readonly semanticRegionLimit: number
 }
 
 export interface TerminalDeliverySample {
@@ -183,7 +185,15 @@ export async function readTerminalPresentation(
         sessionId: surface.getAttribute('data-terminal-session') || '',
         visible: getComputedStyle(surface).visibility === 'visible',
         ...stats,
-        delivery
+        delivery,
+        semanticRegions: Number(
+          surface.querySelector('.terminal-container')
+            ?.dataset.terminalSemanticRegions ?? -1
+        ),
+        semanticRegionLimit: Number(
+          surface.querySelector('.terminal-container')
+            ?.dataset.terminalSemanticRegionLimit ?? -1
+        )
       };
     }))()
   `)) as readonly TerminalPresentationSample[]
@@ -209,6 +219,14 @@ export function startCapacityOutputFixtures(supervisor: PtySupervisor): void {
   const terminals = supervisor.list()
   if (terminals.length !== 12) {
     throw new Error(`capacity fixtures expected 12 terminals, found ${terminals.length}`)
+  }
+  const semanticFixture =
+    `i=0; while [ "$i" -lt 300 ]; do ` +
+    `printf '\\033]133;A\\007p\\r\\n\\033]133;B\\007c\\r\\n` +
+    `\\033]133;C\\007o\\r\\n\\033]133;D;0\\007'; ` +
+    `i=$((i+1)); done\n`
+  for (const terminal of terminals) {
+    supervisor.write(terminal.id, terminal.ownerId, semanticFixture)
   }
   const commands = [
     `i=0; while :; do printf 'plain-visible-%06d abcdefghijklmnopqrstuvwxyz\\r\\n' "$i"; i=$((i+1)); sleep 0.01; done\n`,
@@ -342,6 +360,22 @@ export function verifyTerminalActivity(
     deliveryCallbacks += deliveryDelta
     terminalWrites += parsedDelta
     peakBufferedBytes = Math.max(peakBufferedBytes, current.delivery.peakBufferedBytes)
+    if (
+      current.semanticRegionLimit <= 0 ||
+      current.semanticRegions < 0 ||
+      current.semanticRegions > current.semanticRegionLimit
+    ) {
+      throw new Error(
+        `terminal ${current.sessionId} exceeded its semantic-region cap: ` +
+          `${current.semanticRegions}/${current.semanticRegionLimit}`,
+      )
+    }
+    if (current.semanticRegions !== current.semanticRegionLimit) {
+      throw new Error(
+        `terminal ${current.sessionId} did not exercise its semantic-region cap: ` +
+          `${current.semanticRegions}/${current.semanticRegionLimit}`,
+      )
+    }
     if (
       current.delivery.bufferedBytes > 64 * 1024 ||
       current.delivery.peakBufferedBytes > 64 * 1024
