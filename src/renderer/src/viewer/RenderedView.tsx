@@ -566,7 +566,7 @@ function useDevRendererGeneration(): number {
       setGeneration((current) => current + 1)
     }
     hot.on('vite:afterUpdate', refresh)
-    return () => hot.off('vite:afterUpdate', refresh)
+    return () => hot.off?.('vite:afterUpdate', refresh)
   }, [])
   return generation
 }

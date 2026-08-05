@@ -2,7 +2,6 @@ import {
   hostPathEquals,
   resolveRenderedLink,
   unwrapOperation,
-  type HvirApi,
   type HostPath,
 } from '../../../shared'
 
@@ -67,7 +66,7 @@ export class MarkdownRepositoryImages {
       image.classList.add('markdown-image-loading')
     }
     try {
-      const asset = unwrapOperation(await hvirApi().invoke('fs:read-asset', { path }))
+      const asset = unwrapOperation(await window.hvir.invoke('fs:read-asset', { path }))
       const objectUrl = URL.createObjectURL(
         new Blob([new Uint8Array(asset.data)], { type: asset.mimeType }),
       )
@@ -97,9 +96,4 @@ export class MarkdownRepositoryImages {
       image.replaceWith(unavailable)
     }
   }
-}
-
-function hvirApi(): HvirApi {
-  return (globalThis as unknown as { readonly window: { readonly hvir: HvirApi } }).window
-    .hvir
 }

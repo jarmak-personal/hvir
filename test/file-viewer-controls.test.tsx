@@ -191,6 +191,62 @@ describe('FileViewer controls', () => {
     )
   })
 
+  it('refetches diff inputs for independent document and Git refreshes', async () => {
+    const invoke = vi
+      .fn()
+      .mockResolvedValue(diffResponse({ baseBytes: 5, currentBytes: 8 }))
+    Object.defineProperty(window, 'hvir', {
+      configurable: true,
+      value: { invoke },
+    })
+    const activeTab = tab({ mode: 'diff', loading: false })
+
+    renderViewer(activeTab, { gitRefreshVersion: 0 })
+    await act(async () => settle())
+    expect(invoke).toHaveBeenCalledTimes(1)
+
+    renderViewer(activeTab, { gitRefreshVersion: 0 })
+    await act(async () => settle())
+    expect(invoke).toHaveBeenCalledTimes(1)
+
+    const documentRefreshed = {
+      ...activeTab,
+      refresh: { version: 1, path: activeTab.path },
+    }
+    renderViewer(documentRefreshed, { gitRefreshVersion: 0 })
+    await act(async () => settle())
+    expect(invoke).toHaveBeenCalledTimes(2)
+
+    renderViewer(documentRefreshed, { gitRefreshVersion: 1 })
+    await act(async () => settle())
+    expect(invoke).toHaveBeenCalledTimes(3)
+  })
+
+  it('refetches visible blame for independent document and Git refreshes', async () => {
+    const invoke = vi.fn().mockResolvedValue([])
+    Object.defineProperty(window, 'hvir', {
+      configurable: true,
+      value: { invoke },
+    })
+    const activeTab = tab({ mode: 'source', loading: true })
+
+    renderViewer(activeTab, { gitRefreshVersion: 0 })
+    act(() => host.querySelector<HTMLButtonElement>('.blame-toggle')?.click())
+    await act(async () => settle())
+    expect(invoke).toHaveBeenCalledTimes(1)
+
+    renderViewer(activeTab, { gitRefreshVersion: 1 })
+    await act(async () => settle())
+    expect(invoke).toHaveBeenCalledTimes(2)
+
+    renderViewer(
+      { ...activeTab, refresh: { version: 1, path: activeTab.path } },
+      { gitRefreshVersion: 1 },
+    )
+    await act(async () => settle())
+    expect(invoke).toHaveBeenCalledTimes(3)
+  })
+
   it('validates and submits a visible go-to-line control', () => {
     const onMode = vi.fn()
     renderViewer(tab({ mode: 'rendered' }), { onMode })
@@ -429,7 +485,7 @@ describe('FileViewer controls', () => {
 
 function tab(
   overrides: Partial<
-    Pick<ViewerTab, 'mode' | 'conflict' | 'dirty' | 'loading' | 'navigation'>
+    Pick<ViewerTab, 'mode' | 'conflict' | 'dirty' | 'loading' | 'navigation' | 'refresh'>
   > & {
     mode: ViewMode
     content?: string
@@ -456,6 +512,7 @@ function tab(
     navigation: overrides.navigation,
     dirty: overrides.dirty ?? false,
     conflict: overrides.conflict ?? false,
+    refresh: overrides.refresh,
   }
 }
 
@@ -486,12 +543,14 @@ function renderViewer(
     readonly onReload?: () => void
     readonly onNavigationHandled?: (serial: number) => void
     readonly registerCommands?: Parameters<typeof FileViewer>[0]['registerCommands']
+    readonly gitRefreshVersion?: number
   } = {},
 ): void {
   act(() => {
     root.render(
       <FileViewer
         tab={activeTab}
+        gitRefreshVersion={overrides.gitRefreshVersion ?? 0}
         onMode={overrides.onMode ?? vi.fn()}
         onDiffBase={overrides.onDiffBase ?? vi.fn()}
         onContent={vi.fn()}

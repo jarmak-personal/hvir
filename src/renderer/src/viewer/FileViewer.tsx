@@ -106,6 +106,7 @@ const tokenDecorations = StateField.define<DecorationSet>({
 
 interface FileViewerProps {
   readonly tab?: ViewerTab
+  readonly gitRefreshVersion: number
   readonly onMode: (mode: ViewMode, position?: ViewerDocumentPosition) => void
   readonly onDiffBase: (base: DiffBase) => void
   readonly onContent: (content: string) => void
@@ -120,6 +121,7 @@ interface FileViewerProps {
 
 export function FileViewer({
   tab,
+  gitRefreshVersion,
   onMode,
   onDiffBase,
   onContent,
@@ -156,7 +158,7 @@ export function FileViewer({
         ? sourcePreview(tab.file.content)
         : tab.file.content
       : undefined
-  const refreshVersion = tab?.refresh?.version ?? 0
+  const documentRefreshVersion = tab?.refresh?.version ?? 0
 
   const registerFindTarget: RegisterViewerFindTarget = useCallback((target) => {
     setFindTarget(target)
@@ -223,7 +225,7 @@ export function FileViewer({
     return () => {
       cancelled = true
     }
-  }, [blameMode, currentPath, refreshVersion, showBlame])
+  }, [blameMode, currentPath, documentRefreshVersion, gitRefreshVersion, showBlame])
 
   useEffect(() => {
     if (!modeControlExpanded) return
@@ -388,6 +390,7 @@ export function FileViewer({
           blameStatus={showBlame ? blameStatus : ''}
           onOpenPath={onOpenPath}
           refresh={tab.refresh}
+          gitRefreshVersion={gitRefreshVersion}
           onRenderedDependencies={reportRenderedDependencies}
           positionCapture={positionCapture}
           navigation={manualNavigation ?? tab.navigation}
@@ -426,6 +429,7 @@ function ActiveView({
   blameStatus,
   onOpenPath,
   refresh,
+  gitRefreshVersion,
   onRenderedDependencies,
   positionCapture,
   navigation,
@@ -441,6 +445,7 @@ function ActiveView({
   readonly blameStatus: string
   readonly onOpenPath: (path: HostPath) => void
   readonly refresh?: ViewerTab['refresh']
+  readonly gitRefreshVersion: number
   readonly onRenderedDependencies: (paths: readonly HostPath[]) => void
   readonly positionCapture: ViewerPositionCapture
   readonly navigation?: ViewerNavigationPosition
@@ -471,7 +476,8 @@ function ActiveView({
         currentSize={file.size}
         dirty={tab.dirty}
         revision={tab.diffRevision}
-        refreshVersion={refresh?.version ?? 0}
+        documentRefreshVersion={refresh?.version ?? 0}
+        gitRefreshVersion={gitRefreshVersion}
         position={tab.position}
         onPosition={onPosition}
         positionCapture={positionCapture}

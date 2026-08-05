@@ -303,7 +303,42 @@ export async function verifyViewerContent(options: {
                       subtree: true,
                     });
                     globalThis.__hvirPngStabilityProbe = probe;
-                    return resolve(source);
+                    const split = document.querySelector('[aria-label="Split viewer right"]');
+                    if (!split) return reject(new Error('PNG stability split control missing'));
+                    split.click();
+                    let openedLiveReload = false;
+                    const waitForLiveReload = () => {
+                      const current = document.querySelector('.image-view img');
+                      if (probe.changed || current !== image || current?.getAttribute('src') !== source) {
+                        return reject(new Error('repository PNG changed while opening watch witness'));
+                      }
+                      const secondary = document.querySelector('[data-viewer-pane="secondary"]');
+                      const liveReloadFile = [...document.querySelectorAll('.file-row')]
+                        .find((node) => node.getAttribute('title') === ${JSON.stringify(liveReloadPath.path)});
+                      if (secondary && liveReloadFile && !openedLiveReload) {
+                        secondary.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+                        openedLiveReload = true;
+                        return setTimeout(() => {
+                          liveReloadFile.click();
+                          waitForLiveReload();
+                        }, 50);
+                      }
+                      const activePath = secondary?.querySelector('.viewer-tab.active .tab-main')
+                        ?.getAttribute('title');
+                      const sourceContent = secondary?.querySelector('.cm-content')?.textContent || '';
+                      if (activePath === ${JSON.stringify(liveReloadPath.path)} &&
+                          sourceContent.includes('line 0')) {
+                        return resolve(source);
+                      }
+                      if (Date.now() > deadline) {
+                        return reject(new Error(
+                          'live-reload watch witness did not open: path=' + activePath +
+                          ' source=' + Boolean(sourceContent)
+                        ));
+                      }
+                      setTimeout(waitForLiveReload, 50);
+                    };
+                    return waitForLiveReload();
                   }
                   if (Date.now() > deadline) return reject(new Error('PNG fixture did not render'));
                   setTimeout(waitForImage, 50);
@@ -318,31 +353,98 @@ export async function verifyViewerContent(options: {
     )) as string
     await host.writeFile(
       liveReloadPath,
-      `${liveReloadBefore}\nunrelated PNG stability marker\n`,
+      liveReloadBefore.replace('line 0\n', 'line 0 unrelated PNG stability marker\n'),
     )
-    await new Promise<void>((resolve) => setTimeout(resolve, 750))
-    const pngStability = (await win.webContents.executeJavaScript(`
-      (() => {
-        const probe = globalThis.__hvirPngStabilityProbe;
-        if (!probe) return { stable: false, reason: 'probe missing' };
-        probe.observer?.disconnect();
-        delete globalThis.__hvirPngStabilityProbe;
-        const current = document.querySelector('.image-view img');
-        return {
-          stable: !probe.changed && current === probe.image &&
-            current?.getAttribute('src') === probe.source &&
-            current.complete && current.naturalWidth > 0,
-          sourceUnchanged: current?.getAttribute('src') === ${JSON.stringify(stablePngSource)},
-          reason: probe.reason || document.querySelector('.viewer-empty')?.textContent || '',
-        };
-      })()
-    `)) as { stable: boolean; sourceUnchanged?: boolean; reason?: string }
-    if (!pngStability.stable || !pngStability.sourceUnchanged) {
+    const pngStability = (await withTimeout(
+      win.webContents.executeJavaScript(`
+        new Promise((resolve) => {
+          const deadline = Date.now() + 10000;
+          const finish = (result) => {
+            const probe = globalThis.__hvirPngStabilityProbe;
+            probe?.observer?.disconnect();
+            delete globalThis.__hvirPngStabilityProbe;
+            const secondary = document.querySelector('[data-viewer-pane="secondary"]');
+            const witnessTab = [...(secondary?.querySelectorAll('.viewer-tab') || [])]
+              .find((node) => node.querySelector('.tab-main')?.getAttribute('title') ===
+                ${JSON.stringify(liveReloadPath.path)});
+            const close = witnessTab?.querySelector('.tab-close') ||
+              secondary?.querySelector('[aria-label="Close secondary viewer"]');
+            close?.click();
+            const closeDeadline = Date.now() + 5000;
+            const resolveWhenClosed = () => {
+              if (!document.querySelector('[data-viewer-pane="secondary"]')) {
+                return resolve(result);
+              }
+              if (Date.now() > closeDeadline) {
+                return resolve({
+                  ...result,
+                  stable: false,
+                  reason: (result.reason ? result.reason + '; ' : '') +
+                    'watch witness pane did not close',
+                });
+              }
+              setTimeout(resolveWhenClosed, 25);
+            };
+            resolveWhenClosed();
+          };
+          const poll = () => {
+            const probe = globalThis.__hvirPngStabilityProbe;
+            if (!probe) return finish({ stable: false, processed: false, reason: 'probe missing' });
+            const current = document.querySelector('.image-view img');
+            const stable = !probe.changed && current === probe.image &&
+              current?.getAttribute('src') === probe.source &&
+              current.complete && current.naturalWidth > 0;
+            if (!stable) {
+              return finish({
+                stable: false,
+                processed: false,
+                sourceUnchanged: current?.getAttribute('src') === ${JSON.stringify(stablePngSource)},
+                reason: probe.reason || 'repository PNG changed before watch witness refreshed',
+              });
+            }
+            const secondary = document.querySelector('[data-viewer-pane="secondary"]');
+            const content = secondary?.querySelector('.cm-content')?.textContent || '';
+            if (content.includes('unrelated PNG stability marker')) {
+              return finish({
+                stable: true,
+                processed: true,
+                sourceUnchanged: current.getAttribute('src') === ${JSON.stringify(stablePngSource)},
+                reason: '',
+              });
+            }
+            if (Date.now() > deadline) {
+              return finish({
+                stable: true,
+                processed: false,
+                sourceUnchanged: current.getAttribute('src') === ${JSON.stringify(stablePngSource)},
+                reason: 'unrelated watch witness did not refresh',
+              });
+            }
+            setTimeout(poll, 50);
+          };
+          poll();
+        })
+      `),
+      'unrelated watch event did not produce renderer-visible evidence',
+    )) as {
+      stable: boolean
+      processed: boolean
+      sourceUnchanged?: boolean
+      reason?: string
+    }
+    if (
+      !pngStability.stable ||
+      !pngStability.processed ||
+      !pngStability.sourceUnchanged
+    ) {
       throw new Error(
-        `unrelated watch event redrew repository PNG: ${JSON.stringify(pngStability)}`,
+        `unrelated watch scope evidence failed: ${JSON.stringify(pngStability)}`,
       )
     }
-    console.log('[smoke] unrelated watched path left repository PNG mounted and visible')
+    await host.writeFile(liveReloadPath, liveReloadBefore)
+    console.log(
+      '[smoke] renderer processed unrelated watch while repository PNG stayed mounted and visible',
+    )
 
     const renderedLinkStatus = (await withTimeout(
       win.webContents.executeJavaScript(`
