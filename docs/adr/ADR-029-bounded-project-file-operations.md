@@ -129,15 +129,20 @@ One operation is bounded to all of the following:
 - at most 4,096 total entries, including selected roots and every visited descendant;
 - depth 32, where a selected top-level entry is depth zero;
 - at most 256 MiB for one regular file;
-- at most 1 GiB across all regular files;
+- at most 1 GiB of logical source payload across all regular files;
 - at most four simultaneously open file stream handles;
 - one active operation per host-qualified workspace and two across the application; and
-- ten minutes from accepted request through final verification and publication.
+- ten minutes from accepted request through final source disposition, including verification,
+  publication, and any source retention, trash, or permanent-removal outcome.
 
 Capacity is not an unbounded queue: a request beyond the workspace or application operation
 limit receives a visible busy result and may be retried explicitly. Limits are checked during a
 preflight traversal and again while streaming so a changing source cannot bypass them. Reaching
-an entry, depth, file, or aggregate bound skips that top-level source without publication.
+an entry, depth, file, or aggregate bound skips that top-level source without publication. The
+1 GiB aggregate counts each logical source file once; source revalidation and destination
+verification perform additional I/O without consuming a second logical payload allowance. These
+bounds do not promise that admitted work will finish: transfer speed and required multi-pass
+verification may still reach the ten-minute deadline.
 
 Files stream with backpressure through the narrow ports. Neither renderer nor main buffers a
 complete file or directory tree. Each open read or write handle counts toward the four-stream
@@ -180,11 +185,12 @@ Staging cleanup is idempotent and may address only exact paths minted and retain
 coordinator. It runs after publication, conflict, skip, failure, accepted cancellation, authority
 revocation, and shutdown while the host is reachable. On disconnect the coordinator retains a
 bounded in-memory cleanup set and one reconnect observer per host, retries after reconnect, and
-then removes the observer. At most 256 staging paths may await cleanup across the application;
-while that capacity is exhausted, new staging operations fail busy. The coordinator does not scan
-or delete similarly named unknown project entries. If the application cannot reach the host again
-before quitting, a staging entry may remain; a remote daemon or unsafe name-based scavenger would
-be required to promise stronger offline cleanup and is not authorized.
+then removes the observer. At most 256 staging paths may await cleanup per project host. While one
+host's capacity is exhausted, new staging operations targeting that host fail busy; its cleanup
+debt consumes no cleanup capacity and blocks no operation on another host. The coordinator does
+not scan or delete similarly named unknown project entries. If the application cannot reach the
+host again before quitting, a staging entry may remain; a remote daemon or unsafe name-based
+scavenger would be required to promise stronger offline cleanup and is not authorized.
 
 ### Rename, project move, duplicate, and deletion
 
@@ -198,7 +204,9 @@ If a project move reports a cross-device boundary, the coordinator uses the veri
 pipeline and removes the source only after destination publication and verification. Failure to
 remove the source is a completed copy with the exact retained or partially removed source state,
 not a completed move. Duplicate uses the same verified copy pipeline and always retains its
-source.
+source. A symbolic-link entry may move only when no-replace rename succeeds on the same
+filesystem. If its rename reports a cross-device boundary, the item is `skipped` and its source
+remains unchanged because the verified copy pipeline rejects symbolic links.
 
 Project hosts disclose either recoverable deletion, permanent deletion, or no deletion
 capability. A local project advertises recoverable deletion only when its injected
