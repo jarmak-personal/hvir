@@ -52,6 +52,7 @@ export function useViewerWorkspace(options: UseViewerWorkspaceOptions) {
   const warmWorkspaces = useRef(new RetainedViewerWorkspaceCache())
   const workspaceGeneration = useRef(0)
   const readGenerations = useRef(new Map<string, number>())
+  const renderedDependencies = useRef(new Map<string, readonly HostPath[]>())
   const navigationSerial = useRef(0)
   const commandTargets = useRef(new ViewerCommandTargets())
   const pendingPositions = useRef(new Map<string, ViewerDocumentPosition>())
@@ -128,6 +129,7 @@ export function useViewerWorkspace(options: UseViewerWorkspaceOptions) {
       const restored =
         warmWorkspaces.current.take(viewerStorageKey(root)) ?? restoreViewerTabs(root)
       const generation = (workspaceGeneration.current += 1)
+      renderedDependencies.current.clear()
       send({
         type: 'workspace-activated',
         root,
@@ -295,14 +297,39 @@ export function useViewerWorkspace(options: UseViewerWorkspaceOptions) {
 
   const handleWatchEvent = useCallback(
     (event: WatchEvent): void => {
-      const tab = modelRef.current.tabs.find((candidate) =>
-        hostPathEquals(candidate.path, event.path),
-      )
-      if (!tab) return
-      if (tab.dirty) send({ type: 'watch-conflict', id: tab.id })
-      else loadFileAt(tab.path)
+      if (event.synthetic === 'refresh') return
+      for (const tab of modelRef.current.tabs) {
+        if (hostPathEquals(tab.path, event.path)) {
+          if (tab.dirty) {
+            send({ type: 'watch-conflict', id: tab.id })
+          } else {
+            send({ type: 'watch-refresh', id: tab.id, path: event.path })
+            loadFileAt(tab.path)
+          }
+          continue
+        }
+        if (
+          renderedDependencies.current
+            .get(tab.id)
+            ?.some((path) => hostPathEquals(path, event.path))
+        ) {
+          send({ type: 'watch-refresh', id: tab.id, path: event.path })
+        }
+      }
     },
     [loadFileAt, send],
+  )
+
+  const setRenderedDependencies = useCallback(
+    (id: string, paths: readonly HostPath[]): void => {
+      if (paths.length === 0) {
+        renderedDependencies.current.delete(id)
+        return
+      }
+      const unique = new Map(paths.map((path) => [`${path.hostId}:${path.path}`, path]))
+      renderedDependencies.current.set(id, [...unique.values()])
+    },
+    [],
   )
 
   const reloadCleanFiles = useCallback((): void => {
@@ -432,6 +459,7 @@ export function useViewerWorkspace(options: UseViewerWorkspaceOptions) {
     reloadTab,
     saveTab,
     handleWatchEvent,
+    setRenderedDependencies,
     reloadCleanFiles,
     focusPane,
     getActivePane,
