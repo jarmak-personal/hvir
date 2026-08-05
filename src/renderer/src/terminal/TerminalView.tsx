@@ -13,6 +13,7 @@ import type {
 import type { TerminalThemeOverride } from '../settings/settings'
 import { useAppTheme, type AppTheme } from '../theme'
 import { TerminalContextMenu } from './TerminalContextMenu'
+import { terminalThemeForAppearance } from './terminal-palette'
 import { TerminalSearch } from './TerminalSearch'
 import type { TerminalLinkActivation, TerminalTypography } from './terminal-pane'
 import { useTerminalPaneController } from './use-terminal-pane-controller'
@@ -76,8 +77,13 @@ export function TerminalView(props: TerminalViewProps): ReactElement | null {
   } = props
   const appTheme = useAppTheme()
   const effectiveTheme: AppTheme = themeOverride === 'app' ? appTheme : themeOverride
+  const terminalTheme = terminalThemeForAppearance(effectiveTheme)
   const controller = useTerminalPaneController(
-    { ...props, presentation: visible ? 'visible' : 'hidden' },
+    {
+      ...props,
+      presentation: visible ? 'visible' : 'hidden',
+      theme: terminalTheme,
+    },
     props.runtimes,
     props.presented,
   )
@@ -173,6 +179,7 @@ export function TerminalView(props: TerminalViewProps): ReactElement | null {
       <div
         className="terminal-container"
         data-terminal-theme={effectiveTheme}
+        style={{ backgroundColor: terminalTheme.background }}
         ref={containerRef}
         tabIndex={-1}
         onFocus={(event) => {

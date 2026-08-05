@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { TerminalRail } from '../src/renderer/src/terminal/TerminalRail'
 import type { TerminalRuntimeOptions } from '../src/renderer/src/terminal/terminal-runtime-options'
+import { terminalThemeForAppearance } from '../src/renderer/src/terminal/terminal-palette'
 import { TerminalRuntimeRegistry } from '../src/renderer/src/terminal/terminal-runtime-registry'
 import type {
   TerminalEvent,
@@ -665,6 +666,7 @@ function options(): TerminalRuntimeOptions {
     modifiedKeyProtocol: 'modify-other-keys',
     metaEnterAliasesControl: true,
     composerSubmitMode: 'enter',
+    theme: terminalThemeForAppearance('dark'),
     typography: { fontFamily: 'ui-monospace, monospace', fontSize: 13 },
     cwd: localPath('/repo'),
     workspaceRoot: localPath('/repo'),

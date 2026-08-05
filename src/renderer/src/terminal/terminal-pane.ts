@@ -21,7 +21,9 @@ export interface TerminalColorTheme {
   readonly background: string
   readonly foreground: string
   readonly cursor: string
+  readonly cursorText: string
   readonly selectionBackground: string
+  readonly selectionForeground: string
   readonly black: string
   readonly red: string
   readonly green: string
@@ -30,6 +32,14 @@ export interface TerminalColorTheme {
   readonly magenta: string
   readonly cyan: string
   readonly white: string
+  readonly brightBlack: string
+  readonly brightRed: string
+  readonly brightGreen: string
+  readonly brightYellow: string
+  readonly brightBlue: string
+  readonly brightMagenta: string
+  readonly brightCyan: string
+  readonly brightWhite: string
 }
 
 export interface TerminalTypography {

@@ -5,10 +5,11 @@
 export const GHOSTTY_TERMINAL_CAPABILITY_PROFILE = {
   schemaVersion: 1,
   artifact: {
-    url: 'https://github.com/jarmak-personal/ghostty-web/releases/download/hvir-v0.4.0-11/ghostty-web-0.4.0-hvir-gdae8a581c6ea.tgz',
-    sha256: '01a91219de2d1bdc07d599f38125a84eb1b24881b619b8d3097d6835996fa26d',
-    sourceCommit: 'dae8a581c6ea6b86c1b59d09efdf2c9407fac559',
+    url: 'https://github.com/jarmak-personal/ghostty-web/releases/download/hvir-v0.4.0-12/ghostty-web-0.4.0-hvir-g1b10fc99dec7.tgz',
+    sha256: 'fd313a76bf623203a00a9f8fd158b0a61a5191b952d0c6e7aef9bdfc93abf05d',
+    sourceCommit: '1b10fc99dec73f5fb9f941f0bcc39b33730b5f17',
     ghosttyCommit: '332b2aefc6e72d363aa93ab6ecfc86eeeeb5ed28',
+    wasmBytes: 521_987,
   },
   identity: {
     term: 'xterm-256color',
@@ -59,5 +60,13 @@ export const GHOSTTY_TERMINAL_CAPABILITY_PROFILE = {
       'cancelRetainedBufferExtraction',
       'captureRetainedBufferBoundary',
     ],
+  },
+  palette: {
+    baseOwner: 'hvir-terminal-presentation',
+    effectiveOwner: 'ghostty-terminal-state',
+    presentationOwner: 'ghostty-web-canvas',
+    ansiColors: 16,
+    liveBaseUpdates: true,
+    rawOutputReparsed: false,
   },
 } as const

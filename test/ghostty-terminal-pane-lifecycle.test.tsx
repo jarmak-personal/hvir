@@ -2,12 +2,11 @@
 
 import { act } from 'react'
 import { createRoot } from 'react-dom/client'
-import type {
-  TerminalEvent as GhosttyTerminalEvent,
-} from 'ghostty-web'
+import type { TerminalEvent as GhosttyTerminalEvent } from 'ghostty-web'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { createGhosttyTerminalPane } from '../src/renderer/src/terminal/ghostty-terminal-pane'
+import { terminalThemeForAppearance } from '../src/renderer/src/terminal/terminal-palette'
 import { TerminalView } from '../src/renderer/src/terminal/TerminalView'
 import type { TerminalRuntimeOptions } from '../src/renderer/src/terminal/terminal-runtime-options'
 import { TerminalRuntimeRegistry } from '../src/renderer/src/terminal/terminal-runtime-registry'
@@ -21,6 +20,7 @@ const ghosttyState = vi.hoisted(() => ({
     readonly fontSizes: number[]
     readonly presentationPausedValues: boolean[]
     readonly resizes: Array<{ readonly cols: number; readonly rows: number }>
+    readonly themes: unknown[]
     readonly writes: string[]
     cursorBlinkResets: number
     focusCalls: number
@@ -35,6 +35,7 @@ const ghosttyState = vi.hoisted(() => ({
     }): boolean
     emitResize(size: { readonly cols: number; readonly rows: number }): void
     renders: number
+    rendererThemeWrites: number
     disposed: boolean
   }>,
 }))
@@ -77,6 +78,7 @@ vi.mock('ghostty-web', () => {
         fontSizes: [options.fontSize ?? 0],
         presentationPausedValues: [],
         resizes: [],
+        themes: [options.theme],
         writes: [],
         cursorBlinkResets: 0,
         focusCalls: 0,
@@ -85,6 +87,7 @@ vi.mock('ghostty-web', () => {
         emitCustomKey: () => false,
         emitResize: () => undefined,
         renders: 0,
+        rendererThemeWrites: 0,
         disposed: false,
       }
       ghosttyState.instances.push(this.state)
@@ -100,6 +103,10 @@ vi.mock('ghostty-web', () => {
               this.state.fontFamilies.push(String(value))
             }
             if (property === 'fontSize') this.state.fontSizes.push(Number(value))
+            if (property === 'theme') {
+              this.state.themes.push(value)
+              this.requestRender()
+            }
             return true
           },
         },
@@ -158,7 +165,7 @@ vi.mock('ghostty-web', () => {
         render: () => {
           this.state.renders += 1
         },
-        setTheme: () => undefined,
+        setTheme: () => this.state.rendererThemeWrites++,
       }
     }
 
@@ -329,18 +336,25 @@ describe('GhosttyTerminalPane lifecycle', () => {
 
     pane.setPresentation('hidden')
     pane.mount(container)
+    const canvas = container.querySelector('canvas')
     pane.write('\u001b]0;Hidden output\u0007buffered')
     const hiddenRenderCount = state.renders
+    const { cursorText, ...lightTheme } = terminalThemeForAppearance('light')
+    pane.setTheme(terminalThemeForAppearance('light'))
 
     expect(state.cursorBlinkValues).toEqual([true, false])
     expect(state.presentationPausedValues).toEqual([true])
     expect(state.writes).toContain('\u001b]0;Hidden output\u0007buffered')
+    expect(state.themes.at(-1)).toEqual({ ...lightTheme, cursorAccent: cursorText })
+    expect(state.rendererThemeWrites).toBe(0)
+    expect(state.renders).toBe(hiddenRenderCount)
 
     pane.setPresentation('visible')
 
     expect(state.cursorBlinkValues).toEqual([true, false, true])
     expect(state.presentationPausedValues).toEqual([true, false])
     expect(state.renders).toBeGreaterThan(hiddenRenderCount)
+    expect(container.querySelector('canvas')).toBe(canvas)
 
     pane.setPresentation('hidden')
     pane.dispose()
@@ -1133,22 +1147,7 @@ describe('GhosttyTerminalPane lifecycle', () => {
   })
 })
 
-function theme() {
-  return {
-    background: '#111318',
-    foreground: '#d8dee9',
-    cursor: '#d8dee9',
-    selectionBackground: '#39445a',
-    black: '#20242c',
-    red: '#e06c75',
-    green: '#98c379',
-    yellow: '#e5c07b',
-    blue: '#61afef',
-    magenta: '#c678dd',
-    cyan: '#56b6c2',
-    white: '#d8dee9',
-  }
-}
+const theme = () => terminalThemeForAppearance('dark')
 function typography() {
   return { fontFamily: 'ui-monospace, monospace', fontSize: 13 }
 }
@@ -1178,6 +1177,7 @@ function runtimeOptions() {
     modifiedKeyProtocol: 'modify-other-keys',
     metaEnterAliasesControl: true,
     composerSubmitMode: 'enter',
+    theme: theme(),
     typography: typography(),
     cwd: localPath('/repo'),
     workspaceRoot: localPath('/repo'),

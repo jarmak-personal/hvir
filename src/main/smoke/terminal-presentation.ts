@@ -5,6 +5,7 @@ import type { PtySupervisor } from '../pty/pty-supervisor'
 import { ensureExplicitBareShellLaunch } from './terminal-explicit-launch'
 import { verifyTerminalContextMenu } from './terminal-context-menu'
 import { verifyTerminalHorizonPresentation } from './terminal-horizon-presentation'
+import { verifyTerminalPalettePresentation } from './terminal-palette-presentation'
 import { verifyTerminalProjectReturn } from './terminal-project-return'
 import { verifyTerminalSemanticNavigation } from './terminal-semantic-navigation'
 import { verifyTerminalSearch } from './terminal-search'
@@ -16,6 +17,7 @@ export async function verifyTerminalPresentationLifecycle(
   launchMenuOverflowRoot?: HostPath,
 ): Promise<string> {
   const explicitLaunch = await ensureExplicitBareShellLaunch(win, supervisor)
+  const paletteStatus = await verifyTerminalPalettePresentation(win, supervisor)
   const semanticStatus = await verifyTerminalSemanticNavigation(win, supervisor)
   const searchStatus = await verifyTerminalSearch(win, supervisor)
   const horizonStatus = await verifyTerminalHorizonPresentation(win)
@@ -470,6 +472,7 @@ export async function verifyTerminalPresentationLifecycle(
   const typographyStatus = await verifyLiveTerminalTypography(win, supervisor)
   return [
     explicitLaunch,
+    paletteStatus,
     semanticStatus,
     searchStatus,
     horizonStatus,

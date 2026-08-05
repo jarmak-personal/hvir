@@ -10,6 +10,7 @@ import type {
 import type { TerminalPane } from '../src/renderer/src/terminal/terminal-pane'
 import { TerminalRuntime } from '../src/renderer/src/terminal/terminal-runtime'
 import type { TerminalRuntimeOptions } from '../src/renderer/src/terminal/terminal-runtime-options'
+import { terminalThemeForAppearance } from '../src/renderer/src/terminal/terminal-palette'
 import {
   asHarnessProfileId,
   asHostId,
@@ -25,13 +26,16 @@ const paneState = vi.hoisted(() => ({
     pastes: string[]
     terminalActions: string[]
     searches: Array<{ query: string; caseSensitive: boolean }>
+    themes: unknown[]
     emitData(data: string): void
     disposed: boolean
   }>,
 }))
 
 vi.mock('../src/renderer/src/terminal/terminal-pane-factory', () => ({
-  createTerminalRuntimePane: vi.fn(() => Promise.resolve(createPane())),
+  createTerminalRuntimePane: vi.fn((options: { readonly theme: unknown }) =>
+    Promise.resolve(createPane(options.theme)),
+  ),
 }))
 
 describe('terminal output host parity', () => {
@@ -67,6 +71,8 @@ describe('terminal output host parity', () => {
     expect(local.searchText).toBe('local and SSH exact text')
     expect(ssh.searchText).toBe(local.searchText)
     expect(ssh.searches).toEqual(local.searches)
+    expect(ssh.themes).toEqual(local.themes)
+    expect(local.themes.at(-1)).toEqual(terminalThemeForAppearance('light'))
     expect(local.ptyWrites).toEqual(['line one\nline two'])
     expect(ssh.ptyWrites).toEqual(local.ptyWrites)
   })
@@ -83,6 +89,7 @@ async function deliver(
   readonly pastes: readonly string[]
   readonly terminalActions: readonly string[]
   readonly searches: readonly { query: string; caseSensitive: boolean }[]
+  readonly themes: readonly unknown[]
   readonly searchText: string
   readonly ptyWrites: readonly string[]
   readonly disposed: boolean
@@ -168,6 +175,7 @@ async function deliver(
   )
   const searchText = runtime.interactions.search.currentMatchText()
   runtime.interactions.search.close()
+  runtime.update({ ...options, theme: terminalThemeForAppearance('light') })
 
   for (const chunk of chunks) handlers!.onData(chunk)
   const pane = paneState.panes.at(-1)!
@@ -181,6 +189,7 @@ async function deliver(
     pastes: pane.pastes,
     terminalActions: pane.terminalActions,
     searches: pane.searches,
+    themes: pane.themes,
     searchText,
     ptyWrites: send.mock.calls
       .filter(([channel]) => channel === 'pty:write')
@@ -189,13 +198,14 @@ async function deliver(
   }
 }
 
-function createPane(): TerminalPane {
+function createPane(theme: unknown): TerminalPane {
   const state = {
     writes: [] as string[],
     presentations: [] as string[],
     pastes: [] as string[],
     terminalActions: [] as string[],
     searches: [] as Array<{ query: string; caseSensitive: boolean }>,
+    themes: [theme],
     emitData: (_data: string): void => undefined,
     disposed: false,
   }
@@ -209,7 +219,7 @@ function createPane(): TerminalPane {
     },
     write: (data) => state.writes.push(data),
     resize: () => undefined,
-    setTheme: () => undefined,
+    setTheme: (next) => state.themes.push(next),
     setTypography: () => undefined,
     setPresentation: (presentation) => state.presentations.push(presentation),
     redraw: () => undefined,
@@ -220,13 +230,13 @@ function createPane(): TerminalPane {
       state.searches.push({ query, caseSensitive: options.caseSensitive })
       const match = { start: { row: 0, column: 0 }, end: { row: 0, column: 9 } }
       return Promise.resolve({
-      query,
-      caseSensitive: options.caseSensitive,
-      matches: [match],
-      reveal: (candidate) => candidate === match,
-      extract: (candidate) =>
-        candidate === match ? 'local and SSH exact text' : undefined,
-      dispose: () => undefined,
+        query,
+        caseSensitive: options.caseSensitive,
+        matches: [match],
+        reveal: (candidate) => candidate === match,
+        extract: (candidate) =>
+          candidate === match ? 'local and SSH exact text' : undefined,
+        dispose: () => undefined,
       })
     },
     cancelRetainedBufferSearch: () => undefined,
@@ -274,6 +284,7 @@ function runtimeOptions(root: HostPath, sessionId: string): TerminalRuntimeOptio
     modifiedKeyProtocol: 'none',
     metaEnterAliasesControl: false,
     composerSubmitMode: 'enter',
+    theme: terminalThemeForAppearance('dark'),
     typography: { fontFamily: 'monospace', fontSize: 13 },
     cwd: root,
     workspaceRoot: root,

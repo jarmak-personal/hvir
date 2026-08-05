@@ -75,7 +75,7 @@ function createHarness(): SchedulerHarness {
     lastCursorY: 0,
     renderer: {
       cursorVisible: true,
-      render: vi.fn(),
+      render: vi.fn(() => ({ y: 0 })),
       getCursorVisible: () => true,
       resetCursorBlink: vi.fn(),
       setRenderPaused: vi.fn(),

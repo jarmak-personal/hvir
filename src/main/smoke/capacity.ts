@@ -18,6 +18,7 @@ import {
   startCapacityOutputFixtures,
   verifyHiddenPresentationSettles,
   verifyCapacityTerminalSearch,
+  verifyCapacityPaletteUpdate,
   verifyTerminalActivity,
   type TerminalActivityReport,
   type TerminalReadinessSampleReport,
@@ -254,6 +255,13 @@ export async function runCapacityLoadSmoke(
   }
   await activateCapacityTerminal(win, 0)
   await verifyHiddenPresentationSettles(win)
+  const paletteCapacity = await verifyCapacityPaletteUpdate(win)
+  console.log(
+    `[smoke:capacity:contract] 12 retained palette updates + hidden paint suppression OK ` +
+      `(${paletteCapacity.synchronousMs.toFixed(1)}ms sync · ` +
+      `${paletteCapacity.eventLoopDelayMs.toFixed(1)}ms event loop · ` +
+      `${paletteCapacity.hiddenPanes} hidden · ${paletteCapacity.visibleFrames} visible frames)`,
+  )
   const twelveTerminalCpu = await sampleCapacityCpuSeries(
     win,
     'one-visible-eleven-hidden',

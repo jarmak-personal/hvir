@@ -1,6 +1,7 @@
 import {
   Terminal as GhosttyTerminal,
   init,
+  type ITheme as GhosttyTheme,
   type IRetainedBufferRange as GhosttyRetainedBufferRange,
   type IRetainedBufferSearchResult as GhosttyRetainedBufferSearchResult,
   type ILink,
@@ -29,6 +30,7 @@ import type {
   TerminalTypography,
 } from './terminal-pane'
 import { translateGhosttyTerminalEvent } from './ghostty-terminal-events'
+import { terminalColorThemeEquals } from './terminal-palette'
 import {
   detectTerminalFileLinks,
   detectTerminalWebLinks,
@@ -45,6 +47,33 @@ import { TerminalWheelController } from './terminal-wheel'
 
 let initializeGhostty: Promise<void> | undefined
 const TERMINAL_SCROLLBACK_BYTES = 10_000_000
+
+function toGhosttyTheme(theme: TerminalColorTheme): GhosttyTheme {
+  return {
+    background: theme.background,
+    foreground: theme.foreground,
+    cursor: theme.cursor,
+    cursorAccent: theme.cursorText,
+    selectionBackground: theme.selectionBackground,
+    selectionForeground: theme.selectionForeground,
+    black: theme.black,
+    red: theme.red,
+    green: theme.green,
+    yellow: theme.yellow,
+    blue: theme.blue,
+    magenta: theme.magenta,
+    cyan: theme.cyan,
+    white: theme.white,
+    brightBlack: theme.brightBlack,
+    brightRed: theme.brightRed,
+    brightGreen: theme.brightGreen,
+    brightYellow: theme.brightYellow,
+    brightBlue: theme.brightBlue,
+    brightMagenta: theme.brightMagenta,
+    brightCyan: theme.brightCyan,
+    brightWhite: theme.brightWhite,
+  }
+}
 
 export interface GhosttyTerminalPaneOptions {
   readonly modifiedKeyProtocol: HarnessModifiedKeyProtocol
@@ -91,7 +120,7 @@ class GhosttyTerminalPane implements TerminalPane {
   >()
 
   constructor(
-    theme: TerminalColorTheme,
+    private theme: TerminalColorTheme,
     private typography: TerminalTypography,
     options: GhosttyTerminalPaneOptions,
   ) {
@@ -102,7 +131,7 @@ class GhosttyTerminalPane implements TerminalPane {
       fontFamily: typography.fontFamily,
       fontSize: typography.fontSize,
       scrollback: TERMINAL_SCROLLBACK_BYTES,
-      theme,
+      theme: toGhosttyTheme(theme),
       disableContextMenu: true,
     })
     this.fit = new TerminalFitController(this.terminal)
@@ -155,6 +184,8 @@ class GhosttyTerminalPane implements TerminalPane {
         rows: this.terminal.rows,
         retainedRows: this.terminal.getScrollbackLength(),
         retainedByteLimit: TERMINAL_SCROLLBACK_BYTES,
+        palette: this.theme,
+        effectiveColors: this.terminal.wasmTerm?.getColors(),
         fontFamily: this.typography.fontFamily,
         fontSize: this.typography.fontSize,
       }),
@@ -218,13 +249,9 @@ class GhosttyTerminalPane implements TerminalPane {
   }
 
   setTheme(theme: TerminalColorTheme): void {
-    if (this.disposed) return
-    this.terminal.options.theme = theme
-    // ghostty-web's mutable option currently records the value but does not
-    // forward it to the canvas renderer. Keep the seam correct for engines and
-    // call the renderer's public theme method while upstream support matures.
-    this.terminal.renderer?.setTheme(theme)
-    this.redraw()
+    if (this.disposed || terminalColorThemeEquals(theme, this.theme)) return
+    this.terminal.options.theme = toGhosttyTheme(theme)
+    this.theme = theme
   }
 
   setTypography(typography: TerminalTypography): void {

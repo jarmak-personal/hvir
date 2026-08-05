@@ -57,6 +57,14 @@ export interface TerminalSearchCapacityReport {
   readonly retainedRows: number
 }
 
+export interface TerminalPaletteCapacityReport {
+  readonly synchronousMs: number
+  readonly eventLoopDelayMs: number
+  readonly paneCount: number
+  readonly hiddenPanes: number
+  readonly visibleFrames: number
+}
+
 export async function waitForCapacityTerminalCount(
   win: BrowserWindow,
   expected: number,
@@ -223,6 +231,118 @@ export async function verifyHiddenPresentationSettles(win: BrowserWindow): Promi
       throw new Error(`hidden terminal ${sample.sessionId} presented a frame while idle`)
     }
   }
+}
+
+/** Prove one appearance change updates twelve retained palettes without hidden paint. */
+export async function verifyCapacityPaletteUpdate(
+  win: BrowserWindow,
+): Promise<TerminalPaletteCapacityReport> {
+  return (await withTimeout(
+    win.webContents.executeJavaScript(`
+      new Promise((resolve, reject) => {
+        const deadline = Date.now() + 8000;
+        const surfaces = [...document.querySelectorAll('.terminal-surface')];
+        const toggle = document.querySelector('.theme-toggle');
+        const initialTheme = document.documentElement.dataset.theme;
+        const alternateTheme = initialTheme === 'light' ? 'dark' : 'light';
+        if (
+          surfaces.length !== 12 ||
+          !(toggle instanceof HTMLButtonElement) ||
+          (initialTheme !== 'dark' && initialTheme !== 'light')
+        ) return reject(new Error('capacity palette fixtures missing'));
+        const samples = surfaces.map((surface) => {
+          const engine = surface.querySelector('.terminal-engine-host');
+          const canvas = engine?.querySelector('canvas');
+          const stats = engine?.__hvirTerminalPerformance;
+          if (
+            !(engine instanceof HTMLElement) ||
+            !(canvas instanceof HTMLCanvasElement) ||
+            !stats?.palette
+          ) throw new Error('capacity palette telemetry missing');
+          return {
+            surface,
+            engine,
+            canvas,
+            background: stats.palette.background,
+            renderFrames: stats.renderFrames,
+            fullRenderFrames: stats.fullRenderFrames,
+            hidden: getComputedStyle(surface).visibility !== 'visible'
+          };
+        });
+        const started = performance.now();
+        toggle.click();
+        const synchronousMs = performance.now() - started;
+        let eventLoopDelayMs;
+        setTimeout(() => {
+          eventLoopDelayMs = performance.now() - started;
+        }, 0);
+        const restored = (sample) => {
+          const stats = sample.engine.__hvirTerminalPerformance;
+          return stats?.palette?.background === sample.background &&
+            (sample.hidden
+              ? stats.paused && stats.renderFrames === sample.renderFrames
+              : !stats.paused && stats.fullRenderFrames > sample.fullRenderFrames) &&
+            sample.engine.querySelector('canvas') === sample.canvas;
+        };
+        const changed = (sample) => {
+          const stats = sample.engine.__hvirTerminalPerformance;
+          return stats?.palette?.background !== sample.background &&
+            sample.engine.querySelector('canvas') === sample.canvas &&
+            (sample.hidden
+              ? stats.paused && stats.renderFrames === sample.renderFrames
+              : !stats.paused && stats.fullRenderFrames > sample.fullRenderFrames);
+        };
+        const waitForChanged = () => {
+          if (
+            eventLoopDelayMs !== undefined &&
+            document.documentElement.dataset.theme === alternateTheme &&
+            samples.every(changed)
+          ) {
+            if (synchronousMs > 100 || eventLoopDelayMs > 250) {
+              return reject(new Error(
+                'capacity palette update blocked the renderer: ' +
+                JSON.stringify({ synchronousMs, eventLoopDelayMs })
+              ));
+            }
+            toggle.click();
+            return waitForRestored();
+          }
+          if (Date.now() > deadline) {
+            return reject(new Error('capacity palettes did not update across retained panes'));
+          }
+          setTimeout(waitForChanged, 20);
+        };
+        const waitForRestored = () => {
+          if (
+            document.documentElement.dataset.theme === initialTheme &&
+            samples.every(restored)
+          ) {
+            const hiddenPanes = samples.filter((sample) => sample.hidden).length;
+            const visibleFrames = samples
+              .filter((sample) => !sample.hidden)
+              .reduce((total, sample) => {
+                const stats = sample.engine.__hvirTerminalPerformance;
+                return total + stats.renderFrames - sample.renderFrames;
+              }, 0);
+            return resolve({
+              synchronousMs,
+              eventLoopDelayMs,
+              paneCount: samples.length,
+              hiddenPanes,
+              visibleFrames
+            });
+          }
+          if (Date.now() > deadline) {
+            return reject(new Error('capacity palettes did not restore'));
+          }
+          setTimeout(waitForRestored, 20);
+        };
+        waitForChanged();
+      })
+    `),
+    'capacity palette update timed out',
+    10_000,
+  )) as TerminalPaletteCapacityReport
 }
 
 export function startCapacityOutputFixtures(supervisor: PtySupervisor): void {
