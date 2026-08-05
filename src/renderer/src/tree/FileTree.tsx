@@ -6,12 +6,15 @@ import {
   MAX_PROJECT_WATCH_INTERESTS,
   unwrapOperation,
   type GitChangedFile,
+  type FileOpenContext,
   type HostPath,
 } from '../../../shared'
 import { DirectoryTree, type DirectoryTreeRevealRequest } from './DirectoryTree'
 import { MissingWorkspaceNotice } from '../workspaces/MissingWorkspaceNotice'
 import { buildTreeGitDecorations } from './git-status-decoration'
 import { FilenameSearch } from './FilenameSearch'
+import { FileCreateOverlays } from './FileCreateOverlays'
+import { useFileCreateActions } from './use-file-create-actions'
 
 const NO_CHANGED_FILES: readonly GitChangedFile[] = []
 
@@ -24,7 +27,7 @@ interface FileTreeProps {
   readonly gitChangesLimited?: boolean
   readonly selected?: HostPath
   readonly revealRequest?: DirectoryTreeRevealRequest
-  readonly onOpen: (path: HostPath, pinned: boolean) => void
+  readonly onOpen: (path: HostPath, pinned: boolean, context?: FileOpenContext) => void
   readonly connected?: boolean
   readonly missing?: boolean
   readonly hidden?: boolean
@@ -51,6 +54,7 @@ export function FileTree({
   onExpandedChange,
 }: FileTreeProps): ReactElement {
   const [searchActive, setSearchActive] = useState(false)
+  const fileCreate = useFileCreateActions({ root, onCreatedFile: onOpen })
   const gitDecorations = useMemo(
     () =>
       buildTreeGitDecorations(
@@ -93,11 +97,15 @@ export function FileTree({
             root={root}
             connected={connected}
             gitIgnoreAvailable={gitEnabled}
-            refreshVersion={searchRefreshVersion}
+            refreshVersion={searchRefreshVersion + fileCreate.refreshVersion}
             onActiveChange={setSearchActive}
             onOpen={onOpen}
           />
-          <div className="tree-scroll" hidden={searchActive}>
+          <div
+            className="tree-scroll"
+            hidden={searchActive}
+            onContextMenu={(event) => fileCreate.openRootFromPointer(event)}
+          >
             {watchInterestsLimited ? (
               <div className="tree-scope-notice" role="status">
                 Live updates are limited to the first{' '}
@@ -118,19 +126,24 @@ export function FileTree({
                 loadEntries={loadProjectEntries}
                 loadIgnoredEntries={gitEnabled ? loadIgnoredEntries : undefined}
                 resolveEntry={resolveProjectEntry}
-                refreshVersion={refreshVersion}
+                refreshVersion={refreshVersion + fileCreate.refreshVersion}
                 ignoredRefreshVersion={ignoredRefreshVersion}
                 gitDecorations={gitDecorations}
-                selected={selected}
-                revealRequest={revealRequest}
+                selected={fileCreate.selectedDirectory ?? selected}
+                revealRequest={fileCreate.revealRequest ?? revealRequest}
                 pathCopyRoot={root}
-                onOpenFile={onOpen}
+                entryActions={fileCreate.entryActions}
+                onOpenFile={(path, pinned) => {
+                  fileCreate.clearCreatedSelection()
+                  onOpen(path, pinned)
+                }}
                 onExpandedChange={onExpandedChange}
               />
             ) : (
               <div className="tree-error">Reconnect to browse this host.</div>
             )}
           </div>
+          <FileCreateOverlays controller={fileCreate} />
         </>
       )}
     </section>

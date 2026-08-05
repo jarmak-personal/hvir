@@ -87,6 +87,32 @@ export interface WriteFileOptions {
   readonly signal?: AbortSignal
 }
 
+export type ProjectFileMode = 0o644 | 0o755
+
+export interface ExclusiveCreateOptions {
+  readonly mode: ProjectFileMode
+  /** Reject before beginning the immediate exclusive filesystem effect. */
+  readonly signal?: AbortSignal
+}
+
+export class ProjectPathExistsError extends Error {
+  readonly code = 'EEXIST'
+
+  constructor() {
+    super('The destination already exists')
+    this.name = 'ProjectPathExistsError'
+  }
+}
+
+export function isProjectPathExistsError(reason: unknown): boolean {
+  return (
+    reason instanceof ProjectPathExistsError ||
+    (typeof reason === 'object' &&
+      reason !== null &&
+      (reason as { code?: unknown }).code === 'EEXIST')
+  )
+}
+
 export interface RemoveFileOptions {
   /** Reject if the live file no longer has the version originally read. */
   readonly expectedMtimeMs?: number
@@ -188,9 +214,14 @@ export interface ProjectHost {
     data: Uint8Array | string,
     opts?: WriteFileOptions,
   ): Promise<void>
+  /** Create one zero-byte regular file without replacing an existing entry. */
+  createFileExclusive(path: HostPath, opts: ExclusiveCreateOptions): Promise<void>
+  /** Create one empty directory without replacing an existing entry. */
+  createDirectoryExclusive(path: HostPath, opts: ExclusiveCreateOptions): Promise<void>
   /** Remove one file, optionally only while its observed version is still current. */
   removeFile(path: HostPath, opts?: RemoveFileOptions): Promise<void>
   readdir(path: HostPath): Promise<DirEntry[]>
+  /** Inspect the entry itself without following symbolic links (local/SFTP lstat). */
   stat(path: HostPath): Promise<Stat>
   /** Canonicalize through symlinks on the project host. */
   realpath(path: HostPath): Promise<HostPath>

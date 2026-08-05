@@ -2,6 +2,7 @@ export type {
   Disposer,
   ExecOptions,
   ExecStreamHandle,
+  ExclusiveCreateOptions,
   ProjectHost,
   PtyExit,
   PtyProcess,
@@ -11,7 +12,12 @@ export type {
   WatchOptions,
   WriteFileOptions,
 } from './project-host'
-export { assertLoopbackEndpoint, MAX_EXEC_STREAM_WRITE_BYTES } from './project-host'
+export {
+  assertLoopbackEndpoint,
+  isProjectPathExistsError,
+  MAX_EXEC_STREAM_WRITE_BYTES,
+  ProjectPathExistsError,
+} from './project-host'
 export { LocalHost } from './local-host'
 export { SshHost } from './ssh-host'
 export {

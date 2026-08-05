@@ -105,9 +105,16 @@ function fixture() {
     assertCurrent,
   } as unknown as RendererResourceScopes
   const recordIpcContractDiagnostic = vi.fn<(event: IpcContractDiagnostic) => void>()
+  const createProjectFile = vi.fn().mockResolvedValue({
+    outcome: 'completed',
+    operationId: 'operation-1',
+    generation: 1,
+    items: [],
+  })
   const deps = {
     rendererResources,
     recordIpcContractDiagnostic,
+    projectFiles: { create: createProjectFile },
     getProjectState: () => projectState(),
     getRegisteredWorkspaceRoot: (candidate: typeof root) =>
       candidate.path === root.path && candidate.hostId === root.hostId ? root : undefined,
@@ -126,6 +133,7 @@ function fixture() {
     transport,
     currentIpcOwner,
     assertCurrent,
+    createProjectFile,
     recordIpcContractDiagnostic,
   }
 }
@@ -270,6 +278,7 @@ describe('IpcAuthorityRouter', () => {
         'project:open',
         'ssh:prompt-response',
         'fs:filename-search',
+        'fs:create-entry',
         'html-preview:create',
         'web-pane:open',
         'web-pane:close',
@@ -299,6 +308,7 @@ describe('IpcAuthorityRouter', () => {
         'fs:read',
         'fs:read-asset',
         'fs:write',
+        'fs:create-entry',
         'git:diff-inputs',
         'git:changes',
         'git:history',
@@ -363,6 +373,51 @@ describe('IpcAuthorityRouter', () => {
     for (const channel of OWNER_SCOPED_SEND_CHANNELS) {
       expect(registrationBlock(source, 'handleSend', channel)).toMatch(/\.owner\(\)/)
     }
+  })
+
+  it('reconstructs normalized create-entry paths and qualifies the exact owner', async () => {
+    const { deps, transport, createProjectFile } = fixture()
+    registerIpcHandlers(deps, transport)
+
+    const response = await transport.invokes.get('fs:create-entry')?.[0]?.(ipcEvent(), {
+      workspaceRoot: { hostId: 'local', path: '/project' },
+      destinationDirectory: { hostId: 'local', path: '/project/src' },
+      name: 'new-file.ts',
+      kind: 'file',
+    })
+
+    expect(response).toEqual({
+      ok: true,
+      value: {
+        outcome: 'completed',
+        operationId: 'operation-1',
+        generation: 1,
+        items: [],
+      },
+    })
+    expect(createProjectFile).toHaveBeenCalledWith({
+      owner,
+      workspaceRoot: localPath('/project'),
+      destinationDirectory: localPath('/project/src'),
+      name: 'new-file.ts',
+      kind: 'file',
+    })
+  })
+
+  it('rejects an unnormalized create-entry path before the effect owner', async () => {
+    const { deps, transport, createProjectFile } = fixture()
+    registerIpcHandlers(deps, transport)
+    const invoke = transport.invokes.get('fs:create-entry')?.[0]
+
+    await expect(
+      invoke?.(ipcEvent(), {
+        workspaceRoot: { hostId: 'local', path: '/project' },
+        destinationDirectory: { hostId: 'local', path: '/project/src/../src' },
+        name: 'new-file.ts',
+        kind: 'file',
+      }),
+    ).resolves.toEqual({ ok: false, error: 'Project paths must already be normalized' })
+    expect(createProjectFile).not.toHaveBeenCalled()
   })
 })
 

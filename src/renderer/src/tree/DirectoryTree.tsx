@@ -4,6 +4,7 @@ import {
   useRef,
   useState,
   type KeyboardEvent,
+  type MouseEvent,
   type ReactElement,
 } from 'react'
 
@@ -26,10 +27,22 @@ import {
   type TreeGitDecorations,
 } from './git-status-decoration'
 import { PathCopyMenu } from '../path-copy/PathCopyMenu'
-import {
-  usePathCopyMenu,
-  type PathCopyMenuController,
-} from '../path-copy/use-path-copy-menu'
+import { usePathCopyMenu } from '../path-copy/use-path-copy-menu'
+
+export interface DirectoryTreeEntryActions {
+  readonly openFromPointer: (
+    event: MouseEvent<HTMLElement>,
+    target: HostPath,
+    label: string,
+    type: FileType,
+  ) => void
+  readonly openFromKeyboard: (
+    event: KeyboardEvent<HTMLElement>,
+    target: HostPath,
+    label: string,
+    type: FileType,
+  ) => boolean
+}
 
 export interface DirectoryTreeProps {
   readonly root: HostPath
@@ -46,6 +59,7 @@ export interface DirectoryTreeProps {
   readonly selected?: HostPath
   readonly revealRequest?: DirectoryTreeRevealRequest
   readonly pathCopyRoot?: HostPath
+  readonly entryActions?: DirectoryTreeEntryActions
   readonly showFiles?: boolean
   readonly onSelectDirectory?: (path: HostPath) => void
   readonly onOpenFile?: (path: HostPath, pinned: boolean) => void
@@ -75,12 +89,29 @@ export function DirectoryTree({
   selected,
   revealRequest,
   pathCopyRoot,
+  entryActions,
   showFiles = true,
   onSelectDirectory,
   onOpenFile,
   onExpandedChange,
 }: DirectoryTreeProps): ReactElement {
   const pathCopyMenu = usePathCopyMenu(pathCopyRoot)
+  const actions =
+    entryActions ??
+    (pathCopyRoot
+      ? {
+          openFromPointer: (
+            event: MouseEvent<HTMLElement>,
+            target: HostPath,
+            label: string,
+          ) => pathCopyMenu.openFromPointer(event, target, label),
+          openFromKeyboard: (
+            event: KeyboardEvent<HTMLElement>,
+            target: HostPath,
+            label: string,
+          ) => pathCopyMenu.openFromKeyboard(event, target, label),
+        }
+      : undefined)
   return (
     <>
       <div className="directory-tree" role="tree">
@@ -98,13 +129,13 @@ export function DirectoryTree({
           selected={selected}
           revealRequest={revealRequest}
           showFiles={showFiles}
-          pathCopyMenu={pathCopyRoot ? pathCopyMenu : undefined}
+          entryActions={actions}
           onSelectDirectory={onSelectDirectory}
           onOpenFile={onOpenFile}
           onExpandedChange={onExpandedChange}
         />
       </div>
-      {pathCopyRoot ? (
+      {pathCopyRoot && !entryActions ? (
         <PathCopyMenu workspaceRoot={pathCopyRoot} controller={pathCopyMenu} />
       ) : null}
     </>
@@ -125,7 +156,6 @@ interface DirectoryNodeProps extends Omit<
   readonly refreshVersion: number
   readonly ignoredRefreshVersion: number
   readonly showFiles: boolean
-  readonly pathCopyMenu?: PathCopyMenuController
 }
 
 function DirectoryNode({
@@ -145,7 +175,7 @@ function DirectoryNode({
   selected,
   revealRequest,
   showFiles,
-  pathCopyMenu,
+  entryActions,
   onSelectDirectory,
   onOpenFile,
   onExpandedChange,
@@ -253,7 +283,14 @@ function DirectoryNode({
         aria-selected={isSelected}
         className={`tree-row directory-row${isSelected ? ' selected' : ''}${linked ? ' symlink-row' : ''}${gitIgnored ? ' gitignored' : ''}${gitDecoration ? ` git-status-${gitDecoration.tone}` : ''}`}
         style={{ paddingLeft: 10 + depth * 14, zIndex: depth + 1 }}
-        onContextMenu={(event) => pathCopyMenu?.openFromPointer(event, stablePath, label)}
+        onContextMenu={(event) =>
+          entryActions?.openFromPointer(
+            event,
+            stablePath,
+            label,
+            linked ? 'symlink' : 'dir',
+          )
+        }
         onClick={() => {
           if (onSelectDirectory) {
             onSelectDirectory(stablePath)
@@ -263,7 +300,14 @@ function DirectoryNode({
           }
         }}
         onKeyDown={(event) => {
-          if (pathCopyMenu?.openFromKeyboard(event, stablePath, label)) {
+          if (
+            entryActions?.openFromKeyboard(
+              event,
+              stablePath,
+              label,
+              linked ? 'symlink' : 'dir',
+            )
+          ) {
             return
           }
           if (event.key === 'ArrowRight') {
@@ -326,7 +370,7 @@ function DirectoryNode({
                   selected={selected}
                   revealRequest={revealRequest}
                   showFiles={showFiles}
-                  pathCopyMenu={pathCopyMenu}
+                  entryActions={entryActions}
                   onSelectDirectory={onSelectDirectory}
                   onOpenFile={onOpenFile}
                   onExpandedChange={onExpandedChange}
@@ -351,7 +395,7 @@ function DirectoryNode({
                   selected={selected}
                   revealRequest={revealRequest}
                   showFiles={showFiles}
-                  pathCopyMenu={pathCopyMenu}
+                  entryActions={entryActions}
                   onSelectDirectory={onSelectDirectory}
                   onOpenFile={onOpenFile}
                   onExpandedChange={onExpandedChange}
@@ -371,21 +415,18 @@ function DirectoryNode({
                 className={`tree-row file-row${fileSelected ? ' selected' : ''}${childGitIgnored ? ' gitignored' : ''}${fileGitDecoration ? ` git-status-${fileGitDecoration.tone}` : ''}`}
                 style={{ paddingLeft: 24 + (depth + 1) * 14 }}
                 onContextMenu={(event) =>
-                  openable
-                    ? pathCopyMenu?.openFromPointer(event, child, entry.name)
-                    : undefined
+                  entryActions?.openFromPointer(event, child, entry.name, entry.type)
                 }
                 onClick={() => openable && onOpenFile?.(child, false)}
                 onDoubleClick={() => openable && onOpenFile?.(child, true)}
                 onKeyDown={(event) => {
                   if (
-                    !openable ||
-                    !pathCopyMenu?.openFromKeyboard(event, child, entry.name)
+                    !entryActions?.openFromKeyboard(event, child, entry.name, entry.type)
                   ) {
                     handleLeafTreeKey(event)
                   }
                 }}
-                disabled={!openable}
+                aria-disabled={!openable}
                 title={`${child.path}${childGitIgnored ? ' · Git ignored' : ''}`}
               >
                 <TreeDepthGuides depth={depth + 1} />
@@ -420,7 +461,7 @@ function SymlinkNode({
   selected,
   revealRequest,
   showFiles,
-  pathCopyMenu,
+  entryActions,
   onSelectDirectory,
   onOpenFile,
   onExpandedChange,
@@ -472,7 +513,7 @@ function SymlinkNode({
         selected={selected}
         revealRequest={revealRequest}
         showFiles={showFiles}
-        pathCopyMenu={pathCopyMenu}
+        entryActions={entryActions}
         onSelectDirectory={onSelectDirectory}
         onOpenFile={onOpenFile}
         onExpandedChange={onExpandedChange}
@@ -490,11 +531,13 @@ function SymlinkNode({
         aria-selected={fileSelected}
         className={`tree-row file-row symlink-row${fileSelected ? ' selected' : ''}${gitIgnored ? ' gitignored' : ''}${fileGitDecoration ? ` git-status-${fileGitDecoration.tone}` : ''}`}
         style={{ paddingLeft: 24 + depth * 14 }}
-        onContextMenu={(event) => pathCopyMenu?.openFromPointer(event, stablePath, label)}
+        onContextMenu={(event) =>
+          entryActions?.openFromPointer(event, stablePath, label, 'symlink')
+        }
         onClick={() => onOpenFile?.(stablePath, false)}
         onDoubleClick={() => onOpenFile?.(stablePath, true)}
         onKeyDown={(event) => {
-          if (!pathCopyMenu?.openFromKeyboard(event, stablePath, label)) {
+          if (!entryActions?.openFromKeyboard(event, stablePath, label, 'symlink')) {
             handleLeafTreeKey(event)
           }
         }}
@@ -518,9 +561,11 @@ function SymlinkNode({
       aria-disabled="true"
       className={`tree-row file-row symlink-row${gitIgnored ? ' gitignored' : ''}`}
       style={{ paddingLeft: 24 + depth * 14 }}
-      onContextMenu={(event) => pathCopyMenu?.openFromPointer(event, stablePath, label)}
+      onContextMenu={(event) =>
+        entryActions?.openFromPointer(event, stablePath, label, 'symlink')
+      }
       onKeyDown={(event) => {
-        if (!pathCopyMenu?.openFromKeyboard(event, stablePath, label)) {
+        if (!entryActions?.openFromKeyboard(event, stablePath, label, 'symlink')) {
           handleLeafTreeKey(event)
         }
       }}

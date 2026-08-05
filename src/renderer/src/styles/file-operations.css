@@ -1,0 +1,131 @@
+.file-action-menu {
+  width: 200px;
+  z-index: 40;
+  position: fixed;
+  display: flex;
+  flex-direction: column;
+  padding: 4px;
+  border: 1px solid var(--border-strong);
+  border-radius: 5px;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 45%);
+  background: var(--surface-2);
+}
+
+.file-action-menu button {
+  min-height: 27px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: calc(11px * var(--hvir-interface-scale));
+  text-align: left;
+}
+
+.file-action-menu button:hover,
+.file-action-menu button:focus-visible {
+  outline: none;
+  background: var(--surface-hover);
+}
+
+.file-action-menu button:disabled {
+  color: var(--text-muted);
+}
+
+.file-action-menu-separator {
+  height: 1px;
+  margin: 4px;
+  background: var(--border-subtle);
+}
+
+.file-create-backdrop {
+  z-index: 1000;
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: rgb(5 7 10 / 72%);
+}
+
+.file-create-dialog {
+  width: min(460px, calc(100vw - 32px));
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 20px;
+  border: 1px solid var(--border-strong);
+  border-radius: 7px;
+  box-shadow: 0 18px 60px #000a;
+  background: var(--surface-2);
+}
+
+.file-create-dialog h2,
+.file-create-dialog dl,
+.file-create-dialog dd {
+  margin: 0;
+}
+
+.file-create-dialog dl {
+  display: grid;
+  gap: 8px;
+}
+
+.file-create-dialog dl > div {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 78px minmax(0, 1fr);
+  gap: 8px;
+}
+
+.file-create-dialog dt {
+  color: var(--text-muted);
+}
+
+.file-create-dialog code {
+  overflow-wrap: anywhere;
+  color: var(--text);
+}
+
+.file-create-dialog label {
+  display: grid;
+  gap: 6px;
+}
+
+.file-create-dialog input {
+  min-width: 0;
+  padding: 7px 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: 4px;
+  background: var(--surface-1);
+  color: var(--text);
+  font: inherit;
+}
+
+.file-create-error {
+  color: var(--danger-text);
+}
+
+.file-create-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.file-operation-feedback {
+  z-index: 1001;
+  position: fixed;
+  right: 14px;
+  bottom: 14px;
+  max-width: min(360px, calc(100vw - 28px));
+  padding: 7px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: 5px;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 38%);
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.file-operation-feedback.error {
+  color: var(--danger-text);
+}

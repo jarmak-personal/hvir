@@ -2,6 +2,7 @@ import type { BrowserWindow } from 'electron'
 
 import { dispatchWorkerHostCall } from '../git/worker-host-broker'
 import { createFilenameSearchCoordinator } from '../filename-search'
+import { createProjectFileOperationCoordinator } from '../project-file-operations'
 import { HarnessProfileStore } from '../harness/harness-profile-store'
 import { harnessProviderCatalog } from '../harness/harness-provider'
 import type { HarnessProbeManager } from '../harness/harness-probe'
@@ -33,6 +34,10 @@ import {
   verifyRendererRolloverRecovery,
 } from './renderer-lifecycle'
 import { verifyRendererAuthorityLifecycle } from './renderer-authority'
+import {
+  createRemoteProjectFileSmokeHost,
+  verifyProjectFileOperationsSmoke,
+} from './project-file-operations'
 import { verifyFocusedViewer } from './viewer-position'
 import { verifyViewerContent } from './viewer-content'
 import { verifyWorkbenchHealthFault } from './workbench-health'
@@ -132,6 +137,9 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
   const smokeCloseableRoot = joinHostPath(smokeRoot, '.hvir-smoke-closed-project')
   const smokeWebSwitchRoot = joinHostPath(smokeRoot, 'docs')
   const oversizedDiffPath = joinHostPath(smokeRoot, '.hvir-smoke-oversized-diff.txt')
+  const createdPointerPath = joinHostPath(smokeRoot, '.hvir-smoke-created-pointer.txt')
+  const createdKeyboardPath = joinHostPath(smokeRoot, '.hvir-smoke-created-keyboard')
+  const createdSnapshotPath = joinHostPath(smokeRoot, '.hvir-smoke-created-snapshot.txt')
   const cleanup = new SmokeCleanup((name) => interruptionCheckpoint.disposed(name), {
     onFailure: (name) => {
       cleanupFailureResource = smokeCleanupResource(name)
@@ -169,6 +177,15 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
   )
   cleanup.defer('oversized diff fixture', () =>
     host.exec('rm', ['-f', '--', oversizedDiffPath.path]).then(() => undefined),
+  )
+  cleanup.defer('created pointer fixture', () =>
+    host.exec('rm', ['-f', '--', createdPointerPath.path]).then(() => undefined),
+  )
+  cleanup.defer('created keyboard fixture', () =>
+    host.exec('rmdir', ['--', createdKeyboardPath.path]).then(() => undefined),
+  )
+  cleanup.defer('created snapshot fixture', () =>
+    host.exec('rm', ['-f', '--', createdSnapshotPath.path]).then(() => undefined),
   )
   cleanup.defer('project watch', async () => {
     await stopSmokeWatch?.()
@@ -221,6 +238,11 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
     ],
   })
   const smokeRemoteRoot = hostPath(asHostId('smoke-remote'), '/srv/hvir')
+  const smokeRemoteHost = createRemoteProjectFileSmokeHost({
+    localHost: host,
+    localRoot: smokeRoot,
+    remoteRoot: smokeRemoteRoot,
+  })
   const smokeRemoteProjectState = (): ProjectState => ({
     revision: smokeProjectRevision,
     // Present remote chrome without widening the mounted local host authority.
@@ -246,6 +268,36 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
             closed: false,
             missing: false,
             repository: true,
+            changedFiles: 0,
+          },
+        ],
+      },
+    ],
+  })
+  const smokeRemoteFileProjectState = (): ProjectState => ({
+    revision: smokeProjectRevision,
+    root: smokeRemoteRoot,
+    connectionState: 'connected',
+    watchTier: 'polling',
+    activeProjectId: 'smoke-remote-file-project',
+    activeWorkspaceId: 'smoke-remote-file-workspace',
+    projects: [
+      {
+        id: 'smoke-remote-file-project',
+        registeredRoot: smokeRemoteRoot,
+        displayName: 'remote-hvir',
+        connectionState: 'connected',
+        watchTier: 'polling',
+        activeWorkspaceId: 'smoke-remote-file-workspace',
+        workspaces: [
+          {
+            id: 'smoke-remote-file-workspace',
+            root: smokeRemoteRoot,
+            name: 'feature/files',
+            main: true,
+            closed: false,
+            missing: false,
+            repository: false,
             changedFiles: 0,
           },
         ],
@@ -368,6 +420,15 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
         `${'oversized diff fixture '.padEnd(255, 'x')}\n`.repeat(8_200),
       )
     }
+    if (mode === 'workspace-remote') {
+      await host.exec('rm', [
+        '-f',
+        '--',
+        createdPointerPath.path,
+        createdSnapshotPath.path,
+      ])
+      await host.exec('rmdir', ['--', createdKeyboardPath.path])
+    }
     const emit: EmitSmokeEvent = (channel, payload) => {
       if (smokeWindow && !smokeWindow.isDestroyed())
         smokeWindow.webContents.send(channel, payload)
@@ -405,17 +466,31 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
         webPanes: webPaneRoutes,
       }),
     })
+    const projectFiles = createProjectFileOperationCoordinator(
+      {
+        state: () => smokeIpcProjectState,
+        hostById: (hostId) =>
+          hostId === smokeRemoteHost.hostId ? smokeRemoteHost : host,
+      },
+      rendererResources,
+    )
+    cleanup.defer('project file operations', () => projectFiles.dispose())
     const ipcRouter = registerIpcHandlers({
       echoWorker: worker,
       gitWorker: git,
       filenameSearch,
-      getProject: () => ({ host, root: smokeRoot }),
-      getHost: () => host,
+      projectFiles,
+      getProject: () =>
+        smokeIpcProjectState.root.hostId === smokeRemoteHost.hostId
+          ? { host: smokeRemoteHost, root: smokeRemoteRoot }
+          : { host, root: smokeRoot },
+      getHost: (hostId) => (hostId === smokeRemoteHost.hostId ? smokeRemoteHost : host),
       connectedHosts: () => [host],
       getRegisteredWorkspaceRoot: (root) =>
         hostPathEquals(root, smokeRoot) ||
         hostPathEquals(root, smokeCloseableRoot) ||
-        hostPathEquals(root, smokeWebSwitchRoot)
+        hostPathEquals(root, smokeWebSwitchRoot) ||
+        hostPathEquals(root, smokeRemoteRoot)
           ? root
           : undefined,
       getProjectState: () => smokeIpcProjectState,
@@ -640,6 +715,18 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
       console.log(`[smoke] terminal presentation OK (${presentation})`)
     }
     if (mode === 'workspace-remote') {
+      const projectFilesResult = await verifyProjectFileOperationsSmoke({
+        win,
+        localHost: host,
+        localRoot: smokeRoot,
+        remoteRoot: smokeRemoteRoot,
+        switchedRoot: smokeWebSwitchRoot,
+        localState: smokeProjectState,
+        remoteState: smokeRemoteFileProjectState,
+        switchedState: () => smokeProjectReturnState('smoke-project-return'),
+        publish: (state) => emit('project:state', setSmokeProjectState(state)),
+      })
+      console.log(`[smoke] project file operations OK (${projectFilesResult})`)
       const result = await verifyWorkspaceRemoteWorkflow({
         win,
         host,

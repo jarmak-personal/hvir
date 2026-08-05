@@ -1,5 +1,4 @@
 import { ipcMain } from 'electron'
-
 import {
   EVENT_CHANNELS,
   INVOKE_CHANNELS,
@@ -19,7 +18,7 @@ import {
 import type { ProjectHost } from '../project-host'
 import type { RendererOwner } from '../renderer-resource-scopes'
 import type { IpcDeps } from './deps'
-
+import { reconstructIpcHostPath } from './host-path-authority'
 export const OWNER_SCOPED_INVOKE_CHANNELS = [
   'workbench-health:acknowledge',
   'diagnostic-evidence:get',
@@ -35,6 +34,7 @@ export const OWNER_SCOPED_INVOKE_CHANNELS = [
   'project:open',
   'ssh:prompt-response',
   'fs:filename-search',
+  'fs:create-entry',
   'html-preview:create',
   'web-pane:open',
   'web-pane:close',
@@ -54,6 +54,7 @@ export const AUTHORITY_SCOPED_INVOKE_CHANNELS = [
   'fs:read',
   'fs:read-asset',
   'fs:write',
+  'fs:create-entry',
   'git:diff-inputs',
   'git:changes',
   'git:history',
@@ -87,7 +88,6 @@ export interface IpcInvokeContext {
   readonly authority: IpcAuthority
   owner(): RendererOwner
 }
-
 export interface IpcSendContext {
   readonly sender: Electron.WebContents
   readonly authority: IpcAuthority
@@ -132,9 +132,7 @@ export interface IpcMainRegistrationPort {
     listener: (event: Electron.IpcMainEvent, payload: unknown) => void,
   ): unknown
 }
-
 const electronIpcMainPort = ipcMain as unknown as IpcMainRegistrationPort
-
 export interface EffectiveIpcManifest {
   readonly invoke: readonly IpcInvokeChannel[]
   readonly send: readonly IpcSendChannel[]
@@ -320,14 +318,18 @@ export class IpcAuthority {
       typeof candidate.hostId !== 'string' ||
       typeof candidate.path !== 'string'
     ) {
-      throw new Error('Terminal session belongs to another project')
+      throw new Error('Workspace belongs to another project or is no longer registered')
     }
     const decoded = hostPath(asHostId(candidate.hostId), candidate.path)
     const root = this.deps.getRegisteredWorkspaceRoot(decoded)
     if (!root || !hostPathEquals(decoded, root)) {
-      throw new Error('Terminal session belongs to another project')
+      throw new Error('Workspace belongs to another project or is no longer registered')
     }
     return root
+  }
+
+  reconstructHostPath(candidate: HostPath): HostPath {
+    return reconstructIpcHostPath(candidate)
   }
 
   projectRoot(workspaceRoot: HostPath): HostPath {
@@ -457,7 +459,6 @@ export class IpcAuthority {
     return options.returnCanonical ? canonicalPath : decoded
   }
 }
-
 function assertMainFrame(
   event: Electron.IpcMainInvokeEvent | Electron.IpcMainEvent,
 ): void {
@@ -465,7 +466,6 @@ function assertMainFrame(
     throw new Error('IPC is available only to the workbench main frame')
   }
 }
-
 function assertExactChannels<C extends string>(
   direction: string,
   expected: readonly C[],

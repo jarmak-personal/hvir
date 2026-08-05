@@ -41,12 +41,13 @@ export interface GitDiffResponse {
  * deterministic and visible rather than scattering file-type exceptions
  * through UI components.
  */
-export type FileOpenContext = 'file-tree' | 'git' | 'git-untracked'
+export type FileOpenContext = 'file-tree' | 'created-file' | 'git' | 'git-untracked'
 
 export function defaultViewMode(
   path: HostPath,
   context: FileOpenContext = 'file-tree',
 ): ViewMode {
+  if (context === 'created-file') return 'source'
   if (context === 'git') return 'diff'
   const name = path.path.toLowerCase()
   const extension = name.includes('.') ? name.slice(name.lastIndexOf('.') + 1) : ''
