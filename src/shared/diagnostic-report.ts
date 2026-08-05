@@ -9,6 +9,10 @@ import {
   isWorkbenchHealthSnapshot,
   type WorkbenchHealthSnapshot,
 } from './workbench-health'
+import {
+  isApplicationBuildChannel,
+  type ApplicationBuildChannel,
+} from './application-build-channel'
 
 export type {
   DiagnosticReportEvent,
@@ -17,7 +21,7 @@ export type {
   DiagnosticReportOwner,
 } from './diagnostic-report-event'
 
-export const DIAGNOSTIC_REPORT_VERSION = 2
+export const DIAGNOSTIC_REPORT_VERSION = 3
 export const DIAGNOSTIC_REPORT_RETENTION_HOURS = 24
 export const MAX_DIAGNOSTIC_REPORT_EVENTS = 256
 export const MAX_DIAGNOSTIC_REPORT_DROPPED_COUNTS = 64
@@ -56,6 +60,7 @@ export interface DiagnosticReport {
     readonly platform: 'linux' | 'macos' | 'windows' | 'other'
     readonly architecture: 'arm64' | 'x64' | 'other'
     readonly mode: 'packaged' | 'development'
+    readonly buildChannel: ApplicationBuildChannel
   }
   readonly renderer: {
     readonly ownerId: number
@@ -261,13 +266,15 @@ function isApplication(value: unknown): value is DiagnosticReport['application']
       'platform',
       'architecture',
       'mode',
+      'buildChannel',
     ]) &&
     isVersion(value.version) &&
     isVersion(value.electronVersion) &&
     isVersion(value.chromeVersion) &&
     ['linux', 'macos', 'windows', 'other'].includes(String(value.platform)) &&
     ['arm64', 'x64', 'other'].includes(String(value.architecture)) &&
-    (value.mode === 'packaged' || value.mode === 'development')
+    (value.mode === 'packaged' || value.mode === 'development') &&
+    isApplicationBuildChannel(value.buildChannel)
   )
 }
 

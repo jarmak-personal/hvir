@@ -227,6 +227,12 @@ Chromium sandbox rather than distribution identity; Ubuntu 24.04 remains the con
 AppArmor integration case and the same release artifacts are accepted across representative
 userspaces on both architectures.
 
+### [ADR-029 — Distinct signed macOS SSH acceptance channel](adr/ADR-029-distinct-macos-ssh-acceptance-channel.md)
+
+A contributor-only, Developer ID signed macOS application uses a distinct bundle identity and
+state root for LAN SSH coexistence acceptance while the installed release remains the sole user
+installation.
+
 ## 5. Architecture
 
 ### Process model

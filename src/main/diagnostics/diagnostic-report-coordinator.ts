@@ -13,6 +13,7 @@ import {
   type DiagnosticReportState,
   type DiagnosticReportStateResult,
   type HostPath,
+  type ApplicationBuildChannel,
 } from '../../shared'
 import { LocalHost } from '../project-host/local-host'
 import type { RendererOwner } from '../renderer-resource-scopes'
@@ -382,6 +383,10 @@ export function createDiagnosticReportCoordinator(
     isReportSnapshotCurrent(revision: number): boolean
   },
   renderers: { isCurrent(owner: RendererOwner): boolean },
+  applicationRuntime: {
+    readonly buildChannel: ApplicationBuildChannel
+    readonly userDataRoot: string
+  },
 ): DiagnosticReportCoordinator {
   const host = new LocalHost()
   const coordinator = new DiagnosticReportCoordinator(
@@ -396,8 +401,9 @@ export function createDiagnosticReportCoordinator(
       platform: reportPlatform(process.platform),
       architecture: reportArchitecture(process.arch),
       mode: app.isPackaged ? 'packaged' : 'development',
+      buildChannel: applicationRuntime.buildChannel,
     },
-    new DiagnosticReportStorage(host, localPath(app.getPath('userData'))),
+    new DiagnosticReportStorage(host, localPath(applicationRuntime.userDataRoot)),
     new ElectronDiagnosticReportActions(host),
     (owner) => renderers.isCurrent(owner),
     () => host.dispose(),

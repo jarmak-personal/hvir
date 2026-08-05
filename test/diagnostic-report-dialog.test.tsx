@@ -113,7 +113,7 @@ function reportState(withScreenshot = false): DiagnosticReportState {
   return {
     artifact: {
       report: {
-        version: 2,
+        version: 3,
         reportId: REPORT_ID,
         notice: DIAGNOSTIC_REPORT_NOTICE,
         createdAt: '2026-07-22T12:00:00.000Z',
@@ -124,6 +124,7 @@ function reportState(withScreenshot = false): DiagnosticReportState {
           platform: 'linux',
           architecture: 'x64',
           mode: 'packaged',
+          buildChannel: 'release',
         },
         renderer: {
           ownerId: 7,

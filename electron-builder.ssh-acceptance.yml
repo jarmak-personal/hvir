@@ -1,0 +1,14 @@
+extends: ./electron-builder.yml
+appId: dev.hvir.ssh-acceptance
+productName: hvir SSH Acceptance
+directories:
+  output: dist/ssh-acceptance
+  buildResources: build
+forceCodeSigning: true
+mac:
+  # Clear the inherited release pkg target. The guarded command supplies only `dir`.
+  target: null
+  extendInfo:
+    NSLocalNetworkUsageDescription: >-
+      hvir SSH Acceptance connects to contributor-selected SSH hosts on the local
+      network.

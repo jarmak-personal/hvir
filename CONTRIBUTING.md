@@ -208,6 +208,11 @@ npm run dev
 `npm ci` downloads Electron and rebuilds native dependencies for Electron's ABI. On headless
 Linux, run Electron smoke tests under `xvfb-run`. Install the optional pre-push smoke hook with:
 
+On macOS, raw `npm run dev` and unsigned `npm run build:dir` are not the LAN SSH acceptance
+identity. Use the
+[signed macOS SSH coexistence workflow](docs/macos-ssh-acceptance.md), which fails closed when
+its protected Developer ID signing inputs are unavailable.
+
 ```sh
 npm run hooks:install
 ```
