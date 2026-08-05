@@ -404,7 +404,7 @@ describe('IpcAuthorityRouter', () => {
     })
   })
 
-  it('rejects unnormalized or escaping create-entry paths before the effect owner', async () => {
+  it('rejects an unnormalized create-entry path before the effect owner', async () => {
     const { deps, transport, createProjectFile } = fixture()
     registerIpcHandlers(deps, transport)
     const invoke = transport.invokes.get('fs:create-entry')?.[0]
@@ -417,17 +417,6 @@ describe('IpcAuthorityRouter', () => {
         kind: 'file',
       }),
     ).resolves.toEqual({ ok: false, error: 'Project paths must already be normalized' })
-    await expect(
-      invoke?.(ipcEvent(), {
-        workspaceRoot: { hostId: 'local', path: '/project' },
-        destinationDirectory: { hostId: 'local', path: '/outside' },
-        name: 'new-file.ts',
-        kind: 'file',
-      }),
-    ).resolves.toEqual({
-      ok: false,
-      error: 'The destination directory escapes the workspace',
-    })
     expect(createProjectFile).not.toHaveBeenCalled()
   })
 })

@@ -150,6 +150,72 @@ describe('Files rail create actions', () => {
     })
   })
 
+  it('restores keyboard focus after both successful and failed path copies', async () => {
+    const writeText = vi.fn(() => Promise.resolve())
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText },
+    })
+    renderFileTree(rootPath, vi.fn())
+    await waitFor(() => treeRow('/repo/existing.md') !== undefined)
+    const row = treeRow('/repo/existing.md')!
+
+    openKeyboardMenu(row)
+    await waitFor(() => document.activeElement?.textContent?.trim() === 'New File…')
+    clickMenuItem('Copy Absolute Path')
+    await waitFor(() => document.activeElement === row)
+    expect(writeText).toHaveBeenLastCalledWith('/repo/existing.md')
+
+    writeText.mockRejectedValueOnce(new Error('clipboard unavailable'))
+    openKeyboardMenu(row)
+    await waitFor(() => document.activeElement?.textContent?.trim() === 'New File…')
+    clickMenuItem('Copy Relative Path')
+    await waitFor(() => document.activeElement === row)
+    expect(writeText).toHaveBeenLastCalledWith('existing.md')
+  })
+
+  it('dismisses a pending create and suppresses its late completion', async () => {
+    const late = deferred<ProjectFileOperationResult>()
+    createEntry = () => late.promise
+    const onOpen = vi.fn()
+    renderFileTree(rootPath, onOpen)
+    await waitFor(() => treeRow('/repo/existing.md') !== undefined)
+    openPointerMenu('/repo/existing.md')
+    clickMenuItem('New File…')
+    setDialogName('dismissed.txt')
+    act(() =>
+      document.querySelector<HTMLFormElement>('.file-create-dialog')!.requestSubmit(),
+    )
+    await waitFor(() => submitButton()?.textContent?.includes('Creating') === true)
+
+    const cancel = [
+      ...document.querySelectorAll<HTMLButtonElement>('.file-create-dialog button'),
+    ].find((button) => button.textContent?.trim() === 'Cancel')!
+    expect(cancel.disabled).toBe(false)
+    act(() => cancel.click())
+    expect(document.querySelector('.file-create-dialog')).toBeNull()
+
+    await act(async () => {
+      late.resolve({
+        outcome: 'completed',
+        operationId: 'dismissed-operation',
+        generation: 1,
+        items: [
+          {
+            itemId: 'create:0',
+            destination: localPath('/repo/dismissed.txt'),
+            status: 'completed',
+            effect: 'created-file',
+          },
+        ],
+      })
+      await Promise.resolve()
+    })
+    expect(onOpen).not.toHaveBeenCalled()
+    expect(document.querySelector('.file-operation-feedback')).toBeNull()
+    expect(document.querySelector('.file-create-dialog')).toBeNull()
+  })
+
   it('resets pending state on workspace replacement and ignores the old late completion', async () => {
     const late = deferred<ProjectFileOperationResult>()
     createEntry = () => late.promise
@@ -237,6 +303,15 @@ function openPointerMenu(path: string): void {
   act(() => {
     treeRow(path)!.dispatchEvent(
       new MouseEvent('contextmenu', { bubbles: true, clientX: 18, clientY: 22 }),
+    )
+  })
+}
+
+function openKeyboardMenu(row: HTMLButtonElement): void {
+  row.focus()
+  act(() => {
+    row.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'F10', shiftKey: true, bubbles: true }),
     )
   })
 }

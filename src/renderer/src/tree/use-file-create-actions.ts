@@ -77,6 +77,7 @@ export function useFileCreateActions(options: {
   const [refreshVersion, setRefreshVersion] = useState(0)
   const nextRequestId = useRef(0)
   const nextRevealToken = useRef(0)
+  const activeDialogId = useRef<number | undefined>(undefined)
   const alive = useRef(true)
   const ownerKey = pathKey(root)
   const latestOwnerKey = useRef(ownerKey)
@@ -89,6 +90,7 @@ export function useFileCreateActions(options: {
     }
   }, [])
   useEffect(() => {
+    activeDialogId.current = undefined
     setMenu(undefined)
     setDialog(undefined)
     setDialogError(undefined)
@@ -172,8 +174,10 @@ export function useFileCreateActions(options: {
   const beginCreate = useCallback(
     (kind: ProjectFileCreateKind) => {
       if (!menu || pending) return
+      const id = (nextRequestId.current += 1)
+      activeDialogId.current = id
       setDialog({
-        id: (nextRequestId.current += 1),
+        id,
         workspaceRoot: hostPath(root.hostId, root.path),
         destinationDirectory: fileActionDestination(root, menu.target, menu.targetType),
         kind,
@@ -194,6 +198,10 @@ export function useFileCreateActions(options: {
       }
       const request = dialog
       const requestOwnerKey = pathKey(request.workspaceRoot)
+      const requestIsCurrent = (): boolean =>
+        alive.current &&
+        latestOwnerKey.current === requestOwnerKey &&
+        activeDialogId.current === request.id
       setPending(true)
       setDialogError(undefined)
       void window.hvir
@@ -206,7 +214,7 @@ export function useFileCreateActions(options: {
         .then(unwrapOperation)
         .then(
           (result) => {
-            if (!alive.current || latestOwnerKey.current !== requestOwnerKey) return
+            if (!requestIsCurrent()) return
             if (result.outcome === 'busy') {
               setDialogError(result.reason)
               return
@@ -217,7 +225,9 @@ export function useFileCreateActions(options: {
               return
             }
             const destination = hostPath(item.destination.hostId, item.destination.path)
+            activeDialogId.current = undefined
             setDialog(undefined)
+            setPending(false)
             setRefreshVersion((value) => value + 1)
             setFeedback({
               kind: 'success',
@@ -237,14 +247,13 @@ export function useFileCreateActions(options: {
             }
           },
           (reason: unknown) => {
-            if (alive.current && latestOwnerKey.current === requestOwnerKey) {
+            if (requestIsCurrent()) {
               setDialogError(errorMessage(reason))
             }
           },
         )
         .finally(() => {
-          if (alive.current && latestOwnerKey.current === requestOwnerKey)
-            setPending(false)
+          if (requestIsCurrent()) setPending(false)
         })
     },
     [dialog, onCreatedFile, pending],
@@ -254,6 +263,7 @@ export function useFileCreateActions(options: {
     (kind: PathCopyKind) => {
       if (!menu || pending) return
       const requestOwnerKey = ownerKey
+      const returnFocus = menu.focusMenu ? menu.returnFocus : undefined
       setPending(true)
       void copyHostPath(root, menu.target, kind, writeApplicationClipboard).then(
         () => {
@@ -264,6 +274,7 @@ export function useFileCreateActions(options: {
           })
           setMenu(undefined)
           setPending(false)
+          returnFocus?.focus({ preventScroll: true })
         },
         () => {
           if (!alive.current || latestOwnerKey.current !== requestOwnerKey) return
@@ -273,6 +284,7 @@ export function useFileCreateActions(options: {
           })
           setMenu(undefined)
           setPending(false)
+          returnFocus?.focus({ preventScroll: true })
         },
       )
     },
@@ -307,10 +319,10 @@ export function useFileCreateActions(options: {
     copyPath,
     dismissMenu,
     dismissDialog() {
-      if (!pending) {
-        setDialog(undefined)
-        setDialogError(undefined)
-      }
+      activeDialogId.current = undefined
+      setDialog(undefined)
+      setDialogError(undefined)
+      setPending(false)
     },
     clearCreatedSelection() {
       setSelectedDirectory(undefined)

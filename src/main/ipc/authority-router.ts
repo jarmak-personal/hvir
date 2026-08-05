@@ -318,12 +318,12 @@ export class IpcAuthority {
       typeof candidate.hostId !== 'string' ||
       typeof candidate.path !== 'string'
     ) {
-      throw new Error('Terminal session belongs to another project')
+      throw new Error('Workspace belongs to another project or is no longer registered')
     }
     const decoded = hostPath(asHostId(candidate.hostId), candidate.path)
     const root = this.deps.getRegisteredWorkspaceRoot(decoded)
     if (!root || !hostPathEquals(decoded, root)) {
-      throw new Error('Terminal session belongs to another project')
+      throw new Error('Workspace belongs to another project or is no longer registered')
     }
     return root
   }

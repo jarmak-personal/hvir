@@ -10,7 +10,7 @@ import {
 interface SshExclusiveCreatePort {
   readonly hostId: HostId
   getSftp(): Promise<SFTPWrapper>
-  lstat(path: HostPath): Promise<Stat>
+  stat(path: HostPath): Promise<Stat>
   invalidate(path: string): void
 }
 
@@ -35,7 +35,7 @@ export class SshExclusiveCreate {
       await this.perform<void>((session, done) => session.close(handle!, done))
       handle = undefined
       opts.signal?.throwIfAborted()
-      const stat = await this.port.lstat(path)
+      const stat = await this.port.stat(path)
       opts.signal?.throwIfAborted()
       if (stat.type !== 'file' || stat.size !== 0 || (stat.mode & 0o777) !== opts.mode) {
         throw new Error('SSH host did not create the approved empty regular file')
@@ -69,7 +69,7 @@ export class SshExclusiveCreate {
         session.setstat(path.path, { mode: opts.mode }, done),
       )
       opts.signal?.throwIfAborted()
-      const stat = await this.port.lstat(path)
+      const stat = await this.port.stat(path)
       opts.signal?.throwIfAborted()
       if (stat.type !== 'dir' || (stat.mode & 0o777) !== opts.mode) {
         throw new Error('SSH host did not create the approved empty directory')

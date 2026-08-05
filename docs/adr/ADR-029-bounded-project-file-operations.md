@@ -35,12 +35,12 @@ results. It depends on narrow project-host and application-host ports. It is not
 filesystem service, and Electron bootstrap only constructs and disposes it.
 
 `ProjectHost` remains the authoritative project filesystem seam. It gains only the immediate,
-abort-aware mechanics and truthful capabilities needed by the coordinator: `lstat`, exclusive
-regular-file and directory creation, bounded file streams, approved mode and modification-time
-updates, no-replace rename, file and empty-directory removal, recoverable top-level trash when
-available, and deletion capability disclosure. Host adapters implement those primitives with
-local filesystem or SSH/SFTP mechanics; they do not own recursion, batches, collision choices,
-fallback workflows, or user confirmation.
+abort-aware mechanics and truthful capabilities needed by the coordinator: the existing
+non-following `stat` seam, exclusive regular-file and directory creation, bounded file streams,
+approved mode and modification-time updates, no-replace rename, file and empty-directory removal,
+recoverable top-level trash when available, and deletion capability disclosure. Host adapters
+implement those primitives with local filesystem or SSH/SFTP mechanics; they do not own
+recursion, batches, collision choices, fallback workflows, or user confirmation.
 
 The Files feature owns command and drop targeting, dialogs, progress, cancellation, and result
 presentation. Its request is data, not authority. Feature IPC accepts messages only from the

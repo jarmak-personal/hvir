@@ -221,9 +221,7 @@ export interface ProjectHost {
   /** Remove one file, optionally only while its observed version is still current. */
   removeFile(path: HostPath, opts?: RemoveFileOptions): Promise<void>
   readdir(path: HostPath): Promise<DirEntry[]>
-  /** Inspect the entry itself without following a symbolic link. */
-  lstat(path: HostPath): Promise<Stat>
-  /** Legacy entry-stat name; like `lstat`, it does not follow symbolic links. */
+  /** Inspect the entry itself without following symbolic links (local/SFTP lstat). */
   stat(path: HostPath): Promise<Stat>
   /** Canonicalize through symlinks on the project host. */
   realpath(path: HostPath): Promise<HostPath>

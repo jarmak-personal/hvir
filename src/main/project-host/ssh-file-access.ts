@@ -54,7 +54,7 @@ export class SshFileAccess {
     this.exclusiveCreate = new SshExclusiveCreate({
       hostId: owner.hostId,
       getSftp: () => this.getSftp(),
-      lstat: (path) => this.lstat(path),
+      stat: (path) => this.stat(path),
       invalidate: (path) => this.invalidate(path),
     })
   }
@@ -218,7 +218,7 @@ export class SshFileAccess {
     return [...value]
   }
 
-  async lstat(path: HostPath): Promise<Stat> {
+  async stat(path: HostPath): Promise<Stat> {
     this.assertPath(path)
     const attrs = await this.sftp<import('ssh2').Stats>((s, done) =>
       s.lstat(path.path, done),
@@ -230,8 +230,6 @@ export class SshFileAccess {
       mode: attrs.mode,
     }
   }
-
-  readonly stat = (path: HostPath): Promise<Stat> => this.lstat(path)
 
   async realpath(path: HostPath): Promise<HostPath> {
     this.assertPath(path)

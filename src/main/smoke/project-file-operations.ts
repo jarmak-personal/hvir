@@ -49,7 +49,6 @@ export function createRemoteProjectFileSmokeHost(options: {
     async realpath(path) {
       return toRemote(await localHost.realpath(toLocal(path)))
     },
-    lstat: (path) => localHost.lstat(toLocal(path)),
     stat: (path) => localHost.stat(toLocal(path)),
     readdir: (path) => localHost.readdir(toLocal(path)),
     readFile: (path, readOptions?: ReadFileOptions) =>
@@ -100,7 +99,7 @@ export async function verifyProjectFileOperationsSmoke(options: {
       kind: 'file',
       entry: 'pointer',
     })
-    const pointerStat = await localHost.lstat(pointerPath)
+    const pointerStat = await localHost.stat(pointerPath)
     if (pointerStat.type !== 'file' || pointerStat.size !== 0) {
       throw new Error('pointer create did not produce one empty regular file')
     }
@@ -113,7 +112,7 @@ export async function verifyProjectFileOperationsSmoke(options: {
       kind: 'directory',
       entry: 'keyboard',
     })
-    if ((await localHost.lstat(keyboardPath)).type !== 'dir') {
+    if ((await localHost.stat(keyboardPath)).type !== 'dir') {
       throw new Error('remote keyboard create did not produce one directory')
     }
 
@@ -142,7 +141,7 @@ export async function verifyProjectFileOperationsSmoke(options: {
       releaseCreate?.()
       await waitForHostPath(localHost, snapshotPath)
       try {
-        await localHost.lstat(switchedPath)
+        await localHost.stat(switchedPath)
         throw new Error('workspace switch retargeted an accepted file create')
       } catch (reason) {
         if (!isMissingPathError(reason)) throw reason
@@ -329,7 +328,7 @@ async function waitForHostPath(host: ProjectHost, path: HostPath): Promise<void>
   const deadline = Date.now() + 10_000
   while (Date.now() <= deadline) {
     try {
-      await host.lstat(path)
+      await host.stat(path)
       return
     } catch (reason) {
       if (!isMissingPathError(reason)) throw reason

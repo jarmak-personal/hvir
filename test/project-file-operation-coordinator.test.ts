@@ -141,7 +141,7 @@ describe('ProjectFileOperationCoordinator', () => {
   it('cancels before the effect when renderer ownership is revoked during validation', async () => {
     const gate = deferred<void>()
     const fixture = createFixture()
-    fixture.host.lstatGate = { path: '/canonical/src', ...gate }
+    fixture.host.statGate = { path: '/canonical/src', ...gate }
     const result = fixture.coordinator.create({
       owner,
       workspaceRoot,
@@ -163,7 +163,7 @@ describe('ProjectFileOperationCoordinator', () => {
   it('fails closed when the snapshotted workspace authority is replaced', async () => {
     const gate = deferred<void>()
     const fixture = createFixture()
-    fixture.host.lstatGate = { path: '/canonical/src', ...gate }
+    fixture.host.statGate = { path: '/canonical/src', ...gate }
     const result = fixture.coordinator.create({
       owner,
       workspaceRoot,
@@ -228,11 +228,73 @@ describe('ProjectFileOperationCoordinator', () => {
         name: 'second.txt',
         kind: 'file',
       }),
-    ).resolves.toMatchObject({ outcome: 'busy', items: [] })
+    ).resolves.toMatchObject({
+      outcome: 'busy',
+      reason: 'Another file operation is already active for this workspace',
+      items: [],
+    })
     gate.resolve()
     await expect(first).resolves.toMatchObject({
       items: [{ status: 'completed' }],
     })
+  })
+
+  it('reports the distinct application-wide limit across workspaces', async () => {
+    const resources = new FakeResources()
+    const roots = ['/one', '/two', '/three'].map((path) => localPath(path))
+    const hosts = roots.map(
+      (root, index) => new FakeProjectHost(root, localPath(`/canonical-${index + 1}`)),
+    )
+    const gates = [deferred<void>(), deferred<void>()]
+    hosts[0]!.createGate = gates[0]
+    hosts[1]!.createGate = gates[1]
+    let nextOperationId = 0
+    const coordinator = new ProjectFileOperationCoordinator({
+      resolveWorkspace: (root) => {
+        const index = roots.findIndex((candidate) => candidate.path === root.path)
+        return index < 0
+          ? undefined
+          : {
+              projectId: `project-${index + 1}`,
+              workspaceId: `workspace-${index + 1}`,
+              root: roots[index]!,
+              host: hosts[index]! as unknown as ProjectHost,
+            }
+      },
+      resources,
+      createOperationId: () => `operation-${(nextOperationId += 1)}`,
+    })
+    const first = coordinator.create({
+      owner,
+      workspaceRoot: roots[0]!,
+      destinationDirectory: localPath('/one/src'),
+      name: 'first.txt',
+      kind: 'file',
+    })
+    const second = coordinator.create({
+      owner,
+      workspaceRoot: roots[1]!,
+      destinationDirectory: localPath('/two/src'),
+      name: 'second.txt',
+      kind: 'file',
+    })
+    await Promise.all(gates.map((gate) => gate.started))
+
+    await expect(
+      coordinator.create({
+        owner,
+        workspaceRoot: roots[2]!,
+        destinationDirectory: localPath('/three/src'),
+        name: 'third.txt',
+        kind: 'file',
+      }),
+    ).resolves.toMatchObject({
+      outcome: 'busy',
+      reason: 'The application-wide file operation limit is currently in use',
+      items: [],
+    })
+    gates.forEach((gate) => gate.resolve())
+    await Promise.all([first, second])
   })
 })
 
@@ -290,18 +352,26 @@ class FakeResources implements ProjectFileOperationResourcePort {
 }
 
 class FakeProjectHost {
-  readonly hostId = workspaceRoot.hostId
+  readonly hostId: HostPath['hostId']
   private state: HostConnectionState = 'connected'
   private readonly listeners = new Set<(state: HostConnectionState) => void>()
-  readonly entries = new Map<string, Stat>([
-    ['/canonical', directoryStat()],
-    ['/canonical/src', directoryStat()],
-  ])
+  readonly entries: Map<string, Stat>
   readonly createdFiles: Array<{ path: HostPath; mode: number }> = []
   readonly createdDirectories: Array<{ path: HostPath; mode: number }> = []
   createFailure?: Error
   createGate?: ReturnType<typeof deferred<void>>
-  lstatGate?: ReturnType<typeof deferred<void>> & { readonly path: string }
+  statGate?: ReturnType<typeof deferred<void>> & { readonly path: string }
+
+  constructor(
+    private readonly root = workspaceRoot,
+    private readonly canonical = canonicalRoot,
+  ) {
+    this.hostId = root.hostId
+    this.entries = new Map([
+      [canonical.path, directoryStat()],
+      [`${canonical.path}/src`, directoryStat()],
+    ])
+  }
 
   get connectionState(): HostConnectionState {
     return this.state
@@ -319,14 +389,14 @@ class FakeProjectHost {
   }
 
   realpath(path: HostPath): Promise<HostPath> {
-    return Promise.resolve(path.path === '/workspace' ? canonicalRoot : path)
+    return Promise.resolve(path.path === this.root.path ? this.canonical : path)
   }
 
-  async lstat(path: HostPath): Promise<Stat> {
-    if (this.lstatGate?.path === path.path) {
-      this.lstatGate.start()
-      await this.lstatGate.promise
-      this.lstatGate = undefined
+  async stat(path: HostPath): Promise<Stat> {
+    if (this.statGate?.path === path.path) {
+      this.statGate.start()
+      await this.statGate.promise
+      this.statGate = undefined
     }
     const stat = this.entries.get(path.path)
     if (!stat) throw Object.assign(new Error('no such file'), { code: 'ENOENT' })

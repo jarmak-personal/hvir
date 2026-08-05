@@ -538,9 +538,6 @@ export class SshHost implements ProjectHost {
   async readdir(path: HostPath): Promise<DirEntry[]> {
     return this.files.readdir(path)
   }
-  async lstat(path: HostPath): Promise<Stat> {
-    return this.files.lstat(path)
-  }
   async stat(path: HostPath): Promise<Stat> {
     return this.files.stat(path)
   }

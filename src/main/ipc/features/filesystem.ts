@@ -1,9 +1,4 @@
-import {
-  containsHostPath,
-  hostPath,
-  hostPathEquals,
-  repositoryImageMimeType,
-} from '../../../shared'
+import { hostPath, hostPathEquals, repositoryImageMimeType } from '../../../shared'
 import type { IpcRegistrar } from '../authority-router'
 import type { IpcDeps } from '../deps'
 import { operationResult } from '../operation-result'
@@ -176,9 +171,6 @@ export function registerFilesystemIpc(ipc: IpcRegistrar, deps: FilesystemIpcDeps
       const destinationDirectory = ipc.authority.reconstructHostPath(
         req.destinationDirectory,
       )
-      if (!containsHostPath(workspaceRoot, destinationDirectory)) {
-        throw new Error('The destination directory escapes the workspace')
-      }
       return deps.projectFiles.create({
         owner: context.owner(),
         workspaceRoot,

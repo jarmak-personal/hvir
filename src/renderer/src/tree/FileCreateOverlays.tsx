@@ -135,11 +135,7 @@ export function FileCreateOverlays({
               </div>
             ) : null}
             <div className="file-create-actions">
-              <button
-                type="button"
-                disabled={controller.pending}
-                onClick={() => controller.dismissDialog()}
-              >
+              <button type="button" onClick={() => controller.dismissDialog()}>
                 Cancel
               </button>
               <button type="submit" disabled={controller.pending || Boolean(validation)}>

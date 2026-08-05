@@ -55,10 +55,10 @@ describe('LocalHost', () => {
     await host.createDirectoryExclusive(directory, { mode: 0o755 })
 
     await expect(host.readFile(file)).resolves.toHaveLength(0)
-    expect(await host.lstat(file)).toMatchObject({ type: 'file', size: 0 })
-    expect((await host.lstat(file)).mode & 0o777).toBe(0o644)
-    expect(await host.lstat(directory)).toMatchObject({ type: 'dir' })
-    expect((await host.lstat(directory)).mode & 0o777).toBe(0o755)
+    expect(await host.stat(file)).toMatchObject({ type: 'file', size: 0 })
+    expect((await host.stat(file)).mode & 0o777).toBe(0o644)
+    expect(await host.stat(directory)).toMatchObject({ type: 'dir' })
+    expect((await host.stat(directory)).mode & 0o777).toBe(0o755)
   })
 
   it('never replaces an existing entry during exclusive creation', async () => {
@@ -85,7 +85,7 @@ describe('LocalHost', () => {
     await expect(
       host.createFileExclusive(file, { mode: 0o644, signal: controller.signal }),
     ).rejects.toMatchObject({ name: 'AbortError' })
-    await expect(host.lstat(file)).rejects.toThrow()
+    await expect(host.stat(file)).rejects.toThrow()
   })
 
   it('rejects an aborted atomic write without publishing the file', async () => {

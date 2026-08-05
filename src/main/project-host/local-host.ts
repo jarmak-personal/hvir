@@ -517,7 +517,7 @@ export class LocalHost implements ProjectHost {
     }))
   }
 
-  async lstat(path: HostPath): Promise<Stat> {
+  async stat(path: HostPath): Promise<Stat> {
     // lstat preserves the distinction promised by Stat.type; stat() follows a
     // symlink and makes the `symlink` branch unreachable.
     const s = await fsp.lstat(this.resolve(path))
@@ -527,8 +527,6 @@ export class LocalHost implements ProjectHost {
     else if (s.isSymbolicLink()) type = 'symlink'
     return { type, size: s.size, mtimeMs: s.mtimeMs, mode: s.mode }
   }
-
-  readonly stat: ProjectHost['stat'] = (path) => this.lstat(path)
 
   async realpath(path: HostPath): Promise<HostPath> {
     return this.wrap(await fsp.realpath(this.resolve(path)))

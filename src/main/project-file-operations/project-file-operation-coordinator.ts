@@ -81,14 +81,13 @@ export class ProjectFileOperationCoordinator {
     const authority = this.requireWorkspace(input.workspaceRoot)
     this.assertRenderer(input.owner)
     const canonicalRoot = await authority.host.realpath(authority.root)
-    if ((await authority.host.lstat(canonicalRoot)).type !== 'dir') {
+    if ((await authority.host.stat(canonicalRoot)).type !== 'dir') {
       throw new Error('The registered workspace root is not a real directory')
     }
     this.assertAuthorityCurrent(input.owner, authority)
 
     const workspaceKey = pathKey(authority.root)
     if (
-      this.active.size >= 2 ||
       [...this.active.values()].some(
         (operation) => pathKey(operation.identity.workspaceRoot) === workspaceKey,
       )
@@ -96,6 +95,13 @@ export class ProjectFileOperationCoordinator {
       return {
         outcome: 'busy',
         reason: 'Another file operation is already active for this workspace',
+        items: [],
+      }
+    }
+    if (this.active.size >= 2) {
+      return {
+        outcome: 'busy',
+        reason: 'The application-wide file operation limit is currently in use',
         items: [],
       }
     }
@@ -169,7 +175,7 @@ export class ProjectFileOperationCoordinator {
       this.assertOperationCurrent(identity, signal)
       const canonicalDestination = joinHostPath(canonicalDirectory, identity.name)
       try {
-        await identity.host.lstat(canonicalDestination)
+        await identity.host.stat(canonicalDestination)
         return {
           itemId,
           destination,
@@ -310,7 +316,7 @@ async function proveRealDirectory(
           workspaceRoot.path === '/' ? 1 : workspaceRoot.path.length + 1,
         )
   let candidate = canonicalRoot
-  if ((await host.lstat(candidate)).type !== 'dir') {
+  if ((await host.stat(candidate)).type !== 'dir') {
     throw new Error('The workspace root is not a real directory')
   }
   for (const segment of suffix ? suffix.split('/') : []) {
@@ -318,7 +324,7 @@ async function proveRealDirectory(
       throw new Error('The destination directory is not a normalized project path')
     }
     candidate = joinHostPath(candidate, segment)
-    if ((await host.lstat(candidate)).type !== 'dir') {
+    if ((await host.stat(candidate)).type !== 'dir') {
       throw new Error('The destination traverses a non-directory or symbolic link')
     }
   }
