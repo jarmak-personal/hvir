@@ -1,10 +1,4 @@
-import {
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -23,6 +17,8 @@ const productionEntries = [
   '/out/renderer/index.js',
   '/node_modules/node-pty/build/Release/pty.node',
   '/node_modules/node-pty/build/Release/spawn-helper',
+  '/node_modules/@skill-steward/rename-noreplace-darwin-arm64/rename_noreplace.node',
+  '/node_modules/@skill-steward/rename-noreplace-linux-arm64-gnu/rename_noreplace.node',
 ]
 const buildConfig = readFileSync(
   new URL('../electron.vite.config.ts', import.meta.url),
@@ -110,7 +106,12 @@ describe('packaged runtime inspection', () => {
 
   it('accepts the production bootstrap, workers, renderer, and native payload', () => {
     expect(
-      inspectPackagedRuntimeGraph(productionEntries, () => 'production', 'darwin'),
+      inspectPackagedRuntimeGraph(
+        productionEntries,
+        () => 'production',
+        'darwin',
+        'arm64',
+      ),
     ).toEqual({
       mainEntries: [
         '/out/main/index.js',
@@ -120,6 +121,7 @@ describe('packaged runtime inspection', () => {
       nativeEntries: [
         '/node_modules/node-pty/build/Release/pty.node',
         '/node_modules/node-pty/build/Release/spawn-helper',
+        '/node_modules/@skill-steward/rename-noreplace-darwin-arm64/rename_noreplace.node',
       ],
     })
   })
@@ -129,12 +131,15 @@ describe('packaged runtime inspection', () => {
       (entry) => !entry.endsWith('/spawn-helper'),
     )
     expect(
-      inspectPackagedRuntimeGraph(linuxEntries, () => 'production', 'linux'),
+      inspectPackagedRuntimeGraph(linuxEntries, () => 'production', 'linux', 'arm64'),
     ).toMatchObject({
-      nativeEntries: ['/node_modules/node-pty/build/Release/pty.node'],
+      nativeEntries: [
+        '/node_modules/node-pty/build/Release/pty.node',
+        '/node_modules/@skill-steward/rename-noreplace-linux-arm64-gnu/rename_noreplace.node',
+      ],
     })
     expect(() =>
-      inspectPackagedRuntimeGraph(linuxEntries, () => 'production', 'darwin'),
+      inspectPackagedRuntimeGraph(linuxEntries, () => 'production', 'darwin', 'arm64'),
     ).toThrow('/node_modules/node-pty/build/Release/spawn-helper')
   })
 
@@ -143,12 +148,14 @@ describe('packaged runtime inspection', () => {
     '/out/main/git-worker.js',
     '/node_modules/node-pty/build/Release/pty.node',
     '/node_modules/node-pty/build/Release/spawn-helper',
+    '/node_modules/@skill-steward/rename-noreplace-darwin-arm64/rename_noreplace.node',
   ])('rejects a package missing %s', (missing) => {
     expect(() =>
       inspectPackagedRuntimeGraph(
         productionEntries.filter((entry) => entry !== missing),
         () => 'production',
         'darwin',
+        'arm64',
       ),
     ).toThrow(missing)
   })
@@ -159,6 +166,7 @@ describe('packaged runtime inspection', () => {
         [...productionEntries, '/out/main/chunks/scenarios-abc.js'],
         () => 'production',
         'darwin',
+        'arm64',
       ),
     ).toThrow('retained smoke entry')
   })
@@ -169,9 +177,9 @@ describe('packaged runtime inspection', () => {
       expect(() =>
         inspectPackagedRuntimeGraph(
           productionEntries,
-          (entry) =>
-            entry === '/out/renderer/index.js' ? marker : 'production',
+          (entry) => (entry === '/out/renderer/index.js' ? marker : 'production'),
           'darwin',
+          'arm64',
         ),
       ).toThrow(`retained smoke marker ${marker}`)
     },

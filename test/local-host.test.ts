@@ -77,6 +77,41 @@ describe('LocalHost', () => {
     await expect(host.readdir(directory)).resolves.toEqual([])
   })
 
+  it('streams to an exclusive staging file and atomically refuses replacement', async () => {
+    const staging = localPath(join(dir, '.hvir-import-stage'))
+    const destination = localPath(join(dir, 'existing.txt'))
+    await writeFile(destination.path, 'winner')
+    let created = 0
+
+    await host.fileTransfer.writeFileChunksExclusive(staging, chunks('source'), {
+      mode: 0o755,
+      onCreated: () => {
+        created += 1
+      },
+    })
+    await expect(
+      host.fileTransfer.renameNoReplace(staging, destination),
+    ).rejects.toMatchObject({ code: 'EEXIST' })
+
+    expect(created).toBe(1)
+    expect(await host.readTextFile(destination)).toBe('winner')
+    expect(await host.readTextFile(staging)).toBe('source')
+    expect((await host.stat(staging)).mode & 0o777).toBe(0o755)
+  })
+
+  it('atomically refuses to replace an existing directory', async () => {
+    const staging = localPath(join(dir, '.hvir-import-directory'))
+    const destination = localPath(join(dir, 'existing-directory'))
+    await mkdir(staging.path)
+    await mkdir(destination.path)
+
+    await expect(
+      host.fileTransfer.renameNoReplace(staging, destination),
+    ).rejects.toMatchObject({ code: 'EEXIST' })
+    await expect(host.stat(staging)).resolves.toMatchObject({ type: 'dir' })
+    await expect(host.stat(destination)).resolves.toMatchObject({ type: 'dir' })
+  })
+
   it('rejects exclusive creation before an aborted effect begins', async () => {
     const controller = new AbortController()
     controller.abort()
@@ -488,3 +523,8 @@ describe('LocalHost', () => {
     },
   )
 })
+
+async function* chunks(value: string): AsyncIterable<Uint8Array> {
+  await Promise.resolve()
+  yield Buffer.from(value)
+}

@@ -15,6 +15,7 @@ import {
   type FileOpenContext,
   type HostPath,
   type ProjectFileOperationResult,
+  type ProjectFileOperationProgress,
 } from '../src/shared'
 
 const rootPath = localPath('/repo')
@@ -32,18 +33,37 @@ const entries = new Map<string, DirEntry[]>([
 
 let container: HTMLDivElement
 let reactRoot: Root
-let invoke: ReturnType<typeof vi.fn>
+let invoke: ReturnType<
+  typeof vi.fn<
+    (channel: string, request: { readonly path?: HostPath }) => Promise<unknown>
+  >
+>
 let createEntry: (request: {
   readonly workspaceRoot: HostPath
   readonly destinationDirectory: HostPath
   readonly name: string
   readonly kind: 'file' | 'directory'
 }) => Promise<ProjectFileOperationResult>
+let projectFileEvent: ((event: ProjectFileOperationProgress) => void) | undefined
+let copyExternal: () => Promise<unknown>
+let acquireDropped: ReturnType<typeof vi.fn>
 
 beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true)
   entries.set('/repo/src', [])
   createEntry = (request) => Promise.resolve(completedResult(request))
+  projectFileEvent = undefined
+  copyExternal = () =>
+    Promise.resolve({
+      ok: true,
+      value: {
+        outcome: 'started',
+        operationId: 'copy-1',
+        generation: 1,
+        itemCount: 1,
+      },
+    })
+  acquireDropped = vi.fn(() => Promise.reject(new Error('not configured')))
   invoke = vi.fn((channel: string, request: { readonly path?: HostPath }) => {
     if (channel === 'fs:readdir') {
       return Promise.resolve({ ok: true, value: entries.get(request.path!.path) ?? [] })
@@ -51,11 +71,38 @@ beforeEach(() => {
     if (channel === 'fs:create-entry') {
       return createEntry(request as never).then((value) => ({ ok: true, value }))
     }
+    if (channel === 'fs:acquire-clipboard-files') {
+      return Promise.resolve({
+        ok: true,
+        value: {
+          outcome: 'available',
+          grant: {
+            grantId: 'grant-1',
+            generation: 1,
+            items: [{ itemId: 'external:0', name: 'copy.txt', type: 'file' }],
+          },
+        },
+      })
+    }
+    if (channel === 'fs:copy-external') return copyExternal()
+    if (channel === 'fs:cancel-file-operation') {
+      return Promise.resolve({ ok: true, value: true })
+    }
     throw new Error(`Unexpected channel: ${channel}`)
   })
   Object.defineProperty(window, 'hvir', {
     configurable: true,
-    value: { invoke, send: vi.fn(), on: vi.fn() },
+    value: {
+      invoke,
+      send: vi.fn(),
+      externalFiles: { acquireDropped },
+      on: vi.fn(
+        (channel: string, callback: (event: ProjectFileOperationProgress) => void) => {
+          if (channel === 'fs:project-file-operation') projectFileEvent = callback
+          return () => undefined
+        },
+      ),
+    },
   })
   container = document.createElement('div')
   document.body.append(container)
@@ -71,6 +118,7 @@ afterEach(() => {
     .forEach((node) => node.remove())
   container.remove()
   vi.restoreAllMocks()
+  vi.useRealTimers()
   vi.unstubAllGlobals()
 })
 
@@ -258,6 +306,141 @@ describe('Files rail create actions', () => {
     expect(onOpen).not.toHaveBeenCalled()
     expect(document.querySelector('.file-operation-feedback')).toBeNull()
   })
+
+  it('uses Files Ctrl+V once while acquisition is pending and targets a file parent', async () => {
+    const acquisition = deferred<unknown>()
+    invoke.mockImplementation(
+      (channel: string, request: { readonly path?: HostPath }) => {
+        if (channel === 'fs:readdir') {
+          return Promise.resolve({
+            ok: true,
+            value: entries.get(request.path!.path) ?? [],
+          })
+        }
+        if (channel === 'fs:acquire-clipboard-files') return acquisition.promise
+        throw new Error(`Unexpected channel: ${channel}`)
+      },
+    )
+    renderFileTree(rootPath, vi.fn())
+    await waitFor(() => treeRow('/repo/existing.md') !== undefined)
+    const row = treeRow('/repo/existing.md')!
+    row.focus()
+
+    act(() => {
+      row.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'v', ctrlKey: true, bubbles: true }),
+      )
+      row.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'v', ctrlKey: true, bubbles: true }),
+      )
+    })
+    await act(async () => Promise.resolve())
+
+    expect(
+      invoke.mock.calls.filter(([channel]) => channel === 'fs:acquire-clipboard-files'),
+    ).toHaveLength(1)
+  })
+
+  it('reconciles an immediate final event and keeps detailed failures until dismissed', async () => {
+    vi.useFakeTimers()
+    copyExternal = () => {
+      projectFileEvent?.({
+        workspaceRoot: rootPath,
+        operationId: 'copy-1',
+        generation: 1,
+        phase: 'completed',
+        completedItems: 1,
+        totalItems: 1,
+        result: {
+          outcome: 'completed',
+          operationId: 'copy-1',
+          generation: 1,
+          items: [
+            {
+              itemId: 'external:0',
+              destination: localPath('/repo/copy.txt'),
+              status: 'conflicted',
+              effect: 'none',
+              reason: 'The destination already exists',
+            },
+          ],
+        },
+      })
+      return Promise.resolve({
+        ok: true,
+        value: {
+          outcome: 'started',
+          operationId: 'copy-1',
+          generation: 1,
+          itemCount: 1,
+        },
+      })
+    }
+    renderFileTree(rootPath, vi.fn())
+    await waitFor(() => treeRow('/repo/existing.md') !== undefined)
+    const row = treeRow('/repo/existing.md')!
+    row.focus()
+    act(() => {
+      row.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'v', ctrlKey: true, bubbles: true }),
+      )
+    })
+
+    await waitFor(() =>
+      Boolean(document.querySelector('.file-operation-feedback')?.textContent),
+    )
+    expect(document.querySelector('.file-copy-progress')).toBeNull()
+    expect(document.querySelector('.file-operation-feedback')?.textContent).toContain(
+      'destination already exists',
+    )
+    act(() => {
+      vi.advanceTimersByTime(4_100)
+    })
+    expect(document.querySelector('.file-operation-feedback')).not.toBeNull()
+    act(() => {
+      ;[
+        ...document.querySelectorAll<HTMLButtonElement>(
+          '.file-operation-feedback button',
+        ),
+      ]
+        .find((button) => button.textContent === 'Dismiss')!
+        .click()
+    })
+    expect(document.querySelector('.file-operation-feedback')).toBeNull()
+  })
+
+  it('routes dropped File objects only through preload and shows the real parent target', async () => {
+    acquireDropped.mockResolvedValue({
+      ok: true,
+      value: {
+        outcome: 'available',
+        grant: {
+          grantId: 'drop-grant',
+          generation: 1,
+          items: [{ itemId: 'external:0', name: 'drop.txt', type: 'file' }],
+        },
+      },
+    })
+    renderFileTree(rootPath, vi.fn())
+    await waitFor(() => treeRow('/repo/existing.md') !== undefined)
+    const row = treeRow('/repo/existing.md')!
+    const file = new File(['drop'], 'drop.txt')
+    const transfer = { types: ['Files'], files: [file], dropEffect: 'none' }
+
+    act(() => {
+      row.dispatchEvent(dataTransferEvent('dragover', transfer))
+    })
+    expect(container.querySelector('.file-drop-target')?.textContent).toContain(
+      'Copy into repo',
+    )
+    act(() => {
+      row.dispatchEvent(dataTransferEvent('drop', transfer))
+    })
+    await act(async () => Promise.resolve())
+
+    expect(acquireDropped).toHaveBeenCalledWith([file])
+    expect(invoke).not.toHaveBeenCalledWith('fs:acquire-dropped-files', expect.anything())
+  })
 })
 
 describe('Files create targeting policy', () => {
@@ -353,6 +536,12 @@ function submitButton(): HTMLButtonElement | undefined {
       '.file-create-dialog button[type="submit"]',
     ) ?? undefined
   )
+}
+
+function dataTransferEvent(type: string, dataTransfer: object): Event {
+  const event = new Event(type, { bubbles: true, cancelable: true })
+  Object.defineProperty(event, 'dataTransfer', { value: dataTransfer })
+  return event
 }
 
 function completedResult(request: {

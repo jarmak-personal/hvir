@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from 'react'
 
 import {
-  dirnameHostPath,
   hostPath,
   isProjectFileEntryName,
   unwrapOperation,
@@ -9,12 +8,18 @@ import {
   type FileType,
   type HostPath,
   type ProjectFileCreateKind,
+  type ProjectFileOperationProgress,
+  type ProjectFileOperationResult,
 } from '../../../shared'
 import { copyHostPath, PATH_COPY_LABELS, type PathCopyKind } from '../path-copy/path-copy'
 import type {
   DirectoryTreeEntryActions,
   DirectoryTreeRevealRequest,
 } from './DirectoryTree'
+import { fileActionDestination } from './file-action-destination'
+import { useExternalFileCopy } from './use-external-file-copy'
+
+export { fileActionDestination } from './file-action-destination'
 
 export interface FileActionMenuRequest {
   readonly id: number
@@ -37,6 +42,7 @@ export interface FileCreateDialogRequest {
 export interface FileActionFeedback {
   readonly kind: 'success' | 'error'
   readonly message: string
+  readonly details?: readonly string[]
 }
 
 export interface FileCreateActionsController {
@@ -49,10 +55,16 @@ export interface FileCreateActionsController {
   readonly selectedDirectory?: HostPath
   readonly revealRequest?: DirectoryTreeRevealRequest
   readonly refreshVersion: number
+  readonly copyProgress?: ProjectFileOperationProgress
   openRootFromPointer(event: MouseEvent<HTMLElement>): void
   beginCreate(kind: ProjectFileCreateKind): void
   submitCreate(name: string): void
   copyPath(kind: PathCopyKind): void
+  pasteFiles(target: HostPath, targetType: FileType): void
+  pasteFilesFromMenu(): void
+  dropFiles(files: readonly File[], target: HostPath, targetType: FileType): void
+  cancelCopy(): void
+  dismissFeedback(): void
   dismissMenu(restoreFocus?: boolean): void
   dismissDialog(): void
   clearCreatedSelection(): void
@@ -100,10 +112,31 @@ export function useFileCreateActions(options: {
     setRevealRequest(undefined)
   }, [ownerKey])
   useEffect(() => {
-    if (!feedback) return
+    if (!feedback || feedback.kind === 'error' || feedback.details?.length) return
     const timeout = window.setTimeout(() => setFeedback(undefined), 4_000)
     return () => window.clearTimeout(timeout)
   }, [feedback])
+  const handleCopyStart = useCallback(() => {
+    setMenu(undefined)
+    setFeedback(undefined)
+  }, [])
+  const handleCopyComplete = useCallback(
+    (result: ProjectFileOperationResult | undefined) => {
+      setRefreshVersion((value) => value + 1)
+      setFeedback(copyFeedback(result))
+    },
+    [],
+  )
+  const handleCopyError = useCallback((message: string) => {
+    setFeedback({ kind: 'error', message })
+  }, [])
+  const externalCopy = useExternalFileCopy({
+    root,
+    onStart: handleCopyStart,
+    onComplete: handleCopyComplete,
+    onError: handleCopyError,
+  })
+  const operationPending = pending || externalCopy.pending
 
   const openMenu = useCallback(
     (
@@ -173,7 +206,7 @@ export function useFileCreateActions(options: {
   )
   const beginCreate = useCallback(
     (kind: ProjectFileCreateKind) => {
-      if (!menu || pending) return
+      if (!menu || operationPending) return
       const id = (nextRequestId.current += 1)
       activeDialogId.current = id
       setDialog({
@@ -183,14 +216,15 @@ export function useFileCreateActions(options: {
         kind,
       })
       setDialogError(undefined)
+      setFeedback(undefined)
       setMenu(undefined)
     },
-    [menu, pending, root],
+    [menu, operationPending, root],
   )
 
   const submitCreate = useCallback(
     (name: string) => {
-      if (!dialog || pending) return
+      if (!dialog || operationPending) return
       const validation = projectFileEntryNameError(name)
       if (validation) {
         setDialogError(validation)
@@ -256,12 +290,12 @@ export function useFileCreateActions(options: {
           if (requestIsCurrent()) setPending(false)
         })
     },
-    [dialog, onCreatedFile, pending],
+    [dialog, onCreatedFile, operationPending],
   )
 
   const copyPath = useCallback(
     (kind: PathCopyKind) => {
-      if (!menu || pending) return
+      if (!menu || operationPending) return
       const requestOwnerKey = ownerKey
       const returnFocus = menu.focusMenu ? menu.returnFocus : undefined
       setPending(true)
@@ -288,7 +322,7 @@ export function useFileCreateActions(options: {
         },
       )
     },
-    [menu, ownerKey, pending, root],
+    [menu, operationPending, ownerKey, root],
   )
 
   return {
@@ -296,11 +330,12 @@ export function useFileCreateActions(options: {
     menu,
     dialog,
     dialogError,
-    pending,
+    pending: operationPending,
     feedback,
     selectedDirectory,
     revealRequest,
     refreshVersion,
+    copyProgress: externalCopy.progress,
     openRootFromPointer(event) {
       if (event.target !== event.currentTarget) return
       event.preventDefault()
@@ -317,6 +352,24 @@ export function useFileCreateActions(options: {
     beginCreate,
     submitCreate,
     copyPath,
+    pasteFiles(target, targetType) {
+      externalCopy.copyClipboard(fileActionDestination(root, target, targetType))
+    },
+    pasteFilesFromMenu() {
+      if (!menu) return
+      externalCopy.copyClipboard(
+        fileActionDestination(root, menu.target, menu.targetType),
+      )
+    },
+    dropFiles(files, target, targetType) {
+      externalCopy.copyDropped(files, fileActionDestination(root, target, targetType))
+    },
+    cancelCopy() {
+      externalCopy.cancel()
+    },
+    dismissFeedback() {
+      setFeedback(undefined)
+    },
     dismissMenu,
     dismissDialog() {
       activeDialogId.current = undefined
@@ -329,17 +382,6 @@ export function useFileCreateActions(options: {
       setRevealRequest(undefined)
     },
   }
-}
-
-export function fileActionDestination(
-  root: HostPath,
-  target: HostPath,
-  targetType: FileType,
-): HostPath {
-  if (target.hostId !== root.hostId) return root
-  return targetType === 'dir'
-    ? hostPath(target.hostId, target.path)
-    : dirnameHostPath(target)
 }
 
 export function projectFileEntryNameError(name: string): string | undefined {
@@ -366,4 +408,25 @@ function pathKey(path: HostPath): string {
 
 function errorMessage(reason: unknown): string {
   return reason instanceof Error ? reason.message : 'The entry could not be created'
+}
+
+function copyFeedback(
+  result: ProjectFileOperationResult | undefined,
+): FileActionFeedback {
+  if (!result || result.outcome !== 'completed') {
+    return { kind: 'error', message: 'The copy operation ended without a result.' }
+  }
+  const completed = result.items.filter((item) => item.status === 'completed').length
+  const problems = result.items.length - completed
+  return {
+    kind: problems === 0 ? 'success' : 'error',
+    message:
+      problems === 0
+        ? `${completed} ${completed === 1 ? 'entry' : 'entries'} copied.`
+        : `${completed} copied; ${problems} not copied.`,
+    details: result.items.map((item) => {
+      const name = item.destination.path.split('/').at(-1) || item.destination.path
+      return `${name}: ${item.status}${item.reason ? ` — ${item.reason}` : ''}`
+    }),
+  }
 }

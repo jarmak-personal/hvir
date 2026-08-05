@@ -5,17 +5,17 @@
  * reach channels declared in `INVOKE_CHANNELS`.
  */
 
-import { contextBridge, ipcRenderer } from 'electron'
+import { contextBridge, ipcRenderer, webUtils } from 'electron'
 
 import {
   EVENT_CHANNELS,
-  INVOKE_CHANNELS,
+  RENDERER_INVOKE_CHANNELS,
   SEND_CHANNELS,
   isRendererDiagnosticSession,
   type HvirApi,
   type IpcEventChannel,
   type IpcEventPayload,
-  type IpcInvokeChannel,
+  type RendererIpcInvokeChannel,
   type IpcRequest,
   type IpcResponse,
   type IpcSendChannel,
@@ -54,11 +54,20 @@ const api: HvirApi = {
     recordRenderContainment: (occurrenceId) =>
       rendererDiagnostics.recordRenderContainment(occurrenceId),
   },
-  invoke<C extends IpcInvokeChannel>(
+  externalFiles: {
+    acquireDropped: (files) => {
+      if (files.length > 256) {
+        return Promise.reject(new Error('The external file list exceeds 256 entries'))
+      }
+      const paths = files.map((file) => webUtils.getPathForFile(file))
+      return ipcRenderer.invoke('fs:acquire-dropped-files', { paths })
+    },
+  },
+  invoke<C extends RendererIpcInvokeChannel>(
     channel: C,
     request: IpcRequest<C>,
   ): Promise<IpcResponse<C>> {
-    if (!INVOKE_CHANNELS.includes(channel)) {
+    if (!RENDERER_INVOKE_CHANNELS.includes(channel)) {
       return Promise.reject(
         new Error(`hvir: blocked non-contract IPC channel '${channel}'`),
       )

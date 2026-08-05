@@ -1,7 +1,8 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import {
   ProjectFileOperationCoordinator,
+  type ExternalFileGrantRegistry,
   type ProjectFileOperationResourcePort,
   type ProjectFileWorkspaceAuthority,
 } from '../src/main/project-file-operations'
@@ -207,6 +208,39 @@ describe('ProjectFileOperationCoordinator', () => {
     expect(fixture.host.createdFiles).toEqual([])
   })
 
+  it('aborts an operation at its owned deadline before publication', async () => {
+    vi.useFakeTimers()
+    try {
+      const gate = deferred<void>()
+      const fixture = createFixture({ deadlineMs: 50 })
+      fixture.host.createGate = gate
+      const result = fixture.coordinator.create({
+        owner,
+        workspaceRoot,
+        destinationDirectory,
+        name: 'deadline.txt',
+        kind: 'file',
+      })
+      await gate.started
+
+      await vi.advanceTimersByTimeAsync(50)
+      gate.resolve()
+
+      await expect(result).resolves.toMatchObject({
+        items: [
+          {
+            status: 'cancelled',
+            effect: 'none',
+            reason: 'The project file operation reached its deadline',
+          },
+        ],
+      })
+      expect(fixture.host.createdFiles).toEqual([])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('returns visible busy without queueing a second workspace operation', async () => {
     const gate = deferred<void>()
     const fixture = createFixture()
@@ -296,9 +330,111 @@ describe('ProjectFileOperationCoordinator', () => {
     gates.forEach((gate) => gate.resolve())
     await Promise.all([first, second])
   })
+
+  it('returns the start identity before a fast batch can publish progress', async () => {
+    const fixture = createCopyFixture()
+    const events: unknown[] = []
+
+    const started = await fixture.coordinator.copyExternal({
+      owner,
+      workspaceRoot,
+      destinationDirectory,
+      grantId: 'grant-1',
+      grantGeneration: 1,
+      publish: (event) => events.push(event),
+    })
+
+    expect(started).toMatchObject({ outcome: 'started', operationId: 'operation-1' })
+    expect(events).toEqual([])
+    await nextTurn()
+    expect(events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ phase: 'completed', operationId: 'operation-1' }),
+      ]),
+    )
+  })
+
+  it('suppresses progress and final events after renderer generation revocation', async () => {
+    const fixture = createCopyFixture()
+    const publish = vi.fn()
+    await fixture.coordinator.copyExternal({
+      owner,
+      workspaceRoot,
+      destinationDirectory,
+      grantId: 'grant-1',
+      grantGeneration: 1,
+      publish,
+    })
+
+    fixture.resources.current = false
+    await nextTurn()
+
+    expect(publish).not.toHaveBeenCalled()
+  })
+
+  it('awaits a delayed launch when disposed before the next turn', async () => {
+    const fixture = createCopyFixture()
+    await fixture.coordinator.copyExternal({
+      owner,
+      workspaceRoot,
+      destinationDirectory,
+      grantId: 'grant-1',
+      grantGeneration: 1,
+      publish: () => undefined,
+    })
+
+    await fixture.coordinator.dispose()
+
+    expect(fixture.resources.active.size).toBe(0)
+    expect(fixture.external.revoked).toBe(true)
+  })
 })
 
-function createFixture() {
+function createCopyFixture() {
+  const host = new FakeProjectHost()
+  const resources = new FakeResources()
+  const external = {
+    revoked: false,
+    consume: () => ({
+      grantId: 'grant-1',
+      generation: 1,
+      owner,
+      items: [
+        {
+          itemId: 'external:0',
+          name: 'unsupported',
+          type: 'unsupported' as const,
+          reason: 'unsupported for test',
+        },
+      ],
+      source: () => {
+        throw new Error('unsupported item has no source')
+      },
+      assertCurrent: () => undefined,
+      revoke: () => {
+        external.revoked = true
+      },
+    }),
+    dispose: () => undefined,
+  }
+  const coordinator = new ProjectFileOperationCoordinator({
+    resolveWorkspace: (root) =>
+      root.path === workspaceRoot.path
+        ? {
+            projectId: 'project-1',
+            workspaceId: 'workspace-1',
+            root: workspaceRoot,
+            host: host as unknown as ProjectHost,
+          }
+        : undefined,
+    resources,
+    externalFiles: external as unknown as ExternalFileGrantRegistry,
+    createOperationId: () => 'operation-1',
+  })
+  return { coordinator, external, resources }
+}
+
+function createFixture(options: { readonly deadlineMs?: number } = {}) {
   const host = new FakeProjectHost()
   const resources = new FakeResources()
   let authority: ProjectFileWorkspaceAuthority | undefined = {
@@ -312,6 +448,7 @@ function createFixture() {
       authority && root.path === workspaceRoot.path ? authority : undefined,
     resources,
     createOperationId: () => 'operation-1',
+    ...(options.deadlineMs === undefined ? {} : { deadlineMs: options.deadlineMs }),
   })
   return {
     coordinator,
@@ -437,6 +574,10 @@ function deferred<T>() {
     signalStarted = done
   })
   return { promise, resolve, started, start: signalStarted }
+}
+
+function nextTurn(): Promise<void> {
+  return new Promise((resolve) => setImmediate(resolve))
 }
 
 function directoryStat(): Stat {

@@ -1,7 +1,9 @@
-import type { BrowserWindow } from 'electron'
+import { clipboard, type BrowserWindow } from 'electron'
+import { pathToFileURL } from 'node:url'
 
 import {
   containsHostPath,
+  dirnameHostPath,
   hostPathEquals,
   joinHostPath,
   type HostPath,
@@ -12,6 +14,7 @@ import type {
   ProjectHost,
   ReadFileOptions,
 } from '../project-host'
+import { ElectronClipboardFileSource } from '../project-file-operations/electron-clipboard-files'
 
 /**
  * Immediate deterministic remote filesystem boundary for the renderer smoke.
@@ -42,6 +45,28 @@ export function createRemoteProjectFileSmokeHost(options: {
     hostId: remoteRoot.hostId,
     connectionState: 'connected',
     watchTier: 'polling',
+    fileTransfer: localHost.fileTransfer
+      ? {
+          readFileChunks: (path, streamOptions) =>
+            localHost.fileTransfer!.readFileChunks(toLocal(path), streamOptions),
+          writeFileChunksExclusive: (path, chunks, streamOptions) =>
+            localHost.fileTransfer!.writeFileChunksExclusive(
+              toLocal(path),
+              chunks,
+              streamOptions,
+            ),
+          setMetadata: (path, metadataOptions) =>
+            localHost.fileTransfer!.setMetadata(toLocal(path), metadataOptions),
+          renameNoReplace: (source, destination, streamOptions) =>
+            localHost.fileTransfer!.renameNoReplace(
+              toLocal(source),
+              toLocal(destination),
+              streamOptions,
+            ),
+          removeDirectory: (path, removeOptions) =>
+            localHost.fileTransfer!.removeDirectory(toLocal(path), removeOptions),
+        }
+      : undefined,
     onConnectionState(callback) {
       callback('connected')
       return () => undefined
@@ -85,10 +110,15 @@ export async function verifyProjectFileOperationsSmoke(options: {
   const pointerName = '.hvir-smoke-created-pointer.txt'
   const keyboardName = '.hvir-smoke-created-keyboard'
   const snapshotName = '.hvir-smoke-created-snapshot.txt'
+  const clipboardName = '.hvir-smoke-copied-clipboard.txt'
+  const droppedName = '.hvir-smoke-copied-drop.txt'
   const pointerPath = joinHostPath(localRoot, pointerName)
   const keyboardPath = joinHostPath(localRoot, keyboardName)
   const snapshotPath = joinHostPath(localRoot, snapshotName)
   const switchedPath = joinHostPath(switchedRoot, snapshotName)
+  const externalDirectory = dirnameHostPath(localRoot)
+  const clipboardSource = joinHostPath(externalDirectory, clipboardName)
+  const droppedSource = joinHostPath(externalDirectory, droppedName)
 
   try {
     publish(localState())
@@ -114,6 +144,53 @@ export async function verifyProjectFileOperationsSmoke(options: {
     })
     if ((await localHost.stat(keyboardPath)).type !== 'dir') {
       throw new Error('remote keyboard create did not produce one directory')
+    }
+
+    publish(localState())
+    await localHost.writeFile(clipboardSource, 'clipboard smoke payload')
+    await localHost.writeFile(droppedSource, 'drop smoke payload')
+    const clipboardFormat =
+      process.platform === 'darwin' ? 'public.file-url' : 'text/uri-list'
+    if (process.platform === 'darwin') {
+      const result = await localHost.exec('/usr/bin/osascript', [
+        '-e',
+        'on run argv',
+        '-e',
+        'set the clipboard to POSIX file (item 1 of argv)',
+        '-e',
+        'end run',
+        clipboardSource.path,
+      ])
+      if (result.code !== 0) {
+        throw new Error('macOS did not create the disk-file clipboard fixture')
+      }
+    } else {
+      clipboard.writeBuffer(
+        clipboardFormat,
+        Buffer.from(`${pathToFileURL(clipboardSource.path).href}\r\n`),
+      )
+    }
+    if (!new ElectronClipboardFileSource().readPaths().includes(clipboardSource.path)) {
+      const availableFormats = clipboard.availableFormats()
+      throw new Error(
+        `smoke clipboard did not retain reviewed ${clipboardFormat} file-list data; available=${availableFormats.join(',')}`,
+      )
+    }
+    await pasteClipboardFromRenderer(win, localRoot, clipboardName)
+    const clipboardDestination = joinHostPath(localRoot, clipboardName)
+    await waitForHostPath(localHost, clipboardDestination)
+    if (
+      (await localHost.readTextFile(clipboardDestination)) !== 'clipboard smoke payload'
+    ) {
+      throw new Error('clipboard copy did not preserve exact file content')
+    }
+
+    publish(remoteState())
+    await dropDiskFileFromRenderer(win, remoteRoot, droppedSource.path, droppedName)
+    const droppedDestination = joinHostPath(localRoot, droppedName)
+    await waitForHostPath(localHost, droppedDestination)
+    if ((await localHost.readTextFile(droppedDestination)) !== 'drop smoke payload') {
+      throw new Error('remote drop copy did not preserve exact file content')
     }
 
     publish(localState())
@@ -162,7 +239,7 @@ export async function verifyProjectFileOperationsSmoke(options: {
       localHost.createFileExclusive = originalCreate
     }
 
-    return 'pointer file→source + tree · keyboard remote directory→selected · workspace switch preserved snapshot'
+    return 'pointer file→source + tree · keyboard remote directory→selected · clipboard local copy · preload drop remote copy · workspace switch preserved snapshot'
   } catch (reason) {
     const state = await readProjectFileSmokeState(win)
     throw new Error(
@@ -172,7 +249,115 @@ export async function verifyProjectFileOperationsSmoke(options: {
       { cause: reason },
     )
   } finally {
+    clipboard.clear()
+    await Promise.all([
+      localHost.removeFile(clipboardSource, { ignoreMissing: true }),
+      localHost.removeFile(droppedSource, { ignoreMissing: true }),
+    ])
     publish(localState())
+  }
+}
+
+async function pasteClipboardFromRenderer(
+  win: BrowserWindow,
+  root: HostPath,
+  name: string,
+): Promise<void> {
+  const destination = joinHostPath(root, name)
+  await rendererValue(
+    win,
+    `(() => {
+      const row = document.querySelector(
+        '.files-panel .directory-row[title=${JSON.stringify(root.path)}]'
+      );
+      if (!(row instanceof HTMLButtonElement)) return undefined;
+      if (!window.__hvirClipboardPasteSent) {
+        row.focus();
+        row.dispatchEvent(new KeyboardEvent('keydown', {
+          key: 'v', bubbles: true,
+          metaKey: ${process.platform === 'darwin'},
+          ctrlKey: ${process.platform !== 'darwin'}
+        }));
+        window.__hvirClipboardPasteSent = true;
+        return undefined;
+      }
+      const feedback = document.querySelector('.file-operation-feedback.error');
+      if (feedback) throw new Error(feedback.textContent || 'clipboard paste failed');
+      return document.querySelector(
+        '.files-panel [role="treeitem"][title=${JSON.stringify(destination.path)}]'
+      ) ? true : undefined;
+    })()`,
+    'clipboard file paste did not settle',
+    20_000,
+  )
+  await win.webContents.executeJavaScript('delete window.__hvirClipboardPasteSent')
+}
+
+async function dropDiskFileFromRenderer(
+  win: BrowserWindow,
+  root: HostPath,
+  source: string,
+  name: string,
+): Promise<void> {
+  const debuggerPort = win.webContents.debugger
+  const attachedHere = !debuggerPort.isAttached()
+  if (attachedHere) debuggerPort.attach('1.3')
+  try {
+    await win.webContents.executeJavaScript(`
+      document.querySelector('#hvir-smoke-drop-input')?.remove();
+      const input = document.createElement('input');
+      input.id = 'hvir-smoke-drop-input';
+      input.type = 'file';
+      input.hidden = true;
+      document.body.append(input);
+    `)
+    const document = (await debuggerPort.sendCommand('DOM.getDocument')) as {
+      root: { nodeId: number }
+    }
+    const input = (await debuggerPort.sendCommand('DOM.querySelector', {
+      nodeId: document.root.nodeId,
+      selector: '#hvir-smoke-drop-input',
+    })) as { nodeId: number }
+    await debuggerPort.sendCommand('DOM.setFileInputFiles', {
+      nodeId: input.nodeId,
+      files: [source],
+    })
+    const destination = joinHostPath(root, name)
+    await rendererValue(
+      win,
+      `(() => {
+        const row = document.querySelector(
+          '.files-panel .directory-row[title=${JSON.stringify(root.path)}]'
+        );
+        const file = document.querySelector('#hvir-smoke-drop-input')?.files?.[0];
+        if (!(row instanceof HTMLButtonElement) || !(file instanceof File)) {
+          return undefined;
+        }
+        if (!window.__hvirDropSent) {
+          const transfer = new DataTransfer();
+          transfer.items.add(file);
+          row.dispatchEvent(new DragEvent('dragover', {
+            bubbles: true, cancelable: true, dataTransfer: transfer
+          }));
+          row.dispatchEvent(new DragEvent('drop', {
+            bubbles: true, cancelable: true, dataTransfer: transfer
+          }));
+          window.__hvirDropSent = true;
+          return undefined;
+        }
+        return document.querySelector(
+          '.files-panel [role="treeitem"][title=${JSON.stringify(destination.path)}]'
+        ) ? true : undefined;
+      })()`,
+      'disk-backed File drop did not settle',
+      20_000,
+    )
+  } finally {
+    await win.webContents.executeJavaScript(`
+      document.querySelector('#hvir-smoke-drop-input')?.remove();
+      delete window.__hvirDropSent;
+    `)
+    if (attachedHere && debuggerPort.isAttached()) debuggerPort.detach()
   }
 }
 
@@ -398,6 +583,8 @@ async function readProjectFileSmokeState(win: BrowserWindow): Promise<unknown> {
       activeTab: document.querySelector('.viewer-tab.active .tab-main')?.getAttribute('title'),
       mode: document.querySelector('.mode-control button[aria-pressed="true"]')
         ?.textContent?.trim(),
+      feedback: document.querySelector('.file-operation-feedback')?.textContent?.trim(),
+      progress: document.querySelector('.file-copy-progress')?.textContent?.trim(),
       treeRows: [...document.querySelectorAll('.files-panel [role="treeitem"]')]
         .map((node) => node.getAttribute('title'))
         .filter((value) => value?.includes('hvir-smoke-created'))

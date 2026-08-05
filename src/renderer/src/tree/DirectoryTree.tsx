@@ -281,6 +281,9 @@ function DirectoryNode({
         role="treeitem"
         aria-expanded={open}
         aria-selected={isSelected}
+        data-file-host={stablePath.hostId}
+        data-file-path={stablePath.path}
+        data-file-type={linked ? 'symlink' : 'dir'}
         className={`tree-row directory-row${isSelected ? ' selected' : ''}${linked ? ' symlink-row' : ''}${gitIgnored ? ' gitignored' : ''}${gitDecoration ? ` git-status-${gitDecoration.tone}` : ''}`}
         style={{ paddingLeft: 10 + depth * 14, zIndex: depth + 1 }}
         onContextMenu={(event) =>
@@ -411,6 +414,9 @@ function DirectoryNode({
                 type="button"
                 role="treeitem"
                 aria-selected={fileSelected}
+                data-file-host={child.hostId}
+                data-file-path={child.path}
+                data-file-type={entry.type}
                 key={`${child.hostId}:${child.path}`}
                 className={`tree-row file-row${fileSelected ? ' selected' : ''}${childGitIgnored ? ' gitignored' : ''}${fileGitDecoration ? ` git-status-${fileGitDecoration.tone}` : ''}`}
                 style={{ paddingLeft: 24 + (depth + 1) * 14 }}
@@ -529,6 +535,9 @@ function SymlinkNode({
         type="button"
         role="treeitem"
         aria-selected={fileSelected}
+        data-file-host={stablePath.hostId}
+        data-file-path={stablePath.path}
+        data-file-type="symlink"
         className={`tree-row file-row symlink-row${fileSelected ? ' selected' : ''}${gitIgnored ? ' gitignored' : ''}${fileGitDecoration ? ` git-status-${fileGitDecoration.tone}` : ''}`}
         style={{ paddingLeft: 24 + depth * 14 }}
         onContextMenu={(event) =>
@@ -559,6 +568,9 @@ function SymlinkNode({
       type="button"
       role="treeitem"
       aria-disabled="true"
+      data-file-host={stablePath.hostId}
+      data-file-path={stablePath.path}
+      data-file-type="symlink"
       className={`tree-row file-row symlink-row${gitIgnored ? ' gitignored' : ''}`}
       style={{ paddingLeft: 24 + depth * 14 }}
       onContextMenu={(event) =>

@@ -28,6 +28,7 @@ export class SshExclusiveCreate {
         session.open(path.path, 'wx', { mode: opts.mode }, done),
       )
       created = true
+      opts.onCreated?.()
       opts.signal?.throwIfAborted()
       await this.perform<void>((session, done) =>
         session.fsetstat(handle!, { mode: opts.mode }, done),
@@ -64,6 +65,7 @@ export class SshExclusiveCreate {
         session.mkdir(path.path, { mode: opts.mode }, done),
       )
       created = true
+      opts.onCreated?.()
       opts.signal?.throwIfAborted()
       await this.perform<void>((session, done) =>
         session.setstat(path.path, { mode: opts.mode }, done),

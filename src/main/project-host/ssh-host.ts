@@ -20,6 +20,7 @@ import type {
   ExecOptions,
   ExecStreamHandle,
   ProjectHost,
+  ProjectFileTransferPort,
   PtyProcess,
   ReadFileOptions,
   SpawnPtyOptions,
@@ -58,6 +59,7 @@ let nextRemotePid = -1
 
 export class SshHost implements ProjectHost {
   readonly hostId: HostId
+  readonly fileTransfer: ProjectFileTransferPort
   private state: HostConnectionState = 'disconnected'
   private tier: HostWatchTier = 'polling'
   private client?: Client
@@ -105,6 +107,18 @@ export class SshHost implements ProjectHost {
       },
       options,
     )
+    this.fileTransfer = {
+      readFileChunks: (path, streamOptions) =>
+        this.files.readFileChunks(path, streamOptions),
+      writeFileChunksExclusive: (path, chunks, streamOptions) =>
+        this.files.writeFileChunksExclusive(path, chunks, streamOptions),
+      setMetadata: (path, metadataOptions) =>
+        this.files.setProjectFileMetadata(path, metadataOptions),
+      renameNoReplace: (source, destination, streamOptions) =>
+        this.files.renameProjectFileNoReplace(source, destination, streamOptions),
+      removeDirectory: (path, removeOptions) =>
+        this.files.removeDirectory(path, removeOptions),
+    }
     this.watches = new SshWatchService(
       {
         hostId: this.hostId,

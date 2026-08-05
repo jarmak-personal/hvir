@@ -9,10 +9,69 @@ export interface ProjectFileCreateRequest {
   readonly kind: ProjectFileCreateKind
 }
 
+export interface ExternalFileGrantDescriptor {
+  readonly grantId: string
+  readonly generation: number
+  readonly items: readonly ExternalFileGrantItemDescriptor[]
+}
+
+export interface ExternalFileGrantItemDescriptor {
+  readonly itemId: string
+  readonly name: string
+  readonly type: 'file' | 'directory' | 'unsupported'
+  readonly reason?: string
+}
+
+export type ExternalFileGrantResult =
+  | {
+      readonly outcome: 'available'
+      readonly grant: ExternalFileGrantDescriptor
+    }
+  | {
+      readonly outcome: 'unsupported'
+      readonly reason: string
+    }
+
+export interface ProjectFileExternalCopyRequest {
+  readonly workspaceRoot: HostPath
+  readonly destinationDirectory: HostPath
+  readonly grantId: string
+  readonly grantGeneration: number
+}
+
+export interface ProjectFileCancelRequest {
+  readonly operationId: string
+  readonly generation: number
+}
+
+export type ProjectFileOperationStartResult =
+  | {
+      readonly outcome: 'started'
+      readonly operationId: string
+      readonly generation: number
+      readonly itemCount: number
+    }
+  | {
+      readonly outcome: 'busy'
+      readonly reason: string
+    }
+
+export interface ProjectFileOperationProgress {
+  readonly workspaceRoot: HostPath
+  readonly operationId: string
+  readonly generation: number
+  readonly phase: 'copying' | 'cancelling' | 'completed'
+  readonly completedItems: number
+  readonly totalItems: number
+  readonly currentName?: string
+  readonly result?: ProjectFileOperationResult
+}
+
 export type ProjectFileItemStatus =
   'completed' | 'skipped' | 'conflicted' | 'cancelled' | 'failed'
 
-export type ProjectFileEffect = 'none' | 'created-file' | 'created-directory'
+export type ProjectFileEffect =
+  'none' | 'created-file' | 'created-directory' | 'copied-file' | 'copied-directory'
 
 export interface ProjectFileItemResult {
   readonly itemId: string

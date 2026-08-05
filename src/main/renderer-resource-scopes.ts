@@ -9,7 +9,11 @@ export type RendererResourceQualifier =
   | {
       readonly lifetime: 'renderer'
       readonly type:
-        'attention' | 'ssh-prompt-presentation' | 'diagnostic-report' | 'filename-search'
+        | 'attention'
+        | 'ssh-prompt-presentation'
+        | 'diagnostic-report'
+        | 'filename-search'
+        | 'external-file-grant'
     }
   | {
       readonly lifetime: 'workspace'
