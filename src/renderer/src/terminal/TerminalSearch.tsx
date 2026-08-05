@@ -90,7 +90,7 @@ export function TerminalSearch({
           event.preventDefault()
           event.stopPropagation()
           controller.close(true)
-        } else if (event.key === 'Enter') {
+        } else if (event.key === 'Enter' && event.target === inputRef.current) {
           event.preventDefault()
           controller.navigate(event.shiftKey ? 'previous' : 'next')
         }

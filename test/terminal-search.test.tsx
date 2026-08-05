@@ -108,6 +108,45 @@ describe('terminal search surface', () => {
     expect(restoreFocus).toHaveBeenCalledOnce()
     act(() => root.unmount())
   })
+
+  it('leaves Enter activation owned by copy, navigation, and close controls', async () => {
+    const pane = paneFixture(range(2, 0, 2, 3), 'hit')
+    const restoreFocus = vi.fn()
+    const controller = new TerminalSearchController(restoreFocus, vi.fn())
+    const navigate = vi.spyOn(controller, 'navigate')
+    const writeText = vi.fn(() => Promise.resolve())
+    controller.bind(pane)
+    const root = createRoot(host)
+    act(() =>
+      root.render(
+        <TerminalSearch controller={controller} canCopyRegion writeText={writeText} />,
+      ),
+    )
+    act(() => {
+      controller.open()
+      controller.setQuery('hit')
+    })
+    await act(async () => {
+      await vi.waitFor(() => expect(controller.snapshot().matchCount).toBe(1))
+    })
+
+    await act(async () => {
+      activateWithEnter(button('Copy Match'))
+      await vi.waitFor(() => expect(writeText).toHaveBeenCalledWith('hit'))
+    })
+    expect(navigate).not.toHaveBeenCalled()
+
+    navigate.mockClear()
+    act(() => activateWithEnter(ariaButton('Previous terminal match')))
+    expect(navigate).toHaveBeenCalledExactlyOnceWith('previous')
+
+    navigate.mockClear()
+    act(() => activateWithEnter(ariaButton('Close terminal search')))
+    expect(navigate).not.toHaveBeenCalled()
+    expect(controller.snapshot().open).toBe(false)
+    expect(restoreFocus).toHaveBeenCalledOnce()
+    act(() => root.unmount())
+  })
 })
 
 function button(label: string): HTMLButtonElement {
@@ -116,6 +155,21 @@ function button(label: string): HTMLButtonElement {
   )
   if (!candidate) throw new Error(`Missing ${label} button`)
   return candidate
+}
+
+function ariaButton(label: string): HTMLButtonElement {
+  const candidate = document.querySelector<HTMLButtonElement>(`[aria-label="${label}"]`)
+  if (!candidate) throw new Error(`Missing ${label} button`)
+  return candidate
+}
+
+function activateWithEnter(control: HTMLButtonElement): void {
+  const event = new KeyboardEvent('keydown', {
+    key: 'Enter',
+    bubbles: true,
+    cancelable: true,
+  })
+  if (control.dispatchEvent(event)) control.click()
 }
 
 function range(

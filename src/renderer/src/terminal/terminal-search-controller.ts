@@ -109,7 +109,7 @@ export class TerminalSearchController {
       direction === 'previous' ? (current - 1 + count) % count : (current + 1) % count
     const match = result.matches[index]
     if (!match || !result.reveal(match)) {
-      this.invalidateAndRefresh()
+      this.settleUnrevealableResult()
       return
     }
     this.publish({ ...this.currentSnapshot, matchIndex: index })
@@ -192,7 +192,7 @@ export class TerminalSearchController {
           const matchIndex = result.matches.length > 0 ? 0 : undefined
           const first = matchIndex === undefined ? undefined : result.matches[matchIndex]
           if (first && !result.reveal(first)) {
-            this.invalidateAndRefresh()
+            this.settleUnrevealableResult()
             return
           }
           this.publish({
@@ -230,6 +230,16 @@ export class TerminalSearchController {
       matchIndex: undefined,
     })
     this.startSearch()
+  }
+
+  private settleUnrevealableResult(): void {
+    this.releaseResult()
+    this.publish({
+      ...this.currentSnapshot,
+      pending: false,
+      matchCount: 0,
+      matchIndex: undefined,
+    })
   }
 
   private cancelOwnedWork(): void {

@@ -33,13 +33,27 @@ export class TerminalRuntimeInteractions {
 
   updateAvailability(selected: boolean): void {
     this.selected = selected
-    this.search.setAvailable(selected && this.canFocus())
+    this.synchronizeAvailability()
+  }
+
+  synchronizeAvailability(): void {
+    this.search.setAvailable(this.selected && this.canFocus())
+  }
+
+  attachSurface(container: HTMLElement): void {
+    this.paneEvents.attach(container)
+    this.synchronizeAvailability()
+  }
+
+  detachSurface(container: HTMLElement): void {
+    this.paneEvents.detach(container)
+    this.synchronizeAvailability()
   }
 
   bind(pane: TerminalPane, ptyId: string): void {
     this.pane = pane
     this.search.bind(pane)
-    this.search.setAvailable(this.selected && this.canFocus())
+    this.synchronizeAvailability()
     this.contextMenu.bind(pane, ptyId, this.focusOwner, {
       clear: () => this.search.close(false),
       reset: () => {

@@ -120,6 +120,37 @@ describe('terminal search controller', () => {
     expect(controller.snapshot().matchCount).toBe(0)
   })
 
+  it('settles an unrevealable normal-buffer match without searching in a loop', async () => {
+    const match = range(3, 0, 3, 4)
+    const dispose = vi.fn()
+    const blocked = {
+      ...result('build', false, [match], new Map([[match, 'build']]), () => false),
+      dispose,
+    }
+    const search = vi
+      .fn<TerminalPane['searchRetainedBuffer']>()
+      .mockResolvedValueOnce(blocked)
+      .mockImplementationOnce(() => new Promise(() => undefined))
+    const controller = new TerminalSearchController(vi.fn(), vi.fn())
+    controller.bind(paneFixture(search))
+    controller.open()
+    controller.setQuery('build')
+
+    await vi.waitFor(() => expect(controller.snapshot().pending).toBe(false))
+    expect(search).toHaveBeenCalledOnce()
+    expect(dispose).toHaveBeenCalledOnce()
+    expect(controller.snapshot()).toMatchObject({
+      open: true,
+      query: 'build',
+      pending: false,
+      matchCount: 0,
+    })
+
+    controller.retainedBufferChanged()
+    expect(search).toHaveBeenCalledTimes(2)
+    controller.close()
+  })
+
   it('cancels an exact semantic-region extraction when search closes', () => {
     let extractionSignal: AbortSignal | undefined
     const extractRegion = vi.fn((_pane: TerminalPane, signal: AbortSignal) => {

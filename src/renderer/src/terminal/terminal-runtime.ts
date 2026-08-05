@@ -101,6 +101,7 @@ export class TerminalRuntime {
 
   synchronizeLifecycle(): void {
     this.surface.synchronize(this.options.presentation)
+    this.interactions.synchronizeAvailability()
     const connectionState = this.options.connectionState
     if (this.appliedConnectionState === connectionState) return
     this.appliedConnectionState = connectionState
@@ -127,7 +128,7 @@ export class TerminalRuntime {
   attach(container: HTMLElement): void {
     if (this.disposed) return
     const changed = this.surface.attach(container, this.options.presentation)
-    this.interactions.paneEvents.attach(container)
+    this.interactions.attachSurface(container)
     if (this.pane) {
       if (changed && this.options.active) this.focus()
       return
@@ -137,7 +138,7 @@ export class TerminalRuntime {
 
   detach(container: HTMLElement): void {
     this.surface.detach(container)
-    this.interactions.paneEvents.detach(container)
+    this.interactions.detachSurface(container)
   }
 
   focus(): void {

@@ -20,13 +20,14 @@ const state = vi.hoisted(() => ({
     end: Object.freeze({ row: 9, column: 3 }),
   }),
   searchExtracted: undefined as IRetainedBufferRange | undefined,
+  alternateScreen: false,
 }))
 
 vi.mock('ghostty-web', () => {
   class MockTerminal {
     readonly options: Record<string, unknown>
     readonly buffer = { active: { getLine: () => undefined } }
-    readonly wasmTerm = { isAlternateScreen: () => false }
+    readonly wasmTerm = { isAlternateScreen: () => state.alternateScreen }
     cols = 80
     rows = 24
     renderer?: {
@@ -132,6 +133,7 @@ describe('Ghostty terminal search identity', () => {
     state.resolved = undefined
     state.extracted = undefined
     state.searchExtracted = undefined
+    state.alternateScreen = false
     vi.stubGlobal(
       'ResizeObserver',
       class {
@@ -191,6 +193,19 @@ describe('Ghostty terminal search identity', () => {
       end: { row: 9, column: 3 },
     })
     expect(search.extract(search.matches[0]!)).toBe('e\u0301🙂wrap')
+    expect(state.searchExtracted).toBe(state.searchRange)
+    search.dispose()
+    pane.dispose()
+  })
+
+  it('fails closed when an alternate screen cannot reveal a normal-buffer match', async () => {
+    state.alternateScreen = true
+    const pane = await createPane()
+    const search = await pane.searchRetainedBuffer('normal output', {
+      caseSensitive: false,
+    })
+
+    expect(search.reveal(search.matches[0]!)).toBe(false)
     expect(state.searchExtracted).toBe(state.searchRange)
     search.dispose()
     pane.dispose()
