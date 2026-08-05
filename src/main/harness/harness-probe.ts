@@ -9,7 +9,8 @@ import { resolveHarnessLaunch } from './harness-launch'
 import type { HarnessProfileStoreContract } from './harness-profile-store'
 import { harnessProvider } from './harness-provider'
 import {
-  harnessShellCommandArgs,
+  harnessShellProbeCommandArgs,
+  harnessShellProbeOutput,
   harnessShellProbeArgs,
 } from './harness-shell-environment'
 
@@ -225,10 +226,10 @@ export class HarnessProbeManager {
       if (provider.probe.versionArgs) {
         const versionResult = await host.exec(
           defaultShell,
-          harnessShellCommandArgs(resolved.spec.file, provider.probe.versionArgs),
+          harnessShellProbeCommandArgs(resolved.spec.file, provider.probe.versionArgs),
           options,
         )
-        const combined = `${versionResult.stdout}\n${versionResult.stderr}`.trim()
+        const combined = (harnessShellProbeOutput(versionResult.stdout) ?? '').trim()
         if (versionResult.code !== 0) {
           return classifiedFailure(base, versionResult.code, combined)
         }
@@ -241,11 +242,11 @@ export class HarnessProbeManager {
       if (provider.probe.capabilityArgs) {
         const capabilityResult = await host.exec(
           defaultShell,
-          harnessShellCommandArgs(resolved.spec.file, provider.probe.capabilityArgs),
+          harnessShellProbeCommandArgs(resolved.spec.file, provider.probe.capabilityArgs),
           options,
         )
         if (capabilityResult.code === 0) {
-          capabilityOutput = `${capabilityResult.stdout}\n${capabilityResult.stderr}`
+          capabilityOutput = harnessShellProbeOutput(capabilityResult.stdout)
         }
       }
       return {

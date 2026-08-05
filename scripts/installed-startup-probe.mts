@@ -1,8 +1,10 @@
 import { execFile, spawn, type ChildProcess } from 'node:child_process'
-import { existsSync, mkdirSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { parseArgs, promisify } from 'node:util'
 import { fileURLToPath } from 'node:url'
+
+import { exerciseInstalledHarnessDialogs } from './installed-harness-dialog-probe.mts'
 
 const execFileAsync = promisify(execFile)
 const STARTUP_TIMEOUT_MS = 30_000
@@ -137,6 +139,7 @@ interface StartupProbeOptions {
   readonly projectRoot: string
   readonly runtimeRoot: string
   readonly path: string
+  readonly exerciseHarnessDialogs: boolean
 }
 
 async function runInstalledStartupProbe(options: StartupProbeOptions): Promise<void> {
@@ -151,11 +154,14 @@ async function runInstalledStartupProbe(options: StartupProbeOptions): Promise<v
   mkdirSync(configRoot)
   mkdirSync(cacheRoot)
   mkdirSync(userDataRoot)
+  const providerBin = options.exerciseHarnessDialogs
+    ? createHarnessProbeFixture(homeRoot)
+    : undefined
 
   const environment: NodeJS.ProcessEnv = {
     ...process.env,
     HOME: homeRoot,
-    PATH: options.path,
+    PATH: providerBin ? `${providerBin}:${options.path}` : options.path,
     HVIR_SMOKE: '1',
     HVIR_SMOKE_SCENARIO: 'pty-native',
     ...(process.platform === 'linux'
@@ -171,12 +177,22 @@ async function runInstalledStartupProbe(options: StartupProbeOptions): Promise<v
     delete environment[name]
   }
 
-  const child = spawn(options.command, ['.', `--user-data-dir=${userDataRoot}`], {
-    cwd: options.projectRoot,
-    detached: true,
-    env: environment,
-    stdio: ['ignore', 'pipe', 'pipe'],
-  })
+  const child = spawn(
+    options.command,
+    [
+      '.',
+      `--user-data-dir=${userDataRoot}`,
+      ...(options.exerciseHarnessDialogs
+        ? ['--remote-debugging-address=127.0.0.1', '--remote-debugging-port=0']
+        : []),
+    ],
+    {
+      cwd: options.projectRoot,
+      detached: true,
+      env: environment,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    },
+  )
   let appOutput = ''
   let childExit: {
     readonly code: number | null
@@ -227,6 +243,12 @@ async function runInstalledStartupProbe(options: StartupProbeOptions): Promise<v
         : 'did not expose a live renderer'
       throw new Error(`Installed hvir ordinary startup ${outcome}`)
     }
+    if (options.exerciseHarnessDialogs) {
+      const evidence = await exerciseInstalledHarnessDialogs(() =>
+        Promise.resolve(readFileSync(join(userDataRoot, 'DevToolsActivePort'), 'utf8')),
+      )
+      console.log(`Installed harness dialogs OK (${evidence})`)
+    }
     await stopProcessGroup(child, 'SIGTERM', SHUTDOWN_TIMEOUT_MS)
     if (appOutput.includes('HVIR_SMOKE_OK')) {
       throw new Error('Installed hvir entered the smoke runner')
@@ -269,6 +291,7 @@ async function main(): Promise<void> {
       'project-root': { type: 'string' },
       'runtime-root': { type: 'string' },
       path: { type: 'string' },
+      'exercise-harness-dialogs': { type: 'boolean' },
     },
     strict: true,
   })
@@ -289,7 +312,24 @@ async function main(): Promise<void> {
     projectRoot: resolve(values['project-root']),
     runtimeRoot: resolve(values['runtime-root']),
     path: values.path,
+    exerciseHarnessDialogs: values['exercise-harness-dialogs'] === true,
   })
+}
+
+function createHarnessProbeFixture(homeRoot: string): string {
+  const providerBin = join(homeRoot, 'provider-bin')
+  mkdirSync(providerBin)
+  writeFileSync(
+    join(homeRoot, '.bash_profile'),
+    'export PATH="$HOME/provider-bin:/usr/sbin:/usr/bin:/sbin:/bin"\n',
+  )
+  const executable = join(providerBin, 'claude')
+  writeFileSync(
+    executable,
+    '#!/bin/sh\nif [ "${1:-}" = "--version" ]; then\n  sleep 2\n  printf "claude 9.9.9\\n"\nfi\n',
+  )
+  chmodSync(executable, 0o755)
+  return providerBin
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
