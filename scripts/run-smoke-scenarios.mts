@@ -11,7 +11,6 @@ import {
   type ElectronSmokeScenario,
 } from '../src/main/smoke/scenario-selection.mts'
 import type { SmokeFailureCheckpoint } from '../src/main/smoke/failure-evidence.mts'
-import { DISPOSED_RENDER_FRAME_MESSAGE } from '../src/main/renderer-event-delivery.ts'
 
 export const DEFAULT_SMOKE_SCENARIOS = [
   'pty-native',
@@ -80,6 +79,9 @@ const EXTERNAL_WATCHDOG_CHECKPOINTS = new Map<
   ],
 ])
 const FAILURE_ARTIFACT_TIMEOUT_MS = 1_000
+// Independent acceptance oracle for Electron's native standard-error text.
+const DISPOSED_RENDER_FRAME_MESSAGE =
+  'Render frame was disposed before WebFrameMain could be accessed'
 
 export interface SmokeScenarioInvocationOptions {
   readonly command?: string

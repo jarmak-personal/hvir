@@ -2,7 +2,7 @@ import type { WebContents } from 'electron'
 
 import type { IpcEventChannel, IpcEventPayload } from '../shared'
 
-export const DISPOSED_RENDER_FRAME_MESSAGE =
+const DISPOSED_RENDER_FRAME_MESSAGE =
   'Render frame was disposed before WebFrameMain could be accessed'
 
 export type RendererEventDeliveryFailure = 'disposed-frame'
