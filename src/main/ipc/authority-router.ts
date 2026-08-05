@@ -19,75 +19,16 @@ import type { ProjectHost } from '../project-host'
 import type { RendererOwner } from '../renderer-resource-scopes'
 import type { IpcDeps } from './deps'
 import { reconstructIpcHostPath } from './host-path-authority'
-export const OWNER_SCOPED_INVOKE_CHANNELS = [
-  'workbench-health:acknowledge',
-  'diagnostic-evidence:get',
-  'diagnostic-evidence:delete',
-  'diagnostic-report:create',
-  'diagnostic-report:capture',
-  'diagnostic-report:copy',
-  'diagnostic-report:save',
-  'diagnostic-report:cancel',
-  'diagnostic-report:delete',
-  'project:connect-host',
-  'project:browse-host',
-  'project:open',
-  'ssh:prompt-response',
-  'fs:filename-search',
-  'fs:create-entry',
-  'fs:acquire-clipboard-files',
-  'fs:acquire-dropped-files',
-  'fs:copy-external',
-  'fs:cancel-file-operation',
-  'html-preview:create',
-  'web-pane:open',
-  'web-pane:close',
-  'web-pane:open-external',
-  'web-pane:open-browser',
-  'terminal:plan-move',
-  'terminal:move',
-  'terminal:record-recovery-decision',
-  'pty:start',
-] as const satisfies readonly IpcInvokeChannel[]
-export const OWNER_SCOPED_SEND_CHANNELS = SEND_CHANNELS
-export const AUTHORITY_SCOPED_INVOKE_CHANNELS = [
-  'project:watch-interests',
-  'fs:readdir',
-  'fs:filename-search',
-  'fs:resolve-entry',
-  'fs:read',
-  'fs:read-asset',
-  'fs:write',
-  'fs:create-entry',
-  'fs:copy-external',
-  'git:diff-inputs',
-  'git:changes',
-  'git:history',
-  'git:ignored-entries',
-  'git:commit-detail',
-  'git:blame',
-  'git:branches',
-  'git:fetch',
-  'git:pull',
-  'git:switch-branch',
-  'html-preview:create',
-  'harness:profiles',
-  'harness:probe-snapshot',
-  'harness:probe-profiles',
-  'harness:probe-templates',
-  'harness:profile-materialize',
-  'harness:profile-save',
-  'harness:acknowledge-risk',
-  'harness:preview',
-  'harness:authorize-path',
-  'terminal:recovery',
-  'terminal:record-recovery-decision',
-  'terminal:update-layout',
-  'terminal:forget',
-  'terminal:rebind-profile',
-  'pty:start',
-  'web-pane:open',
-] as const satisfies readonly IpcInvokeChannel[]
+import {
+  OWNER_SCOPED_INVOKE_CHANNELS,
+  OWNER_SCOPED_SEND_CHANNELS,
+} from './authority-channel-policy'
+
+export {
+  AUTHORITY_SCOPED_INVOKE_CHANNELS,
+  OWNER_SCOPED_INVOKE_CHANNELS,
+  OWNER_SCOPED_SEND_CHANNELS,
+} from './authority-channel-policy'
 export interface IpcInvokeContext {
   readonly sender: Electron.WebContents
   readonly authority: IpcAuthority

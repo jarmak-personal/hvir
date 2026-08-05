@@ -266,8 +266,10 @@ describe('SshFileAccess', () => {
       {},
     )
     const controller = new AbortController()
+    const onSubmitted = vi.fn()
     const publishing = files.renameProjectFileNoReplace(source, destination, {
       signal: controller.signal,
+      onSubmitted,
     })
     await vi.waitFor(() => expect(session.rename).toHaveBeenCalledOnce())
 
@@ -275,6 +277,133 @@ describe('SshFileAccess', () => {
     finishRename()
 
     await expect(publishing).resolves.toBeUndefined()
+    expect(onSubmitted).toHaveBeenCalledOnce()
+  })
+
+  it('reconciles a submitted rename whose late transport error follows completion', async () => {
+    const hostId = asHostId('ssh:transfer-rename-late-error')
+    const source = hostPath(hostId, '/project/source')
+    const destination = hostPath(hostId, '/project/destination')
+    const missing = Object.assign(new Error('missing'), { code: 2 })
+    let finishRename!: (error?: Error) => void
+    const session = {
+      rename: vi.fn(
+        (_source: string, _destination: string, callback: typeof finishRename) => {
+          finishRename = callback
+        },
+      ),
+      lstat: vi.fn(
+        (path: string, callback: (error: Error | undefined, value?: unknown) => void) => {
+          if (path === source.path) callback(missing)
+          else callback(undefined, { mode: 0o100644, mtime: 100, size: 5, atime: 100 })
+        },
+      ),
+      once: vi.fn(),
+      end: vi.fn(),
+    }
+    const files = new SshFileAccess(
+      { hostId, openSftp: () => Promise.resolve(session as unknown as SFTPWrapper) },
+      {},
+    )
+    const onSubmitted = vi.fn()
+    const publishing = files.renameProjectFileNoReplace(source, destination, {
+      onSubmitted,
+    })
+    await vi.waitFor(() => expect(session.rename).toHaveBeenCalledOnce())
+
+    finishRename(new Error('transport disconnected after server reply'))
+
+    await expect(publishing).resolves.toBeUndefined()
+    expect(onSubmitted).toHaveBeenCalledOnce()
+    expect(session.lstat).toHaveBeenCalledTimes(2)
+  })
+
+  it('reports a true conflict when both paths remain after a submitted rename error', async () => {
+    const hostId = asHostId('ssh:transfer-rename-conflict')
+    const source = hostPath(hostId, '/project/source')
+    const destination = hostPath(hostId, '/project/destination')
+    let finishRename!: (error?: Error) => void
+    const session = {
+      rename: vi.fn(
+        (_source: string, _destination: string, callback: typeof finishRename) => {
+          finishRename = callback
+        },
+      ),
+      lstat: vi.fn(
+        (_path: string, callback: (error: Error | undefined, value?: unknown) => void) =>
+          callback(undefined, {
+            mode: 0o100644,
+            mtime: 100,
+            size: 5,
+            atime: 100,
+          }),
+      ),
+      once: vi.fn(),
+      end: vi.fn(),
+    }
+    const files = new SshFileAccess(
+      { hostId, openSftp: () => Promise.resolve(session as unknown as SFTPWrapper) },
+      {},
+    )
+    const publishing = files.renameProjectFileNoReplace(source, destination)
+    await vi.waitFor(() => expect(session.rename).toHaveBeenCalledOnce())
+
+    finishRename(new Error('destination exists'))
+
+    await expect(publishing).rejects.toMatchObject({ code: 'EEXIST' })
+    expect(session.lstat).toHaveBeenCalledTimes(2)
+  })
+
+  it('does not submit a no-replace rename cancelled while SFTP opens', async () => {
+    const hostId = asHostId('ssh:transfer-rename-opening')
+    const source = hostPath(hostId, '/project/source')
+    const destination = hostPath(hostId, '/project/destination')
+    let resolveSession!: (session: SFTPWrapper) => void
+    const opening = new Promise<SFTPWrapper>((resolve) => {
+      resolveSession = resolve
+    })
+    const session = {
+      rename: vi.fn(),
+      once: vi.fn(),
+      end: vi.fn(),
+    }
+    const files = new SshFileAccess({ hostId, openSftp: () => opening }, {})
+    const controller = new AbortController()
+    const onSubmitted = vi.fn()
+    const publishing = files.renameProjectFileNoReplace(source, destination, {
+      signal: controller.signal,
+      onSubmitted,
+    })
+
+    controller.abort()
+    resolveSession(session as unknown as SFTPWrapper)
+
+    await expect(publishing).rejects.toMatchObject({ name: 'AbortError' })
+    expect(onSubmitted).not.toHaveBeenCalled()
+    expect(session.rename).not.toHaveBeenCalled()
+  })
+
+  it('does not mark a synchronously rejected SFTP rename as submitted', async () => {
+    const hostId = asHostId('ssh:transfer-rename-sync-throw')
+    const source = hostPath(hostId, '/project/source')
+    const destination = hostPath(hostId, '/project/destination')
+    const session = {
+      rename: vi.fn(() => {
+        throw new Error('transport rejected before submission')
+      }),
+      once: vi.fn(),
+      end: vi.fn(),
+    }
+    const files = new SshFileAccess(
+      { hostId, openSftp: () => Promise.resolve(session as unknown as SFTPWrapper) },
+      {},
+    )
+    const onSubmitted = vi.fn()
+
+    await expect(
+      files.renameProjectFileNoReplace(source, destination, { onSubmitted }),
+    ).rejects.toThrow('before submission')
+    expect(onSubmitted).not.toHaveBeenCalled()
   })
 
   it('removes only the observed version of a remote file', async () => {

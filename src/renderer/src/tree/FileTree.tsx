@@ -18,6 +18,7 @@ import { buildTreeGitDecorations } from './git-status-decoration'
 import { FilenameSearch } from './FilenameSearch'
 import { FileCreateOverlays } from './FileCreateOverlays'
 import { fileActionDestination, useFileCreateActions } from './use-file-create-actions'
+import type { ViewerPathRebindCapability } from '../viewer/viewer-path-rebind'
 
 const NO_CHANGED_FILES: readonly GitChangedFile[] = []
 
@@ -31,6 +32,8 @@ interface FileTreeProps {
   readonly selected?: HostPath
   readonly revealRequest?: DirectoryTreeRevealRequest
   readonly onOpen: (path: HostPath, pinned: boolean, context?: FileOpenContext) => void
+  readonly viewerPathRebind?: ViewerPathRebindCapability
+  readonly onWorkspaceContentChanged?: () => void
   readonly connected?: boolean
   readonly missing?: boolean
   readonly hidden?: boolean
@@ -49,6 +52,8 @@ export function FileTree({
   selected,
   revealRequest,
   onOpen,
+  viewerPathRebind = DEFAULT_VIEWER_PATH_REBIND,
+  onWorkspaceContentChanged = ignoreWorkspaceContentChange,
   connected = true,
   missing = false,
   hidden = false,
@@ -58,7 +63,13 @@ export function FileTree({
 }: FileTreeProps): ReactElement {
   const [searchActive, setSearchActive] = useState(false)
   const [dropTarget, setDropTarget] = useState<HostPath>()
-  const fileCreate = useFileCreateActions({ root, onCreatedFile: onOpen })
+  const fileCreate = useFileCreateActions({
+    root,
+    onCreatedFile: onOpen,
+    canRebindPath: viewerPathRebind.canRebindPath,
+    onRebindPath: viewerPathRebind.rebindPath,
+    onWorkspaceContentChanged,
+  })
   useEffect(() => setDropTarget(undefined), [root.hostId, root.path])
   const gitDecorations = useMemo(
     () =>
@@ -236,3 +247,10 @@ function resolveProjectEntry(path: HostPath) {
     .then(unwrapOperation)
     .then((result) => result.type)
 }
+
+const DEFAULT_VIEWER_PATH_REBIND: ViewerPathRebindCapability = {
+  canRebindPath: () => true,
+  rebindPath: () => true,
+}
+
+function ignoreWorkspaceContentChange(): void {}

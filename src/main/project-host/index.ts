@@ -5,6 +5,7 @@ export type {
   ExclusiveCreateOptions,
   ProjectFileMetadataOptions,
   ProjectFileMode,
+  ProjectFileRenameOptions,
   ProjectFileStreamOptions,
   ProjectFileTransferPort,
   ProjectFileWriteStreamOptions,

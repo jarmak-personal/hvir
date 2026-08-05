@@ -10,6 +10,7 @@ import { createPortal } from 'react-dom'
 
 import { displayHostPath } from '../../../shared'
 import { PATH_COPY_LABELS, type PathCopyKind } from '../path-copy/path-copy'
+import { FileOrganizationDialog } from './FileOrganizationDialog'
 import {
   projectFileEntryNameError,
   type FileCreateActionsController,
@@ -45,7 +46,9 @@ export function FileCreateOverlays({
     }
   }, [controller, menu])
 
-  if (!menu && !dialog && !feedback && !copyProgress) return null
+  if (!menu && !dialog && !controller.organization.dialog && !feedback && !copyProgress) {
+    return null
+  }
   return createPortal(
     <>
       {menu ? (
@@ -73,6 +76,32 @@ export function FileCreateOverlays({
           >
             New Folder…
           </button>
+          <div className="file-action-menu-separator" role="separator" />
+          <button
+            type="button"
+            role="menuitem"
+            disabled={controller.pending || !controller.canOrganizeMenu('rename')}
+            onClick={() => controller.beginOrganization('rename')}
+          >
+            Rename…
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            disabled={controller.pending || !controller.canOrganizeMenu('move')}
+            onClick={() => controller.beginOrganization('move')}
+          >
+            Move…
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            disabled={controller.pending || !controller.canOrganizeMenu('duplicate')}
+            onClick={() => controller.beginOrganization('duplicate')}
+          >
+            Duplicate…
+          </button>
+          <div className="file-action-menu-separator" role="separator" />
           <button
             type="button"
             role="menuitem"
@@ -157,6 +186,7 @@ export function FileCreateOverlays({
           </form>
         </div>
       ) : null}
+      <FileOrganizationDialog controller={controller.organization} />
       {feedback ? (
         <div
           className={`file-operation-feedback ${feedback.kind}`}
@@ -180,8 +210,8 @@ export function FileCreateOverlays({
       {copyProgress ? (
         <div className="file-copy-progress" role="status" aria-live="polite">
           <span>
-            {copyProgress.phase === 'cancelling' ? 'Cancelling' : 'Copying'}{' '}
-            {copyProgress.completedItems} of {copyProgress.totalItems}
+            {progressLabel(copyProgress.phase)} {copyProgress.completedItems} of{' '}
+            {copyProgress.totalItems}
             {copyProgress.currentName ? ` · ${copyProgress.currentName}` : ''}
           </span>
           <button
@@ -196,6 +226,25 @@ export function FileCreateOverlays({
     </>,
     document.body,
   )
+}
+
+function progressLabel(
+  phase: FileCreateActionsController['copyProgress'] extends infer _Progress
+    ? NonNullable<FileCreateActionsController['copyProgress']>['phase']
+    : never,
+): string {
+  switch (phase) {
+    case 'cancelling':
+      return 'Cancelling'
+    case 'renaming':
+      return 'Renaming'
+    case 'moving':
+      return 'Moving'
+    case 'duplicating':
+      return 'Duplicating'
+    default:
+      return 'Copying'
+  }
 }
 
 function moveMenuFocus(event: KeyboardEvent<HTMLDivElement>): void {

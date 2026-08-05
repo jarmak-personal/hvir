@@ -36,6 +36,12 @@ export interface VerifiedProjectCopyOutcome {
   readonly result: ProjectFileItemResult
   readonly entryCount: number
   readonly totalBytes: number
+  readonly receipt?: VerifiedProjectCopyReceipt
+}
+
+export interface VerifiedProjectCopyReceipt {
+  readonly plan: PlannedTree
+  readonly manifest: readonly ManifestRow[]
 }
 
 export async function copyVerifiedProjectEntry(options: {
@@ -82,8 +88,9 @@ export async function copyVerifiedProjectEntry(options: {
         'The top-level source type changed after acquisition',
       )
     }
+    const copied = await copyOne(options, plan)
     return {
-      result: await copyOne(options, plan),
+      ...copied,
       entryCount: plan.entries.length,
       totalBytes: plan.totalBytes,
     }
@@ -108,7 +115,10 @@ export async function copyVerifiedProjectEntry(options: {
 async function copyOne(
   options: Parameters<typeof copyVerifiedProjectEntry>[0],
   plan: PlannedTree,
-): Promise<ProjectFileItemResult> {
+): Promise<{
+  readonly result: ProjectFileItemResult
+  readonly receipt?: VerifiedProjectCopyReceipt
+}> {
   const destination = joinHostPath(options.visibleDestinationDirectory, options.name)
   const canonicalDestination = joinHostPath(
     options.canonicalDestinationDirectory,
@@ -175,10 +185,13 @@ async function copyOne(
     )
     stagingCreated = false
     return {
-      itemId: options.itemId,
-      destination,
-      status: 'completed',
-      effect: options.sourceType === 'directory' ? 'copied-directory' : 'copied-file',
+      result: {
+        itemId: options.itemId,
+        destination,
+        status: 'completed',
+        effect: options.sourceType === 'directory' ? 'copied-directory' : 'copied-file',
+      },
+      receipt: { plan, manifest: expected },
     }
   } catch (reason) {
     if (stagingCreated) {
@@ -186,17 +199,63 @@ async function copyOne(
         .cleanupStaging(options.destinationHost, staging)
         .catch(() => undefined)
     }
-    if (isProjectPathExistsError(reason)) return conflict(options.itemId, destination)
+    if (isProjectPathExistsError(reason)) {
+      return { result: conflict(options.itemId, destination) }
+    }
     if (options.signal.aborted || isAbortError(reason)) {
-      return cancelledItem(options)
+      return { result: cancelledItem(options) }
     }
     return {
-      itemId: options.itemId,
-      destination,
-      status: reason instanceof UnsupportedSourceError ? 'skipped' : 'failed',
-      effect: 'none',
-      reason: boundedReason(reason, 'The source could not be copied'),
+      result: {
+        itemId: options.itemId,
+        destination,
+        status: reason instanceof UnsupportedSourceError ? 'skipped' : 'failed',
+        effect: 'none',
+        reason: boundedReason(reason, 'The source could not be copied'),
+      },
     }
+  }
+}
+
+export async function verifyProjectCopyReceipt(options: {
+  readonly receipt: VerifiedProjectCopyReceipt
+  readonly source: VerifiedProjectCopySource
+  readonly destinationHost: ProjectHost
+  readonly destination: HostPath
+  readonly signal: AbortSignal
+}): Promise<void> {
+  const [sourceManifest, destinationManifest] = await Promise.all([
+    manifestTree(
+      options.source,
+      options.source.root,
+      options.signal,
+      options.receipt.plan,
+    ),
+    manifestTree(
+      destinationReadPort(options.destinationHost),
+      options.destination,
+      options.signal,
+      options.receipt.plan,
+    ),
+  ])
+  if (
+    !manifestsEqual(options.receipt.manifest, sourceManifest) ||
+    !manifestsEqual(options.receipt.manifest, destinationManifest)
+  ) {
+    throw new Error('The source or published destination changed after copy')
+  }
+}
+
+export function projectHostCopySource(
+  host: ProjectHost,
+  root: HostPath,
+): VerifiedProjectCopySource {
+  const transfer = requireTransfer(host)
+  return {
+    root,
+    stat: (path) => host.stat(path),
+    readdir: (path) => host.readdir(path),
+    readFileChunks: (path, signal) => transfer.readFileChunks(path, { signal }),
   }
 }
 

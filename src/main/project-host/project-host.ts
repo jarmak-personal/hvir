@@ -106,6 +106,11 @@ export interface ProjectFileMetadataOptions extends ProjectFileStreamOptions {
   readonly mtimeSeconds: number
 }
 
+export interface ProjectFileRenameOptions extends ProjectFileStreamOptions {
+  /** The immediate no-replace primitive has been submitted and must finish truthfully. */
+  readonly onSubmitted?: () => void
+}
+
 /** Immediate transfer mechanics. Recursive policy remains coordinator-owned. */
 export interface ProjectFileTransferPort {
   readFileChunks(
@@ -121,7 +126,7 @@ export interface ProjectFileTransferPort {
   renameNoReplace(
     source: HostPath,
     destination: HostPath,
-    opts?: ProjectFileStreamOptions,
+    opts?: ProjectFileRenameOptions,
   ): Promise<void>
   removeDirectory(
     path: HostPath,

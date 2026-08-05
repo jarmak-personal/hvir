@@ -1,0 +1,20 @@
+{
+  "name": "@hvir/rename-noreplace",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Private hvir Node-API binding for atomic no-replace rename",
+  "license": "MIT",
+  "main": "index.js",
+  "files": [
+    "index.js",
+    "LICENSE",
+    "binding.gyp",
+    "rename_noreplace.c",
+    "build/Release/rename_noreplace.node"
+  ],
+  "gypfile": true,
+  "os": [
+    "darwin",
+    "linux"
+  ]
+}

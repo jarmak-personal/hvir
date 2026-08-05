@@ -42,7 +42,12 @@ export interface IpcDeps {
   readonly filenameSearch: Pick<FilenameSearchCoordinator, 'search' | 'cancel' | 'revoke'>
   readonly projectFiles: Pick<
     ProjectFileOperationCoordinator,
-    'create' | 'acquireClipboard' | 'acquireDropped' | 'copyExternal' | 'cancel'
+    | 'create'
+    | 'acquireClipboard'
+    | 'acquireDropped'
+    | 'copyExternal'
+    | 'organize'
+    | 'cancel'
   >
   readonly getProject: () => { readonly host: ProjectHost; readonly root: HostPath }
   readonly getHost: (hostId: string) => ProjectHost | undefined

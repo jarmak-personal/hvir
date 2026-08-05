@@ -5,6 +5,7 @@ import {
   PROJECT_FILE_STREAM_CHUNK_BYTES,
   ProjectPathExistsError,
   type ProjectFileMetadataOptions,
+  type ProjectFileRenameOptions,
   type ProjectFileStreamOptions,
   type ProjectFileWriteStreamOptions,
 } from './project-host'
@@ -138,26 +139,47 @@ export class SshProjectFileTransfer {
   async renameNoReplace(
     source: HostPath,
     destination: HostPath,
-    opts: ProjectFileStreamOptions = {},
+    opts: ProjectFileRenameOptions = {},
   ): Promise<void> {
     this.assertPath(source)
     this.assertPath(destination)
+    let submitted = false
     try {
       await this.request<void>(
         (session, done) => session.rename(source.path, destination.path, done),
         opts.signal,
+        () => {
+          submitted = true
+          opts.onSubmitted?.()
+        },
       )
     } catch (reason) {
-      try {
-        await this.port.stat(destination)
+      if (!submitted) throw reason
+      this.port.invalidate(source.path)
+      this.port.invalidate(destination.path)
+      const [sourceState, destinationState] = await Promise.all([
+        this.inspectPath(source),
+        this.inspectPath(destination),
+      ])
+      if (sourceState === 'missing' && destinationState === 'present') {
+        return
+      }
+      if (sourceState === 'present' && destinationState === 'present') {
         throw new ProjectPathExistsError()
-      } catch (statReason) {
-        if (statReason instanceof ProjectPathExistsError) throw statReason
       }
       throw reason
     }
     this.port.invalidate(source.path)
     this.port.invalidate(destination.path)
+  }
+
+  private async inspectPath(path: HostPath): Promise<'present' | 'missing' | 'unknown'> {
+    try {
+      await this.port.stat(path)
+      return 'present'
+    } catch (reason) {
+      return isNoSuchFile(reason) ? 'missing' : 'unknown'
+    }
   }
 
   async removeDirectory(
@@ -180,11 +202,12 @@ export class SshProjectFileTransfer {
       done: (error: Error | null | undefined, value: T) => void,
     ) => void,
     signal?: AbortSignal,
+    onSubmitted?: () => void,
   ): Promise<T> {
     signal?.throwIfAborted()
     const session = await this.port.getSftp()
     signal?.throwIfAborted()
-    return callbackRequest(session, operation)
+    return callbackRequest(session, operation, onSubmitted)
   }
 
   private async perform<T>(
@@ -209,14 +232,28 @@ function callbackRequest<T>(
     session: SFTPWrapper,
     done: (error: Error | null | undefined, value: T) => void,
   ) => void,
+  onSubmitted?: () => void,
 ): Promise<T> {
   return new Promise<T>((resolve, reject) => {
+    let synchronous = true
+    let synchronousResult:
+      { readonly reason: Error | null | undefined; readonly value: T } | undefined
+    const settle = (reason: Error | null | undefined, value: T): void => {
+      if (reason) reject(reason)
+      else resolve(value)
+    }
     try {
       operation(session, (reason, value) => {
-        if (reason) reject(reason)
-        else resolve(value)
+        if (synchronous) synchronousResult = { reason, value }
+        else settle(reason, value)
       })
+      synchronous = false
+      onSubmitted?.()
+      if (synchronousResult) {
+        settle(synchronousResult.reason, synchronousResult.value)
+      }
     } catch (reason) {
+      synchronous = false
       reject(reason instanceof Error ? reason : new Error(String(reason)))
     }
   })

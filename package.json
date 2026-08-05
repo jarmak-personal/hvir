@@ -28,7 +28,7 @@
   "main": "./out/main/index.js",
   "scripts": {
     "postinstall": "npm run install:runtime",
-    "install:runtime": "install-electron --no && electron-rebuild -f -o node-pty",
+    "install:runtime": "install-electron --no && node-gyp rebuild --directory node_modules/@hvir/rename-noreplace && electron-rebuild -f -o node-pty",
     "prebuild": "node scripts/check-terminal-runtime.mts",
     "predev": "node scripts/check-terminal-runtime.mts",
     "dev": "electron-vite dev",
@@ -113,6 +113,7 @@
     "eslint-plugin-react-hooks": "^7.1.0",
     "eslint-plugin-react-refresh": "^0.5.0",
     "happy-dom": "^20.11.1",
+    "node-gyp": "^12.4.0",
     "prettier": "^3.9.6",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
@@ -127,8 +128,6 @@
     }
   },
   "optionalDependencies": {
-    "@skill-steward/rename-noreplace-darwin-arm64": "0.5.0-beta.1",
-    "@skill-steward/rename-noreplace-linux-arm64-gnu": "0.5.0-beta.1",
-    "@skill-steward/rename-noreplace-linux-x64-gnu": "0.5.0-beta.1"
+    "@hvir/rename-noreplace": "file:packages/rename-noreplace"
   }
 }

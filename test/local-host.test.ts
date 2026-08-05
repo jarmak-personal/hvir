@@ -112,6 +112,28 @@ describe('LocalHost', () => {
     await expect(host.stat(destination)).resolves.toMatchObject({ type: 'dir' })
   })
 
+  it('atomically moves entries between directories without replacement', async () => {
+    const sourceParent = localPath(join(dir, 'source'))
+    const destinationParent = localPath(join(dir, 'destination'))
+    await mkdir(sourceParent.path)
+    await mkdir(destinationParent.path)
+    const source = localPath(join(sourceParent.path, 'entry.txt'))
+    const destination = localPath(join(destinationParent.path, 'entry.txt'))
+    await writeFile(source.path, 'preserved')
+
+    await host.fileTransfer.renameNoReplace(source, destination)
+
+    await expect(host.stat(source)).rejects.toThrow()
+    await expect(host.readTextFile(destination)).resolves.toBe('preserved')
+
+    await writeFile(source.path, 'source')
+    await expect(
+      host.fileTransfer.renameNoReplace(source, destination),
+    ).rejects.toMatchObject({ code: 'EEXIST' })
+    await expect(host.readTextFile(source)).resolves.toBe('source')
+    await expect(host.readTextFile(destination)).resolves.toBe('preserved')
+  })
+
   it('rejects exclusive creation before an aborted effect begins', async () => {
     const controller = new AbortController()
     controller.abort()

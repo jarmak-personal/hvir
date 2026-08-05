@@ -102,6 +102,29 @@
   font: inherit;
 }
 
+.file-organization-dialog {
+  width: min(560px, calc(100vw - 32px));
+  max-height: min(760px, calc(100vh - 32px));
+}
+
+.file-organization-picker {
+  min-height: 180px;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 6px;
+  overflow: hidden;
+}
+
+.file-organization-picker > .directory-tree {
+  min-height: 160px;
+  max-height: 320px;
+  padding: 4px 0;
+  overflow: auto;
+  border: 1px solid var(--border-strong);
+  border-radius: 4px;
+  background: var(--surface-1);
+}
+
 .file-create-error {
   color: var(--danger-text);
 }
