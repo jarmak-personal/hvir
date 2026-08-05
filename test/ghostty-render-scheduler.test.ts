@@ -255,6 +255,7 @@ describe('ghostty demand render scheduler contract', () => {
       scrollEmitter: disposable,
       renderEmitter: disposable,
       cursorMoveEmitter: disposable,
+      terminalEventEmitter: disposable,
     })
 
     terminal.requestRender()
