@@ -81,7 +81,7 @@
     "@codemirror/state": "^6.7.1",
     "@codemirror/view": "^6.43.7",
     "chokidar": "^5.0.0",
-    "ghostty-web": "https://github.com/jarmak-personal/ghostty-web/releases/download/hvir-v0.4.0-2/ghostty-web-0.4.0-hvir-g3b65c40f5804.tgz",
+    "ghostty-web": "https://github.com/jarmak-personal/ghostty-web/releases/download/hvir-v0.4.0-4/ghostty-web-0.4.0-hvir-gcb59afc89edd.tgz",
     "markdown-it": "^15.0.0",
     "markdown-it-task-lists": "^2.1.1",
     "mermaid": "^11.16.0",

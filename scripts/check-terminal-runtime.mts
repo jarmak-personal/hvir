@@ -5,11 +5,12 @@ import { resolve } from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 
-const REQUIRED_PRESENTATION_METHODS = [
+const REQUIRED_TERMINAL_METHODS = [
   'requestRender',
   'setRenderPaused',
   'resetCursorBlink',
   'getRenderStats',
+  'resolveEventProvenance',
 ] as const
 const RECOVERY = 'Run `npm ci` in this worktree, then retry the command.'
 
@@ -52,7 +53,7 @@ function isTerminalConstructor(value: unknown): value is TerminalConstructor {
 }
 
 export function assertTerminalRuntimeContract(terminal: TerminalConstructor): void {
-  const missing: string[] = REQUIRED_PRESENTATION_METHODS.filter(
+  const missing: string[] = REQUIRED_TERMINAL_METHODS.filter(
     (method) => typeof Reflect.get(terminal.prototype, method) !== 'function',
   )
   if (!hasCustomLinkProviderPriority(terminal.prototype)) {

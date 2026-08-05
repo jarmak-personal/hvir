@@ -24,7 +24,7 @@ describe('terminal runtime capability preflight', () => {
     class IncompatibleTerminal {}
 
     expect(() => assertTerminalRuntimeContract(IncompatibleTerminal)).toThrow(
-      /requestRender, setRenderPaused, resetCursorBlink, getRenderStats, custom link-provider priority.*npm ci.*retry the command/,
+      /requestRender, setRenderPaused, resetCursorBlink, getRenderStats, resolveEventProvenance, custom link-provider priority.*npm ci.*retry the command/,
     )
   })
 
@@ -34,6 +34,7 @@ describe('terminal runtime capability preflight', () => {
       setRenderPaused(): void {}
       resetCursorBlink(): void {}
       getRenderStats(): void {}
+      resolveEventProvenance(): void {}
       registerLinkProvider(): void {}
     }
 

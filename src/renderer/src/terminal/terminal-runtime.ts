@@ -1,7 +1,7 @@
 import { hostPathEquals, type HostConnectionState, type HostPath } from '../../../shared'
 import { SynchronizedOutputWriter } from './synchronized-output'
 import type { TerminalEventRouter } from './terminal-event-router'
-import type { TerminalPane } from './terminal-pane'
+import type { TerminalEvent, TerminalPane } from './terminal-pane'
 import { createTerminalRuntimePane } from './terminal-pane-factory'
 import {
   launchUnavailableStatus,
@@ -397,15 +397,21 @@ export class TerminalRuntime {
           })
         }, PTY_RESIZE_DEBOUNCE_MS)
       }),
-      pane.events.onTitle((title) => {
-        const next = title.trim() || this.options.fallbackTitle
-        this.updateSnapshot({ ...this.currentSnapshot, title: next })
-        this.options.onTitle(next)
-      }),
-      pane.events.onBell(() => this.options.onBell()),
-      pane.events.onOsc((event) => console.debug('[terminal:osc]', event)),
+      pane.events.onEvent((event) => this.handlePaneEvent(event)),
       pane.events.onLink((target) => this.options.onLink(target)),
     ]
+  }
+
+  private handlePaneEvent(event: TerminalEvent): void {
+    const type = event.type
+    if (type === 'title') {
+      const next = event.title.trim() || this.options.fallbackTitle
+      if (next === this.currentSnapshot.title) return
+      this.updateSnapshot({ ...this.currentSnapshot, title: next })
+      this.options.onTitle(next)
+    } else if (type === 'bell' || (type === 'notification' && event.source === 'osc-9')) {
+      this.options.onBell()
+    }
   }
 
   private installPtyListeners(sessionId: string): void {
