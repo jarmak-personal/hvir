@@ -33,6 +33,12 @@ export interface TerminalSemanticNavigationPlan {
   readonly changed: boolean
 }
 
+export interface TerminalSemanticCopyRange {
+  readonly kind: TerminalSemanticRegionKind
+  readonly start: TerminalEventProvenance
+  readonly end?: TerminalEventProvenance
+}
+
 interface SemanticRegion {
   readonly id: number
   readonly kind: TerminalSemanticRegionKind
@@ -44,6 +50,7 @@ interface SemanticRegion {
 interface MarkerSignature {
   readonly action: TerminalSemanticAction
   readonly row: number
+  readonly column: number
 }
 
 /**
@@ -68,10 +75,17 @@ export class TerminalSemanticRegions {
     if (action === 'fresh-line') return false
 
     const last = this.lastMarkerByScreen.get(provenance.screen)
-    if (last?.action === action && last.row === provenance.row) return false
+    if (
+      last?.action === action &&
+      last.row === provenance.row &&
+      last.column === provenance.column
+    ) {
+      return false
+    }
     this.lastMarkerByScreen.set(provenance.screen, {
       action,
       row: provenance.row,
+      column: provenance.column,
     })
 
     switch (action) {
@@ -163,6 +177,16 @@ export class TerminalSemanticRegions {
     }
   }
 
+  currentCopyRange(screen: TerminalEventScreen): TerminalSemanticCopyRange | undefined {
+    const active =
+      this.activeId === undefined
+        ? undefined
+        : this.regions.find((region) => region.id === this.activeId && region.screen === screen)
+    const region =
+      active ?? [...this.regions].reverse().find((candidate) => candidate.screen === screen)
+    return region ? { kind: region.kind, start: region.start, end: region.end } : undefined
+  }
+
   clear(): void {
     this.regions = []
     this.openByScreen.clear()
@@ -172,7 +196,13 @@ export class TerminalSemanticRegions {
 
   private startPrompt(provenance: TerminalEventProvenance): void {
     const open = this.open(provenance.screen)
-    if (open?.kind === 'prompt' && open.start.row === provenance.row) return
+    if (
+      open?.kind === 'prompt' &&
+      open.start.row === provenance.row &&
+      open.start.column === provenance.column
+    ) {
+      return
+    }
     if (open) {
       if (open.kind === 'output') {
         this.complete(open, provenance)
@@ -210,14 +240,14 @@ export class TerminalSemanticRegions {
       id: this.nextId++,
       kind,
       screen: start.screen,
-      start: { ...start },
+      start,
     }
     this.regions.push(region)
     this.openByScreen.set(start.screen, region.id)
   }
 
   private complete(region: SemanticRegion, end: TerminalEventProvenance): void {
-    region.end = { ...end }
+    region.end = end
     this.openByScreen.delete(region.screen)
   }
 

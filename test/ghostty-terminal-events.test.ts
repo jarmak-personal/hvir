@@ -2,7 +2,17 @@ import type { TerminalEvent as GhosttyTerminalEvent } from 'ghostty-web'
 import { describe, expect, it } from 'vitest'
 
 import { translateGhosttyTerminalEvent } from '../src/renderer/src/terminal/ghostty-terminal-events'
-import type { TerminalEvent } from '../src/renderer/src/terminal/terminal-pane'
+import type {
+  TerminalEvent,
+  TerminalEventProvenance,
+} from '../src/renderer/src/terminal/terminal-pane'
+
+const retainProvenance = (provenance: TerminalEventProvenance): TerminalEventProvenance => ({
+  id: provenance.id,
+  screen: provenance.screen,
+  row: provenance.row,
+  column: provenance.column,
+})
 
 describe('Ghostty terminal event translation', () => {
   it('translates every parser-owned event family into the closed pane contract', () => {
@@ -43,13 +53,13 @@ describe('Ghostty terminal event translation', () => {
           type: 'semantic',
           action: 'end-input-start-output',
           options: 'k=v',
-          provenance: { id: 7, screen: 'alternate', row: 3 },
+          provenance: { id: 7, screen: 'alternate', row: 3, column: 5 },
         },
         {
           type: 'semantic',
           action: 'end-input-start-output',
           options: 'k=v',
-          provenance: { id: 7, screen: 'alternate', row: 3 },
+          provenance: { id: 7, screen: 'alternate', row: 3, column: 5 },
         },
       ],
       [
@@ -100,7 +110,9 @@ describe('Ghostty terminal event translation', () => {
       ],
     ]
 
-    expect(cases.map(([source]) => translateGhosttyTerminalEvent(source))).toEqual(
+    expect(
+      cases.map(([source]) => translateGhosttyTerminalEvent(source, retainProvenance)),
+    ).toEqual(
       cases.map(([, expected]) => expected),
     )
   })
@@ -124,14 +136,19 @@ describe('Ghostty terminal event translation', () => {
       { type: 'palette', operation: 7, request: { type: 'reset-special' } },
     ]
 
-    expect(requests.map(translateGhosttyTerminalEvent)).toEqual(requests)
+    expect(
+      requests.map((request) => translateGhosttyTerminalEvent(request, retainProvenance)),
+    ).toEqual(requests)
   })
 
   it('fails closed if a mismatched runtime adds an unknown family', () => {
     expect(
-      translateGhosttyTerminalEvent({
-        type: 'future-family',
-      } as unknown as GhosttyTerminalEvent),
+      translateGhosttyTerminalEvent(
+        {
+          type: 'future-family',
+        } as unknown as GhosttyTerminalEvent,
+        retainProvenance,
+      ),
     ).toBeUndefined()
   })
 
@@ -155,7 +172,11 @@ describe('Ghostty terminal event translation', () => {
       },
     ] as unknown as GhosttyTerminalEvent[]
 
-    expect(unknownEvents.map(translateGhosttyTerminalEvent)).toEqual([
+    expect(
+      unknownEvents.map((event) =>
+        translateGhosttyTerminalEvent(event, retainProvenance),
+      ),
+    ).toEqual([
       undefined,
       undefined,
       undefined,

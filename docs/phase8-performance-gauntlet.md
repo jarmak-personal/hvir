@@ -76,7 +76,7 @@ presentation advances, a PTY is orphaned, or all terminals cannot recover with C
 History usable. Controlled mode additionally fails when the idle CPU median ratio exceeds 1.5,
 loaded launch p95 exceeds twice baseline, an individual loaded launch exceeds one second, p99
 latency is >=100 ms, an unexplained stall exceeds 500 ms, net loaded-interval working-set growth
-exceeds 256 MiB. Ghostty scrollback is bounded to 10,000 lines per terminal.
+exceeds 256 MiB. Ghostty scrollback is bounded to 10 MB per terminal.
 
 ## Workspace and error matrix
 
@@ -122,8 +122,8 @@ For a release candidate, leave the topology active for at least two hours. Every
 minutes, record hvir's total working set from Activity Monitor/System Monitor while
 rotating terminals, workspaces, Git, a large file, Markdown, CSV, and image tabs. Growth
 may step up as lazy renderers load, then must plateau under a stable tab/terminal count.
-Treat monotonic post-warmup growth, a renderer crash/OOM, or scrollback exceeding 10,000
-lines per terminal as a failure and retain the sample table with the release evidence.
+Treat monotonic post-warmup growth, a renderer crash/OOM, or scrollback exceeding the 10 MB
+per-terminal bound as a failure and retain the sample table with the release evidence.
 
 ## Latest automated evidence
 

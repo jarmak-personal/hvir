@@ -18,6 +18,8 @@ function createTerminalContextMenuTarget(options: {
   readonly pane: TerminalPane
   readonly isCurrent: () => boolean
   readonly focusOwner: () => void
+  readonly clearOwner: () => void
+  readonly resetOwner: () => void
   readonly subscribe: (callback: () => void) => Disposer
 }): TerminalContextMenuTarget {
   const act = (action: (pane: TerminalPane) => void): boolean => {
@@ -31,8 +33,16 @@ function createTerminalContextMenuTarget(options: {
     getSelection: () => (options.isCurrent() ? options.pane.getSelection() : undefined),
     paste: (data) => act((pane) => pane.paste(data)),
     selectAll: () => act((pane) => pane.selectAll()),
-    clear: () => act((pane) => pane.clear()),
-    reset: () => act((pane) => pane.reset()),
+    clear: () =>
+      act((pane) => {
+        options.clearOwner()
+        pane.clear()
+      }),
+    reset: () =>
+      act((pane) => {
+        options.resetOwner()
+        pane.reset()
+      }),
     focus: () =>
       act((pane) => {
         pane.focus()
@@ -50,6 +60,8 @@ export class TerminalContextMenuOwner {
   private pane?: TerminalPane
   private ptyId?: string
   private focusOwner: () => void = () => undefined
+  private clearOwner: () => void = () => undefined
+  private resetOwner: () => void = () => undefined
   private readonly listeners = new Set<() => void>()
 
   constructor(private readonly available: () => boolean) {}
@@ -62,6 +74,8 @@ export class TerminalContextMenuOwner {
       pane,
       isCurrent: () => this.owns(pane, ptyId),
       focusOwner: () => this.focusOwner(),
+      clearOwner: () => this.clearOwner(),
+      resetOwner: () => this.resetOwner(),
       subscribe: (callback) => {
         this.listeners.add(callback)
         return () => {
@@ -71,10 +85,20 @@ export class TerminalContextMenuOwner {
     })
   }
 
-  bind(pane: TerminalPane, ptyId: string, focusOwner: () => void): void {
+  bind(
+    pane: TerminalPane,
+    ptyId: string,
+    focusOwner: () => void,
+    owners: Readonly<{ clear: () => void; reset: () => void }> = {
+      clear: () => undefined,
+      reset: () => undefined,
+    },
+  ): void {
     this.pane = pane
     this.ptyId = ptyId
     this.focusOwner = focusOwner
+    this.clearOwner = owners.clear
+    this.resetOwner = owners.reset
     this.notify()
   }
 
@@ -83,6 +107,8 @@ export class TerminalContextMenuOwner {
     this.pane = undefined
     this.ptyId = undefined
     this.focusOwner = () => undefined
+    this.clearOwner = () => undefined
+    this.resetOwner = () => undefined
     this.notify()
   }
 

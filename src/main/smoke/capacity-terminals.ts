@@ -11,6 +11,8 @@ export interface TerminalRenderStats {
   readonly pendingFrame: boolean
   readonly synchronizedOutput: boolean
   readonly synchronizedOutputRecoveries: number
+  readonly retainedRows: number
+  readonly retainedByteLimit: number
 }
 
 export interface TerminalPresentationSample extends TerminalRenderStats {
@@ -48,6 +50,11 @@ export interface TerminalReadinessSampleReport {
   readonly durationsMs: readonly number[]
   readonly p95Ms: number
   readonly maxMs: number
+}
+
+export interface TerminalSearchCapacityReport {
+  readonly durationMs: number
+  readonly retainedRows: number
 }
 
 export async function waitForCapacityTerminalCount(
@@ -245,6 +252,150 @@ export function startCapacityOutputFixtures(supervisor: PtySupervisor): void {
     const terminal = terminals[index]!
     supervisor.write(terminal.id, terminal.ownerId, command)
   })
+}
+
+/** Prove bounded search after saturating the accepted retained-byte cap with twelve panes. */
+export async function verifyCapacityTerminalSearch(
+  win: BrowserWindow,
+  supervisor: PtySupervisor,
+): Promise<TerminalSearchCapacityReport> {
+  const emittedRows = 120_000
+  if (supervisor.list().length !== 12) {
+    throw new Error('capacity terminal search requires twelve live terminals')
+  }
+  const sessionId = (await win.webContents.executeJavaScript(`
+    document.querySelector('.terminal-surface.active')?.dataset.terminalSession || ''
+  `)) as string
+  const terminal = supervisor.list().find((candidate) => candidate.id === sessionId)
+  if (!terminal) throw new Error('capacity terminal search has no selected PTY')
+  supervisor.write(
+    terminal.id,
+    terminal.ownerId,
+    `awk 'BEGIN { for (i=0; i<${emittedRows}; i++) ` +
+      `printf "capacity-retained-fill-%06d-` +
+      `abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqr\\r\\n", i }'; ` +
+      `printf '\\033]0;Capacity retained ready\\007'; ` +
+      `IFS= read -r hvir_capacity_search\n`,
+  )
+  try {
+    return (await withTimeout(
+      win.webContents.executeJavaScript(`
+        new Promise((resolve, reject) => {
+          const deadline = Date.now() + 60000;
+          const surface = document.querySelector(
+            '.terminal-surface.active[data-terminal-session=${JSON.stringify(sessionId)}]'
+          );
+          const engine = surface?.querySelector('.terminal-engine-host');
+          const stats = engine?.__hvirTerminalPerformance;
+          if (!(surface instanceof HTMLElement) || !(engine instanceof HTMLElement) || !stats) {
+            return reject(new Error('capacity search fixtures missing'));
+          }
+          if (stats.retainedByteLimit !== 10000000) {
+            return reject(new Error(
+              'capacity retained-byte limit changed: ' + stats.retainedByteLimit
+            ));
+          }
+          const waitForCap = () => {
+            const title = document.querySelector(
+              '.terminal-list-main[data-terminal-session=${JSON.stringify(sessionId)}] ' +
+              '.terminal-list-title'
+            )?.textContent?.trim();
+            const current = engine.__hvirTerminalPerformance;
+            const delivery = surface.querySelector('.terminal-container')
+              ?.__hvirTerminalDelivery;
+            if (
+              title === 'Capacity retained ready' &&
+              current.retainedRows > 0 &&
+              current.retainedRows < ${emittedRows} &&
+              delivery && !delivery.pending &&
+              delivery.receivedBytes === delivery.deliveredBytes
+            ) return openSearch();
+            if (Date.now() > deadline) {
+              return reject(new Error(
+                'capacity retained-byte cap did not settle: ' +
+                JSON.stringify({ title, current, delivery })
+              ));
+            }
+            setTimeout(waitForCap, 20);
+          };
+          const openSearch = () => {
+            const primary = /Mac/.test(navigator.platform)
+              ? { metaKey: true }
+              : { ctrlKey: true };
+            const shortcut = new KeyboardEvent('keydown', {
+              key: 'f',
+              code: 'KeyF',
+              ...primary,
+              bubbles: true,
+              cancelable: true
+            });
+            const started = performance.now();
+            engine.dispatchEvent(shortcut);
+            waitForSearch(started);
+          };
+          const waitForSearch = (started) => {
+            const search = surface.querySelector('.terminal-search');
+            const input = search?.querySelector('[aria-label="Find in terminal"]');
+            if (input instanceof HTMLInputElement) {
+              const setter = Object.getOwnPropertyDescriptor(
+                HTMLInputElement.prototype,
+                'value'
+              )?.set;
+              setter?.call(input, 'capacity-retained-fill-119999');
+              input.dispatchEvent(new Event('input', { bubbles: true }));
+              const waitForResult = () => {
+                const status = search.querySelector('.terminal-search-status')
+                  ?.textContent?.trim();
+                const current = engine.__hvirTerminalPerformance;
+                const delivery = surface.querySelector('.terminal-container')
+                  ?.__hvirTerminalDelivery;
+                if (status === '1 of 1' && delivery && !delivery.pending) {
+                  if (
+                    current.retainedRows <= 0 ||
+                    current.retainedRows >= ${emittedRows} ||
+                    delivery.receivedBytes !== delivery.deliveredBytes ||
+                    document.querySelectorAll('.terminal-search').length !== 1 ||
+                    document.querySelectorAll('.terminal-surface').length !== 12
+                  ) {
+                    return reject(new Error(
+                      'capacity search lost bounded ownership: ' + JSON.stringify({
+                        retainedRows: current.retainedRows,
+                        delivery
+                      })
+                    ));
+                  }
+                  search.querySelector(
+                    'button[aria-label="Close terminal search"]'
+                  )?.click();
+                  return resolve({
+                    durationMs: performance.now() - started,
+                    retainedRows: current.retainedRows
+                  });
+                }
+                if (Date.now() > deadline) {
+                  return reject(new Error(
+                    'capacity search did not settle at retained cap: ' +
+                    JSON.stringify({ status, current, delivery })
+                  ));
+                }
+                setTimeout(waitForResult, 20);
+              };
+              return waitForResult();
+            }
+            if (Date.now() > deadline) {
+              return reject(new Error('capacity terminal search did not open'));
+            }
+            setTimeout(() => waitForSearch(started), 20);
+          };
+          waitForCap();
+        })
+      `),
+      'capacity terminal search timed out',
+      65_000,
+    )) as TerminalSearchCapacityReport
+  } finally {
+    supervisor.write(terminal.id, terminal.ownerId, '\n')
+  }
 }
 
 export async function measureAdditionalTerminalReadiness(

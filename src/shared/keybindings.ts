@@ -34,7 +34,8 @@ export function keybindingAvailableInContext(
   context: KeybindingContext,
 ): boolean {
   if (action === 'findFile') return context !== 'terminal'
-  if (action === 'findInFile' || action === 'goToLine') return context === 'workbench'
+  if (action === 'findInFile') return context === 'workbench' || context === 'terminal'
+  if (action === 'goToLine') return context === 'workbench'
   if (action === 'cycleViewMode') return context !== 'terminal'
   return true
 }

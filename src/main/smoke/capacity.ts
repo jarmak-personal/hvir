@@ -17,6 +17,7 @@ import {
   readTerminalPresentation,
   startCapacityOutputFixtures,
   verifyHiddenPresentationSettles,
+  verifyCapacityTerminalSearch,
   verifyTerminalActivity,
   type TerminalActivityReport,
   type TerminalReadinessSampleReport,
@@ -389,6 +390,12 @@ export async function runCapacityLoadSmoke(
   }
 
   if (!report) throw new Error('capacity report was not produced')
+  const capacitySearch = await verifyCapacityTerminalSearch(win, supervisor)
+  console.log(
+    `[smoke:capacity:terminal-search] 10MB retained cap · ` +
+      `${capacitySearch.retainedRows} retained rows · 12 live terminals · ` +
+      `${capacitySearch.durationMs.toFixed(1)}ms`,
+  )
   const evidence = capacityPerformanceEvidence(report, performanceMode, source)
   console.log(`[smoke:performance:evidence] ${JSON.stringify(evidence)}`)
   console.log(

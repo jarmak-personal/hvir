@@ -10,6 +10,7 @@ import { GHOSTTY_TERMINAL_CAPABILITY_PROFILE } from './ghostty-terminal-capabili
 const REQUIRED_TERMINAL_METHODS = [
   ...GHOSTTY_TERMINAL_CAPABILITY_PROFILE.synchronizedOutput.terminalMethods,
   ...GHOSTTY_TERMINAL_CAPABILITY_PROFILE.hostOwnedContextMenu.terminalMethods,
+  ...GHOSTTY_TERMINAL_CAPABILITY_PROFILE.retainedBuffer.terminalMethods,
 ] as const
 const REQUIRED_PARSER_METHODS =
   GHOSTTY_TERMINAL_CAPABILITY_PROFILE.synchronizedOutput.parserMethods

@@ -24,6 +24,7 @@ const paneState = vi.hoisted(() => ({
     presentations: string[]
     pastes: string[]
     terminalActions: string[]
+    searches: Array<{ query: string; caseSensitive: boolean }>
     emitData(data: string): void
     disposed: boolean
   }>,
@@ -63,6 +64,9 @@ describe('terminal output host parity', () => {
     expect(ssh.pastes).toEqual(local.pastes)
     expect(local.terminalActions).toEqual(['select-all', 'clear', 'reset'])
     expect(ssh.terminalActions).toEqual(local.terminalActions)
+    expect(local.searchText).toBe('local and SSH exact text')
+    expect(ssh.searchText).toBe(local.searchText)
+    expect(ssh.searches).toEqual(local.searches)
     expect(local.ptyWrites).toEqual(['line one\nline two'])
     expect(ssh.ptyWrites).toEqual(local.ptyWrites)
   })
@@ -78,6 +82,8 @@ async function deliver(
   readonly presentations: readonly string[]
   readonly pastes: readonly string[]
   readonly terminalActions: readonly string[]
+  readonly searches: readonly { query: string; caseSensitive: boolean }[]
+  readonly searchText: string
   readonly ptyWrites: readonly string[]
   readonly disposed: boolean
 }> {
@@ -143,17 +149,25 @@ async function deliver(
   document.body.append(container)
   runtime.attach(container)
   await vi.waitFor(() => expect(handlers).toBeDefined())
-  await vi.waitFor(() => expect(runtime.contextMenuTarget()).toBeDefined())
+  await vi.waitFor(() => expect(runtime.interactions.contextMenuTarget()).toBeDefined())
   expect(invoke).toHaveBeenCalledWith(
     'pty:start',
     expect.objectContaining({ cwd: root, sessionId }),
   )
 
-  const target = runtime.contextMenuTarget()!
+  const target = runtime.interactions.contextMenuTarget()!
   expect(target.paste('line one\nline two')).toBe(true)
   expect(target.selectAll()).toBe(true)
   expect(target.clear()).toBe(true)
   expect(target.reset()).toBe(true)
+
+  expect(runtime.interactions.search.open()).toBe(true)
+  runtime.interactions.search.setQuery('exact text')
+  await vi.waitFor(() =>
+    expect(runtime.interactions.search.snapshot().matchCount).toBe(1),
+  )
+  const searchText = runtime.interactions.search.currentMatchText()
+  runtime.interactions.search.close()
 
   for (const chunk of chunks) handlers!.onData(chunk)
   const pane = paneState.panes.at(-1)!
@@ -166,6 +180,8 @@ async function deliver(
     presentations: pane.presentations,
     pastes: pane.pastes,
     terminalActions: pane.terminalActions,
+    searches: pane.searches,
+    searchText,
     ptyWrites: send.mock.calls
       .filter(([channel]) => channel === 'pty:write')
       .map(([, payload]) => (payload as { readonly data: string }).data),
@@ -179,6 +195,7 @@ function createPane(): TerminalPane {
     presentations: [] as string[],
     pastes: [] as string[],
     terminalActions: [] as string[],
+    searches: [] as Array<{ query: string; caseSensitive: boolean }>,
     emitData: (_data: string): void => undefined,
     disposed: false,
   }
@@ -199,6 +216,23 @@ function createPane(): TerminalPane {
     resolveEventProvenance: () => undefined,
     activeEventScreen: () => 'normal',
     revealEventLocation: () => false,
+    searchRetainedBuffer: (query, options) => {
+      state.searches.push({ query, caseSensitive: options.caseSensitive })
+      const match = { start: { row: 0, column: 0 }, end: { row: 0, column: 9 } }
+      return Promise.resolve({
+      query,
+      caseSensitive: options.caseSensitive,
+      matches: [match],
+      reveal: (candidate) => candidate === match,
+      extract: (candidate) =>
+        candidate === match ? 'local and SSH exact text' : undefined,
+      dispose: () => undefined,
+      })
+    },
+    cancelRetainedBufferSearch: () => undefined,
+    captureRetainedBufferBoundary: () => undefined,
+    extractRetainedBufferRange: () => Promise.resolve(''),
+    cancelRetainedBufferExtraction: () => undefined,
     hasSelection: () => false,
     getSelection: () => '',
     paste: (data) => {

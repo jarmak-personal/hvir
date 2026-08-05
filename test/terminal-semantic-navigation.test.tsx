@@ -98,6 +98,8 @@ vi.mock('ghostty-web', () => {
     requestRender(): void {}
     setRenderPaused(): void {}
     resetCursorBlink(): void {}
+    cancelRetainedBufferSearch(): void {}
+    cancelRetainedBufferExtraction(): void {}
     getRenderStats() {
       return {
         parsedWrites: 0,
@@ -307,7 +309,7 @@ function emitTranscript(
         type: 'semantic',
         action,
         options: '',
-        provenance: { id, screen, row: row + index * 2 },
+        provenance: { id, screen, row: row + index * 2, column: 0 },
       })
     })
   })

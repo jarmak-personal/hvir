@@ -22,6 +22,7 @@ export function useTerminalPaneController(
   )
   runtimeRef.current ??= runtimes.acquire(options)
   const runtime = runtimeRef.current
+  const interactions = runtime.interactions
   runtime.update(options)
   const snapshot = useSyncExternalStore(
     runtime.subscribe,
@@ -29,9 +30,9 @@ export function useTerminalPaneController(
     runtime.snapshot,
   )
   const paneEventSnapshot = useSyncExternalStore(
-    runtime.paneEvents.subscribe,
-    runtime.paneEvents.snapshot,
-    runtime.paneEvents.snapshot,
+    interactions.paneEvents.subscribe,
+    interactions.paneEvents.snapshot,
+    interactions.paneEvents.snapshot,
   )
 
   useEffect(() => {
@@ -53,7 +54,10 @@ export function useTerminalPaneController(
     return () => window.cancelAnimationFrame(frame)
   }, [options.active, runtime])
 
-  const getContextMenuTarget = useCallback(() => runtime.contextMenuTarget(), [runtime])
+  const getContextMenuTarget = useCallback(
+    () => interactions.contextMenuTarget(),
+    [interactions],
+  )
 
   return {
     workspaceRoot: options.workspaceRoot,
@@ -62,8 +66,10 @@ export function useTerminalPaneController(
     ...paneEventSnapshot,
     restart: () => runtime.restart(),
     startFresh: () => runtime.startFresh(),
-    previousSemanticRegion: () => runtime.navigateSemanticRegion('previous'),
-    nextSemanticRegion: () => runtime.navigateSemanticRegion('next'),
+    previousSemanticRegion: () => interactions.navigate('previous'),
+    nextSemanticRegion: () => interactions.navigate('next'),
+    searchController: interactions.search,
+    openSearch: () => interactions.search.open(),
     getContextMenuTarget,
     focus: () => runtime.focus(),
   }

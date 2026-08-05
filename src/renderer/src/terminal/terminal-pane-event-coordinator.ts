@@ -77,6 +77,14 @@ export class TerminalPaneEventCoordinator {
     if (plan.changed || target) this.publish(summary)
   }
 
+  extractCurrentRegion(pane: TerminalPane, signal: AbortSignal): Promise<string> {
+    const range = this.regions.currentCopyRange(pane.activeEventScreen())
+    if (!range) return Promise.reject(new Error('No semantic terminal region is available'))
+    const end = range.end ?? pane.captureRetainedBufferBoundary()
+    if (!end) return Promise.reject(new Error('The current terminal region is unavailable'))
+    return pane.extractRetainedBufferRange(range.start, end, { signal })
+  }
+
   clear(): void {
     this.regions.clear()
     this.currentTitle = this.fallbackTitle
