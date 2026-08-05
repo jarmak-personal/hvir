@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto'
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { ConnectConfig } from 'ssh2'
+import type { AnyAuthMethod, ConnectConfig } from 'ssh2'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import {
@@ -50,13 +50,16 @@ describe('ProjectHostCatalog', () => {
 
     expect(first).toBeInstanceOf(SshHost)
     expect(second).toBe(first)
+    expect(readIdentity).not.toHaveBeenCalled()
+
+    const authentication = await nextAuth(connectConfig(first as SshHost), ['publickey'])
+
+    expect(authentication).toMatchObject({ type: 'publickey' })
     expect(readIdentity).toHaveBeenCalledWith(localPath(identity))
   })
 
   it('binds alias trust to the configured local metadata record', async () => {
-    const home = await sshHome(
-      'Host work\n  HostName work.example.test\n  User picard\n',
-    )
+    const home = await sshHome('Host work\n  HostName work.example.test\n  User picard\n')
     const trustFile = join(home, 'known-hosts.json')
     const rememberedKey = Buffer.from('remembered-work-host-key')
     await writeFile(
@@ -92,9 +95,7 @@ describe('ProjectHostCatalog', () => {
   })
 
   it('aborts a materialized host prompt when that host disconnects', async () => {
-    const home = await sshHome(
-      'Host work\n  HostName work.example.test\n  User picard\n',
-    )
+    const home = await sshHome('Host work\n  HostName work.example.test\n  User picard\n')
     const signals: AbortSignal[] = []
     const catalog = await ProjectHostCatalog.create({
       prompter: {
@@ -224,9 +225,27 @@ function aliasConfig(identityFiles: readonly string[]) {
 type HostVerifier = (key: Buffer, verify: (valid: boolean) => void) => void
 
 function hostVerifier(host: SshHost): HostVerifier {
-  return (
-    host as unknown as { connectConfig(): ConnectConfig }
-  ).connectConfig().hostVerifier as HostVerifier
+  return connectConfig(host).hostVerifier as HostVerifier
+}
+
+function connectConfig(host: SshHost): ConnectConfig {
+  const internals = host as unknown as {
+    createCredentialAttempt(): unknown
+    connectConfig(attempt: unknown): ConnectConfig
+  }
+  return internals.connectConfig(internals.createCredentialAttempt())
+}
+
+function nextAuth(
+  config: ConnectConfig,
+  methods: readonly string[],
+): Promise<AnyAuthMethod | false> {
+  const handler = config.authHandler as unknown as (
+    methods: readonly string[],
+    partial: boolean,
+    next: (method: AnyAuthMethod | false) => void,
+  ) => void
+  return new Promise((resolve) => handler(methods, false, resolve))
 }
 
 function fingerprint(key: Buffer): string {
