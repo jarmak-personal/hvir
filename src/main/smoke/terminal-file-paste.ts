@@ -5,7 +5,7 @@ import { clipboard, type BrowserWindow } from 'electron'
 import { isLocal, joinHostPath, type HostPath } from '../../shared'
 import { plainShellProvider } from '../harness/harness-provider'
 import type { ManagedPty, PtySupervisor } from '../pty/pty-supervisor'
-import { GNOME_COPIED_FILES_FORMAT } from '../terminal/electron-clipboard-file-paste'
+import { URI_LIST_FORMAT } from '../terminal/electron-clipboard-file-paste'
 import { withTerminalSmokeTimeout } from './terminal-smoke-timeout'
 
 const INPUT_ID = '__hvir-terminal-file-paste-probe'
@@ -168,8 +168,8 @@ async function dispatchNativeLinuxFilePaste(
   const restore = captureClipboardRestore()
   try {
     clipboard.writeBuffer(
-      GNOME_COPIED_FILES_FORMAT,
-      Buffer.from(`copy\n${pathToFileURL(fixturePath).href}\n`),
+      URI_LIST_FORMAT,
+      Buffer.from(`${pathToFileURL(fixturePath).href}\r\n`),
     )
     const focused: unknown = await win.webContents.executeJavaScript(`
       (() => {

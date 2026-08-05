@@ -99,6 +99,43 @@ describe('terminal native file clipboard capability', () => {
     expect(reader.read()).toBe('/home/user/Downloads/requirements.txt')
   })
 
+  it('falls back to URI-list when Electron cannot read the GNOME-specific atom', () => {
+    const readBuffer = vi.fn((format: string) => {
+      if (format === GNOME_COPIED_FILES_FORMAT) throw new Error('unknown X11 atom')
+      expect(format).toBe(URI_LIST_FORMAT)
+      return Buffer.from('file:///home/user/Downloads/requirements.txt\r\n')
+    })
+    const reader = new ElectronClipboardFilePaste(
+      {
+        availableFormats: () => [GNOME_COPIED_FILES_FORMAT, URI_LIST_FORMAT],
+        readBuffer,
+      },
+      'linux',
+    )
+
+    expect(reader.read()).toBe('/home/user/Downloads/requirements.txt')
+    expect(readBuffer).toHaveBeenCalledTimes(2)
+  })
+
+  it('fails closed instead of bypassing invalid GNOME data through URI-list', () => {
+    const readBuffer = vi.fn((format: string) => {
+      if (format === GNOME_COPIED_FILES_FORMAT) {
+        return Buffer.from('copy\nfile:///one\nfile:///two\n')
+      }
+      return Buffer.from('file:///home/user/Downloads/requirements.txt\r\n')
+    })
+    const reader = new ElectronClipboardFilePaste(
+      {
+        availableFormats: () => [GNOME_COPIED_FILES_FORMAT, URI_LIST_FORMAT],
+        readBuffer,
+      },
+      'linux',
+    )
+
+    expect(reader.read()).toBeUndefined()
+    expect(readBuffer).toHaveBeenCalledExactlyOnceWith(GNOME_COPIED_FILES_FORMAT)
+  })
+
   it('does not read native formats outside Linux or when data is oversized', () => {
     const readBuffer = vi.fn(() => new Uint8Array(MAX_NATIVE_FILE_CLIPBOARD_BYTES + 1))
     const source = {

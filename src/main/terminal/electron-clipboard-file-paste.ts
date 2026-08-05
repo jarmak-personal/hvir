@@ -27,24 +27,37 @@ export class ElectronClipboardFilePaste {
     const gnomeFormat = formats.find(
       (format) => format.toLowerCase() === GNOME_COPIED_FILES_FORMAT,
     )
-    if (gnomeFormat) return this.readFormat(gnomeFormat, 'gnome')
+    if (gnomeFormat) {
+      const gnomePath = this.readFormat(gnomeFormat, 'gnome')
+      if (gnomePath !== undefined) return gnomePath ?? undefined
+    }
 
     const uriListFormat = formats.find(
       (format) => format.toLowerCase().split(';', 1)[0] === URI_LIST_FORMAT,
     )
-    return uriListFormat ? this.readFormat(uriListFormat, 'uri-list') : undefined
+    return uriListFormat
+      ? (this.readFormat(uriListFormat, 'uri-list') ?? undefined)
+      : undefined
   }
 
-  private readFormat(format: string, kind: 'gnome' | 'uri-list'): string | undefined {
+  private readFormat(
+    format: string,
+    kind: 'gnome' | 'uri-list',
+  ): string | null | undefined {
+    let bytes: Uint8Array
     try {
-      const bytes = this.source.readBuffer(format)
-      if (bytes.byteLength === 0 || bytes.byteLength > MAX_NATIVE_FILE_CLIPBOARD_BYTES) {
-        return undefined
-      }
-      const text = new TextDecoder('utf-8', { fatal: true }).decode(bytes)
-      return terminalPathFromFileClipboardText(text, kind)
+      bytes = this.source.readBuffer(format)
     } catch {
       return undefined
+    }
+    if (bytes.byteLength === 0) return undefined
+    if (bytes.byteLength > MAX_NATIVE_FILE_CLIPBOARD_BYTES) return null
+
+    try {
+      const text = new TextDecoder('utf-8', { fatal: true }).decode(bytes)
+      return terminalPathFromFileClipboardText(text, kind) ?? null
+    } catch {
+      return null
     }
   }
 }
