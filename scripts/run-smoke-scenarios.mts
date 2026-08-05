@@ -79,6 +79,9 @@ const EXTERNAL_WATCHDOG_CHECKPOINTS = new Map<
   ],
 ])
 const FAILURE_ARTIFACT_TIMEOUT_MS = 1_000
+// Independent acceptance oracle for Electron's native standard-error text.
+const DISPOSED_RENDER_FRAME_MESSAGE =
+  'Render frame was disposed before WebFrameMain could be accessed'
 
 export interface SmokeScenarioInvocationOptions {
   readonly command?: string
@@ -187,16 +190,24 @@ export function classifySmokeAttempt(options: {
   readonly exitCode: number | null
   readonly signal: NodeJS.Signals | null
   readonly successSentinel: boolean
+  readonly disposedFrameDeliveryFailure?: boolean
   readonly durationMs: number
 }): Omit<SmokeScenarioResult, 'scenario' | 'iteration' | 'repetitionCount'> {
-  const status = options.exitCode === 0 && options.successSentinel ? 'passed' : 'failed'
+  const status =
+    options.exitCode === 0 &&
+    options.successSentinel &&
+    options.disposedFrameDeliveryFailure !== true
+      ? 'passed'
+      : 'failed'
   return {
     status,
     ...(options.exitCode === null ? {} : { exitCode: options.exitCode }),
     ...(options.signal === null ? {} : { signal: options.signal }),
-    ...(!options.successSentinel && options.exitCode === 0
-      ? { error: 'missing success sentinel' }
-      : {}),
+    ...(options.disposedFrameDeliveryFailure
+      ? { error: 'disposed renderer frame delivery reached standard error' }
+      : !options.successSentinel && options.exitCode === 0
+        ? { error: 'missing success sentinel' }
+        : {}),
     durationMs: options.durationMs,
   }
 }
@@ -227,6 +238,8 @@ export function invokeSmokeScenario(
     child.stdout.setEncoding('utf8')
     child.stderr.setEncoding('utf8')
     let settled = false
+    let disposedFrameDeliveryFailure = false
+    let stderrMarkerSuffix = ''
     const timers: {
       attempt?: ReturnType<typeof setTimeout>
       checkpoint?: ReturnType<typeof setTimeout>
@@ -288,6 +301,9 @@ export function invokeSmokeScenario(
     child.stderr.on('data', (chunk: string) => {
       process.stderr.write(chunk)
       collector.observe('stderr', chunk)
+      const candidate = `${stderrMarkerSuffix}${chunk}`
+      disposedFrameDeliveryFailure ||= candidate.includes(DISPOSED_RENDER_FRAME_MESSAGE)
+      stderrMarkerSuffix = candidate.slice(-(DISPOSED_RENDER_FRAME_MESSAGE.length - 1))
       refreshCheckpointDeadline()
     })
     timers.attempt = setTimeout(
@@ -327,6 +343,7 @@ export function invokeSmokeScenario(
         exitCode,
         signal,
         successSentinel,
+        disposedFrameDeliveryFailure,
         durationMs,
       })
       if (result.status === 'passed') {

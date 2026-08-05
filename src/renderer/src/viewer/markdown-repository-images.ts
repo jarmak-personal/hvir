@@ -1,0 +1,108 @@
+import {
+  hostPathEquals,
+  resolveRenderedLink,
+  unwrapOperation,
+  type HostPath,
+} from '../../../shared'
+
+/** Owns repository-backed image dependencies and object URLs for one rendered document. */
+export class MarkdownRepositoryImages {
+  private readonly generations = new Map<HTMLImageElement, number>()
+  private readonly objectUrls = new Map<HTMLImageElement, string>()
+  private readonly unavailableMessages = new Map<HTMLImageElement, HTMLElement>()
+  private disposed = false
+
+  constructor(private readonly documentPath: HostPath) {}
+
+  hydrate(root: HTMLElement): readonly HostPath[] {
+    const dependencies = new Map<string, HostPath>()
+    for (const image of root.querySelectorAll<HTMLImageElement>('img[src]')) {
+      const dependency = this.dependency(image)
+      if (!dependency) continue
+      dependencies.set(`${dependency.hostId}:${dependency.path}`, dependency)
+      void this.hydrateImage(image, dependency, false)
+    }
+    return [...dependencies.values()]
+  }
+
+  refresh(root: HTMLElement, changedPath: HostPath): void {
+    if (this.disposed || hostPathEquals(this.documentPath, changedPath)) return
+    for (const image of root.querySelectorAll<HTMLImageElement>('img')) {
+      const dependency = this.dependency(image)
+      if (dependency && hostPathEquals(dependency, changedPath)) {
+        void this.hydrateImage(image, dependency, true)
+      }
+    }
+  }
+
+  dispose(): void {
+    if (this.disposed) return
+    this.disposed = true
+    for (const image of this.generations.keys()) {
+      this.generations.set(image, (this.generations.get(image) ?? 0) + 1)
+    }
+    for (const objectUrl of this.objectUrls.values()) URL.revokeObjectURL(objectUrl)
+    for (const unavailable of this.unavailableMessages.values()) unavailable.remove()
+    this.generations.clear()
+    this.objectUrls.clear()
+    this.unavailableMessages.clear()
+  }
+
+  private dependency(image: HTMLImageElement): HostPath | undefined {
+    const source = image.dataset['hvirRepositorySrc'] ?? image.getAttribute('src')
+    if (!source) return undefined
+    const target = resolveRenderedLink(this.documentPath, source)
+    if (target.kind !== 'file') return undefined
+    image.dataset['hvirRepositorySrc'] = source
+    return target.path
+  }
+
+  private async hydrateImage(
+    image: HTMLImageElement,
+    path: HostPath,
+    preserveCurrent: boolean,
+  ): Promise<void> {
+    const generation = (this.generations.get(image) ?? 0) + 1
+    this.generations.set(image, generation)
+    if (!preserveCurrent) {
+      image.removeAttribute('src')
+      image.classList.add('markdown-image-loading')
+    }
+    try {
+      const asset = unwrapOperation(await window.hvir.invoke('fs:read-asset', { path }))
+      const objectUrl = URL.createObjectURL(
+        new Blob([new Uint8Array(asset.data)], { type: asset.mimeType }),
+      )
+      if (this.disposed || this.generations.get(image) !== generation) {
+        URL.revokeObjectURL(objectUrl)
+        return
+      }
+      const previous = this.objectUrls.get(image)
+      this.objectUrls.set(image, objectUrl)
+      image.src = objectUrl
+      image.hidden = false
+      image.removeAttribute('aria-hidden')
+      image.classList.remove('markdown-image-loading')
+      this.unavailableMessages.get(image)?.remove()
+      this.unavailableMessages.delete(image)
+      if (previous) URL.revokeObjectURL(previous)
+    } catch (reason) {
+      if (this.disposed || this.generations.get(image) !== generation) {
+        return
+      }
+      if (preserveCurrent && this.objectUrls.has(image)) return
+      const unavailable =
+        this.unavailableMessages.get(image) ?? document.createElement('span')
+      unavailable.className = 'markdown-image-unavailable'
+      unavailable.textContent = image.alt
+        ? `[Image unavailable: ${image.alt}]`
+        : '[Repository image unavailable]'
+      unavailable.title = reason instanceof Error ? reason.message : String(reason)
+      image.hidden = true
+      image.setAttribute('aria-hidden', 'true')
+      image.classList.remove('markdown-image-loading')
+      if (!this.unavailableMessages.has(image)) image.after(unavailable)
+      this.unavailableMessages.set(image, unavailable)
+    }
+  }
+}

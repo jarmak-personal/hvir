@@ -87,6 +87,7 @@ export function App(): ReactElement {
     reloadTab,
     saveTab,
     handleWatchEvent,
+    setRenderedDependencies,
     reloadCleanFiles,
     focusPane: focusViewerPane,
     getActivePane,
@@ -160,6 +161,7 @@ export function App(): ReactElement {
     connected: connectionState === 'connected',
     missing: activeWorkspace?.missing,
     openPaths: openWatchPaths,
+    dependencyPaths: viewer.renderedWatchPaths,
   })
   const gitEnabled = workspaceGitEnabled(activeWorkspace)
   const terminalWorkspaces = useTerminalWorkspaceRuntime({
@@ -374,6 +376,7 @@ export function App(): ReactElement {
           <FileViewer
             key={`${pane}:${paneTab?.id ?? 'empty'}`}
             tab={paneTab}
+            gitRefreshVersion={gitVersion}
             onMode={(mode, at) => paneTab && setViewerMode(paneTab.id, mode, at)}
             onDiffBase={(diffBase) => paneTab && setViewerDiffBase(paneTab.id, diffBase)}
             onContent={(content) => paneTab && setViewerContent(paneTab.id, content)}
@@ -389,7 +392,7 @@ export function App(): ReactElement {
               if (paneTab) pinTab(paneTab.id)
               openFile(path, true)
             }}
-            refreshVersion={contentVersion}
+            onRenderedDependencies={setRenderedDependencies}
           />
         )}
       </div>

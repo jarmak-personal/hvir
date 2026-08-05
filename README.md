@@ -100,6 +100,9 @@ npm run dev
 
 `npm ci` downloads Electron and rebuilds native dependencies for Electron's ABI. On a
 headless Linux machine, run the Electron smoke under `xvfb-run`.
+Raw `npm run dev` and unsigned `npm run build:dir` are not the macOS LAN SSH acceptance identity;
+use the
+[signed coexistence workflow](docs/macos-ssh-acceptance.md) for that boundary.
 
 See the [performance gauntlet](docs/phase8-performance-gauntlet.md) and
 [packaging guide](docs/packaging.md) for release acceptance.

@@ -141,6 +141,12 @@ the release branch. It signs the hardened application and installer, notarizes a
 package, validates both identities and Gatekeeper acceptance, and retains the package only after
 native install, update, launch, and removal acceptance passes.
 
+The separately signed [macOS LAN SSH coexistence application](macos-ssh-acceptance.md) is
+contributor acceptance tooling, not another installer or release artifact. It reuses the protected
+Developer ID Application input but has a distinct bundle identity and state root; it does not
+change the release package, notarization, `/Applications/hvir.app`, or `/usr/local/bin/hvir`
+contract.
+
 ## Install, update, uninstall, and purge
 
 Run the same release installer for a clean install or an update. Native package managers replace

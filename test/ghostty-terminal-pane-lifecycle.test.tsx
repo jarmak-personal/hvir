@@ -29,6 +29,7 @@ const ghosttyState = vi.hoisted(() => ({
       readonly shiftKey: boolean
     }): boolean
     emitResize(size: { readonly cols: number; readonly rows: number }): void
+    resolveClipboardFilePaste(file: File): string | undefined
     renders: number
     disposed: boolean
   }>,
@@ -41,6 +42,7 @@ vi.mock('ghostty-web', () => {
       cursorBlink?: boolean
       fontFamily?: string
       fontSize?: number
+      resolveClipboardFilePaste?: (file: File) => string | undefined
     }
     readonly buffer = { active: { getLine: () => undefined } }
     readonly wasmTerm = {}
@@ -65,6 +67,7 @@ vi.mock('ghostty-web', () => {
       cursorBlink?: boolean
       fontFamily?: string
       fontSize?: number
+      resolveClipboardFilePaste?: (file: File) => string | undefined
     }) {
       this.state = {
         cursorBlinkValues: [Boolean(options.cursorBlink)],
@@ -78,6 +81,7 @@ vi.mock('ghostty-web', () => {
         emitData: () => undefined,
         emitCustomKey: () => false,
         emitResize: () => undefined,
+        resolveClipboardFilePaste: options.resolveClipboardFilePaste ?? (() => undefined),
         renders: 0,
         disposed: false,
       }
@@ -357,6 +361,26 @@ describe('GhosttyTerminalPane lifecycle', () => {
     state.emitData('d')
     expect(input).not.toHaveBeenCalledWith('d')
     expect(state.cursorBlinkResets).toBe(3)
+  })
+
+  it('supplies the preload file-path capability only to ghostty paste ownership', async () => {
+    const resolved = '/home/user/project/requirements.txt'
+    const resolveTerminalClipboardFilePaste = vi.fn(() => resolved)
+    Object.defineProperty(window, 'hvir', {
+      configurable: true,
+      value: { resolveTerminalClipboardFilePaste },
+    })
+    const pane = await createGhosttyTerminalPane(theme(), typography(), {
+      modifiedKeyProtocol: 'none',
+      metaEnterAliasesControl: false,
+      composerSubmitMode: 'enter',
+    })
+    const file = { name: 'requirements.txt' } as File
+
+    expect(ghosttyState.instances[0]!.resolveClipboardFilePaste(file)).toBe(resolved)
+    expect(resolveTerminalClipboardFilePaste).toHaveBeenCalledExactlyOnceWith(file)
+
+    pane.dispose()
   })
 
   it('follows React presentation independently from keyboard focus', async () => {

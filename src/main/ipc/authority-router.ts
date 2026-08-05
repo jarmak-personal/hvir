@@ -43,6 +43,7 @@ export const OWNER_SCOPED_INVOKE_CHANNELS = [
   'terminal:plan-move',
   'terminal:move',
   'terminal:record-recovery-decision',
+  'terminal:resolve-file-clipboard',
   'pty:start',
 ] as const satisfies readonly IpcInvokeChannel[]
 export const OWNER_SCOPED_SEND_CHANNELS = SEND_CHANNELS
@@ -87,7 +88,6 @@ export interface IpcInvokeContext {
   readonly authority: IpcAuthority
   owner(): RendererOwner
 }
-
 export interface IpcSendContext {
   readonly sender: Electron.WebContents
   readonly authority: IpcAuthority
