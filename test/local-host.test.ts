@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
   mkdir,
   mkdtemp,
+  readFile,
   realpath,
   rm,
   symlink,
@@ -17,11 +18,24 @@ import { asHostId, hostPath, localPath, type WatchEvent } from '../src/shared'
 
 const delay = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms))
 
-async function waitFor(pred: () => boolean, timeoutMs = 4000): Promise<void> {
+async function waitFor(
+  pred: () => boolean | Promise<boolean>,
+  timeoutMs = 4000,
+): Promise<void> {
   const start = Date.now()
-  while (!pred()) {
+  while (!(await pred())) {
     if (Date.now() - start > timeoutMs) throw new Error('waitFor timed out')
     await delay(50)
+  }
+}
+
+function processExists(pid: number): boolean {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch (reason) {
+    if ((reason as NodeJS.ErrnoException).code === 'ESRCH') return false
+    throw reason
   }
 }
 
@@ -118,6 +132,96 @@ describe('LocalHost', () => {
     expect(r.code).toBe(0)
     expect(r.stdout.trim()).toBe('hello')
     expect(r.stderr).toBe('')
+  })
+
+  const posixIt = process.platform === 'win32' ? it.skip : it
+  posixIt('isolates each buffered command from the app process group', async () => {
+    const result = await host.exec('/bin/sh', [
+      '-c',
+      `printf '%s|' "$$"; /bin/ps -o pgid= -p "$$"`,
+    ])
+    const [pid, processGroupId] = result.stdout.split('|').map((value) => Number(value))
+
+    expect(pid).toBeGreaterThan(0)
+    expect(processGroupId).toBe(pid)
+  })
+
+  posixIt(
+    'kills an isolated buffered command and its descendants when aborted',
+    async () => {
+      const descendantMarker = join(dir, 'buffered-exec-descendant.pid')
+      const controller = new AbortController()
+      const execution = host.exec(
+        process.execPath,
+        [
+          '-e',
+          [
+            `const { spawn } = require('node:child_process')`,
+            `const { writeFileSync } = require('node:fs')`,
+            `const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' })`,
+            `writeFileSync(${JSON.stringify(descendantMarker)}, String(child.pid))`,
+            `setInterval(() => {}, 1000)`,
+          ].join(';'),
+        ],
+        { signal: controller.signal },
+      )
+      let descendantPid: number | undefined
+      try {
+        await waitFor(async () => {
+          try {
+            descendantPid = Number(await readFile(descendantMarker, 'utf8'))
+            return Number.isSafeInteger(descendantPid) && descendantPid > 0
+          } catch {
+            return false
+          }
+        })
+
+        controller.abort()
+        await expect(execution).rejects.toMatchObject({ name: 'AbortError' })
+        await waitFor(() => !processExists(descendantPid!))
+      } finally {
+        controller.abort()
+        await execution.catch(() => undefined)
+        if (descendantPid && processExists(descendantPid)) {
+          process.kill(descendantPid, 'SIGKILL')
+        }
+      }
+    },
+  )
+
+  posixIt('disposes active buffered commands with their descendants', async () => {
+    const descendantMarker = join(dir, 'disposed-exec-descendant.pid')
+    const execution = host.exec(process.execPath, [
+      '-e',
+      [
+        `const { spawn } = require('node:child_process')`,
+        `const { writeFileSync } = require('node:fs')`,
+        `const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' })`,
+        `writeFileSync(${JSON.stringify(descendantMarker)}, String(child.pid))`,
+        `setInterval(() => {}, 1000)`,
+      ].join(';'),
+    ])
+    let descendantPid: number | undefined
+    try {
+      await waitFor(async () => {
+        try {
+          descendantPid = Number(await readFile(descendantMarker, 'utf8'))
+          return Number.isSafeInteger(descendantPid) && descendantPid > 0
+        } catch {
+          return false
+        }
+      })
+
+      await host.dispose()
+
+      await expect(execution).rejects.toThrow('disposed during buffered exec')
+      await waitFor(() => !processExists(descendantPid!))
+    } finally {
+      await execution.catch(() => undefined)
+      if (descendantPid && processExists(descendantPid)) {
+        process.kill(descendantPid, 'SIGKILL')
+      }
+    }
   })
 
   it('applies explicit environment values and unsets inherited names', async () => {

@@ -8,8 +8,11 @@ import { describe, expect, it } from 'vitest'
 import { plainShellProvider } from '../src/main/harness/harness-provider'
 import {
   harnessShellCommandArgs,
+  harnessShellProbeCommandArgs,
+  harnessShellProbeOutput,
   harnessShellProbeArgs,
 } from '../src/main/harness/harness-shell-environment'
+import { LocalHost } from '../src/main/project-host/local-host'
 import { localPath } from '../src/shared'
 
 describe('harness shell environment', () => {
@@ -21,7 +24,47 @@ describe('harness shell environment', () => {
     expect(
       harnessShellCommandArgs('provider', ['literal $HOME', "profile's arg"]),
     ).toEqual(['-lic', `exec 'provider' 'literal $HOME' 'profile'"'"'s arg'`])
+    expect(
+      harnessShellProbeCommandArgs('provider', ['literal $HOME', "profile's arg"]),
+    ).toEqual([
+      '-lic',
+      `printf '\\036hvir-provider-output-v1\\037'; exec 'provider' 'literal $HOME' 'profile'"'"'s arg' 2>&1`,
+    ])
   })
+
+  const linuxIt = process.platform === 'linux' ? it : it.skip
+  linuxIt(
+    'keeps provider stderr separate from detached Bash startup diagnostics',
+    async () => {
+      const home = await mkdtemp(join(tmpdir(), 'hvir-harness-probe-shell-'))
+      try {
+        const bin = join(home, 'bin')
+        const executable = join(bin, 'probe-harness')
+        await mkdir(bin)
+        await writeFile(join(home, '.bash_profile'), 'export PATH="$HOME/bin:$PATH"\n')
+        await writeFile(executable, '#!/bin/sh\nprintf "probe 1.2.3\\n" >&2\n')
+        await chmod(executable, 0o755)
+        const host = new LocalHost()
+
+        const result = await host.exec(
+          '/bin/bash',
+          harnessShellProbeCommandArgs('probe-harness', ['--version']),
+          {
+            env: {
+              HOME: home,
+              PATH: '/usr/bin:/bin',
+            },
+          },
+        )
+
+        expect(result.code).toBe(0)
+        expect(harnessShellProbeOutput(result.stdout)?.trim()).toBe('probe 1.2.3')
+        expect(result.stderr).not.toContain('probe 1.2.3')
+      } finally {
+        await rm(home, { recursive: true })
+      }
+    },
+  )
 
   const macosIt = process.platform === 'darwin' ? it : it.skip
   macosIt(
