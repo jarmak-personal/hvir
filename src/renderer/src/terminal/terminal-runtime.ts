@@ -257,6 +257,7 @@ export class TerminalRuntime {
         return
       }
       this.pane = pane
+      pane.setTheme(this.options.theme)
       pane.setTypography(this.options.typography)
       this.installPaneListeners(pane)
       this.surface.mountPane(pane, container)

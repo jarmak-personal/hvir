@@ -20,6 +20,8 @@ import {
 } from '../src/shared'
 
 const paneState = vi.hoisted(() => ({
+  deferNextCreation: false,
+  releaseNextCreation: undefined as (() => void) | undefined,
   panes: [] as Array<{
     writes: string[]
     presentations: string[]
@@ -33,13 +35,20 @@ const paneState = vi.hoisted(() => ({
 }))
 
 vi.mock('../src/renderer/src/terminal/terminal-pane-factory', () => ({
-  createTerminalRuntimePane: vi.fn((options: { readonly theme: unknown }) =>
-    Promise.resolve(createPane(options.theme)),
-  ),
+  createTerminalRuntimePane: vi.fn((options: { readonly theme: unknown }) => {
+    const pane = createPane(options.theme)
+    if (!paneState.deferNextCreation) return Promise.resolve(pane)
+    paneState.deferNextCreation = false
+    return new Promise<TerminalPane>((resolve) => {
+      paneState.releaseNextCreation = () => resolve(pane)
+    })
+  }),
 }))
 
 describe('terminal output host parity', () => {
   afterEach(() => {
+    paneState.deferNextCreation = false
+    paneState.releaseNextCreation = undefined
     paneState.panes.splice(0)
     Reflect.deleteProperty(window, 'hvir')
     document.body.replaceChildren()
@@ -76,7 +85,61 @@ describe('terminal output host parity', () => {
     expect(local.ptyWrites).toEqual(['line one\nline two'])
     expect(ssh.ptyWrites).toEqual(local.ptyWrites)
   })
+
+  it('applies the latest palette when pane construction finishes', async () => {
+    const runtimeOptions = runtimeOptionsForStartupRace()
+    const route = {
+      setPresentation: () => undefined,
+      snapshot: () => ({
+        nativeDataEvents: 0,
+        deliveryCallbacks: 0,
+        receivedBytes: 0,
+        deliveredBytes: 0,
+        peakBufferedBytes: 0,
+        bufferedBytes: 0,
+        pending: false,
+        presentation: 'visible' as const,
+      }),
+      exposeStats: () => undefined,
+      dispose: () => undefined,
+    }
+    const router = {
+      register: () => route,
+    } as unknown as TerminalEventRouter
+    Object.defineProperty(window, 'hvir', {
+      configurable: true,
+      value: {
+        invoke: vi.fn(() => new Promise(() => undefined)),
+        send: vi.fn(),
+        on: vi.fn(() => () => undefined),
+      },
+    })
+    paneState.deferNextCreation = true
+    const runtime = new TerminalRuntime(
+      runtimeOptions,
+      () => router,
+      () => undefined,
+      () => Promise.resolve(() => undefined),
+    )
+
+    runtime.attach(document.createElement('div'))
+    expect(paneState.panes).toHaveLength(1)
+    runtime.update({ ...runtimeOptions, theme: terminalThemeForAppearance('light') })
+    paneState.releaseNextCreation!()
+
+    await vi.waitFor(() =>
+      expect(paneState.panes[0]!.themes).toEqual([
+        terminalThemeForAppearance('dark'),
+        terminalThemeForAppearance('light'),
+      ]),
+    )
+    runtime.dispose()
+  })
 })
+
+function runtimeOptionsForStartupRace(): TerminalRuntimeOptions {
+  return runtimeOptions(localPath('/repo'), 'startup-race')
+}
 
 async function deliver(
   root: HostPath,
