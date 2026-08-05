@@ -106,8 +106,11 @@ export async function verifyViewerContent(options: {
                 const waitForRendered = () => {
                   const tasks = document.querySelectorAll('.task-list-item-checkbox');
                   const image = document.querySelector('img[alt="Repository image fixture"]');
+                  const toml = [...document.querySelectorAll('.markdown-body pre.shiki')]
+                    .find((node) => node.textContent?.includes('[language_catalog_fixture]'));
                   if (document.querySelector('.mermaid-diagram svg') &&
                       document.querySelector('.markdown-body .shiki') &&
+                      toml?.querySelector('span') &&
                       image?.getAttribute('src')?.startsWith('blob:') &&
                       image.complete && image.naturalWidth > 0 &&
                       tasks.length === 4 &&
@@ -121,12 +124,13 @@ export async function verifyViewerContent(options: {
                     const body = document.querySelector('.markdown-body');
                     body?.dispatchEvent(new Event('scroll', { bubbles: true }));
                     return document.querySelector('.mermaid-diagram svg')
-                      ? resolve('Shiki + Mermaid + ProjectHost image + task lists + stable scroll')
+                      ? resolve('lazy TOML Shiki + mmd Mermaid + ProjectHost image + task lists + stable scroll')
                       : reject(new Error('scroll destroyed Mermaid diagram'));
                   }
                   if (Date.now() > deadline) return reject(new Error(
                     'rendered fixture timed out: mermaid=' + Boolean(document.querySelector('.mermaid-diagram svg')) +
                     ' shiki=' + Boolean(document.querySelector('.markdown-body .shiki')) +
+                    ' toml=' + Boolean(toml?.querySelector('span')) +
                     ' image=' + Boolean(image) + '/' + (image?.complete ? image.naturalWidth : 'pending') +
                     ' tasks=' + tasks.length
                   ));
@@ -142,6 +146,49 @@ export async function verifyViewerContent(options: {
       35000,
     )) as string
     console.log(`[smoke] rendered Markdown fixture OK (${renderedFixture})`)
+
+    const extendedSourceStatus = (await withTimeout(
+      win.webContents.executeJavaScript(`
+        new Promise((resolve, reject) => {
+          const deadline = Date.now() + 30000;
+          const fixtures = [
+            { suffix: '/test/fixtures/Dockerfile.dev', name: 'Dockerfile.dev', language: 'docker' },
+            { suffix: '/test/fixtures/highlight.toml', name: 'highlight.toml', language: 'toml' },
+          ];
+          const results = [];
+          const open = (index) => {
+            const fixture = fixtures[index];
+            if (!fixture) return resolve(results.join(' · '));
+            const row = [...document.querySelectorAll('.tree-row')]
+              .find((node) => node.getAttribute('title')?.endsWith(fixture.suffix));
+            if (!row) {
+              if (Date.now() > deadline) return reject(new Error('source grammar fixture missing: ' + fixture.suffix));
+              return setTimeout(() => open(index), 50);
+            }
+            row.click();
+            const waitForHighlight = () => {
+              const active = document.querySelector('.viewer-tab.active .tab-name')?.textContent?.trim();
+              const status = document.querySelector('.source-meta')?.textContent || '';
+              const colored = document.querySelector('.cm-content [style*="color"]');
+              if (active === fixture.name && status.includes(fixture.language) && colored) {
+                results.push(fixture.name + ':' + fixture.language);
+                return open(index + 1);
+              }
+              if (Date.now() > deadline) return reject(new Error(
+                'source grammar highlight timed out: active=' + active + ' status=' + status +
+                ' colored=' + Boolean(colored)
+              ));
+              setTimeout(waitForHighlight, 50);
+            };
+            waitForHighlight();
+          };
+          open(0);
+        })
+      `),
+      'extended source grammar fixtures did not highlight',
+      35_000,
+    )) as string
+    console.log(`[smoke] lazy source grammar workers OK (${extendedSourceStatus})`)
 
     const richerViewerStatus = (await withTimeout(
       win.webContents.executeJavaScript(`

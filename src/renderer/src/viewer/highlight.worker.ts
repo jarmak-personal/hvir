@@ -1,34 +1,11 @@
-import { createHighlighterCore } from 'shiki/core'
-import { createJavaScriptRegexEngine } from 'shiki/engine/javascript'
-
 import type {
   HighlightRequest,
   HighlightResponse,
   HighlightToken,
 } from './highlight-protocol'
+import { createViewerGrammarRegistry } from './shiki-grammar-registry'
 
-const highlighterPromise = createHighlighterCore({
-  themes: [
-    import('@shikijs/themes/dark-plus'),
-    import('@shikijs/themes/github-light-default'),
-  ],
-  langs: [
-    import('@shikijs/langs/bash'),
-    import('@shikijs/langs/css'),
-    import('@shikijs/langs/go'),
-    import('@shikijs/langs/html'),
-    import('@shikijs/langs/javascript'),
-    import('@shikijs/langs/jsx'),
-    import('@shikijs/langs/json'),
-    import('@shikijs/langs/markdown'),
-    import('@shikijs/langs/python'),
-    import('@shikijs/langs/rust'),
-    import('@shikijs/langs/tsx'),
-    import('@shikijs/langs/typescript'),
-  ],
-  // The JS engine is worker-friendly and avoids a second WASM startup cost.
-  engine: createJavaScriptRegexEngine(),
-})
+const grammars = createViewerGrammarRegistry()
 
 self.onmessage = (event: MessageEvent<HighlightRequest>): void => {
   void highlight(event.data)
@@ -36,9 +13,13 @@ self.onmessage = (event: MessageEvent<HighlightRequest>): void => {
 
 async function highlight(request: HighlightRequest): Promise<void> {
   try {
-    const highlighter = await highlighterPromise
-    const result = highlighter.codeToTokens(request.code, {
-      lang: request.language,
+    const loaded = await grammars.load(request.language)
+    if (!loaded) {
+      post({ type: 'plain', id: request.id })
+      return
+    }
+    const result = loaded.highlighter.codeToTokens(request.code, {
+      lang: loaded.id,
       theme: request.theme === 'light' ? 'github-light-default' : 'dark-plus',
     })
 
@@ -64,7 +45,7 @@ async function highlight(request: HighlightRequest): Promise<void> {
       }
     }
     if (batch.length > 0) post({ type: 'batch', id: request.id, tokens: batch })
-    post({ type: 'done', id: request.id })
+    post({ type: 'done', id: request.id, language: loaded.id })
   } catch (error) {
     post({
       type: 'error',

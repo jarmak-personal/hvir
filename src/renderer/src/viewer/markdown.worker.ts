@@ -1,39 +1,11 @@
-import MarkdownIt from 'markdown-it'
-import { createHighlighterCore } from 'shiki/core'
-import { createJavaScriptRegexEngine } from 'shiki/engine/javascript'
-
 import {
-  MARKDOWN_OPTIONS,
   type MarkdownRenderRequest,
   type MarkdownRenderResponse,
 } from './render-protocol'
-import {
-  enableSourceLineAnchors,
-  enableTaskLists,
-  wrapSourceLine,
-} from './markdown-extensions'
+import { renderMarkdownDocument } from './markdown-renderer'
+import { createViewerGrammarRegistry } from './shiki-grammar-registry'
 
-const highlighterPromise = createHighlighterCore({
-  themes: [
-    import('@shikijs/themes/dark-plus'),
-    import('@shikijs/themes/github-light-default'),
-  ],
-  langs: [
-    import('@shikijs/langs/bash'),
-    import('@shikijs/langs/css'),
-    import('@shikijs/langs/go'),
-    import('@shikijs/langs/html'),
-    import('@shikijs/langs/javascript'),
-    import('@shikijs/langs/jsx'),
-    import('@shikijs/langs/json'),
-    import('@shikijs/langs/markdown'),
-    import('@shikijs/langs/python'),
-    import('@shikijs/langs/rust'),
-    import('@shikijs/langs/tsx'),
-    import('@shikijs/langs/typescript'),
-  ],
-  engine: createJavaScriptRegexEngine(),
-})
+const grammars = createViewerGrammarRegistry()
 
 self.onmessage = (event: MessageEvent<MarkdownRenderRequest>): void => {
   void render(event.data)
@@ -41,39 +13,11 @@ self.onmessage = (event: MessageEvent<MarkdownRenderRequest>): void => {
 
 async function render(request: MarkdownRenderRequest): Promise<void> {
   try {
-    const highlighter = await highlighterPromise
-    // Bare repository filenames such as `design.md` are not web hosts. The
-    // linkifier turns them into http://design.md and can navigate Electron's
-    // main frame; authored Markdown links still render normally.
-    const markdown = enableSourceLineAnchors(
-      enableTaskLists(new MarkdownIt(MARKDOWN_OPTIONS)),
-    )
-    markdown.renderer.rules.fence = (tokens, index) => {
-      const token = tokens[index]
-      if (!token) return ''
-      const language = token.info.trim().split(/\s+/)[0]?.toLowerCase() ?? ''
-      if (language === 'mermaid') {
-        return wrapSourceLine(
-          token,
-          `<div class="mermaid-diagram"><pre>${escapeHtml(token.content)}</pre></div>`,
-        )
-      }
-      try {
-        return wrapSourceLine(
-          token,
-          highlighter.codeToHtml(token.content, {
-            lang: language || 'text',
-            theme: request.theme === 'light' ? 'github-light-default' : 'dark-plus',
-          }),
-        )
-      } catch {
-        return wrapSourceLine(
-          token,
-          `<pre><code>${escapeHtml(token.content)}</code></pre>`,
-        )
-      }
-    }
-    post({ id: request.id, ok: true, html: markdown.render(request.markdown) })
+    post({
+      id: request.id,
+      ok: true,
+      html: await renderMarkdownDocument(request.markdown, request.theme, grammars),
+    })
   } catch (error) {
     post({
       id: request.id,
@@ -81,14 +25,6 @@ async function render(request: MarkdownRenderRequest): Promise<void> {
       error: error instanceof Error ? error.message : String(error),
     })
   }
-}
-
-function escapeHtml(value: string): string {
-  return value
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
 }
 
 function post(message: MarkdownRenderResponse): void {

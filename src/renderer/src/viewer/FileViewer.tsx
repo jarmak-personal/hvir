@@ -852,7 +852,9 @@ function highlight(
     if (message.type === 'batch') {
       view.dispatch({ effects: addTokens.of(message.tokens) })
     } else if (message.type === 'done') {
-      setStatus(language)
+      setStatus(message.language)
+    } else if (message.type === 'plain') {
+      setStatus('plain text')
     } else {
       setStatus(`highlight failed: ${message.message}`)
     }

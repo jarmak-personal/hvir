@@ -1,3 +1,7 @@
+import type { BundledLanguage } from 'shiki/langs'
+
+import { viewerGrammarName } from './shiki-language-names'
+
 export interface HighlightRequest {
   readonly id: number
   readonly code: string
@@ -5,45 +9,63 @@ export interface HighlightRequest {
   readonly theme: 'dark' | 'light'
 }
 
-export type HighlightLanguage =
-  | 'bash'
-  | 'css'
-  | 'go'
-  | 'html'
-  | 'javascript'
-  | 'jsx'
-  | 'json'
-  | 'markdown'
-  | 'python'
-  | 'rust'
-  | 'tsx'
-  | 'typescript'
+export type HighlightLanguage = BundledLanguage
+
+const EXTENSION_OVERRIDES: Readonly<Record<string, string>> = {
+  cjs: 'javascript',
+  cts: 'typescript',
+  dockerfile: 'docker',
+  htm: 'html',
+  js: 'javascript',
+  md: 'markdown',
+  mdx: 'mdx',
+  mjs: 'javascript',
+  mts: 'typescript',
+  py: 'python',
+  rs: 'rust',
+  sh: 'shellscript',
+}
+
+const AMBIGUOUS_EXTENSIONS = new Set(['ps', 'v'])
+
+const SPECIAL_FILENAMES: Readonly<Record<string, string>> = {
+  '.env': 'dotenv',
+  bsdmakefile: 'make',
+  'cmakelists.txt': 'cmake',
+  codeowners: 'codeowners',
+  dockerfile: 'docker',
+  gemfile: 'ruby',
+  gnumakefile: 'make',
+  jenkinsfile: 'groovy',
+  justfile: 'just',
+  makefile: 'make',
+  'nginx.conf': 'nginx',
+  rakefile: 'ruby',
+  ssh_config: 'ssh-config',
+  sshd_config: 'ssh-config',
+  vagrantfile: 'ruby',
+}
+
+const SPECIAL_FILENAME_PREFIXES: readonly (readonly [string, string])[] = [
+  ['.env.', 'dotenv'],
+  ['dockerfile.', 'docker'],
+  ['justfile.', 'just'],
+  ['makefile.', 'make'],
+]
 
 export function languageForPath(path: string): HighlightLanguage | undefined {
-  const name = path.toLowerCase()
-  const extension = name.includes('.') ? name.slice(name.lastIndexOf('.') + 1) : ''
-  const byExtension: Record<string, HighlightLanguage> = {
-    bash: 'bash',
-    cjs: 'javascript',
-    css: 'css',
-    cts: 'typescript',
-    go: 'go',
-    htm: 'html',
-    html: 'html',
-    js: 'javascript',
-    jsx: 'jsx',
-    json: 'json',
-    md: 'markdown',
-    mdx: 'markdown',
-    mjs: 'javascript',
-    mts: 'typescript',
-    py: 'python',
-    rs: 'rust',
-    sh: 'bash',
-    ts: 'typescript',
-    tsx: 'tsx',
+  const normalized = path.toLowerCase()
+  const name = normalized.slice(normalized.lastIndexOf('/') + 1)
+  const special = SPECIAL_FILENAMES[name]
+  if (special) return viewerGrammarName(special)
+
+  for (const [prefix, language] of SPECIAL_FILENAME_PREFIXES) {
+    if (name.startsWith(prefix)) return viewerGrammarName(language)
   }
-  return byExtension[extension]
+
+  const extension = name.includes('.') ? name.slice(name.lastIndexOf('.') + 1) : ''
+  if (!extension || AMBIGUOUS_EXTENSIONS.has(extension)) return undefined
+  return viewerGrammarName(EXTENSION_OVERRIDES[extension] ?? extension)
 }
 
 export interface HighlightToken {
@@ -56,5 +78,10 @@ export interface HighlightToken {
 
 export type HighlightResponse =
   | { readonly type: 'batch'; readonly id: number; readonly tokens: HighlightToken[] }
-  | { readonly type: 'done'; readonly id: number }
+  | {
+      readonly type: 'done'
+      readonly id: number
+      readonly language: HighlightLanguage
+    }
+  | { readonly type: 'plain'; readonly id: number }
   | { readonly type: 'error'; readonly id: number; readonly message: string }
