@@ -13,7 +13,7 @@
 
 import { spawn } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
-import { realpathSync } from 'node:fs'
+import { mkdirSync, realpathSync } from 'node:fs'
 import { promises as fsp } from 'node:fs'
 import { connect } from 'node:net'
 import { basename, dirname, join, relative, sep } from 'node:path'
@@ -64,6 +64,11 @@ export class LocalHost implements ProjectHost {
 
   /** Live watcher lifecycles, including any native-to-polling fallback. */
   private readonly watchers = new Set<Disposer>()
+
+  /** Prepare one host-qualified local root during synchronous application bootstrap. */
+  static ensureBootstrapDirectory(path: HostPath): void {
+    mkdirSync(resolveLocalPath(path), { recursive: true })
+  }
 
   connect(): Promise<void> {
     return Promise.resolve()
@@ -574,18 +579,22 @@ export class LocalHost implements ProjectHost {
 
   /** Unwrap a same-host HostPath to a raw string, rejecting foreign hosts. */
   private resolve(p: HostPath): string {
-    if (p.hostId !== this.hostId) {
-      throw new Error(
-        `LocalHost received a path for host '${p.hostId}' (expected '${this.hostId}')`,
-      )
-    }
-    return p.path
+    return resolveLocalPath(p)
   }
 
   /** Re-qualify a raw local path back into a HostPath. */
   private wrap(rawPath: string): HostPath {
     return hostPath(this.hostId, rawPath)
   }
+}
+
+function resolveLocalPath(path: HostPath): string {
+  if (path.hostId !== LOCAL_HOST_ID) {
+    throw new Error(
+      `LocalHost received a path for host '${path.hostId}' (expected '${LOCAL_HOST_ID}')`,
+    )
+  }
+  return path.path
 }
 
 function childEnvironment(

@@ -18,11 +18,13 @@ interface ElectronApplicationPaths {
 export function configureApplicationRuntime(
   paths: ElectronApplicationPaths,
   buildChannel: ApplicationBuildChannel,
+  prepareUserDataRoot: (path: string) => void,
 ): ApplicationRuntime {
   if (buildChannel !== 'ssh-acceptance') {
     return { buildChannel, userDataRoot: paths.getPath('userData') }
   }
   const userDataRoot = join(paths.getPath('appData'), SSH_ACCEPTANCE_USER_DATA_DIRECTORY)
+  prepareUserDataRoot(userDataRoot)
   paths.setPath('userData', userDataRoot)
   return { buildChannel, userDataRoot }
 }
