@@ -366,7 +366,7 @@ export async function runCapacityLoadSmoke(
       presentationAfter,
       supervisor
         .list()
-        .slice(1, 4)
+        .slice(1)
         .map((terminal) => terminal.id),
     )
     report = {
@@ -396,7 +396,8 @@ export async function runCapacityLoadSmoke(
       `(${report.terminalActivity!.hiddenPanes} hidden panes · ` +
       `${report.terminalActivity!.nativeDataEvents} native events → ` +
       `${report.terminalActivity!.deliveryCallbacks} bounded deliveries · ` +
-      `${report.terminalActivity!.peakBufferedBytes} byte peak buffer)`,
+      `${report.terminalActivity!.peakBufferedBytes} byte peak buffer · ` +
+      `${report.terminalActivity!.synchronizedPanes} synchronized panes)`,
   )
   if (performanceMode === 'controlled' && evidence.violations.length > 0) {
     throw new Error(

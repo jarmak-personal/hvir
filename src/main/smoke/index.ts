@@ -40,10 +40,8 @@ import { verifyRendererProcessRecovery } from './renderer-recovery'
 import type { ElectronSmokeMode } from './scenario-selection.mts'
 import { createTerminalMoveSmokeHarness, verifyTerminalMoveSmoke } from './terminal-move'
 import { createSmokeTerminalSessionStore } from './terminal-session-store'
-import {
-  verifyLegacyTerminalPresentation,
-  verifyTerminalPresentationLifecycle,
-} from './terminal-presentation'
+import { verifyTerminalPresentationLifecycle } from './terminal-presentation'
+import { verifyLegacyTerminalPresentation } from './terminal-legacy-presentation'
 import { ensureExplicitBareShellLaunch } from './terminal-explicit-launch'
 import { verifyTerminalReconnectRemount } from './terminal-renderer-lifecycle'
 import { verifyWebPaneWorkflow } from './web-pane'

@@ -1,5 +1,4 @@
 import { hostPathEquals, type HostConnectionState, type HostPath } from '../../../shared'
-import { SynchronizedOutputWriter } from './synchronized-output'
 import type { TerminalEventRouter } from './terminal-event-router'
 import type { TerminalPane } from './terminal-pane'
 import { TerminalPaneEventCoordinator } from './terminal-pane-event-coordinator'
@@ -22,7 +21,6 @@ export class TerminalRuntime {
   private readonly listeners = new Set<() => void>()
   private readonly surface = new TerminalSurfaceAttachment()
   private pane?: TerminalPane
-  private outputWriter?: SynchronizedOutputWriter
   private paneDisposers: Array<() => void | Promise<void>> = []
   private eventRoute?: ReturnType<TerminalEventRouter['register']>
   private resizeTimer?: number
@@ -260,7 +258,7 @@ export class TerminalRuntime {
       this.installPaneListeners(pane)
       this.surface.mountPane(pane, container)
       pane.redraw()
-      this.installPtyListeners(sessionId)
+      this.installPtyListeners(sessionId, pane)
       this.surface.synchronize(this.options.presentation)
 
       const resume =
@@ -378,10 +376,6 @@ export class TerminalRuntime {
   }
 
   private installPaneListeners(pane: TerminalPane): void {
-    this.outputWriter = new SynchronizedOutputWriter(
-      (data) => pane.write(data),
-      () => pane.redraw(),
-    )
     this.paneDisposers = [
       pane.events.onData((data) => {
         this.options.onInput(data)
@@ -420,14 +414,14 @@ export class TerminalRuntime {
     ]
   }
 
-  private installPtyListeners(sessionId: string): void {
+  private installPtyListeners(sessionId: string, pane: TerminalPane): void {
     this.eventRoute = this.terminalEvents().register(
       sessionId,
       this.surface.presentation,
       {
         onData: (data) => {
           this.options.onOutput()
-          this.outputWriter?.write(data)
+          pane.write(data)
         },
         onExit: (exitCode) => {
           this.started = false
@@ -461,8 +455,6 @@ export class TerminalRuntime {
     this.paneDisposers = []
     if (this.resizeTimer !== undefined) window.clearTimeout(this.resizeTimer)
     this.resizeTimer = undefined
-    this.outputWriter?.dispose()
-    this.outputWriter = undefined
     this.pendingInput = ''
     this.paneEvents.clear()
     this.pane?.dispose()
