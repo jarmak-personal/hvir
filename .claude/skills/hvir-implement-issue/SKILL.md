@@ -1,6 +1,6 @@
 ---
 name: hvir-implement-issue
-description: Implement an already-aligned hvir GitHub issue with product and architectural diligence. Use when a governing issue exists and the user wants code or documentation changes, especially work that crosses features, touches established seams, risks duplicating behavior, or could enlarge composition roots and god classes.
+description: Implement one already-aligned hvir GitHub issue with product and architectural diligence. Use for an ordinary issue or one direct epic child when the user wants code or documentation changes, especially work that crosses features, touches established seams, risks duplicating behavior, or could enlarge composition roots and god classes. Use hvir-implement-epic instead for top-level epic coordination.
 ---
 
 # Implement an hvir issue
@@ -13,8 +13,8 @@ before editing; raise material concerns while they are still cheap to resolve.
 
 Start from an issue number plus its current, aligned problem statement, desired outcome,
 and acceptance criteria. If no governing issue exists, stop and use `hvir-create-issue`
-before implementation. A large epic should coordinate independently deliverable child
-issues, not produce one giant implementation pull request.
+before implementation. Run a large epic through `hvir-implement-epic`, which coordinates
+independently deliverable child issues instead of producing one giant implementation pull request.
 
 Read `AGENTS.md`, `CONTRIBUTING.md`, `docs/design.md`, the relevant ADRs, and the governing
 issue. Resolve these questions before changing files:
@@ -50,8 +50,8 @@ with reasons and never mutates Project membership, Kind, or Status.
   [`references/epic-delivery.md`](references/epic-delivery.md) completely and follow it. Use the
   exact epic base from context.
 
-Stop on context conflicts. An authorized epic may resolve a missing first epic branch through the
-bounded creation path in `references/epic-delivery.md`; rerun `issue:start` afterward. The startup
+Stop on context conflicts. Only an authorized `hvir-implement-epic` coordinator may create the
+first epic branch; a child returns that missing-branch blocker instead of creating it. The startup
 command itself never creates or pushes an epic branch. Record the returned issue, parent, PR base,
 start ref, branch, worktree, selected HEAD, and delivery path before work begins. After selection,
 perform all reconnaissance, edits, checks, commits, and push operations from that worktree.
@@ -123,10 +123,12 @@ Use the capacity, real-host, packaged, or full gauntlet checks when the issue's 
 criteria require those environments. Report exact results and any unverified environment
 honestly.
 
-## Publish and integrate
+## Publish and hand off
 
-Use the user's authority for ordinary PR publication and merge operations. For an authorized epic
-build, follow `references/epic-delivery.md` through child integration and cumulative handoff.
+Use the user's authority to open or update an ordinary pull request. For an epic child, follow
+`references/epic-delivery.md` only through focused child pull-request preparation. The
+`hvir-implement-epic` coordinator owns child integration, closure checks, cumulative delivery,
+and cleanup; never perform those responsibilities from this skill.
 
 Before handing off:
 
@@ -137,9 +139,24 @@ Before handing off:
 3. Check every acceptance criterion against code and evidence.
 4. Confirm that the mandatory pre-commit verification and pre-push gates passed after the final
    changes.
-5. Prepare a concise pull-request summary that links the governing issue with `Closes #N`,
-   explains architecture and reuse decisions, lists risks, and records verification.
+5. Prepare a concise pull-request summary with the relationship selected by the delivery path,
+   architecture and reuse decisions, risks, and verification.
 
-Open or update a pull request when the user requests it or authorizes an epic build run. Reserve
-the final epic merge for the maintainer. Report unresolved architecture or validation concerns as
-blockers.
+Open or update a pull request when the user requests it or an authorized epic coordinator launches
+the child. Report unresolved architecture or validation concerns as blockers.
+
+Return a compact implementation handoff for both ordinary and epic-child work. Include:
+
+- issue number and native parent, if any;
+- completing model family;
+- exact start base and candidate commit SHAs;
+- pull-request number, base, head branch, and recorded head SHA;
+- changed product owners, authoritative seams, and actual write set;
+- final `npm run verify` and pre-push evidence;
+- CI and external-review state;
+- deviations from the issue or expected architecture; and
+- blockers or unresolved concerns.
+
+An ordinary handoff goes to the maintainer. An epic-child handoff goes to the coordinator, which
+validates the evidence and applies `hvir-review-code` selection policy. This skill does not invoke
+that review merely because it is implementing an epic child.
