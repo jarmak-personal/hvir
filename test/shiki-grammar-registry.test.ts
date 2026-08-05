@@ -10,6 +10,7 @@ import {
   VIEWER_GRAMMAR_DEFINITIONS,
   type ViewerGrammarDefinition,
 } from '../src/renderer/src/viewer/shiki-language-catalog'
+import { VIEWER_GRAMMAR_NAMES } from '../src/renderer/src/viewer/shiki-language-names'
 
 describe('viewer Shiki grammar catalog', () => {
   it('normalizes canonical ids and aliases through one definition', () => {
@@ -17,6 +18,12 @@ describe('viewer Shiki grammar catalog', () => {
     expect(canonical?.id).toBe('docker')
     expect(resolveViewerGrammar(' DOCKERFILE ')).toBe(canonical)
     expect(resolveViewerGrammar('not-a-shiki-language')).toBeUndefined()
+  })
+
+  it('keeps every lightweight source-inference name in the worker catalog', () => {
+    for (const name of VIEWER_GRAMMAR_NAMES) {
+      expect(resolveViewerGrammar(name), name).toBeDefined()
+    }
   })
 
   it('registers one canonical grammar for concurrent canonical and alias requests', async () => {

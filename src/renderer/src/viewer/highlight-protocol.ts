@@ -12,18 +12,7 @@ export interface HighlightRequest {
 export type HighlightLanguage = BundledLanguage
 
 const EXTENSION_OVERRIDES: Readonly<Record<string, string>> = {
-  cjs: 'javascript',
-  cts: 'typescript',
-  dockerfile: 'docker',
   htm: 'html',
-  js: 'javascript',
-  md: 'markdown',
-  mdx: 'mdx',
-  mjs: 'javascript',
-  mts: 'typescript',
-  py: 'python',
-  rs: 'rust',
-  sh: 'shellscript',
 }
 
 const AMBIGUOUS_EXTENSIONS = new Set(['ps', 'v'])

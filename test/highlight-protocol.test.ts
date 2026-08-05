@@ -13,11 +13,15 @@ describe('source highlighting language inference', () => {
     ['config.mts', 'typescript'],
     ['config.cts', 'typescript'],
   ] as const)('classifies %s as %s', (path, language) => {
-    expect(languageForPath(`/project/${path}`)).toBe(language)
+    expect(resolveViewerGrammar(languageForPath(`/project/${path}`) ?? '')?.id).toBe(
+      language,
+    )
   })
 
   it('matches module extensions case-insensitively', () => {
-    expect(languageForPath('/project/SCRIPT.MJS')).toBe('javascript')
+    expect(resolveViewerGrammar(languageForPath('/project/SCRIPT.MJS') ?? '')?.id).toBe(
+      'javascript',
+    )
   })
 
   it('recognizes every non-excluded bundled grammar id and alias as an extension', () => {
@@ -41,21 +45,26 @@ describe('source highlighting language inference', () => {
   it.each([
     ['Dockerfile', 'docker'],
     ['Dockerfile.dev', 'docker'],
+    ['Dockerfile.md', 'docker'],
     ['Container.Dockerfile', 'docker'],
     ['DOCKERFILE.PRODUCTION', 'docker'],
     ['Makefile', 'make'],
     ['GNUmakefile', 'make'],
     ['Makefile.release', 'make'],
+    ['Makefile.md', 'make'],
     ['CMakeLists.txt', 'cmake'],
     ['CODEOWNERS', 'codeowners'],
     ['.env.local', 'dotenv'],
+    ['.env.ts', 'dotenv'],
     ['Justfile', 'just'],
     ['Jenkinsfile', 'groovy'],
     ['Gemfile', 'ruby'],
     ['nginx.conf', 'nginx'],
     ['ssh_config', 'ssh-config'],
   ] as const)('classifies conventional filename %s as %s', (path, language) => {
-    expect(languageForPath(`/project/${path}`)).toBe(language)
+    expect(resolveViewerGrammar(languageForPath(`/project/${path}`) ?? '')?.id).toBe(
+      language,
+    )
   })
 
   it.each(['Dockerfilex', 'myDockerfile', 'notes', 'program.v', 'poster.ps'])(

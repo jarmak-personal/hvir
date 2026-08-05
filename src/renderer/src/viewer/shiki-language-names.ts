@@ -28,7 +28,7 @@ const NON_STANDALONE_LANGUAGE_NAMES = new Set([
 // @shikijs/langs name arrays omit them even though the bundled catalog accepts them.
 const NON_MODULE_LANGUAGE_ALIASES = ['c++', 'c#', 'f#', '文言']
 
-const VIEWER_GRAMMAR_NAMES = new Set(
+export const VIEWER_GRAMMAR_NAMES: ReadonlySet<string> = new Set(
   [...languageNames, ...languageAliasNames, ...NON_MODULE_LANGUAGE_ALIASES].filter(
     (name) => !NON_STANDALONE_LANGUAGE_NAMES.has(name),
   ),
