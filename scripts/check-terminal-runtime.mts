@@ -7,8 +7,10 @@ import { fileURLToPath } from 'node:url'
 
 import { GHOSTTY_TERMINAL_CAPABILITY_PROFILE } from './ghostty-terminal-capability-profile.mts'
 
-const REQUIRED_TERMINAL_METHODS =
-  GHOSTTY_TERMINAL_CAPABILITY_PROFILE.synchronizedOutput.terminalMethods
+const REQUIRED_TERMINAL_METHODS = [
+  ...GHOSTTY_TERMINAL_CAPABILITY_PROFILE.synchronizedOutput.terminalMethods,
+  ...GHOSTTY_TERMINAL_CAPABILITY_PROFILE.hostOwnedContextMenu.terminalMethods,
+] as const
 const REQUIRED_PARSER_METHODS =
   GHOSTTY_TERMINAL_CAPABILITY_PROFILE.synchronizedOutput.parserMethods
 const RECOVERY = 'Run `npm ci` in this worktree, then retry the command.'

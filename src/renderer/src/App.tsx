@@ -639,6 +639,7 @@ export function App(): ReactElement {
           onOpenWebLink={openWebLink}
           preferences={terminalPreferences(settings)}
           onOpenSettings={() => overlays.openSettings()}
+          onOpenTerminalSettings={() => overlays.openSettings('terminal')}
           onOpenHarnessSettings={() => overlays.openSettings('harnesses')}
           onAddHarness={overlays.openAddHarnessSettings}
         />

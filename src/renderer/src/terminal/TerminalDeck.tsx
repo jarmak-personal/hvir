@@ -41,6 +41,8 @@ export function TerminalDeck({
   onBell,
   onFocus,
   onLink,
+  onSplit,
+  onOpenTerminalSettings,
   onSetPrimaryWidth,
   onResetPrimaryWidth,
   runtimes,
@@ -73,6 +75,8 @@ export function TerminalDeck({
   readonly onBell: (id: string) => void
   readonly onFocus: (id: string) => void
   readonly onLink: (session: TerminalSession, activation: TerminalLinkActivation) => void
+  readonly onSplit: () => void
+  readonly onOpenTerminalSettings: () => void
   readonly onSetPrimaryWidth: (width: number) => void
   readonly onResetPrimaryWidth: () => void
   readonly runtimes: TerminalRuntimeRegistry
@@ -100,6 +104,8 @@ export function TerminalDeck({
       onBell={onBell}
       onFocus={onFocus}
       onLink={onLink}
+      onSplit={onSplit}
+      onOpenTerminalSettings={onOpenTerminalSettings}
       runtimes={runtimes}
     />
   )

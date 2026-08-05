@@ -3,6 +3,7 @@ import type { BrowserWindow } from 'electron'
 import { joinHostPath, type HostPath } from '../../shared'
 import type { PtySupervisor } from '../pty/pty-supervisor'
 import { ensureExplicitBareShellLaunch } from './terminal-explicit-launch'
+import { verifyTerminalContextMenu } from './terminal-context-menu'
 import { verifyTerminalHorizonPresentation } from './terminal-horizon-presentation'
 import { verifyTerminalProjectReturn } from './terminal-project-return'
 import { verifyTerminalSemanticNavigation } from './terminal-semantic-navigation'
@@ -463,6 +464,7 @@ export async function verifyTerminalPresentationLifecycle(
     `),
     'revealed terminal close timed out',
   )) as string
+  const contextMenuStatus = await verifyTerminalContextMenu(win, supervisor)
   const typographyStatus = await verifyLiveTerminalTypography(win, supervisor)
   return [
     explicitLaunch,
@@ -476,6 +478,7 @@ export async function verifyTerminalPresentationLifecycle(
     revealStatus,
     cursorStatus,
     inputStatus,
+    contextMenuStatus,
     typographyStatus,
   ]
     .filter((status): status is string => status !== undefined)

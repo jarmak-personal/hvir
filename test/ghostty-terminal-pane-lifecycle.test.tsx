@@ -1149,7 +1149,6 @@ function theme() {
     white: '#d8dee9',
   }
 }
-
 function typography() {
   return { fontFamily: 'ui-monospace, monospace', fontSize: 13 }
 }
@@ -1161,8 +1160,7 @@ function deliveryPresentation(container: HTMLElement): 'visible' | 'hidden' | un
     }
   ).__hvirTerminalDelivery?.presentation
 }
-
-function runtimeOptions(): TerminalRuntimeOptions & { readonly presented: boolean } {
+function runtimeOptions() {
   return {
     sessionId: 'terminal-1',
     profileId: asHarnessProfileId('claude-code-default'),
@@ -1196,5 +1194,7 @@ function runtimeOptions(): TerminalRuntimeOptions & { readonly presented: boolea
     onBell: vi.fn(),
     onFocus: vi.fn(),
     onLink: vi.fn(),
-  }
+    onSplit: vi.fn(),
+    onOpenTerminalSettings: vi.fn(),
+  } as const
 }

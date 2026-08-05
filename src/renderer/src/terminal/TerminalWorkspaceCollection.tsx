@@ -17,6 +17,7 @@ interface TerminalWorkspaceCollectionProps {
   readonly onOpenWebLink: WorkspaceProps['onOpenWebLink']
   readonly preferences: WorkspaceProps['preferences']
   readonly onOpenSettings: WorkspaceProps['onOpenSettings']
+  readonly onOpenTerminalSettings: WorkspaceProps['onOpenTerminalSettings']
   readonly onOpenHarnessSettings: WorkspaceProps['onOpenHarnessSettings']
   readonly onAddHarness: WorkspaceProps['onAddHarness']
 }
@@ -32,6 +33,7 @@ export function TerminalWorkspaceCollection({
   onOpenWebLink,
   preferences,
   onOpenSettings,
+  onOpenTerminalSettings,
   onOpenHarnessSettings,
   onAddHarness,
 }: TerminalWorkspaceCollectionProps): ReactElement {
@@ -43,7 +45,8 @@ export function TerminalWorkspaceCollection({
           .filter(
             (workspace) =>
               !workspace.closed &&
-              (workspace.id === state.activeWorkspaceId || materialized.has(workspace.id)),
+              (workspace.id === state.activeWorkspaceId ||
+                materialized.has(workspace.id)),
           )
           .map((workspace) => (
             <TerminalWorkspace
@@ -62,6 +65,7 @@ export function TerminalWorkspaceCollection({
               onOpenWebLink={onOpenWebLink}
               preferences={preferences}
               onOpenSettings={onOpenSettings}
+              onOpenTerminalSettings={onOpenTerminalSettings}
               onOpenHarnessSettings={onOpenHarnessSettings}
               onAddHarness={onAddHarness}
             />

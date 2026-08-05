@@ -5,9 +5,9 @@
 export const GHOSTTY_TERMINAL_CAPABILITY_PROFILE = {
   schemaVersion: 1,
   artifact: {
-    url: 'https://github.com/jarmak-personal/ghostty-web/releases/download/hvir-v0.4.0-5/ghostty-web-0.4.0-hvir-g00e3e1ff7f44.tgz',
-    sha256: '5c81639af9d6a6359627195a585ad81ac70551e7f8b3fb6a827aa60d32213d87',
-    sourceCommit: '00e3e1ff7f44300e4a7a80b55108cdb03a0ed271',
+    url: 'https://github.com/jarmak-personal/ghostty-web/releases/download/hvir-v0.4.0-7/ghostty-web-0.4.0-hvir-g4c3a26ed046a.tgz',
+    sha256: '28139b0e10740b2e02b48251aaa0aa8877094a9c73d16461d97eb9e5e175a0e0',
+    sourceCommit: '4c3a26ed046a927425c4b00416215d78647879ae',
     ghosttyCommit: '332b2aefc6e72d363aa93ab6ecfc86eeeeb5ed28',
   },
   identity: {
@@ -32,6 +32,19 @@ export const GHOSTTY_TERMINAL_CAPABILITY_PROFILE = {
       'isSynchronizedOutput',
       'getSynchronizedOutputGeneration',
       'resetSynchronizedOutput',
+    ],
+  },
+  hostOwnedContextMenu: {
+    browserMenuDisabled: true,
+    clipboardOwner: 'hvir-renderer',
+    imagePasteOwner: 'adr-026-main-coordinator',
+    terminalMethods: [
+      'hasSelection',
+      'getSelection',
+      'paste',
+      'selectAll',
+      'clear',
+      'reset',
     ],
   },
 } as const

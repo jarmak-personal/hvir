@@ -93,6 +93,7 @@ class GhosttyTerminalPane implements TerminalPane {
       fontSize: typography.fontSize,
       scrollback: 10_000,
       theme,
+      disableContextMenu: true,
     })
     this.fit = new TerminalFitController(this.terminal)
     this.terminal.attachCustomKeyEventHandler((event) => {
@@ -270,6 +271,30 @@ class GhosttyTerminalPane implements TerminalPane {
     this.terminal.scrollToLine(Math.max(0, scrollbackLength - location.row))
     this.redraw()
     return true
+  }
+
+  hasSelection(): boolean {
+    return !this.disposed && this.terminal.hasSelection()
+  }
+
+  getSelection(): string {
+    return this.disposed ? '' : this.terminal.getSelection()
+  }
+
+  paste(data: string): void {
+    if (!this.disposed) this.terminal.paste(data)
+  }
+
+  selectAll(): void {
+    if (!this.disposed) this.terminal.selectAll()
+  }
+
+  clear(): void {
+    if (!this.disposed) this.terminal.clear()
+  }
+
+  reset(): void {
+    if (!this.disposed) this.terminal.reset()
   }
 
   focus(): void {

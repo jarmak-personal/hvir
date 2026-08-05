@@ -86,6 +86,7 @@ describe('terminal workspace materialization bridge', () => {
         terminalRecoveryMode: 'prompt' as const,
       },
       onOpenSettings: vi.fn(),
+      onOpenTerminalSettings: vi.fn(),
       onOpenHarnessSettings: vi.fn(),
       onAddHarness: vi.fn(),
       runtimes: { disposeSession: vi.fn() } as never,
@@ -132,9 +133,7 @@ describe('terminal workspace materialization bridge', () => {
   })
 })
 
-function shellProvider(
-  id: HarnessProviderDescriptor['id'],
-): HarnessProviderDescriptor {
+function shellProvider(id: HarnessProviderDescriptor['id']): HarnessProviderDescriptor {
   return {
     id,
     displayName: 'Shell',
