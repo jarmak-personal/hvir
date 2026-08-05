@@ -410,7 +410,10 @@ function installReplacementDeliveryObserver(
         }
       });
       window.hvir.on('project:watch', ({ path }) => {
-        if (path.host === expectedWatchPath.host && path.path === expectedWatchPath.path) {
+        if (
+          path.hostId === expectedWatchPath.hostId &&
+          path.path === expectedWatchPath.path
+        ) {
           window.__hvirRendererRecoveryDeliveries.watch = true;
         }
       });
