@@ -239,6 +239,10 @@ interface MockTerminalEventHandlers extends TerminalEventHandlers {
 
 class FakeHvirApi implements HvirApi {
   rendererReady(): void {}
+  readonly externalFiles = {
+    acquireDropped: () =>
+      Promise.reject(new Error('external files are not used by terminal tests')),
+  }
   readonly diagnostics = {
     processSandboxed: true,
     recordRenderContainment: vi.fn(),

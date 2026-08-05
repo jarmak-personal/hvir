@@ -152,6 +152,131 @@ describe('SshFileAccess', () => {
     files.dispose()
   })
 
+  it('awaits an exclusive-open callback after cancellation, then owns cleanup', async () => {
+    const hostId = asHostId('ssh:transfer-open')
+    const path = hostPath(hostId, '/project/staging')
+    let finishOpen!: (error: Error | undefined, handle: Buffer) => void
+    const session = {
+      open: vi.fn(
+        (_path: string, _flags: string, _attrs: unknown, callback: typeof finishOpen) => {
+          finishOpen = callback
+        },
+      ),
+      close: vi.fn((_handle: Buffer, callback: (error?: Error) => void) => callback()),
+      unlink: vi.fn((_path: string, callback: (error?: Error) => void) => callback()),
+      once: vi.fn(),
+      end: vi.fn(),
+    }
+    const files = new SshFileAccess(
+      { hostId, openSftp: () => Promise.resolve(session as unknown as SFTPWrapper) },
+      {},
+    )
+    const controller = new AbortController()
+    const created = vi.fn()
+    const writing = files.writeFileChunksExclusive(path, emptyChunks(), {
+      mode: 0o644,
+      signal: controller.signal,
+      onCreated: created,
+    })
+    await vi.waitFor(() => expect(session.open).toHaveBeenCalledOnce())
+
+    controller.abort()
+    await expect(
+      Promise.race([writing.then(() => 'settled'), Promise.resolve('open')]),
+    ).resolves.toBe('open')
+    finishOpen(undefined, Buffer.from('handle'))
+
+    await expect(writing).rejects.toMatchObject({ name: 'AbortError' })
+    expect(created).toHaveBeenCalledOnce()
+    expect(session.close).toHaveBeenCalledOnce()
+    expect(session.unlink).toHaveBeenCalledOnce()
+  })
+
+  it('does not report cancellation while a submitted write callback is pending', async () => {
+    const hostId = asHostId('ssh:transfer-write')
+    const path = hostPath(hostId, '/project/staging')
+    let finishWrite!: (error?: Error) => void
+    const session = {
+      open: vi.fn(
+        (
+          _path: string,
+          _flags: string,
+          _attrs: unknown,
+          callback: (error: Error | undefined, handle: Buffer) => void,
+        ) => callback(undefined, Buffer.from('handle')),
+      ),
+      write: vi.fn(
+        (
+          _handle: Buffer,
+          _value: Buffer,
+          _offset: number,
+          _length: number,
+          _position: number,
+          callback: typeof finishWrite,
+        ) => {
+          finishWrite = callback
+        },
+      ),
+      close: vi.fn((_handle: Buffer, callback: (error?: Error) => void) => callback()),
+      unlink: vi.fn((_path: string, callback: (error?: Error) => void) => callback()),
+      once: vi.fn(),
+      end: vi.fn(),
+    }
+    const files = new SshFileAccess(
+      { hostId, openSftp: () => Promise.resolve(session as unknown as SFTPWrapper) },
+      {},
+    )
+    const controller = new AbortController()
+    let settled = false
+    const writing = files
+      .writeFileChunksExclusive(path, oneChunk(), {
+        mode: 0o644,
+        signal: controller.signal,
+      })
+      .finally(() => {
+        settled = true
+      })
+    await vi.waitFor(() => expect(session.write).toHaveBeenCalledOnce())
+
+    controller.abort()
+    await Promise.resolve()
+    expect(settled).toBe(false)
+    finishWrite()
+
+    await expect(writing).rejects.toMatchObject({ name: 'AbortError' })
+    expect(session.unlink).toHaveBeenCalledOnce()
+  })
+
+  it('truthfully completes a submitted no-replace rename after cancellation', async () => {
+    const hostId = asHostId('ssh:transfer-rename')
+    const source = hostPath(hostId, '/project/.hvir-import-stage')
+    const destination = hostPath(hostId, '/project/published')
+    let finishRename!: (error?: Error) => void
+    const session = {
+      rename: vi.fn(
+        (_source: string, _destination: string, callback: typeof finishRename) => {
+          finishRename = callback
+        },
+      ),
+      once: vi.fn(),
+      end: vi.fn(),
+    }
+    const files = new SshFileAccess(
+      { hostId, openSftp: () => Promise.resolve(session as unknown as SFTPWrapper) },
+      {},
+    )
+    const controller = new AbortController()
+    const publishing = files.renameProjectFileNoReplace(source, destination, {
+      signal: controller.signal,
+    })
+    await vi.waitFor(() => expect(session.rename).toHaveBeenCalledOnce())
+
+    controller.abort()
+    finishRename()
+
+    await expect(publishing).resolves.toBeUndefined()
+  })
+
   it('removes only the observed version of a remote file', async () => {
     const hostId = asHostId('ssh:test')
     const path = hostPath(hostId, '/project/keybindings.json')
@@ -284,6 +409,13 @@ describe('SshFileAccess', () => {
     files.dispose()
   })
 })
+
+async function* emptyChunks(): AsyncIterable<Uint8Array> {}
+
+async function* oneChunk(): AsyncIterable<Uint8Array> {
+  await Promise.resolve()
+  yield Buffer.from('one')
+}
 
 function fileAccess(
   openSftp: () => Promise<SFTPWrapper> = () =>

@@ -13,12 +13,17 @@ import {
 } from '../../shared'
 import type {
   ExclusiveCreateOptions,
+  ProjectFileMetadataOptions,
+  ProjectFileStreamOptions,
+  ProjectFileWriteStreamOptions,
   ReadFileOptions,
   RemoveFileOptions,
   WriteFileOptions,
 } from './project-host'
 import { readSshTextPrefix } from './ssh-text-prefix'
 import { SshExclusiveCreate } from './ssh-exclusive-create'
+import { SshProjectFileTransfer } from './ssh-project-file-transfer'
+import { abortError, withAbort, writeSftpFile } from './ssh-abort'
 
 export interface SshFileAccessOptions {
   readonly fingerprintObservationWindowMs?: number
@@ -32,6 +37,7 @@ export interface SshFileAccessOwner {
 /** Transport-scoped SFTP/cache state plus content-scoped optimistic save authority. */
 export class SshFileAccess {
   private readonly exclusiveCreate: SshExclusiveCreate
+  private readonly projectTransfer: SshProjectFileTransfer
   private generation = 0
   private sftpSession?: Promise<SFTPWrapper>
   private readonly cache = new Map<
@@ -52,6 +58,12 @@ export class SshFileAccess {
     private readonly options: SshFileAccessOptions,
   ) {
     this.exclusiveCreate = new SshExclusiveCreate({
+      hostId: owner.hostId,
+      getSftp: () => this.getSftp(),
+      stat: (path) => this.stat(path),
+      invalidate: (path) => this.invalidate(path),
+    })
+    this.projectTransfer = new SshProjectFileTransfer({
       hostId: owner.hostId,
       getSftp: () => this.getSftp(),
       stat: (path) => this.stat(path),
@@ -182,6 +194,43 @@ export class SshFileAccess {
     opts: ExclusiveCreateOptions,
   ): Promise<void> {
     return this.exclusiveCreate.directory(path, opts)
+  }
+
+  async *readFileChunks(
+    path: HostPath,
+    opts: ProjectFileStreamOptions = {},
+  ): AsyncIterable<Uint8Array> {
+    yield* this.projectTransfer.readFileChunks(path, opts)
+  }
+
+  async writeFileChunksExclusive(
+    path: HostPath,
+    chunks: AsyncIterable<Uint8Array>,
+    opts: ProjectFileWriteStreamOptions,
+  ): Promise<void> {
+    return this.projectTransfer.writeFileChunksExclusive(path, chunks, opts)
+  }
+
+  async setProjectFileMetadata(
+    path: HostPath,
+    opts: ProjectFileMetadataOptions,
+  ): Promise<void> {
+    return this.projectTransfer.setMetadata(path, opts)
+  }
+
+  async renameProjectFileNoReplace(
+    source: HostPath,
+    destination: HostPath,
+    opts: ProjectFileStreamOptions = {},
+  ): Promise<void> {
+    return this.projectTransfer.renameNoReplace(source, destination, opts)
+  }
+
+  async removeDirectory(
+    path: HostPath,
+    opts: { readonly ignoreMissing?: boolean } = {},
+  ): Promise<void> {
+    return this.projectTransfer.removeDirectory(path, opts)
   }
 
   async removeFile(path: HostPath, opts: RemoveFileOptions = {}): Promise<void> {
@@ -360,71 +409,6 @@ export class SshFileAccess {
     }
     return value.value as T
   }
-}
-
-function writeSftpFile(
-  session: SFTPWrapper,
-  path: string,
-  data: Buffer,
-  mode: number | undefined,
-  signal: AbortSignal | undefined,
-  done: (reason: Error | null | undefined, value: void) => void,
-): void {
-  if (signal?.aborted) {
-    done(abortError(), undefined)
-    return
-  }
-  const stream = session.createWriteStream(path, mode === undefined ? {} : { mode })
-  let settled = false
-  const abort = () => {
-    stream.destroy()
-    finish(abortError())
-  }
-  const finish = (reason?: Error): void => {
-    if (settled) return
-    settled = true
-    signal?.removeEventListener('abort', abort)
-    stream.removeListener('error', onError)
-    stream.removeListener('finish', onFinish)
-    stream.removeListener('close', onClose)
-    done(reason, undefined)
-  }
-  const onError = (reason: Error) => finish(reason)
-  const onFinish = () => finish()
-  const onClose = () => finish(new Error('SSH file write closed before completion'))
-  stream.once('error', onError)
-  stream.once('finish', onFinish)
-  stream.once('close', onClose)
-  signal?.addEventListener('abort', abort, { once: true })
-  stream.end(data)
-}
-
-function withAbort<T>(task: Promise<T>, signal?: AbortSignal): Promise<T> {
-  if (!signal) return task
-  if (signal.aborted) return Promise.reject(abortError())
-  return new Promise<T>((resolve, reject) => {
-    let settled = false
-    const abort = () => finish(abortError())
-    const finish = (reason?: unknown, value?: T): void => {
-      if (settled) return
-      settled = true
-      signal.removeEventListener('abort', abort)
-      if (reason !== undefined) {
-        reject(reason instanceof Error ? reason : new Error('SSH file operation failed'))
-      } else resolve(value as T)
-    }
-    signal.addEventListener('abort', abort, { once: true })
-    void task.then(
-      (value) => finish(undefined, value),
-      (reason: unknown) => finish(reason),
-    )
-  })
-}
-
-function abortError(): Error {
-  const error = new Error('The operation was aborted')
-  error.name = 'AbortError'
-  return error
 }
 
 export function remoteParent(path: string): string {

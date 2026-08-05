@@ -129,3 +129,49 @@
 .file-operation-feedback.error {
   color: var(--danger-text);
 }
+
+.file-operation-feedback ul {
+  max-height: 180px;
+  margin: 6px 0 0;
+  padding-left: 18px;
+  overflow: auto;
+  color: var(--text-muted);
+}
+
+.file-copy-progress {
+  z-index: 1001;
+  position: fixed;
+  right: 14px;
+  bottom: 14px;
+  max-width: min(420px, calc(100vw - 28px));
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: 5px;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 38%);
+  background: var(--surface-2);
+}
+
+.file-copy-progress span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-drop-active {
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+}
+
+.file-drop-target {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--accent);
+  background: var(--surface-2);
+  color: var(--text);
+}

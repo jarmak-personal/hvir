@@ -20,7 +20,7 @@ export function FileCreateOverlays({
 }: {
   readonly controller: FileCreateActionsController
 }): ReactElement | null {
-  const { menu, dialog, feedback } = controller
+  const { menu, dialog, feedback, copyProgress } = controller
   const menuRef = useRef<HTMLDivElement>(null)
   const [name, setName] = useState('')
   const validation = projectFileEntryNameError(name)
@@ -45,7 +45,7 @@ export function FileCreateOverlays({
     }
   }, [controller, menu])
 
-  if (!menu && !dialog && !feedback) return null
+  if (!menu && !dialog && !feedback && !copyProgress) return null
   return createPortal(
     <>
       {menu ? (
@@ -72,6 +72,14 @@ export function FileCreateOverlays({
             onClick={() => controller.beginCreate('directory')}
           >
             New Folder…
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            disabled={controller.pending}
+            onClick={() => controller.pasteFilesFromMenu()}
+          >
+            Paste Files
           </button>
           <div className="file-action-menu-separator" role="separator" />
           {(Object.keys(PATH_COPY_LABELS) as PathCopyKind[]).map((kind) => (
@@ -154,7 +162,35 @@ export function FileCreateOverlays({
           className={`file-operation-feedback ${feedback.kind}`}
           role={feedback.kind === 'error' ? 'alert' : 'status'}
         >
-          {feedback.message}
+          <span>{feedback.message}</span>
+          {feedback.details?.length ? (
+            <ul>
+              {feedback.details.map((detail, index) => (
+                <li key={`${index}:${detail}`}>{detail}</li>
+              ))}
+            </ul>
+          ) : null}
+          {feedback.kind === 'error' || feedback.details?.length ? (
+            <button type="button" onClick={() => controller.dismissFeedback()}>
+              Dismiss
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+      {copyProgress ? (
+        <div className="file-copy-progress" role="status" aria-live="polite">
+          <span>
+            {copyProgress.phase === 'cancelling' ? 'Cancelling' : 'Copying'}{' '}
+            {copyProgress.completedItems} of {copyProgress.totalItems}
+            {copyProgress.currentName ? ` · ${copyProgress.currentName}` : ''}
+          </span>
+          <button
+            type="button"
+            disabled={copyProgress.phase === 'cancelling'}
+            onClick={() => controller.cancelCopy()}
+          >
+            Cancel
+          </button>
         </div>
       ) : null}
     </>,

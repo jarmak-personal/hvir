@@ -35,6 +35,10 @@ export const OWNER_SCOPED_INVOKE_CHANNELS = [
   'ssh:prompt-response',
   'fs:filename-search',
   'fs:create-entry',
+  'fs:acquire-clipboard-files',
+  'fs:acquire-dropped-files',
+  'fs:copy-external',
+  'fs:cancel-file-operation',
   'html-preview:create',
   'web-pane:open',
   'web-pane:close',
@@ -55,6 +59,7 @@ export const AUTHORITY_SCOPED_INVOKE_CHANNELS = [
   'fs:read-asset',
   'fs:write',
   'fs:create-entry',
+  'fs:copy-external',
   'git:diff-inputs',
   'git:changes',
   'git:history',
@@ -93,30 +98,25 @@ export interface IpcSendContext {
   readonly authority: IpcAuthority
   owner(): RendererOwner
 }
-
 export interface IpcContractDiagnostic {
   readonly channel: IpcInvokeChannel | IpcSendChannel
   readonly outcome: 'non-main-frame' | 'renderer-revoked'
   readonly timing: 'under-1ms' | 'under-10ms' | '10ms-or-more'
 }
-
 export type IpcInvokeHandler<C extends IpcInvokeChannel> = (
   req: IpcRequest<C>,
   context: IpcInvokeContext,
 ) => IpcResponse<C> | Promise<IpcResponse<C>>
-
 export type IpcSendHandler<C extends IpcSendChannel> = (
   payload: IpcSendPayload<C>,
   context: IpcSendContext,
 ) => void
-
 /** Narrow capability given to feature registrars; transport and lifecycle stay private. */
 export interface IpcRegistrar {
   readonly authority: IpcAuthority
   handle<C extends IpcInvokeChannel>(channel: C, handler: IpcInvokeHandler<C>): void
   handleSend<C extends IpcSendChannel>(channel: C, handler: IpcSendHandler<C>): void
 }
-
 export interface IpcMainRegistrationPort {
   handle(
     channel: string,

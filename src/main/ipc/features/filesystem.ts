@@ -180,4 +180,51 @@ export function registerFilesystemIpc(ipc: IpcRegistrar, deps: FilesystemIpcDeps
       })
     }),
   )
+
+  ipc.handle('fs:acquire-clipboard-files', (_req, context) =>
+    operationResult(() => deps.projectFiles.acquireClipboard(context.owner())),
+  )
+
+  ipc.handle('fs:acquire-dropped-files', (req, context) =>
+    operationResult(() =>
+      deps.projectFiles.acquireDropped(context.owner(), droppedPaths(req.paths)),
+    ),
+  )
+
+  ipc.handle('fs:copy-external', (req, context) =>
+    operationResult(async () => {
+      const workspaceRoot = ipc.authority.workspaceRoot(
+        ipc.authority.reconstructHostPath(req.workspaceRoot),
+      )
+      const destinationDirectory = ipc.authority.reconstructHostPath(
+        req.destinationDirectory,
+      )
+      return deps.projectFiles.copyExternal({
+        owner: context.owner(),
+        workspaceRoot,
+        destinationDirectory,
+        grantId: req.grantId,
+        grantGeneration: req.grantGeneration,
+        publish: (progress) => context.sender.send('fs:project-file-operation', progress),
+      })
+    }),
+  )
+
+  ipc.handle('fs:cancel-file-operation', (req, context) =>
+    operationResult(() =>
+      Promise.resolve(
+        deps.projectFiles.cancel(context.owner(), req.operationId, req.generation),
+      ),
+    ),
+  )
+}
+
+function droppedPaths(value: unknown): readonly string[] {
+  if (!Array.isArray(value) || value.length > 256) {
+    throw new Error('Invalid dropped file list')
+  }
+  return value.map((path) => {
+    if (typeof path !== 'string') throw new Error('Invalid dropped file path')
+    return path
+  })
 }

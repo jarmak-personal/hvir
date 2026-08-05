@@ -15,9 +15,11 @@ import { spawn } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { constants, realpathSync } from 'node:fs'
 import { promises as fsp } from 'node:fs'
+import { createRequire } from 'node:module'
 import { connect } from 'node:net'
 import { basename, dirname, join, relative, sep } from 'node:path'
 import { StringDecoder } from 'node:string_decoder'
+import { getSystemErrorName } from 'node:util'
 import chokidar from 'chokidar'
 
 import {
@@ -46,6 +48,10 @@ import type {
   ExecOptions,
   ExecStreamHandle,
   ProjectHost,
+  ProjectFileMetadataOptions,
+  ProjectFileStreamOptions,
+  ProjectFileTransferPort,
+  ProjectFileWriteStreamOptions,
   PtyExit,
   PtyProcess,
   ReadFileOptions,
@@ -58,14 +64,31 @@ import {
   assertLoopbackEndpoint,
   MAX_EXEC_STREAM_WRITE_BYTES,
   ProjectPathExistsError,
+  PROJECT_FILE_STREAM_CHUNK_BYTES,
 } from './project-host'
 
 const DEFAULT_MAX_BUFFER = 10 * 1024 * 1024 // 10 MiB
+const ATOMIC_RENAME_HELPER_VERSION = '0.5.0-beta.1'
+const atomicRenameRequire = createRequire(import.meta.url)
+
+interface AtomicRenameBinding {
+  metadata(): unknown
+  renameNoReplace(parentFd: number, source: string, destination: string): unknown
+}
 
 export class LocalHost implements ProjectHost {
   readonly hostId: HostId = LOCAL_HOST_ID
   readonly connectionState: HostConnectionState = 'connected'
   readonly watchTier: HostWatchTier = 'native'
+  readonly fileTransfer: ProjectFileTransferPort = {
+    readFileChunks: (path, opts) => this.readFileChunks(path, opts),
+    writeFileChunksExclusive: (path, chunks, opts) =>
+      this.writeFileChunksExclusive(path, chunks, opts),
+    setMetadata: (path, opts) => this.setProjectFileMetadata(path, opts),
+    renameNoReplace: (source, destination, opts) =>
+      this.renameProjectFileNoReplace(source, destination, opts),
+    removeDirectory: (path, opts) => this.removeDirectory(path, opts),
+  }
 
   /** Live watcher lifecycles, including any native-to-polling fallback. */
   private readonly watchers = new Set<Disposer>()
@@ -445,6 +468,7 @@ export class LocalHost implements ProjectHost {
         opts.mode,
       )
       created = true
+      opts.onCreated?.()
       opts.signal?.throwIfAborted()
       await handle.chmod(opts.mode)
       await handle.close()
@@ -470,6 +494,7 @@ export class LocalHost implements ProjectHost {
     try {
       await fsp.mkdir(destination, { mode: opts.mode })
       created = true
+      opts.onCreated?.()
       opts.signal?.throwIfAborted()
       await fsp.chmod(destination, opts.mode)
       opts.signal?.throwIfAborted()
@@ -479,6 +504,124 @@ export class LocalHost implements ProjectHost {
         throw new ProjectPathExistsError()
       }
       throw reason
+    }
+  }
+
+  private async *readFileChunks(
+    path: HostPath,
+    opts: ProjectFileStreamOptions = {},
+  ): AsyncIterable<Uint8Array> {
+    opts.signal?.throwIfAborted()
+    const handle = await fsp.open(this.resolve(path), 'r')
+    const buffer = Buffer.allocUnsafe(PROJECT_FILE_STREAM_CHUNK_BYTES)
+    try {
+      for (;;) {
+        opts.signal?.throwIfAborted()
+        const { bytesRead } = await handle.read(buffer, 0, buffer.byteLength, null)
+        if (bytesRead === 0) return
+        yield Buffer.from(buffer.subarray(0, bytesRead))
+      }
+    } finally {
+      await handle.close()
+    }
+  }
+
+  private async writeFileChunksExclusive(
+    path: HostPath,
+    chunks: AsyncIterable<Uint8Array>,
+    opts: ProjectFileWriteStreamOptions,
+  ): Promise<void> {
+    opts.signal?.throwIfAborted()
+    const destination = this.resolve(path)
+    let created = false
+    let handle: import('node:fs/promises').FileHandle | undefined
+    try {
+      handle = await fsp.open(
+        destination,
+        constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY,
+        opts.mode,
+      )
+      created = true
+      opts.onCreated?.()
+      for await (const chunk of chunks) {
+        opts.signal?.throwIfAborted()
+        const value = Buffer.from(chunk)
+        let offset = 0
+        while (offset < value.byteLength) {
+          const { bytesWritten } = await handle.write(
+            value,
+            offset,
+            value.byteLength - offset,
+            null,
+          )
+          if (bytesWritten <= 0) throw new Error('Local file stream made no progress')
+          offset += bytesWritten
+        }
+      }
+      opts.signal?.throwIfAborted()
+      await handle.chmod(opts.mode)
+      await handle.close()
+      handle = undefined
+    } catch (reason) {
+      await handle?.close().catch(() => undefined)
+      if (created) await fsp.unlink(destination).catch(() => undefined)
+      if ((reason as NodeJS.ErrnoException).code === 'EEXIST') {
+        throw new ProjectPathExistsError()
+      }
+      throw reason
+    }
+  }
+
+  private async setProjectFileMetadata(
+    path: HostPath,
+    opts: ProjectFileMetadataOptions,
+  ): Promise<void> {
+    opts.signal?.throwIfAborted()
+    const target = this.resolve(path)
+    await fsp.chmod(target, opts.mode)
+    opts.signal?.throwIfAborted()
+    await fsp.utimes(target, opts.mtimeSeconds, opts.mtimeSeconds)
+    opts.signal?.throwIfAborted()
+  }
+
+  private async renameProjectFileNoReplace(
+    source: HostPath,
+    destination: HostPath,
+    opts: ProjectFileStreamOptions = {},
+  ): Promise<void> {
+    opts.signal?.throwIfAborted()
+    const from = this.resolve(source)
+    const to = this.resolve(destination)
+    if (dirname(from) !== dirname(to)) {
+      throw new Error('Atomic no-replace publication requires one parent directory')
+    }
+    const parent = await fsp.open(dirname(from), 'r')
+    try {
+      opts.signal?.throwIfAborted()
+      const result = loadAtomicRenameBinding().renameNoReplace(
+        parent.fd,
+        basename(from),
+        basename(to),
+      )
+      if (!Number.isInteger(result) || (result as number) < 0) {
+        throw new Error('Atomic no-replace helper returned an invalid result')
+      }
+      if (result !== 0) throw atomicRenameError(result as number)
+    } finally {
+      await parent.close()
+    }
+  }
+
+  private async removeDirectory(
+    path: HostPath,
+    opts: { readonly ignoreMissing?: boolean } = {},
+  ): Promise<void> {
+    try {
+      await fsp.rmdir(this.resolve(path))
+    } catch (reason) {
+      if (!opts.ignoreMissing || (reason as NodeJS.ErrnoException).code !== 'ENOENT') {
+        throw reason
+      }
     }
   }
 
@@ -657,6 +800,61 @@ function asError(reason: unknown): Error {
 
 function fileChangedError(): Error {
   return new Error('File changed since it was opened; reload before saving')
+}
+
+function loadAtomicRenameBinding(): AtomicRenameBinding {
+  const libc =
+    process.platform === 'linux' &&
+    (process.report.getReport() as { header: { glibcVersionRuntime?: string } }).header
+      .glibcVersionRuntime === undefined
+      ? 'musl'
+      : process.platform === 'linux'
+        ? 'gnu'
+        : 'none'
+  const target = `${process.platform}:${process.arch}:${libc}`
+  const packageName = new Map<string, string>([
+    ['darwin:arm64:none', '@skill-steward/rename-noreplace-darwin-arm64'],
+    ['linux:x64:gnu', '@skill-steward/rename-noreplace-linux-x64-gnu'],
+    ['linux:arm64:gnu', '@skill-steward/rename-noreplace-linux-arm64-gnu'],
+  ]).get(target)
+  if (!packageName) {
+    throw new Error('Atomic no-replace publication is unavailable on this platform')
+  }
+  const manifest = atomicRenameRequire(`${packageName}/package.json`) as {
+    name?: unknown
+    version?: unknown
+  }
+  if (
+    manifest.name !== packageName ||
+    manifest.version !== ATOMIC_RENAME_HELPER_VERSION
+  ) {
+    throw new Error('Atomic no-replace helper metadata does not match hvir')
+  }
+  const candidate = atomicRenameRequire(packageName) as Partial<AtomicRenameBinding>
+  if (
+    typeof candidate.metadata !== 'function' ||
+    typeof candidate.renameNoReplace !== 'function' ||
+    candidate.metadata() !==
+      `skill-steward.owned-tree-native.v3:${ATOMIC_RENAME_HELPER_VERSION}:${target}`
+  ) {
+    throw new Error('Atomic no-replace helper exports do not match hvir')
+  }
+  return candidate as AtomicRenameBinding
+}
+
+function atomicRenameError(errno: number): Error {
+  let code = 'UNKNOWN'
+  try {
+    code = getSystemErrorName(-errno)
+  } catch {
+    // Preserve a closed error when the platform reports an unknown errno.
+  }
+  if (code === 'EEXIST' || code === 'ENOTEMPTY') {
+    return new ProjectPathExistsError()
+  }
+  return Object.assign(new Error(`Atomic no-replace publication failed with ${code}`), {
+    code,
+  })
 }
 
 function watchCapacityError(error: Error): boolean {

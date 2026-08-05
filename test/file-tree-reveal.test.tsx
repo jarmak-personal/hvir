@@ -47,6 +47,10 @@ beforeEach(() => {
         }),
       ),
       send: vi.fn(),
+      on: vi.fn(() => () => undefined),
+      externalFiles: {
+        acquireDropped: vi.fn(() => Promise.reject(new Error('not configured'))),
+      },
     },
   })
   container = document.createElement('div')

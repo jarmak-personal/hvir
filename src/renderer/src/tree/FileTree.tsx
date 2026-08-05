@@ -1,10 +1,13 @@
-import { useCallback, useMemo, useState, type ReactElement } from 'react'
+import { useCallback, useEffect, useMemo, useState, type ReactElement } from 'react'
 
 import {
   basenameHostPath,
+  containsHostPath,
   GIT_CHANGE_DISPLAY_LIMIT,
   MAX_PROJECT_WATCH_INTERESTS,
   unwrapOperation,
+  hostPath,
+  type FileType,
   type GitChangedFile,
   type FileOpenContext,
   type HostPath,
@@ -14,7 +17,7 @@ import { MissingWorkspaceNotice } from '../workspaces/MissingWorkspaceNotice'
 import { buildTreeGitDecorations } from './git-status-decoration'
 import { FilenameSearch } from './FilenameSearch'
 import { FileCreateOverlays } from './FileCreateOverlays'
-import { useFileCreateActions } from './use-file-create-actions'
+import { fileActionDestination, useFileCreateActions } from './use-file-create-actions'
 
 const NO_CHANGED_FILES: readonly GitChangedFile[] = []
 
@@ -54,7 +57,9 @@ export function FileTree({
   onExpandedChange,
 }: FileTreeProps): ReactElement {
   const [searchActive, setSearchActive] = useState(false)
+  const [dropTarget, setDropTarget] = useState<HostPath>()
   const fileCreate = useFileCreateActions({ root, onCreatedFile: onOpen })
+  useEffect(() => setDropTarget(undefined), [root.hostId, root.path])
   const gitDecorations = useMemo(
     () =>
       buildTreeGitDecorations(
@@ -102,10 +107,46 @@ export function FileTree({
             onOpen={onOpen}
           />
           <div
-            className="tree-scroll"
+            className={`tree-scroll${dropTarget ? ' file-drop-active' : ''}`}
             hidden={searchActive}
             onContextMenu={(event) => fileCreate.openRootFromPointer(event)}
+            onKeyDown={(event) => {
+              if (!isPasteShortcut(event) || isEditableTarget(event.target)) return
+              const target = fileTarget(event.target, root)
+              if (!target) return
+              event.preventDefault()
+              event.stopPropagation()
+              fileCreate.pasteFiles(target.path, target.type)
+            }}
+            onDragOver={(event) => {
+              if (!event.dataTransfer.types.includes('Files')) return
+              event.preventDefault()
+              event.dataTransfer.dropEffect = 'copy'
+              const target = fileTarget(event.target, root) ?? { path: root, type: 'dir' }
+              setDropTarget(fileActionDestination(root, target.path, target.type))
+            }}
+            onDragLeave={(event) => {
+              if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+                setDropTarget(undefined)
+              }
+            }}
+            onDrop={(event) => {
+              if (!event.dataTransfer.types.includes('Files')) return
+              event.preventDefault()
+              const target = fileTarget(event.target, root) ?? { path: root, type: 'dir' }
+              setDropTarget(undefined)
+              fileCreate.dropFiles(
+                [...event.dataTransfer.files],
+                target.path,
+                target.type,
+              )
+            }}
           >
+            {dropTarget ? (
+              <div className="file-drop-target" role="status">
+                Copy into {basenameHostPath(dropTarget) || dropTarget.path}
+              </div>
+            ) : null}
             {watchInterestsLimited ? (
               <div className="tree-scope-notice" role="status">
                 Live updates are limited to the first{' '}
@@ -147,6 +188,41 @@ export function FileTree({
         </>
       )}
     </section>
+  )
+}
+
+function fileTarget(
+  value: EventTarget | null,
+  root: HostPath,
+): { readonly path: HostPath; readonly type: FileType } | undefined {
+  if (!(value instanceof Element)) return undefined
+  const row = value.closest<HTMLElement>('[data-file-path][data-file-type]')
+  const path = row?.dataset.filePath
+  const hostId = row?.dataset.fileHost
+  const type = row?.dataset.fileType
+  if (!path || hostId !== root.hostId || !isFileType(type)) return undefined
+  const target = hostPath(root.hostId, path)
+  return containsHostPath(root, target) ? { path: target, type } : undefined
+}
+
+function isFileType(value: unknown): value is FileType {
+  return ['file', 'dir', 'symlink', 'other'].includes(String(value))
+}
+
+function isPasteShortcut(event: React.KeyboardEvent): boolean {
+  return (
+    event.key.toLowerCase() === 'v' &&
+    (event.metaKey || event.ctrlKey) &&
+    !event.altKey &&
+    !event.shiftKey
+  )
+}
+
+function isEditableTarget(value: EventTarget | null): boolean {
+  return (
+    value instanceof HTMLInputElement ||
+    value instanceof HTMLTextAreaElement ||
+    (value instanceof HTMLElement && value.isContentEditable)
   )
 }
 

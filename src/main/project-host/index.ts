@@ -3,6 +3,11 @@ export type {
   ExecOptions,
   ExecStreamHandle,
   ExclusiveCreateOptions,
+  ProjectFileMetadataOptions,
+  ProjectFileMode,
+  ProjectFileStreamOptions,
+  ProjectFileTransferPort,
+  ProjectFileWriteStreamOptions,
   ProjectHost,
   PtyExit,
   PtyProcess,
@@ -16,6 +21,7 @@ export {
   assertLoopbackEndpoint,
   isProjectPathExistsError,
   MAX_EXEC_STREAM_WRITE_BYTES,
+  PROJECT_FILE_STREAM_CHUNK_BYTES,
   ProjectPathExistsError,
 } from './project-host'
 export { LocalHost } from './local-host'

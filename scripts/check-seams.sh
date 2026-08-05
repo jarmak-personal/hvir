@@ -66,7 +66,7 @@ report "IPC features use central owner/path authority" "$hits"
 # consumers continue to depend on ProjectHost and host-qualified paths only.
 hits=$(grep -rnE "from ['\"]ssh2['\"]|import\(['\"]ssh2['\"]\)" \
   "$SRC" --include='*.ts' --include='*.tsx' --include='*.mts' \
-  | grep -vE '^src/main/project-host/ssh-(host|host-options|file-access|exclusive-create|transport-pool|watch-service)\.ts' || true)
+  | grep -vE '^src/main/project-host/ssh-(host|host-options|file-access|exclusive-create|project-file-transfer|abort|transport-pool|watch-service)\.ts' || true)
 report "ssh2 details stay inside the SshHost adapter" "$hits"
 
 # 9. Host-local collaborators share SshHost's authentication lifecycle. They

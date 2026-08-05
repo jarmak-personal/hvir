@@ -89,10 +89,52 @@ export interface WriteFileOptions {
 
 export type ProjectFileMode = 0o644 | 0o755
 
+export const PROJECT_FILE_STREAM_CHUNK_BYTES = 64 * 1024
+
+export interface ProjectFileStreamOptions {
+  readonly signal?: AbortSignal
+}
+
+export interface ProjectFileWriteStreamOptions extends ProjectFileStreamOptions {
+  readonly mode: ProjectFileMode
+  /** Exact destination ownership begins immediately after exclusive creation. */
+  readonly onCreated?: () => void
+}
+
+export interface ProjectFileMetadataOptions extends ProjectFileStreamOptions {
+  readonly mode: ProjectFileMode
+  readonly mtimeSeconds: number
+}
+
+/** Immediate transfer mechanics. Recursive policy remains coordinator-owned. */
+export interface ProjectFileTransferPort {
+  readFileChunks(
+    path: HostPath,
+    opts?: ProjectFileStreamOptions,
+  ): AsyncIterable<Uint8Array>
+  writeFileChunksExclusive(
+    path: HostPath,
+    chunks: AsyncIterable<Uint8Array>,
+    opts: ProjectFileWriteStreamOptions,
+  ): Promise<void>
+  setMetadata(path: HostPath, opts: ProjectFileMetadataOptions): Promise<void>
+  renameNoReplace(
+    source: HostPath,
+    destination: HostPath,
+    opts?: ProjectFileStreamOptions,
+  ): Promise<void>
+  removeDirectory(
+    path: HostPath,
+    opts?: { readonly ignoreMissing?: boolean },
+  ): Promise<void>
+}
+
 export interface ExclusiveCreateOptions {
   readonly mode: ProjectFileMode
   /** Reject before beginning the immediate exclusive filesystem effect. */
   readonly signal?: AbortSignal
+  /** Exact destination ownership begins immediately after exclusive creation. */
+  readonly onCreated?: () => void
 }
 
 export class ProjectPathExistsError extends Error {
@@ -168,6 +210,8 @@ export interface ProjectHost {
   readonly hostId: HostId
   readonly connectionState: HostConnectionState
   readonly watchTier: HostWatchTier
+  /** Present when this host can participate in verified project-file transfers. */
+  readonly fileTransfer?: ProjectFileTransferPort
 
   /** Establish the connection (a no-op for LocalHost). */
   connect(): Promise<void>
