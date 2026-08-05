@@ -11,7 +11,7 @@ import {
   type ElectronSmokeScenario,
 } from '../src/main/smoke/scenario-selection.mts'
 import type { SmokeFailureCheckpoint } from '../src/main/smoke/failure-evidence.mts'
-import { DISPOSED_RENDER_FRAME_MESSAGE } from '../src/main/renderer-event-delivery'
+import { DISPOSED_RENDER_FRAME_MESSAGE } from '../src/main/renderer-event-delivery.ts'
 
 export const DEFAULT_SMOKE_SCENARIOS = [
   'pty-native',
