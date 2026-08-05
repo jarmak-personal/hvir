@@ -350,6 +350,8 @@ function viewProps(registry: TerminalRuntimeRegistry) {
     onBell: vi.fn(),
     onFocus: vi.fn(),
     onLink: vi.fn(),
+    onSplit: vi.fn(),
+    onOpenTerminalSettings: vi.fn(),
   }
 }
 

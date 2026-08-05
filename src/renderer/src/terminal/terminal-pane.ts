@@ -187,6 +187,18 @@ export interface TerminalPane {
   activeEventScreen(): TerminalEventScreen
   /** Reveal a retained event on the currently presented screen without selecting text. */
   revealEventLocation(location: TerminalEventLocation): boolean
+  /** Report whether this exact pane owns a text selection. */
+  hasSelection(): boolean
+  /** Read this exact pane's selected plain text without acquiring clipboard authority. */
+  getSelection(): string
+  /** Paste plain text through the engine's native bracketed-paste behavior. */
+  paste(data: string): void
+  /** Select all retained text owned by this pane. */
+  selectAll(): void
+  /** Clear visible cells and retained scrollback without writing to the PTY. */
+  clear(): void
+  /** Reset client-side terminal state without replacing the pane or PTY. */
+  reset(): void
   focus(): void
   readonly events: TerminalPaneEvents
 }

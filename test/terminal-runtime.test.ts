@@ -36,7 +36,7 @@ describe('terminal runtime capability preflight', () => {
         GhosttyTerminal: IncompatibleTerminal,
       }),
     ).toThrow(
-      /requestRender, setRenderPaused, resetCursorBlink, getRenderStats, resolveEventProvenance, isSynchronizedOutput, getSynchronizedOutputGeneration, resetSynchronizedOutput, custom link-provider priority.*npm ci.*retry the command/,
+      /requestRender, setRenderPaused, resetCursorBlink, getRenderStats, resolveEventProvenance, hasSelection, getSelection, paste, selectAll, clear, reset, isSynchronizedOutput, getSynchronizedOutputGeneration, resetSynchronizedOutput, custom link-provider priority.*npm ci.*retry the command/,
     )
   })
 
@@ -47,6 +47,12 @@ describe('terminal runtime capability preflight', () => {
       resetCursorBlink(): void {}
       getRenderStats(): void {}
       resolveEventProvenance(): void {}
+      hasSelection(): void {}
+      getSelection(): void {}
+      paste(): void {}
+      selectAll(): void {}
+      clear(): void {}
+      reset(): void {}
       registerLinkProvider(): void {}
     }
 
@@ -89,8 +95,8 @@ describe('terminal runtime capability preflight', () => {
     )
     expect(profile).toMatchObject({
       artifact: {
-        sha256: '5c81639af9d6a6359627195a585ad81ac70551e7f8b3fb6a827aa60d32213d87',
-        sourceCommit: '00e3e1ff7f44300e4a7a80b55108cdb03a0ed271',
+        sha256: '28139b0e10740b2e02b48251aaa0aa8877094a9c73d16461d97eb9e5e175a0e0',
+        sourceCommit: '4c3a26ed046a927425c4b00416215d78647879ae',
         ghosttyCommit: '332b2aefc6e72d363aa93ab6ecfc86eeeeb5ed28',
       },
       identity: {
@@ -101,6 +107,11 @@ describe('terminal runtime capability preflight', () => {
       synchronizedOutput: {
         recoveryTimeoutMs: 1_000,
         hvirOutputBuffering: false,
+      },
+      hostOwnedContextMenu: {
+        browserMenuDisabled: true,
+        clipboardOwner: 'hvir-renderer',
+        imagePasteOwner: 'adr-026-main-coordinator',
       },
     })
   })

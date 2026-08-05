@@ -1,5 +1,6 @@
 import { hostPathEquals, type HostConnectionState, type HostPath } from '../../../shared'
 import type { TerminalEventRouter } from './terminal-event-router'
+import { TerminalContextMenuOwner } from './terminal-context-menu-target'
 import type { TerminalPane } from './terminal-pane'
 import { TerminalPaneEventCoordinator } from './terminal-pane-event-coordinator'
 import type { TerminalSemanticRegionDirection } from './terminal-semantic-regions'
@@ -37,6 +38,10 @@ export class TerminalRuntime {
   private activePtyId?: string
   private startController?: AbortController
   readonly paneEvents: TerminalPaneEventCoordinator
+  private readonly contextMenu = new TerminalContextMenuOwner(() =>
+    this.surface.canFocus(),
+  )
+  readonly contextMenuTarget = this.contextMenu.target
   private disposed = false
 
   constructor(
@@ -313,6 +318,7 @@ export class TerminalRuntime {
       this.started = true
       this.hasStarted = true
       this.activePtyId = result.id
+      this.contextMenu.bind(sessionId, pane, result.id, () => this.options.onFocus())
       const status = result.reattached
         ? `Reattached · pid ${result.pid}`
         : result.resumed
@@ -426,6 +432,7 @@ export class TerminalRuntime {
         onExit: (exitCode) => {
           this.started = false
           this.activePtyId = undefined
+          this.contextMenu.revoke()
           this.updateSnapshot({
             ...this.currentSnapshot,
             status: `Exited (${exitCode})`,
@@ -457,6 +464,7 @@ export class TerminalRuntime {
     this.resizeTimer = undefined
     this.pendingInput = ''
     this.paneEvents.clear()
+    this.contextMenu.revoke()
     this.pane?.dispose()
     this.pane = undefined
     this.surface.releaseResources()

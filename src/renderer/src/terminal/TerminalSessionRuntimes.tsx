@@ -35,6 +35,8 @@ export interface TerminalSessionRuntimesProps {
   readonly onBell: (id: string) => void
   readonly onFocus: (id: string) => void
   readonly onLink: (session: TerminalSession, activation: TerminalLinkActivation) => void
+  readonly onSplit: () => void
+  readonly onOpenTerminalSettings: () => void
   readonly runtimes: TerminalRuntimeRegistry
 }
 
@@ -58,6 +60,8 @@ export function TerminalSessionRuntimes({
   onBell,
   onFocus,
   onLink,
+  onSplit,
+  onOpenTerminalSettings,
   runtimes,
 }: TerminalSessionRuntimesProps): ReactElement {
   return (
@@ -138,6 +142,8 @@ export function TerminalSessionRuntimes({
             onBell={() => onBell(session.id)}
             onFocus={() => onFocus(session.id)}
             onLink={(activation) => onLink(session, activation)}
+            onSplit={onSplit}
+            onOpenTerminalSettings={onOpenTerminalSettings}
           />
         )
       })}

@@ -1,4 +1,10 @@
-import { useEffect, useLayoutEffect, useRef, useSyncExternalStore } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useSyncExternalStore,
+} from 'react'
 
 import type { TerminalRuntimeOptions } from './terminal-runtime-options'
 import { TerminalRuntimeRegistry } from './terminal-runtime-registry'
@@ -47,6 +53,8 @@ export function useTerminalPaneController(
     return () => window.cancelAnimationFrame(frame)
   }, [options.active, runtime])
 
+  const getContextMenuTarget = useCallback(() => runtime.contextMenuTarget(), [runtime])
+
   return {
     workspaceRoot: options.workspaceRoot,
     containerRef,
@@ -56,6 +64,7 @@ export function useTerminalPaneController(
     startFresh: () => runtime.startFresh(),
     previousSemanticRegion: () => runtime.navigateSemanticRegion('previous'),
     nextSemanticRegion: () => runtime.navigateSemanticRegion('next'),
+    getContextMenuTarget,
     focus: () => runtime.focus(),
   }
 }

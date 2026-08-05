@@ -22,6 +22,9 @@ const paneState = vi.hoisted(() => ({
   panes: [] as Array<{
     writes: string[]
     presentations: string[]
+    pastes: string[]
+    terminalActions: string[]
+    emitData(data: string): void
     disposed: boolean
   }>,
 }))
@@ -56,6 +59,12 @@ describe('terminal output host parity', () => {
     expect(ssh.disposed).toBe(true)
     expect(local.presentations).toEqual(['hidden', 'visible', 'hidden'])
     expect(ssh.presentations).toEqual(local.presentations)
+    expect(local.pastes).toEqual(['line one\nline two'])
+    expect(ssh.pastes).toEqual(local.pastes)
+    expect(local.terminalActions).toEqual(['select-all', 'clear', 'reset'])
+    expect(ssh.terminalActions).toEqual(local.terminalActions)
+    expect(local.ptyWrites).toEqual(['line one\nline two'])
+    expect(ssh.ptyWrites).toEqual(local.ptyWrites)
   })
 })
 
@@ -67,6 +76,9 @@ async function deliver(
   readonly writes: readonly string[]
   readonly outputEvents: number
   readonly presentations: readonly string[]
+  readonly pastes: readonly string[]
+  readonly terminalActions: readonly string[]
+  readonly ptyWrites: readonly string[]
   readonly disposed: boolean
 }> {
   let handlers: TerminalEventHandlers | undefined
@@ -116,9 +128,10 @@ async function deliver(
       },
     }),
   )
+  const send = vi.fn()
   Object.defineProperty(window, 'hvir', {
     configurable: true,
-    value: { invoke, send: vi.fn(), on: vi.fn(() => () => undefined) },
+    value: { invoke, send, on: vi.fn(() => () => undefined) },
   })
   const runtime = new TerminalRuntime(
     options,
@@ -130,10 +143,17 @@ async function deliver(
   document.body.append(container)
   runtime.attach(container)
   await vi.waitFor(() => expect(handlers).toBeDefined())
+  await vi.waitFor(() => expect(runtime.contextMenuTarget()).toBeDefined())
   expect(invoke).toHaveBeenCalledWith(
     'pty:start',
     expect.objectContaining({ cwd: root, sessionId }),
   )
+
+  const target = runtime.contextMenuTarget()!
+  expect(target.paste('line one\nline two')).toBe(true)
+  expect(target.selectAll()).toBe(true)
+  expect(target.clear()).toBe(true)
+  expect(target.reset()).toBe(true)
 
   for (const chunk of chunks) handlers!.onData(chunk)
   const pane = paneState.panes.at(-1)!
@@ -144,12 +164,24 @@ async function deliver(
     writes: pane.writes,
     outputEvents: vi.mocked(options.onOutput).mock.calls.length,
     presentations: pane.presentations,
+    pastes: pane.pastes,
+    terminalActions: pane.terminalActions,
+    ptyWrites: send.mock.calls
+      .filter(([channel]) => channel === 'pty:write')
+      .map(([, payload]) => (payload as { readonly data: string }).data),
     disposed: pane.disposed,
   }
 }
 
 function createPane(): TerminalPane {
-  const state = { writes: [] as string[], presentations: [] as string[], disposed: false }
+  const state = {
+    writes: [] as string[],
+    presentations: [] as string[],
+    pastes: [] as string[],
+    terminalActions: [] as string[],
+    emitData: (_data: string): void => undefined,
+    disposed: false,
+  }
   paneState.panes.push(state)
   const listen = () => () => undefined
   return {
@@ -167,9 +199,23 @@ function createPane(): TerminalPane {
     resolveEventProvenance: () => undefined,
     activeEventScreen: () => 'normal',
     revealEventLocation: () => false,
+    hasSelection: () => false,
+    getSelection: () => '',
+    paste: (data) => {
+      state.pastes.push(data)
+      state.emitData(data)
+    },
+    selectAll: () => void state.terminalActions.push('select-all'),
+    clear: () => void state.terminalActions.push('clear'),
+    reset: () => void state.terminalActions.push('reset'),
     focus: () => undefined,
     events: {
-      onData: listen,
+      onData: (callback) => {
+        state.emitData = callback
+        return () => {
+          state.emitData = () => undefined
+        }
+      },
       onClipboardPaste: listen,
       onEvent: listen,
       onResize: listen,

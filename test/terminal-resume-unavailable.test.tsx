@@ -56,6 +56,12 @@ vi.mock('../src/renderer/src/terminal/ghostty-terminal-pane', () => ({
       resolveEventProvenance: vi.fn(() => undefined),
       activeEventScreen: vi.fn(() => 'normal' as const),
       revealEventLocation: vi.fn(() => false),
+      hasSelection: vi.fn(() => false),
+      getSelection: vi.fn(() => ''),
+      paste: vi.fn(),
+      selectAll: vi.fn(),
+      clear: vi.fn(),
+      reset: vi.fn(),
       focus: vi.fn(),
       events: {
         onData: vi.fn(() => () => undefined),

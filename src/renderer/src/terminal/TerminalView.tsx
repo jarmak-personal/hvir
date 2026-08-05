@@ -12,10 +12,12 @@ import type {
 } from '../../../shared'
 import type { TerminalThemeOverride } from '../settings/settings'
 import { useAppTheme, type AppTheme } from '../theme'
+import { TerminalContextMenu } from './TerminalContextMenu'
 import type { TerminalLinkActivation, TerminalTypography } from './terminal-pane'
 import { useTerminalPaneController } from './use-terminal-pane-controller'
 import type { FreshTerminalStart } from './terminal-runtime-options'
 import type { TerminalRuntimeRegistry } from './terminal-runtime-registry'
+import { useTerminalContextMenu } from './use-terminal-context-menu'
 
 interface TerminalViewProps {
   readonly sessionId: string
@@ -56,6 +58,8 @@ interface TerminalViewProps {
   readonly onBell: () => void
   readonly onFocus: () => void
   readonly onLink: (activation: TerminalLinkActivation) => void
+  readonly onSplit: () => void
+  readonly onOpenTerminalSettings: () => void
 }
 
 export function TerminalView(props: TerminalViewProps): ReactElement | null {
@@ -87,8 +91,10 @@ export function TerminalView(props: TerminalViewProps): ReactElement | null {
     startFresh,
     previousSemanticRegion,
     nextSemanticRegion,
+    getContextMenuTarget,
     focus,
   } = controller
+  const contextMenu = useTerminalContextMenu(getContextMenuTarget, visible)
   const canRecoverHarness = supportsResume && Boolean(harnessSessionId)
 
   if (!props.presented) return null
@@ -170,6 +176,13 @@ export function TerminalView(props: TerminalViewProps): ReactElement | null {
           if (event.target === event.currentTarget) focus()
         }}
         onMouseDown={focus}
+        onContextMenu={contextMenu.openFromPointer}
+        onKeyDownCapture={contextMenu.openFromKeyboard}
+      />
+      <TerminalContextMenu
+        controller={contextMenu}
+        onSplit={props.onSplit}
+        onOpenSettings={props.onOpenTerminalSettings}
       />
     </section>
   )
