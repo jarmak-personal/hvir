@@ -179,6 +179,48 @@ describe('viewer workspace retention', () => {
     })
     expect(workspace.activeTab).toMatchObject({ path: destination, file: undefined })
   })
+
+  it('reviews dirty descendants and closes only tabs that are still clean after confirmation', async () => {
+    const project = localPath('/project')
+    const target = localPath('/project/remove')
+    const first = localPath('/project/remove/first.ts')
+    const becameDirty = localPath('/project/remove/nested/second.ts')
+    const outside = localPath('/project/keep.ts')
+    invoke
+      .mockResolvedValueOnce({ ok: true, value: file(first, 'first', 5) })
+      .mockResolvedValueOnce({ ok: true, value: file(becameDirty, 'second', 6) })
+      .mockResolvedValueOnce({ ok: true, value: file(outside, 'outside', 7) })
+
+    act(() => workspace.switchWorkspace(project))
+    await act(async () => {
+      workspace.openFile(first, true)
+      workspace.openFile(becameDirty, true)
+      workspace.openFile(outside, true)
+      await settle()
+    })
+    expect(workspace.reviewPathRemoval(target)).toEqual({
+      openCount: 2,
+      dirtyPaths: [],
+    })
+
+    const secondId = workspace.tabs.find((tab) => tab.path.path === becameDirty.path)!.id
+    act(() => workspace.setContent(secondId, 'unsaved after confirmation'))
+    let cleanup!: ReturnType<typeof workspace.closeCleanPath>
+    act(() => {
+      cleanup = workspace.closeCleanPath(target)
+    })
+
+    expect(cleanup).toEqual({
+      openCount: 2,
+      dirtyPaths: [becameDirty],
+      closedCount: 1,
+    })
+    expect(workspace.tabs.map((tab) => tab.path)).toEqual([becameDirty, outside])
+    expect(workspace.tabs[0]).toMatchObject({
+      dirty: true,
+      file: { content: 'unsaved after confirmation' },
+    })
+  })
 })
 
 function ViewerWorkspaceHarness(): null {

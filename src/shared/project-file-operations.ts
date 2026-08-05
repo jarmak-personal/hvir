@@ -60,6 +60,34 @@ export type ProjectFileOrganizationRequest =
       readonly name: string
     }
 
+export type ProjectFileDeletionRecovery = 'recoverable' | 'permanent'
+
+export interface ProjectFileDeletionDisclosureRequest {
+  readonly workspaceRoot: HostPath
+  readonly source: HostPath
+}
+
+export type ProjectFileDeletionDisclosure =
+  | {
+      readonly outcome: 'available'
+      readonly workspaceRoot: HostPath
+      readonly source: HostPath
+      readonly recovery: ProjectFileDeletionRecovery
+    }
+  | {
+      readonly outcome: 'unavailable'
+      readonly workspaceRoot: HostPath
+      readonly source: HostPath
+      readonly reason: string
+    }
+
+export interface ProjectFileDeleteRequest {
+  readonly workspaceRoot: HostPath
+  readonly source: HostPath
+  /** The exact recovery guarantee reviewed in the confirmation dialog. */
+  readonly confirmedRecovery: ProjectFileDeletionRecovery
+}
+
 export interface ProjectFileCancelRequest {
   readonly operationId: string
   readonly generation: number
@@ -82,7 +110,13 @@ export interface ProjectFileOperationProgress {
   readonly operationId: string
   readonly generation: number
   readonly phase:
-    'copying' | 'renaming' | 'moving' | 'duplicating' | 'cancelling' | 'completed'
+    | 'copying'
+    | 'renaming'
+    | 'moving'
+    | 'duplicating'
+    | 'deleting'
+    | 'cancelling'
+    | 'completed'
   readonly completedItems: number
   readonly totalItems: number
   readonly currentName?: string
@@ -102,10 +136,14 @@ export type ProjectFileEffect =
   | 'moved-entry'
   | 'duplicated-file'
   | 'duplicated-directory'
+  | 'trashed-entry'
+  | 'permanently-deleted-entry'
+  | 'partially-deleted-entry'
+  | 'deletion-state-unknown'
 
 export interface ProjectFileSourceDisposition {
-  readonly outcome: 'retained' | 'removed' | 'partially-removed'
-  /** Exact recovery location when any of the source remains. */
+  readonly outcome: 'retained' | 'removed' | 'partially-removed' | 'unknown'
+  /** Observed source/recovery path; `unknown` does not assert that it still exists. */
   readonly path?: HostPath
   readonly removedEntries?: number
   readonly totalEntries?: number

@@ -249,6 +249,34 @@ export function registerFilesystemIpc(ipc: IpcRegistrar, deps: FilesystemIpcDeps
     }),
   )
 
+  ipc.handle('fs:deletion-disclosure', (req, context) =>
+    operationResult(async () => {
+      const workspaceRoot = ipc.authority.workspaceRoot(
+        ipc.authority.reconstructHostPath(req.workspaceRoot),
+      )
+      const source = ipc.authority.reconstructHostPath(req.source)
+      return deps.projectFiles.discloseDeletion(context.owner(), workspaceRoot, source)
+    }),
+  )
+
+  ipc.handle('fs:delete-entry', (req, context) =>
+    operationResult(async () => {
+      const workspaceRoot = ipc.authority.workspaceRoot(
+        ipc.authority.reconstructHostPath(req.workspaceRoot),
+      )
+      const source = ipc.authority.reconstructHostPath(req.source)
+      return deps.projectFiles.delete({
+        owner: context.owner(),
+        request: {
+          workspaceRoot,
+          source,
+          confirmedRecovery: req.confirmedRecovery,
+        },
+        publish: (progress) => context.sender.send('fs:project-file-operation', progress),
+      })
+    }),
+  )
+
   ipc.handle('fs:cancel-file-operation', (req, context) =>
     operationResult(() =>
       Promise.resolve(

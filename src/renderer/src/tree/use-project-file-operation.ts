@@ -8,6 +8,7 @@ import {
   type ProjectFileOperationResult,
   type ProjectFileOperationStartResult,
 } from '../../../shared'
+import { projectFileOwnerKey } from './project-file-owner-key'
 
 export interface StartedProjectFileOperationController {
   readonly pending: boolean
@@ -35,7 +36,7 @@ export function useProjectFileOperation(options: {
   const launching = useRef(false)
   const earlyEvent = useRef<ProjectFileOperationProgress | undefined>(undefined)
   const alive = useRef(true)
-  const ownerKey = pathKey(root)
+  const ownerKey = projectFileOwnerKey(root)
   const latestOwnerKey = useRef(ownerKey)
   latestOwnerKey.current = ownerKey
 
@@ -55,7 +56,7 @@ export function useProjectFileOperation(options: {
   const acceptEvent = useCallback(
     (event: ProjectFileOperationProgress) => {
       const operation = active.current
-      if (pathKey(event.workspaceRoot) !== latestOwnerKey.current) return
+      if (projectFileOwnerKey(event.workspaceRoot) !== latestOwnerKey.current) return
       if (!operation) {
         if (launching.current) earlyEvent.current = event
         return
@@ -148,8 +149,4 @@ export function useProjectFileOperation(options: {
         .catch(() => undefined)
     },
   }
-}
-
-function pathKey(path: HostPath): string {
-  return `${path.hostId}\0${path.path}`
 }

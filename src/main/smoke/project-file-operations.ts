@@ -16,6 +16,11 @@ import type {
 } from '../project-host'
 import { ElectronClipboardFileSource } from '../project-file-operations/electron-clipboard-files'
 import { writeMacFilePasteboard } from './macos-file-pasteboard'
+import {
+  deleteProjectEntryFromRenderer,
+  openDeletionFixture,
+  verifyProjectEntryDeletionRefresh,
+} from './project-entry-deletion'
 
 /**
  * Immediate deterministic remote filesystem boundary for the renderer smoke.
@@ -68,6 +73,7 @@ export function createRemoteProjectFileSmokeHost(options: {
             localHost.fileTransfer!.removeDirectory(toLocal(path), removeOptions),
         }
       : undefined,
+    fileDeletion: { capability: 'permanent' },
     onConnectionState(callback) {
       callback('connected')
       return () => undefined
@@ -83,6 +89,8 @@ export function createRemoteProjectFileSmokeHost(options: {
       localHost.createFileExclusive(toLocal(path), createOptions),
     createDirectoryExclusive: (path, createOptions: ExclusiveCreateOptions) =>
       localHost.createDirectoryExclusive(toLocal(path), createOptions),
+    removeFile: (path, removeOptions) =>
+      localHost.removeFile(toLocal(path), removeOptions),
   } as ProjectHost
 }
 
@@ -92,6 +100,7 @@ export async function verifyProjectFileOperationsSmoke(options: {
   readonly localRoot: HostPath
   readonly remoteRoot: HostPath
   readonly switchedRoot: HostPath
+  readonly trashRecoveryRoot: HostPath
   readonly localState: () => ProjectState
   readonly remoteState: () => ProjectState
   readonly switchedState: () => ProjectState
@@ -103,6 +112,7 @@ export async function verifyProjectFileOperationsSmoke(options: {
     localRoot,
     remoteRoot,
     switchedRoot,
+    trashRecoveryRoot,
     localState,
     remoteState,
     switchedState,
@@ -124,12 +134,17 @@ export async function verifyProjectFileOperationsSmoke(options: {
   const duplicatedPath = joinHostPath(organizationDirectory, duplicatedName)
   const remoteKeyboardPath = joinHostPath(remoteRoot, keyboardName)
   const remoteOrganizationDirectory = joinHostPath(remoteRoot, organizationDirectoryName)
+  const movedRemoteKeyboardPath = joinHostPath(remoteOrganizationDirectory, keyboardName)
   const movedKeyboardPath = joinHostPath(organizationDirectory, keyboardName)
   const snapshotPath = joinHostPath(localRoot, snapshotName)
   const switchedPath = joinHostPath(switchedRoot, snapshotName)
   const externalDirectory = dirnameHostPath(localRoot)
   const clipboardSource = joinHostPath(externalDirectory, clipboardName)
   const droppedSource = joinHostPath(externalDirectory, droppedName)
+
+  if (containsHostPath(localRoot, trashRecoveryRoot)) {
+    throw new Error('Smoke Trash recovery must remain outside the registered workspace')
+  }
 
   try {
     publish(localState())
@@ -202,6 +217,36 @@ export async function verifyProjectFileOperationsSmoke(options: {
     }
     await verifyOrganizationRefresh(win, duplicatedPath)
 
+    await deleteProjectEntryFromRenderer({
+      win,
+      root: localRoot,
+      source: movedPointerPath,
+      recovery: 'recoverable',
+      entry: 'pointer',
+      expectDirtyBlock: true,
+    })
+    if ((await localHost.readTextFile(movedPointerPath)) !== organizationPayload) {
+      throw new Error('dirty-buffer deletion guard changed the source file')
+    }
+
+    await openDeletionFixture(win, duplicatedPath)
+    await deleteProjectEntryFromRenderer({
+      win,
+      root: localRoot,
+      source: duplicatedPath,
+      recovery: 'recoverable',
+      entry: 'pointer',
+      expectClosedTab: true,
+    })
+    await expectMissingHostPath(localHost, duplicatedPath)
+    const recoveredDuplicate = joinHostPath(trashRecoveryRoot, `1-${duplicatedName}`)
+    if ((await localHost.readTextFile(recoveredDuplicate)) !== organizationPayload) {
+      throw new Error(
+        'recoverable deletion did not preserve exact bytes outside workspace',
+      )
+    }
+    await verifyProjectEntryDeletionRefresh(win, duplicatedPath, movedPointerPath)
+
     publish(remoteState())
     await createFromRenderer({
       win,
@@ -219,12 +264,27 @@ export async function verifyProjectFileOperationsSmoke(options: {
       source: remoteKeyboardPath,
       action: 'move',
       destinationDirectory: remoteOrganizationDirectory,
-      destination: joinHostPath(remoteOrganizationDirectory, keyboardName),
+      destination: movedRemoteKeyboardPath,
       entry: 'keyboard',
     })
     await expectMissingHostPath(localHost, keyboardPath)
     if ((await localHost.stat(movedKeyboardPath)).type !== 'dir') {
       throw new Error('remote keyboard move did not preserve the directory')
+    }
+    await deleteProjectEntryFromRenderer({
+      win,
+      root: remoteRoot,
+      source: movedRemoteKeyboardPath,
+      recovery: 'permanent',
+      entry: 'keyboard',
+    })
+    await expectMissingHostPath(localHost, movedKeyboardPath)
+    const recoveredEntries = await localHost.readdir(trashRecoveryRoot)
+    if (
+      recoveredEntries.length !== 1 ||
+      recoveredEntries[0]?.name !== `1-${duplicatedName}`
+    ) {
+      throw new Error('permanent remote deletion wrote unexpected recovery state')
     }
 
     publish(localState())
@@ -313,7 +373,7 @@ export async function verifyProjectFileOperationsSmoke(options: {
       localHost.createFileExclusive = originalCreate
     }
 
-    return 'pointer create + clean rename · dirty-tab move · verified duplicate + tree/search/Git refresh · keyboard remote directory move · clipboard local copy · preload drop remote copy · workspace switch preserved snapshot'
+    return 'pointer create + clean rename · dirty-tab move + deletion block · recoverable local deletion + outside-workspace recovery + Files/search/Git/tab refresh · permanent remote keyboard deletion · clipboard local copy · preload drop remote copy · workspace switch preserved snapshot'
   } catch (reason) {
     const state = await readProjectFileSmokeState(win)
     throw new Error(

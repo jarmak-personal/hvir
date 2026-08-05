@@ -50,7 +50,9 @@ import type {
   ProjectHost,
   ProjectFileMetadataOptions,
   ProjectFileRenameOptions,
+  ProjectFileDeletionPort,
   ProjectFileStreamOptions,
+  ProjectFileTrashOptions,
   ProjectFileTransferPort,
   ProjectFileWriteStreamOptions,
   PtyExit,
@@ -96,9 +98,23 @@ export class LocalHost implements ProjectHost {
       this.renameProjectFileNoReplace(source, destination, opts),
     removeDirectory: (path, opts) => this.removeDirectory(path, opts),
   }
+  readonly fileDeletion: ProjectFileDeletionPort
 
   /** Live watcher lifecycles, including any native-to-polling fallback. */
   private readonly watchers = new Set<Disposer>()
+
+  constructor(
+    private readonly options: {
+      readonly trashItem?: (path: HostPath) => Promise<void>
+    } = {},
+  ) {
+    this.fileDeletion = options.trashItem
+      ? {
+          capability: 'recoverable',
+          trashEntry: (path, trashOptions) => this.trashEntry(path, trashOptions),
+        }
+      : { capability: 'unavailable' }
+  }
 
   connect(): Promise<void> {
     return Promise.resolve()
@@ -641,6 +657,16 @@ export class LocalHost implements ProjectHost {
         throw reason
       }
     }
+  }
+
+  private async trashEntry(
+    path: HostPath,
+    opts: ProjectFileTrashOptions = {},
+  ): Promise<void> {
+    this.resolve(path)
+    opts.signal?.throwIfAborted()
+    opts.onSubmitted?.()
+    await this.options.trashItem!(path)
   }
 
   async removeFile(path: HostPath, opts: RemoveFileOptions = {}): Promise<void> {

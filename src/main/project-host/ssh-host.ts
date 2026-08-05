@@ -59,6 +59,7 @@ let nextRemotePid = -1
 
 export class SshHost implements ProjectHost {
   readonly hostId: HostId
+  readonly fileDeletion = { capability: 'permanent' } as const
   readonly fileTransfer: ProjectFileTransferPort
   private state: HostConnectionState = 'disconnected'
   private tier: HostWatchTier = 'polling'

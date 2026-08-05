@@ -17,14 +17,26 @@ import type {
   DirectoryTreeRevealRequest,
 } from './DirectoryTree'
 import { fileActionDestination } from './file-action-destination'
-import { copyFeedback, organizationFeedback } from './file-operation-feedback'
+import {
+  copyFeedback,
+  deletionFeedback,
+  organizationFeedback,
+  projectFileResultHasEffect,
+} from './file-operation-feedback'
 import { projectFileEntryNameError } from './project-file-entry-name'
 import { useExternalFileCopy } from './use-external-file-copy'
 import {
+  canOrganizeAction,
   useFileOrganizationActions,
   type FileOrganizationAction,
   type FileOrganizationActionsController,
 } from './use-file-organization-actions'
+import { projectFileOwnerKey } from './project-file-owner-key'
+import {
+  useFileDeletionActions,
+  type FileDeletionActionsController,
+} from './use-file-deletion-actions'
+import type { ViewerPathRemovalCapability } from '../viewer/viewer-path-removal'
 
 export { fileActionDestination } from './file-action-destination'
 export { projectFileEntryNameError } from './project-file-entry-name'
@@ -65,10 +77,12 @@ export interface FileCreateActionsController {
   readonly refreshVersion: number
   readonly copyProgress?: ProjectFileOperationProgress
   readonly organization: FileOrganizationActionsController
+  readonly deletion: FileDeletionActionsController
   canOrganizeMenu(action: FileOrganizationAction): boolean
   openRootFromPointer(event: MouseEvent<HTMLElement>): void
   beginCreate(kind: ProjectFileCreateKind): void
   beginOrganization(action: FileOrganizationAction): void
+  beginDeletion(): void
   submitCreate(name: string): void
   copyPath(kind: PathCopyKind): void
   pasteFiles(target: HostPath, targetType: FileType): void
@@ -81,17 +95,19 @@ export interface FileCreateActionsController {
   clearCreatedSelection(): void
 }
 
-export function useFileCreateActions(options: {
-  readonly root: HostPath
-  readonly onCreatedFile: (
-    path: HostPath,
-    pinned: boolean,
-    context?: FileOpenContext,
-  ) => void
-  readonly canRebindPath: (source: HostPath, destination: HostPath) => boolean
-  readonly onRebindPath: (source: HostPath, destination: HostPath) => boolean
-  readonly onWorkspaceContentChanged: () => void
-}): FileCreateActionsController {
+export function useFileCreateActions(
+  options: {
+    readonly root: HostPath
+    readonly onCreatedFile: (
+      path: HostPath,
+      pinned: boolean,
+      context?: FileOpenContext,
+    ) => void
+    readonly canRebindPath: (source: HostPath, destination: HostPath) => boolean
+    readonly onRebindPath: (source: HostPath, destination: HostPath) => boolean
+    readonly onWorkspaceContentChanged: () => void
+  } & ViewerPathRemovalCapability,
+): FileCreateActionsController {
   const { root, onCreatedFile, onWorkspaceContentChanged } = options
   const [menu, setMenu] = useState<FileActionMenuRequest>()
   const [dialog, setDialog] = useState<FileCreateDialogRequest>()
@@ -105,7 +121,7 @@ export function useFileCreateActions(options: {
   const nextRevealToken = useRef(0)
   const activeDialogId = useRef<number | undefined>(undefined)
   const alive = useRef(true)
-  const ownerKey = pathKey(root)
+  const ownerKey = projectFileOwnerKey(root)
   const latestOwnerKey = useRef(ownerKey)
   latestOwnerKey.current = ownerKey
 
@@ -138,7 +154,7 @@ export function useFileCreateActions(options: {
     (result: ProjectFileOperationResult | undefined) => {
       setRefreshVersion((value) => value + 1)
       setFeedback(copyFeedback(result))
-      if (resultHasEffect(result)) onWorkspaceContentChanged()
+      if (projectFileResultHasEffect(result)) onWorkspaceContentChanged()
     },
     [onWorkspaceContentChanged],
   )
@@ -155,7 +171,7 @@ export function useFileCreateActions(options: {
     (result: ProjectFileOperationResult | undefined) => {
       setRefreshVersion((value) => value + 1)
       setFeedback(organizationFeedback(result))
-      if (resultHasEffect(result)) onWorkspaceContentChanged()
+      if (projectFileResultHasEffect(result)) onWorkspaceContentChanged()
       const item = result?.outcome === 'completed' ? result.items[0] : undefined
       if (item?.status === 'completed') {
         setSelectedDirectory(item.destination)
@@ -175,7 +191,22 @@ export function useFileCreateActions(options: {
     onComplete: handleOrganizationComplete,
     onError: handleCopyError,
   })
-  const operationPending = pending || externalCopy.pending || organization.pending
+  const deletion = useFileDeletionActions({
+    root,
+    reviewPathRemoval: options.reviewPathRemoval,
+    closeCleanPath: options.closeCleanPath,
+    onStart: handleCopyStart,
+    onComplete(result, viewerCleanup) {
+      setRefreshVersion((value) => value + 1)
+      setFeedback(deletionFeedback(result, viewerCleanup))
+      if (projectFileResultHasEffect(result)) onWorkspaceContentChanged()
+      setSelectedDirectory(undefined)
+      setRevealRequest(undefined)
+    },
+    onError: handleCopyError,
+  })
+  const operationPending =
+    pending || externalCopy.pending || organization.pending || deletion.pending
 
   const openMenu = useCallback(
     (
@@ -186,7 +217,8 @@ export function useFileCreateActions(options: {
       y: number,
       focusMenu: boolean,
       returnFocus?: HTMLElement,
-    ) =>
+    ) => {
+      deletion.inspect(hostPathEquals(target, root) ? undefined : target)
       setMenu({
         id: (nextRequestId.current += 1),
         target: hostPath(target.hostId, target.path),
@@ -196,8 +228,9 @@ export function useFileCreateActions(options: {
         y,
         focusMenu,
         returnFocus,
-      }),
-    [],
+      })
+    },
+    [deletion, root],
   )
   const entryActions = useMemo<DirectoryTreeEntryActions>(
     () => ({
@@ -239,9 +272,10 @@ export function useFileCreateActions(options: {
   const dismissMenu = useCallback(
     (restoreFocus = false) => {
       setMenu(undefined)
+      deletion.inspect(undefined)
       if (restoreFocus) menu?.returnFocus?.focus({ preventScroll: true })
     },
-    [menu],
+    [deletion, menu],
   )
   const beginCreate = useCallback(
     (kind: ProjectFileCreateKind) => {
@@ -270,7 +304,7 @@ export function useFileCreateActions(options: {
         return
       }
       const request = dialog
-      const requestOwnerKey = pathKey(request.workspaceRoot)
+      const requestOwnerKey = projectFileOwnerKey(request.workspaceRoot)
       const requestIsCurrent = (): boolean =>
         alive.current &&
         latestOwnerKey.current === requestOwnerKey &&
@@ -322,7 +356,11 @@ export function useFileCreateActions(options: {
           },
           (reason: unknown) => {
             if (requestIsCurrent()) {
-              setDialogError(errorMessage(reason))
+              setDialogError(
+                reason instanceof Error
+                  ? reason.message
+                  : 'The entry could not be created',
+              )
             }
           },
         )
@@ -373,12 +411,13 @@ export function useFileCreateActions(options: {
     pending: operationPending,
     feedback,
     organization,
+    deletion,
     selectedDirectory,
     revealRequest,
     refreshVersion,
-    copyProgress: externalCopy.progress ?? organization.progress,
+    copyProgress: externalCopy.progress ?? organization.progress ?? deletion.progress,
     canOrganizeMenu(action) {
-      return canOrganize(menu, root, action)
+      return canOrganizeAction(root, menu?.target, menu?.targetType, action)
     },
     openRootFromPointer(event) {
       if (event.target !== event.currentTarget) return
@@ -395,10 +434,23 @@ export function useFileCreateActions(options: {
     },
     beginCreate,
     beginOrganization(action) {
-      if (!menu || operationPending || !canOrganize(menu, root, action)) return
+      if (
+        !menu ||
+        operationPending ||
+        !canOrganizeAction(root, menu.target, menu.targetType, action)
+      )
+        return
       organization.begin(action, menu.target, menu.targetType)
       setMenu(undefined)
       setFeedback(undefined)
+    },
+    beginDeletion() {
+      if (!menu || operationPending) return
+      if (deletion.menu.state === 'available') {
+        setMenu(undefined)
+        setFeedback(undefined)
+        deletion.begin()
+      }
     },
     submitCreate,
     copyPath,
@@ -416,7 +468,8 @@ export function useFileCreateActions(options: {
     },
     cancelCopy() {
       if (externalCopy.pending) externalCopy.cancel()
-      else organization.cancel()
+      else if (organization.pending) organization.cancel()
+      else deletion.cancel()
     },
     dismissFeedback() {
       setFeedback(undefined)
@@ -442,32 +495,6 @@ function writeApplicationClipboard(value: string): Promise<void> {
 }
 
 function focusedElement(): HTMLElement | undefined {
-  return document.activeElement instanceof HTMLElement
-    ? document.activeElement
-    : undefined
-}
-
-function pathKey(path: HostPath): string {
-  return `${path.hostId}\0${path.path}`
-}
-
-function errorMessage(reason: unknown): string {
-  return reason instanceof Error ? reason.message : 'The entry could not be created'
-}
-
-function canOrganize(
-  menu: FileActionMenuRequest | undefined,
-  root: HostPath,
-  action: FileOrganizationAction,
-): boolean {
-  if (!menu || hostPathEquals(menu.target, root)) return false
-  return action === 'duplicate'
-    ? menu.targetType === 'file' || menu.targetType === 'dir'
-    : menu.targetType !== 'other'
-}
-
-function resultHasEffect(result: ProjectFileOperationResult | undefined): boolean {
-  return (
-    result?.outcome === 'completed' && result.items.some((item) => item.effect !== 'none')
-  )
+  const active = document.activeElement
+  return active instanceof HTMLElement ? active : undefined
 }

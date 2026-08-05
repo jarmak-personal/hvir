@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   mkdir,
   mkdtemp,
@@ -45,6 +45,22 @@ describe('LocalHost', () => {
     await host.writeFile(p, 'hi there')
     expect(await host.readTextFile(p)).toBe('hi there')
     expect((await host.readFile(p)).toString('utf8')).toBe('hi there')
+  })
+
+  it('advertises recoverable deletion only with an injected trash port', async () => {
+    expect(host.fileDeletion).toEqual({ capability: 'unavailable' })
+    const trashItem = vi.fn(() => Promise.resolve())
+    const recoverable = new LocalHost({ trashItem })
+    const path = localPath(join(dir, 'trash-me.txt'))
+    await writeFile(path.path, 'trash')
+
+    expect(recoverable.fileDeletion.capability).toBe('recoverable')
+    if (recoverable.fileDeletion.capability !== 'recoverable') {
+      throw new Error('Expected recoverable deletion')
+    }
+    await recoverable.fileDeletion.trashEntry(path)
+    expect(trashItem).toHaveBeenCalledWith(path)
+    await recoverable.dispose()
   })
 
   it('creates exclusive empty files and directories with approved modes', async () => {

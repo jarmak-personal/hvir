@@ -15,6 +15,18 @@ import { asHostId, hostPath, type HostPath, type WatchEvent } from '../src/share
 import { createTestSshHost } from './ssh-host-test-fixture'
 
 describe('SshHost remote behavior', () => {
+  it('truthfully discloses permanent deletion without a remote trash helper', async () => {
+    const host = createTestSshHost({
+      config: aliasConfig(),
+      prompter: { prompt: () => Promise.resolve(undefined) },
+      clientFactory: () => fakeClient(() => undefined) as unknown as Client,
+    })
+
+    expect(host.fileDeletion).toEqual({ capability: 'permanent' })
+    expect('trashEntry' in host.fileDeletion).toBe(false)
+    await host.dispose()
+  })
+
   it('connects, probes, and executes through the default buffered slot', async () => {
     const client = Object.assign(
       fakeClient(() => queueMicrotask(() => client.emit('ready'))),

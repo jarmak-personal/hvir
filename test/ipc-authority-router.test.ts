@@ -119,10 +119,29 @@ function fixture() {
       generation: 2,
       itemCount: 1,
     })
+  const discloseDeletion = vi
+    .fn<IpcDeps['projectFiles']['discloseDeletion']>()
+    .mockResolvedValue({
+      outcome: 'available',
+      workspaceRoot: root,
+      source: localPath('/project/source.ts'),
+      recovery: 'recoverable',
+    })
+  const deleteProjectFile = vi.fn<IpcDeps['projectFiles']['delete']>().mockResolvedValue({
+    outcome: 'started',
+    operationId: 'delete-1',
+    generation: 3,
+    itemCount: 1,
+  })
   const deps = {
     rendererResources,
     recordIpcContractDiagnostic,
-    projectFiles: { create: createProjectFile, organize: organizeProjectFile },
+    projectFiles: {
+      create: createProjectFile,
+      organize: organizeProjectFile,
+      discloseDeletion,
+      delete: deleteProjectFile,
+    },
     getProjectState: () => projectState(),
     getRegisteredWorkspaceRoot: (candidate: typeof root) =>
       candidate.path === root.path && candidate.hostId === root.hostId ? root : undefined,
@@ -143,6 +162,8 @@ function fixture() {
     assertCurrent,
     createProjectFile,
     organizeProjectFile,
+    discloseDeletion,
+    deleteProjectFile,
     recordIpcContractDiagnostic,
   }
 }
@@ -292,6 +313,8 @@ describe('IpcAuthorityRouter', () => {
         'fs:acquire-dropped-files',
         'fs:copy-external',
         'fs:organize-entry',
+        'fs:deletion-disclosure',
+        'fs:delete-entry',
         'fs:cancel-file-operation',
         'html-preview:create',
         'web-pane:open',
@@ -325,6 +348,8 @@ describe('IpcAuthorityRouter', () => {
         'fs:create-entry',
         'fs:copy-external',
         'fs:organize-entry',
+        'fs:deletion-disclosure',
+        'fs:delete-entry',
         'git:diff-inputs',
         'git:changes',
         'git:history',
@@ -507,6 +532,49 @@ describe('IpcAuthorityRouter', () => {
       }),
     ).resolves.toEqual({ ok: false, error: 'Project paths must already be normalized' })
     expect(organizeProjectFile).not.toHaveBeenCalled()
+  })
+
+  it('reconstructs exact deletion disclosure and confirmed deletion requests', async () => {
+    const { deps, transport, discloseDeletion, deleteProjectFile } = fixture()
+    registerIpcHandlers(deps, transport)
+    const event = ipcEvent()
+    const send = vi.spyOn(event.sender, 'send')
+    const request = {
+      workspaceRoot: { hostId: 'local', path: '/project' },
+      source: { hostId: 'local', path: '/project/source.ts' },
+    }
+
+    await transport.invokes.get('fs:deletion-disclosure')?.[0]?.(event, request)
+    expect(discloseDeletion).toHaveBeenCalledWith(
+      owner,
+      localPath('/project'),
+      localPath('/project/source.ts'),
+    )
+
+    await transport.invokes.get('fs:delete-entry')?.[0]?.(event, {
+      ...request,
+      confirmedRecovery: 'recoverable',
+    })
+    expect(deleteProjectFile).toHaveBeenCalledOnce()
+    const deletion = deleteProjectFile.mock.calls[0]?.[0]
+    expect(deletion).toMatchObject({
+      owner,
+      request: {
+        workspaceRoot: localPath('/project'),
+        source: localPath('/project/source.ts'),
+        confirmedRecovery: 'recoverable',
+      },
+    })
+    const progress = {
+      workspaceRoot: root,
+      operationId: 'delete-1',
+      generation: 3,
+      phase: 'deleting' as const,
+      completedItems: 0,
+      totalItems: 1,
+    }
+    deletion?.publish(progress)
+    expect(send).toHaveBeenCalledWith('fs:project-file-operation', progress)
   })
 })
 

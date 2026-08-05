@@ -5,6 +5,7 @@ import {
   type ExternalFileGrantResult,
   type HostPath,
   type ProjectFileCreateKind,
+  type ProjectFileDeletionDisclosure,
   type ProjectFileOperationProgress,
   type ProjectFileOperationResult,
   type ProjectFileOperationStartResult,
@@ -20,6 +21,11 @@ import {
   proveRealProjectDirectory,
 } from './project-file-confinement'
 import { organizeProjectEntry } from './project-entry-organization'
+import {
+  discloseProjectEntryDeletion,
+  startProjectEntryDeletion,
+  type ProjectFileDeletionInput,
+} from './project-entry-deletion-operation'
 import {
   projectEntryCancelled,
   projectEntryDestination,
@@ -65,6 +71,8 @@ export interface ProjectFileOrganizationInput {
   readonly request: ProjectFileOrganizationRequest
   readonly publish: (progress: ProjectFileOperationProgress) => void
 }
+
+export type { ProjectFileDeletionInput } from './project-entry-deletion-operation'
 
 export class ProjectFileOperationCoordinator {
   private readonly runtime: ProjectFileOperationRuntime
@@ -322,6 +330,29 @@ export class ProjectFileOperationCoordinator {
     return started(identity.operationId, identity.generation, 1)
   }
 
+  async discloseDeletion(
+    owner: RendererOwner,
+    workspaceRoot: HostPath,
+    source: HostPath,
+  ): Promise<ProjectFileDeletionDisclosure> {
+    this.assertDeletionTarget(workspaceRoot, source)
+    return discloseProjectEntryDeletion(this.runtime, owner, workspaceRoot, source)
+  }
+
+  async delete(
+    input: ProjectFileDeletionInput,
+  ): Promise<ProjectFileOperationStartResult> {
+    this.assertDeletionTarget(input.request.workspaceRoot, input.request.source)
+    if (!['recoverable', 'permanent'].includes(input.request.confirmedRecovery)) {
+      throw new Error('Invalid deletion confirmation')
+    }
+    return startProjectEntryDeletion(
+      this.runtime,
+      this.options.copyLimits ?? PROJECT_FILE_COPY_LIMITS,
+      input,
+    )
+  }
+
   cancel(owner: RendererOwner, operationId: string, generation: number): boolean {
     return this.runtime.cancel(owner, operationId, generation)
   }
@@ -367,6 +398,15 @@ export class ProjectFileOperationCoordinator {
     assertDestination(request.workspaceRoot, request.destinationDirectory)
     if (request.action === 'duplicate' && !isProjectFileEntryName(request.name)) {
       throw new Error('Invalid entry name')
+    }
+  }
+
+  private assertDeletionTarget(workspaceRoot: HostPath, source: HostPath): void {
+    this.assertAvailable()
+    assertNormalizedAbsoluteProjectPath(workspaceRoot)
+    assertNormalizedAbsoluteProjectPath(source)
+    if (!containsHostPath(workspaceRoot, source)) {
+      throw new Error('The deletion target escapes the workspace')
     }
   }
 

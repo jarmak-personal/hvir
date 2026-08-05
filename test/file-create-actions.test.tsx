@@ -19,6 +19,7 @@ import {
   type ProjectFileOrganizationRequest,
 } from '../src/shared'
 import type { ViewerPathRebindCapability } from '../src/renderer/src/viewer/viewer-path-rebind'
+import type { ViewerPathRemovalCapability } from '../src/renderer/src/viewer/viewer-path-removal'
 
 const rootPath = localPath('/repo')
 const entries = new Map<string, DirEntry[]>([
@@ -50,6 +51,9 @@ let projectFileEvents: ((event: ProjectFileOperationProgress) => void)[]
 let copyExternal: () => Promise<unknown>
 let acquireDropped: ReturnType<typeof vi.fn>
 let organizeEntry: (request: ProjectFileOrganizationRequest) => Promise<unknown>
+let deletionDisclosure: (request: { readonly source: HostPath }) => Promise<unknown>
+let deleteEntry: () => Promise<unknown>
+let onHvir: ReturnType<typeof vi.fn>
 
 beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true)
@@ -81,6 +85,27 @@ beforeEach(() => {
         itemCount: 1,
       },
     })
+  deletionDisclosure = () => new Promise(() => undefined)
+  deleteEntry = () =>
+    Promise.resolve({
+      ok: true,
+      value: {
+        outcome: 'started',
+        operationId: 'delete-1',
+        generation: 1,
+        itemCount: 1,
+      },
+    })
+  onHvir = vi.fn(
+    (channel: string, callback: (event: ProjectFileOperationProgress) => void) => {
+      if (channel === 'fs:project-file-operation') projectFileEvents.push(callback)
+      return () => {
+        projectFileEvents = projectFileEvents.filter(
+          (candidate) => candidate !== callback,
+        )
+      }
+    },
+  )
   invoke = vi.fn((channel: string, request: { readonly path?: HostPath }) => {
     if (channel === 'fs:readdir') {
       return Promise.resolve({ ok: true, value: entries.get(request.path!.path) ?? [] })
@@ -106,6 +131,10 @@ beforeEach(() => {
     }
     if (channel === 'fs:copy-external') return copyExternal()
     if (channel === 'fs:organize-entry') return organizeEntry(request as never)
+    if (channel === 'fs:deletion-disclosure') {
+      return deletionDisclosure(request as unknown as { readonly source: HostPath })
+    }
+    if (channel === 'fs:delete-entry') return deleteEntry()
     if (channel === 'fs:cancel-file-operation') {
       return Promise.resolve({ ok: true, value: true })
     }
@@ -117,16 +146,7 @@ beforeEach(() => {
       invoke,
       send: vi.fn(),
       externalFiles: { acquireDropped },
-      on: vi.fn(
-        (channel: string, callback: (event: ProjectFileOperationProgress) => void) => {
-          if (channel === 'fs:project-file-operation') projectFileEvents.push(callback)
-          return () => {
-            projectFileEvents = projectFileEvents.filter(
-              (candidate) => candidate !== callback,
-            )
-          }
-        },
-      ),
+      on: onHvir,
     },
   })
   container = document.createElement('div')
@@ -505,7 +525,8 @@ describe('Files rail create actions', () => {
   })
 
   it('renames from the pointer menu and rebinds only after a completed result', async () => {
-    const viewerPathRebind: ViewerPathRebindCapability = {
+    const viewerPathRebind: ViewerPathRebindCapability & ViewerPathRemovalCapability = {
+      ...TEST_VIEWER_PATH_REBIND,
       canRebindPath: vi.fn(() => true),
       rebindPath: vi.fn(() => true),
     }
@@ -601,7 +622,8 @@ describe('Files rail create actions', () => {
   })
 
   it('duplicates into a selected workspace directory without rebinding viewer tabs', async () => {
-    const viewerPathRebind: ViewerPathRebindCapability = {
+    const viewerPathRebind: ViewerPathRebindCapability & ViewerPathRemovalCapability = {
+      ...TEST_VIEWER_PATH_REBIND,
       canRebindPath: vi.fn(() => true),
       rebindPath: vi.fn(() => true),
     }
@@ -650,6 +672,270 @@ describe('Files rail create actions', () => {
     await act(settle)
     expect(viewerPathRebind.rebindPath).not.toHaveBeenCalled()
   })
+
+  it('blocks deletion while a descendant buffer is dirty', async () => {
+    makeDeletionAvailable('recoverable')
+    const viewer = {
+      ...TEST_VIEWER_PATH_REBIND,
+      reviewPathRemoval: vi.fn(() => ({
+        openCount: 1,
+        dirtyPaths: [localPath('/repo/existing.md')],
+      })),
+    }
+    renderFileTree(rootPath, vi.fn(), viewer)
+    await waitFor(() => treeRow('/repo/existing.md') !== undefined)
+
+    openPointerMenu('/repo/existing.md')
+    await waitFor(() => menuItem('Move to Trash…') !== undefined)
+    clickMenuItem('Move to Trash…')
+
+    expect(document.querySelector('.file-deletion-dialog')).toBeNull()
+    await waitFor(
+      () =>
+        document
+          .querySelector('.file-operation-feedback')
+          ?.textContent?.includes('unsaved changes') === true,
+    )
+    expect(document.querySelector('.file-operation-feedback')?.textContent).toContain(
+      'unsaved changes',
+    )
+    expect(invoke).not.toHaveBeenCalledWith('fs:delete-entry', expect.anything())
+  })
+
+  it('focuses a safe control when keyboard-opening recoverable confirmation', async () => {
+    makeDeletionAvailable('recoverable')
+    renderFileTree(rootPath, vi.fn())
+    await waitFor(() => treeRow('/repo/existing.md') !== undefined)
+    openKeyboardMenu(treeRow('/repo/existing.md')!)
+    await waitFor(() => menuItem('Move to Trash…') !== undefined)
+    const action = menuItem('Move to Trash…')!
+    act(() => action.focus())
+    act(() => action.click())
+
+    expect(document.activeElement?.textContent?.trim()).toBe('Cancel')
+    act(() => {
+      document.activeElement?.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }),
+      )
+    })
+    expect(document.querySelector('.file-deletion-dialog')).toBeNull()
+  })
+
+  it('does not reset keyboard menu focus when deletion disclosure resolves', async () => {
+    const inspection = deferred<unknown>()
+    deletionDisclosure = () => inspection.promise
+    renderFileTree(rootPath, vi.fn())
+    await waitFor(() => treeRow('/repo/existing.md') !== undefined)
+    openKeyboardMenu(treeRow('/repo/existing.md')!)
+    const duplicate = menuItem('Duplicate…')!
+    act(() => duplicate.focus())
+    const initialOperationSubscriptions = projectFileOperationSubscriptionCount()
+
+    await act(async () => {
+      inspection.resolve({
+        ok: true,
+        value: {
+          outcome: 'available',
+          workspaceRoot: rootPath,
+          source: localPath('/repo/existing.md'),
+          recovery: 'recoverable',
+        },
+      })
+      await settle()
+    })
+
+    expect(menuItem('Move to Trash…')).toBeDefined()
+    expect(document.activeElement).toBe(duplicate)
+    expect(projectFileOperationSubscriptionCount()).toBe(initialOperationSubscriptions)
+  })
+
+  it('confirms recoverable deletion and closes clean descendants only after success', async () => {
+    makeDeletionAvailable('recoverable')
+    const closeCleanPath = vi.fn(() => ({
+      openCount: 1,
+      dirtyPaths: [],
+      closedCount: 1,
+    }))
+    const viewer = { ...TEST_VIEWER_PATH_REBIND, closeCleanPath }
+    const onWorkspaceContentChanged = vi.fn()
+    act(() => {
+      reactRoot.render(
+        <FileTree
+          root={rootPath}
+          refreshVersion={0}
+          searchRefreshVersion={0}
+          ignoredRefreshVersion={0}
+          onOpen={vi.fn()}
+          viewerPathRebind={viewer}
+          onWorkspaceContentChanged={onWorkspaceContentChanged}
+          gitEnabled={false}
+        />,
+      )
+    })
+    await waitFor(() => treeRow('/repo/existing.md') !== undefined)
+    openPointerMenu('/repo/existing.md')
+    await waitFor(() => menuItem('Move to Trash…') !== undefined)
+    clickMenuItem('Move to Trash…')
+
+    expect(dialogText()).toContain('local:/repo')
+    expect(dialogText()).toContain('local:/repo/existing.md')
+    expect(dialogText()).toContain('Move to operating-system Trash')
+    expect(dialogText()).toContain('Available through the operating-system Trash')
+    act(() =>
+      document.querySelector<HTMLFormElement>('.file-deletion-dialog')!.requestSubmit(),
+    )
+    await waitFor(() =>
+      invoke.mock.calls.some(([channel]) => channel === 'fs:delete-entry'),
+    )
+    expect(closeCleanPath).not.toHaveBeenCalled()
+    expect(invoke).toHaveBeenCalledWith('fs:delete-entry', {
+      workspaceRoot: rootPath,
+      source: localPath('/repo/existing.md'),
+      confirmedRecovery: 'recoverable',
+    })
+
+    broadcastProjectFileEvent({
+      outcome: 'completed',
+      operationId: 'delete-1',
+      generation: 1,
+      items: [
+        {
+          itemId: 'delete:0',
+          source: localPath('/repo/existing.md'),
+          destination: localPath('/repo/existing.md'),
+          status: 'completed',
+          effect: 'trashed-entry',
+          sourceDisposition: { outcome: 'removed' },
+        },
+      ],
+    })
+
+    await act(settle)
+    expect(closeCleanPath).toHaveBeenCalledWith(localPath('/repo/existing.md'))
+    expect(onWorkspaceContentChanged).toHaveBeenCalledOnce()
+    expect(document.querySelector('.file-operation-feedback')?.textContent).toContain(
+      'moved to Trash',
+    )
+  })
+
+  it('refreshes unknown submitted-Trash state without closing viewer tabs', async () => {
+    makeDeletionAvailable('recoverable')
+    const closeCleanPath = vi.fn()
+    const onWorkspaceContentChanged = vi.fn()
+    act(() => {
+      reactRoot.render(
+        <FileTree
+          root={rootPath}
+          refreshVersion={0}
+          searchRefreshVersion={0}
+          ignoredRefreshVersion={0}
+          onOpen={vi.fn()}
+          viewerPathRebind={{ ...TEST_VIEWER_PATH_REBIND, closeCleanPath }}
+          onWorkspaceContentChanged={onWorkspaceContentChanged}
+          gitEnabled={false}
+        />,
+      )
+    })
+    await waitFor(() => treeRow('/repo/existing.md') !== undefined)
+    openPointerMenu('/repo/existing.md')
+    await waitFor(() => menuItem('Move to Trash…') !== undefined)
+    clickMenuItem('Move to Trash…')
+    act(() =>
+      document.querySelector<HTMLFormElement>('.file-deletion-dialog')!.requestSubmit(),
+    )
+    await waitFor(() =>
+      invoke.mock.calls.some(([channel]) => channel === 'fs:delete-entry'),
+    )
+
+    broadcastProjectFileEvent({
+      outcome: 'completed',
+      operationId: 'delete-1',
+      generation: 1,
+      items: [
+        {
+          itemId: 'delete:0',
+          source: localPath('/repo/existing.md'),
+          destination: localPath('/repo/existing.md'),
+          status: 'failed',
+          effect: 'deletion-state-unknown',
+          sourceDisposition: {
+            outcome: 'unknown',
+            path: localPath('/repo/existing.md'),
+            totalEntries: 1,
+          },
+          reason: 'Trash callback rejected after moving',
+        },
+      ],
+    })
+    await act(settle)
+
+    expect(closeCleanPath).not.toHaveBeenCalled()
+    expect(onWorkspaceContentChanged).toHaveBeenCalledOnce()
+    expect(document.querySelector('.file-operation-feedback')?.textContent).toContain(
+      'could not be verified',
+    )
+    expect(document.querySelector('.file-operation-feedback')?.textContent).toContain(
+      'Recovery was not confirmed',
+    )
+  })
+
+  it('keyboard-opens permanent deletion and requires the exact entry name', async () => {
+    makeDeletionAvailable('permanent')
+    renderFileTree(rootPath, vi.fn())
+    await waitFor(() => treeRow('/repo/existing.md') !== undefined)
+    const row = treeRow('/repo/existing.md')!
+    openKeyboardMenu(row)
+    await waitFor(() => menuItem('Delete Permanently…') !== undefined)
+    const destructive = menuItem('Delete Permanently…')!
+    act(() => destructive.focus())
+    expect(document.activeElement).toBe(destructive)
+    act(() => destructive.click())
+
+    expect(dialogText()).toContain('Permanent deletion')
+    expect(dialogText()).toContain('local does not provide recoverable deletion')
+    setDialogName('wrong.md')
+    expect(submitButton()?.disabled).toBe(true)
+    setDialogName('existing.md')
+    expect(submitButton()?.disabled).toBe(false)
+    act(() =>
+      document.querySelector<HTMLFormElement>('.file-deletion-dialog')!.requestSubmit(),
+    )
+    await waitFor(() =>
+      invoke.mock.calls.some(([channel]) => channel === 'fs:delete-entry'),
+    )
+    expect(invoke).toHaveBeenCalledWith('fs:delete-entry', {
+      workspaceRoot: rootPath,
+      source: localPath('/repo/existing.md'),
+      confirmedRecovery: 'permanent',
+    })
+  })
+
+  it('rechecks dirty descendants immediately before deletion submission', async () => {
+    makeDeletionAvailable('recoverable')
+    const reviewPathRemoval = vi
+      .fn()
+      .mockReturnValueOnce({ openCount: 1, dirtyPaths: [] })
+      .mockReturnValueOnce({
+        openCount: 1,
+        dirtyPaths: [localPath('/repo/existing.md')],
+      })
+    renderFileTree(rootPath, vi.fn(), {
+      ...TEST_VIEWER_PATH_REBIND,
+      reviewPathRemoval,
+    })
+    await waitFor(() => treeRow('/repo/existing.md') !== undefined)
+    openPointerMenu('/repo/existing.md')
+    await waitFor(() => menuItem('Move to Trash…') !== undefined)
+    clickMenuItem('Move to Trash…')
+
+    act(() =>
+      document.querySelector<HTMLFormElement>('.file-deletion-dialog')!.requestSubmit(),
+    )
+
+    expect(reviewPathRemoval).toHaveBeenCalledTimes(2)
+    expect(dialogText()).toContain('unsaved changes')
+    expect(invoke).not.toHaveBeenCalledWith('fs:delete-entry', expect.anything())
+  })
 })
 
 describe('Files create targeting policy', () => {
@@ -676,7 +962,7 @@ describe('Files create targeting policy', () => {
 function renderFileTree(
   root: HostPath,
   onOpen: (path: HostPath, pinned: boolean, context?: FileOpenContext) => void,
-  viewerPathRebind?: ViewerPathRebindCapability,
+  viewerPathRebind?: ViewerPathRebindCapability & ViewerPathRemovalCapability,
 ): void {
   act(() => {
     reactRoot.render(
@@ -694,9 +980,25 @@ function renderFileTree(
   })
 }
 
-const TEST_VIEWER_PATH_REBIND: ViewerPathRebindCapability = {
-  canRebindPath: () => true,
-  rebindPath: () => true,
+const TEST_VIEWER_PATH_REBIND: ViewerPathRebindCapability & ViewerPathRemovalCapability =
+  {
+    canRebindPath: () => true,
+    rebindPath: () => true,
+    reviewPathRemoval: () => ({ openCount: 0, dirtyPaths: [] }),
+    closeCleanPath: () => ({ openCount: 0, dirtyPaths: [], closedCount: 0 }),
+  }
+
+function makeDeletionAvailable(recovery: 'recoverable' | 'permanent'): void {
+  deletionDisclosure = ({ source }) =>
+    Promise.resolve({
+      ok: true,
+      value: {
+        outcome: 'available',
+        workspaceRoot: rootPath,
+        source,
+        recovery,
+      },
+    })
 }
 
 function openPointerMenu(path: string): void {
@@ -755,6 +1057,11 @@ function broadcastProjectFileEvent(
   act(() => {
     for (const listener of projectFileEvents) listener(event)
   })
+}
+
+function projectFileOperationSubscriptionCount(): number {
+  return onHvir.mock.calls.filter(([channel]) => channel === 'fs:project-file-operation')
+    .length
 }
 
 function dialogText(): string {
