@@ -16,6 +16,11 @@ export interface ViewerDocumentPosition {
   readonly scrollTop: number
 }
 
+export interface ViewerDocumentRefresh {
+  readonly version: number
+  readonly path: HostPath
+}
+
 export interface ViewerTab {
   readonly id: string
   readonly path: HostPath
@@ -31,4 +36,6 @@ export interface ViewerTab {
   readonly error?: string
   readonly dirty: boolean
   readonly conflict: boolean
+  /** Exact document or rendered-dependency event that invalidated this tab. */
+  readonly refresh?: ViewerDocumentRefresh
 }

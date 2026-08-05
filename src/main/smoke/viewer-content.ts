@@ -253,6 +253,97 @@ export async function verifyViewerContent(options: {
     )) as string
     console.log(`[smoke] richer rendered views OK (${richerViewerStatus})`)
 
+    const stablePngSource = (await withTimeout(
+      win.webContents.executeJavaScript(`
+        new Promise((resolve, reject) => {
+          const deadline = Date.now() + 10000;
+          const findBySuffix = (suffix) => [...document.querySelectorAll('.tree-row')]
+            .find((node) => node.getAttribute('title')?.endsWith(suffix));
+          const openWhenReady = (suffix, next) => {
+            const node = findBySuffix(suffix);
+            if (node) {
+              const closedDirectory = node.classList.contains('directory-row') &&
+                node.querySelector('.tree-chevron')?.textContent?.trim() === '›';
+              if (!node.classList.contains('directory-row') || closedDirectory) node.click();
+              next();
+            } else if (Date.now() > deadline) {
+              reject(new Error('PNG fixture path missing: ' + suffix));
+            } else {
+              setTimeout(() => openWhenReady(suffix, next), 50);
+            }
+          };
+          openWhenReady('/build', () =>
+            openWhenReady('/build/icons-linux', () =>
+              openWhenReady('/build/icons-linux/64x64.png', () => {
+                const waitForImage = () => {
+                  const image = document.querySelector('.image-view img');
+                  const source = image?.getAttribute('src') || '';
+                  const activeTitle = document.querySelector('.viewer-tab.active .tab-name')?.textContent?.trim();
+                  if (activeTitle === '64x64.png' && image?.getAttribute('alt') === '64x64.png' &&
+                      image.complete && image.naturalWidth > 0 && source.startsWith('blob:')) {
+                    const probe = { image, source, changed: false, reason: '', observer: undefined };
+                    probe.observer = new MutationObserver((mutations) => {
+                      if (!image.isConnected || document.querySelector('.image-view img') !== image) {
+                        probe.changed = true;
+                        probe.reason = 'image replaced or disconnected';
+                        return;
+                      }
+                      if (mutations.some((mutation) =>
+                        mutation.type === 'attributes' && mutation.target === image &&
+                        mutation.attributeName === 'src'
+                      )) {
+                        probe.changed = true;
+                        probe.reason = 'source attribute changed';
+                      }
+                    });
+                    probe.observer.observe(document.querySelector('.viewer-body'), {
+                      attributes: true,
+                      attributeFilter: ['src'],
+                      childList: true,
+                      subtree: true,
+                    });
+                    globalThis.__hvirPngStabilityProbe = probe;
+                    return resolve(source);
+                  }
+                  if (Date.now() > deadline) return reject(new Error('PNG fixture did not render'));
+                  setTimeout(waitForImage, 50);
+                };
+                waitForImage();
+              })
+            )
+          );
+        })
+      `),
+      'repository PNG did not become ready for stability evidence',
+    )) as string
+    await host.writeFile(
+      liveReloadPath,
+      `${liveReloadBefore}\nunrelated PNG stability marker\n`,
+    )
+    await new Promise<void>((resolve) => setTimeout(resolve, 750))
+    const pngStability = (await win.webContents.executeJavaScript(`
+      (() => {
+        const probe = globalThis.__hvirPngStabilityProbe;
+        if (!probe) return { stable: false, reason: 'probe missing' };
+        probe.observer?.disconnect();
+        delete globalThis.__hvirPngStabilityProbe;
+        const current = document.querySelector('.image-view img');
+        return {
+          stable: !probe.changed && current === probe.image &&
+            current?.getAttribute('src') === probe.source &&
+            current.complete && current.naturalWidth > 0,
+          sourceUnchanged: current?.getAttribute('src') === ${JSON.stringify(stablePngSource)},
+          reason: probe.reason || document.querySelector('.viewer-empty')?.textContent || '',
+        };
+      })()
+    `)) as { stable: boolean; sourceUnchanged?: boolean; reason?: string }
+    if (!pngStability.stable || !pngStability.sourceUnchanged) {
+      throw new Error(
+        `unrelated watch event redrew repository PNG: ${JSON.stringify(pngStability)}`,
+      )
+    }
+    console.log('[smoke] unrelated watched path left repository PNG mounted and visible')
+
     const renderedLinkStatus = (await withTimeout(
       win.webContents.executeJavaScript(`
         new Promise((resolve, reject) => {
@@ -590,6 +681,7 @@ export async function verifyViewerContent(options: {
       filenameSearchStatus,
       renderedFixture,
       richerViewerStatus,
+      'stable PNG watch scope',
       renderedLinkStatus,
       'HTML sandboxed',
       jsonStatus,

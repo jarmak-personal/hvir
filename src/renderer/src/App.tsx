@@ -87,6 +87,7 @@ export function App(): ReactElement {
     reloadTab,
     saveTab,
     handleWatchEvent,
+    setRenderedDependencies,
     reloadCleanFiles,
     focusPane: focusViewerPane,
     getActivePane,
@@ -389,7 +390,7 @@ export function App(): ReactElement {
               if (paneTab) pinTab(paneTab.id)
               openFile(path, true)
             }}
-            refreshVersion={contentVersion}
+            onRenderedDependencies={setRenderedDependencies}
           />
         )}
       </div>
