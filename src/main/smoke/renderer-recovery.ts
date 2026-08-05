@@ -63,13 +63,9 @@ export async function verifyRendererProcessRecovery(options: {
     'renderer recovery route did not open',
   )
   checkpoint('renderer-recovery-route-opened')
-  const initialPresentation = await timeout(
-    win.webContents.capturePage(),
-    'renderer recovery initial workbench did not present',
-  )
-  if (initialPresentation.isEmpty()) {
-    throw new Error('renderer recovery initial workbench captured an empty frame')
-  }
+  // The shared smoke harness has already observed ready-to-show and completed a
+  // preload IPC round-trip. capturePage() adds no recovery-specific evidence here,
+  // and its native implementation can synchronously stall Electron under Xvfb.
   const initialProcessId = win.webContents.getOSProcessId()
   if (initialProcessId <= 0) {
     throw new Error('renderer recovery could not identify the presented OS process')
