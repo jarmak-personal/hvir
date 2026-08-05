@@ -222,6 +222,18 @@ export function registerFilesystemIpc(ipc: IpcRegistrar, deps: FilesystemIpcDeps
     ),
   )
 
+  ipc.handle('fs:release-external-move-grant', (req, context) =>
+    operationResult(() =>
+      Promise.resolve(
+        deps.projectFiles.releaseExternalMove(
+          context.owner(),
+          req.grantId,
+          req.grantGeneration,
+        ),
+      ),
+    ),
+  )
+
   ipc.handle('fs:move-external', (req, context) =>
     operationResult(async () => {
       const workspaceRoot = ipc.authority.workspaceRoot(

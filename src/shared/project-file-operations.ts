@@ -64,6 +64,11 @@ export interface ProjectFileExternalMoveAcquireRequest {
   readonly selection: ExternalMovePickerSelection
 }
 
+export interface ExternalMoveGrantReleaseRequest {
+  readonly grantId: string
+  readonly grantGeneration: number
+}
+
 export interface ProjectFileExternalCopyRequest {
   readonly workspaceRoot: HostPath
   readonly destinationDirectory: HostPath

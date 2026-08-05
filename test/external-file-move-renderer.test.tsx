@@ -97,6 +97,9 @@ beforeEach(() => {
         },
       })
     }
+    if (channel === 'fs:release-external-move-grant') {
+      return Promise.resolve({ ok: true, value: true })
+    }
     throw new Error(`Unexpected channel: ${channel}`)
   })
   Object.defineProperty(window, 'hvir', {
@@ -166,6 +169,9 @@ describe('external file move renderer workflow', () => {
       grantId: 'move-grant-1',
       grantGeneration: 3,
     })
+    await waitFor(() =>
+      invoke.mock.calls.some(([channel]) => channel === 'fs:release-external-move-grant'),
+    )
 
     broadcastCompletedMove()
     await act(settle)
@@ -202,14 +208,49 @@ describe('external file move renderer workflow', () => {
     expect(invoke).toHaveBeenCalledWith('fs:acquire-external-move-files', {
       selection: 'mixed',
     })
+    act(() => dialogButton('Cancel')!.click())
+    await waitFor(() =>
+      invoke.mock.calls.some(([channel]) => channel === 'fs:release-external-move-grant'),
+    )
+    expect(invoke).toHaveBeenCalledWith('fs:release-external-move-grant', {
+      grantId: 'move-grant-1',
+      grantGeneration: 3,
+    })
+    expect(document.querySelector('.file-external-move-dialog')).toBeNull()
+  })
+
+  it('releases a pending move grant when the workspace owner changes', async () => {
+    renderFileTree(vi.fn())
+    await waitFor(() => treeRow() !== undefined)
+    act(() => {
+      treeRow()!.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true }))
+    })
+    act(() => menuItem('Move External Items Here…')!.click())
+    await waitFor(() => dialogButton('Choose Files…') !== undefined)
+    act(() => dialogButton('Choose Files…')!.click())
+    await waitFor(() => dialogText().includes('selected.txt'))
+    expect(
+      invoke.mock.calls.some(([channel]) => channel === 'fs:release-external-move-grant'),
+    ).toBe(false)
+
+    renderFileTree(vi.fn(), localPath('/next-repo'))
+
+    await waitFor(() =>
+      invoke.mock.calls.some(([channel]) => channel === 'fs:release-external-move-grant'),
+    )
+    expect(invoke).toHaveBeenCalledWith('fs:release-external-move-grant', {
+      grantId: 'move-grant-1',
+      grantGeneration: 3,
+    })
+    await act(settle)
   })
 })
 
-function renderFileTree(onWorkspaceContentChanged: () => void): void {
+function renderFileTree(onWorkspaceContentChanged: () => void, treeRoot = root): void {
   act(() => {
     reactRoot.render(
       <FileTree
-        root={root}
+        root={treeRoot}
         refreshVersion={0}
         searchRefreshVersion={0}
         ignoredRefreshVersion={0}
@@ -261,7 +302,6 @@ function broadcastCompletedMove(): void {
     items: [
       {
         itemId: 'external:0',
-        source: localPath('/outside/selected.txt'),
         destination: localPath('/repo/selected.txt'),
         status: 'completed',
         effect: 'moved-external-file',
@@ -278,6 +318,7 @@ function broadcastCompletedMove(): void {
     totalItems: 1,
     result,
   }
+  expect(JSON.stringify(event)).not.toContain('/outside/selected.txt')
   act(() => {
     for (const listener of listeners) listener(event)
   })

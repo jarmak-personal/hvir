@@ -21,6 +21,7 @@ export const OWNER_SCOPED_INVOKE_CHANNELS = [
   'fs:copy-external',
   'fs:external-move-disclosure',
   'fs:acquire-external-move-files',
+  'fs:release-external-move-grant',
   'fs:move-external',
   'fs:organize-entry',
   'fs:deletion-disclosure',

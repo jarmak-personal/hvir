@@ -64,6 +64,7 @@ export function useExternalFileMove(options: {
   const [acquiring, setAcquiring] = useState(false)
   const nextId = useRef(0)
   const activeDialogId = useRef<number | undefined>(undefined)
+  const pendingGrant = useRef<ExternalFileGrantDescriptor | undefined>(undefined)
   const alive = useRef(true)
   const ownerKey = projectFileOwnerKey(options.root)
   const latestOwnerKey = useRef(ownerKey)
@@ -84,6 +85,24 @@ export function useExternalFileMove(options: {
     onComplete: handleComplete,
     onError: handleError,
   })
+  const releaseGrant = useCallback((grant: ExternalFileGrantDescriptor) => {
+    if (
+      pendingGrant.current?.grantId === grant.grantId &&
+      pendingGrant.current.generation === grant.generation
+    ) {
+      pendingGrant.current = undefined
+    }
+    void window.hvir
+      .invoke('fs:release-external-move-grant', {
+        grantId: grant.grantId,
+        grantGeneration: grant.generation,
+      })
+      .catch(() => undefined)
+  }, [])
+  const releasePendingGrant = useCallback(() => {
+    const grant = pendingGrant.current
+    if (grant) releaseGrant(grant)
+  }, [releaseGrant])
 
   useEffect(() => {
     alive.current = true
@@ -91,6 +110,7 @@ export function useExternalFileMove(options: {
       alive.current = false
     }
   }, [])
+  useEffect(() => () => releasePendingGrant(), [ownerKey, releasePendingGrant])
   useEffect(() => {
     activeDialogId.current = undefined
     setDialog(undefined)
@@ -157,6 +177,7 @@ export function useExternalFileMove(options: {
             latestOwnerKey.current !== requestOwnerKey ||
             activeDialogId.current !== request.id
           ) {
+            if (result.outcome === 'available') releaseGrant(result.grant)
             return
           }
           if (result.outcome === 'cancelled') return
@@ -164,6 +185,7 @@ export function useExternalFileMove(options: {
             callbacks.current.onError(result.reason)
             return
           }
+          pendingGrant.current = result.grant
           setDialog({ ...request, stage: 'confirmation', grant: result.grant })
         })
         .catch((reason: unknown) => {
@@ -179,7 +201,7 @@ export function useExternalFileMove(options: {
           }
         })
     },
-    [acquiring, dialog, operation.pending],
+    [acquiring, dialog, operation.pending, releaseGrant],
   )
 
   const confirm = useCallback(() => {
@@ -188,12 +210,14 @@ export function useExternalFileMove(options: {
     if (
       operation.start(
         () =>
-          window.hvir.invoke('fs:move-external', {
-            workspaceRoot: request.workspaceRoot,
-            destinationDirectory: request.destinationDirectory,
-            grantId: request.grant.grantId,
-            grantGeneration: request.grant.generation,
-          }),
+          window.hvir
+            .invoke('fs:move-external', {
+              workspaceRoot: request.workspaceRoot,
+              destinationDirectory: request.destinationDirectory,
+              grantId: request.grant.grantId,
+              grantGeneration: request.grant.generation,
+            })
+            .finally(() => releaseGrant(request.grant)),
         'moving-external',
         'The external move could not start',
       )
@@ -201,7 +225,7 @@ export function useExternalFileMove(options: {
       activeDialogId.current = undefined
       setDialog(undefined)
     }
-  }, [acquiring, dialog, operation])
+  }, [acquiring, dialog, operation, releaseGrant])
 
   return {
     dialog,
@@ -212,6 +236,7 @@ export function useExternalFileMove(options: {
     confirm,
     dismiss() {
       if (!acquiring && !operation.pending) {
+        if (dialog?.stage === 'confirmation') releaseGrant(dialog.grant)
         activeDialogId.current = undefined
         setDialog(undefined)
       }

@@ -48,6 +48,7 @@ export interface IpcDeps {
     | 'copyExternal'
     | 'discloseExternalMove'
     | 'acquireExternalMove'
+    | 'releaseExternalMove'
     | 'moveExternal'
     | 'organize'
     | 'discloseDeletion'

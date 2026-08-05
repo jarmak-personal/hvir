@@ -16,6 +16,7 @@ import type { HostPath } from './host-path'
 import type {
   ExternalFileGrantResult,
   ExternalMoveGrantResult,
+  ExternalMoveGrantReleaseRequest,
   ProjectFileExternalMoveAcquireRequest,
   ProjectFileExternalMoveDisclosure,
   ProjectFileExternalMoveRequest,
@@ -664,6 +665,10 @@ export interface IpcInvokeMap {
     request: ProjectFileExternalMoveAcquireRequest
     response: OperationResult<ExternalMoveGrantResult>
   }
+  'fs:release-external-move-grant': {
+    request: ExternalMoveGrantReleaseRequest
+    response: OperationResult<boolean>
+  }
   'fs:move-external': {
     request: ProjectFileExternalMoveRequest
     response: OperationResult<ProjectFileOperationStartResult>
@@ -928,6 +933,7 @@ export const INVOKE_CHANNELS = [
   'fs:copy-external',
   'fs:external-move-disclosure',
   'fs:acquire-external-move-files',
+  'fs:release-external-move-grant',
   'fs:move-external',
   'fs:organize-entry',
   'fs:deletion-disclosure',

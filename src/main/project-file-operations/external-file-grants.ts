@@ -15,6 +15,7 @@ import type { ProjectHost } from '../project-host'
 import type { RendererOwner } from '../renderer-resource-scopes'
 import { MAX_EXTERNAL_FILE_SOURCES } from './clipboard-file-list'
 import { isMissingProjectPathError } from './project-file-path-errors'
+import { PROJECT_FILE_OPERATION_DEADLINE_MS } from './project-file-operation-runtime'
 
 const EXTERNAL_FILE_GRANT_TTL_MS = 60_000
 
@@ -102,6 +103,7 @@ export class ExternalFileGrantRegistry {
       readonly resources: ExternalFileGrantResourcePort
       readonly createGrantId?: () => string
       readonly grantTtlMs?: number
+      readonly moveGrantTtlMs?: number
     },
   ) {}
 
@@ -142,7 +144,9 @@ export class ExternalFileGrantRegistry {
     const lease = this.options.resources.registerGrant(owner, grantId, () => revoke())
     const timer = setTimeout(
       revoke,
-      this.options.grantTtlMs ?? EXTERNAL_FILE_GRANT_TTL_MS,
+      purpose === 'move'
+        ? (this.options.moveGrantTtlMs ?? PROJECT_FILE_OPERATION_DEADLINE_MS)
+        : (this.options.grantTtlMs ?? EXTERNAL_FILE_GRANT_TTL_MS),
     )
     const record: GrantRecord = {
       grantId,
@@ -238,6 +242,27 @@ export class ExternalFileGrantRegistry {
 
   get supportsExternalMove(): boolean {
     return this.options.sourceHost.fileDeletion.capability === 'recoverable'
+  }
+
+  release(
+    owner: RendererOwner,
+    grantId: string,
+    generation: number,
+    purpose: ExternalFileGrantPurpose,
+  ): boolean {
+    const record = this.grants.get(grantId)
+    if (
+      !record ||
+      record.revoked ||
+      record.consumed ||
+      record.generation !== generation ||
+      record.purpose !== purpose ||
+      !sameOwner(record.owner, owner)
+    ) {
+      return false
+    }
+    this.revoke(record)
+    return true
   }
 
   dispose(): void {

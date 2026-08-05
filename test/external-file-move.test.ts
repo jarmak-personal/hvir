@@ -142,7 +142,7 @@ describe('external file move policy', () => {
     expect(result.items[0]).toMatchObject({
       status: 'completed',
       effect: 'copied-file',
-      sourceDisposition: { outcome: 'retained', path: source },
+      sourceDisposition: { outcome: 'retained' },
     })
     expect(result.items[0]?.reason).toContain('changed')
     await expect(readFile(source.path, 'utf8')).resolves.toBe('changed after publication')
@@ -171,7 +171,7 @@ describe('external file move policy', () => {
     expect(result.items[0]).toMatchObject({
       status: 'completed',
       effect: 'copied-file',
-      sourceDisposition: { outcome: 'retained', path: source },
+      sourceDisposition: { outcome: 'retained' },
     })
     expect(result.items[0]?.reason).toContain('changed')
     await expect(readFile(source.path, 'utf8')).resolves.toBe('original')
@@ -201,7 +201,7 @@ describe('external file move policy', () => {
     expect(result.items[0]).toMatchObject({
       status: 'completed',
       effect: 'copied-file',
-      sourceDisposition: { outcome: 'retained', path: source },
+      sourceDisposition: { outcome: 'retained' },
     })
     expect(result.items[0]?.reason).toContain('revoked')
     await expect(readFile(source.path, 'utf8')).resolves.toBe('original')
@@ -219,9 +219,28 @@ describe('external file move policy', () => {
     expect(result.items[0]).toMatchObject({
       status: 'completed',
       effect: 'copied-file',
-      sourceDisposition: { outcome: 'retained', path: source },
+      sourceDisposition: { outcome: 'retained' },
     })
     await expect(readFile(source.path, 'utf8')).resolves.toBe('retained')
+  })
+
+  it('redacts the granted source root from hostile Trash failures', async () => {
+    const source = localPath(join(sourceDirectory, 'private', 'hostile.txt'))
+    await mkdir(join(sourceDirectory, 'private'))
+    await writeFile(source.path, 'retained')
+    const grant = await moveGrant(host, [source], () => {
+      throw new Error(`Trash failed for ${source.path}/descendant`)
+    })
+
+    const result = await runMove({ host, grant, projectDirectory })
+
+    expect(result.items[0]).toMatchObject({
+      status: 'completed',
+      effect: 'copied-file',
+      sourceDisposition: { outcome: 'retained' },
+    })
+    expect(result.items[0]?.reason).toContain('[external source]/descendant')
+    expect(JSON.stringify(result)).not.toContain(source.path)
   })
 
   it('does not claim retained or moved when submitted Trash is uncertain', async () => {
@@ -237,7 +256,7 @@ describe('external file move policy', () => {
     expect(result.items[0]).toMatchObject({
       status: 'completed',
       effect: 'copied-file',
-      sourceDisposition: { outcome: 'unknown', path: source },
+      sourceDisposition: { outcome: 'unknown' },
     })
   })
 
@@ -375,7 +394,7 @@ async function runMove(options: {
 }) {
   const destination = options.destination ?? localPath(options.projectDirectory)
   const abort = options.abort ?? new AbortController()
-  return moveExternalFileGrant({
+  const result = await moveExternalFileGrant({
     operationId: 'move-operation',
     generation: 1,
     visibleDestinationDirectory: destination,
@@ -397,6 +416,10 @@ async function runMove(options: {
     },
     onProgress: () => undefined,
   })
+  for (const item of options.grant.items) {
+    if (item.source) expect(JSON.stringify(result)).not.toContain(item.source.path)
+  }
+  return result
 }
 
 function remoteDestinationHost(

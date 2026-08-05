@@ -143,6 +143,9 @@ function fixture() {
   const acquireExternalMove = vi
     .fn<IpcDeps['projectFiles']['acquireExternalMove']>()
     .mockResolvedValue({ outcome: 'cancelled' })
+  const releaseExternalMove = vi
+    .fn<IpcDeps['projectFiles']['releaseExternalMove']>()
+    .mockReturnValue(true)
   const moveExternal = vi
     .fn<IpcDeps['projectFiles']['moveExternal']>()
     .mockResolvedValue({
@@ -161,6 +164,7 @@ function fixture() {
       delete: deleteProjectFile,
       discloseExternalMove,
       acquireExternalMove,
+      releaseExternalMove,
       moveExternal,
     },
     getProjectState: () => projectState(),
@@ -187,6 +191,7 @@ function fixture() {
     deleteProjectFile,
     discloseExternalMove,
     acquireExternalMove,
+    releaseExternalMove,
     moveExternal,
     recordIpcContractDiagnostic,
   }
@@ -338,6 +343,7 @@ describe('IpcAuthorityRouter', () => {
         'fs:copy-external',
         'fs:external-move-disclosure',
         'fs:acquire-external-move-files',
+        'fs:release-external-move-grant',
         'fs:move-external',
         'fs:organize-entry',
         'fs:deletion-disclosure',
@@ -606,8 +612,14 @@ describe('IpcAuthorityRouter', () => {
   })
 
   it('keeps native move acquisition owner-scoped and reconstructs only destination authority', async () => {
-    const { deps, transport, discloseExternalMove, acquireExternalMove, moveExternal } =
-      fixture()
+    const {
+      deps,
+      transport,
+      discloseExternalMove,
+      acquireExternalMove,
+      releaseExternalMove,
+      moveExternal,
+    } = fixture()
     registerIpcHandlers(deps, transport)
     const event = ipcEvent()
 
@@ -617,6 +629,11 @@ describe('IpcAuthorityRouter', () => {
     })
     expect(discloseExternalMove).toHaveBeenCalledWith(owner)
     expect(acquireExternalMove).toHaveBeenCalledWith(owner, 'files')
+    await transport.invokes.get('fs:release-external-move-grant')?.[0]?.(event, {
+      grantId: 'opaque-grant',
+      grantGeneration: 8,
+    })
+    expect(releaseExternalMove).toHaveBeenCalledWith(owner, 'opaque-grant', 8)
 
     await transport.invokes.get('fs:move-external')?.[0]?.(event, {
       workspaceRoot: { hostId: 'local', path: '/project' },

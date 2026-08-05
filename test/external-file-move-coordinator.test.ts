@@ -73,6 +73,21 @@ describe('external move coordinator acquisition', () => {
       reason: 'Recoverable application-host Trash is unavailable',
     })
   })
+
+  it('releases only the exact owner-scoped move grant', () => {
+    const fixture = coordinatorFixture()
+
+    expect(fixture.coordinator.releaseExternalMove(owner, 'move-grant', 9)).toBe(true)
+    expect(fixture.externalFiles.release).toHaveBeenCalledWith(
+      owner,
+      'move-grant',
+      9,
+      'move',
+    )
+    expect(() => fixture.coordinator.releaseExternalMove(owner, 'move-grant', 0)).toThrow(
+      'Invalid external file grant',
+    )
+  })
 })
 
 function coordinatorFixture(supportsExternalMove = true) {
@@ -85,6 +100,7 @@ function coordinatorFixture(supportsExternalMove = true) {
         grant: { grantId: 'move-grant', generation: 9, items: [] },
       }),
     ),
+    release: vi.fn(() => true),
     dispose: vi.fn(),
   }
   const picker = {

@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promis
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { ExternalFileGrantRegistry } from '../src/main/project-file-operations'
 import { LocalHost } from '../src/main/project-host'
@@ -147,6 +147,112 @@ describe('ExternalFileGrantRegistry', () => {
     expect(() =>
       registry.consume(owner, moveResult.grant.grantId, moveResult.grant.generation),
     ).toThrow('unavailable')
+  })
+
+  it('releases only the exact pending move grant and leaves replacements untouched', async () => {
+    const firstPath = join(directory, 'first-move.txt')
+    const secondPath = join(directory, 'second-move.txt')
+    await Promise.all([writeFile(firstPath, 'first'), writeFile(secondPath, 'second')])
+    const firstResult = await registry.acquire(owner, [firstPath], 'move')
+    if (firstResult.outcome !== 'available') throw new Error('expected first grant')
+
+    expect(
+      registry.release(
+        { id: owner.id, generation: owner.generation + 1 },
+        firstResult.grant.grantId,
+        firstResult.grant.generation,
+        'move',
+      ),
+    ).toBe(false)
+    expect(
+      registry.release(
+        owner,
+        firstResult.grant.grantId,
+        firstResult.grant.generation,
+        'copy',
+      ),
+    ).toBe(false)
+    expect(
+      registry.release(
+        owner,
+        firstResult.grant.grantId,
+        firstResult.grant.generation,
+        'move',
+      ),
+    ).toBe(true)
+
+    const secondResult = await registry.acquire(owner, [secondPath], 'move')
+    if (secondResult.outcome !== 'available') throw new Error('expected second grant')
+    expect(
+      registry.release(
+        owner,
+        firstResult.grant.grantId,
+        firstResult.grant.generation,
+        'move',
+      ),
+    ).toBe(false)
+    const consumed = registry.consume(
+      owner,
+      secondResult.grant.grantId,
+      secondResult.grant.generation,
+      'move',
+    )
+    expect(
+      registry.release(
+        owner,
+        secondResult.grant.grantId,
+        secondResult.grant.generation,
+        'move',
+      ),
+    ).toBe(false)
+    await expect(
+      consumed.source('external:0').stat(consumed.items[0]!.source!),
+    ).resolves.toMatchObject({ type: 'file' })
+  })
+
+  it('keeps move grants for the operation horizon without extending copy grants', async () => {
+    const outside = join(directory, 'grant-horizon.txt')
+    await writeFile(outside, 'horizon')
+    vi.useFakeTimers()
+    try {
+      const copyResult = await registry.acquire(owner, [outside], 'copy')
+      if (copyResult.outcome !== 'available') throw new Error('expected copy grant')
+      await vi.advanceTimersByTimeAsync(60_000)
+      expect(() =>
+        registry.consume(
+          owner,
+          copyResult.grant.grantId,
+          copyResult.grant.generation,
+          'copy',
+        ),
+      ).toThrow('unavailable')
+
+      const moveResult = await registry.acquire(owner, [outside], 'move')
+      if (moveResult.outcome !== 'available') throw new Error('expected move grant')
+      await vi.advanceTimersByTimeAsync(60_000)
+      expect(() =>
+        registry.consume(
+          owner,
+          moveResult.grant.grantId,
+          moveResult.grant.generation,
+          'move',
+        ),
+      ).not.toThrow()
+
+      const expiringMove = await registry.acquire(owner, [outside], 'move')
+      if (expiringMove.outcome !== 'available') throw new Error('expected move grant')
+      await vi.advanceTimersByTimeAsync(10 * 60_000)
+      expect(() =>
+        registry.consume(
+          owner,
+          expiringMove.grant.grantId,
+          expiringMove.grant.generation,
+          'move',
+        ),
+      ).toThrow('unavailable')
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('confirms resolved Trash only when the exact granted path is absent', async () => {
