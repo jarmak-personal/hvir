@@ -1,6 +1,12 @@
 import type { SFTPWrapper } from 'ssh2'
 
-import type { HostId, HostPath, Stat } from '../../shared'
+import {
+  dirnameHostPath,
+  hostPathEquals,
+  type HostId,
+  type HostPath,
+  type Stat,
+} from '../../shared'
 import {
   PROJECT_FILE_STREAM_CHUNK_BYTES,
   ProjectPathExistsError,
@@ -167,6 +173,13 @@ export class SshProjectFileTransfer {
       if (sourceState === 'present' && destinationState === 'present') {
         throw new ProjectPathExistsError()
       }
+      if (
+        sourceState === 'present' &&
+        destinationState === 'missing' &&
+        (await this.provesCrossDeviceRename(source, destination))
+      ) {
+        throw remoteCrossDeviceError(reason)
+      }
       throw reason
     }
     this.port.invalidate(source.path)
@@ -179,6 +192,37 @@ export class SshProjectFileTransfer {
       return 'present'
     } catch (reason) {
       return isNoSuchFile(reason) ? 'missing' : 'unknown'
+    }
+  }
+
+  private async provesCrossDeviceRename(
+    source: HostPath,
+    destination: HostPath,
+  ): Promise<boolean> {
+    const sourceParent = dirnameHostPath(source)
+    const destinationParent = dirnameHostPath(destination)
+    if (hostPathEquals(sourceParent, destinationParent)) return false
+    const [sourceFilesystem, destinationFilesystem] = await Promise.all([
+      this.inspectFilesystemId(sourceParent),
+      this.inspectFilesystemId(destinationParent),
+    ])
+    return (
+      sourceFilesystem !== undefined &&
+      destinationFilesystem !== undefined &&
+      sourceFilesystem !== destinationFilesystem
+    )
+  }
+
+  private async inspectFilesystemId(path: HostPath): Promise<string | undefined> {
+    try {
+      const info = await this.perform<unknown>((session, done) =>
+        session.ext_openssh_statvfs(path.path, (error, value: unknown) =>
+          done(error, value),
+        ),
+      )
+      return statvfsFilesystemId(info)
+    } catch {
+      return undefined
     }
   }
 
@@ -262,4 +306,22 @@ function callbackRequest<T>(
 function isNoSuchFile(reason: unknown): boolean {
   const code = (reason as { code?: unknown } | undefined)?.code
   return code === 2 || code === 'ENOENT'
+}
+
+function statvfsFilesystemId(value: unknown): string | undefined {
+  if (typeof value !== 'object' || value === null) return undefined
+  const id = (value as { readonly f_sid?: unknown }).f_sid
+  if (typeof id === 'bigint' && id >= 0n) return id.toString()
+  return typeof id === 'number' && Number.isSafeInteger(id) && id >= 0
+    ? id.toString()
+    : undefined
+}
+
+function remoteCrossDeviceError(cause: unknown): Error & { readonly code: 'EXDEV' } {
+  return Object.assign(
+    new Error('The remote source and destination are on different filesystems', {
+      cause,
+    }),
+    { code: 'EXDEV' as const },
+  )
 }

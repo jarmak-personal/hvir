@@ -354,6 +354,140 @@ describe('SshFileAccess', () => {
     expect(session.lstat).toHaveBeenCalledTimes(2)
   })
 
+  it('tags a submitted ambiguous rename as EXDEV only after different filesystem proof', async () => {
+    const hostId = asHostId('ssh:transfer-rename-cross-device')
+    const source = hostPath(hostId, '/source-volume/source')
+    const destination = hostPath(hostId, '/destination-volume/destination')
+    const missing = Object.assign(new Error('missing'), { code: 2 })
+    const failure = Object.assign(new Error('Failure'), { code: 4 })
+    let finishRename!: (error?: Error) => void
+    const session = {
+      rename: vi.fn(
+        (_source: string, _destination: string, callback: typeof finishRename) => {
+          finishRename = callback
+        },
+      ),
+      lstat: vi.fn(
+        (path: string, callback: (error: Error | undefined, value?: unknown) => void) =>
+          path === source.path
+            ? callback(undefined, {
+                mode: 0o100644,
+                mtime: 100,
+                size: 5,
+                atime: 100,
+              })
+            : callback(missing),
+      ),
+      ext_openssh_statvfs: vi.fn(
+        (path: string, callback: (error: Error | undefined, value?: unknown) => void) =>
+          callback(undefined, { f_sid: path === '/source-volume' ? 101 : 202 }),
+      ),
+      once: vi.fn(),
+      end: vi.fn(),
+    }
+    const files = new SshFileAccess(
+      { hostId, openSftp: () => Promise.resolve(session as unknown as SFTPWrapper) },
+      {},
+    )
+    const publishing = files.renameProjectFileNoReplace(source, destination)
+    await vi.waitFor(() => expect(session.rename).toHaveBeenCalledOnce())
+
+    finishRename(failure)
+
+    await expect(publishing).rejects.toMatchObject({
+      code: 'EXDEV',
+      cause: failure,
+    })
+    expect(session.ext_openssh_statvfs).toHaveBeenCalledTimes(2)
+  })
+
+  it('preserves an ambiguous submitted rename failure when filesystem IDs match', async () => {
+    const hostId = asHostId('ssh:transfer-rename-same-device')
+    const source = hostPath(hostId, '/source-volume/source')
+    const destination = hostPath(hostId, '/destination-volume/destination')
+    const missing = Object.assign(new Error('missing'), { code: 2 })
+    const failure = Object.assign(new Error('Failure'), { code: 4 })
+    let finishRename!: (error?: Error) => void
+    const session = {
+      rename: vi.fn(
+        (_source: string, _destination: string, callback: typeof finishRename) => {
+          finishRename = callback
+        },
+      ),
+      lstat: vi.fn(
+        (path: string, callback: (error: Error | undefined, value?: unknown) => void) =>
+          path === source.path
+            ? callback(undefined, {
+                mode: 0o100644,
+                mtime: 100,
+                size: 5,
+                atime: 100,
+              })
+            : callback(missing),
+      ),
+      ext_openssh_statvfs: vi.fn(
+        (_path: string, callback: (error: Error | undefined, value?: unknown) => void) =>
+          callback(undefined, { f_sid: 101n }),
+      ),
+      once: vi.fn(),
+      end: vi.fn(),
+    }
+    const files = new SshFileAccess(
+      { hostId, openSftp: () => Promise.resolve(session as unknown as SFTPWrapper) },
+      {},
+    )
+    const publishing = files.renameProjectFileNoReplace(source, destination)
+    await vi.waitFor(() => expect(session.rename).toHaveBeenCalledOnce())
+
+    finishRename(failure)
+
+    await expect(publishing).rejects.toBe(failure)
+    expect(session.ext_openssh_statvfs).toHaveBeenCalledTimes(2)
+  })
+
+  it('preserves an ambiguous submitted rename failure when statvfs is unavailable', async () => {
+    const hostId = asHostId('ssh:transfer-rename-unknown-device')
+    const source = hostPath(hostId, '/source-volume/source')
+    const destination = hostPath(hostId, '/destination-volume/destination')
+    const missing = Object.assign(new Error('missing'), { code: 2 })
+    const failure = Object.assign(new Error('Failure'), { code: 4 })
+    let finishRename!: (error?: Error) => void
+    const session = {
+      rename: vi.fn(
+        (_source: string, _destination: string, callback: typeof finishRename) => {
+          finishRename = callback
+        },
+      ),
+      lstat: vi.fn(
+        (path: string, callback: (error: Error | undefined, value?: unknown) => void) =>
+          path === source.path
+            ? callback(undefined, {
+                mode: 0o100644,
+                mtime: 100,
+                size: 5,
+                atime: 100,
+              })
+            : callback(missing),
+      ),
+      ext_openssh_statvfs: vi.fn(() => {
+        throw new Error('Server does not support this extended request')
+      }),
+      once: vi.fn(),
+      end: vi.fn(),
+    }
+    const files = new SshFileAccess(
+      { hostId, openSftp: () => Promise.resolve(session as unknown as SFTPWrapper) },
+      {},
+    )
+    const publishing = files.renameProjectFileNoReplace(source, destination)
+    await vi.waitFor(() => expect(session.rename).toHaveBeenCalledOnce())
+
+    finishRename(failure)
+
+    await expect(publishing).rejects.toBe(failure)
+    expect(session.ext_openssh_statvfs).toHaveBeenCalledTimes(2)
+  })
+
   it('does not submit a no-replace rename cancelled while SFTP opens', async () => {
     const hostId = asHostId('ssh:transfer-rename-opening')
     const source = hostPath(hostId, '/project/source')

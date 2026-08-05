@@ -686,11 +686,17 @@ function renderFileTree(
         searchRefreshVersion={0}
         ignoredRefreshVersion={0}
         onOpen={onOpen}
-        viewerPathRebind={viewerPathRebind}
+        viewerPathRebind={viewerPathRebind ?? TEST_VIEWER_PATH_REBIND}
+        onWorkspaceContentChanged={() => undefined}
         gitEnabled={false}
       />,
     )
   })
+}
+
+const TEST_VIEWER_PATH_REBIND: ViewerPathRebindCapability = {
+  canRebindPath: () => true,
+  rebindPath: () => true,
 }
 
 function openPointerMenu(path: string): void {

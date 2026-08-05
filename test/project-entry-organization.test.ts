@@ -184,6 +184,37 @@ describe('project entry organization policy', () => {
     })
   })
 
+  it.runIf(process.platform === 'linux')(
+    'treats case-related parent names as an ordinary one-leg move',
+    async () => {
+      const sourceDirectory = joinHostPath(root, 'Dir')
+      const destinationDirectory = joinHostPath(root, 'dir')
+      const source = joinHostPath(sourceDirectory, 'entry.txt')
+      const destination = joinHostPath(destinationDirectory, 'entry.txt')
+      await mkdir(sourceDirectory.path)
+      await mkdir(destinationDirectory.path)
+      await writeFile(source.path, 'ordinary move')
+      const renameNoReplace = vi.fn<ProjectFileTransferPort['renameNoReplace']>(
+        (from, to, options) => host.fileTransfer.renameNoReplace(from, to, options),
+      )
+
+      const result = await organizeWithHost(wrappedHost(host, { renameNoReplace }), {
+        action: 'move',
+        workspaceRoot: root,
+        source,
+        destinationDirectory,
+      })
+
+      expect(result).toMatchObject({
+        status: 'completed',
+        effect: 'moved-entry',
+        destination,
+      })
+      expect(renameNoReplace).toHaveBeenCalledOnce()
+      await expect(readFile(destination.path, 'utf8')).resolves.toBe('ordinary move')
+    },
+  )
+
   it('restores a case-only rename when publication conflicts', async () => {
     const source = joinHostPath(root, 'File.txt')
     await writeFile(source.path, 'recover me')

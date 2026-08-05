@@ -102,7 +102,8 @@ export async function organizeProjectEntry(options: {
       })
     }
 
-    const caseOnly = isCaseOnlyPathChange(request.source, destination)
+    const caseOnly =
+      request.action === 'rename' && isCaseOnlyPathChange(request.source, destination)
     if (caseOnly) {
       await reproveParents(
         options,
@@ -465,9 +466,13 @@ function isCrossDeviceError(reason: unknown): boolean {
 }
 
 function isCaseOnlyPathChange(source: HostPath, destination: HostPath): boolean {
+  const sourceParent = dirnameHostPath(source)
+  const destinationParent = dirnameHostPath(destination)
+  const sourceName = basenameHostPath(source)
+  const destinationName = basenameHostPath(destination)
   return (
-    source.hostId === destination.hostId &&
-    source.path !== destination.path &&
-    source.path.toLocaleLowerCase('en-US') === destination.path.toLocaleLowerCase('en-US')
+    hostPathEquals(sourceParent, destinationParent) &&
+    sourceName !== destinationName &&
+    sourceName.toLocaleLowerCase('en-US') === destinationName.toLocaleLowerCase('en-US')
   )
 }
