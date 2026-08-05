@@ -250,7 +250,11 @@ export async function verifyProjectFileOperationsSmoke(options: {
         Buffer.from(`${pathToFileURL(clipboardSource.path).href}\r\n`),
       )
     }
-    if (!new ElectronClipboardFileSource().readPaths().includes(clipboardSource.path)) {
+    if (process.platform === 'darwin') {
+      await waitForMacClipboardFileList(clipboardSource.path)
+    } else if (
+      !new ElectronClipboardFileSource().readPaths().includes(clipboardSource.path)
+    ) {
       const availableFormats = clipboard.availableFormats()
       throw new Error(
         `smoke clipboard did not retain reviewed ${clipboardFormat} file-list data; available=${availableFormats.join(',')}`,
@@ -877,6 +881,19 @@ async function waitForHostPath(host: ProjectHost, path: HostPath): Promise<void>
     await new Promise<void>((resolve) => setTimeout(resolve, 25))
   }
   throw new Error('accepted create did not complete at its snapshotted path')
+}
+
+async function waitForMacClipboardFileList(expectedPath: string): Promise<void> {
+  const source = new ElectronClipboardFileSource()
+  const deadline = Date.now() + 5_000
+  while (Date.now() <= deadline) {
+    if (source.readPaths().includes(expectedPath)) return
+    await new Promise<void>((resolve) => setTimeout(resolve, 25))
+  }
+  const availableFormats = clipboard.availableFormats()
+  throw new Error(
+    `smoke clipboard did not retain reviewed public.file-url file-list data; available=${availableFormats.join(',')}`,
+  )
 }
 
 function clearRendererCreateMarkers(win: BrowserWindow): Promise<unknown> {

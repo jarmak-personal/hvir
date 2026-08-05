@@ -364,8 +364,8 @@ describe('ProjectFileOperationCoordinator', () => {
       status: 'failed',
       reason: 'unexpected internal fault with bounded detail',
     })
-    expect(resources.active.size).toBe(0)
     await runtime.dispose()
+    expect(resources.active.size).toBe(0)
   })
 
   it('reports the distinct application-wide limit across workspaces', async () => {
@@ -712,9 +712,8 @@ describe('ProjectFileOperationCoordinator', () => {
     )
 
     await waitForPublish(publish, 'completed')
-    await nextTurn()
-    expect(resources.active.size).toBe(0)
     await runtime.dispose()
+    expect(resources.active.size).toBe(0)
   })
 })
 
@@ -784,17 +783,52 @@ function wrappedHost(
 
 async function waitForPublish(
   publish: ReturnType<typeof progressPublisher>,
-  phase: string,
+  phase: ProjectFileOperationProgress['phase'],
 ): Promise<void> {
-  for (let attempt = 0; attempt < 20; attempt += 1) {
-    if (publish.mock.calls.some(([event]) => event.phase === phase)) return
-    await nextTurn()
-  }
-  throw new Error(`Timed out waiting for ${phase} project file progress`)
+  await publish.waitForPhase(phase)
 }
 
 function progressPublisher() {
-  return vi.fn<(progress: ProjectFileOperationProgress) => void>()
+  const waiters = new Set<{
+    readonly phase: ProjectFileOperationProgress['phase']
+    readonly settle: (progress: ProjectFileOperationProgress) => void
+  }>()
+  const publish = vi.fn<(progress: ProjectFileOperationProgress) => void>((progress) => {
+    for (const waiter of waiters) {
+      if (waiter.phase !== progress.phase) continue
+      waiters.delete(waiter)
+      waiter.settle(progress)
+    }
+  })
+  return Object.assign(publish, {
+    waitForPhase(
+      phase: ProjectFileOperationProgress['phase'],
+    ): Promise<ProjectFileOperationProgress> {
+      const observed = publish.mock.calls.find(([progress]) => progress.phase === phase)
+      if (observed) return Promise.resolve(observed[0])
+      return new Promise((resolve, reject) => {
+        const waiter = {
+          phase,
+          settle(progress: ProjectFileOperationProgress) {
+            clearTimeout(timer)
+            resolve(progress)
+          },
+        }
+        const timer = setTimeout(() => {
+          waiters.delete(waiter)
+          const observedPhases = publish.mock.calls.map(([progress]) => progress.phase)
+          reject(
+            new Error(
+              `Timed out waiting for ${phase} project file progress; observed=${
+                observedPhases.join(',') || 'none'
+              }`,
+            ),
+          )
+        }, 2_000)
+        waiters.add(waiter)
+      })
+    },
+  })
 }
 
 function lastProgress(
