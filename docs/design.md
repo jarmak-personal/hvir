@@ -239,6 +239,11 @@ One main-owned coordinator applies fixed targeting, confinement, collision, tran
 verification, deletion, and lifecycle policy over immediate `ProjectHost` primitives; explicit
 operation-scoped grants bound application-host sources outside registered projects.
 
+### [ADR-031 — Explicit document review anchors and provider-safe handoff](adr/ADR-031-explicit-document-review-handoff.md)
+
+Host-qualified Markdown review uses exact on-disk anchors, bounded local persistence, explicit
+payload bytes and destinations, and revisioned provider composer contracts through PTY authority.
+
 ## 5. Architecture
 
 ### Process model
