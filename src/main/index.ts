@@ -1,5 +1,4 @@
-/** Electron main-process entry and current application composition root. */
-import { app, BrowserWindow, dialog, protocol, shell } from 'electron'
+import { app, BrowserWindow, dialog, shell } from 'electron'
 import { registerIpcHandlers } from './ipc'
 import { createProjectCommands } from './ipc/project-commands'
 import { GitMutationCoordinator } from './git/mutation-coordinator'
@@ -21,6 +20,7 @@ import { createWorkspaceCleanup } from './workspace-cleanup'
 import { TerminalSessionRegistry } from './terminal/session-registry'
 import { TerminalWorkspaceMoveCoordinator } from './terminal/terminal-workspace-move-coordinator'
 import { RendererResourceScopes, type RendererOwner } from './renderer-resource-scopes'
+import { createRendererPresentationInstaller } from './renderer-presentation-resources'
 import { createElectronWindowManager } from './window/electron-window-manager'
 import { WorkbenchRuntime } from './workbench-runtime'
 import { RuntimeDiagnostics } from './diagnostics/runtime-diagnostics'
@@ -28,6 +28,10 @@ import { createDiagnosticReportCoordinator } from './diagnostics/diagnostic-repo
 import { RendererEventPublisher } from './renderer-event-publisher'
 import { createFilenameSearchCoordinator } from './filename-search'
 import { createProjectFileOperationCoordinator } from './project-file-operations'
+import {
+  createDocumentReviewRuntime,
+  type DocumentReviewRuntime,
+} from './document-review'
 import { applicationRuntime, applicationUserDataPath } from './application-runtime'
 import {
   GIT_WORKSPACE_ACTIVITY_TYPE,
@@ -39,14 +43,8 @@ import {
   localPath,
   type EchoWorkerProtocol,
   type GitWorkerProtocol,
-  HTML_PREVIEW_SCHEME,
 } from '../shared'
-protocol.registerSchemesAsPrivileged([
-  {
-    scheme: HTML_PREVIEW_SCHEME,
-    privileges: { standard: true, secure: true, bypassCSP: false },
-  },
-])
+HtmlPreviewProtocol.registerScheme()
 function createWorkbenchEntry(): void {
   const runtime = new WorkbenchRuntime({
     start: startup,
@@ -94,25 +92,16 @@ function createWorkbenchEntry(): void {
   let ptySupervisor: PtySupervisor | null = null
   let terminalSessionRegistry: TerminalSessionRegistry | null = null
   let harnessProfileStore: HarnessProfileStore | null = null
+  let documentReview: DocumentReviewRuntime | null = null
   let attentionBadge: AttentionBadge | null = null
   let workspaceCoordinator: WorkspaceCoordinator | null = null
   let projectCoordinator: ProjectCoordinator | null = null
-  const installRendererPresentation = (owner: RendererOwner): RendererOwner => {
-    rendererScopes.register(owner, { lifetime: 'renderer', type: 'attention' }, () =>
-      attentionBadge?.remove(owner.id, owner.generation),
-    )
-    rendererScopes.register(
-      owner,
-      { lifetime: 'renderer', type: 'ssh-prompt-presentation' },
-      () => sshPrompter?.revokeOwner(owner),
-    )
-    rendererScopes.register(
-      owner,
-      { lifetime: 'renderer', type: 'diagnostic-report' },
-      () => diagnosticReports.revoke(owner),
-    )
-    return owner
-  }
+  const installRendererPresentation = createRendererPresentationInstaller({
+    scopes: rendererScopes,
+    reports: diagnosticReports,
+    attention: () => attentionBadge,
+    sshPrompter: () => sshPrompter,
+  })
   const windowManager = runtime.own(
     'Electron window manager',
     createElectronWindowManager({
@@ -213,6 +202,15 @@ function createWorkbenchEntry(): void {
         localPath(applicationUserDataPath('harness-profiles.json')),
       ),
       (profiles) => profiles.flush(),
+    )
+    documentReview = runtime.own(
+      'document review',
+      await createDocumentReviewRuntime(
+        hostCatalog.local,
+        localPath(applicationUserDataPath('document-review-drafts.json')),
+        rendererScopes,
+      ),
+      (review) => review.dispose(),
     )
     await harnessProfileStore
       .importLegacyDefaults(terminalSessionRegistry.profileReferences())
@@ -369,6 +367,7 @@ function createWorkbenchEntry(): void {
         gitWorker,
         filenameSearch,
         projectFiles,
+        documentReview: documentReview.coordinator,
         getProject: () => registry.active,
         getHost: (hostId) => projectRegistry?.hostById(hostId),
         connectedHosts: () => projectRegistry?.connectedHosts() ?? [],
@@ -507,6 +506,7 @@ function createWorkbenchEntry(): void {
     sshPrompter?.cancelAll()
     await terminalSessionRegistry?.flush()
     await harnessProfileStore?.flush()
+    await documentReview?.flush()
     await projectRegistry?.disconnectSshHosts()
   }
   async function shutdown(): Promise<void> {

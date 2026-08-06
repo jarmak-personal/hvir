@@ -3,6 +3,7 @@ import type { BrowserWindow } from 'electron'
 import { dispatchWorkerHostCall } from '../git/worker-host-broker'
 import { createFilenameSearchCoordinator } from '../filename-search'
 import { createProjectFileOperationCoordinator } from '../project-file-operations'
+import { createDocumentReviewRuntime } from '../document-review'
 import { HarnessProfileStore } from '../harness/harness-profile-store'
 import { harnessProviderCatalog } from '../harness/harness-provider'
 import type { HarnessProbeManager } from '../harness/harness-probe'
@@ -16,6 +17,7 @@ import { PtySupervisor } from '../pty/pty-supervisor'
 import type { WebPaneRouteRegistry } from '../web-pane/web-pane-route-registry'
 import { createWorkerClient, workerPath } from '../worker-host'
 import { createWorkspaceCleanup } from '../workspace-cleanup'
+import { applicationUserDataPath } from '../application-runtime'
 import { SmokeCleanup } from './cleanup'
 import {
   reportSmokeFailureEvidence,
@@ -482,6 +484,12 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
     const smokeTerminalSessionHarness = createSmokeTerminalSessionStore(smokeRoot)
     const smokeTerminalSessions = smokeTerminalSessionHarness.store
     const smokeHarnessProfiles = await HarnessProfileStore.load(host, harnessProfilesPath)
+    const documentReview = await createDocumentReviewRuntime(
+      host,
+      localPath(applicationUserDataPath('document-review-drafts.json')),
+      rendererResources,
+    )
+    cleanup.defer('document review', () => documentReview.dispose())
     let smokeIpcProjectState = commitSmokeProjectState(
       mode === 'terminal-presentation'
         ? smokeProjectReturnState('smoke-project')
@@ -527,6 +535,7 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
       gitWorker: git,
       filenameSearch,
       projectFiles,
+      documentReview: documentReview.coordinator,
       getProject: () =>
         smokeIpcProjectState.root.hostId === smokeRemoteHost.hostId
           ? { host: smokeRemoteHost, root: smokeRemoteRoot }

@@ -13,6 +13,9 @@ export const OWNER_SCOPED_INVOKE_CHANNELS = [
   'project:connect-host',
   'project:browse-host',
   'project:open',
+  'document-review:restore',
+  'document-review:save',
+  'document-review:revalidate',
   'ssh:prompt-response',
   'fs:filename-search',
   'fs:create-entry',
@@ -43,6 +46,9 @@ export const OWNER_SCOPED_SEND_CHANNELS = SEND_CHANNELS
 
 export const AUTHORITY_SCOPED_INVOKE_CHANNELS = [
   'project:watch-interests',
+  'document-review:restore',
+  'document-review:save',
+  'document-review:revalidate',
   'fs:readdir',
   'fs:filename-search',
   'fs:resolve-entry',

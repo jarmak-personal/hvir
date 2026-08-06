@@ -188,6 +188,8 @@ export interface RemoveFileOptions {
 export interface ReadFileOptions {
   /** Keep this user-visible file on the SSH polling fast path. */
   readonly pollingInterest?: boolean
+  /** Revoke an in-flight bounded read when its renderer/workspace lease ends. */
+  readonly signal?: AbortSignal
 }
 
 export interface SpawnPtyOptions {
@@ -277,7 +279,11 @@ export interface ProjectHost {
     opts?: ReadFileOptions,
   ): Promise<string>
   /** Read at most `maxBytes` of UTF-8 text and disclose whether the file ended. */
-  readTextFilePrefix(path: HostPath, maxBytes: number): Promise<TextWorkload>
+  readTextFilePrefix(
+    path: HostPath,
+    maxBytes: number,
+    opts?: ReadFileOptions,
+  ): Promise<TextWorkload>
   writeFile(
     path: HostPath,
     data: Uint8Array | string,

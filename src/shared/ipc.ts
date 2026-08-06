@@ -88,6 +88,13 @@ import type {
   DiagnosticReportIdRequest,
   DiagnosticReportStateResult,
 } from './diagnostic-report'
+import type {
+  DocumentReviewRestoreRequest,
+  DocumentReviewRevalidateRequest,
+  DocumentReviewRevalidation,
+  DocumentReviewSaveRequest,
+  DocumentReviewWorkspaceSnapshot,
+} from './document-review'
 
 export type WebPaneCommandAction =
   KeybindingAction | 'closeWebPane' | 'escapeWebPaneFocus'
@@ -594,6 +601,18 @@ export interface IpcInvokeMap {
     request: ProjectWatchInterestsRequest
     response: OperationResult<ProjectWatchInterestsResponse>
   }
+  'document-review:restore': {
+    request: DocumentReviewRestoreRequest
+    response: OperationResult<DocumentReviewWorkspaceSnapshot>
+  }
+  'document-review:save': {
+    request: DocumentReviewSaveRequest
+    response: OperationResult<DocumentReviewWorkspaceSnapshot>
+  }
+  'document-review:revalidate': {
+    request: DocumentReviewRevalidateRequest
+    response: OperationResult<DocumentReviewRevalidation>
+  }
   'project:close': {
     request: CloseProjectRequest
     response: OperationResult<ProjectState>
@@ -919,6 +938,9 @@ export const INVOKE_CHANNELS = [
   'project:switch',
   'project:refresh',
   'project:watch-interests',
+  'document-review:restore',
+  'document-review:save',
+  'document-review:revalidate',
   'project:close',
   'workspace:prune',
   'workspace:dismiss',

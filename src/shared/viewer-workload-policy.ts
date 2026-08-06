@@ -1,5 +1,7 @@
 /** Each Git side is bounded before it crosses the utility-process/renderer seam. */
 export const DIFF_INPUT_BYTE_LIMIT = 2 * 1024 * 1024
+/** Largest bounded text read admitted by the main-owned ProjectHost seam. */
+export const PROJECT_HOST_TEXT_PREFIX_BYTE_LIMIT = 8 * 1024 * 1024
 
 export interface TextWorkload {
   readonly content: string
@@ -8,6 +10,8 @@ export interface TextWorkload {
   /** Lines included in `content`; partial inputs never claim a full-file count. */
   readonly lineCount: number
   readonly complete: boolean
+  /** False only when the owning byte transport observed malformed UTF-8. */
+  readonly validUtf8?: boolean
 }
 
 export function assertTextPrefixByteLimit(maxBytes: number): void {
@@ -17,6 +21,16 @@ export function assertTextPrefixByteLimit(maxBytes: number): void {
     maxBytes > DIFF_INPUT_BYTE_LIMIT
   ) {
     throw new Error('Invalid text prefix byte limit')
+  }
+}
+
+export function assertProjectHostTextPrefixByteLimit(maxBytes: number): void {
+  if (
+    !Number.isSafeInteger(maxBytes) ||
+    maxBytes < 1 ||
+    maxBytes > PROJECT_HOST_TEXT_PREFIX_BYTE_LIMIT
+  ) {
+    throw new Error('Invalid ProjectHost text prefix byte limit')
   }
 }
 

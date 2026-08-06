@@ -12,6 +12,7 @@
  */
 
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
+import { isUtf8 } from 'node:buffer'
 import { randomUUID } from 'node:crypto'
 import { constants, mkdirSync, realpathSync } from 'node:fs'
 import { promises as fsp } from 'node:fs'
@@ -23,7 +24,7 @@ import { getSystemErrorName } from 'node:util'
 import chokidar from 'chokidar'
 
 import {
-  assertTextPrefixByteLimit,
+  assertProjectHostTextPrefixByteLimit,
   boundTextWorkload,
   hostPath,
   LOCAL_HOST_ID,
@@ -460,25 +461,31 @@ export class LocalHost implements ProjectHost {
     })
   }
 
-  async readFile(path: HostPath, _opts: ReadFileOptions = {}): Promise<Buffer> {
-    return fsp.readFile(this.resolve(path))
+  async readFile(path: HostPath, opts: ReadFileOptions = {}): Promise<Buffer> {
+    return fsp.readFile(this.resolve(path), { signal: opts.signal })
   }
 
   async readTextFile(
     path: HostPath,
     encoding: BufferEncoding = 'utf8',
-    _opts: ReadFileOptions = {},
+    opts: ReadFileOptions = {},
   ): Promise<string> {
-    return fsp.readFile(this.resolve(path), encoding)
+    return fsp.readFile(this.resolve(path), { encoding, signal: opts.signal })
   }
 
-  async readTextFilePrefix(path: HostPath, maxBytes: number): Promise<TextWorkload> {
-    assertTextPrefixByteLimit(maxBytes)
+  async readTextFilePrefix(
+    path: HostPath,
+    maxBytes: number,
+    opts: ReadFileOptions = {},
+  ): Promise<TextWorkload> {
+    assertProjectHostTextPrefixByteLimit(maxBytes)
+    opts.signal?.throwIfAborted()
     const handle = await fsp.open(this.resolve(path), 'r')
     const buffer = Buffer.allocUnsafe(maxBytes + 1)
     let offset = 0
     try {
       while (offset < buffer.byteLength) {
+        opts.signal?.throwIfAborted()
         const { bytesRead } = await handle.read(
           buffer,
           offset,
@@ -491,11 +498,12 @@ export class LocalHost implements ProjectHost {
     } finally {
       await handle.close()
     }
-    return boundTextWorkload(
-      buffer.subarray(0, offset).toString('utf8'),
-      maxBytes,
-      offset <= maxBytes,
-    )
+    opts.signal?.throwIfAborted()
+    const bytes = buffer.subarray(0, offset)
+    return {
+      ...boundTextWorkload(bytes.toString('utf8'), maxBytes, offset <= maxBytes),
+      validUtf8: isUtf8(bytes),
+    }
   }
 
   async writeFile(

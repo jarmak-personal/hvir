@@ -1,99 +1,15 @@
+import type {
+  DocumentReviewComment,
+  DocumentReviewModel,
+  ReviewAnchorStaleReason,
+  ReviewCommentLifecycle,
+  ReviewDocumentSnapshot,
+  ReviewSourceRange,
+  ReviewWorkspaceIdentity,
+} from '../../../shared/document-review'
 import type { HostPath } from '../../../shared'
 
-export const DOCUMENT_REVIEW_LIMITS = {
-  batchesPerWorkspace: 32,
-  batchMembers: 64,
-  commentsPerDocument: 64,
-  commentsPerWorkspace: 256,
-  commentBytes: 8 * 1024,
-  contextBytes: 4 * 1024,
-  excerptBytes: 32 * 1024,
-  idBytes: 128,
-  revalidationReadBytes: 4 * 1024 * 1024,
-  sourceRangeLines: 100,
-  storedWorkspaceBytes: 2 * 1024 * 1024,
-  workspaceIdBytes: 256,
-} as const
-
-export interface ReviewWorkspaceIdentity {
-  /** Stable registered project/worktree identity, not a path-derived key. */
-  readonly id: string
-  readonly root: HostPath
-}
-
-export interface ReviewDocumentSnapshot {
-  readonly algorithm: 'sha256'
-  /** Lowercase hexadecimal digest of the exact on-disk UTF-8 bytes. */
-  readonly digest: string
-  readonly byteLength: number
-}
-
-export interface ReviewSourceRange {
-  /** Inclusive, one-based line. */
-  readonly startLine: number
-  /** Inclusive, one-based line. */
-  readonly endLine: number
-}
-
-export interface ReviewAnchorLocation {
-  readonly snapshot: ReviewDocumentSnapshot
-  readonly range: ReviewSourceRange
-}
-
-export type ReviewAnchorStaleReason =
-  | 'ambiguous-match'
-  | 'deleted'
-  | 'host-unavailable'
-  | 'incomplete-read'
-  | 'invalid-snapshot'
-  | 'invalid-text'
-  | 'missing-match'
-  | 'read-limit-exceeded'
-
-export type ReviewAnchorState =
-  | { readonly status: 'current' }
-  | { readonly status: 'moved'; readonly previous: ReviewAnchorLocation }
-  | {
-      readonly status: 'stale'
-      readonly reason: ReviewAnchorStaleReason
-      /** Explicit human decision; staleness remains visible and orthogonal. */
-      readonly reviewed: boolean
-    }
-
-/** Representation-independent source identity shared by rendered and source capture. */
-export interface DocumentReviewAnchor {
-  readonly snapshot: ReviewDocumentSnapshot
-  readonly range: ReviewSourceRange
-  readonly excerpt: string
-  /** Exact immediately preceding source, including its line delimiter. */
-  readonly contextBefore: string
-  /** Exact immediately following source, including its line delimiter. */
-  readonly contextAfter: string
-  readonly state: ReviewAnchorState
-}
-
-export type ReviewCommentLifecycle = 'draft' | 'sent' | 'resolved'
-
-export interface DocumentReviewComment {
-  readonly id: string
-  readonly workspace: ReviewWorkspaceIdentity
-  readonly document: HostPath
-  readonly body: string
-  readonly anchor: DocumentReviewAnchor
-  readonly lifecycle: ReviewCommentLifecycle
-}
-
-export interface DocumentReviewBatch {
-  readonly id: string
-  readonly workspace: ReviewWorkspaceIdentity
-  readonly commentIds: readonly string[]
-}
-
-export interface DocumentReviewModel {
-  readonly workspace: ReviewWorkspaceIdentity
-  readonly comments: readonly DocumentReviewComment[]
-  readonly batches: readonly DocumentReviewBatch[]
-}
+export * from '../../../shared/document-review'
 
 export interface ReviewAnchorCapture {
   readonly document: HostPath

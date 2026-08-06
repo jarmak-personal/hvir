@@ -37,6 +37,7 @@ import { useWorkbenchOverlays } from './workbench/use-workbench-overlays'
 import { TerminalLayoutControls } from './workbench/TerminalLayoutControls'
 import { useRendererReady } from './workbench/use-renderer-ready'
 import { useTerminalPathActivation } from './workbench/use-terminal-path-activation'
+import * as review from './document-review/use-document-review-workspace'
 export function App(): ReactElement {
   const theme = useAppTheme()
   const settings = useAppSettings()
@@ -47,6 +48,7 @@ export function App(): ReactElement {
   const resetGitGraphRef = useRef<() => void>(() => undefined)
   const deactivateGitGraphRef = useRef<() => void>(() => undefined)
   const deactivateWebPaneRef = useRef<() => void>(() => undefined)
+  const reviewWatch = useRef(review.createDocumentReviewWatchBridge()).current
   const [gitChanges, setGitChanges] = useState<GitChanges>()
   const overlays = useWorkbenchOverlays()
   const terminalAttention = useTerminalAttention()
@@ -131,7 +133,7 @@ export function App(): ReactElement {
     composerSubmitMode: settings.composerSubmitMode,
     onProjectState: applyProjectViewState,
     onReloadFiles: reloadCleanFiles,
-    onWatchEvent: handleWatchEvent,
+    onWatchEvent: reviewWatch.combine(handleWatchEvent),
     isIgnoreRulePath: isGitIgnoreRulePath,
   })
   const {
@@ -144,6 +146,8 @@ export function App(): ReactElement {
     rootError,
     refreshHosts,
   } = session
+  const documentReview = review.useDocumentReviewWorkspace(activeWorkspace)
+  reviewWatch.connect(documentReview.handleWatchEvent)
   const { watch: watchVersion, ignored: ignoredRefreshVersion } = session.versions
   const { content: contentVersion, git: gitVersion } = session.versions
   useRendererReady(Boolean(root))
@@ -152,6 +156,7 @@ export function App(): ReactElement {
     connected: connectionState === 'connected',
     missing: activeWorkspace?.missing,
     openPaths: viewer.openWatchPaths,
+    reviewPaths: documentReview.watchPaths,
     dependencyPaths: viewer.renderedWatchPaths,
   })
   const gitEnabled = workspaceGitEnabled(activeWorkspace)

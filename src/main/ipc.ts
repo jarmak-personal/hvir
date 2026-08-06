@@ -4,6 +4,7 @@ import { IpcAuthorityRouter, type IpcMainRegistrationPort } from './ipc/authorit
 import type { IpcDeps } from './ipc/deps'
 import { registerAppIpc } from './ipc/features/app'
 import { registerDiagnosticReportIpc } from './ipc/features/diagnostic-report'
+import { registerDocumentReviewIpc } from './ipc/features/document-review'
 import { registerFilesystemIpc } from './ipc/features/filesystem'
 import { registerGitIpc } from './ipc/features/git'
 import { registerHarnessIpc } from './ipc/features/harness'
@@ -25,6 +26,7 @@ export function registerIpcHandlers(
   try {
     registerAppIpc(router, deps)
     registerDiagnosticReportIpc(router, deps)
+    registerDocumentReviewIpc(router, deps)
     registerProjectIpc(router, deps)
     registerFilesystemIpc(router, deps)
     registerGitIpc(router, deps)
