@@ -69,6 +69,15 @@ export function useDocumentReviewWorkspace(workspace?: ReviewWorkspaceIdentity) 
   return { state, apply, handleWatchEvent, watchPaths }
 }
 
+export function useReviewWorkspace(
+  workspace: ReviewWorkspaceIdentity | undefined,
+  fanout: DocumentReviewWatchFanout,
+) {
+  const review = useDocumentReviewWorkspace(workspace)
+  useWatchTarget(fanout, review.handleWatchEvent)
+  return review
+}
+
 export interface DocumentReviewWatchFanout {
   readonly handle: (event: WatchEvent) => void
   readonly target: MutableRefObject<(event: WatchEvent) => void>

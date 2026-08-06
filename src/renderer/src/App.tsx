@@ -146,8 +146,7 @@ export function App(): ReactElement {
     rootError,
     refreshHosts,
   } = session
-  const documentReview = review.useDocumentReviewWorkspace(activeWorkspace)
-  review.useWatchTarget(reviewWatch, documentReview.handleWatchEvent)
+  const documentReview = review.useReviewWorkspace(activeWorkspace, reviewWatch)
   const { watch: watchVersion, ignored: ignoredRefreshVersion } = session.versions
   const { content: contentVersion, git: gitVersion } = session.versions
   useRendererReady(Boolean(root))
@@ -390,6 +389,7 @@ export function App(): ReactElement {
               openFile(path, true)
             }}
             onRenderedDependencies={viewer.setRenderedDependencies}
+            documentReview={documentReview}
           />
         )}
       </div>

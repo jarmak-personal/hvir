@@ -56,6 +56,19 @@ import {
   SOURCE_INTERACTIVE_BYTE_LIMIT,
 } from './viewer-workload-policy'
 import { useAppTheme } from '../theme'
+import {
+  DocumentReviewPanel,
+  DocumentReviewToolbar,
+} from '../document-review/DocumentReviewControls'
+import {
+  useDocumentReviewInteraction,
+  type DocumentReviewDocumentProjection,
+  type DocumentReviewWorkspaceBinding,
+} from '../document-review/use-document-review-interaction'
+import {
+  createDocumentReviewSourceExtensions,
+  sourceReviewSelection,
+} from '../document-review/document-review-source'
 
 let sharedHighlightWorker: Worker | undefined
 let nextHighlightRequestId = 0
@@ -117,6 +130,7 @@ interface FileViewerProps {
   readonly registerCommands: RegisterViewerCommandTarget
   readonly onOpenPath: (path: HostPath) => void
   readonly onRenderedDependencies: (tabId: string, paths: readonly HostPath[]) => void
+  readonly documentReview?: DocumentReviewWorkspaceBinding
 }
 
 export function FileViewer({
@@ -132,6 +146,7 @@ export function FileViewer({
   registerCommands,
   onOpenPath,
   onRenderedDependencies,
+  documentReview,
 }: FileViewerProps): ReactElement {
   const [showBlame, setShowBlame] = useState(false)
   const [blame, setBlame] = useState<readonly GitBlameRun[]>([])
@@ -177,14 +192,33 @@ export function FileViewer({
     [onRenderedDependencies, tabId],
   )
 
-  const navigate = (coordinate: SourceCoordinate): void => {
-    setManualNavigation({
-      ...coordinate,
-      serial: (manualNavigationSerial.current -= 1),
-      focus: true,
-    })
-    onMode('source', positionCapture.current?.())
-  }
+  const navigate = useCallback(
+    (coordinate: SourceCoordinate): void => {
+      setManualNavigation({
+        ...coordinate,
+        serial: (manualNavigationSerial.current -= 1),
+        focus: true,
+      })
+      onMode('source', positionCapture.current?.())
+    },
+    [onMode],
+  )
+  const navigateReviewLine = useCallback(
+    (line: number): void => navigate({ line }),
+    [navigate],
+  )
+  const reviewInteraction = useDocumentReviewInteraction(
+    tab?.file && !tab.file.binary
+      ? {
+          path: tab.path,
+          content: tab.file.content,
+          dirty: tab.dirty,
+          mode: tab.mode,
+        }
+      : undefined,
+    documentReview,
+    navigateReviewLine,
+  )
 
   const handleNavigation = (serial: number): void => {
     if (manualNavigation?.serial === serial) setManualNavigation(undefined)
@@ -242,7 +276,7 @@ export function FileViewer({
   }, [modeControlExpanded])
 
   return (
-    <div className="viewer-body">
+    <div className="viewer-body" onKeyDown={reviewInteraction.handleShortcut}>
       {tab ? (
         <div className="viewer-floating-controls" role="toolbar" aria-label="Viewer">
           {tab.conflict ? (
@@ -256,6 +290,7 @@ export function FileViewer({
             </span>
           ) : null}
           <div className="view-controls">
+            <DocumentReviewToolbar interaction={reviewInteraction} mode={tab.mode} />
             <FindControl
               key={`${tab.id}:${tab.pane}:${tab.mode}`}
               requestSerial={findRequest}
@@ -396,8 +431,10 @@ export function FileViewer({
           navigation={manualNavigation ?? tab.navigation}
           onNavigationHandled={handleNavigation}
           registerFindTarget={registerFindTarget}
+          documentReview={reviewInteraction.projection}
         />
       ) : null}
+      <DocumentReviewPanel interaction={reviewInteraction} />
     </div>
   )
 }
@@ -435,6 +472,7 @@ function ActiveView({
   navigation,
   onNavigationHandled,
   registerFindTarget,
+  documentReview,
 }: {
   readonly tab: ViewerTab
   readonly file: NonNullable<ViewerTab['file']>
@@ -451,6 +489,7 @@ function ActiveView({
   readonly navigation?: ViewerNavigationPosition
   readonly onNavigationHandled: (serial: number) => void
   readonly registerFindTarget: RegisterViewerFindTarget
+  readonly documentReview?: DocumentReviewDocumentProjection
 }): ReactElement {
   if (tab.mode === 'rendered') {
     return (
@@ -464,6 +503,7 @@ function ActiveView({
         refresh={refresh}
         onDependencies={onRenderedDependencies}
         registerFindTarget={registerFindTarget}
+        documentReview={documentReview}
       />
     )
   }
@@ -515,6 +555,7 @@ function ActiveView({
       navigation={navigation}
       onNavigationHandled={onNavigationHandled}
       registerFindTarget={registerFindTarget}
+      documentReview={documentReview}
     />
   )
 }
@@ -656,6 +697,7 @@ function SourceView({
   navigation,
   onNavigationHandled,
   registerFindTarget,
+  documentReview,
 }: {
   readonly pathKey: string
   readonly content: string
@@ -670,6 +712,7 @@ function SourceView({
   readonly navigation?: ViewerTab['navigation']
   readonly onNavigationHandled: (serial: number) => void
   readonly registerFindTarget: RegisterViewerFindTarget
+  readonly documentReview?: DocumentReviewDocumentProjection
 }): ReactElement {
   const theme = useAppTheme()
   const container = useRef<HTMLDivElement>(null)
@@ -679,6 +722,7 @@ function SourceView({
   const callbacks = useRef({ onContent, onSave, onPosition })
   const [highlightStatus, setHighlightStatus] = useState('')
   const blameCompartment = useRef(new Compartment())
+  const reviewCompartment = useRef(new Compartment())
   callbacks.current = { onContent, onSave, onPosition }
 
   useEffect(() => {
@@ -692,6 +736,7 @@ function SourceView({
         extensions: [
           lineNumbers(),
           blameCompartment.current.of(blameGutter(blame)),
+          reviewCompartment.current.of([]),
           tokenDecorations,
           viewerFindDecorations,
           keymap.of([
@@ -772,6 +817,29 @@ function SourceView({
       effects: blameCompartment.current.reconfigure(blameGutter(blame)),
     })
   }, [blame])
+
+  useEffect(() => {
+    const editor = view.current
+    if (!editor) return
+    editor.dispatch({
+      effects: reviewCompartment.current.reconfigure(
+        createDocumentReviewSourceExtensions(
+          documentReview
+            ? {
+                active: documentReview.active,
+                dirty: documentReview.dirty,
+                comments: documentReview.comments,
+                onRange: documentReview.onSourceRange,
+                onExit: documentReview.onExit,
+              }
+            : undefined,
+        ),
+      ),
+    })
+    documentReview?.onSourceRange(
+      documentReview.active ? sourceReviewSelection(editor.state) : undefined,
+    )
+  }, [documentReview])
 
   useEffect(() => {
     const editor = view.current
