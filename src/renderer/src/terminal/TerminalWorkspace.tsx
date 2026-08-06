@@ -271,6 +271,8 @@ export function TerminalWorkspace({
         split={terminalSplit}
         primaryWidth={model.primaryWidth}
         terminalTheme={preferences.terminalTheme}
+        terminalLightThemeId={preferences.terminalLightThemeId}
+        terminalDarkThemeId={preferences.terminalDarkThemeId}
         terminalTypography={preferences.terminalTypography}
         composerSubmitMode={preferences.composerSubmitMode}
         workspaceRoot={workspaceRoot}

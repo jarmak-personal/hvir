@@ -300,6 +300,8 @@ function renderDialog(
           gitAutoFetchIntervalMs: 5 * 60_000,
           terminalRecoveryMode: 'prompt',
           terminalTheme: 'app',
+          terminalLightThemeId: 'hvir-default-light',
+          terminalDarkThemeId: 'hvir-default-dark',
           interfaceFont: { mode: 'system', family: '' },
           monospaceFont: { mode: 'system', family: '' },
           interfaceScale: 1,

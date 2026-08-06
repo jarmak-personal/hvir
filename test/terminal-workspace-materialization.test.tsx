@@ -80,6 +80,8 @@ describe('terminal workspace materialization bridge', () => {
       onOpenWebLink: vi.fn(),
       preferences: {
         terminalTheme: 'app' as const,
+        terminalLightThemeId: 'hvir-default-light',
+        terminalDarkThemeId: 'hvir-default-dark',
         terminalTypography: { fontFamily: 'monospace', fontSize: 13 },
         composerSubmitMode: 'enter' as const,
         idleThresholdMs: 10_000,

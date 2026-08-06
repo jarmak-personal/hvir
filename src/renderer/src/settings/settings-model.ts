@@ -19,6 +19,8 @@ export interface AppSettings {
   readonly gitAutoFetchIntervalMs: number
   readonly terminalRecoveryMode: TerminalRecoveryMode
   readonly terminalTheme: TerminalThemeOverride
+  readonly terminalLightThemeId: string
+  readonly terminalDarkThemeId: string
   readonly interfaceFont: FontPreference
   readonly monospaceFont: FontPreference
   readonly interfaceScale: number
@@ -31,6 +33,8 @@ export interface TerminalPreferences {
   readonly idleThresholdMs: number
   readonly terminalRecoveryMode: TerminalRecoveryMode
   readonly terminalTheme: TerminalThemeOverride
+  readonly terminalLightThemeId: string
+  readonly terminalDarkThemeId: string
   readonly terminalTypography: TextTypography
   readonly composerSubmitMode: ComposerSubmitMode
 }

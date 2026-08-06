@@ -2,6 +2,7 @@ node_modules
 out
 dist
 package-lock.json
+src/renderer/src/terminal/generated-terminal-theme-catalog.ts
 
 # Markdown is hand-authored (design docs, ADRs, plan) — don't reflow prose.
 *.md

@@ -13,7 +13,7 @@ import type {
 import type { TerminalThemeOverride } from '../settings/settings'
 import { useAppTheme, type AppTheme } from '../theme'
 import { TerminalContextMenu } from './TerminalContextMenu'
-import { terminalThemeForAppearance } from './terminal-palette'
+import { terminalThemePalette } from './terminal-theme-catalog'
 import { TerminalSearch } from './TerminalSearch'
 import type { TerminalLinkActivation, TerminalTypography } from './terminal-pane'
 import { useTerminalPaneController } from './use-terminal-pane-controller'
@@ -39,6 +39,8 @@ interface TerminalViewProps {
   readonly modifiedKeyProtocol: HarnessModifiedKeyProtocol
   readonly metaEnterAliasesControl: boolean
   readonly themeOverride: TerminalThemeOverride
+  readonly lightThemeId: string
+  readonly darkThemeId: string
   readonly typography: TerminalTypography
   readonly composerSubmitMode: ComposerSubmitMode
   readonly cwd: HostPath
@@ -73,11 +75,13 @@ export function TerminalView(props: TerminalViewProps): ReactElement | null {
     visible,
     active,
     themeOverride,
+    lightThemeId,
+    darkThemeId,
     connectionState,
   } = props
   const appTheme = useAppTheme()
   const effectiveTheme: AppTheme = themeOverride === 'app' ? appTheme : themeOverride
-  const terminalTheme = terminalThemeForAppearance(effectiveTheme)
+  const terminalTheme = terminalThemePalette(effectiveTheme, lightThemeId, darkThemeId)
   const controller = useTerminalPaneController(
     {
       ...props,

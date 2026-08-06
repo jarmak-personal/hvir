@@ -10,7 +10,7 @@
     "src/workers"
   ],
   "testRoots": ["test", "src/main/smoke"],
-  "generatedFiles": [],
+  "generatedFiles": ["src/renderer/src/terminal/generated-terminal-theme-catalog.ts"],
   "limits": {
     "newProductionModule": 500,
     "testModule": 1200,

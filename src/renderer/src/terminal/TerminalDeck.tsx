@@ -29,6 +29,8 @@ export function TerminalDeck({
   split,
   primaryWidth,
   terminalTheme,
+  terminalLightThemeId,
+  terminalDarkThemeId,
   terminalTypography,
   composerSubmitMode,
   workspaceRoot,
@@ -60,6 +62,8 @@ export function TerminalDeck({
   readonly split: boolean
   readonly primaryWidth?: number
   readonly terminalTheme: TerminalThemeOverride
+  readonly terminalLightThemeId: string
+  readonly terminalDarkThemeId: string
   readonly terminalTypography: TerminalTypography
   readonly composerSubmitMode: ComposerSubmitMode
   readonly workspaceRoot: HostPath
@@ -93,6 +97,8 @@ export function TerminalDeck({
       secondaryActiveId={secondaryActiveId}
       presented={visible}
       terminalTheme={terminalTheme}
+      terminalLightThemeId={terminalLightThemeId}
+      terminalDarkThemeId={terminalDarkThemeId}
       terminalTypography={terminalTypography}
       composerSubmitMode={composerSubmitMode}
       workspaceRoot={workspaceRoot}

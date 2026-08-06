@@ -11,6 +11,8 @@ const settings = {
   gitAutoFetchIntervalMs: 5 * 60_000,
   terminalRecoveryMode: 'prompt' as const,
   terminalTheme: 'app' as const,
+  terminalLightThemeId: 'hvir-default-light',
+  terminalDarkThemeId: 'hvir-default-dark',
   interfaceFont: { mode: 'system' as const, family: '' },
   monospaceFont: { mode: 'system' as const, family: '' },
   interfaceScale: 1,

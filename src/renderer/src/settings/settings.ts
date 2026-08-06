@@ -3,6 +3,10 @@ import { useSyncExternalStore } from 'react'
 import { DEFAULT_KEYBINDINGS, parseKeybindingOverrides } from './keybindings'
 import type { AppSettings, TerminalPreferences } from './settings-model'
 import {
+  DEFAULT_TERMINAL_THEME_IDS,
+  normalizeTerminalThemeId,
+} from '../terminal/terminal-theme-catalog'
+import {
   applyTypographyPresentation,
   type TypographyPropertyTarget,
 } from './typography-presentation'
@@ -100,6 +104,11 @@ export function normalizeAppSettings(value: unknown): AppSettings {
       candidate.terminalTheme === 'dark' || candidate.terminalTheme === 'light'
         ? candidate.terminalTheme
         : 'app',
+    terminalLightThemeId: normalizeTerminalThemeId(
+      candidate.terminalLightThemeId,
+      'light',
+    ),
+    terminalDarkThemeId: normalizeTerminalThemeId(candidate.terminalDarkThemeId, 'dark'),
     interfaceFont: normalizeFontPreference(candidate.interfaceFont),
     monospaceFont: normalizeFontPreference(candidate.monospaceFont),
     interfaceScale: normalizeInterfaceScale(candidate.interfaceScale),
@@ -116,6 +125,8 @@ function defaults(): AppSettings {
     gitAutoFetchIntervalMs: 5 * 60_000,
     terminalRecoveryMode: 'prompt',
     terminalTheme: 'app',
+    terminalLightThemeId: DEFAULT_TERMINAL_THEME_IDS.light,
+    terminalDarkThemeId: DEFAULT_TERMINAL_THEME_IDS.dark,
     interfaceFont: systemFontPreference(),
     monospaceFont: systemFontPreference(),
     interfaceScale: DEFAULT_INTERFACE_SCALE,
@@ -130,6 +141,8 @@ export function terminalPreferences(settings: AppSettings): TerminalPreferences 
     idleThresholdMs: settings.idleThresholdMs,
     terminalRecoveryMode: settings.terminalRecoveryMode,
     terminalTheme: settings.terminalTheme,
+    terminalLightThemeId: settings.terminalLightThemeId,
+    terminalDarkThemeId: settings.terminalDarkThemeId,
     terminalTypography: {
       fontFamily: fontFamilyStack(settings.monospaceFont, 'monospace'),
       fontSize: settings.terminalTextSize,

@@ -1,32 +1,11 @@
 import type { AppTheme } from '../theme-model'
+import { TERMINAL_COLOR_KEYS, TERMINAL_COLOR_PATTERN } from './terminal-color-schema.mjs'
 import type { TerminalColorTheme } from './terminal-pane'
 
-const COLOR = /^#[0-9a-f]{6}$/i
-const COLOR_KEYS = [
-  'background',
-  'foreground',
-  'cursor',
-  'cursorText',
-  'selectionBackground',
-  'selectionForeground',
-  'black',
-  'red',
-  'green',
-  'yellow',
-  'blue',
-  'magenta',
-  'cyan',
-  'white',
-  'brightBlack',
-  'brightRed',
-  'brightGreen',
-  'brightYellow',
-  'brightBlue',
-  'brightMagenta',
-  'brightCyan',
-  'brightWhite',
-] as const satisfies readonly (keyof TerminalColorTheme)[]
-const COLOR_KEY_SET: ReadonlySet<string> = new Set(COLOR_KEYS)
+export { TERMINAL_COLOR_KEYS, TERMINAL_COLOR_PATTERN } from './terminal-color-schema.mjs'
+export type { TerminalColorKey } from './terminal-color-schema.mjs'
+
+const COLOR_KEY_SET: ReadonlySet<string> = new Set(TERMINAL_COLOR_KEYS)
 
 // Preserve the established dark presentation, including ghostty-web defaults
 // for the cursor/selection text and bright ANSI entries hvir previously omitted.
@@ -96,16 +75,19 @@ export function normalizeTerminalColorTheme(
   if (!value || typeof value !== 'object' || Array.isArray(value)) return fallback
   const candidate = value as Record<string, unknown>
   const keys = Object.keys(candidate)
-  if (keys.length !== COLOR_KEYS.length || keys.some((key) => !COLOR_KEY_SET.has(key))) {
+  if (
+    keys.length !== TERMINAL_COLOR_KEYS.length ||
+    keys.some((key) => !COLOR_KEY_SET.has(key))
+  ) {
     return fallback
   }
   const normalized = {} as Record<keyof TerminalColorTheme, string>
-  for (const key of COLOR_KEYS) {
+  for (const key of TERMINAL_COLOR_KEYS) {
     const color = candidate[key]
     if (
       !Object.hasOwn(candidate, key) ||
       typeof color !== 'string' ||
-      !COLOR.test(color)
+      !TERMINAL_COLOR_PATTERN.test(color)
     ) {
       return fallback
     }
@@ -118,7 +100,7 @@ export function terminalColorThemeEquals(
   left: TerminalColorTheme,
   right: TerminalColorTheme,
 ): boolean {
-  return left === right || COLOR_KEYS.every((key) => left[key] === right[key])
+  return left === right || TERMINAL_COLOR_KEYS.every((key) => left[key] === right[key])
 }
 
 function defineTheme(theme: TerminalColorTheme): TerminalColorTheme {

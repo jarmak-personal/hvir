@@ -1148,9 +1148,7 @@ describe('GhosttyTerminalPane lifecycle', () => {
 })
 
 const theme = () => terminalThemeForAppearance('dark')
-function typography() {
-  return { fontFamily: 'ui-monospace, monospace', fontSize: 13 }
-}
+const typography = () => ({ fontFamily: 'ui-monospace, monospace', fontSize: 13 })
 
 function deliveryPresentation(container: HTMLElement): 'visible' | 'hidden' | undefined {
   return (
@@ -1177,6 +1175,8 @@ function runtimeOptions() {
     modifiedKeyProtocol: 'modify-other-keys',
     metaEnterAliasesControl: true,
     composerSubmitMode: 'enter',
+    lightThemeId: 'hvir-default-light',
+    darkThemeId: 'hvir-default-dark',
     theme: theme(),
     typography: typography(),
     cwd: localPath('/repo'),
