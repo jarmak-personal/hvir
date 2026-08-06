@@ -137,6 +137,15 @@ export async function verifyTerminalSearch(
                               ?.textContent?.trim() === '1 of 3',
                             'terminal search did not publish three exact matches',
                             () => {
+                              const firstHighlight = engine.querySelector(
+                                '.terminal-search-match-highlight'
+                              );
+                              const firstHighlightRow = firstHighlight?.dataset.retainedRow;
+                              if (
+                                !(firstHighlight instanceof HTMLElement) ||
+                                !firstHighlightRow ||
+                                firstHighlight.getBoundingClientRect().width <= 0
+                              ) return fail('current terminal search match was not highlighted');
                               const next = search.querySelector(
                                 'button[aria-label="Next terminal match"]'
                               );
@@ -153,12 +162,28 @@ export async function verifyTerminalSearch(
                                   ?.textContent?.trim() === '2 of 3',
                                 'terminal search next navigation failed',
                                 () => {
+                                  const nextHighlight = engine.querySelector(
+                                    '.terminal-search-match-highlight'
+                                  );
+                                  if (
+                                    !(nextHighlight instanceof HTMLElement) ||
+                                    nextHighlight.dataset.retainedRow === firstHighlightRow
+                                  ) return fail('terminal search highlight did not follow next match');
                                   previous.click();
                                   poll(
                                     () => search.querySelector('.terminal-search-status')
                                       ?.textContent?.trim() === '1 of 3',
                                     'terminal search previous navigation failed',
                                     () => {
+                                      const previousHighlight = engine.querySelector(
+                                        '.terminal-search-match-highlight'
+                                      );
+                                      if (
+                                        !(previousHighlight instanceof HTMLElement) ||
+                                        previousHighlight.dataset.retainedRow !== firstHighlightRow
+                                      ) return fail(
+                                        'terminal search highlight did not return to previous match'
+                                      );
                                       const copy = [...search.querySelectorAll('button')].find(
                                         (button) => button.textContent?.trim() === 'Copy Match'
                                       );
@@ -219,7 +244,7 @@ export async function verifyTerminalSearch(
           const poll = () => {
             const search = document.querySelector('.terminal-surface.active .terminal-search');
             const copy = search && [...search.querySelectorAll('button')].find(
-              (button) => button.textContent?.trim() === 'Copy Region'
+              (button) => button.textContent?.trim() === 'Copy Semantic Region'
             );
             if (copy instanceof HTMLButtonElement && !copy.disabled) {
               copy.click();
@@ -237,7 +262,12 @@ export async function verifyTerminalSearch(
                   const waitForClose = () => {
                     if (!document.querySelector(
                       '.terminal-surface.active .terminal-search'
-                    )) return resolve(undefined);
+                    )) {
+                      if (document.querySelector(
+                        '.terminal-surface.active .terminal-search-match-highlight'
+                      )) return reject(new Error('search highlight survived search close'));
+                      return resolve(undefined);
+                    }
                     if (Date.now() > deadline) {
                       return reject(new Error('terminal search did not close after region copy'));
                     }
@@ -253,7 +283,7 @@ export async function verifyTerminalSearch(
               return waitForCopy();
             }
             if (Date.now() > deadline) {
-              return reject(new Error('Copy Region action unavailable'));
+              return reject(new Error('Copy Semantic Region action unavailable'));
             }
             setTimeout(poll, 20);
           };
@@ -272,7 +302,7 @@ export async function verifyTerminalSearch(
     if (!retained || retained.instanceId !== instanceId) {
       throw new Error('terminal search replaced the supervised PTY')
     }
-    return `${result} · Copy Region · retained Canvas and PTY`
+    return `${result} · current-match highlight · Copy Semantic Region · retained Canvas and PTY`
   } finally {
     await detach()
   }

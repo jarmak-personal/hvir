@@ -163,6 +163,7 @@ vi.mock('ghostty-web', () => {
       this.state.emitResize = callback
       return { dispose: () => (this.state.emitResize = () => undefined) }
     }
+    onScroll = () => ({ dispose: () => undefined })
     onTerminalEvent(callback: (event: GhosttyTerminalEvent) => void): {
       dispose(): void
     } {

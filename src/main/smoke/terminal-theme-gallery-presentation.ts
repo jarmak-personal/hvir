@@ -41,6 +41,7 @@ export async function verifyTerminalThemeGalleryPresentation(
         const originalCanvas = canvas;
         const originalSettings = localStorage.getItem('hvir:settings:v1');
         const originalPalette = JSON.stringify(before.palette);
+        const openedThemeGalleries = new WeakSet();
         const setSearch = (input, value) => {
           const setter = Object.getOwnPropertyDescriptor(
             HTMLInputElement.prototype,
@@ -51,10 +52,25 @@ export async function verifyTerminalThemeGalleryPresentation(
         };
         const waitForDialog = (next) => {
           const gallery = document.querySelector('.terminal-theme-gallery');
+          if (gallery instanceof HTMLDetailsElement && !gallery.open) {
+            const summary = gallery.querySelector('summary');
+            if (!(summary instanceof HTMLElement)) {
+              return fail('collapsed Ghostty theme gallery summary missing');
+            }
+            openedThemeGalleries.add(gallery);
+            summary.click();
+            return setTimeout(() => waitForDialog(next), 25);
+          }
+          if (
+            gallery instanceof HTMLDetailsElement &&
+            gallery.open &&
+            !openedThemeGalleries.has(gallery)
+          ) return fail('Ghostty theme gallery was not collapsed by default');
           const search = gallery?.querySelector('#settings-terminal-theme-search');
           const results = gallery?.querySelectorAll('.terminal-theme-results > button');
           if (
-            gallery instanceof HTMLElement &&
+            gallery instanceof HTMLDetailsElement && gallery.open &&
+            openedThemeGalleries.has(gallery) &&
             search instanceof HTMLInputElement &&
             results && results.length > 0 && results.length <= 48
           ) {
@@ -249,7 +265,11 @@ export async function verifyTerminalThemeGalleryPresentation(
         )?.textContent?.trim();
         const inspectDark = () => {
           const gallery = document.querySelector('.terminal-theme-gallery');
-          if (gallery && currentName() === 'Catppuccin Mocha') {
+          if (gallery instanceof HTMLDetailsElement && !gallery.open) {
+            gallery.querySelector('summary')?.click();
+            return setTimeout(inspectDark, 25);
+          }
+          if (gallery instanceof HTMLDetailsElement && currentName() === 'Catppuccin Mocha') {
             const light = gallery.querySelector(
               'input[name="terminal-theme-target"][value="light"]'
             );
@@ -279,5 +299,5 @@ export async function verifyTerminalThemeGalleryPresentation(
     12_000,
   )) as string
 
-  return `bounded data previews + paired save/cancel + retained Canvas/PTY + ${restarted} restart persistence`
+  return `collapsed-by-default bounded data previews + paired save/cancel + retained Canvas/PTY + ${restarted} restart persistence`
 }

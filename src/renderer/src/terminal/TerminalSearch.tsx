@@ -152,13 +152,16 @@ export function TerminalSearch({
         >
           Copy Match
         </button>
-        <button
-          type="button"
-          disabled={!canCopyRegion || pendingCopy !== undefined}
-          onClick={() => copy('region')}
-        >
-          Copy Region
-        </button>
+        {canCopyRegion ? (
+          <button
+            type="button"
+            title="Copy the current semantic prompt, command, or output block"
+            disabled={pendingCopy !== undefined}
+            onClick={() => copy('region')}
+          >
+            Copy Semantic Region
+          </button>
+        ) : null}
         {feedback ? (
           <span
             className="terminal-search-feedback"

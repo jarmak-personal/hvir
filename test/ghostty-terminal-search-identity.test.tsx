@@ -22,6 +22,9 @@ const state = vi.hoisted(() => ({
   }),
   searchExtracted: undefined as IRetainedBufferRange | undefined,
   alternateScreen: false,
+  emitScroll: (_viewportY: number): void => undefined,
+  selectCalls: 0,
+  scrollbackLength: 12,
 }))
 
 vi.mock('ghostty-web', () => {
@@ -31,6 +34,7 @@ vi.mock('ghostty-web', () => {
     readonly wasmTerm = { isAlternateScreen: () => state.alternateScreen }
     cols = 80
     rows = 24
+    viewportY = 0
     renderer?: {
       clear(): void
       getCanvas(): HTMLCanvasElement
@@ -51,6 +55,13 @@ vi.mock('ghostty-web', () => {
     }
     onResize(): { dispose(): void } {
       return { dispose: () => undefined }
+    }
+    onScroll(listener: (viewportY: number) => void): { dispose(): void } {
+      state.emitScroll = (viewportY) => {
+        this.viewportY = viewportY
+        listener(viewportY)
+      }
+      return { dispose: () => (state.emitScroll = () => undefined) }
     }
     onTerminalEvent(listener: (event: GhosttyTerminalEvent) => void): {
       dispose(): void
@@ -74,12 +85,17 @@ vi.mock('ghostty-web', () => {
     requestRender(): void {}
     resetCursorBlink(): void {}
     getViewportY(): number {
-      return 0
+      return this.viewportY
     }
     getScrollbackLength(): number {
-      return 0
+      return state.scrollbackLength
     }
-    scrollToLine(): void {}
+    scrollToLine(viewportY: number): void {
+      state.emitScroll(viewportY)
+    }
+    select(): void {
+      state.selectCalls += 1
+    }
     getRenderStats() {
       return {
         parsedWrites: 0,
@@ -137,6 +153,9 @@ describe('Ghostty terminal search identity', () => {
     state.extracted = undefined
     state.searchExtracted = undefined
     state.alternateScreen = false
+    state.emitScroll = () => undefined
+    state.selectCalls = 0
+    state.scrollbackLength = 12
     vi.stubGlobal(
       'ResizeObserver',
       class {
@@ -198,6 +217,46 @@ describe('Ghostty terminal search identity', () => {
     expect(search.extract(search.matches[0]!)).toBe('e\u0301🙂wrap')
     expect(state.searchExtracted).toBe(state.searchRange)
     search.dispose()
+    pane.dispose()
+  })
+
+  it('highlights only the revealed retained range without mutating selection', async () => {
+    const pane = await createPane()
+    const search = await pane.searchRetainedBuffer('🙂wrap', { caseSensitive: false })
+
+    expect(search.reveal(search.matches[0]!)).toBe(true)
+    const segments = [
+      ...document.querySelectorAll<HTMLElement>('.terminal-search-match-highlight'),
+    ]
+    expect(segments).toHaveLength(2)
+    expect(segments.map((segment) => segment.dataset.retainedRow)).toEqual(['8', '9'])
+    expect(segments[0]!.style.cssText).toContain(
+      'left: 632px; top: 0px; width: 8px; height: 16px',
+    )
+    expect(segments[1]!.style.cssText).toContain(
+      'left: 0px; top: 16px; width: 32px; height: 16px',
+    )
+    expect(state.selectCalls).toBe(0)
+
+    state.emitScroll(3)
+    const shifted = [
+      ...document.querySelectorAll<HTMLElement>('.terminal-search-match-highlight'),
+    ]
+    expect(shifted).toHaveLength(1)
+    expect(shifted[0]!.dataset.retainedRow).toBe('9')
+    expect(shifted[0]!.style.top).toBe('0px')
+
+    state.alternateScreen = true
+    pane.write('\u001b[?1049h')
+    expect(document.querySelectorAll('.terminal-search-match-highlight')).toHaveLength(0)
+    state.alternateScreen = false
+    state.scrollbackLength = 13
+    pane.write('new output')
+    expect(document.querySelectorAll('.terminal-search-match-highlight')).toHaveLength(0)
+
+    expect(search.reveal(search.matches[0]!)).toBe(true)
+    search.dispose()
+    expect(document.querySelectorAll('.terminal-search-match-highlight')).toHaveLength(0)
     pane.dispose()
   })
 

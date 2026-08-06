@@ -186,6 +186,11 @@ class GhosttyTerminalPane implements TerminalPane {
   private disposed = false
   private presentation: TerminalPresentation = 'visible'
   private readonly wheel = new TerminalWheelController()
+  private searchHighlight?: Readonly<{
+    owner: object
+    range: GhosttyRetainedBufferRange
+  }>
+  private searchHighlightLayer?: HTMLDivElement
 
   readonly events: TerminalPaneEvents = {
     onData: (callback) => this.dataListeners.on(callback),
@@ -229,7 +234,11 @@ class GhosttyTerminalPane implements TerminalPane {
     this.surface = surface
     this.engineDisposers.push(
       this.terminal.onData((data) => this.emitInput(data)),
-      this.terminal.onResize((size) => this.resizeListeners.emit(size)),
+      this.terminal.onResize((size) => {
+        this.resizeListeners.emit(size)
+        this.renderSearchHighlight()
+      }),
+      this.terminal.onScroll(() => this.renderSearchHighlight()),
       this.terminal.onTerminalEvent((event) => {
         const translated = translateGhosttyTerminalEvent(event, (provenance) =>
           this.retainProvenance(provenance),
@@ -238,6 +247,11 @@ class GhosttyTerminalPane implements TerminalPane {
       }),
     )
     this.terminal.open(surface)
+    const searchHighlightLayer = document.createElement('div')
+    searchHighlightLayer.className = 'terminal-search-match-highlight-layer'
+    searchHighlightLayer.setAttribute('aria-hidden', 'true')
+    surface.append(searchHighlightLayer)
+    this.searchHighlightLayer = searchHighlightLayer
     this.terminal.registerLinkProvider(
       new FileLinkProvider(this.terminal, (target) => this.linkListeners.emit(target)),
     )
@@ -272,11 +286,13 @@ class GhosttyTerminalPane implements TerminalPane {
     container.append(this.surface)
     this.fit.fit()
     this.redraw()
+    this.renderSearchHighlight()
   }
 
   write(data: string): void {
     if (this.disposed) return
     writePreservingViewport(this.terminal, data)
+    this.renderSearchHighlight()
   }
 
   resize(cols: number, rows: number): void {
@@ -307,6 +323,7 @@ class GhosttyTerminalPane implements TerminalPane {
     }
     this.fit.fit()
     this.redraw()
+    this.renderSearchHighlight()
   }
 
   setCursorDefaults(defaults: TerminalCursorDefaults): void {
@@ -335,6 +352,7 @@ class GhosttyTerminalPane implements TerminalPane {
       if (this.mounted) this.fit.fit()
       this.terminal.setRenderPaused(false)
     }
+    this.renderSearchHighlight()
   }
 
   redraw(): void {
@@ -380,8 +398,11 @@ class GhosttyTerminalPane implements TerminalPane {
       result.dispose()
       throw new Error('Terminal pane was disposed during search')
     }
-    return new GhosttyRetainedBufferSearch(result, (match) =>
-      this.revealRetainedBufferRange(match),
+    const owner = {}
+    return new GhosttyRetainedBufferSearch(
+      result,
+      (match) => this.revealRetainedBufferRange(owner, match),
+      () => this.clearSearchHighlight(owner),
     )
   }
 
@@ -429,11 +450,15 @@ class GhosttyTerminalPane implements TerminalPane {
   }
 
   clear(): void {
-    if (!this.disposed) this.terminal.clear()
+    if (this.disposed) return
+    this.terminal.clear()
+    this.releaseSearchHighlight()
   }
 
   reset(): void {
-    if (!this.disposed) this.terminal.reset()
+    if (this.disposed) return
+    this.terminal.reset()
+    this.releaseSearchHighlight()
   }
 
   focus(): void {
@@ -451,6 +476,9 @@ class GhosttyTerminalPane implements TerminalPane {
     renderer?.clear()
     if (canvas) canvas.style.visibility = 'hidden'
     this.terminal.dispose()
+    this.searchHighlight = undefined
+    this.searchHighlightLayer?.remove()
+    this.searchHighlightLayer = undefined
     this.surface?.remove()
     this.surface = undefined
     this.dataListeners.clear()
@@ -478,12 +506,85 @@ class GhosttyTerminalPane implements TerminalPane {
     return retained
   }
 
-  private revealRetainedBufferRange(match: GhosttyRetainedBufferRange): boolean {
-    return this.revealEventLocation({
+  private revealRetainedBufferRange(
+    owner: object,
+    match: GhosttyRetainedBufferRange,
+  ): boolean {
+    const revealed = this.revealEventLocation({
       screen: 'normal',
       row: match.start.row,
       column: match.start.column,
     })
+    if (!revealed) return false
+    this.searchHighlight = { owner, range: match }
+    this.renderSearchHighlight()
+    return true
+  }
+
+  private clearSearchHighlight(owner: object): void {
+    if (this.searchHighlight?.owner !== owner) return
+    this.releaseSearchHighlight()
+  }
+
+  private releaseSearchHighlight(): void {
+    this.searchHighlight = undefined
+    this.searchHighlightLayer?.replaceChildren()
+  }
+
+  private renderSearchHighlight(): void {
+    const highlight = this.searchHighlight
+    if (!highlight) return
+    const layer = this.searchHighlightLayer
+    if (!layer) return
+    layer.replaceChildren()
+    const renderer = this.terminal.renderer
+    if (
+      !highlight ||
+      this.presentation === 'hidden' ||
+      this.activeEventScreen() !== 'normal' ||
+      !renderer
+    ) {
+      return
+    }
+    const metrics = renderer.getMetrics()
+    if (metrics.width <= 0 || metrics.height <= 0) return
+    const scrollbackLength = this.terminal.getScrollbackLength()
+    const viewportY = Math.max(0, Math.floor(this.terminal.getViewportY()))
+    const firstVisibleRow = scrollbackLength - viewportY
+    const lastVisibleRow = firstVisibleRow + this.terminal.rows - 1
+    const firstMatchRow = Math.max(highlight.range.start.row, firstVisibleRow)
+    const lastMatchRow = Math.min(highlight.range.end.row, lastVisibleRow)
+    const canvas = renderer.getCanvas()
+    const cols = this.terminal.cols
+    if (firstMatchRow > lastMatchRow || cols <= 0) return
+
+    for (let row = firstMatchRow; row <= lastMatchRow; row += 1) {
+      const startColumn = Math.max(
+        0,
+        Math.min(
+          cols - 1,
+          row === highlight.range.start.row ? highlight.range.start.column : 0,
+        ),
+      )
+      const endColumn = Math.max(
+        0,
+        Math.min(
+          cols - 1,
+          row === highlight.range.end.row ? highlight.range.end.column : cols - 1,
+        ),
+      )
+      if (endColumn < startColumn) continue
+      const segment = document.createElement('div')
+      segment.className = 'terminal-search-match-highlight'
+      segment.dataset.retainedRow = String(row)
+      segment.style.left = `${canvas.offsetLeft + startColumn * metrics.width}px`
+      segment.style.top = `${
+        canvas.offsetTop + (row - firstVisibleRow) * metrics.height
+      }px`
+      segment.style.width = `${(endColumn - startColumn + 1) * metrics.width}px`
+      segment.style.height = `${metrics.height}px`
+      layer.append(segment)
+    }
   }
 
   private emitClipboardPaste(fallbackData: string): void {
@@ -523,6 +624,7 @@ class GhosttyRetainedBufferSearch implements TerminalRetainedBufferSearch {
   constructor(
     private readonly native: GhosttyRetainedBufferSearchResult,
     private readonly revealRange: (match: GhosttyRetainedBufferRange) => boolean,
+    private readonly clearRevealedRange: () => void,
   ) {
     this.query = native.query
     this.caseSensitive = native.caseSensitive
@@ -550,6 +652,7 @@ class GhosttyRetainedBufferSearch implements TerminalRetainedBufferSearch {
   dispose(): void {
     if (this.disposed) return
     this.disposed = true
+    this.clearRevealedRange()
     this.native.dispose()
   }
 

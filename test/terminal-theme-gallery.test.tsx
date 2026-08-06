@@ -29,7 +29,7 @@ describe('terminal theme gallery', () => {
     document.body.replaceChildren()
   })
 
-  it('renders a bounded data-only preview set and searches by name', async () => {
+  it('starts collapsed, then renders a bounded data-only preview set and searches by name', async () => {
     act(() => {
       root.render(
         <TerminalThemeGallery
@@ -41,6 +41,12 @@ describe('terminal theme gallery', () => {
       )
     })
 
+    const gallery = host.querySelector<HTMLDetailsElement>('.terminal-theme-gallery')!
+    expect(gallery.open).toBe(false)
+    expect(gallery.querySelector('summary')?.textContent).toContain('Ghostty themes')
+    expect(gallery.querySelector('summary')?.textContent).toContain('Hvir Dark')
+    await openGallery()
+    expect(gallery.open).toBe(true)
     expect(host.querySelectorAll('.terminal-theme-results > button')).toHaveLength(
       TERMINAL_THEME_SEARCH_RESULT_LIMIT,
     )
@@ -117,6 +123,7 @@ describe('terminal theme gallery', () => {
   }
 
   async function chooseTheme(name: string): Promise<string> {
+    await openGallery()
     await searchFor(name)
     const button = host.querySelector<HTMLButtonElement>(
       `.terminal-theme-results > button[aria-label^="Use ${name} for"]`,
@@ -151,6 +158,16 @@ describe('terminal theme gallery', () => {
     )!
     await act(async () => {
       button.click()
+      await Promise.resolve()
+    })
+  }
+
+  async function openGallery(): Promise<void> {
+    const gallery = host.querySelector<HTMLDetailsElement>('.terminal-theme-gallery')!
+    if (gallery.open) return
+    const summary = gallery.querySelector<HTMLElement>('summary')!
+    await act(async () => {
+      summary.click()
       await Promise.resolve()
     })
   }

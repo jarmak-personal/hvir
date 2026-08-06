@@ -94,10 +94,13 @@ describe('terminal search surface', () => {
     })
 
     await act(async () => {
-      button('Copy Region').click()
+      button('Copy Semantic Region').click()
       await vi.waitFor(() => expect(writeText).toHaveBeenCalledOnce())
     })
     expect(writeText).toHaveBeenCalledWith('prompt\n$ cmd\n')
+    expect(button('Copy Semantic Region').title).toBe(
+      'Copy the current semantic prompt, command, or output block',
+    )
 
     act(() => {
       document
@@ -106,6 +109,31 @@ describe('terminal search surface', () => {
     })
     expect(controller.snapshot().open).toBe(false)
     expect(restoreFocus).toHaveBeenCalledOnce()
+    act(() => root.unmount())
+  })
+
+  it('does not offer semantic region copy without real terminal boundaries', () => {
+    const controller = new TerminalSearchController(vi.fn(), vi.fn())
+    controller.bind(paneFixture(range(1, 0, 1, 2), 'hit'))
+    const root = createRoot(host)
+    act(() =>
+      root.render(
+        <TerminalSearch
+          controller={controller}
+          canCopyRegion={false}
+          writeText={vi.fn(() => Promise.resolve())}
+        />,
+      ),
+    )
+    act(() => {
+      controller.open()
+    })
+
+    expect(
+      [...document.querySelectorAll('button')].some(
+        (candidate) => candidate.textContent?.trim() === 'Copy Semantic Region',
+      ),
+    ).toBe(false)
     act(() => root.unmount())
   })
 

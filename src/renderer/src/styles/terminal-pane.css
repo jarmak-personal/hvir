@@ -21,6 +21,21 @@
   display: block;
 }
 
+.terminal-search-match-highlight-layer {
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.terminal-search-match-highlight {
+  position: absolute;
+  box-sizing: border-box;
+  border: 1px solid color-mix(in srgb, var(--accent) 86%, white 14%);
+  background: color-mix(in srgb, var(--accent) 42%, transparent);
+}
+
 .terminal-container textarea {
   caret-color: transparent;
 }
