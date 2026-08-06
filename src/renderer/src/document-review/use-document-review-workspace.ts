@@ -26,7 +26,7 @@ const IDLE_STATE: DocumentReviewWorkspaceState = {
   revision: 0,
 }
 
-export function useDocumentReviewWorkspace(workspace?: ReviewWorkspaceIdentity) {
+function useDocumentReviewWorkspaceState(workspace?: ReviewWorkspaceIdentity) {
   const [state, setState] = useState(IDLE_STATE)
   const controller = useRef<DocumentReviewWorkspaceController | undefined>(undefined)
   const workspaceRef = useRef(workspace)
@@ -73,8 +73,8 @@ export function useReviewWorkspace(
   workspace: ReviewWorkspaceIdentity | undefined,
   fanout: DocumentReviewWatchFanout,
 ) {
-  const review = useDocumentReviewWorkspace(workspace)
-  useWatchTarget(fanout, review.handleWatchEvent)
+  const review = useDocumentReviewWorkspaceState(workspace)
+  useReviewWatchTarget(fanout, review.handleWatchEvent)
   return review
 }
 
@@ -98,7 +98,7 @@ export function useWatchFanout(
   return useMemo(() => ({ handle, target }), [handle])
 }
 
-export function useWatchTarget(
+function useReviewWatchTarget(
   fanout: DocumentReviewWatchFanout,
   target: (event: WatchEvent) => void,
 ): void {

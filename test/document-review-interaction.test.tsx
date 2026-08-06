@@ -159,6 +159,7 @@ describe('Markdown document review interaction', () => {
       ],
     }
     renderViewer(sourceTab(), binding(model, vi.fn()))
+    click('Enter Markdown review mode')
 
     expect(host.textContent).toContain('draft')
     expect(host.textContent).toContain('sent')
@@ -167,6 +168,18 @@ describe('Markdown document review interaction', () => {
     expect(host.textContent).toContain('Stale · missing match')
     expect(button('Add to batch', 1)?.disabled).toBe(true)
     expect(button('Acknowledge stale location')).toBeTruthy()
+  })
+
+  it('keeps normal Markdown reading quiet while retaining inline note markers', () => {
+    const model = {
+      ...emptyModel(),
+      comments: [comment('quiet-note', 'draft', 'current')],
+    }
+    renderViewer(sourceTab(), binding(model, vi.fn()))
+
+    expect(host.querySelector('.cm-review-marker')).toBeTruthy()
+    expect(host.querySelector('[aria-label="Markdown review comments"]')).toBeNull()
+    expect(button('Enter Markdown review mode')).toBeTruthy()
   })
 
   it('keeps one comment identity across source and rendered projections', async () => {
@@ -225,7 +238,7 @@ describe('Markdown document review interaction', () => {
     expect(button('Enter Markdown review mode')).toBeTruthy()
   })
 
-  it('keeps entry, editing, removal, resolution, navigation, and exit keyboard reachable', () => {
+  it('keeps entry, editing, removal, resolution, navigation, and exit natively reachable', () => {
     const model = {
       ...emptyModel(),
       comments: [
@@ -239,17 +252,10 @@ describe('Markdown document review interaction', () => {
     }))
     const onMode = vi.fn()
     renderViewer(sourceTab(), binding(model, apply), onMode)
-    const body = host.querySelector<HTMLElement>('.viewer-body')
-    act(() => {
-      body?.dispatchEvent(
-        new KeyboardEvent('keydown', {
-          key: 'r',
-          ctrlKey: true,
-          altKey: true,
-          bubbles: true,
-        }),
-      )
-    })
+    const entry = button('Enter Markdown review mode')
+    expect(entry?.getAttribute('type')).toBe('button')
+    expect(entry?.getAttribute('title')).toBe('Markdown review mode')
+    click('Enter Markdown review mode')
     expect(button('Exit Markdown review mode')).toBeTruthy()
     expect(host.querySelector('[aria-label="Markdown review comments"]')).toBeTruthy()
     expect(host.querySelector('.cm-content')?.getAttribute('aria-label')).toBe(
@@ -273,16 +279,7 @@ describe('Markdown document review interaction', () => {
     ])
     expect(onMode).toHaveBeenCalledWith('source', expect.any(Object))
 
-    act(() => {
-      body?.dispatchEvent(
-        new KeyboardEvent('keydown', {
-          key: 'r',
-          ctrlKey: true,
-          altKey: true,
-          bubbles: true,
-        }),
-      )
-    })
+    click('Exit Markdown review mode')
     expect(button('Enter Markdown review mode')).toBeTruthy()
   })
 
@@ -294,6 +291,7 @@ describe('Markdown document review interaction', () => {
     }))
     const withoutBatch = { ...emptyModel(), comments: [draft] }
     renderViewer(sourceTab(), binding(withoutBatch, apply))
+    click('Enter Markdown review mode')
     click('Add to batch')
     expect(apply).toHaveBeenLastCalledWith({
       type: 'create-batch',
@@ -332,6 +330,17 @@ describe('Markdown document review interaction', () => {
     expect(host.querySelector('[aria-label="Document review"]')).toBeNull()
     expect(host.querySelector('[aria-label="Markdown review comments"]')).toBeNull()
   })
+
+  it('does not install Markdown review chrome in a non-Markdown source viewer', () => {
+    const source = sourceTab({ path: localPath('/repo/example.ts') })
+    renderViewer(source, binding(emptyModel(), vi.fn()))
+
+    expect(host.querySelector('[aria-label="Document review"]')).toBeNull()
+    expect(host.querySelector('.cm-review-gutter')).toBeNull()
+    expect(host.querySelector('.cm-content')?.getAttribute('aria-label')).not.toBe(
+      'Source viewer',
+    )
+  })
 })
 
 function renderViewer(
@@ -360,26 +369,32 @@ function renderViewer(
   )
 }
 
-function sourceTab(overrides: { readonly dirty?: boolean } = {}): ViewerTab {
-  return tab('source', overrides.dirty ?? false)
+function sourceTab(
+  overrides: { readonly dirty?: boolean; readonly path?: ViewerTab['path'] } = {},
+): ViewerTab {
+  return tab('source', overrides.dirty ?? false, overrides.path)
 }
 
-function renderedTab(): ViewerTab {
-  return tab('rendered', false)
+function renderedTab(dirty = false): ViewerTab {
+  return tab('rendered', dirty)
 }
 
-function tab(mode: 'source' | 'rendered', dirty: boolean): ViewerTab {
+function tab(
+  mode: 'source' | 'rendered',
+  dirty: boolean,
+  path = documentPath,
+): ViewerTab {
   const content = '# Heading\n\nParagraph\n'
   return {
     id: 'review-tab',
-    path: documentPath,
+    path,
     pane: 'primary',
     pinned: true,
     mode,
     diffBase: 'head',
     position: { mode, line: 1, scrollTop: 0 },
     file: {
-      path: documentPath,
+      path,
       content,
       size: 1024 * 1024 + 1,
       mtimeMs: 1,

@@ -45,7 +45,7 @@ export interface DocumentReviewInteraction {
   readonly reanchorCommentId?: string
   readonly error?: string
   readonly inBatch: ReadonlySet<string>
-  readonly projection: DocumentReviewDocumentProjection
+  readonly projection?: DocumentReviewDocumentProjection
   readonly toggle: () => void
   readonly exit: () => void
   readonly captureSource: () => void
@@ -58,7 +58,6 @@ export interface DocumentReviewInteraction {
   readonly reviewStale: (commentId: string) => void
   readonly toggleBatch: (commentId: string) => void
   readonly navigate: (comment: DocumentReviewComment) => void
-  readonly handleShortcut: (event: React.KeyboardEvent<HTMLElement>) => void
 }
 
 export function useDocumentReviewInteraction(
@@ -83,13 +82,13 @@ export function useDocumentReviewInteraction(
     model,
   )
   const comments = useMemo(() => {
-    if (!document || document.mode === 'diff' || !model) return []
+    if (!available || !document || !model) return []
     const selected = selectDocumentReviewComments(model, document.path)
     return selected.ok ? selected.value : []
     // Host and path are the stable document identity; the loaded content does not
     // change which durable records are projected.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [document?.mode, document?.path.hostId, document?.path.path, model])
+  }, [available, document?.path.hostId, document?.path.path, model])
   const activeBatch = model?.batches.find((batch) => batch.id === ACTIVE_BATCH_ID)
   const inBatch = useMemo(
     () => new Set(activeBatch?.commentIds ?? []),
@@ -242,16 +241,27 @@ export function useDocumentReviewInteraction(
     [apply],
   )
 
-  const projection = useMemo<DocumentReviewDocumentProjection>(
-    () => ({
+  const projection = useMemo<DocumentReviewDocumentProjection | undefined>(
+    () =>
+      available
+        ? {
+            active,
+            dirty: Boolean(document?.dirty),
+            comments,
+            onCapture: requestCapture,
+            onSourceRange: acceptSourceRange,
+            onExit: exit,
+          }
+        : undefined,
+    [
+      acceptSourceRange,
       active,
-      dirty: Boolean(document?.dirty),
+      available,
       comments,
-      onCapture: requestCapture,
-      onSourceRange: acceptSourceRange,
-      onExit: exit,
-    }),
-    [acceptSourceRange, active, comments, document?.dirty, exit, requestCapture],
+      document?.dirty,
+      exit,
+      requestCapture,
+    ],
   )
 
   return {
@@ -343,17 +353,5 @@ export function useDocumentReviewInteraction(
               },
       ),
     navigate: (comment) => onNavigate(comment.anchor.range.startLine),
-    handleShortcut: (event) => {
-      if (
-        available &&
-        event.altKey &&
-        (event.metaKey || event.ctrlKey) &&
-        event.key.toLowerCase() === 'r'
-      ) {
-        event.preventDefault()
-        if (active) exit()
-        else setActive(true)
-      }
-    },
   }
 }

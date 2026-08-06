@@ -21,7 +21,7 @@ export interface DocumentReviewSourceProjection {
 export function createDocumentReviewSourceExtensions(
   projection?: DocumentReviewSourceProjection,
 ): Extension {
-  if (!projection) return []
+  if (!projection || (!projection.active && projection.comments.length === 0)) return []
   const commentsByLine = groupCommentsByStartLine(projection.comments)
   return [
     EditorView.decorations.of((view) =>

@@ -33,7 +33,7 @@ describe('rendered Markdown review projection', () => {
     const onCapture = vi.fn()
     const dispose = bindRenderedDocumentReview(
       root,
-      { active: true, comments: [], onCapture, onExit: vi.fn() },
+      { active: true, dirty: false, comments: [], onCapture, onExit: vi.fn() },
       scheduler,
     )
 
@@ -69,6 +69,7 @@ describe('rendered Markdown review projection', () => {
       root,
       {
         active: false,
+        dirty: false,
         comments: [comment(1, 'stale')],
         onCapture: vi.fn(),
         onExit: vi.fn(),
@@ -85,6 +86,35 @@ describe('rendered Markdown review projection', () => {
     expect(root.querySelector('.review-block-badge')?.getAttribute('aria-label')).toBe(
       '1 review note; stale',
     )
+  })
+
+  it('keeps dirty review blocks navigable without advertising or accepting capture', () => {
+    const root = renderedRoot(2)
+    const scheduler = new TestScheduler()
+    const onCapture = vi.fn()
+    bindRenderedDocumentReview(
+      root,
+      {
+        active: true,
+        dirty: true,
+        comments: [],
+        onCapture,
+        onExit: vi.fn(),
+      },
+      scheduler,
+    )
+    scheduler.runNext()
+
+    const blocks = [...root.querySelectorAll<HTMLElement>('.review-block-active')]
+    expect(blocks).toHaveLength(2)
+    expect(blocks[0]?.getAttribute('aria-label')).toContain(
+      'Save or reload before adding a comment',
+    )
+    expect(root.querySelector('[data-review-capture]')).toBeNull()
+    blocks[0]?.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }),
+    )
+    expect(onCapture).not.toHaveBeenCalled()
   })
 })
 

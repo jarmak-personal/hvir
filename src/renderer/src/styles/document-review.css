@@ -222,6 +222,10 @@
   font: 600 11px var(--hvir-interface-font);
 }
 
+[data-hvir-review-generated] {
+  user-select: none;
+}
+
 .review-block-badge {
   right: 4px;
   pointer-events: none;

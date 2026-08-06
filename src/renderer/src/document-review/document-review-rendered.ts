@@ -8,6 +8,7 @@ let nextBindingId = 0
 
 export interface RenderedReviewProjection {
   readonly active: boolean
+  readonly dirty: boolean
   readonly comments: readonly DocumentReviewComment[]
   readonly onCapture: (range: ReviewSourceRange) => void
   readonly onExit: () => void
@@ -78,7 +79,7 @@ export function bindRenderedDocumentReview(
     if (!(block instanceof HTMLElement)) return
     const current = blockIndexes.get(block)
     if (current === undefined) return
-    if (event.key === 'Enter') {
+    if (event.key === 'Enter' && !projection.dirty) {
       const range = renderedReviewBlockRange(block)
       if (range) {
         event.preventDefault()
@@ -173,17 +174,21 @@ function prepareBlock(
     block.tabIndex = 0
     block.setAttribute(
       'aria-label',
-      `Markdown review block, ${lineRangeLabel(range)}. Press Enter to add a comment; use arrow keys for adjacent blocks.`,
+      projection.dirty
+        ? `Markdown review block, ${lineRangeLabel(range)}. Save or reload before adding a comment; use arrow keys for adjacent blocks.`
+        : `Markdown review block, ${lineRangeLabel(range)}. Press Enter to add a comment; use arrow keys for adjacent blocks.`,
     )
-    const button = document.createElement('button')
-    button.type = 'button'
-    button.className = 'review-block-add'
-    button.textContent = '+'
-    button.setAttribute(GENERATED_ATTRIBUTE, '')
-    button.setAttribute('data-review-capture', '')
-    button.setAttribute('aria-label', `Add comment for ${lineRangeLabel(range)}`)
-    block.append(button)
-    generatedElement = button
+    if (!projection.dirty) {
+      const button = document.createElement('button')
+      button.type = 'button'
+      button.className = 'review-block-add'
+      button.textContent = '+'
+      button.setAttribute(GENERATED_ATTRIBUTE, '')
+      button.setAttribute('data-review-capture', '')
+      button.setAttribute('aria-label', `Add comment for ${lineRangeLabel(range)}`)
+      block.append(button)
+      generatedElement = button
+    }
   }
   if (comments.length === 0) {
     generated.push(generatedElement)

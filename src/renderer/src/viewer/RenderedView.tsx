@@ -368,6 +368,7 @@ function MarkdownView({
     if (!root || !html || !documentReview) return
     return bindRenderedDocumentReview(root, {
       active: documentReview.active,
+      dirty: documentReview.dirty,
       comments: documentReview.comments,
       onCapture: documentReview.onCapture,
       onExit: documentReview.onExit,

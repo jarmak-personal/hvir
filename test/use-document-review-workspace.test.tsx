@@ -7,9 +7,8 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest'
 
 import {
-  useDocumentReviewWorkspace,
+  useReviewWorkspace,
   useWatchFanout,
-  useWatchTarget,
 } from '../src/renderer/src/document-review/use-document-review-workspace'
 import {
   localPath,
@@ -24,7 +23,7 @@ const workspaceB: ReviewWorkspaceIdentity = { id: 'b', root: localPath('/b') }
 const documentA = localPath('/a/review.md')
 let host: HTMLDivElement
 let reactRoot: Root
-let current: ReturnType<typeof useDocumentReviewWorkspace>
+let current: ReturnType<typeof useReviewWorkspace>
 let invoke: Mock<
   (
     channel: string,
@@ -49,7 +48,7 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
-describe('useDocumentReviewWorkspace', () => {
+describe('useReviewWorkspace', () => {
   it('clears the prior model and watch paths when the workspace becomes undefined', async () => {
     invoke.mockResolvedValue({
       ok: true,
@@ -86,24 +85,41 @@ describe('useDocumentReviewWorkspace', () => {
     expect(current.watchPaths).toEqual([])
   })
 
-  it('fans out through one stable effect-owned watch callback', () => {
+  it('fans out through one stable callback into the composed review workspace', async () => {
     const viewerA = vi.fn()
     const viewerB = vi.fn()
-    const reviewA = vi.fn()
-    const reviewB = vi.fn()
-    renderFanout(viewerA, reviewA)
+    const model = modelWithComment()
+    invoke.mockImplementation((channel) =>
+      Promise.resolve({
+        ok: true,
+        value:
+          channel === 'document-review:revalidate'
+            ? {
+                status: 'read',
+                document: documentA,
+                snapshot: model.comments[0]!.anchor.snapshot,
+                content: 'before\ntarget\nafter\n',
+              }
+            : stored(workspaceA, model),
+      }),
+    )
+    renderFanout(viewerA, workspaceA)
+    await settle()
     const first = watchHandler
     const event: WatchEvent = { type: 'change', path: documentA }
     act(() => first(event))
+    await settle()
 
-    renderFanout(viewerB, reviewB)
+    renderFanout(viewerB, workspaceA)
     expect(watchHandler).toBe(first)
     act(() => watchHandler(event))
+    await settle()
 
     expect(viewerA).toHaveBeenCalledOnce()
-    expect(reviewA).toHaveBeenCalledOnce()
     expect(viewerB).toHaveBeenCalledOnce()
-    expect(reviewB).toHaveBeenCalledOnce()
+    expect(
+      invoke.mock.calls.filter(([channel]) => channel === 'document-review:revalidate'),
+    ).toHaveLength(2)
   })
 })
 
@@ -112,26 +128,27 @@ function render(workspace?: ReviewWorkspaceIdentity): void {
 }
 
 function Harness({ workspace }: { readonly workspace?: ReviewWorkspaceIdentity }): null {
-  current = useDocumentReviewWorkspace(workspace)
+  const fanout = useWatchFanout(() => undefined)
+  current = useReviewWorkspace(workspace, fanout)
   return null
 }
 
 function renderFanout(
   viewer: (event: WatchEvent) => void,
-  review: (event: WatchEvent) => void,
+  workspace: ReviewWorkspaceIdentity,
 ): void {
-  act(() => reactRoot.render(<FanoutHarness viewer={viewer} review={review} />))
+  act(() => reactRoot.render(<FanoutHarness viewer={viewer} workspace={workspace} />))
 }
 
 function FanoutHarness({
   viewer,
-  review,
+  workspace,
 }: {
   readonly viewer: (event: WatchEvent) => void
-  readonly review: (event: WatchEvent) => void
+  readonly workspace: ReviewWorkspaceIdentity
 }): null {
   const fanout = useWatchFanout(viewer)
-  useWatchTarget(fanout, review)
+  current = useReviewWorkspace(workspace, fanout)
   watchHandler = fanout.handle
   return null
 }

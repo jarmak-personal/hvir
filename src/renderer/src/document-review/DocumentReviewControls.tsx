@@ -21,7 +21,7 @@ export function DocumentReviewToolbar({
         }
         aria-pressed={interaction.active}
         disabled={!interaction.available}
-        title="Markdown review mode · Ctrl/Cmd+Alt+R"
+        title="Markdown review mode"
         onClick={interaction.toggle}
       >
         Review{interaction.comments.length > 0 ? ` ${interaction.comments.length}` : ''}
@@ -52,7 +52,7 @@ export function DocumentReviewPanel({
 }: {
   readonly interaction: DocumentReviewInteraction
 }): ReactElement | null {
-  if (!interaction.active && interaction.comments.length === 0) return null
+  if (!interaction.active) return null
   return (
     <aside className="document-review-panel" aria-label="Markdown review comments">
       <header>
@@ -89,9 +89,7 @@ export function DocumentReviewPanel({
       ) : null}
       {interaction.comments.length === 0 && !interaction.pendingRange ? (
         <p className="document-review-empty">
-          {interaction.active
-            ? 'Choose a rendered block or a source line range to add feedback.'
-            : 'No review comments in this document.'}
+          Choose a rendered block or a source line range to add feedback.
         </p>
       ) : null}
       <ol className="document-review-comments">

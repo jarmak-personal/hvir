@@ -276,7 +276,7 @@ export function FileViewer({
   }, [modeControlExpanded])
 
   return (
-    <div className="viewer-body" onKeyDown={reviewInteraction.handleShortcut}>
+    <div className="viewer-body">
       {tab ? (
         <div className="viewer-floating-controls" role="toolbar" aria-label="Viewer">
           {tab.conflict ? (
