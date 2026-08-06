@@ -66,7 +66,7 @@ export function FileCreateOverlays({
       {menu ? (
         <div
           ref={menuRef}
-          className="file-action-menu"
+          className="file-action-menu hvir-scrollbar-obscuring"
           role="menu"
           aria-label={`File actions for ${menu.label}`}
           style={boundedMenuPosition(menu.x, menu.y)}
@@ -160,9 +160,9 @@ export function FileCreateOverlays({
         </div>
       ) : null}
       {dialog ? (
-        <div className="file-create-backdrop">
+        <div className="modal-backdrop">
           <form
-            className="file-create-dialog"
+            className="project-dialog confirmation-dialog file-create-dialog"
             role="dialog"
             aria-modal="true"
             aria-labelledby="file-create-title"
@@ -174,43 +174,53 @@ export function FileCreateOverlays({
               if (event.key === 'Escape') controller.dismissDialog()
             }}
           >
-            <h2 id="file-create-title">
-              {dialog.kind === 'file' ? 'New File' : 'New Folder'}
-            </h2>
-            <dl>
-              <div>
-                <dt>Workspace</dt>
-                <dd>
-                  <code>{displayHostPath(dialog.workspaceRoot)}</code>
-                </dd>
-              </div>
-              <div>
-                <dt>Destination</dt>
-                <dd>
-                  <code>{displayHostPath(dialog.destinationDirectory)}</code>
-                </dd>
-              </div>
-            </dl>
-            <label>
-              Name
-              <input
-                autoFocus
-                value={name}
-                disabled={controller.pending}
-                aria-invalid={Boolean(name && validation)}
-                onChange={(event) => setName(event.currentTarget.value)}
-              />
-            </label>
-            {(controller.dialogError ?? (name ? validation : undefined)) ? (
-              <div className="file-create-error" role="alert">
-                {controller.dialogError ?? validation}
-              </div>
-            ) : null}
-            <div className="file-create-actions">
-              <button type="button" onClick={() => controller.dismissDialog()}>
+            <div className="confirmation-dialog-content">
+              <h2 id="file-create-title">
+                {dialog.kind === 'file' ? 'New File' : 'New Folder'}
+              </h2>
+              <dl>
+                <div>
+                  <dt>Workspace</dt>
+                  <dd>
+                    <code>{displayHostPath(dialog.workspaceRoot)}</code>
+                  </dd>
+                </div>
+                <div>
+                  <dt>Destination</dt>
+                  <dd>
+                    <code>{displayHostPath(dialog.destinationDirectory)}</code>
+                  </dd>
+                </div>
+              </dl>
+              <label>
+                Name
+                <input
+                  autoFocus
+                  value={name}
+                  disabled={controller.pending}
+                  aria-invalid={Boolean(name && validation)}
+                  onChange={(event) => setName(event.currentTarget.value)}
+                />
+              </label>
+              {(controller.dialogError ?? (name ? validation : undefined)) ? (
+                <div className="file-create-error" role="alert">
+                  {controller.dialogError ?? validation}
+                </div>
+              ) : null}
+            </div>
+            <div className="dialog-actions confirmation-dialog-actions">
+              <button
+                className="confirmation-action confirmation-action-cancel"
+                type="button"
+                onClick={() => controller.dismissDialog()}
+              >
                 Cancel
               </button>
-              <button type="submit" disabled={controller.pending || Boolean(validation)}>
+              <button
+                className="confirmation-action confirmation-action-primary"
+                type="submit"
+                disabled={controller.pending || Boolean(validation)}
+              >
                 {controller.pending
                   ? 'Creating…'
                   : dialog.kind === 'file'

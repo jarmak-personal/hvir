@@ -177,7 +177,13 @@ describe('Files rail create actions', () => {
         new MouseEvent('contextmenu', { bubbles: true, clientX: 18, clientY: 22 }),
       )
     })
+    expect(
+      document
+        .querySelector('.file-action-menu')
+        ?.classList.contains('hvir-scrollbar-obscuring'),
+    ).toBe(true)
     clickMenuItem('New File…')
+    expectSharedFileDialog('.file-create-dialog')
     expect(dialogText()).toContain('Workspace')
     expect(dialogText()).toContain('local:/repo')
     expect(dialogText()).toContain('Destination')
@@ -532,6 +538,7 @@ describe('Files rail create actions', () => {
     await waitFor(() => treeRow('/repo/existing.md') !== undefined)
     openPointerMenu('/repo/existing.md')
     clickMenuItem('Rename…')
+    expectSharedFileDialog('.file-organization-dialog')
     expect(dialogText()).toContain('Source')
     expect(dialogText()).toContain('local:/repo/existing.md')
     setDialogName('renamed.md')
@@ -775,6 +782,7 @@ describe('Files rail create actions', () => {
     await waitFor(() => menuItem('Move to Trash…') !== undefined)
     clickMenuItem('Move to Trash…')
 
+    expectSharedFileDialog('.file-deletion-dialog')
     expect(dialogText()).toContain('local:/repo')
     expect(dialogText()).toContain('local:/repo/existing.md')
     expect(dialogText()).toContain('Move to operating-system Trash')
@@ -1083,6 +1091,14 @@ function submitButton(): HTMLButtonElement | undefined {
       '.file-create-dialog button[type="submit"]',
     ) ?? undefined
   )
+}
+
+function expectSharedFileDialog(selector: string): void {
+  const dialog = document.querySelector(selector)
+  expect(dialog?.classList.contains('project-dialog')).toBe(true)
+  expect(dialog?.classList.contains('confirmation-dialog')).toBe(true)
+  expect(dialog?.querySelector('.confirmation-dialog-content')).not.toBeNull()
+  expect(dialog?.querySelector('.confirmation-dialog-actions')).not.toBeNull()
 }
 
 function dataTransferEvent(type: string, dataTransfer: object): Event {

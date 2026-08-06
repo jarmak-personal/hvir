@@ -19,9 +19,9 @@ export function FileDeletionDialog({
   const permanent = dialog.recovery === 'permanent'
   const entryName = basenameHostPath(dialog.source)
   return (
-    <div className="file-create-backdrop">
+    <div className="modal-backdrop">
       <form
-        className="file-create-dialog file-deletion-dialog"
+        className="project-dialog confirmation-dialog file-create-dialog file-deletion-dialog"
         role="dialog"
         aria-modal="true"
         aria-labelledby="file-deletion-title"
@@ -33,56 +33,61 @@ export function FileDeletionDialog({
           if (event.key === 'Escape') controller.dismiss()
         }}
       >
-        <h2 id="file-deletion-title">
-          {permanent ? 'Delete Permanently' : 'Move to Trash'}
-        </h2>
-        <dl>
-          <div>
-            <dt>Workspace</dt>
-            <dd>
-              <code>{displayHostPath(dialog.workspaceRoot)}</code>
-            </dd>
-          </div>
-          <div>
-            <dt>Entry</dt>
-            <dd>
-              <code>{displayHostPath(dialog.source)}</code>
-            </dd>
-          </div>
-          <div>
-            <dt>Operation</dt>
-            <dd>{permanent ? 'Permanent deletion' : 'Move to operating-system Trash'}</dd>
-          </div>
-          <div>
-            <dt>Recovery</dt>
-            <dd>
-              {permanent
-                ? `None. ${dialog.source.hostId} does not provide recoverable deletion.`
-                : 'Available through the operating-system Trash.'}
-            </dd>
-          </div>
-        </dl>
-        {permanent ? (
-          <label>
-            Type <strong>{entryName}</strong> to confirm
-            <input
-              autoFocus
-              value={confirmation}
-              disabled={controller.pending}
-              onChange={(event) => setConfirmation(event.currentTarget.value)}
-            />
-          </label>
-        ) : (
-          <p>This entry can usually be restored from your operating-system Trash.</p>
-        )}
-        {controller.dialogError ? (
-          <div className="file-create-error" role="alert">
-            {controller.dialogError}
-          </div>
-        ) : null}
-        <div className="file-create-actions">
+        <div className="confirmation-dialog-content">
+          <h2 id="file-deletion-title">
+            {permanent ? 'Delete Permanently' : 'Move to Trash'}
+          </h2>
+          <dl>
+            <div>
+              <dt>Workspace</dt>
+              <dd>
+                <code>{displayHostPath(dialog.workspaceRoot)}</code>
+              </dd>
+            </div>
+            <div>
+              <dt>Entry</dt>
+              <dd>
+                <code>{displayHostPath(dialog.source)}</code>
+              </dd>
+            </div>
+            <div>
+              <dt>Operation</dt>
+              <dd>
+                {permanent ? 'Permanent deletion' : 'Move to operating-system Trash'}
+              </dd>
+            </div>
+            <div>
+              <dt>Recovery</dt>
+              <dd>
+                {permanent
+                  ? `None. ${dialog.source.hostId} does not provide recoverable deletion.`
+                  : 'Available through the operating-system Trash.'}
+              </dd>
+            </div>
+          </dl>
+          {permanent ? (
+            <label>
+              Type <strong>{entryName}</strong> to confirm
+              <input
+                autoFocus
+                value={confirmation}
+                disabled={controller.pending}
+                onChange={(event) => setConfirmation(event.currentTarget.value)}
+              />
+            </label>
+          ) : (
+            <p>This entry can usually be restored from your operating-system Trash.</p>
+          )}
+          {controller.dialogError ? (
+            <div className="file-create-error" role="alert">
+              {controller.dialogError}
+            </div>
+          ) : null}
+        </div>
+        <div className="dialog-actions confirmation-dialog-actions">
           <button
             ref={cancelRef}
+            className="confirmation-action confirmation-action-cancel"
             type="button"
             disabled={controller.pending}
             onClick={() => controller.dismiss()}
@@ -91,7 +96,7 @@ export function FileDeletionDialog({
           </button>
           <button
             type="submit"
-            className="file-destructive-action"
+            className="confirmation-action confirmation-action-destructive"
             disabled={controller.pending || (permanent && confirmation !== entryName)}
           >
             {controller.pending

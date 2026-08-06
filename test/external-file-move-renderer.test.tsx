@@ -153,6 +153,11 @@ describe('external file move renderer workflow', () => {
     act(() => menuItem('Move External Items Here…')!.click())
 
     await waitFor(() => dialogText().includes('files and folders cannot be mixed'))
+    const dialog = document.querySelector('.file-external-move-dialog')
+    expect(dialog?.classList.contains('project-dialog')).toBe(true)
+    expect(dialog?.classList.contains('confirmation-dialog')).toBe(true)
+    expect(dialog?.querySelector('.confirmation-dialog-content')).not.toBeNull()
+    expect(dialog?.querySelector('.confirmation-dialog-actions')).not.toBeNull()
     expect(dialogText()).toContain('local:/repo')
     expect(dialogText()).toContain('Application-host Trash')
     act(() => dialogButton('Choose Files…')!.click())

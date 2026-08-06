@@ -821,11 +821,29 @@ async function createFromRenderer(options: {
         window.__hvirProjectFileMenu = true;
         return undefined;
       }
-      const action = [...document.querySelectorAll('.file-action-menu [role="menuitem"]')]
-        .find((node) => node.textContent?.trim() === ${JSON.stringify(
-          kind === 'file' ? 'New File…' : 'New Folder…',
-        )});
       if (!window.__hvirProjectFileDialog) {
+        const menu = document.querySelector('.file-action-menu');
+        if (!(menu instanceof HTMLElement)) return undefined;
+        if (!menu.classList.contains('hvir-scrollbar-obscuring')) {
+          throw new Error('Files menu did not claim the shared scrollbar-obscuring contract');
+        }
+        const menuLayer = Number.parseInt(getComputedStyle(menu).zIndex, 10);
+        const tracks = [...document.querySelectorAll('.hvir-scrollbar')];
+        for (const track of tracks) {
+          if (!(track instanceof HTMLElement)) continue;
+          const style = getComputedStyle(track);
+          const trackLayer = Number.parseInt(style.zIndex, 10);
+          if (!(menuLayer > trackLayer)) {
+            throw new Error('Files menu did not layer above the shared scrollbar overlay');
+          }
+          if (style.opacity !== '0' || style.pointerEvents !== 'none') {
+            throw new Error('Files menu left the shared scrollbar visible or interactive');
+          }
+        }
+        const action = [...menu.querySelectorAll('[role="menuitem"]')]
+          .find((node) => node.textContent?.trim() === ${JSON.stringify(
+            kind === 'file' ? 'New File…' : 'New Folder…',
+          )});
         if (!(action instanceof HTMLButtonElement)) return undefined;
         if (${JSON.stringify(entry)} === 'keyboard' && document.activeElement !== action) {
           const focused = document.activeElement;
@@ -864,6 +882,12 @@ async function createFromRenderer(options: {
         .map((node) => node.textContent?.trim());
       if (!(dialog instanceof HTMLFormElement) || !(input instanceof HTMLInputElement)) {
         return undefined;
+      }
+      if (!dialog.classList.contains('project-dialog') ||
+          !dialog.classList.contains('confirmation-dialog') ||
+          !dialog.querySelector('.confirmation-dialog-content') ||
+          !dialog.querySelector('.confirmation-dialog-actions')) {
+        throw new Error('create dialog did not reuse the shared hvir popup shell');
       }
       if (codes.length !== 2 || codes.some((value) => value !== ${JSON.stringify(destination)})) {
         throw new Error('create dialog did not preserve the exact workspace and destination');

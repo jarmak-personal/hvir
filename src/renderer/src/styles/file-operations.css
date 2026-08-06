@@ -1,6 +1,6 @@
 .file-action-menu {
   width: 200px;
-  z-index: 40;
+  z-index: 1200;
   position: fixed;
   display: flex;
   flex-direction: column;
@@ -39,25 +39,8 @@
   background: var(--border-subtle);
 }
 
-.file-create-backdrop {
-  z-index: 1000;
-  position: fixed;
-  inset: 0;
-  display: grid;
-  place-items: center;
-  background: rgb(5 7 10 / 72%);
-}
-
 .file-create-dialog {
-  width: min(460px, calc(100vw - 32px));
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-  padding: 20px;
-  border: 1px solid var(--border-strong);
-  border-radius: 7px;
-  box-shadow: 0 18px 60px #000a;
-  background: var(--surface-2);
+  font-size: calc(11px * var(--hvir-interface-scale));
 }
 
 .file-create-dialog h2,
@@ -68,7 +51,9 @@
 
 .file-create-dialog dl {
   display: grid;
-  gap: 8px;
+  gap: 7px;
+  font-size: calc(11px * var(--hvir-interface-scale));
+  line-height: 1.4;
 }
 
 .file-create-dialog dl > div {
@@ -80,34 +65,21 @@
 
 .file-create-dialog dt {
   color: var(--text-muted);
+  font-size: calc(10px * var(--hvir-interface-scale));
 }
 
 .file-create-dialog code {
   overflow-wrap: anywhere;
   color: var(--text);
+  font-size: calc(10px * var(--hvir-interface-scale));
 }
 
-.file-create-dialog label {
-  display: grid;
-  gap: 6px;
-}
-
-.file-create-dialog input {
-  min-width: 0;
-  padding: 7px 8px;
-  border: 1px solid var(--border-strong);
-  border-radius: 4px;
-  background: var(--surface-1);
-  color: var(--text);
-  font: inherit;
-}
-
-.file-organization-dialog {
+.project-dialog.confirmation-dialog.file-organization-dialog {
   width: min(560px, calc(100vw - 32px));
   max-height: min(760px, calc(100vh - 32px));
 }
 
-.file-external-move-dialog {
+.project-dialog.confirmation-dialog.file-external-move-dialog {
   width: min(560px, calc(100vw - 32px));
   max-height: min(720px, calc(100vh - 32px));
 }
@@ -122,6 +94,8 @@
   margin: 0;
   padding-left: 20px;
   overflow: auto;
+  font-size: calc(11px * var(--hvir-interface-scale));
+  line-height: 1.45;
 }
 
 .file-organization-picker {
@@ -144,17 +118,7 @@
 
 .file-create-error {
   color: var(--danger-text);
-}
-
-.file-create-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-}
-
-.file-create-actions .file-destructive-action {
-  border-color: color-mix(in srgb, var(--danger-text) 55%, var(--border-strong));
-  color: var(--danger-text);
+  font-size: calc(10px * var(--hvir-interface-scale));
 }
 
 .file-operation-feedback {
@@ -169,6 +133,7 @@
   box-shadow: 0 8px 24px rgb(0 0 0 / 38%);
   background: var(--surface-2);
   color: var(--text);
+  font-size: calc(11px * var(--hvir-interface-scale));
 }
 
 .file-operation-feedback.error {
@@ -197,6 +162,7 @@
   border-radius: 5px;
   box-shadow: 0 8px 24px rgb(0 0 0 / 38%);
   background: var(--surface-2);
+  font-size: calc(11px * var(--hvir-interface-scale));
 }
 
 .file-copy-progress span {
