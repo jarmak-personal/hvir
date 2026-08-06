@@ -215,6 +215,8 @@ export interface TerminalPane {
   setTypography(typography: TerminalTypography): void
   /** Update parser defaults without replacing effective application cursor state. */
   setCursorDefaults(defaults: TerminalCursorDefaults): void
+  /** Enable or disable compatible text shaping without changing the terminal grid. */
+  setLigatures(enabled: boolean): void
   /** Start or stop visible engine work without changing the live terminal state. */
   setPresentation(presentation: TerminalPresentation): void
   /** Force the current grid to repaint without changing PTY geometry. */

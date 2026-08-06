@@ -95,8 +95,8 @@ describe('terminal runtime capability preflight', () => {
     )
     expect(profile).toMatchObject({
       artifact: {
-        sha256: '7edfff22958ca2855014b900941c61e4451663863dee1b24d7728e135231f8f4',
-        sourceCommit: 'b96cfae20942c5d53fe6f049b8873efa45346f48',
+        sha256: 'afccb2dc96de948db39545f26496fc88e6c57dea61f2705171f08fc7cc7beddb',
+        sourceCommit: 'e3bc2e1a6dbefc10e6e3b931f6bee28d790cbb6e',
         ghosttyCommit: '332b2aefc6e72d363aa93ab6ecfc86eeeeb5ed28',
         wasmBytes: 523_293,
       },
@@ -134,6 +134,15 @@ describe('terminal runtime capability preflight', () => {
         shapes: ['block', 'block_hollow', 'bar', 'underline'],
         blinkPolicies: ['terminal', true, false],
         liveDefaults: true,
+        rawOutputReparsed: false,
+      },
+      shaping: {
+        cellGridOwner: 'ghostty-core',
+        lineRunOwner: 'ghostty-web-canvas',
+        preferenceOwner: 'hvir-terminal-presentation',
+        option: 'fontLigatures',
+        defaultEnabled: true,
+        liveUpdates: true,
         rawOutputReparsed: false,
       },
     })

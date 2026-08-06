@@ -19,7 +19,7 @@ import {
   verifyHiddenPresentationSettles,
   verifyCapacityTerminalSearch,
   verifyCapacityPaletteUpdate,
-  verifyCapacityCursorUpdate,
+  verifyCapacityLivePresentationUpdate,
   verifyTerminalActivity,
   type TerminalActivityReport,
   type TerminalReadinessSampleReport,
@@ -269,12 +269,14 @@ export async function runCapacityLoadSmoke(
   )
   const idleCpu = compareCapacityCpu(baselineCpu, twelveTerminalCpu)
   console.log(`[smoke:performance:sample:idle-cpu] ${JSON.stringify(idleCpu)}`)
-  const cursorCapacity = await verifyCapacityCursorUpdate(win, supervisor)
+  const presentationCapacity = await verifyCapacityLivePresentationUpdate(win, supervisor)
   console.log(
-    `[smoke:capacity:contract] 12 retained cursor-default updates + hidden reveal OK ` +
-      `(${cursorCapacity.synchronousMs.toFixed(1)}ms sync · ` +
-      `${cursorCapacity.eventLoopDelayMs.toFixed(1)}ms event loop · ` +
-      `${cursorCapacity.hiddenPanes} hidden)`,
+    `[smoke:capacity:contract] 12 retained cursor/shaping updates + hidden reveal OK ` +
+      `(${presentationCapacity.synchronousMs.toFixed(1)}ms sync · ` +
+      `${presentationCapacity.eventLoopDelayMs.toFixed(1)}ms event loop · ` +
+      `${presentationCapacity.hiddenPanes} hidden · ` +
+      `${presentationCapacity.shapedRuns} runs/${presentationCapacity.shapedCells} cells · ` +
+      `max ${presentationCapacity.maxRunCells})`,
   )
   startCapacityOutputFixtures(supervisor)
   let churning = true

@@ -275,6 +275,7 @@ export function TerminalWorkspace({
         terminalDarkThemeId={preferences.terminalDarkThemeId}
         terminalTypography={preferences.terminalTypography}
         cursorDefaults={preferences.terminalCursorDefaults}
+        ligatures={preferences.terminalLigatures}
         composerSubmitMode={preferences.composerSubmitMode}
         workspaceRoot={workspaceRoot}
         connectionState={connectionState}

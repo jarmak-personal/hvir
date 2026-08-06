@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { CanvasRenderer, Terminal } from 'ghostty-web'
+import { CanvasRenderer, Terminal, type TerminalRenderStats } from 'ghostty-web'
 
 type FrameCallback = (timestamp: number) => void
 
@@ -13,6 +13,8 @@ interface SchedulerHarness {
   renderRequests: number
   renderFrames: number
   fullRenderFrames: number
+  synchronizedOutputActive: boolean
+  synchronizedOutputRecoveries: number
   writeQueue: Uint8Array[]
   animationFrameId?: number
   scrollAnimationFrame?: number
@@ -35,15 +37,7 @@ interface SchedulerHarness {
   requestRender(forceAll?: boolean): void
   setRenderPaused(paused: boolean): void
   resetCursorBlink(): void
-  getRenderStats(): {
-    parsedWrites: number
-    renderRequests: number
-    renderFrames: number
-    fullRenderFrames: number
-    paused: boolean
-    pendingFrame: boolean
-    cursorVisible: boolean
-  }
+  getRenderStats(): TerminalRenderStats
 }
 
 interface CursorBlinkHarness {
@@ -66,6 +60,8 @@ function createHarness(): SchedulerHarness {
     renderRequests: 0,
     renderFrames: 0,
     fullRenderFrames: 0,
+    synchronizedOutputActive: false,
+    synchronizedOutputRecoveries: 0,
     writeQueue: [],
     animationFrameId: undefined,
     scrollAnimationFrame: undefined,
@@ -161,6 +157,16 @@ describe('ghostty demand render scheduler contract', () => {
       paused: false,
       pendingFrame: true,
       cursorVisible: true,
+      synchronizedOutput: false,
+      synchronizedOutputRecoveries: 0,
+      lastFrame: {
+        renderedRows: 0,
+        textRuns: 0,
+        textMeasurements: 0,
+        shapedRuns: 0,
+        shapedCells: 0,
+        maxRunCells: 0,
+      },
     })
 
     const [id, callback] = [...callbacks][0]!

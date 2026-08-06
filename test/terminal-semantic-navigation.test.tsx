@@ -340,6 +340,7 @@ function viewProps(registry: TerminalRuntimeRegistry) {
     darkThemeId: 'hvir-default-dark',
     typography: { fontFamily: 'monospace', fontSize: 13 },
     cursorDefaults: { shape: 'block', blink: 'terminal' } as const,
+    ligatures: true,
     composerSubmitMode: 'enter' as const,
     cwd: localPath('/repo'),
     workspaceRoot: localPath('/repo'),

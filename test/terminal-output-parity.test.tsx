@@ -31,6 +31,7 @@ const paneState = vi.hoisted(() => ({
     searches: Array<{ query: string; caseSensitive: boolean }>
     themes: unknown[]
     cursorDefaults: unknown[]
+    ligatures: boolean[]
     emitData(data: string): void
     disposed: boolean
   }>,
@@ -40,8 +41,12 @@ const BUNDLED_THEME = searchTerminalThemes('Catppuccin Mocha').entries[0]!
 
 vi.mock('../src/renderer/src/terminal/terminal-pane-factory', () => ({
   createTerminalRuntimePane: vi.fn(
-    (options: { readonly theme: unknown; readonly cursorDefaults: unknown }) => {
-      const pane = createPane(options.theme, options.cursorDefaults)
+    (options: {
+      readonly theme: unknown
+      readonly cursorDefaults: unknown
+      readonly ligatures: boolean
+    }) => {
+      const pane = createPane(options.theme, options.cursorDefaults, options.ligatures)
       if (!paneState.deferNextCreation) return Promise.resolve(pane)
       paneState.deferNextCreation = false
       return new Promise<TerminalPane>((resolve) => {
@@ -88,8 +93,10 @@ describe('terminal output host parity', () => {
     expect(ssh.searches).toEqual(local.searches)
     expect(ssh.themes).toEqual(local.themes)
     expect(ssh.cursorDefaults).toEqual(local.cursorDefaults)
+    expect(ssh.ligatures).toEqual(local.ligatures)
     expect(local.cursorDefaults.at(-1)).toEqual({ shape: 'bar', blink: 'steady' })
     expect(local.themes.at(-1)).toEqual(BUNDLED_THEME.palette)
+    expect(local.ligatures.at(-1)).toBe(false)
     expect(local.ptyWrites).toEqual(['line one\nline two'])
     expect(ssh.ptyWrites).toEqual(local.ptyWrites)
   })
@@ -136,6 +143,7 @@ describe('terminal output host parity', () => {
       ...runtimeOptions,
       theme: terminalThemeForAppearance('light'),
       cursorDefaults: { shape: 'underline', blink: 'blinking' },
+      ligatures: false,
     })
     paneState.releaseNextCreation!()
 
@@ -149,6 +157,7 @@ describe('terminal output host parity', () => {
       { shape: 'block', blink: 'terminal' },
       { shape: 'underline', blink: 'blinking' },
     ])
+    expect(paneState.panes[0]!.ligatures).toEqual([true, false])
     runtime.dispose()
   })
 })
@@ -170,6 +179,7 @@ async function deliver(
   readonly searches: readonly { query: string; caseSensitive: boolean }[]
   readonly themes: readonly unknown[]
   readonly cursorDefaults: readonly unknown[]
+  readonly ligatures: readonly boolean[]
   readonly searchText: string
   readonly ptyWrites: readonly string[]
   readonly disposed: boolean
@@ -259,6 +269,7 @@ async function deliver(
     ...options,
     theme: BUNDLED_THEME.palette,
     cursorDefaults: { shape: 'bar', blink: 'steady' },
+    ligatures: false,
   })
 
   for (const chunk of chunks) handlers!.onData(chunk)
@@ -275,6 +286,7 @@ async function deliver(
     searches: pane.searches,
     themes: pane.themes,
     cursorDefaults: pane.cursorDefaults,
+    ligatures: pane.ligatures,
     searchText,
     ptyWrites: send.mock.calls
       .filter(([channel]) => channel === 'pty:write')
@@ -283,7 +295,11 @@ async function deliver(
   }
 }
 
-function createPane(theme: unknown, cursorDefaults: unknown): TerminalPane {
+function createPane(
+  theme: unknown,
+  cursorDefaults: unknown,
+  ligatures: boolean,
+): TerminalPane {
   const state = {
     writes: [] as string[],
     presentations: [] as string[],
@@ -292,6 +308,7 @@ function createPane(theme: unknown, cursorDefaults: unknown): TerminalPane {
     searches: [] as Array<{ query: string; caseSensitive: boolean }>,
     themes: [theme],
     cursorDefaults: [cursorDefaults],
+    ligatures: [ligatures],
     emitData: (_data: string): void => undefined,
     disposed: false,
   }
@@ -308,6 +325,7 @@ function createPane(theme: unknown, cursorDefaults: unknown): TerminalPane {
     setTheme: (next) => state.themes.push(next),
     setTypography: () => undefined,
     setCursorDefaults: (next) => state.cursorDefaults.push(next),
+    setLigatures: (enabled) => state.ligatures.push(enabled),
     setPresentation: (presentation) => state.presentations.push(presentation),
     redraw: () => undefined,
     resolveEventProvenance: () => undefined,
@@ -374,6 +392,7 @@ function runtimeOptions(root: HostPath, sessionId: string): TerminalRuntimeOptio
     theme: terminalThemeForAppearance('dark'),
     typography: { fontFamily: 'monospace', fontSize: 13 },
     cursorDefaults: { shape: 'block', blink: 'terminal' },
+    ligatures: true,
     cwd: root,
     workspaceRoot: root,
     connectionState: 'connected',

@@ -36,6 +36,7 @@ export function TerminalDeck({
   terminalDarkThemeId,
   terminalTypography,
   cursorDefaults,
+  ligatures,
   composerSubmitMode,
   workspaceRoot,
   connectionState,
@@ -70,6 +71,7 @@ export function TerminalDeck({
   readonly terminalDarkThemeId: string
   readonly terminalTypography: TerminalTypography
   readonly cursorDefaults: TerminalCursorDefaults
+  readonly ligatures: boolean
   readonly composerSubmitMode: ComposerSubmitMode
   readonly workspaceRoot: HostPath
   readonly connectionState: HostConnectionState
@@ -106,6 +108,7 @@ export function TerminalDeck({
       terminalDarkThemeId={terminalDarkThemeId}
       terminalTypography={terminalTypography}
       cursorDefaults={cursorDefaults}
+      ligatures={ligatures}
       composerSubmitMode={composerSubmitMode}
       workspaceRoot={workspaceRoot}
       connectionState={connectionState}

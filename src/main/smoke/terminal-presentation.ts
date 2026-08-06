@@ -6,6 +6,7 @@ import { ensureExplicitBareShellLaunch } from './terminal-explicit-launch'
 import { verifyTerminalContextMenu } from './terminal-context-menu'
 import { verifyTerminalCursorPresentation } from './terminal-cursor-presentation'
 import { verifyTerminalHorizonPresentation } from './terminal-horizon-presentation'
+import { verifyTerminalLigaturePresentation } from './terminal-ligature-presentation'
 import { verifyTerminalPalettePresentation } from './terminal-palette-presentation'
 import { verifyTerminalProjectReturn } from './terminal-project-return'
 import { verifyTerminalSemanticNavigation } from './terminal-semantic-navigation'
@@ -471,6 +472,10 @@ export async function verifyTerminalPresentationLifecycle(
     'revealed terminal close timed out',
   )) as string
   const cursorPresentationStatus = await verifyTerminalCursorPresentation(win, supervisor)
+  const ligaturePresentationStatus = await verifyTerminalLigaturePresentation(
+    win,
+    supervisor,
+  )
   const contextMenuStatus = await verifyTerminalContextMenu(win, supervisor)
   const typographyStatus = await verifyLiveTerminalTypography(win, supervisor)
   const themeGalleryStatus = await verifyTerminalThemeGalleryPresentation(win, supervisor)
@@ -489,6 +494,7 @@ export async function verifyTerminalPresentationLifecycle(
     cursorStatus,
     inputStatus,
     cursorPresentationStatus,
+    ligaturePresentationStatus,
     contextMenuStatus,
     typographyStatus,
     themeGalleryStatus,

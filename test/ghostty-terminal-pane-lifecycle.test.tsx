@@ -11,13 +11,14 @@ import { TerminalView } from '../src/renderer/src/terminal/TerminalView'
 import type { TerminalRuntimeOptions } from '../src/renderer/src/terminal/terminal-runtime-options'
 import { TerminalRuntimeRegistry } from '../src/renderer/src/terminal/terminal-runtime-registry'
 import type { TerminalEvent } from '../src/renderer/src/terminal/terminal-pane'
-import { asHarnessProfileId, localPath } from '../src/shared'
+import { ghosttyLifecycleRuntimeOptions as runtimeOptions } from './fixtures/ghostty-lifecycle-runtime-options'
 
 const ghosttyState = vi.hoisted(() => ({
   instances: [] as Array<{
     readonly cursorBlinkValues: Array<boolean | 'terminal'>
     readonly cursorStyleValues: string[]
     readonly fontFamilies: string[]
+    readonly fontLigatureValues: boolean[]
     readonly fontSizes: number[]
     readonly presentationPausedValues: boolean[]
     readonly resizes: Array<{ readonly cols: number; readonly rows: number }>
@@ -48,6 +49,7 @@ vi.mock('ghostty-web', () => {
       cursorBlink?: boolean | 'terminal'
       cursorStyle?: string
       fontFamily?: string
+      fontLigatures?: boolean
       fontSize?: number
     }
     readonly buffer = { active: { getLine: () => undefined } }
@@ -80,12 +82,14 @@ vi.mock('ghostty-web', () => {
       cursorBlink?: boolean | 'terminal'
       cursorStyle?: string
       fontFamily?: string
+      fontLigatures?: boolean
       fontSize?: number
     }) {
       this.state = {
         cursorBlinkValues: [options.cursorBlink ?? false],
         cursorStyleValues: [options.cursorStyle ?? 'block'],
         fontFamilies: [options.fontFamily ?? ''],
+        fontLigatureValues: [options.fontLigatures ?? true],
         fontSizes: [options.fontSize ?? 0],
         presentationPausedValues: [],
         resizes: [],
@@ -114,6 +118,10 @@ vi.mock('ghostty-web', () => {
               this.state.cursorStyleValues.push(String(value))
             if (property === 'fontFamily') {
               this.state.fontFamilies.push(String(value))
+            }
+            if (property === 'fontLigatures') {
+              this.state.fontLigatureValues.push(Boolean(value))
+              this.requestRender()
             }
             if (property === 'fontSize') this.state.fontSizes.push(Number(value))
             if (property === 'theme') {
@@ -275,6 +283,7 @@ describe('GhosttyTerminalPane lifecycle', () => {
     document.body.append(firstContainer, secondContainer)
     const pane = await createGhosttyTerminalPane(theme(), typography(), {
       cursorDefaults: cursorDefaults(),
+      ligatures: true,
       modifiedKeyProtocol: 'modify-other-keys',
       metaEnterAliasesControl: true,
       composerSubmitMode: 'enter',
@@ -294,6 +303,7 @@ describe('GhosttyTerminalPane lifecycle', () => {
   it('uses only structured parser events and releases their source on disposal', async () => {
     const pane = await createGhosttyTerminalPane(theme(), typography(), {
       cursorDefaults: cursorDefaults(),
+      ligatures: true,
       modifiedKeyProtocol: 'modify-other-keys',
       metaEnterAliasesControl: true,
       composerSubmitMode: 'enter',
@@ -322,6 +332,7 @@ describe('GhosttyTerminalPane lifecycle', () => {
     document.body.append(container)
     const pane = await createGhosttyTerminalPane(theme(), typography(), {
       cursorDefaults: cursorDefaults(),
+      ligatures: true,
       modifiedKeyProtocol: 'modify-other-keys',
       metaEnterAliasesControl: true,
       composerSubmitMode: 'enter',
@@ -336,9 +347,11 @@ describe('GhosttyTerminalPane lifecycle', () => {
     const { cursorText, ...lightTheme } = terminalThemeForAppearance('light')
     pane.setTheme(terminalThemeForAppearance('light'))
     pane.setCursorDefaults({ shape: 'hollow-block', blink: 'steady' })
+    pane.setLigatures(false)
 
     expect(state.cursorBlinkValues).toEqual(['terminal', false])
     expect(state.cursorStyleValues).toEqual(['block', 'block_hollow'])
+    expect(state.fontLigatureValues).toEqual([true, false])
     expect(state.presentationPausedValues).toEqual([true])
     expect(state.writes).toContain('\u001b]0;Hidden output\u0007buffered')
     expect(state.themes.at(-1)).toEqual({ ...lightTheme, cursorAccent: cursorText })
@@ -349,6 +362,7 @@ describe('GhosttyTerminalPane lifecycle', () => {
 
     expect(state.cursorBlinkValues).toEqual(['terminal', false])
     expect(state.cursorStyleValues).toEqual(['block', 'block_hollow'])
+    expect(state.fontLigatureValues).toEqual([true, false])
     expect(state.presentationPausedValues).toEqual([true, false])
     expect(state.renders).toBeGreaterThan(hiddenRenderCount)
     expect(container.querySelector('canvas')).toBe(canvas)
@@ -367,6 +381,7 @@ describe('GhosttyTerminalPane lifecycle', () => {
     document.body.append(container)
     const pane = await createGhosttyTerminalPane(theme(), typography(), {
       cursorDefaults: cursorDefaults(),
+      ligatures: true,
       modifiedKeyProtocol: 'modify-other-keys',
       metaEnterAliasesControl: true,
       composerSubmitMode: 'enter',
@@ -1155,46 +1170,4 @@ function deliveryPresentation(container: HTMLElement): 'visible' | 'hidden' | un
       readonly __hvirTerminalDelivery?: { readonly presentation: 'visible' | 'hidden' }
     }
   ).__hvirTerminalDelivery?.presentation
-}
-function runtimeOptions() {
-  return {
-    sessionId: 'terminal-1',
-    profileId: asHarnessProfileId('claude-code-default'),
-    launchRevision: 2,
-    riskAcknowledged: false,
-    supportsResume: true,
-    fallbackTitle: 'Claude Code · repo',
-    harnessSessionId: '05ea41ff-026f-4ab6-b930-64eb3b497806',
-    resumeOnStart: true,
-    startMode: 'interactive',
-    position: 0,
-    active: true,
-    presented: true,
-    presentation: 'visible',
-    modifiedKeyProtocol: 'modify-other-keys',
-    metaEnterAliasesControl: true,
-    composerSubmitMode: 'enter',
-    lightThemeId: 'hvir-default-light',
-    darkThemeId: 'hvir-default-dark',
-    theme: theme(),
-    typography: typography(),
-    cursorDefaults: cursorDefaults(),
-    cwd: localPath('/repo'),
-    workspaceRoot: localPath('/repo'),
-    connectionState: 'connected',
-    onTitle: vi.fn(),
-    onStatus: vi.fn(),
-    onTelemetry: vi.fn(),
-    onIdentity: vi.fn(),
-    onStarted: vi.fn(),
-    onFreshStarted: vi.fn(),
-    onCapabilities: vi.fn(),
-    onInput: vi.fn(),
-    onOutput: vi.fn(),
-    onBell: vi.fn(),
-    onFocus: vi.fn(),
-    onLink: vi.fn(),
-    onSplit: vi.fn(),
-    onOpenTerminalSettings: vi.fn(),
-  } as const
 }

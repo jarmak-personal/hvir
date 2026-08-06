@@ -84,6 +84,7 @@ describe('terminal workspace materialization bridge', () => {
         terminalDarkThemeId: 'hvir-default-dark',
         terminalTypography: { fontFamily: 'monospace', fontSize: 13 },
         terminalCursorDefaults: { shape: 'block', blink: 'terminal' } as const,
+        terminalLigatures: true,
         composerSubmitMode: 'enter' as const,
         idleThresholdMs: 10_000,
         terminalRecoveryMode: 'prompt' as const,

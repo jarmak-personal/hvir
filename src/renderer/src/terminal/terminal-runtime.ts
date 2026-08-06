@@ -5,6 +5,7 @@ import { createTerminalRuntimePane } from './terminal-pane-factory'
 import {
   applyLivePaneOptions,
   runtimeCanInteract,
+  synchronizePanePresentationOptions,
 } from './terminal-runtime-live-settings'
 import {
   launchUnavailableStatus,
@@ -257,9 +258,7 @@ export class TerminalRuntime {
         return
       }
       this.pane = pane
-      pane.setTheme(this.options.theme)
-      pane.setTypography(this.options.typography)
-      pane.setCursorDefaults(this.options.cursorDefaults)
+      synchronizePanePresentationOptions(pane, this.options)
       this.installPaneListeners(pane)
       this.surface.mountPane(pane, container)
       pane.redraw()

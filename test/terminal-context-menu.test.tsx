@@ -380,6 +380,7 @@ function paneFixture() {
     setTheme: vi.fn(),
     setTypography: vi.fn(),
     setCursorDefaults: vi.fn(),
+    setLigatures: vi.fn(),
     setPresentation: vi.fn(),
     redraw: vi.fn(),
     resolveEventProvenance: vi.fn(() => undefined),
