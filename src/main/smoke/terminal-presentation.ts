@@ -4,6 +4,7 @@ import { joinHostPath, type HostPath } from '../../shared'
 import type { PtySupervisor } from '../pty/pty-supervisor'
 import { ensureExplicitBareShellLaunch } from './terminal-explicit-launch'
 import { verifyTerminalContextMenu } from './terminal-context-menu'
+import { verifyTerminalCursorPresentation } from './terminal-cursor-presentation'
 import { verifyTerminalHorizonPresentation } from './terminal-horizon-presentation'
 import { verifyTerminalPalettePresentation } from './terminal-palette-presentation'
 import { verifyTerminalProjectReturn } from './terminal-project-return'
@@ -469,6 +470,7 @@ export async function verifyTerminalPresentationLifecycle(
     `),
     'revealed terminal close timed out',
   )) as string
+  const cursorPresentationStatus = await verifyTerminalCursorPresentation(win, supervisor)
   const contextMenuStatus = await verifyTerminalContextMenu(win, supervisor)
   const typographyStatus = await verifyLiveTerminalTypography(win, supervisor)
   const themeGalleryStatus = await verifyTerminalThemeGalleryPresentation(win, supervisor)
@@ -486,6 +488,7 @@ export async function verifyTerminalPresentationLifecycle(
     revealStatus,
     cursorStatus,
     inputStatus,
+    cursorPresentationStatus,
     contextMenuStatus,
     typographyStatus,
     themeGalleryStatus,

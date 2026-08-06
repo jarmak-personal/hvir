@@ -30,6 +30,7 @@ const paneState = vi.hoisted(() => ({
     terminalActions: string[]
     searches: Array<{ query: string; caseSensitive: boolean }>
     themes: unknown[]
+    cursorDefaults: unknown[]
     emitData(data: string): void
     disposed: boolean
   }>,
@@ -38,14 +39,16 @@ const paneState = vi.hoisted(() => ({
 const BUNDLED_THEME = searchTerminalThemes('Catppuccin Mocha').entries[0]!
 
 vi.mock('../src/renderer/src/terminal/terminal-pane-factory', () => ({
-  createTerminalRuntimePane: vi.fn((options: { readonly theme: unknown }) => {
-    const pane = createPane(options.theme)
-    if (!paneState.deferNextCreation) return Promise.resolve(pane)
-    paneState.deferNextCreation = false
-    return new Promise<TerminalPane>((resolve) => {
-      paneState.releaseNextCreation = () => resolve(pane)
-    })
-  }),
+  createTerminalRuntimePane: vi.fn(
+    (options: { readonly theme: unknown; readonly cursorDefaults: unknown }) => {
+      const pane = createPane(options.theme, options.cursorDefaults)
+      if (!paneState.deferNextCreation) return Promise.resolve(pane)
+      paneState.deferNextCreation = false
+      return new Promise<TerminalPane>((resolve) => {
+        paneState.releaseNextCreation = () => resolve(pane)
+      })
+    },
+  ),
 }))
 
 describe('terminal output host parity', () => {
@@ -84,6 +87,8 @@ describe('terminal output host parity', () => {
     expect(ssh.searchText).toBe(local.searchText)
     expect(ssh.searches).toEqual(local.searches)
     expect(ssh.themes).toEqual(local.themes)
+    expect(ssh.cursorDefaults).toEqual(local.cursorDefaults)
+    expect(local.cursorDefaults.at(-1)).toEqual({ shape: 'bar', blink: 'steady' })
     expect(local.themes.at(-1)).toEqual(BUNDLED_THEME.palette)
     expect(local.ptyWrites).toEqual(['line one\nline two'])
     expect(ssh.ptyWrites).toEqual(local.ptyWrites)
@@ -127,7 +132,11 @@ describe('terminal output host parity', () => {
 
     runtime.attach(document.createElement('div'))
     expect(paneState.panes).toHaveLength(1)
-    runtime.update({ ...runtimeOptions, theme: terminalThemeForAppearance('light') })
+    runtime.update({
+      ...runtimeOptions,
+      theme: terminalThemeForAppearance('light'),
+      cursorDefaults: { shape: 'underline', blink: 'blinking' },
+    })
     paneState.releaseNextCreation!()
 
     await vi.waitFor(() =>
@@ -136,6 +145,10 @@ describe('terminal output host parity', () => {
         terminalThemeForAppearance('light'),
       ]),
     )
+    expect(paneState.panes[0]!.cursorDefaults).toEqual([
+      { shape: 'block', blink: 'terminal' },
+      { shape: 'underline', blink: 'blinking' },
+    ])
     runtime.dispose()
   })
 })
@@ -156,6 +169,7 @@ async function deliver(
   readonly terminalActions: readonly string[]
   readonly searches: readonly { query: string; caseSensitive: boolean }[]
   readonly themes: readonly unknown[]
+  readonly cursorDefaults: readonly unknown[]
   readonly searchText: string
   readonly ptyWrites: readonly string[]
   readonly disposed: boolean
@@ -241,7 +255,11 @@ async function deliver(
   )
   const searchText = runtime.interactions.search.currentMatchText()
   runtime.interactions.search.close()
-  runtime.update({ ...options, theme: BUNDLED_THEME.palette })
+  runtime.update({
+    ...options,
+    theme: BUNDLED_THEME.palette,
+    cursorDefaults: { shape: 'bar', blink: 'steady' },
+  })
 
   for (const chunk of chunks) handlers!.onData(chunk)
   const pane = paneState.panes.at(-1)!
@@ -256,6 +274,7 @@ async function deliver(
     terminalActions: pane.terminalActions,
     searches: pane.searches,
     themes: pane.themes,
+    cursorDefaults: pane.cursorDefaults,
     searchText,
     ptyWrites: send.mock.calls
       .filter(([channel]) => channel === 'pty:write')
@@ -264,7 +283,7 @@ async function deliver(
   }
 }
 
-function createPane(theme: unknown): TerminalPane {
+function createPane(theme: unknown, cursorDefaults: unknown): TerminalPane {
   const state = {
     writes: [] as string[],
     presentations: [] as string[],
@@ -272,6 +291,7 @@ function createPane(theme: unknown): TerminalPane {
     terminalActions: [] as string[],
     searches: [] as Array<{ query: string; caseSensitive: boolean }>,
     themes: [theme],
+    cursorDefaults: [cursorDefaults],
     emitData: (_data: string): void => undefined,
     disposed: false,
   }
@@ -287,6 +307,7 @@ function createPane(theme: unknown): TerminalPane {
     resize: () => undefined,
     setTheme: (next) => state.themes.push(next),
     setTypography: () => undefined,
+    setCursorDefaults: (next) => state.cursorDefaults.push(next),
     setPresentation: (presentation) => state.presentations.push(presentation),
     redraw: () => undefined,
     resolveEventProvenance: () => undefined,
@@ -352,6 +373,7 @@ function runtimeOptions(root: HostPath, sessionId: string): TerminalRuntimeOptio
     composerSubmitMode: 'enter',
     theme: terminalThemeForAppearance('dark'),
     typography: { fontFamily: 'monospace', fontSize: 13 },
+    cursorDefaults: { shape: 'block', blink: 'terminal' },
     cwd: root,
     workspaceRoot: root,
     connectionState: 'connected',

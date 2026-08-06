@@ -10,6 +10,7 @@ import type {
 } from '../../../shared'
 import type {
   TerminalColorTheme,
+  TerminalCursorDefaults,
   TerminalLinkActivation,
   TerminalPresentation,
   TerminalTypography,
@@ -41,6 +42,7 @@ export interface TerminalRuntimeOptions {
   readonly composerSubmitMode: ComposerSubmitMode
   readonly theme: TerminalColorTheme
   readonly typography: TerminalTypography
+  readonly cursorDefaults: TerminalCursorDefaults
   readonly cwd: HostPath
   readonly workspaceRoot: HostPath
   readonly connectionState: HostConnectionState

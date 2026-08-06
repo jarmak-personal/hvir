@@ -5,11 +5,11 @@
 export const GHOSTTY_TERMINAL_CAPABILITY_PROFILE = {
   schemaVersion: 1,
   artifact: {
-    url: 'https://github.com/jarmak-personal/ghostty-web/releases/download/hvir-v0.4.0-12/ghostty-web-0.4.0-hvir-g1b10fc99dec7.tgz',
-    sha256: 'fd313a76bf623203a00a9f8fd158b0a61a5191b952d0c6e7aef9bdfc93abf05d',
-    sourceCommit: '1b10fc99dec73f5fb9f941f0bcc39b33730b5f17',
+    url: 'https://github.com/jarmak-personal/ghostty-web/releases/download/hvir-v0.4.0-13/ghostty-web-0.4.0-hvir-gb96cfae20942.tgz',
+    sha256: '7edfff22958ca2855014b900941c61e4451663863dee1b24d7728e135231f8f4',
+    sourceCommit: 'b96cfae20942c5d53fe6f049b8873efa45346f48',
     ghosttyCommit: '332b2aefc6e72d363aa93ab6ecfc86eeeeb5ed28',
-    wasmBytes: 521_987,
+    wasmBytes: 523_293,
   },
   identity: {
     term: 'xterm-256color',
@@ -67,6 +67,15 @@ export const GHOSTTY_TERMINAL_CAPABILITY_PROFILE = {
     presentationOwner: 'ghostty-web-canvas',
     ansiColors: 16,
     liveBaseUpdates: true,
+    rawOutputReparsed: false,
+  },
+  cursor: {
+    effectiveOwner: 'ghostty-render-state',
+    defaultOwner: 'hvir-terminal-presentation',
+    presentationOwner: 'ghostty-web-canvas',
+    shapes: ['block', 'block_hollow', 'bar', 'underline'],
+    blinkPolicies: ['terminal', true, false],
+    liveDefaults: true,
     rawOutputReparsed: false,
   },
 } as const

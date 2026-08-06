@@ -109,6 +109,17 @@ export function normalizeAppSettings(value: unknown): AppSettings {
       'light',
     ),
     terminalDarkThemeId: normalizeTerminalThemeId(candidate.terminalDarkThemeId, 'dark'),
+    terminalCursorShape:
+      candidate.terminalCursorShape === 'hollow-block' ||
+      candidate.terminalCursorShape === 'bar' ||
+      candidate.terminalCursorShape === 'underline'
+        ? candidate.terminalCursorShape
+        : 'block',
+    terminalCursorBlink:
+      candidate.terminalCursorBlink === 'blinking' ||
+      candidate.terminalCursorBlink === 'steady'
+        ? candidate.terminalCursorBlink
+        : 'terminal',
     interfaceFont: normalizeFontPreference(candidate.interfaceFont),
     monospaceFont: normalizeFontPreference(candidate.monospaceFont),
     interfaceScale: normalizeInterfaceScale(candidate.interfaceScale),
@@ -127,6 +138,8 @@ function defaults(): AppSettings {
     terminalTheme: 'app',
     terminalLightThemeId: DEFAULT_TERMINAL_THEME_IDS.light,
     terminalDarkThemeId: DEFAULT_TERMINAL_THEME_IDS.dark,
+    terminalCursorShape: 'block',
+    terminalCursorBlink: 'terminal',
     interfaceFont: systemFontPreference(),
     monospaceFont: systemFontPreference(),
     interfaceScale: DEFAULT_INTERFACE_SCALE,
@@ -143,6 +156,10 @@ export function terminalPreferences(settings: AppSettings): TerminalPreferences 
     terminalTheme: settings.terminalTheme,
     terminalLightThemeId: settings.terminalLightThemeId,
     terminalDarkThemeId: settings.terminalDarkThemeId,
+    terminalCursorDefaults: {
+      shape: settings.terminalCursorShape,
+      blink: settings.terminalCursorBlink,
+    },
     terminalTypography: {
       fontFamily: fontFamilyStack(settings.monospaceFont, 'monospace'),
       fontSize: settings.terminalTextSize,

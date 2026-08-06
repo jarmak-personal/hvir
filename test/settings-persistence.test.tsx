@@ -28,6 +28,8 @@ describe('app settings typography persistence', () => {
       idleThresholdMs: 7_000,
       terminalLightThemeId: 'hvir-default-light',
       terminalDarkThemeId: 'hvir-default-dark',
+      terminalCursorShape: 'block',
+      terminalCursorBlink: 'terminal',
       interfaceFont: { mode: 'system', family: '' },
       monospaceFont: { mode: 'system', family: '' },
       interfaceScale: 1,
@@ -45,6 +47,8 @@ describe('app settings typography persistence', () => {
       terminalTheme: 'app',
       terminalLightThemeId: 'hvir-default-light',
       terminalDarkThemeId: 'hvir-default-dark',
+      terminalCursorShape: 'bar',
+      terminalCursorBlink: 'steady',
       interfaceFont: { mode: 'custom', family: 'Example Sans' },
       monospaceFont: { mode: 'custom', family: 'Example Mono' },
       interfaceScale: 1.25,
@@ -69,6 +73,8 @@ describe('app settings typography persistence', () => {
     expect(restarted.getAppSettings()).toMatchObject({
       terminalLightThemeId: 'hvir-default-light',
       terminalDarkThemeId: 'hvir-default-dark',
+      terminalCursorShape: 'bar',
+      terminalCursorBlink: 'steady',
       interfaceFont: { mode: 'custom', family: 'Example Sans' },
       monospaceFont: { mode: 'custom', family: 'Example Mono' },
       interfaceScale: 1.25,
@@ -79,6 +85,10 @@ describe('app settings typography persistence', () => {
       /^"Example Mono".*monospace$/,
     )
     expect(preferences.terminalTypography.fontSize).toBe(18)
+    expect(preferences.terminalCursorDefaults).toEqual({
+      shape: 'bar',
+      blink: 'steady',
+    })
   })
 
   it.each(['app', 'dark', 'light'] as const)(
@@ -138,6 +148,25 @@ describe('app settings typography persistence', () => {
     expect(normalized.getAppSettings()).toMatchObject({
       terminalLightThemeId: 'hvir-default-light',
       terminalDarkThemeId: 'hvir-default-dark',
+    })
+  })
+
+  it('normalizes invalid stored cursor defaults without preserving engine values', async () => {
+    localStorage.setItem(
+      'hvir:settings:v1',
+      JSON.stringify({
+        terminalCursorShape: 'block_hollow',
+        terminalCursorBlink: true,
+      }),
+    )
+
+    const settings = await import('../src/renderer/src/settings/settings')
+    expect(settings.getAppSettings()).toMatchObject({
+      terminalCursorShape: 'block',
+      terminalCursorBlink: 'terminal',
+    })
+    expect(settings.terminalPreferences(settings.getAppSettings())).toMatchObject({
+      terminalCursorDefaults: { shape: 'block', blink: 'terminal' },
     })
   })
 })

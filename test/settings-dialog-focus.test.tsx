@@ -226,6 +226,57 @@ describe('SettingsDialog section workflow', () => {
     expect(onSave).not.toHaveBeenCalled()
   })
 
+  it('saves cursor defaults together and closes without applying a later draft', async () => {
+    const onSave = vi.fn()
+    const onClose = vi.fn()
+    renderDialog(undefined, onSave, onClose)
+    await selectSection('Terminal')
+
+    const shape = document.querySelector<HTMLSelectElement>(
+      '#settings-terminal-cursor-shape',
+    )!
+    const blink = document.querySelector<HTMLSelectElement>(
+      '#settings-terminal-cursor-blink',
+    )!
+    expect([...shape.options].map(({ text }) => text)).toEqual([
+      'Block',
+      'Hollow block',
+      'Bar',
+      'Underline',
+    ])
+    expect([...blink.options].map(({ text }) => text)).toEqual([
+      'Terminal-controlled',
+      'Blinking default',
+      'Steady default',
+    ])
+    expect(document.body.textContent).toContain(
+      "follows the terminal's DEC blinking mode",
+    )
+
+    changeSelect(shape, 'hollow-block')
+    changeSelect(blink, 'blinking')
+    await act(async () => {
+      button('Save app settings').click()
+      await Promise.resolve()
+    })
+    expect(onSave).toHaveBeenCalledWith(
+      'dark',
+      expect.objectContaining({
+        terminalCursorShape: 'hollow-block',
+        terminalCursorBlink: 'blinking',
+      }),
+    )
+
+    onSave.mockClear()
+    changeSelect(shape, 'underline')
+    await act(async () => {
+      button('Close settings').click()
+      await Promise.resolve()
+    })
+    expect(onClose).toHaveBeenCalledOnce()
+    expect(onSave).not.toHaveBeenCalled()
+  })
+
   it('contains focus and Escape inside the nested composer consent dialog', async () => {
     const onClose = vi.fn()
     renderDialog(undefined, vi.fn(), onClose)
@@ -302,6 +353,8 @@ function renderDialog(
           terminalTheme: 'app',
           terminalLightThemeId: 'hvir-default-light',
           terminalDarkThemeId: 'hvir-default-dark',
+          terminalCursorShape: 'block',
+          terminalCursorBlink: 'terminal',
           interfaceFont: { mode: 'system', family: '' },
           monospaceFont: { mode: 'system', family: '' },
           interfaceScale: 1,

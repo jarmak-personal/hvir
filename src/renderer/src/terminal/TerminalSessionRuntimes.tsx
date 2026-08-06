@@ -7,7 +7,11 @@ import type {
   HostPath,
 } from '../../../shared'
 import type { TerminalThemeOverride } from '../settings/settings'
-import type { TerminalLinkActivation, TerminalTypography } from './terminal-pane'
+import type {
+  TerminalCursorDefaults,
+  TerminalLinkActivation,
+  TerminalTypography,
+} from './terminal-pane'
 import type { TerminalRuntimeRegistry } from './terminal-runtime-registry'
 import type { FreshTerminalStart } from './terminal-runtime-options'
 import { TerminalView } from './TerminalView'
@@ -24,6 +28,7 @@ export interface TerminalSessionRuntimesProps {
   readonly terminalLightThemeId: string
   readonly terminalDarkThemeId: string
   readonly terminalTypography: TerminalTypography
+  readonly cursorDefaults: TerminalCursorDefaults
   readonly composerSubmitMode: ComposerSubmitMode
   readonly workspaceRoot: HostPath
   readonly connectionState: HostConnectionState
@@ -54,6 +59,7 @@ export function TerminalSessionRuntimes({
   terminalLightThemeId,
   terminalDarkThemeId,
   terminalTypography,
+  cursorDefaults,
   composerSubmitMode,
   workspaceRoot,
   connectionState,
@@ -103,6 +109,7 @@ export function TerminalSessionRuntimes({
             lightThemeId={terminalLightThemeId}
             darkThemeId={terminalDarkThemeId}
             typography={terminalTypography}
+            cursorDefaults={cursorDefaults}
             composerSubmitMode={composerSubmitMode}
             cwd={session.cwd}
             workspaceRoot={workspaceRoot}

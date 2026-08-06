@@ -19,5 +19,11 @@ export function applyLivePaneOptions(
     next.typography.fontSize !== previous.typography.fontSize
   if (typographyChanged) pane?.setTypography(next.typography)
   if (!terminalColorThemeEquals(next.theme, previous.theme)) pane?.setTheme(next.theme)
+  if (
+    next.cursorDefaults.shape !== previous.cursorDefaults.shape ||
+    next.cursorDefaults.blink !== previous.cursorDefaults.blink
+  ) {
+    pane?.setCursorDefaults(next.cursorDefaults)
+  }
   return typographyChanged
 }

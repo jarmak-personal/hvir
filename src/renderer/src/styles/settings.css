@@ -168,7 +168,8 @@
   gap: 16px;
 }
 
-.settings-dialog .settings-fields > :is(label, .settings-typography-field) {
+.settings-dialog .settings-fields > :is(label, .settings-typography-field),
+.settings-dialog .settings-fieldset > label {
   width: min(760px, 100%);
   display: grid;
   grid-template-columns: 190px minmax(0, 1fr);
@@ -176,6 +177,25 @@
   gap: 8px 16px;
   color: var(--text);
   font-size: calc(11px * var(--hvir-interface-scale));
+}
+
+.settings-fieldset {
+  min-width: 0;
+  width: min(760px, 100%);
+  display: grid;
+  gap: 16px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.settings-fieldset legend {
+  margin-bottom: 10px;
+  color: var(--text-muted);
+  font-size: calc(9px * var(--hvir-interface-scale));
+  font-weight: 650;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
 }
 
 .settings-typography-field {
@@ -411,7 +431,8 @@
     gap: 2px;
   }
 
-  .settings-dialog .settings-fields > :is(label, .settings-typography-field) {
+  .settings-dialog .settings-fields > :is(label, .settings-typography-field),
+  .settings-dialog .settings-fieldset > label {
     grid-template-columns: 1fr;
     align-items: stretch;
   }

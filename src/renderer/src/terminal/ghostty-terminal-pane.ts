@@ -1,6 +1,8 @@
 import {
   Terminal as GhosttyTerminal,
   init,
+  type CursorBlink as GhosttyCursorBlink,
+  type CursorStyle as GhosttyCursorStyle,
   type ITheme as GhosttyTheme,
   type IRetainedBufferRange as GhosttyRetainedBufferRange,
   type IRetainedBufferSearchResult as GhosttyRetainedBufferSearchResult,
@@ -24,6 +26,7 @@ import type {
   TerminalPresentation,
   TerminalSize,
   TerminalColorTheme,
+  TerminalCursorDefaults,
   TerminalLinkActivation,
   TerminalRetainedBufferRange,
   TerminalRetainedBufferSearch,
@@ -75,7 +78,22 @@ function toGhosttyTheme(theme: TerminalColorTheme): GhosttyTheme {
   }
 }
 
+function toGhosttyCursorStyle(
+  shape: TerminalCursorDefaults['shape'],
+): GhosttyCursorStyle {
+  return shape === 'hollow-block' ? 'block_hollow' : shape
+}
+
+function toGhosttyCursorBlink(
+  policy: TerminalCursorDefaults['blink'],
+): GhosttyCursorBlink {
+  if (policy === 'blinking') return true
+  if (policy === 'steady') return false
+  return 'terminal'
+}
+
 export interface GhosttyTerminalPaneOptions {
+  readonly cursorDefaults: TerminalCursorDefaults
   readonly modifiedKeyProtocol: HarnessModifiedKeyProtocol
   readonly metaEnterAliasesControl: boolean
   readonly composerSubmitMode: ComposerSubmitMode
@@ -118,16 +136,18 @@ class GhosttyTerminalPane implements TerminalPane {
     TerminalEventProvenance,
     GhosttyTerminalEventProvenance
   >()
+  private cursorDefaults: TerminalCursorDefaults
 
   constructor(
     private theme: TerminalColorTheme,
     private typography: TerminalTypography,
     options: GhosttyTerminalPaneOptions,
   ) {
+    this.cursorDefaults = options.cursorDefaults
     this.terminal = new GhosttyTerminal({
       allowTransparency: false,
-      cursorBlink: true,
-      cursorStyle: 'block',
+      cursorBlink: toGhosttyCursorBlink(options.cursorDefaults.blink),
+      cursorStyle: toGhosttyCursorStyle(options.cursorDefaults.shape),
       fontFamily: typography.fontFamily,
       fontSize: typography.fontSize,
       scrollback: TERMINAL_SCROLLBACK_BYTES,
@@ -188,6 +208,13 @@ class GhosttyTerminalPane implements TerminalPane {
         effectiveColors: this.terminal.wasmTerm?.getColors(),
         fontFamily: this.typography.fontFamily,
         fontSize: this.typography.fontSize,
+      }),
+    })
+    Object.defineProperty(surface, '__hvirTerminalCursor', {
+      configurable: true,
+      get: () => ({
+        defaults: this.cursorDefaults,
+        effective: this.terminal.wasmTerm?.getCursor(),
       }),
     })
     container.append(surface)
@@ -274,10 +301,20 @@ class GhosttyTerminalPane implements TerminalPane {
     this.redraw()
   }
 
+  setCursorDefaults(defaults: TerminalCursorDefaults): void {
+    if (this.disposed) return
+    if (defaults.shape !== this.cursorDefaults.shape) {
+      this.terminal.options.cursorStyle = toGhosttyCursorStyle(defaults.shape)
+    }
+    if (defaults.blink !== this.cursorDefaults.blink) {
+      this.terminal.options.cursorBlink = toGhosttyCursorBlink(defaults.blink)
+    }
+    this.cursorDefaults = defaults
+  }
+
   setPresentation(presentation: TerminalPresentation): void {
     if (this.disposed || presentation === this.presentation) return
     this.presentation = presentation
-    this.terminal.options.cursorBlink = presentation === 'visible'
     if (presentation === 'hidden') {
       this.terminal.setRenderPaused(true)
     } else {

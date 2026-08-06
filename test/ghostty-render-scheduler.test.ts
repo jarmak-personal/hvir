@@ -53,7 +53,7 @@ interface CursorBlinkHarness {
   renderPaused: boolean
   requestRender: ReturnType<typeof vi.fn>
   resetCursorBlink(): void
-  setCursorBlink(enabled: boolean): void
+  reconcileCursorBlink(enabled: boolean): void
 }
 
 function createHarness(): SchedulerHarness {
@@ -129,7 +129,7 @@ describe('ghostty demand render scheduler contract', () => {
     expect(renderer.cursorVisible).toBe(true)
     expect(renderer.requestRender).toHaveBeenCalledTimes(9)
 
-    renderer.setCursorBlink(false)
+    renderer.reconcileCursorBlink(false)
     const requestsAfterDisable = renderer.requestRender.mock.calls.length
     renderer.resetCursorBlink()
     vi.advanceTimersByTime(1_060)
