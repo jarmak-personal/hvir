@@ -88,7 +88,13 @@ export async function startExternalFileOperation(options: {
     identity.canonicalRoot,
     input.destinationDirectory,
   )
-  const stagingReservation = options.stagingCleanup.reserve(identity.host)
+  const itemCount = options.externalFiles.availableItemCount(
+    input.owner,
+    input.grantId,
+    input.grantGeneration,
+    options.purpose,
+  )
+  const stagingReservation = options.stagingCleanup.reserve(identity.host, itemCount)
   if (!stagingReservation) {
     return {
       outcome: 'busy',
@@ -153,7 +159,12 @@ export async function startExternalFileOperation(options: {
           ),
         limits: options.limits,
         createStagingId: options.createStagingId,
-        cleanupStaging: (host, path) => options.stagingCleanup.cleanup(host, path),
+        cleanupStaging: (host, path) => {
+          if (host !== identity.host) {
+            return Promise.reject(new Error('Staging cleanup host changed'))
+          }
+          return stagingReservation.cleanup(path)
+        },
         onProgress: (completedItems, totalItems, currentName) => {
           operation.latestCompletedItems = completedItems
           runtime.publish(operation, {

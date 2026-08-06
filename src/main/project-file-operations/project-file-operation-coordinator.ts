@@ -286,7 +286,14 @@ export class ProjectFileOperationCoordinator {
           ...(request.action === 'move'
             ? { acquireStaging: () => this.stagingCleanup.reserve(identity.host) }
             : {}),
-          cleanupStaging: (host, path) => this.stagingCleanup.cleanup(host, path),
+          cleanupStaging: (host, path) => {
+            if (host !== identity.host || !stagingReservation) {
+              return Promise.reject(
+                new Error('Staging cleanup reservation is unavailable'),
+              )
+            }
+            return stagingReservation.cleanup(path)
+          },
         })
         return {
           outcome: 'completed',

@@ -3,7 +3,8 @@ import { fileURLToPath } from 'node:url'
 import bplistParser from 'bplist-parser'
 import { parse as parsePlist } from 'plist'
 
-export const MAX_EXTERNAL_FILE_SOURCES = 256
+import { MAX_EXTERNAL_FILE_SOURCES } from '../../shared'
+
 export const MAX_CLIPBOARD_FILE_LIST_BYTES = 1024 * 1024
 
 export type ClipboardFileListFormat =
@@ -42,7 +43,9 @@ export function readClipboardFileList(
         ? parseLegacyMacFilenames(payload)
         : parseFileUriPayload(payload, format === 'text/uri-list')
     if (values.length > MAX_EXTERNAL_FILE_SOURCES) {
-      throw new Error('The clipboard file list exceeds the 256-entry limit')
+      throw new Error(
+        `The clipboard file list exceeds the ${MAX_EXTERNAL_FILE_SOURCES}-entry limit`,
+      )
     }
     if (values.length > 0) return values
   }

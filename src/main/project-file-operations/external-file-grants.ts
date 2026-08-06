@@ -5,6 +5,7 @@ import {
   containsHostPath,
   hostPath,
   isProjectFileEntryName,
+  MAX_EXTERNAL_FILE_SOURCES,
   type ExternalFileGrantResult,
   type ExternalFileGrantPurpose,
   type DirEntry,
@@ -13,7 +14,6 @@ import {
 } from '../../shared'
 import type { ProjectHost } from '../project-host'
 import type { RendererOwner } from '../renderer-resource-scopes'
-import { MAX_EXTERNAL_FILE_SOURCES } from './clipboard-file-list'
 import { isMissingProjectPathError } from './project-file-path-errors'
 import { PROJECT_FILE_OPERATION_DEADLINE_MS } from './project-file-operation-runtime'
 
@@ -126,7 +126,9 @@ export class ExternalFileGrantRegistry {
       }
     }
     if (rawPaths.length > MAX_EXTERNAL_FILE_SOURCES) {
-      throw new Error('The external file list exceeds the 256-entry limit')
+      throw new Error(
+        `The external file list exceeds the ${MAX_EXTERNAL_FILE_SOURCES}-entry limit`,
+      )
     }
     const canonicalProjectRoots = await this.canonicalProjectRoots()
     const items = await Promise.all(
@@ -199,18 +201,7 @@ export class ExternalFileGrantRegistry {
     generation: number,
     purpose: ExternalFileGrantPurpose = 'copy',
   ): ExternalFileGrantUse {
-    const record = this.grants.get(grantId)
-    if (
-      !record ||
-      record.revoked ||
-      record.consumed ||
-      record.generation !== generation ||
-      record.purpose !== purpose ||
-      !sameOwner(record.owner, owner) ||
-      !this.options.resources.isRendererCurrent(owner)
-    ) {
-      throw new Error('The external file grant is unavailable or expired')
-    }
+    const record = this.availableGrant(owner, grantId, generation, purpose)
     record.consumed = true
     clearTimeout(record.timer)
     record.lease.release()
@@ -238,6 +229,15 @@ export class ExternalFileGrantRegistry {
           trashSource: (itemId, options) => this.trashSource(record, itemId, options),
         }
       : { ...use, purpose: 'copy' }
+  }
+
+  availableItemCount(
+    owner: RendererOwner,
+    grantId: string,
+    generation: number,
+    purpose: ExternalFileGrantPurpose,
+  ): number {
+    return this.availableGrant(owner, grantId, generation, purpose).items.length
   }
 
   get supportsExternalMove(): boolean {
@@ -269,6 +269,27 @@ export class ExternalFileGrantRegistry {
     if (this.disposed) return
     this.disposed = true
     for (const grant of [...this.grants.values()]) this.revoke(grant)
+  }
+
+  private availableGrant(
+    owner: RendererOwner,
+    grantId: string,
+    generation: number,
+    purpose: ExternalFileGrantPurpose,
+  ): GrantRecord {
+    const record = this.grants.get(grantId)
+    if (
+      !record ||
+      record.revoked ||
+      record.consumed ||
+      record.generation !== generation ||
+      record.purpose !== purpose ||
+      !sameOwner(record.owner, owner) ||
+      !this.options.resources.isRendererCurrent(owner)
+    ) {
+      throw new Error('The external file grant is unavailable or expired')
+    }
+    return record
   }
 
   private async canonicalProjectRoots(): Promise<readonly HostPath[]> {

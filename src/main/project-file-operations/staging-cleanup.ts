@@ -9,6 +9,17 @@ interface PendingCleanup {
   readonly path: HostPath
 }
 
+export interface ProjectFileStagingReservation {
+  cleanup(path: HostPath): Promise<void>
+  release(): void
+}
+
+interface StagingReservationState {
+  readonly host: ProjectHost
+  remaining: number
+  active: boolean
+}
+
 /** Exact hidden-staging cleanup with bounded reconnect retention. */
 export class ProjectFileStagingCleanup {
   private readonly pending = new Map<string, PendingCleanup>()
@@ -17,33 +28,60 @@ export class ProjectFileStagingCleanup {
   private readonly reservations = new Map<string, number>()
   private disposed = false
 
-  reserve(host: ProjectHost): { release(): void } | undefined {
+  reserve(host: ProjectHost, capacity = 1): ProjectFileStagingReservation | undefined {
+    if (!Number.isSafeInteger(capacity) || capacity < 1) {
+      throw new Error('Staging cleanup capacity must be a positive integer')
+    }
     const retained = this.retainedForHost(host.hostId)
     const reserved = this.reservations.get(host.hostId) ?? 0
-    if (retained + reserved >= MAX_RETAINED_STAGING_PATHS_PER_HOST) return undefined
-    this.reservations.set(host.hostId, reserved + 1)
-    let active = true
+    if (retained + reserved + capacity > MAX_RETAINED_STAGING_PATHS_PER_HOST) {
+      return undefined
+    }
+    this.reservations.set(host.hostId, reserved + capacity)
+    const reservation: StagingReservationState = {
+      host,
+      remaining: capacity,
+      active: true,
+    }
     return {
-      release: () => {
-        if (!active) return
-        active = false
-        const remaining = (this.reservations.get(host.hostId) ?? 1) - 1
-        if (remaining > 0) this.reservations.set(host.hostId, remaining)
-        else this.reservations.delete(host.hostId)
-      },
+      cleanup: (path) => this.cleanupReserved(reservation, path),
+      release: () => this.releaseReservation(reservation),
     }
   }
 
-  async cleanup(host: ProjectHost, path: HostPath): Promise<void> {
-    assertStagingPath(host, path)
+  private async cleanupReserved(
+    reservation: StagingReservationState,
+    path: HostPath,
+  ): Promise<void> {
+    assertStagingPath(reservation.host, path)
+    if (!reservation.active || reservation.remaining < 1) {
+      throw new Error('Staging cleanup reservation is unavailable')
+    }
+    reservation.remaining -= 1
     try {
-      await removeExactStagingTree(host, path)
+      await removeExactStagingTree(reservation.host, path)
       this.pending.delete(pathKey(path))
     } catch {
       if (this.disposed) return
-      this.pending.set(pathKey(path), { host, path })
-      this.observe(host)
+      this.pending.set(pathKey(path), { host: reservation.host, path })
+      this.observe(reservation.host)
+    } finally {
+      this.releaseCapacity(reservation.host.hostId, 1)
     }
+  }
+
+  private releaseReservation(reservation: StagingReservationState): void {
+    if (!reservation.active) return
+    reservation.active = false
+    this.releaseCapacity(reservation.host.hostId, reservation.remaining)
+    reservation.remaining = 0
+  }
+
+  private releaseCapacity(hostId: string, capacity: number): void {
+    if (capacity < 1) return
+    const remaining = (this.reservations.get(hostId) ?? 0) - capacity
+    if (remaining > 0) this.reservations.set(hostId, remaining)
+    else this.reservations.delete(hostId)
   }
 
   async dispose(): Promise<void> {

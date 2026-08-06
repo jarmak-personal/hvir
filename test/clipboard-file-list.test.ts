@@ -7,6 +7,7 @@ import {
   readClipboardFileList,
   type ClipboardFileListFormat,
 } from '../src/main/project-file-operations/clipboard-file-list'
+import { MAX_EXTERNAL_FILE_SOURCES } from '../src/shared'
 
 describe('readClipboardFileList', () => {
   it('decodes Linux URI lists with comments, CRLF, localhost, and percent escapes', () => {
@@ -88,6 +89,17 @@ describe('readClipboardFileList', () => {
         'linux',
       ),
     ).toThrow('1 MiB')
+  })
+
+  it('applies the shared external-source count bound after decoding', () => {
+    const payload = Array.from(
+      { length: MAX_EXTERNAL_FILE_SOURCES + 1 },
+      (_, index) => `file:///tmp/source-${index}`,
+    ).join('\n')
+
+    expect(() =>
+      readClipboardFileList(source('text/uri-list', payload), 'linux'),
+    ).toThrow(`${MAX_EXTERNAL_FILE_SOURCES}-entry limit`)
   })
 })
 

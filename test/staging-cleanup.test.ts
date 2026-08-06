@@ -8,35 +8,74 @@ describe('ProjectFileStagingCleanup', () => {
   it('bounds retained and reserved staging ownership per host', async () => {
     const cleanup = new ProjectFileStagingCleanup()
     const host = new CleanupHost()
-    const reservations = Array.from({ length: 256 }, () =>
-      cleanup.reserve(host as unknown as ProjectHost),
-    )
+    const reservation = cleanup.reserve(host as unknown as ProjectHost, 256)
+    if (!reservation) throw new Error('Expected staging capacity')
 
-    expect(reservations.every(Boolean)).toBe(true)
     expect(cleanup.reserve(host as unknown as ProjectHost)).toBeUndefined()
-    reservations[0]?.release()
-    expect(cleanup.reserve(host as unknown as ProjectHost)).toBeDefined()
+    reservation.release()
+    expect(cleanup.reserve(host as unknown as ProjectHost, 256)).toBeDefined()
 
-    for (const reservation of reservations) reservation?.release()
     await cleanup.dispose()
   })
 
-  it('retains an exact failed cleanup and releases its observer after reconnect drain', async () => {
+  it('admits a multi-item batch only when its complete cleanup capacity fits', async () => {
+    const cleanup = new ProjectFileStagingCleanup()
+    const host = new CleanupHost()
+    const held = cleanup.reserve(host as unknown as ProjectHost, 255)
+    if (!held) throw new Error('Expected staging capacity')
+
+    expect(cleanup.reserve(host as unknown as ProjectHost, 2)).toBeUndefined()
+    expect(cleanup.reserve(host as unknown as ProjectHost)).toBeDefined()
+    held.release()
+    await cleanup.dispose()
+  })
+
+  it('converts failed cleanup into exact debt and releases unused batch slots', async () => {
     const host = new CleanupHost()
     const cleanup = new ProjectFileStagingCleanup()
+    const reservation = cleanup.reserve(host as unknown as ProjectHost, 3)
+    if (!reservation) throw new Error('Expected staging capacity')
     const path = localPath('/project/.hvir-import-owned')
     host.entries.add(path.path)
     host.state = 'disconnected'
 
-    await expect(
-      cleanup.cleanup(host as unknown as ProjectHost, path),
-    ).resolves.toBeUndefined()
+    await expect(reservation.cleanup(path)).resolves.toBeUndefined()
+    reservation.release()
     expect(host.listenerCount).toBe(1)
     expect(host.entries.has(path.path)).toBe(true)
+    const remainingCapacity = cleanup.reserve(host as unknown as ProjectHost, 255)
+    expect(remainingCapacity).toBeDefined()
+    expect(cleanup.reserve(host as unknown as ProjectHost)).toBeUndefined()
+    remainingCapacity?.release()
 
     host.setState('connected')
     await vi.waitFor(() => expect(host.entries.has(path.path)).toBe(false))
     await vi.waitFor(() => expect(host.listenerCount).toBe(0))
+    expect(cleanup.reserve(host as unknown as ProjectHost, 256)).toBeDefined()
+
+    await cleanup.dispose()
+  })
+
+  it('retains and drains every exact path from a maximum-size failed batch', async () => {
+    const host = new CleanupHost()
+    const cleanup = new ProjectFileStagingCleanup()
+    const reservation = cleanup.reserve(host as unknown as ProjectHost, 256)
+    if (!reservation) throw new Error('Expected staging capacity')
+    const paths = Array.from({ length: 256 }, (_, index) =>
+      localPath(`/project/.hvir-import-batch-${index}`),
+    )
+    paths.forEach((path) => host.entries.add(path.path))
+    host.state = 'disconnected'
+
+    await Promise.all(paths.map((path) => reservation.cleanup(path)))
+    reservation.release()
+    expect(cleanup.reserve(host as unknown as ProjectHost)).toBeUndefined()
+    expect(host.entries.size).toBe(256)
+
+    host.setState('connected')
+    await vi.waitFor(() => expect(host.entries.size).toBe(0))
+    await vi.waitFor(() => expect(host.listenerCount).toBe(0))
+    expect(cleanup.reserve(host as unknown as ProjectHost, 256)).toBeDefined()
 
     await cleanup.dispose()
   })
@@ -44,10 +83,13 @@ describe('ProjectFileStagingCleanup', () => {
   it('refuses cleanup authority for non-staging paths', async () => {
     const cleanup = new ProjectFileStagingCleanup()
     const host = new CleanupHost()
+    const reservation = cleanup.reserve(host as unknown as ProjectHost)
+    if (!reservation) throw new Error('Expected staging capacity')
 
-    await expect(
-      cleanup.cleanup(host as unknown as ProjectHost, localPath('/project/real.txt')),
-    ).rejects.toThrow('Refusing cleanup')
+    await expect(reservation.cleanup(localPath('/project/real.txt'))).rejects.toThrow(
+      'Refusing cleanup',
+    )
+    reservation.release()
     await cleanup.dispose()
   })
 })

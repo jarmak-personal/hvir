@@ -1,4 +1,9 @@
-import { hostPath, hostPathEquals, repositoryImageMimeType } from '../../../shared'
+import {
+  MAX_EXTERNAL_FILE_SOURCES,
+  hostPath,
+  hostPathEquals,
+  repositoryImageMimeType,
+} from '../../../shared'
 import type { IpcRegistrar } from '../authority-router'
 import type { IpcDeps } from '../deps'
 import { operationResult } from '../operation-result'
@@ -330,7 +335,7 @@ export function registerFilesystemIpc(ipc: IpcRegistrar, deps: FilesystemIpcDeps
 }
 
 function droppedPaths(value: unknown): readonly string[] {
-  if (!Array.isArray(value) || value.length > 256) {
+  if (!Array.isArray(value) || value.length > MAX_EXTERNAL_FILE_SOURCES) {
     throw new Error('Invalid dropped file list')
   }
   return value.map((path) => {
