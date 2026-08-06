@@ -8,6 +8,17 @@ export function runtimeCanInteract(
   return options.active && options.presentation === 'visible'
 }
 
+/** Synchronize the latest presentation options after asynchronous pane construction. */
+export function synchronizePanePresentationOptions(
+  pane: TerminalPane,
+  options: TerminalRuntimeOptions,
+): void {
+  pane.setTheme(options.theme)
+  pane.setTypography(options.typography)
+  pane.setCursorDefaults(options.cursorDefaults)
+  pane.setLigatures(options.ligatures)
+}
+
 /** Apply mutable presentation settings without replacing the pane or its native state. */
 export function applyLivePaneOptions(
   pane: TerminalPane | undefined,

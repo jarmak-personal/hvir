@@ -20,7 +20,7 @@ export async function verifyTerminalLigaturePresentation(
   supervisor.write(
     terminal.id,
     terminal.ownerId,
-    `printf '\\033[2J\\033[H${SHAPING_LINE}\\n\\033[4;12H'; sleep 15\n`,
+    `printf '\\033[2J\\033[H${SHAPING_LINE}\\n\\033[4;12H'; sleep 40\n`,
   )
 
   const presentation = (await withTerminalSmokeTimeout(

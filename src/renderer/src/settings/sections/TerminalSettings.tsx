@@ -71,14 +71,17 @@ export function TerminalSettings({
           <label htmlFor="settings-terminal-ligatures">
             <span>Font ligatures</span>
             <span className="settings-checkbox-copy">
-              <input
-                id="settings-terminal-ligatures"
-                type="checkbox"
-                checked={draft.terminalLigatures}
-                onChange={(event) =>
-                  onChange('terminalLigatures', event.currentTarget.checked)
-                }
-              />
+              <span className="settings-checkbox-control">
+                <input
+                  id="settings-terminal-ligatures"
+                  type="checkbox"
+                  checked={draft.terminalLigatures}
+                  onChange={(event) =>
+                    onChange('terminalLigatures', event.currentTarget.checked)
+                  }
+                />
+                Enable compatible terminal line shaping
+              </span>
               <small>
                 Shape compatible terminal cells as line runs. Cell positions, selection,
                 and copying remain unchanged.

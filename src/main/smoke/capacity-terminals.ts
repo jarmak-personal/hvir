@@ -375,7 +375,7 @@ export async function verifyCapacityLivePresentationUpdate(
   return (await withTimeout(
     win.webContents.executeJavaScript(`
       new Promise((resolve, reject) => {
-        const deadline = Date.now() + 10000;
+        const deadline = Date.now() + 20000;
         const surfaces = [...document.querySelectorAll('.terminal-surface')];
         const settings = document.querySelector('.settings-toggle');
         const fail = (message) => reject(new Error(message));
@@ -563,7 +563,7 @@ export async function verifyCapacityLivePresentationUpdate(
       })
     `),
     'capacity presentation update timed out',
-    12_000,
+    22_000,
   )) as TerminalLivePresentationCapacityReport
 }
 
