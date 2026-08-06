@@ -96,7 +96,6 @@ export interface DocumentReviewModel {
 }
 
 export interface ReviewAnchorCapture {
-  readonly representation: 'rendered-block' | 'source-range'
   readonly document: HostPath
   readonly snapshot: ReviewDocumentSnapshot
   readonly content: string
@@ -229,6 +228,5 @@ export interface ReviewBatchMember {
 
 export interface ReviewBatchDocumentGroup {
   readonly document: HostPath
-  readonly relativePath: string
   readonly members: readonly ReviewBatchMember[]
 }

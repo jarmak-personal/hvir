@@ -1,20 +1,24 @@
 import { hostPathEquals } from '../../../shared'
-import { validateDocumentReviewAnchor } from './document-review-anchor'
 import {
-  isValidReviewId,
-  reviewWorkspaceEquals,
-  validateReviewDocument,
-} from './document-review-model'
+  reviewCommentDeliveryEligibility,
+  validateDocumentReviewCommentRecord,
+} from './document-review-eligibility'
 import {
   DOCUMENT_REVIEW_LIMITS,
   type DocumentReviewBatch,
   type DocumentReviewComment,
   type DocumentReviewModel,
   type ReviewBatchDocumentGroup,
-  type ReviewDeliveryEligibility,
   type ReviewPolicyError,
   type ReviewPolicyResult,
 } from './document-review-types'
+import {
+  isValidReviewId,
+  reviewPolicyError as policyError,
+  reviewPolicyFailure as failure,
+  reviewWorkspaceEquals,
+  validateReviewDocument,
+} from './document-review-validation'
 
 export function selectDocumentReviewComments(
   model: DocumentReviewModel,
@@ -55,43 +59,10 @@ export function selectReviewBatchDocumentGroups(
     }
     groups.push({
       document: comment.document,
-      relativePath: workspaceRelativePath(model, comment.document),
       members: [member],
     })
   }
   return { ok: true, value: groups }
-}
-
-export function reviewCommentDeliveryEligibility(
-  model: DocumentReviewModel,
-  comment: DocumentReviewComment,
-): ReviewDeliveryEligibility {
-  if (!validCommentRecord(model, comment)) {
-    return { eligible: false, reason: 'invalid-record' }
-  }
-  if (comment.lifecycle === 'sent') return { eligible: false, reason: 'sent' }
-  if (comment.lifecycle === 'resolved') return { eligible: false, reason: 'resolved' }
-  if (comment.anchor.state.status === 'stale' && !comment.anchor.state.reviewed) {
-    return { eligible: false, reason: 'stale-unreviewed' }
-  }
-  return { eligible: true }
-}
-
-function validCommentRecord(
-  model: DocumentReviewModel,
-  comment: DocumentReviewComment,
-): boolean {
-  return (
-    reviewWorkspaceEquals(model.workspace, comment.workspace) &&
-    validateReviewDocument(model.workspace, comment.document) === undefined &&
-    isValidReviewId(comment.id, DOCUMENT_REVIEW_LIMITS.idBytes) &&
-    comment.body.trim().length > 0 &&
-    utf8Bytes(comment.body) <= DOCUMENT_REVIEW_LIMITS.commentBytes &&
-    validateDocumentReviewAnchor(comment.anchor) === undefined &&
-    (comment.lifecycle === 'draft' ||
-      comment.lifecycle === 'sent' ||
-      comment.lifecycle === 'resolved')
-  )
 }
 
 function validateBatch(
@@ -104,20 +75,14 @@ function validateBatch(
     batch.commentIds.length === 0 ||
     batch.commentIds.length > DOCUMENT_REVIEW_LIMITS.batchMembers ||
     new Set(batch.commentIds).size !== batch.commentIds.length ||
-    batch.commentIds.some((id) => !model.comments.some((comment) => comment.id === id))
+    batch.commentIds.some((id) => {
+      const comment = model.comments.find((candidate) => candidate.id === id)
+      return !comment || Boolean(validateDocumentReviewCommentRecord(model, comment))
+    })
   ) {
     return policyError('invalid-batch', 'The review batch record is invalid')
   }
   return undefined
-}
-
-function workspaceRelativePath(
-  model: DocumentReviewModel,
-  document: DocumentReviewComment['document'],
-): string {
-  return model.workspace.root.path === '/'
-    ? document.path.slice(1)
-    : document.path.slice(model.workspace.root.path.length + 1)
 }
 
 function compareComments(
@@ -134,22 +99,4 @@ function compareComments(
     return left.anchor.range.endLine - right.anchor.range.endLine
   }
   return left.id === right.id ? 0 : left.id < right.id ? -1 : 1
-}
-
-function utf8Bytes(value: string): number {
-  return new TextEncoder().encode(value).byteLength
-}
-
-function failure<T>(
-  code: ReviewPolicyError['code'],
-  message: string,
-): ReviewPolicyResult<T> {
-  return { ok: false, error: policyError(code, message) }
-}
-
-function policyError(
-  code: ReviewPolicyError['code'],
-  message: string,
-): ReviewPolicyError {
-  return { code, message }
 }

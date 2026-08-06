@@ -25,22 +25,13 @@ const document = localPath('/repo/docs/review.md')
 const original = 'intro\nTarget statement\noutro\n'
 
 describe('document review model', () => {
-  it('reduces rendered-block and source-range capture to the same source anchor', () => {
-    const rendered = apply(
+  it('captures a representation-independent source anchor', () => {
+    const model = apply(
       emptyModel(),
-      add(
-        'rendered',
-        'Rendered note',
-        capture(document, original, 2, 2, 'rendered-block'),
-      ),
-    )
-    const source = apply(
-      emptyModel(),
-      add('source', 'Source note', capture(document, original, 2, 2, 'source-range')),
+      add('source', 'Source note', capture(document, original, 2)),
     )
 
-    expect(rendered.comments[0]?.anchor).toEqual(source.comments[0]?.anchor)
-    expect(rendered.comments[0]).toMatchObject({
+    expect(model.comments[0]).toMatchObject({
       workspace,
       document,
       lifecycle: 'draft',
@@ -329,18 +320,57 @@ describe('document review model', () => {
       ok: true,
       value: [
         {
-          relativePath: 'a.md',
+          document: alpha,
           members: [
             { comment: { id: 'alpha-first' }, eligibility: { eligible: true } },
             { comment: { id: 'alpha-late' }, eligibility: { eligible: true } },
           ],
         },
         {
-          relativePath: 'z.md',
+          document: zeta,
           members: [{ comment: { id: 'zeta' }, eligibility: { eligible: true } }],
         },
       ],
     })
+  })
+
+  it('rejects foreign or outside restored batch documents and preserves raw host paths', () => {
+    const alpha = localPath('/repo/a.md')
+    let model = apply(
+      emptyModel(),
+      add('alpha', 'Review', capture(alpha, 'one\ntwo\n', 2)),
+    )
+    model = apply(model, {
+      type: 'create-batch',
+      workspace,
+      batchId: 'restored',
+      commentIds: ['alpha'],
+    })
+
+    const groups = selectReviewBatchDocumentGroups(model, 'restored')
+    expect(groups).toEqual({
+      ok: true,
+      value: [
+        {
+          document: alpha,
+          members: [{ comment: model.comments[0], eligibility: { eligible: true } }],
+        },
+      ],
+    })
+
+    for (const invalidDocument of [
+      hostPath(asHostId('ssh:foreign'), '/repo/a.md'),
+      localPath('/other/a.md'),
+    ]) {
+      const restored: DocumentReviewModel = {
+        ...model,
+        comments: [{ ...model.comments[0]!, document: invalidDocument }],
+      }
+      expect(selectReviewBatchDocumentGroups(restored, 'restored')).toMatchObject({
+        ok: false,
+        error: { code: 'invalid-batch' },
+      })
+    }
   })
 
   it('rejects source, text, count, and batch bounds without truncation or partial changes', () => {
@@ -437,6 +467,250 @@ describe('document review model', () => {
     ).toMatchObject({ ok: false, model, error: { code: 'batch-membership-limit' } })
   })
 
+  it('enforces workspace comment and batch counts without changing rejected models', () => {
+    let comments = emptyModel()
+    for (let index = 0; index < DOCUMENT_REVIEW_LIMITS.commentsPerWorkspace; index += 1) {
+      const path = localPath(`/repo/count-${index}.md`)
+      comments = apply(
+        comments,
+        add(`count-${index}`, 'Comment', capture(path, 'Target\n', 1)),
+      )
+    }
+    const commentLimited = applyDocumentReviewAction(
+      comments,
+      add(
+        'count-overflow',
+        'Comment',
+        capture(localPath('/repo/count-overflow.md'), 'Target\n', 1),
+      ),
+    )
+    expect(commentLimited).toMatchObject({
+      ok: false,
+      error: { code: 'comment-limit' },
+    })
+    expect(commentLimited.model).toBe(comments)
+
+    let batches = apply(
+      emptyModel(),
+      add('member', 'Comment', capture(document, original, 2)),
+    )
+    for (let index = 0; index < DOCUMENT_REVIEW_LIMITS.batchesPerWorkspace; index += 1) {
+      batches = apply(batches, {
+        type: 'create-batch',
+        workspace,
+        batchId: `batch-${index}`,
+        commentIds: ['member'],
+      })
+    }
+    const batchLimited = applyDocumentReviewAction(batches, {
+      type: 'create-batch',
+      workspace,
+      batchId: 'batch-overflow',
+      commentIds: ['member'],
+    })
+    expect(batchLimited).toMatchObject({ ok: false, error: { code: 'batch-limit' } })
+    expect(batchLimited.model).toBe(batches)
+  })
+
+  it('enforces exact identifier and workspace identity byte and control bounds', () => {
+    const exactId = 'i'.repeat(DOCUMENT_REVIEW_LIMITS.idBytes)
+    const accepted = applyDocumentReviewAction(
+      emptyModel(),
+      add(exactId, 'Comment', capture(document, original, 2)),
+    )
+    expect(accepted).toMatchObject({ ok: true, model: { comments: [{ id: exactId }] } })
+
+    for (const [id, code] of [
+      ['i'.repeat(DOCUMENT_REVIEW_LIMITS.idBytes + 1), 'id-too-large'],
+      ['', 'invalid-id'],
+      ['line\nbreak', 'invalid-id'],
+    ] as const) {
+      const model = emptyModel()
+      const result = applyDocumentReviewAction(
+        model,
+        add(id, 'Comment', capture(document, original, 2)),
+      )
+      expect(result).toMatchObject({ ok: false, error: { code } })
+      expect(result.model).toBe(model)
+    }
+
+    const exactWorkspace = createDocumentReviewModel({
+      id: 'w'.repeat(DOCUMENT_REVIEW_LIMITS.workspaceIdBytes),
+      root: localPath('/repo'),
+    })
+    expect(exactWorkspace).toMatchObject({ ok: true })
+    for (const invalidWorkspaceId of [
+      'w'.repeat(DOCUMENT_REVIEW_LIMITS.workspaceIdBytes + 1),
+      'workspace\u0000id',
+    ]) {
+      expect(
+        createDocumentReviewModel({ id: invalidWorkspaceId, root: localPath('/repo') }),
+      ).toMatchObject({ ok: false, error: { code: 'invalid-workspace' } })
+    }
+
+    const model = apply(
+      emptyModel(),
+      add('member', 'Comment', capture(document, original, 2)),
+    )
+    for (const [batchId, code] of [
+      ['b'.repeat(DOCUMENT_REVIEW_LIMITS.idBytes + 1), 'id-too-large'],
+      ['bad\u007fid', 'invalid-id'],
+    ] as const) {
+      const result = applyDocumentReviewAction(model, {
+        type: 'create-batch',
+        workspace,
+        batchId,
+        commentIds: ['member'],
+      })
+      expect(result).toMatchObject({ ok: false, error: { code } })
+      expect(result.model).toBe(model)
+    }
+  })
+
+  it('applies revalidation over the storage bound while rejecting new authored data', () => {
+    const model = modelAtStoredWorkspaceLimit()
+    expect(storedBytes(model)).toBe(DOCUMENT_REVIEW_LIMITS.storedWorkspaceBytes)
+
+    const authored = applyDocumentReviewAction(
+      model,
+      add(
+        'new-authored-comment',
+        'Comment',
+        capture(localPath('/repo/new-authored.md'), 'Target\n', 1),
+      ),
+    )
+    expect(authored).toMatchObject({
+      ok: false,
+      error: { code: 'stored-workspace-limit' },
+    })
+    expect(authored.model).toBe(model)
+
+    const movedContent = `preface\n${original}`
+    const moved = applyDocumentReviewAction(model, {
+      type: 'revalidate-document',
+      workspace,
+      document,
+      snapshot: snapshot(movedContent),
+      content: movedContent,
+    })
+    expect(moved.ok).toBe(true)
+    expect(
+      moved.model.comments.find((comment) => comment.id === 'storage-target'),
+    ).toMatchObject({
+      anchor: { state: { status: 'moved' }, range: { startLine: 3 } },
+    })
+    expect(storedBytes(moved.model)).toBeGreaterThan(
+      DOCUMENT_REVIEW_LIMITS.storedWorkspaceBytes,
+    )
+
+    const missingContent = 'intro\nChanged statement\noutro\n'
+    const stale = applyDocumentReviewAction(model, {
+      type: 'revalidate-document',
+      workspace,
+      document,
+      snapshot: snapshot(missingContent),
+      content: missingContent,
+    })
+    expect(stale.ok).toBe(true)
+    expect(
+      stale.model.comments.find((comment) => comment.id === 'storage-target'),
+    ).toMatchObject({
+      anchor: {
+        state: { status: 'stale', reason: 'missing-match', reviewed: false },
+      },
+    })
+    expect(storedBytes(stale.model)).toBeGreaterThan(
+      DOCUMENT_REVIEW_LIMITS.storedWorkspaceBytes,
+    )
+  })
+
+  it('short-circuits revalidation when digest and byte length are unchanged', () => {
+    const model = apply(
+      emptyModel(),
+      add('unchanged', 'Comment', capture(document, original, 2)),
+    )
+    const result = applyDocumentReviewAction(model, {
+      type: 'revalidate-document',
+      workspace,
+      document,
+      snapshot: snapshot(original),
+      content: 'deliberately unread and mismatched',
+    })
+
+    expect(result).toEqual({ ok: true, model })
+    expect(result.model).toBe(model)
+  })
+
+  it('supports explicit batch membership and deletion actions without rechecking old members', () => {
+    let model = apply(emptyModel(), add('first', 'First', capture(document, original, 1)))
+    model = apply(
+      model,
+      add('second', 'Second', capture(localPath('/repo/second.md'), 'Second\n', 1)),
+    )
+    model = apply(model, {
+      type: 'create-batch',
+      workspace,
+      batchId: 'actions',
+      commentIds: ['first'],
+    })
+    model = apply(model, { type: 'mark-sent', workspace, commentIds: ['first'] })
+    model = apply(model, {
+      type: 'add-to-batch',
+      workspace,
+      batchId: 'actions',
+      commentId: 'second',
+    })
+    expect(model.batches[0]?.commentIds).toEqual(['first', 'second'])
+
+    const duplicate = applyDocumentReviewAction(model, {
+      type: 'add-to-batch',
+      workspace,
+      batchId: 'actions',
+      commentId: 'second',
+    })
+    expect(duplicate).toMatchObject({ ok: false, error: { code: 'duplicate-member' } })
+    expect(duplicate.model).toBe(model)
+
+    model = apply(model, {
+      type: 'remove-from-batch',
+      workspace,
+      batchId: 'actions',
+      commentId: 'second',
+    })
+    const missing = applyDocumentReviewAction(model, {
+      type: 'remove-from-batch',
+      workspace,
+      batchId: 'actions',
+      commentId: 'second',
+    })
+    expect(missing).toMatchObject({ ok: false, error: { code: 'unknown-comment' } })
+    expect(missing.model).toBe(model)
+
+    model = apply(model, {
+      type: 'remove-from-batch',
+      workspace,
+      batchId: 'actions',
+      commentId: 'first',
+    })
+    expect(model.batches).toEqual([])
+    const unknown = applyDocumentReviewAction(model, {
+      type: 'delete-batch',
+      workspace,
+      batchId: 'actions',
+    })
+    expect(unknown).toMatchObject({ ok: false, error: { code: 'unknown-batch' } })
+    expect(unknown.model).toBe(model)
+
+    model = apply(model, {
+      type: 'create-batch',
+      workspace,
+      batchId: 'delete-me',
+      commentIds: ['second'],
+    })
+    model = apply(model, { type: 'delete-batch', workspace, batchId: 'delete-me' })
+    expect(model.batches).toEqual([])
+  })
+
   it('turns an over-limit revalidation read into visible stale state', () => {
     const model = apply(
       emptyModel(),
@@ -520,10 +794,8 @@ function capture(
   content: string,
   startLine: number,
   endLine = startLine,
-  representation: ReviewAnchorCapture['representation'] = 'source-range',
 ): ReviewAnchorCapture {
   return {
-    representation,
     document: path,
     snapshot: snapshot(content),
     content,
@@ -537,6 +809,61 @@ function snapshot(content: string): ReviewAnchorCapture['snapshot'] {
     digest: createHash('sha256').update(content).digest('hex'),
     byteLength: Buffer.byteLength(content, 'utf8'),
   }
+}
+
+function modelAtStoredWorkspaceLimit(): DocumentReviewModel {
+  let model = apply(
+    emptyModel(),
+    add('storage-target', 'Target', capture(document, original, 2)),
+  )
+  model = apply(
+    model,
+    add(
+      'storage-padding',
+      'P',
+      capture(localPath('/repo/storage-padding.md'), 'Padding\n', 1),
+    ),
+  )
+  const template = model.comments[0]!
+
+  for (
+    let index = 0;
+    model.comments.length < DOCUMENT_REVIEW_LIMITS.commentsPerWorkspace;
+    index += 1
+  ) {
+    const filler: DocumentReviewComment = {
+      ...template,
+      id: `storage-filler-${index}`,
+      document: localPath(`/repo/storage-filler-${index}.md`),
+      body: 'x'.repeat(DOCUMENT_REVIEW_LIMITS.commentBytes),
+    }
+    const candidate = { ...model, comments: [...model.comments, filler] }
+    if (storedBytes(candidate) > DOCUMENT_REVIEW_LIMITS.storedWorkspaceBytes) break
+    model = candidate
+  }
+
+  let remaining = DOCUMENT_REVIEW_LIMITS.storedWorkspaceBytes - storedBytes(model)
+  for (const id of ['storage-target', 'storage-padding']) {
+    const comment = model.comments.find((candidate) => candidate.id === id)!
+    const capacity = DOCUMENT_REVIEW_LIMITS.commentBytes - Buffer.byteLength(comment.body)
+    const addition = Math.min(remaining, capacity)
+    if (addition === 0) continue
+    model = {
+      ...model,
+      comments: model.comments.map((candidate) =>
+        candidate.id === id
+          ? { ...candidate, body: `${candidate.body}${'x'.repeat(addition)}` }
+          : candidate,
+      ),
+    }
+    remaining -= addition
+  }
+  if (remaining !== 0) throw new Error('Could not construct a storage-bound model')
+  return model
+}
+
+function storedBytes(model: DocumentReviewModel): number {
+  return Buffer.byteLength(JSON.stringify(model), 'utf8')
 }
 
 function apply(

@@ -8,6 +8,12 @@ import {
   type ReviewPolicyResult,
   type ReviewSourceRange,
 } from './document-review-types'
+import {
+  reviewPolicyError,
+  reviewPolicyFailure,
+  reviewPolicySuccess,
+  reviewUtf8Bytes,
+} from './document-review-validation'
 
 const SHA256_DIGEST = /^[a-f0-9]{64}$/
 
@@ -21,25 +27,33 @@ export function captureDocumentReviewAnchor(
   capture: ReviewAnchorCapture,
 ): ReviewPolicyResult<DocumentReviewAnchor> {
   const snapshotError = validateSnapshot(capture.snapshot, capture.content)
-  if (snapshotError) return failure(snapshotError)
-  if (utf8Bytes(capture.content) > DOCUMENT_REVIEW_LIMITS.revalidationReadBytes) {
-    return failure(
-      error('read-limit-exceeded', 'The document exceeds the review read limit'),
+  if (snapshotError) return reviewPolicyFailure(snapshotError)
+  if (reviewUtf8Bytes(capture.content) > DOCUMENT_REVIEW_LIMITS.revalidationReadBytes) {
+    return reviewPolicyFailure(
+      reviewPolicyError(
+        'read-limit-exceeded',
+        'The document exceeds the review read limit',
+      ),
     )
   }
 
   const lines = sourceLineSpans(capture.content)
   const rangeError = validateRange(capture.range, lines.length)
-  if (rangeError) return failure(rangeError)
+  if (rangeError) return reviewPolicyFailure(rangeError)
   const first = lines[capture.range.startLine - 1]!
   const last = lines[capture.range.endLine - 1]!
   const excerpt = capture.content.slice(first.start, last.end)
   if (excerpt.length === 0) {
-    return failure(error('empty-excerpt', 'A review anchor must contain source text'))
+    return reviewPolicyFailure(
+      reviewPolicyError('empty-excerpt', 'A review anchor must contain source text'),
+    )
   }
-  if (utf8Bytes(excerpt) > DOCUMENT_REVIEW_LIMITS.excerptBytes) {
-    return failure(
-      error('anchor-excerpt-too-large', 'The selected source exceeds the anchor limit'),
+  if (reviewUtf8Bytes(excerpt) > DOCUMENT_REVIEW_LIMITS.excerptBytes) {
+    return reviewPolicyFailure(
+      reviewPolicyError(
+        'anchor-excerpt-too-large',
+        'The selected source exceeds the anchor limit',
+      ),
     )
   }
 
@@ -48,18 +62,18 @@ export function captureDocumentReviewAnchor(
   const contextBefore = previous ? capture.content.slice(previous.start, first.start) : ''
   const contextAfter = next ? capture.content.slice(last.end, next.end) : ''
   if (
-    utf8Bytes(contextBefore) > DOCUMENT_REVIEW_LIMITS.contextBytes ||
-    utf8Bytes(contextAfter) > DOCUMENT_REVIEW_LIMITS.contextBytes
+    reviewUtf8Bytes(contextBefore) > DOCUMENT_REVIEW_LIMITS.contextBytes ||
+    reviewUtf8Bytes(contextAfter) > DOCUMENT_REVIEW_LIMITS.contextBytes
   ) {
-    return failure(
-      error(
+    return reviewPolicyFailure(
+      reviewPolicyError(
         'anchor-context-too-large',
         'An adjacent source line exceeds the anchor context limit',
       ),
     )
   }
 
-  return success({
+  return reviewPolicySuccess({
     snapshot: capture.snapshot,
     range: capture.range,
     excerpt,
@@ -74,7 +88,8 @@ export function revalidateDocumentReviewAnchor(
   snapshot: ReviewDocumentSnapshot,
   content: string,
 ): DocumentReviewAnchor {
-  if (utf8Bytes(content) > DOCUMENT_REVIEW_LIMITS.revalidationReadBytes) {
+  if (snapshotEquals(anchor.snapshot, snapshot)) return anchor
+  if (reviewUtf8Bytes(content) > DOCUMENT_REVIEW_LIMITS.revalidationReadBytes) {
     return staleDocumentReviewAnchor(anchor, 'read-limit-exceeded')
   }
   if (validateSnapshot(snapshot, content)) {
@@ -115,24 +130,30 @@ export function validateDocumentReviewAnchor(
   anchor: DocumentReviewAnchor,
 ): ReviewPolicyError | undefined {
   const snapshotError = validateSnapshotShape(anchor.snapshot)
-  if (snapshotError) return error('invalid-anchor', snapshotError.message)
+  if (snapshotError) return reviewPolicyError('invalid-anchor', snapshotError.message)
   const rangeError = validateRange(anchor.range)
-  if (rangeError) return error('invalid-anchor', rangeError.message)
+  if (rangeError) return reviewPolicyError('invalid-anchor', rangeError.message)
   if (anchor.excerpt.length === 0) {
-    return error('invalid-anchor', 'A persisted review anchor has an empty excerpt')
+    return reviewPolicyError(
+      'invalid-anchor',
+      'A persisted review anchor has an empty excerpt',
+    )
   }
   if (
-    utf8Bytes(anchor.excerpt) > DOCUMENT_REVIEW_LIMITS.excerptBytes ||
-    utf8Bytes(anchor.contextBefore) > DOCUMENT_REVIEW_LIMITS.contextBytes ||
-    utf8Bytes(anchor.contextAfter) > DOCUMENT_REVIEW_LIMITS.contextBytes
+    reviewUtf8Bytes(anchor.excerpt) > DOCUMENT_REVIEW_LIMITS.excerptBytes ||
+    reviewUtf8Bytes(anchor.contextBefore) > DOCUMENT_REVIEW_LIMITS.contextBytes ||
+    reviewUtf8Bytes(anchor.contextAfter) > DOCUMENT_REVIEW_LIMITS.contextBytes
   ) {
-    return error('invalid-anchor', 'A persisted review anchor exceeds its text bounds')
+    return reviewPolicyError(
+      'invalid-anchor',
+      'A persisted review anchor exceeds its text bounds',
+    )
   }
   if (anchor.state.status === 'moved') {
     const previousSnapshotError = validateSnapshotShape(anchor.state.previous.snapshot)
     const previousRangeError = validateRange(anchor.state.previous.range)
     if (previousSnapshotError || previousRangeError) {
-      return error(
+      return reviewPolicyError(
         'invalid-anchor',
         'A moved review anchor has an invalid prior location',
       )
@@ -154,8 +175,8 @@ function validateSnapshot(
 ): ReviewPolicyError | undefined {
   const shapeError = validateSnapshotShape(snapshot)
   if (shapeError) return shapeError
-  if (snapshot.byteLength !== utf8Bytes(content)) {
-    return error(
+  if (snapshot.byteLength !== reviewUtf8Bytes(content)) {
+    return reviewPolicyError(
       'snapshot-mismatch',
       'The snapshot byte length does not match the on-disk content',
     )
@@ -172,7 +193,10 @@ function validateSnapshotShape(
     !Number.isSafeInteger(snapshot.byteLength) ||
     snapshot.byteLength < 0
   ) {
-    return error('snapshot-mismatch', 'The on-disk snapshot identity is invalid')
+    return reviewPolicyError(
+      'snapshot-mismatch',
+      'The on-disk snapshot identity is invalid',
+    )
   }
   return undefined
 }
@@ -190,7 +214,7 @@ function validateRange(
     length > DOCUMENT_REVIEW_LIMITS.sourceRangeLines ||
     (lineCount !== undefined && range.endLine > lineCount)
   ) {
-    return error(
+    return reviewPolicyError(
       'invalid-source-range',
       'Review source ranges must be bounded, inclusive, and inside the document',
     )
@@ -243,18 +267,9 @@ function rangeAtOffset(
   return { startLine, endLine }
 }
 
-function utf8Bytes(value: string): number {
-  return new TextEncoder().encode(value).byteLength
-}
-
-function success<T>(value: T): ReviewPolicyResult<T> {
-  return { ok: true, value }
-}
-
-function failure<T>(value: ReviewPolicyError): ReviewPolicyResult<T> {
-  return { ok: false, error: value }
-}
-
-function error(code: ReviewPolicyError['code'], message: string): ReviewPolicyError {
-  return { code, message }
+function snapshotEquals(
+  left: ReviewDocumentSnapshot,
+  right: ReviewDocumentSnapshot,
+): boolean {
+  return left.digest === right.digest && left.byteLength === right.byteLength
 }

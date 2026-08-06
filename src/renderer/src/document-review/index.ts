@@ -1,13 +1,13 @@
 export {
   applyDocumentReviewAction,
   createDocumentReviewModel,
-  reviewWorkspaceEquals,
 } from './document-review-model'
 export {
-  reviewCommentDeliveryEligibility,
   selectDocumentReviewComments,
   selectReviewBatchDocumentGroups,
 } from './document-review-selectors'
+export { reviewCommentDeliveryEligibility } from './document-review-eligibility'
+export { reviewWorkspaceEquals } from './document-review-validation'
 export {
   DOCUMENT_REVIEW_LIMITS,
   type DocumentReviewAction,

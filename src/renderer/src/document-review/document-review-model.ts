@@ -1,4 +1,4 @@
-import { containsHostPath, hostPathEquals } from '../../../shared'
+import { hostPathEquals } from '../../../shared'
 import {
   captureDocumentReviewAnchor,
   revalidateDocumentReviewAnchor,
@@ -17,7 +17,6 @@ import {
   removeDocumentReviewComment,
   resolveDocumentReviewComment,
   reviewStaleDocumentComment,
-  validateReviewCommentBody,
 } from './document-review-lifecycle'
 import {
   DOCUMENT_REVIEW_LIMITS,
@@ -32,6 +31,15 @@ import {
   type ReviewPolicyResult,
   type ReviewWorkspaceIdentity,
 } from './document-review-types'
+import {
+  isValidReviewId,
+  reviewPolicyError,
+  reviewUtf8Bytes,
+  reviewWorkspaceEquals,
+  validateReviewCommentBody,
+  validateReviewDocument,
+  validateReviewWorkspace,
+} from './document-review-validation'
 
 export function createDocumentReviewModel(
   workspace: ReviewWorkspaceIdentity,
@@ -58,91 +66,59 @@ export function applyDocumentReviewAction(
     case 'add-comment':
       return addComment(model, action.commentId, action.body, action.capture)
     case 'edit-comment':
-      return applyModelResult(
+      return applyUserAuthoredResult(
         model,
         editDocumentReviewComment(model, action.commentId, action.body),
       )
     case 'remove-comment':
-      return applyModelResult(model, removeDocumentReviewComment(model, action.commentId))
+      return applyAuthoritativeResult(
+        model,
+        removeDocumentReviewComment(model, action.commentId),
+      )
     case 'reanchor-comment':
       return reanchorComment(model, action.commentId, action.capture)
     case 'review-stale':
-      return applyModelResult(model, reviewStaleDocumentComment(model, action.commentId))
+      return applyAuthoritativeResult(
+        model,
+        reviewStaleDocumentComment(model, action.commentId),
+      )
     case 'revalidate-document':
       return revalidateDocument(model, action.document, action.snapshot, action.content)
     case 'mark-document-stale':
       return markDocumentStale(model, action.document, action.reason)
     case 'mark-sent':
-      return applyModelResult(
+      return applyAuthoritativeResult(
         model,
         markDocumentReviewCommentsSent(model, action.commentIds),
       )
     case 'resolve-comment':
-      return applyModelResult(
+      return applyAuthoritativeResult(
         model,
         resolveDocumentReviewComment(model, action.commentId),
       )
     case 'clear-history':
-      return applyModelResult(model, clearDocumentReviewHistory(model, action.history))
+      return applyAuthoritativeResult(
+        model,
+        clearDocumentReviewHistory(model, action.history),
+      )
     case 'create-batch':
       return createBatch(model, action.batchId, action.commentIds)
     case 'add-to-batch':
-      return applyModelResult(
+      return applyUserAuthoredResult(
         model,
         addDocumentReviewBatchMember(model, action.batchId, action.commentId),
       )
     case 'remove-from-batch':
-      return applyModelResult(
+      return applyAuthoritativeResult(
         model,
         removeDocumentReviewBatchMember(model, action.batchId, action.commentId),
       )
     case 'delete-batch':
-      return applyModelResult(model, deleteDocumentReviewBatch(model, action.batchId))
+      return applyAuthoritativeResult(
+        model,
+        deleteDocumentReviewBatch(model, action.batchId),
+      )
   }
-}
-
-export function reviewWorkspaceEquals(
-  left: ReviewWorkspaceIdentity,
-  right: ReviewWorkspaceIdentity,
-): boolean {
-  return left.id === right.id && hostPathEquals(left.root, right.root)
-}
-
-export function validateReviewWorkspace(
-  workspace: ReviewWorkspaceIdentity,
-): ReviewPolicyError | undefined {
-  if (
-    !isValidReviewId(workspace.id, DOCUMENT_REVIEW_LIMITS.workspaceIdBytes) ||
-    !workspace.root.path.startsWith('/')
-  ) {
-    return policyError(
-      'invalid-workspace',
-      'A review workspace needs a bounded stable identity and an absolute host path',
-    )
-  }
-  return undefined
-}
-
-export function validateReviewDocument(
-  workspace: ReviewWorkspaceIdentity,
-  document: ReviewAnchorCapture['document'],
-): ReviewPolicyError | undefined {
-  if (workspace.root.hostId !== document.hostId) {
-    return policyError('foreign-document', 'The document belongs to another host')
-  }
-  if (
-    !containsHostPath(workspace.root, document) ||
-    hostPathEquals(workspace.root, document)
-  ) {
-    return policyError(
-      'document-outside-workspace',
-      'The document is outside the exact review workspace',
-    )
-  }
-  if (!/\.(?:md|markdown)$/i.test(document.path)) {
-    return policyError('unsupported-document', 'Document review supports Markdown only')
-  }
-  return undefined
 }
 
 function addComment(
@@ -179,7 +155,7 @@ function addComment(
   if (bodyError) return rejectedWith(model, bodyError)
   const captured = captureDocumentReviewAnchor(capture)
   if (!captured.ok) return rejectedWith(model, captured.error)
-  return acceptBounded(model, {
+  return acceptUserAuthoredChange(model, {
     ...model,
     comments: [
       ...model.comments,
@@ -211,7 +187,7 @@ function reanchorComment(
   }
   const captured = captureDocumentReviewAnchor(capture)
   if (!captured.ok) return rejectedWith(model, captured.error)
-  return acceptBounded(
+  return acceptUserAuthoredChange(
     model,
     updateComment(model, commentId, (current) => ({
       ...current,
@@ -228,17 +204,15 @@ function revalidateDocument(
 ): DocumentReviewActionResult {
   const documentError = validateReviewDocument(model.workspace, document)
   if (documentError) return rejectedWith(model, documentError)
-  return acceptBounded(model, {
-    ...model,
-    comments: model.comments.map((comment) =>
-      hostPathEquals(comment.document, document)
-        ? {
-            ...comment,
-            anchor: revalidateDocumentReviewAnchor(comment.anchor, snapshot, content),
-          }
-        : comment,
-    ),
+  let changed = false
+  const comments = model.comments.map((comment) => {
+    if (!hostPathEquals(comment.document, document)) return comment
+    const anchor = revalidateDocumentReviewAnchor(comment.anchor, snapshot, content)
+    if (anchor === comment.anchor) return comment
+    changed = true
+    return { ...comment, anchor }
   })
+  return accepted(changed ? { ...model, comments } : model)
 }
 
 function markDocumentStale(
@@ -265,33 +239,29 @@ function createBatch(
 ): DocumentReviewActionResult {
   const idError = validateId(batchId)
   if (idError) return rejectedWith(model, idError)
-  return applyModelResult(model, createDocumentReviewBatch(model, batchId, commentIds))
+  return applyUserAuthoredResult(
+    model,
+    createDocumentReviewBatch(model, batchId, commentIds),
+  )
 }
 
 function validateId(id: string): ReviewPolicyError | undefined {
   if (!isValidReviewId(id, DOCUMENT_REVIEW_LIMITS.idBytes)) {
-    return policyError(
-      utf8Bytes(id) > DOCUMENT_REVIEW_LIMITS.idBytes ? 'id-too-large' : 'invalid-id',
+    return reviewPolicyError(
+      reviewUtf8Bytes(id) > DOCUMENT_REVIEW_LIMITS.idBytes
+        ? 'id-too-large'
+        : 'invalid-id',
       'Review identifiers must be bounded non-control text',
     )
   }
   return undefined
 }
 
-export function isValidReviewId(id: string, maximumBytes: number): boolean {
-  if (id.length === 0 || utf8Bytes(id) > maximumBytes) return false
-  for (const character of id) {
-    const codePoint = character.codePointAt(0)!
-    if (codePoint <= 31 || codePoint === 127) return false
-  }
-  return true
-}
-
-function acceptBounded(
+function acceptUserAuthoredChange(
   current: DocumentReviewModel,
   candidate: DocumentReviewModel,
 ): DocumentReviewActionResult {
-  return utf8Bytes(JSON.stringify(candidate)) >
+  return reviewUtf8Bytes(JSON.stringify(candidate)) >
     DOCUMENT_REVIEW_LIMITS.storedWorkspaceBytes
     ? rejected(
         current,
@@ -314,13 +284,20 @@ function updateComment(
   }
 }
 
-function applyModelResult(
+function applyUserAuthoredResult(
   current: DocumentReviewModel,
   result: ReviewPolicyResult<DocumentReviewModel>,
 ): DocumentReviewActionResult {
   return result.ok
-    ? acceptBounded(current, result.value)
+    ? acceptUserAuthoredChange(current, result.value)
     : rejectedWith(current, result.error)
+}
+
+function applyAuthoritativeResult(
+  current: DocumentReviewModel,
+  result: ReviewPolicyResult<DocumentReviewModel>,
+): DocumentReviewActionResult {
+  return result.ok ? accepted(result.value) : rejectedWith(current, result.error)
 }
 
 function accepted(model: DocumentReviewModel): DocumentReviewActionResult {
@@ -332,7 +309,7 @@ function rejected(
   code: ReviewPolicyError['code'],
   message: string,
 ): DocumentReviewActionResult {
-  return { ok: false, model, error: policyError(code, message) }
+  return { ok: false, model, error: reviewPolicyError(code, message) }
 }
 
 function rejectedWith(
@@ -340,15 +317,4 @@ function rejectedWith(
   error: ReviewPolicyError,
 ): DocumentReviewActionResult {
   return { ok: false, model, error }
-}
-
-function policyError(
-  code: ReviewPolicyError['code'],
-  message: string,
-): ReviewPolicyError {
-  return { code, message }
-}
-
-function utf8Bytes(value: string): number {
-  return new TextEncoder().encode(value).byteLength
 }

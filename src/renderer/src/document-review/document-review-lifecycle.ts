@@ -1,21 +1,14 @@
 import {
-  DOCUMENT_REVIEW_LIMITS,
   type DocumentReviewComment,
   type DocumentReviewModel,
   type ReviewCommentLifecycle,
-  type ReviewPolicyError,
   type ReviewPolicyResult,
 } from './document-review-types'
-
-export function validateReviewCommentBody(body: string): ReviewPolicyError | undefined {
-  if (body.trim().length === 0) {
-    return error('empty-comment', 'A review comment cannot be empty')
-  }
-  if (utf8Bytes(body) > DOCUMENT_REVIEW_LIMITS.commentBytes) {
-    return error('text-too-large', 'The review comment exceeds its byte limit')
-  }
-  return undefined
-}
+import {
+  reviewPolicyFailure as failure,
+  reviewPolicySuccess as success,
+  validateReviewCommentBody,
+} from './document-review-validation'
 
 export function editDocumentReviewComment(
   model: DocumentReviewModel,
@@ -159,23 +152,4 @@ function withoutComments(
       return commentIds.length === 0 ? [] : [{ ...batch, commentIds }]
     }),
   }
-}
-
-function utf8Bytes(value: string): number {
-  return new TextEncoder().encode(value).byteLength
-}
-
-function success<T>(value: T): ReviewPolicyResult<T> {
-  return { ok: true, value }
-}
-
-function failure<T>(
-  code: ReviewPolicyError['code'],
-  message: string,
-): ReviewPolicyResult<T> {
-  return { ok: false, error: error(code, message) }
-}
-
-function error(code: ReviewPolicyError['code'], message: string): ReviewPolicyError {
-  return { code, message }
 }

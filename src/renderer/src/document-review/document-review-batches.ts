@@ -5,6 +5,12 @@ import {
   type ReviewPolicyError,
   type ReviewPolicyResult,
 } from './document-review-types'
+import { validateReviewBatchCandidate } from './document-review-eligibility'
+import {
+  reviewPolicyError as error,
+  reviewPolicyFailure as failure,
+  reviewPolicySuccess as success,
+} from './document-review-validation'
 
 export function createDocumentReviewBatch(
   model: DocumentReviewModel,
@@ -38,8 +44,13 @@ export function addDocumentReviewBatchMember(
   if (batch.commentIds.includes(commentId)) {
     return failure('duplicate-member', 'The comment already belongs to this batch')
   }
-  const membershipError = validateBatchMembers(model, [...batch.commentIds, commentId])
-  if (membershipError) return { ok: false, error: membershipError }
+  if (batch.commentIds.length >= DOCUMENT_REVIEW_LIMITS.batchMembers) {
+    return failure('batch-membership-limit', 'The review batch member limit was reached')
+  }
+  const comment = model.comments.find((candidate) => candidate.id === commentId)
+  if (!comment) return failure('unknown-comment', 'The review comment does not exist')
+  const admissionError = validateReviewBatchCandidate(model, comment)
+  if (admissionError) return { ok: false, error: admissionError }
   return success(
     updateBatch(model, batchId, (current) => ({
       ...current,
@@ -100,9 +111,8 @@ function validateBatchMembers(
   for (const id of commentIds) {
     const comment = model.comments.find((candidate) => candidate.id === id)
     if (!comment) return error('unknown-comment', 'The review comment does not exist')
-    if (comment.lifecycle !== 'draft') {
-      return error('comment-not-draft', 'Only draft comments can join a review batch')
-    }
+    const admissionError = validateReviewBatchCandidate(model, comment)
+    if (admissionError) return admissionError
   }
   return undefined
 }
@@ -116,19 +126,4 @@ function updateBatch(
     ...model,
     batches: model.batches.map((batch) => (batch.id === id ? update(batch) : batch)),
   }
-}
-
-function success<T>(value: T): ReviewPolicyResult<T> {
-  return { ok: true, value }
-}
-
-function failure<T>(
-  code: ReviewPolicyError['code'],
-  message: string,
-): ReviewPolicyResult<T> {
-  return { ok: false, error: error(code, message) }
-}
-
-function error(code: ReviewPolicyError['code'], message: string): ReviewPolicyError {
-  return { code, message }
 }
