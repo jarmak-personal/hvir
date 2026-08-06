@@ -25,6 +25,157 @@ export function parseDevToolsActivePort(value: string): number {
   return port
 }
 
+interface InstalledBrowserElement {
+  readonly textContent: string | null
+  readonly disabled?: boolean
+  click(): void
+  querySelector(selector: string): InstalledBrowserElement | null
+  querySelectorAll(selector: string): Iterable<InstalledBrowserElement>
+}
+
+interface InstalledBrowserDocument {
+  querySelector(selector: string): InstalledBrowserElement | null
+  querySelectorAll(selector: string): Iterable<InstalledBrowserElement>
+}
+
+interface InstalledElementConstructor {
+  [Symbol.hasInstance](value: unknown): boolean
+}
+
+interface InstalledBrowserScope {
+  readonly document: InstalledBrowserDocument
+  readonly HTMLElement: InstalledElementConstructor
+  readonly HTMLButtonElement: InstalledElementConstructor
+}
+
+export async function runInstalledHarnessDialogExercise(): Promise<string> {
+  const { document, HTMLElement, HTMLButtonElement } =
+    globalThis as unknown as InstalledBrowserScope
+  const deadline = (): number => Date.now() + 8_000
+  const waitFor = <T,>(read: () => T | undefined, message: string): Promise<T> =>
+    new Promise((resolve, reject) => {
+      const expires = deadline()
+      const poll = (): void => {
+        const value = read()
+        if (value) return resolve(value)
+        if (Date.now() >= expires) return reject(new Error(message))
+        setTimeout(poll, 25)
+      }
+      poll()
+    })
+  const isElement = (
+    value: InstalledBrowserElement | null,
+    constructor: InstalledElementConstructor,
+  ): value is InstalledBrowserElement =>
+    value !== null && constructor[Symbol.hasInstance](value)
+  const activateWhenReady = (
+    read: () => InstalledBrowserElement | null,
+    missingMessage: string,
+    disabledMessage: string,
+  ): Promise<void> =>
+    new Promise((resolve, reject) => {
+      const expires = deadline()
+      let observedDisabled = false
+      const poll = (): void => {
+        const action = read()
+        if (isElement(action, HTMLButtonElement)) {
+          if (action.disabled === false) {
+            action.click()
+            resolve()
+            return
+          }
+          observedDisabled = true
+        }
+        if (Date.now() >= expires) {
+          reject(new Error(observedDisabled ? disabledMessage : missingMessage))
+          return
+        }
+        setTimeout(poll, 25)
+      }
+      poll()
+    })
+  const pendingDialog = (): InstalledBrowserElement | undefined => {
+    const dialog = document.querySelector('.add-harness-dialog')
+    const claude = [...document.querySelectorAll('.add-harness-candidates label')].find(
+      (label) => label.querySelector('strong')?.textContent?.trim() === 'Claude Code',
+    )
+    const detail = claude?.querySelector('small')?.textContent?.trim()
+    return isElement(dialog, HTMLElement) && detail === 'Checking…' ? dialog : undefined
+  }
+  const closeAddDialog = async (dialog: InstalledBrowserElement): Promise<void> => {
+    const cancel = [...dialog.querySelectorAll('button')].find(
+      (button) => button.textContent?.trim() === 'Cancel',
+    )
+    if (cancel === undefined || !isElement(cancel, HTMLButtonElement)) {
+      throw new Error('Add-harness cancel missing')
+    }
+    cancel.click()
+    await waitFor(
+      () => (document.querySelector('.add-harness-dialog') ? undefined : true),
+      'Add-harness dialog did not close while probes were pending',
+    )
+  }
+
+  await activateWhenReady(
+    () => document.querySelector('button[aria-label="New terminal"]'),
+    'New-terminal action missing',
+    'New-terminal action remained disabled',
+  )
+  const directAdd = await waitFor(
+    () =>
+      [...document.querySelectorAll('.terminal-new-menu button')].find(
+        (button) => button.textContent?.trim() === 'Add a harness…',
+      ),
+    'Direct add-harness action missing',
+  )
+  directAdd.click()
+  const directDialog = await waitFor(
+    pendingDialog,
+    'Direct add-harness entry did not paint while the real provider probe was pending',
+  )
+  await closeAddDialog(directDialog)
+
+  const openSettings = await waitFor(
+    () => document.querySelector('button[aria-label="Open settings"]') ?? undefined,
+    'Settings action missing',
+  )
+  openSettings.click()
+  const harnesses = await waitFor(
+    () =>
+      [...document.querySelectorAll('.settings-section-index button')].find(
+        (button) => button.textContent?.trim() === 'Harnesses',
+      ),
+    'Harnesses settings section missing',
+  )
+  harnesses.click()
+  const settingsAdd = await waitFor(
+    () =>
+      [...document.querySelectorAll('.settings-harness-actions button')].find(
+        (button) => button.textContent?.trim() === 'Add a harness…',
+      ),
+    'Settings add-harness action missing',
+  )
+  settingsAdd.click()
+  const settingsDialog = await waitFor(
+    pendingDialog,
+    'Settings add-harness entry did not paint while the real provider probe was pending',
+  )
+  await closeAddDialog(settingsDialog)
+
+  const closeSettings = [...document.querySelectorAll('.settings-dialog button')].find(
+    (button) => button.textContent?.trim() === 'Close settings',
+  )
+  if (closeSettings === undefined || !isElement(closeSettings, HTMLButtonElement)) {
+    throw new Error('Close-settings action missing after harness probe')
+  }
+  closeSettings.click()
+  await waitFor(
+    () => (document.querySelector('.settings-dialog') ? undefined : true),
+    'Workbench did not remain interactive after harness probes',
+  )
+  return 'both add-harness entries painted and closed while Claude probe was pending'
+}
+
 export async function exerciseInstalledHarnessDialogs(
   readActivePort: () => Promise<string>,
 ): Promise<string> {
@@ -32,7 +183,7 @@ export async function exerciseInstalledHarnessDialogs(
   const client = await CdpClient.connect(target)
   try {
     return await withTimeout(
-      client.evaluate(INSTALLED_HARNESS_DIALOG_EXERCISE),
+      client.evaluate(`(${runInstalledHarnessDialogExercise.toString()})()`),
       EXERCISE_TIMEOUT_MS,
       'Installed harness dialog exercise timed out',
     )
@@ -159,88 +310,3 @@ class CdpClient {
     })
   }
 }
-
-const INSTALLED_HARNESS_DIALOG_EXERCISE = String.raw`
-  (async () => {
-    const deadline = () => Date.now() + 8000;
-    const waitFor = (read, message) => new Promise((resolve, reject) => {
-      const expires = deadline();
-      const poll = () => {
-        const value = read();
-        if (value) return resolve(value);
-        if (Date.now() >= expires) return reject(new Error(message));
-        setTimeout(poll, 25);
-      };
-      poll();
-    });
-    const pendingDialog = () => {
-      const dialog = document.querySelector('.add-harness-dialog');
-      const claude = [...document.querySelectorAll('.add-harness-candidates label')]
-        .find((label) => label.querySelector('strong')?.textContent?.trim() === 'Claude Code');
-      const detail = claude?.querySelector('small')?.textContent?.trim();
-      return dialog instanceof HTMLElement && detail === 'Checking…' ? dialog : undefined;
-    };
-    const closeAddDialog = async (dialog) => {
-      const cancel = [...dialog.querySelectorAll('button')]
-        .find((button) => button.textContent?.trim() === 'Cancel');
-      if (!(cancel instanceof HTMLButtonElement)) throw new Error('Add-harness cancel missing');
-      cancel.click();
-      await waitFor(
-        () => !document.querySelector('.add-harness-dialog'),
-        'Add-harness dialog did not close while probes were pending'
-      );
-    };
-
-    const addTerminal = await waitFor(
-      () => document.querySelector('button[aria-label="New terminal"]'),
-      'New-terminal action missing'
-    );
-    addTerminal.click();
-    const directAdd = await waitFor(
-      () => [...document.querySelectorAll('.terminal-new-menu button')]
-        .find((button) => button.textContent?.trim() === 'Add a harness…'),
-      'Direct add-harness action missing'
-    );
-    directAdd.click();
-    const directDialog = await waitFor(
-      pendingDialog,
-      'Direct add-harness entry did not paint while the real provider probe was pending'
-    );
-    await closeAddDialog(directDialog);
-
-    const openSettings = await waitFor(
-      () => document.querySelector('button[aria-label="Open settings"]'),
-      'Settings action missing'
-    );
-    openSettings.click();
-    const harnesses = await waitFor(
-      () => [...document.querySelectorAll('.settings-section-index button')]
-        .find((button) => button.textContent?.trim() === 'Harnesses'),
-      'Harnesses settings section missing'
-    );
-    harnesses.click();
-    const settingsAdd = await waitFor(
-      () => [...document.querySelectorAll('.settings-harness-actions button')]
-        .find((button) => button.textContent?.trim() === 'Add a harness…'),
-      'Settings add-harness action missing'
-    );
-    settingsAdd.click();
-    const settingsDialog = await waitFor(
-      pendingDialog,
-      'Settings add-harness entry did not paint while the real provider probe was pending'
-    );
-    await closeAddDialog(settingsDialog);
-
-    const closeSettings = [...document.querySelectorAll('.settings-dialog button')]
-      .find((button) => button.textContent?.trim() === 'Close settings');
-    if (!(closeSettings instanceof HTMLButtonElement)) {
-      throw new Error('Close-settings action missing after harness probe');
-    }
-    closeSettings.click();
-    await waitFor(
-      () => !document.querySelector('.settings-dialog'),
-      'Workbench did not remain interactive after harness probes'
-    );
-    return 'both add-harness entries painted and closed while Claude probe was pending';
-  })()
-`
