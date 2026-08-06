@@ -48,7 +48,6 @@ export function App(): ReactElement {
   const resetGitGraphRef = useRef<() => void>(() => undefined)
   const deactivateGitGraphRef = useRef<() => void>(() => undefined)
   const deactivateWebPaneRef = useRef<() => void>(() => undefined)
-  const reviewWatch = useRef(review.createDocumentReviewWatchBridge()).current
   const [gitChanges, setGitChanges] = useState<GitChanges>()
   const overlays = useWorkbenchOverlays()
   const terminalAttention = useTerminalAttention()
@@ -90,6 +89,7 @@ export function App(): ReactElement {
     moveTab: moveTabToPane,
     reorderTabs: reorderViewerTabs,
   } = viewer
+  const reviewWatch = review.useWatchFanout(handleWatchEvent)
   const web = useWebPaneWorkspace({
     onActivate: () => {
       focusViewerPane('primary')
@@ -133,7 +133,7 @@ export function App(): ReactElement {
     composerSubmitMode: settings.composerSubmitMode,
     onProjectState: applyProjectViewState,
     onReloadFiles: reloadCleanFiles,
-    onWatchEvent: reviewWatch.combine(handleWatchEvent),
+    onWatchEvent: reviewWatch.handle,
     isIgnoreRulePath: isGitIgnoreRulePath,
   })
   const {
@@ -147,7 +147,7 @@ export function App(): ReactElement {
     refreshHosts,
   } = session
   const documentReview = review.useDocumentReviewWorkspace(activeWorkspace)
-  reviewWatch.connect(documentReview.handleWatchEvent)
+  review.useWatchTarget(reviewWatch, documentReview.handleWatchEvent)
   const { watch: watchVersion, ignored: ignoredRefreshVersion } = session.versions
   const { content: contentVersion, git: gitVersion } = session.versions
   useRendererReady(Boolean(root))

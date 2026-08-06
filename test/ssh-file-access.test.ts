@@ -635,7 +635,9 @@ describe('SshFileAccess', () => {
       {},
     )
 
-    await expect(files.readTextFilePrefix(path, 4)).resolves.toMatchObject({
+    await expect(
+      files.readTextFilePrefix(path, 4, { pollingInterest: true }),
+    ).resolves.toMatchObject({
       content: 'abcd',
       byteLength: 4,
       complete: false,
@@ -644,6 +646,9 @@ describe('SshFileAccess', () => {
       start: 0,
       end: 4,
     })
+    expect(files.pollingInterests()).toContain(path.path)
+    const digests = (files as unknown as { readDigests: Map<string, string> }).readDigests
+    expect(digests.has(path.path)).toBe(true)
     files.dispose()
   })
 

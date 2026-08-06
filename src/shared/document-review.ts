@@ -96,7 +96,7 @@ export interface DocumentReviewModel {
 }
 
 export interface DocumentReviewStoreNotice {
-  readonly kind: 'corrupt' | 'future-version'
+  readonly kind: 'corrupt' | 'future-version' | 'read-failure'
   /** Basename only; review state and user-data paths remain private. */
   readonly recoveryFile?: string
   readonly writeBlocked: boolean
@@ -119,8 +119,7 @@ export interface DocumentReviewSaveRequest extends DocumentReviewRestoreRequest 
   readonly model: DocumentReviewModel
 }
 
-export interface DocumentReviewRevalidateRequest
-  extends DocumentReviewRestoreRequest {
+export interface DocumentReviewRevalidateRequest extends DocumentReviewRestoreRequest {
   readonly workspaceGeneration: number
   readonly document: HostPath
 }

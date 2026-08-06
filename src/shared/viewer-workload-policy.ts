@@ -1,6 +1,6 @@
 /** Each Git side is bounded before it crosses the utility-process/renderer seam. */
 export const DIFF_INPUT_BYTE_LIMIT = 2 * 1024 * 1024
-/** Largest bounded text read admitted by the main-owned ProjectHost seam. */
+/** ProjectHost hard ceiling, not a default; each caller supplies its narrower bound. */
 export const PROJECT_HOST_TEXT_PREFIX_BYTE_LIMIT = 8 * 1024 * 1024
 
 export interface TextWorkload {

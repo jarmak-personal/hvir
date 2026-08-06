@@ -19,10 +19,13 @@ import {
   parseReviewModel,
   parseStoredReviewFile,
   reviewWorkspaceKey,
-  sameReviewWorkspace,
   type StoredReviewFile,
   type StoredReviewWorkspace,
 } from './document-review-store-codec'
+import {
+  documentReviewWorkspaceEquals,
+  isDocumentReviewRecord,
+} from './document-review-policy'
 
 const MAX_STORED_FILE_BYTES = 8 * 1024 * 1024
 const DEFAULT_DISPOSE_TIMEOUT_MS = 2_000
@@ -38,12 +41,13 @@ export class DocumentReviewStore {
   private pendingWrite: Promise<void> = Promise.resolve()
   private readonly disposal = new AbortController()
   private disposeTask?: Promise<void>
+  private retryTask?: Promise<void>
 
   private constructor(
     private readonly host: ProjectHost,
     private readonly file: ReturnType<typeof hostPath>,
     workspaces: readonly StoredReviewWorkspace[],
-    private readonly loadNotice?: DocumentReviewStoreNotice,
+    private loadNotice?: DocumentReviewStoreNotice,
   ) {
     for (const workspace of workspaces) {
       this.workspaces.set(reviewWorkspaceKey(workspace.model.workspace), workspace)
@@ -61,7 +65,7 @@ export class DocumentReviewStore {
     } catch (reason) {
       if (isMissingFile(reason)) return new DocumentReviewStore(host, file, [])
       return new DocumentReviewStore(host, file, [], {
-        kind: 'corrupt',
+        kind: 'read-failure',
         writeBlocked: true,
       })
     }
@@ -72,7 +76,7 @@ export class DocumentReviewStore {
     } catch {
       return this.recover(host, file, 'corrupt')
     }
-    if (isRecord(value) && isFutureReviewVersion(value['version'])) {
+    if (isDocumentReviewRecord(value) && isFutureReviewVersion(value['version'])) {
       return this.recover(host, file, 'future-version')
     }
     const parsed = parseStoredReviewFile(value)
@@ -84,7 +88,7 @@ export class DocumentReviewStore {
   private static async recover(
     host: ProjectHost,
     file: ReturnType<typeof hostPath>,
-    kind: DocumentReviewStoreNotice['kind'],
+    kind: 'corrupt' | 'future-version',
   ): Promise<DocumentReviewStore> {
     const recoveryFile = recoveryFileName(file)
     const destination = joinHostPath(dirnameHostPath(file), recoveryFile)
@@ -106,10 +110,18 @@ export class DocumentReviewStore {
     return this.loadNotice
   }
 
+  retryLoad(): Promise<void> {
+    if (this.loadNotice?.kind !== 'read-failure') return Promise.resolve()
+    this.retryTask ??= this.replaceFromRetry().finally(() => {
+      this.retryTask = undefined
+    })
+    return this.retryTask
+  }
+
   read(workspace: ReviewWorkspaceIdentity): StoredDocumentReviewWorkspace {
     assertReviewWorkspace(workspace)
     const stored = this.workspaces.get(reviewWorkspaceKey(workspace))
-    if (stored && !sameReviewWorkspace(stored.model.workspace, workspace)) {
+    if (stored && !documentReviewWorkspaceEquals(stored.model.workspace, workspace)) {
       throw new Error('Review workspace identity collides with another workspace')
     }
     return stored
@@ -125,25 +137,39 @@ export class DocumentReviewStore {
     const parsed = parseReviewModel(model)
     if (!parsed) throw new Error('Invalid bounded document-review model')
     const key = reviewWorkspaceKey(parsed.workspace)
-    const current = this.workspaces.get(key)
-    if (current && !sameReviewWorkspace(current.model.workspace, parsed.workspace)) {
-      throw new Error('Review workspace identity collides with another workspace')
-    }
-    const revision = current?.revision ?? 0
-    if (expectedRevision !== revision) {
-      throw new Error('Document review changed in another renderer generation')
-    }
-    if (!current && this.workspaces.size >= MAX_STORED_REVIEW_WORKSPACES) {
-      throw new Error('The stored document-review workspace limit was reached')
-    }
+    const operation = this.pendingWrite
+      .catch(() => undefined)
+      .then(async () => {
+        this.assertWritable()
+        const current = this.workspaces.get(key)
+        if (
+          current &&
+          !documentReviewWorkspaceEquals(current.model.workspace, parsed.workspace)
+        ) {
+          throw new Error('Review workspace identity collides with another workspace')
+        }
+        const revision = current?.revision ?? 0
+        if (expectedRevision !== revision) {
+          throw new Error('Document review changed in another renderer generation')
+        }
+        if (!current && this.workspaces.size >= MAX_STORED_REVIEW_WORKSPACES) {
+          throw new Error('The stored document-review workspace limit was reached')
+        }
 
-    const stored = { revision: revision + 1, model: cloneReviewModel(parsed) }
-    this.workspaces.set(key, stored)
-    const persisted = this.persist()
-    return persisted.then(() => ({
-      revision: stored.revision,
-      model: cloneReviewModel(stored.model),
-    }))
+        const stored = { revision: revision + 1, model: cloneReviewModel(parsed) }
+        const serialized = this.serializeCandidate(key, stored)
+        this.disposal.signal.throwIfAborted()
+        await this.host.writeFile(this.file, serialized, {
+          signal: this.disposal.signal,
+        })
+        this.workspaces.set(key, stored)
+        return {
+          revision: stored.revision,
+          model: cloneReviewModel(stored.model),
+        }
+      })
+    this.pendingWrite = operation.then(() => undefined)
+    return operation
   }
 
   flush(): Promise<void> {
@@ -178,10 +204,12 @@ export class DocumentReviewStore {
     }
   }
 
-  private persist(): Promise<void> {
+  private serializeCandidate(key: string, candidate: StoredReviewWorkspace): string {
+    const workspaces = new Map(this.workspaces)
+    workspaces.set(key, candidate)
     const snapshot: StoredReviewFile = {
       version: DOCUMENT_REVIEW_FILE_VERSION,
-      workspaces: [...this.workspaces.values()].map((workspace) => ({
+      workspaces: [...workspaces.values()].map((workspace) => ({
         revision: workspace.revision,
         model: cloneReviewModel(workspace.model),
       })),
@@ -190,25 +218,22 @@ export class DocumentReviewStore {
     if (Buffer.byteLength(serialized, 'utf8') > MAX_STORED_FILE_BYTES) {
       throw new Error('The document-review store exceeds its bounded envelope')
     }
-    const write = this.pendingWrite
-      .catch(() => undefined)
-      .then(() => {
-        this.disposal.signal.throwIfAborted()
-        return this.host.writeFile(this.file, serialized, {
-          signal: this.disposal.signal,
-        })
-      })
-    this.pendingWrite = write
-    return write
+    return serialized
+  }
+
+  private async replaceFromRetry(): Promise<void> {
+    const retried = await DocumentReviewStore.load(this.host, this.file)
+    if (retried.loadNotice?.kind === 'read-failure') return
+    this.workspaces.clear()
+    for (const [key, workspace] of retried.workspaces) {
+      this.workspaces.set(key, workspace)
+    }
+    this.loadNotice = retried.loadNotice
   }
 }
 
 function recoveryFileName(file: ReturnType<typeof hostPath>): string {
   return `${basenameHostPath(file)}.recovery-${Date.now()}-${randomUUID()}`
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 function isMissingFile(value: unknown): boolean {

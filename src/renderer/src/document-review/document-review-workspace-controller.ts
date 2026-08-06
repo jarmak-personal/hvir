@@ -52,7 +52,10 @@ export class DocumentReviewWorkspaceController {
     revision: 0,
   }
   private saveTail: Promise<void> = Promise.resolve()
+  private readonly saveQueue: Array<() => Promise<void>> = []
+  private readonly saveRevisions = new Map<number, number>()
   private readonly readGenerations = new Map<string, number>()
+  private closing = false
   private disposed = false
 
   constructor(
@@ -65,7 +68,9 @@ export class DocumentReviewWorkspaceController {
   }
 
   activate(workspace: ReviewWorkspaceIdentity): void {
-    if (this.disposed) return
+    if (this.disposed || this.closing) return
+    const previousGeneration = this.state.localGeneration
+    const pendingSaves = this.saveTail
     const localGeneration = this.state.localGeneration + 1
     this.readGenerations.clear()
     const empty = createDocumentReviewModel(workspace)
@@ -86,25 +91,39 @@ export class DocumentReviewWorkspaceController {
       revision: 0,
       model: empty.value,
     })
-    void this.port.restore(workspace).then(
-      (restored) => {
-        if (!this.isLocalGeneration(localGeneration, workspace)) return
-        if (!reviewWorkspaceEquals(restored.model.workspace, workspace)) {
-          this.failRestore(localGeneration, workspace, 'Restored review state mismatched')
-          return
-        }
-        this.setState({
-          status: 'ready',
-          localGeneration,
-          workspace,
-          workspaceGeneration: restored.workspaceGeneration,
-          revision: restored.revision,
-          model: restored.model,
-          notice: restored.notice,
-        })
-      },
-      (reason: unknown) =>
-        this.failRestore(localGeneration, workspace, errorMessage(reason)),
+    void pendingSaves
+      .then(
+        () => this.port.restore(workspace),
+        () => this.port.restore(workspace),
+      )
+      .then(
+        (restored) => {
+          if (!this.isLocalGeneration(localGeneration, workspace)) return
+          if (!reviewWorkspaceEquals(restored.model.workspace, workspace)) {
+            this.failRestore(
+              localGeneration,
+              workspace,
+              'Restored review state mismatched',
+            )
+            return
+          }
+          this.saveRevisions.set(localGeneration, restored.revision)
+          this.setState({
+            status: 'ready',
+            localGeneration,
+            workspace,
+            workspaceGeneration: restored.workspaceGeneration,
+            revision: restored.revision,
+            model: restored.model,
+            notice: restored.notice,
+          })
+        },
+        (reason: unknown) =>
+          this.failRestore(localGeneration, workspace, errorMessage(reason)),
+      )
+    void pendingSaves.then(
+      () => this.saveRevisions.delete(previousGeneration),
+      () => this.saveRevisions.delete(previousGeneration),
     )
   }
 
@@ -155,38 +174,24 @@ export class DocumentReviewWorkspaceController {
     this.revalidate(current, event.path)
   }
 
-  hostUnavailable(): void {
-    const current = this.readyState()
-    if (!current) return
-    let model = current.model
-    for (const document of documentReviewPaths(model)) {
-      const result = applyDocumentReviewAction(model, {
-        type: 'mark-document-stale',
-        workspace: current.workspace,
-        document,
-        reason: 'host-unavailable',
-      })
-      if (result.ok) model = result.model
-    }
-    if (model !== current.model) {
-      this.setState({ ...current, model })
-      this.queueSave(current, model)
-    }
-  }
-
   flush(): Promise<void> {
     return this.saveTail
   }
 
   dispose(): void {
-    if (this.disposed) return
-    this.disposed = true
+    if (this.disposed || this.closing) return
+    this.closing = true
     this.readGenerations.clear()
-    this.state = {
-      status: 'idle',
-      localGeneration: this.state.localGeneration + 1,
-      revision: 0,
+    const finish = (): void => {
+      this.disposed = true
+      this.saveRevisions.clear()
+      this.state = {
+        status: 'idle',
+        localGeneration: this.state.localGeneration + 1,
+        revision: 0,
+      }
     }
+    void this.saveTail.then(finish, finish)
   }
 
   private revalidate(
@@ -241,21 +246,16 @@ export class DocumentReviewWorkspaceController {
     const localGeneration = source.localGeneration
     const workspace = source.workspace
     const save = async (): Promise<void> => {
-      const current = this.readyState()
-      if (
-        !current ||
-        current.localGeneration !== localGeneration ||
-        !reviewWorkspaceEquals(current.workspace, workspace)
-      ) {
-        return
-      }
       try {
+        const expectedRevision =
+          this.saveRevisions.get(localGeneration) ?? source.revision
         const stored = await this.port.save({
           workspace,
-          workspaceGeneration: current.workspaceGeneration,
-          expectedRevision: current.revision,
+          workspaceGeneration: source.workspaceGeneration,
+          expectedRevision,
           model,
         })
+        this.saveRevisions.set(localGeneration, stored.revision)
         const latest = this.readyState()
         if (
           !latest ||
@@ -272,12 +272,23 @@ export class DocumentReviewWorkspaceController {
         })
       } catch (reason) {
         const latest = this.readyState()
-        if (latest?.localGeneration === localGeneration) {
+        if (latest?.localGeneration === localGeneration && !this.closing) {
           this.setState({ ...latest, error: errorMessage(reason) })
         }
       }
     }
-    this.saveTail = this.saveTail.then(save, save)
+    this.saveQueue.push(save)
+    if (this.saveQueue.length === 1) this.saveTail = this.drainSaveQueue()
+  }
+
+  private async drainSaveQueue(): Promise<void> {
+    while (this.saveQueue[0]) {
+      try {
+        await this.saveQueue[0]()
+      } finally {
+        this.saveQueue.shift()
+      }
+    }
   }
 
   private isReadCurrent(
@@ -295,7 +306,9 @@ export class DocumentReviewWorkspaceController {
   }
 
   private readyState(): ReadyDocumentReviewWorkspaceState | undefined {
-    return this.state.status === 'ready' &&
+    return !this.closing &&
+      !this.disposed &&
+      this.state.status === 'ready' &&
       this.state.workspace &&
       this.state.workspaceGeneration !== undefined &&
       this.state.model
@@ -309,6 +322,7 @@ export class DocumentReviewWorkspaceController {
   ): boolean {
     return (
       !this.disposed &&
+      !this.closing &&
       this.state.localGeneration === generation &&
       Boolean(
         this.state.workspace && reviewWorkspaceEquals(this.state.workspace, workspace),

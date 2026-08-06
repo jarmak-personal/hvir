@@ -2,8 +2,6 @@ import { createHash } from 'node:crypto'
 
 import {
   DOCUMENT_REVIEW_LIMITS,
-  containsHostPath,
-  hostPathEquals,
   type DocumentReviewRevalidateRequest,
   type DocumentReviewRevalidation,
   type DocumentReviewSaveRequest,
@@ -18,6 +16,10 @@ import type {
   RendererResourceScopes,
 } from '../renderer-resource-scopes'
 import type { DocumentReviewStore } from './document-review-store'
+import {
+  documentReviewWorkspaceEquals,
+  isDocumentReviewDocument,
+} from './document-review-policy'
 
 interface ActiveReviewWorkspace {
   readonly owner: RendererOwner
@@ -29,7 +31,7 @@ interface ActiveReviewWorkspace {
 }
 
 export interface DocumentReviewCoordinatorOptions {
-  readonly store: Pick<DocumentReviewStore, 'notice' | 'read' | 'save'>
+  readonly store: Pick<DocumentReviewStore, 'notice' | 'read' | 'retryLoad' | 'save'>
   readonly resources: RendererResourceScopes
 }
 
@@ -72,6 +74,8 @@ export class DocumentReviewCoordinator {
         },
         () => this.revokeSession(session),
       )
+      await this.options.store.retryLoad()
+      this.assertCurrent(session)
       const stored = this.options.store.read(workspace)
       return {
         workspaceGeneration: session.generation,
@@ -87,6 +91,9 @@ export class DocumentReviewCoordinator {
     request: DocumentReviewSaveRequest,
   ): Promise<DocumentReviewWorkspaceSnapshot> {
     const session = this.requireSession(owner, request)
+    if (!documentReviewWorkspaceEquals(session.workspace, request.model.workspace)) {
+      throw new Error('Document review model belongs to another workspace identity')
+    }
     const stored = await this.options.store.save(request.expectedRevision, request.model)
     this.assertCurrent(session)
     return {
@@ -103,7 +110,10 @@ export class DocumentReviewCoordinator {
     canonicalDocument: HostPath,
   ): Promise<DocumentReviewRevalidation> {
     const session = this.requireSession(owner, request)
-    if (!validDocument(session.workspace, request.document, canonicalDocument)) {
+    if (
+      !isDocumentReviewDocument(session.workspace, request.document) ||
+      !isDocumentReviewDocument(session.workspace, canonicalDocument)
+    ) {
       throw new Error('Document review read escapes its exact workspace')
     }
     if (session.host.connectionState !== 'connected') {
@@ -164,7 +174,7 @@ export class DocumentReviewCoordinator {
     if (
       !session ||
       session.generation !== request.workspaceGeneration ||
-      !sameWorkspace(session.workspace, request.workspace)
+      !documentReviewWorkspaceEquals(session.workspace, request.workspace)
     ) {
       throw new Error('Document review renderer or workspace generation is stale')
     }
@@ -199,28 +209,6 @@ export class DocumentReviewCoordinator {
     )
     return result
   }
-}
-
-function validDocument(
-  workspace: ReviewWorkspaceIdentity,
-  requested: HostPath,
-  canonical: HostPath,
-): boolean {
-  return (
-    requested.hostId === workspace.root.hostId &&
-    canonical.hostId === workspace.root.hostId &&
-    containsHostPath(workspace.root, requested) &&
-    containsHostPath(workspace.root, canonical) &&
-    !hostPathEquals(workspace.root, requested) &&
-    /\.(?:md|markdown)$/i.test(requested.path)
-  )
-}
-
-function sameWorkspace(
-  left: ReviewWorkspaceIdentity,
-  right: ReviewWorkspaceIdentity,
-): boolean {
-  return left.id === right.id && hostPathEquals(left.root, right.root)
 }
 
 function ownerKey(owner: RendererOwner): string {

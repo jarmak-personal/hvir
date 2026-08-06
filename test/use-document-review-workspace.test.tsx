@@ -6,12 +6,17 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest'
 
-import { useDocumentReviewWorkspace } from '../src/renderer/src/document-review/use-document-review-workspace'
+import {
+  useDocumentReviewWorkspace,
+  useWatchFanout,
+  useWatchTarget,
+} from '../src/renderer/src/document-review/use-document-review-workspace'
 import {
   localPath,
   type DocumentReviewModel,
   type DocumentReviewWorkspaceSnapshot,
   type ReviewWorkspaceIdentity,
+  type WatchEvent,
 } from '../src/shared'
 
 const workspaceA: ReviewWorkspaceIdentity = { id: 'a', root: localPath('/a') }
@@ -26,6 +31,7 @@ let invoke: Mock<
     request: { readonly workspace: ReviewWorkspaceIdentity },
   ) => Promise<unknown>
 >
+let watchHandler: (event: WatchEvent) => void
 
 beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true)
@@ -79,6 +85,26 @@ describe('useDocumentReviewWorkspace', () => {
     expect(current.state).toMatchObject({ status: 'ready', workspace: workspaceB })
     expect(current.watchPaths).toEqual([])
   })
+
+  it('fans out through one stable effect-owned watch callback', () => {
+    const viewerA = vi.fn()
+    const viewerB = vi.fn()
+    const reviewA = vi.fn()
+    const reviewB = vi.fn()
+    renderFanout(viewerA, reviewA)
+    const first = watchHandler
+    const event: WatchEvent = { type: 'change', path: documentA }
+    act(() => first(event))
+
+    renderFanout(viewerB, reviewB)
+    expect(watchHandler).toBe(first)
+    act(() => watchHandler(event))
+
+    expect(viewerA).toHaveBeenCalledOnce()
+    expect(reviewA).toHaveBeenCalledOnce()
+    expect(viewerB).toHaveBeenCalledOnce()
+    expect(reviewB).toHaveBeenCalledOnce()
+  })
 })
 
 function render(workspace?: ReviewWorkspaceIdentity): void {
@@ -87,6 +113,26 @@ function render(workspace?: ReviewWorkspaceIdentity): void {
 
 function Harness({ workspace }: { readonly workspace?: ReviewWorkspaceIdentity }): null {
   current = useDocumentReviewWorkspace(workspace)
+  return null
+}
+
+function renderFanout(
+  viewer: (event: WatchEvent) => void,
+  review: (event: WatchEvent) => void,
+): void {
+  act(() => reactRoot.render(<FanoutHarness viewer={viewer} review={review} />))
+}
+
+function FanoutHarness({
+  viewer,
+  review,
+}: {
+  readonly viewer: (event: WatchEvent) => void
+  readonly review: (event: WatchEvent) => void
+}): null {
+  const fanout = useWatchFanout(viewer)
+  useWatchTarget(fanout, review)
+  watchHandler = fanout.handle
   return null
 }
 

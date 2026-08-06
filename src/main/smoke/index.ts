@@ -17,7 +17,6 @@ import { PtySupervisor } from '../pty/pty-supervisor'
 import type { WebPaneRouteRegistry } from '../web-pane/web-pane-route-registry'
 import { createWorkerClient, workerPath } from '../worker-host'
 import { createWorkspaceCleanup } from '../workspace-cleanup'
-import { applicationUserDataPath } from '../application-runtime'
 import { SmokeCleanup } from './cleanup'
 import {
   reportSmokeFailureEvidence,
@@ -386,6 +385,10 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
   const largeJsonPath = joinHostPath(smokeRoot, '.hvir-smoke-large.json')
   const largeTextPath = joinHostPath(smokeRoot, '.hvir-smoke-large.txt')
   const harnessProfilesPath = joinHostPath(smokeRoot, '.hvir-smoke-harness-profiles.json')
+  const documentReviewPath = joinHostPath(
+    smokeRoot,
+    '.hvir-smoke-document-review-drafts.json',
+  )
   let scenarioFailed = false
   let failurePhase: SmokeFailurePhase = 'resources-created'
   let failureCheckpoint: SmokeFailureCheckpoint | null = null
@@ -484,9 +487,13 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
     const smokeTerminalSessionHarness = createSmokeTerminalSessionStore(smokeRoot)
     const smokeTerminalSessions = smokeTerminalSessionHarness.store
     const smokeHarnessProfiles = await HarnessProfileStore.load(host, harnessProfilesPath)
+    await host.removeFile(documentReviewPath, { ignoreMissing: true })
+    cleanup.defer('document review draft', () =>
+      host.removeFile(documentReviewPath, { ignoreMissing: true }),
+    )
     const documentReview = await createDocumentReviewRuntime(
       host,
-      localPath(applicationUserDataPath('document-review-drafts.json')),
+      documentReviewPath,
       rendererResources,
     )
     cleanup.defer('document review', () => documentReview.dispose())

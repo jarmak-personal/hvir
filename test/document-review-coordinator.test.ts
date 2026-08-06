@@ -37,6 +37,7 @@ describe('document review coordinator', () => {
         fixture.workspace,
         fixture.host,
       )
+      expect(fixture.store.retryLoad).toHaveBeenCalledOnce()
       const document = hostPath(id, `${root.path}/review.md`)
 
       await expect(
@@ -141,6 +142,34 @@ describe('document review coordinator', () => {
     ).rejects.toThrow(/generation is stale/)
   })
 
+  it.each([
+    ['worktree', { id: 'other', root: localPath('/repo') }],
+    [
+      'host',
+      {
+        id: 'project:worktree',
+        root: hostPath(asHostId('ssh:other'), '/repo'),
+      },
+    ],
+  ])('rejects a model injected from another %s', async (_kind, modelWorkspace) => {
+    const fixture = createFixture(asHostId('local'), localPath('/repo'), vi.fn())
+    const restored = await fixture.coordinator.activate(
+      fixture.owner,
+      fixture.workspace,
+      fixture.host,
+    )
+
+    await expect(
+      fixture.coordinator.save(fixture.owner, {
+        workspace: fixture.workspace,
+        workspaceGeneration: restored.workspaceGeneration,
+        expectedRevision: 0,
+        model: emptyModel(modelWorkspace),
+      }),
+    ).rejects.toThrow(/model belongs to another workspace identity/)
+    expect(fixture.store.save).not.toHaveBeenCalled()
+  })
+
   it('aborts in-flight reads and rejects late writes on workspace revocation', async () => {
     const readStarted = deferred<void>()
     const readTextFilePrefix = vi.fn(
@@ -212,6 +241,7 @@ function createFixture(
   const store = {
     notice: vi.fn(() => undefined),
     read: vi.fn(() => ({ revision: 0, model })),
+    retryLoad: vi.fn(() => Promise.resolve()),
     save: vi.fn((_revision: number, candidate: DocumentReviewModel) =>
       Promise.resolve({ revision: 1, model: candidate }),
     ),

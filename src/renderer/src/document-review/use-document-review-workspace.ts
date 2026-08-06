@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type MutableRefObject,
+} from 'react'
 
 import {
   unwrapOperation,
@@ -62,25 +69,39 @@ export function useDocumentReviewWorkspace(workspace?: ReviewWorkspaceIdentity) 
   return { state, apply, handleWatchEvent, watchPaths }
 }
 
+export interface DocumentReviewWatchFanout {
+  readonly handle: (event: WatchEvent) => void
+  readonly target: MutableRefObject<(event: WatchEvent) => void>
+}
+
+export function useWatchFanout(
+  viewer: (event: WatchEvent) => void,
+): DocumentReviewWatchFanout {
+  const viewerRef = useRef(viewer)
+  const target = useRef<(event: WatchEvent) => void>(() => undefined)
+  useEffect(() => {
+    viewerRef.current = viewer
+  }, [viewer])
+  const handle = useCallback((event: WatchEvent): void => {
+    viewerRef.current(event)
+    target.current(event)
+  }, [])
+  return useMemo(() => ({ handle, target }), [handle])
+}
+
+export function useWatchTarget(
+  fanout: DocumentReviewWatchFanout,
+  target: (event: WatchEvent) => void,
+): void {
+  useEffect(() => {
+    fanout.target.current = target
+    return () => {
+      fanout.target.current = () => undefined
+    }
+  }, [fanout, target])
+}
+
 function rendererApi(): HvirApi {
   return (globalThis as unknown as { readonly window: { readonly hvir: HvirApi } }).window
     .hvir
-}
-
-export function createDocumentReviewWatchBridge() {
-  let viewer: (event: WatchEvent) => void = () => undefined
-  let review: (event: WatchEvent) => void = () => undefined
-  const combined = (event: WatchEvent): void => {
-    viewer(event)
-    review(event)
-  }
-  return {
-    combine: (handle: (event: WatchEvent) => void) => {
-      viewer = handle
-      return combined
-    },
-    connect: (handle: (event: WatchEvent) => void): void => {
-      review = handle
-    },
-  }
 }

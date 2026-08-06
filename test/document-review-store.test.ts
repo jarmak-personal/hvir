@@ -110,6 +110,31 @@ describe('document review store', () => {
     expect(await host.readTextFile(file)).toBe('{broken')
   })
 
+  it('reports a transient read failure without quarantining and retries safely', async () => {
+    const localWorkspace = workspace('project:main', localPath('/repo'))
+    await store.save(0, model(localWorkspace, localPath('/repo/readme.md'), 'saved'))
+    await store.dispose()
+    const read = host.readTextFilePrefix.bind(host)
+    vi.spyOn(host, 'readTextFilePrefix')
+      .mockRejectedValueOnce(
+        Object.assign(new Error('access denied'), { code: 'EACCES' }),
+      )
+      .mockImplementation(read)
+    const rename = vi.spyOn(host.fileTransfer, 'renameNoReplace')
+
+    store = await DocumentReviewStore.load(host, file)
+    expect(store.notice()).toEqual({ kind: 'read-failure', writeBlocked: true })
+    expect(rename).not.toHaveBeenCalled()
+    await store.retryLoad()
+
+    expect(store.notice()).toBeUndefined()
+    expect(store.read(localWorkspace)).toMatchObject({
+      revision: 1,
+      model: { comments: [{ body: 'saved' }] },
+    })
+    expect(rename).not.toHaveBeenCalled()
+  })
+
   it('orders writes and retains the last valid candidate after a failed write', async () => {
     const localWorkspace = workspace('project:main', localPath('/repo'))
     const first = model(localWorkspace, localPath('/repo/one.md'), 'one')
@@ -139,12 +164,22 @@ describe('document review store', () => {
     expect(writes[1]).toContain('two')
 
     vi.restoreAllMocks()
-    vi.spyOn(host, 'writeFile').mockRejectedValueOnce(new Error('disk full'))
+    const failedWrite = vi
+      .spyOn(host, 'writeFile')
+      .mockRejectedValueOnce(new Error('disk full'))
     const failed = model(localWorkspace, localPath('/repo/failed.md'), 'still here')
     await expect(store.save(2, failed)).rejects.toThrow(/disk full/)
     expect(store.read(localWorkspace)).toMatchObject({
+      revision: 2,
+      model: { comments: [{ body: 'two' }] },
+    })
+    failedWrite.mockRestore()
+
+    const recovered = model(localWorkspace, localPath('/repo/recovered.md'), 'recovered')
+    await expect(store.save(2, recovered)).resolves.toMatchObject({ revision: 3 })
+    expect(store.read(localWorkspace)).toMatchObject({
       revision: 3,
-      model: { comments: [{ body: 'still here' }] },
+      model: { comments: [{ body: 'recovered' }] },
     })
   })
 

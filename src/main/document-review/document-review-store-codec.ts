@@ -1,9 +1,7 @@
 import {
   DOCUMENT_REVIEW_LIMITS,
   asHostId,
-  containsHostPath,
   hostPath,
-  hostPathEquals,
   type DocumentReviewAnchor,
   type DocumentReviewBatch,
   type DocumentReviewComment,
@@ -14,6 +12,11 @@ import {
   type ReviewSourceRange,
   type ReviewWorkspaceIdentity,
 } from '../../shared'
+import {
+  documentReviewWorkspaceEquals,
+  isDocumentReviewDocument,
+  isDocumentReviewRecord,
+} from './document-review-policy'
 
 export const DOCUMENT_REVIEW_FILE_VERSION = 1
 export const MAX_STORED_REVIEW_WORKSPACES = 64
@@ -30,7 +33,7 @@ export interface StoredReviewFile {
 
 export function parseStoredReviewFile(value: unknown): StoredReviewFile | undefined {
   if (
-    !isRecord(value) ||
+    !isDocumentReviewRecord(value) ||
     value['version'] !== DOCUMENT_REVIEW_FILE_VERSION ||
     !Array.isArray(value['workspaces']) ||
     value['workspaces'].length > MAX_STORED_REVIEW_WORKSPACES
@@ -41,7 +44,7 @@ export function parseStoredReviewFile(value: unknown): StoredReviewFile | undefi
   const keys = new Set<string>()
   for (const raw of value['workspaces']) {
     if (
-      !isRecord(raw) ||
+      !isDocumentReviewRecord(raw) ||
       !Number.isSafeInteger(raw['revision']) ||
       (raw['revision'] as number) < 1
     ) {
@@ -58,7 +61,7 @@ export function parseStoredReviewFile(value: unknown): StoredReviewFile | undefi
 }
 
 export function parseReviewModel(value: unknown): DocumentReviewModel | undefined {
-  if (!isRecord(value)) return undefined
+  if (!isDocumentReviewRecord(value)) return undefined
   const workspace = parseWorkspace(value['workspace'])
   const rawComments = value['comments']
   const rawBatches = value['batches']
@@ -100,7 +103,7 @@ function parseComment(
   value: unknown,
   workspace: ReviewWorkspaceIdentity,
 ): DocumentReviewComment | undefined {
-  if (!isRecord(value)) return undefined
+  if (!isDocumentReviewRecord(value)) return undefined
   const storedWorkspace = parseWorkspace(value['workspace'])
   const document = parsePath(value['document'])
   const anchor = parseAnchor(value['anchor'])
@@ -109,9 +112,9 @@ function parseComment(
   const lifecycle = value['lifecycle']
   if (
     !storedWorkspace ||
-    !sameReviewWorkspace(storedWorkspace, workspace) ||
+    !documentReviewWorkspaceEquals(storedWorkspace, workspace) ||
     !document ||
-    !validDocument(workspace, document) ||
+    !isDocumentReviewDocument(workspace, document) ||
     !validId(id, DOCUMENT_REVIEW_LIMITS.idBytes) ||
     typeof body !== 'string' ||
     body.trim().length === 0 ||
@@ -129,13 +132,13 @@ function parseBatch(
   workspace: ReviewWorkspaceIdentity,
   commentIds: ReadonlySet<string>,
 ): DocumentReviewBatch | undefined {
-  if (!isRecord(value)) return undefined
+  if (!isDocumentReviewRecord(value)) return undefined
   const storedWorkspace = parseWorkspace(value['workspace'])
   const id = value['id']
   const members = value['commentIds']
   if (
     !storedWorkspace ||
-    !sameReviewWorkspace(storedWorkspace, workspace) ||
+    !documentReviewWorkspaceEquals(storedWorkspace, workspace) ||
     !validId(id, DOCUMENT_REVIEW_LIMITS.idBytes) ||
     !Array.isArray(members) ||
     members.length === 0 ||
@@ -149,7 +152,7 @@ function parseBatch(
 }
 
 function parseAnchor(value: unknown): DocumentReviewAnchor | undefined {
-  if (!isRecord(value)) return undefined
+  if (!isDocumentReviewRecord(value)) return undefined
   const snapshot = parseSnapshot(value['snapshot'])
   const range = parseRange(value['range'])
   const excerpt = value['excerpt']
@@ -174,7 +177,7 @@ function parseAnchor(value: unknown): DocumentReviewAnchor | undefined {
 }
 
 function parseAnchorState(value: unknown): ReviewAnchorState | undefined {
-  if (!isRecord(value)) return undefined
+  if (!isDocumentReviewRecord(value)) return undefined
   if (value['status'] === 'current') return { status: 'current' }
   if (value['status'] === 'moved') {
     const previous = parseLocation(value['previous'])
@@ -191,14 +194,14 @@ function parseAnchorState(value: unknown): ReviewAnchorState | undefined {
 }
 
 function parseLocation(value: unknown): ReviewAnchorLocation | undefined {
-  if (!isRecord(value)) return undefined
+  if (!isDocumentReviewRecord(value)) return undefined
   const snapshot = parseSnapshot(value['snapshot'])
   const range = parseRange(value['range'])
   return snapshot && range ? { snapshot, range } : undefined
 }
 
 function parseSnapshot(value: unknown): ReviewDocumentSnapshot | undefined {
-  return isRecord(value) &&
+  return isDocumentReviewRecord(value) &&
     value['algorithm'] === 'sha256' &&
     typeof value['digest'] === 'string' &&
     /^[a-f0-9]{64}$/.test(value['digest']) &&
@@ -213,7 +216,7 @@ function parseSnapshot(value: unknown): ReviewDocumentSnapshot | undefined {
 }
 
 function parseRange(value: unknown): ReviewSourceRange | undefined {
-  if (!isRecord(value)) return undefined
+  if (!isDocumentReviewRecord(value)) return undefined
   const startLine = value['startLine']
   const endLine = value['endLine']
   return Number.isSafeInteger(startLine) &&
@@ -228,7 +231,7 @@ function parseRange(value: unknown): ReviewSourceRange | undefined {
 
 function parseWorkspace(value: unknown): ReviewWorkspaceIdentity | undefined {
   if (
-    !isRecord(value) ||
+    !isDocumentReviewRecord(value) ||
     !validId(value['id'], DOCUMENT_REVIEW_LIMITS.workspaceIdBytes)
   ) {
     return undefined
@@ -239,7 +242,7 @@ function parseWorkspace(value: unknown): ReviewWorkspaceIdentity | undefined {
 
 function parsePath(value: unknown): ReturnType<typeof hostPath> | undefined {
   if (
-    !isRecord(value) ||
+    !isDocumentReviewRecord(value) ||
     typeof value['hostId'] !== 'string' ||
     value['hostId'].length === 0 ||
     typeof value['path'] !== 'string' ||
@@ -253,18 +256,6 @@ function parsePath(value: unknown): ReturnType<typeof hostPath> | undefined {
 
 export function assertReviewWorkspace(workspace: ReviewWorkspaceIdentity): void {
   if (!parseWorkspace(workspace)) throw new Error('Invalid document-review workspace')
-}
-
-function validDocument(
-  workspace: ReviewWorkspaceIdentity,
-  document: ReturnType<typeof hostPath>,
-): boolean {
-  return (
-    document.hostId === workspace.root.hostId &&
-    containsHostPath(workspace.root, document) &&
-    !hostPathEquals(workspace.root, document) &&
-    /\.(?:md|markdown)$/i.test(document.path)
-  )
 }
 
 function validId(value: unknown, limit: number): value is string {
@@ -293,13 +284,6 @@ function staleReason(
   )
 }
 
-export function sameReviewWorkspace(
-  left: ReviewWorkspaceIdentity,
-  right: ReviewWorkspaceIdentity,
-): boolean {
-  return left.id === right.id && hostPathEquals(left.root, right.root)
-}
-
 export function reviewWorkspaceKey(workspace: ReviewWorkspaceIdentity): string {
   return `${workspace.id}\0${workspace.root.hostId}\0${workspace.root.path}`
 }
@@ -314,8 +298,4 @@ export function isFutureReviewVersion(value: unknown): boolean {
 
 function utf8Bytes(value: string): number {
   return Buffer.byteLength(value, 'utf8')
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }

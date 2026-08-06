@@ -124,7 +124,17 @@ export class SshFileAccess {
   ): Promise<TextWorkload> {
     this.assertPath(path)
     opts.signal?.throwIfAborted()
-    return readSshTextPrefix(await this.getSftp(), path.path, maxBytes, opts.signal)
+    if (opts.pollingInterest) this.pollingFiles.add(path.path)
+    const value = await readSshTextPrefix(
+      await this.getSftp(),
+      path.path,
+      maxBytes,
+      opts.signal,
+    )
+    if (opts.pollingInterest) {
+      this.readDigests.set(path.path, contentDigest(Buffer.from(value.content, 'utf8')))
+    }
+    return value
   }
 
   async writeFile(

@@ -12,7 +12,6 @@ import type {
   DocumentReviewAction,
   DocumentReviewModel,
 } from '../src/renderer/src/document-review/document-review-types'
-import { createDocumentReviewWatchBridge } from '../src/renderer/src/document-review/use-document-review-workspace'
 import {
   localPath,
   type DocumentReviewRevalidation,
@@ -80,6 +79,50 @@ describe('document review workspace controller', () => {
     expect(fixture.controller.snapshot()).toMatchObject({ revision: 2, error: undefined })
   })
 
+  it('flushes the old save tail before restoring a switched workspace', async () => {
+    const saving = deferred<DocumentReviewWorkspaceSnapshot>()
+    const restore = vi.fn((workspace: ReviewWorkspaceIdentity) =>
+      Promise.resolve(stored(workspace, 0, emptyModel(workspace))),
+    )
+    const fixture = createFixture({ restore, save: vi.fn(() => saving.promise) })
+    fixture.controller.activate(workspaceA)
+    await settle()
+    fixture.controller.apply(add('switch-save', 'Save before switching'))
+    await settle()
+
+    fixture.controller.activate(workspaceB)
+    expect(fixture.controller.snapshot()).toMatchObject({
+      status: 'loading',
+      workspace: workspaceB,
+    })
+    expect(restore).toHaveBeenCalledTimes(1)
+
+    saving.resolve(stored(workspaceA, 1, modelWithComment(workspaceA, documentA)))
+    await fixture.controller.flush()
+    await settle()
+    expect(restore).toHaveBeenCalledTimes(2)
+    expect(fixture.controller.snapshot()).toMatchObject({
+      status: 'ready',
+      workspace: workspaceB,
+    })
+  })
+
+  it('finishes an in-flight save before disposal invalidates its generation', async () => {
+    const saving = deferred<DocumentReviewWorkspaceSnapshot>()
+    const save = vi.fn<DocumentReviewWorkspacePort['save']>(() => saving.promise)
+    const fixture = createFixture({ save })
+    fixture.controller.activate(workspaceA)
+    await settle()
+    fixture.controller.apply(add('unmount-save', 'Save before unmount'))
+    fixture.controller.dispose()
+    expect(save).toHaveBeenCalledOnce()
+
+    saving.resolve(stored(workspaceA, 1, save.mock.calls[0]![0].model))
+    await fixture.controller.flush()
+    await settle()
+    expect(fixture.controller.snapshot()).toMatchObject({ status: 'idle' })
+  })
+
   it('revokes late revalidation and marks unlink without rereading', async () => {
     const revalidation = deferred<DocumentReviewRevalidation>()
     const revalidate = vi.fn(() => revalidation.promise)
@@ -120,26 +163,6 @@ describe('document review workspace controller', () => {
       reviewed: false,
     })
     expect(revalidate).toHaveBeenCalledOnce()
-  })
-
-  it('keeps one stable bridge and replaces rather than accumulates handlers', () => {
-    const bridge = createDocumentReviewWatchBridge()
-    const viewerA = vi.fn()
-    const viewerB = vi.fn()
-    const reviewA = vi.fn()
-    const reviewB = vi.fn()
-    const combined = bridge.combine(viewerA)
-    expect(bridge.combine(viewerB)).toBe(combined)
-    bridge.connect(reviewA)
-
-    combined({ type: 'change', path: documentA })
-    bridge.connect(reviewB)
-    combined({ type: 'change', path: documentA })
-
-    expect(viewerA).not.toHaveBeenCalled()
-    expect(viewerB).toHaveBeenCalledTimes(2)
-    expect(reviewA).toHaveBeenCalledOnce()
-    expect(reviewB).toHaveBeenCalledOnce()
   })
 })
 
@@ -237,6 +260,5 @@ function deferred<T>() {
 }
 
 async function settle(): Promise<void> {
-  await Promise.resolve()
-  await Promise.resolve()
+  for (let turn = 0; turn < 6; turn += 1) await Promise.resolve()
 }
