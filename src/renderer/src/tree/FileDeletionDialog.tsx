@@ -37,34 +37,19 @@ export function FileDeletionDialog({
           <h2 id="file-deletion-title">
             {permanent ? 'Delete Permanently' : 'Move to Trash'}
           </h2>
-          <dl>
-            <div>
-              <dt>Workspace</dt>
-              <dd>
-                <code>{displayHostPath(dialog.workspaceRoot)}</code>
-              </dd>
-            </div>
-            <div>
-              <dt>Entry</dt>
-              <dd>
-                <code>{displayHostPath(dialog.source)}</code>
-              </dd>
-            </div>
-            <div>
-              <dt>Operation</dt>
-              <dd>
-                {permanent ? 'Permanent deletion' : 'Move to operating-system Trash'}
-              </dd>
-            </div>
-            <div>
-              <dt>Recovery</dt>
-              <dd>
-                {permanent
-                  ? `None. ${dialog.source.hostId} does not provide recoverable deletion.`
-                  : 'Available through the operating-system Trash.'}
-              </dd>
-            </div>
-          </dl>
+          <p>
+            {permanent ? (
+              <>
+                Permanently delete <code>{displayHostPath(dialog.source)}</code>? This
+                cannot be undone.
+              </>
+            ) : (
+              <>
+                Are you sure you want to move{' '}
+                <code>{displayHostPath(dialog.source)}</code> to Trash?
+              </>
+            )}
+          </p>
           {permanent ? (
             <label>
               Type <strong>{entryName}</strong> to confirm
@@ -75,9 +60,7 @@ export function FileDeletionDialog({
                 onChange={(event) => setConfirmation(event.currentTarget.value)}
               />
             </label>
-          ) : (
-            <p>This entry can usually be restored from your operating-system Trash.</p>
-          )}
+          ) : null}
           {controller.dialogError ? (
             <div className="file-create-error" role="alert">
               {controller.dialogError}
