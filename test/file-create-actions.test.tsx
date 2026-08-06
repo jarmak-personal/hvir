@@ -783,10 +783,13 @@ describe('Files rail create actions', () => {
     clickMenuItem('Move to Trash…')
 
     expectSharedFileDialog('.file-deletion-dialog')
-    expect(dialogText()).toContain('local:/repo')
-    expect(dialogText()).toContain('local:/repo/existing.md')
-    expect(dialogText()).toContain('Move to operating-system Trash')
-    expect(dialogText()).toContain('Available through the operating-system Trash')
+    expect(dialogText()).toContain(
+      'Are you sure you want to move local:/repo/existing.md to Trash?',
+    )
+    expect(document.querySelector('.file-deletion-dialog dl')).toBeNull()
+    expect(dialogText()).not.toContain('Workspace')
+    expect(dialogText()).not.toContain('Operation')
+    expect(dialogText()).not.toContain('Recovery')
     act(() =>
       document.querySelector<HTMLFormElement>('.file-deletion-dialog')!.requestSubmit(),
     )
@@ -897,8 +900,10 @@ describe('Files rail create actions', () => {
     expect(document.activeElement).toBe(destructive)
     act(() => destructive.click())
 
-    expect(dialogText()).toContain('Permanent deletion')
-    expect(dialogText()).toContain('local does not provide recoverable deletion')
+    expect(dialogText()).toContain(
+      'Permanently delete local:/repo/existing.md? This cannot be undone.',
+    )
+    expect(document.querySelector('.file-deletion-dialog dl')).toBeNull()
     setDialogName('wrong.md')
     expect(submitButton()?.disabled).toBe(true)
     setDialogName('existing.md')

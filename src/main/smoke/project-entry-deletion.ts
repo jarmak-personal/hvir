@@ -36,7 +36,6 @@ export async function deleteProjectEntryFromRenderer(options: {
 }): Promise<void> {
   const {
     win,
-    root,
     source,
     recovery,
     entry,
@@ -45,14 +44,12 @@ export async function deleteProjectEntryFromRenderer(options: {
   } = options
   const actionLabel =
     recovery === 'recoverable' ? 'Move to Trash…' : 'Delete Permanently…'
-  const workspaceDisplay = `${root.hostId}:${root.path}`
   const sourceDisplay = `${source.hostId}:${source.path}`
-  const operationDisplay =
-    recovery === 'recoverable' ? 'Move to operating-system Trash' : 'Permanent deletion'
-  const recoveryDisplay =
+  const dialogTitle = recovery === 'recoverable' ? 'Move to Trash' : 'Delete Permanently'
+  const confirmationText =
     recovery === 'recoverable'
-      ? 'Available through the operating-system Trash.'
-      : `None. ${source.hostId} does not provide recoverable deletion.`
+      ? `Are you sure you want to move ${sourceDisplay} to Trash?`
+      : `Permanently delete ${sourceDisplay}? This cannot be undone.`
   const successText =
     recovery === 'recoverable' ? 'Entry moved to Trash.' : 'Entry deleted permanently.'
   try {
@@ -132,15 +129,15 @@ export async function deleteProjectEntryFromRenderer(options: {
               }
               const dialog = document.querySelector('.file-deletion-dialog');
               if (!(dialog instanceof HTMLFormElement)) return undefined;
-              const facts = new Map([...dialog.querySelectorAll('dl > div')].map((row) => [
-                row.querySelector('dt')?.textContent?.trim(),
-                row.querySelector('dd')?.textContent?.trim()
-              ]));
-              if (facts.get('Workspace') !== ${JSON.stringify(workspaceDisplay)} ||
-                  facts.get('Entry') !== ${JSON.stringify(sourceDisplay)} ||
-                  facts.get('Operation') !== ${JSON.stringify(operationDisplay)} ||
-                  facts.get('Recovery') !== ${JSON.stringify(recoveryDisplay)}) {
-                throw new Error('deletion dialog lost its exact authority/recovery snapshot');
+              if (dialog.querySelector('dl')) {
+                throw new Error('deletion dialog retained the verbose metadata table');
+              }
+              const title = dialog.querySelector('h2')?.textContent?.trim();
+              const content = dialog.querySelector('.confirmation-dialog-content')
+                ?.textContent?.replace(/\\s+/g, ' ').trim();
+              if (title !== ${JSON.stringify(dialogTitle)} ||
+                  !content?.includes(${JSON.stringify(confirmationText)})) {
+                throw new Error('deletion dialog lost its concise exact-target disclosure');
               }
               const submit = dialog.querySelector('button[type="submit"]');
               if (!(submit instanceof HTMLButtonElement)) return undefined;
