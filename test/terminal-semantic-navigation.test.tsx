@@ -334,6 +334,8 @@ function viewProps(registry: TerminalRuntimeRegistry) {
     modifiedKeyProtocol: 'none' as const,
     metaEnterAliasesControl: false,
     themeOverride: 'app' as const,
+    lightThemeId: 'hvir-default-light',
+    darkThemeId: 'hvir-default-dark',
     typography: { fontFamily: 'monospace', fontSize: 13 },
     composerSubmitMode: 'enter' as const,
     cwd: localPath('/repo'),

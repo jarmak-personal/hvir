@@ -9,6 +9,7 @@ import { verifyTerminalPalettePresentation } from './terminal-palette-presentati
 import { verifyTerminalProjectReturn } from './terminal-project-return'
 import { verifyTerminalSemanticNavigation } from './terminal-semantic-navigation'
 import { verifyTerminalSearch } from './terminal-search'
+import { verifyTerminalThemeGalleryPresentation } from './terminal-theme-gallery-presentation'
 import { withTerminalSmokeTimeout } from './terminal-smoke-timeout'
 import { verifySynchronizedOutput } from './terminal-synchronized-output'
 export async function verifyTerminalPresentationLifecycle(
@@ -470,6 +471,7 @@ export async function verifyTerminalPresentationLifecycle(
   )) as string
   const contextMenuStatus = await verifyTerminalContextMenu(win, supervisor)
   const typographyStatus = await verifyLiveTerminalTypography(win, supervisor)
+  const themeGalleryStatus = await verifyTerminalThemeGalleryPresentation(win, supervisor)
   return [
     explicitLaunch,
     paletteStatus,
@@ -486,6 +488,7 @@ export async function verifyTerminalPresentationLifecycle(
     inputStatus,
     contextMenuStatus,
     typographyStatus,
+    themeGalleryStatus,
   ]
     .filter((status): status is string => status !== undefined)
     .join(' · ')

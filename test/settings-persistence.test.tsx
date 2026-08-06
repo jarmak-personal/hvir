@@ -26,6 +26,8 @@ describe('app settings typography persistence', () => {
     const settings = await import('../src/renderer/src/settings/settings')
     expect(settings.getAppSettings()).toMatchObject({
       idleThresholdMs: 7_000,
+      terminalLightThemeId: 'hvir-default-light',
+      terminalDarkThemeId: 'hvir-default-dark',
       interfaceFont: { mode: 'system', family: '' },
       monospaceFont: { mode: 'system', family: '' },
       interfaceScale: 1,
@@ -41,6 +43,8 @@ describe('app settings typography persistence', () => {
       gitAutoFetchIntervalMs: 5 * 60_000,
       terminalRecoveryMode: 'prompt',
       terminalTheme: 'app',
+      terminalLightThemeId: 'hvir-default-light',
+      terminalDarkThemeId: 'hvir-default-dark',
       interfaceFont: { mode: 'custom', family: 'Example Sans' },
       monospaceFont: { mode: 'custom', family: 'Example Mono' },
       interfaceScale: 1.25,
@@ -63,6 +67,8 @@ describe('app settings typography persistence', () => {
     const restarted = await import('../src/renderer/src/settings/settings')
     restarted.initializeAppSettings(document.documentElement.style)
     expect(restarted.getAppSettings()).toMatchObject({
+      terminalLightThemeId: 'hvir-default-light',
+      terminalDarkThemeId: 'hvir-default-dark',
       interfaceFont: { mode: 'custom', family: 'Example Sans' },
       monospaceFont: { mode: 'custom', family: 'Example Mono' },
       interfaceScale: 1.25,
@@ -73,5 +79,65 @@ describe('app settings typography persistence', () => {
       /^"Example Mono".*monospace$/,
     )
     expect(preferences.terminalTypography.fontSize).toBe(18)
+  })
+
+  it.each(['app', 'dark', 'light'] as const)(
+    'migrates legacy terminalTheme=%s to separate visually identical defaults',
+    async (terminalTheme) => {
+      localStorage.setItem(
+        'hvir:settings:v1',
+        JSON.stringify({
+          terminalTheme,
+          idleThresholdMs: 4_000,
+        }),
+      )
+
+      const settings = await import('../src/renderer/src/settings/settings')
+      expect(settings.getAppSettings()).toMatchObject({
+        terminalTheme,
+        terminalLightThemeId: 'hvir-default-light',
+        terminalDarkThemeId: 'hvir-default-dark',
+      })
+      expect(settings.terminalPreferences(settings.getAppSettings())).toMatchObject({
+        terminalTheme,
+        terminalLightThemeId: 'hvir-default-light',
+        terminalDarkThemeId: 'hvir-default-dark',
+      })
+    },
+  )
+
+  it('persists paired selections across a module restart and normalizes removed IDs', async () => {
+    const catalog = await import('../src/renderer/src/terminal/terminal-theme-catalog')
+    const dark = catalog.searchTerminalThemes('Catppuccin Mocha').entries[0]!
+    const light = catalog.searchTerminalThemes('Alabaster').entries[0]!
+    const first = await import('../src/renderer/src/settings/settings')
+    first.setAppSettings({
+      ...first.getAppSettings(),
+      terminalTheme: 'app',
+      terminalLightThemeId: light.id,
+      terminalDarkThemeId: dark.id,
+    })
+
+    vi.resetModules()
+    const restarted = await import('../src/renderer/src/settings/settings')
+    expect(restarted.getAppSettings()).toMatchObject({
+      terminalLightThemeId: light.id,
+      terminalDarkThemeId: dark.id,
+    })
+
+    localStorage.setItem(
+      'hvir:settings:v1',
+      JSON.stringify({
+        ...restarted.getAppSettings(),
+        terminalLightThemeId: 'removed-light',
+        terminalDarkThemeId: 'removed-dark',
+      }),
+    )
+    vi.resetModules()
+    const normalized = await import('../src/renderer/src/settings/settings')
+    expect(normalized.getAppSettings()).toMatchObject({
+      terminalLightThemeId: 'hvir-default-light',
+      terminalDarkThemeId: 'hvir-default-dark',
+    })
   })
 })

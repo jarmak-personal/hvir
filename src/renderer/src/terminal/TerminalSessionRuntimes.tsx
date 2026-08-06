@@ -21,6 +21,8 @@ export interface TerminalSessionRuntimesProps {
   readonly secondaryActiveId?: string
   readonly presented: boolean
   readonly terminalTheme: TerminalThemeOverride
+  readonly terminalLightThemeId: string
+  readonly terminalDarkThemeId: string
   readonly terminalTypography: TerminalTypography
   readonly composerSubmitMode: ComposerSubmitMode
   readonly workspaceRoot: HostPath
@@ -49,6 +51,8 @@ export function TerminalSessionRuntimes({
   secondaryActiveId,
   presented,
   terminalTheme,
+  terminalLightThemeId,
+  terminalDarkThemeId,
   terminalTypography,
   composerSubmitMode,
   workspaceRoot,
@@ -96,6 +100,8 @@ export function TerminalSessionRuntimes({
             modifiedKeyProtocol={provider.terminalInput.modifiedKeyProtocol}
             metaEnterAliasesControl={provider.terminalInput.metaEnterAliasesControl}
             themeOverride={terminalTheme}
+            lightThemeId={terminalLightThemeId}
+            darkThemeId={terminalDarkThemeId}
             typography={terminalTypography}
             composerSubmitMode={composerSubmitMode}
             cwd={session.cwd}

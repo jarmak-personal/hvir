@@ -1,0 +1,248 @@
+import { createHash } from 'node:crypto'
+import { readFile, readdir, stat, writeFile } from 'node:fs/promises'
+import { dirname, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
+
+import {
+  TERMINAL_COLOR_KEYS,
+  TERMINAL_COLOR_PATTERN,
+  type TerminalColorKey,
+} from '../src/renderer/src/terminal/terminal-color-schema.mts'
+
+const SCRIPT_DIRECTORY = dirname(fileURLToPath(import.meta.url))
+const OUTPUT_PATH = resolve(
+  SCRIPT_DIRECTORY,
+  '../src/renderer/src/terminal/generated-terminal-theme-catalog.ts',
+)
+
+export const TERMINAL_THEME_SOURCE = {
+  ghosttyCommit: '332b2aefc6e72d363aa93ab6ecfc86eeeeb5ed28',
+  ghosttyThemeArchive:
+    'https://deps.files.ghostty.org/ghostty-themes-release-20260216-151611-fc73ce3.tgz',
+  ghosttyThemeArchiveSha256:
+    '14200bb86a0c814ab69609d500b280b396b6d2eb835edf0676de4a789c0aa8fd',
+  upstreamRepository: 'https://github.com/mbadolato/iTerm2-Color-Schemes',
+  upstreamTag: 'release-20260216-151611-fc73ce3',
+  upstreamCommit: 'fc73ce39746540b6d5ec6b91e304785431401d85',
+  sourceTreeSha256: '70b7ed943f4d3a409425677f3d375782840a51f1ac1c8613f0ac669c2dc3078b',
+  expectedThemeCount: 463,
+  maximumThemeCount: 512,
+  maximumThemeBytes: 4_096,
+} as const
+
+const SIMPLE_FIELDS = {
+  background: 'background',
+  foreground: 'foreground',
+  'cursor-color': 'cursor',
+  'cursor-text': 'cursorText',
+  'selection-background': 'selectionBackground',
+  'selection-foreground': 'selectionForeground',
+} as const
+const PALETTE_FIELDS: readonly TerminalColorKey[] = TERMINAL_COLOR_KEYS.slice(
+  Object.keys(SIMPLE_FIELDS).length,
+)
+const OUTPUT_FIELDS = TERMINAL_COLOR_KEYS
+
+type TerminalColorField = TerminalColorKey
+
+export interface GeneratedTerminalTheme {
+  readonly id: string
+  readonly name: string
+  readonly palette: Readonly<Record<TerminalColorField, string>>
+}
+
+export interface TerminalThemeGenerationResult {
+  readonly themes: readonly GeneratedTerminalTheme[]
+  readonly diagnostics: readonly string[]
+}
+
+/** Parse the closed color-only Ghostty theme subset used by the generated catalog. */
+export function parseGhosttyTheme(
+  name: string,
+  contents: string,
+): GeneratedTerminalTheme {
+  const values = new Map<TerminalColorField, string>()
+  const lines = contents.split(/\r?\n/)
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index]!
+    if (line.length === 0 && index === lines.length - 1) continue
+    if (line.trim().length === 0) {
+      throw themeError(name, index + 1, 'blank or whitespace-only lines are unsupported')
+    }
+    const match = /^([a-z-]+) = (.+)$/.exec(line)
+    if (!match) throw themeError(name, index + 1, 'malformed directive')
+    const directive = match[1]!
+    const rawValue = match[2]!
+    if (directive === 'palette') {
+      const palette = /^(\d{1,2})=(#[0-9a-f]{6})$/i.exec(rawValue)
+      if (!palette) throw themeError(name, index + 1, 'malformed palette directive')
+      const paletteIndex = Number(palette[1])
+      const field = PALETTE_FIELDS[paletteIndex]
+      if (!field) throw themeError(name, index + 1, 'palette index must be 0 through 15')
+      addColor(values, field, palette[2]!, name, index + 1)
+      continue
+    }
+    if (!Object.hasOwn(SIMPLE_FIELDS, directive)) {
+      throw themeError(
+        name,
+        index + 1,
+        `unsupported directive ${JSON.stringify(directive)}`,
+      )
+    }
+    const field = SIMPLE_FIELDS[directive as keyof typeof SIMPLE_FIELDS]
+    addColor(values, field, rawValue, name, index + 1)
+  }
+  const missing = OUTPUT_FIELDS.filter((field) => !values.has(field))
+  if (missing.length > 0) {
+    throw themeError(
+      name,
+      lines.length,
+      `incomplete palette; missing ${missing.join(', ')}`,
+    )
+  }
+  const palette = Object.fromEntries(
+    OUTPUT_FIELDS.map((field) => [field, values.get(field)!]),
+  ) as Record<TerminalColorField, string>
+  return {
+    id: `ghostty-${slug(name)}-${createHash('sha256').update(name).digest('hex').slice(0, 8)}`,
+    name,
+    palette,
+  }
+}
+
+export function buildTerminalThemeCatalog(
+  sources: Readonly<Record<string, string>>,
+): TerminalThemeGenerationResult {
+  const diagnostics: string[] = []
+  const themes: GeneratedTerminalTheme[] = []
+  for (const name of Object.keys(sources).sort()) {
+    try {
+      themes.push(parseGhosttyTheme(name, sources[name]!))
+    } catch (reason) {
+      diagnostics.push(reason instanceof Error ? reason.message : String(reason))
+    }
+  }
+  const ids = new Set<string>()
+  for (const theme of themes) {
+    if (ids.has(theme.id))
+      diagnostics.push(`${theme.name}: duplicate generated identifier`)
+    ids.add(theme.id)
+  }
+  return { themes, diagnostics }
+}
+
+export function renderTerminalThemeCatalog(
+  themes: readonly GeneratedTerminalTheme[],
+): string {
+  const lines = themes.map((theme) => `  ${JSON.stringify(theme)},`)
+  return [
+    '/* This file is generated by scripts/generate-terminal-theme-catalog.mts. */',
+    '/* Do not edit it by hand or parse upstream theme files at runtime. */',
+    `export const GENERATED_TERMINAL_THEME_CATALOG_PROVENANCE = ${JSON.stringify(TERMINAL_THEME_SOURCE)} as const`,
+    '',
+    'export const GENERATED_TERMINAL_THEME_CATALOG = [',
+    ...lines,
+    '] as const',
+    '',
+  ].join('\n')
+}
+
+async function generate(sourceDirectory: string): Promise<string> {
+  const directory = resolve(sourceDirectory)
+  const directoryStat = await stat(directory)
+  if (!directoryStat.isDirectory()) throw new Error('Theme source must be a directory')
+  const entries = (await readdir(directory, { withFileTypes: true })).sort(
+    (left, right) => (left.name < right.name ? -1 : left.name > right.name ? 1 : 0),
+  )
+  if (entries.length > TERMINAL_THEME_SOURCE.maximumThemeCount) {
+    throw new Error(
+      `Theme source exceeds the ${TERMINAL_THEME_SOURCE.maximumThemeCount}-file catalog bound`,
+    )
+  }
+  const sources: Record<string, string> = {}
+  const sourceHash = createHash('sha256')
+  const decoder = new TextDecoder('utf-8', { fatal: true })
+  for (const entry of entries) {
+    if (!entry.isFile())
+      throw new Error(`${entry.name}: source entry is not a regular file`)
+    const contents = await readFile(resolve(directory, entry.name))
+    if (contents.byteLength > TERMINAL_THEME_SOURCE.maximumThemeBytes) {
+      throw new Error(
+        `${entry.name}: exceeds the ${TERMINAL_THEME_SOURCE.maximumThemeBytes}-byte file bound`,
+      )
+    }
+    sourceHash.update(entry.name)
+    sourceHash.update('\0')
+    sourceHash.update(String(contents.byteLength))
+    sourceHash.update('\0')
+    sourceHash.update(contents)
+    sources[entry.name] = decoder.decode(contents)
+  }
+  const digest = sourceHash.digest('hex')
+  if (digest !== TERMINAL_THEME_SOURCE.sourceTreeSha256) {
+    throw new Error(
+      `Theme source tree mismatch: expected ${TERMINAL_THEME_SOURCE.sourceTreeSha256}, received ${digest}`,
+    )
+  }
+  const result = buildTerminalThemeCatalog(sources)
+  if (result.diagnostics.length > 0) {
+    throw new Error(`Theme generation rejected input:\n${result.diagnostics.join('\n')}`)
+  }
+  if (result.themes.length !== TERMINAL_THEME_SOURCE.expectedThemeCount) {
+    throw new Error(
+      `Theme source count mismatch: expected ${TERMINAL_THEME_SOURCE.expectedThemeCount}, received ${result.themes.length}`,
+    )
+  }
+  return renderTerminalThemeCatalog(result.themes)
+}
+
+function addColor(
+  values: Map<TerminalColorField, string>,
+  field: TerminalColorField,
+  color: string,
+  name: string,
+  line: number,
+): void {
+  if (!TERMINAL_COLOR_PATTERN.test(color)) {
+    throw themeError(name, line, `invalid color for ${field}`)
+  }
+  if (values.has(field)) throw themeError(name, line, `duplicate color for ${field}`)
+  values.set(field, color.toLowerCase())
+}
+
+function slug(name: string): string {
+  const value = name
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '')
+  if (value.length === 0) throw new Error(`${name}: cannot derive a theme identifier`)
+  return value
+}
+
+function themeError(name: string, line: number, message: string): Error {
+  return new Error(`${name}:${line}: ${message}`)
+}
+
+function sourceArgument(argv: readonly string[]): string {
+  if (argv.length !== 2 || argv[0] !== '--source' || !argv[1]) {
+    throw new Error(
+      'Usage: npm run generate:terminal-themes -- --source /path/to/ghostty',
+    )
+  }
+  return argv[1]
+}
+
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  try {
+    const rendered = await generate(sourceArgument(process.argv.slice(2)))
+    await writeFile(OUTPUT_PATH, rendered, 'utf8')
+    process.stdout.write(
+      `generated ${TERMINAL_THEME_SOURCE.expectedThemeCount} terminal themes from verified source\n`,
+    )
+  } catch (reason) {
+    process.stderr.write(`${reason instanceof Error ? reason.message : String(reason)}\n`)
+    process.exitCode = 1
+  }
+}

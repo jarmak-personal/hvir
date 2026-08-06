@@ -40,6 +40,8 @@ describe('terminal workspace collection', () => {
           onOpenWebLink={vi.fn()}
           preferences={{
             terminalTheme: 'app',
+            terminalLightThemeId: 'hvir-default-light',
+            terminalDarkThemeId: 'hvir-default-dark',
             terminalTypography: { fontFamily: 'monospace', fontSize: 13 },
             composerSubmitMode: 'enter',
             idleThresholdMs: 10_000,
@@ -167,6 +169,8 @@ function collection({
       onOpenWebLink={vi.fn()}
       preferences={{
         terminalTheme: 'app',
+        terminalLightThemeId: 'hvir-default-light',
+        terminalDarkThemeId: 'hvir-default-dark',
         terminalTypography: { fontFamily: 'monospace', fontSize: 13 },
         composerSubmitMode: 'enter',
         idleThresholdMs: 10_000,

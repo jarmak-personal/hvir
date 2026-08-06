@@ -11,6 +11,7 @@ import type { TerminalPane } from '../src/renderer/src/terminal/terminal-pane'
 import { TerminalRuntime } from '../src/renderer/src/terminal/terminal-runtime'
 import type { TerminalRuntimeOptions } from '../src/renderer/src/terminal/terminal-runtime-options'
 import { terminalThemeForAppearance } from '../src/renderer/src/terminal/terminal-palette'
+import { searchTerminalThemes } from '../src/renderer/src/terminal/terminal-theme-catalog'
 import {
   asHarnessProfileId,
   asHostId,
@@ -33,6 +34,8 @@ const paneState = vi.hoisted(() => ({
     disposed: boolean
   }>,
 }))
+
+const BUNDLED_THEME = searchTerminalThemes('Catppuccin Mocha').entries[0]!
 
 vi.mock('../src/renderer/src/terminal/terminal-pane-factory', () => ({
   createTerminalRuntimePane: vi.fn((options: { readonly theme: unknown }) => {
@@ -81,7 +84,7 @@ describe('terminal output host parity', () => {
     expect(ssh.searchText).toBe(local.searchText)
     expect(ssh.searches).toEqual(local.searches)
     expect(ssh.themes).toEqual(local.themes)
-    expect(local.themes.at(-1)).toEqual(terminalThemeForAppearance('light'))
+    expect(local.themes.at(-1)).toEqual(BUNDLED_THEME.palette)
     expect(local.ptyWrites).toEqual(['line one\nline two'])
     expect(ssh.ptyWrites).toEqual(local.ptyWrites)
   })
@@ -238,7 +241,7 @@ async function deliver(
   )
   const searchText = runtime.interactions.search.currentMatchText()
   runtime.interactions.search.close()
-  runtime.update({ ...options, theme: terminalThemeForAppearance('light') })
+  runtime.update({ ...options, theme: BUNDLED_THEME.palette })
 
   for (const chunk of chunks) handlers!.onData(chunk)
   const pane = paneState.panes.at(-1)!

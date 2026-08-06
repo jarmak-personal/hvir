@@ -139,6 +139,7 @@ export default tseslint.config(
       'scripts/run-real-host-ssh-acceptance.mts',
       'scripts/require-release-ci-evidence.mts',
       'scripts/validate-release-pr.mts',
+      'scripts/generate-terminal-theme-catalog.mts',
       'scripts/project-management/native-issue-worktrees.ts',
     ],
     rules: {

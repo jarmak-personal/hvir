@@ -13,6 +13,8 @@ import {
 export interface SettingsDraft {
   readonly theme: AppTheme
   readonly terminalTheme: AppSettings['terminalTheme']
+  readonly terminalLightThemeId: string
+  readonly terminalDarkThemeId: string
   readonly interfaceFontMode: AppSettings['interfaceFont']['mode']
   readonly interfaceFontFamily: string
   readonly monospaceFontMode: AppSettings['monospaceFont']['mode']
@@ -46,6 +48,8 @@ export function createSettingsDraft(
   return {
     theme,
     terminalTheme: settings.terminalTheme,
+    terminalLightThemeId: settings.terminalLightThemeId,
+    terminalDarkThemeId: settings.terminalDarkThemeId,
     interfaceFontMode: settings.interfaceFont.mode,
     interfaceFontFamily: settings.interfaceFont.family,
     monospaceFontMode: settings.monospaceFont.mode,
@@ -127,6 +131,8 @@ export function validateSettingsDraft(draft: SettingsDraft): SettingsDraftValida
       gitAutoFetchIntervalMs: Number(draft.gitAutoFetchIntervalMs),
       terminalRecoveryMode: draft.recoveryMode,
       terminalTheme: draft.terminalTheme,
+      terminalLightThemeId: draft.terminalLightThemeId,
+      terminalDarkThemeId: draft.terminalDarkThemeId,
       interfaceFont: normalizeFontPreference({
         mode: draft.interfaceFontMode,
         family: draft.interfaceFontFamily,
