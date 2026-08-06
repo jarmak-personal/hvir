@@ -667,6 +667,7 @@ export async function verifyCapacityTerminalSearch(
             const shortcut = new KeyboardEvent('keydown', {
               key: 'f',
               code: 'KeyF',
+              shiftKey: true,
               ...primary,
               bubbles: true,
               cancelable: true

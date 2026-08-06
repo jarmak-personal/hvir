@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import console from 'node:console'
+import { stat } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
@@ -26,6 +27,10 @@ interface TerminalRuntimeModule {
 }
 
 type LoadTerminalRuntime = () => Promise<unknown>
+type ReadInstalledWasmBytes = () => Promise<number>
+
+const readInstalledWasmBytes: ReadInstalledWasmBytes = async () =>
+  (await stat(fileURLToPath(import.meta.resolve('ghostty-web/ghostty-vt.wasm')))).size
 
 function hasCustomLinkProviderPriority(prototype: object): boolean {
   const register = Reflect.get(prototype, 'registerLinkProvider') as unknown
@@ -79,9 +84,29 @@ export function assertTerminalRuntimeContract(runtime: TerminalRuntimeModule): v
   )
 }
 
+export async function verifyInstalledTerminalWasmEvidence(
+  readWasmBytes: ReadInstalledWasmBytes = readInstalledWasmBytes,
+): Promise<void> {
+  let actualBytes: number
+  try {
+    actualBytes = await readWasmBytes()
+  } catch (cause) {
+    throw new Error(
+      `Installed dependencies do not match this checkout: ghostty-web/ghostty-vt.wasm could not be inspected. ${RECOVERY}`,
+      { cause },
+    )
+  }
+  const expectedBytes = GHOSTTY_TERMINAL_CAPABILITY_PROFILE.artifact.wasmBytes
+  if (actualBytes === expectedBytes) return
+  throw new Error(
+    `Installed dependencies do not match this checkout: ghostty-web/ghostty-vt.wasm is ${actualBytes} bytes; the reviewed capability profile requires ${expectedBytes}. ${RECOVERY}`,
+  )
+}
+
 export async function verifyTerminalRuntimeContract(
   loadRuntime: LoadTerminalRuntime = async () => import('ghostty-web'),
 ): Promise<void> {
+  await verifyInstalledTerminalWasmEvidence()
   let runtime: unknown
   try {
     runtime = await loadRuntime()

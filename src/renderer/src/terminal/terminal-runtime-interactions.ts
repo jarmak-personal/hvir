@@ -55,7 +55,10 @@ export class TerminalRuntimeInteractions {
     this.search.bind(pane)
     this.synchronizeAvailability()
     this.contextMenu.bind(pane, ptyId, this.focusOwner, {
-      clear: () => this.search.close(false),
+      clear: () => {
+        this.search.close(false)
+        this.paneEvents.clear()
+      },
       reset: () => {
         this.search.close(false)
         this.paneEvents.clear()

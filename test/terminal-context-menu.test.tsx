@@ -11,6 +11,7 @@ import {
   type TerminalContextMenuTarget,
 } from '../src/renderer/src/terminal/terminal-context-menu-target'
 import type { TerminalPane } from '../src/renderer/src/terminal/terminal-pane'
+import { TerminalRuntimeInteractions } from '../src/renderer/src/terminal/terminal-runtime-interactions'
 import { useTerminalContextMenu } from '../src/renderer/src/terminal/use-terminal-context-menu'
 
 let host: HTMLDivElement
@@ -50,6 +51,37 @@ describe('terminal context menu placement', () => {
 })
 
 describe('terminal context menu ownership', () => {
+  it('clears semantic transcript metadata with both retained-buffer clearing actions', () => {
+    const interactions = new TerminalRuntimeInteractions(
+      'Shell',
+      () => true,
+      vi.fn(),
+      vi.fn(),
+    )
+    const fixture = paneFixture()
+    interactions.updateAvailability(true)
+    interactions.bind(fixture.pane, 'pty-instance-1')
+    const addRegion = (id: number) => {
+      interactions.paneEvents.handle({
+        type: 'semantic',
+        action: 'fresh-line-new-prompt',
+        options: '',
+        provenance: { id, screen: 'normal', row: id, column: 0 },
+      })
+      expect(interactions.paneEvents.snapshot().semanticRegionsAvailable).toBe(true)
+    }
+
+    addRegion(1)
+    expect(interactions.contextMenuTarget()?.clear()).toBe(true)
+    expect(fixture.clear).toHaveBeenCalledOnce()
+    expect(interactions.paneEvents.snapshot().semanticRegionsAvailable).toBe(false)
+
+    addRegion(2)
+    expect(interactions.contextMenuTarget()?.reset()).toBe(true)
+    expect(fixture.reset).toHaveBeenCalledOnce()
+    expect(interactions.paneEvents.snapshot().semanticRegionsAvailable).toBe(false)
+  })
+
   it('binds only one visible attached pane and rejects a same-id successor', () => {
     let available = true
     const owner = new TerminalContextMenuOwner(() => available)
@@ -369,6 +401,7 @@ function targetFixture(selection: string) {
 }
 
 function paneFixture() {
+  const clear = vi.fn()
   const reset = vi.fn()
   const listen = () => () => undefined
   const pane: TerminalPane = {
@@ -404,7 +437,7 @@ function paneFixture() {
     getSelection: vi.fn(() => ''),
     paste: vi.fn(),
     selectAll: vi.fn(),
-    clear: vi.fn(),
+    clear,
     reset,
     focus: vi.fn(),
     events: {
@@ -415,7 +448,7 @@ function paneFixture() {
       onLink: listen,
     },
   }
-  return { pane, reset }
+  return { pane, clear, reset }
 }
 
 function terminalTarget(): HTMLDivElement {

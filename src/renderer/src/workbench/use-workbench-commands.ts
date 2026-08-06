@@ -25,9 +25,9 @@ export function useWorkbenchCommands(
       action: WebPaneCommandAction,
       paneId?: string,
       context?: KeybindingContext,
-    ): void => {
-      if (document.querySelector('[aria-modal="true"]')) return
-      dispatchWorkbenchCommand(action, paneId, portsRef.current, context)
+    ): boolean => {
+      if (document.querySelector('[aria-modal="true"]')) return false
+      return dispatchWorkbenchCommand(action, paneId, portsRef.current, context)
     }
     const keydown = (event: KeyboardEvent): void => {
       if (event.defaultPrevented || document.querySelector('[aria-modal="true"]')) return
@@ -42,11 +42,11 @@ export function useWorkbenchCommands(
             ? 'web-pane'
             : 'workbench'
       if (!keybindingAvailableInContext(action, context)) return
+      if (!perform(action, undefined, context)) return
       event.preventDefault()
       // Ghostty owns a target-level key listener. Once a terminal-scoped
       // workbench command is claimed, keep that same stroke out of the PTY.
       if (context === 'terminal') event.stopPropagation()
-      perform(action, undefined, context)
     }
     window.hvir.send('web-pane:reserved-bindings', keybindings)
     const disposeCommand = window.hvir.on('web-pane:command', ({ action, paneId }) =>

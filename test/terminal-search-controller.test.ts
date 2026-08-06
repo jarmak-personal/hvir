@@ -147,8 +147,97 @@ describe('terminal search controller', () => {
     })
 
     controller.retainedBufferChanged()
-    expect(search).toHaveBeenCalledTimes(2)
+    await vi.waitFor(() => expect(search).toHaveBeenCalledTimes(2))
     controller.close()
+  })
+
+  it('bounds continuous-output refreshes and preserves the current result until replacement', async () => {
+    vi.useFakeTimers()
+    try {
+      const first = range(1, 0, 1, 3)
+      const second = range(2, 0, 2, 3)
+      const replacement = range(3, 0, 3, 3)
+      const initialDispose = vi.fn()
+      const initial = {
+        ...result(
+          'hit',
+          false,
+          [first, second],
+          new Map([
+            [first, 'first'],
+            [second, 'second'],
+          ]),
+        ),
+        dispose: initialDispose,
+      }
+      let resolveReplacement: ((value: TerminalRetainedBufferSearch) => void) | undefined
+      const refreshSignals: AbortSignal[] = []
+      const search = vi
+        .fn<TerminalPane['searchRetainedBuffer']>()
+        .mockResolvedValueOnce(initial)
+        .mockImplementation(
+          (_query, options) =>
+            new Promise((resolve) => {
+              resolveReplacement = resolve
+              refreshSignals.push(options.signal!)
+            }),
+        )
+      const controller = new TerminalSearchController(vi.fn(), vi.fn())
+      controller.bind(paneFixture(search))
+      controller.open()
+      controller.setQuery('hit')
+      await Promise.resolve()
+      await Promise.resolve()
+      controller.navigate('next')
+      expect(controller.snapshot()).toMatchObject({
+        pending: false,
+        matchCount: 2,
+        matchIndex: 1,
+      })
+
+      controller.retainedBufferChanged()
+      for (let index = 0; index < 20; index += 1) {
+        vi.advanceTimersByTime(10)
+        controller.retainedBufferChanged()
+      }
+
+      expect(search).toHaveBeenCalledTimes(3)
+      expect(refreshSignals[0]?.aborted).toBe(true)
+      expect(controller.snapshot()).toMatchObject({
+        pending: true,
+        matchCount: 2,
+        matchIndex: 1,
+      })
+      expect(controller.currentMatchText()).toBe('second')
+
+      vi.advanceTimersByTime(34)
+      expect(search).toHaveBeenCalledTimes(3)
+      vi.advanceTimersByTime(1)
+      expect(search).toHaveBeenCalledTimes(4)
+      expect(controller.snapshot()).toMatchObject({
+        pending: true,
+        matchCount: 2,
+        matchIndex: 1,
+      })
+
+      resolveReplacement?.(result('hit', false, [replacement]))
+      await Promise.resolve()
+      await Promise.resolve()
+      expect(controller.snapshot()).toMatchObject({
+        pending: false,
+        matchCount: 1,
+        matchIndex: 0,
+      })
+      expect(initialDispose).toHaveBeenCalledOnce()
+
+      controller.retainedBufferChanged()
+      controller.revoke()
+      vi.advanceTimersByTime(75)
+      expect(search).toHaveBeenCalledTimes(4)
+      expect(controller.open()).toBe(false)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('cancels an exact semantic-region extraction when search closes', () => {

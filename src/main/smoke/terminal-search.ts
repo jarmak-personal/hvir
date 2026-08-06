@@ -108,13 +108,14 @@ export async function verifyTerminalSearch(
                       const shortcut = new KeyboardEvent('keydown', {
                         key: 'f',
                         code: 'KeyF',
+                        shiftKey: true,
                         ...primary,
                         bubbles: true,
                         cancelable: true
                       });
                       engine.dispatchEvent(shortcut);
                       if (!shortcut.defaultPrevented) {
-                        return fail('terminal-focused Mod+F was not claimed');
+                        return fail('terminal-focused Mod+Shift+F was not claimed');
                       }
                       poll(
                         () => surface.querySelector('.terminal-search'),
@@ -182,7 +183,7 @@ export async function verifyTerminalSearch(
                                               'terminal search replaced Canvas or mutated selection'
                                             );
                                           }
-                                          resolve('context + Mod+F · next/previous · Copy Match');
+                                          resolve('context + Mod+Shift+F · next/previous · Copy Match');
                                         }
                                       );
                                     }

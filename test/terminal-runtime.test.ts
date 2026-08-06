@@ -6,6 +6,7 @@ import { describe, expect, it } from 'vitest'
 
 import {
   assertTerminalRuntimeContract,
+  verifyInstalledTerminalWasmEvidence,
   verifyTerminalRuntimeContract,
 } from '../scripts/check-terminal-runtime.mts'
 import { GHOSTTY_TERMINAL_CAPABILITY_PROFILE } from '../scripts/ghostty-terminal-capability-profile.mts'
@@ -80,72 +81,31 @@ describe('terminal runtime capability preflight', () => {
     )
   })
 
-  it('pins the reviewed terminal capability profile to the consumed artifact', () => {
+  it('matches the installed WASM size to the reviewed capability evidence', async () => {
+    await expect(verifyInstalledTerminalWasmEvidence()).resolves.toBeUndefined()
+    await expect(
+      verifyInstalledTerminalWasmEvidence(async () =>
+        Promise.resolve(GHOSTTY_TERMINAL_CAPABILITY_PROFILE.artifact.wasmBytes - 1),
+      ),
+    ).rejects.toThrow(/ghostty-vt\.wasm is 523292 bytes.*requires 523293.*npm ci/)
+  })
+
+  it('pins the consumed package URL and npm lock integrity', () => {
     const packageJson = JSON.parse(
       readFileSync(new URL('../package.json', import.meta.url), 'utf8'),
     ) as { dependencies: Record<string, string> }
     const packageLock = JSON.parse(
       readFileSync(new URL('../package-lock.json', import.meta.url), 'utf8'),
-    ) as { packages: Record<string, { resolved?: string }> }
+    ) as { packages: Record<string, { resolved?: string; integrity?: string }> }
     const profile = GHOSTTY_TERMINAL_CAPABILITY_PROFILE
 
     expect(packageJson.dependencies['ghostty-web']).toBe(profile.artifact.url)
     expect(packageLock.packages['node_modules/ghostty-web']?.resolved).toBe(
       profile.artifact.url,
     )
-    expect(profile).toMatchObject({
-      artifact: {
-        sha256: 'afccb2dc96de948db39545f26496fc88e6c57dea61f2705171f08fc7cc7beddb',
-        sourceCommit: 'e3bc2e1a6dbefc10e6e3b931f6bee28d790cbb6e',
-        ghosttyCommit: '332b2aefc6e72d363aa93ab6ecfc86eeeeb5ed28',
-        wasmBytes: 523_293,
-      },
-      identity: {
-        term: 'xterm-256color',
-        termProgram: 'hvir',
-        terminfo: 'unchanged',
-      },
-      synchronizedOutput: {
-        recoveryTimeoutMs: 1_000,
-        hvirOutputBuffering: false,
-      },
-      hostOwnedContextMenu: {
-        browserMenuDisabled: true,
-        clipboardOwner: 'hvir-renderer',
-        imagePasteOwner: 'adr-026-main-coordinator',
-      },
-      retainedBuffer: {
-        owner: 'ghostty-web-native-snapshot',
-        maxQueryBytes: 64 * 1024,
-        maxExtractionBytes: 4 * 1024 * 1024,
-      },
-      palette: {
-        baseOwner: 'hvir-terminal-presentation',
-        effectiveOwner: 'ghostty-terminal-state',
-        presentationOwner: 'ghostty-web-canvas',
-        ansiColors: 16,
-        liveBaseUpdates: true,
-        rawOutputReparsed: false,
-      },
-      cursor: {
-        effectiveOwner: 'ghostty-render-state',
-        defaultOwner: 'hvir-terminal-presentation',
-        presentationOwner: 'ghostty-web-canvas',
-        shapes: ['block', 'block_hollow', 'bar', 'underline'],
-        blinkPolicies: ['terminal', true, false],
-        liveDefaults: true,
-        rawOutputReparsed: false,
-      },
-      shaping: {
-        cellGridOwner: 'ghostty-core',
-        lineRunOwner: 'ghostty-web-canvas',
-        preferenceOwner: 'hvir-terminal-presentation',
-        option: 'fontLigatures',
-        defaultEnabled: true,
-        liveUpdates: true,
-        rawOutputReparsed: false,
-      },
-    })
+    expect(packageLock.packages['node_modules/ghostty-web']?.integrity).toBe(
+      'sha512-1qsHdk1mPRX0YNhWwOURCg3B2swoWJFsX704YAhij9LjUbtJl8s7lkBmp6uW4rkeYWDfXcODlr5Ddix5a04BHw==',
+    )
   })
 
   it('runs the preflight before development and production builds', () => {

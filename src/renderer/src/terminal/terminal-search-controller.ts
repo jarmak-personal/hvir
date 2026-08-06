@@ -17,12 +17,18 @@ const CLOSED_SEARCH: TerminalSearchSnapshot = {
   matchCount: 0,
 }
 
+// PTY delivery can arrive as many small chunks for one visible burst. One
+// refresh per bounded window keeps native retained-buffer scans off that hot
+// path without starving search while output remains continuous.
+const RETAINED_BUFFER_REFRESH_DELAY_MS = 75
+
 /** Owns one exact pane's ephemeral query, native snapshot, and cancellation. */
 export class TerminalSearchController {
   private pane?: TerminalPane
   private result?: TerminalRetainedBufferSearch
   private searchAbort?: AbortController
   private extractionAbort?: AbortController
+  private retainedBufferRefresh?: ReturnType<typeof setTimeout>
   private generation = 0
   private available = true
   private currentSnapshot = CLOSED_SEARCH
@@ -151,18 +157,26 @@ export class TerminalSearchController {
 
   retainedBufferChanged(): void {
     if (!this.currentSnapshot.open || this.currentSnapshot.query.length === 0) return
-    this.invalidateAndRefresh()
+    if (this.retainedBufferRefresh !== undefined) return
+    this.cancelSearchRequest()
+    if (!this.currentSnapshot.pending) {
+      this.publish({ ...this.currentSnapshot, pending: true })
+    }
+    this.retainedBufferRefresh = setTimeout(() => {
+      this.retainedBufferRefresh = undefined
+      this.startSearch(true)
+    }, RETAINED_BUFFER_REFRESH_DELAY_MS)
   }
 
-  private startSearch(): void {
+  private startSearch(preserveResult = false): void {
     const pane = this.pane
     const query = this.currentSnapshot.query
-    this.releaseResult()
-    this.searchAbort?.abort()
-    pane?.cancelRetainedBufferSearch()
-    const generation = ++this.generation
+    this.cancelRetainedBufferRefresh()
+    if (!preserveResult) this.releaseResult()
+    this.cancelSearchRequest()
+    const generation = this.generation
     if (!pane || !this.currentSnapshot.open || query.length === 0) {
-      this.searchAbort = undefined
+      this.releaseResult()
       this.publish({
         ...this.currentSnapshot,
         pending: false,
@@ -188,7 +202,9 @@ export class TerminalSearchController {
             return
           }
           this.searchAbort = undefined
+          const previousResult = this.result
           this.result = result
+          if (previousResult !== result) previousResult?.dispose()
           const matchIndex = result.matches.length > 0 ? 0 : undefined
           const first = matchIndex === undefined ? undefined : result.matches[matchIndex]
           if (first && !result.reveal(first)) {
@@ -212,6 +228,7 @@ export class TerminalSearchController {
             return
           }
           this.searchAbort = undefined
+          this.releaseResult()
           this.publish({
             ...this.currentSnapshot,
             pending: false,
@@ -243,6 +260,7 @@ export class TerminalSearchController {
   }
 
   private cancelOwnedWork(): void {
+    this.cancelRetainedBufferRefresh()
     this.generation += 1
     this.searchAbort?.abort()
     this.searchAbort = undefined
@@ -251,6 +269,20 @@ export class TerminalSearchController {
     this.pane?.cancelRetainedBufferSearch()
     this.pane?.cancelRetainedBufferExtraction()
     this.releaseResult()
+  }
+
+  private cancelSearchRequest(): void {
+    this.generation += 1
+    if (!this.searchAbort) return
+    this.searchAbort.abort()
+    this.searchAbort = undefined
+    this.pane?.cancelRetainedBufferSearch()
+  }
+
+  private cancelRetainedBufferRefresh(): void {
+    if (this.retainedBufferRefresh === undefined) return
+    clearTimeout(this.retainedBufferRefresh)
+    this.retainedBufferRefresh = undefined
   }
 
   private releaseResult(): void {

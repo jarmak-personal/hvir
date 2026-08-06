@@ -13,17 +13,21 @@ describe('configurable keybindings', () => {
     expect(bindings.cycleViewMode).toBe('Mod+Shift+M')
     expect(bindings.findFile).toBe('Mod+P')
     expect(bindings.findInFile).toBe('Mod+F')
+    expect(bindings.findInTerminal).toBe('Mod+Shift+F')
     expect(bindings.goToLine).toBe('Ctrl+G')
   })
 
-  it('reserves Mod+F for terminal search while keeping other viewer navigation out', () => {
+  it('keeps viewer and terminal search on distinct context-owned chords', () => {
     expect(keybindingAvailableInContext('findFile', 'workbench')).toBe(true)
     expect(keybindingAvailableInContext('findFile', 'terminal')).toBe(false)
     expect(keybindingAvailableInContext('findFile', 'web-pane')).toBe(true)
     expect(keybindingAvailableInContext('goToLine', 'workbench')).toBe(true)
     expect(keybindingAvailableInContext('findInFile', 'workbench')).toBe(true)
-    expect(keybindingAvailableInContext('findInFile', 'terminal')).toBe(true)
+    expect(keybindingAvailableInContext('findInFile', 'terminal')).toBe(false)
     expect(keybindingAvailableInContext('findInFile', 'web-pane')).toBe(false)
+    expect(keybindingAvailableInContext('findInTerminal', 'workbench')).toBe(false)
+    expect(keybindingAvailableInContext('findInTerminal', 'terminal')).toBe(true)
+    expect(keybindingAvailableInContext('findInTerminal', 'web-pane')).toBe(false)
     expect(keybindingAvailableInContext('goToLine', 'terminal')).toBe(false)
     expect(keybindingAvailableInContext('goToLine', 'web-pane')).toBe(false)
     expect(keybindingAvailableInContext('cycleViewMode', 'terminal')).toBe(false)

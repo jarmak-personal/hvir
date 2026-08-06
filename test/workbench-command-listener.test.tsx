@@ -58,14 +58,14 @@ describe('workbench command listener', () => {
     expect(ports.findFile).toHaveBeenCalledOnce()
   })
 
-  it('claims Mod+F only while keyboard focus belongs to a terminal panel', () => {
+  it('claims Mod+Shift+F only after the selected live terminal opens search', () => {
     const ports = commandPorts()
     act(() => root.render(<TerminalCommandHarness ports={ports} />))
     const terminal = container.querySelector('textarea')!
     const primaryModifier = /Mac/.test(navigator.platform)
       ? { metaKey: true }
       : { ctrlKey: true }
-    const find = keydown('f', primaryModifier)
+    const find = keydown('f', { ...primaryModifier, shiftKey: true })
     const terminalInput = vi.fn()
     terminal.addEventListener('keydown', terminalInput)
 
@@ -77,6 +77,31 @@ describe('workbench command listener', () => {
     expect(ports.findInTerminal).toHaveBeenCalledOnce()
     expect(ports.findInFile).not.toHaveBeenCalled()
     expect(terminalInput).not.toHaveBeenCalled()
+  })
+
+  it('leaves ordinary Ctrl+F and rejected terminal search chords with the PTY', () => {
+    const ports = commandPorts()
+    vi.mocked(ports.findInTerminal).mockReturnValue(false)
+    act(() => root.render(<TerminalCommandHarness ports={ports} />))
+    const terminal = container.querySelector('textarea')!
+    const terminalInput = vi.fn()
+    terminal.addEventListener('keydown', terminalInput)
+
+    const ordinaryForward = keydown('f', { ctrlKey: true })
+    const primaryModifier = /Mac/.test(navigator.platform)
+      ? { metaKey: true }
+      : { ctrlKey: true }
+    const rejectedSearch = keydown('f', { ...primaryModifier, shiftKey: true })
+    act(() => {
+      terminal.dispatchEvent(ordinaryForward)
+      terminal.dispatchEvent(rejectedSearch)
+    })
+
+    expect(ordinaryForward.defaultPrevented).toBe(false)
+    expect(rejectedSearch.defaultPrevented).toBe(false)
+    expect(ports.findInTerminal).toHaveBeenCalledOnce()
+    expect(terminalInput).toHaveBeenNthCalledWith(1, ordinaryForward)
+    expect(terminalInput).toHaveBeenNthCalledWith(2, rejectedSearch)
   })
 })
 
@@ -108,7 +133,8 @@ function TerminalCommandHarness({
 
 function keydown(
   key: string,
-  modifiers: Pick<KeyboardEventInit, 'ctrlKey' | 'metaKey'>,
+  modifiers: Pick<KeyboardEventInit, 'ctrlKey' | 'metaKey'> &
+    Partial<Pick<KeyboardEventInit, 'shiftKey'>>,
 ): KeyboardEvent {
   return new KeyboardEvent('keydown', {
     key,
@@ -126,7 +152,7 @@ function commandPorts(): WorkbenchCommandPorts {
     cycleViewMode: vi.fn(),
     findFile: vi.fn(),
     findInFile: vi.fn(),
-    findInTerminal: vi.fn(),
+    findInTerminal: vi.fn(() => true),
     goToLine: vi.fn(),
     toggleTerminalFocus: vi.fn(),
     focusTerminal: vi.fn(),
