@@ -24,6 +24,7 @@
 @import './styles/dialogs.css';
 @import './styles/workspace-catalog.css';
 @import './styles/tree.css';
+@import './styles/file-operations.css';
 @import './styles/path-copy.css';
 @import './styles/terminal-context-menu.css';
 @import './styles/viewer-content.css';

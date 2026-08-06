@@ -3,10 +3,12 @@ import type { BrowserWindow } from 'electron'
 import { joinHostPath, type HostPath } from '../../shared'
 import type { PtySupervisor } from '../pty/pty-supervisor'
 import { ensureExplicitBareShellLaunch } from './terminal-explicit-launch'
+import { verifyTerminalClipboardFilePaste } from './terminal-file-paste'
 import { verifyTerminalContextMenu } from './terminal-context-menu'
 import { verifyTerminalCursorPresentation } from './terminal-cursor-presentation'
 import { verifyTerminalHorizonPresentation } from './terminal-horizon-presentation'
 import { verifyTerminalLigaturePresentation } from './terminal-ligature-presentation'
+import { verifyNegotiatedTerminalKeyboard } from './terminal-keyboard-negotiation'
 import { verifyTerminalPalettePresentation } from './terminal-palette-presentation'
 import { verifyTerminalProjectReturn } from './terminal-project-return'
 import { verifyTerminalSemanticNavigation } from './terminal-semantic-navigation'
@@ -14,12 +16,17 @@ import { verifyTerminalSearch } from './terminal-search'
 import { verifyTerminalThemeGalleryPresentation } from './terminal-theme-gallery-presentation'
 import { withTerminalSmokeTimeout } from './terminal-smoke-timeout'
 import { verifySynchronizedOutput } from './terminal-synchronized-output'
+
 export async function verifyTerminalPresentationLifecycle(
   win: BrowserWindow,
   supervisor: PtySupervisor,
   launchMenuOverflowRoot?: HostPath,
 ): Promise<string> {
   const explicitLaunch = await ensureExplicitBareShellLaunch(win, supervisor)
+  await verifyNegotiatedTerminalKeyboard(win, supervisor)
+  if (launchMenuOverflowRoot) {
+    await verifyTerminalClipboardFilePaste(win, supervisor, launchMenuOverflowRoot)
+  }
   const paletteStatus = await verifyTerminalPalettePresentation(win, supervisor)
   const semanticStatus = await verifyTerminalSemanticNavigation(win, supervisor)
   const searchStatus = await verifyTerminalSearch(win, supervisor)

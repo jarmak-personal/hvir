@@ -4,6 +4,7 @@ import react from '@vitejs/plugin-react'
 import type { Plugin } from 'vite'
 
 import { DEVELOPMENT_PERFORMANCE_MEASURE_POLICY_ID } from './src/renderer/src/development/performance-measure-budget'
+import type { ApplicationBuildChannel } from './src/shared'
 
 function excludeDevelopmentPerformancePolicyFromProduction(): Plugin {
   return {
@@ -116,6 +117,13 @@ const baseConfig: UserConfig = {
 
 export default defineConfig(({ mode }) => {
   const smokeBuild = mode === 'smoke'
+  const buildChannel: ApplicationBuildChannel = smokeBuild
+    ? 'smoke'
+    : mode === 'ssh-acceptance'
+      ? 'ssh-acceptance'
+      : mode === 'development'
+        ? 'development'
+        : 'release'
   return {
     ...baseConfig,
     main: {
@@ -127,6 +135,7 @@ export default defineConfig(({ mode }) => {
       define: {
         ...baseConfig.main?.define,
         __HVIR_SMOKE_BUILD__: JSON.stringify(smokeBuild),
+        __HVIR_BUILD_CHANNEL__: JSON.stringify(buildChannel),
       },
     },
   }

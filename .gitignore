@@ -4,6 +4,7 @@ node_modules
 # build output
 out
 dist
+packages/*/build
 
 # logs
 *.log

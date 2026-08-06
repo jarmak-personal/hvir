@@ -37,7 +37,10 @@ describe('HarnessProbeManager', () => {
     expect(exec).toHaveBeenNthCalledWith(
       2,
       '/bin/zsh',
-      ['-lic', `exec 'claude' '--version'`],
+      [
+        '-lic',
+        `printf '\\036hvir-provider-output-v1\\037'; exec 'claude' '--version' 2>&1`,
+      ],
       expect.any(Object),
     )
 
@@ -45,6 +48,23 @@ describe('HarnessProbeManager', () => {
     expect(exec).toHaveBeenCalledTimes(2)
     await manager.probeProfiles({ ...request, force: true })
     expect(exec).toHaveBeenCalledTimes(4)
+    manager.dispose()
+  })
+
+  it('keeps detached-shell startup diagnostics out of provider versions', async () => {
+    const fixture = probeHost(
+      'probe-shell-diagnostics',
+      'claude 9.2.1',
+      'connected',
+      true,
+      '',
+      'bash: no job control in this shell\n',
+    )
+    const manager = new HarnessProbeManager()
+
+    const [probe] = await manager.probeProfiles(probeRequest(fixture.host))
+
+    expect(probe).toMatchObject({ status: 'available', version: 'claude 9.2.1' })
     manager.dispose()
   })
 
@@ -285,6 +305,7 @@ function probeHost(
   connectionState: ProjectHost['connectionState'] = 'connected',
   executableAvailable = true,
   capabilityOutput = '',
+  shellStderr = '',
 ) {
   const exec = vi.fn((_command: string, args: readonly string[]) => {
     const script = args.at(-1) ?? ''
@@ -300,11 +321,16 @@ function probeHost(
       return Promise.resolve({
         code: 0,
         signal: null,
-        stdout: capabilityOutput,
-        stderr: '',
+        stdout: `\x1ehvir-provider-output-v1\x1f${capabilityOutput}`,
+        stderr: shellStderr,
       })
     }
-    return Promise.resolve({ code: 0, signal: null, stdout: `${version}\n`, stderr: '' })
+    return Promise.resolve({
+      code: 0,
+      signal: null,
+      stdout: `\x1ehvir-provider-output-v1\x1f${version}\n`,
+      stderr: shellStderr,
+    })
   })
   const listeners = new Set<(state: HostConnectionState) => void>()
   let currentConnectionState = connectionState

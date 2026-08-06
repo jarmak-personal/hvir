@@ -16,6 +16,16 @@ export interface ViewerDocumentPosition {
   readonly scrollTop: number
 }
 
+export interface ViewerDocumentRefresh {
+  readonly version: number
+  readonly changes: readonly ViewerDocumentRefreshChange[]
+}
+
+export interface ViewerDocumentRefreshChange {
+  readonly version: number
+  readonly path: HostPath
+}
+
 export interface ViewerTab {
   readonly id: string
   readonly path: HostPath
@@ -31,4 +41,8 @@ export interface ViewerTab {
   readonly error?: string
   readonly dirty: boolean
   readonly conflict: boolean
+  /** Exact repository assets declared by this tab's current rendered document. */
+  readonly renderedDependencies?: readonly HostPath[]
+  /** Exact document or rendered-dependency events that invalidated this tab. */
+  readonly refresh?: ViewerDocumentRefresh
 }

@@ -47,6 +47,10 @@ beforeEach(() => {
         }),
       ),
       send: vi.fn(),
+      on: vi.fn(() => () => undefined),
+      externalFiles: {
+        acquireDropped: vi.fn(() => Promise.reject(new Error('not configured'))),
+      },
     },
   })
   container = document.createElement('div')
@@ -79,6 +83,17 @@ describe('Files rail directory reveal', () => {
           selected={target}
           revealRequest={{ path: target, token: 1 }}
           onOpen={onOpen}
+          viewerPathRebind={{
+            canRebindPath: () => true,
+            rebindPath: () => true,
+            reviewPathRemoval: () => ({ openCount: 0, dirtyPaths: [] }),
+            closeCleanPath: () => ({
+              openCount: 0,
+              dirtyPaths: [],
+              closedCount: 0,
+            }),
+          }}
+          onWorkspaceContentChanged={() => undefined}
           gitEnabled={false}
         />,
       )

@@ -29,7 +29,8 @@ interface DiffViewProps {
   readonly currentSize: number
   readonly dirty: boolean
   readonly revision?: string
-  readonly refreshVersion: number
+  readonly documentRefreshVersion: number
+  readonly gitRefreshVersion: number
   readonly position: ViewerDocumentPosition
   readonly onPosition: (position: ViewerDocumentPosition) => void
   readonly positionCapture: ViewerPositionCapture
@@ -43,7 +44,8 @@ export function DiffView({
   currentSize,
   dirty,
   revision,
-  refreshVersion,
+  documentRefreshVersion,
+  gitRefreshVersion,
   position,
   onPosition,
   positionCapture,
@@ -87,7 +89,7 @@ export function DiffView({
     return () => {
       cancelled = true
     }
-  }, [base, path, refreshVersion, revision])
+  }, [base, documentRefreshVersion, gitRefreshVersion, path, revision])
 
   useEffect(() => {
     const parent = host.current

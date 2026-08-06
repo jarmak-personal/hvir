@@ -15,6 +15,18 @@ import { asHostId, hostPath, type HostPath, type WatchEvent } from '../src/share
 import { createTestSshHost } from './ssh-host-test-fixture'
 
 describe('SshHost remote behavior', () => {
+  it('truthfully discloses permanent deletion without a remote trash helper', async () => {
+    const host = createTestSshHost({
+      config: aliasConfig(),
+      prompter: { prompt: () => Promise.resolve(undefined) },
+      clientFactory: () => fakeClient(() => undefined) as unknown as Client,
+    })
+
+    expect(host.fileDeletion).toEqual({ capability: 'permanent' })
+    expect('trashEntry' in host.fileDeletion).toBe(false)
+    await host.dispose()
+  })
+
   it('connects, probes, and executes through the default buffered slot', async () => {
     const client = Object.assign(
       fakeClient(() => queueMicrotask(() => client.emit('ready'))),
@@ -423,6 +435,109 @@ describe('SshHost remote behavior', () => {
       /^rename:\/project\/\.file\.txt\.hvir-[0-9a-f-]+\.tmp:\/project\/file\.txt$/,
     )
     expect(session.rename).not.toHaveBeenCalled()
+    expect(session.unlink).not.toHaveBeenCalled()
+  })
+
+  it('delegates exclusive file and directory creation through deterministic SFTP mechanics', async () => {
+    const handle = Buffer.from('handle')
+    const session = {
+      open: vi.fn(
+        (
+          _path: string,
+          _flags: string,
+          _attrs: unknown,
+          callback: (error: Error | undefined, value: Buffer) => void,
+        ) => callback(undefined, handle),
+      ),
+      fsetstat: vi.fn(
+        (_handle: Buffer, _attrs: unknown, callback: (error?: Error) => void) =>
+          callback(),
+      ),
+      close: vi.fn((_handle: Buffer, callback: (error?: Error) => void) => callback()),
+      mkdir: vi.fn((_path: string, _attrs: unknown, callback: (error?: Error) => void) =>
+        callback(),
+      ),
+      setstat: vi.fn(
+        (_path: string, _attrs: unknown, callback: (error?: Error) => void) => callback(),
+      ),
+      lstat: vi.fn(
+        (path: string, callback: (error: Error | undefined, value: unknown) => void) =>
+          callback(undefined, {
+            mode: path.endsWith('.txt') ? 0o100644 : 0o040755,
+            size: 0,
+            mtime: 100,
+          }),
+      ),
+    }
+    const host = createTestSshHost({
+      config: aliasConfig(),
+      prompter: { prompt: () => Promise.resolve(undefined) },
+    })
+    ;(hostFiles(host) as unknown as { getSftp(): Promise<unknown> }).getSftp = () =>
+      Promise.resolve(session)
+
+    await host.createFileExclusive(hostPath(host.hostId, '/project/new.txt'), {
+      mode: 0o644,
+    })
+    await host.createDirectoryExclusive(hostPath(host.hostId, '/project/new-dir'), {
+      mode: 0o755,
+    })
+
+    expect(session.open).toHaveBeenCalledWith(
+      '/project/new.txt',
+      'wx',
+      { mode: 0o644 },
+      expect.any(Function),
+    )
+    expect(session.fsetstat).toHaveBeenCalledWith(
+      handle,
+      { mode: 0o644 },
+      expect.any(Function),
+    )
+    expect(session.mkdir).toHaveBeenCalledWith(
+      '/project/new-dir',
+      { mode: 0o755 },
+      expect.any(Function),
+    )
+    expect(session.setstat).toHaveBeenCalledWith(
+      '/project/new-dir',
+      { mode: 0o755 },
+      expect.any(Function),
+    )
+  })
+
+  it('normalizes an ambiguous SFTP exclusive-create failure when the target exists', async () => {
+    const session = {
+      open: vi.fn(
+        (
+          _path: string,
+          _flags: string,
+          _attrs: unknown,
+          callback: (error: Error) => void,
+        ) => callback(Object.assign(new Error('Failure'), { code: 4 })),
+      ),
+      lstat: vi.fn(
+        (_path: string, callback: (error: Error | undefined, value: unknown) => void) =>
+          callback(undefined, { mode: 0o100644, size: 1, mtime: 100 }),
+      ),
+      unlink: vi.fn(),
+    }
+    const host = createTestSshHost({
+      config: aliasConfig(),
+      prompter: { prompt: () => Promise.resolve(undefined) },
+    })
+    ;(hostFiles(host) as unknown as { getSftp(): Promise<unknown> }).getSftp = () =>
+      Promise.resolve(session)
+
+    await expect(
+      host.createFileExclusive(hostPath(host.hostId, '/project/existing.txt'), {
+        mode: 0o644,
+      }),
+    ).rejects.toMatchObject({ name: 'ProjectPathExistsError', code: 'EEXIST' })
+    expect(session.lstat).toHaveBeenCalledWith(
+      '/project/existing.txt',
+      expect.any(Function),
+    )
     expect(session.unlink).not.toHaveBeenCalled()
   })
 
