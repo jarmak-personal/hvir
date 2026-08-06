@@ -677,12 +677,15 @@ export class LocalHost implements ProjectHost {
       destinationParent =
         dirname(from) === dirname(to) ? sourceParent : await fsp.open(dirname(to), 'r')
       opts.signal?.throwIfAborted()
+      const binding = loadAtomicRenameBinding()
+      const sourceName = basename(from)
+      const destinationName = basename(to)
       opts.onSubmitted?.()
-      const result = loadAtomicRenameBinding().renameNoReplace(
+      const result = binding.renameNoReplace(
         sourceParent.fd,
-        basename(from),
+        sourceName,
         destinationParent.fd,
-        basename(to),
+        destinationName,
       )
       if (!Number.isInteger(result) || (result as number) < 0) {
         throw new Error('Atomic no-replace helper returned an invalid result')
