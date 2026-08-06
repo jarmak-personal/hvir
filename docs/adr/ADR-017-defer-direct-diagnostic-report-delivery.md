@@ -3,6 +3,11 @@
 > [ADR-026](ADR-026-explicit-ssh-image-paste.md) narrowly supersedes this record's
 > rejection of remote image staging and generic PTY injection only for an explicit
 > image-paste gesture in a focused terminal. Diagnostic-report delivery remains deferred.
+>
+> [ADR-031](ADR-031-explicit-document-review-handoff.md) narrowly supersedes this record's
+> rejection of generic PTY text delivery only for an explicit, visibly prepared
+> document-review payload using a revisioned atomic bracketed-paste provider contract and
+> exact PTY ownership. Diagnostic-report delivery and generic prompt injection remain deferred.
 
 ## Context
 

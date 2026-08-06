@@ -179,6 +179,35 @@ contract remain Copy-only. The contract is identical for local and SSH terminals
 and destination must share the same host-qualified workspace, all reads and PTY operations remain
 behind `ProjectHost`, and SSH receives no review store, sidecar, daemon, or helper.
 
+### Relationship to existing terminal delivery decisions
+
+ADR-013 reserves future direct harness delivery for an explicit provider capability routed
+through exact PTY ownership rather than a generic PTY write. Document review exercises that
+reserved boundary with a narrower terminal-byte contract: one immutable body and destination are
+visible before authorization; the effective provider capability and revision are bound to the
+live PTY instance; every owner, generation, workspace, host, and provider binding is revalidated;
+and the provider frames the complete multiline body as one atomic bracketed paste for one
+supervisor write. Bracketed paste keeps body newlines literal, the provider-owned revision keeps
+terminal and composer semantics out of the coordinator, and the exact prepared bytes prevent the
+transport from adding hidden context. Those properties, plus Copy-only failure for every
+unproven target, are why terminal bytes are accepted for this one workflow. They do not authorize
+a generic write API or claim that terminal liveness proves foreground composer state.
+
+This record therefore narrowly supersedes ADR-017's rejection of PTY text delivery only for an
+explicit, visibly prepared document-review payload under that revisioned atomic-paste contract.
+Diagnostic reports retain Preview, Copy, and Save; arbitrary text, ambient target inference,
+generic prompt injection, attachments, and new-conversation orchestration remain deferred.
+
+Document-review delivery and ADR-026 remote image paste remain separate coordinators. Review
+delivery handles visible UTF-8 feedback bodies, insertion-versus-send acknowledgement, and
+`draft`/`sent`/`resolved` state without remote material. Image paste handles clipboard PNG
+authority, private SSH staging, native attachment acknowledgement, retained bytes, expiry, and
+cleanup. They reuse the stable renderer-resource and PTY ownership primitives and the same exact
+renderer owner/generation, live PTY instance, workspace, host, provider, and capability-revision
+binding concepts. They do not duplicate that generic authority policy inside feature views or
+providers, but their different payload, acknowledgement, retention, and lifecycle semantics do
+not justify a shared prompt-delivery service or shared coordinator state machine.
+
 ## Consequences
 
 Review becomes a durable, view-first workflow with explicit capture, exact payload disclosure,
