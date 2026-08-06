@@ -3,6 +3,10 @@ import type { TerminalEventRouter } from './terminal-event-router'
 import type { TerminalPane } from './terminal-pane'
 import { createTerminalRuntimePane } from './terminal-pane-factory'
 import {
+  applyLivePaneOptions,
+  runtimeCanInteract,
+} from './terminal-runtime-live-settings'
+import {
   launchUnavailableStatus,
   resumeUnavailableStatus,
   terminalRecoveryFailureEquals,
@@ -58,7 +62,7 @@ export class TerminalRuntime {
       () => this.focus(),
       () => this.options.onFocus(),
     )
-    this.interactions.updateAvailability(options.active && options.presentation === 'visible')
+    this.interactions.updateAvailability(runtimeCanInteract(options))
     // Connected is the neutral initial value; the first synchronization must still
     // publish a disconnected/connecting state without requiring a mounted pane.
     this.appliedConnectionState = 'connected'
@@ -88,14 +92,9 @@ export class TerminalRuntime {
     ) {
       throw new Error('Live terminal launch context cannot change')
     }
-    const typographyChanged =
-      options.typography.fontFamily !== this.options.typography.fontFamily ||
-      options.typography.fontSize !== this.options.typography.fontSize
+    const typographyChanged = applyLivePaneOptions(this.pane, this.options, options)
     this.options = options
-    this.interactions.updateAvailability(
-      options.active && options.presentation === 'visible',
-    )
-    if (typographyChanged) this.pane?.setTypography(options.typography)
+    this.interactions.updateAvailability(runtimeCanInteract(options))
     if (typographyChanged) this.interactions.retainedBufferChanged()
   }
 
@@ -258,6 +257,7 @@ export class TerminalRuntime {
         return
       }
       this.pane = pane
+      pane.setTheme(this.options.theme)
       pane.setTypography(this.options.typography)
       this.installPaneListeners(pane)
       this.surface.mountPane(pane, container)

@@ -8,6 +8,7 @@ import type {
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { createGhosttyTerminalPane } from '../src/renderer/src/terminal/ghostty-terminal-pane'
+import { terminalThemeForAppearance } from '../src/renderer/src/terminal/terminal-palette'
 import type { TerminalEvent } from '../src/renderer/src/terminal/terminal-pane'
 
 const state = vi.hoisted(() => ({
@@ -214,20 +215,7 @@ describe('Ghostty terminal search identity', () => {
 
 async function createPane() {
   const pane = await createGhosttyTerminalPane(
-    {
-      background: '#111',
-      foreground: '#eee',
-      cursor: '#fff',
-      selectionBackground: '#555',
-      black: '#000',
-      red: '#f00',
-      green: '#0f0',
-      yellow: '#ff0',
-      blue: '#00f',
-      magenta: '#f0f',
-      cyan: '#0ff',
-      white: '#fff',
-    },
+    terminalThemeForAppearance('dark'),
     { fontFamily: 'monospace', fontSize: 13 },
     {
       modifiedKeyProtocol: 'modify-other-keys',

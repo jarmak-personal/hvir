@@ -348,18 +348,6 @@
   border-left-color: var(--border-strong);
 }
 
-.terminal-container[data-terminal-theme='dark'] {
-  background: #111318;
-}
-
-.terminal-container[data-terminal-theme='light'] {
-  background: #ecece7;
-}
-
-.terminal-container[data-terminal-theme='light'] canvas {
-  filter: invert(1) hue-rotate(180deg);
-}
-
 :root[data-theme='light'] .markdown-body {
   color: var(--text);
 }
