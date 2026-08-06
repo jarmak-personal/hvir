@@ -91,6 +91,7 @@ export async function verifyScrollbarPresentation(win: BrowserWindow): Promise<s
     )
 
     const active = await waitForFixtureVisibility(win, true, true, 'scrollbar activity')
+    await verifyObscuringOverlay(win, snapshot.trackPoint)
     moveMouse(win, snapshot.emptyPoint)
     const idle = await waitForFixtureVisibility(win, false, false, 'scrollbar idle')
     if (
@@ -131,6 +132,62 @@ export async function verifyScrollbarPresentation(win: BrowserWindow): Promise<s
     return 'overlay geometry + wheel/track/thumb/keyboard reach + active/idle stability'
   } finally {
     await removeFixture(win)
+  }
+}
+
+async function verifyObscuringOverlay(
+  win: BrowserWindow,
+  trackPoint: readonly [number, number],
+): Promise<void> {
+  const presentation = (await win.webContents.executeJavaScript(`
+    new Promise((resolve) => {
+      const blocker = document.createElement('div');
+      blocker.className = 'hvir-scrollbar-obscuring';
+      Object.assign(blocker.style, {
+        position: 'fixed',
+        zIndex: '1200',
+        inset: '0',
+        pointerEvents: 'auto'
+      });
+      document.body.append(blocker);
+      requestAnimationFrame(() => requestAnimationFrame(() => {
+        const tracks = [...document.querySelectorAll('.hvir-scrollbar')].map((track) => {
+          const style = getComputedStyle(track);
+          return {
+            opacity: style.opacity,
+            pointerEvents: style.pointerEvents,
+            visibility: style.visibility
+          };
+        });
+        const target = document.elementFromPoint(
+          ${Math.round(trackPoint[0])}, ${Math.round(trackPoint[1])}
+        );
+        blocker.remove();
+        resolve({ tracks, targetWasScrollbar: target?.classList.contains('hvir-scrollbar') });
+      }));
+    })
+  `)) as {
+    readonly tracks: readonly {
+      readonly opacity: string
+      readonly pointerEvents: string
+      readonly visibility: string
+    }[]
+    readonly targetWasScrollbar: boolean
+  }
+  if (
+    presentation.tracks.length === 0 ||
+    presentation.tracks.some(
+      (track) =>
+        track.opacity !== '0' ||
+        track.pointerEvents !== 'none' ||
+        track.visibility !== 'hidden',
+    ) ||
+    presentation.targetWasScrollbar
+  ) {
+    throw new Error(
+      `obscuring overlay left a scrollbar visible or interactive ` +
+        `(${JSON.stringify(presentation)})`,
+    )
   }
 }
 

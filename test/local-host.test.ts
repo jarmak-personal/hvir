@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   mkdir,
   mkdtemp,
@@ -9,6 +9,7 @@ import {
   utimes,
   writeFile,
 } from 'node:fs/promises'
+import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -59,6 +60,145 @@ describe('LocalHost', () => {
     await host.writeFile(p, 'hi there')
     expect(await host.readTextFile(p)).toBe('hi there')
     expect((await host.readFile(p)).toString('utf8')).toBe('hi there')
+  })
+
+  it('advertises recoverable deletion only with an injected trash port', async () => {
+    expect(host.fileDeletion).toEqual({ capability: 'unavailable' })
+    const trashItem = vi.fn(() => Promise.resolve())
+    const recoverable = new LocalHost({ trashItem })
+    const path = localPath(join(dir, 'trash-me.txt'))
+    await writeFile(path.path, 'trash')
+
+    expect(recoverable.fileDeletion.capability).toBe('recoverable')
+    if (recoverable.fileDeletion.capability !== 'recoverable') {
+      throw new Error('Expected recoverable deletion')
+    }
+    await recoverable.fileDeletion.trashEntry(path)
+    expect(trashItem).toHaveBeenCalledWith(path)
+    await recoverable.dispose()
+  })
+
+  it('creates exclusive empty files and directories with approved modes', async () => {
+    const file = localPath(join(dir, 'created.txt'))
+    const directory = localPath(join(dir, 'created-dir'))
+
+    await host.createFileExclusive(file, { mode: 0o644 })
+    await host.createDirectoryExclusive(directory, { mode: 0o755 })
+
+    await expect(host.readFile(file)).resolves.toHaveLength(0)
+    expect(await host.stat(file)).toMatchObject({ type: 'file', size: 0 })
+    expect((await host.stat(file)).mode & 0o777).toBe(0o644)
+    expect(await host.stat(directory)).toMatchObject({ type: 'dir' })
+    expect((await host.stat(directory)).mode & 0o777).toBe(0o755)
+  })
+
+  it('never replaces an existing entry during exclusive creation', async () => {
+    const file = localPath(join(dir, 'existing.txt'))
+    const directory = localPath(join(dir, 'existing-dir'))
+    await host.writeFile(file, 'keep')
+    await mkdir(directory.path)
+
+    await expect(host.createFileExclusive(file, { mode: 0o644 })).rejects.toMatchObject({
+      code: 'EEXIST',
+    })
+    await expect(
+      host.createDirectoryExclusive(directory, { mode: 0o755 }),
+    ).rejects.toMatchObject({ code: 'EEXIST' })
+    await expect(host.readTextFile(file)).resolves.toBe('keep')
+    await expect(host.readdir(directory)).resolves.toEqual([])
+  })
+
+  it('streams to an exclusive staging file and atomically refuses replacement', async () => {
+    const staging = localPath(join(dir, '.hvir-import-stage'))
+    const destination = localPath(join(dir, 'existing.txt'))
+    await writeFile(destination.path, 'winner')
+    let created = 0
+
+    await host.fileTransfer.writeFileChunksExclusive(staging, chunks('source'), {
+      mode: 0o755,
+      onCreated: () => {
+        created += 1
+      },
+    })
+    await expect(
+      host.fileTransfer.renameNoReplace(staging, destination),
+    ).rejects.toMatchObject({ code: 'EEXIST' })
+
+    expect(created).toBe(1)
+    expect(await host.readTextFile(destination)).toBe('winner')
+    expect(await host.readTextFile(staging)).toBe('source')
+    expect((await host.stat(staging)).mode & 0o777).toBe(0o755)
+  })
+
+  it('atomically refuses to replace an existing directory', async () => {
+    const staging = localPath(join(dir, '.hvir-import-directory'))
+    const destination = localPath(join(dir, 'existing-directory'))
+    await mkdir(staging.path)
+    await mkdir(destination.path)
+
+    await expect(
+      host.fileTransfer.renameNoReplace(staging, destination),
+    ).rejects.toMatchObject({ code: 'EEXIST' })
+    await expect(host.stat(staging)).resolves.toMatchObject({ type: 'dir' })
+    await expect(host.stat(destination)).resolves.toMatchObject({ type: 'dir' })
+  })
+
+  it('atomically moves entries between directories without replacement', async () => {
+    const sourceParent = localPath(join(dir, 'source'))
+    const destinationParent = localPath(join(dir, 'destination'))
+    await mkdir(sourceParent.path)
+    await mkdir(destinationParent.path)
+    const source = localPath(join(sourceParent.path, 'entry.txt'))
+    const destination = localPath(join(destinationParent.path, 'entry.txt'))
+    await writeFile(source.path, 'preserved')
+
+    await host.fileTransfer.renameNoReplace(source, destination)
+
+    await expect(host.stat(source)).rejects.toThrow()
+    await expect(host.readTextFile(destination)).resolves.toBe('preserved')
+
+    await writeFile(source.path, 'source')
+    await expect(
+      host.fileTransfer.renameNoReplace(source, destination),
+    ).rejects.toMatchObject({ code: 'EEXIST' })
+    await expect(host.readTextFile(source)).resolves.toBe('source')
+    await expect(host.readTextFile(destination)).resolves.toBe('preserved')
+  })
+
+  it('rejects an invalid atomic rename binding before reporting submission', async () => {
+    const source = localPath(join(dir, 'binding-source.txt'))
+    const destination = localPath(join(dir, 'binding-destination.txt'))
+    await writeFile(source.path, 'preserved')
+    const bindingRequire = createRequire(import.meta.url)
+    const bindingPath = bindingRequire.resolve('@hvir/rename-noreplace')
+    const originalBinding: unknown = bindingRequire('@hvir/rename-noreplace')
+    const cachedBinding = bindingRequire.cache[bindingPath]
+    if (!cachedBinding) throw new Error('Expected the atomic rename binding to be cached')
+    cachedBinding.exports = { metadata: () => 'invalid' }
+    const onSubmitted = vi.fn()
+
+    try {
+      await expect(
+        host.fileTransfer.renameNoReplace(source, destination, { onSubmitted }),
+      ).rejects.toThrow('Atomic no-replace helper exports do not match hvir')
+    } finally {
+      cachedBinding.exports = originalBinding
+    }
+
+    expect(onSubmitted).not.toHaveBeenCalled()
+    await expect(host.readTextFile(source)).resolves.toBe('preserved')
+    await expect(host.stat(destination)).rejects.toThrow()
+  })
+
+  it('rejects exclusive creation before an aborted effect begins', async () => {
+    const controller = new AbortController()
+    controller.abort()
+    const file = localPath(join(dir, 'cancelled.txt'))
+
+    await expect(
+      host.createFileExclusive(file, { mode: 0o644, signal: controller.signal }),
+    ).rejects.toMatchObject({ name: 'AbortError' })
+    await expect(host.stat(file)).rejects.toThrow()
   })
 
   it('rejects an aborted atomic write without publishing the file', async () => {
@@ -551,3 +691,8 @@ describe('LocalHost', () => {
     },
   )
 })
+
+async function* chunks(value: string): AsyncIterable<Uint8Array> {
+  await Promise.resolve()
+  yield Buffer.from(value)
+}

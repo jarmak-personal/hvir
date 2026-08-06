@@ -1,6 +1,7 @@
 export * from './disposer'
 export * from './host-path'
 export * from './fs-types'
+export * from './project-file-operations'
 export * from './filename-search'
 export * from './ipc'
 export * from './worker-protocol'

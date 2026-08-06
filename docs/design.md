@@ -233,6 +233,12 @@ A contributor-only, Developer ID signed macOS application uses a distinct bundle
 state root for LAN SSH coexistence acceptance while the installed release remains the sole user
 installation.
 
+### [ADR-030 — Bounded project file operations and explicit external-source authority](adr/ADR-030-bounded-project-file-operations.md)
+
+One main-owned coordinator applies fixed targeting, confinement, collision, transfer,
+verification, deletion, and lifecycle policy over immediate `ProjectHost` primitives; explicit
+operation-scoped grants bound application-host sources outside registered projects.
+
 ## 5. Architecture
 
 ### Process model

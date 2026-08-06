@@ -14,6 +14,24 @@ import type { DirEntry, FileType, WatchEvent } from './fs-types'
 import type { FilenameSearchRequest, FilenameSearchResponse } from './filename-search'
 import type { HostPath } from './host-path'
 import type {
+  ExternalFileGrantResult,
+  ExternalMoveGrantResult,
+  ExternalMoveGrantReleaseRequest,
+  ProjectFileExternalMoveAcquireRequest,
+  ProjectFileExternalMoveDisclosure,
+  ProjectFileExternalMoveRequest,
+  ProjectFileCreateRequest,
+  ProjectFileDeleteRequest,
+  ProjectFileDeletionDisclosure,
+  ProjectFileDeletionDisclosureRequest,
+  ProjectFileCancelRequest,
+  ProjectFileExternalCopyRequest,
+  ProjectFileOrganizationRequest,
+  ProjectFileOperationProgress,
+  ProjectFileOperationResult,
+  ProjectFileOperationStartResult,
+} from './project-file-operations'
+import type {
   CreateHtmlPreviewRequest,
   CreateHtmlPreviewResponse,
   ReleaseHtmlPreviewRequest,
@@ -213,6 +231,11 @@ export interface ReadDirectoryRequest {
 
 export interface ReadFileRequest {
   readonly path: HostPath
+}
+
+/** Preload-only payload populated through Electron's disk-backed File bridge. */
+export interface AcquireDroppedFilesRequest {
+  readonly paths: readonly string[]
 }
 
 export interface ResolveEntryResponse {
@@ -618,6 +641,54 @@ export interface IpcInvokeMap {
     response: OperationResult<ReadAssetResponse>
   }
   'fs:write': { request: WriteFileRequest; response: OperationResult<WriteFileResponse> }
+  'fs:create-entry': {
+    request: ProjectFileCreateRequest
+    response: OperationResult<ProjectFileOperationResult>
+  }
+  'fs:acquire-clipboard-files': {
+    request: void
+    response: OperationResult<ExternalFileGrantResult>
+  }
+  'fs:acquire-dropped-files': {
+    request: AcquireDroppedFilesRequest
+    response: OperationResult<ExternalFileGrantResult>
+  }
+  'fs:copy-external': {
+    request: ProjectFileExternalCopyRequest
+    response: OperationResult<ProjectFileOperationStartResult>
+  }
+  'fs:external-move-disclosure': {
+    request: void
+    response: OperationResult<ProjectFileExternalMoveDisclosure>
+  }
+  'fs:acquire-external-move-files': {
+    request: ProjectFileExternalMoveAcquireRequest
+    response: OperationResult<ExternalMoveGrantResult>
+  }
+  'fs:release-external-move-grant': {
+    request: ExternalMoveGrantReleaseRequest
+    response: OperationResult<boolean>
+  }
+  'fs:move-external': {
+    request: ProjectFileExternalMoveRequest
+    response: OperationResult<ProjectFileOperationStartResult>
+  }
+  'fs:organize-entry': {
+    request: ProjectFileOrganizationRequest
+    response: OperationResult<ProjectFileOperationStartResult>
+  }
+  'fs:deletion-disclosure': {
+    request: ProjectFileDeletionDisclosureRequest
+    response: OperationResult<ProjectFileDeletionDisclosure>
+  }
+  'fs:delete-entry': {
+    request: ProjectFileDeleteRequest
+    response: OperationResult<ProjectFileOperationStartResult>
+  }
+  'fs:cancel-file-operation': {
+    request: ProjectFileCancelRequest
+    response: OperationResult<boolean>
+  }
   'git:diff-inputs': { request: GitDiffRequest; response: GitDiffResponse }
   'git:changes': { request: GitChangesRequest; response: GitChanges }
   'git:history': { request: GitHistoryRequest; response: GitHistoryPage }
@@ -750,6 +821,7 @@ export interface IpcEventMap {
   'workbench-health:state': WorkbenchHealthSnapshot
   'project:watch': WatchEvent
   'project:state': ProjectState
+  'fs:project-file-operation': ProjectFileOperationProgress
   'ssh:prompt': SshPromptRequest
   'ssh:prompt-cancel': { readonly hostId: string }
   'pty:data': { readonly id: string; readonly data: string }
@@ -775,6 +847,11 @@ export interface IpcEventMap {
 }
 
 export type IpcInvokeChannel = keyof IpcInvokeMap
+export type PreloadOnlyIpcInvokeChannel = 'fs:acquire-dropped-files'
+export type RendererIpcInvokeChannel = Exclude<
+  IpcInvokeChannel,
+  PreloadOnlyIpcInvokeChannel
+>
 export type IpcSendChannel = keyof IpcSendMap
 export type IpcEventChannel = keyof IpcEventMap
 
@@ -793,7 +870,7 @@ export interface HvirApi {
   rendererReady(): void
   /** Resolve one disk-backed clipboard File to safe local terminal paste text. */
   resolveTerminalClipboardFilePaste(file: File): string | undefined
-  invoke<C extends IpcInvokeChannel>(
+  invoke<C extends RendererIpcInvokeChannel>(
     channel: C,
     request: IpcRequest<C>,
   ): Promise<IpcResponse<C>>
@@ -802,6 +879,12 @@ export interface HvirApi {
     channel: E,
     callback: (payload: IpcEventPayload<E>) => void,
   ): Disposer
+  readonly externalFiles: {
+    /** Converts renderer File objects to inert main-owned paths inside preload. */
+    acquireDropped(
+      files: readonly File[],
+    ): Promise<OperationResult<ExternalFileGrantResult>>
+  }
   readonly diagnostics: {
     /** Electron's renderer-process sandbox state, surfaced read-only by preload. */
     readonly processSandboxed: boolean
@@ -850,6 +933,18 @@ export const INVOKE_CHANNELS = [
   'fs:read',
   'fs:read-asset',
   'fs:write',
+  'fs:create-entry',
+  'fs:acquire-clipboard-files',
+  'fs:acquire-dropped-files',
+  'fs:copy-external',
+  'fs:external-move-disclosure',
+  'fs:acquire-external-move-files',
+  'fs:release-external-move-grant',
+  'fs:move-external',
+  'fs:organize-entry',
+  'fs:deletion-disclosure',
+  'fs:delete-entry',
+  'fs:cancel-file-operation',
   'git:diff-inputs',
   'git:changes',
   'git:history',
@@ -889,6 +984,15 @@ export const INVOKE_CHANNELS = [
   'web-pane:open-browser',
 ] as const satisfies readonly IpcInvokeChannel[]
 
+export const PRELOAD_ONLY_INVOKE_CHANNELS = [
+  'fs:acquire-dropped-files',
+] as const satisfies readonly PreloadOnlyIpcInvokeChannel[]
+
+export const RENDERER_INVOKE_CHANNELS = INVOKE_CHANNELS.filter(
+  (channel): channel is RendererIpcInvokeChannel =>
+    !(PRELOAD_ONLY_INVOKE_CHANNELS as readonly IpcInvokeChannel[]).includes(channel),
+)
+
 export const SEND_CHANNELS = [
   'app:renderer-ready',
   'diagnostics:render-containment',
@@ -908,6 +1012,7 @@ export const EVENT_CHANNELS = [
   'workbench-health:state',
   'project:watch',
   'project:state',
+  'fs:project-file-operation',
   'ssh:prompt',
   'ssh:prompt-cancel',
   'pty:data',

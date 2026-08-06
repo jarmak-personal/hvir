@@ -23,6 +23,8 @@ import {
   viewerWorkspaceReducer,
   type ViewerWorkspaceAction,
 } from './viewer-workspace-model'
+import { useViewerPathLifecycle } from './use-viewer-path-lifecycle'
+import { collectViewerWatchPaths } from './viewer-document-refresh'
 import {
   sameViewerWorkspace,
   selectActiveTab,
@@ -336,16 +338,22 @@ export function useViewerWorkspace(options: UseViewerWorkspaceOptions) {
     [send],
   )
 
-  const renderedWatchPaths = useMemo(
-    () => model.tabs.flatMap((tab) => tab.renderedDependencies ?? []),
-    [model.tabs],
-  )
+  const watchPaths = useMemo(() => collectViewerWatchPaths(model.tabs), [model.tabs])
 
   const reloadCleanFiles = useCallback((): void => {
     for (const tab of modelRef.current.tabs) {
       if (!tab.dirty) loadFileAt(tab.path)
     }
   }, [loadFileAt])
+
+  const { canRebindPath, rebindPath, reviewPathRemoval, closeCleanPath } =
+    useViewerPathLifecycle({
+      modelRef,
+      pendingPositions,
+      readGenerations,
+      send,
+      closeTab,
+    })
 
   const focusPane = useCallback(
     (pane: ViewerPaneId, id?: string): void => {
@@ -469,8 +477,13 @@ export function useViewerWorkspace(options: UseViewerWorkspaceOptions) {
     saveTab,
     handleWatchEvent,
     setRenderedDependencies,
-    renderedWatchPaths,
+    openWatchPaths: watchPaths.openPaths,
+    renderedWatchPaths: watchPaths.dependencyPaths,
     reloadCleanFiles,
+    canRebindPath,
+    rebindPath,
+    reviewPathRemoval,
+    closeCleanPath,
     focusPane,
     getActivePane,
     openSplit,

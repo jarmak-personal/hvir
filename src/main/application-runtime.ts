@@ -1,3 +1,4 @@
+import { join } from 'node:path'
 import { app } from 'electron'
 
 import { localPath } from '../shared'
@@ -10,3 +11,8 @@ export const applicationRuntime = configureApplicationRuntime(
   __HVIR_BUILD_CHANNEL__,
   (path) => LocalHost.ensureBootstrapDirectory(localPath(path)),
 )
+
+/** Resolves one application-owned state file beneath the selected runtime root. */
+export function applicationUserDataPath(name: string): string {
+  return join(applicationRuntime.userDataRoot, name)
+}

@@ -28,7 +28,7 @@
   "main": "./out/main/index.js",
   "scripts": {
     "postinstall": "npm run install:runtime",
-    "install:runtime": "install-electron --no && electron-rebuild -f -o node-pty",
+    "install:runtime": "install-electron --no && node-gyp rebuild --directory node_modules/@hvir/rename-noreplace && electron-rebuild -f -o node-pty",
     "prebuild": "node scripts/check-terminal-runtime.mts",
     "predev": "node scripts/check-terminal-runtime.mts",
     "dev": "electron-vite dev",
@@ -83,12 +83,14 @@
     "@codemirror/search": "^6.7.1",
     "@codemirror/state": "^6.7.1",
     "@codemirror/view": "^6.43.7",
+    "bplist-parser": "^0.3.2",
     "chokidar": "^5.0.0",
     "ghostty-web": "https://github.com/jarmak-personal/ghostty-web/releases/download/hvir-v0.4.0-10/ghostty-web-0.4.0-hvir-g4c1a212dc6aa.tgz",
     "markdown-it": "^15.0.0",
     "markdown-it-task-lists": "^2.1.1",
     "mermaid": "^11.16.0",
     "node-pty": "^1.1.0",
+    "plist": "^3.1.0",
     "shiki": "^4.4.1",
     "ssh-config": "^5.2.0",
     "ssh2": "^1.17.0",
@@ -100,6 +102,7 @@
     "@stryker-mutator/core": "^9.6.1",
     "@stryker-mutator/vitest-runner": "^9.6.1",
     "@types/node": "^24.13.3",
+    "@types/plist": "^3.0.5",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.4",
     "@types/ssh2": "^1.15.5",
@@ -113,6 +116,7 @@
     "eslint-plugin-react-hooks": "^7.1.0",
     "eslint-plugin-react-refresh": "^0.5.0",
     "happy-dom": "^20.11.1",
+    "node-gyp": "^12.4.0",
     "prettier": "^3.9.6",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
@@ -125,5 +129,8 @@
     "typed-rest-client": {
       "qs": "6.15.3"
     }
+  },
+  "optionalDependencies": {
+    "@hvir/rename-noreplace": "file:packages/rename-noreplace"
   }
 }

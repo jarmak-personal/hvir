@@ -15,6 +15,8 @@ import type {
 } from './tab-state'
 import { viewerTabId } from './viewer-workspace-persistence'
 import { initialViewerPosition, nextViewerMode } from './viewer-position'
+import { rebindViewerPath } from './viewer-path-rebind'
+import { isCurrentViewerRead } from './viewer-read-policy'
 import * as documentRefresh from './viewer-document-refresh'
 
 export interface ViewerWorkspaceModel {
@@ -102,6 +104,11 @@ export type ViewerWorkspaceAction =
   | { readonly type: 'move'; readonly id: string; readonly pane: ViewerPaneId }
   | { readonly type: 'split-opened' }
   | { readonly type: 'split-closed' }
+  | {
+      readonly type: 'rebind-path'
+      readonly source: HostPath
+      readonly destination: HostPath
+    }
 
 export const initialViewerWorkspaceModel: ViewerWorkspaceModel = {
   generation: 0,
@@ -263,7 +270,7 @@ export function viewerWorkspaceReducer(
         },
       }
     case 'read-succeeded':
-      if (!currentRead(model, action)) return model
+      if (!isCurrentViewerRead(model, action)) return model
       return mapTab(model, action.id, (tab) =>
         tab.dirty
           ? tab
@@ -276,7 +283,7 @@ export function viewerWorkspaceReducer(
             },
       )
     case 'read-failed':
-      if (!currentRead(model, action)) return model
+      if (!isCurrentViewerRead(model, action)) return model
       return mapTab(model, action.id, (tab) =>
         tab.dirty
           ? tab
@@ -343,6 +350,8 @@ export function viewerWorkspaceReducer(
         },
       }
     }
+    case 'rebind-path':
+      return rebindViewerPath(model, action.source, action.destination)
   }
 }
 
@@ -483,18 +492,4 @@ function reorderTabs(
   if (!dragged) return tabs
   next.splice(to, 0, dragged)
   return next
-}
-
-function currentRead(
-  model: ViewerWorkspaceModel,
-  action: {
-    readonly id: string
-    readonly workspaceGeneration: number
-    readonly readGeneration: number
-  },
-): boolean {
-  return (
-    action.workspaceGeneration === model.generation &&
-    model.readGenerations[action.id] === action.readGeneration
-  )
 }

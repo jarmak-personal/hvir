@@ -1,11 +1,20 @@
-import { hostPath, hostPathEquals, repositoryImageMimeType } from '../../../shared'
+import {
+  MAX_EXTERNAL_FILE_SOURCES,
+  hostPath,
+  hostPathEquals,
+  repositoryImageMimeType,
+} from '../../../shared'
 import type { IpcRegistrar } from '../authority-router'
 import type { IpcDeps } from '../deps'
 import { operationResult } from '../operation-result'
 
 type FilesystemIpcDeps = Pick<
   IpcDeps,
-  'getProject' | 'getProjectState' | 'filenameSearch' | 'rendererResources'
+  | 'getProject'
+  | 'getProjectState'
+  | 'filenameSearch'
+  | 'projectFiles'
+  | 'rendererResources'
 >
 
 export function registerFilesystemIpc(ipc: IpcRegistrar, deps: FilesystemIpcDeps): void {
@@ -158,4 +167,179 @@ export function registerFilesystemIpc(ipc: IpcRegistrar, deps: FilesystemIpcDeps
       return { path, size: written.size, mtimeMs: written.mtimeMs }
     }),
   )
+
+  ipc.handle('fs:create-entry', (req, context) =>
+    operationResult(async () => {
+      const workspaceRoot = ipc.authority.workspaceRoot(
+        ipc.authority.reconstructHostPath(req.workspaceRoot),
+      )
+      const destinationDirectory = ipc.authority.reconstructHostPath(
+        req.destinationDirectory,
+      )
+      return deps.projectFiles.create({
+        owner: context.owner(),
+        workspaceRoot,
+        destinationDirectory,
+        name: req.name,
+        kind: req.kind,
+      })
+    }),
+  )
+
+  ipc.handle('fs:acquire-clipboard-files', (_req, context) =>
+    operationResult(() => deps.projectFiles.acquireClipboard(context.owner())),
+  )
+
+  ipc.handle('fs:acquire-dropped-files', (req, context) =>
+    operationResult(() =>
+      deps.projectFiles.acquireDropped(context.owner(), droppedPaths(req.paths)),
+    ),
+  )
+
+  ipc.handle('fs:copy-external', (req, context) =>
+    operationResult(async () => {
+      const workspaceRoot = ipc.authority.workspaceRoot(
+        ipc.authority.reconstructHostPath(req.workspaceRoot),
+      )
+      const destinationDirectory = ipc.authority.reconstructHostPath(
+        req.destinationDirectory,
+      )
+      return deps.projectFiles.copyExternal({
+        owner: context.owner(),
+        workspaceRoot,
+        destinationDirectory,
+        grantId: req.grantId,
+        grantGeneration: req.grantGeneration,
+        publish: (progress) => context.sender.send('fs:project-file-operation', progress),
+      })
+    }),
+  )
+
+  ipc.handle('fs:external-move-disclosure', (_req, context) =>
+    operationResult(() =>
+      Promise.resolve(deps.projectFiles.discloseExternalMove(context.owner())),
+    ),
+  )
+
+  ipc.handle('fs:acquire-external-move-files', (req, context) =>
+    operationResult(() =>
+      deps.projectFiles.acquireExternalMove(context.owner(), req.selection),
+    ),
+  )
+
+  ipc.handle('fs:release-external-move-grant', (req, context) =>
+    operationResult(() =>
+      Promise.resolve(
+        deps.projectFiles.releaseExternalMove(
+          context.owner(),
+          req.grantId,
+          req.grantGeneration,
+        ),
+      ),
+    ),
+  )
+
+  ipc.handle('fs:move-external', (req, context) =>
+    operationResult(async () => {
+      const workspaceRoot = ipc.authority.workspaceRoot(
+        ipc.authority.reconstructHostPath(req.workspaceRoot),
+      )
+      const destinationDirectory = ipc.authority.reconstructHostPath(
+        req.destinationDirectory,
+      )
+      return deps.projectFiles.moveExternal({
+        owner: context.owner(),
+        workspaceRoot,
+        destinationDirectory,
+        grantId: req.grantId,
+        grantGeneration: req.grantGeneration,
+        publish: (progress) => context.sender.send('fs:project-file-operation', progress),
+      })
+    }),
+  )
+
+  ipc.handle('fs:organize-entry', (req, context) =>
+    operationResult(async () => {
+      const workspaceRoot = ipc.authority.workspaceRoot(
+        ipc.authority.reconstructHostPath(req.workspaceRoot),
+      )
+      const source = ipc.authority.reconstructHostPath(req.source)
+      const request =
+        req.action === 'rename'
+          ? { action: req.action, workspaceRoot, source, name: req.name }
+          : req.action === 'move'
+            ? {
+                action: req.action,
+                workspaceRoot,
+                source,
+                destinationDirectory: ipc.authority.reconstructHostPath(
+                  req.destinationDirectory,
+                ),
+              }
+            : req.action === 'duplicate'
+              ? {
+                  action: req.action,
+                  workspaceRoot,
+                  source,
+                  destinationDirectory: ipc.authority.reconstructHostPath(
+                    req.destinationDirectory,
+                  ),
+                  name: req.name,
+                }
+              : (() => {
+                  throw new Error('Invalid project entry action')
+                })()
+      return deps.projectFiles.organize({
+        owner: context.owner(),
+        request,
+        publish: (progress) => context.sender.send('fs:project-file-operation', progress),
+      })
+    }),
+  )
+
+  ipc.handle('fs:deletion-disclosure', (req, context) =>
+    operationResult(async () => {
+      const workspaceRoot = ipc.authority.workspaceRoot(
+        ipc.authority.reconstructHostPath(req.workspaceRoot),
+      )
+      const source = ipc.authority.reconstructHostPath(req.source)
+      return deps.projectFiles.discloseDeletion(context.owner(), workspaceRoot, source)
+    }),
+  )
+
+  ipc.handle('fs:delete-entry', (req, context) =>
+    operationResult(async () => {
+      const workspaceRoot = ipc.authority.workspaceRoot(
+        ipc.authority.reconstructHostPath(req.workspaceRoot),
+      )
+      const source = ipc.authority.reconstructHostPath(req.source)
+      return deps.projectFiles.delete({
+        owner: context.owner(),
+        request: {
+          workspaceRoot,
+          source,
+          confirmedRecovery: req.confirmedRecovery,
+        },
+        publish: (progress) => context.sender.send('fs:project-file-operation', progress),
+      })
+    }),
+  )
+
+  ipc.handle('fs:cancel-file-operation', (req, context) =>
+    operationResult(() =>
+      Promise.resolve(
+        deps.projectFiles.cancel(context.owner(), req.operationId, req.generation),
+      ),
+    ),
+  )
+}
+
+function droppedPaths(value: unknown): readonly string[] {
+  if (!Array.isArray(value) || value.length > MAX_EXTERNAL_FILE_SOURCES) {
+    throw new Error('Invalid dropped file list')
+  }
+  return value.map((path) => {
+    if (typeof path !== 'string') throw new Error('Invalid dropped file path')
+    return path
+  })
 }

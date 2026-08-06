@@ -2,6 +2,13 @@ export type {
   Disposer,
   ExecOptions,
   ExecStreamHandle,
+  ExclusiveCreateOptions,
+  ProjectFileMetadataOptions,
+  ProjectFileMode,
+  ProjectFileRenameOptions,
+  ProjectFileStreamOptions,
+  ProjectFileTransferPort,
+  ProjectFileWriteStreamOptions,
   ProjectHost,
   PtyExit,
   PtyProcess,
@@ -11,8 +18,15 @@ export type {
   WatchOptions,
   WriteFileOptions,
 } from './project-host'
-export { assertLoopbackEndpoint, MAX_EXEC_STREAM_WRITE_BYTES } from './project-host'
+export {
+  assertLoopbackEndpoint,
+  isProjectPathExistsError,
+  MAX_EXEC_STREAM_WRITE_BYTES,
+  PROJECT_FILE_STREAM_CHUNK_BYTES,
+  ProjectPathExistsError,
+} from './project-host'
 export { LocalHost } from './local-host'
+export { electronTrash } from './electron-project-trash'
 export { SshHost } from './ssh-host'
 export {
   SSH_CONTROL_CHANNEL_BUDGET,

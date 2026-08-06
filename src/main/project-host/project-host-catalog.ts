@@ -15,6 +15,7 @@ export interface ProjectHostCatalogOptions {
   readonly trustFile: HostPath
   readonly home?: string
   readonly agentSocket?: string
+  readonly trashItem?: (path: HostPath) => Promise<void>
 }
 
 /** Owns local/SSH host discovery, materialization, and logical-host lifetime. */
@@ -40,7 +41,7 @@ export class ProjectHostCatalog {
   }
 
   static async create(options: ProjectHostCatalogOptions): Promise<ProjectHostCatalog> {
-    const local = new LocalHost()
+    const local = new LocalHost({ trashItem: options.trashItem })
     try {
       await local.connect()
       const home = options.home ?? homedir()

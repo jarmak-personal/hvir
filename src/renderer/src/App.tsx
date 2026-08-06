@@ -1,11 +1,4 @@
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type ReactElement,
-} from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react'
 import {
   GIT_CHANGE_DISPLAY_LIMIT,
   hostPathEquals,
@@ -87,7 +80,6 @@ export function App(): ReactElement {
     reloadTab,
     saveTab,
     handleWatchEvent,
-    setRenderedDependencies,
     reloadCleanFiles,
     focusPane: focusViewerPane,
     getActivePane,
@@ -154,13 +146,12 @@ export function App(): ReactElement {
   } = session
   const { watch: watchVersion, ignored: ignoredRefreshVersion } = session.versions
   const { content: contentVersion, git: gitVersion } = session.versions
-  const openWatchPaths = useMemo(() => tabs.map((tab) => tab.path), [tabs])
   useRendererReady(Boolean(root))
   const watchInterests = useProjectWatchInterests({
     root,
     connected: connectionState === 'connected',
     missing: activeWorkspace?.missing,
-    openPaths: openWatchPaths,
+    openPaths: viewer.openWatchPaths,
     dependencyPaths: viewer.renderedWatchPaths,
   })
   const gitEnabled = workspaceGitEnabled(activeWorkspace)
@@ -392,7 +383,7 @@ export function App(): ReactElement {
               if (paneTab) pinTab(paneTab.id)
               openFile(path, true)
             }}
-            onRenderedDependencies={setRenderedDependencies}
+            onRenderedDependencies={viewer.setRenderedDependencies}
           />
         )}
       </div>
@@ -482,6 +473,8 @@ export function App(): ReactElement {
               selected={terminalPathActivation.revealRequest?.path ?? activeTab?.path}
               revealRequest={terminalPathActivation.revealRequest}
               onOpen={openFile}
+              viewerPathRebind={viewer}
+              onWorkspaceContentChanged={session.refreshWorkspaceContent}
               connected={connectionState === 'connected'}
               missing={activeWorkspace?.missing}
               hidden={railMode !== 'files'}

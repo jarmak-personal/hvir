@@ -1,7 +1,5 @@
-// Electron main-process application composition root.
-import { join } from 'node:path'
+/** Electron main-process entry and current application composition root. */
 import { app, BrowserWindow, dialog, protocol, shell } from 'electron'
-
 import { registerIpcHandlers } from './ipc'
 import { createProjectCommands } from './ipc/project-commands'
 import { GitMutationCoordinator } from './git/mutation-coordinator'
@@ -9,7 +7,7 @@ import { GitMutationAuthorization } from './git/mutation-authorization'
 import { GitWorkerHostRouter } from './git/worker-host-router'
 import { HtmlPreviewProtocol } from './html-preview-protocol'
 import { createWorkerClient, workerPath, type WorkerClient } from './worker-host'
-import { ProjectHostCatalog, RendererSshPrompter } from './project-host'
+import { electronTrash, ProjectHostCatalog, RendererSshPrompter } from './project-host'
 import { ProjectRegistry } from './project-registry'
 import { ProjectCoordinator } from './project-coordinator'
 import { PtySupervisor } from './pty/pty-supervisor'
@@ -29,7 +27,8 @@ import { RuntimeDiagnostics } from './diagnostics/runtime-diagnostics'
 import { createDiagnosticReportCoordinator } from './diagnostics/diagnostic-report-coordinator'
 import { RendererEventPublisher } from './renderer-event-publisher'
 import { createFilenameSearchCoordinator } from './filename-search'
-import { applicationRuntime } from './application-runtime'
+import { createProjectFileOperationCoordinator } from './project-file-operations'
+import { applicationRuntime, applicationUserDataPath } from './application-runtime'
 import {
   GIT_WORKSPACE_ACTIVITY_TYPE,
   GIT_FETCH_TYPE,
@@ -114,7 +113,6 @@ function createWorkbenchEntry(): void {
     )
     return owner
   }
-
   const windowManager = runtime.own(
     'Electron window manager',
     createElectronWindowManager({
@@ -170,7 +168,8 @@ function createWorkbenchEntry(): void {
       'project host catalog',
       await ProjectHostCatalog.create({
         prompter: sshPrompter,
-        trustFile: localPath(join(applicationRuntime.userDataRoot, 'known-hosts.json')),
+        trustFile: localPath(applicationUserDataPath('known-hosts.json')),
+        trashItem: electronTrash(shell),
       }),
       (catalog) => catalog.dispose(),
     )
@@ -178,7 +177,7 @@ function createWorkbenchEntry(): void {
     const registry = await ProjectRegistry.create(
       requestedProjectRoot ? localPath(requestedProjectRoot) : undefined,
       hostCatalog,
-      join(applicationRuntime.userDataRoot, 'projects.json'),
+      applicationUserDataPath('projects.json'),
       (state) => emit('project:state', state),
       async () => {
         const selection = await dialog.showOpenDialog({
@@ -202,7 +201,7 @@ function createWorkbenchEntry(): void {
       'terminal session registry',
       await TerminalSessionRegistry.load(
         hostCatalog.local,
-        localPath(join(applicationRuntime.userDataRoot, 'terminal-sessions.json')),
+        localPath(applicationUserDataPath('terminal-sessions.json')),
         (event) => diagnostics.recordSessionRegistry(event),
       ),
       (sessions) => sessions.flush(),
@@ -211,7 +210,7 @@ function createWorkbenchEntry(): void {
       'harness profile store',
       await HarnessProfileStore.load(
         hostCatalog.local,
-        localPath(join(applicationRuntime.userDataRoot, 'harness-profiles.json')),
+        localPath(applicationUserDataPath('harness-profiles.json')),
       ),
       (profiles) => profiles.flush(),
     )
@@ -242,6 +241,11 @@ function createWorkbenchEntry(): void {
       'filename search',
       createFilenameSearchCoordinator(gitWorker),
       (search) => search.dispose(),
+    )
+    const projectFiles = runtime.own(
+      'project file operations',
+      createProjectFileOperationCoordinator(projectRegistry, rendererScopes),
+      (operations) => operations.dispose(),
     )
     workspaceCoordinator = runtime.own(
       'workspace coordinator',
@@ -348,7 +352,6 @@ function createWorkbenchEntry(): void {
         },
       )
     })
-
     const withSshPresentation = <T>(owner: RendererOwner, operation: () => T): T => {
       if (!sshPrompter) throw new Error('SSH prompting is unavailable')
       return sshPrompter.runForOwner(owner, operation)
@@ -365,6 +368,7 @@ function createWorkbenchEntry(): void {
         echoWorker,
         gitWorker,
         filenameSearch,
+        projectFiles,
         getProject: () => registry.active,
         getHost: (hostId) => projectRegistry?.hostById(hostId),
         connectedHosts: () => projectRegistry?.connectedHosts() ?? [],
@@ -468,7 +472,6 @@ function createWorkbenchEntry(): void {
       .reopen()
       .catch((error) => console.error('[window] failed to reopen workbench', error))
   })
-
   app.on('before-quit', (event) => {
     if (runtime.isShutdown) return
     event.preventDefault()
@@ -486,7 +489,6 @@ function createWorkbenchEntry(): void {
         app.quit()
       })
   })
-
   async function suspendWorkbenchSessions(): Promise<void> {
     await workspaceCoordinator?.stopWatch()
     await workspaceCoordinator?.settle()
@@ -507,7 +509,6 @@ function createWorkbenchEntry(): void {
     await harnessProfileStore?.flush()
     await projectRegistry?.disconnectSshHosts()
   }
-
   async function shutdown(): Promise<void> {
     workspaceCoordinator?.stopPolling()
     await workspaceCoordinator
@@ -516,5 +517,4 @@ function createWorkbenchEntry(): void {
     await workspaceCoordinator?.settle()
   }
 }
-
 createWorkbenchEntry()

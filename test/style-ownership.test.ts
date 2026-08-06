@@ -26,6 +26,7 @@ const expectedOrder = [
   'dialogs.css',
   'workspace-catalog.css',
   'tree.css',
+  'file-operations.css',
   'path-copy.css',
   'viewer-content.css',
   'viewer-workload.css',
@@ -67,6 +68,11 @@ describe('renderer style ownership', () => {
       )
 
     expect(scrollbarOwners).toEqual(['scrollbars.css'])
+    const scrollbarPresentation = readFileSync(join(stylesRoot, 'scrollbars.css'), 'utf8')
+    expect(scrollbarPresentation).toContain(
+      'body:has(.hvir-scrollbar-obscuring) > .hvir-scrollbar.hvir-scrollbar',
+    )
+    expect(scrollbarPresentation).toContain('pointer-events: none')
   })
 
   it('routes renderer typography through the owned font and scale tokens', () => {

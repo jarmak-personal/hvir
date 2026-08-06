@@ -105,9 +105,68 @@ function fixture() {
     assertCurrent,
   } as unknown as RendererResourceScopes
   const recordIpcContractDiagnostic = vi.fn<(event: IpcContractDiagnostic) => void>()
+  const createProjectFile = vi.fn<IpcDeps['projectFiles']['create']>().mockResolvedValue({
+    outcome: 'completed',
+    operationId: 'operation-1',
+    generation: 1,
+    items: [],
+  })
+  const organizeProjectFile = vi
+    .fn<IpcDeps['projectFiles']['organize']>()
+    .mockResolvedValue({
+      outcome: 'started',
+      operationId: 'organize-1',
+      generation: 2,
+      itemCount: 1,
+    })
+  const discloseDeletion = vi
+    .fn<IpcDeps['projectFiles']['discloseDeletion']>()
+    .mockResolvedValue({
+      outcome: 'available',
+      workspaceRoot: root,
+      source: localPath('/project/source.ts'),
+      recovery: 'recoverable',
+    })
+  const deleteProjectFile = vi.fn<IpcDeps['projectFiles']['delete']>().mockResolvedValue({
+    outcome: 'started',
+    operationId: 'delete-1',
+    generation: 3,
+    itemCount: 1,
+  })
+  const discloseExternalMove = vi
+    .fn<IpcDeps['projectFiles']['discloseExternalMove']>()
+    .mockReturnValue({
+      outcome: 'available',
+      picker: { kind: 'mixed-multiple', limitation: 'mixed selection' },
+      recovery: 'recoverable',
+    })
+  const acquireExternalMove = vi
+    .fn<IpcDeps['projectFiles']['acquireExternalMove']>()
+    .mockResolvedValue({ outcome: 'cancelled' })
+  const releaseExternalMove = vi
+    .fn<IpcDeps['projectFiles']['releaseExternalMove']>()
+    .mockReturnValue(true)
+  const moveExternal = vi
+    .fn<IpcDeps['projectFiles']['moveExternal']>()
+    .mockResolvedValue({
+      outcome: 'started',
+      operationId: 'external-move-1',
+      generation: 4,
+      itemCount: 1,
+    })
   const deps = {
     rendererResources,
     recordIpcContractDiagnostic,
+    projectFiles: {
+      create: createProjectFile,
+      organize: organizeProjectFile,
+      discloseDeletion,
+      delete: deleteProjectFile,
+      discloseExternalMove,
+      acquireExternalMove,
+      releaseExternalMove,
+      moveExternal,
+    },
     getProjectState: () => projectState(),
     getRegisteredWorkspaceRoot: (candidate: typeof root) =>
       candidate.path === root.path && candidate.hostId === root.hostId ? root : undefined,
@@ -126,6 +185,14 @@ function fixture() {
     transport,
     currentIpcOwner,
     assertCurrent,
+    createProjectFile,
+    organizeProjectFile,
+    discloseDeletion,
+    deleteProjectFile,
+    discloseExternalMove,
+    acquireExternalMove,
+    releaseExternalMove,
+    moveExternal,
     recordIpcContractDiagnostic,
   }
 }
@@ -287,6 +354,18 @@ describe('IpcAuthorityRouter', () => {
         'project:open',
         'ssh:prompt-response',
         'fs:filename-search',
+        'fs:create-entry',
+        'fs:acquire-clipboard-files',
+        'fs:acquire-dropped-files',
+        'fs:copy-external',
+        'fs:external-move-disclosure',
+        'fs:acquire-external-move-files',
+        'fs:release-external-move-grant',
+        'fs:move-external',
+        'fs:organize-entry',
+        'fs:deletion-disclosure',
+        'fs:delete-entry',
+        'fs:cancel-file-operation',
         'html-preview:create',
         'web-pane:open',
         'web-pane:close',
@@ -317,6 +396,12 @@ describe('IpcAuthorityRouter', () => {
         'fs:read',
         'fs:read-asset',
         'fs:write',
+        'fs:create-entry',
+        'fs:copy-external',
+        'fs:move-external',
+        'fs:organize-entry',
+        'fs:deletion-disclosure',
+        'fs:delete-entry',
         'git:diff-inputs',
         'git:changes',
         'git:history',
@@ -382,6 +467,207 @@ describe('IpcAuthorityRouter', () => {
     for (const channel of OWNER_SCOPED_SEND_CHANNELS) {
       expect(registrationBlock(source, 'handleSend', channel)).toMatch(/\.owner\(\)/)
     }
+  })
+
+  it('reconstructs normalized create-entry paths and qualifies the exact owner', async () => {
+    const { deps, transport, createProjectFile } = fixture()
+    registerIpcHandlers(deps, transport)
+
+    const response = await transport.invokes.get('fs:create-entry')?.[0]?.(ipcEvent(), {
+      workspaceRoot: { hostId: 'local', path: '/project' },
+      destinationDirectory: { hostId: 'local', path: '/project/src' },
+      name: 'new-file.ts',
+      kind: 'file',
+    })
+
+    expect(response).toEqual({
+      ok: true,
+      value: {
+        outcome: 'completed',
+        operationId: 'operation-1',
+        generation: 1,
+        items: [],
+      },
+    })
+    expect(createProjectFile).toHaveBeenCalledWith({
+      owner,
+      workspaceRoot: localPath('/project'),
+      destinationDirectory: localPath('/project/src'),
+      name: 'new-file.ts',
+      kind: 'file',
+    })
+  })
+
+  it('rejects an unnormalized create-entry path before the effect owner', async () => {
+    const { deps, transport, createProjectFile } = fixture()
+    registerIpcHandlers(deps, transport)
+    const invoke = transport.invokes.get('fs:create-entry')?.[0]
+
+    await expect(
+      invoke?.(ipcEvent(), {
+        workspaceRoot: { hostId: 'local', path: '/project' },
+        destinationDirectory: { hostId: 'local', path: '/project/src/../src' },
+        name: 'new-file.ts',
+        kind: 'file',
+      }),
+    ).resolves.toEqual({ ok: false, error: 'Project paths must already be normalized' })
+    expect(createProjectFile).not.toHaveBeenCalled()
+  })
+
+  it('reconstructs an exact organization request and qualifies progress to its sender', async () => {
+    const { deps, transport, organizeProjectFile } = fixture()
+    registerIpcHandlers(deps, transport)
+    const event = ipcEvent()
+    const send = vi.spyOn(event.sender, 'send')
+
+    const response = await transport.invokes.get('fs:organize-entry')?.[0]?.(event, {
+      action: 'duplicate',
+      workspaceRoot: { hostId: 'local', path: '/project' },
+      source: { hostId: 'local', path: '/project/src/source.ts' },
+      destinationDirectory: { hostId: 'local', path: '/project/copies' },
+      name: 'exact copy.ts',
+    })
+
+    expect(response).toEqual({
+      ok: true,
+      value: {
+        outcome: 'started',
+        operationId: 'organize-1',
+        generation: 2,
+        itemCount: 1,
+      },
+    })
+    expect(organizeProjectFile).toHaveBeenCalledOnce()
+    const organization = organizeProjectFile.mock.calls[0]?.[0]
+    expect(organization).toMatchObject({
+      owner,
+      request: {
+        action: 'duplicate',
+        workspaceRoot: localPath('/project'),
+        source: localPath('/project/src/source.ts'),
+        destinationDirectory: localPath('/project/copies'),
+        name: 'exact copy.ts',
+      },
+    })
+    expect(typeof organization?.publish).toBe('function')
+    const progress = {
+      workspaceRoot: root,
+      operationId: 'organize-1',
+      generation: 2,
+      phase: 'moving' as const,
+      completedItems: 0,
+      totalItems: 1,
+    }
+    organization?.publish(progress)
+    expect(send).toHaveBeenCalledWith('fs:project-file-operation', {
+      ...progress,
+    })
+  })
+
+  it('rejects hostile organization discriminants and paths before the coordinator', async () => {
+    const { deps, transport, organizeProjectFile } = fixture()
+    registerIpcHandlers(deps, transport)
+    const invoke = transport.invokes.get('fs:organize-entry')?.[0]
+
+    await expect(
+      invoke?.(ipcEvent(), {
+        action: 'erase',
+        workspaceRoot: { hostId: 'local', path: '/project' },
+        source: { hostId: 'local', path: '/project/source.ts' },
+      }),
+    ).resolves.toEqual({ ok: false, error: 'Invalid project entry action' })
+    await expect(
+      invoke?.(ipcEvent(), {
+        action: 'move',
+        workspaceRoot: { hostId: 'local', path: '/project' },
+        source: { hostId: 'local', path: '/project/src/../source.ts' },
+        destinationDirectory: { hostId: 'local', path: '/project/copies' },
+      }),
+    ).resolves.toEqual({ ok: false, error: 'Project paths must already be normalized' })
+    expect(organizeProjectFile).not.toHaveBeenCalled()
+  })
+
+  it('reconstructs exact deletion disclosure and confirmed deletion requests', async () => {
+    const { deps, transport, discloseDeletion, deleteProjectFile } = fixture()
+    registerIpcHandlers(deps, transport)
+    const event = ipcEvent()
+    const send = vi.spyOn(event.sender, 'send')
+    const request = {
+      workspaceRoot: { hostId: 'local', path: '/project' },
+      source: { hostId: 'local', path: '/project/source.ts' },
+    }
+
+    await transport.invokes.get('fs:deletion-disclosure')?.[0]?.(event, request)
+    expect(discloseDeletion).toHaveBeenCalledWith(
+      owner,
+      localPath('/project'),
+      localPath('/project/source.ts'),
+    )
+
+    await transport.invokes.get('fs:delete-entry')?.[0]?.(event, {
+      ...request,
+      confirmedRecovery: 'recoverable',
+    })
+    expect(deleteProjectFile).toHaveBeenCalledOnce()
+    const deletion = deleteProjectFile.mock.calls[0]?.[0]
+    expect(deletion).toMatchObject({
+      owner,
+      request: {
+        workspaceRoot: localPath('/project'),
+        source: localPath('/project/source.ts'),
+        confirmedRecovery: 'recoverable',
+      },
+    })
+    const progress = {
+      workspaceRoot: root,
+      operationId: 'delete-1',
+      generation: 3,
+      phase: 'deleting' as const,
+      completedItems: 0,
+      totalItems: 1,
+    }
+    deletion?.publish(progress)
+    expect(send).toHaveBeenCalledWith('fs:project-file-operation', progress)
+  })
+
+  it('keeps native move acquisition owner-scoped and reconstructs only destination authority', async () => {
+    const {
+      deps,
+      transport,
+      discloseExternalMove,
+      acquireExternalMove,
+      releaseExternalMove,
+      moveExternal,
+    } = fixture()
+    registerIpcHandlers(deps, transport)
+    const event = ipcEvent()
+
+    await transport.invokes.get('fs:external-move-disclosure')?.[0]?.(event, undefined)
+    await transport.invokes.get('fs:acquire-external-move-files')?.[0]?.(event, {
+      selection: 'files',
+    })
+    expect(discloseExternalMove).toHaveBeenCalledWith(owner)
+    expect(acquireExternalMove).toHaveBeenCalledWith(owner, 'files')
+    await transport.invokes.get('fs:release-external-move-grant')?.[0]?.(event, {
+      grantId: 'opaque-grant',
+      grantGeneration: 8,
+    })
+    expect(releaseExternalMove).toHaveBeenCalledWith(owner, 'opaque-grant', 8)
+
+    await transport.invokes.get('fs:move-external')?.[0]?.(event, {
+      workspaceRoot: { hostId: 'local', path: '/project' },
+      destinationDirectory: { hostId: 'local', path: '/project/imports' },
+      grantId: 'opaque-grant',
+      grantGeneration: 8,
+    })
+    expect(moveExternal).toHaveBeenCalledOnce()
+    expect(moveExternal.mock.calls[0]?.[0]).toMatchObject({
+      owner,
+      workspaceRoot: localPath('/project'),
+      destinationDirectory: localPath('/project/imports'),
+      grantId: 'opaque-grant',
+      grantGeneration: 8,
+    })
   })
 })
 

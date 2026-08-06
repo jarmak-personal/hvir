@@ -9,6 +9,18 @@ export interface Action {
     | { readonly type: 'rendered-dependencies'; readonly paths: readonly HostPath[] }
 }
 
+export interface ViewerWatchPaths {
+  readonly openPaths: readonly HostPath[]
+  readonly dependencyPaths: readonly HostPath[]
+}
+
+export function collectViewerWatchPaths(tabs: readonly ViewerTab[]): ViewerWatchPaths {
+  return {
+    openPaths: tabs.map((tab) => tab.path),
+    dependencyPaths: tabs.flatMap((tab) => tab.renderedDependencies ?? []),
+  }
+}
+
 export function apply(tab: ViewerTab, update: Action['update']): ViewerTab {
   return update.type === 'watch-event'
     ? refreshViewerTab(tab, update.path)

@@ -1,16 +1,11 @@
-import {
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { describe, expect, it } from 'vitest'
 
 import {
+  inspectRenameNoReplaceApi,
   inspectPackagedRuntimeGraph,
   readAsarArchive,
 } from '../scripts/inspect-packaged-runtime.mts'
@@ -23,6 +18,10 @@ const productionEntries = [
   '/out/renderer/index.js',
   '/node_modules/node-pty/build/Release/pty.node',
   '/node_modules/node-pty/build/Release/spawn-helper',
+  '/node_modules/@hvir/rename-noreplace/index.js',
+  '/node_modules/@hvir/rename-noreplace/package.json',
+  '/node_modules/@hvir/rename-noreplace/LICENSE',
+  '/node_modules/@hvir/rename-noreplace/build/Release/rename_noreplace.node',
 ]
 const buildConfig = readFileSync(
   new URL('../electron.vite.config.ts', import.meta.url),
@@ -58,6 +57,24 @@ function stringPickle(value: string): Buffer {
 }
 
 describe('packaged runtime inspection', () => {
+  it('requires the approved no-replace binding metadata and API', () => {
+    expect(() =>
+      inspectRenameNoReplaceApi({
+        metadata: () => 'hvir.rename-noreplace.v1',
+        renameNoReplace: () => 0,
+      }),
+    ).not.toThrow()
+    expect(() =>
+      inspectRenameNoReplaceApi({
+        metadata: () => 'another-helper',
+        renameNoReplace: () => 0,
+      }),
+    ).toThrow('approved API')
+    expect(() =>
+      inspectRenameNoReplaceApi({ metadata: () => 'hvir.rename-noreplace.v1' }),
+    ).toThrow('approved API')
+  })
+
   it('keeps smoke activation behind the smoke-only build while packages use production', () => {
     expect(buildConfig).toContain("const smokeBuild = mode === 'smoke'")
     expect(buildConfig).toContain('excludeSmokeRuntimeFromProduction(smokeBuild)')
@@ -110,7 +127,12 @@ describe('packaged runtime inspection', () => {
 
   it('accepts the production bootstrap, workers, renderer, and native payload', () => {
     expect(
-      inspectPackagedRuntimeGraph(productionEntries, () => 'production', 'darwin'),
+      inspectPackagedRuntimeGraph(
+        productionEntries,
+        () => 'production',
+        'darwin',
+        'arm64',
+      ),
     ).toEqual({
       mainEntries: [
         '/out/main/index.js',
@@ -120,6 +142,7 @@ describe('packaged runtime inspection', () => {
       nativeEntries: [
         '/node_modules/node-pty/build/Release/pty.node',
         '/node_modules/node-pty/build/Release/spawn-helper',
+        '/node_modules/@hvir/rename-noreplace/build/Release/rename_noreplace.node',
       ],
     })
   })
@@ -129,12 +152,15 @@ describe('packaged runtime inspection', () => {
       (entry) => !entry.endsWith('/spawn-helper'),
     )
     expect(
-      inspectPackagedRuntimeGraph(linuxEntries, () => 'production', 'linux'),
+      inspectPackagedRuntimeGraph(linuxEntries, () => 'production', 'linux', 'arm64'),
     ).toMatchObject({
-      nativeEntries: ['/node_modules/node-pty/build/Release/pty.node'],
+      nativeEntries: [
+        '/node_modules/node-pty/build/Release/pty.node',
+        '/node_modules/@hvir/rename-noreplace/build/Release/rename_noreplace.node',
+      ],
     })
     expect(() =>
-      inspectPackagedRuntimeGraph(linuxEntries, () => 'production', 'darwin'),
+      inspectPackagedRuntimeGraph(linuxEntries, () => 'production', 'darwin', 'arm64'),
     ).toThrow('/node_modules/node-pty/build/Release/spawn-helper')
   })
 
@@ -143,14 +169,37 @@ describe('packaged runtime inspection', () => {
     '/out/main/git-worker.js',
     '/node_modules/node-pty/build/Release/pty.node',
     '/node_modules/node-pty/build/Release/spawn-helper',
+    '/node_modules/@hvir/rename-noreplace/build/Release/rename_noreplace.node',
+    '/node_modules/@hvir/rename-noreplace/index.js',
+    '/node_modules/@hvir/rename-noreplace/package.json',
+    '/node_modules/@hvir/rename-noreplace/LICENSE',
   ])('rejects a package missing %s', (missing) => {
     expect(() =>
       inspectPackagedRuntimeGraph(
         productionEntries.filter((entry) => entry !== missing),
         () => 'production',
         'darwin',
+        'arm64',
       ),
     ).toThrow(missing)
+  })
+
+  it.each([
+    'binding.gyp',
+    'rename_noreplace.c',
+    'build/Makefile',
+    'build/config.gypi',
+    'build/rename_noreplace.target.mk',
+    'build/Release/.deps/rename_noreplace.node.d',
+  ])('rejects unexpected no-replace build metadata %s', (entry) => {
+    expect(() =>
+      inspectPackagedRuntimeGraph(
+        [...productionEntries, `/node_modules/@hvir/rename-noreplace/${entry}`],
+        () => 'production',
+        'darwin',
+        'arm64',
+      ),
+    ).toThrow('unexpected build entry')
   })
 
   it('rejects an emitted scenarios chunk', () => {
@@ -159,6 +208,7 @@ describe('packaged runtime inspection', () => {
         [...productionEntries, '/out/main/chunks/scenarios-abc.js'],
         () => 'production',
         'darwin',
+        'arm64',
       ),
     ).toThrow('retained smoke entry')
   })
@@ -169,9 +219,9 @@ describe('packaged runtime inspection', () => {
       expect(() =>
         inspectPackagedRuntimeGraph(
           productionEntries,
-          (entry) =>
-            entry === '/out/renderer/index.js' ? marker : 'production',
+          (entry) => (entry === '/out/renderer/index.js' ? marker : 'production'),
           'darwin',
+          'arm64',
         ),
       ).toThrow(`retained smoke marker ${marker}`)
     },
