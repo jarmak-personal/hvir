@@ -9,6 +9,7 @@ import {
   utimes,
   writeFile,
 } from 'node:fs/promises'
+import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -162,6 +163,31 @@ describe('LocalHost', () => {
     ).rejects.toMatchObject({ code: 'EEXIST' })
     await expect(host.readTextFile(source)).resolves.toBe('source')
     await expect(host.readTextFile(destination)).resolves.toBe('preserved')
+  })
+
+  it('rejects an invalid atomic rename binding before reporting submission', async () => {
+    const source = localPath(join(dir, 'binding-source.txt'))
+    const destination = localPath(join(dir, 'binding-destination.txt'))
+    await writeFile(source.path, 'preserved')
+    const bindingRequire = createRequire(import.meta.url)
+    const bindingPath = bindingRequire.resolve('@hvir/rename-noreplace')
+    const originalBinding: unknown = bindingRequire('@hvir/rename-noreplace')
+    const cachedBinding = bindingRequire.cache[bindingPath]
+    if (!cachedBinding) throw new Error('Expected the atomic rename binding to be cached')
+    cachedBinding.exports = { metadata: () => 'invalid' }
+    const onSubmitted = vi.fn()
+
+    try {
+      await expect(
+        host.fileTransfer.renameNoReplace(source, destination, { onSubmitted }),
+      ).rejects.toThrow('Atomic no-replace helper exports do not match hvir')
+    } finally {
+      cachedBinding.exports = originalBinding
+    }
+
+    expect(onSubmitted).not.toHaveBeenCalled()
+    await expect(host.readTextFile(source)).resolves.toBe('preserved')
+    await expect(host.stat(destination)).rejects.toThrow()
   })
 
   it('rejects exclusive creation before an aborted effect begins', async () => {

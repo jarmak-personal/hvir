@@ -2,6 +2,7 @@ import { type HostPath, type ProjectFileSourceDisposition } from '../../shared'
 import type { ProjectHost } from '../project-host'
 import type { VerifiedProjectCopyReceipt } from './verified-project-copy'
 import { relativeHostPath } from './verified-project-copy-manifest'
+import { normalizeVerifiedProjectEntryMetadata } from './verified-project-entry-metadata'
 
 export interface ProjectEntryRemovalOutcome {
   readonly disposition: ProjectFileSourceDisposition
@@ -85,28 +86,14 @@ function matchesVerifiedEntry(
   stat: Awaited<ReturnType<ProjectHost['stat']>>,
   expected: VerifiedProjectCopyReceipt['plan']['entries'][number],
 ): boolean {
-  if (
-    !Number.isSafeInteger(stat.size) ||
-    stat.size < 0 ||
-    !Number.isFinite(stat.mtimeMs)
-  ) {
-    return false
-  }
-  const type = stat.type === 'dir' ? 'directory' : stat.type
-  const size = stat.type === 'file' ? stat.size : 0
-  const mode =
-    stat.type === 'file' && (stat.mode & 0o111) !== 0
-      ? 0o755
-      : stat.type === 'file'
-        ? 0o644
-        : stat.type === 'dir'
-          ? 0o755
-          : undefined
+  const normalized = normalizeVerifiedProjectEntryMetadata(stat)
+  if (!normalized.ok) return false
+  const current = normalized.value
   return (
-    type === expected.type &&
-    size === expected.size &&
-    mode === expected.mode &&
-    Math.floor(stat.mtimeMs / 1_000) === expected.mtimeSeconds
+    current.type === expected.type &&
+    current.size === expected.size &&
+    current.mode === expected.mode &&
+    current.mtimeSeconds === expected.mtimeSeconds
   )
 }
 

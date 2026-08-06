@@ -9,6 +9,7 @@ import {
 } from '../../shared'
 import type { ProjectFileMode } from '../project-host'
 import type { ProjectFileCopyLimits } from './project-file-copy-limits'
+import { normalizeVerifiedProjectEntryMetadata } from './verified-project-entry-metadata'
 
 export interface PlannedEntry {
   readonly relativePath: string
@@ -151,28 +152,15 @@ export function manifestsEqual(
 }
 
 function plannedEntry(relativePath: string, stat: Stat): PlannedEntry {
-  if (stat.type !== 'file' && stat.type !== 'dir') {
-    throw new UnsupportedSourceError('A manifest contains an unsupported entry')
+  const normalized = normalizeVerifiedProjectEntryMetadata(stat)
+  if (!normalized.ok) {
+    throw new UnsupportedSourceError(
+      normalized.reason === 'unsupported-entry'
+        ? 'A manifest contains an unsupported entry'
+        : 'A source has unusable metadata',
+    )
   }
-  if (
-    !Number.isSafeInteger(stat.size) ||
-    stat.size < 0 ||
-    !Number.isFinite(stat.mtimeMs)
-  ) {
-    throw new UnsupportedSourceError('A source has unusable metadata')
-  }
-  return {
-    relativePath,
-    type: stat.type === 'dir' ? 'directory' : 'file',
-    size: stat.type === 'file' ? stat.size : 0,
-    mode:
-      stat.type === 'file' && (stat.mode & 0o111) !== 0
-        ? 0o755
-        : stat.type === 'file'
-          ? 0o644
-          : 0o755,
-    mtimeSeconds: Math.floor(stat.mtimeMs / 1_000),
-  }
+  return { relativePath, ...normalized.value }
 }
 
 function sameMetadata(left: PlannedEntry, right: PlannedEntry): boolean {
