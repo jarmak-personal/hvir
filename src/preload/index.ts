@@ -9,6 +9,7 @@ import { contextBridge, ipcRenderer, webUtils } from 'electron'
 
 import {
   EVENT_CHANNELS,
+  MAX_EXTERNAL_FILE_SOURCES,
   RENDERER_INVOKE_CHANNELS,
   SEND_CHANNELS,
   isRendererDiagnosticSession,
@@ -61,8 +62,12 @@ const api: HvirApi = {
   },
   externalFiles: {
     acquireDropped: (files) => {
-      if (files.length > 256) {
-        return Promise.reject(new Error('The external file list exceeds 256 entries'))
+      if (files.length > MAX_EXTERNAL_FILE_SOURCES) {
+        return Promise.reject(
+          new Error(
+            `The external file list exceeds ${MAX_EXTERNAL_FILE_SOURCES} entries`,
+          ),
+        )
       }
       const paths = files.map((file) => webUtils.getPathForFile(file))
       return ipcRenderer.invoke('fs:acquire-dropped-files', { paths })

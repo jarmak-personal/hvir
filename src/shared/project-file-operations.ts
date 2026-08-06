@@ -1,5 +1,7 @@
 import type { HostPath } from './host-path'
 
+export const MAX_EXTERNAL_FILE_SOURCES = 256
+
 export type ProjectFileCreateKind = 'file' | 'directory'
 
 export interface ProjectFileCreateRequest {

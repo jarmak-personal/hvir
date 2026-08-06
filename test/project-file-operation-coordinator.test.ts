@@ -449,6 +449,54 @@ describe('ProjectFileOperationCoordinator', () => {
     )
   })
 
+  it('preserves a multi-item grant when its complete staging capacity is unavailable', async () => {
+    const stagingCleanup = new ProjectFileStagingCleanup()
+    const fixture = createCopyFixture({ itemCount: 2, stagingCleanup })
+    const held = stagingCleanup.reserve(fixture.host as unknown as ProjectHost, 255)
+
+    const result = await fixture.coordinator.copyExternal({
+      owner,
+      workspaceRoot,
+      destinationDirectory,
+      grantId: 'grant-1',
+      grantGeneration: 1,
+      publish: () => undefined,
+    })
+
+    expect(result).toMatchObject({
+      outcome: 'busy',
+      reason: 'Pending staging cleanup has reached the host safety limit',
+    })
+    expect(fixture.external.availableItemCount).toHaveBeenCalledOnce()
+    expect(fixture.external.consume).not.toHaveBeenCalled()
+    held?.release()
+    await fixture.coordinator.dispose()
+  })
+
+  it('releases batch staging capacity when grant consumption validation fails', async () => {
+    const stagingCleanup = new ProjectFileStagingCleanup()
+    const fixture = createCopyFixture({
+      itemCount: 2,
+      stagingCleanup,
+      consumeFailure: new Error('grant changed before consume'),
+    })
+
+    await expect(
+      fixture.coordinator.copyExternal({
+        owner,
+        workspaceRoot,
+        destinationDirectory,
+        grantId: 'grant-1',
+        grantGeneration: 1,
+        publish: () => undefined,
+      }),
+    ).rejects.toThrow('grant changed before consume')
+    expect(
+      stagingCleanup.reserve(fixture.host as unknown as ProjectHost, 256),
+    ).toBeDefined()
+    await fixture.coordinator.dispose()
+  })
+
   it('suppresses progress and final events after renderer generation revocation', async () => {
     const fixture = createCopyFixture()
     const publish = progressPublisher()
@@ -839,30 +887,40 @@ function lastProgress(
   return progress
 }
 
-function createCopyFixture() {
+function createCopyFixture(
+  options: {
+    readonly itemCount?: number
+    readonly stagingCleanup?: ProjectFileStagingCleanup
+    readonly consumeFailure?: Error
+  } = {},
+) {
   const host = new FakeProjectHost()
   const resources = new FakeResources()
+  const items = Array.from({ length: options.itemCount ?? 1 }, (_, index) => ({
+    itemId: `external:${index}`,
+    name: `unsupported-${index}`,
+    type: 'unsupported' as const,
+    reason: 'unsupported for test',
+  }))
   const external = {
     revoked: false,
-    consume: () => ({
-      grantId: 'grant-1',
-      generation: 1,
-      owner,
-      items: [
-        {
-          itemId: 'external:0',
-          name: 'unsupported',
-          type: 'unsupported' as const,
-          reason: 'unsupported for test',
+    availableItemCount: vi.fn(() => items.length),
+    consume: vi.fn(() => {
+      if (options.consumeFailure) throw options.consumeFailure
+      return {
+        grantId: 'grant-1',
+        generation: 1,
+        owner,
+        purpose: 'copy' as const,
+        items,
+        source: () => {
+          throw new Error('unsupported item has no source')
         },
-      ],
-      source: () => {
-        throw new Error('unsupported item has no source')
-      },
-      assertCurrent: () => undefined,
-      revoke: () => {
-        external.revoked = true
-      },
+        assertCurrent: () => undefined,
+        revoke: () => {
+          external.revoked = true
+        },
+      }
     }),
     dispose: () => undefined,
   }
@@ -879,8 +937,9 @@ function createCopyFixture() {
     resources,
     externalFiles: external as unknown as ExternalFileGrantRegistry,
     createOperationId: () => 'operation-1',
+    ...(options.stagingCleanup ? { stagingCleanup: options.stagingCleanup } : {}),
   })
-  return { coordinator, external, resources }
+  return { coordinator, external, host, resources }
 }
 
 function createFixture(options: { readonly deadlineMs?: number } = {}) {

@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { ExternalFileGrantRegistry } from '../src/main/project-file-operations'
 import { LocalHost } from '../src/main/project-host'
-import { localPath } from '../src/shared'
+import { localPath, MAX_EXTERNAL_FILE_SOURCES } from '../src/shared'
 
 const owner = { id: 17, generation: 2 }
 
@@ -86,6 +86,17 @@ describe('ExternalFileGrantRegistry', () => {
     })
   })
 
+  it('rejects an oversized selection at the shared source-count boundary', async () => {
+    await expect(
+      registry.acquire(
+        owner,
+        Array.from({ length: MAX_EXTERNAL_FILE_SOURCES + 1 }, () =>
+          join(directory, 'outside.txt'),
+        ),
+      ),
+    ).rejects.toThrow(`${MAX_EXTERNAL_FILE_SOURCES}-entry limit`)
+  })
+
   it('releases the pending grant lease on consume without revoking a consumed sibling', async () => {
     const firstPath = join(directory, 'first.txt')
     const secondPath = join(directory, 'second.txt')
@@ -94,6 +105,14 @@ describe('ExternalFileGrantRegistry', () => {
 
     const firstResult = await registry.acquire(owner, [firstPath])
     if (firstResult.outcome !== 'available') throw new Error('expected first grant')
+    expect(
+      registry.availableItemCount(
+        owner,
+        firstResult.grant.grantId,
+        firstResult.grant.generation,
+        'copy',
+      ),
+    ).toBe(1)
     const first = registry.consume(
       owner,
       firstResult.grant.grantId,

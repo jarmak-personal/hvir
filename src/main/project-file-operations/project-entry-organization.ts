@@ -24,6 +24,7 @@ import { isMissingProjectPathError } from './project-file-path-errors'
 import type { ProjectFileCopyLimits } from './project-file-copy-limits'
 import { removeVerifiedProjectEntry } from './project-entry-removal'
 import { caseOnlyProjectEntryRename } from './case-only-project-entry-rename'
+import type { ProjectFileStagingReservation } from './staging-cleanup'
 import {
   projectEntryCancelled as cancelled,
   projectEntryConflict as conflict,
@@ -48,7 +49,7 @@ export async function organizeProjectEntry(options: {
   readonly limits: ProjectFileCopyLimits
   readonly createStagingId?: () => string
   readonly createTemporaryId?: () => string
-  readonly acquireStaging?: () => { release(): void } | undefined
+  readonly acquireStaging?: () => ProjectFileStagingReservation | undefined
   readonly cleanupStaging: (host: ProjectHost, path: HostPath) => Promise<void>
 }): Promise<ProjectFileItemResult> {
   const { request } = options
@@ -286,6 +287,7 @@ async function atomicRenameOrMove(
         visibleDestination,
         canonicalDestinationDirectory,
         canonicalDestination,
+        staging,
       )
     } finally {
       staging?.release()
@@ -299,6 +301,7 @@ async function crossDeviceMove(
   visibleDestination: HostPath,
   canonicalDestinationDirectory: HostPath,
   canonicalDestination: HostPath,
+  staging: ProjectFileStagingReservation | undefined,
 ): Promise<ProjectFileItemResult> {
   const copied = await copyVerifiedProjectEntry({
     itemId: 'organize:0',
@@ -319,7 +322,9 @@ async function crossDeviceMove(
       ),
     limits: options.limits,
     createStagingId: options.createStagingId,
-    cleanupStaging: options.cleanupStaging,
+    cleanupStaging: staging
+      ? (_host, path) => staging.cleanup(path)
+      : options.cleanupStaging,
   })
   const copiedResult = {
     ...copied.result,
