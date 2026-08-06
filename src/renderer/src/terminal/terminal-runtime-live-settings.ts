@@ -25,5 +25,6 @@ export function applyLivePaneOptions(
   ) {
     pane?.setCursorDefaults(next.cursorDefaults)
   }
+  if (next.ligatures !== previous.ligatures) pane?.setLigatures(next.ligatures)
   return typographyChanged
 }

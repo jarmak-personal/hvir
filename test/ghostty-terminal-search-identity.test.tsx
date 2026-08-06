@@ -221,6 +221,7 @@ async function createPane() {
     { fontFamily: 'monospace', fontSize: 13 },
     {
       cursorDefaults: { shape: 'block', blink: 'terminal' },
+      ligatures: true,
       modifiedKeyProtocol: 'modify-other-keys',
       metaEnterAliasesControl: true,
       composerSubmitMode: 'enter',

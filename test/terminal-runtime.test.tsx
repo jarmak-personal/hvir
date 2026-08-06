@@ -35,6 +35,7 @@ function options(
     theme: terminalThemeForAppearance('dark'),
     typography: { fontFamily: 'ui-monospace, monospace', fontSize: 13 },
     cursorDefaults: { shape: 'block', blink: 'terminal' },
+    ligatures: true,
     cwd: localPath('/repo'),
     workspaceRoot,
     connectionState,

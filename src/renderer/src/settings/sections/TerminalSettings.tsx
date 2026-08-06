@@ -68,6 +68,23 @@ export function TerminalSettings({
               </small>
             </span>
           </label>
+          <label htmlFor="settings-terminal-ligatures">
+            <span>Font ligatures</span>
+            <span className="settings-checkbox-copy">
+              <input
+                id="settings-terminal-ligatures"
+                type="checkbox"
+                checked={draft.terminalLigatures}
+                onChange={(event) =>
+                  onChange('terminalLigatures', event.currentTarget.checked)
+                }
+              />
+              <small>
+                Shape compatible terminal cells as line runs. Cell positions, selection,
+                and copying remain unchanged.
+              </small>
+            </span>
+          </label>
         </fieldset>
         <label className="settings-checkbox">
           <span>Message submission</span>

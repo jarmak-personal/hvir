@@ -29,6 +29,7 @@ export interface TerminalSessionRuntimesProps {
   readonly terminalDarkThemeId: string
   readonly terminalTypography: TerminalTypography
   readonly cursorDefaults: TerminalCursorDefaults
+  readonly ligatures: boolean
   readonly composerSubmitMode: ComposerSubmitMode
   readonly workspaceRoot: HostPath
   readonly connectionState: HostConnectionState
@@ -60,6 +61,7 @@ export function TerminalSessionRuntimes({
   terminalDarkThemeId,
   terminalTypography,
   cursorDefaults,
+  ligatures,
   composerSubmitMode,
   workspaceRoot,
   connectionState,
@@ -110,6 +112,7 @@ export function TerminalSessionRuntimes({
             darkThemeId={terminalDarkThemeId}
             typography={terminalTypography}
             cursorDefaults={cursorDefaults}
+            ligatures={ligatures}
             composerSubmitMode={composerSubmitMode}
             cwd={session.cwd}
             workspaceRoot={workspaceRoot}

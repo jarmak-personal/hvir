@@ -260,6 +260,7 @@ export class TerminalRuntime {
       pane.setTheme(this.options.theme)
       pane.setTypography(this.options.typography)
       pane.setCursorDefaults(this.options.cursorDefaults)
+      pane.setLigatures(this.options.ligatures)
       this.installPaneListeners(pane)
       this.surface.mountPane(pane, container)
       pane.redraw()
@@ -379,7 +380,6 @@ export class TerminalRuntime {
       }
     }
   }
-
   private installPaneListeners(pane: TerminalPane): void {
     this.paneDisposers = [
       pane.events.onData((data) => {

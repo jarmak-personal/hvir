@@ -27,6 +27,7 @@ export interface AppSettings {
   readonly terminalDarkThemeId: string
   readonly terminalCursorShape: TerminalCursorShape
   readonly terminalCursorBlink: TerminalCursorBlinkPolicy
+  readonly terminalLigatures: boolean
   readonly interfaceFont: FontPreference
   readonly monospaceFont: FontPreference
   readonly interfaceScale: number
@@ -45,6 +46,7 @@ export interface TerminalPreferences {
     readonly shape: TerminalCursorShape
     readonly blink: TerminalCursorBlinkPolicy
   }
+  readonly terminalLigatures: boolean
   readonly terminalTypography: TextTypography
   readonly composerSubmitMode: ComposerSubmitMode
 }

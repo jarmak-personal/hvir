@@ -277,6 +277,40 @@ describe('SettingsDialog section workflow', () => {
     expect(onSave).not.toHaveBeenCalled()
   })
 
+  it('saves the ligatures toggle and leaves a canceled draft ineffective', async () => {
+    const onSave = vi.fn()
+    const onClose = vi.fn()
+    renderDialog(undefined, onSave, onClose)
+    await selectSection('Terminal')
+
+    const ligatures = document.querySelector<HTMLInputElement>(
+      '#settings-terminal-ligatures',
+    )!
+    expect(ligatures.checked).toBe(true)
+    expect(document.body.textContent).toContain(
+      'Cell positions, selection, and copying remain unchanged',
+    )
+
+    act(() => ligatures.click())
+    await act(async () => {
+      button('Save app settings').click()
+      await Promise.resolve()
+    })
+    expect(onSave).toHaveBeenCalledWith(
+      'dark',
+      expect.objectContaining({ terminalLigatures: false }),
+    )
+
+    onSave.mockClear()
+    act(() => ligatures.click())
+    await act(async () => {
+      button('Close settings').click()
+      await Promise.resolve()
+    })
+    expect(onClose).toHaveBeenCalledOnce()
+    expect(onSave).not.toHaveBeenCalled()
+  })
+
   it('contains focus and Escape inside the nested composer consent dialog', async () => {
     const onClose = vi.fn()
     renderDialog(undefined, vi.fn(), onClose)
@@ -355,6 +389,7 @@ function renderDialog(
           terminalDarkThemeId: 'hvir-default-dark',
           terminalCursorShape: 'block',
           terminalCursorBlink: 'terminal',
+          terminalLigatures: true,
           interfaceFont: { mode: 'system', family: '' },
           monospaceFont: { mode: 'system', family: '' },
           interfaceScale: 1,

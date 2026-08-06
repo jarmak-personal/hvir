@@ -94,6 +94,7 @@ function toGhosttyCursorBlink(
 
 export interface GhosttyTerminalPaneOptions {
   readonly cursorDefaults: TerminalCursorDefaults
+  readonly ligatures: boolean
   readonly modifiedKeyProtocol: HarnessModifiedKeyProtocol
   readonly metaEnterAliasesControl: boolean
   readonly composerSubmitMode: ComposerSubmitMode
@@ -137,6 +138,7 @@ class GhosttyTerminalPane implements TerminalPane {
     GhosttyTerminalEventProvenance
   >()
   private cursorDefaults: TerminalCursorDefaults
+  private ligatures: boolean
 
   constructor(
     private theme: TerminalColorTheme,
@@ -144,11 +146,13 @@ class GhosttyTerminalPane implements TerminalPane {
     options: GhosttyTerminalPaneOptions,
   ) {
     this.cursorDefaults = options.cursorDefaults
+    this.ligatures = options.ligatures
     this.terminal = new GhosttyTerminal({
       allowTransparency: false,
       cursorBlink: toGhosttyCursorBlink(options.cursorDefaults.blink),
       cursorStyle: toGhosttyCursorStyle(options.cursorDefaults.shape),
       fontFamily: typography.fontFamily,
+      fontLigatures: options.ligatures,
       fontSize: typography.fontSize,
       scrollback: TERMINAL_SCROLLBACK_BYTES,
       theme: toGhosttyTheme(theme),
@@ -208,6 +212,7 @@ class GhosttyTerminalPane implements TerminalPane {
         effectiveColors: this.terminal.wasmTerm?.getColors(),
         fontFamily: this.typography.fontFamily,
         fontSize: this.typography.fontSize,
+        fontLigatures: this.ligatures,
       }),
     })
     Object.defineProperty(surface, '__hvirTerminalCursor', {
@@ -310,6 +315,12 @@ class GhosttyTerminalPane implements TerminalPane {
       this.terminal.options.cursorBlink = toGhosttyCursorBlink(defaults.blink)
     }
     this.cursorDefaults = defaults
+  }
+
+  setLigatures(enabled: boolean): void {
+    if (this.disposed || enabled === this.ligatures) return
+    this.terminal.options.fontLigatures = enabled
+    this.ligatures = enabled
   }
 
   setPresentation(presentation: TerminalPresentation): void {

@@ -47,6 +47,7 @@ interface TerminalViewProps {
   readonly darkThemeId: string
   readonly typography: TerminalTypography
   readonly cursorDefaults: TerminalCursorDefaults
+  readonly ligatures: boolean
   readonly composerSubmitMode: ComposerSubmitMode
   readonly cwd: HostPath
   readonly workspaceRoot: HostPath

@@ -15,6 +15,7 @@ const settings = {
   terminalDarkThemeId: 'hvir-default-dark',
   terminalCursorShape: 'block' as const,
   terminalCursorBlink: 'terminal' as const,
+  terminalLigatures: true,
   interfaceFont: { mode: 'system' as const, family: '' },
   monospaceFont: { mode: 'system' as const, family: '' },
   interfaceScale: 1,

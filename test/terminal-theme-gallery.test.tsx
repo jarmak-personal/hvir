@@ -166,6 +166,7 @@ function defaultSettings(): AppSettings {
     terminalDarkThemeId: DEFAULT_TERMINAL_THEME_IDS.dark,
     terminalCursorShape: 'block',
     terminalCursorBlink: 'terminal',
+    terminalLigatures: true,
     interfaceFont: { mode: 'system', family: '' },
     monospaceFont: { mode: 'system', family: '' },
     interfaceScale: 1,

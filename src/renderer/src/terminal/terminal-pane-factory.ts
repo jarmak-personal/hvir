@@ -10,6 +10,7 @@ type TerminalPaneFactoryOptions = Pick<
   | 'theme'
   | 'typography'
   | 'cursorDefaults'
+  | 'ligatures'
 >
 
 export function createTerminalRuntimePane(
@@ -17,6 +18,7 @@ export function createTerminalRuntimePane(
 ): Promise<TerminalPane> {
   return createGhosttyTerminalPane(options.theme, options.typography, {
     cursorDefaults: options.cursorDefaults,
+    ligatures: options.ligatures,
     modifiedKeyProtocol: options.modifiedKeyProtocol,
     metaEnterAliasesControl: options.metaEnterAliasesControl,
     composerSubmitMode: options.composerSubmitMode,

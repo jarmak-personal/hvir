@@ -30,6 +30,7 @@ describe('app settings typography persistence', () => {
       terminalDarkThemeId: 'hvir-default-dark',
       terminalCursorShape: 'block',
       terminalCursorBlink: 'terminal',
+      terminalLigatures: true,
       interfaceFont: { mode: 'system', family: '' },
       monospaceFont: { mode: 'system', family: '' },
       interfaceScale: 1,
@@ -49,6 +50,7 @@ describe('app settings typography persistence', () => {
       terminalDarkThemeId: 'hvir-default-dark',
       terminalCursorShape: 'bar',
       terminalCursorBlink: 'steady',
+      terminalLigatures: false,
       interfaceFont: { mode: 'custom', family: 'Example Sans' },
       monospaceFont: { mode: 'custom', family: 'Example Mono' },
       interfaceScale: 1.25,
@@ -75,6 +77,7 @@ describe('app settings typography persistence', () => {
       terminalDarkThemeId: 'hvir-default-dark',
       terminalCursorShape: 'bar',
       terminalCursorBlink: 'steady',
+      terminalLigatures: false,
       interfaceFont: { mode: 'custom', family: 'Example Sans' },
       monospaceFont: { mode: 'custom', family: 'Example Mono' },
       interfaceScale: 1.25,
@@ -89,6 +92,7 @@ describe('app settings typography persistence', () => {
       shape: 'bar',
       blink: 'steady',
     })
+    expect(preferences.terminalLigatures).toBe(false)
   })
 
   it.each(['app', 'dark', 'light'] as const)(
@@ -151,12 +155,13 @@ describe('app settings typography persistence', () => {
     })
   })
 
-  it('normalizes invalid stored cursor defaults without preserving engine values', async () => {
+  it('normalizes invalid stored presentation values without preserving engine values', async () => {
     localStorage.setItem(
       'hvir:settings:v1',
       JSON.stringify({
         terminalCursorShape: 'block_hollow',
         terminalCursorBlink: true,
+        terminalLigatures: 'off',
       }),
     )
 
@@ -164,9 +169,11 @@ describe('app settings typography persistence', () => {
     expect(settings.getAppSettings()).toMatchObject({
       terminalCursorShape: 'block',
       terminalCursorBlink: 'terminal',
+      terminalLigatures: true,
     })
     expect(settings.terminalPreferences(settings.getAppSettings())).toMatchObject({
       terminalCursorDefaults: { shape: 'block', blink: 'terminal' },
+      terminalLigatures: true,
     })
   })
 })
