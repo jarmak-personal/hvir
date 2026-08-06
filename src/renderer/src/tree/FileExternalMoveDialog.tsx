@@ -18,9 +18,9 @@ export function FileExternalMoveDialog({
   }, [controller.pending, dialog])
   if (!dialog) return null
   return (
-    <div className="file-create-backdrop">
+    <div className="modal-backdrop">
       <section
-        className="file-create-dialog file-external-move-dialog"
+        className="project-dialog confirmation-dialog file-create-dialog file-external-move-dialog"
         role="dialog"
         aria-modal="true"
         aria-labelledby="file-external-move-title"
@@ -28,35 +28,58 @@ export function FileExternalMoveDialog({
           if (event.key === 'Escape') controller.dismiss()
         }}
       >
-        <h2 id="file-external-move-title">Move External Items Here</h2>
-        <dl>
-          <div>
-            <dt>Workspace</dt>
-            <dd>
-              <code>{displayHostPath(dialog.workspaceRoot)}</code>
-            </dd>
-          </div>
-          <div>
-            <dt>Destination</dt>
-            <dd>
-              <code>{displayHostPath(dialog.destinationDirectory)}</code>
-            </dd>
-          </div>
-          <div>
-            <dt>Source recovery</dt>
-            <dd>Application-host Trash</dd>
-          </div>
-        </dl>
-        {dialog.stage === 'selection' ? (
-          <>
-            <p>{dialog.disclosure.picker.limitation}</p>
-            <p>
-              Selected sources are copied and completely verified before hvir asks the
-              application host to move each exact source to Trash. There is no permanent
-              deletion fallback.
-            </p>
-            <div className="file-create-actions">
+        <div className="confirmation-dialog-content">
+          <h2 id="file-external-move-title">Move External Items Here</h2>
+          <dl>
+            <div>
+              <dt>Workspace</dt>
+              <dd>
+                <code>{displayHostPath(dialog.workspaceRoot)}</code>
+              </dd>
+            </div>
+            <div>
+              <dt>Destination</dt>
+              <dd>
+                <code>{displayHostPath(dialog.destinationDirectory)}</code>
+              </dd>
+            </div>
+            <div>
+              <dt>Source recovery</dt>
+              <dd>Application-host Trash</dd>
+            </div>
+          </dl>
+          {dialog.stage === 'selection' ? (
+            <>
+              <p>{dialog.disclosure.picker.limitation}</p>
+              <p>
+                Selected sources are copied and completely verified before hvir asks the
+                application host to move each exact source to Trash. There is no permanent
+                deletion fallback.
+              </p>
+            </>
+          ) : (
+            <>
+              <p>
+                Confirm these selected items. A source is reported as moved only after
+                verified publication, resolved Trash, and confirmed absence at its exact
+                granted path.
+              </p>
+              <ul className="file-external-move-items">
+                {dialog.grant.items.map((item) => (
+                  <li key={item.itemId}>
+                    <code>{item.name}</code> — {item.type}
+                    {item.reason ? ` — ${item.reason}` : ''}
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
+        </div>
+        <div className="dialog-actions confirmation-dialog-actions">
+          {dialog.stage === 'selection' ? (
+            <>
               <button
+                className="confirmation-action confirmation-action-cancel"
                 type="button"
                 disabled={controller.pending}
                 onClick={() => controller.dismiss()}
@@ -66,6 +89,7 @@ export function FileExternalMoveDialog({
               {dialog.disclosure.picker.kind === 'mixed-multiple' ? (
                 <button
                   ref={selectionRef}
+                  className="confirmation-action confirmation-action-primary"
                   type="button"
                   disabled={controller.pending}
                   onClick={() => controller.choose('mixed')}
@@ -76,6 +100,7 @@ export function FileExternalMoveDialog({
                 <>
                   <button
                     ref={selectionRef}
+                    className="confirmation-action confirmation-action-primary"
                     type="button"
                     disabled={controller.pending}
                     onClick={() => controller.choose('files')}
@@ -83,6 +108,7 @@ export function FileExternalMoveDialog({
                     Choose Files…
                   </button>
                   <button
+                    className="confirmation-action confirmation-action-primary"
                     type="button"
                     disabled={controller.pending}
                     onClick={() => controller.choose('directory')}
@@ -91,26 +117,12 @@ export function FileExternalMoveDialog({
                   </button>
                 </>
               )}
-            </div>
-          </>
-        ) : (
-          <>
-            <p>
-              Confirm these selected items. A source is reported as moved only after
-              verified publication, resolved Trash, and confirmed absence at its exact
-              granted path.
-            </p>
-            <ul className="file-external-move-items">
-              {dialog.grant.items.map((item) => (
-                <li key={item.itemId}>
-                  <code>{item.name}</code> — {item.type}
-                  {item.reason ? ` — ${item.reason}` : ''}
-                </li>
-              ))}
-            </ul>
-            <div className="file-create-actions">
+            </>
+          ) : (
+            <>
               <button
                 ref={cancelRef}
+                className="confirmation-action confirmation-action-cancel"
                 type="button"
                 disabled={controller.pending}
                 onClick={() => controller.dismiss()}
@@ -119,15 +131,15 @@ export function FileExternalMoveDialog({
               </button>
               <button
                 type="button"
-                className="file-destructive-action"
+                className="confirmation-action confirmation-action-destructive"
                 disabled={controller.pending}
                 onClick={() => controller.confirm()}
               >
                 Move Selected Items
               </button>
-            </div>
-          </>
-        )}
+            </>
+          )}
+        </div>
       </section>
     </div>
   )

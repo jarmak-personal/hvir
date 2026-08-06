@@ -34,9 +34,9 @@ export function FileOrganizationDialog({
   const validation = needsName ? projectFileEntryNameError(name) : undefined
   const verb = organizationVerb(dialog.action)
   return (
-    <div className="file-create-backdrop">
+    <div className="modal-backdrop">
       <form
-        className="file-create-dialog file-organization-dialog"
+        className="project-dialog confirmation-dialog file-create-dialog file-organization-dialog"
         role="dialog"
         aria-modal="true"
         aria-labelledby="file-organization-title"
@@ -48,60 +48,67 @@ export function FileOrganizationDialog({
           if (event.key === 'Escape') controller.dismiss()
         }}
       >
-        <h2 id="file-organization-title">{verb} Entry</h2>
-        <dl>
-          <PathFact label="Workspace" path={dialog.workspaceRoot} />
-          <PathFact label="Source" path={dialog.source} />
+        <div className="confirmation-dialog-content">
+          <h2 id="file-organization-title">{verb} Entry</h2>
+          <dl>
+            <PathFact label="Workspace" path={dialog.workspaceRoot} />
+            <PathFact label="Source" path={dialog.source} />
+            {dialog.action !== 'rename' ? (
+              <PathFact label="Destination" path={dialog.destinationDirectory} />
+            ) : null}
+          </dl>
           {dialog.action !== 'rename' ? (
-            <PathFact label="Destination" path={dialog.destinationDirectory} />
+            <div
+              ref={pickerRef}
+              className="file-organization-picker"
+              role="group"
+              aria-labelledby="file-organization-directory-label"
+            >
+              <span id="file-organization-directory-label">Destination folder</span>
+              <DirectoryTree
+                root={dialog.workspaceRoot}
+                rootLabel={
+                  basenameHostPath(dialog.workspaceRoot) || dialog.workspaceRoot.path
+                }
+                loadEntries={loadProjectEntries}
+                selected={dialog.destinationDirectory}
+                showFiles={false}
+                onSelectDirectory={(path) => controller.selectDirectory(path)}
+              />
+            </div>
           ) : null}
-        </dl>
-        {dialog.action !== 'rename' ? (
-          <div
-            ref={pickerRef}
-            className="file-organization-picker"
-            role="group"
-            aria-labelledby="file-organization-directory-label"
-          >
-            <span id="file-organization-directory-label">Destination folder</span>
-            <DirectoryTree
-              root={dialog.workspaceRoot}
-              rootLabel={
-                basenameHostPath(dialog.workspaceRoot) || dialog.workspaceRoot.path
-              }
-              loadEntries={loadProjectEntries}
-              selected={dialog.destinationDirectory}
-              showFiles={false}
-              onSelectDirectory={(path) => controller.selectDirectory(path)}
-            />
-          </div>
-        ) : null}
-        {needsName ? (
-          <label>
-            Name
-            <input
-              autoFocus
-              value={name}
-              disabled={controller.pending}
-              aria-invalid={Boolean(name && validation)}
-              onChange={(event) => setName(event.currentTarget.value)}
-            />
-          </label>
-        ) : null}
-        {(controller.dialogError ?? (name ? validation : undefined)) ? (
-          <div className="file-create-error" role="alert">
-            {controller.dialogError ?? validation}
-          </div>
-        ) : null}
-        <div className="file-create-actions">
+          {needsName ? (
+            <label>
+              Name
+              <input
+                autoFocus
+                value={name}
+                disabled={controller.pending}
+                aria-invalid={Boolean(name && validation)}
+                onChange={(event) => setName(event.currentTarget.value)}
+              />
+            </label>
+          ) : null}
+          {(controller.dialogError ?? (name ? validation : undefined)) ? (
+            <div className="file-create-error" role="alert">
+              {controller.dialogError ?? validation}
+            </div>
+          ) : null}
+        </div>
+        <div className="dialog-actions confirmation-dialog-actions">
           <button
+            className="confirmation-action confirmation-action-cancel"
             type="button"
             disabled={controller.pending}
             onClick={() => controller.dismiss()}
           >
             Cancel
           </button>
-          <button type="submit" disabled={controller.pending || Boolean(validation)}>
+          <button
+            className="confirmation-action confirmation-action-primary"
+            type="submit"
+            disabled={controller.pending || Boolean(validation)}
+          >
             {controller.pending ? `${verb}…` : verb}
           </button>
         </div>
