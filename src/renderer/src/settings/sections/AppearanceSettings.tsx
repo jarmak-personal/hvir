@@ -10,6 +10,7 @@ import {
   MIN_TERMINAL_TEXT_SIZE,
 } from '../typography-settings'
 import { TypographyFontField } from './TypographyFontField'
+import { TerminalThemeGallery } from '../TerminalThemeGallery'
 
 export function AppearanceSettings({
   draft,
@@ -59,6 +60,12 @@ export function AppearanceSettings({
             <option value="light">Always light</option>
           </select>
         </label>
+        <TerminalThemeGallery
+          lightThemeId={draft.terminalLightThemeId}
+          darkThemeId={draft.terminalDarkThemeId}
+          onLightTheme={(id) => onChange('terminalLightThemeId', id)}
+          onDarkTheme={(id) => onChange('terminalDarkThemeId', id)}
+        />
         <TypographyFontField
           id="settings-interface-font"
           label="Interface font"

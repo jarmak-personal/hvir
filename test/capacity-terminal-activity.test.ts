@@ -10,7 +10,7 @@ describe('capacity terminal presentation accounting', () => {
     const before = samples()
     const after = before.map((sample, index) => ({
       ...sample,
-      parsedWrites: sample.parsedWrites + (index >= 1 && index <= 3 ? 20 : 0),
+      parsedWrites: sample.parsedWrites + (index >= 1 ? 20 : 0),
       renderFrames: sample.renderFrames + (index === 0 ? 30 : 0),
       delivery: {
         ...sample.delivery,
@@ -21,16 +21,21 @@ describe('capacity terminal presentation accounting', () => {
     }))
 
     expect(
-      verifyTerminalActivity(before, after, ['terminal-1', 'terminal-2', 'terminal-3']),
+      verifyTerminalActivity(
+        before,
+        after,
+        Array.from({ length: 11 }, (_, index) => `terminal-${index + 1}`),
+      ),
     ).toEqual({
       hiddenPanes: 11,
-      hiddenParsedWrites: 60,
+      hiddenParsedWrites: 220,
       hiddenPresentationFrames: 0,
       visiblePresentationFrames: 30,
       nativeDataEvents: 240,
       deliveryCallbacks: 60,
-      terminalWrites: 60,
+      terminalWrites: 220,
       peakBufferedBytes: 4_096,
+      synchronizedPanes: 9,
     })
   })
 
@@ -51,6 +56,25 @@ describe('capacity terminal presentation accounting', () => {
       verifyTerminalActivity(before, after, ['terminal-1', 'terminal-2', 'terminal-3']),
     ).toThrow('hidden terminal terminal-2 presented work')
   })
+
+  it('rejects semantic metadata beyond its per-terminal bound', () => {
+    const before = samples()
+    const after = before.map((sample, index) => ({
+      ...sample,
+      parsedWrites: sample.parsedWrites + (index <= 3 ? 1 : 0),
+      renderFrames: sample.renderFrames + (index === 0 ? 1 : 0),
+      semanticRegions: index === 4 ? 257 : sample.semanticRegions,
+      delivery: {
+        ...sample.delivery,
+        nativeDataEvents: sample.delivery.nativeDataEvents + 4,
+        deliveryCallbacks: sample.delivery.deliveryCallbacks + 1,
+      },
+    }))
+
+    expect(() =>
+      verifyTerminalActivity(before, after, ['terminal-1', 'terminal-2', 'terminal-3']),
+    ).toThrow('terminal terminal-4 exceeded its semantic-region cap: 257/256')
+  })
 })
 
 function samples(): readonly TerminalPresentationSample[] {
@@ -63,6 +87,12 @@ function samples(): readonly TerminalPresentationSample[] {
     fullRenderFrames: 1,
     paused: index !== 0,
     pendingFrame: false,
+    synchronizedOutput: index >= 3,
+    synchronizedOutputRecoveries: 0,
+    retainedRows: 75_600,
+    retainedByteLimit: 10_000_000,
+    semanticRegions: 256,
+    semanticRegionLimit: 256,
     delivery: {
       nativeDataEvents: 10,
       deliveryCallbacks: 5,

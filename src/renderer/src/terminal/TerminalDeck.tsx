@@ -8,8 +8,11 @@ import type {
 } from '../../../shared'
 import { PaneResizer } from '../layout/PaneResizer'
 import type { TerminalThemeOverride } from '../settings/settings'
-import type { TerminalLinkActivation } from './terminal-pane'
-import type { TerminalTypography } from './terminal-pane'
+import type {
+  TerminalCursorDefaults,
+  TerminalLinkActivation,
+  TerminalTypography,
+} from './terminal-pane'
 import type { TerminalSession } from './terminal-workspace-model'
 import type { FreshTerminalStart } from './terminal-runtime-options'
 import type { TerminalRuntimeRegistry } from './terminal-runtime-registry'
@@ -29,7 +32,11 @@ export function TerminalDeck({
   split,
   primaryWidth,
   terminalTheme,
+  terminalLightThemeId,
+  terminalDarkThemeId,
   terminalTypography,
+  cursorDefaults,
+  ligatures,
   composerSubmitMode,
   workspaceRoot,
   connectionState,
@@ -41,6 +48,8 @@ export function TerminalDeck({
   onBell,
   onFocus,
   onLink,
+  onSplit,
+  onOpenTerminalSettings,
   onSetPrimaryWidth,
   onResetPrimaryWidth,
   runtimes,
@@ -58,7 +67,11 @@ export function TerminalDeck({
   readonly split: boolean
   readonly primaryWidth?: number
   readonly terminalTheme: TerminalThemeOverride
+  readonly terminalLightThemeId: string
+  readonly terminalDarkThemeId: string
   readonly terminalTypography: TerminalTypography
+  readonly cursorDefaults: TerminalCursorDefaults
+  readonly ligatures: boolean
   readonly composerSubmitMode: ComposerSubmitMode
   readonly workspaceRoot: HostPath
   readonly connectionState: HostConnectionState
@@ -73,6 +86,8 @@ export function TerminalDeck({
   readonly onBell: (id: string) => void
   readonly onFocus: (id: string) => void
   readonly onLink: (session: TerminalSession, activation: TerminalLinkActivation) => void
+  readonly onSplit: () => void
+  readonly onOpenTerminalSettings: () => void
   readonly onSetPrimaryWidth: (width: number) => void
   readonly onResetPrimaryWidth: () => void
   readonly runtimes: TerminalRuntimeRegistry
@@ -89,7 +104,11 @@ export function TerminalDeck({
       secondaryActiveId={secondaryActiveId}
       presented={visible}
       terminalTheme={terminalTheme}
+      terminalLightThemeId={terminalLightThemeId}
+      terminalDarkThemeId={terminalDarkThemeId}
       terminalTypography={terminalTypography}
+      cursorDefaults={cursorDefaults}
+      ligatures={ligatures}
       composerSubmitMode={composerSubmitMode}
       workspaceRoot={workspaceRoot}
       connectionState={connectionState}
@@ -100,6 +119,8 @@ export function TerminalDeck({
       onBell={onBell}
       onFocus={onFocus}
       onLink={onLink}
+      onSplit={onSplit}
+      onOpenTerminalSettings={onOpenTerminalSettings}
       runtimes={runtimes}
     />
   )

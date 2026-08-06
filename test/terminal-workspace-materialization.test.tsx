@@ -80,12 +80,17 @@ describe('terminal workspace materialization bridge', () => {
       onOpenWebLink: vi.fn(),
       preferences: {
         terminalTheme: 'app' as const,
+        terminalLightThemeId: 'hvir-default-light',
+        terminalDarkThemeId: 'hvir-default-dark',
         terminalTypography: { fontFamily: 'monospace', fontSize: 13 },
+        terminalCursorDefaults: { shape: 'block', blink: 'terminal' } as const,
+        terminalLigatures: true,
         composerSubmitMode: 'enter' as const,
         idleThresholdMs: 10_000,
         terminalRecoveryMode: 'prompt' as const,
       },
       onOpenSettings: vi.fn(),
+      onOpenTerminalSettings: vi.fn(),
       onOpenHarnessSettings: vi.fn(),
       onAddHarness: vi.fn(),
       runtimes: { disposeSession: vi.fn() } as never,
@@ -132,9 +137,7 @@ describe('terminal workspace materialization bridge', () => {
   })
 })
 
-function shellProvider(
-  id: HarnessProviderDescriptor['id'],
-): HarnessProviderDescriptor {
+function shellProvider(id: HarnessProviderDescriptor['id']): HarnessProviderDescriptor {
   return {
     id,
     displayName: 'Shell',

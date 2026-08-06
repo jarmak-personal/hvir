@@ -1,8 +1,14 @@
 import {
   Terminal as GhosttyTerminal,
   init,
+  type CursorBlink as GhosttyCursorBlink,
+  type CursorStyle as GhosttyCursorStyle,
+  type ITheme as GhosttyTheme,
+  type IRetainedBufferRange as GhosttyRetainedBufferRange,
+  type IRetainedBufferSearchResult as GhosttyRetainedBufferSearchResult,
   type ILink,
   type ILinkProvider,
+  type TerminalEventProvenance as GhosttyTerminalEventProvenance,
 } from 'ghostty-web'
 
 import type {
@@ -11,15 +17,23 @@ import type {
   HarnessModifiedKeyProtocol,
 } from '../../../shared'
 import type {
-  OscEvent,
+  TerminalEvent,
+  TerminalEventLocation,
+  TerminalEventProvenance,
+  TerminalEventScreen,
   TerminalPane,
   TerminalPaneEvents,
   TerminalPresentation,
   TerminalSize,
   TerminalColorTheme,
+  TerminalCursorDefaults,
   TerminalLinkActivation,
+  TerminalRetainedBufferRange,
+  TerminalRetainedBufferSearch,
   TerminalTypography,
 } from './terminal-pane'
+import { translateGhosttyTerminalEvent } from './ghostty-terminal-events'
+import { terminalColorThemeEquals } from './terminal-palette'
 import {
   detectTerminalFileLinks,
   detectTerminalWebLinks,
@@ -32,13 +46,56 @@ import {
   ghosttyClipboardPasteFallback,
   ghosttyKeyboardOverride,
 } from './ghostty-terminal-keyboard'
-import { TerminalSignalParser } from './terminal-signals'
 import { writePreservingViewport } from './terminal-viewport'
 import { TerminalWheelController } from './terminal-wheel'
 
 let initializeGhostty: Promise<void> | undefined
+const TERMINAL_SCROLLBACK_BYTES = 10_000_000
+
+function toGhosttyTheme(theme: TerminalColorTheme): GhosttyTheme {
+  return {
+    background: theme.background,
+    foreground: theme.foreground,
+    cursor: theme.cursor,
+    cursorAccent: theme.cursorText,
+    selectionBackground: theme.selectionBackground,
+    selectionForeground: theme.selectionForeground,
+    black: theme.black,
+    red: theme.red,
+    green: theme.green,
+    yellow: theme.yellow,
+    blue: theme.blue,
+    magenta: theme.magenta,
+    cyan: theme.cyan,
+    white: theme.white,
+    brightBlack: theme.brightBlack,
+    brightRed: theme.brightRed,
+    brightGreen: theme.brightGreen,
+    brightYellow: theme.brightYellow,
+    brightBlue: theme.brightBlue,
+    brightMagenta: theme.brightMagenta,
+    brightCyan: theme.brightCyan,
+    brightWhite: theme.brightWhite,
+  }
+}
+
+function toGhosttyCursorStyle(
+  shape: TerminalCursorDefaults['shape'],
+): GhosttyCursorStyle {
+  return shape === 'hollow-block' ? 'block_hollow' : shape
+}
+
+function toGhosttyCursorBlink(
+  policy: TerminalCursorDefaults['blink'],
+): GhosttyCursorBlink {
+  if (policy === 'blinking') return true
+  if (policy === 'steady') return false
+  return 'terminal'
+}
 
 export interface GhosttyTerminalPaneOptions {
+  readonly cursorDefaults: TerminalCursorDefaults
+  readonly ligatures: boolean
   readonly modifiedKeyProtocol: HarnessModifiedKeyProtocol
   readonly metaEnterAliasesControl: boolean
   readonly composerSubmitMode: ComposerSubmitMode
@@ -77,20 +134,30 @@ class ListenerSet<T> {
 class GhosttyTerminalPane implements TerminalPane {
   private readonly terminal: GhosttyTerminal
   private readonly fit: TerminalFitController
+  private readonly nativeProvenance = new WeakMap<
+    TerminalEventProvenance,
+    GhosttyTerminalEventProvenance
+  >()
+  private cursorDefaults: TerminalCursorDefaults
+  private ligatures: boolean
 
   constructor(
-    theme: TerminalColorTheme,
+    private theme: TerminalColorTheme,
     private typography: TerminalTypography,
     options: GhosttyTerminalPaneOptions,
   ) {
+    this.cursorDefaults = options.cursorDefaults
+    this.ligatures = options.ligatures
     this.terminal = new GhosttyTerminal({
       allowTransparency: false,
-      cursorBlink: true,
-      cursorStyle: 'block',
+      cursorBlink: toGhosttyCursorBlink(options.cursorDefaults.blink),
+      cursorStyle: toGhosttyCursorStyle(options.cursorDefaults.shape),
       fontFamily: typography.fontFamily,
+      fontLigatures: options.ligatures,
       fontSize: typography.fontSize,
-      scrollback: 10_000,
-      theme,
+      scrollback: TERMINAL_SCROLLBACK_BYTES,
+      theme: toGhosttyTheme(theme),
+      disableContextMenu: true,
       resolveClipboardFilePaste: (file) =>
         resolveGhosttyTerminalFilePaste(window.hvir, file),
     })
@@ -110,9 +177,7 @@ class GhosttyTerminalPane implements TerminalPane {
 
   private readonly dataListeners = new ListenerSet<string>()
   private readonly clipboardPasteListeners = new ListenerSet<string>()
-  private readonly titleListeners = new ListenerSet<string>()
-  private readonly bellListeners = new ListenerSet<void>()
-  private readonly oscListeners = new ListenerSet<OscEvent>()
+  private readonly eventListeners = new ListenerSet<TerminalEvent>()
   private readonly resizeListeners = new ListenerSet<TerminalSize>()
   private readonly linkListeners = new ListenerSet<TerminalLinkActivation>()
   private readonly engineDisposers: Array<{ dispose(): void }> = []
@@ -120,16 +185,17 @@ class GhosttyTerminalPane implements TerminalPane {
   private mounted = false
   private disposed = false
   private presentation: TerminalPresentation = 'visible'
-  private readonly signalParser = new TerminalSignalParser()
   private readonly wheel = new TerminalWheelController()
-  private lastTitle = ''
+  private searchHighlight?: Readonly<{
+    owner: object
+    range: GhosttyRetainedBufferRange
+  }>
+  private searchHighlightLayer?: HTMLDivElement
 
   readonly events: TerminalPaneEvents = {
     onData: (callback) => this.dataListeners.on(callback),
     onClipboardPaste: (callback) => this.clipboardPasteListeners.on(callback),
-    onTitle: (callback) => this.titleListeners.on(callback),
-    onBell: (callback) => this.bellListeners.on(callback),
-    onOsc: (callback) => this.oscListeners.on(callback),
+    onEvent: (callback) => this.eventListeners.on(callback),
     onResize: (callback) => this.resizeListeners.on(callback),
     onLink: (callback) => this.linkListeners.on(callback),
   }
@@ -148,18 +214,44 @@ class GhosttyTerminalPane implements TerminalPane {
         ...this.terminal.getRenderStats(),
         cols: this.terminal.cols,
         rows: this.terminal.rows,
+        retainedRows: this.terminal.getScrollbackLength(),
+        retainedByteLimit: TERMINAL_SCROLLBACK_BYTES,
+        palette: this.theme,
+        effectiveColors: this.terminal.wasmTerm?.getColors(),
         fontFamily: this.typography.fontFamily,
         fontSize: this.typography.fontSize,
+        fontLigatures: this.ligatures,
+      }),
+    })
+    Object.defineProperty(surface, '__hvirTerminalCursor', {
+      configurable: true,
+      get: () => ({
+        defaults: this.cursorDefaults,
+        effective: this.terminal.wasmTerm?.getCursor(),
       }),
     })
     container.append(surface)
     this.surface = surface
     this.engineDisposers.push(
       this.terminal.onData((data) => this.emitInput(data)),
-      this.terminal.onResize((size) => this.resizeListeners.emit(size)),
-      this.terminal.onTitleChange((title) => this.emitTitle(title)),
+      this.terminal.onResize((size) => {
+        this.resizeListeners.emit(size)
+        this.renderSearchHighlight()
+      }),
+      this.terminal.onScroll(() => this.renderSearchHighlight()),
+      this.terminal.onTerminalEvent((event) => {
+        const translated = translateGhosttyTerminalEvent(event, (provenance) =>
+          this.retainProvenance(provenance),
+        )
+        if (translated) this.eventListeners.emit(translated)
+      }),
     )
     this.terminal.open(surface)
+    const searchHighlightLayer = document.createElement('div')
+    searchHighlightLayer.className = 'terminal-search-match-highlight-layer'
+    searchHighlightLayer.setAttribute('aria-hidden', 'true')
+    surface.append(searchHighlightLayer)
+    this.searchHighlightLayer = searchHighlightLayer
     this.terminal.registerLinkProvider(
       new FileLinkProvider(this.terminal, (target) => this.linkListeners.emit(target)),
     )
@@ -194,12 +286,13 @@ class GhosttyTerminalPane implements TerminalPane {
     container.append(this.surface)
     this.fit.fit()
     this.redraw()
+    this.renderSearchHighlight()
   }
 
   write(data: string): void {
     if (this.disposed) return
-    this.inspectSignals(data)
     writePreservingViewport(this.terminal, data)
+    this.renderSearchHighlight()
   }
 
   resize(cols: number, rows: number): void {
@@ -207,13 +300,9 @@ class GhosttyTerminalPane implements TerminalPane {
   }
 
   setTheme(theme: TerminalColorTheme): void {
-    if (this.disposed) return
-    this.terminal.options.theme = theme
-    // ghostty-web's mutable option currently records the value but does not
-    // forward it to the canvas renderer. Keep the seam correct for engines and
-    // call the renderer's public theme method while upstream support matures.
-    this.terminal.renderer?.setTheme(theme)
-    this.redraw()
+    if (this.disposed || terminalColorThemeEquals(theme, this.theme)) return
+    this.terminal.options.theme = toGhosttyTheme(theme)
+    this.theme = theme
   }
 
   setTypography(typography: TerminalTypography): void {
@@ -234,23 +323,142 @@ class GhosttyTerminalPane implements TerminalPane {
     }
     this.fit.fit()
     this.redraw()
+    this.renderSearchHighlight()
+  }
+
+  setCursorDefaults(defaults: TerminalCursorDefaults): void {
+    if (this.disposed) return
+    if (defaults.shape !== this.cursorDefaults.shape) {
+      this.terminal.options.cursorStyle = toGhosttyCursorStyle(defaults.shape)
+    }
+    if (defaults.blink !== this.cursorDefaults.blink) {
+      this.terminal.options.cursorBlink = toGhosttyCursorBlink(defaults.blink)
+    }
+    this.cursorDefaults = defaults
+  }
+
+  setLigatures(enabled: boolean): void {
+    if (this.disposed || enabled === this.ligatures) return
+    this.terminal.options.fontLigatures = enabled
+    this.ligatures = enabled
   }
 
   setPresentation(presentation: TerminalPresentation): void {
     if (this.disposed || presentation === this.presentation) return
     this.presentation = presentation
-    this.terminal.options.cursorBlink = presentation === 'visible'
     if (presentation === 'hidden') {
       this.terminal.setRenderPaused(true)
     } else {
       if (this.mounted) this.fit.fit()
       this.terminal.setRenderPaused(false)
     }
+    this.renderSearchHighlight()
   }
 
   redraw(): void {
     if (this.disposed) return
     this.terminal.requestRender(true)
+  }
+
+  resolveEventProvenance(
+    provenance: TerminalEventProvenance,
+  ): TerminalEventLocation | undefined {
+    if (this.disposed) return undefined
+    const native = this.nativeProvenance.get(provenance)
+    if (!native) return undefined
+    const location = this.terminal.resolveEventProvenance(native)
+    return location
+      ? { screen: location.screen, row: location.row, column: location.column }
+      : undefined
+  }
+
+  activeEventScreen(): TerminalEventScreen {
+    return this.terminal.wasmTerm?.isAlternateScreen() ? 'alternate' : 'normal'
+  }
+
+  revealEventLocation(location: TerminalEventLocation): boolean {
+    if (this.disposed || !this.mounted) return false
+    if (location.screen !== this.activeEventScreen()) return false
+
+    const scrollbackLength = this.terminal.getScrollbackLength()
+    const retainedRows = scrollbackLength + this.terminal.rows
+    if (location.row < 0 || location.row >= retainedRows) return false
+    this.terminal.scrollToLine(Math.max(0, scrollbackLength - location.row))
+    this.redraw()
+    return true
+  }
+
+  async searchRetainedBuffer(
+    query: string,
+    options: Readonly<{ caseSensitive: boolean; signal?: AbortSignal }>,
+  ): Promise<TerminalRetainedBufferSearch> {
+    if (this.disposed) throw new Error('Cannot search a disposed terminal pane')
+    const result = await this.terminal.searchRetainedBuffer(query, options)
+    if (this.disposed) {
+      result.dispose()
+      throw new Error('Terminal pane was disposed during search')
+    }
+    const owner = {}
+    return new GhosttyRetainedBufferSearch(
+      result,
+      (match) => this.revealRetainedBufferRange(owner, match),
+      () => this.clearSearchHighlight(owner),
+    )
+  }
+
+  cancelRetainedBufferSearch(): void {
+    if (!this.disposed) this.terminal.cancelRetainedBufferSearch()
+  }
+
+  captureRetainedBufferBoundary(): TerminalEventProvenance | undefined {
+    if (this.disposed) return undefined
+    return this.retainProvenance(this.terminal.captureRetainedBufferBoundary())
+  }
+
+  extractRetainedBufferRange(
+    start: TerminalEventProvenance,
+    end: TerminalEventProvenance,
+    options: Readonly<{ signal?: AbortSignal }> = {},
+  ): Promise<string> {
+    if (this.disposed) return Promise.reject(new Error('Terminal pane is disposed'))
+    const nativeStart = this.nativeProvenance.get(start)
+    const nativeEnd = this.nativeProvenance.get(end)
+    if (!nativeStart || !nativeEnd) {
+      return Promise.reject(new Error('Terminal region boundaries are stale or foreign'))
+    }
+    return this.terminal.extractRetainedBufferRange(nativeStart, nativeEnd, options)
+  }
+
+  cancelRetainedBufferExtraction(): void {
+    if (!this.disposed) this.terminal.cancelRetainedBufferExtraction()
+  }
+
+  hasSelection(): boolean {
+    return !this.disposed && this.terminal.hasSelection()
+  }
+
+  getSelection(): string {
+    return this.disposed ? '' : this.terminal.getSelection()
+  }
+
+  paste(data: string): void {
+    if (!this.disposed) this.terminal.paste(data)
+  }
+
+  selectAll(): void {
+    if (!this.disposed) this.terminal.selectAll()
+  }
+
+  clear(): void {
+    if (this.disposed) return
+    this.terminal.clear()
+    this.releaseSearchHighlight()
+  }
+
+  reset(): void {
+    if (this.disposed) return
+    this.terminal.reset()
+    this.releaseSearchHighlight()
   }
 
   focus(): void {
@@ -268,37 +476,115 @@ class GhosttyTerminalPane implements TerminalPane {
     renderer?.clear()
     if (canvas) canvas.style.visibility = 'hidden'
     this.terminal.dispose()
+    this.searchHighlight = undefined
+    this.searchHighlightLayer?.remove()
+    this.searchHighlightLayer = undefined
     this.surface?.remove()
     this.surface = undefined
     this.dataListeners.clear()
     this.clipboardPasteListeners.clear()
-    this.titleListeners.clear()
-    this.bellListeners.clear()
-    this.oscListeners.clear()
+    this.eventListeners.clear()
     this.resizeListeners.clear()
     this.linkListeners.clear()
-    this.signalParser.reset()
-  }
-
-  /** ghostty-web does not distinguish real BEL from BEL-terminated OSC. */
-  private inspectSignals(chunk: string): void {
-    const signals = this.signalParser.consume(chunk)
-    for (const title of signals.titles) this.emitTitle(title)
-    for (const event of signals.oscillators) this.oscListeners.emit(event)
-    for (let index = 0; index < signals.bells; index += 1) {
-      this.bellListeners.emit()
-    }
-  }
-
-  private emitTitle(title: string): void {
-    if (title === this.lastTitle) return
-    this.lastTitle = title
-    this.titleListeners.emit(title)
   }
 
   private emitInput(data: string): void {
     this.terminal.resetCursorBlink()
     this.dataListeners.emit(data)
+  }
+
+  private retainProvenance(
+    provenance: GhosttyTerminalEventProvenance,
+  ): TerminalEventProvenance {
+    const retained: TerminalEventProvenance = Object.freeze({
+      id: provenance.id,
+      screen: provenance.screen,
+      row: provenance.row,
+      column: provenance.column,
+    })
+    this.nativeProvenance.set(retained, provenance)
+    return retained
+  }
+
+  private revealRetainedBufferRange(
+    owner: object,
+    match: GhosttyRetainedBufferRange,
+  ): boolean {
+    const revealed = this.revealEventLocation({
+      screen: 'normal',
+      row: match.start.row,
+      column: match.start.column,
+    })
+    if (!revealed) return false
+    this.searchHighlight = { owner, range: match }
+    this.renderSearchHighlight()
+    return true
+  }
+
+  private clearSearchHighlight(owner: object): void {
+    if (this.searchHighlight?.owner !== owner) return
+    this.releaseSearchHighlight()
+  }
+
+  private releaseSearchHighlight(): void {
+    this.searchHighlight = undefined
+    this.searchHighlightLayer?.replaceChildren()
+  }
+
+  private renderSearchHighlight(): void {
+    const highlight = this.searchHighlight
+    if (!highlight) return
+    const layer = this.searchHighlightLayer
+    if (!layer) return
+    layer.replaceChildren()
+    const renderer = this.terminal.renderer
+    if (
+      !highlight ||
+      this.presentation === 'hidden' ||
+      this.activeEventScreen() !== 'normal' ||
+      !renderer
+    ) {
+      return
+    }
+    const metrics = renderer.getMetrics()
+    if (metrics.width <= 0 || metrics.height <= 0) return
+    const scrollbackLength = this.terminal.getScrollbackLength()
+    const viewportY = Math.max(0, Math.floor(this.terminal.getViewportY()))
+    const firstVisibleRow = scrollbackLength - viewportY
+    const lastVisibleRow = firstVisibleRow + this.terminal.rows - 1
+    const firstMatchRow = Math.max(highlight.range.start.row, firstVisibleRow)
+    const lastMatchRow = Math.min(highlight.range.end.row, lastVisibleRow)
+    const canvas = renderer.getCanvas()
+    const cols = this.terminal.cols
+    if (firstMatchRow > lastMatchRow || cols <= 0) return
+
+    for (let row = firstMatchRow; row <= lastMatchRow; row += 1) {
+      const startColumn = Math.max(
+        0,
+        Math.min(
+          cols - 1,
+          row === highlight.range.start.row ? highlight.range.start.column : 0,
+        ),
+      )
+      const endColumn = Math.max(
+        0,
+        Math.min(
+          cols - 1,
+          row === highlight.range.end.row ? highlight.range.end.column : cols - 1,
+        ),
+      )
+      if (endColumn < startColumn) continue
+      const segment = document.createElement('div')
+      segment.className = 'terminal-search-match-highlight'
+      segment.dataset.retainedRow = String(row)
+      segment.style.left = `${canvas.offsetLeft + startColumn * metrics.width}px`
+      segment.style.top = `${
+        canvas.offsetTop + (row - firstVisibleRow) * metrics.height
+      }px`
+      segment.style.width = `${(endColumn - startColumn + 1) * metrics.width}px`
+      segment.style.height = `${metrics.height}px`
+      layer.append(segment)
+    }
   }
 
   private emitClipboardPaste(fallbackData: string): void {
@@ -322,6 +608,58 @@ class GhosttyTerminalPane implements TerminalPane {
       this.dataListeners.emit(data)
     }
     return result.handled
+  }
+}
+
+class GhosttyRetainedBufferSearch implements TerminalRetainedBufferSearch {
+  readonly query: string
+  readonly caseSensitive: boolean
+  readonly matches: readonly TerminalRetainedBufferRange[]
+  private readonly nativeRanges = new WeakMap<
+    TerminalRetainedBufferRange,
+    GhosttyRetainedBufferRange
+  >()
+  private disposed = false
+
+  constructor(
+    private readonly native: GhosttyRetainedBufferSearchResult,
+    private readonly revealRange: (match: GhosttyRetainedBufferRange) => boolean,
+    private readonly clearRevealedRange: () => void,
+  ) {
+    this.query = native.query
+    this.caseSensitive = native.caseSensitive
+    this.matches = native.matches.map((match) => {
+      const retained: TerminalRetainedBufferRange = Object.freeze({
+        start: Object.freeze({ row: match.start.row, column: match.start.column }),
+        end: Object.freeze({ row: match.end.row, column: match.end.column }),
+      })
+      this.nativeRanges.set(retained, match)
+      return retained
+    })
+  }
+
+  reveal(match: TerminalRetainedBufferRange): boolean {
+    const native = this.nativeRange(match)
+    if (!native || this.native.extract(native) === undefined) return false
+    return this.revealRange(native)
+  }
+
+  extract(match: TerminalRetainedBufferRange): string | undefined {
+    const native = this.nativeRange(match)
+    return native ? this.native.extract(native) : undefined
+  }
+
+  dispose(): void {
+    if (this.disposed) return
+    this.disposed = true
+    this.clearRevealedRange()
+    this.native.dispose()
+  }
+
+  private nativeRange(
+    match: TerminalRetainedBufferRange,
+  ): GhosttyRetainedBufferRange | undefined {
+    return this.disposed ? undefined : this.nativeRanges.get(match)
   }
 }
 

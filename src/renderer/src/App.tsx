@@ -244,6 +244,7 @@ export function App(): ReactElement {
     cycleViewMode: cycleActiveMode,
     findFile: layout.focusFilenameSearch,
     findInFile: viewerCommands.findInFile,
+    findInTerminal: terminalWorkspaces.openTerminalSearch,
     goToLine: viewerCommands.goToLine,
     toggleTerminalFocus,
     focusTerminal,
@@ -635,6 +636,7 @@ export function App(): ReactElement {
           onOpenWebLink={openWebLink}
           preferences={terminalPreferences(settings)}
           onOpenSettings={() => overlays.openSettings()}
+          onOpenTerminalSettings={() => overlays.openSettings('terminal')}
           onOpenHarnessSettings={() => overlays.openSettings('harnesses')}
           onAddHarness={overlays.openAddHarnessSettings}
         />

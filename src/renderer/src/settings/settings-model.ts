@@ -1,4 +1,8 @@
 import type { ComposerSubmitMode, KeybindingMap } from '../../../shared'
+import type {
+  TerminalCursorBlinkPolicy,
+  TerminalCursorShape,
+} from '../terminal/terminal-pane'
 
 export type TerminalThemeOverride = 'app' | 'dark' | 'light'
 export type TerminalRecoveryMode = 'prompt' | 'auto'
@@ -19,6 +23,11 @@ export interface AppSettings {
   readonly gitAutoFetchIntervalMs: number
   readonly terminalRecoveryMode: TerminalRecoveryMode
   readonly terminalTheme: TerminalThemeOverride
+  readonly terminalLightThemeId: string
+  readonly terminalDarkThemeId: string
+  readonly terminalCursorShape: TerminalCursorShape
+  readonly terminalCursorBlink: TerminalCursorBlinkPolicy
+  readonly terminalLigatures: boolean
   readonly interfaceFont: FontPreference
   readonly monospaceFont: FontPreference
   readonly interfaceScale: number
@@ -31,6 +40,13 @@ export interface TerminalPreferences {
   readonly idleThresholdMs: number
   readonly terminalRecoveryMode: TerminalRecoveryMode
   readonly terminalTheme: TerminalThemeOverride
+  readonly terminalLightThemeId: string
+  readonly terminalDarkThemeId: string
+  readonly terminalCursorDefaults: {
+    readonly shape: TerminalCursorShape
+    readonly blink: TerminalCursorBlinkPolicy
+  }
+  readonly terminalLigatures: boolean
   readonly terminalTypography: TextTypography
   readonly composerSubmitMode: ComposerSubmitMode
 }

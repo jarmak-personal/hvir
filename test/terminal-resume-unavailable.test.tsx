@@ -6,8 +6,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { TerminalRail } from '../src/renderer/src/terminal/TerminalRail'
 import type { TerminalRuntimeOptions } from '../src/renderer/src/terminal/terminal-runtime-options'
+import { terminalThemeForAppearance } from '../src/renderer/src/terminal/terminal-palette'
 import { TerminalRuntimeRegistry } from '../src/renderer/src/terminal/terminal-runtime-registry'
-import type { TerminalPane } from '../src/renderer/src/terminal/terminal-pane'
+import type {
+  TerminalEvent,
+  TerminalPane,
+} from '../src/renderer/src/terminal/terminal-pane'
 import type { TerminalSession } from '../src/renderer/src/terminal/terminal-workspace-model'
 import {
   asHarnessProfileId,
@@ -21,13 +25,14 @@ import {
 const paneState = vi.hoisted(() => ({
   instances: [] as Array<{
     readonly emitTitle: (title: string) => void
+    readonly emitEvent: (event: TerminalEvent) => void
     readonly emitClipboardPaste: (fallbackData: string) => void
   }>,
 }))
 
 vi.mock('../src/renderer/src/terminal/ghostty-terminal-pane', () => ({
   createGhosttyTerminalPane: vi.fn(() => {
-    let titleListener: ((title: string) => void) | undefined
+    let eventListener: ((event: TerminalEvent) => void) | undefined
     let clipboardPasteListener: ((fallbackData: string) => void) | undefined
     let surface: HTMLDivElement | undefined
     const pane = {
@@ -47,8 +52,33 @@ vi.mock('../src/renderer/src/terminal/ghostty-terminal-pane', () => ({
       resize: vi.fn(),
       setTheme: vi.fn(),
       setTypography: vi.fn(),
+      setCursorDefaults: vi.fn(),
+      setLigatures: vi.fn(),
       setPresentation: vi.fn(),
       redraw: vi.fn(),
+      resolveEventProvenance: vi.fn(() => undefined),
+      activeEventScreen: vi.fn(() => 'normal' as const),
+      revealEventLocation: vi.fn(() => false),
+      searchRetainedBuffer: vi.fn(() =>
+        Promise.resolve({
+          query: '',
+          caseSensitive: false,
+          matches: [],
+          reveal: () => false,
+          extract: () => undefined,
+          dispose: () => undefined,
+        }),
+      ),
+      cancelRetainedBufferSearch: vi.fn(),
+      captureRetainedBufferBoundary: vi.fn(() => undefined),
+      extractRetainedBufferRange: vi.fn(() => Promise.resolve('')),
+      cancelRetainedBufferExtraction: vi.fn(),
+      hasSelection: vi.fn(() => false),
+      getSelection: vi.fn(() => ''),
+      paste: vi.fn(),
+      selectAll: vi.fn(),
+      clear: vi.fn(),
+      reset: vi.fn(),
       focus: vi.fn(),
       events: {
         onData: vi.fn(() => () => undefined),
@@ -56,18 +86,19 @@ vi.mock('../src/renderer/src/terminal/ghostty-terminal-pane', () => ({
           clipboardPasteListener = listener
           return () => undefined
         }),
-        onTitle: vi.fn((listener: (title: string) => void) => {
-          titleListener = listener
-          return () => undefined
+        onEvent: vi.fn((listener: (event: TerminalEvent) => void) => {
+          eventListener = listener
+          return () => {
+            if (eventListener === listener) eventListener = undefined
+          }
         }),
-        onBell: vi.fn(() => () => undefined),
-        onOsc: vi.fn(() => () => undefined),
         onResize: vi.fn(() => () => undefined),
         onLink: vi.fn(() => () => undefined),
       },
     } satisfies TerminalPane
     paneState.instances.push({
-      emitTitle: (title) => titleListener?.(title),
+      emitTitle: (title) => eventListener?.({ type: 'title', title }),
+      emitEvent: (event) => eventListener?.(event),
       emitClipboardPaste: (fallbackData) => clipboardPasteListener?.(fallbackData),
     })
     return Promise.resolve(pane)
@@ -160,6 +191,34 @@ describe('terminal resume unavailable state', () => {
     )
   })
 
+  it('restores search for the same pane and PTY after a hidden detach and reattach', async () => {
+    invoke.mockResolvedValue(startedResponse())
+    const runtimeOptions = {
+      ...options(),
+      harnessSessionId: undefined,
+      resumeOnStart: false,
+    }
+    const runtime = registry.acquire(runtimeOptions)
+    const initialContainer = document.createElement('div')
+    runtime.attach(initialContainer)
+    await vi.waitFor(() => expect(runtime.interactions.search.open()).toBe(true))
+    runtime.interactions.search.close()
+
+    runtime.update({ ...runtimeOptions, presentation: 'hidden' })
+    runtime.synchronizeLifecycle()
+    runtime.detach(initialContainer)
+    expect(runtime.interactions.search.open()).toBe(false)
+
+    runtime.update(runtimeOptions)
+    runtime.synchronizeLifecycle()
+    expect(runtime.interactions.search.open()).toBe(false)
+    runtime.attach(document.createElement('div'))
+
+    expect(runtime.interactions.search.open()).toBe(true)
+    expect(paneState.instances).toHaveLength(1)
+    expect(invoke).toHaveBeenCalledOnce()
+  })
+
   it('keeps typed missing-artifact state sticky while preserving the retained identity', async () => {
     const runtimeOptions = options()
     const runtime = registry.acquire(runtimeOptions)
@@ -183,6 +242,8 @@ describe('terminal resume unavailable state', () => {
     expect(send).not.toHaveBeenCalledWith('pty:kill', expect.anything())
 
     paneState.instances[0]?.emitTitle('Harness title')
+    paneState.instances[0]?.emitTitle('Harness title')
+    expect(runtimeOptions.onTitle).toHaveBeenCalledExactlyOnceWith('Harness title')
     expect(runtime.snapshot()).toEqual({
       title: 'Harness title',
       status: 'Resume unavailable · session data is missing',
@@ -192,6 +253,46 @@ describe('terminal resume unavailable state', () => {
         reason: 'artifact-missing',
       },
     })
+    const authorityFreeEvents: TerminalEvent[] = [
+      { type: 'working-directory', uri: 'file://untrusted/path' },
+      {
+        type: 'notification',
+        source: 'osc-777',
+        title: 'Untrusted request',
+        body: 'No attention authority',
+      },
+      { type: 'progress', state: 'set', progress: 50 },
+      {
+        type: 'semantic',
+        action: 'prompt-start',
+        options: '',
+        provenance: { id: 1, screen: 'normal', row: 2, column: 0 },
+      },
+      {
+        type: 'palette',
+        operation: 3,
+        request: { type: 'reset-palette' },
+      },
+      { type: 'clipboard', operation: 'read', selection: 'c' },
+      {
+        type: 'clipboard',
+        operation: 'write',
+        selection: 'p',
+        data: 'untrusted payload',
+      },
+    ]
+    for (const event of authorityFreeEvents) paneState.instances[0]?.emitEvent(event)
+    expect(runtimeOptions.onBell).not.toHaveBeenCalled()
+    expect(send).not.toHaveBeenCalled()
+    paneState.instances[0]?.emitEvent({
+      type: 'notification',
+      source: 'osc-9',
+      title: '',
+      body: 'Legacy attention',
+    })
+    expect(runtimeOptions.onBell).toHaveBeenCalledOnce()
+    paneState.instances[0]?.emitEvent({ type: 'bell' })
+    expect(runtimeOptions.onBell).toHaveBeenCalledTimes(2)
 
     runtime.restart()
     await vi.waitFor(() => expect(invoke).toHaveBeenCalledTimes(2))
@@ -567,7 +668,10 @@ function options(): TerminalRuntimeOptions {
     modifiedKeyProtocol: 'modify-other-keys',
     metaEnterAliasesControl: true,
     composerSubmitMode: 'enter',
+    theme: terminalThemeForAppearance('dark'),
     typography: { fontFamily: 'ui-monospace, monospace', fontSize: 13 },
+    cursorDefaults: { shape: 'block', blink: 'terminal' },
+    ligatures: true,
     cwd: localPath('/repo'),
     workspaceRoot: localPath('/repo'),
     connectionState: 'connected',

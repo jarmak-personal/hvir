@@ -1,4 +1,10 @@
-import { useEffect, useLayoutEffect, useRef, useSyncExternalStore } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useSyncExternalStore,
+} from 'react'
 
 import type { TerminalRuntimeOptions } from './terminal-runtime-options'
 import { TerminalRuntimeRegistry } from './terminal-runtime-registry'
@@ -16,11 +22,17 @@ export function useTerminalPaneController(
   )
   runtimeRef.current ??= runtimes.acquire(options)
   const runtime = runtimeRef.current
+  const interactions = runtime.interactions
   runtime.update(options)
   const snapshot = useSyncExternalStore(
     runtime.subscribe,
     runtime.snapshot,
     runtime.snapshot,
+  )
+  const paneEventSnapshot = useSyncExternalStore(
+    interactions.paneEvents.subscribe,
+    interactions.paneEvents.snapshot,
+    interactions.paneEvents.snapshot,
   )
 
   useEffect(() => {
@@ -42,12 +54,23 @@ export function useTerminalPaneController(
     return () => window.cancelAnimationFrame(frame)
   }, [options.active, runtime])
 
+  const getContextMenuTarget = useCallback(
+    () => interactions.contextMenuTarget(),
+    [interactions],
+  )
+
   return {
     workspaceRoot: options.workspaceRoot,
     containerRef,
     ...snapshot,
+    ...paneEventSnapshot,
     restart: () => runtime.restart(),
     startFresh: () => runtime.startFresh(),
+    previousSemanticRegion: () => interactions.navigate('previous'),
+    nextSemanticRegion: () => interactions.navigate('next'),
+    searchController: interactions.search,
+    openSearch: () => interactions.search.open(),
+    getContextMenuTarget,
     focus: () => runtime.focus(),
   }
 }

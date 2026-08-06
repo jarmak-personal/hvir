@@ -35,6 +35,24 @@ describe('workbench command routing', () => {
     expect(ports.findInFile).not.toHaveBeenCalled()
     expect(ports.goToLine).not.toHaveBeenCalled()
   })
+
+  it('reports terminal search handled only when the selected live owner accepts it', () => {
+    const ports = commandPorts()
+    expect(dispatchWorkbenchCommand('findInTerminal', undefined, ports, 'terminal')).toBe(
+      true,
+    )
+
+    expect(ports.findInTerminal).toHaveBeenCalledOnce()
+    expect(ports.findInFile).not.toHaveBeenCalled()
+
+    vi.mocked(ports.findInTerminal).mockReturnValue(false)
+    expect(dispatchWorkbenchCommand('findInTerminal', undefined, ports, 'terminal')).toBe(
+      false,
+    )
+    expect(
+      dispatchWorkbenchCommand('findInTerminal', undefined, ports, 'workbench'),
+    ).toBe(false)
+  })
 })
 
 function commandPorts(): WorkbenchCommandPorts {
@@ -45,6 +63,7 @@ function commandPorts(): WorkbenchCommandPorts {
     cycleViewMode: vi.fn(),
     findFile: vi.fn(),
     findInFile: vi.fn(),
+    findInTerminal: vi.fn(() => true),
     goToLine: vi.fn(),
     toggleTerminalFocus: vi.fn(),
     focusTerminal: vi.fn(),

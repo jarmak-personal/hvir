@@ -2,6 +2,7 @@ export const KEYBINDING_ACTIONS = [
   'cycleViewMode',
   'findFile',
   'findInFile',
+  'findInTerminal',
   'goToLine',
   'focusTerminal',
   'focusViewer',
@@ -18,6 +19,9 @@ export const DEFAULT_KEYBINDINGS: KeybindingMap = {
   cycleViewMode: 'Mod+Shift+M',
   findFile: 'Mod+P',
   findInFile: 'Mod+F',
+  // Keep ordinary PTY Ctrl+F available on every platform. Terminal search uses
+  // the existing workbench Shift variant instead of borrowing viewer search.
+  findInTerminal: 'Mod+Shift+F',
   goToLine: 'Ctrl+G',
   focusTerminal: 'Mod+J',
   focusViewer: 'Mod+1',
@@ -34,7 +38,9 @@ export function keybindingAvailableInContext(
   context: KeybindingContext,
 ): boolean {
   if (action === 'findFile') return context !== 'terminal'
-  if (action === 'findInFile' || action === 'goToLine') return context === 'workbench'
+  if (action === 'findInFile') return context === 'workbench'
+  if (action === 'findInTerminal') return context === 'terminal'
+  if (action === 'goToLine') return context === 'workbench'
   if (action === 'cycleViewMode') return context !== 'terminal'
   return true
 }

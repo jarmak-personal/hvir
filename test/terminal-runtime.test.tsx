@@ -3,6 +3,7 @@
 import { describe, expect, it, vi } from 'vitest'
 
 import type { TerminalRuntimeOptions } from '../src/renderer/src/terminal/terminal-runtime-options'
+import { terminalThemeForAppearance } from '../src/renderer/src/terminal/terminal-palette'
 import { TerminalRuntimeRegistry } from '../src/renderer/src/terminal/terminal-runtime-registry'
 import {
   asHarnessProfileId,
@@ -31,7 +32,10 @@ function options(
     modifiedKeyProtocol: 'csi-u',
     metaEnterAliasesControl: false,
     composerSubmitMode: 'enter',
+    theme: terminalThemeForAppearance('dark'),
     typography: { fontFamily: 'ui-monospace, monospace', fontSize: 13 },
+    cursorDefaults: { shape: 'block', blink: 'terminal' },
+    ligatures: true,
     cwd: localPath('/repo'),
     workspaceRoot,
     connectionState,

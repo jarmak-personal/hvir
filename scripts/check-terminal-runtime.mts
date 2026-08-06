@@ -1,23 +1,36 @@
 #!/usr/bin/env node
 
 import console from 'node:console'
+import { stat } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 
-const REQUIRED_PRESENTATION_METHODS = [
-  'requestRender',
-  'setRenderPaused',
-  'resetCursorBlink',
-  'getRenderStats',
+import { GHOSTTY_TERMINAL_CAPABILITY_PROFILE } from './ghostty-terminal-capability-profile.mts'
+
+const REQUIRED_TERMINAL_METHODS = [
+  ...GHOSTTY_TERMINAL_CAPABILITY_PROFILE.synchronizedOutput.terminalMethods,
+  ...GHOSTTY_TERMINAL_CAPABILITY_PROFILE.hostOwnedContextMenu.terminalMethods,
+  ...GHOSTTY_TERMINAL_CAPABILITY_PROFILE.retainedBuffer.terminalMethods,
 ] as const
+const REQUIRED_PARSER_METHODS =
+  GHOSTTY_TERMINAL_CAPABILITY_PROFILE.synchronizedOutput.parserMethods
 const RECOVERY = 'Run `npm ci` in this worktree, then retry the command.'
 
 interface TerminalConstructor {
   readonly prototype: object
 }
 
-type LoadTerminal = () => Promise<unknown>
+interface TerminalRuntimeModule {
+  readonly Terminal: TerminalConstructor
+  readonly GhosttyTerminal: TerminalConstructor
+}
+
+type LoadTerminalRuntime = () => Promise<unknown>
+type ReadInstalledWasmBytes = () => Promise<number>
+
+const readInstalledWasmBytes: ReadInstalledWasmBytes = async () =>
+  (await stat(fileURLToPath(import.meta.resolve('ghostty-web/ghostty-vt.wasm')))).size
 
 function hasCustomLinkProviderPriority(prototype: object): boolean {
   const register = Reflect.get(prototype, 'registerLinkProvider') as unknown
@@ -51,11 +64,17 @@ function isTerminalConstructor(value: unknown): value is TerminalConstructor {
   return typeof prototype === 'object' && prototype !== null
 }
 
-export function assertTerminalRuntimeContract(terminal: TerminalConstructor): void {
-  const missing: string[] = REQUIRED_PRESENTATION_METHODS.filter(
-    (method) => typeof Reflect.get(terminal.prototype, method) !== 'function',
+export function assertTerminalRuntimeContract(runtime: TerminalRuntimeModule): void {
+  const missing: string[] = REQUIRED_TERMINAL_METHODS.filter(
+    (method) => typeof Reflect.get(runtime.Terminal.prototype, method) !== 'function',
   )
-  if (!hasCustomLinkProviderPriority(terminal.prototype)) {
+  missing.push(
+    ...REQUIRED_PARSER_METHODS.filter(
+      (method) =>
+        typeof Reflect.get(runtime.GhosttyTerminal.prototype, method) !== 'function',
+    ),
+  )
+  if (!hasCustomLinkProviderPriority(runtime.Terminal.prototype)) {
     missing.push('custom link-provider priority')
   }
   if (missing.length === 0) return
@@ -65,24 +84,46 @@ export function assertTerminalRuntimeContract(terminal: TerminalConstructor): vo
   )
 }
 
-export async function verifyTerminalRuntimeContract(
-  loadTerminal: LoadTerminal = async () => (await import('ghostty-web')).Terminal,
+export async function verifyInstalledTerminalWasmEvidence(
+  readWasmBytes: ReadInstalledWasmBytes = readInstalledWasmBytes,
 ): Promise<void> {
-  let terminal: unknown
+  let actualBytes: number
   try {
-    terminal = await loadTerminal()
+    actualBytes = await readWasmBytes()
+  } catch (cause) {
+    throw new Error(
+      `Installed dependencies do not match this checkout: ghostty-web/ghostty-vt.wasm could not be inspected. ${RECOVERY}`,
+      { cause },
+    )
+  }
+  const expectedBytes = GHOSTTY_TERMINAL_CAPABILITY_PROFILE.artifact.wasmBytes
+  if (actualBytes === expectedBytes) return
+  throw new Error(
+    `Installed dependencies do not match this checkout: ghostty-web/ghostty-vt.wasm is ${actualBytes} bytes; the reviewed capability profile requires ${expectedBytes}. ${RECOVERY}`,
+  )
+}
+
+export async function verifyTerminalRuntimeContract(
+  loadRuntime: LoadTerminalRuntime = async () => import('ghostty-web'),
+): Promise<void> {
+  await verifyInstalledTerminalWasmEvidence()
+  let runtime: unknown
+  try {
+    runtime = await loadRuntime()
   } catch (cause) {
     throw new Error(
       `Installed dependencies do not match this checkout: ghostty-web could not be loaded. ${RECOVERY}`,
       { cause },
     )
   }
-  if (!isTerminalConstructor(terminal)) {
+  const terminal = Reflect.get(Object(runtime), 'Terminal') as unknown
+  const parser = Reflect.get(Object(runtime), 'GhosttyTerminal') as unknown
+  if (!isTerminalConstructor(terminal) || !isTerminalConstructor(parser)) {
     throw new Error(
-      `Installed dependencies do not match this checkout: ghostty-web does not export the required Terminal constructor. ${RECOVERY}`,
+      `Installed dependencies do not match this checkout: ghostty-web does not export the required Terminal and GhosttyTerminal constructors. ${RECOVERY}`,
     )
   }
-  assertTerminalRuntimeContract(terminal)
+  assertTerminalRuntimeContract({ Terminal: terminal, GhosttyTerminal: parser })
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

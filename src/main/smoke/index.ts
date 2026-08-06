@@ -47,10 +47,8 @@ import { verifyRendererProcessRecovery } from './renderer-recovery'
 import type { ElectronSmokeMode } from './scenario-selection.mts'
 import { createTerminalMoveSmokeHarness, verifyTerminalMoveSmoke } from './terminal-move'
 import { createSmokeTerminalSessionStore } from './terminal-session-store'
-import {
-  verifyLegacyTerminalPresentation,
-  verifyTerminalPresentationLifecycle,
-} from './terminal-presentation'
+import { verifyTerminalPresentationLifecycle } from './terminal-presentation'
+import { verifyLegacyTerminalPresentation } from './terminal-legacy-presentation'
 import { ensureExplicitBareShellLaunch } from './terminal-explicit-launch'
 import { verifyTerminalReconnectRemount } from './terminal-renderer-lifecycle'
 import { verifyWebPaneWorkflow } from './web-pane'
@@ -1063,9 +1061,10 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
           const initial = document.documentElement.dataset.theme;
           const canvas = document.querySelector('.terminal-container canvas');
           const terminal = canvas?.closest('.terminal-container');
+          const engine = terminal?.querySelector('.terminal-engine-host');
           const toggle = document.querySelector('.theme-toggle');
           const shell = document.querySelector('.app-shell');
-          if (!canvas || !terminal || !toggle || !shell) return reject(new Error('theme smoke controls missing'));
+          if (!canvas || !terminal || !engine || !toggle || !shell) return reject(new Error('theme smoke controls missing'));
           const terminalBackgroundMatches = () => {
             const expected = terminal.getAttribute('data-terminal-theme') === 'light'
               ? 'rgb(236, 236, 231)'
@@ -1074,6 +1073,10 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
           };
           const before = getComputedStyle(shell).backgroundColor;
           const terminalBefore = getComputedStyle(canvas).filter;
+          const paletteBefore = engine.__hvirTerminalPerformance?.palette?.background;
+          if (terminalBefore !== 'none' || !paletteBefore) {
+            return reject(new Error('terminal Canvas still uses a color filter'));
+          }
           if (!terminalBackgroundMatches()) {
             return reject(new Error('terminal host background does not match its palette'));
           }
@@ -1082,10 +1085,15 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
             const current = document.documentElement.dataset.theme;
             const after = getComputedStyle(shell).backgroundColor;
             const terminalAfter = getComputedStyle(canvas).filter;
+            const paletteAfter = engine.__hvirTerminalPerformance?.palette?.background;
             if (current === initial || before === after) {
               return reject(new Error('chrome theme did not change'));
             }
-            if (terminalBefore === terminalAfter) {
+            if (
+              terminalAfter !== 'none' ||
+              !paletteAfter ||
+              paletteBefore === paletteAfter
+            ) {
               return reject(new Error('live terminal palette did not change'));
             }
             if (!terminalBackgroundMatches()) {
@@ -1096,7 +1104,10 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
             }
             toggle.click();
             requestAnimationFrame(() => {
-              if (document.documentElement.dataset.theme !== initial) {
+              if (
+                document.documentElement.dataset.theme !== initial ||
+                engine.__hvirTerminalPerformance?.palette?.background !== paletteBefore
+              ) {
                 return reject(new Error('theme did not restore'));
               }
               resolve(initial + '→' + current + '→' + initial + ' · PTY canvas retained');
