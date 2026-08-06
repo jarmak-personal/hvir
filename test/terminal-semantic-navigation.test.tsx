@@ -33,6 +33,7 @@ vi.mock('ghostty-web', () => {
       getCanvas(): HTMLCanvasElement
       getMetrics(): { width: number; height: number }
       setTheme(): void
+      setCursorDefaults(): void
     }
     private listener: (event: GhosttyTerminalEvent) => void = () => undefined
     private canvas?: HTMLCanvasElement
@@ -79,6 +80,7 @@ vi.mock('ghostty-web', () => {
         getCanvas: () => this.canvas!,
         getMetrics: () => ({ width: 8, height: 16 }),
         setTheme: () => undefined,
+        setCursorDefaults: () => undefined,
       }
     }
     write(): void {}
@@ -337,6 +339,7 @@ function viewProps(registry: TerminalRuntimeRegistry) {
     lightThemeId: 'hvir-default-light',
     darkThemeId: 'hvir-default-dark',
     typography: { fontFamily: 'monospace', fontSize: 13 },
+    cursorDefaults: { shape: 'block', blink: 'terminal' } as const,
     composerSubmitMode: 'enter' as const,
     cwd: localPath('/repo'),
     workspaceRoot: localPath('/repo'),

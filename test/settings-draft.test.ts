@@ -13,6 +13,8 @@ const settings = {
   terminalTheme: 'app' as const,
   terminalLightThemeId: 'hvir-default-light',
   terminalDarkThemeId: 'hvir-default-dark',
+  terminalCursorShape: 'block' as const,
+  terminalCursorBlink: 'terminal' as const,
   interfaceFont: { mode: 'system' as const, family: '' },
   monospaceFont: { mode: 'system' as const, family: '' },
   interfaceScale: 1,

@@ -15,7 +15,11 @@ import { useAppTheme, type AppTheme } from '../theme'
 import { TerminalContextMenu } from './TerminalContextMenu'
 import { terminalThemePalette } from './terminal-theme-catalog'
 import { TerminalSearch } from './TerminalSearch'
-import type { TerminalLinkActivation, TerminalTypography } from './terminal-pane'
+import type {
+  TerminalCursorDefaults,
+  TerminalLinkActivation,
+  TerminalTypography,
+} from './terminal-pane'
 import { useTerminalPaneController } from './use-terminal-pane-controller'
 import type { FreshTerminalStart } from './terminal-runtime-options'
 import type { TerminalRuntimeRegistry } from './terminal-runtime-registry'
@@ -42,6 +46,7 @@ interface TerminalViewProps {
   readonly lightThemeId: string
   readonly darkThemeId: string
   readonly typography: TerminalTypography
+  readonly cursorDefaults: TerminalCursorDefaults
   readonly composerSubmitMode: ComposerSubmitMode
   readonly cwd: HostPath
   readonly workspaceRoot: HostPath

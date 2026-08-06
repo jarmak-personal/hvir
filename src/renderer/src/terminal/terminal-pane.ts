@@ -47,6 +47,15 @@ export interface TerminalTypography {
   readonly fontSize: number
 }
 
+export type TerminalCursorShape = 'block' | 'hollow-block' | 'bar' | 'underline'
+export type TerminalCursorBlinkPolicy = 'terminal' | 'blinking' | 'steady'
+
+/** Engine-neutral local defaults; parser-owned application requests remain authoritative. */
+export interface TerminalCursorDefaults {
+  readonly shape: TerminalCursorShape
+  readonly blink: TerminalCursorBlinkPolicy
+}
+
 export type TerminalPresentation = 'visible' | 'hidden'
 
 export type TerminalEventScreen = 'normal' | 'alternate'
@@ -204,6 +213,8 @@ export interface TerminalPane {
   setTheme(theme: TerminalColorTheme): void
   /** Update local text presentation, refit the grid, and retain the VT buffer. */
   setTypography(typography: TerminalTypography): void
+  /** Update parser defaults without replacing effective application cursor state. */
+  setCursorDefaults(defaults: TerminalCursorDefaults): void
   /** Start or stop visible engine work without changing the live terminal state. */
   setPresentation(presentation: TerminalPresentation): void
   /** Force the current grid to repaint without changing PTY geometry. */

@@ -19,6 +19,7 @@ import {
   verifyHiddenPresentationSettles,
   verifyCapacityTerminalSearch,
   verifyCapacityPaletteUpdate,
+  verifyCapacityCursorUpdate,
   verifyTerminalActivity,
   type TerminalActivityReport,
   type TerminalReadinessSampleReport,
@@ -261,6 +262,13 @@ export async function runCapacityLoadSmoke(
       `(${paletteCapacity.synchronousMs.toFixed(1)}ms sync · ` +
       `${paletteCapacity.eventLoopDelayMs.toFixed(1)}ms event loop · ` +
       `${paletteCapacity.hiddenPanes} hidden · ${paletteCapacity.visibleFrames} visible frames)`,
+  )
+  const cursorCapacity = await verifyCapacityCursorUpdate(win, supervisor)
+  console.log(
+    `[smoke:capacity:contract] 12 retained cursor-default updates + hidden reveal OK ` +
+      `(${cursorCapacity.synchronousMs.toFixed(1)}ms sync · ` +
+      `${cursorCapacity.eventLoopDelayMs.toFixed(1)}ms event loop · ` +
+      `${cursorCapacity.hiddenPanes} hidden)`,
   )
   const twelveTerminalCpu = await sampleCapacityCpuSeries(
     win,

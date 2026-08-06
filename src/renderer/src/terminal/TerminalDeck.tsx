@@ -8,8 +8,11 @@ import type {
 } from '../../../shared'
 import { PaneResizer } from '../layout/PaneResizer'
 import type { TerminalThemeOverride } from '../settings/settings'
-import type { TerminalLinkActivation } from './terminal-pane'
-import type { TerminalTypography } from './terminal-pane'
+import type {
+  TerminalCursorDefaults,
+  TerminalLinkActivation,
+  TerminalTypography,
+} from './terminal-pane'
 import type { TerminalSession } from './terminal-workspace-model'
 import type { FreshTerminalStart } from './terminal-runtime-options'
 import type { TerminalRuntimeRegistry } from './terminal-runtime-registry'
@@ -32,6 +35,7 @@ export function TerminalDeck({
   terminalLightThemeId,
   terminalDarkThemeId,
   terminalTypography,
+  cursorDefaults,
   composerSubmitMode,
   workspaceRoot,
   connectionState,
@@ -65,6 +69,7 @@ export function TerminalDeck({
   readonly terminalLightThemeId: string
   readonly terminalDarkThemeId: string
   readonly terminalTypography: TerminalTypography
+  readonly cursorDefaults: TerminalCursorDefaults
   readonly composerSubmitMode: ComposerSubmitMode
   readonly workspaceRoot: HostPath
   readonly connectionState: HostConnectionState
@@ -100,6 +105,7 @@ export function TerminalDeck({
       terminalLightThemeId={terminalLightThemeId}
       terminalDarkThemeId={terminalDarkThemeId}
       terminalTypography={terminalTypography}
+      cursorDefaults={cursorDefaults}
       composerSubmitMode={composerSubmitMode}
       workspaceRoot={workspaceRoot}
       connectionState={connectionState}

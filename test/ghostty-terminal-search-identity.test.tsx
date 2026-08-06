@@ -36,6 +36,7 @@ vi.mock('ghostty-web', () => {
       getCanvas(): HTMLCanvasElement
       getMetrics(): { width: number; height: number }
       setTheme(): void
+      setCursorDefaults(): void
     }
 
     constructor(options: Record<string, unknown>) {
@@ -65,6 +66,7 @@ vi.mock('ghostty-web', () => {
         getCanvas: () => canvas,
         getMetrics: () => ({ width: 8, height: 16 }),
         setTheme: () => undefined,
+        setCursorDefaults: () => undefined,
       }
     }
     write(): void {}
@@ -218,6 +220,7 @@ async function createPane() {
     terminalThemeForAppearance('dark'),
     { fontFamily: 'monospace', fontSize: 13 },
     {
+      cursorDefaults: { shape: 'block', blink: 'terminal' },
       modifiedKeyProtocol: 'modify-other-keys',
       metaEnterAliasesControl: true,
       composerSubmitMode: 'enter',

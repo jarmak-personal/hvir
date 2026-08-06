@@ -34,6 +34,7 @@ function options(
     composerSubmitMode: 'enter',
     theme: terminalThemeForAppearance('dark'),
     typography: { fontFamily: 'ui-monospace, monospace', fontSize: 13 },
+    cursorDefaults: { shape: 'block', blink: 'terminal' },
     cwd: localPath('/repo'),
     workspaceRoot,
     connectionState,

@@ -15,6 +15,8 @@ export interface SettingsDraft {
   readonly terminalTheme: AppSettings['terminalTheme']
   readonly terminalLightThemeId: string
   readonly terminalDarkThemeId: string
+  readonly terminalCursorShape: AppSettings['terminalCursorShape']
+  readonly terminalCursorBlink: AppSettings['terminalCursorBlink']
   readonly interfaceFontMode: AppSettings['interfaceFont']['mode']
   readonly interfaceFontFamily: string
   readonly monospaceFontMode: AppSettings['monospaceFont']['mode']
@@ -50,6 +52,8 @@ export function createSettingsDraft(
     terminalTheme: settings.terminalTheme,
     terminalLightThemeId: settings.terminalLightThemeId,
     terminalDarkThemeId: settings.terminalDarkThemeId,
+    terminalCursorShape: settings.terminalCursorShape,
+    terminalCursorBlink: settings.terminalCursorBlink,
     interfaceFontMode: settings.interfaceFont.mode,
     interfaceFontFamily: settings.interfaceFont.family,
     monospaceFontMode: settings.monospaceFont.mode,
@@ -133,6 +137,8 @@ export function validateSettingsDraft(draft: SettingsDraft): SettingsDraftValida
       terminalTheme: draft.terminalTheme,
       terminalLightThemeId: draft.terminalLightThemeId,
       terminalDarkThemeId: draft.terminalDarkThemeId,
+      terminalCursorShape: draft.terminalCursorShape,
+      terminalCursorBlink: draft.terminalCursorBlink,
       interfaceFont: normalizeFontPreference({
         mode: draft.interfaceFontMode,
         family: draft.interfaceFontFamily,

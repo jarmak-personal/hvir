@@ -259,12 +259,12 @@ export class TerminalRuntime {
       this.pane = pane
       pane.setTheme(this.options.theme)
       pane.setTypography(this.options.typography)
+      pane.setCursorDefaults(this.options.cursorDefaults)
       this.installPaneListeners(pane)
       this.surface.mountPane(pane, container)
       pane.redraw()
       this.installPtyListeners(sessionId, pane)
       this.surface.synchronize(this.options.presentation)
-
       const resume =
         !replacement &&
         this.options.supportsResume &&

@@ -65,6 +65,14 @@ export interface TerminalPaletteCapacityReport {
   readonly visibleFrames: number
 }
 
+export interface TerminalCursorCapacityReport {
+  readonly synchronousMs: number
+  readonly eventLoopDelayMs: number
+  readonly paneCount: number
+  readonly hiddenPanes: number
+  readonly revealedSessionId: string
+}
+
 export async function waitForCapacityTerminalCount(
   win: BrowserWindow,
   expected: number,
@@ -343,6 +351,184 @@ export async function verifyCapacityPaletteUpdate(
     'capacity palette update timed out',
     10_000,
   )) as TerminalPaletteCapacityReport
+}
+
+/** Prove one saved cursor-default change remains bounded across twelve retained panes. */
+export async function verifyCapacityCursorUpdate(
+  win: BrowserWindow,
+  supervisor: PtySupervisor,
+): Promise<TerminalCursorCapacityReport> {
+  if (supervisor.list().length !== 12) {
+    throw new Error('capacity cursor update requires twelve live terminals')
+  }
+  for (const terminal of supervisor.list()) {
+    supervisor.write(terminal.id, terminal.ownerId, "printf '\\033[0 q'\n")
+  }
+
+  return (await withTimeout(
+    win.webContents.executeJavaScript(`
+      new Promise((resolve, reject) => {
+        const deadline = Date.now() + 10000;
+        const surfaces = [...document.querySelectorAll('.terminal-surface')];
+        const settings = document.querySelector('.settings-toggle');
+        const fail = (message) => reject(new Error(message));
+        if (surfaces.length !== 12 || !(settings instanceof HTMLButtonElement)) {
+          return fail('capacity cursor fixtures missing');
+        }
+        const samples = surfaces.map((surface) => {
+          const engine = surface.querySelector('.terminal-engine-host');
+          const canvas = engine?.querySelector('canvas');
+          const stats = engine?.__hvirTerminalPerformance;
+          const sessionId = surface.getAttribute('data-terminal-session') || '';
+          if (
+            !(engine instanceof HTMLElement) ||
+            !(canvas instanceof HTMLCanvasElement) ||
+            !engine.__hvirTerminalCursor?.defaults ||
+            !sessionId
+          ) throw new Error('capacity cursor telemetry missing');
+          return {
+            surface,
+            engine,
+            canvas,
+            sessionId,
+            renderFrames: stats.renderFrames,
+            hidden: getComputedStyle(surface).visibility !== 'visible'
+          };
+        });
+        const originalActive = samples.find((sample) => !sample.hidden);
+        const revealTarget = samples.find((sample) => sample.hidden);
+        if (!originalActive || !revealTarget) {
+          return fail('capacity cursor visibility topology missing');
+        }
+        let started;
+        let synchronousMs;
+        let eventLoopDelayMs;
+        settings.click();
+        const openTerminal = () => {
+          const terminal = [...document.querySelectorAll('.settings-section-index button')]
+            .find((button) => button.textContent?.trim() === 'Terminal');
+          if (terminal instanceof HTMLButtonElement) {
+            terminal.click();
+            return edit();
+          }
+          if (Date.now() > deadline) return fail('capacity Terminal settings missing');
+          setTimeout(openTerminal, 20);
+        };
+        const edit = () => {
+          const shape = document.querySelector('#settings-terminal-cursor-shape');
+          const blink = document.querySelector('#settings-terminal-cursor-blink');
+          const save = [...document.querySelectorAll('.settings-dialog button')]
+            .find((button) => button.textContent?.trim() === 'Save app settings');
+          if (
+            shape instanceof HTMLSelectElement &&
+            blink instanceof HTMLSelectElement &&
+            save instanceof HTMLButtonElement
+          ) {
+            const setter = Object.getOwnPropertyDescriptor(
+              HTMLSelectElement.prototype,
+              'value'
+            )?.set;
+            setter?.call(shape, 'bar');
+            shape.dispatchEvent(new Event('change', { bubbles: true }));
+            setter?.call(blink, 'steady');
+            blink.dispatchEvent(new Event('change', { bubbles: true }));
+            started = performance.now();
+            save.click();
+            synchronousMs = performance.now() - started;
+            setTimeout(() => {
+              eventLoopDelayMs = performance.now() - started;
+            }, 0);
+            return waitForApplied();
+          }
+          if (Date.now() > deadline) return fail('capacity cursor controls missing');
+          setTimeout(edit, 20);
+        };
+        const updated = (sample) => {
+          const stats = sample.engine.__hvirTerminalPerformance;
+          const cursor = sample.engine.__hvirTerminalCursor;
+          return cursor?.defaults?.shape === 'bar' &&
+            cursor?.defaults?.blink === 'steady' &&
+            cursor?.effective?.default === true &&
+            cursor?.effective?.style === 'bar' &&
+            cursor?.effective?.blinking === false &&
+            sample.engine.querySelector('canvas') === sample.canvas &&
+            (sample.hidden
+              ? stats.paused && stats.renderFrames === sample.renderFrames
+              : !stats.paused && stats.renderFrames > sample.renderFrames);
+        };
+        const waitForApplied = () => {
+          if (
+            eventLoopDelayMs !== undefined &&
+            !document.querySelector('.settings-dialog') &&
+            samples.every(updated)
+          ) {
+            if (synchronousMs > 100 || eventLoopDelayMs > 250) {
+              return fail('capacity cursor update blocked the renderer: ' +
+                JSON.stringify({ synchronousMs, eventLoopDelayMs }));
+            }
+            const row = document.querySelector(
+              '.terminal-list-main[data-terminal-session="' +
+              CSS.escape(revealTarget.sessionId) + '"]'
+            );
+            if (!(row instanceof HTMLButtonElement)) {
+              return fail('capacity cursor reveal row missing');
+            }
+            row.click();
+            return waitForReveal();
+          }
+          if (Date.now() > deadline) {
+            return fail('capacity cursor defaults did not update across retained panes');
+          }
+          setTimeout(waitForApplied, 20);
+        };
+        const waitForReveal = () => {
+          const stats = revealTarget.engine.__hvirTerminalPerformance;
+          const cursor = revealTarget.engine.__hvirTerminalCursor;
+          if (
+            getComputedStyle(revealTarget.surface).visibility === 'visible' &&
+            !stats.paused &&
+            cursor?.defaults?.shape === 'bar' &&
+            cursor?.defaults?.blink === 'steady' &&
+            cursor?.effective?.default === true &&
+            cursor?.effective?.style === 'bar' &&
+            cursor?.effective?.blinking === false &&
+            revealTarget.engine.querySelector('canvas') === revealTarget.canvas
+          ) {
+            const originalRow = document.querySelector(
+              '.terminal-list-main[data-terminal-session="' +
+              CSS.escape(originalActive.sessionId) + '"]'
+            );
+            if (!(originalRow instanceof HTMLButtonElement)) {
+              return fail('capacity cursor restore row missing');
+            }
+            originalRow.click();
+            return waitForRestore();
+          }
+          if (Date.now() > deadline) return fail('hidden cursor defaults did not restore');
+          setTimeout(waitForReveal, 20);
+        };
+        const waitForRestore = () => {
+          if (
+            getComputedStyle(originalActive.surface).visibility === 'visible' &&
+            originalActive.engine.querySelector('canvas') === originalActive.canvas
+          ) {
+            return resolve({
+              synchronousMs,
+              eventLoopDelayMs,
+              paneCount: samples.length,
+              hiddenPanes: samples.filter((sample) => sample.hidden).length,
+              revealedSessionId: revealTarget.sessionId
+            });
+          }
+          if (Date.now() > deadline) return fail('capacity cursor active pane did not restore');
+          setTimeout(waitForRestore, 20);
+        };
+        openTerminal();
+      })
+    `),
+    'capacity cursor update timed out',
+    12_000,
+  )) as TerminalCursorCapacityReport
 }
 
 export function startCapacityOutputFixtures(supervisor: PtySupervisor): void {
