@@ -15,7 +15,15 @@ import type { FilenameSearchRequest, FilenameSearchResponse } from './filename-s
 import type { HostPath } from './host-path'
 import type {
   ExternalFileGrantResult,
+  ExternalMoveGrantResult,
+  ExternalMoveGrantReleaseRequest,
+  ProjectFileExternalMoveAcquireRequest,
+  ProjectFileExternalMoveDisclosure,
+  ProjectFileExternalMoveRequest,
   ProjectFileCreateRequest,
+  ProjectFileDeleteRequest,
+  ProjectFileDeletionDisclosure,
+  ProjectFileDeletionDisclosureRequest,
   ProjectFileCancelRequest,
   ProjectFileExternalCopyRequest,
   ProjectFileOrganizationRequest,
@@ -649,8 +657,32 @@ export interface IpcInvokeMap {
     request: ProjectFileExternalCopyRequest
     response: OperationResult<ProjectFileOperationStartResult>
   }
+  'fs:external-move-disclosure': {
+    request: void
+    response: OperationResult<ProjectFileExternalMoveDisclosure>
+  }
+  'fs:acquire-external-move-files': {
+    request: ProjectFileExternalMoveAcquireRequest
+    response: OperationResult<ExternalMoveGrantResult>
+  }
+  'fs:release-external-move-grant': {
+    request: ExternalMoveGrantReleaseRequest
+    response: OperationResult<boolean>
+  }
+  'fs:move-external': {
+    request: ProjectFileExternalMoveRequest
+    response: OperationResult<ProjectFileOperationStartResult>
+  }
   'fs:organize-entry': {
     request: ProjectFileOrganizationRequest
+    response: OperationResult<ProjectFileOperationStartResult>
+  }
+  'fs:deletion-disclosure': {
+    request: ProjectFileDeletionDisclosureRequest
+    response: OperationResult<ProjectFileDeletionDisclosure>
+  }
+  'fs:delete-entry': {
+    request: ProjectFileDeleteRequest
     response: OperationResult<ProjectFileOperationStartResult>
   }
   'fs:cancel-file-operation': {
@@ -751,6 +783,10 @@ export interface IpcInvokeMap {
     request: RebindTerminalProfileRequest
     response: TerminalRecoverySession
   }
+  'terminal:resolve-file-clipboard': {
+    request: Record<string, never>
+    response: string | undefined
+  }
   'pty:start': { request: StartPtyRequest; response: StartPtyResponse }
   'web-pane:open': {
     request: OpenWebPaneRequest
@@ -832,6 +868,8 @@ export type IpcEventPayload<E extends IpcEventChannel> = IpcEventMap[E]
 export interface HvirApi {
   /** Signals that the workbench surface committed for the preload's exact generation. */
   rendererReady(): void
+  /** Resolve one disk-backed clipboard File to safe local terminal paste text. */
+  resolveTerminalClipboardFilePaste(file: File): string | undefined
   invoke<C extends RendererIpcInvokeChannel>(
     channel: C,
     request: IpcRequest<C>,
@@ -899,7 +937,13 @@ export const INVOKE_CHANNELS = [
   'fs:acquire-clipboard-files',
   'fs:acquire-dropped-files',
   'fs:copy-external',
+  'fs:external-move-disclosure',
+  'fs:acquire-external-move-files',
+  'fs:release-external-move-grant',
+  'fs:move-external',
   'fs:organize-entry',
+  'fs:deletion-disclosure',
+  'fs:delete-entry',
   'fs:cancel-file-operation',
   'git:diff-inputs',
   'git:changes',
@@ -932,6 +976,7 @@ export const INVOKE_CHANNELS = [
   'terminal:plan-move',
   'terminal:move',
   'terminal:rebind-profile',
+  'terminal:resolve-file-clipboard',
   'pty:start',
   'web-pane:open',
   'web-pane:close',

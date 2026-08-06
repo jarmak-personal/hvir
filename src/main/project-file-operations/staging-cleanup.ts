@@ -1,5 +1,6 @@
 import { basenameHostPath, joinHostPath, type HostPath, type Stat } from '../../shared'
 import type { Disposer, ProjectHost } from '../project-host'
+import { isMissingProjectPathError } from './project-file-path-errors'
 
 const MAX_RETAINED_STAGING_PATHS_PER_HOST = 256
 
@@ -108,7 +109,7 @@ async function removeTree(host: ProjectHost, root: HostPath): Promise<void> {
   try {
     stat = await host.stat(root)
   } catch (reason) {
-    if (isMissingPathError(reason)) return
+    if (isMissingProjectPathError(reason)) return
     throw reason
   }
   if (stat.type === 'dir') {
@@ -133,15 +134,6 @@ function assertStagingPath(host: ProjectHost, path: HostPath): void {
 function requireTransfer(host: ProjectHost) {
   if (!host.fileTransfer) throw new Error('This project host cannot clean staging paths')
   return host.fileTransfer
-}
-
-function isMissingPathError(reason: unknown): boolean {
-  const code = (reason as { code?: unknown } | undefined)?.code
-  return (
-    code === 'ENOENT' ||
-    code === 2 ||
-    /no such file|not found/i.test(reason instanceof Error ? reason.message : '')
-  )
 }
 
 function pathKey(path: HostPath): string {

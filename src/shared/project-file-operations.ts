@@ -15,6 +15,8 @@ export interface ExternalFileGrantDescriptor {
   readonly items: readonly ExternalFileGrantItemDescriptor[]
 }
 
+export type ExternalFileGrantPurpose = 'copy' | 'move'
+
 export interface ExternalFileGrantItemDescriptor {
   readonly itemId: string
   readonly name: string
@@ -32,12 +34,49 @@ export type ExternalFileGrantResult =
       readonly reason: string
     }
 
+export type ExternalMoveGrantResult =
+  ExternalFileGrantResult | { readonly outcome: 'cancelled' }
+
+export type ExternalMovePickerSelection = 'mixed' | 'files' | 'directory'
+
+export type ExternalMovePickerPolicy =
+  | {
+      readonly kind: 'mixed-multiple'
+      readonly limitation: string
+    }
+  | {
+      readonly kind: 'files-or-single-directory'
+      readonly limitation: string
+    }
+
+export type ProjectFileExternalMoveDisclosure =
+  | {
+      readonly outcome: 'available'
+      readonly picker: ExternalMovePickerPolicy
+      readonly recovery: 'recoverable'
+    }
+  | {
+      readonly outcome: 'unavailable'
+      readonly reason: string
+    }
+
+export interface ProjectFileExternalMoveAcquireRequest {
+  readonly selection: ExternalMovePickerSelection
+}
+
+export interface ExternalMoveGrantReleaseRequest {
+  readonly grantId: string
+  readonly grantGeneration: number
+}
+
 export interface ProjectFileExternalCopyRequest {
   readonly workspaceRoot: HostPath
   readonly destinationDirectory: HostPath
   readonly grantId: string
   readonly grantGeneration: number
 }
+
+export type ProjectFileExternalMoveRequest = ProjectFileExternalCopyRequest
 
 export type ProjectFileOrganizationRequest =
   | {
@@ -59,6 +98,34 @@ export type ProjectFileOrganizationRequest =
       readonly destinationDirectory: HostPath
       readonly name: string
     }
+
+export type ProjectFileDeletionRecovery = 'recoverable' | 'permanent'
+
+export interface ProjectFileDeletionDisclosureRequest {
+  readonly workspaceRoot: HostPath
+  readonly source: HostPath
+}
+
+export type ProjectFileDeletionDisclosure =
+  | {
+      readonly outcome: 'available'
+      readonly workspaceRoot: HostPath
+      readonly source: HostPath
+      readonly recovery: ProjectFileDeletionRecovery
+    }
+  | {
+      readonly outcome: 'unavailable'
+      readonly workspaceRoot: HostPath
+      readonly source: HostPath
+      readonly reason: string
+    }
+
+export interface ProjectFileDeleteRequest {
+  readonly workspaceRoot: HostPath
+  readonly source: HostPath
+  /** The exact recovery guarantee reviewed in the confirmation dialog. */
+  readonly confirmedRecovery: ProjectFileDeletionRecovery
+}
 
 export interface ProjectFileCancelRequest {
   readonly operationId: string
@@ -82,7 +149,14 @@ export interface ProjectFileOperationProgress {
   readonly operationId: string
   readonly generation: number
   readonly phase:
-    'copying' | 'renaming' | 'moving' | 'duplicating' | 'cancelling' | 'completed'
+    | 'copying'
+    | 'renaming'
+    | 'moving'
+    | 'moving-external'
+    | 'duplicating'
+    | 'deleting'
+    | 'cancelling'
+    | 'completed'
   readonly completedItems: number
   readonly totalItems: number
   readonly currentName?: string
@@ -102,10 +176,17 @@ export type ProjectFileEffect =
   | 'moved-entry'
   | 'duplicated-file'
   | 'duplicated-directory'
+  | 'moved-external-file'
+  | 'moved-external-directory'
+  | 'external-move-state-unknown'
+  | 'trashed-entry'
+  | 'permanently-deleted-entry'
+  | 'partially-deleted-entry'
+  | 'deletion-state-unknown'
 
 export interface ProjectFileSourceDisposition {
-  readonly outcome: 'retained' | 'removed' | 'partially-removed'
-  /** Exact recovery location when any of the source remains. */
+  readonly outcome: 'retained' | 'removed' | 'partially-removed' | 'unknown'
+  /** Observed source/recovery path; `unknown` does not assert that it still exists. */
   readonly path?: HostPath
   readonly removedEntries?: number
   readonly totalEntries?: number

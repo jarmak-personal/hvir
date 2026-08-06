@@ -6,6 +6,7 @@ import {
   processDescendants,
   type ProcessRecord,
 } from '../scripts/installed-startup-probe.mts'
+import { parseDevToolsActivePort } from '../scripts/installed-harness-dialog-probe.mts'
 
 const expectedMain = '/opt/hvir/hvir'
 
@@ -19,6 +20,12 @@ function processRecord(
 }
 
 describe('installed startup process evidence', () => {
+  it('accepts only a bounded DevTools loopback port record', () => {
+    expect(parseDevToolsActivePort('9338\n/devtools/browser/id\n')).toBe(9338)
+    expect(() => parseDevToolsActivePort('0\n')).toThrow('invalid DevTools port')
+    expect(() => parseDevToolsActivePort('not-a-port\n')).toThrow('invalid DevTools port')
+  })
+
   it('parses the platform ps projection without treating command spaces as fields', () => {
     expect(
       parseProcessTable(

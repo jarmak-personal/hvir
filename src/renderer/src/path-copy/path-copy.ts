@@ -36,3 +36,9 @@ export async function copyHostPath(
   await writeText(value)
   return value
 }
+
+export function writeApplicationClipboard(value: string): Promise<void> {
+  return navigator.clipboard?.writeText
+    ? navigator.clipboard.writeText(value)
+    : Promise.reject(new Error('Clipboard writing is unavailable'))
+}

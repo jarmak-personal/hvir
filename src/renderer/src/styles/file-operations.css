@@ -107,6 +107,23 @@
   max-height: min(760px, calc(100vh - 32px));
 }
 
+.file-external-move-dialog {
+  width: min(560px, calc(100vw - 32px));
+  max-height: min(720px, calc(100vh - 32px));
+}
+
+.file-external-move-dialog p {
+  margin: 0;
+  color: var(--text-muted);
+}
+
+.file-external-move-items {
+  max-height: 220px;
+  margin: 0;
+  padding-left: 20px;
+  overflow: auto;
+}
+
 .file-organization-picker {
   min-height: 180px;
   display: grid;
@@ -133,6 +150,11 @@
   display: flex;
   justify-content: flex-end;
   gap: 8px;
+}
+
+.file-create-actions .file-destructive-action {
+  border-color: color-mix(in srgb, var(--danger-text) 55%, var(--border-strong));
+  color: var(--danger-text);
 }
 
 .file-operation-feedback {

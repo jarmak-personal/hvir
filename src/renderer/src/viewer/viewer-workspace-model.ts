@@ -17,6 +17,7 @@ import { viewerTabId } from './viewer-workspace-persistence'
 import { initialViewerPosition, nextViewerMode } from './viewer-position'
 import { rebindViewerPath } from './viewer-path-rebind'
 import { isCurrentViewerRead } from './viewer-read-policy'
+import * as documentRefresh from './viewer-document-refresh'
 
 export interface ViewerWorkspaceModel {
   readonly root?: HostPath
@@ -70,6 +71,7 @@ export type ViewerWorkspaceAction =
   | { readonly type: 'navigation-handled'; readonly id: string; readonly serial: number }
   | { readonly type: 'reload-requested'; readonly id: string }
   | { readonly type: 'watch-conflict'; readonly id: string }
+  | documentRefresh.Action
   | {
       readonly type: 'read-started'
       readonly id: string
@@ -252,6 +254,8 @@ export function viewerWorkspaceReducer(
       }))
     case 'watch-conflict':
       return mapTab(model, action.id, (tab) => ({ ...tab, conflict: true }))
+    case 'document-refresh':
+      return mapTab(model, action.id, (tab) => documentRefresh.apply(tab, action.update))
     case 'read-started':
       if (action.workspaceGeneration !== model.generation) return model
       return {

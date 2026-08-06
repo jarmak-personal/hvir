@@ -26,6 +26,7 @@ export {
   ProjectPathExistsError,
 } from './project-host'
 export { LocalHost } from './local-host'
+export { electronTrash } from './electron-project-trash'
 export { SshHost } from './ssh-host'
 export {
   SSH_CONTROL_CHANNEL_BUDGET,
@@ -38,7 +39,8 @@ export {
 } from './ssh-host'
 export type { SshTransportDiagnostic } from './ssh-host'
 export type { SshAuthPrompter, SshPrompt } from './ssh-auth'
-export type { SshHostOptions, SshIdentity } from './ssh-host-options'
+export type { SshHostOptions } from './ssh-host-options'
+export type { SshIdentitySource } from './ssh-identity-source'
 export { ProjectHostCatalog, identityFileCandidates } from './project-host-catalog'
 export { RendererSshPrompter } from './renderer-ssh-prompter'
 export { SshHostTrustStore } from './ssh-host-trust'

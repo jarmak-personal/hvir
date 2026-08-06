@@ -11,9 +11,9 @@
  * needing an Electron-ABI rebuild before Phase 2.
  */
 
-import { spawn } from 'node:child_process'
+import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
-import { constants, realpathSync } from 'node:fs'
+import { constants, mkdirSync, realpathSync } from 'node:fs'
 import { promises as fsp } from 'node:fs'
 import { createRequire } from 'node:module'
 import { connect } from 'node:net'
@@ -50,7 +50,9 @@ import type {
   ProjectHost,
   ProjectFileMetadataOptions,
   ProjectFileRenameOptions,
+  ProjectFileDeletionPort,
   ProjectFileStreamOptions,
+  ProjectFileTrashOptions,
   ProjectFileTransferPort,
   ProjectFileWriteStreamOptions,
   PtyExit,
@@ -96,9 +98,30 @@ export class LocalHost implements ProjectHost {
       this.renameProjectFileNoReplace(source, destination, opts),
     removeDirectory: (path, opts) => this.removeDirectory(path, opts),
   }
+  readonly fileDeletion: ProjectFileDeletionPort
 
   /** Live watcher lifecycles, including any native-to-polling fallback. */
   private readonly watchers = new Set<Disposer>()
+  /** Buffered commands owned until their process and pipes have closed. */
+  private readonly bufferedExecs = new Set<Disposer>()
+
+  /** Prepare one host-qualified local root during synchronous application bootstrap. */
+  static ensureBootstrapDirectory(path: HostPath): void {
+    mkdirSync(resolveHostPath(path, LOCAL_HOST_ID), { recursive: true })
+  }
+
+  constructor(
+    private readonly options: {
+      readonly trashItem?: (path: HostPath) => Promise<void>
+    } = {},
+  ) {
+    this.fileDeletion = options.trashItem
+      ? {
+          capability: 'recoverable',
+          trashEntry: (path, trashOptions) => this.trashEntry(path, trashOptions),
+        }
+      : { capability: 'unavailable' }
+  }
 
   connect(): Promise<void> {
     return Promise.resolve()
@@ -110,9 +133,11 @@ export class LocalHost implements ProjectHost {
   }
 
   async dispose(): Promise<void> {
+    const stopping = [...this.bufferedExecs].map((stop) => stop())
+    this.bufferedExecs.clear()
     const closing = [...this.watchers].map((stop) => stop())
     this.watchers.clear()
-    await Promise.all(closing.map((result) => Promise.resolve(result)))
+    await Promise.all([...stopping, ...closing].map((result) => Promise.resolve(result)))
   }
 
   defaultShell(): Promise<string> {
@@ -129,10 +154,17 @@ export class LocalHost implements ProjectHost {
   ): Promise<ExecResult> {
     const environment = childEnvironment(opts.env, opts.unsetEnv)
     return new Promise<ExecResult>((resolve, reject) => {
+      if (opts.signal?.aborted) {
+        reject(execAbortError(opts.signal))
+        return
+      }
       const child = spawn(command, [...args], {
         cwd: opts.cwd ? this.resolve(opts.cwd) : undefined,
         env: environment,
-        signal: opts.signal,
+        // Buffered commands never own a terminal. Give each POSIX command its
+        // own session so login-interactive shells and terminal job-control
+        // signals cannot stop Electron's process group with them.
+        detached: process.platform !== 'win32',
       })
       const maxBuffer = opts.maxBuffer ?? DEFAULT_MAX_BUFFER
       let stdout = ''
@@ -141,8 +173,41 @@ export class LocalHost implements ProjectHost {
       let stdoutNulRecords = 0
       let settled = false
       let truncated = false
+      let terminalError: Error | undefined
       const stdoutDecoder = new StringDecoder('utf8')
       const stderrDecoder = new StringDecoder('utf8')
+
+      const terminate = (): void => {
+        try {
+          terminateBufferedExec(child)
+        } catch (reason) {
+          terminalError ??= asError(reason)
+          child.kill('SIGKILL')
+        }
+      }
+      let resolveClosed = (): void => undefined
+      const closed = new Promise<void>((resolveClose) => {
+        resolveClosed = resolveClose
+      })
+      const stop: Disposer = () => {
+        if (!settled && !terminalError && !truncated) {
+          terminalError = new Error('Local host disposed during buffered exec')
+          terminate()
+        }
+        return closed
+      }
+      const abort = (): void => {
+        if (terminalError || truncated || settled) return
+        terminalError = execAbortError(opts.signal!)
+        terminate()
+      }
+      const finish = (): void => {
+        this.bufferedExecs.delete(stop)
+        opts.signal?.removeEventListener('abort', abort)
+        resolveClosed()
+      }
+      this.bufferedExecs.add(stop)
+      opts.signal?.addEventListener('abort', abort, { once: true })
 
       const overflow = (): boolean => {
         if (
@@ -153,12 +218,11 @@ export class LocalHost implements ProjectHost {
           return false
         if (opts.allowTruncatedOutput) {
           truncated = true
-          child.kill()
+          terminate()
           return true
         }
-        settled = true
-        child.kill()
-        reject(new Error(`exec output exceeded maxBuffer (${maxBuffer} bytes)`))
+        terminalError = new Error(`exec output exceeded maxBuffer (${maxBuffer} bytes)`)
+        terminate()
         return true
       }
 
@@ -180,14 +244,20 @@ export class LocalHost implements ProjectHost {
       child.on('error', (err) => {
         if (!settled) {
           settled = true
+          finish()
           reject(err)
         }
       })
       child.on('close', (code, signal) => {
         if (settled) return
         settled = true
+        finish()
         stdout += stdoutDecoder.end()
         stderr += stderrDecoder.end()
+        if (terminalError) {
+          reject(terminalError)
+          return
+        }
         resolve({
           code,
           signal: signal ?? null,
@@ -643,6 +713,16 @@ export class LocalHost implements ProjectHost {
     }
   }
 
+  private async trashEntry(
+    path: HostPath,
+    opts: ProjectFileTrashOptions = {},
+  ): Promise<void> {
+    this.resolve(path)
+    opts.signal?.throwIfAborted()
+    opts.onSubmitted?.()
+    await this.options.trashItem!(path)
+  }
+
   async removeFile(path: HostPath, opts: RemoveFileOptions = {}): Promise<void> {
     const destination = this.resolve(path)
     if (opts.expectedMtimeMs !== undefined) {
@@ -789,18 +869,22 @@ export class LocalHost implements ProjectHost {
 
   /** Unwrap a same-host HostPath to a raw string, rejecting foreign hosts. */
   private resolve(p: HostPath): string {
-    if (p.hostId !== this.hostId) {
-      throw new Error(
-        `LocalHost received a path for host '${p.hostId}' (expected '${this.hostId}')`,
-      )
-    }
-    return p.path
+    return resolveHostPath(p, this.hostId)
   }
 
   /** Re-qualify a raw local path back into a HostPath. */
   private wrap(rawPath: string): HostPath {
     return hostPath(this.hostId, rawPath)
   }
+}
+
+function resolveHostPath(path: HostPath, expectedHostId: HostId): string {
+  if (path.hostId !== expectedHostId) {
+    throw new Error(
+      `LocalHost received a path for host '${path.hostId}' (expected '${expectedHostId}')`,
+    )
+  }
+  return path.path
 }
 
 function childEnvironment(
@@ -814,6 +898,24 @@ function childEnvironment(
 
 function asError(reason: unknown): Error {
   return reason instanceof Error ? reason : new Error(String(reason))
+}
+
+function execAbortError(signal: AbortSignal): Error {
+  const error = new Error('The operation was aborted', { cause: signal.reason })
+  error.name = 'AbortError'
+  return error
+}
+
+function terminateBufferedExec(child: ChildProcessWithoutNullStreams): void {
+  if (process.platform === 'win32' || child.pid === undefined) {
+    child.kill('SIGKILL')
+    return
+  }
+  try {
+    process.kill(-child.pid, 'SIGKILL')
+  } catch (reason) {
+    if ((reason as NodeJS.ErrnoException).code !== 'ESRCH') throw reason
+  }
 }
 
 function fileChangedError(): Error {

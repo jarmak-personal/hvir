@@ -42,6 +42,7 @@ describe('copyExternalFileGrant', () => {
         grantId: 'grant',
         generation: 1,
         owner: { id: 1, generation: 1 },
+        purpose: 'copy',
         items: [
           {
             itemId: 'external:0',
@@ -112,6 +113,7 @@ describe('copyExternalFileGrant', () => {
         grantId: 'bounded-grant',
         generation: 1,
         owner: { id: 1, generation: 1 },
+        purpose: 'copy',
         items: await Promise.all(
           sources.map(async (source, index) => ({
             itemId: `external:${index}`,

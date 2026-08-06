@@ -5,7 +5,6 @@ import {
   hostPathEquals,
   isProjectFileEntryName,
   joinHostPath,
-  type FileType,
   type HostPath,
   type ProjectFileItemResult,
   type ProjectFileOrganizationRequest,
@@ -17,9 +16,11 @@ import {
 } from '../project-host'
 import {
   boundedProjectFileReason,
-  isMissingProjectPathError,
+  proveProjectEntry,
   proveRealProjectDirectory,
+  type ProvenProjectEntry,
 } from './project-file-confinement'
+import { isMissingProjectPathError } from './project-file-path-errors'
 import type { ProjectFileCopyLimits } from './project-file-copy-limits'
 import { removeVerifiedProjectEntry } from './project-entry-removal'
 import { caseOnlyProjectEntryRename } from './case-only-project-entry-rename'
@@ -148,39 +149,15 @@ export async function organizeProjectEntry(options: {
   }
 }
 
-export interface ProvenProjectEntry {
-  readonly visiblePath: HostPath
-  readonly visibleParent: HostPath
-  readonly canonicalPath: HostPath
-  readonly canonicalParent: HostPath
-  readonly type: FileType
-}
-
 async function proveSource(
   options: Parameters<typeof organizeProjectEntry>[0],
 ): Promise<ProvenProjectEntry> {
-  const visibleParent = dirnameHostPath(options.request.source)
-  const canonicalParent = await proveRealProjectDirectory(
+  return proveProjectEntry(
     options.host,
     options.request.workspaceRoot,
     options.canonicalRoot,
-    visibleParent,
+    options.request.source,
   )
-  const canonicalPath = joinHostPath(
-    canonicalParent,
-    basenameHostPath(options.request.source),
-  )
-  const stat = await options.host.stat(canonicalPath)
-  if (!['file', 'dir', 'symlink'].includes(stat.type)) {
-    throw new Error('The source is not a supported project entry')
-  }
-  return {
-    visiblePath: options.request.source,
-    visibleParent,
-    canonicalPath,
-    canonicalParent,
-    type: stat.type,
-  }
 }
 
 async function duplicateEntry(

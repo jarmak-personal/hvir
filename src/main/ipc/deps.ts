@@ -46,7 +46,13 @@ export interface IpcDeps {
     | 'acquireClipboard'
     | 'acquireDropped'
     | 'copyExternal'
+    | 'discloseExternalMove'
+    | 'acquireExternalMove'
+    | 'releaseExternalMove'
+    | 'moveExternal'
     | 'organize'
+    | 'discloseDeletion'
+    | 'delete'
     | 'cancel'
   >
   readonly getProject: () => { readonly host: ProjectHost; readonly root: HostPath }

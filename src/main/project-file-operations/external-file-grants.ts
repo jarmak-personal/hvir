@@ -6,6 +6,7 @@ import {
   hostPath,
   isProjectFileEntryName,
   type ExternalFileGrantResult,
+  type ExternalFileGrantPurpose,
   type DirEntry,
   type HostPath,
   type Stat,
@@ -13,6 +14,8 @@ import {
 import type { ProjectHost } from '../project-host'
 import type { RendererOwner } from '../renderer-resource-scopes'
 import { MAX_EXTERNAL_FILE_SOURCES } from './clipboard-file-list'
+import { isMissingProjectPathError } from './project-file-path-errors'
+import { PROJECT_FILE_OPERATION_DEADLINE_MS } from './project-file-operation-runtime'
 
 const EXTERNAL_FILE_GRANT_TTL_MS = 60_000
 
@@ -38,15 +41,34 @@ export interface GrantedExternalFileItem {
   readonly reason?: string
 }
 
-export interface ExternalFileGrantUse {
+interface ExternalFileGrantUseBase {
   readonly grantId: string
   readonly generation: number
   readonly owner: RendererOwner
+  readonly purpose: ExternalFileGrantPurpose
   readonly items: readonly GrantedExternalFileItem[]
   source(itemId: string): ExternalFileGrantSourcePort
   assertCurrent(): void
   revoke(): void
 }
+
+export interface ExternalFileCopyGrantUse extends ExternalFileGrantUseBase {
+  readonly purpose: 'copy'
+}
+
+export interface ExternalFileMoveGrantUse extends ExternalFileGrantUseBase {
+  readonly purpose: 'move'
+  trashSource(
+    itemId: string,
+    options: {
+      readonly signal: AbortSignal
+      readonly onSubmitted: () => void
+      readonly confirmExpectedSource: () => Promise<boolean>
+    },
+  ): Promise<'removed' | 'retained' | 'unknown'>
+}
+
+export type ExternalFileGrantUse = ExternalFileCopyGrantUse | ExternalFileMoveGrantUse
 
 /** Exact selected-root read authority; no arbitrary application-host methods escape. */
 export interface ExternalFileGrantSourcePort {
@@ -59,6 +81,7 @@ interface GrantRecord {
   readonly grantId: string
   readonly generation: number
   readonly owner: RendererOwner
+  readonly purpose: ExternalFileGrantPurpose
   readonly items: readonly GrantedExternalFileItem[]
   readonly lease: ExternalFileGrantResourceLease
   readonly timer: ReturnType<typeof setTimeout>
@@ -80,14 +103,19 @@ export class ExternalFileGrantRegistry {
       readonly resources: ExternalFileGrantResourcePort
       readonly createGrantId?: () => string
       readonly grantTtlMs?: number
+      readonly moveGrantTtlMs?: number
     },
   ) {}
 
   async acquire(
     owner: RendererOwner,
     rawPaths: readonly string[],
+    purpose: ExternalFileGrantPurpose = 'copy',
   ): Promise<ExternalFileGrantResult> {
     if (this.disposed) throw new Error('External file grants are disposed')
+    if (purpose === 'move' && !this.supportsExternalMove) {
+      throw new Error('Recoverable application-host Trash is unavailable')
+    }
     if (!this.options.resources.isRendererCurrent(owner)) {
       throw new Error('The renderer owner is no longer current')
     }
@@ -116,12 +144,15 @@ export class ExternalFileGrantRegistry {
     const lease = this.options.resources.registerGrant(owner, grantId, () => revoke())
     const timer = setTimeout(
       revoke,
-      this.options.grantTtlMs ?? EXTERNAL_FILE_GRANT_TTL_MS,
+      purpose === 'move'
+        ? (this.options.moveGrantTtlMs ?? PROJECT_FILE_OPERATION_DEADLINE_MS)
+        : (this.options.grantTtlMs ?? EXTERNAL_FILE_GRANT_TTL_MS),
     )
     const record: GrantRecord = {
       grantId,
       generation,
       owner,
+      purpose,
       items,
       lease,
       timer,
@@ -149,6 +180,24 @@ export class ExternalFileGrantRegistry {
     owner: RendererOwner,
     grantId: string,
     generation: number,
+  ): ExternalFileCopyGrantUse
+  consume(
+    owner: RendererOwner,
+    grantId: string,
+    generation: number,
+    purpose: 'copy',
+  ): ExternalFileCopyGrantUse
+  consume(
+    owner: RendererOwner,
+    grantId: string,
+    generation: number,
+    purpose: 'move',
+  ): ExternalFileMoveGrantUse
+  consume(
+    owner: RendererOwner,
+    grantId: string,
+    generation: number,
+    purpose: ExternalFileGrantPurpose = 'copy',
   ): ExternalFileGrantUse {
     const record = this.grants.get(grantId)
     if (
@@ -156,6 +205,7 @@ export class ExternalFileGrantRegistry {
       record.revoked ||
       record.consumed ||
       record.generation !== generation ||
+      record.purpose !== purpose ||
       !sameOwner(record.owner, owner) ||
       !this.options.resources.isRendererCurrent(owner)
     ) {
@@ -167,10 +217,11 @@ export class ExternalFileGrantRegistry {
     if (this.ownerGrants.get(ownerKey(owner)) === record) {
       this.ownerGrants.delete(ownerKey(owner))
     }
-    return {
+    const use: ExternalFileGrantUseBase = {
       grantId,
       generation,
       owner,
+      purpose: record.purpose,
       items: record.items,
       source: (itemId) => this.sourcePort(record, itemId),
       assertCurrent: () => {
@@ -180,6 +231,38 @@ export class ExternalFileGrantRegistry {
       },
       revoke: () => this.revoke(record),
     }
+    return record.purpose === 'move'
+      ? {
+          ...use,
+          purpose: 'move',
+          trashSource: (itemId, options) => this.trashSource(record, itemId, options),
+        }
+      : { ...use, purpose: 'copy' }
+  }
+
+  get supportsExternalMove(): boolean {
+    return this.options.sourceHost.fileDeletion.capability === 'recoverable'
+  }
+
+  release(
+    owner: RendererOwner,
+    grantId: string,
+    generation: number,
+    purpose: ExternalFileGrantPurpose,
+  ): boolean {
+    const record = this.grants.get(grantId)
+    if (
+      !record ||
+      record.revoked ||
+      record.consumed ||
+      record.generation !== generation ||
+      record.purpose !== purpose ||
+      !sameOwner(record.owner, owner)
+    ) {
+      return false
+    }
+    this.revoke(record)
+    return true
   }
 
   dispose(): void {
@@ -241,6 +324,57 @@ export class ExternalFileGrantRegistry {
           }
         })()
       },
+    }
+  }
+
+  private async trashSource(
+    record: GrantRecord,
+    itemId: string,
+    options: {
+      readonly signal: AbortSignal
+      readonly onSubmitted: () => void
+      readonly confirmExpectedSource: () => Promise<boolean>
+    },
+  ): Promise<'removed' | 'retained' | 'unknown'> {
+    if (record.purpose !== 'move') {
+      throw new Error('This external file grant cannot remove its source')
+    }
+    const item = record.items.find((candidate) => candidate.itemId === itemId)
+    if (!item?.source || item.type === 'unsupported') {
+      throw new Error('The external file item has no source removal authority')
+    }
+    if (record.revoked || !this.options.resources.isRendererCurrent(record.owner)) {
+      throw new Error('The external file grant was revoked')
+    }
+    const deletion = this.options.sourceHost.fileDeletion
+    if (deletion.capability !== 'recoverable') {
+      throw new Error('Recoverable application-host Trash is unavailable')
+    }
+    options.signal.throwIfAborted()
+    let submitted = false
+    try {
+      await deletion.trashEntry(item.source, {
+        signal: options.signal,
+        onSubmitted: () => {
+          submitted = true
+          options.onSubmitted()
+        },
+      })
+    } catch (reason) {
+      if (!submitted) throw reason
+      try {
+        await this.options.sourceHost.stat(item.source)
+        return (await options.confirmExpectedSource()) ? 'retained' : 'unknown'
+      } catch {
+        return 'unknown'
+      }
+    }
+    try {
+      await this.options.sourceHost.stat(item.source)
+      // A resolved Trash request followed by a present path may be a replacement.
+      return 'unknown'
+    } catch (reason) {
+      return isMissingProjectPathError(reason) ? 'removed' : 'unknown'
     }
   }
 

@@ -300,7 +300,7 @@ describe('SshHost pooled authentication bounds', () => {
       prompter: { prompt },
     })
 
-    const credentialAttempt: TestCredentialAttempt = { passphrases: new Map() }
+    const credentialAttempt = createCredentialAttempt(host)
     expect(
       await nextAuth(connectConfig(host, 'primary', credentialAttempt), ['password']),
     ).toMatchObject({
@@ -648,16 +648,24 @@ function connectConfig(
   purpose: 'primary' | 'pool' = 'primary',
   credentialAttempt?: TestCredentialAttempt,
 ): ConnectConfig {
+  const internals = host as unknown as {
+    connectConfig(
+      attempt: TestCredentialAttempt,
+      value?: 'primary' | 'pool',
+    ): ConnectConfig
+  }
+  return internals.connectConfig(
+    credentialAttempt ?? createCredentialAttempt(host),
+    purpose,
+  )
+}
+
+function createCredentialAttempt(host: SshHost): TestCredentialAttempt {
   return (
     host as unknown as {
-      connectConfig(
-        value?: 'primary' | 'pool',
-        markPrompt?: () => void,
-        isActive?: () => boolean,
-        attempt?: TestCredentialAttempt,
-      ): ConnectConfig
+      createCredentialAttempt(): TestCredentialAttempt
     }
-  ).connectConfig(purpose, undefined, undefined, credentialAttempt)
+  ).createCredentialAttempt()
 }
 
 function hostFiles(host: SshHost): SshFileAccess {

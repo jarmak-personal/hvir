@@ -11,8 +11,10 @@ import {
   type ProjectFileTransferPort,
   type ProjectHost,
 } from '../project-host'
-import { boundedProjectFileReason } from './project-file-confinement'
-import type { ProvenProjectEntry } from './project-entry-organization'
+import {
+  boundedProjectFileReason,
+  type ProvenProjectEntry,
+} from './project-file-confinement'
 import { projectEntryCancelled } from './project-entry-operation-results'
 
 /** Case-only rename is a two-leg transaction whose temporary path is user data. */

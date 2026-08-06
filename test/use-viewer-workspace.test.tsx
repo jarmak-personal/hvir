@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { useViewerWorkspace } from '../src/renderer/src/viewer/use-viewer-workspace'
 import { RETAINED_CLEAN_BYTE_LIMIT } from '../src/renderer/src/viewer/viewer-workload-policy'
-import { localPath, type ReadFileResponse } from '../src/shared'
+import { asHostId, hostPath, localPath, type ReadFileResponse } from '../src/shared'
 
 let host: HTMLDivElement
 let reactRoot: Root
@@ -179,6 +179,161 @@ describe('viewer workspace retention', () => {
     })
     expect(workspace.activeTab).toMatchObject({ path: destination, file: undefined })
   })
+
+  it('reviews dirty descendants and closes only tabs that are still clean after confirmation', async () => {
+    const project = localPath('/project')
+    const target = localPath('/project/remove')
+    const first = localPath('/project/remove/first.ts')
+    const becameDirty = localPath('/project/remove/nested/second.ts')
+    const outside = localPath('/project/keep.ts')
+    invoke
+      .mockResolvedValueOnce({ ok: true, value: file(first, 'first', 5) })
+      .mockResolvedValueOnce({ ok: true, value: file(becameDirty, 'second', 6) })
+      .mockResolvedValueOnce({ ok: true, value: file(outside, 'outside', 7) })
+
+    act(() => workspace.switchWorkspace(project))
+    await act(async () => {
+      workspace.openFile(first, true)
+      workspace.openFile(becameDirty, true)
+      workspace.openFile(outside, true)
+      await settle()
+    })
+    expect(workspace.reviewPathRemoval(target)).toEqual({
+      openCount: 2,
+      dirtyPaths: [],
+    })
+
+    const secondId = workspace.tabs.find((tab) => tab.path.path === becameDirty.path)!.id
+    act(() => workspace.setContent(secondId, 'unsaved after confirmation'))
+    let cleanup!: ReturnType<typeof workspace.closeCleanPath>
+    act(() => {
+      cleanup = workspace.closeCleanPath(target)
+    })
+
+    expect(cleanup).toEqual({
+      openCount: 2,
+      dirtyPaths: [becameDirty],
+      closedCount: 1,
+    })
+    expect(workspace.tabs.map((tab) => tab.path)).toEqual([becameDirty, outside])
+    expect(workspace.tabs[0]).toMatchObject({
+      dirty: true,
+      file: { content: 'unsaved after confirmation' },
+    })
+  })
+})
+
+describe('viewer document refresh', () => {
+  it.each([
+    ['local native watch', localPath('/project'), localPath('/project/image.png')],
+    [
+      'SSH polling',
+      hostPath(asHostId('ssh:fixture'), '/project'),
+      hostPath(asHostId('ssh:fixture'), '/project/image.png'),
+    ],
+  ])('scopes %s events to the exact open document', async (_label, project, path) => {
+    invoke.mockResolvedValue({ ok: true, value: file(path, '', 8, true) })
+    act(() => workspace.switchWorkspace(project))
+    await act(async () => {
+      workspace.openFile(path, true)
+      await settle()
+    })
+    invoke.mockClear()
+
+    act(() => {
+      workspace.handleWatchEvent({ type: 'change', path: localPath('/unrelated') })
+      workspace.handleWatchEvent({
+        type: 'change',
+        path: hostPath(path.hostId, '/project/other.txt'),
+      })
+      workspace.handleWatchEvent({ type: 'change', path, synthetic: 'refresh' })
+    })
+
+    expect(workspace.activeTab?.refresh).toBeUndefined()
+    expect(invoke).not.toHaveBeenCalled()
+
+    await act(async () => {
+      workspace.handleWatchEvent({ type: 'change', path })
+      await settle()
+    })
+
+    expect(workspace.activeTab?.refresh).toEqual({
+      version: 1,
+      changes: [{ version: 1, path }],
+    })
+    expect(invoke).toHaveBeenCalledOnce()
+    expect(invoke).toHaveBeenCalledWith('fs:read', { path })
+  })
+
+  it('retains two matching declared dependency events from one React batch', async () => {
+    const project = localPath('/project')
+    const documentPath = localPath('/project/readme.md')
+    const firstImagePath = localPath('/project/assets/first.png')
+    const secondImagePath = localPath('/project/assets/second.png')
+    invoke.mockResolvedValue({ ok: true, value: file(documentPath, '# Readme', 8) })
+    act(() => workspace.switchWorkspace(project))
+    await act(async () => {
+      workspace.openFile(documentPath, true)
+      await settle()
+    })
+    act(() =>
+      workspace.setRenderedDependencies(workspace.activeTab!.id, [
+        firstImagePath,
+        secondImagePath,
+      ]),
+    )
+    expect(workspace.renderedWatchPaths).toEqual([firstImagePath, secondImagePath])
+    invoke.mockClear()
+
+    act(() => {
+      workspace.handleWatchEvent({
+        type: 'change',
+        path: localPath('/project/assets/other.png'),
+      })
+      workspace.handleWatchEvent({
+        type: 'change',
+        path: hostPath(asHostId('ssh:fixture'), firstImagePath.path),
+      })
+    })
+    expect(workspace.activeTab?.refresh).toBeUndefined()
+
+    act(() => {
+      workspace.handleWatchEvent({ type: 'change', path: firstImagePath })
+      workspace.handleWatchEvent({ type: 'change', path: secondImagePath })
+    })
+
+    expect(workspace.activeTab?.refresh).toEqual({
+      version: 2,
+      changes: [
+        { version: 1, path: firstImagePath },
+        { version: 2, path: secondImagePath },
+      ],
+    })
+    expect(invoke).not.toHaveBeenCalled()
+  })
+
+  it('preserves a dirty buffer and reports the existing matching-file conflict', async () => {
+    const project = localPath('/project')
+    const path = localPath('/project/draft.md')
+    invoke.mockResolvedValue({ ok: true, value: file(path, 'original', 8) })
+    act(() => workspace.switchWorkspace(project))
+    await act(async () => {
+      workspace.openFile(path, true)
+      await settle()
+    })
+    act(() => workspace.setContent(workspace.activeTab!.id, 'minor edit'))
+    invoke.mockClear()
+
+    act(() => workspace.handleWatchEvent({ type: 'change', path }))
+
+    expect(workspace.activeTab).toMatchObject({
+      dirty: true,
+      conflict: true,
+      file: { content: 'minor edit' },
+    })
+    expect(workspace.activeTab?.refresh).toBeUndefined()
+    expect(invoke).not.toHaveBeenCalled()
+  })
 })
 
 function ViewerWorkspaceHarness(): null {
@@ -190,8 +345,9 @@ function file(
   path: ReturnType<typeof localPath>,
   content: string,
   size: number,
+  binary = false,
 ): ReadFileResponse {
-  return { path, content, size, mtimeMs: 1, binary: false }
+  return { path, content, size, mtimeMs: 1, binary }
 }
 
 function deferred<T>(): {

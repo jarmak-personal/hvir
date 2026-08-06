@@ -17,8 +17,10 @@ import { MissingWorkspaceNotice } from '../workspaces/MissingWorkspaceNotice'
 import { buildTreeGitDecorations } from './git-status-decoration'
 import { FilenameSearch } from './FilenameSearch'
 import { FileCreateOverlays } from './FileCreateOverlays'
-import { fileActionDestination, useFileCreateActions } from './use-file-create-actions'
+import { fileActionDestination } from './file-action-destination'
+import { useFileCreateActions } from './use-file-create-actions'
 import type { ViewerPathRebindCapability } from '../viewer/viewer-path-rebind'
+import type { ViewerPathRemovalCapability } from '../viewer/viewer-path-removal'
 
 const NO_CHANGED_FILES: readonly GitChangedFile[] = []
 
@@ -32,7 +34,7 @@ interface FileTreeProps {
   readonly selected?: HostPath
   readonly revealRequest?: DirectoryTreeRevealRequest
   readonly onOpen: (path: HostPath, pinned: boolean, context?: FileOpenContext) => void
-  readonly viewerPathRebind: ViewerPathRebindCapability
+  readonly viewerPathRebind: ViewerPathRebindCapability & ViewerPathRemovalCapability
   readonly onWorkspaceContentChanged: () => void
   readonly connected?: boolean
   readonly missing?: boolean
@@ -68,6 +70,8 @@ export function FileTree({
     onCreatedFile: onOpen,
     canRebindPath: viewerPathRebind.canRebindPath,
     onRebindPath: viewerPathRebind.rebindPath,
+    reviewPathRemoval: viewerPathRebind.reviewPathRemoval,
+    closeCleanPath: viewerPathRebind.closeCleanPath,
     onWorkspaceContentChanged,
   })
   useEffect(() => setDropTarget(undefined), [root.hostId, root.path])

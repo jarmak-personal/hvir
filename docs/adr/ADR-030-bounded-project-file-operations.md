@@ -1,4 +1,4 @@
-# ADR-029: Bounded project file operations and explicit external-source authority
+# ADR-030: Bounded project file operations and explicit external-source authority
 
 ## Context
 

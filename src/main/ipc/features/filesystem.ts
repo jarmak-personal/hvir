@@ -210,6 +210,49 @@ export function registerFilesystemIpc(ipc: IpcRegistrar, deps: FilesystemIpcDeps
     }),
   )
 
+  ipc.handle('fs:external-move-disclosure', (_req, context) =>
+    operationResult(() =>
+      Promise.resolve(deps.projectFiles.discloseExternalMove(context.owner())),
+    ),
+  )
+
+  ipc.handle('fs:acquire-external-move-files', (req, context) =>
+    operationResult(() =>
+      deps.projectFiles.acquireExternalMove(context.owner(), req.selection),
+    ),
+  )
+
+  ipc.handle('fs:release-external-move-grant', (req, context) =>
+    operationResult(() =>
+      Promise.resolve(
+        deps.projectFiles.releaseExternalMove(
+          context.owner(),
+          req.grantId,
+          req.grantGeneration,
+        ),
+      ),
+    ),
+  )
+
+  ipc.handle('fs:move-external', (req, context) =>
+    operationResult(async () => {
+      const workspaceRoot = ipc.authority.workspaceRoot(
+        ipc.authority.reconstructHostPath(req.workspaceRoot),
+      )
+      const destinationDirectory = ipc.authority.reconstructHostPath(
+        req.destinationDirectory,
+      )
+      return deps.projectFiles.moveExternal({
+        owner: context.owner(),
+        workspaceRoot,
+        destinationDirectory,
+        grantId: req.grantId,
+        grantGeneration: req.grantGeneration,
+        publish: (progress) => context.sender.send('fs:project-file-operation', progress),
+      })
+    }),
+  )
+
   ipc.handle('fs:organize-entry', (req, context) =>
     operationResult(async () => {
       const workspaceRoot = ipc.authority.workspaceRoot(
@@ -244,6 +287,34 @@ export function registerFilesystemIpc(ipc: IpcRegistrar, deps: FilesystemIpcDeps
       return deps.projectFiles.organize({
         owner: context.owner(),
         request,
+        publish: (progress) => context.sender.send('fs:project-file-operation', progress),
+      })
+    }),
+  )
+
+  ipc.handle('fs:deletion-disclosure', (req, context) =>
+    operationResult(async () => {
+      const workspaceRoot = ipc.authority.workspaceRoot(
+        ipc.authority.reconstructHostPath(req.workspaceRoot),
+      )
+      const source = ipc.authority.reconstructHostPath(req.source)
+      return deps.projectFiles.discloseDeletion(context.owner(), workspaceRoot, source)
+    }),
+  )
+
+  ipc.handle('fs:delete-entry', (req, context) =>
+    operationResult(async () => {
+      const workspaceRoot = ipc.authority.workspaceRoot(
+        ipc.authority.reconstructHostPath(req.workspaceRoot),
+      )
+      const source = ipc.authority.reconstructHostPath(req.source)
+      return deps.projectFiles.delete({
+        owner: context.owner(),
+        request: {
+          workspaceRoot,
+          source,
+          confirmedRecovery: req.confirmedRecovery,
+        },
         publish: (progress) => context.sender.send('fs:project-file-operation', progress),
       })
     }),

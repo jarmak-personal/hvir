@@ -95,6 +95,20 @@ describe('Electron smoke result aggregation', () => {
         durationMs: 10,
       }),
     ).toEqual({ status: 'passed', exitCode: 0, durationMs: 10 })
+    expect(
+      classifySmokeAttempt({
+        exitCode: 0,
+        signal: null,
+        successSentinel: true,
+        disposedFrameDeliveryFailure: true,
+        durationMs: 10,
+      }),
+    ).toEqual({
+      status: 'failed',
+      exitCode: 0,
+      error: 'disposed renderer frame delivery reached standard error',
+      durationMs: 10,
+    })
   })
 
   it('runs every group for every iteration and continues after failures', async () => {
@@ -329,6 +343,30 @@ describe('Electron smoke process failure artifacts', () => {
     })
   })
 
+  it('fails a successful process when disposed-frame delivery reaches stderr', async () => {
+    const stderr = vi.spyOn(process.stderr, 'write').mockReturnValue(true)
+    const stdout = vi.spyOn(process.stdout, 'write').mockReturnValue(true)
+    onTestFinished(() => {
+      stderr.mockRestore()
+      stdout.mockRestore()
+    })
+    const fixture = await invokeFixture({
+      scenario: 'renderer-recovery',
+      command: process.execPath,
+      args: [
+        '-e',
+        `process.stderr.write('Render frame was disposed before '); setImmediate(() => { process.stderr.write('WebFrameMain could be accessed\\n'); console.log('HVIR_SMOKE_OK') })`,
+      ],
+      timeoutMs: 1_000,
+    })
+
+    expect(fixture.result).toMatchObject({
+      status: 'failed',
+      exitCode: 0,
+      error: 'disposed renderer frame delivery reached standard error',
+    })
+  })
+
   it('kills a never-settling attempt and retains its last completed phase first', async () => {
     const evidence = JSON.stringify({
       schema: 1,
@@ -527,6 +565,10 @@ describe('Electron smoke command contracts', () => {
   )
   const projectFileOperationsScenario = readFileSync(
     new URL('../src/main/smoke/project-file-operations.ts', import.meta.url),
+    'utf8',
+  )
+  const externalFileMoveScenario = readFileSync(
+    new URL('../src/main/smoke/external-file-move.ts', import.meta.url),
     'utf8',
   )
   const webPaneScenario = readFileSync(
@@ -801,6 +843,16 @@ describe('Electron smoke command contracts', () => {
     expect(projectFileOperationsScenario).toContain('remoteRoot')
     expect(projectFileOperationsScenario).toContain("entry: 'pointer'")
     expect(projectFileOperationsScenario).toContain("entry: 'keyboard'")
+    expect(externalFileMoveScenario).toContain('createExternalMoveSmokeControl')
+    expect(externalFileMoveScenario).toContain('Move External Items Here…')
+    expect(externalFileMoveScenario).toContain('1 copied with source retained.')
+    expect(externalFileMoveScenario).toContain('control.assertSelection')
+    expect(externalFileMoveScenario).toContain(
+      "${JSON.stringify(entry)} === 'keyboard' && document.activeElement !== choose",
+    )
+    expect(externalFileMoveScenario).not.toContain(
+      'if (document.activeElement !== choose) return undefined;',
+    )
     expect(projectFileOperationsScenario).toContain('workspace switch preserved snapshot')
     expect(projectFileOperationsScenario).toContain("'.mode-control button")
     expect(projectFileOperationsScenario).not.toContain('requestAnimationFrame')

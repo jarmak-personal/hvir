@@ -7,9 +7,9 @@ import {
 import { isProjectPathExistsError, type ProjectHost } from '../project-host'
 import {
   boundedProjectFileReason,
-  isMissingProjectPathError,
   proveRealProjectDirectory,
 } from './project-file-confinement'
+import { isMissingProjectPathError } from './project-file-path-errors'
 
 export async function createProjectEntry(options: {
   readonly host: ProjectHost

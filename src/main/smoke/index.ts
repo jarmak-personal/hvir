@@ -8,6 +8,7 @@ import { harnessProviderCatalog } from '../harness/harness-provider'
 import type { HarnessProbeManager } from '../harness/harness-probe'
 import type { HtmlPreviewProtocol } from '../html-preview-protocol'
 import type { RuntimeDiagnostics } from '../diagnostics/runtime-diagnostics'
+import { sendRendererEvent } from '../renderer-event-delivery'
 import { registerIpcHandlers } from '../ipc'
 import type { RendererResourceScopes } from '../renderer-resource-scopes'
 import { LocalHost } from '../project-host'
@@ -34,6 +35,7 @@ import {
   verifyRendererRolloverRecovery,
 } from './renderer-lifecycle'
 import { verifyRendererAuthorityLifecycle } from './renderer-authority'
+import { createExternalMoveSmokeControl } from './external-file-move'
 import {
   createRemoteProjectFileSmokeHost,
   verifyProjectFileOperationsSmoke,
@@ -63,6 +65,8 @@ import {
   ECHO_REQUEST_TYPE,
   MAX_PROJECT_WATCH_INTERESTS,
   asHostId,
+  basenameHostPath,
+  dirnameHostPath,
   hostPath,
   hostPathEquals,
   joinHostPath,
@@ -127,13 +131,33 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
     (call) => dispatchWorkerHostCall(call, { host, root: projectRoot }),
   )
   const filenameSearch = createFilenameSearchCoordinator(git)
-  const host = new LocalHost()
+  const smokeRoot = projectRoot
+  const smokeTrashRecoveryRoot = joinHostPath(
+    dirnameHostPath(smokeRoot),
+    `.hvir-smoke-trash-recovery-${process.pid}-${basenameHostPath(smokeRoot)}`,
+  )
+  let smokeTrashSequence = 0
+  let smokeTrashFailurePath: HostPath | undefined
+  const smokeRecoveredPaths = new Set<HostPath>()
+  const host = new LocalHost({
+    trashItem: async (path) => {
+      if (smokeTrashFailurePath && hostPathEquals(path, smokeTrashFailurePath)) {
+        throw new Error('Injected recoverable Trash failure')
+      }
+      const recovered = joinHostPath(
+        smokeTrashRecoveryRoot,
+        `${(smokeTrashSequence += 1)}-${basenameHostPath(path)}`,
+      )
+      await host.fileTransfer.renameNoReplace(path, recovered)
+      smokeRecoveredPaths.add(recovered)
+    },
+  })
+  const externalMoveSmoke = createExternalMoveSmokeControl()
   const supervisor = new PtySupervisor()
   let smokeWindow: BrowserWindow | undefined
   let cleanupFailureResource: ReturnType<typeof smokeCleanupResource> = null
   let discardedRendererGenerations = 0
   let stopSmokeWatch: Disposer | undefined
-  const smokeRoot = projectRoot
   const smokeCloseableRoot = joinHostPath(smokeRoot, '.hvir-smoke-closed-project')
   const smokeWebSwitchRoot = joinHostPath(smokeRoot, 'docs')
   const oversizedDiffPath = joinHostPath(smokeRoot, '.hvir-smoke-oversized-diff.txt')
@@ -165,6 +189,14 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
   cleanup.defer('Git worker', () => git.dispose())
   cleanup.defer('filename search', () => filenameSearch.dispose())
   cleanup.defer('local host', () => host.dispose())
+  cleanup.defer('recoverable deletion fixture', async () => {
+    for (const recovered of smokeRecoveredPaths) {
+      await host.exec('rm', ['-rf', '--', recovered.path])
+    }
+    await host.fileTransfer.removeDirectory(smokeTrashRecoveryRoot, {
+      ignoreMissing: true,
+    })
+  })
   cleanup.defer('harness profile fixture', () =>
     host.exec('rm', ['-f', '--', harnessProfilesPath.path]).then(() => undefined),
   )
@@ -437,6 +469,7 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
         renamedPointerPath.path,
         createdSnapshotPath.path,
       ])
+      await host.createDirectoryExclusive(smokeTrashRecoveryRoot, { mode: 0o755 })
       await host.exec('rm', [
         '-rf',
         '--',
@@ -446,7 +479,7 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
     }
     const emit: EmitSmokeEvent = (channel, payload) => {
       if (smokeWindow && !smokeWindow.isDestroyed())
-        smokeWindow.webContents.send(channel, payload)
+        sendRendererEvent(smokeWindow.webContents, channel, payload)
     }
     const smokeTerminalSessionHarness = createSmokeTerminalSessionStore(smokeRoot)
     const smokeTerminalSessions = smokeTerminalSessionHarness.store
@@ -488,6 +521,7 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
           hostId === smokeRemoteHost.hostId ? smokeRemoteHost : host,
       },
       rendererResources,
+      externalMoveSmoke.picker,
     )
     cleanup.defer('project file operations', () => projectFiles.dispose())
     const ipcRouter = registerIpcHandlers({
@@ -693,6 +727,7 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
         supervisor,
         routes: webPaneRoutes,
         root: smokeRoot,
+        liveReloadPath,
         host,
         checkpoint: recordSmokeCheckpoint,
       })
@@ -736,6 +771,11 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
         localRoot: smokeRoot,
         remoteRoot: smokeRemoteRoot,
         switchedRoot: smokeWebSwitchRoot,
+        trashRecoveryRoot: smokeTrashRecoveryRoot,
+        externalMove: externalMoveSmoke,
+        failTrashFor: (path) => {
+          smokeTrashFailurePath = path
+        },
         localState: smokeProjectState,
         remoteState: smokeRemoteFileProjectState,
         switchedState: () => smokeProjectReturnState('smoke-project-return'),

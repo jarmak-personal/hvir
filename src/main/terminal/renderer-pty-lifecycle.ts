@@ -2,6 +2,7 @@ import type { WebContents } from 'electron'
 
 import type { HostPath } from '../../shared'
 import type { ManagedPty, PtySupervisor } from '../pty/pty-supervisor'
+import { sendRendererEvent } from '../renderer-event-delivery'
 import type {
   RendererOwner,
   RendererResourceLease,
@@ -68,19 +69,19 @@ export function attachRendererPty(
     {
       onData: (data) => {
         if (deps.rendererResources.isCurrent(owner) && !sender.isDestroyed()) {
-          sender.send('pty:data', { id: managed.id, data })
+          sendRendererEvent(sender, 'pty:data', { id: managed.id, data })
         }
       },
       onExit: (exit) => {
         void detach()
         ptyLease.release()
         if (deps.rendererResources.isCurrent(owner) && !sender.isDestroyed()) {
-          sender.send('pty:exit', { id: managed.id, ...exit })
+          sendRendererEvent(sender, 'pty:exit', { id: managed.id, ...exit })
         }
       },
       onTelemetry: (telemetry) => {
         if (deps.rendererResources.isCurrent(owner) && !sender.isDestroyed()) {
-          sender.send('pty:telemetry', { id: managed.id, telemetry })
+          sendRendererEvent(sender, 'pty:telemetry', { id: managed.id, telemetry })
         }
       },
     },
