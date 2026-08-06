@@ -263,6 +263,12 @@ export async function runCapacityLoadSmoke(
       `${paletteCapacity.eventLoopDelayMs.toFixed(1)}ms event loop · ` +
       `${paletteCapacity.hiddenPanes} hidden · ${paletteCapacity.visibleFrames} visible frames)`,
   )
+  const twelveTerminalCpu = await sampleCapacityCpuSeries(
+    win,
+    'one-visible-eleven-hidden',
+  )
+  const idleCpu = compareCapacityCpu(baselineCpu, twelveTerminalCpu)
+  console.log(`[smoke:performance:sample:idle-cpu] ${JSON.stringify(idleCpu)}`)
   const cursorCapacity = await verifyCapacityCursorUpdate(win, supervisor)
   console.log(
     `[smoke:capacity:contract] 12 retained cursor-default updates + hidden reveal OK ` +
@@ -270,12 +276,6 @@ export async function runCapacityLoadSmoke(
       `${cursorCapacity.eventLoopDelayMs.toFixed(1)}ms event loop · ` +
       `${cursorCapacity.hiddenPanes} hidden)`,
   )
-  const twelveTerminalCpu = await sampleCapacityCpuSeries(
-    win,
-    'one-visible-eleven-hidden',
-  )
-  const idleCpu = compareCapacityCpu(baselineCpu, twelveTerminalCpu)
-  console.log(`[smoke:performance:sample:idle-cpu] ${JSON.stringify(idleCpu)}`)
   startCapacityOutputFixtures(supervisor)
   let churning = true
   const watchChurn = (async (): Promise<void> => {

@@ -59,6 +59,15 @@ export async function verifyTerminalCursorPresentation(
     assertRetainedPty(supervisor, win, terminal.id, originalInstanceId)
   }
 
+  await applyCursorSettings(win, 'hollow-block', 'steady')
+  writeCursorControl(supervisor, terminal, '\u001b[2 q')
+  await waitForCursor(win, {
+    shape: 'block',
+    blinking: false,
+    default: false,
+    canvasShape: 'block',
+  })
+
   writeCursorControl(supervisor, terminal, '\u001b[6 q')
   await waitForCursor(win, {
     shape: 'bar',

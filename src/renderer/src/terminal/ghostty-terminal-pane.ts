@@ -208,7 +208,6 @@ class GhosttyTerminalPane implements TerminalPane {
         effectiveColors: this.terminal.wasmTerm?.getColors(),
         fontFamily: this.typography.fontFamily,
         fontSize: this.typography.fontSize,
-        cursorDefaults: this.cursorDefaults,
       }),
     })
     Object.defineProperty(surface, '__hvirTerminalCursor', {
