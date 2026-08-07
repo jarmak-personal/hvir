@@ -214,7 +214,6 @@ export class PtySupervisor {
       sessionIdentity: req.provider.sessionIdentity,
       exactResume: req.provider.supportsResume,
       contextPresentation: req.provider.manifest.contextPresentation,
-      reviewInsertContractRevision: req.provider.documentReviewInsert?.revision,
     }
     const resumed = req.resume === true && effectiveCapabilities.exactResume
     const diagnosticContext = {

@@ -71,11 +71,13 @@ export interface HarnessRemoteImagePasteContract {
 export interface HarnessDocumentReviewInsertContract {
   /** Increment whenever the atomic composer framing semantics change. */
   readonly revision: number
+  /** Admit insertion only for an exact provider-owned launch profile. */
+  supportsLaunch(launch: HarnessDocumentReviewInsertLaunch): boolean
   /** Frame one immutable body as one bracketed paste; never submit it. */
   terminalInput(body: string): string
 }
 
-export interface HarnessDocumentReviewSendNowLaunch {
+export interface HarnessDocumentReviewInsertLaunch {
   readonly profile: Pick<
     HarnessProfile,
     | 'providerId'
@@ -86,8 +88,12 @@ export interface HarnessDocumentReviewSendNowLaunch {
     | 'pathBindings'
     | 'risk'
   >
-  readonly composerSubmitMode: ComposerSubmitMode
   readonly effectiveCapabilities: HarnessProviderCapabilities
+}
+
+export interface HarnessDocumentReviewSendNowLaunch
+  extends HarnessDocumentReviewInsertLaunch {
+  readonly composerSubmitMode: ComposerSubmitMode
 }
 
 /** Complete provider-owned composer framing and submission for one exact launch. */
@@ -288,7 +294,7 @@ export const plainShellProvider: HarnessProvider = {
   },
 }
 
-const claudeCodeReviewInsert = documentReviewInsertContract()
+const claudeCodeReviewInsert = documentReviewInsertContract(() => claudeCodeProvider)
 
 export const claudeCodeProvider: HarnessProvider = {
   manifest: {
@@ -339,7 +345,7 @@ export const claudeCodeProvider: HarnessProvider = {
   },
 }
 
-const codexReviewInsert = documentReviewInsertContract()
+const codexReviewInsert = documentReviewInsertContract(() => codexProvider)
 const codexReviewSendNow = codexDocumentReviewSendNowContract(codexReviewInsert)
 
 export const codexProvider: HarnessProvider = {
@@ -550,23 +556,26 @@ export function harnessLaunchCapabilities(
 ): HarnessProviderCapabilities {
   const probed = launch?.probedCapabilities ?? provider.probe.effectiveCapabilities(undefined)
   const insert = provider.documentReviewInsert
-  const reviewInsertContractRevision =
-    insert && insert.revision === probed.reviewInsertContractRevision
-      ? insert.revision
-      : undefined
-  const base: HarnessProviderCapabilities = {
+  let base: HarnessProviderCapabilities = {
     sessionIdentity: probed.sessionIdentity,
     exactResume: probed.exactResume,
     contextPresentation: probed.contextPresentation,
-    reviewInsertContractRevision,
+  }
+  if (launch && insert && insert.revision === probed.reviewInsertContractRevision) {
+    const candidate = { ...base, reviewInsertContractRevision: insert.revision }
+    if (
+      insert.supportsLaunch({
+        profile: launch.profile,
+        effectiveCapabilities: candidate,
+      })
+    ) {
+      base = candidate
+    }
   }
   const sendNow = provider.documentReviewSendNow
-  let effective: HarnessProviderCapabilities = base
-  if (sendNow && sendNow.revision === probed.reviewSendNowContractRevision) {
-    effective = { ...base, reviewSendNowContractRevision: sendNow.revision }
-  }
   if (!launch || !sendNow) return base
-  if (effective.reviewSendNowContractRevision !== sendNow.revision) return base
+  if (sendNow.revision !== probed.reviewSendNowContractRevision) return base
+  const effective = { ...base, reviewSendNowContractRevision: sendNow.revision }
   return sendNow.supportsLaunch({
     profile: launch.profile,
     composerSubmitMode: launch.composerSubmitMode,
@@ -710,9 +719,26 @@ function pathImagePasteContract(): HarnessRemoteImagePasteContract {
   }
 }
 
-function documentReviewInsertContract(): HarnessDocumentReviewInsertContract {
+function documentReviewInsertContract(
+  resolveProvider: () => HarnessProvider,
+): HarnessDocumentReviewInsertContract {
+  const revision = 1
+  const supportsLaunch = (launch: HarnessDocumentReviewInsertLaunch): boolean => {
+    const provider = resolveProvider()
+    return (
+      launch.profile.providerId === provider.manifest.id &&
+      launch.profile.providerContractVersion === provider.profile.version &&
+      launch.profile.executable.kind === 'provider-default' &&
+      launch.profile.args.length === 0 &&
+      launch.profile.environment.length === 0 &&
+      launch.profile.pathBindings.length === 0 &&
+      launch.profile.risk === 'standard' &&
+      launch.effectiveCapabilities.reviewInsertContractRevision === revision
+    )
+  }
   return {
-    revision: 1,
+    revision,
+    supportsLaunch,
     terminalInput: (body) => {
       if (body.length === 0 || hasUnsafeReviewBodyCharacter(body)) {
         throw new Error('Document review insertion requires safe human-readable text')

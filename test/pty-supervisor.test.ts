@@ -4,6 +4,7 @@ import type { Client } from 'ssh2'
 import { describe, expect, it, vi } from 'vitest'
 
 import {
+  claudeCodeProvider,
   plainShellProvider,
   type HarnessTelemetryContext,
 } from '../src/main/harness/harness-provider'
@@ -60,6 +61,24 @@ describe('PtySupervisor', () => {
         },
       }),
     )
+  })
+
+  it('does not infer review insertion when effective launch capabilities are omitted', async () => {
+    const { supervisor, host } = fixture({ provider: claudeCodeProvider })
+    const info = await supervisor.spawn({
+      host,
+      provider: claudeCodeProvider,
+      cwd: localPath('/tmp/project'),
+      ownerId: OWNER_ID,
+      sessionId: 'no-effective-capabilities',
+    })
+
+    expect(info.capabilities).toMatchObject({
+      sessionIdentity: 'preassigned',
+      exactResume: true,
+      contextPresentation: 'count',
+    })
+    expect(info.capabilities).not.toHaveProperty('reviewInsertContractRevision')
   })
 
   it('launches harness commands through the login-interactive shell environment', async () => {
