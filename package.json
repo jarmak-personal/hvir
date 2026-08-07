@@ -91,7 +91,7 @@
     "markdown-it-task-lists": "^2.1.1",
     "mermaid": "^11.16.0",
     "node-pty": "^1.1.0",
-    "plist": "^3.1.1",
+    "plist": "^4.0.0",
     "shiki": "^4.4.1",
     "ssh-config": "^5.2.0",
     "ssh2": "^1.17.0",
