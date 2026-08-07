@@ -88,7 +88,9 @@ export function revalidateDocumentReviewAnchor(
   snapshot: ReviewDocumentSnapshot,
   content: string,
 ): DocumentReviewAnchor {
-  if (snapshotEquals(anchor.snapshot, snapshot)) return anchor
+  if (snapshotEquals(anchor.snapshot, snapshot) && anchor.state.status !== 'stale') {
+    return anchor
+  }
   if (reviewUtf8Bytes(content) > DOCUMENT_REVIEW_LIMITS.revalidationReadBytes) {
     return staleDocumentReviewAnchor(anchor, 'read-limit-exceeded')
   }

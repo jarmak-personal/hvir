@@ -173,6 +173,90 @@ describe('document review model', () => {
     expect(uniqueLineMatch.comments[0]?.anchor.state.status).toBe('moved')
   })
 
+  it('restores stale anchors when the exact anchored snapshot returns', () => {
+    const baseline = apply(
+      emptyModel(),
+      add('restored', 'Check this', capture(document, original, 2)),
+    )
+    const missingContent = 'intro\nAltert statement\noutro\n'
+    const missing = apply(baseline, {
+      type: 'revalidate-document',
+      workspace,
+      document,
+      snapshot: snapshot(missingContent),
+      content: missingContent,
+    })
+    const ambiguousContent = `${original}\n---\n${original}`
+    const ambiguous = apply(baseline, {
+      type: 'revalidate-document',
+      workspace,
+      document,
+      snapshot: snapshot(ambiguousContent),
+      content: ambiguousContent,
+    })
+    const deleted = apply(baseline, {
+      type: 'mark-document-stale',
+      workspace,
+      document,
+      reason: 'deleted',
+    })
+
+    expect(missing.comments[0]?.anchor.state).toMatchObject({
+      status: 'stale',
+      reason: 'missing-match',
+    })
+    expect(ambiguous.comments[0]?.anchor.state).toMatchObject({
+      status: 'stale',
+      reason: 'ambiguous-match',
+    })
+    expect(deleted.comments[0]?.anchor.state).toMatchObject({
+      status: 'stale',
+      reason: 'deleted',
+    })
+
+    for (const stale of [missing, ambiguous, deleted]) {
+      const restored = apply(stale, {
+        type: 'revalidate-document',
+        workspace,
+        document,
+        snapshot: snapshot(original),
+        content: original,
+      })
+      expect(restored.comments[0]?.anchor).toMatchObject({
+        snapshot: snapshot(original),
+        range: { startLine: 2, endLine: 2 },
+        state: { status: 'current' },
+      })
+    }
+  })
+
+  it('does not restore a stale anchor when the document bytes still differ', () => {
+    const baseline = apply(
+      emptyModel(),
+      add('not-restored', 'Check this', capture(document, original, 2)),
+    )
+    const deleted = apply(baseline, {
+      type: 'mark-document-stale',
+      workspace,
+      document,
+      reason: 'deleted',
+    })
+    const differentContent = 'intro\nAltert statement\noutro\n'
+    const stillStale = apply(deleted, {
+      type: 'revalidate-document',
+      workspace,
+      document,
+      snapshot: snapshot(original),
+      content: differentContent,
+    })
+
+    expect(stillStale.comments[0]?.anchor).toMatchObject({
+      snapshot: snapshot(original),
+      range: { startLine: 2, endLine: 2 },
+      state: { status: 'stale', reason: 'missing-match', reviewed: false },
+    })
+  })
+
   it('requires an explicit stale review or re-anchor before delivery eligibility', () => {
     let model = apply(
       emptyModel(),
