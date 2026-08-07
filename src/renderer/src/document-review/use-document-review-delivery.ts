@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   unwrapOperation,
   type DocumentReviewDeliveryDestination,
+  type DocumentReviewDeliveryPayload,
   type DocumentReviewDeliverySelection,
   type PreparedDocumentReviewDelivery,
 } from '../../../shared'
@@ -13,6 +14,8 @@ export interface DocumentReviewDeliveryInteraction {
   readonly loading: boolean
   readonly destinations: readonly DocumentReviewDeliveryDestination[]
   readonly selectedTerminalId?: string
+  readonly selectedDestination?: DocumentReviewDeliveryDestination
+  readonly payload?: DocumentReviewDeliveryPayload
   readonly prepared?: PreparedDocumentReviewDelivery
   readonly error?: string
   readonly message?: string
@@ -31,6 +34,8 @@ interface DeliveryState {
   readonly destinations: readonly DocumentReviewDeliveryDestination[]
   readonly selection?: DocumentReviewDeliverySelection
   readonly selectedTerminalId?: string
+  readonly selectedDestination?: DocumentReviewDeliveryDestination
+  readonly payload?: DocumentReviewDeliveryPayload
   readonly prepared?: PreparedDocumentReviewDelivery
   readonly error?: string
   readonly message?: string
@@ -50,18 +55,18 @@ export function useDocumentReviewDelivery(
   const [state, setState] = useState<DeliveryState>(CLOSED)
   const current = useRef(binding)
   const operationGeneration = useRef(0)
-  const preparedModel = useRef<unknown>(undefined)
+  const previewModel = useRef<unknown>(undefined)
   current.current = binding
 
   const close = useCallback((): void => {
     operationGeneration.current += 1
-    preparedModel.current = undefined
+    previewModel.current = undefined
     setState(CLOSED)
   }, [])
 
   const preview = useCallback((selection: DocumentReviewDeliverySelection): void => {
     const generation = (operationGeneration.current += 1)
-    preparedModel.current = undefined
+    previewModel.current = undefined
     setState({
       open: true,
       loading: true,
@@ -74,15 +79,22 @@ export function useDocumentReviewDelivery(
       await target?.flush()
       const scope = readyScope(current.current)
       if (!scope) throw new Error('Document review is still restoring this workspace')
-      const destinations = unwrapOperation(
-        await window.hvir.invoke('document-review:delivery-destinations', scope),
-      )
+      const [payload, destinations] = await Promise.all([
+        window.hvir
+          .invoke('document-review:preview-delivery', { ...scope, selection })
+          .then(unwrapOperation),
+        window.hvir
+          .invoke('document-review:delivery-destinations', scope)
+          .then(unwrapOperation),
+      ])
       if (operationGeneration.current !== generation) return
+      previewModel.current = current.current?.state.model
       setState({
         open: true,
         loading: false,
         destinations,
         selection,
+        payload,
         inserted: false,
       })
     })().catch((reason: unknown) => {
@@ -100,13 +112,30 @@ export function useDocumentReviewDelivery(
 
   const selectDestination = useCallback((terminalId: string): void => {
     const selection = state.selection
-    if (!selection) return
+    const destination = state.destinations.find(
+      (candidate) => candidate.terminalId === terminalId,
+    )
+    if (!selection || (terminalId && !destination)) return
     if (!terminalId) {
       operationGeneration.current += 1
-      preparedModel.current = undefined
       setState((value) => ({
         ...value,
         selectedTerminalId: undefined,
+        selectedDestination: undefined,
+        prepared: undefined,
+        error: undefined,
+        message: undefined,
+        inserted: false,
+      }))
+      return
+    }
+    if (destination?.capability === 'copy-only') {
+      operationGeneration.current += 1
+      setState((value) => ({
+        ...value,
+        loading: false,
+        selectedTerminalId: terminalId,
+        selectedDestination: destination,
         prepared: undefined,
         error: undefined,
         message: undefined,
@@ -115,11 +144,11 @@ export function useDocumentReviewDelivery(
       return
     }
     const generation = (operationGeneration.current += 1)
-    preparedModel.current = undefined
     setState((value) => ({
       ...value,
       loading: true,
       selectedTerminalId: terminalId,
+      selectedDestination: destination,
       prepared: undefined,
       error: undefined,
       message: undefined,
@@ -138,10 +167,12 @@ export function useDocumentReviewDelivery(
         }),
       )
       if (operationGeneration.current !== generation) return
-      preparedModel.current = current.current?.state.model
+      previewModel.current = current.current?.state.model
       setState((value) => ({
         ...value,
         loading: false,
+        selectedDestination: prepared.destination,
+        payload: prepared.payload,
         prepared,
         error: undefined,
         message: undefined,
@@ -153,21 +184,22 @@ export function useDocumentReviewDelivery(
         ...value,
         loading: false,
         selectedTerminalId: undefined,
+        selectedDestination: undefined,
         prepared: undefined,
         error: errorMessage(reason),
       }))
     })
-  }, [state.selection])
+  }, [state.destinations, state.selection])
 
   const copy = useCallback((): void => {
-    const prepared = state.prepared
-    if (!prepared) return
-    void writeReviewClipboard(prepared.payload.body).then(
+    const payload = state.payload
+    if (!payload) return
+    void writeReviewClipboard(payload.body).then(
       () => setState((value) => ({ ...value, message: 'Exact preview copied.' })),
       (reason: unknown) =>
         setState((value) => ({ ...value, error: errorMessage(reason) })),
     )
-  }, [state.prepared])
+  }, [state.payload])
 
   const insert = useCallback((): void => {
     const prepared = state.prepared
@@ -197,23 +229,25 @@ export function useDocumentReviewDelivery(
   }, [state.prepared])
 
   useEffect(() => {
-    if (!state.prepared || preparedModel.current === binding?.state.model) return
+    if (!state.payload || previewModel.current === binding?.state.model) return
     operationGeneration.current += 1
-    preparedModel.current = undefined
+    previewModel.current = undefined
     setState((value) => ({
       ...value,
       selectedTerminalId: undefined,
+      selectedDestination: undefined,
+      payload: undefined,
       prepared: undefined,
-      error: 'The review changed. Choose the destination again to prepare a new preview.',
+      error: 'The review changed. Preview the selection again.',
       message: undefined,
       inserted: false,
     }))
-  }, [binding?.state.model, state.prepared])
+  }, [binding?.state.model, state.payload])
 
   useEffect(
     () => () => {
       operationGeneration.current += 1
-      preparedModel.current = undefined
+      previewModel.current = undefined
     },
     [],
   )

@@ -13,8 +13,10 @@ import {
   type ReviewWorkspaceIdentity,
 } from '../../shared'
 import {
+  documentReviewUtf8Bytes,
   documentReviewWorkspaceEquals,
   isDocumentReviewDocument,
+  isDocumentReviewIdentifier,
   isDocumentReviewRecord,
 } from './document-review-policy'
 
@@ -71,7 +73,8 @@ export function parseReviewModel(value: unknown): DocumentReviewModel | undefine
     rawComments.length > DOCUMENT_REVIEW_LIMITS.commentsPerWorkspace ||
     !Array.isArray(rawBatches) ||
     rawBatches.length > DOCUMENT_REVIEW_LIMITS.batchesPerWorkspace ||
-    utf8Bytes(JSON.stringify(value)) > DOCUMENT_REVIEW_LIMITS.storedWorkspaceBytes
+    documentReviewUtf8Bytes(JSON.stringify(value)) >
+      DOCUMENT_REVIEW_LIMITS.storedWorkspaceBytes
   ) {
     return undefined
   }
@@ -118,7 +121,7 @@ function parseComment(
     !validId(id, DOCUMENT_REVIEW_LIMITS.idBytes) ||
     typeof body !== 'string' ||
     body.trim().length === 0 ||
-    utf8Bytes(body) > DOCUMENT_REVIEW_LIMITS.commentBytes ||
+    documentReviewUtf8Bytes(body) > DOCUMENT_REVIEW_LIMITS.commentBytes ||
     !anchor ||
     (lifecycle !== 'draft' && lifecycle !== 'sent' && lifecycle !== 'resolved')
   ) {
@@ -164,11 +167,11 @@ function parseAnchor(value: unknown): DocumentReviewAnchor | undefined {
     !range ||
     typeof excerpt !== 'string' ||
     excerpt.length === 0 ||
-    utf8Bytes(excerpt) > DOCUMENT_REVIEW_LIMITS.excerptBytes ||
+    documentReviewUtf8Bytes(excerpt) > DOCUMENT_REVIEW_LIMITS.excerptBytes ||
     typeof contextBefore !== 'string' ||
-    utf8Bytes(contextBefore) > DOCUMENT_REVIEW_LIMITS.contextBytes ||
+    documentReviewUtf8Bytes(contextBefore) > DOCUMENT_REVIEW_LIMITS.contextBytes ||
     typeof contextAfter !== 'string' ||
-    utf8Bytes(contextAfter) > DOCUMENT_REVIEW_LIMITS.contextBytes ||
+    documentReviewUtf8Bytes(contextAfter) > DOCUMENT_REVIEW_LIMITS.contextBytes ||
     !state
   ) {
     return undefined
@@ -259,14 +262,7 @@ export function assertReviewWorkspace(workspace: ReviewWorkspaceIdentity): void 
 }
 
 function validId(value: unknown, limit: number): value is string {
-  if (typeof value !== 'string' || value.length === 0 || utf8Bytes(value) > limit) {
-    return false
-  }
-  for (const character of value) {
-    const codePoint = character.codePointAt(0)!
-    if (codePoint <= 31 || codePoint === 127) return false
-  }
-  return true
+  return isDocumentReviewIdentifier(value, limit)
 }
 
 function staleReason(
@@ -294,8 +290,4 @@ export function cloneReviewModel(model: DocumentReviewModel): DocumentReviewMode
 
 export function isFutureReviewVersion(value: unknown): boolean {
   return Number.isSafeInteger(value) && (value as number) > DOCUMENT_REVIEW_FILE_VERSION
-}
-
-function utf8Bytes(value: string): number {
-  return Buffer.byteLength(value, 'utf8')
 }

@@ -1,4 +1,9 @@
-import { hostPathEquals, type ReviewWorkspaceIdentity } from '../../../shared'
+import {
+  hostPathEquals,
+  type DocumentReviewDeliverySelection,
+  type ReviewWorkspaceIdentity,
+} from '../../../shared'
+import { isDocumentReviewIdentifier } from '../../document-review/document-review-policy'
 import type { IpcRegistrar } from '../authority-router'
 import type { IpcDeps } from '../deps'
 import { operationResult } from '../operation-result'
@@ -58,15 +63,23 @@ export function registerDocumentReviewIpc(
     }),
   )
 
+  ipc.handle('document-review:preview-delivery', (request, context) =>
+    operationResult(() => {
+      requireDeliveryScope(ipc, deps, request.workspace)
+      requireDeliverySelection(request.selection)
+      return Promise.resolve(
+        deps.documentReviewDelivery.preview(context.owner(), request),
+      )
+    }),
+  )
+
   ipc.handle('document-review:prepare-delivery', (request, context) =>
     operationResult(() => {
       requireDeliveryScope(ipc, deps, request.workspace)
-      if (!isBoundedId(request.terminalId)) throw new Error('Invalid review terminal')
-      const selectionId =
-        request.selection.kind === 'comment'
-          ? request.selection.commentId
-          : request.selection.batchId
-      if (!isBoundedId(selectionId)) throw new Error('Invalid review selection')
+      if (!isDocumentReviewIdentifier(request.terminalId)) {
+        throw new Error('Invalid review terminal')
+      }
+      requireDeliverySelection(request.selection)
       return Promise.resolve(
         deps.documentReviewDelivery.prepare(context.owner(), request),
       )
@@ -75,7 +88,7 @@ export function registerDocumentReviewIpc(
 
   ipc.handle('document-review:insert-delivery', (request, context) =>
     operationResult(() => {
-      if (!isBoundedId(request.preparedId)) {
+      if (!isDocumentReviewIdentifier(request.preparedId)) {
         throw new Error('Invalid prepared review delivery')
       }
       return Promise.resolve(
@@ -83,6 +96,13 @@ export function registerDocumentReviewIpc(
       )
     }),
   )
+}
+
+function requireDeliverySelection(
+  selection: DocumentReviewDeliverySelection,
+): void {
+  const id = selection.kind === 'comment' ? selection.commentId : selection.batchId
+  if (!isDocumentReviewIdentifier(id)) throw new Error('Invalid review selection')
 }
 
 function requireDeliveryScope(
@@ -111,13 +131,4 @@ function requireActiveWorkspace(
     throw new Error('Document review belongs to another workspace identity')
   }
   return deps.getProject()
-}
-
-function isBoundedId(value: unknown): value is string {
-  return (
-    typeof value === 'string' &&
-    value.length > 0 &&
-    value.length <= 128 &&
-    ![...value].some((character) => character.codePointAt(0)! <= 31)
-  )
 }

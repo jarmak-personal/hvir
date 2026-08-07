@@ -30,6 +30,7 @@ export async function createDocumentReviewRuntime(
   const coordinator = new DocumentReviewCoordinator({ store, resources })
   const reviewDelivery = new DocumentReviewDeliveryCoordinator({
     workspace: coordinator,
+    resources,
     ...delivery,
   })
   return {

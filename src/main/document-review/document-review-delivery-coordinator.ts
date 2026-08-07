@@ -3,18 +3,25 @@ import { randomUUID } from 'node:crypto'
 import {
   DOCUMENT_REVIEW_LIMITS,
   hostPathEquals,
-  prepareDocumentReviewDeliveryPayload,
   type DocumentReviewDeliveryDestination,
   type DocumentReviewDeliveryPayload,
+  type DocumentReviewPreviewRequest,
   type DocumentReviewDeliveryScopeRequest,
   type DocumentReviewDeliverySelection,
   type DocumentReviewInsertResult,
   type DocumentReviewPrepareRequest,
   type PreparedDocumentReviewDelivery,
 } from '../../shared'
-import type { HarnessProviderRegistry } from '../harness/harness-provider'
+import type {
+  HarnessDocumentReviewInsertContract,
+  HarnessProviderRegistry,
+} from '../harness/harness-provider'
 import type { ManagedPty, PtySupervisor } from '../pty/pty-supervisor'
-import type { RendererOwner } from '../renderer-resource-scopes'
+import type {
+  RendererOwner,
+  RendererResourceLease,
+  RendererResourceScopes,
+} from '../renderer-resource-scopes'
 import type {
   OwnedTerminalSession,
   TerminalSessionStore,
@@ -23,6 +30,7 @@ import type {
   DocumentReviewCoordinator,
   DocumentReviewDeliveryWorkspaceSnapshot,
 } from './document-review-coordinator'
+import { prepareDocumentReviewDeliveryPayload } from './document-review-delivery-policy'
 
 interface PreparedRecord {
   readonly id: string
@@ -32,6 +40,7 @@ interface PreparedRecord {
   readonly reviewRevision: number
   readonly payload: DocumentReviewDeliveryPayload
   readonly destination: DocumentReviewDeliveryDestination
+  readonly contractRevision: number
   readonly terminal: Pick<
     ManagedPty,
     | 'id'
@@ -42,6 +51,7 @@ interface PreparedRecord {
     | 'workspaceRoot'
     | 'providerId'
   >
+  lease?: RendererResourceLease
 }
 
 export interface DocumentReviewDeliveryCoordinatorOptions {
@@ -49,6 +59,7 @@ export interface DocumentReviewDeliveryCoordinatorOptions {
   readonly ptys: Pick<PtySupervisor, 'get' | 'list' | 'write'>
   readonly sessions: Pick<TerminalSessionStore, 'get'>
   readonly providers: Pick<HarnessProviderRegistry, 'get'>
+  readonly resources: Pick<RendererResourceScopes, 'register'>
 }
 
 /** Owns explicit prepared destination authority and the one PTY write for review insert. */
@@ -58,12 +69,19 @@ export class DocumentReviewDeliveryCoordinator {
 
   constructor(private readonly options: DocumentReviewDeliveryCoordinatorOptions) {}
 
+  preview(
+    owner: RendererOwner,
+    request: DocumentReviewPreviewRequest,
+  ): DocumentReviewDeliveryPayload {
+    return payloadFor(this.reviewSnapshot(owner, request), request.selection)
+  }
+
   destinations(
     owner: RendererOwner,
     scope: DocumentReviewDeliveryScopeRequest,
   ): readonly DocumentReviewDeliveryDestination[] {
     const review = this.reviewSnapshot(owner, scope)
-    this.assertHostConnected(review)
+    if (review.host.connectionState !== 'connected') return []
     return this.options.ptys
       .list()
       .filter((terminal) => this.sameOwnedWorkspace(terminal, owner, scope))
@@ -81,6 +99,10 @@ export class DocumentReviewDeliveryCoordinator {
     this.assertHostConnected(review)
     const payload = payloadFor(review, request.selection)
     const terminal = this.requireDestination(request.terminalId, owner, request)
+    const contract = this.insertContract(terminal)
+    if (!contract) {
+      throw new Error('The selected provider remains Copy-only')
+    }
     const destination = this.describe(
       terminal,
       this.options.sessions.get(terminal.id),
@@ -97,9 +119,27 @@ export class DocumentReviewDeliveryCoordinator {
       reviewRevision: review.revision,
       payload,
       destination,
+      contractRevision: contract.revision,
       terminal: terminalSnapshot(terminal),
     }
-    this.prepared.set(ownerKey(owner), record)
+    const key = ownerKey(owner)
+    this.revokePrepared(this.prepared.get(key))
+    this.prepared.set(key, record)
+    try {
+      record.lease = this.options.resources.register(
+        owner,
+        {
+          lifetime: 'workspace',
+          type: 'document-review-delivery',
+          root: request.workspace.root,
+          id,
+        },
+        () => this.revokePrepared(record),
+      )
+    } catch (error) {
+      this.prepared.delete(key)
+      throw error
+    }
     return { id, destination, payload }
   }
 
@@ -130,7 +170,7 @@ export class DocumentReviewDeliveryCoordinator {
     const contract = provider.documentReviewInsert
     if (
       !contract ||
-      contract.revision !== prepared.destination.contractRevision ||
+      contract.revision !== prepared.contractRevision ||
       terminal.capabilities.reviewInsertContractRevision !== contract.revision ||
       prepared.destination.capability !== 'insert'
     ) {
@@ -143,14 +183,14 @@ export class DocumentReviewDeliveryCoordinator {
       transport,
       owner.generation,
     )
-    this.prepared.delete(key)
+    this.revokePrepared(prepared)
     return { outcome: 'inserted' }
   }
 
   dispose(): void {
     if (this.disposed) return
     this.disposed = true
-    this.prepared.clear()
+    for (const record of this.prepared.values()) this.revokePrepared(record)
   }
 
   private reviewSnapshot(
@@ -197,12 +237,7 @@ export class DocumentReviewDeliveryCoordinator {
     presentation: OwnedTerminalSession | undefined,
   ): DocumentReviewDeliveryDestination {
     const provider = this.options.providers.get(terminal.providerId)
-    const declaredContract = provider.documentReviewInsert
-    const contract =
-      declaredContract &&
-      terminal.capabilities.reviewInsertContractRevision === declaredContract.revision
-        ? declaredContract
-        : undefined
+    const contract = this.insertContract(terminal)
     const matchingPresentation = Boolean(
       presentation &&
         presentation.providerId === terminal.providerId &&
@@ -213,14 +248,30 @@ export class DocumentReviewDeliveryCoordinator {
       title: matchingPresentation
         ? presentation!.title
         : `${provider.manifest.displayName} · ${terminal.id.slice(0, 8)}`,
-      providerId: terminal.providerId,
       providerName: provider.manifest.displayName,
       lifecycle: 'live',
       connection: 'connected',
       attention: matchingPresentation ? presentation?.attention : undefined,
       capability: contract ? 'insert' : 'copy-only',
-      contractRevision: contract?.revision,
     }
+  }
+
+  private insertContract(
+    terminal: ManagedPty,
+  ): HarnessDocumentReviewInsertContract | undefined {
+    const contract = this.options.providers.get(terminal.providerId).documentReviewInsert
+    return contract &&
+      terminal.capabilities.reviewInsertContractRevision === contract.revision
+      ? contract
+      : undefined
+  }
+
+  private revokePrepared(record: PreparedRecord | undefined): void {
+    if (!record) return
+    const key = ownerKey(record.owner)
+    if (this.prepared.get(key) === record) this.prepared.delete(key)
+    record.lease?.release()
+    record.lease = undefined
   }
 
   private assertActive(): void {

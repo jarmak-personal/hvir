@@ -24,6 +24,7 @@ export type RendererResourceQualifier =
         | 'image-paste'
         | 'project-file-operation'
         | 'document-review'
+        | 'document-review-delivery'
       readonly root: HostPath
       readonly id: string
     }

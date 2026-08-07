@@ -5,6 +5,7 @@ import {
   codexProvider,
   harnessProvider,
   harnessProviderCatalog,
+  harnessProviders,
   HarnessProviderRegistry,
   plainShellProvider,
   type HarnessProvider,
@@ -107,29 +108,28 @@ describe('Harness providers', () => {
     expect(claudeCodeProvider.documentReviewInsert).toMatchObject({ revision: 1 })
     expect(claudeCodeProvider.documentReviewInsert?.terminalInput(body)).toBe(expected)
     expect(codexProvider.documentReviewInsert?.terminalInput(body)).toBe(expected)
-    expect(claudeCodeProvider.probe.effectiveCapabilities('1.0')).toMatchObject({
-      reviewInsertContractRevision: 1,
-    })
-    expect(codexProvider.probe.effectiveCapabilities('1.0')).toMatchObject({
-      reviewInsertContractRevision: 1,
-    })
+    for (const provider of [claudeCodeProvider, codexProvider]) {
+      expect(
+        provider.probe.effectiveCapabilities('1.0').reviewInsertContractRevision,
+      ).toBe(provider.documentReviewInsert?.revision)
+    }
     expect(() => codexProvider.documentReviewInsert?.terminalInput('unsafe\u001btext')).toThrow(
       /safe human-readable text/,
     )
     expect(
-      harnessProviderCatalog().map(({ id, reviewDelivery }) => [
-        id,
-        reviewDelivery,
+      harnessProviders.all().map(({ manifest, documentReviewInsert }) => [
+        manifest.id,
+        documentReviewInsert?.revision,
       ]),
     ).toEqual([
-      ['plain-shell', { insertIntoComposer: false, contractRevision: undefined }],
-      ['claude-code', { insertIntoComposer: true, contractRevision: 1 }],
-      ['codex', { insertIntoComposer: true, contractRevision: 1 }],
-      ['pi', { insertIntoComposer: false, contractRevision: undefined }],
-      ['gemini-cli', { insertIntoComposer: false, contractRevision: undefined }],
-      ['github-copilot-cli', { insertIntoComposer: false, contractRevision: undefined }],
-      ['cursor-cli', { insertIntoComposer: false, contractRevision: undefined }],
-      ['custom', { insertIntoComposer: false, contractRevision: undefined }],
+      ['plain-shell', undefined],
+      ['claude-code', 1],
+      ['codex', 1],
+      ['pi', undefined],
+      ['gemini-cli', undefined],
+      ['github-copilot-cli', undefined],
+      ['cursor-cli', undefined],
+      ['custom', undefined],
     ])
   })
 

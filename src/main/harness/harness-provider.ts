@@ -262,6 +262,8 @@ export const plainShellProvider: HarnessProvider = {
   },
 }
 
+const claudeCodeReviewInsert = documentReviewInsertContract()
+
 export const claudeCodeProvider: HarnessProvider = {
   manifest: {
     id: asHarnessProviderId('claude-code'),
@@ -289,10 +291,10 @@ export const claudeCodeProvider: HarnessProvider = {
   sessionIdentity: 'preassigned',
   telemetry: { observe: observeClaudeContext },
   resumeValidation: { availability: claudeResumeAvailability },
-  probe: versionProbe('preassigned', true, 'count', 1),
+  probe: versionProbe('preassigned', true, 'count', claudeCodeReviewInsert),
   composerConfiguration: { configure: configureClaudeComposerSubmit },
   remoteImagePaste: pathImagePasteContract(),
-  documentReviewInsert: documentReviewInsertContract(),
+  documentReviewInsert: claudeCodeReviewInsert,
 
   launch(ctx): HarnessLaunchSpec {
     return {
@@ -310,6 +312,8 @@ export const claudeCodeProvider: HarnessProvider = {
     }
   },
 }
+
+const codexReviewInsert = documentReviewInsertContract()
 
 export const codexProvider: HarnessProvider = {
   manifest: {
@@ -348,9 +352,9 @@ export const codexProvider: HarnessProvider = {
   sessionIdentity: 'discovered',
   sessionDiscovery: codexSessionDiscovery,
   telemetry: { observe: observeCodexContext },
-  probe: versionProbe('discovered', true, 'pressure', 1),
+  probe: versionProbe('discovered', true, 'pressure', codexReviewInsert),
   remoteImagePaste: pathImagePasteContract(),
-  documentReviewInsert: documentReviewInsertContract(),
+  documentReviewInsert: codexReviewInsert,
 
   launch(ctx): HarnessLaunchSpec {
     return {
@@ -430,10 +434,6 @@ export class HarnessProviderRegistry {
       terminalInput: {
         modifiedKeyProtocol: provider.manifest.modifiedKeyProtocol ?? 'none',
         metaEnterAliasesControl: provider.manifest.metaEnterAliasesControl === true,
-      },
-      reviewDelivery: {
-        insertIntoComposer: provider.documentReviewInsert !== undefined,
-        contractRevision: provider.documentReviewInsert?.revision,
       },
       profileTemplate: provider.profile.defaultProfile
         ? {
@@ -681,7 +681,7 @@ function versionProbe(
   sessionIdentity: HarnessSessionIdentity,
   exactResume: boolean,
   contextPresentation: HarnessContextPresentation,
-  reviewInsertContractRevision?: number,
+  reviewInsert?: HarnessDocumentReviewInsertContract,
 ): HarnessProbeContract {
   return {
     versionArgs: ['--version'],
@@ -695,7 +695,7 @@ function versionProbe(
       sessionIdentity,
       exactResume,
       contextPresentation,
-      reviewInsertContractRevision,
+      reviewInsertContractRevision: reviewInsert?.revision,
     }),
   }
 }

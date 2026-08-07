@@ -143,23 +143,11 @@ export type DocumentReviewDeliverySelection =
   | { readonly kind: 'comment'; readonly commentId: string }
   | { readonly kind: 'batch'; readonly batchId: string }
 
-export interface DocumentReviewDeliveryGroup {
-  readonly relativePath: string
-  readonly comments: readonly {
-    readonly id: string
-    readonly range: ReviewSourceRange
-    readonly quote: string
-    readonly quoteTruncated: boolean
-    readonly comment: string
-  }[]
-}
-
 export interface DocumentReviewDeliveryPayload {
   /** Exact LF-normalized human-readable body used by Preview, Copy, and Insert. */
   readonly body: string
   readonly byteLength: number
   readonly commentIds: readonly string[]
-  readonly groups: readonly DocumentReviewDeliveryGroup[]
 }
 
 export type DocumentReviewDeliveryCapability = 'copy-only' | 'insert'
@@ -167,13 +155,11 @@ export type DocumentReviewDeliveryCapability = 'copy-only' | 'insert'
 export interface DocumentReviewDeliveryDestination {
   readonly terminalId: string
   readonly title: string
-  readonly providerId: import('./harness-provider').HarnessProviderId
   readonly providerName: string
   readonly lifecycle: 'live'
   readonly connection: 'connected'
   readonly attention?: import('./ipc').TerminalAttentionState
   readonly capability: DocumentReviewDeliveryCapability
-  readonly contractRevision?: number
 }
 
 export interface DocumentReviewDeliveryScopeRequest {
@@ -181,9 +167,13 @@ export interface DocumentReviewDeliveryScopeRequest {
   readonly workspaceGeneration: number
 }
 
-export interface DocumentReviewPrepareRequest
+export interface DocumentReviewPreviewRequest
   extends DocumentReviewDeliveryScopeRequest {
   readonly selection: DocumentReviewDeliverySelection
+}
+
+export interface DocumentReviewPrepareRequest
+  extends DocumentReviewPreviewRequest {
   readonly terminalId: string
 }
 

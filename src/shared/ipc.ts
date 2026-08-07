@@ -91,10 +91,12 @@ import type {
 import type {
   DocumentReviewRestoreRequest,
   DocumentReviewDeliveryDestination,
+  DocumentReviewDeliveryPayload,
   DocumentReviewDeliveryScopeRequest,
   DocumentReviewInsertRequest,
   DocumentReviewInsertResult,
   DocumentReviewPrepareRequest,
+  DocumentReviewPreviewRequest,
   DocumentReviewRevalidateRequest,
   DocumentReviewRevalidation,
   DocumentReviewSaveRequest,
@@ -623,6 +625,10 @@ export interface IpcInvokeMap {
     request: DocumentReviewDeliveryScopeRequest
     response: OperationResult<readonly DocumentReviewDeliveryDestination[]>
   }
+  'document-review:preview-delivery': {
+    request: DocumentReviewPreviewRequest
+    response: OperationResult<DocumentReviewDeliveryPayload>
+  }
   'document-review:prepare-delivery': {
     request: DocumentReviewPrepareRequest
     response: OperationResult<PreparedDocumentReviewDelivery>
@@ -960,6 +966,7 @@ export const INVOKE_CHANNELS = [
   'document-review:save',
   'document-review:revalidate',
   'document-review:delivery-destinations',
+  'document-review:preview-delivery',
   'document-review:prepare-delivery',
   'document-review:insert-delivery',
   'project:close',

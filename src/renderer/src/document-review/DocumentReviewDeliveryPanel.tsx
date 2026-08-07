@@ -8,7 +8,7 @@ export function DocumentReviewDeliveryPanel({
   readonly delivery: DocumentReviewDeliveryInteraction
 }): ReactElement | null {
   if (!delivery.open) return null
-  const selected = delivery.prepared?.destination
+  const selected = delivery.selectedDestination
   return (
     <section className="document-review-delivery" aria-label="Review handoff preview">
       <header>
@@ -36,8 +36,8 @@ export function DocumentReviewDeliveryPanel({
       </label>
       {!delivery.loading && delivery.destinations.length === 0 ? (
         <p className="document-review-guidance" role="status">
-          No live terminals are available in this host-qualified workspace. Copy remains
-          available after a live destination can be identified.
+          No live terminals are available in this host-qualified workspace. You can still
+          copy the exact preview.
         </p>
       ) : null}
       {selected ? (
@@ -68,16 +68,28 @@ export function DocumentReviewDeliveryPanel({
           selected destination stays fixed if focus, tabs, panes, or workspaces change.
         </p>
       ) : null}
-      {delivery.prepared ? (
+      {selected?.attention === 'working' ? (
+        <p className="document-review-warning" role="status">
+          This terminal reports that its harness is working. Review the exact destination
+          before inserting.
+        </p>
+      ) : null}
+      {selected?.attention === 'bell' ? (
+        <p className="document-review-warning" role="alert">
+          This terminal is requesting attention. Resolve its current prompt or state before
+          inserting.
+        </p>
+      ) : null}
+      {delivery.payload ? (
         <>
           <pre
             className="document-review-delivery-payload"
             aria-label="Exact review delivery preview"
           >
-            {delivery.prepared.payload.body}
+            {delivery.payload.body}
           </pre>
           <p className="document-review-delivery-size">
-            Exact UTF-8 body · {delivery.prepared.payload.byteLength.toLocaleString()} bytes
+            Exact UTF-8 body · {delivery.payload.byteLength.toLocaleString()} bytes
           </p>
           <div className="document-review-delivery-actions">
             <button type="button" disabled={delivery.loading} onClick={delivery.copy}>
@@ -88,19 +100,21 @@ export function DocumentReviewDeliveryPanel({
               disabled={
                 delivery.loading ||
                 delivery.inserted ||
-                delivery.prepared.destination.capability !== 'insert'
+                !delivery.prepared
               }
               title={
-                delivery.prepared.destination.capability === 'insert'
+                delivery.prepared
                   ? 'Insert one atomic bracketed paste without submitting'
-                  : 'This provider is Copy-only'
+                  : selected?.capability === 'copy-only'
+                    ? 'This provider is Copy-only'
+                    : 'Choose an Insert-supported terminal'
               }
               onClick={delivery.insert}
             >
               Insert into composer
             </button>
           </div>
-          {delivery.prepared.destination.capability === 'copy-only' ? (
+          {selected?.capability === 'copy-only' ? (
             <p className="document-review-guidance">
               This provider has no trusted atomic composer contract. It remains Copy-only.
             </p>

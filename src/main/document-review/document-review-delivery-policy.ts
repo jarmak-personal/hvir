@@ -1,14 +1,28 @@
-import { containsHostPath, hostPathEquals } from './host-path'
 import {
   DOCUMENT_REVIEW_LIMITS,
   type DocumentReviewComment,
-  type DocumentReviewDeliveryGroup,
   type DocumentReviewDeliveryPayload,
   type DocumentReviewDeliverySelection,
   type DocumentReviewModel,
-} from './document-review'
+  type ReviewSourceRange,
+} from '../../shared'
+import {
+  documentReviewUtf8Bytes,
+  documentReviewWorkspaceEquals,
+  isDocumentReviewDocument,
+  isDocumentReviewIdentifier,
+} from './document-review-policy'
 
 const QUOTE_TRUNCATION_MARKER = '\n… [quote truncated]'
+
+interface DeliveryGroup {
+  readonly relativePath: string
+  readonly comments: readonly {
+    readonly range: ReviewSourceRange
+    readonly quote: string
+    readonly comment: string
+  }[]
+}
 
 export type DocumentReviewDeliveryPolicyResult =
   | { readonly ok: true; readonly value: DocumentReviewDeliveryPayload }
@@ -22,27 +36,24 @@ export function prepareDocumentReviewDeliveryPayload(
   const selected = selectComments(model, selection)
   if (!selected.ok) return selected
   const comments = selected.value.toSorted(compareComments)
-  const groups: DocumentReviewDeliveryGroup[] = []
+  const groups: DeliveryGroup[] = []
 
-  for (const comment of comments) {
-    const relativePath = workspaceRelativePath(model, comment)
+  for (const reviewComment of comments) {
+    const relativePath = workspaceRelativePath(model, reviewComment)
     if (!relativePath) {
       return failure('A review document is outside the exact workspace')
     }
-    const body = normalizedTerminalText(comment.body)
-    const excerpt = normalizedTerminalText(comment.anchor.excerpt)
-    if (body === undefined || excerpt === undefined || unsafePath(relativePath)) {
+    const comment = normalizedTerminalText(reviewComment.body)
+    const excerpt = normalizedTerminalText(reviewComment.anchor.excerpt)
+    if (comment === undefined || excerpt === undefined || unsafePath(relativePath)) {
       return failure('Review delivery refuses terminal control characters')
     }
-    const quote = boundedQuote(excerpt)
-    const prior = groups.at(-1)
     const member = {
-      id: comment.id,
-      range: comment.anchor.range,
-      quote: quote.value,
-      quoteTruncated: quote.truncated,
-      comment: body,
+      range: reviewComment.anchor.range,
+      quote: boundedQuote(excerpt),
+      comment,
     }
+    const prior = groups.at(-1)
     if (prior?.relativePath === relativePath) {
       groups[groups.length - 1] = {
         ...prior,
@@ -54,7 +65,7 @@ export function prepareDocumentReviewDeliveryPayload(
   }
 
   const body = groups.map(formatGroup).join('\n\n')
-  const byteLength = utf8Bytes(body)
+  const byteLength = documentReviewUtf8Bytes(body)
   if (byteLength > DOCUMENT_REVIEW_LIMITS.deliveryPayloadBytes) {
     return failure('The review delivery exceeds its outbound byte limit')
   }
@@ -64,7 +75,6 @@ export function prepareDocumentReviewDeliveryPayload(
       body,
       byteLength,
       commentIds: comments.map((comment) => comment.id),
-      groups,
     },
   }
 }
@@ -72,10 +82,9 @@ export function prepareDocumentReviewDeliveryPayload(
 function selectComments(
   model: DocumentReviewModel,
   selection: DocumentReviewDeliverySelection,
-): { readonly ok: true; readonly value: readonly DocumentReviewComment[] } | {
-  readonly ok: false
-  readonly error: string
-} {
+):
+  | { readonly ok: true; readonly value: readonly DocumentReviewComment[] }
+  | { readonly ok: false; readonly error: string } {
   if (selection.kind === 'comment') {
     const comment = model.comments.find(({ id }) => id === selection.commentId)
     if (!comment) return failure('The review comment no longer exists')
@@ -89,7 +98,7 @@ function selectComments(
   if (
     batch.commentIds.length > DOCUMENT_REVIEW_LIMITS.batchMembers ||
     new Set(batch.commentIds).size !== batch.commentIds.length ||
-    !workspaceEquals(model, batch.workspace)
+    !documentReviewWorkspaceEquals(model.workspace, batch.workspace)
   ) {
     return failure('The review batch is invalid')
   }
@@ -109,15 +118,14 @@ function deliveryEligibility(
   comment: DocumentReviewComment,
 ): { readonly ok: false; readonly error: string } | undefined {
   if (
-    !workspaceEquals(model, comment.workspace) ||
-    !isWorkspaceDocument(model, comment) ||
+    !documentReviewWorkspaceEquals(model.workspace, comment.workspace) ||
+    !isDocumentReviewDocument(model.workspace, comment.document) ||
     !validRange(comment) ||
-    comment.id.length === 0 ||
-    utf8Bytes(comment.id) > DOCUMENT_REVIEW_LIMITS.idBytes ||
+    !isDocumentReviewIdentifier(comment.id) ||
     comment.body.trim().length === 0 ||
-    utf8Bytes(comment.body) > DOCUMENT_REVIEW_LIMITS.commentBytes ||
+    documentReviewUtf8Bytes(comment.body) > DOCUMENT_REVIEW_LIMITS.commentBytes ||
     comment.anchor.excerpt.length === 0 ||
-    utf8Bytes(comment.anchor.excerpt) > DOCUMENT_REVIEW_LIMITS.excerptBytes
+    documentReviewUtf8Bytes(comment.anchor.excerpt) > DOCUMENT_REVIEW_LIMITS.excerptBytes
   ) {
     return failure('The review comment is invalid')
   }
@@ -128,28 +136,6 @@ function deliveryEligibility(
     return failure('A stale review location must be acknowledged or re-anchored')
   }
   return undefined
-}
-
-function workspaceEquals(
-  model: DocumentReviewModel,
-  candidate: DocumentReviewComment['workspace'],
-): boolean {
-  return (
-    model.workspace.id === candidate.id &&
-    hostPathEquals(model.workspace.root, candidate.root)
-  )
-}
-
-function isWorkspaceDocument(
-  model: DocumentReviewModel,
-  comment: DocumentReviewComment,
-): boolean {
-  return (
-    comment.document.hostId === model.workspace.root.hostId &&
-    containsHostPath(model.workspace.root, comment.document) &&
-    !hostPathEquals(model.workspace.root, comment.document) &&
-    /\.(?:md|markdown)$/i.test(comment.document.path)
-  )
 }
 
 function validRange(comment: DocumentReviewComment): boolean {
@@ -167,7 +153,7 @@ function workspaceRelativePath(
   model: DocumentReviewModel,
   comment: DocumentReviewComment,
 ): string | undefined {
-  if (!isWorkspaceDocument(model, comment)) return undefined
+  if (!isDocumentReviewDocument(model.workspace, comment.document)) return undefined
   return model.workspace.root.path === '/'
     ? comment.document.path.slice(1)
     : comment.document.path.slice(model.workspace.root.path.length + 1)
@@ -187,7 +173,7 @@ function compareComments(
   )
 }
 
-function formatGroup(group: DocumentReviewDeliveryGroup): string {
+function formatGroup(group: DeliveryGroup): string {
   return group.comments
     .map(({ range, quote, comment }) => {
       const lines =
@@ -210,27 +196,33 @@ function normalizedTerminalText(value: string): string | undefined {
 }
 
 function unsafePath(value: string): boolean {
-  return value.length === 0 || [...value].some((character) => {
-    const code = character.codePointAt(0)!
-    return code < 32 || code === 127
-  })
+  return (
+    value.length === 0 ||
+    [...value].some((character) => {
+      const code = character.codePointAt(0)!
+      return code < 32 || code === 127
+    })
+  )
 }
 
-function boundedQuote(value: string): { readonly value: string; readonly truncated: boolean } {
-  if (utf8Bytes(value) <= DOCUMENT_REVIEW_LIMITS.deliveryQuoteBytes) {
-    return { value, truncated: false }
+function boundedQuote(value: string): string {
+  if (documentReviewUtf8Bytes(value) <= DOCUMENT_REVIEW_LIMITS.deliveryQuoteBytes) {
+    return value
   }
-  const budget = DOCUMENT_REVIEW_LIMITS.deliveryQuoteBytes - utf8Bytes(QUOTE_TRUNCATION_MARKER)
+  const budget =
+    DOCUMENT_REVIEW_LIMITS.deliveryQuoteBytes -
+    documentReviewUtf8Bytes(QUOTE_TRUNCATION_MARKER)
   let output = ''
   for (const character of value) {
-    if (utf8Bytes(output) + utf8Bytes(character) > budget) break
+    if (
+      documentReviewUtf8Bytes(output) + documentReviewUtf8Bytes(character) >
+      budget
+    ) {
+      break
+    }
     output += character
   }
-  return { value: `${output}${QUOTE_TRUNCATION_MARKER}`, truncated: true }
-}
-
-function utf8Bytes(value: string): number {
-  return new TextEncoder().encode(value).byteLength
+  return `${output}${QUOTE_TRUNCATION_MARKER}`
 }
 
 function failure(error: string): { readonly ok: false; readonly error: string } {

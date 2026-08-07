@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest'
 
+import { prepareDocumentReviewDeliveryPayload } from '../src/main/document-review/document-review-delivery-policy'
 import {
   DOCUMENT_REVIEW_LIMITS,
   localPath,
-  prepareDocumentReviewDeliveryPayload,
   type DocumentReviewComment,
   type DocumentReviewModel,
   type ReviewWorkspaceIdentity,
@@ -50,19 +50,6 @@ describe('document review delivery policy', () => {
           'docs/a.md:9\nQuote:\nsecond quote\nComment:\nSecond comment\n\n' +
           'docs/z.md:3\nQuote:\nthird quote\nComment:\nThird\ncomment',
         commentIds: ['first', 'second', 'third'],
-        groups: [
-          {
-            relativePath: 'docs/a.md',
-            comments: [
-              expect.objectContaining({ id: 'first', quoteTruncated: false }),
-              expect.objectContaining({ id: 'second', quoteTruncated: false }),
-            ],
-          },
-          {
-            relativePath: 'docs/z.md',
-            comments: [expect.objectContaining({ id: 'third', quoteTruncated: false })],
-          },
-        ],
       },
     })
     if (!prepared.ok) throw new Error(prepared.error)
@@ -87,14 +74,6 @@ describe('document review delivery policy', () => {
       ok: true,
       value: {
         commentIds: ['one'],
-        groups: [
-          {
-            relativePath: 'README.md',
-            comments: [
-              { comment: 'Keep this exact', quoteTruncated: true },
-            ],
-          },
-        ],
       },
     })
     if (!prepared.ok) throw new Error(prepared.error)

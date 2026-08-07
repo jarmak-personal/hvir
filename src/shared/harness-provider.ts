@@ -37,11 +37,6 @@ export interface HarnessProviderDescriptor {
   readonly default: boolean
   readonly capabilities: HarnessProviderCapabilities
   readonly terminalInput: HarnessTerminalInputCapabilities
-  readonly reviewDelivery?: {
-    /** Main-owned trusted contract; absence keeps the provider Copy-only. */
-    readonly insertIntoComposer: boolean
-    readonly contractRevision?: number
-  }
   /** Data-only suggestion; catalog membership never materializes a launch profile. */
   readonly profileTemplate?: {
     readonly displayName: string

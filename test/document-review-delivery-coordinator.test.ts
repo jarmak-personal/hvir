@@ -4,6 +4,7 @@ import { DocumentReviewDeliveryCoordinator } from '../src/main/document-review'
 import { harnessProviders } from '../src/main/harness/harness-provider'
 import type { ProjectHost } from '../src/main/project-host'
 import type { ManagedPty } from '../src/main/pty/pty-supervisor'
+import { RendererResourceScopes } from '../src/main/renderer-resource-scopes'
 import type { OwnedTerminalSession } from '../src/main/terminal/session-registry'
 import {
   asHarnessProfileId,
@@ -16,7 +17,7 @@ import {
   type ReviewWorkspaceIdentity,
 } from '../src/shared'
 
-const OWNER = { id: 41, generation: 7 }
+const OWNER = { id: 41, generation: 1 }
 
 describe('document review delivery coordinator', () => {
   it.each([
@@ -47,7 +48,6 @@ describe('document review delivery coordinator', () => {
         providerName: 'Claude Code',
         attention: 'idle',
         capability: 'insert',
-        contractRevision: 1,
       }),
       expect.objectContaining({
         terminalId: 'copy',
@@ -60,7 +60,26 @@ describe('document review delivery coordinator', () => {
     ])
   })
 
-  it('binds one opaque prepared destination and sends the exact body in one supervisor write', () => {
+  it('previews an exact Copy payload without terminals or host connectivity', () => {
+    const fixture = deliveryFixture()
+    fixture.connection.value = 'disconnected'
+
+    const payload = fixture.coordinator.preview(OWNER, {
+      ...fixture.scope,
+      selection: { kind: 'batch', batchId: 'active-review' },
+    })
+
+    expect(payload).toEqual({
+      body:
+        'docs/review.md:2\nQuote:\nTarget statement\nComment:\nPlease tighten this.',
+      byteLength: new TextEncoder().encode(payload.body).byteLength,
+      commentIds: ['comment-1'],
+    })
+    expect(fixture.coordinator.destinations(OWNER, fixture.scope)).toEqual([])
+    expect(fixture.writes).toEqual([])
+  })
+
+  it('keeps the exact terminal instance bound across real presentation mutations', () => {
     const fixture = deliveryFixture()
     const selected = fixture.addTerminal('chosen', 'codex', 'Chosen terminal')
     fixture.addTerminal('focused-later', 'claude-code', 'Focused later')
@@ -75,11 +94,26 @@ describe('document review delivery coordinator', () => {
       title: 'Chosen terminal',
       providerName: 'Codex',
       capability: 'insert',
-      contractRevision: 1,
     })
     expect(prepared.payload.body).toBe(
       'docs/review.md:2\nQuote:\nTarget statement\nComment:\nPlease tighten this.',
     )
+
+    fixture.presentations.set('chosen', {
+      ...fixture.presentations.get('chosen')!,
+      title: 'Renamed after preview',
+      attention: 'bell',
+      active: false,
+      position: 9,
+      updatedAt: 2,
+    })
+    fixture.presentations.set('focused-later', {
+      ...fixture.presentations.get('focused-later')!,
+      attention: 'working',
+      active: true,
+      position: 0,
+      updatedAt: 2,
+    })
 
     expect(fixture.coordinator.insert(OWNER, prepared.id)).toEqual({
       outcome: 'inserted',
@@ -87,6 +121,7 @@ describe('document review delivery coordinator', () => {
     expect(fixture.writes).toEqual([
       {
         id: 'chosen',
+        instanceId: selected.instanceId,
         ownerId: OWNER.id,
         ownerGeneration: OWNER.generation,
         data: `\x1b[200~${prepared.payload.body}\x1b[201~`,
@@ -161,19 +196,44 @@ describe('document review delivery coordinator', () => {
     expect(fixture.writes).toEqual([])
   })
 
-  it('prepares Copy-only providers but never grants them insertion authority', () => {
+  it('keeps Copy-only destinations visible without granting insertion authority', () => {
     const fixture = deliveryFixture()
     fixture.addTerminal('shell', 'plain-shell', 'Shell')
-    const prepared = fixture.coordinator.prepare(OWNER, {
-      ...fixture.scope,
-      selection: { kind: 'comment', commentId: 'comment-1' },
-      terminalId: 'shell',
-    })
-    expect(prepared.destination.capability).toBe('copy-only')
-    expect(() => fixture.coordinator.insert(OWNER, prepared.id)).toThrow(/capability/)
+    expect(fixture.coordinator.destinations(OWNER, fixture.scope)).toEqual([
+      expect.objectContaining({ terminalId: 'shell', capability: 'copy-only' }),
+    ])
+    expect(() =>
+      fixture.coordinator.prepare(OWNER, {
+        ...fixture.scope,
+        selection: { kind: 'comment', commentId: 'comment-1' },
+        terminalId: 'shell',
+      }),
+    ).toThrow(/Copy-only/)
     expect(fixture.writes).toEqual([])
     expect(fixture.model.comments[0]?.lifecycle).toBe('draft')
   })
+
+  it.each(['workspace', 'renderer'] as const)(
+    'removes prepared authority on %s resource revocation',
+    async (lifetime) => {
+      const fixture = deliveryFixture()
+      fixture.addTerminal('target', 'codex', 'Target')
+      const prepared = fixture.coordinator.prepare(OWNER, {
+        ...fixture.scope,
+        selection: { kind: 'comment', commentId: 'comment-1' },
+        terminalId: 'target',
+      })
+
+      const cleanup =
+        lifetime === 'workspace'
+          ? fixture.resources.revokeWorkspace(fixture.scope.workspace.root)
+          : fixture.resources.revokeOwner(OWNER.id)
+
+      expect(() => fixture.coordinator.insert(OWNER, prepared.id)).toThrow(/stale/)
+      expect(fixture.writes).toEqual([])
+      await cleanup
+    },
+  )
 })
 
 function deliveryFixture(
@@ -192,8 +252,11 @@ function deliveryFixture(
   const model = reviewModel(workspace)
   const terminals = new Map<string, ManagedPty>()
   const presentations = new Map<string, OwnedTerminalSession>()
+  const resources = new RendererResourceScopes()
+  expect(resources.activateOwner(OWNER.id)).toEqual(OWNER)
   const writes: Array<{
     id: string
+    instanceId: string
     ownerId: number
     ownerGeneration?: number
     data: string
@@ -229,11 +292,18 @@ function deliveryFixture(
         ) {
           throw new Error('PTY is no longer owned')
         }
-        writes.push({ id, ownerId, ownerGeneration, data })
+        writes.push({
+          id,
+          instanceId: terminal.instanceId,
+          ownerId,
+          ownerGeneration,
+          data,
+        })
       },
     },
     sessions: { get: (id) => presentations.get(id) },
     providers: harnessProviders,
+    resources,
   })
 
   return {
@@ -242,6 +312,8 @@ function deliveryFixture(
     model,
     revision,
     terminals,
+    presentations,
+    resources,
     writes,
     scope: { workspace, workspaceGeneration: 5 },
     addTerminal: (

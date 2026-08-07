@@ -13,6 +13,7 @@ import { PtySupervisor } from './pty/pty-supervisor'
 import { AttentionBadge } from './attention-badge'
 import { HarnessProfileStore } from './harness/harness-profile-store'
 import { HarnessProbeManager } from './harness/harness-probe'
+import { harnessProviders } from './harness/harness-provider'
 import { createElectronRemoteImagePasteCoordinator } from './harness/electron-clipboard-image'
 import { ProjectWatchController } from './project-watch'
 import { WorkspaceCoordinator } from './workspace-coordinator'
@@ -268,9 +269,11 @@ function createWorkbenchEntry(): void {
     documentReview = await installApplicationDocumentReviewRuntime(
       runtime,
       hostCatalog.local,
+      localPath(applicationUserDataPath('document-review-drafts.json')),
       rendererScopes,
       ptySupervisor,
       terminalSessionRegistry,
+      harnessProviders,
     )
     const remoteImagePaste = runtime.own(
       'remote image paste coordinator',
