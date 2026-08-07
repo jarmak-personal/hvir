@@ -7,6 +7,8 @@ export const DOCUMENT_REVIEW_LIMITS = {
   commentsPerWorkspace: 256,
   commentBytes: 8 * 1024,
   contextBytes: 4 * 1024,
+  deliveryPayloadBytes: 64 * 1024,
+  deliveryQuoteBytes: 2 * 1024,
   excerptBytes: 32 * 1024,
   idBytes: 128,
   revalidationReadBytes: 4 * 1024 * 1024,
@@ -136,3 +138,65 @@ export type DocumentReviewRevalidation =
       readonly document: HostPath
       readonly reason: 'deleted' | 'host-unavailable' | 'incomplete-read' | 'invalid-text'
     }
+
+export type DocumentReviewDeliverySelection =
+  | { readonly kind: 'comment'; readonly commentId: string }
+  | { readonly kind: 'batch'; readonly batchId: string }
+
+export interface DocumentReviewDeliveryGroup {
+  readonly relativePath: string
+  readonly comments: readonly {
+    readonly id: string
+    readonly range: ReviewSourceRange
+    readonly quote: string
+    readonly quoteTruncated: boolean
+    readonly comment: string
+  }[]
+}
+
+export interface DocumentReviewDeliveryPayload {
+  /** Exact LF-normalized human-readable body used by Preview, Copy, and Insert. */
+  readonly body: string
+  readonly byteLength: number
+  readonly commentIds: readonly string[]
+  readonly groups: readonly DocumentReviewDeliveryGroup[]
+}
+
+export type DocumentReviewDeliveryCapability = 'copy-only' | 'insert'
+
+export interface DocumentReviewDeliveryDestination {
+  readonly terminalId: string
+  readonly title: string
+  readonly providerId: import('./harness-provider').HarnessProviderId
+  readonly providerName: string
+  readonly lifecycle: 'live'
+  readonly connection: 'connected'
+  readonly attention?: import('./ipc').TerminalAttentionState
+  readonly capability: DocumentReviewDeliveryCapability
+  readonly contractRevision?: number
+}
+
+export interface DocumentReviewDeliveryScopeRequest {
+  readonly workspace: ReviewWorkspaceIdentity
+  readonly workspaceGeneration: number
+}
+
+export interface DocumentReviewPrepareRequest
+  extends DocumentReviewDeliveryScopeRequest {
+  readonly selection: DocumentReviewDeliverySelection
+  readonly terminalId: string
+}
+
+export interface PreparedDocumentReviewDelivery {
+  readonly id: string
+  readonly destination: DocumentReviewDeliveryDestination
+  readonly payload: DocumentReviewDeliveryPayload
+}
+
+export interface DocumentReviewInsertRequest {
+  readonly preparedId: string
+}
+
+export interface DocumentReviewInsertResult {
+  readonly outcome: 'inserted'
+}

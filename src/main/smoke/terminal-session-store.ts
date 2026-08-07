@@ -8,6 +8,10 @@ export function createSmokeTerminalSessionStore(defaultRoot: HostPath) {
   const store: TerminalSessionStore = {
     list: (root) =>
       sessions.filter((session) => hostPathEquals(sessionRoot(session.id), root)),
+    get: (id) => {
+      const session = sessions.find((candidate) => candidate.id === id)
+      return session ? { ...session, workspaceRoot: sessionRoot(id) } : undefined
+    },
     recordRecoveryDecision: () => Promise.resolve(),
     recordSpawn: () => Promise.resolve(),
     recordReplacement: () => Promise.resolve(),

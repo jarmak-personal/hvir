@@ -17,6 +17,8 @@ export interface HarnessProviderCapabilities {
   readonly sessionIdentity: HarnessSessionIdentity
   readonly exactResume: boolean
   readonly contextPresentation: HarnessContextPresentation
+  /** Trusted effective launch contract; absent means document review is Copy-only. */
+  readonly reviewInsertContractRevision?: number
 }
 
 export type HarnessModifiedKeyProtocol = 'none' | 'modify-other-keys' | 'csi-u'
@@ -35,6 +37,11 @@ export interface HarnessProviderDescriptor {
   readonly default: boolean
   readonly capabilities: HarnessProviderCapabilities
   readonly terminalInput: HarnessTerminalInputCapabilities
+  readonly reviewDelivery?: {
+    /** Main-owned trusted contract; absence keeps the provider Copy-only. */
+    readonly insertIntoComposer: boolean
+    readonly contractRevision?: number
+  }
   /** Data-only suggestion; catalog membership never materializes a launch profile. */
   readonly profileTemplate?: {
     readonly displayName: string

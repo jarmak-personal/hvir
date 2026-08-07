@@ -101,6 +101,38 @@ describe('Harness providers', () => {
     ).toBe(true)
   })
 
+  it('owns the complete initial document-review insertion matrix and exact framing', () => {
+    const body = 'docs/review.md:2\nQuote:\nline\nComment:\nkeep this exact'
+    const expected = `\x1b[200~${body}\x1b[201~`
+    expect(claudeCodeProvider.documentReviewInsert).toMatchObject({ revision: 1 })
+    expect(claudeCodeProvider.documentReviewInsert?.terminalInput(body)).toBe(expected)
+    expect(codexProvider.documentReviewInsert?.terminalInput(body)).toBe(expected)
+    expect(claudeCodeProvider.probe.effectiveCapabilities('1.0')).toMatchObject({
+      reviewInsertContractRevision: 1,
+    })
+    expect(codexProvider.probe.effectiveCapabilities('1.0')).toMatchObject({
+      reviewInsertContractRevision: 1,
+    })
+    expect(() => codexProvider.documentReviewInsert?.terminalInput('unsafe\u001btext')).toThrow(
+      /safe human-readable text/,
+    )
+    expect(
+      harnessProviderCatalog().map(({ id, reviewDelivery }) => [
+        id,
+        reviewDelivery,
+      ]),
+    ).toEqual([
+      ['plain-shell', { insertIntoComposer: false, contractRevision: undefined }],
+      ['claude-code', { insertIntoComposer: true, contractRevision: 1 }],
+      ['codex', { insertIntoComposer: true, contractRevision: 1 }],
+      ['pi', { insertIntoComposer: false, contractRevision: undefined }],
+      ['gemini-cli', { insertIntoComposer: false, contractRevision: undefined }],
+      ['github-copilot-cli', { insertIntoComposer: false, contractRevision: undefined }],
+      ['cursor-cli', { insertIntoComposer: false, contractRevision: undefined }],
+      ['custom', { insertIntoComposer: false, contractRevision: undefined }],
+    ])
+  })
+
   it('resolves only registered providers and emits their serializable catalog', () => {
     expect(harnessProvider('plain-shell')).toBe(plainShellProvider)
     expect(harnessProvider('claude-code')).toBe(claudeCodeProvider)

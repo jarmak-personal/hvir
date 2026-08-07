@@ -6,6 +6,7 @@ import {
   type DocumentReviewRevalidation,
   type DocumentReviewSaveRequest,
   type DocumentReviewWorkspaceSnapshot,
+  type DocumentReviewModel,
   type HostPath,
   type ReviewWorkspaceIdentity,
 } from '../../shared'
@@ -33,6 +34,13 @@ interface ActiveReviewWorkspace {
 export interface DocumentReviewCoordinatorOptions {
   readonly store: Pick<DocumentReviewStore, 'notice' | 'read' | 'retryLoad' | 'save'>
   readonly resources: RendererResourceScopes
+}
+
+export interface DocumentReviewDeliveryWorkspaceSnapshot {
+  readonly workspaceGeneration: number
+  readonly revision: number
+  readonly model: DocumentReviewModel
+  readonly host: ProjectHost
 }
 
 /** Owns one revocable document-review workspace effect per renderer generation. */
@@ -149,6 +157,23 @@ export class DocumentReviewCoordinator {
         request.document,
         isMissingFile(reason) ? 'deleted' : 'host-unavailable',
       )
+    }
+  }
+
+  deliverySnapshot(
+    owner: RendererOwner,
+    request: {
+      readonly workspace: ReviewWorkspaceIdentity
+      readonly workspaceGeneration: number
+    },
+  ): DocumentReviewDeliveryWorkspaceSnapshot {
+    const session = this.requireSession(owner, request)
+    const stored = this.options.store.read(session.workspace)
+    return {
+      workspaceGeneration: session.generation,
+      revision: stored.revision,
+      model: stored.model,
+      host: session.host,
     }
   }
 

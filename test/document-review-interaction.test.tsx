@@ -420,6 +420,7 @@ function binding(
       model,
     },
     apply,
+    flush: () => Promise.resolve(),
   }
 }
 

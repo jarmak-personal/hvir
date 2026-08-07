@@ -2,6 +2,7 @@ import { useEffect, useState, type ReactElement } from 'react'
 
 import type { DocumentReviewComment, ReviewSourceRange } from './document-review-types'
 import type { DocumentReviewInteraction } from './use-document-review-interaction'
+import { DocumentReviewDeliveryPanel } from './DocumentReviewDeliveryPanel'
 
 export function DocumentReviewToolbar({
   interaction,
@@ -60,6 +61,17 @@ export function DocumentReviewPanel({
         <span aria-label={`${interaction.comments.length} comments`}>
           {interaction.comments.length}
         </span>
+        {interaction.activeBatchId ? (
+          <button
+            type="button"
+            aria-label={`Preview review batch with ${interaction.activeBatchCount} comments`}
+            onClick={() =>
+              interaction.delivery.previewBatch(interaction.activeBatchId!)
+            }
+          >
+            Preview batch {interaction.activeBatchCount}
+          </button>
+        ) : null}
       </header>
       {interaction.dirty ? (
         <p className="document-review-guidance" role="status">
@@ -87,6 +99,7 @@ export function DocumentReviewPanel({
           onCancel={interaction.cancelCapture}
         />
       ) : null}
+      <DocumentReviewDeliveryPanel delivery={interaction.delivery} />
       {interaction.comments.length === 0 && !interaction.pendingRange ? (
         <p className="document-review-empty">
           Choose a rendered block or a source line range to add feedback.
@@ -236,6 +249,19 @@ function ReviewCommentCard({
               onClick={() => interaction.toggleBatch(comment.id)}
             >
               {inBatch ? 'Remove from batch' : 'Add to batch'}
+            </button>
+            <button
+              type="button"
+              aria-label={`Preview handoff for comment at ${lineRangeLabel(comment.anchor.range)}`}
+              disabled={staleUnreviewed}
+              title={
+                staleUnreviewed
+                  ? 'Acknowledge or re-anchor this stale comment before previewing it'
+                  : 'Choose an exact live terminal and preview the handoff'
+              }
+              onClick={() => interaction.delivery.previewComment(comment.id)}
+            >
+              Preview handoff
             </button>
             {staleUnreviewed ? (
               <button

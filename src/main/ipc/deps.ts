@@ -30,7 +30,10 @@ import type { DiagnosticReportCoordinator } from '../diagnostics/diagnostic-repo
 import type { RuntimeDiagnostics } from '../diagnostics/runtime-diagnostics'
 import type { FilenameSearchCoordinator } from '../filename-search/filename-search-coordinator'
 import type { ProjectFileOperationCoordinator } from '../project-file-operations'
-import type { DocumentReviewCoordinator } from '../document-review'
+import type {
+  DocumentReviewCoordinator,
+  DocumentReviewDeliveryCoordinator,
+} from '../document-review'
 
 export type EmitRendererEvent = <E extends IpcEventChannel>(
   channel: E,
@@ -59,6 +62,10 @@ export interface IpcDeps {
   readonly documentReview: Pick<
     DocumentReviewCoordinator,
     'activate' | 'save' | 'revalidate'
+  >
+  readonly documentReviewDelivery: Pick<
+    DocumentReviewDeliveryCoordinator,
+    'destinations' | 'prepare' | 'insert'
   >
   readonly getProject: () => { readonly host: ProjectHost; readonly root: HostPath }
   readonly getHost: (hostId: string) => ProjectHost | undefined

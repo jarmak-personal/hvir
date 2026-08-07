@@ -28,10 +28,8 @@ import { createDiagnosticReportCoordinator } from './diagnostics/diagnostic-repo
 import { RendererEventPublisher } from './renderer-event-publisher'
 import { createFilenameSearchCoordinator } from './filename-search'
 import { createProjectFileOperationCoordinator } from './project-file-operations'
-import {
-  createDocumentReviewRuntime,
-  type DocumentReviewRuntime,
-} from './document-review'
+import type { DocumentReviewRuntime } from './document-review'
+import { installApplicationDocumentReviewRuntime } from './document-review/document-review-application'
 import { applicationRuntime, applicationUserDataPath } from './application-runtime'
 import {
   GIT_WORKSPACE_ACTIVITY_TYPE,
@@ -203,15 +201,6 @@ function createWorkbenchEntry(): void {
       ),
       (profiles) => profiles.flush(),
     )
-    documentReview = runtime.own(
-      'document review',
-      await createDocumentReviewRuntime(
-        hostCatalog.local,
-        localPath(applicationUserDataPath('document-review-drafts.json')),
-        rendererScopes,
-      ),
-      (review) => review.dispose(),
-    )
     await harnessProfileStore
       .importLegacyDefaults(terminalSessionRegistry.profileReferences())
       .catch((error) =>
@@ -275,6 +264,13 @@ function createWorkbenchEntry(): void {
           terminalSessionRegistry!.cancelIdentityRegistration(terminalId),
       }),
       (supervisor) => supervisor.disposeAllAndWait(),
+    )
+    documentReview = await installApplicationDocumentReviewRuntime(
+      runtime,
+      hostCatalog.local,
+      rendererScopes,
+      ptySupervisor,
+      terminalSessionRegistry,
     )
     const remoteImagePaste = runtime.own(
       'remote image paste coordinator',
@@ -368,6 +364,7 @@ function createWorkbenchEntry(): void {
         filenameSearch,
         projectFiles,
         documentReview: documentReview.coordinator,
+        documentReviewDelivery: documentReview.delivery,
         getProject: () => registry.active,
         getHost: (hostId) => projectRegistry?.hostById(hostId),
         connectedHosts: () => projectRegistry?.connectedHosts() ?? [],

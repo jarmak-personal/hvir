@@ -90,10 +90,16 @@ import type {
 } from './diagnostic-report'
 import type {
   DocumentReviewRestoreRequest,
+  DocumentReviewDeliveryDestination,
+  DocumentReviewDeliveryScopeRequest,
+  DocumentReviewInsertRequest,
+  DocumentReviewInsertResult,
+  DocumentReviewPrepareRequest,
   DocumentReviewRevalidateRequest,
   DocumentReviewRevalidation,
   DocumentReviewSaveRequest,
   DocumentReviewWorkspaceSnapshot,
+  PreparedDocumentReviewDelivery,
 } from './document-review'
 
 export type WebPaneCommandAction =
@@ -613,6 +619,18 @@ export interface IpcInvokeMap {
     request: DocumentReviewRevalidateRequest
     response: OperationResult<DocumentReviewRevalidation>
   }
+  'document-review:delivery-destinations': {
+    request: DocumentReviewDeliveryScopeRequest
+    response: OperationResult<readonly DocumentReviewDeliveryDestination[]>
+  }
+  'document-review:prepare-delivery': {
+    request: DocumentReviewPrepareRequest
+    response: OperationResult<PreparedDocumentReviewDelivery>
+  }
+  'document-review:insert-delivery': {
+    request: DocumentReviewInsertRequest
+    response: OperationResult<DocumentReviewInsertResult>
+  }
   'project:close': {
     request: CloseProjectRequest
     response: OperationResult<ProjectState>
@@ -941,6 +959,9 @@ export const INVOKE_CHANNELS = [
   'document-review:restore',
   'document-review:save',
   'document-review:revalidate',
+  'document-review:delivery-destinations',
+  'document-review:prepare-delivery',
+  'document-review:insert-delivery',
   'project:close',
   'workspace:prune',
   'workspace:dismiss',

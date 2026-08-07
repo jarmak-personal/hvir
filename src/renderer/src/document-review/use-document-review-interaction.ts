@@ -11,12 +11,17 @@ import type {
   ReviewSourceRange,
 } from './document-review-types'
 import type { DocumentReviewWorkspaceState } from './document-review-workspace-controller'
+import {
+  useDocumentReviewDelivery,
+  type DocumentReviewDeliveryInteraction,
+} from './use-document-review-delivery'
 
 const ACTIVE_BATCH_ID = 'active-review'
 
 export interface DocumentReviewWorkspaceBinding {
   readonly state: DocumentReviewWorkspaceState
   readonly apply: (action: DocumentReviewAction) => DocumentReviewActionResult
+  readonly flush: () => Promise<void>
 }
 
 interface DocumentReviewDocumentInput {
@@ -45,6 +50,9 @@ export interface DocumentReviewInteraction {
   readonly reanchorCommentId?: string
   readonly error?: string
   readonly inBatch: ReadonlySet<string>
+  readonly activeBatchId?: string
+  readonly activeBatchCount: number
+  readonly delivery: DocumentReviewDeliveryInteraction
   readonly projection?: DocumentReviewDocumentProjection
   readonly toggle: () => void
   readonly exit: () => void
@@ -72,6 +80,7 @@ export function useDocumentReviewInteraction(
   const [error, setError] = useState<string>()
   const current = useRef({ document, binding })
   const captureGeneration = useRef(0)
+  const delivery = useDocumentReviewDelivery(binding)
   current.current = { document, binding }
 
   const model = binding?.state.status === 'ready' ? binding.state.model : undefined
@@ -274,6 +283,9 @@ export function useDocumentReviewInteraction(
     reanchorCommentId,
     error,
     inBatch,
+    activeBatchId: activeBatch?.id,
+    activeBatchCount: activeBatch?.commentIds.length ?? 0,
+    delivery,
     projection,
     toggle: () => {
       if (!available) return

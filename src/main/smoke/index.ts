@@ -5,7 +5,7 @@ import { createFilenameSearchCoordinator } from '../filename-search'
 import { createProjectFileOperationCoordinator } from '../project-file-operations'
 import { createDocumentReviewRuntime } from '../document-review'
 import { HarnessProfileStore } from '../harness/harness-profile-store'
-import { harnessProviderCatalog } from '../harness/harness-provider'
+import { harnessProviderCatalog, harnessProviders } from '../harness/harness-provider'
 import type { HarnessProbeManager } from '../harness/harness-probe'
 import type { HtmlPreviewProtocol } from '../html-preview-protocol'
 import type { RuntimeDiagnostics } from '../diagnostics/runtime-diagnostics'
@@ -495,6 +495,11 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
       host,
       documentReviewPath,
       rendererResources,
+      {
+        ptys: supervisor,
+        sessions: smokeTerminalSessions,
+        providers: harnessProviders,
+      },
     )
     cleanup.defer('document review', () => documentReview.dispose())
     let smokeIpcProjectState = commitSmokeProjectState(
@@ -543,6 +548,7 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
       filenameSearch,
       projectFiles,
       documentReview: documentReview.coordinator,
+      documentReviewDelivery: documentReview.delivery,
       getProject: () =>
         smokeIpcProjectState.root.hostId === smokeRemoteHost.hostId
           ? { host: smokeRemoteHost, root: smokeRemoteRoot }

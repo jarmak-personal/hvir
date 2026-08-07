@@ -142,6 +142,32 @@ describe('document review coordinator', () => {
     ).rejects.toThrow(/generation is stale/)
   })
 
+  it('revokes prepared-delivery snapshots with the renderer owner', async () => {
+    const fixture = createFixture(asHostId('local'), localPath('/repo'), vi.fn())
+    const restored = await fixture.coordinator.activate(
+      fixture.owner,
+      fixture.workspace,
+      fixture.host,
+    )
+    const request = {
+      workspace: fixture.workspace,
+      workspaceGeneration: restored.workspaceGeneration,
+    }
+
+    expect(fixture.coordinator.deliverySnapshot(fixture.owner, request)).toMatchObject({
+      workspaceGeneration: restored.workspaceGeneration,
+      revision: 0,
+      model: fixture.model,
+      host: fixture.host,
+    })
+
+    await fixture.resources.revokeOwner(fixture.owner.id)
+
+    expect(() => fixture.coordinator.deliverySnapshot(fixture.owner, request)).toThrow(
+      /stale|revoked/,
+    )
+  })
+
   it.each([
     ['worktree', { id: 'other', root: localPath('/repo') }],
     [

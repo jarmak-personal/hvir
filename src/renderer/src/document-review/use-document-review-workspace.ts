@@ -66,7 +66,13 @@ function useDocumentReviewWorkspaceState(workspace?: ReviewWorkspaceIdentity) {
   )
   const watchPaths = useMemo(() => documentReviewPaths(state.model), [state.model])
 
-  return { state, apply, handleWatchEvent, watchPaths }
+  return {
+    state,
+    apply,
+    flush: () => controller.current!.flush(),
+    handleWatchEvent,
+    watchPaths,
+  }
 }
 
 export function useReviewWorkspace(

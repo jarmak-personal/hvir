@@ -66,6 +66,14 @@ export interface HarnessRemoteImagePasteContract {
   terminalInput(path: HostPath): string
 }
 
+/** Exact native-composer behavior approved only for prepared document review. */
+export interface HarnessDocumentReviewInsertContract {
+  /** Increment whenever the atomic composer framing semantics change. */
+  readonly revision: number
+  /** Frame one immutable body as one bracketed paste; never submit it. */
+  terminalInput(body: string): string
+}
+
 export type HarnessSessionDiscoveryResult =
   | {
       readonly status: 'identified'
@@ -204,6 +212,7 @@ export interface HarnessProvider {
   readonly probe: HarnessProbeContract
   readonly composerConfiguration?: HarnessComposerConfiguration
   readonly remoteImagePaste?: HarnessRemoteImagePasteContract
+  readonly documentReviewInsert?: HarnessDocumentReviewInsertContract
 
   /** Command to start a fresh session. */
   launch(ctx: HarnessLaunchContext): HarnessLaunchSpec
@@ -280,9 +289,10 @@ export const claudeCodeProvider: HarnessProvider = {
   sessionIdentity: 'preassigned',
   telemetry: { observe: observeClaudeContext },
   resumeValidation: { availability: claudeResumeAvailability },
-  probe: versionProbe('preassigned', true, 'count'),
+  probe: versionProbe('preassigned', true, 'count', 1),
   composerConfiguration: { configure: configureClaudeComposerSubmit },
   remoteImagePaste: pathImagePasteContract(),
+  documentReviewInsert: documentReviewInsertContract(),
 
   launch(ctx): HarnessLaunchSpec {
     return {
@@ -338,8 +348,9 @@ export const codexProvider: HarnessProvider = {
   sessionIdentity: 'discovered',
   sessionDiscovery: codexSessionDiscovery,
   telemetry: { observe: observeCodexContext },
-  probe: versionProbe('discovered', true, 'pressure'),
+  probe: versionProbe('discovered', true, 'pressure', 1),
   remoteImagePaste: pathImagePasteContract(),
+  documentReviewInsert: documentReviewInsertContract(),
 
   launch(ctx): HarnessLaunchSpec {
     return {
@@ -420,6 +431,10 @@ export class HarnessProviderRegistry {
         modifiedKeyProtocol: provider.manifest.modifiedKeyProtocol ?? 'none',
         metaEnterAliasesControl: provider.manifest.metaEnterAliasesControl === true,
       },
+      reviewDelivery: {
+        insertIntoComposer: provider.documentReviewInsert !== undefined,
+        contractRevision: provider.documentReviewInsert?.revision,
+      },
       profileTemplate: provider.profile.defaultProfile
         ? {
             displayName: provider.profile.defaultProfile.displayName,
@@ -487,6 +502,18 @@ export const harnessProviders = new HarnessProviderRegistry([
 
 export function harnessProvider(id: string): HarnessProvider {
   return harnessProviders.get(id)
+}
+
+/** Trusted capabilities bound to one successful provider launch. */
+export function harnessLaunchCapabilities(
+  provider: HarnessProvider,
+): HarnessProviderCapabilities {
+  return {
+    sessionIdentity: provider.sessionIdentity,
+    exactResume: provider.supportsResume,
+    contextPresentation: provider.manifest.contextPresentation,
+    reviewInsertContractRevision: provider.documentReviewInsert?.revision,
+  }
 }
 
 export function harnessProviderCatalog(): readonly HarnessProviderDescriptor[] {
@@ -623,6 +650,18 @@ function pathImagePasteContract(): HarnessRemoteImagePasteContract {
   }
 }
 
+function documentReviewInsertContract(): HarnessDocumentReviewInsertContract {
+  return {
+    revision: 1,
+    terminalInput: (body) => {
+      if (body.length === 0 || hasUnsafeReviewBodyCharacter(body)) {
+        throw new Error('Document review insertion requires safe human-readable text')
+      }
+      return `\x1b[200~${body}\x1b[201~`
+    },
+  }
+}
+
 function staticProbe(
   sessionIdentity: HarnessSessionIdentity,
   exactResume: boolean,
@@ -642,6 +681,7 @@ function versionProbe(
   sessionIdentity: HarnessSessionIdentity,
   exactResume: boolean,
   contextPresentation: HarnessContextPresentation,
+  reviewInsertContractRevision?: number,
 ): HarnessProbeContract {
   return {
     versionArgs: ['--version'],
@@ -655,6 +695,7 @@ function versionProbe(
       sessionIdentity,
       exactResume,
       contextPresentation,
+      reviewInsertContractRevision,
     }),
   }
 }
@@ -663,5 +704,12 @@ function hasControlCharacter(value: string): boolean {
   return [...value].some((character) => {
     const code = character.charCodeAt(0)
     return code <= 31 || code === 127
+  })
+}
+
+function hasUnsafeReviewBodyCharacter(value: string): boolean {
+  return [...value].some((character) => {
+    const code = character.codePointAt(0)!
+    return (code < 32 && character !== '\n' && character !== '\t') || code === 127
   })
 }

@@ -111,6 +111,7 @@ describe('terminal exact-resume IPC', () => {
         sessionIdentity: 'preassigned',
         exactResume: true,
         contextPresentation: 'count',
+        reviewInsertContractRevision: 1,
       },
     })
     expect(fixture.spawn).toHaveBeenCalledOnce()
@@ -203,6 +204,7 @@ describe('terminal exact-resume IPC', () => {
           sessionIdentity: 'preassigned',
           exactResume: true,
           contextPresentation: 'count',
+          reviewInsertContractRevision: 1,
         },
       })
       expect(fixture.authorizeReattach).toHaveBeenCalledWith({
@@ -523,6 +525,7 @@ function resumeFixture(
       sessionIdentity: 'preassigned' as const,
       exactResume: true,
       contextPresentation: 'count' as const,
+      reviewInsertContractRevision: 1,
     },
   }
   const spawn = vi.fn((request: { sessionId: string; resume: boolean }) =>
