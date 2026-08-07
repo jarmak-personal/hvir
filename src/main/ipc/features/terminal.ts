@@ -1,6 +1,10 @@
-import { hostPathEquals, type HarnessProviderCapabilities } from '../../../shared'
+import { hostPathEquals } from '../../../shared'
 import { resolveHarnessLaunch } from '../../harness/harness-launch'
-import { harnessProvider, selectHarnessLaunch } from '../../harness/harness-provider'
+import {
+  harnessProvider,
+  harnessProviderCapabilities,
+  selectHarnessLaunch,
+} from '../../harness/harness-provider'
 import {
   attachRendererPty,
   registerRendererPty,
@@ -185,11 +189,7 @@ export function registerTerminalIpc(ipc: IpcRegistrar, deps: TerminalIpcDeps): v
         `${profile.risk === 'elevated' ? 'Elevated' : 'Unclassified'} harness profile requires acknowledgment`,
       )
     }
-    const effectiveCapabilities: HarnessProviderCapabilities = {
-      sessionIdentity: provider.sessionIdentity,
-      exactResume: provider.supportsResume,
-      contextPresentation: provider.manifest.contextPresentation,
-    }
+    const effectiveCapabilities = harnessProviderCapabilities(provider)
     if (req.resume) {
       if (
         !effectiveCapabilities.exactResume ||

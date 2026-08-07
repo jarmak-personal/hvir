@@ -3,7 +3,11 @@ import { BrowserWindow } from 'electron'
 import { joinHostPath, type HostPath } from '../../shared'
 import { resolveHarnessLaunch } from '../harness/harness-launch'
 import { HarnessProfileStore } from '../harness/harness-profile-store'
-import { harnessProvider, plainShellProvider } from '../harness/harness-provider'
+import {
+  harnessProvider,
+  harnessProviderCapabilities,
+  plainShellProvider,
+} from '../harness/harness-provider'
 import { LocalHost } from '../project-host'
 import { PtySupervisor } from '../pty/pty-supervisor'
 import { SmokeCleanup } from './cleanup'
@@ -124,11 +128,7 @@ export async function runNativePtySmoke(
     ) {
       throw new Error('Custom profile risk acknowledgment was not retained')
     }
-    const effectiveCapabilities = {
-      sessionIdentity: provider.sessionIdentity,
-      exactResume: provider.supportsResume,
-      contextPresentation: provider.manifest.contextPresentation,
-    }
+    const effectiveCapabilities = harnessProviderCapabilities(provider)
     const resolved = await resolveHarnessLaunch({
       profile: acknowledgedProfile,
       expectedLaunchRevision: acknowledgedProfile.launchRevision,

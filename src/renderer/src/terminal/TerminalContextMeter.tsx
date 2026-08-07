@@ -1,13 +1,15 @@
 import type { ReactElement } from 'react'
 
-import type { HarnessTelemetry } from '../../../shared'
+import type { HarnessContextPressurePolicy, HarnessTelemetry } from '../../../shared'
 
 export function TerminalContextMeter({
   telemetry,
   countOnly = false,
+  pressurePolicy,
 }: {
   readonly telemetry?: HarnessTelemetry
   readonly countOnly?: boolean
+  readonly pressurePolicy?: HarnessContextPressurePolicy
 }): ReactElement {
   const contextFacet = telemetry?.facets.context
   const contextStatus = contextFacet?.status
@@ -15,7 +17,15 @@ export function TerminalContextMeter({
     contextFacet?.status === 'available' || contextFacet?.status === 'stale'
       ? contextFacet.value
       : undefined
-  const reportedPercent = countOnly ? undefined : context?.usedPercent
+  const assumedWindowTokens =
+    context?.windowTokens === undefined ? pressurePolicy?.assumedWindowTokens : undefined
+  const presentationWindowTokens = context?.windowTokens ?? assumedWindowTokens
+  const reportedPercent = countOnly
+    ? undefined
+    : (context?.usedPercent ??
+      (context && presentationWindowTokens
+        ? (context.usedTokens / presentationWindowTokens) * 100
+        : undefined))
   const percent =
     typeof reportedPercent === 'number' && Number.isFinite(reportedPercent)
       ? Math.min(100, Math.max(0, reportedPercent))
@@ -30,9 +40,9 @@ export function TerminalContextMeter({
         ? 'unavailable'
         : displayPercent === undefined
           ? 'unknown'
-          : displayPercent >= 70
+          : displayPercent >= (pressurePolicy?.criticalPercent ?? 70)
             ? 'critical'
-            : displayPercent >= 40
+            : displayPercent >= (pressurePolicy?.warningPercent ?? 40)
               ? 'warning'
               : 'normal'
   const label =
@@ -42,9 +52,11 @@ export function TerminalContextMeter({
         ? (contextFacet?.reason ?? 'Context telemetry unavailable')
         : context && context.windowTokens !== undefined
           ? `${formatTokenCount(context.usedTokens)} / ${formatTokenCount(context.windowTokens)} context used`
-          : context
-            ? `${formatTokenCount(context.usedTokens)} current context tokens; limit unavailable`
-            : 'Context usage unavailable'
+          : context && assumedWindowTokens !== undefined
+            ? `${formatTokenCount(context.usedTokens)} / ${formatTokenCount(assumedWindowTokens)} context used (assumed capacity)`
+            : context
+              ? `${formatTokenCount(context.usedTokens)} current context tokens; limit unavailable`
+              : 'Context usage unavailable'
 
   return (
     <span
