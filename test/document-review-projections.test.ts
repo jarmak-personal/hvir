@@ -88,6 +88,28 @@ describe('rendered Markdown review projection', () => {
     )
   })
 
+  it('groups active capture and note controls in one rendered-document gutter', () => {
+    const root = renderedRoot(1)
+    const scheduler = new TestScheduler()
+    bindRenderedDocumentReview(
+      root,
+      {
+        active: true,
+        dirty: false,
+        comments: [comment(1)],
+        onCapture: vi.fn(),
+        onExit: vi.fn(),
+      },
+      scheduler,
+    )
+    scheduler.runNext()
+
+    const controls = root.querySelector('.review-block-controls')
+    expect(controls?.children).toHaveLength(2)
+    expect(controls?.querySelector('.review-block-add')).toBeTruthy()
+    expect(controls?.querySelector('.review-block-badge')).toBeTruthy()
+  })
+
   it('keeps dirty review blocks navigable without advertising or accepting capture', () => {
     const root = renderedRoot(2)
     const scheduler = new TestScheduler()

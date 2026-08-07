@@ -209,7 +209,7 @@
 .review-block-badge {
   position: absolute;
   top: -8px;
-  right: -24px;
+  right: calc(100% + 8px);
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -222,12 +222,24 @@
   font: 600 11px var(--hvir-interface-font);
 }
 
+.review-block-controls {
+  position: absolute;
+  top: -8px;
+  right: calc(100% + 8px);
+  display: flex;
+  gap: 4px;
+}
+
+.review-block-controls > .review-block-add,
+.review-block-controls > .review-block-badge {
+  position: static;
+}
+
 [data-hvir-review-generated] {
   user-select: none;
 }
 
 .review-block-badge {
-  right: 4px;
   pointer-events: none;
 }
 

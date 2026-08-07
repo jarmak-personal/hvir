@@ -345,7 +345,10 @@ export const claudeCodeProvider: HarnessProvider = {
   },
 }
 
-const codexReviewInsert = documentReviewInsertContract(() => codexProvider)
+const codexReviewInsert = documentReviewInsertContract(
+  () => codexProvider,
+  supportsCodexDocumentReviewProfile,
+)
 const codexReviewSendNow = codexDocumentReviewSendNowContract(codexReviewInsert)
 
 export const codexProvider: HarnessProvider = {
@@ -721,6 +724,9 @@ function pathImagePasteContract(): HarnessRemoteImagePasteContract {
 
 function documentReviewInsertContract(
   resolveProvider: () => HarnessProvider,
+  supportsProfile: (
+    profile: HarnessDocumentReviewInsertLaunch['profile'],
+  ) => boolean = supportsDefaultDocumentReviewProfile,
 ): HarnessDocumentReviewInsertContract {
   const revision = 1
   const supportsLaunch = (launch: HarnessDocumentReviewInsertLaunch): boolean => {
@@ -729,10 +735,9 @@ function documentReviewInsertContract(
       launch.profile.providerId === provider.manifest.id &&
       launch.profile.providerContractVersion === provider.profile.version &&
       launch.profile.executable.kind === 'provider-default' &&
-      launch.profile.args.length === 0 &&
       launch.profile.environment.length === 0 &&
       launch.profile.pathBindings.length === 0 &&
-      launch.profile.risk === 'standard' &&
+      supportsProfile(launch.profile) &&
       launch.effectiveCapabilities.reviewInsertContractRevision === revision
     )
   }
@@ -756,10 +761,9 @@ function codexDocumentReviewSendNowContract(
     launch.profile.providerId === codexProvider.manifest.id &&
     launch.profile.providerContractVersion === codexProvider.profile.version &&
     launch.profile.executable.kind === 'provider-default' &&
-    launch.profile.args.length === 0 &&
     launch.profile.environment.length === 0 &&
     launch.profile.pathBindings.length === 0 &&
-    launch.profile.risk === 'standard' &&
+    supportsCodexDocumentReviewProfile(launch.profile) &&
     launch.effectiveCapabilities.reviewInsertContractRevision === insert.revision &&
     launch.effectiveCapabilities.reviewSendNowContractRevision === revision
   return {
@@ -774,6 +778,47 @@ function codexDocumentReviewSendNowContract(
       return `${insert.terminalInput(body)}${submit}`
     },
   }
+}
+
+function supportsDefaultDocumentReviewProfile(
+  profile: HarnessDocumentReviewInsertLaunch['profile'],
+): boolean {
+  return profile.args.length === 0 && profile.risk === 'standard'
+}
+
+/** Codex flags that alter authority or writable roots without changing TUI input semantics. */
+function supportsCodexDocumentReviewProfile(
+  profile: HarnessDocumentReviewInsertLaunch['profile'],
+): boolean {
+  if (profile.args.length === 0) return profile.risk === 'standard'
+  const args = profile.args.map((argument) => {
+    const [part] = argument.parts
+    return argument.parts.length === 1 && part?.kind === 'literal'
+      ? part.value
+      : undefined
+  })
+  if (args.some((argument) => argument === undefined)) return false
+  for (let index = 0; index < args.length; index += 1) {
+    const argument = args[index]!
+    if (
+      argument === '--yolo' ||
+      argument === '--dangerously-bypass-approvals-and-sandbox'
+    ) {
+      continue
+    }
+    if (argument === '--add-dir') {
+      const path = args[++index]
+      if (!path?.startsWith('/') || hasControlCharacter(path)) return false
+      continue
+    }
+    if (argument.startsWith('--add-dir=')) {
+      const path = argument.slice('--add-dir='.length)
+      if (!path.startsWith('/') || hasControlCharacter(path)) return false
+      continue
+    }
+    return false
+  }
+  return true
 }
 
 function staticProbe(

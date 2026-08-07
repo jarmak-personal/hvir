@@ -174,7 +174,39 @@ describe('Harness providers', () => {
     ).toBe(`${paste}\x1b[13;5u`)
   })
 
-  it('keeps unsupported, unprobed, and customized launches below send-now', () => {
+  it('admits provider-approved composer-neutral Codex profile arguments', () => {
+    const profile = providerTemplateProfiles().find(
+      (candidate) => candidate.providerId === codexProvider.manifest.id,
+    )!
+    const customizedProfile = {
+      ...profile,
+      args: [
+        { parts: [{ kind: 'literal' as const, value: '--yolo' }] },
+        { parts: [{ kind: 'literal' as const, value: '--add-dir' }] },
+        {
+          parts: [
+            {
+              kind: 'literal' as const,
+              value: '/Users/reviewer/repos/ghostty-web',
+            },
+          ],
+        },
+      ],
+      risk: 'unclassified' as const,
+    }
+    const capabilities = harnessLaunchCapabilities(codexProvider, {
+      profile: customizedProfile,
+      composerSubmitMode: 'ctrl-enter',
+      probedCapabilities: codexProvider.probe.effectiveCapabilities('codex-cli 0.146.0'),
+    })
+
+    expect(capabilities).toMatchObject({
+      reviewInsertContractRevision: 1,
+      reviewSendNowContractRevision: 1,
+    })
+  })
+
+  it('keeps unsupported, unprobed, and composer-changing launches below send-now', () => {
     const profile = providerTemplateProfiles().find(
       (candidate) => candidate.providerId === codexProvider.manifest.id,
     )!
@@ -192,7 +224,17 @@ describe('Harness providers', () => {
     }
     const customizedProfile = {
       ...profile,
-      args: [{ parts: [{ kind: 'literal' as const, value: '--add-dir=/tmp' }] }],
+      args: [
+        { parts: [{ kind: 'literal' as const, value: '--config' }] },
+        {
+          parts: [
+            {
+              kind: 'literal' as const,
+              value: 'tui.keymap.composer.submit=["enter"]',
+            },
+          ],
+        },
+      ],
     }
     const customized = harnessLaunchCapabilities(codexProvider, {
       profile: customizedProfile,
@@ -210,7 +252,7 @@ describe('Harness providers', () => {
     ).toThrow(/unavailable for this launch/)
   })
 
-  it('admits insertion only for each provider exact default launch profile', () => {
+  it('keeps unapproved provider launch changes Copy-only', () => {
     const profiles = providerTemplateProfiles()
     for (const provider of [claudeCodeProvider, codexProvider]) {
       const profile = profiles.find(

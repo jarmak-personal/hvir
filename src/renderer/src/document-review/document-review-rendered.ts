@@ -216,6 +216,7 @@ function prepareBlock(
   block.append(badge)
   if (generatedElement) {
     const group = document.createElement('span')
+    group.className = 'review-block-controls'
     group.setAttribute(GENERATED_ATTRIBUTE, '')
     generatedElement.before(group)
     group.append(generatedElement, badge)

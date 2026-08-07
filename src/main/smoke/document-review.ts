@@ -59,6 +59,7 @@ export async function verifyDocumentReviewWorkflow(options: {
     `document.querySelector('[aria-label="Markdown review comments"]')`,
     'review mode did not open from its focused control',
   )
+  await proveRenderedControlsUseLeftGutter(win)
   await focusRenderedBlock(win, 0)
   await dispatchFocusedKey(win, 'ArrowDown')
   await dispatchFocusedKey(win, 'Enter')
@@ -489,6 +490,39 @@ async function focusRenderedBlock(win: BrowserWindow, index: number): Promise<vo
           }
           if (Date.now() > deadline) {
             return resolve({ ok: false, error: 'review block missing' });
+          }
+          setTimeout(poll, 25);
+        };
+        poll();
+      })
+    `,
+  )
+}
+
+async function proveRenderedControlsUseLeftGutter(win: BrowserWindow): Promise<void> {
+  await evaluateRenderer<void>(
+    win,
+    'rendered review left gutter geometry',
+    `
+      new Promise((resolve) => {
+        const deadline = Date.now() + ${TIMEOUT_MS};
+        const poll = () => {
+          const block = document.querySelector('.review-block-active');
+          const add = block?.querySelector('.review-block-add');
+          if (block instanceof HTMLElement && add instanceof HTMLButtonElement) {
+            const blockRect = block.getBoundingClientRect();
+            const addRect = add.getBoundingClientRect();
+            if (addRect.right <= blockRect.left) return resolve({ ok: true });
+            return resolve({
+              ok: false,
+              error: 'rendered review capture control was not in the left gutter'
+            });
+          }
+          if (Date.now() > deadline) {
+            return resolve({
+              ok: false,
+              error: 'rendered review capture control geometry was unavailable'
+            });
           }
           setTimeout(poll, 25);
         };
