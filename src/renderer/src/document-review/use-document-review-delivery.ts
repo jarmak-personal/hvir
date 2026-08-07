@@ -254,20 +254,24 @@ export function useDocumentReviewDelivery(
       .invoke('document-review:send-now-delivery', { preparedId: prepared.id })
       .then((response) => {
         const result = unwrapOperation(response)
-        if (operationGeneration.current !== generation) return
-        if (result.outcome === 'send-authority-consumed') {
-          setState((value) => ({
-            ...value,
-            loading: false,
-            prepared: undefined,
-            error: consumedSendError(result),
-            message: undefined,
-          }))
-          return
-        }
-        const target = current.current
-        previewModel.current = result.snapshot.model
-        if (!target?.adoptAuthoritative(result.snapshot)) {
+        if (result.outcome === 'sent') {
+          // Durable owner-scoped truth must outlive presentation closure. The
+          // controller still rejects a different, revoked, or locally changed
+          // workspace; this operation generation gates only panel state.
+          const adopted = current.current?.adoptAuthoritative(result.snapshot) ?? false
+          if (operationGeneration.current !== generation) return
+          previewModel.current = result.snapshot.model
+          if (adopted) {
+            setState((value) => ({
+              ...value,
+              loading: false,
+              prepared: undefined,
+              sent: true,
+              message:
+                'Sent means the complete write was accepted at the PTY boundary; it does not mean the agent read, accepted, or resolved it.',
+            }))
+            return
+          }
           setState((value) => ({
             ...value,
             loading: false,
@@ -277,13 +281,13 @@ export function useDocumentReviewDelivery(
           }))
           return
         }
+        if (operationGeneration.current !== generation) return
         setState((value) => ({
           ...value,
           loading: false,
           prepared: undefined,
-          sent: true,
-          message:
-            'Sent means the complete write was accepted at the PTY boundary; it does not mean the agent read, accepted, or resolved it.',
+          error: consumedSendError(result),
+          message: undefined,
         }))
       })
       .catch((reason: unknown) => {

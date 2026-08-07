@@ -346,7 +346,10 @@ describe('document review delivery coordinator', () => {
     expect(fixture.writes).toHaveLength(1)
   })
 
-  it('consumes indeterminate timeout authority without advancing drafts', async () => {
+  it.each([
+    'SSH PTY write completion timed out',
+    'SSH PTY exited before write completion',
+  ])('consumes indeterminate %s authority without advancing drafts', async (reason) => {
     const fixture = deliveryFixture()
     fixture.addSendTerminal('codex-send', 'Codex', 'ctrl-enter')
     const prepared = fixture.coordinator.prepare(OWNER, {
@@ -355,7 +358,7 @@ describe('document review delivery coordinator', () => {
       terminalId: 'codex-send',
     })
     fixture.writeConfirmed.mockRejectedValueOnce(
-      new PtyWriteIndeterminateError('SSH PTY write completion timed out'),
+      new PtyWriteIndeterminateError(reason),
     )
 
     await expect(
@@ -363,7 +366,7 @@ describe('document review delivery coordinator', () => {
     ).resolves.toEqual({
       outcome: 'send-authority-consumed',
       ptyAcceptance: 'indeterminate',
-      reason: 'SSH PTY write completion timed out',
+      reason,
     })
     expect(fixture.model.comments[0]?.lifecycle).toBe('draft')
     expect(fixture.model.batches[0]?.commentIds).toEqual(['comment-1'])

@@ -5,6 +5,10 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { DocumentReviewDeliveryPanel } from '../src/renderer/src/document-review/DocumentReviewDeliveryPanel'
+import {
+  DocumentReviewWorkspaceController,
+  type DocumentReviewWorkspacePort,
+} from '../src/renderer/src/document-review/document-review-workspace-controller'
 import type { DocumentReviewWorkspaceBinding } from '../src/renderer/src/document-review/use-document-review-interaction'
 import {
   useDocumentReviewDelivery,
@@ -348,6 +352,131 @@ describe('document review delivery interaction', () => {
     ).toBe(false)
   })
 
+  it('adopts a successful send while the panel closes and advances later saves', async () => {
+    vi.stubGlobal('navigator', {
+      clipboard: { writeText: vi.fn(() => Promise.resolve()) },
+    })
+    const destination: DocumentReviewDeliveryDestination = {
+      ...prepared.destination,
+      capability: 'send-now',
+    }
+    const exact = { ...prepared, destination }
+    const initial = model()
+    const activeModel: DocumentReviewModel = {
+      ...initial,
+      comments: [
+        ...initial.comments,
+        {
+          ...initial.comments[0]!,
+          id: 'comment-2',
+          body: 'Keep this draft.',
+        },
+      ],
+    }
+    const sentModel: DocumentReviewModel = {
+      ...activeModel,
+      comments: activeModel.comments.map((comment) =>
+        comment.id === 'comment-1'
+          ? { ...comment, lifecycle: 'sent' as const }
+          : comment,
+      ),
+    }
+    const send = deferred<unknown>()
+    const save = vi.fn<DocumentReviewWorkspacePort['save']>((request) =>
+      Promise.resolve({
+        workspaceGeneration: 4,
+        revision: request.expectedRevision + 1,
+        model: request.model,
+      }),
+    )
+    const controller = new DocumentReviewWorkspaceController(
+      {
+        restore: () =>
+          Promise.resolve({
+            workspaceGeneration: 4,
+            revision: 3,
+            model: activeModel,
+          }),
+        save,
+        revalidate: () => Promise.reject(new Error('Unexpected revalidation')),
+      },
+      () => undefined,
+    )
+    controller.activate(workspace)
+    await settle()
+    const review: DocumentReviewWorkspaceBinding = {
+      get state() {
+        return controller.snapshot()
+      },
+      apply: (action) => controller.apply(action),
+      flush: () => controller.flush(),
+      adoptAuthoritative: (snapshot) => controller.adoptAuthoritative(snapshot),
+    }
+    const invoke = vi.fn((channel: string) => {
+      if (channel === 'document-review:preview-delivery') {
+        return Promise.resolve({ ok: true, value: payload })
+      }
+      if (channel === 'document-review:delivery-destinations') {
+        return Promise.resolve({ ok: true, value: [destination] })
+      }
+      if (channel === 'document-review:prepare-delivery') {
+        return Promise.resolve({ ok: true, value: exact })
+      }
+      if (channel === 'document-review:send-now-delivery') return send.promise
+      throw new Error(`Unexpected IPC ${channel}`)
+    })
+    installApi(invoke)
+    render(<DeliveryHarness binding={review} />)
+    click('Preview batch')
+    await settle()
+    choose('terminal-1')
+    await settle()
+    click('Send exact review now')
+    click('Close preview')
+    expect(host.querySelector('[aria-label="Review handoff preview"]')).toBeNull()
+
+    send.resolve({
+      ok: true,
+      value: {
+        outcome: 'sent',
+        snapshot: { workspaceGeneration: 4, revision: 4, model: sentModel },
+      },
+    })
+    await settle()
+
+    expect(controller.snapshot()).toMatchObject({
+      revision: 4,
+      model: {
+        comments: [
+          expect.objectContaining({ id: 'comment-1', lifecycle: 'sent' }),
+          expect.objectContaining({ id: 'comment-2', lifecycle: 'draft' }),
+        ],
+      },
+    })
+    expect(
+      review.apply({
+        type: 'edit-comment',
+        workspace,
+        commentId: 'comment-2',
+        body: 'Updated after send.',
+      }).ok,
+    ).toBe(true)
+    await review.flush()
+    expect(save).toHaveBeenCalledWith(
+      expect.objectContaining({ expectedRevision: 4 }),
+    )
+    expect(controller.snapshot()).toMatchObject({
+      revision: 5,
+      error: undefined,
+      model: {
+        comments: [
+          expect.objectContaining({ id: 'comment-1', lifecycle: 'sent' }),
+          expect.objectContaining({ id: 'comment-2', body: 'Updated after send.' }),
+        ],
+      },
+    })
+  })
+
   it('keeps send-now retry and Copy available after a delivery failure', async () => {
     vi.stubGlobal('navigator', {
       clipboard: { writeText: vi.fn(() => Promise.resolve()) },
@@ -588,6 +717,14 @@ function installApi(invoke: ReturnType<typeof vi.fn>): void {
     configurable: true,
     value: { invoke },
   })
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>((accept) => {
+    resolve = accept
+  })
+  return { promise, resolve }
 }
 
 function render(element: ReactElement): void {

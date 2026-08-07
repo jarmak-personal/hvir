@@ -196,6 +196,11 @@ describe('document review workspace controller', () => {
         workspaceGeneration: current.workspaceGeneration! + 1,
       }),
     ).toBe(false)
+    expect(
+      fixture.controller.adoptAuthoritative(stored(workspaceB, 5, emptyModel(workspaceB))),
+    ).toBe(false)
+    fixture.controller.deactivate()
+    expect(fixture.controller.adoptAuthoritative(stored(workspaceA, 5, sent))).toBe(false)
   })
 
   it('does not overwrite a local review edit queued during send completion', async () => {

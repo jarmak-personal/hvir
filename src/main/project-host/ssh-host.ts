@@ -550,7 +550,11 @@ export class SshHost implements ProjectHost {
             else resolve()
           }
           stopExit = subscribe(exits, () =>
-            finish(new Error('SSH PTY exited before write completion')),
+            finish(
+              new PtyWriteIndeterminateError(
+                'SSH PTY exited before write completion',
+              ),
+            ),
           )
           timer = setTimeout(
             () =>

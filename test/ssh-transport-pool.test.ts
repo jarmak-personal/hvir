@@ -137,7 +137,9 @@ describe('SshHost transport pool', () => {
       'raced',
     )
     channel.emit('exit', 7)
-    await expect(raced).rejects.toThrow(/exited before write completion/i)
+    const racedError = await raced.catch((reason: unknown) => reason)
+    expect(racedError).toBeInstanceOf(PtyWriteIndeterminateError)
+    expect((racedError as Error).message).toMatch(/exited before write completion/i)
     completeWrite?.()
 
     await fixture.host.dispose()
@@ -153,9 +155,12 @@ describe('SshHost transport pool', () => {
     channel.emit('exit', 7)
     channel.write.mockClear()
 
-    await expect(
-      fixture.supervisor.writeConfirmed('shell-0', OWNER_ID, 'too-late'),
-    ).rejects.toThrow(/No PTY session/)
+    const rejected = await fixture.supervisor
+      .writeConfirmed('shell-0', OWNER_ID, 'too-late')
+      .catch((reason: unknown) => reason)
+    expect(rejected).toBeInstanceOf(Error)
+    expect(rejected).not.toBeInstanceOf(PtyWriteIndeterminateError)
+    expect((rejected as Error).message).toMatch(/No PTY session/)
     expect(channel.write.mock.calls).toEqual([])
     await fixture.host.dispose()
   })
