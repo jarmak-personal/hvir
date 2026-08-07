@@ -7,7 +7,12 @@ import {
   plainShellProvider,
   type HarnessTelemetryContext,
 } from '../src/main/harness/harness-provider'
-import type { ProjectHost, PtyExit, PtyProcess } from '../src/main/project-host'
+import {
+  PtyWriteIndeterminateError,
+  type ProjectHost,
+  type PtyExit,
+  type PtyProcess,
+} from '../src/main/project-host'
 import {
   PtySupervisor,
   type ManagedPty,
@@ -250,7 +255,7 @@ describe('PtySupervisor', () => {
     )
     late.pty.emitExit({ exitCode: 255, signal: undefined })
     finish()
-    await expect(writing).rejects.toThrow(/exited before write completion/)
+    await expect(writing).rejects.toBeInstanceOf(PtyWriteIndeterminateError)
   })
 
   it('replays bounded initial output in order on the first renderer attach', async () => {

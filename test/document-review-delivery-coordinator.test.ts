@@ -1,12 +1,18 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import { DocumentReviewDeliveryCoordinator } from '../src/main/document-review'
+import {
+  DocumentReviewDeliveryCoordinator,
+  type DocumentReviewCoordinator,
+} from '../src/main/document-review'
 import {
   harnessLaunchCapabilities,
   harnessProviders,
 } from '../src/main/harness/harness-provider'
 import { providerTemplateProfiles } from '../src/main/harness/harness-profile-store'
-import type { ProjectHost } from '../src/main/project-host'
+import {
+  PtyWriteIndeterminateError,
+  type ProjectHost,
+} from '../src/main/project-host'
 import type { ManagedPty } from '../src/main/pty/pty-supervisor'
 import { RendererResourceScopes } from '../src/main/renderer-resource-scopes'
 import type { OwnedTerminalSession } from '../src/main/terminal/session-registry'
@@ -281,6 +287,7 @@ describe('document review delivery coordinator', () => {
         outcome: 'sent',
         snapshot: { revision: 4 },
       })
+      if (result.outcome !== 'sent') throw new Error('Expected durable sent result')
       expect(result.snapshot.model.comments[0]?.lifecycle).toBe('sent')
       expect(result.snapshot.model.batches[0]?.commentIds).toEqual(['comment-1'])
       await expect(fixture.coordinator.sendNow(OWNER, prepared.id)).rejects.toThrow(
@@ -310,6 +317,62 @@ describe('document review delivery coordinator', () => {
     })
   })
 
+  it('consumes confirmed send authority when sent-state persistence fails', async () => {
+    const fixture = deliveryFixture()
+    fixture.addSendTerminal('codex-send', 'Codex', 'enter')
+    const prepared = fixture.coordinator.prepare(OWNER, {
+      ...fixture.scope,
+      selection: { kind: 'comment', commentId: 'comment-1' },
+      terminalId: 'codex-send',
+    })
+    fixture.markSent.mockRejectedValueOnce(new Error('disk unavailable'))
+
+    await expect(
+      fixture.coordinator.sendNow(OWNER, prepared.id),
+    ).resolves.toEqual({
+      outcome: 'send-authority-consumed',
+      ptyAcceptance: 'confirmed',
+      reason: 'disk unavailable',
+    })
+    expect(fixture.writeConfirmed).toHaveBeenCalledOnce()
+    expect(fixture.writes).toHaveLength(1)
+    expect(fixture.model.comments[0]?.lifecycle).toBe('draft')
+    expect(fixture.model.batches[0]?.commentIds).toEqual(['comment-1'])
+
+    await expect(fixture.coordinator.sendNow(OWNER, prepared.id)).rejects.toThrow(
+      /stale/,
+    )
+    expect(fixture.writeConfirmed).toHaveBeenCalledOnce()
+    expect(fixture.writes).toHaveLength(1)
+  })
+
+  it('consumes indeterminate timeout authority without advancing drafts', async () => {
+    const fixture = deliveryFixture()
+    fixture.addSendTerminal('codex-send', 'Codex', 'ctrl-enter')
+    const prepared = fixture.coordinator.prepare(OWNER, {
+      ...fixture.scope,
+      selection: { kind: 'batch', batchId: 'active-review' },
+      terminalId: 'codex-send',
+    })
+    fixture.writeConfirmed.mockRejectedValueOnce(
+      new PtyWriteIndeterminateError('SSH PTY write completion timed out'),
+    )
+
+    await expect(
+      fixture.coordinator.sendNow(OWNER, prepared.id),
+    ).resolves.toEqual({
+      outcome: 'send-authority-consumed',
+      ptyAcceptance: 'indeterminate',
+      reason: 'SSH PTY write completion timed out',
+    })
+    expect(fixture.model.comments[0]?.lifecycle).toBe('draft')
+    expect(fixture.model.batches[0]?.commentIds).toEqual(['comment-1'])
+    await expect(fixture.coordinator.sendNow(OWNER, prepared.id)).rejects.toThrow(
+      /stale/,
+    )
+    expect(fixture.writeConfirmed).toHaveBeenCalledOnce()
+  })
+
   it('holds one main-side single-flight authority while send-now awaits completion', async () => {
     const fixture = deliveryFixture()
     fixture.addSendTerminal('codex-send', 'Codex', 'ctrl-enter')
@@ -336,7 +399,7 @@ describe('document review delivery coordinator', () => {
   })
 
   it.each(['exit', 'disconnect', 'revision', 'profile', 'capability'] as const)(
-    'rejects %s drift after late write completion without advancing drafts',
+    'consumes authority on %s drift after late write completion without advancing drafts',
     async (drift) => {
       const fixture = deliveryFixture()
       const terminal = fixture.addSendTerminal('codex-send', 'Codex', 'ctrl-enter')
@@ -370,9 +433,16 @@ describe('document review delivery coordinator', () => {
       }
       pending.resolve()
 
-      await expect(sending).rejects.toThrow()
+      await expect(sending).resolves.toMatchObject({
+        outcome: 'send-authority-consumed',
+        ptyAcceptance: 'confirmed',
+      })
       expect(fixture.model.comments[0]?.lifecycle).toBe('draft')
       expect(fixture.model.batches[0]?.commentIds).toEqual(['comment-1'])
+      await expect(fixture.coordinator.sendNow(OWNER, prepared.id)).rejects.toThrow(
+        /stale/,
+      )
+      expect(fixture.writeConfirmed).toHaveBeenCalledOnce()
     },
   )
 
@@ -394,8 +464,12 @@ describe('document review delivery coordinator', () => {
           : fixture.resources.revokeOwner(OWNER.id)
       pending.resolve()
 
-      await expect(sending).rejects.toThrow(/stale|revoked/)
+      await expect(sending).resolves.toMatchObject({
+        outcome: 'send-authority-consumed',
+        ptyAcceptance: 'confirmed',
+      })
       expect(fixture.model.comments[0]?.lifecycle).toBe('draft')
+      expect(fixture.writeConfirmed).toHaveBeenCalledOnce()
       await cleanup
     }
   })
@@ -460,6 +534,27 @@ function deliveryFixture(
       return Promise.resolve()
     },
   )
+  const markSent = vi.fn<DocumentReviewCoordinator['markSent']>(
+    (_owner, request) => {
+      if (request.expectedRevision !== revision.value) {
+        throw new Error('The review batch changed during submission')
+      }
+      state.model = {
+        ...state.model,
+        comments: state.model.comments.map((comment) =>
+          request.commentIds.includes(comment.id)
+            ? { ...comment, lifecycle: 'sent' as const }
+            : comment,
+        ),
+      }
+      revision.value += 1
+      return Promise.resolve({
+        workspaceGeneration: request.workspaceGeneration,
+        revision: revision.value,
+        model: state.model,
+      })
+    },
+  )
   const coordinator = new DocumentReviewDeliveryCoordinator({
     workspace: {
       deliverySnapshot: (owner, request) => {
@@ -478,25 +573,7 @@ function deliveryFixture(
           host,
         }
       },
-      markSent: (_owner, request) => {
-        if (request.expectedRevision !== revision.value) {
-          throw new Error('The review batch changed during submission')
-        }
-        state.model = {
-          ...state.model,
-          comments: state.model.comments.map((comment) =>
-            request.commentIds.includes(comment.id)
-              ? { ...comment, lifecycle: 'sent' as const }
-              : comment,
-          ),
-        }
-        revision.value += 1
-        return Promise.resolve({
-          workspaceGeneration: request.workspaceGeneration,
-          revision: revision.value,
-          model: state.model,
-        })
-      },
+      markSent,
     },
     ptys: {
       get: (id) => terminals.get(id),
@@ -522,6 +599,7 @@ function deliveryFixture(
     resources,
     writes,
     writeConfirmed,
+    markSent,
     profiles,
     scope: { workspace, workspaceGeneration: 5 },
     addTerminal: (

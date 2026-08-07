@@ -20,6 +20,7 @@ import type {
   HarnessProviderRegistry,
 } from '../harness/harness-provider'
 import type { HarnessProfileStoreContract } from '../harness/harness-profile-store'
+import { isPtyWriteIndeterminateError } from '../project-host'
 import type { ManagedPty, PtySupervisor } from '../pty/pty-supervisor'
 import type {
   RendererOwner,
@@ -54,6 +55,7 @@ interface PreparedRecord {
   readonly terminal: PreparedDocumentReviewTerminal
   lease?: RendererResourceLease
   inFlight?: symbol
+  revoked?: boolean
 }
 
 export interface DocumentReviewDeliveryCoordinatorOptions {
@@ -217,35 +219,56 @@ export class DocumentReviewDeliveryCoordinator {
         before.payload.body,
         sendNow.launch,
       )
-      await this.options.ptys.writeConfirmed(
-        before.terminal.id,
-        owner.id,
-        transport,
-        owner.generation,
-      )
+      try {
+        await this.options.ptys.writeConfirmed(
+          before.terminal.id,
+          owner.id,
+          transport,
+          owner.generation,
+        )
+      } catch (reason) {
+        if (!isPtyWriteIndeterminateError(reason)) throw reason
+        this.consumePrepared(prepared)
+        return {
+          outcome: 'send-authority-consumed',
+          ptyAcceptance: 'indeterminate',
+          reason: errorMessage(reason),
+        }
+      }
+
+      // Once the transport confirms acceptance, the exact send authority is
+      // consumed even if later validation or durable lifecycle persistence fails.
+      this.consumePrepared(prepared)
 
       // A completed transport may race exit, disconnect, renderer/workspace
       // revocation, profile edits, or provider replacement. None can turn a late
       // completion into lifecycle authority.
-      const after = this.validatePrepared(owner, prepared)
-      const currentSendNow = this.sendNowContract(after.terminal)
-      if (
-        !currentSendNow ||
-        currentSendNow.contract.revision !== prepared.sendNowContractRevision ||
-        currentSendNow.contract.terminalInput(
-          after.payload.body,
-          currentSendNow.launch,
-        ) !== transport
-      ) {
-        throw new Error('The prepared provider submission capability changed')
+      try {
+        const after = this.validatePrepared(owner, prepared, false)
+        const currentSendNow = this.sendNowContract(after.terminal)
+        if (
+          !currentSendNow ||
+          currentSendNow.contract.revision !== prepared.sendNowContractRevision ||
+          currentSendNow.contract.terminalInput(
+            after.payload.body,
+            currentSendNow.launch,
+          ) !== transport
+        ) {
+          throw new Error('The prepared provider submission capability changed')
+        }
+        const snapshot = await this.options.workspace.markSent(owner, {
+          ...prepared.scope,
+          expectedRevision: after.review.revision,
+          commentIds: after.payload.commentIds,
+        })
+        return { outcome: 'sent', snapshot }
+      } catch (reason) {
+        return {
+          outcome: 'send-authority-consumed',
+          ptyAcceptance: 'confirmed',
+          reason: errorMessage(reason),
+        }
       }
-      const snapshot = await this.options.workspace.markSent(owner, {
-        ...prepared.scope,
-        expectedRevision: after.review.revision,
-        commentIds: after.payload.commentIds,
-      })
-      this.revokePrepared(prepared)
-      return { outcome: 'sent', snapshot }
     } finally {
       if (prepared.inFlight === attempt) prepared.inFlight = undefined
     }
@@ -378,12 +401,16 @@ export class DocumentReviewDeliveryCoordinator {
   private validatePrepared(
     owner: RendererOwner,
     prepared: PreparedRecord,
+    requireAuthority = true,
   ): {
     readonly review: DocumentReviewDeliveryWorkspaceSnapshot
     readonly payload: DocumentReviewDeliveryPayload
     readonly terminal: ManagedPty
   } {
-    if (this.requirePrepared(owner, prepared.id) !== prepared) {
+    if (
+      prepared.revoked ||
+      (requireAuthority && this.requirePrepared(owner, prepared.id) !== prepared)
+    ) {
       throw new Error('The prepared review destination is stale')
     }
     const review = this.reviewSnapshot(owner, prepared.scope)
@@ -407,6 +434,11 @@ export class DocumentReviewDeliveryCoordinator {
 
   private revokePrepared(record: PreparedRecord | undefined): void {
     if (!record) return
+    record.revoked = true
+    this.consumePrepared(record)
+  }
+
+  private consumePrepared(record: PreparedRecord): void {
     const key = ownerKey(record.owner)
     if (this.prepared.get(key) === record) this.prepared.delete(key)
     record.lease?.release()
@@ -445,4 +477,8 @@ function ownerKey(owner: RendererOwner): string {
 
 function sameOwner(left: RendererOwner, right: RendererOwner): boolean {
   return left.id === right.id && left.generation === right.generation
+}
+
+function errorMessage(reason: unknown): string {
+  return reason instanceof Error ? reason.message : String(reason)
 }

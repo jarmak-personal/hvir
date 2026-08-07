@@ -15,19 +15,21 @@ import {
   type Stat,
   type WatchEvent,
 } from '../../shared'
-import type {
-  Disposer,
-  ExecOptions,
-  ExecStreamHandle,
-  ProjectHost,
-  ProjectFileTransferPort,
-  PtyProcess,
-  ReadFileOptions,
-  SpawnPtyOptions,
-  WatchOptions,
-  WriteFileOptions,
+import {
+  assertLoopbackEndpoint,
+  MAX_EXEC_STREAM_WRITE_BYTES,
+  PtyWriteIndeterminateError,
+  type Disposer,
+  type ExecOptions,
+  type ExecStreamHandle,
+  type ProjectHost,
+  type ProjectFileTransferPort,
+  type PtyProcess,
+  type ReadFileOptions,
+  type SpawnPtyOptions,
+  type WatchOptions,
+  type WriteFileOptions,
 } from './project-host'
-import { assertLoopbackEndpoint, MAX_EXEC_STREAM_WRITE_BYTES } from './project-host'
 import type { SshPrompt } from './ssh-auth'
 import { closeSshClient, startSshAuthentication } from './ssh-client-lifecycle'
 import { SshFileAccess } from './ssh-file-access'
@@ -51,6 +53,7 @@ export {
 
 export const SSH_DEFAULT_MAX_CONCURRENT_EXECS = 4
 export const SSH_MAX_KEYBOARD_INTERACTIVE_ROUNDS = 4
+export const SSH_PTY_WRITE_CONFIRM_TIMEOUT_MS = 5_000
 
 interface SshCredentialAttempt {
   password?: string
@@ -531,23 +534,42 @@ export class SshHost implements ProjectHost {
       onData: (cb) => subscribe(data, cb),
       onExit: (cb) => subscribe(exits, cb),
       write: (v) => channel.write(v),
-      writeConfirmed: (value) =>
-        new Promise<void>((resolve, reject) => {
+      writeConfirmed: (value) => {
+        if (exited) return Promise.reject(new Error('SSH PTY already exited'))
+        return new Promise<void>((resolve, reject) => {
           let settled = false
+          let timer: ReturnType<typeof setTimeout> | undefined
+          let stopExit: Disposer = () => undefined
           const finish = (error?: Error): void => {
             if (settled) return
             settled = true
+            if (timer) clearTimeout(timer)
+            timer = undefined
             void stopExit()
             if (error) reject(error)
             else resolve()
           }
-          const stopExit = subscribe(exits, () =>
+          stopExit = subscribe(exits, () =>
             finish(new Error('SSH PTY exited before write completion')),
           )
-          channel.write(value, (error?: Error | null) =>
-            finish(error ?? undefined),
+          timer = setTimeout(
+            () =>
+              finish(
+                new PtyWriteIndeterminateError(
+                  'SSH PTY write completion timed out',
+                ),
+              ),
+            SSH_PTY_WRITE_CONFIRM_TIMEOUT_MS,
           )
-        }),
+          try {
+            channel.write(value, (error?: Error | null) =>
+              finish(error ?? undefined),
+            )
+          } catch (error) {
+            finish(asError(error))
+          }
+        })
+      },
       resize: (cols, rows) => channel.setWindow(rows, cols, 0, 0),
       kill: () => channel.close(),
     }

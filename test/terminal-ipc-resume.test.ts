@@ -12,6 +12,7 @@ import { PtyStartUnavailableError } from '../src/main/pty/pty-supervisor'
 import type { RecordTerminalReplacement } from '../src/main/terminal/session-registry'
 import {
   LOCAL_HOST_ID,
+  asHarnessProfileId,
   asHostId,
   hostPath,
   type HostPath,
@@ -265,6 +266,51 @@ describe('terminal exact-resume IPC', () => {
       expect(fixture.register).not.toHaveBeenCalled()
     },
   )
+
+  it('reattaches a retained PTY when the current composer mode changed', async () => {
+    const fixture = resumeFixture(LOCAL_HOST_ID, 'missing')
+    fixture.hasTransferredResource.mockReturnValue(true)
+    fixture.get.mockReturnValue(fixture.managed)
+
+    const result = await fixture.start(
+      { ...fixture.request, composerSubmitMode: 'ctrl-enter' },
+      fixture.context,
+    )
+
+    expect(result).toMatchObject({ outcome: 'started', reattached: true })
+    expect(fixture.managed.composerSubmitMode).toBe('enter')
+    expect(fixture.spawn).not.toHaveBeenCalled()
+  })
+
+  it('rejects retained PTYs with profile, launch revision, or provider contract drift', async () => {
+    for (const drift of ['profile', 'launch-revision', 'provider-contract'] as const) {
+      const fixture = resumeFixture(LOCAL_HOST_ID, 'missing')
+      fixture.hasTransferredResource.mockReturnValue(true)
+      const changed =
+        drift === 'profile'
+          ? {
+              ...fixture.managed,
+              profileId: asHarnessProfileId('different-profile'),
+            }
+          : drift === 'launch-revision'
+            ? {
+                ...fixture.managed,
+                launchRevision: fixture.managed.launchRevision + 1,
+              }
+            : {
+                ...fixture.managed,
+                providerContractVersion:
+                  fixture.managed.providerContractVersion + 1,
+              }
+      fixture.get.mockReturnValue(changed)
+
+      await expect(fixture.start(fixture.request, fixture.context)).rejects.toThrow(
+        /Retained terminal identity changed/,
+      )
+      expect(fixture.attach).not.toHaveBeenCalled()
+      expect(fixture.spawn).not.toHaveBeenCalled()
+    }
+  })
 
   it('falls back to exact resume when the transferred PTY exits before reattachment', async () => {
     const fixture = resumeFixture(LOCAL_HOST_ID, 'available')

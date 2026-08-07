@@ -210,13 +210,27 @@ export interface PtyExit {
   readonly signal: number | undefined
 }
 
+/** The transport may have accepted a write but cannot confirm its completion. */
+export class PtyWriteIndeterminateError extends Error {
+  override readonly name = 'PtyWriteIndeterminateError'
+}
+
+export function isPtyWriteIndeterminateError(
+  value: unknown,
+): value is PtyWriteIndeterminateError {
+  return value instanceof PtyWriteIndeterminateError
+}
+
 /** A live pseudo-terminal. Produced only via the PTY supervisor (ADR-006). */
 export interface PtyProcess {
   readonly pid: number
   onData(cb: (data: string) => void): Disposer
   onExit(cb: (e: PtyExit) => void): Disposer
   write(data: string): void
-  /** Resolves only when the immediate PTY transport accepts the complete write. */
+  /**
+   * Resolves only when the immediate PTY transport accepts the complete write.
+   * An adapter rejects with `PtyWriteIndeterminateError` when it cannot decide.
+   */
   writeConfirmed(data: string): Promise<void>
   resize(cols: number, rows: number): void
   kill(signal?: string): void

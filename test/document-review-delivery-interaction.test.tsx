@@ -386,6 +386,76 @@ describe('document review delivery interaction', () => {
     ).toBe(exactBody)
   })
 
+  it.each([
+    [
+      'confirmed lifecycle failure',
+      'confirmed',
+      'disk unavailable',
+      'accepted at the PTY boundary',
+    ],
+    [
+      'indeterminate timeout',
+      'indeterminate',
+      'SSH PTY write completion timed out',
+      'may have been submitted',
+    ],
+  ] as const)(
+    'consumes renderer send authority after %s while retaining Copy',
+    async (_label, ptyAcceptance, reason, boundaryMessage) => {
+      const writeText = vi.fn(() => Promise.resolve())
+      vi.stubGlobal('navigator', { clipboard: { writeText } })
+      const destination = { ...prepared.destination, capability: 'send-now' as const }
+      const exact = { ...prepared, destination }
+      const invoke = vi.fn((channel: string) => {
+        if (channel === 'document-review:preview-delivery') {
+          return Promise.resolve({ ok: true, value: payload })
+        }
+        if (channel === 'document-review:delivery-destinations') {
+          return Promise.resolve({ ok: true, value: [destination] })
+        }
+        if (channel === 'document-review:prepare-delivery') {
+          return Promise.resolve({ ok: true, value: exact })
+        }
+        if (channel === 'document-review:send-now-delivery') {
+          return Promise.resolve({
+            ok: true,
+            value: {
+              outcome: 'send-authority-consumed',
+              ptyAcceptance,
+              reason,
+            },
+          })
+        }
+        throw new Error(`Unexpected IPC ${channel}`)
+      })
+      installApi(invoke)
+      render(<DeliveryHarness binding={binding(model())} />)
+      click('Preview batch')
+      await settle()
+      choose('terminal-1')
+      await settle()
+      click('Send exact review now')
+      await settle()
+
+      expect(host.textContent).toContain(boundaryMessage)
+      expect(host.textContent).toContain('does not prove agent receipt')
+      expect(host.textContent).toContain('Send authority was consumed')
+      expect(host.textContent).toContain('preview and prepare again')
+      expect(button('Send exact review now')?.disabled).toBe(true)
+      expect(button('Copy exact preview')?.disabled).toBe(false)
+
+      click('Send exact review now')
+      click('Copy exact preview')
+      await settle()
+      expect(
+        invoke.mock.calls.filter(
+          ([channel]) => channel === 'document-review:send-now-delivery',
+        ),
+      ).toHaveLength(1)
+      expect(writeText).toHaveBeenCalledExactlyOnceWith(exactBody)
+    },
+  )
+
   it('invalidates a prepared preview when the review model changes', async () => {
     vi.stubGlobal('navigator', { clipboard: { writeText: vi.fn(() => Promise.resolve()) } })
     installApi(

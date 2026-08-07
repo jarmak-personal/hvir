@@ -24,7 +24,13 @@ import {
   type TerminalIdentityStatus,
   TerminalStartAdmission,
 } from '../../shared'
-import type { Disposer, ProjectHost, PtyExit, PtyProcess } from '../project-host'
+import {
+  PtyWriteIndeterminateError,
+  type Disposer,
+  type ProjectHost,
+  type PtyExit,
+  type PtyProcess,
+} from '../project-host'
 import type {
   HarnessLaunchSpec,
   HarnessProvider,
@@ -572,7 +578,9 @@ export class PtySupervisor {
       (ownerGeneration !== undefined &&
         entry.info.ownerGeneration !== ownerGeneration)
     ) {
-      throw new Error(`PTY session '${id}' exited before write completion`)
+      throw new PtyWriteIndeterminateError(
+        `PTY session '${id}' exited before write completion`,
+      )
     }
     this.retryIdentityAfterInput(entry)
   }

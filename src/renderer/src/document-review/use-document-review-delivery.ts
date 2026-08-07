@@ -5,6 +5,7 @@ import {
   type DocumentReviewDeliveryDestination,
   type DocumentReviewDeliveryPayload,
   type DocumentReviewDeliverySelection,
+  type DocumentReviewSendNowResult,
   type PreparedDocumentReviewDelivery,
 } from '../../../shared'
 import type { DocumentReviewWorkspaceBinding } from './use-document-review-interaction'
@@ -254,16 +255,32 @@ export function useDocumentReviewDelivery(
       .then((response) => {
         const result = unwrapOperation(response)
         if (operationGeneration.current !== generation) return
+        if (result.outcome === 'send-authority-consumed') {
+          setState((value) => ({
+            ...value,
+            loading: false,
+            prepared: undefined,
+            error: consumedSendError(result),
+            message: undefined,
+          }))
+          return
+        }
         const target = current.current
         previewModel.current = result.snapshot.model
         if (!target?.adoptAuthoritative(result.snapshot)) {
-          throw new Error(
-            'Review was submitted at the PTY boundary, but the local view changed; reopen the workspace to refresh lifecycle state.',
-          )
+          setState((value) => ({
+            ...value,
+            loading: false,
+            prepared: undefined,
+            error:
+              'Review was submitted at the PTY boundary, but the local view changed; reopen the workspace to refresh lifecycle state before preparing another send.',
+          }))
+          return
         }
         setState((value) => ({
           ...value,
           loading: false,
+          prepared: undefined,
           sent: true,
           message:
             'Sent means the complete write was accepted at the PTY boundary; it does not mean the agent read, accepted, or resolved it.',
@@ -335,4 +352,17 @@ function writeReviewClipboard(value: string): Promise<void> {
 
 function errorMessage(reason: unknown): string {
   return reason instanceof Error ? reason.message : String(reason)
+}
+
+function consumedSendError(
+  result: Extract<
+    DocumentReviewSendNowResult,
+    { outcome: 'send-authority-consumed' }
+  >,
+): string {
+  const guidance =
+    'Send authority was consumed to prevent a duplicate. Copy remains available; preview and prepare again before another send.'
+  return result.ptyAcceptance === 'confirmed'
+    ? `The complete review write was accepted at the PTY boundary, but hvir could not finish the sent-state update: ${result.reason}. This does not prove agent receipt. ${guidance}`
+    : `PTY write completion is indeterminate: ${result.reason}. The review may have been submitted, but this does not prove agent receipt. ${guidance}`
 }

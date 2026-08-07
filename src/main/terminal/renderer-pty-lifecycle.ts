@@ -29,7 +29,7 @@ interface RetainedRendererPtyExpectation {
   readonly root: HostPath
   readonly cwd: HostPath
   readonly profile: HarnessProfile
-  readonly request: Pick<StartPtyRequest, 'composerSubmitMode' | 'harnessSessionId'>
+  readonly request: Pick<StartPtyRequest, 'harnessSessionId'>
 }
 
 export function rendererPtyQualifier(
@@ -59,7 +59,6 @@ export function canAttachRetainedRendererPty(
     managed.profileId === profile.id &&
     managed.launchRevision === profile.launchRevision &&
     managed.providerContractVersion === profile.providerContractVersion &&
-    managed.composerSubmitMode === request.composerSubmitMode &&
     managed.harnessSessionId === request.harnessSessionId &&
     hostPathEquals(managed.workspaceRoot, root) &&
     hostPathEquals(managed.cwd, cwd) &&

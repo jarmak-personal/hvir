@@ -195,8 +195,16 @@ export interface DocumentReviewSendNowRequest {
   readonly preparedId: string
 }
 
-export interface DocumentReviewSendNowResult {
-  readonly outcome: 'sent'
-  /** Authoritative durable state after PTY-boundary write completion. */
-  readonly snapshot: DocumentReviewWorkspaceSnapshot
-}
+export type DocumentReviewSendNowResult =
+  | {
+      readonly outcome: 'sent'
+      /** Authoritative durable state after PTY-boundary write completion. */
+      readonly snapshot: DocumentReviewWorkspaceSnapshot
+    }
+  | {
+      /** The prepared terminal authority was consumed to prevent a duplicate send. */
+      readonly outcome: 'send-authority-consumed'
+      /** Confirmed describes only the PTY boundary, never agent receipt. */
+      readonly ptyAcceptance: 'confirmed' | 'indeterminate'
+      readonly reason: string
+    }
