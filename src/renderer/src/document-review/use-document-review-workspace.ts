@@ -31,20 +31,28 @@ function useDocumentReviewWorkspaceState(workspace?: ReviewWorkspaceIdentity) {
   const controller = useRef<DocumentReviewWorkspaceController | undefined>(undefined)
   const workspaceRef = useRef(workspace)
   workspaceRef.current = workspace
-  const hvir = rendererApi()
-  controller.current ??= new DocumentReviewWorkspaceController(
-    {
-      restore: async (target) =>
-        unwrapOperation(
-          await hvir.invoke('document-review:restore', { workspace: target }),
-        ),
-      save: async (request) =>
-        unwrapOperation(await hvir.invoke('document-review:save', request)),
-      revalidate: async (request) =>
-        unwrapOperation(await hvir.invoke('document-review:revalidate', request)),
-    },
-    setState,
-  )
+  const hvir = useRef(rendererApi()).current
+
+  useEffect(() => {
+    const active = new DocumentReviewWorkspaceController(
+      {
+        restore: async (target) =>
+          unwrapOperation(
+            await hvir.invoke('document-review:restore', { workspace: target }),
+          ),
+        save: async (request) =>
+          unwrapOperation(await hvir.invoke('document-review:save', request)),
+        revalidate: async (request) =>
+          unwrapOperation(await hvir.invoke('document-review:revalidate', request)),
+      },
+      setState,
+    )
+    controller.current = active
+    return () => {
+      if (controller.current === active) controller.current = undefined
+      active.dispose()
+    }
+  }, [hvir])
 
   const key = workspace
     ? `${workspace.id}\0${workspace.root.hostId}\0${workspace.root.path}`
@@ -54,7 +62,6 @@ function useDocumentReviewWorkspaceState(workspace?: ReviewWorkspaceIdentity) {
     if (target) controller.current?.activate(target)
     else controller.current?.deactivate()
   }, [key])
-  useEffect(() => () => controller.current?.dispose(), [])
 
   const apply = useCallback(
     (action: DocumentReviewAction) => controller.current!.apply(action),

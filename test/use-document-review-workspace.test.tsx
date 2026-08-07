@@ -2,7 +2,7 @@
 
 import { createHash } from 'node:crypto'
 
-import { act } from 'react'
+import { act, StrictMode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest'
 
@@ -49,6 +49,24 @@ afterEach(() => {
 })
 
 describe('useReviewWorkspace', () => {
+  it('restores after React Strict Mode replays its lifecycle effects', async () => {
+    invoke.mockResolvedValue({
+      ok: true,
+      value: stored(workspaceA, emptyModel(workspaceA)),
+    })
+
+    act(() =>
+      reactRoot.render(
+        <StrictMode>
+          <Harness workspace={workspaceA} />
+        </StrictMode>,
+      ),
+    )
+    await settle()
+
+    expect(current.state).toMatchObject({ status: 'ready', workspace: workspaceA })
+  })
+
   it('clears the prior model and watch paths when the workspace becomes undefined', async () => {
     invoke.mockResolvedValue({
       ok: true,
