@@ -106,6 +106,7 @@ export async function verifyDocumentReviewWorkflow(options: {
       `document.querySelector('.cm-content')?.getAttribute('aria-label') === 'Markdown source review'`,
     'source view did not project the rendered anchor with accessible review semantics',
   )
+  await proveReviewPanelClearsViewerControls(win)
   await captureSourceLineNumber(win, 2)
   await waitForRenderer(
     win,
@@ -195,7 +196,8 @@ export async function verifyDocumentReviewWorkflow(options: {
   }
   await waitForRenderer(
     win,
-    `document.querySelector('.document-review-delivery')?.textContent?.includes('Review comments remain draft')`,
+    `document.querySelector('.document-review-delivery-actions button:nth-child(2)')?.textContent?.trim() === 'Inserted' && ` +
+      `document.querySelector('.document-review-comment .review-draft')`,
     'insert did not preserve the draft lifecycle',
   )
 
@@ -596,6 +598,30 @@ async function proveComposeContextVisible(win: BrowserWindow): Promise<void> {
         };
         poll();
       })
+    `,
+  )
+}
+
+async function proveReviewPanelClearsViewerControls(win: BrowserWindow): Promise<void> {
+  await evaluateRenderer<void>(
+    win,
+    'review panel control-row geometry',
+    `
+      (() => {
+        const controls = document.querySelector('.viewer-floating-controls');
+        const panel = document.querySelector('.document-review-panel');
+        if (!(controls instanceof HTMLElement) || !(panel instanceof HTMLElement)) {
+          return { ok: false, error: 'review panel or viewer controls missing' };
+        }
+        const controlsRect = controls.getBoundingClientRect();
+        const panelRect = panel.getBoundingClientRect();
+        return panelRect.top >= controlsRect.bottom + 4
+          ? { ok: true }
+          : {
+              ok: false,
+              error: 'review panel overlapped the viewer control row'
+            };
+      })()
     `,
   )
 }

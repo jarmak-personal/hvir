@@ -55,6 +55,10 @@
   font-size: calc(11px * var(--hvir-interface-scale));
 }
 
+.viewer-body:has(.source-meta, .diff-labels) .document-review-panel {
+  top: 64px;
+}
+
 .document-review-panel > header,
 .document-review-comment-heading,
 .document-review-comment-actions,

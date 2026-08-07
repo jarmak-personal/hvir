@@ -19,7 +19,7 @@ export interface DocumentReviewDeliveryInteraction {
   readonly payload?: DocumentReviewDeliveryPayload
   readonly prepared?: PreparedDocumentReviewDelivery
   readonly error?: string
-  readonly message?: string
+  readonly copied: boolean
   readonly inserted: boolean
   readonly sent: boolean
   readonly previewComment: (commentId: string) => void
@@ -41,7 +41,7 @@ interface DeliveryState {
   readonly payload?: DocumentReviewDeliveryPayload
   readonly prepared?: PreparedDocumentReviewDelivery
   readonly error?: string
-  readonly message?: string
+  readonly copied: boolean
   readonly inserted: boolean
   readonly sent: boolean
 }
@@ -50,6 +50,7 @@ const CLOSED: DeliveryState = {
   open: false,
   loading: false,
   destinations: [],
+  copied: false,
   inserted: false,
   sent: false,
 }
@@ -77,6 +78,7 @@ export function useDocumentReviewDelivery(
       loading: true,
       destinations: [],
       selection,
+      copied: false,
       inserted: false,
       sent: false,
     })
@@ -101,6 +103,7 @@ export function useDocumentReviewDelivery(
         destinations,
         selection,
         payload,
+        copied: false,
         inserted: false,
         sent: false,
       })
@@ -112,6 +115,7 @@ export function useDocumentReviewDelivery(
         destinations: [],
         selection,
         error: errorMessage(reason),
+        copied: false,
         inserted: false,
         sent: false,
       })
@@ -132,7 +136,6 @@ export function useDocumentReviewDelivery(
         selectedDestination: undefined,
         prepared: undefined,
         error: undefined,
-        message: undefined,
         inserted: false,
       }))
       return
@@ -146,7 +149,6 @@ export function useDocumentReviewDelivery(
         selectedDestination: destination,
         prepared: undefined,
         error: undefined,
-        message: undefined,
         inserted: false,
       }))
       return
@@ -159,7 +161,6 @@ export function useDocumentReviewDelivery(
       selectedDestination: destination,
       prepared: undefined,
       error: undefined,
-      message: undefined,
       inserted: false,
       sent: false,
     }))
@@ -184,7 +185,6 @@ export function useDocumentReviewDelivery(
         payload: prepared.payload,
         prepared,
         error: undefined,
-        message: undefined,
         inserted: false,
         sent: false,
       }))
@@ -205,9 +205,9 @@ export function useDocumentReviewDelivery(
     const payload = state.payload
     if (!payload) return
     void writeReviewClipboard(payload.body).then(
-      () => setState((value) => ({ ...value, message: 'Exact preview copied.' })),
+      () => setState((value) => ({ ...value, copied: true, error: undefined })),
       (reason: unknown) =>
-        setState((value) => ({ ...value, error: errorMessage(reason) })),
+        setState((value) => ({ ...value, copied: false, error: errorMessage(reason) })),
     )
   }, [state.payload])
 
@@ -225,7 +225,6 @@ export function useDocumentReviewDelivery(
           ...value,
           loading: false,
           inserted: true,
-          message: 'Inserted into the composer. Review comments remain draft.',
         }))
       })
       .catch((reason: unknown) => {
@@ -267,8 +266,6 @@ export function useDocumentReviewDelivery(
               loading: false,
               prepared: undefined,
               sent: true,
-              message:
-                'Sent means the complete write was accepted at the PTY boundary; it does not mean the agent read, accepted, or resolved it.',
             }))
             return
           }
@@ -287,7 +284,6 @@ export function useDocumentReviewDelivery(
           loading: false,
           prepared: undefined,
           error: consumedSendError(result),
-          message: undefined,
         }))
       })
       .catch((reason: unknown) => {
@@ -311,7 +307,7 @@ export function useDocumentReviewDelivery(
       payload: undefined,
       prepared: undefined,
       error: 'The review changed. Preview the selection again.',
-      message: undefined,
+      copied: false,
       inserted: false,
       sent: false,
     }))

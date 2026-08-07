@@ -120,12 +120,13 @@ describe('document review delivery interaction', () => {
     expect(host.textContent).toContain('Codex')
     expect(host.textContent).toContain('live · host connected')
     expect(host.textContent).toContain('idle')
-    expect(host.textContent).toContain('cannot prove')
+    expect(host.textContent).not.toContain('cannot prove')
 
     click('Copy exact preview')
     await settle()
     expect(writeText).toHaveBeenCalledOnce()
     expect(writeText).toHaveBeenCalledWith(exactBody)
+    expect(button('Copied')).toBeTruthy()
     expect(review.state.model?.comments[0]?.lifecycle).toBe('draft')
 
     click('Insert into composer')
@@ -134,7 +135,8 @@ describe('document review delivery interaction', () => {
       preparedId: prepared.id,
     })
     expect(invoke.mock.calls.some(([channel]) => channel === 'pty:write')).toBe(false)
-    expect(host.textContent).toContain('Review comments remain draft')
+    expect(button('Inserted')).toBeTruthy()
+    expect(host.textContent).not.toContain('Review comments remain draft')
     expect(review.state.model?.comments[0]?.lifecycle).toBe('draft')
   })
 
@@ -198,34 +200,33 @@ describe('document review delivery interaction', () => {
     choose('shell')
 
     expect(host.textContent).toContain('Build shell')
-    expect(host.textContent).toContain('This provider has no trusted atomic composer contract')
+    expect(host.textContent).not.toContain('trusted atomic composer contract')
     expect(
       invoke.mock.calls.some(([channel]) => channel === 'document-review:prepare-delivery'),
     ).toBe(false)
-    expect(button('Insert into composer')?.disabled).toBe(true)
+    expect(button('Insert into composer')).toMatchObject({
+      disabled: true,
+      title: 'This provider is Copy-only',
+    })
   })
 
-  it.each([
-    ['working', 'reports that its harness is working', 'status'],
-    ['bell', 'requesting attention', 'alert'],
-  ] as const)(
-    'surfaces %s attention as a visible warning',
-    (attention, warning, role) => {
-      const destination = { ...prepared.destination, attention }
-      render(
-        <DocumentReviewDeliveryPanel
-          delivery={panelInteraction(destination)}
-        />,
-      )
+  it('keeps routine working attention in metadata without expanding a warning', () => {
+    const destination = { ...prepared.destination, attention: 'working' as const }
+    render(<DocumentReviewDeliveryPanel delivery={panelInteraction(destination)} />)
 
-      expect(host.textContent).toContain(`Attention${attention}`)
-      expect(
-        [...host.querySelectorAll(`[role="${role}"]`)].some((element) =>
-          element.textContent?.includes(warning),
-        ),
-      ).toBe(true)
-    },
-  )
+    expect(host.textContent).toContain('Attentionworking')
+    expect(host.textContent).not.toContain('reports that its harness is working')
+  })
+
+  it('surfaces a terminal attention request as an actionable warning', () => {
+    const destination = { ...prepared.destination, attention: 'bell' as const }
+    render(<DocumentReviewDeliveryPanel delivery={panelInteraction(destination)} />)
+
+    expect(host.textContent).toContain('Attentionbell')
+    expect(host.querySelector('[role="alert"]')?.textContent).toContain(
+      'requesting attention',
+    )
+  })
 
   it('keeps idle attention visible without an extra warning', () => {
     render(
@@ -280,10 +281,10 @@ describe('document review delivery interaction', () => {
     click('Insert into composer')
     await settle()
     expect(insertAttempts).toBe(2)
-    expect(host.textContent).toContain('Review comments remain draft')
+    expect(button('Inserted')).toBeTruthy()
   })
 
-  it('offers send-now separately, adopts durable sent state, and explains its boundary', async () => {
+  it('offers send-now separately and adopts durable sent state without routine caveats', async () => {
     vi.stubGlobal('navigator', {
       clipboard: { writeText: vi.fn(() => Promise.resolve()) },
     })
@@ -333,8 +334,8 @@ describe('document review delivery interaction', () => {
     choose('terminal-1')
     await settle()
 
-    expect(host.textContent).toContain('Send now writes the exact preview to Plan review')
-    expect(host.textContent).toContain('Sent means PTY-boundary acceptance only')
+    expect(host.textContent).not.toContain('Send now writes the exact preview')
+    expect(host.textContent).not.toContain('Sent means PTY-boundary acceptance only')
     click('Send exact review now')
     await settle()
 
@@ -344,9 +345,9 @@ describe('document review delivery interaction', () => {
     expect(adoptAuthoritative).toHaveBeenCalledWith(
       expect.objectContaining({ revision: 4, model: sentModel }),
     )
-    expect(host.textContent).toContain('accepted at the PTY boundary')
-    expect(host.textContent).toContain('does not mean the agent read, accepted, or resolved')
-    expect(button('Send exact review now')?.disabled).toBe(true)
+    expect(host.textContent).not.toContain('accepted at the PTY boundary')
+    expect(host.textContent).not.toContain('does not mean the agent read')
+    expect(button('Sent')?.disabled).toBe(true)
     expect(
       invoke.mock.calls.some(([channel]) => channel === 'pty:write'),
     ).toBe(false)
@@ -641,6 +642,7 @@ function panelInteraction(
     selectedDestination,
     payload,
     prepared: { ...prepared, destination: selectedDestination },
+    copied: false,
     inserted: false,
     sent: false,
     previewComment: () => undefined,

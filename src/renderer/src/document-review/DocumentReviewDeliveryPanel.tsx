@@ -66,18 +66,6 @@ export function DocumentReviewDeliveryPanel({
           </div>
         </dl>
       ) : null}
-      {selected ? (
-        <p className="document-review-warning" role="status">
-          hvir cannot prove that this terminal is currently showing its composer. The
-          selected destination stays fixed if focus, tabs, panes, or workspaces change.
-        </p>
-      ) : null}
-      {selected?.attention === 'working' ? (
-        <p className="document-review-warning" role="status">
-          This terminal reports that its harness is working. Review the exact destination
-          before inserting.
-        </p>
-      ) : null}
       {selected?.attention === 'bell' ? (
         <p className="document-review-warning" role="alert">
           This terminal is requesting attention. Resolve its current prompt or state before
@@ -97,7 +85,7 @@ export function DocumentReviewDeliveryPanel({
           </p>
           <div className="document-review-delivery-actions">
             <button type="button" disabled={delivery.loading} onClick={delivery.copy}>
-              Copy exact preview
+              {delivery.copied ? 'Copied' : 'Copy exact preview'}
             </button>
             <button
               type="button"
@@ -116,7 +104,7 @@ export function DocumentReviewDeliveryPanel({
               }
               onClick={delivery.insert}
             >
-              Insert into composer
+              {delivery.inserted ? 'Inserted' : 'Insert into composer'}
             </button>
             <button
               type="button"
@@ -128,32 +116,14 @@ export function DocumentReviewDeliveryPanel({
               }
               title={
                 delivery.prepared?.destination.capability === 'send-now'
-                  ? `Send this exact preview now to ${delivery.prepared.destination.title}. hvir cannot prove the foreground composer state.`
+                  ? `Send this exact preview now to ${delivery.prepared.destination.title}`
                   : 'This provider/launch has no proven submission contract'
               }
               onClick={delivery.sendNow}
             >
-              Send exact review now
+              {delivery.sent ? 'Sent' : 'Send exact review now'}
             </button>
           </div>
-          {selected?.capability === 'send-now' ? (
-            <p className="document-review-warning" role="status">
-              Send now writes the exact preview to {selected.title} and submits it through
-              {` ${selected.providerName}`}. hvir cannot prove the foreground TUI is showing
-              its composer. Sent means PTY-boundary acceptance only.
-            </p>
-          ) : null}
-          {selected?.capability === 'insert' ? (
-            <p className="document-review-guidance">
-              This provider supports atomic composer insertion but has no proven send-now
-              contract for this active launch.
-            </p>
-          ) : null}
-          {selected?.capability === 'copy-only' ? (
-            <p className="document-review-guidance">
-              This provider has no trusted atomic composer contract. It remains Copy-only.
-            </p>
-          ) : null}
         </>
       ) : null}
       {delivery.loading ? <p role="status">Preparing exact review…</p> : null}
@@ -162,7 +132,6 @@ export function DocumentReviewDeliveryPanel({
           {delivery.error}
         </p>
       ) : null}
-      {delivery.message ? <p role="status">{delivery.message}</p> : null}
     </section>
   )
 }
