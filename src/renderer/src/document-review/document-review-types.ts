@@ -1,5 +1,4 @@
 import type {
-  DocumentReviewComment,
   DocumentReviewModel,
   ReviewAnchorStaleReason,
   ReviewCommentLifecycle,
@@ -55,10 +54,6 @@ export type DocumentReviewAction =
         'ambiguous-match' | 'invalid-snapshot' | 'missing-match' | 'read-limit-exceeded'
       >
     })
-  | (WorkspaceAction & {
-      readonly type: 'mark-sent'
-      readonly commentIds: readonly string[]
-    })
   | (WorkspaceAction & { readonly type: 'resolve-comment'; readonly commentId: string })
   | (WorkspaceAction & {
       readonly type: 'clear-history'
@@ -79,7 +74,6 @@ export type DocumentReviewAction =
       readonly batchId: string
       readonly commentId: string
     })
-  | (WorkspaceAction & { readonly type: 'delete-batch'; readonly batchId: string })
 
 export interface ReviewPolicyError {
   readonly code:
@@ -136,13 +130,3 @@ export type ReviewDeliveryExclusion =
 export type ReviewDeliveryEligibility =
   | { readonly eligible: true }
   | { readonly eligible: false; readonly reason: ReviewDeliveryExclusion }
-
-export interface ReviewBatchMember {
-  readonly comment: DocumentReviewComment
-  readonly eligibility: ReviewDeliveryEligibility
-}
-
-export interface ReviewBatchDocumentGroup {
-  readonly document: HostPath
-  readonly members: readonly ReviewBatchMember[]
-}

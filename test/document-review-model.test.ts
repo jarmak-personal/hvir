@@ -8,7 +8,6 @@ import {
   createDocumentReviewModel,
   reviewCommentDeliveryEligibility,
   selectDocumentReviewComments,
-  selectReviewBatchDocumentGroups,
   type DocumentReviewAction,
   type DocumentReviewComment,
   type DocumentReviewModel,
@@ -274,20 +273,15 @@ describe('document review model', () => {
       document,
       reason: 'host-unavailable',
     })
-    expect(batchMember(model).eligibility).toEqual({
+    expect(reviewCommentDeliveryEligibility(model, model.comments[0]!)).toEqual({
       eligible: false,
       reason: 'stale-unreviewed',
     })
-    expect(
-      applyDocumentReviewAction(model, {
-        type: 'mark-sent',
-        workspace,
-        commentIds: ['draft'],
-      }),
-    ).toMatchObject({ ok: false, error: { code: 'invalid-comment' } })
 
     model = apply(model, { type: 'review-stale', workspace, commentId: 'draft' })
-    expect(batchMember(model).eligibility).toEqual({ eligible: true })
+    expect(reviewCommentDeliveryEligibility(model, model.comments[0]!)).toEqual({
+      eligible: true,
+    })
 
     const reanchored = apply(
       apply(emptyModel(), add('draft', 'Check this', capture(document, original, 2))),
@@ -327,7 +321,13 @@ describe('document review model', () => {
       batchId: 'history',
       commentIds: ['lifecycle'],
     })
-    model = apply(model, { type: 'mark-sent', workspace, commentIds: ['lifecycle'] })
+    model = {
+      ...model,
+      comments: model.comments.map((comment) => ({
+        ...comment,
+        lifecycle: 'sent' as const,
+      })),
+    }
     model = apply(model, {
       type: 'mark-document-stale',
       workspace,
@@ -380,81 +380,6 @@ describe('document review model', () => {
 
     model = apply(model, { type: 'remove-comment', workspace, commentId: 'second' })
     expect(model).toMatchObject({ comments: [], batches: [] })
-  })
-
-  it('groups a bounded batch deterministically across Markdown documents in one workspace', () => {
-    const alpha = localPath('/repo/a.md')
-    const zeta = localPath('/repo/z.md')
-    let model = emptyModel()
-    model = apply(model, add('zeta', 'Last document', capture(zeta, 'one\ntwo\n', 2)))
-    model = apply(model, add('alpha-late', 'Later line', capture(alpha, 'one\ntwo\n', 2)))
-    model = apply(
-      model,
-      add('alpha-first', 'Earlier line', capture(alpha, 'one\ntwo\n', 1)),
-    )
-    model = apply(model, {
-      type: 'create-batch',
-      workspace,
-      batchId: 'multi-document',
-      commentIds: ['zeta', 'alpha-late', 'alpha-first'],
-    })
-
-    const groups = selectReviewBatchDocumentGroups(model, 'multi-document')
-    expect(groups).toMatchObject({
-      ok: true,
-      value: [
-        {
-          document: alpha,
-          members: [
-            { comment: { id: 'alpha-first' }, eligibility: { eligible: true } },
-            { comment: { id: 'alpha-late' }, eligibility: { eligible: true } },
-          ],
-        },
-        {
-          document: zeta,
-          members: [{ comment: { id: 'zeta' }, eligibility: { eligible: true } }],
-        },
-      ],
-    })
-  })
-
-  it('rejects foreign or outside restored batch documents and preserves raw host paths', () => {
-    const alpha = localPath('/repo/a.md')
-    let model = apply(
-      emptyModel(),
-      add('alpha', 'Review', capture(alpha, 'one\ntwo\n', 2)),
-    )
-    model = apply(model, {
-      type: 'create-batch',
-      workspace,
-      batchId: 'restored',
-      commentIds: ['alpha'],
-    })
-
-    const groups = selectReviewBatchDocumentGroups(model, 'restored')
-    expect(groups).toEqual({
-      ok: true,
-      value: [
-        {
-          document: alpha,
-          members: [{ comment: model.comments[0], eligibility: { eligible: true } }],
-        },
-      ],
-    })
-
-    for (const invalidDocument of [
-      hostPath(asHostId('ssh:foreign'), '/repo/a.md'),
-      localPath('/other/a.md'),
-    ]) {
-      const restored: DocumentReviewModel = {
-        ...model,
-        comments: [{ ...model.comments[0]!, document: invalidDocument }],
-      }
-      expect(selectReviewBatchDocumentGroups(restored, 'restored')).toMatchObject({
-        ok: false,
-        error: { code: 'invalid-batch' },
-      })
-    }
   })
 
   it('rejects source, text, count, and batch bounds without truncation or partial changes', () => {
@@ -552,6 +477,7 @@ describe('document review model', () => {
   })
 
   it('enforces workspace comment and batch counts without changing rejected models', () => {
+    expect(DOCUMENT_REVIEW_LIMITS.batchesPerWorkspace).toBe(1)
     let comments = emptyModel()
     for (let index = 0; index < DOCUMENT_REVIEW_LIMITS.commentsPerWorkspace; index += 1) {
       const path = localPath(`/repo/count-${index}.md`)
@@ -725,7 +651,7 @@ describe('document review model', () => {
     expect(result.model).toBe(model)
   })
 
-  it('supports explicit batch membership and deletion actions without rechecking old members', () => {
+  it('supports explicit active-batch membership without rechecking old members', () => {
     let model = apply(emptyModel(), add('first', 'First', capture(document, original, 1)))
     model = apply(
       model,
@@ -737,7 +663,12 @@ describe('document review model', () => {
       batchId: 'actions',
       commentIds: ['first'],
     })
-    model = apply(model, { type: 'mark-sent', workspace, commentIds: ['first'] })
+    model = {
+      ...model,
+      comments: model.comments.map((comment) =>
+        comment.id === 'first' ? { ...comment, lifecycle: 'sent' as const } : comment,
+      ),
+    }
     model = apply(model, {
       type: 'add-to-batch',
       workspace,
@@ -776,22 +707,6 @@ describe('document review model', () => {
       batchId: 'actions',
       commentId: 'first',
     })
-    expect(model.batches).toEqual([])
-    const unknown = applyDocumentReviewAction(model, {
-      type: 'delete-batch',
-      workspace,
-      batchId: 'actions',
-    })
-    expect(unknown).toMatchObject({ ok: false, error: { code: 'unknown-batch' } })
-    expect(unknown.model).toBe(model)
-
-    model = apply(model, {
-      type: 'create-batch',
-      workspace,
-      batchId: 'delete-me',
-      commentIds: ['second'],
-    })
-    model = apply(model, { type: 'delete-batch', workspace, batchId: 'delete-me' })
     expect(model.batches).toEqual([])
   })
 
@@ -957,10 +872,4 @@ function apply(
   const result = applyDocumentReviewAction(model, action)
   if (!result.ok) throw new Error(`${result.error.code}: ${result.error.message}`)
   return result.model
-}
-
-function batchMember(model: DocumentReviewModel) {
-  const groups = selectReviewBatchDocumentGroups(model, 'batch')
-  if (!groups.ok) throw new Error(groups.error.message)
-  return groups.value[0]!.members[0]!
 }

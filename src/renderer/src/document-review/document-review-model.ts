@@ -7,13 +7,11 @@ import {
 import {
   addDocumentReviewBatchMember,
   createDocumentReviewBatch,
-  deleteDocumentReviewBatch,
   removeDocumentReviewBatchMember,
 } from './document-review-batches'
 import {
   clearDocumentReviewHistory,
   editDocumentReviewComment,
-  markDocumentReviewCommentsSent,
   removeDocumentReviewComment,
   resolveDocumentReviewComment,
   reviewStaleDocumentComment,
@@ -86,11 +84,6 @@ export function applyDocumentReviewAction(
       return revalidateDocument(model, action.document, action.snapshot, action.content)
     case 'mark-document-stale':
       return markDocumentStale(model, action.document, action.reason)
-    case 'mark-sent':
-      return applyAuthoritativeResult(
-        model,
-        markDocumentReviewCommentsSent(model, action.commentIds),
-      )
     case 'resolve-comment':
       return applyAuthoritativeResult(
         model,
@@ -112,11 +105,6 @@ export function applyDocumentReviewAction(
       return applyAuthoritativeResult(
         model,
         removeDocumentReviewBatchMember(model, action.batchId, action.commentId),
-      )
-    case 'delete-batch':
-      return applyAuthoritativeResult(
-        model,
-        deleteDocumentReviewBatch(model, action.batchId),
       )
   }
 }

@@ -174,6 +174,22 @@ export class DocumentReviewWorkspaceController {
     this.revalidate(current, event.path)
   }
 
+  readDocument(document: HostPath): Promise<DocumentReviewRevalidation> {
+    const current = this.readyState()
+    if (!current) {
+      return Promise.reject(
+        new Error('Document review is still restoring this workspace'),
+      )
+    }
+    const read = this.startRead(current, document)
+    return read.result.then((result) => {
+      if (!this.isReadCurrent(current, read.key, read.generation)) {
+        throw new Error('Document review read was superseded or revoked')
+      }
+      return result
+    })
+  }
+
   flush(): Promise<void> {
     return this.saveTail
   }
@@ -220,45 +236,55 @@ export class DocumentReviewWorkspaceController {
     current: ReadyDocumentReviewWorkspaceState,
     document: HostPath,
   ): void {
+    const read = this.startRead(current, document)
+    void read.result.then(
+      (result) => {
+        if (!this.isReadCurrent(current, read.key, read.generation)) return
+        this.apply(
+          result.status === 'read'
+            ? {
+                type: 'revalidate-document',
+                workspace: current.workspace,
+                document: result.document,
+                snapshot: result.snapshot,
+                content: result.content,
+              }
+            : {
+                type: 'mark-document-stale',
+                workspace: current.workspace,
+                document: result.document,
+                reason: result.reason,
+              },
+        )
+      },
+      () => {
+        if (!this.isReadCurrent(current, read.key, read.generation)) return
+        this.apply({
+          type: 'mark-document-stale',
+          workspace: current.workspace,
+          document,
+          reason: 'host-unavailable',
+        })
+      },
+    )
+  }
+
+  private startRead(
+    current: ReadyDocumentReviewWorkspaceState,
+    document: HostPath,
+  ): PendingDocumentReviewRead {
     const key = pathKey(document)
-    const readGeneration = (this.readGenerations.get(key) ?? 0) + 1
-    this.readGenerations.set(key, readGeneration)
-    void this.port
-      .revalidate({
+    const generation = (this.readGenerations.get(key) ?? 0) + 1
+    this.readGenerations.set(key, generation)
+    return {
+      key,
+      generation,
+      result: this.port.revalidate({
         workspace: current.workspace,
         workspaceGeneration: current.workspaceGeneration,
         document,
-      })
-      .then(
-        (result) => {
-          if (!this.isReadCurrent(current, key, readGeneration)) return
-          this.apply(
-            result.status === 'read'
-              ? {
-                  type: 'revalidate-document',
-                  workspace: current.workspace,
-                  document: result.document,
-                  snapshot: result.snapshot,
-                  content: result.content,
-                }
-              : {
-                  type: 'mark-document-stale',
-                  workspace: current.workspace,
-                  document: result.document,
-                  reason: result.reason,
-                },
-          )
-        },
-        () => {
-          if (!this.isReadCurrent(current, key, readGeneration)) return
-          this.apply({
-            type: 'mark-document-stale',
-            workspace: current.workspace,
-            document,
-            reason: 'host-unavailable',
-          })
-        },
-      )
+      }),
+    }
   }
 
   private queueSave(
@@ -372,6 +398,12 @@ type ReadyDocumentReviewWorkspaceState = DocumentReviewWorkspaceState & {
   readonly workspace: ReviewWorkspaceIdentity
   readonly workspaceGeneration: number
   readonly model: DocumentReviewModel
+}
+
+interface PendingDocumentReviewRead {
+  readonly key: string
+  readonly generation: number
+  readonly result: Promise<DocumentReviewRevalidation>
 }
 
 export function documentReviewPaths(model?: DocumentReviewModel): readonly HostPath[] {

@@ -8,6 +8,7 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { DocumentReviewWorkspaceBinding } from '../src/renderer/src/document-review/use-document-review-interaction'
+import { applyDocumentReviewAction } from '../src/renderer/src/document-review/document-review-model'
 import { FileViewer } from '../src/renderer/src/viewer/FileViewer'
 import { renderMarkdown } from '../src/renderer/src/viewer/markdown-client'
 import type { ViewerTab } from '../src/renderer/src/viewer/tab-state'
@@ -15,6 +16,7 @@ import {
   localPath,
   type DocumentReviewComment,
   type DocumentReviewModel,
+  type DocumentReviewRevalidation,
   type ReviewWorkspaceIdentity,
 } from '../src/shared'
 
@@ -58,11 +60,12 @@ afterEach(() => {
 
 describe('Markdown document review interaction', () => {
   it('keeps ambient source selection and copying inert until explicit comment submission', async () => {
+    const readDocument = vi.fn(authoritativeRead)
     const apply = vi.fn<DocumentReviewWorkspaceBinding['apply']>((_action) => ({
       ok: true,
       model: emptyModel(),
     }))
-    renderViewer(sourceTab(), binding(emptyModel(), apply))
+    renderViewer(sourceTab(), binding(emptyModel(), apply, readDocument))
     click('Enter Markdown review mode')
 
     act(() => {
@@ -85,6 +88,7 @@ describe('Markdown document review interaction', () => {
     })
 
     expect(apply).toHaveBeenCalledOnce()
+    expect(readDocument).toHaveBeenCalledExactlyOnceWith(documentPath)
     expect(apply.mock.calls[0]?.[0]).toMatchObject({
       type: 'add-comment',
       workspace,
@@ -92,22 +96,22 @@ describe('Markdown document review interaction', () => {
       capture: {
         document: documentPath,
         range: { startLine: 1, endLine: 1 },
-        snapshot: { algorithm: 'sha256' },
+        snapshot: { algorithm: 'sha256', digest: 'd'.repeat(64) },
+        content: '# Heading\n\nParagraph\n',
       },
     })
   })
 
-  it('revokes a late snapshot digest when the viewer interaction unmounts', async () => {
-    const digest = deferred<ArrayBuffer>()
-    vi.stubGlobal('crypto', {
-      subtle: { digest: vi.fn(() => digest.promise) },
-      randomUUID: vi.fn(() => 'late-comment'),
-    })
+  it('revokes a late authoritative read when the viewer interaction unmounts', async () => {
+    const read = deferred<DocumentReviewRevalidation>()
     const apply = vi.fn<DocumentReviewWorkspaceBinding['apply']>((_action) => ({
       ok: true,
       model: emptyModel(),
     }))
-    renderViewer(sourceTab(), binding(emptyModel(), apply))
+    renderViewer(
+      sourceTab(),
+      binding(emptyModel(), apply, () => read.promise),
+    )
     click('Enter Markdown review mode')
     act(() => editorView().dispatch({ selection: { anchor: 0, head: 8 } }))
     click('Add comment for selected source lines')
@@ -120,9 +124,81 @@ describe('Markdown document review interaction', () => {
     })
 
     await act(async () => {
-      digest.resolve(new Uint8Array(32).buffer)
+      read.resolve(readResult(documentPath))
       await settle()
     })
+    expect(apply).not.toHaveBeenCalled()
+  })
+
+  it('rejects a disk snapshot that diverged from the visible buffer without writing', async () => {
+    const apply = vi.fn<DocumentReviewWorkspaceBinding['apply']>()
+    renderViewer(
+      sourceTab(),
+      binding(emptyModel(), apply, (document) =>
+        Promise.resolve(readResult(document, '# Changed on disk\n')),
+      ),
+    )
+    click('Enter Markdown review mode')
+    act(() => editorView().dispatch({ selection: { anchor: 0, head: 8 } }))
+    click('Add comment for selected source lines')
+    setTextArea('New review comment', 'Must match what I reviewed')
+    await submitNewComment()
+
+    expect(host.querySelector('[role="alert"]')?.textContent).toContain(
+      'on-disk Markdown changed before capture',
+    )
+    expect(apply).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    [
+      'an incomplete bounded read',
+      () =>
+        Promise.resolve({
+          status: 'stale' as const,
+          document: documentPath,
+          reason: 'incomplete-read' as const,
+        }),
+      'exceeds the review read limit',
+    ],
+    [
+      'a failed host read',
+      () => Promise.reject(new Error('ProjectHost read failed')),
+      'ProjectHost read failed',
+    ],
+  ])('refuses capture after %s without writing', async (_case, readDocument, message) => {
+    const apply = vi.fn<DocumentReviewWorkspaceBinding['apply']>()
+    renderViewer(sourceTab(), binding(emptyModel(), apply, readDocument))
+    click('Enter Markdown review mode')
+    act(() => editorView().dispatch({ selection: { anchor: 0, head: 8 } }))
+    click('Add comment for selected source lines')
+    setTextArea('New review comment', 'Feedback')
+    await submitNewComment()
+
+    expect(host.querySelector('[role="alert"]')?.textContent).toContain(message)
+    expect(apply).not.toHaveBeenCalled()
+  })
+
+  it('revokes a late authoritative read when the visible path changes', async () => {
+    const read = deferred<DocumentReviewRevalidation>()
+    const apply = vi.fn<DocumentReviewWorkspaceBinding['apply']>()
+    const review = binding(emptyModel(), apply, () => read.promise)
+    renderViewer(sourceTab(), review)
+    click('Enter Markdown review mode')
+    act(() => editorView().dispatch({ selection: { anchor: 0, head: 8 } }))
+    click('Add comment for selected source lines')
+    setTextArea('New review comment', 'Late feedback')
+    act(() => {
+      host
+        .querySelector<HTMLTextAreaElement>('[aria-label="New review comment"]')
+        ?.form?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+    })
+    renderViewer(sourceTab({ path: localPath('/repo/other.md') }), review)
+    await act(async () => {
+      read.resolve(readResult(documentPath))
+      await settle()
+    })
+
     expect(apply).not.toHaveBeenCalled()
   })
 
@@ -146,6 +222,39 @@ describe('Markdown document review interaction', () => {
     expect(button('Re-anchor')?.disabled).toBe(true)
     act(() => editorView().dispatch({ selection: { anchor: 0, head: 8 } }))
     expect(apply).not.toHaveBeenCalled()
+  })
+
+  it('re-anchors a draft only after the authoritative disk read completes', async () => {
+    const draft = comment('reanchor', 'draft', 'stale')
+    const model = { ...emptyModel(), comments: [draft] }
+    const readDocument = vi.fn(authoritativeRead)
+    const apply = vi.fn<DocumentReviewWorkspaceBinding['apply']>((_action) => ({
+      ok: true,
+      model,
+    }))
+    renderViewer(sourceTab(), binding(model, apply, readDocument))
+    click('Enter Markdown review mode')
+    click('Re-anchor')
+    act(() => editorView().dispatch({ selection: { anchor: 0, head: 8 } }))
+    click('Add comment for selected source lines')
+    await act(async () => settle())
+
+    expect(readDocument).toHaveBeenCalledExactlyOnceWith(documentPath)
+    expect(apply).toHaveBeenCalledWith({
+      type: 'reanchor-comment',
+      workspace,
+      commentId: draft.id,
+      capture: {
+        document: documentPath,
+        content: '# Heading\n\nParagraph\n',
+        range: { startLine: 1, endLine: 1 },
+        snapshot: {
+          algorithm: 'sha256',
+          digest: 'd'.repeat(64),
+          byteLength: 21,
+        },
+      },
+    })
   })
 
   it('presents lifecycle, moved, and stale states with text and distinct semantics', () => {
@@ -238,6 +347,34 @@ describe('Markdown document review interaction', () => {
     expect(button('Enter Markdown review mode')).toBeTruthy()
   })
 
+  it('uses the same authoritative read for rendered capture as source capture', async () => {
+    vi.mocked(renderMarkdown).mockResolvedValue(
+      '<h1 data-source-line="1" data-source-end-line="1">Heading</h1>',
+    )
+    const readDocument = vi.fn(authoritativeRead)
+    const apply = vi.fn<DocumentReviewWorkspaceBinding['apply']>((_action) => ({
+      ok: true,
+      model: emptyModel(),
+    }))
+    renderViewer(renderedTab(), binding(emptyModel(), apply, readDocument))
+    await act(async () => settle())
+    click('Enter Markdown review mode')
+    await act(async () => settle())
+    click('Add comment for line 1')
+    setTextArea('New review comment', 'Rendered feedback')
+    await submitNewComment()
+
+    expect(readDocument).toHaveBeenCalledExactlyOnceWith(documentPath)
+    expect(apply.mock.calls[0]?.[0]).toMatchObject({
+      type: 'add-comment',
+      capture: {
+        document: documentPath,
+        content: '# Heading\n\nParagraph\n',
+        snapshot: { digest: 'd'.repeat(64) },
+      },
+    })
+  })
+
   it('keeps entry, editing, removal, resolution, navigation, and exit natively reachable', () => {
     const model = {
       ...emptyModel(),
@@ -281,6 +418,65 @@ describe('Markdown document review interaction', () => {
 
     click('Exit Markdown review mode')
     expect(button('Enter Markdown review mode')).toBeTruthy()
+  })
+
+  it('clears workspace history deliberately while preserving every draft', () => {
+    const model = {
+      ...emptyModel(),
+      comments: [
+        comment('keep-draft', 'draft', 'current'),
+        comment('old-sent', 'sent', 'current'),
+        comment('old-resolved', 'resolved', 'current'),
+      ],
+    }
+    let cleared: DocumentReviewModel = model
+    const apply = vi.fn<DocumentReviewWorkspaceBinding['apply']>((action) => {
+      const result = applyDocumentReviewAction(cleared, action)
+      if (result.ok) cleared = result.model
+      return result
+    })
+    renderViewer(sourceTab(), binding(model, apply))
+    click('Enter Markdown review mode')
+
+    const clear = button('Clear 2 sent and resolved review comments from this workspace')
+    expect(clear?.getAttribute('type')).toBe('button')
+    act(() => clear?.click())
+    expect(apply).toHaveBeenCalledWith({
+      type: 'clear-history',
+      workspace,
+      history: 'all',
+    })
+    expect(cleared.comments.map((candidate) => candidate.body)).toEqual(['keep-draft'])
+
+    renderViewer(sourceTab(), binding(cleared, apply))
+    expect(
+      button('Clear 1 sent and resolved review comment from this workspace'),
+    ).toBeUndefined()
+    expect(host.textContent).toContain('keep-draft')
+    expect(host.textContent).not.toContain('old-sent')
+    expect(host.textContent).not.toContain('old-resolved')
+  })
+
+  it('returns to the review empty state after clearing history-only records', () => {
+    const model = {
+      ...emptyModel(),
+      comments: [comment('old-sent', 'sent', 'current')],
+    }
+    let cleared: DocumentReviewModel = model
+    const apply = vi.fn<DocumentReviewWorkspaceBinding['apply']>((action) => {
+      const result = applyDocumentReviewAction(cleared, action)
+      if (result.ok) cleared = result.model
+      return result
+    })
+    renderViewer(sourceTab(), binding(model, apply))
+    click('Enter Markdown review mode')
+    click('Clear 1 sent and resolved review comment from this workspace')
+    renderViewer(sourceTab(), binding(cleared, apply))
+
+    expect(host.querySelector('.document-review-empty')?.textContent).toContain(
+      'Choose a rendered block or a source line range',
+    )
+    expect(host.querySelector('[aria-label="0 comments"]')).toBeTruthy()
   })
 
   it('adds and removes a draft from the exact workspace review batch', () => {
@@ -409,6 +605,7 @@ function tab(
 function binding(
   model: DocumentReviewModel,
   apply: DocumentReviewWorkspaceBinding['apply'],
+  readDocument: DocumentReviewWorkspaceBinding['readDocument'] = authoritativeRead,
 ): DocumentReviewWorkspaceBinding {
   return {
     state: {
@@ -420,8 +617,31 @@ function binding(
       model,
     },
     apply,
+    readDocument,
     flush: () => Promise.resolve(),
     adoptAuthoritative: () => true,
+  }
+}
+
+function authoritativeRead(
+  document: typeof documentPath,
+): Promise<DocumentReviewRevalidation> {
+  return Promise.resolve(readResult(document))
+}
+
+function readResult(
+  document: typeof documentPath,
+  content = '# Heading\n\nParagraph\n',
+): Extract<DocumentReviewRevalidation, { status: 'read' }> {
+  return {
+    status: 'read',
+    document,
+    snapshot: {
+      algorithm: 'sha256',
+      digest: 'd'.repeat(64),
+      byteLength: new TextEncoder().encode(content).byteLength,
+    },
+    content,
   }
 }
 
@@ -493,6 +713,15 @@ function setTextArea(label: string, value: string): void {
       value,
     )
     textarea?.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+}
+
+async function submitNewComment(): Promise<void> {
+  await act(async () => {
+    host
+      .querySelector<HTMLTextAreaElement>('[aria-label="New review comment"]')
+      ?.form?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+    await settle()
   })
 }
 

@@ -2,10 +2,7 @@ export {
   applyDocumentReviewAction,
   createDocumentReviewModel,
 } from './document-review-model'
-export {
-  selectDocumentReviewComments,
-  selectReviewBatchDocumentGroups,
-} from './document-review-selectors'
+export { selectDocumentReviewComments } from './document-review-selectors'
 export { reviewCommentDeliveryEligibility } from './document-review-eligibility'
 export { reviewWorkspaceEquals } from './document-review-validation'
 export {
@@ -19,7 +16,6 @@ export {
   type ReviewAnchorCapture,
   type ReviewAnchorState,
   type ReviewAnchorStaleReason,
-  type ReviewBatchDocumentGroup,
   type ReviewCommentLifecycle,
   type ReviewDeliveryEligibility,
   type ReviewDocumentSnapshot,

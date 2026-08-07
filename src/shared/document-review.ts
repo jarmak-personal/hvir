@@ -1,7 +1,7 @@
 import type { HostPath } from './host-path'
 
 export const DOCUMENT_REVIEW_LIMITS = {
-  batchesPerWorkspace: 32,
+  batchesPerWorkspace: 1,
   batchMembers: 64,
   commentsPerDocument: 64,
   commentsPerWorkspace: 256,

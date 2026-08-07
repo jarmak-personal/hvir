@@ -409,6 +409,7 @@ describe('document review delivery interaction', () => {
         return controller.snapshot()
       },
       apply: (action) => controller.apply(action),
+      readDocument: (document) => controller.readDocument(document),
       flush: () => controller.flush(),
       adoptAuthoritative: (snapshot) => controller.adoptAuthoritative(snapshot),
     }
@@ -682,6 +683,8 @@ function binding(reviewModel: DocumentReviewModel): DocumentReviewWorkspaceBindi
       model: reviewModel,
     },
     apply: () => ({ ok: true, model: reviewModel }),
+    readDocument: (document) =>
+      Promise.resolve({ status: 'stale', document, reason: 'host-unavailable' }),
     flush: () => Promise.resolve(),
     adoptAuthoritative: () => true,
   }

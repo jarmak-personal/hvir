@@ -83,19 +83,6 @@ export function removeDocumentReviewBatchMember(
   )
 }
 
-export function deleteDocumentReviewBatch(
-  model: DocumentReviewModel,
-  batchId: string,
-): ReviewPolicyResult<DocumentReviewModel> {
-  if (!model.batches.some((batch) => batch.id === batchId)) {
-    return failure('unknown-batch', 'The review batch does not exist')
-  }
-  return success({
-    ...model,
-    batches: model.batches.filter((batch) => batch.id !== batchId),
-  })
-}
-
 function validateBatchMembers(
   model: DocumentReviewModel,
   commentIds: readonly string[],

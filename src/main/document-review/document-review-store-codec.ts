@@ -91,14 +91,11 @@ export function parseReviewModel(value: unknown): DocumentReviewModel | undefine
     commentIds.add(comment.id)
     comments.push(comment)
   }
-  const batches: DocumentReviewBatch[] = []
-  const batchIds = new Set<string>()
-  for (const raw of rawBatches) {
-    const batch = parseBatch(raw, workspace, commentIds)
-    if (!batch || batchIds.has(batch.id)) return undefined
-    batchIds.add(batch.id)
-    batches.push(batch)
-  }
+  const batch = rawBatches[0]
+    ? parseBatch(rawBatches[0], workspace, commentIds)
+    : undefined
+  if (rawBatches.length === 1 && !batch) return undefined
+  const batches: DocumentReviewBatch[] = batch ? [batch] : []
   return { workspace, comments, batches }
 }
 

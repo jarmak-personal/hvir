@@ -165,6 +165,96 @@ describe('document review workspace controller', () => {
     expect(revalidate).toHaveBeenCalledOnce()
   })
 
+  it('returns an authoritative bounded read without queueing a write', async () => {
+    const read: DocumentReviewRevalidation = {
+      status: 'read',
+      document: documentA,
+      snapshot: sourceSnapshot(content),
+      content,
+    }
+    const revalidate = vi.fn(() => Promise.resolve(read))
+    const save = vi.fn<DocumentReviewWorkspacePort['save']>()
+    const fixture = createFixture({ revalidate, save })
+    fixture.controller.activate(workspaceA)
+    await settle()
+
+    await expect(fixture.controller.readDocument(documentA)).resolves.toBe(read)
+    expect(revalidate).toHaveBeenCalledExactlyOnceWith({
+      workspace: workspaceA,
+      workspaceGeneration: 7,
+      document: documentA,
+    })
+    expect(save).not.toHaveBeenCalled()
+  })
+
+  it('passes through stale capture reads and rejects failed or revoked reads without writing', async () => {
+    const late = deferred<DocumentReviewRevalidation>()
+    const revalidate = vi
+      .fn<DocumentReviewWorkspacePort['revalidate']>()
+      .mockResolvedValueOnce({
+        status: 'stale',
+        document: documentA,
+        reason: 'incomplete-read',
+      })
+      .mockRejectedValueOnce(new Error('ProjectHost read failed'))
+      .mockReturnValueOnce(late.promise)
+    const save = vi.fn<DocumentReviewWorkspacePort['save']>()
+    const fixture = createFixture({ revalidate, save })
+    fixture.controller.activate(workspaceA)
+    await settle()
+
+    await expect(fixture.controller.readDocument(documentA)).resolves.toMatchObject({
+      status: 'stale',
+      reason: 'incomplete-read',
+    })
+    await expect(fixture.controller.readDocument(documentA)).rejects.toThrow(
+      /ProjectHost read failed/,
+    )
+    const reading = fixture.controller.readDocument(documentA)
+    fixture.controller.activate(workspaceB)
+    late.resolve({
+      status: 'read',
+      document: documentA,
+      snapshot: sourceSnapshot(content),
+      content,
+    })
+    await expect(reading).rejects.toThrow(/superseded|revoked/)
+    expect(save).not.toHaveBeenCalled()
+  })
+
+  it('persists explicit history clearing while retaining drafts and their batch', async () => {
+    const history = modelWithHistory()
+    const save = vi.fn<DocumentReviewWorkspacePort['save']>((request) =>
+      Promise.resolve(stored(request.workspace, 4, request.model)),
+    )
+    const fixture = createFixture({
+      restore: vi.fn(() => Promise.resolve(stored(workspaceA, 3, history))),
+      save,
+    })
+    fixture.controller.activate(workspaceA)
+    await settle()
+
+    expect(
+      fixture.controller.apply({
+        type: 'clear-history',
+        workspace: workspaceA,
+        history: 'all',
+      }),
+    ).toMatchObject({ ok: true })
+    await fixture.controller.flush()
+
+    expect(save).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({
+        expectedRevision: 3,
+        model: {
+          workspace: workspaceA,
+          comments: [expect.objectContaining({ id: 'comment', lifecycle: 'draft' })],
+          batches: [expect.objectContaining({ commentIds: ['comment'] })],
+        },
+      }),
+    )
+  })
+
   it('adopts the authoritative durable sent snapshot without queueing a duplicate save', async () => {
     const save = vi.fn<DocumentReviewWorkspacePort['save']>()
     const fixture = createFixture({
@@ -197,7 +287,9 @@ describe('document review workspace controller', () => {
       }),
     ).toBe(false)
     expect(
-      fixture.controller.adoptAuthoritative(stored(workspaceB, 5, emptyModel(workspaceB))),
+      fixture.controller.adoptAuthoritative(
+        stored(workspaceB, 5, emptyModel(workspaceB)),
+      ),
     ).toBe(false)
     fixture.controller.deactivate()
     expect(fixture.controller.adoptAuthoritative(stored(workspaceA, 5, sent))).toBe(false)
@@ -284,6 +376,28 @@ function modelWithComment(
       },
     ],
     batches: [],
+  }
+}
+
+function modelWithHistory(): DocumentReviewModel {
+  const draft = modelWithComment(workspaceA, documentA).comments[0]!
+  const sent = { ...draft, id: 'sent', body: 'Sent', lifecycle: 'sent' as const }
+  const resolved = {
+    ...draft,
+    id: 'resolved',
+    body: 'Resolved',
+    lifecycle: 'resolved' as const,
+  }
+  return {
+    workspace: workspaceA,
+    comments: [draft, sent, resolved],
+    batches: [
+      {
+        id: 'active-review',
+        workspace: workspaceA,
+        commentIds: ['comment', 'sent', 'resolved'],
+      },
+    ],
   }
 }
 

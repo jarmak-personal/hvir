@@ -60,32 +60,6 @@ export function reviewStaleDocumentComment(
   )
 }
 
-export function markDocumentReviewCommentsSent(
-  model: DocumentReviewModel,
-  commentIds: readonly string[],
-): ReviewPolicyResult<DocumentReviewModel> {
-  const ids = new Set(commentIds)
-  if (ids.size === 0 || ids.size !== commentIds.length) {
-    return failure('invalid-comment', 'Sent transitions need unique draft comments')
-  }
-  for (const id of ids) {
-    const comment = findComment(model, id)
-    if (!comment) return failure('unknown-comment', 'The review comment does not exist')
-    if (comment.lifecycle !== 'draft') {
-      return failure('comment-not-draft', 'Only draft comments may be marked sent')
-    }
-    if (comment.anchor.state.status === 'stale' && !comment.anchor.state.reviewed) {
-      return failure('invalid-comment', 'Unreviewed stale comments cannot be sent')
-    }
-  }
-  return success({
-    ...model,
-    comments: model.comments.map((comment) =>
-      ids.has(comment.id) ? { ...comment, lifecycle: 'sent' as const } : comment,
-    ),
-  })
-}
-
 export function resolveDocumentReviewComment(
   model: DocumentReviewModel,
   commentId: string,

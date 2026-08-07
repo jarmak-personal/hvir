@@ -72,6 +72,15 @@ export function DocumentReviewPanel({
             Preview batch {interaction.activeBatchCount}
           </button>
         ) : null}
+        {interaction.historyCount > 0 ? (
+          <button
+            type="button"
+            aria-label={`Clear ${interaction.historyCount} sent and resolved review ${interaction.historyCount === 1 ? 'comment' : 'comments'} from this workspace`}
+            onClick={interaction.clearHistory}
+          >
+            Clear history {interaction.historyCount}
+          </button>
+        ) : null}
       </header>
       {interaction.dirty ? (
         <p className="document-review-guidance" role="status">

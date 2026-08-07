@@ -1,33 +1,14 @@
-import type { HostPath } from '../../../shared'
-import type {
-  ReviewAnchorCapture,
-  ReviewDocumentSnapshot,
-  ReviewSourceRange,
-} from './document-review-types'
+import type { DocumentReviewRevalidation } from '../../../shared'
+import type { ReviewAnchorCapture, ReviewSourceRange } from './document-review-types'
 
-export async function createDocumentReviewCapture(
-  document: HostPath,
-  content: string,
+export function createDocumentReviewCapture(
+  read: Extract<DocumentReviewRevalidation, { status: 'read' }>,
   range: ReviewSourceRange,
-): Promise<ReviewAnchorCapture> {
+): ReviewAnchorCapture {
   return {
-    document,
-    content,
+    document: read.document,
+    content: read.content,
     range,
-    snapshot: await createDocumentReviewSnapshot(content),
-  }
-}
-
-export async function createDocumentReviewSnapshot(
-  content: string,
-): Promise<ReviewDocumentSnapshot> {
-  const bytes = new TextEncoder().encode(content)
-  const digest = await crypto.subtle.digest('SHA-256', bytes)
-  return {
-    algorithm: 'sha256',
-    digest: [...new Uint8Array(digest)]
-      .map((byte) => byte.toString(16).padStart(2, '0'))
-      .join(''),
-    byteLength: bytes.byteLength,
+    snapshot: read.snapshot,
   }
 }

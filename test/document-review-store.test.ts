@@ -191,6 +191,19 @@ describe('document review store', () => {
       comments: [{ ...valid.comments[0]!, body: 'x'.repeat(9 * 1024) }],
     }
     expect(() => store.save(0, invalid)).toThrow(/Invalid bounded/)
+
+    const multiBatch: DocumentReviewModel = {
+      ...valid,
+      batches: [
+        {
+          id: 'active-review',
+          workspace: localWorkspace,
+          commentIds: [valid.comments[0]!.id],
+        },
+        { id: 'second', workspace: localWorkspace, commentIds: [valid.comments[0]!.id] },
+      ],
+    }
+    expect(() => store.save(0, multiBatch)).toThrow(/Invalid bounded/)
   })
 })
 

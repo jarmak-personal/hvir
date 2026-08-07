@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto'
+
 import { describe, expect, it, vi } from 'vitest'
 
 import { DocumentReviewCoordinator } from '../src/main/document-review/document-review-coordinator'
@@ -50,7 +52,10 @@ describe('document review coordinator', () => {
         status: 'read',
         document,
         content,
-        snapshot: { byteLength: Buffer.byteLength(content) },
+        snapshot: {
+          digest: createHash('sha256').update(content).digest('hex'),
+          byteLength: Buffer.byteLength(content),
+        },
       })
       expect(readTextFilePrefix.mock.calls[0]?.slice(0, 2)).toEqual([
         document,

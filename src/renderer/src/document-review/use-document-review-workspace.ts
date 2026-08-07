@@ -64,6 +64,11 @@ function useDocumentReviewWorkspaceState(workspace?: ReviewWorkspaceIdentity) {
     (event: WatchEvent): void => controller.current?.handleWatch(event),
     [],
   )
+  const readDocument = useCallback(
+    (document: import('../../../shared').HostPath) =>
+      controller.current!.readDocument(document),
+    [],
+  )
   const adoptAuthoritative = useCallback(
     (snapshot: import('../../../shared').DocumentReviewWorkspaceSnapshot) =>
       controller.current!.adoptAuthoritative(snapshot),
@@ -74,6 +79,7 @@ function useDocumentReviewWorkspaceState(workspace?: ReviewWorkspaceIdentity) {
   return {
     state,
     apply,
+    readDocument,
     flush: () => controller.current!.flush(),
     adoptAuthoritative,
     handleWatchEvent,

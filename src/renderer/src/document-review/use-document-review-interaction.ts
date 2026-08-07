@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   hostPathEquals,
   renderedFileType,
+  type DocumentReviewRevalidation,
   type DocumentReviewWorkspaceSnapshot,
   type HostPath,
 } from '../../../shared'
@@ -26,6 +27,7 @@ const ACTIVE_BATCH_ID = 'active-review'
 export interface DocumentReviewWorkspaceBinding {
   readonly state: DocumentReviewWorkspaceState
   readonly apply: (action: DocumentReviewAction) => DocumentReviewActionResult
+  readonly readDocument: (document: HostPath) => Promise<DocumentReviewRevalidation>
   readonly flush: () => Promise<void>
   readonly adoptAuthoritative: (snapshot: DocumentReviewWorkspaceSnapshot) => boolean
 }
@@ -58,6 +60,7 @@ export interface DocumentReviewInteraction {
   readonly inBatch: ReadonlySet<string>
   readonly activeBatchId?: string
   readonly activeBatchCount: number
+  readonly historyCount: number
   readonly delivery: DocumentReviewDeliveryInteraction
   readonly projection?: DocumentReviewDocumentProjection
   readonly toggle: () => void
@@ -69,6 +72,7 @@ export interface DocumentReviewInteraction {
   readonly remove: (commentId: string) => void
   readonly beginReanchor: (commentId: string) => void
   readonly resolve: (commentId: string) => void
+  readonly clearHistory: () => void
   readonly reviewStale: (commentId: string) => void
   readonly toggleBatch: (commentId: string) => void
   readonly navigate: (comment: DocumentReviewComment) => void
@@ -105,6 +109,8 @@ export function useDocumentReviewInteraction(
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [available, document?.path.hostId, document?.path.path, model])
   const activeBatch = model?.batches.find((batch) => batch.id === ACTIVE_BATCH_ID)
+  const historyCount =
+    model?.comments.filter((comment) => comment.lifecycle !== 'draft').length ?? 0
   const inBatch = useMemo(
     () => new Set(activeBatch?.commentIds ?? []),
     [activeBatch?.commentIds],
@@ -172,16 +178,24 @@ export function useDocumentReviewInteraction(
       const content = target.content
       const path = target.path
       const generation = (captureGeneration.current += 1)
-      let captured: ReviewAnchorCapture
+      let read: DocumentReviewRevalidation
       try {
-        captured = await createDocumentReviewCapture(path, content, range)
-      } catch {
+        read = await snapshot.binding!.readDocument(path)
+      } catch (reason) {
         if (captureGeneration.current === generation) {
-          setError('The on-disk review snapshot could not be prepared')
+          setError(
+            reason instanceof Error
+              ? reason.message
+              : 'The on-disk review snapshot could not be prepared',
+          )
         }
         return
       }
       if (captureGeneration.current !== generation) return
+      if (read.status === 'stale') {
+        setError(captureReadError(read.reason))
+        return
+      }
       const latest = current.current.document
       if (
         !latest ||
@@ -192,6 +206,13 @@ export function useDocumentReviewInteraction(
         setError('The document changed while its review location was being captured')
         return
       }
+      if (!hostPathEquals(read.document, path) || read.content !== content) {
+        setError(
+          'The on-disk Markdown changed before capture. Reload it and choose the location again.',
+        )
+        return
+      }
+      const captured: ReviewAnchorCapture = createDocumentReviewCapture(read, range)
       if (
         apply(
           commentId
@@ -291,6 +312,7 @@ export function useDocumentReviewInteraction(
     inBatch,
     activeBatchId: activeBatch?.id,
     activeBatchCount: activeBatch?.commentIds.length ?? 0,
+    historyCount,
     delivery,
     projection,
     toggle: () => {
@@ -341,6 +363,12 @@ export function useDocumentReviewInteraction(
         workspace,
         commentId,
       })),
+    clearHistory: () =>
+      workspaceAction((workspace) => ({
+        type: 'clear-history',
+        workspace,
+        history: 'all',
+      })),
     reviewStale: (commentId) =>
       workspaceAction((workspace) => ({
         type: 'review-stale',
@@ -371,5 +399,20 @@ export function useDocumentReviewInteraction(
               },
       ),
     navigate: (comment) => onNavigate(comment.anchor.range.startLine),
+  }
+}
+
+function captureReadError(
+  reason: Extract<DocumentReviewRevalidation, { status: 'stale' }>['reason'],
+): string {
+  switch (reason) {
+    case 'deleted':
+      return 'The on-disk Markdown document no longer exists'
+    case 'host-unavailable':
+      return 'The document host is unavailable for review capture'
+    case 'incomplete-read':
+      return 'The on-disk Markdown document exceeds the review read limit'
+    case 'invalid-text':
+      return 'The on-disk document is not valid reviewable Markdown text'
   }
 }
