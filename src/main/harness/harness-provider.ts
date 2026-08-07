@@ -735,8 +735,6 @@ function documentReviewInsertContract(
       launch.profile.providerId === provider.manifest.id &&
       launch.profile.providerContractVersion === provider.profile.version &&
       launch.profile.executable.kind === 'provider-default' &&
-      launch.profile.environment.length === 0 &&
-      launch.profile.pathBindings.length === 0 &&
       supportsProfile(launch.profile) &&
       launch.effectiveCapabilities.reviewInsertContractRevision === revision
     )
@@ -761,8 +759,6 @@ function codexDocumentReviewSendNowContract(
     launch.profile.providerId === codexProvider.manifest.id &&
     launch.profile.providerContractVersion === codexProvider.profile.version &&
     launch.profile.executable.kind === 'provider-default' &&
-    launch.profile.environment.length === 0 &&
-    launch.profile.pathBindings.length === 0 &&
     supportsCodexDocumentReviewProfile(launch.profile) &&
     launch.effectiveCapabilities.reviewInsertContractRevision === insert.revision &&
     launch.effectiveCapabilities.reviewSendNowContractRevision === revision
@@ -783,41 +779,22 @@ function codexDocumentReviewSendNowContract(
 function supportsDefaultDocumentReviewProfile(
   profile: HarnessDocumentReviewInsertLaunch['profile'],
 ): boolean {
-  return profile.args.length === 0 && profile.risk === 'standard'
+  return (
+    profile.args.length === 0 &&
+    profile.environment.length === 0 &&
+    profile.pathBindings.length === 0 &&
+    profile.risk === 'standard'
+  )
 }
 
-/** Codex flags that alter authority or writable roots without changing TUI input semantics. */
+/**
+ * A live Codex process launched through the provider default remains an explicit
+ * best-effort composer target. Profile customization can make the attempt fail,
+ * but it must not silently retarget the provider-owned framing contract.
+ */
 function supportsCodexDocumentReviewProfile(
-  profile: HarnessDocumentReviewInsertLaunch['profile'],
+  _profile: HarnessDocumentReviewInsertLaunch['profile'],
 ): boolean {
-  if (profile.args.length === 0) return profile.risk === 'standard'
-  const args = profile.args.map((argument) => {
-    const [part] = argument.parts
-    return argument.parts.length === 1 && part?.kind === 'literal'
-      ? part.value
-      : undefined
-  })
-  if (args.some((argument) => argument === undefined)) return false
-  for (let index = 0; index < args.length; index += 1) {
-    const argument = args[index]!
-    if (
-      argument === '--yolo' ||
-      argument === '--dangerously-bypass-approvals-and-sandbox'
-    ) {
-      continue
-    }
-    if (argument === '--add-dir') {
-      const path = args[++index]
-      if (!path?.startsWith('/') || hasControlCharacter(path)) return false
-      continue
-    }
-    if (argument.startsWith('--add-dir=')) {
-      const path = argument.slice('--add-dir='.length)
-      if (!path.startsWith('/') || hasControlCharacter(path)) return false
-      continue
-    }
-    return false
-  }
   return true
 }
 

@@ -371,6 +371,7 @@ function MarkdownView({
       dirty: documentReview.dirty,
       comments: documentReview.comments,
       onCapture: documentReview.onCapture,
+      onOpenComment: documentReview.onOpenComment,
       onExit: documentReview.onExit,
     })
   }, [documentReview, html])

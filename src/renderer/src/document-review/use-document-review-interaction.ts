@@ -44,6 +44,7 @@ export interface DocumentReviewDocumentProjection {
   readonly dirty: boolean
   readonly comments: readonly DocumentReviewComment[]
   readonly onCapture: (range: ReviewSourceRange) => void
+  readonly onOpenComment: (comment: DocumentReviewComment) => void
   readonly onSourceRange: (range?: ReviewSourceRange) => void
   readonly onExit: () => void
 }
@@ -57,6 +58,7 @@ export interface DocumentReviewInteraction {
   readonly pendingRange?: ReviewSourceRange
   readonly reanchorCommentId?: string
   readonly error?: string
+  readonly commentNavigation?: { readonly id: string; readonly request: number }
   readonly inBatch: ReadonlySet<string>
   readonly activeBatchId?: string
   readonly activeBatchCount: number
@@ -88,8 +90,13 @@ export function useDocumentReviewInteraction(
   const [pendingRange, setPendingRange] = useState<ReviewSourceRange>()
   const [reanchorCommentId, setReanchorCommentId] = useState<string>()
   const [error, setError] = useState<string>()
+  const [commentNavigation, setCommentNavigation] = useState<{
+    readonly id: string
+    readonly request: number
+  }>()
   const current = useRef({ document, binding })
   const captureGeneration = useRef(0)
+  const commentNavigationRequest = useRef(0)
   const delivery = useDocumentReviewDelivery(binding)
   current.current = { document, binding }
 
@@ -122,6 +129,7 @@ export function useDocumentReviewInteraction(
     setSourceRange(undefined)
     setPendingRange(undefined)
     setReanchorCommentId(undefined)
+    setCommentNavigation(undefined)
     setError(undefined)
   }, [])
   useEffect(() => {
@@ -131,6 +139,7 @@ export function useDocumentReviewInteraction(
     captureGeneration.current += 1
     setPendingRange(undefined)
     setReanchorCommentId(undefined)
+    setCommentNavigation(undefined)
     setError(undefined)
   }, [
     binding?.state.workspace?.id,
@@ -260,6 +269,16 @@ export function useDocumentReviewInteraction(
         : range,
     )
   }, [])
+  const openComment = useCallback((comment: DocumentReviewComment): void => {
+    setActive(true)
+    setPendingRange(undefined)
+    setReanchorCommentId(undefined)
+    setError(undefined)
+    setCommentNavigation({
+      id: comment.id,
+      request: (commentNavigationRequest.current += 1),
+    })
+  }, [])
   const submit = useCallback(
     async (body: string): Promise<void> => {
       if (!pendingRange) return
@@ -285,6 +304,7 @@ export function useDocumentReviewInteraction(
             dirty: Boolean(document?.dirty),
             comments,
             onCapture: requestCapture,
+            onOpenComment: openComment,
             onSourceRange: acceptSourceRange,
             onExit: exit,
           }
@@ -296,6 +316,7 @@ export function useDocumentReviewInteraction(
       comments,
       document?.dirty,
       exit,
+      openComment,
       requestCapture,
     ],
   )
@@ -309,6 +330,7 @@ export function useDocumentReviewInteraction(
     pendingRange,
     reanchorCommentId,
     error,
+    commentNavigation,
     inBatch,
     activeBatchId: activeBatch?.id,
     activeBatchCount: activeBatch?.commentIds.length ?? 0,

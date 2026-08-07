@@ -68,10 +68,29 @@ export async function verifyDocumentReviewWorkflow(options: {
     `document.querySelector('[aria-label="New review comment"]')`,
     'rendered keyboard capture did not open a comment form',
   )
+  await proveComposeContextVisible(win)
   await focusRenderer(win, '[aria-label="New review comment"]')
   await win.webContents.insertText(COMMENT)
   await activateControl(win, '.document-review-compose button[type="submit"]')
   await waitForComment(win, 'draft')
+  await waitForRenderer(
+    win,
+    `document.querySelector('.review-block-badge') instanceof HTMLButtonElement`,
+    'rendered note badge did not project after comment submission',
+  )
+  await activateControl(win, '[aria-label="Exit Markdown review mode"]')
+  await waitForRenderer(
+    win,
+    `document.querySelector('.review-block-badge') instanceof HTMLButtonElement`,
+    'rendered note badge did not remain available outside review mode',
+  )
+  await activateControl(win, '.review-block-badge')
+  await waitForRenderer(
+    win,
+    `document.querySelector('[aria-label="Markdown review comments"]') && ` +
+      `document.activeElement?.classList.contains('document-review-comment')`,
+    'rendered note badge did not reopen review mode and focus its comment',
+  )
   await activateControl(win, '[aria-label*="to review batch"]')
   await waitForRenderer(
     win,
@@ -87,6 +106,14 @@ export async function verifyDocumentReviewWorkflow(options: {
       `document.querySelector('.cm-content')?.getAttribute('aria-label') === 'Markdown source review'`,
     'source view did not project the rendered anchor with accessible review semantics',
   )
+  await captureSourceLineNumber(win, 2)
+  await waitForRenderer(
+    win,
+    `document.querySelector('[aria-label="New comment for Line 2"]') && ` +
+      `document.activeElement?.getAttribute('aria-label') === 'New review comment'`,
+    'source line-number capture did not focus a line-specific comment form',
+  )
+  await activateControl(win, '.document-review-compose button[type="button"]')
 
   await host.writeFile(document, `# Shifted before review\n\n${documentContents}`)
   await waitForRenderer(
@@ -528,6 +555,77 @@ async function proveRenderedControlsUseLeftGutter(win: BrowserWindow): Promise<v
         };
         poll();
       })
+    `,
+  )
+}
+
+async function proveComposeContextVisible(win: BrowserWindow): Promise<void> {
+  await evaluateRenderer<void>(
+    win,
+    'review composer focus geometry',
+    `
+      new Promise((resolve) => {
+        const deadline = Date.now() + ${TIMEOUT_MS};
+        const poll = () => {
+          const panel = document.querySelector('.document-review-panel');
+          const form = document.querySelector('.document-review-compose');
+          const label = form?.querySelector('label > span');
+          const textarea = form?.querySelector('textarea');
+          if (
+            panel instanceof HTMLElement &&
+            label instanceof HTMLElement &&
+            textarea instanceof HTMLTextAreaElement
+          ) {
+            const panelRect = panel.getBoundingClientRect();
+            const labelRect = label.getBoundingClientRect();
+            const textareaRect = textarea.getBoundingClientRect();
+            if (
+              document.activeElement === textarea &&
+              labelRect.top >= panelRect.top &&
+              labelRect.bottom + 3 <= textareaRect.top
+            ) return resolve({ ok: true });
+            return resolve({
+              ok: false,
+              error: 'focused review composer obscured its source line label'
+            });
+          }
+          if (Date.now() > deadline) {
+            return resolve({ ok: false, error: 'review composer geometry unavailable' });
+          }
+          setTimeout(poll, 25);
+        };
+        poll();
+      })
+    `,
+  )
+}
+
+async function captureSourceLineNumber(win: BrowserWindow, line: number): Promise<void> {
+  await evaluateRenderer<void>(
+    win,
+    `source line ${line} review capture`,
+    `
+      (() => {
+        try {
+          const marker = [...document.querySelectorAll(
+            '.cm-lineNumbers .cm-gutterElement'
+          )].find((candidate) => candidate.textContent?.trim() === ${JSON.stringify(String(line))});
+          if (!(marker instanceof HTMLElement)) {
+            throw new Error('source line-number gutter marker missing');
+          }
+          const rect = marker.getBoundingClientRect();
+          marker.dispatchEvent(new MouseEvent('mousedown', {
+            bubbles: true,
+            cancelable: true,
+            button: 0,
+            clientX: rect.left + rect.width / 2,
+            clientY: rect.top + rect.height / 2
+          }));
+          return { ok: true };
+        } catch (error) {
+          return { ok: false, error: String(error) };
+        }
+      })()
     `,
   )
 }

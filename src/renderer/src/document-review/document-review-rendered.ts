@@ -11,6 +11,7 @@ export interface RenderedReviewProjection {
   readonly dirty: boolean
   readonly comments: readonly DocumentReviewComment[]
   readonly onCapture: (range: ReviewSourceRange) => void
+  readonly onOpenComment: (comment: DocumentReviewComment) => void
   readonly onExit: () => void
 }
 
@@ -59,6 +60,17 @@ export function bindRenderedDocumentReview(
   const onClick = (event: Event): void => {
     const target = event.target
     if (!(target instanceof Element)) return
+    const badge = target.closest<HTMLButtonElement>('[data-review-comment]')
+    if (badge && root.contains(badge)) {
+      const comment = projection.comments.find(
+        (candidate) => candidate.id === badge.dataset.reviewComment,
+      )
+      if (!comment) return
+      event.preventDefault()
+      event.stopPropagation()
+      projection.onOpenComment(comment)
+      return
+    }
     const button = target.closest<HTMLButtonElement>('[data-review-capture]')
     if (!button || !root.contains(button)) return
     const block = button.closest<HTMLElement>(`[${SOURCE_LINE_ATTRIBUTE}]`)
@@ -199,7 +211,8 @@ function prepareBlock(
     ...new Set(comments.map((comment) => comment.anchor.state.status)),
   ]
   block.setAttribute('data-review-anchor-state', anchorStates.join(' '))
-  const badge = document.createElement('span')
+  const badge = document.createElement('button')
+  badge.type = 'button'
   badge.className = `review-block-badge ${anchorStates
     .map((status) => `review-anchor-${status}`)
     .join(' ')}`
@@ -209,9 +222,10 @@ function prepareBlock(
       ? `↗ ${comments.length}`
       : String(comments.length)
   badge.setAttribute(GENERATED_ATTRIBUTE, '')
+  badge.dataset.reviewComment = comments[0]!.id
   badge.setAttribute(
     'aria-label',
-    `${comments.length} review ${comments.length === 1 ? 'note' : 'notes'}; ${anchorStates.join(', ')}`,
+    `Open ${comments.length} review ${comments.length === 1 ? 'note' : 'notes'} at ${lineRangeLabel(range)}; ${anchorStates.join(', ')}`,
   )
   block.append(badge)
   if (generatedElement) {

@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactElement } from 'react'
+import { useEffect, useRef, useState, type ReactElement } from 'react'
 
 import type { DocumentReviewComment, ReviewSourceRange } from './document-review-types'
 import type { DocumentReviewInteraction } from './use-document-review-interaction'
@@ -120,6 +120,11 @@ export function DocumentReviewPanel({
             key={comment.id}
             comment={comment}
             inBatch={interaction.inBatch.has(comment.id)}
+            focusRequest={
+              interaction.commentNavigation?.id === comment.id
+                ? interaction.commentNavigation.request
+                : undefined
+            }
             interaction={interaction}
           />
         ))}
@@ -138,8 +143,15 @@ function NewCommentForm({
   readonly onCancel: () => void
 }): ReactElement {
   const [body, setBody] = useState('')
+  const form = useRef<HTMLFormElement>(null)
+  const textarea = useRef<HTMLTextAreaElement>(null)
+  useEffect(() => {
+    form.current?.scrollIntoView?.({ block: 'nearest' })
+    textarea.current?.focus({ preventScroll: true })
+  }, [range.endLine, range.startLine])
   return (
     <form
+      ref={form}
       className="document-review-compose"
       aria-label={`New comment for ${lineRangeLabel(range)}`}
       onSubmit={(event) => {
@@ -150,7 +162,7 @@ function NewCommentForm({
       <label>
         <span>{lineRangeLabel(range)}</span>
         <textarea
-          autoFocus
+          ref={textarea}
           aria-label="New review comment"
           value={body}
           onChange={(event) => setBody(event.currentTarget.value)}
@@ -171,19 +183,30 @@ function NewCommentForm({
 function ReviewCommentCard({
   comment,
   inBatch,
+  focusRequest,
   interaction,
 }: {
   readonly comment: DocumentReviewComment
   readonly inBatch: boolean
+  readonly focusRequest?: number
   readonly interaction: DocumentReviewInteraction
 }): ReactElement {
   const [editing, setEditing] = useState(false)
   const [body, setBody] = useState(comment.body)
+  const card = useRef<HTMLLIElement>(null)
   useEffect(() => setBody(comment.body), [comment.body])
+  useEffect(() => {
+    if (focusRequest === undefined) return
+    card.current?.scrollIntoView?.({ block: 'nearest' })
+    card.current?.focus({ preventScroll: true })
+  }, [focusRequest])
   const stale = comment.anchor.state.status === 'stale'
   const staleUnreviewed = stale && !comment.anchor.state.reviewed
   return (
     <li
+      ref={card}
+      tabIndex={-1}
+      aria-label={`Review comment at ${lineRangeLabel(comment.anchor.range)}`}
       className={`document-review-comment review-anchor-${comment.anchor.state.status}`}
     >
       <div className="document-review-comment-heading">

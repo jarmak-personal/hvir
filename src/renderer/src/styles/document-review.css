@@ -27,6 +27,7 @@
 .document-review-toolbar button:focus-visible,
 .document-review-panel button:focus-visible,
 .document-review-panel textarea:focus-visible,
+.review-block-badge:focus-visible,
 .review-block:focus-visible {
   outline: 2px solid #8bbcf0;
   outline-offset: 2px;
@@ -107,6 +108,20 @@
   border-left: 4px solid #5d7997;
   border-radius: 5px;
   background: #181d24;
+}
+
+.document-review-comment:focus-visible {
+  outline: 2px solid #8bbcf0;
+  outline-offset: 2px;
+}
+
+.document-review-compose {
+  scroll-margin-block: 8px;
+}
+
+.document-review-compose label {
+  display: grid;
+  gap: 7px;
 }
 
 .document-review-comment.review-anchor-moved {
@@ -240,7 +255,14 @@
 }
 
 .review-block-badge {
-  pointer-events: none;
+  padding: 0 6px;
+  border-color: #82bdf2;
+  color: #f4f9ff;
+  background: #27567d;
+  box-shadow:
+    0 0 0 2px #102334,
+    0 0 12px #559de34d;
+  cursor: pointer;
 }
 
 .review-block-badge.review-anchor-moved {
@@ -257,6 +279,14 @@
   min-width: 20px;
 }
 
+.cm-review-gutter-active .cm-gutterElement {
+  cursor: pointer;
+}
+
+.cm-review-gutter-active .cm-gutterElement:hover {
+  background: #31577a36;
+}
+
 .cm-review-marker {
   display: inline-flex;
   align-items: center;
@@ -266,7 +296,10 @@
   margin: 0 2px;
   border: 1px solid #617a96;
   border-radius: 999px;
-  color: #d8e4f1;
+  border-color: #82bdf2;
+  color: #f4f9ff;
+  background: #27567d;
+  box-shadow: 0 0 0 1px #102334;
   font: 600 9px var(--hvir-interface-font);
 }
 

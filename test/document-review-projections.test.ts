@@ -33,7 +33,14 @@ describe('rendered Markdown review projection', () => {
     const onCapture = vi.fn()
     const dispose = bindRenderedDocumentReview(
       root,
-      { active: true, dirty: false, comments: [], onCapture, onExit: vi.fn() },
+      {
+        active: true,
+        dirty: false,
+        comments: [],
+        onCapture,
+        onOpenComment: vi.fn(),
+        onExit: vi.fn(),
+      },
       scheduler,
     )
 
@@ -65,6 +72,7 @@ describe('rendered Markdown review projection', () => {
   it('shows existing stale notes without exposing capture affordances outside review mode', () => {
     const root = renderedRoot(2)
     const scheduler = new TestScheduler()
+    const onOpenComment = vi.fn()
     bindRenderedDocumentReview(
       root,
       {
@@ -72,6 +80,7 @@ describe('rendered Markdown review projection', () => {
         dirty: false,
         comments: [comment(1, 'stale')],
         onCapture: vi.fn(),
+        onOpenComment,
         onExit: vi.fn(),
       },
       scheduler,
@@ -84,8 +93,12 @@ describe('rendered Markdown review projection', () => {
     expect(root.querySelector('[data-review-capture]')).toBeNull()
     expect(root.querySelector('.review-block-badge')?.textContent).toBe('! 1')
     expect(root.querySelector('.review-block-badge')?.getAttribute('aria-label')).toBe(
-      '1 review note; stale',
+      'Open 1 review note at line 1; stale',
     )
+    root
+      .querySelector<HTMLButtonElement>('.review-block-badge')
+      ?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    expect(onOpenComment).toHaveBeenCalledExactlyOnceWith(comment(1, 'stale'))
   })
 
   it('groups active capture and note controls in one rendered-document gutter', () => {
@@ -98,6 +111,7 @@ describe('rendered Markdown review projection', () => {
         dirty: false,
         comments: [comment(1)],
         onCapture: vi.fn(),
+        onOpenComment: vi.fn(),
         onExit: vi.fn(),
       },
       scheduler,
@@ -121,6 +135,7 @@ describe('rendered Markdown review projection', () => {
         dirty: true,
         comments: [],
         onCapture,
+        onOpenComment: vi.fn(),
         onExit: vi.fn(),
       },
       scheduler,
@@ -145,6 +160,8 @@ describe('source Markdown review projection', () => {
     const parent = document.createElement('div')
     document.body.append(parent)
     const onRange = vi.fn()
+    const onCapture = vi.fn()
+    const onOpenComment = vi.fn()
     const onExit = vi.fn()
     const compartment = new Compartment()
     const projection = {
@@ -152,6 +169,8 @@ describe('source Markdown review projection', () => {
       dirty: false,
       comments: Array.from({ length: 64 }, (_, index) => comment(index + 1)),
       onRange,
+      onCapture,
+      onOpenComment,
       onExit,
     }
     const view = new EditorView({
@@ -180,6 +199,47 @@ describe('source Markdown review projection', () => {
       new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }),
     )
     expect(onExit).toHaveBeenCalledOnce()
+    view.destroy()
+  })
+
+  it('uses the source review gutter for direct capture and existing-note navigation', () => {
+    const parent = document.createElement('div')
+    document.body.append(parent)
+    const onCapture = vi.fn()
+    const onOpenComment = vi.fn()
+    const view = new EditorView({
+      parent,
+      state: EditorState.create({
+        doc: 'one\ntwo\nthree',
+        extensions: [
+          createDocumentReviewSourceExtensions({
+            active: true,
+            dirty: false,
+            comments: [comment(1)],
+            onRange: vi.fn(),
+            onCapture,
+            onOpenComment,
+            onExit: vi.fn(),
+          }),
+        ],
+      }),
+    })
+
+    parent
+      .querySelector<HTMLElement>('.cm-review-marker')
+      ?.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 0 }))
+    expect(onOpenComment).toHaveBeenCalledExactlyOnceWith(comment(1))
+
+    const emptyGutterLine = [
+      ...parent.querySelectorAll<HTMLElement>('.cm-review-gutter .cm-gutterElement'),
+    ].find((element) => !element.querySelector('.cm-review-marker'))
+    emptyGutterLine?.dispatchEvent(
+      new MouseEvent('mousedown', { bubbles: true, button: 0 }),
+    )
+    expect(onCapture).toHaveBeenCalledOnce()
+    // happy-dom has no gutter geometry, so CodeMirror resolves the synthetic
+    // click to the first line. Browser geometry is covered by the Electron smoke.
+    expect(onCapture).toHaveBeenCalledWith({ startLine: 1, endLine: 1 })
     view.destroy()
   })
 

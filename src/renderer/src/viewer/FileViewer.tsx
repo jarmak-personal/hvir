@@ -723,7 +723,9 @@ function SourceView({
   const [highlightStatus, setHighlightStatus] = useState('')
   const blameCompartment = useRef(new Compartment())
   const reviewCompartment = useRef(new Compartment())
+  const reviewProjection = useRef(documentReview)
   callbacks.current = { onContent, onSave, onPosition }
+  reviewProjection.current = documentReview
 
   useEffect(() => {
     const parent = container.current
@@ -734,7 +736,25 @@ function SourceView({
       state: EditorState.create({
         doc: content,
         extensions: [
-          lineNumbers(),
+          lineNumbers({
+            domEventHandlers: {
+              mousedown(view, block, event) {
+                const review = reviewProjection.current
+                if (
+                  !review?.active ||
+                  review.dirty ||
+                  !(event instanceof MouseEvent) ||
+                  event.button !== 0
+                ) {
+                  return false
+                }
+                event.preventDefault()
+                const line = view.state.doc.lineAt(block.from).number
+                review.onCapture({ startLine: line, endLine: line })
+                return true
+              },
+            },
+          }),
           blameCompartment.current.of(blameGutter(blame)),
           reviewCompartment.current.of([]),
           tokenDecorations,
@@ -830,6 +850,8 @@ function SourceView({
                 dirty: documentReview.dirty,
                 comments: documentReview.comments,
                 onRange: documentReview.onSourceRange,
+                onCapture: documentReview.onCapture,
+                onOpenComment: documentReview.onOpenComment,
                 onExit: documentReview.onExit,
               }
             : undefined,

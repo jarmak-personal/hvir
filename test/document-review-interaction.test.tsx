@@ -102,6 +102,22 @@ describe('Markdown document review interaction', () => {
     })
   })
 
+  it('starts a single-line source comment directly from the line-number gutter', () => {
+    renderViewer(sourceTab(), binding(emptyModel(), vi.fn()))
+    click('Enter Markdown review mode')
+
+    const lineOne = [
+      ...host.querySelectorAll<HTMLElement>('.cm-lineNumbers .cm-gutterElement'),
+    ].find((element) => element.textContent === '1')
+    expect(lineOne).toBeTruthy()
+    act(() => {
+      lineOne?.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 0 }))
+    })
+
+    expect(host.querySelector('[aria-label="New comment for Line 1"]')).toBeTruthy()
+    expect(document.activeElement?.getAttribute('aria-label')).toBe('New review comment')
+  })
+
   it('revokes a late authoritative read when the viewer interaction unmounts', async () => {
     const read = deferred<DocumentReviewRevalidation>()
     const apply = vi.fn<DocumentReviewWorkspaceBinding['apply']>((_action) => ({
@@ -291,6 +307,26 @@ describe('Markdown document review interaction', () => {
     expect(button('Enter Markdown review mode')).toBeTruthy()
   })
 
+  it('reopens review mode and focuses the exact comment from its rendered note badge', async () => {
+    vi.mocked(renderMarkdown).mockResolvedValue(
+      '<h1 data-source-line="1" data-source-end-line="1">Heading</h1>',
+    )
+    const model = {
+      ...emptyModel(),
+      comments: [comment('badge-note', 'draft', 'current')],
+    }
+    renderViewer(renderedTab(), binding(model, vi.fn()))
+    await act(async () => settle())
+
+    expect(button('Enter Markdown review mode')).toBeTruthy()
+    click('Open 1 review note at line 1; current')
+
+    expect(button('Exit Markdown review mode')).toBeTruthy()
+    expect(document.activeElement?.getAttribute('aria-label')).toBe(
+      'Review comment at Line 1',
+    )
+  })
+
   it('keeps one comment identity across source and rendered projections', async () => {
     const model = { ...emptyModel(), comments: [comment('same-note', 'draft', 'moved')] }
     vi.mocked(renderMarkdown).mockResolvedValue(
@@ -339,6 +375,7 @@ describe('Markdown document review interaction', () => {
       )
     })
     expect(host.querySelector('[aria-label="New comment for Line 3"]')).toBeTruthy()
+    expect(document.activeElement?.getAttribute('aria-label')).toBe('New review comment')
     act(() => {
       blocks[1]?.dispatchEvent(
         new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }),

@@ -15,6 +15,8 @@ export interface DocumentReviewSourceProjection {
   readonly dirty: boolean
   readonly comments: readonly DocumentReviewComment[]
   readonly onRange: (range?: ReviewSourceRange) => void
+  readonly onCapture: (range: ReviewSourceRange) => void
+  readonly onOpenComment: (comment: DocumentReviewComment) => void
   readonly onExit: () => void
 }
 
@@ -27,7 +29,7 @@ export function createDocumentReviewSourceExtensions(
     EditorView.decorations.of((view) =>
       sourceReviewDecorations(view.state, projection.comments),
     ),
-    reviewGutter(commentsByLine),
+    reviewGutter(commentsByLine, projection),
     EditorView.updateListener.of((update) => {
       if (projection.active && (update.selectionSet || update.docChanged)) {
         projection.onRange(sourceReviewSelection(update.state))
@@ -128,12 +130,37 @@ class ReviewGutterMarker extends GutterMarker {
 
 function reviewGutter(
   commentsByLine: ReadonlyMap<number, readonly DocumentReviewComment[]>,
+  projection: DocumentReviewSourceProjection,
 ): Extension {
   return gutter({
-    class: 'cm-review-gutter',
+    class: projection.active
+      ? 'cm-review-gutter cm-review-gutter-active'
+      : 'cm-review-gutter',
+    renderEmptyElements: projection.active,
     lineMarker(view, block) {
       const comments = commentsByLine.get(view.state.doc.lineAt(block.from).number)
       return comments ? new ReviewGutterMarker(comments) : null
+    },
+    domEventHandlers: {
+      mousedown(view, block, event) {
+        if (!(event instanceof MouseEvent) || event.button !== 0) return false
+        const line = view.state.doc.lineAt(block.from).number
+        const comments = commentsByLine.get(line)
+        if (
+          event.target instanceof Element &&
+          event.target.closest('.cm-review-marker')
+        ) {
+          const comment = comments?.[0]
+          if (!comment) return false
+          event.preventDefault()
+          projection.onOpenComment(comment)
+          return true
+        }
+        if (!projection.active || projection.dirty) return false
+        event.preventDefault()
+        projection.onCapture({ startLine: line, endLine: line })
+        return true
+      },
     },
   })
 }

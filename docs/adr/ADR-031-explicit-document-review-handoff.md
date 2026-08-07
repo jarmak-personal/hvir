@@ -160,11 +160,15 @@ different destination.
 
 Copy is the universal fallback and grants no terminal authority. Insert into composer is the
 default automatic handoff and is available only when a trusted bundled provider's effective
-capabilities declare a revisioned atomic bracketed-paste contract for the exact launch. The
-provider returns one complete framing sequence for one PTY-supervisor write, with no submission
-sequence. Literal newlines remain inside that one paste and cannot become partial submissions.
-A successful insert leaves comments draft because the user still controls native composer
-submission.
+capabilities declare a revisioned atomic bracketed-paste contract for the exact launch. A bundled
+provider may treat its live provider-default executable as a best-effort composer target despite
+data-only profile argument, environment, path-binding, or risk customization; hvir warns that it
+cannot prove the foreground composer, makes only the explicitly requested provider-owned write,
+and preserves the prepared review on a reported write failure. A custom executable never gains
+that trust from its provider label. The provider returns one complete framing sequence for one
+PTY-supervisor write, with no submission sequence. Literal newlines remain inside that one paste
+and cannot become partial submissions. A successful insert leaves comments draft because the user
+still controls native composer submission.
 
 Send-now is a separate, optional, explicitly selected action. A trusted provider may expose it
 only when its effective capabilities, active launch/profile contract, configured

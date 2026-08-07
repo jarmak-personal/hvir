@@ -174,24 +174,25 @@ describe('Harness providers', () => {
     ).toBe(`${paste}\x1b[13;5u`)
   })
 
-  it('admits provider-approved composer-neutral Codex profile arguments', () => {
+  it('attempts Codex handoff for an exact provider-default launch despite profile customization', () => {
     const profile = providerTemplateProfiles().find(
       (candidate) => candidate.providerId === codexProvider.manifest.id,
     )!
     const customizedProfile = {
       ...profile,
       args: [
-        { parts: [{ kind: 'literal' as const, value: '--yolo' }] },
-        { parts: [{ kind: 'literal' as const, value: '--add-dir' }] },
+        { parts: [{ kind: 'literal' as const, value: '--config' }] },
         {
           parts: [
             {
               kind: 'literal' as const,
-              value: '/Users/reviewer/repos/ghostty-web',
+              value: 'tui.notifications=false',
             },
           ],
         },
       ],
+      environment: [{ kind: 'literal' as const, name: 'REVIEW_MODE', value: '1' }],
+      pathBindings: [{ name: 'project', path: localPath('/tmp/project') }],
       risk: 'unclassified' as const,
     }
     const capabilities = harnessLaunchCapabilities(codexProvider, {
@@ -206,7 +207,7 @@ describe('Harness providers', () => {
     })
   })
 
-  it('keeps unsupported, unprobed, and composer-changing launches below send-now', () => {
+  it('keeps unsupported and unprobed Codex versions below send-now', () => {
     const profile = providerTemplateProfiles().find(
       (candidate) => candidate.providerId === codexProvider.manifest.id,
     )!
@@ -222,34 +223,7 @@ describe('Harness providers', () => {
       expect(capabilities.reviewInsertContractRevision).toBe(1)
       expect(capabilities).not.toHaveProperty('reviewSendNowContractRevision')
     }
-    const customizedProfile = {
-      ...profile,
-      args: [
-        { parts: [{ kind: 'literal' as const, value: '--config' }] },
-        {
-          parts: [
-            {
-              kind: 'literal' as const,
-              value: 'tui.keymap.composer.submit=["enter"]',
-            },
-          ],
-        },
-      ],
-    }
-    const customized = harnessLaunchCapabilities(codexProvider, {
-      profile: customizedProfile,
-      composerSubmitMode: 'ctrl-enter',
-      probedCapabilities: supported,
-    })
-    expect(customized).not.toHaveProperty('reviewInsertContractRevision')
-    expect(customized).not.toHaveProperty('reviewSendNowContractRevision')
-    expect(() =>
-      codexProvider.documentReviewSendNow?.terminalInput('exact', {
-        profile: customizedProfile,
-        composerSubmitMode: 'ctrl-enter',
-        effectiveCapabilities: supported,
-      }),
-    ).toThrow(/unavailable for this launch/)
+    expect(supported.reviewSendNowContractRevision).toBe(1)
   })
 
   it('keeps unapproved provider launch changes Copy-only', () => {
@@ -287,20 +261,6 @@ describe('Harness providers', () => {
             path: localPath(`/usr/local/bin/${provider.manifest.id}`),
           },
         },
-        {
-          ...profile,
-          args: [{ parts: [{ kind: 'literal' as const, value: '--custom' }] }],
-        },
-        {
-          ...profile,
-          environment: [{ kind: 'literal' as const, name: 'HVIR_TEST', value: '1' }],
-        },
-        {
-          ...profile,
-          pathBindings: [{ name: 'project', path: localPath('/tmp/project') }],
-        },
-        { ...profile, risk: 'elevated' as const },
-        { ...profile, risk: 'unclassified' as const },
       ]
       for (const disqualifiedProfile of disqualifiedProfiles) {
         const capabilities = harnessLaunchCapabilities(provider, {
@@ -310,6 +270,25 @@ describe('Harness providers', () => {
         })
         expect(capabilities).not.toHaveProperty('reviewInsertContractRevision')
         expect(capabilities).not.toHaveProperty('reviewSendNowContractRevision')
+      }
+      const customizedProfile = {
+        ...profile,
+        args: [{ parts: [{ kind: 'literal' as const, value: '--custom' }] }],
+        environment: [{ kind: 'literal' as const, name: 'HVIR_TEST', value: '1' }],
+        pathBindings: [{ name: 'project', path: localPath('/tmp/project') }],
+        risk: 'unclassified' as const,
+      }
+      const customized = harnessLaunchCapabilities(provider, {
+        profile: customizedProfile,
+        composerSubmitMode: 'enter',
+        probedCapabilities,
+      })
+      if (provider === codexProvider) {
+        expect(customized.reviewInsertContractRevision).toBe(1)
+        expect(customized.reviewSendNowContractRevision).toBe(1)
+      } else {
+        expect(customized).not.toHaveProperty('reviewInsertContractRevision')
+        expect(customized).not.toHaveProperty('reviewSendNowContractRevision')
       }
     }
   })
