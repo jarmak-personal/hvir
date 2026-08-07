@@ -1,17 +1,26 @@
-import { useCallback, useMemo, useState, type ReactElement } from 'react'
+import { useCallback, useEffect, useMemo, useState, type ReactElement } from 'react'
 
 import {
   basenameHostPath,
+  containsHostPath,
   GIT_CHANGE_DISPLAY_LIMIT,
   MAX_PROJECT_WATCH_INTERESTS,
   unwrapOperation,
+  hostPath,
+  type FileType,
   type GitChangedFile,
+  type FileOpenContext,
   type HostPath,
 } from '../../../shared'
 import { DirectoryTree, type DirectoryTreeRevealRequest } from './DirectoryTree'
 import { MissingWorkspaceNotice } from '../workspaces/MissingWorkspaceNotice'
 import { buildTreeGitDecorations } from './git-status-decoration'
 import { FilenameSearch } from './FilenameSearch'
+import { FileCreateOverlays } from './FileCreateOverlays'
+import { fileActionDestination } from './file-action-destination'
+import { useFileCreateActions } from './use-file-create-actions'
+import type { ViewerPathRebindCapability } from '../viewer/viewer-path-rebind'
+import type { ViewerPathRemovalCapability } from '../viewer/viewer-path-removal'
 
 const NO_CHANGED_FILES: readonly GitChangedFile[] = []
 
@@ -24,7 +33,9 @@ interface FileTreeProps {
   readonly gitChangesLimited?: boolean
   readonly selected?: HostPath
   readonly revealRequest?: DirectoryTreeRevealRequest
-  readonly onOpen: (path: HostPath, pinned: boolean) => void
+  readonly onOpen: (path: HostPath, pinned: boolean, context?: FileOpenContext) => void
+  readonly viewerPathRebind: ViewerPathRebindCapability & ViewerPathRemovalCapability
+  readonly onWorkspaceContentChanged: () => void
   readonly connected?: boolean
   readonly missing?: boolean
   readonly hidden?: boolean
@@ -43,6 +54,8 @@ export function FileTree({
   selected,
   revealRequest,
   onOpen,
+  viewerPathRebind,
+  onWorkspaceContentChanged,
   connected = true,
   missing = false,
   hidden = false,
@@ -51,6 +64,17 @@ export function FileTree({
   onExpandedChange,
 }: FileTreeProps): ReactElement {
   const [searchActive, setSearchActive] = useState(false)
+  const [dropTarget, setDropTarget] = useState<HostPath>()
+  const fileCreate = useFileCreateActions({
+    root,
+    onCreatedFile: onOpen,
+    canRebindPath: viewerPathRebind.canRebindPath,
+    onRebindPath: viewerPathRebind.rebindPath,
+    reviewPathRemoval: viewerPathRebind.reviewPathRemoval,
+    closeCleanPath: viewerPathRebind.closeCleanPath,
+    onWorkspaceContentChanged,
+  })
+  useEffect(() => setDropTarget(undefined), [root.hostId, root.path])
   const gitDecorations = useMemo(
     () =>
       buildTreeGitDecorations(
@@ -93,11 +117,51 @@ export function FileTree({
             root={root}
             connected={connected}
             gitIgnoreAvailable={gitEnabled}
-            refreshVersion={searchRefreshVersion}
+            refreshVersion={searchRefreshVersion + fileCreate.refreshVersion}
             onActiveChange={setSearchActive}
             onOpen={onOpen}
           />
-          <div className="tree-scroll" hidden={searchActive}>
+          <div
+            className={`tree-scroll${dropTarget ? ' file-drop-active' : ''}`}
+            hidden={searchActive}
+            onContextMenu={(event) => fileCreate.openRootFromPointer(event)}
+            onKeyDown={(event) => {
+              if (!isPasteShortcut(event) || isEditableTarget(event.target)) return
+              const target = fileTarget(event.target, root)
+              if (!target) return
+              event.preventDefault()
+              event.stopPropagation()
+              fileCreate.pasteFiles(target.path, target.type)
+            }}
+            onDragOver={(event) => {
+              if (!event.dataTransfer.types.includes('Files')) return
+              event.preventDefault()
+              event.dataTransfer.dropEffect = 'copy'
+              const target = fileTarget(event.target, root) ?? { path: root, type: 'dir' }
+              setDropTarget(fileActionDestination(root, target.path, target.type))
+            }}
+            onDragLeave={(event) => {
+              if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+                setDropTarget(undefined)
+              }
+            }}
+            onDrop={(event) => {
+              if (!event.dataTransfer.types.includes('Files')) return
+              event.preventDefault()
+              const target = fileTarget(event.target, root) ?? { path: root, type: 'dir' }
+              setDropTarget(undefined)
+              fileCreate.dropFiles(
+                [...event.dataTransfer.files],
+                target.path,
+                target.type,
+              )
+            }}
+          >
+            {dropTarget ? (
+              <div className="file-drop-target" role="status">
+                Copy into {basenameHostPath(dropTarget) || dropTarget.path}
+              </div>
+            ) : null}
             {watchInterestsLimited ? (
               <div className="tree-scope-notice" role="status">
                 Live updates are limited to the first{' '}
@@ -118,22 +182,62 @@ export function FileTree({
                 loadEntries={loadProjectEntries}
                 loadIgnoredEntries={gitEnabled ? loadIgnoredEntries : undefined}
                 resolveEntry={resolveProjectEntry}
-                refreshVersion={refreshVersion}
+                refreshVersion={refreshVersion + fileCreate.refreshVersion}
                 ignoredRefreshVersion={ignoredRefreshVersion}
                 gitDecorations={gitDecorations}
-                selected={selected}
-                revealRequest={revealRequest}
+                selected={fileCreate.selectedDirectory ?? selected}
+                revealRequest={fileCreate.revealRequest ?? revealRequest}
                 pathCopyRoot={root}
-                onOpenFile={onOpen}
+                entryActions={fileCreate.entryActions}
+                onOpenFile={(path, pinned) => {
+                  fileCreate.clearCreatedSelection()
+                  onOpen(path, pinned)
+                }}
                 onExpandedChange={onExpandedChange}
               />
             ) : (
               <div className="tree-error">Reconnect to browse this host.</div>
             )}
           </div>
+          <FileCreateOverlays controller={fileCreate} />
         </>
       )}
     </section>
+  )
+}
+
+function fileTarget(
+  value: EventTarget | null,
+  root: HostPath,
+): { readonly path: HostPath; readonly type: FileType } | undefined {
+  if (!(value instanceof Element)) return undefined
+  const row = value.closest<HTMLElement>('[data-file-path][data-file-type]')
+  const path = row?.dataset.filePath
+  const hostId = row?.dataset.fileHost
+  const type = row?.dataset.fileType
+  if (!path || hostId !== root.hostId || !isFileType(type)) return undefined
+  const target = hostPath(root.hostId, path)
+  return containsHostPath(root, target) ? { path: target, type } : undefined
+}
+
+function isFileType(value: unknown): value is FileType {
+  return ['file', 'dir', 'symlink', 'other'].includes(String(value))
+}
+
+function isPasteShortcut(event: React.KeyboardEvent): boolean {
+  return (
+    event.key.toLowerCase() === 'v' &&
+    (event.metaKey || event.ctrlKey) &&
+    !event.altKey &&
+    !event.shiftKey
+  )
+}
+
+function isEditableTarget(value: EventTarget | null): boolean {
+  return (
+    value instanceof HTMLInputElement ||
+    value instanceof HTMLTextAreaElement ||
+    (value instanceof HTMLElement && value.isContentEditable)
   )
 }
 

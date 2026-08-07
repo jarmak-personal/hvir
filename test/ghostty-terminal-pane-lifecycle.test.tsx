@@ -5,238 +5,18 @@ import { createRoot } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { createGhosttyTerminalPane } from '../src/renderer/src/terminal/ghostty-terminal-pane'
+import { terminalThemeForAppearance } from '../src/renderer/src/terminal/terminal-palette'
 import { TerminalView } from '../src/renderer/src/terminal/TerminalView'
 import type { TerminalRuntimeOptions } from '../src/renderer/src/terminal/terminal-runtime-options'
 import { TerminalRuntimeRegistry } from '../src/renderer/src/terminal/terminal-runtime-registry'
-import { asHarnessProfileId, localPath } from '../src/shared'
+import type { TerminalEvent } from '../src/renderer/src/terminal/terminal-pane'
+import { ghosttyLifecycleRuntimeOptions as runtimeOptions } from './fixtures/ghostty-lifecycle-runtime-options'
+import { ghosttyState } from './fixtures/ghostty-terminal-pane-mock'
 
-const ghosttyState = vi.hoisted(() => ({
-  instances: [] as Array<{
-    readonly cursorBlinkValues: boolean[]
-    readonly fontFamilies: string[]
-    readonly fontSizes: number[]
-    readonly presentationPausedValues: boolean[]
-    readonly resizes: Array<{ readonly cols: number; readonly rows: number }>
-    readonly writes: string[]
-    cursorBlinkResets: number
-    focusCalls: number
-    emitData(data: string): void
-    emitCustomKey(event: {
-      readonly code: string
-      readonly ctrlKey: boolean
-      readonly altKey: boolean
-      readonly metaKey: boolean
-      readonly shiftKey: boolean
-    }): boolean
-    emitResize(size: { readonly cols: number; readonly rows: number }): void
-    renders: number
-    disposed: boolean
-  }>,
-}))
-
-vi.mock('ghostty-web', () => {
-  class MockTerminal {
-    readonly options: {
-      theme?: unknown
-      cursorBlink?: boolean
-      fontFamily?: string
-      fontSize?: number
-    }
-    readonly buffer = { active: { getLine: () => undefined } }
-    readonly wasmTerm = {}
-    readonly viewportY = 0
-    cols = 80
-    rows = 24
-    element?: HTMLElement
-    renderer?: {
-      clear(): void
-      getCanvas(): HTMLCanvasElement
-      getMetrics(): { width: number; height: number }
-      render(): void
-      setTheme(theme: unknown): void
-    }
-    private canvas?: HTMLCanvasElement
-    private textarea?: HTMLTextAreaElement
-    private readonly state: (typeof ghosttyState.instances)[number]
-    private presentationPaused = false
-
-    constructor(options: {
-      theme?: unknown
-      cursorBlink?: boolean
-      fontFamily?: string
-      fontSize?: number
-    }) {
-      this.state = {
-        cursorBlinkValues: [Boolean(options.cursorBlink)],
-        fontFamilies: [options.fontFamily ?? ''],
-        fontSizes: [options.fontSize ?? 0],
-        presentationPausedValues: [],
-        resizes: [],
-        writes: [],
-        cursorBlinkResets: 0,
-        focusCalls: 0,
-        emitData: () => undefined,
-        emitCustomKey: () => false,
-        emitResize: () => undefined,
-        renders: 0,
-        disposed: false,
-      }
-      ghosttyState.instances.push(this.state)
-      this.options = new Proxy(
-        { ...options },
-        {
-          set: (target, property, value) => {
-            Reflect.set(target, property, value)
-            if (property === 'cursorBlink') {
-              this.state.cursorBlinkValues.push(Boolean(value))
-            }
-            if (property === 'fontFamily') {
-              this.state.fontFamilies.push(String(value))
-            }
-            if (property === 'fontSize') this.state.fontSizes.push(Number(value))
-            return true
-          },
-        },
-      )
-    }
-
-    attachCustomKeyEventHandler(
-      callback: (event: {
-        readonly code: string
-        readonly ctrlKey: boolean
-        readonly altKey: boolean
-        readonly metaKey: boolean
-        readonly shiftKey: boolean
-      }) => boolean,
-    ): void {
-      this.state.emitCustomKey = callback
-    }
-
-    attachCustomWheelEventHandler(): void {}
-
-    onData(callback: (data: string) => void): { dispose(): void } {
-      this.state.emitData = callback
-      return {
-        dispose: () => {
-          this.state.emitData = () => undefined
-        },
-      }
-    }
-
-    onResize(
-      callback: (size: { readonly cols: number; readonly rows: number }) => void,
-    ): { dispose(): void } {
-      this.state.emitResize = callback
-      return { dispose: () => (this.state.emitResize = () => undefined) }
-    }
-
-    onTitleChange(): { dispose(): void } {
-      return { dispose: () => undefined }
-    }
-
-    open(element: HTMLElement): void {
-      this.element = element
-      element.setAttribute('contenteditable', 'true')
-      this.canvas = document.createElement('canvas')
-      this.textarea = document.createElement('textarea')
-      element.append(this.canvas, this.textarea)
-      this.renderer = {
-        clear: () => undefined,
-        getCanvas: () => this.canvas!,
-        getMetrics: () => {
-          const fontSize = this.options.fontSize ?? 13
-          return { width: fontSize * 0.6, height: fontSize * 1.2 }
-        },
-        render: () => {
-          this.state.renders += 1
-        },
-        setTheme: () => undefined,
-      }
-    }
-
-    registerLinkProvider(): void {}
-
-    getViewportY(): number {
-      return 0
-    }
-
-    getScrollbackLength(): number {
-      return 0
-    }
-
-    scrollToLine(): void {}
-
-    requestRender(): void {
-      if (!this.presentationPaused) this.state.renders += 1
-    }
-
-    setRenderPaused(paused: boolean): void {
-      if (paused === this.presentationPaused) return
-      this.presentationPaused = paused
-      this.state.presentationPausedValues.push(paused)
-      if (!paused) this.requestRender()
-    }
-
-    resetCursorBlink(): void {
-      if (!this.options.cursorBlink || this.state.disposed) return
-      this.state.cursorBlinkResets += 1
-    }
-
-    getRenderStats(): {
-      parsedWrites: number
-      renderRequests: number
-      renderFrames: number
-      fullRenderFrames: number
-      paused: boolean
-      pendingFrame: boolean
-      cursorVisible: boolean
-    } {
-      return {
-        parsedWrites: this.state.writes.length,
-        renderRequests: this.state.renders,
-        renderFrames: this.state.renders,
-        fullRenderFrames: this.state.renders,
-        paused: this.presentationPaused,
-        pendingFrame: false,
-        cursorVisible: true,
-      }
-    }
-
-    write(data: string): void {
-      this.state.writes.push(data)
-    }
-
-    resize(cols: number, rows: number): void {
-      if (cols === this.cols && rows === this.rows) return
-      this.cols = cols
-      this.rows = rows
-      const size = { cols, rows }
-      this.state.resizes.push(size)
-      this.state.emitResize(size)
-    }
-
-    focus(): void {
-      this.state.focusCalls += 1
-    }
-
-    dispose(): void {
-      this.state.disposed = true
-      this.canvas?.remove()
-      this.textarea?.remove()
-      this.element?.removeAttribute('contenteditable')
-      this.canvas = undefined
-      this.textarea = undefined
-      this.element = undefined
-      this.renderer = undefined
-    }
-  }
-
-  return {
-    init: vi.fn(() => Promise.resolve()),
-    Terminal: MockTerminal,
-  }
+vi.mock('ghostty-web', async () => {
+  const { ghosttyWebMock } = await import('./fixtures/ghostty-terminal-pane-mock')
+  return ghosttyWebMock
 })
-
 describe('GhosttyTerminalPane lifecycle', () => {
   beforeEach(() => {
     ghosttyState.instances.splice(0)
@@ -248,44 +28,69 @@ describe('GhosttyTerminalPane lifecycle', () => {
       },
     )
   })
-
   afterEach(() => {
     vi.restoreAllMocks()
     vi.unstubAllGlobals()
     Reflect.deleteProperty(window, 'hvir')
     document.body.replaceChildren()
   })
-
   it('moves and disposes only its adapter-owned surface', async () => {
     const firstContainer = document.createElement('div')
     const secondContainer = document.createElement('div')
     document.body.append(firstContainer, secondContainer)
     const pane = await createGhosttyTerminalPane(theme(), typography(), {
+      cursorDefaults: cursorDefaults(),
+      ligatures: true,
       modifiedKeyProtocol: 'modify-other-keys',
       metaEnterAliasesControl: true,
       composerSubmitMode: 'enter',
     })
-
     pane.mount(firstContainer)
     const surface = firstContainer.querySelector('.terminal-engine-host')
     expect(surface).toBeInstanceOf(HTMLDivElement)
     expect(surface?.getAttribute('contenteditable')).toBe('true')
-
     pane.reparent(secondContainer)
     expect(firstContainer.isConnected).toBe(true)
     expect(firstContainer.childElementCount).toBe(0)
     expect(secondContainer.firstElementChild).toBe(surface)
-
     pane.dispose()
     expect(secondContainer.isConnected).toBe(true)
     expect(secondContainer.childElementCount).toBe(0)
   })
-
+  it('uses only structured parser events and releases their source on disposal', async () => {
+    const pane = await createGhosttyTerminalPane(theme(), typography(), {
+      cursorDefaults: cursorDefaults(),
+      ligatures: true,
+      modifiedKeyProtocol: 'modify-other-keys',
+      metaEnterAliasesControl: true,
+      composerSubmitMode: 'enter',
+    })
+    const events: TerminalEvent[] = []
+    pane.events.onEvent((event) => events.push(event))
+    pane.setPresentation('hidden')
+    pane.mount(document.createElement('div'))
+    const state = ghosttyState.instances[0]!
+    state.emitTerminalEvent({ type: 'title', title: 'Structured' })
+    state.emitTerminalEvent({
+      type: 'notification',
+      source: 'osc-9',
+      title: '',
+      body: '',
+    })
+    state.emitTerminalEvent({ type: 'bell' })
+    pane.write('\u001b]2;Raw duplicate\u0007')
+    expect(events.map((event) => event.type)).toEqual(['title', 'notification', 'bell'])
+    pane.dispose()
+    state.emitTerminalEvent({ type: 'bell' })
+    expect(events).toHaveLength(3)
+  })
   it('stops hidden cursor work and restores a current repaint on reveal', async () => {
     const container = document.createElement('div')
     const nextContainer = document.createElement('div')
     document.body.append(container, nextContainer)
     const pane = await createGhosttyTerminalPane(theme(), typography(), {
+      cursorDefaults: cursorDefaults(),
+      ligatures: true,
       modifiedKeyProtocol: 'modify-other-keys',
       metaEnterAliasesControl: true,
       composerSubmitMode: 'enter',
@@ -294,6 +99,7 @@ describe('GhosttyTerminalPane lifecycle', () => {
 
     pane.setPresentation('hidden')
     pane.mount(container)
+    const canvas = container.querySelector('canvas')
     pane.write('\u001b]0;Hidden output\u0007buffered')
     const surface = container.querySelector<HTMLElement>('.terminal-engine-host')!
     Object.defineProperties(surface, {
@@ -302,14 +108,22 @@ describe('GhosttyTerminalPane lifecycle', () => {
     })
     const hiddenRenderCount = state.renders
     const hiddenResizeCount = state.resizes.length
+    const { cursorText, ...lightTheme } = terminalThemeForAppearance('light')
 
     pane.reparent(nextContainer)
+    pane.setTheme(terminalThemeForAppearance('light'))
     pane.setTypography({ fontFamily: 'Deferred Mono', fontSize: 18 })
+    pane.setCursorDefaults({ shape: 'hollow-block', blink: 'steady' })
+    pane.setLigatures(false)
     await settleTerminalFit()
 
-    expect(state.cursorBlinkValues).toEqual([true, false])
+    expect(state.cursorBlinkValues).toEqual(['terminal', false])
+    expect(state.cursorStyleValues).toEqual(['block', 'block_hollow'])
+    expect(state.fontLigatureValues).toEqual([true, false])
     expect(state.presentationPausedValues).toEqual([true])
     expect(state.writes).toContain('\u001b]0;Hidden output\u0007buffered')
+    expect(state.themes.at(-1)).toEqual({ ...lightTheme, cursorAccent: cursorText })
+    expect(state.rendererThemeWrites).toBe(0)
     expect(state.renders).toBe(hiddenRenderCount)
     expect(state.resizes).toHaveLength(hiddenResizeCount)
     expect(nextContainer.firstElementChild).toBe(surface)
@@ -317,10 +131,13 @@ describe('GhosttyTerminalPane lifecycle', () => {
     pane.setPresentation('visible')
     await settleTerminalFit()
 
-    expect(state.cursorBlinkValues).toEqual([true, false, true])
+    expect(state.cursorBlinkValues).toEqual(['terminal', false])
+    expect(state.cursorStyleValues).toEqual(['block', 'block_hollow'])
+    expect(state.fontLigatureValues).toEqual([true, false])
     expect(state.presentationPausedValues).toEqual([true, false])
     expect(state.renders).toBeGreaterThan(hiddenRenderCount)
     expect(state.resizes).toEqual([{ cols: 72, rows: 16 }])
+    expect(nextContainer.querySelector('canvas')).toBe(canvas)
 
     pane.setPresentation('hidden')
     pane.dispose()
@@ -335,6 +152,8 @@ describe('GhosttyTerminalPane lifecycle', () => {
     const container = document.createElement('div')
     document.body.append(container)
     const pane = await createGhosttyTerminalPane(theme(), typography(), {
+      cursorDefaults: cursorDefaults(),
+      ligatures: true,
       modifiedKeyProtocol: 'modify-other-keys',
       metaEnterAliasesControl: true,
       composerSubmitMode: 'enter',
@@ -345,6 +164,7 @@ describe('GhosttyTerminalPane lifecycle', () => {
     pane.events.onData(input)
     pane.events.onClipboardPaste(clipboardPaste)
     pane.mount(container)
+    await settleTerminalFit()
 
     state.emitData('a')
     const customHandled = state.emitCustomKey({
@@ -366,6 +186,7 @@ describe('GhosttyTerminalPane lifecycle', () => {
     expect(state.cursorBlinkResets).toBe(2)
 
     pane.setPresentation('visible')
+    await settleTerminalFit()
     state.emitData('c')
     expect(state.cursorBlinkResets).toBe(3)
 
@@ -373,6 +194,28 @@ describe('GhosttyTerminalPane lifecycle', () => {
     state.emitData('d')
     expect(input).not.toHaveBeenCalledWith('d')
     expect(state.cursorBlinkResets).toBe(3)
+  })
+
+  it('supplies the preload file-path capability only to ghostty paste ownership', async () => {
+    const resolved = '/home/user/project/requirements.txt'
+    const resolveTerminalClipboardFilePaste = vi.fn(() => resolved)
+    Object.defineProperty(window, 'hvir', {
+      configurable: true,
+      value: { resolveTerminalClipboardFilePaste },
+    })
+    const pane = await createGhosttyTerminalPane(theme(), typography(), {
+      cursorDefaults: cursorDefaults(),
+      ligatures: true,
+      modifiedKeyProtocol: 'none',
+      metaEnterAliasesControl: false,
+      composerSubmitMode: 'enter',
+    })
+    const file = { name: 'requirements.txt' } as File
+
+    expect(ghosttyState.instances[0]!.resolveClipboardFilePaste(file)).toBe(resolved)
+    expect(resolveTerminalClipboardFilePaste).toHaveBeenCalledExactlyOnceWith(file)
+
+    pane.dispose()
   })
 
   it('follows React presentation independently from keyboard focus', async () => {
@@ -422,7 +265,7 @@ describe('GhosttyTerminalPane lifecycle', () => {
       await vi.waitFor(() => expect(invoke).toHaveBeenCalledOnce())
     })
     const state = ghosttyState.instances[0]!
-    expect(state.cursorBlinkValues).toEqual([true, false])
+    expect(state.cursorBlinkValues).toEqual(['terminal'])
 
     act(() => {
       root.render(
@@ -436,7 +279,7 @@ describe('GhosttyTerminalPane lifecycle', () => {
         />,
       )
     })
-    expect(state.cursorBlinkValues).toEqual([true, false, true])
+    expect(state.cursorBlinkValues).toEqual(['terminal'])
 
     act(() => {
       root.render(
@@ -450,7 +293,7 @@ describe('GhosttyTerminalPane lifecycle', () => {
         />,
       )
     })
-    expect(state.cursorBlinkValues).toEqual([true, false, true, false])
+    expect(state.cursorBlinkValues).toEqual(['terminal'])
     expect(invoke).toHaveBeenCalledOnce()
     expect(send).not.toHaveBeenCalledWith('pty:kill', expect.anything())
 
@@ -1118,26 +961,9 @@ describe('GhosttyTerminalPane lifecycle', () => {
   })
 })
 
-function theme() {
-  return {
-    background: '#111318',
-    foreground: '#d8dee9',
-    cursor: '#d8dee9',
-    selectionBackground: '#39445a',
-    black: '#20242c',
-    red: '#e06c75',
-    green: '#98c379',
-    yellow: '#e5c07b',
-    blue: '#61afef',
-    magenta: '#c678dd',
-    cyan: '#56b6c2',
-    white: '#d8dee9',
-  }
-}
-
-function typography() {
-  return { fontFamily: 'ui-monospace, monospace', fontSize: 13 }
-}
+const theme = () => terminalThemeForAppearance('dark')
+const typography = () => ({ fontFamily: 'ui-monospace, monospace', fontSize: 13 })
+const cursorDefaults = () => ({ shape: 'block', blink: 'terminal' }) as const
 
 function settleTerminalFit(delay = 100): Promise<void> {
   return new Promise((resolve) => window.setTimeout(resolve, delay))
@@ -1149,41 +975,4 @@ function deliveryPresentation(container: HTMLElement): 'visible' | 'hidden' | un
       readonly __hvirTerminalDelivery?: { readonly presentation: 'visible' | 'hidden' }
     }
   ).__hvirTerminalDelivery?.presentation
-}
-
-function runtimeOptions(): TerminalRuntimeOptions & { readonly presented: boolean } {
-  return {
-    sessionId: 'terminal-1',
-    profileId: asHarnessProfileId('claude-code-default'),
-    launchRevision: 2,
-    riskAcknowledged: false,
-    supportsResume: true,
-    fallbackTitle: 'Claude Code · repo',
-    harnessSessionId: '05ea41ff-026f-4ab6-b930-64eb3b497806',
-    resumeOnStart: true,
-    startMode: 'interactive',
-    position: 0,
-    active: true,
-    presented: true,
-    presentation: 'visible',
-    modifiedKeyProtocol: 'modify-other-keys',
-    metaEnterAliasesControl: true,
-    composerSubmitMode: 'enter',
-    typography: typography(),
-    cwd: localPath('/repo'),
-    workspaceRoot: localPath('/repo'),
-    connectionState: 'connected',
-    onTitle: vi.fn(),
-    onStatus: vi.fn(),
-    onTelemetry: vi.fn(),
-    onIdentity: vi.fn(),
-    onStarted: vi.fn(),
-    onFreshStarted: vi.fn(),
-    onCapabilities: vi.fn(),
-    onInput: vi.fn(),
-    onOutput: vi.fn(),
-    onBell: vi.fn(),
-    onFocus: vi.fn(),
-    onLink: vi.fn(),
-  }
 }

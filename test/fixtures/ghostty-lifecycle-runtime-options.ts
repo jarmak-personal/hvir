@@ -1,0 +1,48 @@
+import { vi } from 'vitest'
+
+import { terminalThemeForAppearance } from '../../src/renderer/src/terminal/terminal-palette'
+import { asHarnessProfileId, localPath } from '../../src/shared'
+
+export function ghosttyLifecycleRuntimeOptions() {
+  return {
+    sessionId: 'terminal-1',
+    profileId: asHarnessProfileId('claude-code-default'),
+    launchRevision: 2,
+    riskAcknowledged: false,
+    supportsResume: true,
+    fallbackTitle: 'Claude Code · repo',
+    harnessSessionId: '05ea41ff-026f-4ab6-b930-64eb3b497806',
+    resumeOnStart: true,
+    startMode: 'interactive',
+    position: 0,
+    active: true,
+    presented: true,
+    presentation: 'visible',
+    modifiedKeyProtocol: 'modify-other-keys',
+    metaEnterAliasesControl: true,
+    composerSubmitMode: 'enter',
+    lightThemeId: 'hvir-default-light',
+    darkThemeId: 'hvir-default-dark',
+    theme: terminalThemeForAppearance('dark'),
+    typography: { fontFamily: 'ui-monospace, monospace', fontSize: 13 },
+    cursorDefaults: { shape: 'block', blink: 'terminal' },
+    ligatures: true,
+    cwd: localPath('/repo'),
+    workspaceRoot: localPath('/repo'),
+    connectionState: 'connected',
+    onTitle: vi.fn(),
+    onStatus: vi.fn(),
+    onTelemetry: vi.fn(),
+    onIdentity: vi.fn(),
+    onStarted: vi.fn(),
+    onFreshStarted: vi.fn(),
+    onCapabilities: vi.fn(),
+    onInput: vi.fn(),
+    onOutput: vi.fn(),
+    onBell: vi.fn(),
+    onFocus: vi.fn(),
+    onLink: vi.fn(),
+    onSplit: vi.fn(),
+    onOpenTerminalSettings: vi.fn(),
+  } as const
+}

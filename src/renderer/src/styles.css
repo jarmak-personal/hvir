@@ -11,6 +11,7 @@
 @import './styles/terminal-shell.css';
 @import './styles/terminal-move.css';
 @import './styles/settings.css';
+@import './styles/terminal-theme-gallery.css';
 @import './styles/harness-settings.css';
 @import './styles/composer-submit.css';
 @import './styles/terminal-list.css';
@@ -23,9 +24,12 @@
 @import './styles/dialogs.css';
 @import './styles/workspace-catalog.css';
 @import './styles/tree.css';
+@import './styles/file-operations.css';
 @import './styles/path-copy.css';
+@import './styles/terminal-context-menu.css';
 @import './styles/viewer-content.css';
 @import './styles/viewer-workload.css';
 @import './styles/terminal-pane.css';
+@import './styles/terminal-search.css';
 @import './styles/web-pane.css';
 @import './styles/scrollbars.css';

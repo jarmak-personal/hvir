@@ -2,11 +2,13 @@ import type { BrowserWindow } from 'electron'
 
 import { dispatchWorkerHostCall } from '../git/worker-host-broker'
 import { createFilenameSearchCoordinator } from '../filename-search'
+import { createProjectFileOperationCoordinator } from '../project-file-operations'
 import { HarnessProfileStore } from '../harness/harness-profile-store'
 import { harnessProviderCatalog } from '../harness/harness-provider'
 import type { HarnessProbeManager } from '../harness/harness-probe'
 import type { HtmlPreviewProtocol } from '../html-preview-protocol'
 import type { RuntimeDiagnostics } from '../diagnostics/runtime-diagnostics'
+import { sendRendererEvent } from '../renderer-event-delivery'
 import { registerIpcHandlers } from '../ipc'
 import type { RendererResourceScopes } from '../renderer-resource-scopes'
 import { LocalHost } from '../project-host'
@@ -33,6 +35,11 @@ import {
   verifyRendererRolloverRecovery,
 } from './renderer-lifecycle'
 import { verifyRendererAuthorityLifecycle } from './renderer-authority'
+import { createExternalMoveSmokeControl } from './external-file-move'
+import {
+  createRemoteProjectFileSmokeHost,
+  verifyProjectFileOperationsSmoke,
+} from './project-file-operations'
 import { verifyFocusedViewer } from './viewer-position'
 import { verifyViewerContent } from './viewer-content'
 import { verifyWorkbenchHealthFault } from './workbench-health'
@@ -40,10 +47,8 @@ import { verifyRendererProcessRecovery } from './renderer-recovery'
 import type { ElectronSmokeMode } from './scenario-selection.mts'
 import { createTerminalMoveSmokeHarness, verifyTerminalMoveSmoke } from './terminal-move'
 import { createSmokeTerminalSessionStore } from './terminal-session-store'
-import {
-  verifyLegacyTerminalPresentation,
-  verifyTerminalPresentationLifecycle,
-} from './terminal-presentation'
+import { verifyTerminalPresentationLifecycle } from './terminal-presentation'
+import { verifyLegacyTerminalPresentation } from './terminal-legacy-presentation'
 import { ensureExplicitBareShellLaunch } from './terminal-explicit-launch'
 import { verifyTerminalReconnectRemount } from './terminal-renderer-lifecycle'
 import { verifyWebPaneWorkflow } from './web-pane'
@@ -58,6 +63,8 @@ import {
   ECHO_REQUEST_TYPE,
   MAX_PROJECT_WATCH_INTERESTS,
   asHostId,
+  basenameHostPath,
+  dirnameHostPath,
   hostPath,
   hostPathEquals,
   joinHostPath,
@@ -122,16 +129,44 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
     (call) => dispatchWorkerHostCall(call, { host, root: projectRoot }),
   )
   const filenameSearch = createFilenameSearchCoordinator(git)
-  const host = new LocalHost()
+  const smokeRoot = projectRoot
+  const smokeTrashRecoveryRoot = joinHostPath(
+    dirnameHostPath(smokeRoot),
+    `.hvir-smoke-trash-recovery-${process.pid}-${basenameHostPath(smokeRoot)}`,
+  )
+  let smokeTrashSequence = 0
+  let smokeTrashFailurePath: HostPath | undefined
+  const smokeRecoveredPaths = new Set<HostPath>()
+  const host = new LocalHost({
+    trashItem: async (path) => {
+      if (smokeTrashFailurePath && hostPathEquals(path, smokeTrashFailurePath)) {
+        throw new Error('Injected recoverable Trash failure')
+      }
+      const recovered = joinHostPath(
+        smokeTrashRecoveryRoot,
+        `${(smokeTrashSequence += 1)}-${basenameHostPath(path)}`,
+      )
+      await host.fileTransfer.renameNoReplace(path, recovered)
+      smokeRecoveredPaths.add(recovered)
+    },
+  })
+  const externalMoveSmoke = createExternalMoveSmokeControl()
   const supervisor = new PtySupervisor()
   let smokeWindow: BrowserWindow | undefined
   let cleanupFailureResource: ReturnType<typeof smokeCleanupResource> = null
   let discardedRendererGenerations = 0
   let stopSmokeWatch: Disposer | undefined
-  const smokeRoot = projectRoot
   const smokeCloseableRoot = joinHostPath(smokeRoot, '.hvir-smoke-closed-project')
   const smokeWebSwitchRoot = joinHostPath(smokeRoot, 'docs')
   const oversizedDiffPath = joinHostPath(smokeRoot, '.hvir-smoke-oversized-diff.txt')
+  const createdPointerPath = joinHostPath(smokeRoot, '.hvir-smoke-created-pointer.txt')
+  const renamedPointerPath = joinHostPath(smokeRoot, '.hvir-smoke-renamed-pointer.txt')
+  const createdKeyboardPath = joinHostPath(smokeRoot, '.hvir-smoke-created-keyboard')
+  const organizationTargetPath = joinHostPath(
+    smokeRoot,
+    '.hvir-smoke-organization-target',
+  )
+  const createdSnapshotPath = joinHostPath(smokeRoot, '.hvir-smoke-created-snapshot.txt')
   const cleanup = new SmokeCleanup((name) => interruptionCheckpoint.disposed(name), {
     onFailure: (name) => {
       cleanupFailureResource = smokeCleanupResource(name)
@@ -152,6 +187,14 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
   cleanup.defer('Git worker', () => git.dispose())
   cleanup.defer('filename search', () => filenameSearch.dispose())
   cleanup.defer('local host', () => host.dispose())
+  cleanup.defer('recoverable deletion fixture', async () => {
+    for (const recovered of smokeRecoveredPaths) {
+      await host.exec('rm', ['-rf', '--', recovered.path])
+    }
+    await host.fileTransfer.removeDirectory(smokeTrashRecoveryRoot, {
+      ignoreMissing: true,
+    })
+  })
   cleanup.defer('harness profile fixture', () =>
     host.exec('rm', ['-f', '--', harnessProfilesPath.path]).then(() => undefined),
   )
@@ -169,6 +212,19 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
   )
   cleanup.defer('oversized diff fixture', () =>
     host.exec('rm', ['-f', '--', oversizedDiffPath.path]).then(() => undefined),
+  )
+  cleanup.defer('created pointer fixture', () =>
+    host
+      .exec('rm', ['-f', '--', createdPointerPath.path, renamedPointerPath.path])
+      .then(() => undefined),
+  )
+  cleanup.defer('created keyboard fixture', () =>
+    host
+      .exec('rm', ['-rf', '--', createdKeyboardPath.path, organizationTargetPath.path])
+      .then(() => undefined),
+  )
+  cleanup.defer('created snapshot fixture', () =>
+    host.exec('rm', ['-f', '--', createdSnapshotPath.path]).then(() => undefined),
   )
   cleanup.defer('project watch', async () => {
     await stopSmokeWatch?.()
@@ -221,6 +277,11 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
     ],
   })
   const smokeRemoteRoot = hostPath(asHostId('smoke-remote'), '/srv/hvir')
+  const smokeRemoteHost = createRemoteProjectFileSmokeHost({
+    localHost: host,
+    localRoot: smokeRoot,
+    remoteRoot: smokeRemoteRoot,
+  })
   const smokeRemoteProjectState = (): ProjectState => ({
     revision: smokeProjectRevision,
     // Present remote chrome without widening the mounted local host authority.
@@ -246,6 +307,36 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
             closed: false,
             missing: false,
             repository: true,
+            changedFiles: 0,
+          },
+        ],
+      },
+    ],
+  })
+  const smokeRemoteFileProjectState = (): ProjectState => ({
+    revision: smokeProjectRevision,
+    root: smokeRemoteRoot,
+    connectionState: 'connected',
+    watchTier: 'polling',
+    activeProjectId: 'smoke-remote-file-project',
+    activeWorkspaceId: 'smoke-remote-file-workspace',
+    projects: [
+      {
+        id: 'smoke-remote-file-project',
+        registeredRoot: smokeRemoteRoot,
+        displayName: 'remote-hvir',
+        connectionState: 'connected',
+        watchTier: 'polling',
+        activeWorkspaceId: 'smoke-remote-file-workspace',
+        workspaces: [
+          {
+            id: 'smoke-remote-file-workspace',
+            root: smokeRemoteRoot,
+            name: 'feature/files',
+            main: true,
+            closed: false,
+            missing: false,
+            repository: false,
             changedFiles: 0,
           },
         ],
@@ -368,9 +459,25 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
         `${'oversized diff fixture '.padEnd(255, 'x')}\n`.repeat(8_200),
       )
     }
+    if (mode === 'workspace-remote') {
+      await host.exec('rm', [
+        '-f',
+        '--',
+        createdPointerPath.path,
+        renamedPointerPath.path,
+        createdSnapshotPath.path,
+      ])
+      await host.createDirectoryExclusive(smokeTrashRecoveryRoot, { mode: 0o755 })
+      await host.exec('rm', [
+        '-rf',
+        '--',
+        createdKeyboardPath.path,
+        organizationTargetPath.path,
+      ])
+    }
     const emit: EmitSmokeEvent = (channel, payload) => {
       if (smokeWindow && !smokeWindow.isDestroyed())
-        smokeWindow.webContents.send(channel, payload)
+        sendRendererEvent(smokeWindow.webContents, channel, payload)
     }
     const smokeTerminalSessionHarness = createSmokeTerminalSessionStore(smokeRoot)
     const smokeTerminalSessions = smokeTerminalSessionHarness.store
@@ -405,17 +512,32 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
         webPanes: webPaneRoutes,
       }),
     })
+    const projectFiles = createProjectFileOperationCoordinator(
+      {
+        state: () => smokeIpcProjectState,
+        hostById: (hostId) =>
+          hostId === smokeRemoteHost.hostId ? smokeRemoteHost : host,
+      },
+      rendererResources,
+      externalMoveSmoke.picker,
+    )
+    cleanup.defer('project file operations', () => projectFiles.dispose())
     const ipcRouter = registerIpcHandlers({
       echoWorker: worker,
       gitWorker: git,
       filenameSearch,
-      getProject: () => ({ host, root: smokeRoot }),
-      getHost: () => host,
+      projectFiles,
+      getProject: () =>
+        smokeIpcProjectState.root.hostId === smokeRemoteHost.hostId
+          ? { host: smokeRemoteHost, root: smokeRemoteRoot }
+          : { host, root: smokeRoot },
+      getHost: (hostId) => (hostId === smokeRemoteHost.hostId ? smokeRemoteHost : host),
       connectedHosts: () => [host],
       getRegisteredWorkspaceRoot: (root) =>
         hostPathEquals(root, smokeRoot) ||
         hostPathEquals(root, smokeCloseableRoot) ||
-        hostPathEquals(root, smokeWebSwitchRoot)
+        hostPathEquals(root, smokeWebSwitchRoot) ||
+        hostPathEquals(root, smokeRemoteRoot)
           ? root
           : undefined,
       getProjectState: () => smokeIpcProjectState,
@@ -603,6 +725,7 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
         supervisor,
         routes: webPaneRoutes,
         root: smokeRoot,
+        liveReloadPath,
         host,
         checkpoint: recordSmokeCheckpoint,
       })
@@ -640,6 +763,23 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
       console.log(`[smoke] terminal presentation OK (${presentation})`)
     }
     if (mode === 'workspace-remote') {
+      const projectFilesResult = await verifyProjectFileOperationsSmoke({
+        win,
+        localHost: host,
+        localRoot: smokeRoot,
+        remoteRoot: smokeRemoteRoot,
+        switchedRoot: smokeWebSwitchRoot,
+        trashRecoveryRoot: smokeTrashRecoveryRoot,
+        externalMove: externalMoveSmoke,
+        failTrashFor: (path) => {
+          smokeTrashFailurePath = path
+        },
+        localState: smokeProjectState,
+        remoteState: smokeRemoteFileProjectState,
+        switchedState: () => smokeProjectReturnState('smoke-project-return'),
+        publish: (state) => emit('project:state', setSmokeProjectState(state)),
+      })
+      console.log(`[smoke] project file operations OK (${projectFilesResult})`)
       const result = await verifyWorkspaceRemoteWorkflow({
         win,
         host,
@@ -921,9 +1061,10 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
           const initial = document.documentElement.dataset.theme;
           const canvas = document.querySelector('.terminal-container canvas');
           const terminal = canvas?.closest('.terminal-container');
+          const engine = terminal?.querySelector('.terminal-engine-host');
           const toggle = document.querySelector('.theme-toggle');
           const shell = document.querySelector('.app-shell');
-          if (!canvas || !terminal || !toggle || !shell) return reject(new Error('theme smoke controls missing'));
+          if (!canvas || !terminal || !engine || !toggle || !shell) return reject(new Error('theme smoke controls missing'));
           const terminalBackgroundMatches = () => {
             const expected = terminal.getAttribute('data-terminal-theme') === 'light'
               ? 'rgb(236, 236, 231)'
@@ -932,6 +1073,10 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
           };
           const before = getComputedStyle(shell).backgroundColor;
           const terminalBefore = getComputedStyle(canvas).filter;
+          const paletteBefore = engine.__hvirTerminalPerformance?.palette?.background;
+          if (terminalBefore !== 'none' || !paletteBefore) {
+            return reject(new Error('terminal Canvas still uses a color filter'));
+          }
           if (!terminalBackgroundMatches()) {
             return reject(new Error('terminal host background does not match its palette'));
           }
@@ -940,10 +1085,15 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
             const current = document.documentElement.dataset.theme;
             const after = getComputedStyle(shell).backgroundColor;
             const terminalAfter = getComputedStyle(canvas).filter;
+            const paletteAfter = engine.__hvirTerminalPerformance?.palette?.background;
             if (current === initial || before === after) {
               return reject(new Error('chrome theme did not change'));
             }
-            if (terminalBefore === terminalAfter) {
+            if (
+              terminalAfter !== 'none' ||
+              !paletteAfter ||
+              paletteBefore === paletteAfter
+            ) {
               return reject(new Error('live terminal palette did not change'));
             }
             if (!terminalBackgroundMatches()) {
@@ -954,7 +1104,10 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
             }
             toggle.click();
             requestAnimationFrame(() => {
-              if (document.documentElement.dataset.theme !== initial) {
+              if (
+                document.documentElement.dataset.theme !== initial ||
+                engine.__hvirTerminalPerformance?.palette?.background !== paletteBefore
+              ) {
                 return reject(new Error('theme did not restore'));
               }
               resolve(initial + '→' + current + '→' + initial + ' · PTY canvas retained');

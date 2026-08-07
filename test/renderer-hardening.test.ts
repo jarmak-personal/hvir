@@ -7,7 +7,12 @@ import {
   usesUnsavedContent,
 } from '../src/renderer/src/viewer/diff-policy'
 import { restoreCodePosition } from '../src/renderer/src/viewer/code-scroll-anchor'
-import { INVOKE_CHANNELS } from '../src/shared'
+import {
+  INVOKE_CHANNELS,
+  MAX_EXTERNAL_FILE_SOURCES,
+  PRELOAD_ONLY_INVOKE_CHANNELS,
+  RENDERER_INVOKE_CHANNELS,
+} from '../src/shared'
 
 describe('renderer diff policy', () => {
   it('uses a dirty buffer only for live-file comparisons', () => {
@@ -82,6 +87,22 @@ describe('renderer filesystem contract', () => {
     expect(INVOKE_CHANNELS).toContain('harness:probe-snapshot')
     expect(INVOKE_CHANNELS).toContain('harness:probe-templates')
     expect(INVOKE_CHANNELS).toContain('harness:profile-materialize')
+  })
+
+  it('keeps raw dropped paths behind the preload-only invoke surface', () => {
+    expect(INVOKE_CHANNELS).toContain('fs:acquire-dropped-files')
+    expect(PRELOAD_ONLY_INVOKE_CHANNELS).toEqual(['fs:acquire-dropped-files'])
+    expect(RENDERER_INVOKE_CHANNELS).not.toContain('fs:acquire-dropped-files')
+    const preload = readFileSync(join(process.cwd(), 'src/preload/index.ts'), 'utf8')
+    const filesystemIpc = readFileSync(
+      join(process.cwd(), 'src/main/ipc/features/filesystem.ts'),
+      'utf8',
+    )
+    expect(preload).toContain('webUtils.getPathForFile(file)')
+    expect(preload).toContain('files.length > MAX_EXTERNAL_FILE_SOURCES')
+    expect(preload).toContain("ipcRenderer.invoke('fs:acquire-dropped-files', { paths })")
+    expect(filesystemIpc).toContain('value.length > MAX_EXTERNAL_FILE_SOURCES')
+    expect(MAX_EXTERNAL_FILE_SOURCES).toBe(256)
   })
 
   it('keeps the Harnesses editor wide and the add flow keyboard-addressable', () => {

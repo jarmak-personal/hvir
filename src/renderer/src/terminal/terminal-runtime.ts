@@ -1,15 +1,20 @@
 import { hostPathEquals, type HostConnectionState, type HostPath } from '../../../shared'
-import { SynchronizedOutputWriter } from './synchronized-output'
 import type { TerminalEventRouter } from './terminal-event-router'
 import type { TerminalPane } from './terminal-pane'
 import { createTerminalRuntimePane } from './terminal-pane-factory'
 import {
+  applyLivePaneOptions,
+  runtimeCanInteract,
+  synchronizePanePresentationOptions,
+} from './terminal-runtime-live-settings'
+import {
   launchUnavailableStatus,
   resumeUnavailableStatus,
-  type TerminalRecoveryFailure,
+  terminalRecoveryFailureEquals,
   type TerminalRuntimeSnapshot,
 } from './terminal-runtime-presentation'
 import type { TerminalRuntimeOptions } from './terminal-runtime-options'
+import { TerminalRuntimeInteractions } from './terminal-runtime-interactions'
 import { TerminalSurfaceAttachment } from './terminal-surface-attachment'
 
 const PTY_RESIZE_DEBOUNCE_MS = 75
@@ -20,7 +25,6 @@ export class TerminalRuntime {
   private readonly listeners = new Set<() => void>()
   private readonly surface = new TerminalSurfaceAttachment()
   private pane?: TerminalPane
-  private outputWriter?: SynchronizedOutputWriter
   private paneDisposers: Array<() => void | Promise<void>> = []
   private eventRoute?: ReturnType<TerminalEventRouter['register']>
   private resizeTimer?: number
@@ -36,6 +40,7 @@ export class TerminalRuntime {
   private pendingReplacementId?: string
   private activePtyId?: string
   private startController?: AbortController
+  readonly interactions: TerminalRuntimeInteractions
   private disposed = false
 
   constructor(
@@ -52,6 +57,13 @@ export class TerminalRuntime {
     ) => Promise<() => void>,
   ) {
     this.options = options
+    this.interactions = new TerminalRuntimeInteractions(
+      options.fallbackTitle,
+      () => this.surface.canFocus(),
+      () => this.focus(),
+      () => this.options.onFocus(),
+    )
+    this.interactions.updateAvailability(runtimeCanInteract(options))
     // Connected is the neutral initial value; the first synchronization must still
     // publish a disconnected/connecting state without requiring a mounted pane.
     this.appliedConnectionState = 'connected'
@@ -81,15 +93,15 @@ export class TerminalRuntime {
     ) {
       throw new Error('Live terminal launch context cannot change')
     }
-    const typographyChanged =
-      options.typography.fontFamily !== this.options.typography.fontFamily ||
-      options.typography.fontSize !== this.options.typography.fontSize
+    const typographyChanged = applyLivePaneOptions(this.pane, this.options, options)
     this.options = options
-    if (typographyChanged) this.pane?.setTypography(options.typography)
+    this.interactions.updateAvailability(runtimeCanInteract(options))
+    if (typographyChanged) this.interactions.retainedBufferChanged()
   }
 
   synchronizeLifecycle(): void {
     this.surface.synchronize(this.options.presentation)
+    this.interactions.synchronizeAvailability()
     const connectionState = this.options.connectionState
     if (this.appliedConnectionState === connectionState) return
     this.appliedConnectionState = connectionState
@@ -116,6 +128,7 @@ export class TerminalRuntime {
   attach(container: HTMLElement): void {
     if (this.disposed) return
     const changed = this.surface.attach(container, this.options.presentation)
+    this.interactions.attachSurface(container)
     if (this.pane) {
       if (changed && this.options.active) this.focus()
       return
@@ -125,6 +138,7 @@ export class TerminalRuntime {
 
   detach(container: HTMLElement): void {
     this.surface.detach(container)
+    this.interactions.detachSurface(container)
   }
 
   focus(): void {
@@ -244,13 +258,12 @@ export class TerminalRuntime {
         return
       }
       this.pane = pane
-      pane.setTypography(this.options.typography)
+      synchronizePanePresentationOptions(pane, this.options)
       this.installPaneListeners(pane)
       this.surface.mountPane(pane, container)
       pane.redraw()
-      this.installPtyListeners(sessionId)
+      this.installPtyListeners(sessionId, pane)
       this.surface.synchronize(this.options.presentation)
-
       const resume =
         !replacement &&
         this.options.supportsResume &&
@@ -303,6 +316,7 @@ export class TerminalRuntime {
       this.started = true
       this.hasStarted = true
       this.activePtyId = result.id
+      this.interactions.bind(pane, result.id)
       const status = result.reattached
         ? `Reattached · pid ${result.pid}`
         : result.resumed
@@ -366,10 +380,6 @@ export class TerminalRuntime {
   }
 
   private installPaneListeners(pane: TerminalPane): void {
-    this.outputWriter = new SynchronizedOutputWriter(
-      (data) => pane.write(data),
-      () => pane.redraw(),
-    )
     this.paneDisposers = [
       pane.events.onData((data) => {
         this.options.onInput(data)
@@ -386,6 +396,7 @@ export class TerminalRuntime {
         } else this.pendingInput += fallbackData
       }),
       pane.events.onResize(({ cols, rows }) => {
+        this.interactions.retainedBufferChanged()
         this.terminalSize = { cols, rows }
         if (!this.started) return
         if (this.resizeTimer !== undefined) window.clearTimeout(this.resizeTimer)
@@ -397,29 +408,31 @@ export class TerminalRuntime {
           })
         }, PTY_RESIZE_DEBOUNCE_MS)
       }),
-      pane.events.onTitle((title) => {
-        const next = title.trim() || this.options.fallbackTitle
-        this.updateSnapshot({ ...this.currentSnapshot, title: next })
-        this.options.onTitle(next)
+      pane.events.onEvent((event) => {
+        const effect = this.interactions.paneEvents.handle(event)
+        if (effect && 'title' in effect) {
+          this.updateSnapshot({ ...this.currentSnapshot, title: effect.title })
+          this.options.onTitle(effect.title)
+        } else if (effect?.bell) this.options.onBell()
       }),
-      pane.events.onBell(() => this.options.onBell()),
-      pane.events.onOsc((event) => console.debug('[terminal:osc]', event)),
       pane.events.onLink((target) => this.options.onLink(target)),
     ]
   }
 
-  private installPtyListeners(sessionId: string): void {
+  private installPtyListeners(sessionId: string, pane: TerminalPane): void {
     this.eventRoute = this.terminalEvents().register(
       sessionId,
       this.surface.presentation,
       {
         onData: (data) => {
           this.options.onOutput()
-          this.outputWriter?.write(data)
+          pane.write(data)
+          this.interactions.retainedBufferChanged()
         },
         onExit: (exitCode) => {
           this.started = false
           this.activePtyId = undefined
+          this.interactions.revoke(false)
           this.updateSnapshot({
             ...this.currentSnapshot,
             status: `Exited (${exitCode})`,
@@ -449,9 +462,8 @@ export class TerminalRuntime {
     this.paneDisposers = []
     if (this.resizeTimer !== undefined) window.clearTimeout(this.resizeTimer)
     this.resizeTimer = undefined
-    this.outputWriter?.dispose()
-    this.outputWriter = undefined
     this.pendingInput = ''
+    this.interactions.revoke(true)
     this.pane?.dispose()
     this.pane = undefined
     this.surface.releaseResources()
@@ -469,7 +481,7 @@ export class TerminalRuntime {
       snapshot.title === this.currentSnapshot.title &&
       snapshot.status === this.currentSnapshot.status &&
       snapshot.exited === this.currentSnapshot.exited &&
-      recoveryFailureEquals(
+      terminalRecoveryFailureEquals(
         snapshot.recoveryFailure,
         this.currentSnapshot.recoveryFailure,
       )
@@ -484,11 +496,4 @@ export class TerminalRuntime {
   private isCurrent(generation: number): boolean {
     return !this.disposed && generation === this.startGeneration
   }
-}
-
-function recoveryFailureEquals(
-  left: TerminalRecoveryFailure | undefined,
-  right: TerminalRecoveryFailure | undefined,
-): boolean {
-  return left?.kind === right?.kind && left?.reason === right?.reason
 }

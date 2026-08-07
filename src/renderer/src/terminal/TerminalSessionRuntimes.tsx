@@ -7,7 +7,11 @@ import type {
   HostPath,
 } from '../../../shared'
 import type { TerminalThemeOverride } from '../settings/settings'
-import type { TerminalLinkActivation, TerminalTypography } from './terminal-pane'
+import type {
+  TerminalCursorDefaults,
+  TerminalLinkActivation,
+  TerminalTypography,
+} from './terminal-pane'
 import type { TerminalRuntimeRegistry } from './terminal-runtime-registry'
 import type { FreshTerminalStart } from './terminal-runtime-options'
 import { TerminalView } from './TerminalView'
@@ -21,7 +25,11 @@ export interface TerminalSessionRuntimesProps {
   readonly secondaryActiveId?: string
   readonly presented: boolean
   readonly terminalTheme: TerminalThemeOverride
+  readonly terminalLightThemeId: string
+  readonly terminalDarkThemeId: string
   readonly terminalTypography: TerminalTypography
+  readonly cursorDefaults: TerminalCursorDefaults
+  readonly ligatures: boolean
   readonly composerSubmitMode: ComposerSubmitMode
   readonly workspaceRoot: HostPath
   readonly connectionState: HostConnectionState
@@ -35,6 +43,8 @@ export interface TerminalSessionRuntimesProps {
   readonly onBell: (id: string) => void
   readonly onFocus: (id: string) => void
   readonly onLink: (session: TerminalSession, activation: TerminalLinkActivation) => void
+  readonly onSplit: () => void
+  readonly onOpenTerminalSettings: () => void
   readonly runtimes: TerminalRuntimeRegistry
 }
 
@@ -47,7 +57,11 @@ export function TerminalSessionRuntimes({
   secondaryActiveId,
   presented,
   terminalTheme,
+  terminalLightThemeId,
+  terminalDarkThemeId,
   terminalTypography,
+  cursorDefaults,
+  ligatures,
   composerSubmitMode,
   workspaceRoot,
   connectionState,
@@ -58,6 +72,8 @@ export function TerminalSessionRuntimes({
   onBell,
   onFocus,
   onLink,
+  onSplit,
+  onOpenTerminalSettings,
   runtimes,
 }: TerminalSessionRuntimesProps): ReactElement {
   return (
@@ -92,7 +108,11 @@ export function TerminalSessionRuntimes({
             modifiedKeyProtocol={provider.terminalInput.modifiedKeyProtocol}
             metaEnterAliasesControl={provider.terminalInput.metaEnterAliasesControl}
             themeOverride={terminalTheme}
+            lightThemeId={terminalLightThemeId}
+            darkThemeId={terminalDarkThemeId}
             typography={terminalTypography}
+            cursorDefaults={cursorDefaults}
+            ligatures={ligatures}
             composerSubmitMode={composerSubmitMode}
             cwd={session.cwd}
             workspaceRoot={workspaceRoot}
@@ -138,6 +158,8 @@ export function TerminalSessionRuntimes({
             onBell={() => onBell(session.id)}
             onFocus={() => onFocus(session.id)}
             onLink={(activation) => onLink(session, activation)}
+            onSplit={onSplit}
+            onOpenTerminalSettings={onOpenTerminalSettings}
           />
         )
       })}

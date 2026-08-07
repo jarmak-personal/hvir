@@ -81,12 +81,14 @@ explicit product non-goal, close that loop before asking anyone to write code.
 
 ## Use agents deliberately
 
-The repository provides two lifecycle skills, one test-design skill, and two focused reviewers:
+The repository provides three lifecycle skills, one test-design skill, and two focused reviewers:
 
 - `hvir-create-issue` evaluates product and ADR alignment, sharpens the problem and outcome,
   and prepares a discussion-ready issue.
 - `hvir-implement-issue` performs architecture reconnaissance, raises design concerns before
   editing, and implements an aligned issue with verification.
+- `hvir-implement-epic` privately coordinates an authorized epic's direct children through the
+  single-issue workflow, coherence review, staged integration, cumulative handoff, and cleanup.
 - `write-hvir-tests` selects the behavior owner and lowest real test altitude for test changes,
   fixtures, flake diagnosis, and test review.
 - `hvir-review-issue` critiques broad issue drafts for hvir fit, scope, architecture creep,
@@ -104,37 +106,61 @@ separate explicit approval before creating the issue.
 
 Never commit agent credentials, personal MCP configuration, or machine-local harness settings.
 
-The review skills run only when a maintainer invokes them. Lifecycle skills do not invoke or
-suggest review.
+The review skills normally run only when a maintainer invokes them. Explicit invocation of
+`hvir-implement-epic` is the narrow exception: it authorizes that coordinator to apply
+`hvir-review-code` selection policy once to eligible child candidates and once to the cumulative
+candidate. `hvir-create-issue` and `hvir-implement-issue` do not independently invoke or suggest
+review.
 
 ## Isolate issue implementation
 
-`hvir-implement-issue` uses native Git to create or reuse `agent/issue-N` at the deterministic
-sibling path `<primary-repository>-worktrees/issue-N` from an exact base agreed by the governing
-workflow. All implementation, testing, verification, commits, pre-push checks, and pushes happen
-there; the invoking checkout and unrelated worktrees stay untouched.
+`hvir-implement-issue` starts ordinary and epic-child work through one repository command:
 
-Each invocation fetches/prunes and inspects existing worktrees before creation. Cleanup uses
-ordinary `git worktree`, status, and ref commands plus bounded `gh` PR metadata. Remove only when
-the worktree is inactive, unlocked, clean except for plainly disposable ignored artifacts, its
-upstream is gone, and a merged PR records the exact local head and expected base. Never force or
-recursively delete; retain uncertain state with a reason. This is a contributor convention, not
-a custom worktree registry or an hvir application capability.
+```sh
+npm run issue:start -- --issue N
+npm run issue:start -- --issue N --apply
+```
+
+Planning refreshes/prunes remote-tracking refs and prints the complete setup without changing a
+local branch, worktree, dependency tree, or Project value. Apply recomputes the current plan,
+creates or reuses `agent/issue-N` at `<primary-repository>-worktrees/issue-N` from the exact
+resolved start ref, and runs locked dependency preparation there. All implementation, testing,
+verification, commits, pre-push checks, and pushes then happen in that selected worktree; the
+invoking checkout and unrelated worktrees stay untouched.
+
+The command composes the read-only delivery context with ordinary native Git status, worktree,
+and ref operations plus bounded content-free PR evidence. Cleanup requires an inactive, unlocked
+worktree; clean tracked and untracked state; only plainly disposable ignored artifacts; a gone
+upstream; no open PR; and a merged PR that records the exact local head and that issue's expected
+delivery base.
+It never forces a Git operation or recursively deletes a worktree. Uncertain state is retained
+with a reason and does not block an unrelated selected issue unless its branch or path collides.
+This is a contributor convention, not a custom worktree registry or an hvir application
+capability.
 
 This lifecycle belongs only to repository contributor tooling. The hvir application continues
 to discover worktrees without creating, moving, repairing, merging, or removing them.
 
 ## Stage epic delivery
 
-An authorized open `kind:epic` uses one `epic/N-slug` integration branch from current `main`.
-Keep its history append-only. Start each direct child's issue worktree at the current epic branch.
-Continue to use `main` for ordinary issues.
+Use `hvir-implement-epic` as the top-level workflow for an authorized open `kind:epic`. Its root
+agent remains the private coordinator: it builds the child dependency/ownership graph, schedules
+only independent work concurrently, reviews coherence, integrates child pull requests one at a
+time, and prepares the cumulative maintainer handoff. It delegates every child implementation
+through `hvir-implement-issue`; it does not define a second implementation workflow or put its
+scheduling and reasoning record on GitHub.
 
-Use `npm run issue:context -- --issue N` to resolve the native parent, exact base, deterministic
-issue branch and worktree, planning state, related open PRs, and conflicts. Add `--json` when an
-agent needs the structured record. Reuse one unambiguous epic branch. Creating the first branch
-requires authorization for the epic and its intended child set. Retain state and report a blocker
-when metadata, refs, or worktrees conflict.
+The coordinator owns one `epic/N-slug` integration branch from current `main` and keeps its
+history append-only. Each direct child's issue worktree starts at the current epic branch.
+Ordinary issues continue to use `main`.
+
+`hvir-implement-issue` uses `npm run issue:start -- --issue N` to plan a child's native parent,
+exact base, deterministic issue branch and worktree, planning state, related open PRs, cleanup,
+and dependency preparation. Add `--json` when an agent needs the structured record; pass
+`--apply` only after reviewing the plan. `issue:context` remains available for read-only delivery
+diagnosis. The epic coordinator creates or reuses the one unambiguous epic branch before child
+startup; `issue:start` never creates or pushes it. Retain state and report a blocker when
+metadata, refs, or worktrees conflict.
 
 An epic-child PR targets the exact epic branch and names its direct child once:
 
@@ -148,15 +174,19 @@ for partial work that does not complete an issue. Required CI and CodeQL checks 
 targets. Trusted automation uses default-branch code, treats PR text as data, and advances the
 eligible child and parent records to `In Progress`.
 
-After the required checks pass, merge the focused child PR into the epic branch. Trusted
-automation revalidates its base and native parent, then closes the direct child and converges
-Project Status to `Done`. Failed or ambiguous validation keeps the child open. Reopen the child for
-a correction and use another focused completing PR. No intermediate Project Status is used.
+The child workflow stops after preparing its focused pull request and compact handoff. The epic
+coordinator validates the exact candidate, base, relationship, parent, reviews, and required
+checks before merging one child at a time. Trusted automation revalidates the base and native
+parent, then closes the direct child and converges Project Status to `Done`. Failed or ambiguous
+validation keeps the child open. Reopen the child for an in-scope correction and return it through
+`hvir-implement-issue`. No intermediate Project Status is used.
 
-After every intended child closes, merge current `main` into the epic branch. Verify the complete
-`main...epic` candidate. Open one final PR to `main` with `Closes #<epic>`. The maintainer owns
-cumulative acceptance and the final merge. Clean the epic branch and worktree after final merge
-and exact safety checks. Retain uncertain state for maintainer action.
+After every authorized child closes, the coordinator merges current `main` into the epic branch,
+verifies and externally reviews the complete `main...epic` candidate, passes the pre-push gate,
+and opens one final PR to `main` with `Closes #<epic>`. The maintainer owns cumulative acceptance
+and the final merge. After the maintainer reports that merge, the coordinator cleans the epic
+branch and worktree only after exact head, upstream, pull-request, and worktree safety checks.
+Retain uncertain state for maintainer action.
 
 ## Develop locally
 
@@ -177,6 +207,11 @@ npm run dev
 
 `npm ci` downloads Electron and rebuilds native dependencies for Electron's ABI. On headless
 Linux, run Electron smoke tests under `xvfb-run`. Install the optional pre-push smoke hook with:
+
+On macOS, raw `npm run dev` and unsigned `npm run build:dir` are not the LAN SSH acceptance
+identity. Use the
+[signed macOS SSH coexistence workflow](docs/macos-ssh-acceptance.md), which fails closed when
+its protected Developer ID signing inputs are unavailable.
 
 ```sh
 npm run hooks:install

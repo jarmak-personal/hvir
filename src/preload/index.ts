@@ -5,23 +5,25 @@
  * reach channels declared in `INVOKE_CHANNELS`.
  */
 
-import { contextBridge, ipcRenderer } from 'electron'
+import { contextBridge, ipcRenderer, webUtils } from 'electron'
 
 import {
   EVENT_CHANNELS,
-  INVOKE_CHANNELS,
+  MAX_EXTERNAL_FILE_SOURCES,
+  RENDERER_INVOKE_CHANNELS,
   SEND_CHANNELS,
   isRendererDiagnosticSession,
   type HvirApi,
   type IpcEventChannel,
   type IpcEventPayload,
-  type IpcInvokeChannel,
+  type RendererIpcInvokeChannel,
   type IpcRequest,
   type IpcResponse,
   type IpcSendChannel,
   type IpcSendPayload,
 } from '../shared'
 import { RendererDiagnosticsAdapter } from './renderer-diagnostics'
+import { terminalClipboardFilePasteText } from './terminal-clipboard-file-paste'
 
 const rendererDiagnostics = new RendererDiagnosticsAdapter({
   send: (batch) => ipcRenderer.send('diagnostics:render-containment', batch),
@@ -49,16 +51,33 @@ const api: HvirApi = {
     readyRequested = true
     signalRendererReady()
   },
+  resolveTerminalClipboardFilePaste: (file) =>
+    terminalClipboardFilePasteText(file, (candidate) =>
+      webUtils.getPathForFile(candidate),
+    ),
   diagnostics: {
     processSandboxed: process.sandboxed,
     recordRenderContainment: (occurrenceId) =>
       rendererDiagnostics.recordRenderContainment(occurrenceId),
   },
-  invoke<C extends IpcInvokeChannel>(
+  externalFiles: {
+    acquireDropped: (files) => {
+      if (files.length > MAX_EXTERNAL_FILE_SOURCES) {
+        return Promise.reject(
+          new Error(
+            `The external file list exceeds ${MAX_EXTERNAL_FILE_SOURCES} entries`,
+          ),
+        )
+      }
+      const paths = files.map((file) => webUtils.getPathForFile(file))
+      return ipcRenderer.invoke('fs:acquire-dropped-files', { paths })
+    },
+  },
+  invoke<C extends RendererIpcInvokeChannel>(
     channel: C,
     request: IpcRequest<C>,
   ): Promise<IpcResponse<C>> {
-    if (!INVOKE_CHANNELS.includes(channel)) {
+    if (!RENDERER_INVOKE_CHANNELS.includes(channel)) {
       return Promise.reject(
         new Error(`hvir: blocked non-contract IPC channel '${channel}'`),
       )

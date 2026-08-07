@@ -30,6 +30,15 @@
   pointer-events: auto;
 }
 
+/* Portal overlays opt into this shared contract when reaching the overlay track
+ * would cross an open popup. The popup remains the sole pointer owner while open. */
+body:has(.hvir-scrollbar-obscuring) > .hvir-scrollbar.hvir-scrollbar {
+  opacity: 0;
+  pointer-events: none;
+  transition: none;
+  visibility: hidden;
+}
+
 .hvir-scrollbar[data-axis='vertical'] {
   width: 10px;
 }

@@ -1,6 +1,6 @@
 {
   "name": "hvir",
-  "version": "0.1.9",
+  "version": "0.1.11",
   "description": "A lightweight, view-first workbench for agentic development.",
   "author": {
     "name": "hvir contributors",
@@ -27,16 +27,19 @@
   ],
   "main": "./out/main/index.js",
   "scripts": {
-    "postinstall": "npm run install:runtime && patch-package",
-    "install:runtime": "install-electron --no && electron-rebuild -f -o node-pty",
-    "prebuild": "node scripts/check-terminal-runtime-patch.mts",
-    "predev": "node scripts/check-terminal-runtime-patch.mts",
+    "postinstall": "npm run install:runtime",
+    "install:runtime": "install-electron --no && node-gyp rebuild --directory node_modules/@hvir/rename-noreplace && electron-rebuild -f -o node-pty",
+    "prebuild": "node scripts/check-terminal-runtime.mts",
+    "predev": "node scripts/check-terminal-runtime.mts",
     "dev": "electron-vite dev",
     "build": "npm run typecheck && electron-vite build",
     "build:smoke": "electron-vite build --mode smoke",
     "build:dir": "npm run build && electron-builder --dir",
     "pack:mac:arm64": "npm run build && electron-builder --mac pkg --arm64 --publish never",
     "pack:mac:arm64:signed": "npm run build && electron-builder --mac pkg --arm64 --publish never --config.forceCodeSigning=true",
+    "build:macos:ssh-acceptance": "bash scripts/run-macos-ssh-acceptance.sh --build-only",
+    "acceptance:ssh:macos": "bash scripts/run-macos-ssh-acceptance.sh",
+    "acceptance:ssh:macos:identity": "bash scripts/record-macos-ssh-identity.sh",
     "pack:linux:x64": "npm run build && electron-builder --linux deb --x64 --publish never",
     "pack:linux:arm64": "npm run build && electron-builder --linux deb --arm64 --publish never",
     "assemble:native-release": "node scripts/assemble-native-release.mjs",
@@ -56,10 +59,12 @@
     "check-adrs": "node scripts/check-adrs.mjs",
     "architecture:report": "node scripts/architecture-hotspots.mjs",
     "architecture:check": "node scripts/architecture-hotspots.mjs --enforce",
+    "generate:terminal-themes": "node scripts/generate-terminal-theme-catalog.mts",
     "project:kind": "node scripts/project-management/sync-kind.ts",
     "project:record": "node scripts/project-management/read-planning-record.ts",
     "project:pr": "node scripts/project-management/sync-pull-request-planning.ts",
     "issue:context": "node scripts/project-management/read-issue-context.ts",
+    "issue:start": "node scripts/project-management/start-issue.ts",
     "verify": "npm run check-seams && npm run check-adrs && npm run architecture:check && npm run lint && npm run typecheck && npm test",
     "smoke": "npm run build:smoke && node scripts/run-smoke-scenarios.mts pty-native viewer-position viewer-content git-workflow workspace-remote web-pane renderer-authority renderer-recovery terminal-presentation terminal-lifecycle legacy-workflow",
     "smoke:macos": "npm run build:smoke && node scripts/run-smoke-scenarios.mts pty-native viewer-position viewer-content git-workflow workspace-remote web-pane renderer-authority platform-contracts renderer-recovery terminal-presentation terminal-lifecycle",
@@ -79,12 +84,14 @@
     "@codemirror/search": "^6.7.1",
     "@codemirror/state": "^6.7.1",
     "@codemirror/view": "^6.43.7",
+    "bplist-parser": "^0.3.2",
     "chokidar": "^5.0.0",
-    "ghostty-web": "https://github.com/jarmak-personal/ghostty-web/releases/download/hvir-v0.4.0-1/ghostty-web-0.4.0-hvir-g68a13ff6823f.tgz",
+    "ghostty-web": "https://github.com/jarmak-personal/ghostty-web/releases/download/hvir-v0.4.0-14/ghostty-web-0.4.0-hvir-ge3bc2e1a6dbe.tgz",
     "markdown-it": "^15.0.0",
     "markdown-it-task-lists": "^2.1.1",
     "mermaid": "^11.16.0",
     "node-pty": "^1.1.0",
+    "plist": "^3.1.1",
     "shiki": "^4.4.1",
     "ssh-config": "^5.2.0",
     "ssh2": "^1.17.0",
@@ -96,6 +103,7 @@
     "@stryker-mutator/core": "^9.6.1",
     "@stryker-mutator/vitest-runner": "^9.6.1",
     "@types/node": "^24.13.3",
+    "@types/plist": "^3.0.5",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.4",
     "@types/ssh2": "^1.15.5",
@@ -109,7 +117,7 @@
     "eslint-plugin-react-hooks": "^7.1.0",
     "eslint-plugin-react-refresh": "^0.5.0",
     "happy-dom": "^20.11.1",
-    "patch-package": "^8.0.1",
+    "node-gyp": "^12.4.0",
     "prettier": "^3.9.6",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
@@ -122,5 +130,8 @@
     "typed-rest-client": {
       "qs": "6.15.3"
     }
+  },
+  "optionalDependencies": {
+    "@hvir/rename-noreplace": "file:packages/rename-noreplace"
   }
 }

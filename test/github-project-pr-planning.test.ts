@@ -194,6 +194,58 @@ describe('GitHub pull request planning adapter', () => {
       'epic/50-second',
     ])
   })
+
+  it('reads bounded content-free cleanup evidence for one same-repository head', async () => {
+    const fetchImplementation = vi.fn(
+      (_url: string | URL | Request, init?: RequestInit): Promise<Response> => {
+        const request = requestBody(init)
+        expect(request.variables.head).toBe('agent/issue-168')
+        expect(request.query).not.toMatch(/\b(?:body|title|comments)\b/)
+        return Promise.resolve(
+          graphqlData({
+            repository: {
+              pullRequests: {
+                nodes: [
+                  {
+                    number: 190,
+                    state: 'MERGED',
+                    baseRefName: 'main',
+                    headRefName: 'agent/issue-168',
+                    headRefOid: 'a'.repeat(40),
+                    headRepository: { nameWithOwner: 'jarmak-personal/hvir' },
+                  },
+                  {
+                    number: 191,
+                    state: 'OPEN',
+                    baseRefName: 'main',
+                    headRefName: 'agent/issue-168',
+                    headRefOid: 'b'.repeat(40),
+                    headRepository: { nameWithOwner: 'someone/fork' },
+                  },
+                ],
+                pageInfo: { endCursor: 'more', hasNextPage: true },
+              },
+            },
+          }),
+        )
+      },
+    )
+
+    await expect(
+      repository(fetchImplementation).listWorkflowPullRequestEvidence('agent/issue-168'),
+    ).resolves.toEqual({
+      complete: false,
+      pullRequests: [
+        {
+          number: 190,
+          state: 'MERGED',
+          baseRefName: 'main',
+          headRefName: 'agent/issue-168',
+          headRefOid: 'a'.repeat(40),
+        },
+      ],
+    })
+  })
 })
 
 function issueNode(number: number): object {

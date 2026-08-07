@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useReducer, useRef } from 'react'
+import { useCallback, useEffect, useMemo, useReducer, useRef } from 'react'
 
 import {
   hostPathEquals,
@@ -23,6 +23,8 @@ import {
   viewerWorkspaceReducer,
   type ViewerWorkspaceAction,
 } from './viewer-workspace-model'
+import { useViewerPathLifecycle } from './use-viewer-path-lifecycle'
+import { collectViewerWatchPaths } from './viewer-document-refresh'
 import {
   sameViewerWorkspace,
   selectActiveTab,
@@ -121,7 +123,10 @@ export function useViewerWorkspace(options: UseViewerWorkspaceOptions) {
       if (current.root) {
         persistViewerTabs(current.root, current.tabs, current.activeId)
         warmWorkspaces.current.set(viewerStorageKey(current.root), {
-          tabs: current.tabs,
+          tabs: current.tabs.map((tab) => ({
+            ...tab,
+            renderedDependencies: undefined,
+          })),
           activeId: current.activeId,
         })
       }
@@ -295,21 +300,60 @@ export function useViewerWorkspace(options: UseViewerWorkspaceOptions) {
 
   const handleWatchEvent = useCallback(
     (event: WatchEvent): void => {
-      const tab = modelRef.current.tabs.find((candidate) =>
-        hostPathEquals(candidate.path, event.path),
-      )
-      if (!tab) return
-      if (tab.dirty) send({ type: 'watch-conflict', id: tab.id })
-      else loadFileAt(tab.path)
+      if (event.synthetic === 'refresh') return
+      for (const tab of modelRef.current.tabs) {
+        if (hostPathEquals(tab.path, event.path)) {
+          if (tab.dirty) {
+            send({ type: 'watch-conflict', id: tab.id })
+          } else {
+            send({
+              type: 'document-refresh',
+              id: tab.id,
+              update: { type: 'watch-event', path: event.path },
+            })
+            loadFileAt(tab.path)
+          }
+          continue
+        }
+        if (tab.renderedDependencies?.some((path) => hostPathEquals(path, event.path))) {
+          send({
+            type: 'document-refresh',
+            id: tab.id,
+            update: { type: 'watch-event', path: event.path },
+          })
+        }
+      }
     },
     [loadFileAt, send],
   )
+
+  const setRenderedDependencies = useCallback(
+    (id: string, paths: readonly HostPath[]): void => {
+      send({
+        type: 'document-refresh',
+        id,
+        update: { type: 'rendered-dependencies', paths },
+      })
+    },
+    [send],
+  )
+
+  const watchPaths = useMemo(() => collectViewerWatchPaths(model.tabs), [model.tabs])
 
   const reloadCleanFiles = useCallback((): void => {
     for (const tab of modelRef.current.tabs) {
       if (!tab.dirty) loadFileAt(tab.path)
     }
   }, [loadFileAt])
+
+  const { canRebindPath, rebindPath, reviewPathRemoval, closeCleanPath } =
+    useViewerPathLifecycle({
+      modelRef,
+      pendingPositions,
+      readGenerations,
+      send,
+      closeTab,
+    })
 
   const focusPane = useCallback(
     (pane: ViewerPaneId, id?: string): void => {
@@ -432,7 +476,14 @@ export function useViewerWorkspace(options: UseViewerWorkspaceOptions) {
     reloadTab,
     saveTab,
     handleWatchEvent,
+    setRenderedDependencies,
+    openWatchPaths: watchPaths.openPaths,
+    renderedWatchPaths: watchPaths.dependencyPaths,
     reloadCleanFiles,
+    canRebindPath,
+    rebindPath,
+    reviewPathRemoval,
+    closeCleanPath,
     focusPane,
     getActivePane,
     openSplit,

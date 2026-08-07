@@ -3,15 +3,11 @@ import type { Client } from 'ssh2'
 import type { SshAuthPrompter } from './ssh-auth'
 import type { SshAliasConfig } from './ssh-config'
 import type { SshHostTrust } from './ssh-host-trust'
-
-export interface SshIdentity {
-  readonly path: string
-  readonly privateKey: Buffer | string
-}
+import type { SshIdentitySource } from './ssh-identity-source'
 
 export interface SshHostOptions {
   readonly config: SshAliasConfig
-  readonly identities?: readonly SshIdentity[]
+  readonly identitySource?: SshIdentitySource
   readonly agentSocket?: string
   readonly prompter: SshAuthPrompter
   readonly trust: SshHostTrust

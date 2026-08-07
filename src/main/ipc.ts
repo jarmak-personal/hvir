@@ -11,7 +11,9 @@ import { registerImagePasteIpc } from './ipc/features/image-paste'
 import { registerPreviewIpc } from './ipc/features/preview'
 import { registerProjectIpc } from './ipc/features/project'
 import { registerTerminalIpc } from './ipc/features/terminal'
+import { registerTerminalFilePasteIpc } from './ipc/features/terminal-file-paste'
 import { registerWebPaneIpc } from './ipc/features/web-pane'
+import { ElectronClipboardFilePaste } from './terminal/electron-clipboard-file-paste'
 
 export type { EmitRendererEvent, IpcDeps } from './ipc/deps'
 
@@ -31,6 +33,7 @@ export function registerIpcHandlers(
     registerPreviewIpc(router, deps)
     registerWebPaneIpc(router, deps)
     registerTerminalIpc(router, deps)
+    registerTerminalFilePasteIpc(router, new ElectronClipboardFilePaste())
     router.assertComplete()
     return router
   } catch (error) {

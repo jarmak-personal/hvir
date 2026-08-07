@@ -9,6 +9,8 @@ import type {
   TerminalIdentityStatus,
 } from '../../../shared'
 import type {
+  TerminalColorTheme,
+  TerminalCursorDefaults,
   TerminalLinkActivation,
   TerminalPresentation,
   TerminalTypography,
@@ -38,7 +40,10 @@ export interface TerminalRuntimeOptions {
   readonly modifiedKeyProtocol: HarnessModifiedKeyProtocol
   readonly metaEnterAliasesControl: boolean
   readonly composerSubmitMode: ComposerSubmitMode
+  readonly theme: TerminalColorTheme
   readonly typography: TerminalTypography
+  readonly cursorDefaults: TerminalCursorDefaults
+  readonly ligatures: boolean
   readonly cwd: HostPath
   readonly workspaceRoot: HostPath
   readonly connectionState: HostConnectionState

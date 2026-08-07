@@ -87,6 +87,97 @@ export interface WriteFileOptions {
   readonly signal?: AbortSignal
 }
 
+export type ProjectFileMode = 0o644 | 0o755
+
+export const PROJECT_FILE_STREAM_CHUNK_BYTES = 64 * 1024
+
+export interface ProjectFileStreamOptions {
+  readonly signal?: AbortSignal
+}
+
+export interface ProjectFileWriteStreamOptions extends ProjectFileStreamOptions {
+  readonly mode: ProjectFileMode
+  /** Exact destination ownership begins immediately after exclusive creation. */
+  readonly onCreated?: () => void
+}
+
+export interface ProjectFileMetadataOptions extends ProjectFileStreamOptions {
+  readonly mode: ProjectFileMode
+  readonly mtimeSeconds: number
+}
+
+export interface ProjectFileRenameOptions extends ProjectFileStreamOptions {
+  /** The immediate no-replace primitive has been submitted and must finish truthfully. */
+  readonly onSubmitted?: () => void
+}
+
+export interface ProjectFileTrashOptions extends ProjectFileStreamOptions {
+  /** The immediate recoverable-trash primitive has been submitted. */
+  readonly onSubmitted?: () => void
+}
+
+/** Truthful immediate deletion mechanics; recursive policy remains coordinator-owned. */
+export type ProjectFileDeletionPort =
+  | {
+      readonly capability: 'recoverable'
+      trashEntry(path: HostPath, opts?: ProjectFileTrashOptions): Promise<void>
+    }
+  | {
+      readonly capability: 'permanent'
+    }
+  | {
+      readonly capability: 'unavailable'
+    }
+
+/** Immediate transfer mechanics. Recursive policy remains coordinator-owned. */
+export interface ProjectFileTransferPort {
+  readFileChunks(
+    path: HostPath,
+    opts?: ProjectFileStreamOptions,
+  ): AsyncIterable<Uint8Array>
+  writeFileChunksExclusive(
+    path: HostPath,
+    chunks: AsyncIterable<Uint8Array>,
+    opts: ProjectFileWriteStreamOptions,
+  ): Promise<void>
+  setMetadata(path: HostPath, opts: ProjectFileMetadataOptions): Promise<void>
+  renameNoReplace(
+    source: HostPath,
+    destination: HostPath,
+    opts?: ProjectFileRenameOptions,
+  ): Promise<void>
+  removeDirectory(
+    path: HostPath,
+    opts?: { readonly ignoreMissing?: boolean },
+  ): Promise<void>
+}
+
+export interface ExclusiveCreateOptions {
+  readonly mode: ProjectFileMode
+  /** Reject before beginning the immediate exclusive filesystem effect. */
+  readonly signal?: AbortSignal
+  /** Exact destination ownership begins immediately after exclusive creation. */
+  readonly onCreated?: () => void
+}
+
+export class ProjectPathExistsError extends Error {
+  readonly code = 'EEXIST'
+
+  constructor() {
+    super('The destination already exists')
+    this.name = 'ProjectPathExistsError'
+  }
+}
+
+export function isProjectPathExistsError(reason: unknown): boolean {
+  return (
+    reason instanceof ProjectPathExistsError ||
+    (typeof reason === 'object' &&
+      reason !== null &&
+      (reason as { code?: unknown }).code === 'EEXIST')
+  )
+}
+
 export interface RemoveFileOptions {
   /** Reject if the live file no longer has the version originally read. */
   readonly expectedMtimeMs?: number
@@ -142,6 +233,10 @@ export interface ProjectHost {
   readonly hostId: HostId
   readonly connectionState: HostConnectionState
   readonly watchTier: HostWatchTier
+  /** Present when this host can participate in verified project-file transfers. */
+  readonly fileTransfer?: ProjectFileTransferPort
+  /** Exact recovery guarantee and immediate top-level trash mechanic, when available. */
+  readonly fileDeletion: ProjectFileDeletionPort
 
   /** Establish the connection (a no-op for LocalHost). */
   connect(): Promise<void>
@@ -188,9 +283,14 @@ export interface ProjectHost {
     data: Uint8Array | string,
     opts?: WriteFileOptions,
   ): Promise<void>
+  /** Create one zero-byte regular file without replacing an existing entry. */
+  createFileExclusive(path: HostPath, opts: ExclusiveCreateOptions): Promise<void>
+  /** Create one empty directory without replacing an existing entry. */
+  createDirectoryExclusive(path: HostPath, opts: ExclusiveCreateOptions): Promise<void>
   /** Remove one file, optionally only while its observed version is still current. */
   removeFile(path: HostPath, opts?: RemoveFileOptions): Promise<void>
   readdir(path: HostPath): Promise<DirEntry[]>
+  /** Inspect the entry itself without following symbolic links (local/SFTP lstat). */
   stat(path: HostPath): Promise<Stat>
   /** Canonicalize through symlinks on the project host. */
   realpath(path: HostPath): Promise<HostPath>

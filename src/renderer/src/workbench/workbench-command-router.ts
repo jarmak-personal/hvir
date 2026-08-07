@@ -7,6 +7,7 @@ export interface WorkbenchCommandPorts {
   readonly cycleViewMode: () => void
   readonly findFile: () => void
   readonly findInFile: () => void
+  readonly findInTerminal: () => boolean
   readonly goToLine: () => void
   readonly toggleTerminalFocus: () => void
   readonly focusTerminal: () => void
@@ -19,42 +20,46 @@ export function dispatchWorkbenchCommand(
   action: WebPaneCommandAction,
   paneId: string | undefined,
   ports: WorkbenchCommandPorts,
-): void {
+  context: 'terminal' | 'web-pane' | 'workbench' = 'workbench',
+): boolean {
   switch (action) {
     case 'closeWebPane':
       if (paneId) ports.closeWebPane(paneId)
-      return
+      return true
     case 'escapeWebPaneFocus':
       ports.escapeWebPaneFocus()
-      return
+      return true
     case 'cycleViewMode':
       if (ports.canUseViewerCommands()) ports.cycleViewMode()
-      return
+      return true
     case 'findInFile':
       if (ports.canUseViewerCommands()) ports.findInFile()
-      return
+      return true
+    case 'findInTerminal':
+      return context === 'terminal' && ports.findInTerminal()
     case 'findFile':
       ports.findFile()
-      return
+      return true
     case 'goToLine':
       if (ports.canUseViewerCommands()) ports.goToLine()
-      return
+      return true
     case 'toggleTerminalFocus':
       ports.toggleTerminalFocus()
-      return
+      return true
     case 'focusTerminal':
       ports.focusTerminal()
-      return
+      return true
     case 'focusViewer':
       ports.focusViewer()
-      return
+      return true
     case 'focusTree':
       ports.focusTree()
-      return
+      return true
     case 'nextWorkspace':
       ports.switchWorkspace(1)
-      return
+      return true
     case 'previousWorkspace':
       ports.switchWorkspace(-1)
+      return true
   }
 }

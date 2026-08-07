@@ -106,8 +106,12 @@ export async function verifyViewerContent(options: {
                 const waitForRendered = () => {
                   const tasks = document.querySelectorAll('.task-list-item-checkbox');
                   const image = document.querySelector('img[alt="Repository image fixture"]');
-                  if (document.querySelector('.mermaid-diagram svg') &&
+                  const toml = [...document.querySelectorAll('.markdown-body pre.shiki')]
+                    .find((node) => node.textContent?.includes('[language_catalog_fixture]'));
+                  const mermaidDiagrams = document.querySelectorAll('.mermaid-diagram svg');
+                  if (mermaidDiagrams.length === 1 &&
                       document.querySelector('.markdown-body .shiki') &&
+                      toml?.querySelector('span') &&
                       image?.getAttribute('src')?.startsWith('blob:') &&
                       image.complete && image.naturalWidth > 0 &&
                       tasks.length === 4 &&
@@ -120,13 +124,30 @@ export async function verifyViewerContent(options: {
                     renderedTab?.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
                     const body = document.querySelector('.markdown-body');
                     body?.dispatchEvent(new Event('scroll', { bubbles: true }));
-                    return document.querySelector('.mermaid-diagram svg')
-                      ? resolve('Shiki + Mermaid + ProjectHost image + task lists + stable scroll')
-                      : reject(new Error('scroll destroyed Mermaid diagram'));
+                    if (document.querySelectorAll('.mermaid-diagram svg').length !== 1) {
+                      return reject(new Error('scroll destroyed the canonical Mermaid diagram'));
+                    }
+                    return openWhenReady('/test/fixtures/rendered-mmd.md', () => {
+                      const mmdDeadline = Date.now() + 10000;
+                      const waitForMmd = () => {
+                        const activeTitle = document.querySelector('.viewer-tab.active .tab-name')?.textContent?.trim();
+                        if (activeTitle === 'rendered-mmd.md' &&
+                            document.querySelectorAll('.mermaid-diagram svg').length === 1) {
+                          return resolve('lazy TOML Shiki + canonical Mermaid + mmd alias + ProjectHost image + task lists + stable scroll');
+                        }
+                        if (Date.now() > mmdDeadline) return reject(new Error(
+                          'mmd Mermaid fixture timed out: title=' + activeTitle +
+                          ' mermaid=' + document.querySelectorAll('.mermaid-diagram svg').length
+                        ));
+                        setTimeout(waitForMmd, 50);
+                      };
+                      waitForMmd();
+                    });
                   }
                   if (Date.now() > deadline) return reject(new Error(
-                    'rendered fixture timed out: mermaid=' + Boolean(document.querySelector('.mermaid-diagram svg')) +
+                    'rendered fixture timed out: mermaid=' + mermaidDiagrams.length +
                     ' shiki=' + Boolean(document.querySelector('.markdown-body .shiki')) +
+                    ' toml=' + Boolean(toml?.querySelector('span')) +
                     ' image=' + Boolean(image) + '/' + (image?.complete ? image.naturalWidth : 'pending') +
                     ' tasks=' + tasks.length
                   ));
@@ -142,6 +163,49 @@ export async function verifyViewerContent(options: {
       35000,
     )) as string
     console.log(`[smoke] rendered Markdown fixture OK (${renderedFixture})`)
+
+    const extendedSourceStatus = (await withTimeout(
+      win.webContents.executeJavaScript(`
+        new Promise((resolve, reject) => {
+          const deadline = Date.now() + 30000;
+          const fixtures = [
+            { suffix: '/test/fixtures/Dockerfile.dev', name: 'Dockerfile.dev', language: 'docker' },
+            { suffix: '/test/fixtures/highlight.toml', name: 'highlight.toml', language: 'toml' },
+          ];
+          const results = [];
+          const open = (index) => {
+            const fixture = fixtures[index];
+            if (!fixture) return resolve(results.join(' · '));
+            const row = [...document.querySelectorAll('.tree-row')]
+              .find((node) => node.getAttribute('title')?.endsWith(fixture.suffix));
+            if (!row) {
+              if (Date.now() > deadline) return reject(new Error('source grammar fixture missing: ' + fixture.suffix));
+              return setTimeout(() => open(index), 50);
+            }
+            row.click();
+            const waitForHighlight = () => {
+              const active = document.querySelector('.viewer-tab.active .tab-name')?.textContent?.trim();
+              const status = document.querySelector('.source-meta')?.textContent || '';
+              const colored = document.querySelector('.cm-content [style*="color"]');
+              if (active === fixture.name && status.includes(fixture.language) && colored) {
+                results.push(fixture.name + ':' + fixture.language);
+                return open(index + 1);
+              }
+              if (Date.now() > deadline) return reject(new Error(
+                'source grammar highlight timed out: active=' + active + ' status=' + status +
+                ' colored=' + Boolean(colored)
+              ));
+              setTimeout(waitForHighlight, 50);
+            };
+            waitForHighlight();
+          };
+          open(0);
+        })
+      `),
+      'extended source grammar fixtures did not highlight',
+      35_000,
+    )) as string
+    console.log(`[smoke] lazy source grammar workers OK (${extendedSourceStatus})`)
 
     const richerViewerStatus = (await withTimeout(
       win.webContents.executeJavaScript(`
@@ -188,6 +252,199 @@ export async function verifyViewerContent(options: {
       'CSV/image viewer smoke timed out',
     )) as string
     console.log(`[smoke] richer rendered views OK (${richerViewerStatus})`)
+
+    const stablePngSource = (await withTimeout(
+      win.webContents.executeJavaScript(`
+        new Promise((resolve, reject) => {
+          const deadline = Date.now() + 10000;
+          const findBySuffix = (suffix) => [...document.querySelectorAll('.tree-row')]
+            .find((node) => node.getAttribute('title')?.endsWith(suffix));
+          const openWhenReady = (suffix, next) => {
+            const node = findBySuffix(suffix);
+            if (node) {
+              const closedDirectory = node.classList.contains('directory-row') &&
+                node.querySelector('.tree-chevron')?.textContent?.trim() === '›';
+              if (!node.classList.contains('directory-row') || closedDirectory) node.click();
+              next();
+            } else if (Date.now() > deadline) {
+              reject(new Error('PNG fixture path missing: ' + suffix));
+            } else {
+              setTimeout(() => openWhenReady(suffix, next), 50);
+            }
+          };
+          openWhenReady('/build', () =>
+            openWhenReady('/build/icons-linux', () =>
+              openWhenReady('/build/icons-linux/64x64.png', () => {
+                const waitForImage = () => {
+                  const image = document.querySelector('.image-view img');
+                  const source = image?.getAttribute('src') || '';
+                  const activeTitle = document.querySelector('.viewer-tab.active .tab-name')?.textContent?.trim();
+                  if (activeTitle === '64x64.png' && image?.getAttribute('alt') === '64x64.png' &&
+                      image.complete && image.naturalWidth > 0 && source.startsWith('blob:')) {
+                    const probe = { image, source, changed: false, reason: '', observer: undefined };
+                    probe.observer = new MutationObserver((mutations) => {
+                      if (!image.isConnected || document.querySelector('.image-view img') !== image) {
+                        probe.changed = true;
+                        probe.reason = 'image replaced or disconnected';
+                        return;
+                      }
+                      if (mutations.some((mutation) =>
+                        mutation.type === 'attributes' && mutation.target === image &&
+                        mutation.attributeName === 'src'
+                      )) {
+                        probe.changed = true;
+                        probe.reason = 'source attribute changed';
+                      }
+                    });
+                    probe.observer.observe(document.querySelector('.viewer-body'), {
+                      attributes: true,
+                      attributeFilter: ['src'],
+                      childList: true,
+                      subtree: true,
+                    });
+                    globalThis.__hvirPngStabilityProbe = probe;
+                    const split = document.querySelector('[aria-label="Split viewer right"]');
+                    if (!split) return reject(new Error('PNG stability split control missing'));
+                    split.click();
+                    let openedLiveReload = false;
+                    const waitForLiveReload = () => {
+                      const current = document.querySelector('.image-view img');
+                      if (probe.changed || current !== image || current?.getAttribute('src') !== source) {
+                        return reject(new Error('repository PNG changed while opening watch witness'));
+                      }
+                      const secondary = document.querySelector('[data-viewer-pane="secondary"]');
+                      const liveReloadFile = [...document.querySelectorAll('.file-row')]
+                        .find((node) => node.getAttribute('title') === ${JSON.stringify(liveReloadPath.path)});
+                      if (secondary && liveReloadFile && !openedLiveReload) {
+                        secondary.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+                        openedLiveReload = true;
+                        return setTimeout(() => {
+                          liveReloadFile.click();
+                          waitForLiveReload();
+                        }, 50);
+                      }
+                      const activePath = secondary?.querySelector('.viewer-tab.active .tab-main')
+                        ?.getAttribute('title');
+                      const sourceContent = secondary?.querySelector('.cm-content')?.textContent || '';
+                      if (activePath === ${JSON.stringify(liveReloadPath.path)} &&
+                          sourceContent.includes('line 0')) {
+                        return resolve(source);
+                      }
+                      if (Date.now() > deadline) {
+                        return reject(new Error(
+                          'live-reload watch witness did not open: path=' + activePath +
+                          ' source=' + Boolean(sourceContent)
+                        ));
+                      }
+                      setTimeout(waitForLiveReload, 50);
+                    };
+                    return waitForLiveReload();
+                  }
+                  if (Date.now() > deadline) return reject(new Error('PNG fixture did not render'));
+                  setTimeout(waitForImage, 50);
+                };
+                waitForImage();
+              })
+            )
+          );
+        })
+      `),
+      'repository PNG did not become ready for stability evidence',
+    )) as string
+    await host.writeFile(
+      liveReloadPath,
+      liveReloadBefore.replace('line 0\n', 'line 0 unrelated PNG stability marker\n'),
+    )
+    const pngStability = (await withTimeout(
+      win.webContents.executeJavaScript(`
+        new Promise((resolve) => {
+          const deadline = Date.now() + 10000;
+          const finish = (result) => {
+            const probe = globalThis.__hvirPngStabilityProbe;
+            probe?.observer?.disconnect();
+            delete globalThis.__hvirPngStabilityProbe;
+            const secondary = document.querySelector('[data-viewer-pane="secondary"]');
+            const witnessTab = [...(secondary?.querySelectorAll('.viewer-tab') || [])]
+              .find((node) => node.querySelector('.tab-main')?.getAttribute('title') ===
+                ${JSON.stringify(liveReloadPath.path)});
+            const close = witnessTab?.querySelector('.tab-close') ||
+              secondary?.querySelector('[aria-label="Close secondary viewer"]');
+            close?.click();
+            const closeDeadline = Date.now() + 5000;
+            const resolveWhenClosed = () => {
+              if (!document.querySelector('[data-viewer-pane="secondary"]')) {
+                return resolve(result);
+              }
+              if (Date.now() > closeDeadline) {
+                return resolve({
+                  ...result,
+                  stable: false,
+                  reason: (result.reason ? result.reason + '; ' : '') +
+                    'watch witness pane did not close',
+                });
+              }
+              setTimeout(resolveWhenClosed, 25);
+            };
+            resolveWhenClosed();
+          };
+          const poll = () => {
+            const probe = globalThis.__hvirPngStabilityProbe;
+            if (!probe) return finish({ stable: false, processed: false, reason: 'probe missing' });
+            const current = document.querySelector('.image-view img');
+            const stable = !probe.changed && current === probe.image &&
+              current?.getAttribute('src') === probe.source &&
+              current.complete && current.naturalWidth > 0;
+            if (!stable) {
+              return finish({
+                stable: false,
+                processed: false,
+                sourceUnchanged: current?.getAttribute('src') === ${JSON.stringify(stablePngSource)},
+                reason: probe.reason || 'repository PNG changed before watch witness refreshed',
+              });
+            }
+            const secondary = document.querySelector('[data-viewer-pane="secondary"]');
+            const content = secondary?.querySelector('.cm-content')?.textContent || '';
+            if (content.includes('unrelated PNG stability marker')) {
+              return finish({
+                stable: true,
+                processed: true,
+                sourceUnchanged: current.getAttribute('src') === ${JSON.stringify(stablePngSource)},
+                reason: '',
+              });
+            }
+            if (Date.now() > deadline) {
+              return finish({
+                stable: true,
+                processed: false,
+                sourceUnchanged: current.getAttribute('src') === ${JSON.stringify(stablePngSource)},
+                reason: 'unrelated watch witness did not refresh',
+              });
+            }
+            setTimeout(poll, 50);
+          };
+          poll();
+        })
+      `),
+      'unrelated watch event did not produce renderer-visible evidence',
+    )) as {
+      stable: boolean
+      processed: boolean
+      sourceUnchanged?: boolean
+      reason?: string
+    }
+    if (
+      !pngStability.stable ||
+      !pngStability.processed ||
+      !pngStability.sourceUnchanged
+    ) {
+      throw new Error(
+        `unrelated watch scope evidence failed: ${JSON.stringify(pngStability)}`,
+      )
+    }
+    await host.writeFile(liveReloadPath, liveReloadBefore)
+    console.log(
+      '[smoke] renderer processed unrelated watch while repository PNG stayed mounted and visible',
+    )
 
     const renderedLinkStatus = (await withTimeout(
       win.webContents.executeJavaScript(`
@@ -526,6 +783,7 @@ export async function verifyViewerContent(options: {
       filenameSearchStatus,
       renderedFixture,
       richerViewerStatus,
+      'stable PNG watch scope',
       renderedLinkStatus,
       'HTML sandboxed',
       jsonStatus,

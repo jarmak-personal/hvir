@@ -1,14 +1,9 @@
 import { execFileSync } from 'node:child_process'
-import {
-  closeSync,
-  openSync,
-  readFileSync,
-  readSync,
-  statSync,
-} from 'node:fs'
+import { closeSync, openSync, readFileSync, readSync, statSync } from 'node:fs'
 import { parseArgs } from 'node:util'
 import { resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { createRequire } from 'node:module'
 
 const REQUIRED_MAIN_ENTRIES = [
   '/out/main/index.js',
@@ -16,8 +11,23 @@ const REQUIRED_MAIN_ENTRIES = [
   '/out/main/git-worker.js',
 ] as const
 const PTY_NATIVE_ENTRY = '/node_modules/node-pty/build/Release/pty.node'
-const PTY_SPAWN_HELPER_ENTRY =
-  '/node_modules/node-pty/build/Release/spawn-helper'
+const PTY_SPAWN_HELPER_ENTRY = '/node_modules/node-pty/build/Release/spawn-helper'
+const RENAME_NATIVE_ENTRY =
+  '/node_modules/@hvir/rename-noreplace/build/Release/rename_noreplace.node'
+const RENAME_PACKAGE_ROOT = '/node_modules/@hvir/rename-noreplace'
+const REQUIRED_RENAME_PACKAGE_ENTRIES = [
+  `${RENAME_PACKAGE_ROOT}/index.js`,
+  `${RENAME_PACKAGE_ROOT}/package.json`,
+  `${RENAME_PACKAGE_ROOT}/LICENSE`,
+] as const
+const APPROVED_RENAME_PACKAGE_ENTRIES = new Set([
+  RENAME_PACKAGE_ROOT,
+  `${RENAME_PACKAGE_ROOT}/build`,
+  `${RENAME_PACKAGE_ROOT}/build/Release`,
+  ...REQUIRED_RENAME_PACKAGE_ENTRIES,
+  RENAME_NATIVE_ENTRY,
+])
+const runtimeRequire = createRequire(import.meta.url)
 const FORBIDDEN_RUNTIME_MARKERS = [
   'HVIR_SMOKE',
   'runElectronSmokeScenario',
@@ -132,12 +142,7 @@ export function readAsarArchive(archive: string): AsarArchive {
       const content = Buffer.alloc(node.size!)
       const descriptor = openSync(archive, 'r')
       try {
-        readExactly(
-          descriptor,
-          content,
-          8 + headerSize + offset,
-          `ASAR entry ${entry}`,
-        )
+        readExactly(descriptor, content, 8 + headerSize + offset, `ASAR entry ${entry}`)
       } finally {
         closeSync(descriptor)
       }
@@ -148,27 +153,63 @@ export function readAsarArchive(archive: string): AsarArchive {
 
 export function requiredNativeEntries(
   platform: NativePlatform,
+  _architecture: string,
 ): readonly string[] {
   return platform === 'darwin'
-    ? [PTY_NATIVE_ENTRY, PTY_SPAWN_HELPER_ENTRY]
-    : [PTY_NATIVE_ENTRY]
+    ? [PTY_NATIVE_ENTRY, PTY_SPAWN_HELPER_ENTRY, RENAME_NATIVE_ENTRY]
+    : [PTY_NATIVE_ENTRY, RENAME_NATIVE_ENTRY]
+}
+
+export function inspectRenameNoReplaceApi(binding: unknown): void {
+  const candidate = binding as {
+    readonly metadata?: unknown
+    readonly renameNoReplace?: unknown
+  }
+  const metadata = candidate?.metadata
+  if (
+    !isZeroArgumentFunction(metadata) ||
+    typeof candidate.renameNoReplace !== 'function' ||
+    metadata() !== 'hvir.rename-noreplace.v1'
+  ) {
+    throw new Error('Packaged no-replace helper does not expose the approved API')
+  }
+}
+
+function isZeroArgumentFunction(value: unknown): value is () => unknown {
+  return typeof value === 'function'
 }
 
 export function inspectPackagedRuntimeGraph(
   entries: readonly string[],
   readEntry: (entry: string) => string,
   platform: NativePlatform,
+  architecture: string,
 ): PackagedRuntimeInspection {
   for (const required of REQUIRED_MAIN_ENTRIES) {
     if (!entries.includes(required)) {
       throw new Error(`Packaged runtime is missing production entry ${required}`)
     }
   }
-  const nativeEntries = requiredNativeEntries(platform)
+  const nativeEntries = requiredNativeEntries(platform, architecture)
   for (const required of nativeEntries) {
     if (!entries.includes(required)) {
       throw new Error(`Packaged runtime is missing native payload ${required}`)
     }
+  }
+  for (const required of REQUIRED_RENAME_PACKAGE_ENTRIES) {
+    if (!entries.includes(required)) {
+      throw new Error(`Packaged runtime is missing no-replace helper entry ${required}`)
+    }
+  }
+  const unexpectedRenameEntry = entries.find(
+    (entry) =>
+      entry.startsWith(`${RENAME_PACKAGE_ROOT}/`) &&
+      !APPROVED_RENAME_PACKAGE_ENTRIES.has(entry),
+  )
+  if (unexpectedRenameEntry) {
+    throw new Error(
+      `Packaged no-replace helper retained unexpected build entry ${unexpectedRenameEntry}`,
+    )
   }
 
   const smokeEntry = entries.find(
@@ -232,11 +273,7 @@ function main(): void {
     },
     strict: true,
   })
-  if (
-    !values.archive ||
-    !values['native-architecture'] ||
-    !values['native-platform']
-  ) {
+  if (!values.archive || !values['native-architecture'] || !values['native-platform']) {
     throw new Error(
       '--archive, --native-architecture, and --native-platform are required',
     )
@@ -250,11 +287,15 @@ function main(): void {
     archive.entries,
     (entry) => archive.readEntry(entry).toString('utf8'),
     platform,
+    values['native-architecture'],
   )
   inspectNativePayloads(
     values.archive,
     inspection.nativeEntries,
     values['native-architecture'],
+  )
+  inspectRenameNoReplaceApi(
+    runtimeRequire(`${values.archive}.unpacked${RENAME_NATIVE_ENTRY}`),
   )
   console.log(
     `Verified packaged production graph (${inspection.mainEntries.length} entries) and native payload (${inspection.nativeEntries.length} files).`,

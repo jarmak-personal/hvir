@@ -1,5 +1,4 @@
 import { ipcMain } from 'electron'
-
 import {
   EVENT_CHANNELS,
   INVOKE_CHANNELS,
@@ -19,104 +18,46 @@ import {
 import type { ProjectHost } from '../project-host'
 import type { RendererOwner } from '../renderer-resource-scopes'
 import type { IpcDeps } from './deps'
+import { reconstructIpcHostPath } from './host-path-authority'
+import {
+  OWNER_SCOPED_INVOKE_CHANNELS,
+  OWNER_SCOPED_SEND_CHANNELS,
+} from './authority-channel-policy'
 
-export const OWNER_SCOPED_INVOKE_CHANNELS = [
-  'workbench-health:acknowledge',
-  'diagnostic-evidence:get',
-  'diagnostic-evidence:delete',
-  'diagnostic-report:create',
-  'diagnostic-report:capture',
-  'diagnostic-report:copy',
-  'diagnostic-report:save',
-  'diagnostic-report:cancel',
-  'diagnostic-report:delete',
-  'project:connect-host',
-  'project:browse-host',
-  'project:open',
-  'ssh:prompt-response',
-  'fs:filename-search',
-  'html-preview:create',
-  'web-pane:open',
-  'web-pane:close',
-  'web-pane:open-external',
-  'web-pane:open-browser',
-  'terminal:plan-move',
-  'terminal:move',
-  'terminal:record-recovery-decision',
-  'pty:start',
-] as const satisfies readonly IpcInvokeChannel[]
-export const OWNER_SCOPED_SEND_CHANNELS = SEND_CHANNELS
-export const AUTHORITY_SCOPED_INVOKE_CHANNELS = [
-  'project:watch-interests',
-  'fs:readdir',
-  'fs:filename-search',
-  'fs:resolve-entry',
-  'fs:read',
-  'fs:read-asset',
-  'fs:write',
-  'git:diff-inputs',
-  'git:changes',
-  'git:history',
-  'git:ignored-entries',
-  'git:commit-detail',
-  'git:blame',
-  'git:branches',
-  'git:fetch',
-  'git:pull',
-  'git:switch-branch',
-  'html-preview:create',
-  'harness:profiles',
-  'harness:probe-snapshot',
-  'harness:probe-profiles',
-  'harness:probe-templates',
-  'harness:profile-materialize',
-  'harness:profile-save',
-  'harness:acknowledge-risk',
-  'harness:preview',
-  'harness:authorize-path',
-  'terminal:recovery',
-  'terminal:record-recovery-decision',
-  'terminal:update-layout',
-  'terminal:forget',
-  'terminal:rebind-profile',
-  'pty:start',
-  'web-pane:open',
-] as const satisfies readonly IpcInvokeChannel[]
+export {
+  AUTHORITY_SCOPED_INVOKE_CHANNELS,
+  OWNER_SCOPED_INVOKE_CHANNELS,
+  OWNER_SCOPED_SEND_CHANNELS,
+} from './authority-channel-policy'
 export interface IpcInvokeContext {
   readonly sender: Electron.WebContents
   readonly authority: IpcAuthority
   owner(): RendererOwner
 }
-
 export interface IpcSendContext {
   readonly sender: Electron.WebContents
   readonly authority: IpcAuthority
   owner(): RendererOwner
 }
-
 export interface IpcContractDiagnostic {
   readonly channel: IpcInvokeChannel | IpcSendChannel
   readonly outcome: 'non-main-frame' | 'renderer-revoked'
   readonly timing: 'under-1ms' | 'under-10ms' | '10ms-or-more'
 }
-
 export type IpcInvokeHandler<C extends IpcInvokeChannel> = (
   req: IpcRequest<C>,
   context: IpcInvokeContext,
 ) => IpcResponse<C> | Promise<IpcResponse<C>>
-
 export type IpcSendHandler<C extends IpcSendChannel> = (
   payload: IpcSendPayload<C>,
   context: IpcSendContext,
 ) => void
-
 /** Narrow capability given to feature registrars; transport and lifecycle stay private. */
 export interface IpcRegistrar {
   readonly authority: IpcAuthority
   handle<C extends IpcInvokeChannel>(channel: C, handler: IpcInvokeHandler<C>): void
   handleSend<C extends IpcSendChannel>(channel: C, handler: IpcSendHandler<C>): void
 }
-
 export interface IpcMainRegistrationPort {
   handle(
     channel: string,
@@ -132,9 +73,7 @@ export interface IpcMainRegistrationPort {
     listener: (event: Electron.IpcMainEvent, payload: unknown) => void,
   ): unknown
 }
-
 const electronIpcMainPort = ipcMain as unknown as IpcMainRegistrationPort
-
 export interface EffectiveIpcManifest {
   readonly invoke: readonly IpcInvokeChannel[]
   readonly send: readonly IpcSendChannel[]
@@ -320,14 +259,18 @@ export class IpcAuthority {
       typeof candidate.hostId !== 'string' ||
       typeof candidate.path !== 'string'
     ) {
-      throw new Error('Terminal session belongs to another project')
+      throw new Error('Workspace belongs to another project or is no longer registered')
     }
     const decoded = hostPath(asHostId(candidate.hostId), candidate.path)
     const root = this.deps.getRegisteredWorkspaceRoot(decoded)
     if (!root || !hostPathEquals(decoded, root)) {
-      throw new Error('Terminal session belongs to another project')
+      throw new Error('Workspace belongs to another project or is no longer registered')
     }
     return root
+  }
+
+  reconstructHostPath(candidate: HostPath): HostPath {
+    return reconstructIpcHostPath(candidate)
   }
 
   projectRoot(workspaceRoot: HostPath): HostPath {
@@ -457,7 +400,6 @@ export class IpcAuthority {
     return options.returnCanonical ? canonicalPath : decoded
   }
 }
-
 function assertMainFrame(
   event: Electron.IpcMainInvokeEvent | Electron.IpcMainEvent,
 ): void {
@@ -465,7 +407,6 @@ function assertMainFrame(
     throw new Error('IPC is available only to the workbench main frame')
   }
 }
-
 function assertExactChannels<C extends string>(
   direction: string,
   expected: readonly C[],

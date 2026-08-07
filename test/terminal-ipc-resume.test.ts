@@ -649,7 +649,13 @@ function resumeFixture(
   const context = {
     owner: () => ({ id: 7, generation: 1 }),
     authority: ipc.authority,
-    sender: { isDestroyed: () => false, send },
+    sender: {
+      isDestroyed: () => false,
+      mainFrame: {
+        isDestroyed: () => false,
+        postMessage: send,
+      },
+    },
   } as unknown as IpcInvokeContext
   return {
     root,

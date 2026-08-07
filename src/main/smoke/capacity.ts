@@ -17,6 +17,9 @@ import {
   readTerminalPresentation,
   startCapacityOutputFixtures,
   verifyHiddenPresentationSettles,
+  verifyCapacityTerminalSearch,
+  verifyCapacityPaletteUpdate,
+  verifyCapacityLivePresentationUpdate,
   verifyTerminalActivity,
   type TerminalActivityReport,
   type TerminalReadinessSampleReport,
@@ -253,12 +256,28 @@ export async function runCapacityLoadSmoke(
   }
   await activateCapacityTerminal(win, 0)
   await verifyHiddenPresentationSettles(win)
+  const paletteCapacity = await verifyCapacityPaletteUpdate(win)
+  console.log(
+    `[smoke:capacity:contract] 12 retained palette updates + hidden paint suppression OK ` +
+      `(${paletteCapacity.synchronousMs.toFixed(1)}ms sync · ` +
+      `${paletteCapacity.eventLoopDelayMs.toFixed(1)}ms event loop · ` +
+      `${paletteCapacity.hiddenPanes} hidden · ${paletteCapacity.visibleFrames} visible frames)`,
+  )
   const twelveTerminalCpu = await sampleCapacityCpuSeries(
     win,
     'one-visible-eleven-hidden',
   )
   const idleCpu = compareCapacityCpu(baselineCpu, twelveTerminalCpu)
   console.log(`[smoke:performance:sample:idle-cpu] ${JSON.stringify(idleCpu)}`)
+  const presentationCapacity = await verifyCapacityLivePresentationUpdate(win, supervisor)
+  console.log(
+    `[smoke:capacity:contract] 12 retained cursor/shaping updates + hidden reveal OK ` +
+      `(${presentationCapacity.synchronousMs.toFixed(1)}ms sync · ` +
+      `${presentationCapacity.eventLoopDelayMs.toFixed(1)}ms event loop · ` +
+      `${presentationCapacity.hiddenPanes} hidden · ` +
+      `${presentationCapacity.shapedRuns} runs/${presentationCapacity.shapedCells} cells · ` +
+      `max ${presentationCapacity.maxRunCells})`,
+  )
   startCapacityOutputFixtures(supervisor)
   let churning = true
   const watchChurn = (async (): Promise<void> => {
@@ -366,7 +385,7 @@ export async function runCapacityLoadSmoke(
       presentationAfter,
       supervisor
         .list()
-        .slice(1, 4)
+        .slice(1)
         .map((terminal) => terminal.id),
     )
     report = {
@@ -389,6 +408,12 @@ export async function runCapacityLoadSmoke(
   }
 
   if (!report) throw new Error('capacity report was not produced')
+  const capacitySearch = await verifyCapacityTerminalSearch(win, supervisor)
+  console.log(
+    `[smoke:capacity:terminal-search] 10MB retained cap · ` +
+      `${capacitySearch.retainedRows} retained rows · 12 live terminals · ` +
+      `${capacitySearch.durationMs.toFixed(1)}ms`,
+  )
   const evidence = capacityPerformanceEvidence(report, performanceMode, source)
   console.log(`[smoke:performance:evidence] ${JSON.stringify(evidence)}`)
   console.log(
@@ -396,7 +421,8 @@ export async function runCapacityLoadSmoke(
       `(${report.terminalActivity!.hiddenPanes} hidden panes · ` +
       `${report.terminalActivity!.nativeDataEvents} native events → ` +
       `${report.terminalActivity!.deliveryCallbacks} bounded deliveries · ` +
-      `${report.terminalActivity!.peakBufferedBytes} byte peak buffer)`,
+      `${report.terminalActivity!.peakBufferedBytes} byte peak buffer · ` +
+      `${report.terminalActivity!.synchronizedPanes} synchronized panes)`,
   )
   if (performanceMode === 'controlled' && evidence.violations.length > 0) {
     throw new Error(

@@ -13,6 +13,11 @@ import {
 export interface SettingsDraft {
   readonly theme: AppTheme
   readonly terminalTheme: AppSettings['terminalTheme']
+  readonly terminalLightThemeId: string
+  readonly terminalDarkThemeId: string
+  readonly terminalCursorShape: AppSettings['terminalCursorShape']
+  readonly terminalCursorBlink: AppSettings['terminalCursorBlink']
+  readonly terminalLigatures: boolean
   readonly interfaceFontMode: AppSettings['interfaceFont']['mode']
   readonly interfaceFontFamily: string
   readonly monospaceFontMode: AppSettings['monospaceFont']['mode']
@@ -46,6 +51,11 @@ export function createSettingsDraft(
   return {
     theme,
     terminalTheme: settings.terminalTheme,
+    terminalLightThemeId: settings.terminalLightThemeId,
+    terminalDarkThemeId: settings.terminalDarkThemeId,
+    terminalCursorShape: settings.terminalCursorShape,
+    terminalCursorBlink: settings.terminalCursorBlink,
+    terminalLigatures: settings.terminalLigatures,
     interfaceFontMode: settings.interfaceFont.mode,
     interfaceFontFamily: settings.interfaceFont.family,
     monospaceFontMode: settings.monospaceFont.mode,
@@ -127,6 +137,11 @@ export function validateSettingsDraft(draft: SettingsDraft): SettingsDraftValida
       gitAutoFetchIntervalMs: Number(draft.gitAutoFetchIntervalMs),
       terminalRecoveryMode: draft.recoveryMode,
       terminalTheme: draft.terminalTheme,
+      terminalLightThemeId: draft.terminalLightThemeId,
+      terminalDarkThemeId: draft.terminalDarkThemeId,
+      terminalCursorShape: draft.terminalCursorShape,
+      terminalCursorBlink: draft.terminalCursorBlink,
+      terminalLigatures: draft.terminalLigatures,
       interfaceFont: normalizeFontPreference({
         mode: draft.interfaceFontMode,
         family: draft.interfaceFontFamily,

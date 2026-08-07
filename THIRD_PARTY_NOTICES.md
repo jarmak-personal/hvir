@@ -5,19 +5,49 @@ their own license files; this document additionally preserves the notices for th
 runtime that hvir modifies and redistributes. The names below identify the upstream
 components only; hvir is not affiliated with or endorsed by their authors.
 
+## Skill Steward rename-noreplace binding
+
+Source: <https://github.com/CongBao/skill-steward>
+
+hvir's private `@hvir/rename-noreplace` Node-API package derives its basename
+validation and platform syscall wrapper from Skill Steward's binding. hvir modifies
+that implementation to accept separate source and destination parent directory file
+descriptors for atomic cross-directory no-replace rename.
+
+MIT License
+
+Copyright (c) 2026 Skill Steward contributors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
 ## ghostty-web
 
 Source: <https://github.com/coder/ghostty-web>
 
 hvir currently consumes a provenance-recorded artifact from its bounded
-[ghostty-web compatibility fork](https://github.com/jarmak-personal/ghostty-web/releases/tag/hvir-v0.4.0-1).
+[ghostty-web compatibility fork](https://github.com/jarmak-personal/ghostty-web/releases/tag/hvir-v0.4.0-4).
 That artifact retains ghostty-web's upstream license and authorship.
 
-hvir applies local modifications to ghostty-web through its
-[checked-in patch](https://github.com/jarmak-personal/hvir/blob/main/patches/ghostty-web%2B0.4.0.patch).
-Those modifications implement demand-driven rendering and terminal presentation lifecycle
-controls for hvir. They are maintained by hvir contributors, not by Coder or the Ghostty
-project.
+The fork maintains hvir's demand-driven rendering, terminal presentation lifecycle, and
+structured terminal-event compatibility in source. Those modifications are maintained by
+hvir contributors, not by Coder or the Ghostty project, and hvir consumes the resulting
+immutable artifact without modifying it during installation.
 
 MIT License
 
@@ -40,6 +70,43 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+## iTerm2-Color-Schemes theme collection
+
+Source: <https://github.com/mbadolato/iTerm2-Color-Schemes>
+
+Hvir includes a generated, color-only terminal theme catalog from upstream tag
+`release-20260216-151611-fc73ce3` at commit
+`fc73ce39746540b6d5ec6b91e304785431401d85`. Ghostty core commit
+`332b2aefc6e72d363aa93ab6ecfc86eeeeb5ed28` pins the corresponding theme archive.
+Hvir's runtime consumes only the generated palette data and does not parse or execute the
+upstream theme files.
+
+MIT License
+
+Copyright (c) 2011 to Present Mark Badolato
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+This license covers the iTerm-Color-Schemes repository collection of themes.
+
+The copyright/license for each individual theme belongs to the author of that theme.
 
 ## Ghostty terminal core
 
