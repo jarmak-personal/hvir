@@ -421,6 +421,7 @@ function binding(
     },
     apply,
     flush: () => Promise.resolve(),
+    adoptAuthoritative: () => true,
   }
 }
 

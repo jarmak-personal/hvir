@@ -269,11 +269,11 @@ function createWorkbenchEntry(): void {
     documentReview = await installApplicationDocumentReviewRuntime(
       runtime,
       hostCatalog.local,
-      localPath(applicationUserDataPath('document-review-drafts.json')),
       rendererScopes,
       ptySupervisor,
       terminalSessionRegistry,
       harnessProviders,
+      harnessProfileStore,
     )
     const remoteImagePaste = runtime.own(
       'remote image paste coordinator',

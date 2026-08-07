@@ -20,6 +20,9 @@ const CWD = localPath('/tmp/project')
 class IdentityPty implements PtyProcess {
   readonly pid = 305
   readonly write = vi.fn<(data: string) => void>()
+  readonly writeConfirmed = vi.fn<(data: string) => Promise<void>>(() =>
+    Promise.resolve(),
+  )
   readonly resize = vi.fn<(cols: number, rows: number) => void>()
   readonly kill = vi.fn<(signal?: string) => void>()
   private readonly exitListeners = new Set<(exit: PtyExit) => void>()

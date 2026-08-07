@@ -90,6 +90,28 @@ describe('HarnessProbeManager', () => {
     }
   })
 
+  it('grants send-now only from an available exact-profile Codex probe', async () => {
+    const fixture = probeHost('probe-codex-send', 'codex-cli 0.146.0')
+    const manager = new HarnessProbeManager()
+    const request = probeRequest(fixture.host, 'codex')
+    const profile = request.profiles[0]!
+
+    expect(
+      manager.effectiveLaunchCapabilities(request, profile, 'ctrl-enter'),
+    ).not.toHaveProperty('reviewSendNowContractRevision')
+
+    await manager.probeProfiles(request)
+
+    expect(
+      manager.effectiveLaunchCapabilities(request, profile, 'ctrl-enter'),
+    ).toMatchObject({
+      reviewInsertContractRevision: 1,
+      reviewSendNowContractRevision: 1,
+    })
+    expect(fixture.exec).toHaveBeenCalledTimes(2)
+    manager.dispose()
+  })
+
   it('keeps successful-launch evidence advisory to bounded recovery probes', async () => {
     const fixture = probeHost('probe-launch', 'unused')
     const manager = new HarnessProbeManager()

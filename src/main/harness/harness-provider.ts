@@ -13,6 +13,7 @@ import {
   type HarnessEnvironmentBinding,
   type HarnessLaunchRisk,
   type HarnessModifiedKeyProtocol,
+  type HarnessProfile,
   type HarnessProfileId,
   type HarnessProviderCapabilities,
   type HarnessProviderDescriptor,
@@ -72,6 +73,30 @@ export interface HarnessDocumentReviewInsertContract {
   readonly revision: number
   /** Frame one immutable body as one bracketed paste; never submit it. */
   terminalInput(body: string): string
+}
+
+export interface HarnessDocumentReviewSendNowLaunch {
+  readonly profile: Pick<
+    HarnessProfile,
+    | 'providerId'
+    | 'providerContractVersion'
+    | 'executable'
+    | 'args'
+    | 'environment'
+    | 'pathBindings'
+    | 'risk'
+  >
+  readonly composerSubmitMode: ComposerSubmitMode
+  readonly effectiveCapabilities: HarnessProviderCapabilities
+}
+
+/** Complete provider-owned composer framing and submission for one exact launch. */
+export interface HarnessDocumentReviewSendNowContract {
+  /** Increment whenever launch eligibility, framing, or submission bytes change. */
+  readonly revision: number
+  supportsLaunch(launch: HarnessDocumentReviewSendNowLaunch): boolean
+  /** Return one bracketed-paste-plus-submit transport for one supervisor write. */
+  terminalInput(body: string, launch: HarnessDocumentReviewSendNowLaunch): string
 }
 
 export type HarnessSessionDiscoveryResult =
@@ -213,6 +238,7 @@ export interface HarnessProvider {
   readonly composerConfiguration?: HarnessComposerConfiguration
   readonly remoteImagePaste?: HarnessRemoteImagePasteContract
   readonly documentReviewInsert?: HarnessDocumentReviewInsertContract
+  readonly documentReviewSendNow?: HarnessDocumentReviewSendNowContract
 
   /** Command to start a fresh session. */
   launch(ctx: HarnessLaunchContext): HarnessLaunchSpec
@@ -314,6 +340,7 @@ export const claudeCodeProvider: HarnessProvider = {
 }
 
 const codexReviewInsert = documentReviewInsertContract()
+const codexReviewSendNow = codexDocumentReviewSendNowContract(codexReviewInsert)
 
 export const codexProvider: HarnessProvider = {
   manifest: {
@@ -352,9 +379,17 @@ export const codexProvider: HarnessProvider = {
   sessionIdentity: 'discovered',
   sessionDiscovery: codexSessionDiscovery,
   telemetry: { observe: observeCodexContext },
-  probe: versionProbe('discovered', true, 'pressure', codexReviewInsert),
+  probe: versionProbe(
+    'discovered',
+    true,
+    'pressure',
+    codexReviewInsert,
+    codexReviewSendNow,
+    supportsCodexReviewSendNowVersion,
+  ),
   remoteImagePaste: pathImagePasteContract(),
   documentReviewInsert: codexReviewInsert,
+  documentReviewSendNow: codexReviewSendNow,
 
   launch(ctx): HarnessLaunchSpec {
     return {
@@ -507,13 +542,38 @@ export function harnessProvider(id: string): HarnessProvider {
 /** Trusted capabilities bound to one successful provider launch. */
 export function harnessLaunchCapabilities(
   provider: HarnessProvider,
+  launch?: {
+    readonly profile: HarnessProfile
+    readonly composerSubmitMode: ComposerSubmitMode
+    readonly probedCapabilities?: HarnessProviderCapabilities
+  },
 ): HarnessProviderCapabilities {
-  return {
-    sessionIdentity: provider.sessionIdentity,
-    exactResume: provider.supportsResume,
-    contextPresentation: provider.manifest.contextPresentation,
-    reviewInsertContractRevision: provider.documentReviewInsert?.revision,
+  const probed = launch?.probedCapabilities ?? provider.probe.effectiveCapabilities(undefined)
+  const insert = provider.documentReviewInsert
+  const reviewInsertContractRevision =
+    insert && insert.revision === probed.reviewInsertContractRevision
+      ? insert.revision
+      : undefined
+  const base: HarnessProviderCapabilities = {
+    sessionIdentity: probed.sessionIdentity,
+    exactResume: probed.exactResume,
+    contextPresentation: probed.contextPresentation,
+    reviewInsertContractRevision,
   }
+  const sendNow = provider.documentReviewSendNow
+  let effective: HarnessProviderCapabilities = base
+  if (sendNow && sendNow.revision === probed.reviewSendNowContractRevision) {
+    effective = { ...base, reviewSendNowContractRevision: sendNow.revision }
+  }
+  if (!launch || !sendNow) return base
+  if (effective.reviewSendNowContractRevision !== sendNow.revision) return base
+  return sendNow.supportsLaunch({
+    profile: launch.profile,
+    composerSubmitMode: launch.composerSubmitMode,
+    effectiveCapabilities: effective,
+  })
+    ? effective
+    : base
 }
 
 export function harnessProviderCatalog(): readonly HarnessProviderDescriptor[] {
@@ -662,6 +722,34 @@ function documentReviewInsertContract(): HarnessDocumentReviewInsertContract {
   }
 }
 
+function codexDocumentReviewSendNowContract(
+  insert: HarnessDocumentReviewInsertContract,
+): HarnessDocumentReviewSendNowContract {
+  const revision = 1
+  const supportsLaunch = (launch: HarnessDocumentReviewSendNowLaunch): boolean =>
+    launch.profile.providerId === codexProvider.manifest.id &&
+    launch.profile.providerContractVersion === codexProvider.profile.version &&
+    launch.profile.executable.kind === 'provider-default' &&
+    launch.profile.args.length === 0 &&
+    launch.profile.environment.length === 0 &&
+    launch.profile.pathBindings.length === 0 &&
+    launch.profile.risk === 'standard' &&
+    launch.effectiveCapabilities.reviewInsertContractRevision === insert.revision &&
+    launch.effectiveCapabilities.reviewSendNowContractRevision === revision
+  return {
+    revision,
+    supportsLaunch,
+    terminalInput: (body, launch) => {
+      if (!supportsLaunch(launch)) {
+        throw new Error('Codex review submission is unavailable for this launch')
+      }
+      const submit =
+        launch.composerSubmitMode === 'ctrl-enter' ? '\x1b[13;5u' : '\r'
+      return `${insert.terminalInput(body)}${submit}`
+    },
+  }
+}
+
 function staticProbe(
   sessionIdentity: HarnessSessionIdentity,
   exactResume: boolean,
@@ -682,6 +770,8 @@ function versionProbe(
   exactResume: boolean,
   contextPresentation: HarnessContextPresentation,
   reviewInsert?: HarnessDocumentReviewInsertContract,
+  reviewSendNow?: HarnessDocumentReviewSendNowContract,
+  supportsReviewSendNowVersion?: (version: string | undefined) => boolean,
 ): HarnessProbeContract {
   return {
     versionArgs: ['--version'],
@@ -691,13 +781,28 @@ function versionProbe(
         ? first
         : undefined
     },
-    effectiveCapabilities: () => ({
+    effectiveCapabilities: (version) => ({
       sessionIdentity,
       exactResume,
       contextPresentation,
       reviewInsertContractRevision: reviewInsert?.revision,
+      reviewSendNowContractRevision:
+        reviewSendNow && supportsReviewSendNowVersion?.(version)
+          ? reviewSendNow.revision
+          : undefined,
     }),
   }
+}
+
+function supportsCodexReviewSendNowVersion(version: string | undefined): boolean {
+  const match = /^codex-cli\s+(\d+)\.(\d+)\.(\d+)(?:\b|[-+])/.exec(version ?? '')
+  if (!match) return false
+  const parts = match.slice(1).map(Number)
+  return (
+    parts[0]! > 0 ||
+    parts[1]! > 146 ||
+    (parts[1] === 146 && parts[2]! >= 0)
+  )
 }
 
 function hasControlCharacter(value: string): boolean {

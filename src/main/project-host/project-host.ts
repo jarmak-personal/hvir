@@ -216,6 +216,8 @@ export interface PtyProcess {
   onData(cb: (data: string) => void): Disposer
   onExit(cb: (e: PtyExit) => void): Disposer
   write(data: string): void
+  /** Resolves only when the immediate PTY transport accepts the complete write. */
+  writeConfirmed(data: string): Promise<void>
   resize(cols: number, rows: number): void
   kill(signal?: string): void
 }

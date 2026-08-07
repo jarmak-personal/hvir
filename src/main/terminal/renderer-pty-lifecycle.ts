@@ -1,6 +1,11 @@
 import type { WebContents } from 'electron'
 
-import type { HostPath } from '../../shared'
+import {
+  hostPathEquals,
+  type HarnessProfile,
+  type HostPath,
+  type StartPtyRequest,
+} from '../../shared'
 import type { ManagedPty, PtySupervisor } from '../pty/pty-supervisor'
 import { sendRendererEvent } from '../renderer-event-delivery'
 import type {
@@ -15,6 +20,18 @@ interface RendererPtyLifecycleDeps {
   readonly ptySupervisor: PtySupervisor
 }
 
+interface RendererPtyReattachDeps {
+  readonly ptySupervisor: Pick<PtySupervisor, 'isAwaitingRendererAttachment'>
+}
+
+interface RetainedRendererPtyExpectation {
+  readonly owner: RendererOwner
+  readonly root: HostPath
+  readonly cwd: HostPath
+  readonly profile: HarnessProfile
+  readonly request: Pick<StartPtyRequest, 'composerSubmitMode' | 'harnessSessionId'>
+}
+
 export function rendererPtyQualifier(
   root: HostPath,
   id: string,
@@ -25,6 +42,33 @@ export function rendererPtyQualifier(
     root,
     id,
   }
+}
+
+/** Checks the immutable authority and launch contract of a retained PTY. */
+export function canAttachRetainedRendererPty(
+  deps: RendererPtyReattachDeps,
+  managed: ManagedPty,
+  expected: RetainedRendererPtyExpectation,
+): boolean {
+  const { owner, root, cwd, profile, request } = expected
+  return (
+    managed.ownerId === owner.id &&
+    managed.ownerGeneration === owner.generation &&
+    managed.hostId === root.hostId &&
+    managed.providerId === profile.providerId &&
+    managed.profileId === profile.id &&
+    managed.launchRevision === profile.launchRevision &&
+    managed.providerContractVersion === profile.providerContractVersion &&
+    managed.composerSubmitMode === request.composerSubmitMode &&
+    managed.harnessSessionId === request.harnessSessionId &&
+    hostPathEquals(managed.workspaceRoot, root) &&
+    hostPathEquals(managed.cwd, cwd) &&
+    deps.ptySupervisor.isAwaitingRendererAttachment(
+      managed.id,
+      owner.id,
+      owner.generation,
+    )
+  )
 }
 
 export function registerRendererPty(

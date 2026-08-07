@@ -178,6 +178,28 @@ export class DocumentReviewWorkspaceController {
     return this.saveTail
   }
 
+  adoptAuthoritative(snapshot: DocumentReviewWorkspaceSnapshot): boolean {
+    const current = this.readyState()
+    if (
+      !current ||
+      this.saveQueue.length > 0 ||
+      snapshot.workspaceGeneration !== current.workspaceGeneration ||
+      snapshot.revision <= current.revision ||
+      !reviewWorkspaceEquals(snapshot.model.workspace, current.workspace)
+    ) {
+      return false
+    }
+    this.saveRevisions.set(current.localGeneration, snapshot.revision)
+    this.setState({
+      ...current,
+      revision: snapshot.revision,
+      model: snapshot.model,
+      notice: snapshot.notice,
+      error: undefined,
+    })
+    return true
+  }
+
   dispose(): void {
     if (this.disposed || this.closing) return
     this.closing = true

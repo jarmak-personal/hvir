@@ -150,7 +150,7 @@ export interface DocumentReviewDeliveryPayload {
   readonly commentIds: readonly string[]
 }
 
-export type DocumentReviewDeliveryCapability = 'copy-only' | 'insert'
+export type DocumentReviewDeliveryCapability = 'copy-only' | 'insert' | 'send-now'
 
 export interface DocumentReviewDeliveryDestination {
   readonly terminalId: string
@@ -189,4 +189,14 @@ export interface DocumentReviewInsertRequest {
 
 export interface DocumentReviewInsertResult {
   readonly outcome: 'inserted'
+}
+
+export interface DocumentReviewSendNowRequest {
+  readonly preparedId: string
+}
+
+export interface DocumentReviewSendNowResult {
+  readonly outcome: 'sent'
+  /** Authoritative durable state after PTY-boundary write completion. */
+  readonly snapshot: DocumentReviewWorkspaceSnapshot
 }

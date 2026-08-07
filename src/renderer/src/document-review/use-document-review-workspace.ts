@@ -64,12 +64,18 @@ function useDocumentReviewWorkspaceState(workspace?: ReviewWorkspaceIdentity) {
     (event: WatchEvent): void => controller.current?.handleWatch(event),
     [],
   )
+  const adoptAuthoritative = useCallback(
+    (snapshot: import('../../../shared').DocumentReviewWorkspaceSnapshot) =>
+      controller.current!.adoptAuthoritative(snapshot),
+    [],
+  )
   const watchPaths = useMemo(() => documentReviewPaths(state.model), [state.model])
 
   return {
     state,
     apply,
     flush: () => controller.current!.flush(),
+    adoptAuthoritative,
     handleWatchEvent,
     watchPaths,
   }

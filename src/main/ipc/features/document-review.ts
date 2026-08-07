@@ -96,6 +96,15 @@ export function registerDocumentReviewIpc(
       )
     }),
   )
+
+  ipc.handle('document-review:send-now-delivery', (request, context) =>
+    operationResult(() => {
+      if (!isDocumentReviewIdentifier(request.preparedId)) {
+        throw new Error('Invalid prepared review delivery')
+      }
+      return deps.documentReviewDelivery.sendNow(context.owner(), request.preparedId)
+    }),
+  )
 }
 
 function requireDeliverySelection(

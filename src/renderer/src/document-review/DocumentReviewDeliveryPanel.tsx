@@ -29,7 +29,11 @@ export function DocumentReviewDeliveryPanel({
           {delivery.destinations.map((destination) => (
             <option key={destination.terminalId} value={destination.terminalId}>
               {destination.title} · {destination.providerName} ·{' '}
-              {destination.capability === 'insert' ? 'Insert supported' : 'Copy only'}
+              {destination.capability === 'send-now'
+                ? 'Send now supported'
+                : destination.capability === 'insert'
+                  ? 'Insert supported'
+                  : 'Copy only'}
             </option>
           ))}
         </select>
@@ -100,6 +104,7 @@ export function DocumentReviewDeliveryPanel({
               disabled={
                 delivery.loading ||
                 delivery.inserted ||
+                delivery.sent ||
                 !delivery.prepared
               }
               title={
@@ -113,7 +118,37 @@ export function DocumentReviewDeliveryPanel({
             >
               Insert into composer
             </button>
+            <button
+              type="button"
+              disabled={
+                delivery.loading ||
+                delivery.inserted ||
+                delivery.sent ||
+                delivery.prepared?.destination.capability !== 'send-now'
+              }
+              title={
+                delivery.prepared?.destination.capability === 'send-now'
+                  ? `Send this exact preview now to ${delivery.prepared.destination.title}. hvir cannot prove the foreground composer state.`
+                  : 'This provider/launch has no proven submission contract'
+              }
+              onClick={delivery.sendNow}
+            >
+              Send exact review now
+            </button>
           </div>
+          {selected?.capability === 'send-now' ? (
+            <p className="document-review-warning" role="status">
+              Send now writes the exact preview to {selected.title} and submits it through
+              {` ${selected.providerName}`}. hvir cannot prove the foreground TUI is showing
+              its composer. Sent means PTY-boundary acceptance only.
+            </p>
+          ) : null}
+          {selected?.capability === 'insert' ? (
+            <p className="document-review-guidance">
+              This provider supports atomic composer insertion but has no proven send-now
+              contract for this active launch.
+            </p>
+          ) : null}
           {selected?.capability === 'copy-only' ? (
             <p className="document-review-guidance">
               This provider has no trusted atomic composer contract. It remains Copy-only.

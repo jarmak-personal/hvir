@@ -20,11 +20,13 @@ export interface DocumentReviewDeliveryInteraction {
   readonly error?: string
   readonly message?: string
   readonly inserted: boolean
+  readonly sent: boolean
   readonly previewComment: (commentId: string) => void
   readonly previewBatch: (batchId: string) => void
   readonly selectDestination: (terminalId: string) => void
   readonly copy: () => void
   readonly insert: () => void
+  readonly sendNow: () => void
   readonly close: () => void
 }
 
@@ -40,6 +42,7 @@ interface DeliveryState {
   readonly error?: string
   readonly message?: string
   readonly inserted: boolean
+  readonly sent: boolean
 }
 
 const CLOSED: DeliveryState = {
@@ -47,6 +50,7 @@ const CLOSED: DeliveryState = {
   loading: false,
   destinations: [],
   inserted: false,
+  sent: false,
 }
 
 export function useDocumentReviewDelivery(
@@ -73,6 +77,7 @@ export function useDocumentReviewDelivery(
       destinations: [],
       selection,
       inserted: false,
+      sent: false,
     })
     const target = current.current
     void (async () => {
@@ -96,6 +101,7 @@ export function useDocumentReviewDelivery(
         selection,
         payload,
         inserted: false,
+        sent: false,
       })
     })().catch((reason: unknown) => {
       if (operationGeneration.current !== generation) return
@@ -106,6 +112,7 @@ export function useDocumentReviewDelivery(
         selection,
         error: errorMessage(reason),
         inserted: false,
+        sent: false,
       })
     })
   }, [])
@@ -153,6 +160,7 @@ export function useDocumentReviewDelivery(
       error: undefined,
       message: undefined,
       inserted: false,
+      sent: false,
     }))
     const target = current.current
     void (async () => {
@@ -177,6 +185,7 @@ export function useDocumentReviewDelivery(
         error: undefined,
         message: undefined,
         inserted: false,
+        sent: false,
       }))
     })().catch((reason: unknown) => {
       if (operationGeneration.current !== generation) return
@@ -203,7 +212,7 @@ export function useDocumentReviewDelivery(
 
   const insert = useCallback((): void => {
     const prepared = state.prepared
-    if (!prepared || prepared.destination.capability !== 'insert') return
+    if (!prepared || prepared.destination.capability === 'copy-only') return
     const generation = (operationGeneration.current += 1)
     setState((value) => ({ ...value, loading: true, error: undefined }))
     void window.hvir
@@ -228,6 +237,48 @@ export function useDocumentReviewDelivery(
       })
   }, [state.prepared])
 
+  const sendNow = useCallback((): void => {
+    const prepared = state.prepared
+    if (
+      !prepared ||
+      prepared.destination.capability !== 'send-now' ||
+      state.inserted ||
+      state.sent
+    ) {
+      return
+    }
+    const generation = (operationGeneration.current += 1)
+    setState((value) => ({ ...value, loading: true, error: undefined }))
+    void window.hvir
+      .invoke('document-review:send-now-delivery', { preparedId: prepared.id })
+      .then((response) => {
+        const result = unwrapOperation(response)
+        if (operationGeneration.current !== generation) return
+        const target = current.current
+        previewModel.current = result.snapshot.model
+        if (!target?.adoptAuthoritative(result.snapshot)) {
+          throw new Error(
+            'Review was submitted at the PTY boundary, but the local view changed; reopen the workspace to refresh lifecycle state.',
+          )
+        }
+        setState((value) => ({
+          ...value,
+          loading: false,
+          sent: true,
+          message:
+            'Sent means the complete write was accepted at the PTY boundary; it does not mean the agent read, accepted, or resolved it.',
+        }))
+      })
+      .catch((reason: unknown) => {
+        if (operationGeneration.current !== generation) return
+        setState((value) => ({
+          ...value,
+          loading: false,
+          error: errorMessage(reason),
+        }))
+      })
+  }, [state.inserted, state.prepared, state.sent])
+
   useEffect(() => {
     if (!state.payload || previewModel.current === binding?.state.model) return
     operationGeneration.current += 1
@@ -241,6 +292,7 @@ export function useDocumentReviewDelivery(
       error: 'The review changed. Preview the selection again.',
       message: undefined,
       inserted: false,
+      sent: false,
     }))
   }, [binding?.state.model, state.payload])
 
@@ -259,6 +311,7 @@ export function useDocumentReviewDelivery(
     selectDestination,
     copy,
     insert,
+    sendNow,
     close,
   }
 }

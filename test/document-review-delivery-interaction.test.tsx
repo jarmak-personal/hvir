@@ -62,18 +62,23 @@ afterEach(() => {
 })
 
 describe('document review delivery interaction', () => {
-  it('requires an explicit destination and keeps Preview, Copy, and Insert byte-identical', async () => {
+  it('keeps Insert as the explicit default on a send-now destination', async () => {
     const writeText = vi.fn(() => Promise.resolve())
     vi.stubGlobal('navigator', { clipboard: { writeText } })
+    const insertDestination = {
+      ...prepared.destination,
+      capability: 'send-now' as const,
+    }
+    const insertPrepared = { ...prepared, destination: insertDestination }
     const invoke = vi.fn((channel: string) => {
       if (channel === 'document-review:preview-delivery') {
         return Promise.resolve({ ok: true, value: payload })
       }
       if (channel === 'document-review:delivery-destinations') {
-        return Promise.resolve({ ok: true, value: [prepared.destination] })
+        return Promise.resolve({ ok: true, value: [insertDestination] })
       }
       if (channel === 'document-review:prepare-delivery') {
-        return Promise.resolve({ ok: true, value: prepared })
+        return Promise.resolve({ ok: true, value: insertPrepared })
       }
       if (channel === 'document-review:insert-delivery') {
         return Promise.resolve({ ok: true, value: { outcome: 'inserted' } })
@@ -274,6 +279,113 @@ describe('document review delivery interaction', () => {
     expect(host.textContent).toContain('Review comments remain draft')
   })
 
+  it('offers send-now separately, adopts durable sent state, and explains its boundary', async () => {
+    vi.stubGlobal('navigator', {
+      clipboard: { writeText: vi.fn(() => Promise.resolve()) },
+    })
+    const sendDestination: DocumentReviewDeliveryDestination = {
+      ...prepared.destination,
+      capability: 'send-now',
+    }
+    const sendPrepared = { ...prepared, destination: sendDestination }
+    const sentModel: DocumentReviewModel = {
+      ...model(),
+      comments: model().comments.map((comment) => ({
+        ...comment,
+        lifecycle: 'sent' as const,
+      })),
+    }
+    const adoptAuthoritative = vi.fn(() => true)
+    const review = { ...binding(model()), adoptAuthoritative }
+    const invoke = vi.fn((channel: string) => {
+      if (channel === 'document-review:preview-delivery') {
+        return Promise.resolve({ ok: true, value: payload })
+      }
+      if (channel === 'document-review:delivery-destinations') {
+        return Promise.resolve({ ok: true, value: [sendDestination] })
+      }
+      if (channel === 'document-review:prepare-delivery') {
+        return Promise.resolve({ ok: true, value: sendPrepared })
+      }
+      if (channel === 'document-review:send-now-delivery') {
+        return Promise.resolve({
+          ok: true,
+          value: {
+            outcome: 'sent',
+            snapshot: {
+              workspaceGeneration: 4,
+              revision: 4,
+              model: sentModel,
+            },
+          },
+        })
+      }
+      throw new Error(`Unexpected IPC ${channel}`)
+    })
+    installApi(invoke)
+    render(<DeliveryHarness binding={review} />)
+    click('Preview batch')
+    await settle()
+    choose('terminal-1')
+    await settle()
+
+    expect(host.textContent).toContain('Send now writes the exact preview to Plan review')
+    expect(host.textContent).toContain('Sent means PTY-boundary acceptance only')
+    click('Send exact review now')
+    await settle()
+
+    expect(invoke).toHaveBeenLastCalledWith('document-review:send-now-delivery', {
+      preparedId: prepared.id,
+    })
+    expect(adoptAuthoritative).toHaveBeenCalledWith(
+      expect.objectContaining({ revision: 4, model: sentModel }),
+    )
+    expect(host.textContent).toContain('accepted at the PTY boundary')
+    expect(host.textContent).toContain('does not mean the agent read, accepted, or resolved')
+    expect(button('Send exact review now')?.disabled).toBe(true)
+    expect(
+      invoke.mock.calls.some(([channel]) => channel === 'pty:write'),
+    ).toBe(false)
+  })
+
+  it('keeps send-now retry and Copy available after a delivery failure', async () => {
+    vi.stubGlobal('navigator', {
+      clipboard: { writeText: vi.fn(() => Promise.resolve()) },
+    })
+    const destination = { ...prepared.destination, capability: 'send-now' as const }
+    const exact = { ...prepared, destination }
+    const invoke = vi.fn((channel: string) => {
+      if (channel === 'document-review:preview-delivery') {
+        return Promise.resolve({ ok: true, value: payload })
+      }
+      if (channel === 'document-review:delivery-destinations') {
+        return Promise.resolve({ ok: true, value: [destination] })
+      }
+      if (channel === 'document-review:prepare-delivery') {
+        return Promise.resolve({ ok: true, value: exact })
+      }
+      if (channel === 'document-review:send-now-delivery') {
+        return Promise.resolve({ ok: false, error: 'PTY exited before write completion' })
+      }
+      throw new Error(`Unexpected IPC ${channel}`)
+    })
+    installApi(invoke)
+    render(<DeliveryHarness binding={binding(model())} />)
+    click('Preview batch')
+    await settle()
+    choose('terminal-1')
+    await settle()
+    click('Send exact review now')
+    await settle()
+
+    expect(host.textContent).toContain('PTY exited before write completion')
+    expect(button('Send exact review now')?.disabled).toBe(false)
+    expect(button('Copy exact preview')?.disabled).toBe(false)
+    expect(
+      host.querySelector('[aria-label="Exact review delivery preview"]')?.textContent,
+    ).toBe(exactBody)
+  })
+
   it('invalidates a prepared preview when the review model changes', async () => {
     vi.stubGlobal('navigator', { clipboard: { writeText: vi.fn(() => Promise.resolve()) } })
     installApi(
@@ -330,11 +442,13 @@ function panelInteraction(
     payload,
     prepared: { ...prepared, destination: selectedDestination },
     inserted: false,
+    sent: false,
     previewComment: () => undefined,
     previewBatch: () => undefined,
     selectDestination: () => undefined,
     copy: () => undefined,
     insert: () => undefined,
+    sendNow: () => undefined,
     close: () => undefined,
   }
 }
@@ -370,6 +484,7 @@ function binding(reviewModel: DocumentReviewModel): DocumentReviewWorkspaceBindi
     },
     apply: () => ({ ok: true, model: reviewModel }),
     flush: () => Promise.resolve(),
+    adoptAuthoritative: () => true,
   }
 }
 

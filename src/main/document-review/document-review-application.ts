@@ -1,5 +1,7 @@
-import type { HostPath } from '../../shared'
+import { localPath } from '../../shared'
+import { applicationUserDataPath } from '../application-runtime'
 import type { HarnessProviderRegistry } from '../harness/harness-provider'
+import type { HarnessProfileStoreContract } from '../harness/harness-profile-store'
 import type { ProjectHost } from '../project-host'
 import type { PtySupervisor } from '../pty/pty-supervisor'
 import type { RendererResourceScopes } from '../renderer-resource-scopes'
@@ -14,19 +16,19 @@ import {
 export async function installApplicationDocumentReviewRuntime(
   runtime: Pick<WorkbenchRuntime, 'own'>,
   storageHost: ProjectHost,
-  storageFile: HostPath,
   resources: RendererResourceScopes,
   ptys: PtySupervisor,
   sessions: TerminalSessionStore,
   providers: HarnessProviderRegistry,
+  profiles: HarnessProfileStoreContract,
 ): Promise<DocumentReviewRuntime> {
   return runtime.own(
     'document review',
     await createDocumentReviewRuntime(
       storageHost,
-      storageFile,
+      localPath(applicationUserDataPath('document-review-drafts.json')),
       resources,
-      { ptys, sessions, providers },
+      { ptys, sessions, providers, profiles },
     ),
     (review) => review.dispose(),
   )

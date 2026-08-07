@@ -251,6 +251,88 @@ describe('document review coordinator', () => {
     save.resolve({ revision: 1, model: fixture.model })
     await expect(saving).rejects.toThrow(/revoked/)
   })
+
+  it('atomically persists exact included drafts as sent while retaining batch history', async () => {
+    const root = localPath('/repo')
+    const workspace: ReviewWorkspaceIdentity = { id: 'project:worktree', root }
+    const model = modelWithDraft(workspace)
+    const save = vi.fn((_revision: number, candidate: DocumentReviewModel) =>
+      Promise.resolve({ revision: 8, model: candidate }),
+    )
+    const fixture = createFixture(root.hostId, root, vi.fn(), 'connected', {
+      read: vi.fn(() => ({ revision: 7, model })),
+      save,
+    })
+    const restored = await fixture.coordinator.activate(
+      fixture.owner,
+      fixture.workspace,
+      fixture.host,
+    )
+
+    const sent = await fixture.coordinator.markSent(fixture.owner, {
+      workspace,
+      workspaceGeneration: restored.workspaceGeneration,
+      expectedRevision: 7,
+      commentIds: ['draft-comment'],
+    })
+
+    expect(save).toHaveBeenCalledExactlyOnceWith(
+      7,
+      expect.objectContaining({
+        comments: [expect.objectContaining({ lifecycle: 'sent' })],
+        batches: [expect.objectContaining({ commentIds: ['draft-comment'] })],
+      }),
+    )
+    expect(sent).toMatchObject({
+      revision: 8,
+      model: {
+        comments: [expect.objectContaining({ lifecycle: 'sent' })],
+        batches: [expect.objectContaining({ commentIds: ['draft-comment'] })],
+      },
+    })
+  })
+
+  it('rejects stale, duplicate, or non-draft sent transitions before persistence', async () => {
+    const root = localPath('/repo')
+    const workspace: ReviewWorkspaceIdentity = { id: 'project:worktree', root }
+    const model = modelWithDraft(workspace)
+    const save = vi.fn()
+    const fixture = createFixture(root.hostId, root, vi.fn(), 'connected', {
+      read: vi.fn(() => ({ revision: 7, model })),
+      save,
+    })
+    const restored = await fixture.coordinator.activate(
+      fixture.owner,
+      fixture.workspace,
+      fixture.host,
+    )
+    const base = {
+      workspace,
+      workspaceGeneration: restored.workspaceGeneration,
+      expectedRevision: 7,
+    }
+
+    await expect(
+      fixture.coordinator.markSent(fixture.owner, {
+        ...base,
+        commentIds: ['draft-comment', 'draft-comment'],
+      }),
+    ).rejects.toThrow(/unique bounded/)
+    await expect(
+      fixture.coordinator.markSent(fixture.owner, {
+        ...base,
+        expectedRevision: 6,
+        commentIds: ['draft-comment'],
+      }),
+    ).rejects.toThrow(/changed during submission/)
+    await expect(
+      fixture.coordinator.markSent(fixture.owner, {
+        ...base,
+        commentIds: ['missing'],
+      }),
+    ).rejects.toThrow(/exact included drafts/)
+    expect(save).not.toHaveBeenCalled()
+  })
 })
 
 function createFixture(
@@ -284,6 +366,30 @@ function createFixture(
 
 function emptyModel(workspace: ReviewWorkspaceIdentity): DocumentReviewModel {
   return { workspace, comments: [], batches: [] }
+}
+
+function modelWithDraft(workspace: ReviewWorkspaceIdentity): DocumentReviewModel {
+  return {
+    workspace,
+    comments: [
+      {
+        id: 'draft-comment',
+        workspace,
+        document: hostPath(workspace.root.hostId, `${workspace.root.path}/review.md`),
+        body: 'Please update this.',
+        lifecycle: 'draft',
+        anchor: {
+          snapshot: { algorithm: 'sha256', digest: 'a'.repeat(64), byteLength: 6 },
+          range: { startLine: 1, endLine: 1 },
+          excerpt: 'Target',
+          contextBefore: '',
+          contextAfter: '',
+          state: { status: 'current' },
+        },
+      },
+    ],
+    batches: [{ id: 'active-review', workspace, commentIds: ['draft-comment'] }],
+  }
 }
 
 function request(

@@ -100,6 +100,8 @@ import type {
   DocumentReviewRevalidateRequest,
   DocumentReviewRevalidation,
   DocumentReviewSaveRequest,
+  DocumentReviewSendNowRequest,
+  DocumentReviewSendNowResult,
   DocumentReviewWorkspaceSnapshot,
   PreparedDocumentReviewDelivery,
 } from './document-review'
@@ -637,6 +639,10 @@ export interface IpcInvokeMap {
     request: DocumentReviewInsertRequest
     response: OperationResult<DocumentReviewInsertResult>
   }
+  'document-review:send-now-delivery': {
+    request: DocumentReviewSendNowRequest
+    response: OperationResult<DocumentReviewSendNowResult>
+  }
   'project:close': {
     request: CloseProjectRequest
     response: OperationResult<ProjectState>
@@ -969,6 +975,7 @@ export const INVOKE_CHANNELS = [
   'document-review:preview-delivery',
   'document-review:prepare-delivery',
   'document-review:insert-delivery',
+  'document-review:send-now-delivery',
   'project:close',
   'workspace:prune',
   'workspace:dismiss',

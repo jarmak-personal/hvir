@@ -1,5 +1,9 @@
 import { describe, expect, it, vi } from 'vitest'
 
+import {
+  harnessLaunchCapabilities,
+  harnessProvider,
+} from '../src/main/harness/harness-provider'
 import { providerTemplateProfiles } from '../src/main/harness/harness-profile-store'
 import { registerTerminalIpc } from '../src/main/ipc/features/terminal'
 import type { IpcInvokeContext, IpcRegistrar } from '../src/main/ipc/authority-router'
@@ -144,6 +148,39 @@ describe('terminal exact-resume IPC', () => {
         workspaceRoot: fixture.root,
       }),
     )
+  })
+
+  it('binds supported Codex probe, profile, and submit-mode capabilities to spawn', async () => {
+    const fixture = resumeFixture(LOCAL_HOST_ID, 'available', 'codex')
+
+    const result = await fixture.start(
+      {
+        ...fixture.request,
+        resume: false,
+        harnessSessionId: undefined,
+        acknowledgeRisk: undefined,
+        composerSubmitMode: 'ctrl-enter',
+      },
+      fixture.context,
+    )
+
+    expect(result).toMatchObject({
+      outcome: 'started',
+      capabilities: {
+        reviewInsertContractRevision: 1,
+        reviewSendNowContractRevision: 1,
+      },
+    })
+    expect(fixture.spawn.mock.calls[0]?.[0]).toMatchObject({
+      profileId: fixture.profile.id,
+      launchRevision: fixture.profile.launchRevision,
+      providerContractVersion: fixture.profile.providerContractVersion,
+      composerSubmitMode: 'ctrl-enter',
+      effectiveCapabilities: {
+        reviewInsertContractRevision: 1,
+        reviewSendNowContractRevision: 1,
+      },
+    })
   })
 
   it.each([
@@ -406,13 +443,12 @@ describe('terminal exact-resume IPC', () => {
     expect(fixture.lease.dispose).toHaveBeenCalledOnce()
     expect(fixture.recordSpawn).not.toHaveBeenCalled()
     expect(fixture.recordSuccessfulLaunch).not.toHaveBeenCalled()
-    expect(fixture.invalidateProbe).toHaveBeenCalledWith(fixture.host, fixture.profile)
-    expect(fixture.probeProfiles).toHaveBeenCalledWith(
+    expect(fixture.refreshProfile).toHaveBeenCalledWith(
       expect.objectContaining({
         host: fixture.host,
         profiles: [fixture.profile],
-        force: true,
       }),
+      fixture.profile,
     )
   })
 
@@ -441,21 +477,26 @@ describe('terminal exact-resume IPC', () => {
 function resumeFixture(
   hostId: HostPath['hostId'],
   availability: 'available' | 'missing',
+  providerId: 'claude-code' | 'codex' = 'claude-code',
 ) {
   const root = hostPath(hostId, '/repo')
-  const profile = {
-    ...providerTemplateProfiles().find(
-      (candidate) => candidate.providerId === 'claude-code',
-    )!,
-    environment: [
-      {
-        kind: 'literal' as const,
-        name: 'CLAUDE_CONFIG_DIR',
-        value: '/config/claude',
-      },
-    ],
-    risk: 'unclassified' as const,
-  }
+  const template = providerTemplateProfiles().find(
+    (candidate) => candidate.providerId === providerId,
+  )!
+  const profile =
+    providerId === 'claude-code'
+      ? {
+          ...template,
+          environment: [
+            {
+              kind: 'literal' as const,
+              name: 'CLAUDE_CONFIG_DIR',
+              value: '/config/claude',
+            },
+          ],
+          risk: 'unclassified' as const,
+        }
+      : template
   const exec = vi
     .fn<ProjectHost['exec']>()
     .mockResolvedValueOnce({
@@ -508,6 +549,13 @@ function resumeFixture(
     (_owner: unknown, _qualifier: unknown, _dispose: () => unknown, _options?: unknown) =>
       lease,
   )
+  const probeCapabilities = harnessProvider(profile.providerId).probe.effectiveCapabilities(
+    providerId === 'codex' ? 'codex-cli 0.146.0' : '1.0.0',
+  )
+  const managedCapabilities = harnessLaunchCapabilities(
+    harnessProvider(profile.providerId),
+    { profile, composerSubmitMode: 'enter', probedCapabilities: probeCapabilities },
+  )
   const managed = {
     id: 'terminal-1',
     ownerId: 7,
@@ -516,27 +564,34 @@ function resumeFixture(
     cwd: root,
     workspaceRoot: root,
     providerId: profile.providerId,
+    profileId: profile.id,
+    launchRevision: profile.launchRevision,
+    providerContractVersion: profile.providerContractVersion,
+    composerSubmitMode: 'enter' as const,
     pid: 4321,
     startedAt: 1,
     resumed: true,
     harnessSessionId: HARNESS_SESSION_ID,
     identityStatus: 'identified' as const,
-    capabilities: {
-      sessionIdentity: 'preassigned' as const,
-      exactResume: true,
-      contextPresentation: 'count' as const,
-      reviewInsertContractRevision: 1,
-    },
+    capabilities: managedCapabilities,
   }
-  const spawn = vi.fn((request: { sessionId: string; resume: boolean }) =>
+  const effectiveLaunchCapabilities = vi.fn(() => managedCapabilities)
+  const spawn = vi.fn((request: {
+    sessionId: string
+    resume: boolean
+    composerSubmitMode: 'enter' | 'ctrl-enter'
+    effectiveCapabilities: typeof managedCapabilities
+  }) =>
     Promise.resolve(
       request.resume
-        ? managed
+        ? { ...managed, composerSubmitMode: request.composerSubmitMode }
         : {
             ...managed,
             id: request.sessionId,
             resumed: false,
             harnessSessionId: request.sessionId,
+            composerSubmitMode: request.composerSubmitMode,
+            capabilities: request.effectiveCapabilities,
           },
     ),
   )
@@ -574,6 +629,7 @@ function resumeFixture(
   const get = vi.fn(() => undefined as typeof managed | undefined)
   const invalidateProbe = vi.fn()
   const probeProfiles = vi.fn()
+  const refreshProfile = vi.fn()
   const recordSuccessfulLaunch = vi.fn()
   const deps = {
     getProject: () => ({ root, host }),
@@ -591,8 +647,10 @@ function resumeFixture(
       hasPathGrant: () => false,
     },
     harnessProbes: {
+      effectiveLaunchCapabilities,
       invalidate: invalidateProbe,
       probeProfiles,
+      refreshProfile,
       recordSuccessfulLaunch,
     },
     rendererResources: {
@@ -685,7 +743,9 @@ function resumeFixture(
     managed,
     invalidateProbe,
     probeProfiles,
+    refreshProfile,
     recordSuccessfulLaunch,
+    effectiveLaunchCapabilities,
     send,
     start,
     recordRecoveryDecision,

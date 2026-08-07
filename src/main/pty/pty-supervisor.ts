@@ -14,7 +14,9 @@ import {
   contextStatusHarnessSnapshot,
   hostPathEquals,
   LOCAL_HOST_ID,
+  type ComposerSubmitMode,
   type HarnessTelemetry,
+  type HarnessProfileId,
   type HarnessProviderId,
   type HarnessProviderCapabilities,
   type HostId,
@@ -39,6 +41,11 @@ export interface PtySpawnRequest {
   readonly unsetEnvironment?: readonly string[]
   readonly artifact?: HarnessArtifactContext
   readonly effectiveCapabilities?: HarnessProviderCapabilities
+  /** Exact active profile contract for provider-owned delivery capabilities. */
+  readonly profileId?: HarnessProfileId
+  readonly launchRevision?: number
+  readonly providerContractVersion?: number
+  readonly composerSubmitMode?: ComposerSubmitMode
   readonly cwd: HostPath
   /** Mutable presentation/authority owner; launch cwd remains immutable. */
   readonly workspaceRoot?: HostPath
@@ -72,6 +79,10 @@ export interface ManagedPty {
   readonly workspaceRoot: HostPath
   readonly providerId: HarnessProviderId
   readonly capabilities: HarnessProviderCapabilities
+  readonly profileId?: HarnessProfileId
+  readonly launchRevision?: number
+  readonly providerContractVersion?: number
+  readonly composerSubmitMode?: ComposerSubmitMode
   readonly pid: number
   readonly startedAt: number
   readonly resumed: boolean
@@ -277,6 +288,7 @@ export class PtySupervisor {
         cols: req.cols,
         rows: req.rows,
         defaultShell,
+        composerSubmitMode: req.composerSubmitMode,
         effectiveCapabilities,
       }
       const spec =
@@ -338,6 +350,10 @@ export class PtySupervisor {
       workspaceRoot: req.workspaceRoot ?? req.cwd,
       providerId: req.provider.manifest.id,
       capabilities: effectiveCapabilities,
+      profileId: req.profileId,
+      launchRevision: req.launchRevision,
+      providerContractVersion: req.providerContractVersion,
+      composerSubmitMode: req.composerSubmitMode,
       pid: pty.pid,
       startedAt: launchedAtMs,
       resumed,
@@ -537,6 +553,27 @@ export class PtySupervisor {
   write(id: string, ownerId: number, data: string, ownerGeneration?: number): void {
     const entry = this.requireOwned(id, ownerId, ownerGeneration)
     entry.pty.write(data)
+    this.retryIdentityAfterInput(entry)
+  }
+
+  /** Confirm one complete write at the immediate PTY transport boundary. */
+  async writeConfirmed(
+    id: string,
+    ownerId: number,
+    data: string,
+    ownerGeneration?: number,
+  ): Promise<void> {
+    const entry = this.requireOwned(id, ownerId, ownerGeneration)
+    await entry.pty.writeConfirmed(data)
+    if (
+      entry.exited ||
+      this.entries.get(id) !== entry ||
+      entry.info.ownerId !== ownerId ||
+      (ownerGeneration !== undefined &&
+        entry.info.ownerGeneration !== ownerGeneration)
+    ) {
+      throw new Error(`PTY session '${id}' exited before write completion`)
+    }
     this.retryIdentityAfterInput(entry)
   }
 

@@ -99,6 +99,48 @@ describe('SshHost transport pool', () => {
     await host.dispose()
   })
 
+  it('confirms one SSH PTY write and rejects callback failure or exit races', async () => {
+    const fixture = await poolFixture()
+    await spawnShells(fixture, 1)
+    const channel = fixture.clients[1]?.channels[0] as
+      | (ClientChannel & { readonly write: ReturnType<typeof vi.fn> })
+      | undefined
+    if (!channel) throw new Error('Expected an SSH PTY channel')
+
+    await expect(
+      fixture.supervisor.writeConfirmed('shell-0', OWNER_ID, 'exact'),
+    ).resolves.toBeUndefined()
+    expect(channel.write.mock.calls).toContainEqual(['exact', expect.any(Function)])
+
+    channel.write.mockImplementationOnce(
+      (_value: string, callback?: (error?: Error) => void) => {
+        callback?.(new Error('remote write failed'))
+        return true
+      },
+    )
+    await expect(
+      fixture.supervisor.writeConfirmed('shell-0', OWNER_ID, 'failed'),
+    ).rejects.toThrow('remote write failed')
+
+    let completeWrite: ((error?: Error) => void) | undefined
+    channel.write.mockImplementationOnce(
+      (_value: string, callback?: (error?: Error) => void) => {
+        completeWrite = callback
+        return true
+      },
+    )
+    const raced = fixture.supervisor.writeConfirmed(
+      'shell-0',
+      OWNER_ID,
+      'raced',
+    )
+    channel.emit('exit', 7)
+    await expect(raced).rejects.toThrow(/exited before write completion/i)
+    completeWrite?.()
+
+    await fixture.host.dispose()
+  })
+
   it('grows a second control transport without borrowing terminal capacity', async () => {
     const fixture = await poolFixture()
     const streams = Array.from({ length: SSH_CONTROL_CHANNEL_BUDGET + 1 }, () =>

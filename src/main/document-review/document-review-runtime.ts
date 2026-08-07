@@ -4,6 +4,7 @@ import type { PtySupervisor } from '../pty/pty-supervisor'
 import type { RendererResourceScopes } from '../renderer-resource-scopes'
 import type { TerminalSessionStore } from '../terminal/session-registry'
 import type { HarnessProviderRegistry } from '../harness/harness-provider'
+import type { HarnessProfileStoreContract } from '../harness/harness-profile-store'
 import { DocumentReviewCoordinator } from './document-review-coordinator'
 import { DocumentReviewDeliveryCoordinator } from './document-review-delivery-coordinator'
 import { DocumentReviewStore } from './document-review-store'
@@ -21,9 +22,10 @@ export async function createDocumentReviewRuntime(
   file: HostPath,
   resources: RendererResourceScopes,
   delivery: {
-    readonly ptys: Pick<PtySupervisor, 'get' | 'list' | 'write'>
+    readonly ptys: Pick<PtySupervisor, 'get' | 'list' | 'write' | 'writeConfirmed'>
     readonly sessions: Pick<TerminalSessionStore, 'get'>
     readonly providers: Pick<HarnessProviderRegistry, 'get'>
+    readonly profiles: Pick<HarnessProfileStoreContract, 'get'>
   },
 ): Promise<DocumentReviewRuntime> {
   const store = await DocumentReviewStore.load(host, file)

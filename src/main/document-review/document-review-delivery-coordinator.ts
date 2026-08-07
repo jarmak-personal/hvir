@@ -10,12 +10,16 @@ import {
   type DocumentReviewDeliverySelection,
   type DocumentReviewInsertResult,
   type DocumentReviewPrepareRequest,
+  type DocumentReviewSendNowResult,
   type PreparedDocumentReviewDelivery,
 } from '../../shared'
 import type {
   HarnessDocumentReviewInsertContract,
+  HarnessDocumentReviewSendNowContract,
+  HarnessDocumentReviewSendNowLaunch,
   HarnessProviderRegistry,
 } from '../harness/harness-provider'
+import type { HarnessProfileStoreContract } from '../harness/harness-profile-store'
 import type { ManagedPty, PtySupervisor } from '../pty/pty-supervisor'
 import type {
   RendererOwner,
@@ -31,6 +35,11 @@ import type {
   DocumentReviewDeliveryWorkspaceSnapshot,
 } from './document-review-coordinator'
 import { prepareDocumentReviewDeliveryPayload } from './document-review-delivery-policy'
+import {
+  matchesPreparedDocumentReviewTerminal,
+  snapshotDocumentReviewTerminal,
+  type PreparedDocumentReviewTerminal,
+} from './document-review-delivery-terminal'
 
 interface PreparedRecord {
   readonly id: string
@@ -41,24 +50,21 @@ interface PreparedRecord {
   readonly payload: DocumentReviewDeliveryPayload
   readonly destination: DocumentReviewDeliveryDestination
   readonly contractRevision: number
-  readonly terminal: Pick<
-    ManagedPty,
-    | 'id'
-    | 'instanceId'
-    | 'ownerId'
-    | 'ownerGeneration'
-    | 'hostId'
-    | 'workspaceRoot'
-    | 'providerId'
-  >
+  readonly sendNowContractRevision?: number
+  readonly terminal: PreparedDocumentReviewTerminal
   lease?: RendererResourceLease
+  inFlight?: symbol
 }
 
 export interface DocumentReviewDeliveryCoordinatorOptions {
-  readonly workspace: Pick<DocumentReviewCoordinator, 'deliverySnapshot'>
-  readonly ptys: Pick<PtySupervisor, 'get' | 'list' | 'write'>
+  readonly workspace: Pick<
+    DocumentReviewCoordinator,
+    'deliverySnapshot' | 'markSent'
+  >
+  readonly ptys: Pick<PtySupervisor, 'get' | 'list' | 'write' | 'writeConfirmed'>
   readonly sessions: Pick<TerminalSessionStore, 'get'>
   readonly providers: Pick<HarnessProviderRegistry, 'get'>
+  readonly profiles: Pick<HarnessProfileStoreContract, 'get'>
   readonly resources: Pick<RendererResourceScopes, 'register'>
 }
 
@@ -120,7 +126,8 @@ export class DocumentReviewDeliveryCoordinator {
       payload,
       destination,
       contractRevision: contract.revision,
-      terminal: terminalSnapshot(terminal),
+      sendNowContractRevision: this.sendNowContract(terminal)?.contract.revision,
+      terminal: snapshotDocumentReviewTerminal(terminal),
     }
     const key = ownerKey(owner)
     this.revokePrepared(this.prepared.get(key))
@@ -144,12 +151,8 @@ export class DocumentReviewDeliveryCoordinator {
   }
 
   insert(owner: RendererOwner, preparedId: string): DocumentReviewInsertResult {
-    this.assertActive()
-    const key = ownerKey(owner)
-    const prepared = this.prepared.get(key)
-    if (!prepared || prepared.id !== preparedId || !sameOwner(prepared.owner, owner)) {
-      throw new Error('The prepared review destination is stale')
-    }
+    const prepared = this.requirePrepared(owner, preparedId)
+    if (prepared.inFlight) throw new Error('Review delivery is already in progress')
     const review = this.reviewSnapshot(owner, prepared.scope)
     this.assertHostConnected(review)
     if (review.revision !== prepared.reviewRevision) {
@@ -163,7 +166,7 @@ export class DocumentReviewDeliveryCoordinator {
       throw new Error('The review delivery exceeds its outbound byte limit')
     }
     const terminal = this.options.ptys.get(prepared.terminal.id)
-    if (!terminal || !sameTerminal(terminal, prepared.terminal)) {
+    if (!terminal || !matchesPreparedDocumentReviewTerminal(terminal, prepared.terminal)) {
       throw new Error('The prepared review terminal is no longer live')
     }
     const provider = this.options.providers.get(terminal.providerId)
@@ -172,7 +175,7 @@ export class DocumentReviewDeliveryCoordinator {
       !contract ||
       contract.revision !== prepared.contractRevision ||
       terminal.capabilities.reviewInsertContractRevision !== contract.revision ||
-      prepared.destination.capability !== 'insert'
+      prepared.destination.capability === 'copy-only'
     ) {
       throw new Error('The prepared provider insertion capability changed')
     }
@@ -185,6 +188,67 @@ export class DocumentReviewDeliveryCoordinator {
     )
     this.revokePrepared(prepared)
     return { outcome: 'inserted' }
+  }
+
+  async sendNow(
+    owner: RendererOwner,
+    preparedId: string,
+  ): Promise<DocumentReviewSendNowResult> {
+    const prepared = this.requirePrepared(owner, preparedId)
+    if (
+      prepared.destination.capability !== 'send-now' ||
+      prepared.sendNowContractRevision === undefined
+    ) {
+      throw new Error('The prepared destination remains Insert-only')
+    }
+    if (prepared.inFlight) throw new Error('Review delivery is already in progress')
+    const attempt = Symbol(prepared.id)
+    prepared.inFlight = attempt
+    try {
+      const before = this.validatePrepared(owner, prepared)
+      const sendNow = this.sendNowContract(before.terminal)
+      if (
+        !sendNow ||
+        sendNow.contract.revision !== prepared.sendNowContractRevision
+      ) {
+        throw new Error('The prepared provider submission capability changed')
+      }
+      const transport = sendNow.contract.terminalInput(
+        before.payload.body,
+        sendNow.launch,
+      )
+      await this.options.ptys.writeConfirmed(
+        before.terminal.id,
+        owner.id,
+        transport,
+        owner.generation,
+      )
+
+      // A completed transport may race exit, disconnect, renderer/workspace
+      // revocation, profile edits, or provider replacement. None can turn a late
+      // completion into lifecycle authority.
+      const after = this.validatePrepared(owner, prepared)
+      const currentSendNow = this.sendNowContract(after.terminal)
+      if (
+        !currentSendNow ||
+        currentSendNow.contract.revision !== prepared.sendNowContractRevision ||
+        currentSendNow.contract.terminalInput(
+          after.payload.body,
+          currentSendNow.launch,
+        ) !== transport
+      ) {
+        throw new Error('The prepared provider submission capability changed')
+      }
+      const snapshot = await this.options.workspace.markSent(owner, {
+        ...prepared.scope,
+        expectedRevision: after.review.revision,
+        commentIds: after.payload.commentIds,
+      })
+      this.revokePrepared(prepared)
+      return { outcome: 'sent', snapshot }
+    } finally {
+      if (prepared.inFlight === attempt) prepared.inFlight = undefined
+    }
   }
 
   dispose(): void {
@@ -237,7 +301,8 @@ export class DocumentReviewDeliveryCoordinator {
     presentation: OwnedTerminalSession | undefined,
   ): DocumentReviewDeliveryDestination {
     const provider = this.options.providers.get(terminal.providerId)
-    const contract = this.insertContract(terminal)
+    const insert = this.insertContract(terminal)
+    const sendNow = this.sendNowContract(terminal)
     const matchingPresentation = Boolean(
       presentation &&
         presentation.providerId === terminal.providerId &&
@@ -252,7 +317,7 @@ export class DocumentReviewDeliveryCoordinator {
       lifecycle: 'live',
       connection: 'connected',
       attention: matchingPresentation ? presentation?.attention : undefined,
-      capability: contract ? 'insert' : 'copy-only',
+      capability: sendNow ? 'send-now' : insert ? 'insert' : 'copy-only',
     }
   }
 
@@ -264,6 +329,80 @@ export class DocumentReviewDeliveryCoordinator {
       terminal.capabilities.reviewInsertContractRevision === contract.revision
       ? contract
       : undefined
+  }
+
+  private sendNowContract(terminal: ManagedPty):
+    | {
+        readonly contract: HarnessDocumentReviewSendNowContract
+        readonly launch: HarnessDocumentReviewSendNowLaunch
+      }
+    | undefined {
+    const provider = this.options.providers.get(terminal.providerId)
+    const contract = provider.documentReviewSendNow
+    if (
+      !contract ||
+      terminal.capabilities.reviewSendNowContractRevision !== contract.revision ||
+      !terminal.profileId ||
+      terminal.launchRevision === undefined ||
+      terminal.providerContractVersion === undefined ||
+      terminal.composerSubmitMode === undefined
+    ) {
+      return undefined
+    }
+    const profile = this.options.profiles.get(terminal.profileId)
+    if (
+      !profile ||
+      profile.providerId !== terminal.providerId ||
+      profile.launchRevision !== terminal.launchRevision ||
+      profile.providerContractVersion !== terminal.providerContractVersion
+    ) {
+      return undefined
+    }
+    const launch = {
+      profile,
+      composerSubmitMode: terminal.composerSubmitMode,
+      effectiveCapabilities: terminal.capabilities,
+    } satisfies HarnessDocumentReviewSendNowLaunch
+    return contract.supportsLaunch(launch) ? { contract, launch } : undefined
+  }
+
+  private requirePrepared(owner: RendererOwner, preparedId: string): PreparedRecord {
+    this.assertActive()
+    const prepared = this.prepared.get(ownerKey(owner))
+    if (!prepared || prepared.id !== preparedId || !sameOwner(prepared.owner, owner)) {
+      throw new Error('The prepared review destination is stale')
+    }
+    return prepared
+  }
+
+  private validatePrepared(
+    owner: RendererOwner,
+    prepared: PreparedRecord,
+  ): {
+    readonly review: DocumentReviewDeliveryWorkspaceSnapshot
+    readonly payload: DocumentReviewDeliveryPayload
+    readonly terminal: ManagedPty
+  } {
+    if (this.requirePrepared(owner, prepared.id) !== prepared) {
+      throw new Error('The prepared review destination is stale')
+    }
+    const review = this.reviewSnapshot(owner, prepared.scope)
+    this.assertHostConnected(review)
+    if (review.revision !== prepared.reviewRevision) {
+      throw new Error('The review batch changed after preview')
+    }
+    const payload = payloadFor(review, prepared.selection)
+    if (!samePayload(payload, prepared.payload)) {
+      throw new Error('The review payload changed after preview')
+    }
+    if (payload.byteLength > DOCUMENT_REVIEW_LIMITS.deliveryPayloadBytes) {
+      throw new Error('The review delivery exceeds its outbound byte limit')
+    }
+    const terminal = this.options.ptys.get(prepared.terminal.id)
+    if (!terminal || !matchesPreparedDocumentReviewTerminal(terminal, prepared.terminal)) {
+      throw new Error('The prepared review terminal is no longer live')
+    }
+    return { review, payload, terminal }
   }
 
   private revokePrepared(record: PreparedRecord | undefined): void {
@@ -286,33 +425,6 @@ function payloadFor(
   const result = prepareDocumentReviewDeliveryPayload(review.model, selection)
   if (!result.ok) throw new Error(result.error)
   return result.value
-}
-
-function terminalSnapshot(terminal: ManagedPty): PreparedRecord['terminal'] {
-  return {
-    id: terminal.id,
-    instanceId: terminal.instanceId,
-    ownerId: terminal.ownerId,
-    ownerGeneration: terminal.ownerGeneration,
-    hostId: terminal.hostId,
-    workspaceRoot: terminal.workspaceRoot,
-    providerId: terminal.providerId,
-  }
-}
-
-function sameTerminal(
-  current: ManagedPty,
-  prepared: PreparedRecord['terminal'],
-): boolean {
-  return (
-    current.id === prepared.id &&
-    current.instanceId === prepared.instanceId &&
-    current.ownerId === prepared.ownerId &&
-    current.ownerGeneration === prepared.ownerGeneration &&
-    current.hostId === prepared.hostId &&
-    current.providerId === prepared.providerId &&
-    hostPathEquals(current.workspaceRoot, prepared.workspaceRoot)
-  )
 }
 
 function samePayload(

@@ -177,6 +177,56 @@ export class DocumentReviewCoordinator {
     }
   }
 
+  /** Persist the exact post-send lifecycle transition after PTY confirmation. */
+  async markSent(
+    owner: RendererOwner,
+    request: {
+      readonly workspace: ReviewWorkspaceIdentity
+      readonly workspaceGeneration: number
+      readonly expectedRevision: number
+      readonly commentIds: readonly string[]
+    },
+  ): Promise<DocumentReviewWorkspaceSnapshot> {
+    const session = this.requireSession(owner, request)
+    const ids = new Set(request.commentIds)
+    if (
+      ids.size === 0 ||
+      ids.size !== request.commentIds.length ||
+      ids.size > DOCUMENT_REVIEW_LIMITS.batchMembers
+    ) {
+      throw new Error('Review submission requires unique bounded draft comments')
+    }
+    const current = this.options.store.read(session.workspace)
+    if (current.revision !== request.expectedRevision) {
+      throw new Error('The review batch changed during submission')
+    }
+    for (const id of ids) {
+      const comment = current.model.comments.find((candidate) => candidate.id === id)
+      if (!comment || comment.lifecycle !== 'draft') {
+        throw new Error('Only the exact included drafts can be marked sent')
+      }
+    }
+    const model: DocumentReviewModel = {
+      ...current.model,
+      comments: current.model.comments.map((comment) =>
+        ids.has(comment.id) ? { ...comment, lifecycle: 'sent' as const } : comment,
+      ),
+      // Existing batch membership is durable review history. Its sent members
+      // become ineligible through the shared lifecycle rule; they are not
+      // silently deleted by delivery.
+      batches: current.model.batches,
+    }
+    this.assertCurrent(session)
+    const stored = await this.options.store.save(current.revision, model)
+    this.assertCurrent(session)
+    return {
+      workspaceGeneration: session.generation,
+      revision: stored.revision,
+      model: stored.model,
+      notice: this.options.store.notice(),
+    }
+  }
+
   revoke(owner: RendererOwner): void {
     const session = this.active.get(ownerKey(owner))
     if (session) this.revokeSession(session)

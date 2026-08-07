@@ -27,6 +27,22 @@ describe('document review delivery IPC', () => {
     ).resolves.toEqual({ ok: false, error: 'Invalid review selection' })
     expect(preview).toHaveBeenCalledOnce()
   })
+
+  it('validates prepared identifiers before routing send-now with renderer authority', async () => {
+    const { sendNow, invokeSendNow } = fixture()
+
+    await expect(invokeSendNow('prepared-1')).resolves.toMatchObject({ ok: true })
+    expect(sendNow).toHaveBeenCalledWith(
+      { id: 7, generation: 1 },
+      'prepared-1',
+    )
+
+    await expect(invokeSendNow('é'.repeat(65))).resolves.toEqual({
+      ok: false,
+      error: 'Invalid prepared review delivery',
+    })
+    expect(sendNow).toHaveBeenCalledOnce()
+  })
 })
 
 function fixture() {
@@ -52,9 +68,12 @@ function fixture() {
     byteLength: 5,
     commentIds: [],
   }))
+  const sendNow = vi.fn(() =>
+    Promise.resolve({ outcome: 'sent', snapshot: {} }),
+  )
   registerDocumentReviewIpc(ipc, {
     documentReview: {},
-    documentReviewDelivery: { preview },
+    documentReviewDelivery: { preview, sendNow },
     getProject: () => ({ root, host: { hostId: root.hostId } }),
     getProjectState: () => ({
       activeProjectId: 'project',
@@ -69,11 +88,14 @@ function fixture() {
   } as unknown as Parameters<typeof registerDocumentReviewIpc>[1])
   const handler = handlers.get('document-review:preview-delivery')
   if (!handler) throw new Error('Preview delivery handler was not registered')
+  const sendNowHandler = handlers.get('document-review:send-now-delivery')
+  if (!sendNowHandler) throw new Error('Send-now delivery handler was not registered')
   const context = {
     owner: () => ({ id: 7, generation: 1 }),
   } as IpcInvokeContext
   return {
     preview,
+    sendNow,
     invokePreview: (
       request: Pick<DocumentReviewPreviewRequest, 'selection'>,
     ) =>
@@ -87,5 +109,7 @@ function fixture() {
           context,
         ),
       ),
+    invokeSendNow: (preparedId: string) =>
+      Promise.resolve(sendNowHandler({ preparedId }, context)),
   }
 }

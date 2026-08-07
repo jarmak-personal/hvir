@@ -164,6 +164,60 @@ describe('document review workspace controller', () => {
     })
     expect(revalidate).toHaveBeenCalledOnce()
   })
+
+  it('adopts the authoritative durable sent snapshot without queueing a duplicate save', async () => {
+    const save = vi.fn<DocumentReviewWorkspacePort['save']>()
+    const fixture = createFixture({
+      restore: vi.fn(() =>
+        Promise.resolve(stored(workspaceA, 3, modelWithComment(workspaceA, documentA))),
+      ),
+      save,
+    })
+    fixture.controller.activate(workspaceA)
+    await settle()
+    const current = fixture.controller.snapshot()
+    const sent = {
+      ...current.model!,
+      comments: current.model!.comments.map((comment) => ({
+        ...comment,
+        lifecycle: 'sent' as const,
+      })),
+    }
+
+    expect(fixture.controller.adoptAuthoritative(stored(workspaceA, 4, sent))).toBe(true)
+    expect(fixture.controller.snapshot()).toMatchObject({
+      revision: 4,
+      model: { comments: [expect.objectContaining({ lifecycle: 'sent' })] },
+    })
+    expect(save).not.toHaveBeenCalled()
+    expect(
+      fixture.controller.adoptAuthoritative({
+        ...stored(workspaceA, 5, sent),
+        workspaceGeneration: current.workspaceGeneration! + 1,
+      }),
+    ).toBe(false)
+  })
+
+  it('does not overwrite a local review edit queued during send completion', async () => {
+    const saving = deferred<DocumentReviewWorkspaceSnapshot>()
+    const fixture = createFixture({ save: vi.fn(() => saving.promise) })
+    fixture.controller.activate(workspaceA)
+    await settle()
+    fixture.controller.apply(add('local-edit', 'Changed while sending'))
+    const delivered = modelWithComment(workspaceA, documentA)
+    const sent = {
+      ...delivered,
+      comments: delivered.comments.map((comment) => ({
+        ...comment,
+        lifecycle: 'sent' as const,
+      })),
+    }
+
+    expect(fixture.controller.adoptAuthoritative(stored(workspaceA, 1, sent))).toBe(false)
+    expect(fixture.controller.snapshot().model?.comments[0]?.id).toBe('local-edit')
+    saving.resolve(stored(workspaceA, 1, fixture.controller.snapshot().model!))
+    await fixture.controller.flush()
+  })
 })
 
 function createFixture(overrides: Partial<DocumentReviewWorkspacePort> = {}) {

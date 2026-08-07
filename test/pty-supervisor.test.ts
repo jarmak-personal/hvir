@@ -200,6 +200,59 @@ describe('PtySupervisor', () => {
     expect(pty.resize).toHaveBeenCalledWith(120, 40)
   })
 
+  it('confirms exactly one complete write at the owned PTY boundary', async () => {
+    const { supervisor, pty, host, provider } = fixture()
+    const info = await supervisor.spawn({
+      host,
+      provider,
+      cwd: localPath('/tmp/project'),
+      ownerId: OWNER_ID,
+      ownerGeneration: 7,
+      sessionId: 'confirmed-write',
+    })
+
+    await supervisor.writeConfirmed(info.id, OWNER_ID, 'exact transport', 7)
+
+    expect(pty.writeConfirmed).toHaveBeenCalledExactlyOnceWith('exact transport')
+    expect(pty.write).not.toHaveBeenCalled()
+  })
+
+  it('rejects failed and exit-raced confirmed writes', async () => {
+    const failed = fixture()
+    const failedInfo = await failed.supervisor.spawn({
+      host: failed.host,
+      provider: failed.provider,
+      cwd: localPath('/tmp/project'),
+      ownerId: OWNER_ID,
+      sessionId: 'failed-confirmed-write',
+    })
+    failed.pty.writeConfirmed.mockRejectedValueOnce(new Error('transport refused'))
+    await expect(
+      failed.supervisor.writeConfirmed(failedInfo.id, OWNER_ID, 'payload'),
+    ).rejects.toThrow(/transport refused/)
+
+    const late = fixture()
+    let finish!: () => void
+    late.pty.writeConfirmed.mockImplementationOnce(
+      () => new Promise<void>((resolve) => (finish = resolve)),
+    )
+    const lateInfo = await late.supervisor.spawn({
+      host: late.host,
+      provider: late.provider,
+      cwd: localPath('/tmp/project'),
+      ownerId: OWNER_ID,
+      sessionId: 'late-confirmed-write',
+    })
+    const writing = late.supervisor.writeConfirmed(
+      lateInfo.id,
+      OWNER_ID,
+      'payload',
+    )
+    late.pty.emitExit({ exitCode: 255, signal: undefined })
+    finish()
+    await expect(writing).rejects.toThrow(/exited before write completion/)
+  })
+
   it('replays bounded initial output in order on the first renderer attach', async () => {
     const { supervisor, pty, host, provider } = fixture()
     const info = await supervisor.spawn({

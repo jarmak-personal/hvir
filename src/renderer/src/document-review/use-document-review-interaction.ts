@@ -1,6 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
-import { hostPathEquals, renderedFileType, type HostPath } from '../../../shared'
+import {
+  hostPathEquals,
+  renderedFileType,
+  type DocumentReviewWorkspaceSnapshot,
+  type HostPath,
+} from '../../../shared'
 import { createDocumentReviewCapture } from './document-review-capture'
 import { selectDocumentReviewComments } from './document-review-selectors'
 import type {
@@ -22,6 +27,7 @@ export interface DocumentReviewWorkspaceBinding {
   readonly state: DocumentReviewWorkspaceState
   readonly apply: (action: DocumentReviewAction) => DocumentReviewActionResult
   readonly flush: () => Promise<void>
+  readonly adoptAuthoritative: (snapshot: DocumentReviewWorkspaceSnapshot) => boolean
 }
 
 interface DocumentReviewDocumentInput {

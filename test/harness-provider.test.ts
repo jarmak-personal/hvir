@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import {
   claudeCodeProvider,
   codexProvider,
+  harnessLaunchCapabilities,
   harnessProvider,
   harnessProviderCatalog,
   harnessProviders,
@@ -10,6 +11,7 @@ import {
   plainShellProvider,
   type HarnessProvider,
 } from '../src/main/harness/harness-provider'
+import { providerTemplateProfiles } from '../src/main/harness/harness-profile-store'
 import { asHarnessProviderId, asHostId, hostPath, localPath } from '../src/shared'
 
 const context = {
@@ -130,6 +132,119 @@ describe('Harness providers', () => {
       ['github-copilot-cli', undefined],
       ['cursor-cli', undefined],
       ['custom', undefined],
+    ])
+  })
+
+  it('exposes Codex-only send-now for an exact probed launch in both submit modes', () => {
+    const profile = providerTemplateProfiles().find(
+      (candidate) => candidate.providerId === codexProvider.manifest.id,
+    )!
+    const probed = codexProvider.probe.effectiveCapabilities('codex-cli 0.146.0')
+    const enter = harnessLaunchCapabilities(codexProvider, {
+      profile,
+      composerSubmitMode: 'enter',
+      probedCapabilities: probed,
+    })
+    const control = harnessLaunchCapabilities(codexProvider, {
+      profile,
+      composerSubmitMode: 'ctrl-enter',
+      probedCapabilities: probed,
+    })
+    const body = 'docs/review.md:2\nQuote:\nline one\nline two\nComment:\nExact.'
+    const paste = `\x1b[200~${body}\x1b[201~`
+
+    expect(enter).toMatchObject({
+      reviewInsertContractRevision: 1,
+      reviewSendNowContractRevision: 1,
+    })
+    expect(control).toEqual(enter)
+    expect(
+      codexProvider.documentReviewSendNow?.terminalInput(body, {
+        profile,
+        composerSubmitMode: 'enter',
+        effectiveCapabilities: enter,
+      }),
+    ).toBe(`${paste}\r`)
+    expect(
+      codexProvider.documentReviewSendNow?.terminalInput(body, {
+        profile,
+        composerSubmitMode: 'ctrl-enter',
+        effectiveCapabilities: control,
+      }),
+    ).toBe(`${paste}\x1b[13;5u`)
+  })
+
+  it('keeps unsupported, unprobed, and customized launches below send-now', () => {
+    const profile = providerTemplateProfiles().find(
+      (candidate) => candidate.providerId === codexProvider.manifest.id,
+    )!
+    const unsupported = codexProvider.probe.effectiveCapabilities('codex-cli 0.145.9')
+    const unprobed = codexProvider.probe.effectiveCapabilities(undefined)
+    const supported = codexProvider.probe.effectiveCapabilities('codex-cli 0.146.0')
+    for (const probedCapabilities of [unsupported, unprobed]) {
+      const capabilities = harnessLaunchCapabilities(codexProvider, {
+        profile,
+        composerSubmitMode: 'enter',
+        probedCapabilities,
+      })
+      expect(capabilities.reviewInsertContractRevision).toBe(1)
+      expect(capabilities).not.toHaveProperty('reviewSendNowContractRevision')
+    }
+    const customizedProfile = {
+      ...profile,
+      args: [{ parts: [{ kind: 'literal' as const, value: '--add-dir=/tmp' }] }],
+    }
+    const customized = harnessLaunchCapabilities(codexProvider, {
+      profile: customizedProfile,
+      composerSubmitMode: 'ctrl-enter',
+      probedCapabilities: supported,
+    })
+    expect(customized.reviewInsertContractRevision).toBe(1)
+    expect(customized).not.toHaveProperty('reviewSendNowContractRevision')
+    expect(() =>
+      codexProvider.documentReviewSendNow?.terminalInput('exact', {
+        profile: customizedProfile,
+        composerSubmitMode: 'ctrl-enter',
+        effectiveCapabilities: supported,
+      }),
+    ).toThrow(/unavailable for this launch/)
+  })
+
+  it('reports send-now, insert-only, and copy-only across bundled providers', () => {
+    const profiles = providerTemplateProfiles()
+    expect(
+      harnessProviders.all().map((provider) => {
+        const profile = profiles.find(
+          (candidate) => candidate.providerId === provider.manifest.id,
+        )
+        const probed = provider.probe.effectiveCapabilities(
+          provider === codexProvider ? 'codex-cli 0.146.0' : '1.0.0',
+        )
+        const capabilities = profile
+          ? harnessLaunchCapabilities(provider, {
+              profile,
+              composerSubmitMode: 'ctrl-enter',
+              probedCapabilities: probed,
+            })
+          : harnessLaunchCapabilities(provider)
+        return [
+          provider.manifest.id,
+          capabilities.reviewSendNowContractRevision
+            ? 'send-now'
+            : capabilities.reviewInsertContractRevision
+              ? 'insert'
+              : 'copy-only',
+        ]
+      }),
+    ).toEqual([
+      ['plain-shell', 'copy-only'],
+      ['claude-code', 'insert'],
+      ['codex', 'send-now'],
+      ['pi', 'copy-only'],
+      ['gemini-cli', 'copy-only'],
+      ['github-copilot-cli', 'copy-only'],
+      ['cursor-cli', 'copy-only'],
+      ['custom', 'copy-only'],
     ])
   })
 

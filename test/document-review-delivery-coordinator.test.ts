@@ -1,7 +1,11 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import { DocumentReviewDeliveryCoordinator } from '../src/main/document-review'
-import { harnessProviders } from '../src/main/harness/harness-provider'
+import {
+  harnessLaunchCapabilities,
+  harnessProviders,
+} from '../src/main/harness/harness-provider'
+import { providerTemplateProfiles } from '../src/main/harness/harness-profile-store'
 import type { ProjectHost } from '../src/main/project-host'
 import type { ManagedPty } from '../src/main/pty/pty-supervisor'
 import { RendererResourceScopes } from '../src/main/renderer-resource-scopes'
@@ -13,6 +17,8 @@ import {
   hostPath,
   localPath,
   type DocumentReviewModel,
+  type ComposerSubmitMode,
+  type HarnessProfile,
   type HostConnectionState,
   type ReviewWorkspaceIdentity,
 } from '../src/shared'
@@ -234,6 +240,165 @@ describe('document review delivery coordinator', () => {
       await cleanup
     },
   )
+
+  it.each([
+    ['enter', '\r'],
+    ['ctrl-enter', '\x1b[13;5u'],
+  ] as const)(
+    'writes one exact multiline Codex transport and persists sent lifecycle in %s mode',
+    async (mode, submit) => {
+      const fixture = deliveryFixture()
+      const selected = fixture.addSendTerminal('codex-send', 'Exact Codex', mode)
+      const prepared = fixture.coordinator.prepare(OWNER, {
+        ...fixture.scope,
+        selection: { kind: 'batch', batchId: 'active-review' },
+        terminalId: selected.id,
+      })
+      expect(prepared.destination).toMatchObject({
+        terminalId: selected.id,
+        providerName: 'Codex',
+        capability: 'send-now',
+      })
+
+      fixture.presentations.set(selected.id, {
+        ...fixture.presentations.get(selected.id)!,
+        title: 'Focus moved elsewhere',
+        attention: 'working',
+        active: false,
+      })
+      const result = await fixture.coordinator.sendNow(OWNER, prepared.id)
+
+      expect(fixture.writes).toEqual([
+        {
+          id: selected.id,
+          instanceId: selected.instanceId,
+          ownerId: OWNER.id,
+          ownerGeneration: OWNER.generation,
+          data: `\x1b[200~${prepared.payload.body}\x1b[201~${submit}`,
+        },
+      ])
+      expect(result).toMatchObject({
+        outcome: 'sent',
+        snapshot: { revision: 4 },
+      })
+      expect(result.snapshot.model.comments[0]?.lifecycle).toBe('sent')
+      expect(result.snapshot.model.batches[0]?.commentIds).toEqual(['comment-1'])
+      await expect(fixture.coordinator.sendNow(OWNER, prepared.id)).rejects.toThrow(
+        /stale/,
+      )
+    },
+  )
+
+  it('preserves drafts and prepared authority when the confirmed write fails', async () => {
+    const fixture = deliveryFixture()
+    fixture.addSendTerminal('codex-send', 'Codex', 'enter')
+    const prepared = fixture.coordinator.prepare(OWNER, {
+      ...fixture.scope,
+      selection: { kind: 'comment', commentId: 'comment-1' },
+      terminalId: 'codex-send',
+    })
+    fixture.writeConfirmed.mockRejectedValueOnce(new Error('SSH write failed'))
+
+    await expect(fixture.coordinator.sendNow(OWNER, prepared.id)).rejects.toThrow(
+      /SSH write failed/,
+    )
+    expect(fixture.model.comments[0]?.lifecycle).toBe('draft')
+    expect(fixture.model.batches[0]?.commentIds).toEqual(['comment-1'])
+
+    await expect(fixture.coordinator.sendNow(OWNER, prepared.id)).resolves.toMatchObject({
+      outcome: 'sent',
+    })
+  })
+
+  it('holds one main-side single-flight authority while send-now awaits completion', async () => {
+    const fixture = deliveryFixture()
+    fixture.addSendTerminal('codex-send', 'Codex', 'ctrl-enter')
+    const prepared = fixture.coordinator.prepare(OWNER, {
+      ...fixture.scope,
+      selection: { kind: 'comment', commentId: 'comment-1' },
+      terminalId: 'codex-send',
+    })
+    const pending = deferred<void>()
+    fixture.writeConfirmed.mockImplementationOnce(() => pending.promise)
+
+    const first = fixture.coordinator.sendNow(OWNER, prepared.id)
+    await expect(fixture.coordinator.sendNow(OWNER, prepared.id)).rejects.toThrow(
+      /already in progress/,
+    )
+    expect(() => fixture.coordinator.insert(OWNER, prepared.id)).toThrow(
+      /already in progress/,
+    )
+    expect(fixture.writeConfirmed).toHaveBeenCalledOnce()
+
+    pending.resolve()
+    await expect(first).resolves.toMatchObject({ outcome: 'sent' })
+    expect(fixture.writeConfirmed).toHaveBeenCalledOnce()
+  })
+
+  it.each(['exit', 'disconnect', 'revision', 'profile', 'capability'] as const)(
+    'rejects %s drift after late write completion without advancing drafts',
+    async (drift) => {
+      const fixture = deliveryFixture()
+      const terminal = fixture.addSendTerminal('codex-send', 'Codex', 'ctrl-enter')
+      const prepared = fixture.coordinator.prepare(OWNER, {
+        ...fixture.scope,
+        selection: { kind: 'batch', batchId: 'active-review' },
+        terminalId: terminal.id,
+      })
+      const pending = deferred<void>()
+      fixture.writeConfirmed.mockImplementationOnce(() => pending.promise)
+      const sending = fixture.coordinator.sendNow(OWNER, prepared.id)
+
+      if (drift === 'exit') fixture.terminals.delete(terminal.id)
+      if (drift === 'disconnect') fixture.connection.value = 'disconnected'
+      if (drift === 'revision') fixture.revision.value += 1
+      if (drift === 'profile') {
+        const profile = fixture.profiles.get(terminal.profileId!)!
+        fixture.profiles.set(profile.id, {
+          ...profile,
+          launchRevision: profile.launchRevision + 1,
+        })
+      }
+      if (drift === 'capability') {
+        fixture.terminals.set(terminal.id, {
+          ...terminal,
+          capabilities: {
+            ...terminal.capabilities,
+            reviewSendNowContractRevision: undefined,
+          },
+        })
+      }
+      pending.resolve()
+
+      await expect(sending).rejects.toThrow()
+      expect(fixture.model.comments[0]?.lifecycle).toBe('draft')
+      expect(fixture.model.batches[0]?.commentIds).toEqual(['comment-1'])
+    },
+  )
+
+  it('rejects renderer/workspace revocation while a confirmed write is late', async () => {
+    for (const lifetime of ['workspace', 'renderer'] as const) {
+      const fixture = deliveryFixture()
+      fixture.addSendTerminal('codex-send', 'Codex', 'enter')
+      const prepared = fixture.coordinator.prepare(OWNER, {
+        ...fixture.scope,
+        selection: { kind: 'comment', commentId: 'comment-1' },
+        terminalId: 'codex-send',
+      })
+      const pending = deferred<void>()
+      fixture.writeConfirmed.mockImplementationOnce(() => pending.promise)
+      const sending = fixture.coordinator.sendNow(OWNER, prepared.id)
+      const cleanup =
+        lifetime === 'workspace'
+          ? fixture.resources.revokeWorkspace(fixture.scope.workspace.root)
+          : fixture.resources.revokeOwner(OWNER.id)
+      pending.resolve()
+
+      await expect(sending).rejects.toThrow(/stale|revoked/)
+      expect(fixture.model.comments[0]?.lifecycle).toBe('draft')
+      await cleanup
+    }
+  })
 })
 
 function deliveryFixture(
@@ -249,9 +414,10 @@ function deliveryFixture(
     },
   } as ProjectHost
   const revision = { value: 3 }
-  const model = reviewModel(workspace)
+  const state = { model: reviewModel(workspace) }
   const terminals = new Map<string, ManagedPty>()
   const presentations = new Map<string, OwnedTerminalSession>()
+  const profiles = new Map<string, HarnessProfile>()
   const resources = new RendererResourceScopes()
   expect(resources.activateOwner(OWNER.id)).toEqual(OWNER)
   const writes: Array<{
@@ -261,6 +427,39 @@ function deliveryFixture(
     ownerGeneration?: number
     data: string
   }> = []
+  function recordWrite(
+    id: string,
+    ownerId: number,
+    data: string,
+    ownerGeneration?: number,
+  ): void {
+    const terminal = terminals.get(id)
+    if (
+      !terminal ||
+      terminal.ownerId !== ownerId ||
+      terminal.ownerGeneration !== ownerGeneration
+    ) {
+      throw new Error('PTY is no longer owned')
+    }
+    writes.push({
+      id,
+      instanceId: terminal.instanceId,
+      ownerId,
+      ownerGeneration,
+      data,
+    })
+  }
+  const writeConfirmed = vi.fn(
+    (
+      id: string,
+      ownerId: number,
+      data: string,
+      ownerGeneration?: number,
+    ): Promise<void> => {
+      recordWrite(id, ownerId, data, ownerGeneration)
+      return Promise.resolve()
+    },
+  )
   const coordinator = new DocumentReviewDeliveryCoordinator({
     workspace: {
       deliverySnapshot: (owner, request) => {
@@ -275,46 +474,55 @@ function deliveryFixture(
         return {
           workspaceGeneration: 5,
           revision: revision.value,
-          model,
+          model: state.model,
           host,
         }
+      },
+      markSent: (_owner, request) => {
+        if (request.expectedRevision !== revision.value) {
+          throw new Error('The review batch changed during submission')
+        }
+        state.model = {
+          ...state.model,
+          comments: state.model.comments.map((comment) =>
+            request.commentIds.includes(comment.id)
+              ? { ...comment, lifecycle: 'sent' as const }
+              : comment,
+          ),
+        }
+        revision.value += 1
+        return Promise.resolve({
+          workspaceGeneration: request.workspaceGeneration,
+          revision: revision.value,
+          model: state.model,
+        })
       },
     },
     ptys: {
       get: (id) => terminals.get(id),
       list: () => [...terminals.values()],
-      write: (id, ownerId, data, ownerGeneration) => {
-        const terminal = terminals.get(id)
-        if (
-          !terminal ||
-          terminal.ownerId !== ownerId ||
-          terminal.ownerGeneration !== ownerGeneration
-        ) {
-          throw new Error('PTY is no longer owned')
-        }
-        writes.push({
-          id,
-          instanceId: terminal.instanceId,
-          ownerId,
-          ownerGeneration,
-          data,
-        })
-      },
+      write: recordWrite,
+      writeConfirmed,
     },
     sessions: { get: (id) => presentations.get(id) },
     providers: harnessProviders,
+    profiles: { get: (id) => profiles.get(id) },
     resources,
   })
 
   return {
     coordinator,
     connection,
-    model,
+    get model() {
+      return state.model
+    },
     revision,
     terminals,
     presentations,
     resources,
     writes,
+    writeConfirmed,
+    profiles,
     scope: { workspace, workspaceGeneration: 5 },
     addTerminal: (
       id: string,
@@ -362,6 +570,60 @@ function deliveryFixture(
       })
       return terminal
     },
+    addSendTerminal: (
+      id: string,
+      title: string,
+      composerSubmitMode: ComposerSubmitMode,
+    ): ManagedPty => {
+      const provider = harnessProviders.get('codex')
+      const profile = providerTemplateProfiles().find(
+        (candidate) => candidate.providerId === provider.manifest.id,
+      )!
+      profiles.set(profile.id, profile)
+      const capabilities = harnessLaunchCapabilities(provider, {
+        profile,
+        composerSubmitMode,
+        probedCapabilities: provider.probe.effectiveCapabilities(
+          'codex-cli 0.146.0',
+        ),
+      })
+      const terminal = {
+        id,
+        instanceId: `${id}-instance`,
+        ownerId: OWNER.id,
+        ownerGeneration: OWNER.generation,
+        hostId: workspace.root.hostId,
+        workspaceRoot: workspace.root,
+        cwd: workspace.root,
+        providerId: provider.manifest.id,
+        capabilities,
+        profileId: profile.id,
+        launchRevision: profile.launchRevision,
+        providerContractVersion: profile.providerContractVersion,
+        composerSubmitMode,
+        pid: 1,
+        startedAt: 1,
+        resumed: false,
+        identityStatus: 'none' as const,
+      } satisfies ManagedPty
+      terminals.set(id, terminal)
+      presentations.set(id, {
+        id,
+        providerId: provider.manifest.id,
+        profileId: profile.id,
+        launchRevision: profile.launchRevision,
+        recoverySkipCount: 0,
+        hostId: workspace.root.hostId,
+        workspaceRoot: workspace.root,
+        cwd: workspace.root,
+        title,
+        position: presentations.size,
+        active: false,
+        attention: 'idle',
+        updatedAt: 1,
+      })
+      return terminal
+    },
   }
 }
 
@@ -390,4 +652,14 @@ function reviewModel(workspace: ReviewWorkspaceIdentity): DocumentReviewModel {
       { id: 'active-review', workspace, commentIds: ['comment-1'] },
     ],
   }
+}
+
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void
+  let reject!: (reason?: unknown) => void
+  const promise = new Promise<T>((accept, decline) => {
+    resolve = accept
+    reject = decline
+  })
+  return { promise, resolve, reject }
 }

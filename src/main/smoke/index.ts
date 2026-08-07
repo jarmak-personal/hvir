@@ -499,6 +499,7 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
         ptys: supervisor,
         sessions: smokeTerminalSessions,
         providers: harnessProviders,
+        profiles: smokeHarnessProfiles,
       },
     )
     cleanup.defer('document review', () => documentReview.dispose())

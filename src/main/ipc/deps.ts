@@ -65,7 +65,7 @@ export interface IpcDeps {
   >
   readonly documentReviewDelivery: Pick<
     DocumentReviewDeliveryCoordinator,
-    'preview' | 'destinations' | 'prepare' | 'insert'
+    'preview' | 'destinations' | 'prepare' | 'insert' | 'sendNow'
   >
   readonly getProject: () => { readonly host: ProjectHost; readonly root: HostPath }
   readonly getHost: (hostId: string) => ProjectHost | undefined

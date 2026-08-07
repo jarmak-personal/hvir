@@ -531,6 +531,23 @@ export class SshHost implements ProjectHost {
       onData: (cb) => subscribe(data, cb),
       onExit: (cb) => subscribe(exits, cb),
       write: (v) => channel.write(v),
+      writeConfirmed: (value) =>
+        new Promise<void>((resolve, reject) => {
+          let settled = false
+          const finish = (error?: Error): void => {
+            if (settled) return
+            settled = true
+            void stopExit()
+            if (error) reject(error)
+            else resolve()
+          }
+          const stopExit = subscribe(exits, () =>
+            finish(new Error('SSH PTY exited before write completion')),
+          )
+          channel.write(value, (error?: Error | null) =>
+            finish(error ?? undefined),
+          )
+        }),
       resize: (cols, rows) => channel.setWindow(rows, cols, 0, 0),
       kill: () => channel.close(),
     }

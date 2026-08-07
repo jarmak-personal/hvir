@@ -32,6 +32,9 @@ export class TestPtyProcess implements PtyProcess {
   readonly dataListeners = new Set<(data: string) => void>()
   readonly exitListeners = new Set<(exit: PtyExit) => void>()
   readonly write = vi.fn<(data: string) => void>()
+  readonly writeConfirmed = vi.fn<(data: string) => Promise<void>>(() =>
+    Promise.resolve(),
+  )
   readonly resize = vi.fn<(cols: number, rows: number) => void>()
   readonly kill = vi.fn<(signal?: string) => void>()
 
