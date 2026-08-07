@@ -579,6 +579,10 @@ describe('Electron smoke command contracts', () => {
     new URL('../src/main/smoke/renderer-authority.ts', import.meta.url),
     'utf8',
   )
+  const documentReviewScenario = readFileSync(
+    new URL('../src/main/smoke/document-review.ts', import.meta.url),
+    'utf8',
+  )
   const terminalPresentationScenario = readFileSync(
     new URL('../src/main/smoke/terminal-presentation.ts', import.meta.url),
     'utf8',
@@ -732,6 +736,24 @@ describe('Electron smoke command contracts', () => {
     expect(layoutFocusScenario).not.toContain('app.focus(')
     expect(layoutFocusScenario).not.toContain(
       'requestAnimationFrame(() => requestAnimationFrame(resolve))',
+    )
+  })
+
+  it('serializes document review renderer stages around re-preview readiness', () => {
+    expect(documentReviewScenario.match(/webContents\.executeJavaScript/g)).toHaveLength(
+      1,
+    )
+    expect(documentReviewScenario).toContain('function isRendererOutcome')
+    expect(documentReviewScenario).toContain('returned an invalid outcome')
+    const reprepare = documentReviewScenario.slice(
+      documentReviewScenario.indexOf("runStage('send-now destination preparation'"),
+      documentReviewScenario.indexOf("runStage('send-now activation'"),
+    )
+    expect(
+      reprepare.indexOf('delivery preview did not close before re-preview'),
+    ).toBeLessThan(reprepare.indexOf('await waitForExactPreview(win)'))
+    expect(documentReviewScenario).toContain(
+      'destination instanceof HTMLSelectElement && !destination.disabled',
     )
   })
 

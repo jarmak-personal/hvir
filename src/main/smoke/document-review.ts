@@ -142,14 +142,24 @@ export async function verifyDocumentReviewWorkflow(options: {
     supervisor,
   })
 
-  await activateControl(win, '[aria-label^="Preview review batch with 1 comment"]')
-  await waitForExactPreview(win)
-  await selectDestination(win, terminals.first.id)
-  const body = await preparedBody(win, terminals.first.id)
+  await runStage('initial delivery preview', async () => {
+    await activateControl(
+      win,
+      '[aria-label^="Preview review batch with 1 comment"]',
+      'preview button',
+    )
+    await waitForExactPreview(win)
+  })
+  const body = await runStage('initial destination preparation', async () => {
+    await selectDestination(win, terminals.first.id)
+    return preparedBody(win, terminals.first.id)
+  })
 
   // Move focus after preparation; the immutable destination must remain the first PTY.
-  await focusProject(win, 'hvir')
-  await activateControl(win, '.document-review-delivery-actions button:nth-child(2)')
+  await runStage('prepared destination focus mutation and insert', async () => {
+    await focusProject(win, 'hvir')
+    await activateControl(win, '.document-review-delivery-actions button:nth-child(2)')
+  })
   const insert = terminals.insertTransport(body)
   await waitForExactCapture(host, captureA, insert)
   if ((await host.readTextFile(captureB)).length !== 0) {
@@ -161,12 +171,22 @@ export async function verifyDocumentReviewWorkflow(options: {
     'insert did not preserve the draft lifecycle',
   )
 
-  await activateControl(win, '.document-review-delivery header button')
-  await activateControl(win, '[aria-label^="Preview review batch with 1 comment"]')
-  await selectDestination(win, terminals.first.id)
-  const sendBody = await preparedBody(win, terminals.first.id)
+  const sendBody = await runStage('send-now destination preparation', async () => {
+    await activateControl(win, '.document-review-delivery header button')
+    await waitForRenderer(
+      win,
+      `!document.querySelector('.document-review-delivery')`,
+      'delivery preview did not close before re-preview',
+    )
+    await activateControl(win, '[aria-label^="Preview review batch with 1 comment"]')
+    await waitForExactPreview(win)
+    await selectDestination(win, terminals.first.id)
+    return preparedBody(win, terminals.first.id)
+  })
   if (sendBody !== body) throw new Error('send-now rebuilt a different review body')
-  await activateControl(win, '.document-review-delivery-actions button:nth-child(3)')
+  await runStage('send-now activation', () =>
+    activateControl(win, '.document-review-delivery-actions button:nth-child(3)'),
+  )
   const sentTransport = terminals.sendTransport(body)
   await waitForExactCapture(host, captureA, `${insert}${sentTransport}`)
   await waitForComment(win, 'sent')
@@ -366,8 +386,10 @@ async function openFixtureAndProveAmbientSelectionIsInert(
       `!document.querySelector('[aria-label="Enter Markdown review mode"]')?.disabled`,
     'rendered review block or enabled review control was missing',
   )
-  const result = (await withTimeout(
-    win.webContents.executeJavaScript(`
+  await evaluateRenderer<void>(
+    win,
+    'ambient review selection check',
+    `
       (() => {
         try {
           const block = document.querySelector('.markdown-body [data-source-line]');
@@ -389,57 +411,60 @@ async function openFixtureAndProveAmbientSelectionIsInert(
           return { ok: false, error: String(error) };
         }
       })()
-    `),
-    'ambient review selection check timed out',
-  )) as { readonly ok: boolean; readonly error?: string }
-  if (!result.ok) throw new Error(result.error ?? 'ambient review selection failed')
+    `,
+  )
 }
 
 async function openFixture(win: BrowserWindow, path: HostPath): Promise<void> {
-  const result = (await withTimeout(
-    win.webContents.executeJavaScript(`
-      new Promise((resolve, reject) => {
+  await evaluateRenderer<void>(
+    win,
+    `review fixture open (${path.path})`,
+    `
+      new Promise((resolve) => {
         const deadline = Date.now() + ${TIMEOUT_MS};
         const poll = () => {
           const active = document.querySelector('.viewer-tab.active .tab-main')
             ?.getAttribute('title');
-          if (active === ${JSON.stringify(path.path)}) return resolve();
+          if (active === ${JSON.stringify(path.path)}) return resolve({ ok: true });
           const file = [...document.querySelectorAll('.file-row')].find(
             (candidate) => candidate.getAttribute('title') === ${JSON.stringify(path.path)}
           );
           if (file instanceof HTMLElement) file.click();
-          if (Date.now() > deadline) return reject(new Error('review fixture did not open'));
+          if (Date.now() > deadline) {
+            return resolve({ ok: false, error: 'review fixture did not open' });
+          }
           setTimeout(poll, 25);
         };
         poll();
-      }).then(
-        () => ({ ok: true }),
-        (error) => ({ ok: false, error: String(error) })
-      )
-    `),
-    'review fixture open timed out',
-  )) as { readonly ok: boolean; readonly error?: string }
-  if (!result.ok) throw new Error(result.error ?? 'review fixture did not open')
+      })
+    `,
+  )
 }
 
 async function activateMode(win: BrowserWindow, mode: 'rendered' | 'source') {
-  await withTimeout(
-    win.webContents.executeJavaScript(`
+  await evaluateRenderer<void>(
+    win,
+    `${mode} mode selection action`,
+    `
       (() => {
-        const select = document.querySelector('.mode-select[aria-label="View mode"]');
-        if (!(select instanceof HTMLSelectElement)) {
-          throw new Error('accessible view mode control missing');
+        try {
+          const select = document.querySelector('.mode-select[aria-label="View mode"]');
+          if (!(select instanceof HTMLSelectElement)) {
+            throw new Error('accessible view mode control missing');
+          }
+          select.focus();
+          const setter = Object.getOwnPropertyDescriptor(
+            HTMLSelectElement.prototype,
+            'value'
+          )?.set;
+          setter?.call(select, ${JSON.stringify(mode)});
+          select.dispatchEvent(new Event('change', { bubbles: true }));
+          return { ok: true };
+        } catch (error) {
+          return { ok: false, error: String(error) };
         }
-        select.focus();
-        const setter = Object.getOwnPropertyDescriptor(
-          HTMLSelectElement.prototype,
-          'value'
-        )?.set;
-        setter?.call(select, ${JSON.stringify(mode)});
-        select.dispatchEvent(new Event('change', { bubbles: true }));
       })()
-    `),
-    `${mode} mode selection timed out`,
+    `,
   )
   await waitForRenderer(
     win,
@@ -449,48 +474,56 @@ async function activateMode(win: BrowserWindow, mode: 'rendered' | 'source') {
 }
 
 async function focusRenderedBlock(win: BrowserWindow, index: number): Promise<void> {
-  await withTimeout(
-    win.webContents.executeJavaScript(`
-      new Promise((resolve, reject) => {
+  await evaluateRenderer<void>(
+    win,
+    `rendered review block ${index} focus`,
+    `
+      new Promise((resolve) => {
         const deadline = Date.now() + ${TIMEOUT_MS};
         const poll = () => {
           const blocks = document.querySelectorAll('.review-block-active');
           const block = blocks.item(${index});
           if (block instanceof HTMLElement) {
             block.focus();
-            return resolve();
+            return resolve({ ok: true });
           }
-          if (Date.now() > deadline) return reject(new Error('review block missing'));
+          if (Date.now() > deadline) {
+            return resolve({ ok: false, error: 'review block missing' });
+          }
           setTimeout(poll, 25);
         };
         poll();
       })
-    `),
-    'review block focus timed out',
+    `,
   )
 }
 
 async function selectDestination(win: BrowserWindow, terminalId: string): Promise<void> {
-  await withTimeout(
-    win.webContents.executeJavaScript(`
+  await evaluateRenderer<void>(
+    win,
+    'destination selection action',
+    `
       (() => {
-        const select = document.querySelector('[aria-label="Review handoff destination"]');
-        if (!(select instanceof HTMLSelectElement)) {
-          throw new Error('labeled review destination control missing');
+        try {
+          const select = document.querySelector('[aria-label="Review handoff destination"]');
+          if (!(select instanceof HTMLSelectElement)) {
+            throw new Error('labeled review destination control missing');
+          }
+          if (select.disabled) {
+            throw new Error('review destination control was not ready');
+          }
+          const setter = Object.getOwnPropertyDescriptor(
+            HTMLSelectElement.prototype,
+            'value'
+          )?.set;
+          setter?.call(select, ${JSON.stringify(terminalId)});
+          select.dispatchEvent(new Event('change', { bubbles: true }));
+          return { ok: true };
+        } catch (error) {
+          return { ok: false, error: String(error) };
         }
-        select.focus();
-        if (document.activeElement !== select) {
-          throw new Error('review destination control was not focusable');
-        }
-        const setter = Object.getOwnPropertyDescriptor(
-          HTMLSelectElement.prototype,
-          'value'
-        )?.set;
-        setter?.call(select, ${JSON.stringify(terminalId)});
-        select.dispatchEvent(new Event('change', { bubbles: true }));
       })()
-    `),
-    'review destination selection timed out',
+    `,
   )
   await waitForRenderer(
     win,
@@ -500,9 +533,11 @@ async function selectDestination(win: BrowserWindow, terminalId: string): Promis
 }
 
 async function preparedBody(win: BrowserWindow, terminalId: string): Promise<string> {
-  return (await withTimeout(
-    win.webContents.executeJavaScript(`
-      new Promise((resolve, reject) => {
+  return evaluateRenderer<string>(
+    win,
+    'prepared body wait',
+    `
+      new Promise((resolve) => {
         const deadline = Date.now() + ${TIMEOUT_MS};
         const poll = () => {
           const select = document.querySelector('[aria-label="Review handoff destination"]');
@@ -512,47 +547,54 @@ async function preparedBody(win: BrowserWindow, terminalId: string): Promise<str
             select?.value === ${JSON.stringify(terminalId)} &&
             preview instanceof HTMLElement &&
             insert instanceof HTMLButtonElement && !insert.disabled
-          ) return resolve(preview.textContent || '');
-          if (Date.now() > deadline) return reject(new Error('prepared review body missing'));
+          ) return resolve({ ok: true, value: preview.textContent || '' });
+          if (Date.now() > deadline) {
+            return resolve({ ok: false, error: 'prepared review body missing' });
+          }
           setTimeout(poll, 25);
         };
         poll();
       })
-    `),
-    'prepared review body timed out',
-  )) as string
+    `,
+  )
 }
 
 async function waitForExactPreview(win: BrowserWindow): Promise<void> {
-  const outcome = (await withTimeout(
-    win.webContents.executeJavaScript(`
+  await evaluateRenderer<void>(
+    win,
+    'exact preview wait',
+    `
       new Promise((resolve) => {
         const deadline = Date.now() + ${TIMEOUT_MS - 1_000};
         const poll = () => {
-          if (document.querySelector('[aria-label="Exact review delivery preview"]')) {
+          const preview = document.querySelector(
+            '[aria-label="Exact review delivery preview"]'
+          );
+          const destination = document.querySelector(
+            '[aria-label="Review handoff destination"]'
+          );
+          if (preview && destination instanceof HTMLSelectElement && !destination.disabled) {
             return resolve({ ok: true });
           }
           const delivery = document.querySelector('.document-review-delivery');
           const alert = delivery?.querySelector('[role="alert"]');
           if (alert) {
-            return resolve({ ok: false, error: alert.textContent || 'unknown error' });
+            return resolve({ ok: false, error: 'review delivery reported an error' });
           }
           if (Date.now() > deadline) {
             return resolve({
               ok: false,
-              error: delivery?.textContent || 'review delivery panel did not open'
+              error: delivery
+                ? 'exact review payload did not settle'
+                : 'review delivery panel did not open'
             });
           }
           setTimeout(poll, 25);
         };
         poll();
       })
-    `),
-    'exact review preview timed out',
-  )) as { readonly ok: boolean; readonly error?: string }
-  if (!outcome.ok) {
-    throw new Error(`exact review preview did not open: ${outcome.error}`)
-  }
+    `,
+  )
 }
 
 async function waitForComment(
@@ -568,14 +610,16 @@ async function waitForComment(
 }
 
 async function ensureReviewMode(win: BrowserWindow): Promise<void> {
-  await withTimeout(
-    win.webContents.executeJavaScript(`
-      new Promise((resolve, reject) => {
+  await evaluateRenderer<void>(
+    win,
+    'review mode restore',
+    `
+      new Promise((resolve) => {
         const deadline = Date.now() + ${TIMEOUT_MS};
         let activated = false;
         const poll = () => {
           if (document.querySelector('[aria-label="Markdown review comments"]')) {
-            return resolve();
+            return resolve({ ok: true });
           }
           const entry = document.querySelector(
             '[aria-label="Enter Markdown review mode"]'
@@ -586,14 +630,16 @@ async function ensureReviewMode(win: BrowserWindow): Promise<void> {
             activated = true;
           }
           if (Date.now() > deadline) {
-            return reject(new Error('review mode did not restore for inspection'));
+            return resolve({
+              ok: false,
+              error: 'review mode did not restore for inspection'
+            });
           }
           setTimeout(poll, 25);
         };
         poll();
       })
-    `),
-    'review mode restore timed out',
+    `,
   )
 }
 
@@ -608,40 +654,63 @@ async function switchProject(win: BrowserWindow, displayName: string): Promise<v
 
 async function activateProject(win: BrowserWindow, displayName: string): Promise<void> {
   await focusProject(win, displayName)
-  await withTimeout(
-    win.webContents.executeJavaScript(`
+  await evaluateRenderer<void>(
+    win,
+    `project ${displayName} activation`,
+    `
       (() => {
-        const button = document.activeElement;
-        if (!(button instanceof HTMLButtonElement) ||
-            button.querySelector('strong')?.textContent?.trim() !== ${JSON.stringify(displayName)}) {
-          throw new Error('focused project control changed before activation');
+        try {
+          const button = document.activeElement;
+          if (!(button instanceof HTMLButtonElement) ||
+              button.querySelector('strong')?.textContent?.trim() !== ${JSON.stringify(displayName)}) {
+            throw new Error('focused project control changed before activation');
+          }
+          button.click();
+          return { ok: true };
+        } catch (error) {
+          return { ok: false, error: String(error) };
         }
-        button.click();
       })()
-    `),
-    `project ${displayName} activation timed out`,
+    `,
   )
 }
 
 async function focusProject(win: BrowserWindow, displayName: string): Promise<void> {
-  await withTimeout(
-    win.webContents.executeJavaScript(`
+  await evaluateRenderer<void>(
+    win,
+    `project ${displayName} focus`,
+    `
       (() => {
-        const button = [...document.querySelectorAll('.project-tab-main')].find(
-          (candidate) => candidate.querySelector('strong')?.textContent?.trim() === ${JSON.stringify(displayName)}
-        );
-        if (!(button instanceof HTMLButtonElement)) throw new Error('project control missing');
-        button.focus();
+        try {
+          const button = [...document.querySelectorAll('.project-tab-main')].find(
+            (candidate) => candidate.querySelector('strong')?.textContent?.trim() === ${JSON.stringify(displayName)}
+          );
+          if (!(button instanceof HTMLButtonElement)) {
+            throw new Error('project control missing');
+          }
+          button.focus();
+          if (document.activeElement !== button) {
+            throw new Error('project control was not focusable');
+          }
+          return { ok: true };
+        } catch (error) {
+          return { ok: false, error: String(error) };
+        }
       })()
-    `),
-    `project ${displayName} focus timed out`,
+    `,
   )
 }
 
-async function activateControl(win: BrowserWindow, selector: string): Promise<void> {
-  await focusRenderer(win, selector)
-  const result = (await withTimeout(
-    win.webContents.executeJavaScript(`
+async function activateControl(
+  win: BrowserWindow,
+  selector: string,
+  stage = `review control ${selector}`,
+): Promise<void> {
+  await focusRenderer(win, selector, `${stage} focus`)
+  await evaluateRenderer<void>(
+    win,
+    `${stage} activation`,
+    `
       (() => {
         try {
           const target = document.activeElement;
@@ -654,17 +723,19 @@ async function activateControl(win: BrowserWindow, selector: string): Promise<vo
           return { ok: false, error: String(error) };
         }
       })()
-    `),
-    `review control activation timed out (${selector})`,
-  )) as { readonly ok: boolean; readonly error?: string }
-  if (!result.ok) {
-    throw new Error(`review control activation failed (${selector}): ${result.error}`)
-  }
+    `,
+  )
 }
 
-async function focusRenderer(win: BrowserWindow, selector: string): Promise<void> {
-  const result = (await withTimeout(
-    win.webContents.executeJavaScript(`
+async function focusRenderer(
+  win: BrowserWindow,
+  selector: string,
+  stage = `review control ${selector} focus`,
+): Promise<void> {
+  await evaluateRenderer<void>(
+    win,
+    stage,
+    `
       (() => {
         try {
           const target = document.querySelector(${JSON.stringify(selector)});
@@ -681,30 +752,32 @@ async function focusRenderer(win: BrowserWindow, selector: string): Promise<void
           return { ok: false, error: String(error) };
         }
       })()
-    `),
-    `review control focus timed out (${selector})`,
-  )) as { readonly ok: boolean; readonly error?: string }
-  if (!result.ok) {
-    throw new Error(`review control focus failed (${selector}): ${result.error}`)
-  }
+    `,
+  )
 }
 
 async function dispatchFocusedKey(win: BrowserWindow, key: string): Promise<void> {
-  await withTimeout(
-    win.webContents.executeJavaScript(`
+  await evaluateRenderer<void>(
+    win,
+    `review keyboard ${key}`,
+    `
       (() => {
-        const target = document.activeElement;
-        if (!(target instanceof HTMLElement)) {
-          throw new Error('review keyboard target missing');
+        try {
+          const target = document.activeElement;
+          if (!(target instanceof HTMLElement)) {
+            throw new Error('review keyboard target missing');
+          }
+          target.dispatchEvent(new KeyboardEvent('keydown', {
+            key: ${JSON.stringify(key)},
+            bubbles: true,
+            cancelable: true
+          }));
+          return { ok: true };
+        } catch (error) {
+          return { ok: false, error: String(error) };
         }
-        target.dispatchEvent(new KeyboardEvent('keydown', {
-          key: ${JSON.stringify(key)},
-          bubbles: true,
-          cancelable: true
-        }));
       })()
-    `),
-    `review keyboard event timed out (${key})`,
+    `,
   )
 }
 
@@ -713,19 +786,26 @@ async function waitForRenderer(
   expression: string,
   message: string,
 ): Promise<void> {
-  await withTimeout(
-    win.webContents.executeJavaScript(`
-      new Promise((resolve, reject) => {
+  await evaluateRenderer<void>(
+    win,
+    message,
+    `
+      new Promise((resolve) => {
         const deadline = Date.now() + ${TIMEOUT_MS};
         const poll = () => {
-          if (${expression}) return resolve();
-          if (Date.now() > deadline) return reject(new Error(${JSON.stringify(message)}));
+          try {
+            if (${expression}) return resolve({ ok: true });
+          } catch (error) {
+            return resolve({ ok: false, error: String(error) });
+          }
+          if (Date.now() > deadline) {
+            return resolve({ ok: false, error: ${JSON.stringify(message)} });
+          }
           setTimeout(poll, 25);
         };
         poll();
       })
-    `),
-    message,
+    `,
   )
 }
 
@@ -757,6 +837,57 @@ async function waitForCondition(
 
 function selectorString(value: string): string {
   return JSON.stringify(value)
+}
+
+async function runStage<T>(stage: string, task: () => Promise<T>): Promise<T> {
+  try {
+    return await task()
+  } catch (reason) {
+    throw new Error(
+      `document review smoke stage '${stage}' failed: ${
+        reason instanceof Error ? reason.message : String(reason)
+      }`,
+      { cause: reason },
+    )
+  }
+}
+
+async function evaluateRenderer<T>(
+  win: BrowserWindow,
+  stage: string,
+  script: string,
+): Promise<T> {
+  let result: unknown
+  try {
+    result = await withTimeout(
+      win.webContents.executeJavaScript(script),
+      `${stage} timed out`,
+    )
+  } catch (reason) {
+    throw new Error(
+      `renderer evaluation '${stage}' failed: ${
+        reason instanceof Error ? reason.message : String(reason)
+      }`,
+      { cause: reason },
+    )
+  }
+  if (!isRendererOutcome(result)) {
+    throw new Error(`renderer evaluation '${stage}' returned an invalid outcome`)
+  }
+  if (!result.ok) {
+    throw new Error(`renderer evaluation '${stage}' failed: ${result.error}`)
+  }
+  return result.value as T
+}
+
+function isRendererOutcome(
+  value: unknown,
+): value is
+  | { readonly ok: true; readonly value?: unknown }
+  | { readonly ok: false; readonly error: string } {
+  if (!value || typeof value !== 'object' || !('ok' in value)) return false
+  if (value.ok === true) return true
+  return value.ok === false && 'error' in value && typeof value.error === 'string'
 }
 
 function withTimeout<T>(promise: Promise<T>, message: string): Promise<T> {
