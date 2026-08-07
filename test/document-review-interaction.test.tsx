@@ -226,16 +226,15 @@ describe('Markdown document review interaction', () => {
     }))
     renderViewer(sourceTab({ dirty: true }), binding(model, apply))
     click('Enter Markdown review mode')
+    clickSourceReviewMarker()
 
-    expect(host.querySelector('[role="status"]')?.textContent).toContain(
-      'Save or reload before adding or re-anchoring comments',
-    )
     expect(
       host.querySelector<HTMLButtonElement>(
         '[aria-label="Add comment for selected source lines"]',
       )?.disabled,
     ).toBe(true)
     expect(button('Re-anchor')?.disabled).toBe(true)
+    expect(button('Re-anchor')?.title).toBe('Save or reload before re-anchoring')
     act(() => editorView().dispatch({ selection: { anchor: 0, head: 8 } }))
     expect(apply).not.toHaveBeenCalled()
   })
@@ -250,6 +249,7 @@ describe('Markdown document review interaction', () => {
     }))
     renderViewer(sourceTab(), binding(model, apply, readDocument))
     click('Enter Markdown review mode')
+    clickSourceReviewMarker()
     click('Re-anchor')
     act(() => editorView().dispatch({ selection: { anchor: 0, head: 8 } }))
     click('Add comment for selected source lines')
@@ -285,6 +285,7 @@ describe('Markdown document review interaction', () => {
     }
     renderViewer(sourceTab(), binding(model, vi.fn()))
     click('Enter Markdown review mode')
+    clickSourceReviewMarker()
 
     expect(host.textContent).toContain('draft')
     expect(host.textContent).toContain('sent')
@@ -305,6 +306,25 @@ describe('Markdown document review interaction', () => {
     expect(host.querySelector('.cm-review-marker')).toBeTruthy()
     expect(host.querySelector('[aria-label="Markdown review comments"]')).toBeNull()
     expect(button('Enter Markdown review mode')).toBeTruthy()
+  })
+
+  it('reopens review mode and the exact inline comment from its source marker', () => {
+    const model = {
+      ...emptyModel(),
+      comments: [comment('source-marker-note', 'draft', 'current')],
+    }
+    renderViewer(sourceTab(), binding(model, vi.fn()))
+
+    clickSourceReviewMarker()
+    expect(button('Exit Markdown review mode')).toBeTruthy()
+    expect(document.activeElement?.getAttribute('aria-label')).toBe(
+      'Review comment at Line 1',
+    )
+
+    click('Exit Markdown review mode')
+    expect(host.querySelector('.document-review-inline')).toBeNull()
+    clickSourceReviewMarker()
+    expect(host.textContent).toContain('source-marker-note')
   })
 
   it('reopens review mode and focuses the exact comment from its rendered note badge', async () => {
@@ -336,6 +356,7 @@ describe('Markdown document review interaction', () => {
     renderViewer(sourceTab(), reviewBinding)
     click('Enter Markdown review mode')
     expect(host.querySelector('.cm-review-marker')).toBeTruthy()
+    clickSourceReviewMarker()
     expect(host.textContent).toContain('same-note')
 
     renderViewer(renderedTab(), reviewBinding)
@@ -435,6 +456,7 @@ describe('Markdown document review interaction', () => {
     expect(host.querySelector('.cm-content')?.getAttribute('aria-label')).toBe(
       'Markdown source review',
     )
+    clickSourceReviewMarker()
 
     click('Edit')
     setTextArea('Edit comment at Line 1', 'edited text')
@@ -489,6 +511,7 @@ describe('Markdown document review interaction', () => {
     expect(
       button('Clear 1 sent and resolved review comment from this workspace'),
     ).toBeUndefined()
+    clickSourceReviewMarker()
     expect(host.textContent).toContain('keep-draft')
     expect(host.textContent).not.toContain('old-sent')
     expect(host.textContent).not.toContain('old-resolved')
@@ -510,10 +533,9 @@ describe('Markdown document review interaction', () => {
     click('Clear 1 sent and resolved review comment from this workspace')
     renderViewer(sourceTab(), binding(cleared, apply))
 
-    expect(host.querySelector('.document-review-empty')?.textContent).toContain(
-      'Choose a rendered block or a source line range',
-    )
-    expect(host.querySelector('[aria-label="0 comments"]')).toBeTruthy()
+    expect(host.querySelector('.document-review-inline')).toBeNull()
+    expect(host.querySelector('.cm-review-marker')).toBeNull()
+    expect(button('Exit Markdown review mode')?.textContent).toBe('Review')
   })
 
   it('adds and removes a draft from the exact workspace review batch', () => {
@@ -525,6 +547,7 @@ describe('Markdown document review interaction', () => {
     const withoutBatch = { ...emptyModel(), comments: [draft] }
     renderViewer(sourceTab(), binding(withoutBatch, apply))
     click('Enter Markdown review mode')
+    clickSourceReviewMarker()
     click('Add to batch')
     expect(apply).toHaveBeenLastCalledWith({
       type: 'create-batch',
@@ -730,6 +753,14 @@ function editorView(): EditorView {
 
 function click(label: string): void {
   act(() => button(label)?.click())
+}
+
+function clickSourceReviewMarker(): void {
+  const marker = host.querySelector<HTMLElement>('.cm-review-marker')
+  if (!marker) throw new Error('Expected a source review marker')
+  act(() => {
+    marker.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 0 }))
+  })
 }
 
 function button(label: string, index = 0): HTMLButtonElement | undefined {

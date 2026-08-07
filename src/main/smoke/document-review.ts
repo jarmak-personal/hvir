@@ -106,7 +106,7 @@ export async function verifyDocumentReviewWorkflow(options: {
       `document.querySelector('.cm-content')?.getAttribute('aria-label') === 'Markdown source review'`,
     'source view did not project the rendered anchor with accessible review semantics',
   )
-  await proveReviewPanelClearsViewerControls(win)
+  await proveSourceInlineFollowsLine(win)
   await captureSourceLineNumber(win, 2)
   await waitForRenderer(
     win,
@@ -114,9 +114,16 @@ export async function verifyDocumentReviewWorkflow(options: {
       `document.activeElement?.getAttribute('aria-label') === 'New review comment'`,
     'source line-number capture did not focus a line-specific comment form',
   )
+  await proveComposeContextVisible(win)
   await activateControl(win, '.document-review-compose button[type="button"]')
 
   await host.writeFile(document, `# Shifted before review\n\n${documentContents}`)
+  await waitForRenderer(
+    win,
+    `document.querySelector('.cm-review-marker.review-anchor-moved')`,
+    'unique file edit did not move the source review marker',
+  )
+  await openSourceReviewMarker(win)
   await waitForRenderer(
     win,
     `document.querySelector('.document-review-comment.review-anchor-moved') && ` +
@@ -178,6 +185,7 @@ export async function verifyDocumentReviewWorkflow(options: {
       'preview button',
     )
     await waitForExactPreview(win)
+    await proveDeliveryClearsViewerControls(win)
   })
   const body = await runStage('initial destination preparation', async () => {
     await selectDestination(win, terminals.first.id)
@@ -569,21 +577,21 @@ async function proveComposeContextVisible(win: BrowserWindow): Promise<void> {
       new Promise((resolve) => {
         const deadline = Date.now() + ${TIMEOUT_MS};
         const poll = () => {
-          const panel = document.querySelector('.document-review-panel');
+          const inline = document.querySelector('.document-review-inline');
           const form = document.querySelector('.document-review-compose');
           const label = form?.querySelector('label > span');
           const textarea = form?.querySelector('textarea');
           if (
-            panel instanceof HTMLElement &&
+            inline instanceof HTMLElement &&
             label instanceof HTMLElement &&
             textarea instanceof HTMLTextAreaElement
           ) {
-            const panelRect = panel.getBoundingClientRect();
+            const inlineRect = inline.getBoundingClientRect();
             const labelRect = label.getBoundingClientRect();
             const textareaRect = textarea.getBoundingClientRect();
             if (
               document.activeElement === textarea &&
-              labelRect.top >= panelRect.top &&
+              labelRect.top >= inlineRect.top &&
               labelRect.bottom + 3 <= textareaRect.top
             ) return resolve({ ok: true });
             return resolve({
@@ -602,26 +610,78 @@ async function proveComposeContextVisible(win: BrowserWindow): Promise<void> {
   )
 }
 
-async function proveReviewPanelClearsViewerControls(win: BrowserWindow): Promise<void> {
+async function proveSourceInlineFollowsLine(win: BrowserWindow): Promise<void> {
   await evaluateRenderer<void>(
     win,
-    'review panel control-row geometry',
+    'source inline review geometry',
+    `
+      (() => {
+        const host = document.querySelector('.document-review-inline-host-source');
+        const line = host?.previousElementSibling;
+        if (!(host instanceof HTMLElement) || !(line instanceof HTMLElement)) {
+          return { ok: false, error: 'source inline review or anchor line missing' };
+        }
+        const hostRect = host.getBoundingClientRect();
+        const lineRect = line.getBoundingClientRect();
+        return hostRect.top >= lineRect.bottom
+          ? { ok: true }
+          : { ok: false, error: 'source inline review did not follow its anchor line' };
+      })()
+    `,
+  )
+}
+
+async function proveDeliveryClearsViewerControls(win: BrowserWindow): Promise<void> {
+  await evaluateRenderer<void>(
+    win,
+    'review delivery control-row geometry',
     `
       (() => {
         const controls = document.querySelector('.viewer-floating-controls');
-        const panel = document.querySelector('.document-review-panel');
-        if (!(controls instanceof HTMLElement) || !(panel instanceof HTMLElement)) {
-          return { ok: false, error: 'review panel or viewer controls missing' };
+        const delivery = document.querySelector('.document-review-delivery');
+        if (!(controls instanceof HTMLElement) || !(delivery instanceof HTMLElement)) {
+          return { ok: false, error: 'review delivery or viewer controls missing' };
         }
         const controlsRect = controls.getBoundingClientRect();
-        const panelRect = panel.getBoundingClientRect();
-        return panelRect.top >= controlsRect.bottom + 4
+        const deliveryRect = delivery.getBoundingClientRect();
+        return deliveryRect.top >= controlsRect.bottom + 4
           ? { ok: true }
           : {
               ok: false,
-              error: 'review panel overlapped the viewer control row'
+              error: 'review delivery overlapped the viewer control row'
             };
       })()
+    `,
+  )
+}
+
+async function openSourceReviewMarker(win: BrowserWindow): Promise<void> {
+  await evaluateRenderer<void>(
+    win,
+    'source review marker activation',
+    `
+      new Promise((resolve) => {
+        const deadline = Date.now() + ${TIMEOUT_MS};
+        const poll = () => {
+          const marker = document.querySelector('.cm-review-marker');
+          if (marker instanceof HTMLElement) {
+            const rect = marker.getBoundingClientRect();
+            marker.dispatchEvent(new MouseEvent('mousedown', {
+              bubbles: true,
+              cancelable: true,
+              button: 0,
+              clientX: rect.left + rect.width / 2,
+              clientY: rect.top + rect.height / 2
+            }));
+            return resolve({ ok: true });
+          }
+          if (Date.now() > deadline) {
+            return resolve({ ok: false, error: 'source review marker missing' });
+          }
+          setTimeout(poll, 25);
+        };
+        poll();
+      })
     `,
   )
 }
@@ -759,11 +819,51 @@ async function waitForComment(
   win: BrowserWindow,
   lifecycle: 'draft' | 'sent',
 ): Promise<void> {
+  await openReviewCommentIfNeeded(win)
   await waitForRenderer(
     win,
     `document.querySelectorAll('.document-review-comment').length === 1 && ` +
       `document.querySelector('.document-review-comment .review-${lifecycle}')`,
     `review comment did not restore as ${lifecycle}`,
+  )
+}
+
+async function openReviewCommentIfNeeded(win: BrowserWindow): Promise<void> {
+  await evaluateRenderer<void>(
+    win,
+    'inline review comment restore',
+    `
+      new Promise((resolve) => {
+        const deadline = Date.now() + ${TIMEOUT_MS};
+        const poll = () => {
+          if (document.querySelector('.document-review-comment')) {
+            return resolve({ ok: true });
+          }
+          const badge = document.querySelector('.review-block-badge');
+          if (badge instanceof HTMLButtonElement) {
+            badge.click();
+            return setTimeout(poll, 25);
+          }
+          const marker = document.querySelector('.cm-review-marker');
+          if (marker instanceof HTMLElement) {
+            const rect = marker.getBoundingClientRect();
+            marker.dispatchEvent(new MouseEvent('mousedown', {
+              bubbles: true,
+              cancelable: true,
+              button: 0,
+              clientX: rect.left + rect.width / 2,
+              clientY: rect.top + rect.height / 2
+            }));
+            return setTimeout(poll, 25);
+          }
+          if (Date.now() > deadline) {
+            return resolve({ ok: false, error: 'review comment marker did not restore' });
+          }
+          setTimeout(poll, 25);
+        };
+        poll();
+      })
+    `,
   )
 }
 

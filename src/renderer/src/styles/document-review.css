@@ -4,7 +4,8 @@
 }
 
 .document-review-toolbar button,
-.document-review-panel button {
+.document-review-inline button,
+.document-review-chrome button {
   border: 1px solid #343b47;
   border-radius: 4px;
   color: #bac2cf;
@@ -25,8 +26,10 @@
 }
 
 .document-review-toolbar button:focus-visible,
-.document-review-panel button:focus-visible,
-.document-review-panel textarea:focus-visible,
+.document-review-inline button:focus-visible,
+.document-review-inline textarea:focus-visible,
+.document-review-chrome button:focus-visible,
+.document-review-chrome select:focus-visible,
 .review-block-badge:focus-visible,
 .review-block:focus-visible {
   outline: 2px solid #8bbcf0;
@@ -34,32 +37,40 @@
 }
 
 .document-review-toolbar button:disabled,
-.document-review-panel button:disabled {
+.document-review-inline button:disabled,
+.document-review-chrome button:disabled {
   opacity: 0.5;
 }
 
-.document-review-panel {
-  position: absolute;
-  z-index: 8;
-  top: 50px;
-  right: 10px;
-  bottom: 10px;
-  width: min(340px, calc(100% - 20px));
-  overflow: auto;
-  padding: 10px;
-  border: 1px solid #303845;
-  border-radius: 7px;
+.document-review-chrome {
+  display: contents;
   color: #cbd2dc;
-  background: color-mix(in srgb, #11151b 96%, transparent);
-  box-shadow: 0 10px 32px #080a0db8;
   font-size: calc(11px * var(--hvir-interface-scale));
 }
 
-.viewer-body:has(.source-meta, .diff-labels) .document-review-panel {
-  top: 64px;
+.document-review-tray {
+  position: absolute;
+  z-index: 8;
+  right: 14px;
+  bottom: 14px;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  max-width: calc(100% - 28px);
+  padding: 6px;
+  border: 1px solid #303845;
+  border-radius: 6px;
+  background: color-mix(in srgb, #11151b 96%, transparent);
+  box-shadow: 0 6px 20px #080a0da8;
 }
 
-.document-review-panel > header,
+.document-review-tray > button,
+.document-review-delivery button {
+  padding: 3px 7px;
+}
+
+.document-review-inline > header,
 .document-review-comment-heading,
 .document-review-comment-actions,
 .document-review-compose > div {
@@ -68,19 +79,51 @@
   gap: 6px;
 }
 
-.document-review-panel > header {
+.document-review-inline > header {
   justify-content: space-between;
-  margin-bottom: 8px;
+  gap: 8px;
+  margin-bottom: 10px;
 }
 
-.document-review-panel p {
+.document-review-inline > header > span {
+  margin-right: auto;
+  color: #91a0b1;
+  font-family: var(--hvir-monospace-font);
+}
+
+.document-review-inline p,
+.document-review-chrome p {
   line-height: 1.45;
+}
+
+.document-review-inline-host-rendered {
+  margin-top: 10px;
+  margin-bottom: 18px;
+}
+
+.document-review-inline-host-source {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 6px 12px 10px;
+}
+
+.document-review-inline {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 10px;
+  border: 1px solid #3b5570;
+  border-left: 4px solid #6d9fd2;
+  border-radius: 6px;
+  color: #cbd2dc;
+  background: #121820;
+  box-shadow: 0 5px 18px #080a0d73;
+  font: calc(11px * var(--hvir-interface-scale)) / 1.45 var(--hvir-interface-font);
 }
 
 .document-review-guidance,
 .document-review-error,
 .document-review-empty {
-  margin: 8px 0;
+  margin: 0;
   padding: 7px 8px;
   border-radius: 4px;
   background: #202630;
@@ -339,12 +382,25 @@
 }
 
 .document-review-delivery {
+  position: absolute;
+  z-index: 9;
+  top: 48px;
+  right: 12px;
+  bottom: 12px;
   display: grid;
+  box-sizing: border-box;
   gap: 10px;
+  width: min(420px, calc(100% - 24px));
+  overflow: auto;
   padding: 12px;
   border: 1px solid #445165;
   border-radius: 8px;
   background: #111922;
+  box-shadow: 0 10px 32px #080a0db8;
+}
+
+.viewer-body:has(.source-meta, .diff-labels) .document-review-delivery {
+  top: 72px;
 }
 
 .document-review-delivery > header,

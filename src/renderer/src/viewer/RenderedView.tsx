@@ -24,6 +24,7 @@ import { documentLineCount, type ViewerPositionCapture } from './viewer-position
 import { RepositoryImageView } from './RepositoryImageView'
 import { MarkdownRepositoryImages } from './markdown-repository-images'
 import { bindRenderedDocumentReview } from '../document-review/document-review-rendered'
+import { useDocumentReviewInlineHostRegistration } from '../document-review/document-review-inline'
 import type { DocumentReviewDocumentProjection } from '../document-review/use-document-review-interaction'
 
 let jsonWorker: Worker | undefined
@@ -305,6 +306,7 @@ function MarkdownView({
   readonly theme: 'dark' | 'light'
 }): ReactElement {
   const container = useRef<HTMLDivElement>(null)
+  const registerReviewInlineHost = useDocumentReviewInlineHostRegistration()
   const repositoryImages = useRef<MarkdownRepositoryImages>(undefined)
   const refreshRef = useRef(refresh)
   const appliedRefreshVersion = useRef(refresh?.version ?? 0)
@@ -370,11 +372,13 @@ function MarkdownView({
       active: documentReview.active,
       dirty: documentReview.dirty,
       comments: documentReview.comments,
+      inlineRange: documentReview.inlineRange,
+      onInlineHost: registerReviewInlineHost,
       onCapture: documentReview.onCapture,
       onOpenComment: documentReview.onOpenComment,
       onExit: documentReview.onExit,
     })
-  }, [documentReview, html])
+  }, [documentReview, html, registerReviewInlineHost])
 
   useRenderedPosition(container, content, position, onPosition, positionCapture, html)
   useRenderedFindTarget(container, html || undefined, registerFindTarget)

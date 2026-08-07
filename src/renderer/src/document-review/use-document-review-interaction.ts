@@ -43,6 +43,7 @@ export interface DocumentReviewDocumentProjection {
   readonly active: boolean
   readonly dirty: boolean
   readonly comments: readonly DocumentReviewComment[]
+  readonly inlineRange?: ReviewSourceRange
   readonly onCapture: (range: ReviewSourceRange) => void
   readonly onOpenComment: (comment: DocumentReviewComment) => void
   readonly onSourceRange: (range?: ReviewSourceRange) => void
@@ -56,6 +57,7 @@ export interface DocumentReviewInteraction {
   readonly comments: readonly DocumentReviewComment[]
   readonly sourceRange?: ReviewSourceRange
   readonly pendingRange?: ReviewSourceRange
+  readonly inlineRange?: ReviewSourceRange
   readonly reanchorCommentId?: string
   readonly error?: string
   readonly commentNavigation?: { readonly id: string; readonly request: number }
@@ -70,6 +72,7 @@ export interface DocumentReviewInteraction {
   readonly captureSource: () => void
   readonly submit: (body: string) => Promise<void>
   readonly cancelCapture: () => void
+  readonly closeInline: () => void
   readonly edit: (commentId: string, body: string) => void
   readonly remove: (commentId: string) => void
   readonly beginReanchor: (commentId: string) => void
@@ -88,6 +91,7 @@ export function useDocumentReviewInteraction(
   const [active, setActive] = useState(false)
   const [sourceRange, setSourceRange] = useState<ReviewSourceRange>()
   const [pendingRange, setPendingRange] = useState<ReviewSourceRange>()
+  const [expandedRange, setExpandedRange] = useState<ReviewSourceRange>()
   const [reanchorCommentId, setReanchorCommentId] = useState<string>()
   const [error, setError] = useState<string>()
   const [commentNavigation, setCommentNavigation] = useState<{
@@ -128,6 +132,7 @@ export function useDocumentReviewInteraction(
     setActive(false)
     setSourceRange(undefined)
     setPendingRange(undefined)
+    setExpandedRange(undefined)
     setReanchorCommentId(undefined)
     setCommentNavigation(undefined)
     setError(undefined)
@@ -138,6 +143,7 @@ export function useDocumentReviewInteraction(
   useEffect(() => {
     captureGeneration.current += 1
     setPendingRange(undefined)
+    setExpandedRange(undefined)
     setReanchorCommentId(undefined)
     setCommentNavigation(undefined)
     setError(undefined)
@@ -222,6 +228,7 @@ export function useDocumentReviewInteraction(
         return
       }
       const captured: ReviewAnchorCapture = createDocumentReviewCapture(read, range)
+      const createdCommentId = commentId ?? crypto.randomUUID()
       if (
         apply(
           commentId
@@ -234,7 +241,7 @@ export function useDocumentReviewInteraction(
             : {
                 type: 'add-comment',
                 workspace,
-                commentId: crypto.randomUUID(),
+                commentId: createdCommentId,
                 body: body ?? '',
                 capture: captured,
               },
@@ -242,6 +249,11 @@ export function useDocumentReviewInteraction(
       ) {
         setPendingRange(undefined)
         setReanchorCommentId(undefined)
+        setExpandedRange(range)
+        setCommentNavigation({
+          id: createdCommentId,
+          request: (commentNavigationRequest.current += 1),
+        })
       }
     },
     [apply],
@@ -256,6 +268,8 @@ export function useDocumentReviewInteraction(
       if (reanchorCommentId) void capture(range, reanchorCommentId)
       else {
         setPendingRange(range)
+        setExpandedRange(range)
+        setCommentNavigation(undefined)
         setError(undefined)
       }
     },
@@ -272,6 +286,7 @@ export function useDocumentReviewInteraction(
   const openComment = useCallback((comment: DocumentReviewComment): void => {
     setActive(true)
     setPendingRange(undefined)
+    setExpandedRange(comment.anchor.range)
     setReanchorCommentId(undefined)
     setError(undefined)
     setCommentNavigation({
@@ -303,6 +318,7 @@ export function useDocumentReviewInteraction(
             active,
             dirty: Boolean(document?.dirty),
             comments,
+            inlineRange: pendingRange ?? expandedRange,
             onCapture: requestCapture,
             onOpenComment: openComment,
             onSourceRange: acceptSourceRange,
@@ -315,8 +331,10 @@ export function useDocumentReviewInteraction(
       available,
       comments,
       document?.dirty,
+      expandedRange,
       exit,
       openComment,
+      pendingRange,
       requestCapture,
     ],
   )
@@ -328,6 +346,7 @@ export function useDocumentReviewInteraction(
     comments,
     sourceRange,
     pendingRange,
+    inlineRange: pendingRange ?? expandedRange,
     reanchorCommentId,
     error,
     commentNavigation,
@@ -353,7 +372,17 @@ export function useDocumentReviewInteraction(
     cancelCapture: () => {
       captureGeneration.current += 1
       setPendingRange(undefined)
+      setExpandedRange(undefined)
       setReanchorCommentId(undefined)
+      setCommentNavigation(undefined)
+      setError(undefined)
+    },
+    closeInline: () => {
+      captureGeneration.current += 1
+      setPendingRange(undefined)
+      setExpandedRange(undefined)
+      setReanchorCommentId(undefined)
+      setCommentNavigation(undefined)
       setError(undefined)
     },
     edit: (commentId, body) =>
@@ -376,7 +405,9 @@ export function useDocumentReviewInteraction(
       }
       setActive(true)
       setPendingRange(undefined)
+      setExpandedRange(undefined)
       setReanchorCommentId(commentId)
+      setCommentNavigation(undefined)
       setError(undefined)
     },
     resolve: (commentId) =>

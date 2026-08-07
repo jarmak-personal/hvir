@@ -1,8 +1,9 @@
-import type { EditorState, Extension } from '@codemirror/state'
+import { StateField, type EditorState, type Extension } from '@codemirror/state'
 import {
   Decoration,
   EditorView,
   GutterMarker,
+  WidgetType,
   gutter,
   keymap,
   type DecorationSet,
@@ -14,6 +15,8 @@ export interface DocumentReviewSourceProjection {
   readonly active: boolean
   readonly dirty: boolean
   readonly comments: readonly DocumentReviewComment[]
+  readonly inlineRange?: ReviewSourceRange
+  readonly onInlineHost: (host: HTMLElement) => () => void
   readonly onRange: (range?: ReviewSourceRange) => void
   readonly onCapture: (range: ReviewSourceRange) => void
   readonly onOpenComment: (comment: DocumentReviewComment) => void
@@ -25,10 +28,16 @@ export function createDocumentReviewSourceExtensions(
 ): Extension {
   if (!projection || (!projection.active && projection.comments.length === 0)) return []
   const commentsByLine = groupCommentsByStartLine(projection.comments)
+  const reviewDecorations = StateField.define<DecorationSet>({
+    create: (state) => sourceReviewDecorations(state, projection),
+    update: (decorations, transaction) =>
+      transaction.docChanged
+        ? sourceReviewDecorations(transaction.state, projection)
+        : decorations,
+    provide: (field) => EditorView.decorations.from(field),
+  })
   return [
-    EditorView.decorations.of((view) =>
-      sourceReviewDecorations(view.state, projection.comments),
-    ),
+    reviewDecorations,
     reviewGutter(commentsByLine, projection),
     EditorView.updateListener.of((update) => {
       if (projection.active && (update.selectionSet || update.docChanged)) {
@@ -75,9 +84,9 @@ export function sourceReviewSelection(state: EditorState): ReviewSourceRange {
 
 function sourceReviewDecorations(
   state: EditorState,
-  comments: readonly DocumentReviewComment[],
+  projection: DocumentReviewSourceProjection,
 ): DecorationSet {
-  const ranges = comments.flatMap((comment) => {
+  const ranges = projection.comments.flatMap((comment) => {
     if (comment.anchor.range.startLine > state.doc.lines) return []
     const start = state.doc.line(comment.anchor.range.startLine)
     const end = state.doc.line(Math.min(comment.anchor.range.endLine, state.doc.lines))
@@ -89,7 +98,51 @@ function sourceReviewDecorations(
       ? [Decoration.line({ attributes }).range(start.from)]
       : [Decoration.mark({ attributes }).range(start.from, end.to)]
   })
+  const inlineLine = projection.inlineRange?.startLine
+  if (inlineLine && inlineLine <= state.doc.lines) {
+    const line = state.doc.line(inlineLine)
+    ranges.push(
+      Decoration.widget({
+        block: true,
+        side: 1,
+        widget: new InlineReviewWidget(projection.onInlineHost),
+      }).range(line.to),
+    )
+  }
   return Decoration.set(ranges, true)
+}
+
+class InlineReviewWidget extends WidgetType {
+  private unregister?: () => void
+  private observer?: ResizeObserver
+  private frame?: number
+
+  constructor(private readonly register: (host: HTMLElement) => () => void) {
+    super()
+  }
+
+  override toDOM(view: EditorView): HTMLElement {
+    const host = document.createElement('div')
+    host.className = 'document-review-inline-host document-review-inline-host-source'
+    host.setAttribute('data-review-inline-host', '')
+    this.unregister = this.register(host)
+    if (typeof ResizeObserver !== 'undefined') {
+      this.observer = new ResizeObserver(() => view.requestMeasure())
+      this.observer.observe(host)
+    }
+    this.frame = requestAnimationFrame(() => view.requestMeasure())
+    return host
+  }
+
+  override ignoreEvent(): boolean {
+    return true
+  }
+
+  override destroy(): void {
+    this.unregister?.()
+    this.observer?.disconnect()
+    if (this.frame !== undefined) cancelAnimationFrame(this.frame)
+  }
 }
 
 function groupCommentsByStartLine(

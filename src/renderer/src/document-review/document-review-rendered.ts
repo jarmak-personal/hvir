@@ -10,6 +10,8 @@ export interface RenderedReviewProjection {
   readonly active: boolean
   readonly dirty: boolean
   readonly comments: readonly DocumentReviewComment[]
+  readonly inlineRange?: ReviewSourceRange
+  readonly onInlineHost: (host: HTMLElement) => () => void
   readonly onCapture: (range: ReviewSourceRange) => void
   readonly onOpenComment: (comment: DocumentReviewComment) => void
   readonly onExit: () => void
@@ -35,6 +37,8 @@ export function bindRenderedDocumentReview(
   let index = 0
   let disposed = false
   let frame = 0
+  let inlineHost:
+    { readonly element: HTMLElement; readonly unregister: () => void } | undefined
   const maximumCommentLine = Math.max(
     0,
     ...projection.comments.map((comment) => comment.anchor.range.endLine),
@@ -53,6 +57,18 @@ export function bindRenderedDocumentReview(
         break
       }
       prepareBlock(element, range, projection, blocks, blockIndexes, generated, bindingId)
+      if (
+        !inlineHost &&
+        projection.inlineRange &&
+        rangesOverlap(range, projection.inlineRange)
+      ) {
+        const host = document.createElement('div')
+        host.className =
+          'document-review-inline-host document-review-inline-host-rendered'
+        host.setAttribute('data-review-inline-host', '')
+        element.after(host)
+        inlineHost = { element: host, unregister: projection.onInlineHost(host) }
+      }
     }
     if (index < children.length) frame = scheduler.request(process)
   }
@@ -122,6 +138,8 @@ export function bindRenderedDocumentReview(
     scheduler.cancel(frame)
     root.removeEventListener('click', onClick)
     root.removeEventListener('keydown', onKeyDown)
+    inlineHost?.unregister()
+    inlineHost?.element.remove()
     let cleanupIndex = 0
     const cleanup = (): void => {
       const end = Math.min(blocks.length, cleanupIndex + BLOCKS_PER_FRAME)

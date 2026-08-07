@@ -57,9 +57,11 @@ import {
 } from './viewer-workload-policy'
 import { useAppTheme } from '../theme'
 import {
-  DocumentReviewPanel,
+  DocumentReviewChrome,
   DocumentReviewToolbar,
 } from '../document-review/DocumentReviewControls'
+import { DocumentReviewInlineProvider } from '../document-review/DocumentReviewInlineSurface'
+import { useDocumentReviewInlineHostRegistration } from '../document-review/document-review-inline'
 import {
   useDocumentReviewInteraction,
   type DocumentReviewDocumentProjection,
@@ -415,26 +417,28 @@ export function FileViewer({
         <BinaryFileView path={tab.path} size={tab.file.size} />
       ) : null}
       {tab && !tab.loading && tab.file && (!tab.file.binary || binaryImage) ? (
-        <ActiveView
-          tab={tab}
-          file={tab.file}
-          onContent={onContent}
-          onSave={onSave}
-          onPosition={onPosition}
-          blame={showBlame ? blame : []}
-          blameStatus={showBlame ? blameStatus : ''}
-          onOpenPath={onOpenPath}
-          refresh={tab.refresh}
-          gitRefreshVersion={gitRefreshVersion}
-          onRenderedDependencies={reportRenderedDependencies}
-          positionCapture={positionCapture}
-          navigation={manualNavigation ?? tab.navigation}
-          onNavigationHandled={handleNavigation}
-          registerFindTarget={registerFindTarget}
-          documentReview={reviewInteraction.projection}
-        />
+        <DocumentReviewInlineProvider interaction={reviewInteraction}>
+          <ActiveView
+            tab={tab}
+            file={tab.file}
+            onContent={onContent}
+            onSave={onSave}
+            onPosition={onPosition}
+            blame={showBlame ? blame : []}
+            blameStatus={showBlame ? blameStatus : ''}
+            onOpenPath={onOpenPath}
+            refresh={tab.refresh}
+            gitRefreshVersion={gitRefreshVersion}
+            onRenderedDependencies={reportRenderedDependencies}
+            positionCapture={positionCapture}
+            navigation={manualNavigation ?? tab.navigation}
+            onNavigationHandled={handleNavigation}
+            registerFindTarget={registerFindTarget}
+            documentReview={reviewInteraction.projection}
+          />
+        </DocumentReviewInlineProvider>
       ) : null}
-      <DocumentReviewPanel interaction={reviewInteraction} />
+      <DocumentReviewChrome interaction={reviewInteraction} />
     </div>
   )
 }
@@ -724,6 +728,7 @@ function SourceView({
   const blameCompartment = useRef(new Compartment())
   const reviewCompartment = useRef(new Compartment())
   const reviewProjection = useRef(documentReview)
+  const registerReviewInlineHost = useDocumentReviewInlineHostRegistration()
   callbacks.current = { onContent, onSave, onPosition }
   reviewProjection.current = documentReview
 
@@ -849,6 +854,8 @@ function SourceView({
                 active: documentReview.active,
                 dirty: documentReview.dirty,
                 comments: documentReview.comments,
+                inlineRange: documentReview.inlineRange,
+                onInlineHost: registerReviewInlineHost,
                 onRange: documentReview.onSourceRange,
                 onCapture: documentReview.onCapture,
                 onOpenComment: documentReview.onOpenComment,
@@ -861,7 +868,7 @@ function SourceView({
     documentReview?.onSourceRange(
       documentReview.active ? sourceReviewSelection(editor.state) : undefined,
     )
-  }, [documentReview])
+  }, [documentReview, registerReviewInlineHost])
 
   useEffect(() => {
     const editor = view.current

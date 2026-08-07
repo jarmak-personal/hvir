@@ -37,6 +37,7 @@ describe('rendered Markdown review projection', () => {
         active: true,
         dirty: false,
         comments: [],
+        onInlineHost: inlineHostRegistration(),
         onCapture,
         onOpenComment: vi.fn(),
         onExit: vi.fn(),
@@ -79,6 +80,7 @@ describe('rendered Markdown review projection', () => {
         active: false,
         dirty: false,
         comments: [comment(1, 'stale')],
+        onInlineHost: inlineHostRegistration(),
         onCapture: vi.fn(),
         onOpenComment,
         onExit: vi.fn(),
@@ -110,6 +112,7 @@ describe('rendered Markdown review projection', () => {
         active: true,
         dirty: false,
         comments: [comment(1)],
+        onInlineHost: inlineHostRegistration(),
         onCapture: vi.fn(),
         onOpenComment: vi.fn(),
         onExit: vi.fn(),
@@ -124,6 +127,36 @@ describe('rendered Markdown review projection', () => {
     expect(controls?.querySelector('.review-block-badge')).toBeTruthy()
   })
 
+  it('mounts and releases one inline host immediately after the selected block', () => {
+    const root = renderedRoot(3)
+    const scheduler = new TestScheduler()
+    const unregister = vi.fn()
+    const onInlineHost = vi.fn(() => unregister)
+    const dispose = bindRenderedDocumentReview(
+      root,
+      {
+        active: true,
+        dirty: false,
+        comments: [comment(2)],
+        inlineRange: { startLine: 2, endLine: 2 },
+        onInlineHost,
+        onCapture: vi.fn(),
+        onOpenComment: vi.fn(),
+        onExit: vi.fn(),
+      },
+      scheduler,
+    )
+    scheduler.runNext()
+
+    const inlineHost = root.querySelector<HTMLElement>('[data-review-inline-host]')
+    expect(inlineHost?.previousElementSibling?.textContent).toContain('Line 2')
+    expect(onInlineHost).toHaveBeenCalledExactlyOnceWith(inlineHost)
+
+    dispose()
+    expect(unregister).toHaveBeenCalledOnce()
+    expect(root.querySelector('[data-review-inline-host]')).toBeNull()
+  })
+
   it('keeps dirty review blocks navigable without advertising or accepting capture', () => {
     const root = renderedRoot(2)
     const scheduler = new TestScheduler()
@@ -134,6 +167,7 @@ describe('rendered Markdown review projection', () => {
         active: true,
         dirty: true,
         comments: [],
+        onInlineHost: inlineHostRegistration(),
         onCapture,
         onOpenComment: vi.fn(),
         onExit: vi.fn(),
@@ -168,6 +202,7 @@ describe('source Markdown review projection', () => {
       active: true,
       dirty: false,
       comments: Array.from({ length: 64 }, (_, index) => comment(index + 1)),
+      onInlineHost: inlineHostRegistration(),
       onRange,
       onCapture,
       onOpenComment,
@@ -216,6 +251,7 @@ describe('source Markdown review projection', () => {
             active: true,
             dirty: false,
             comments: [comment(1)],
+            onInlineHost: inlineHostRegistration(),
             onRange: vi.fn(),
             onCapture,
             onOpenComment,
@@ -241,6 +277,40 @@ describe('source Markdown review projection', () => {
     // click to the first line. Browser geometry is covered by the Electron smoke.
     expect(onCapture).toHaveBeenCalledWith({ startLine: 1, endLine: 1 })
     view.destroy()
+  })
+
+  it('mounts and releases a block widget below the selected source line', () => {
+    const parent = document.createElement('div')
+    document.body.append(parent)
+    const unregister = vi.fn()
+    const onInlineHost = vi.fn(() => unregister)
+    const view = new EditorView({
+      parent,
+      state: EditorState.create({
+        doc: 'one\ntwo\nthree',
+        extensions: [
+          createDocumentReviewSourceExtensions({
+            active: true,
+            dirty: false,
+            comments: [comment(2)],
+            inlineRange: { startLine: 2, endLine: 2 },
+            onInlineHost,
+            onRange: vi.fn(),
+            onCapture: vi.fn(),
+            onOpenComment: vi.fn(),
+            onExit: vi.fn(),
+          }),
+        ],
+      }),
+    })
+
+    const inlineHost = parent.querySelector<HTMLElement>('[data-review-inline-host]')
+    expect(inlineHost?.previousElementSibling?.textContent).toBe('two')
+    expect(inlineHost?.nextElementSibling?.textContent).toBe('three')
+    expect(onInlineHost).toHaveBeenCalledExactlyOnceWith(inlineHost)
+
+    view.destroy()
+    expect(unregister).toHaveBeenCalledOnce()
   })
 
   it('keeps a selection ending at the next line boundary on the prior source line', () => {
@@ -278,6 +348,10 @@ function renderedRoot(count: number): HTMLElement {
   }
   document.body.append(root)
   return root
+}
+
+function inlineHostRegistration(): (host: HTMLElement) => () => void {
+  return vi.fn(() => vi.fn())
 }
 
 function comment(
