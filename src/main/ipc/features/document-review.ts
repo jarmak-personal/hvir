@@ -56,7 +56,9 @@ export function registerDocumentReviewIpc(
 
   ipc.handle('document-review:delivery-destinations', (request, context) =>
     operationResult(() => {
-      requireDeliveryScope(ipc, deps, request.workspace)
+      const root = ipc.authority.workspaceRoot(request.workspace.root)
+      ipc.authority.assertActiveWorkspace(root)
+      requireActiveWorkspace(deps, request.workspace, root)
       return Promise.resolve(
         deps.documentReviewDelivery.destinations(context.owner(), request),
       )
@@ -65,7 +67,9 @@ export function registerDocumentReviewIpc(
 
   ipc.handle('document-review:preview-delivery', (request, context) =>
     operationResult(() => {
-      requireDeliveryScope(ipc, deps, request.workspace)
+      const root = ipc.authority.workspaceRoot(request.workspace.root)
+      ipc.authority.assertActiveWorkspace(root)
+      requireActiveWorkspace(deps, request.workspace, root)
       requireDeliverySelection(request.selection)
       return Promise.resolve(
         deps.documentReviewDelivery.preview(context.owner(), request),
@@ -75,7 +79,9 @@ export function registerDocumentReviewIpc(
 
   ipc.handle('document-review:prepare-delivery', (request, context) =>
     operationResult(() => {
-      requireDeliveryScope(ipc, deps, request.workspace)
+      const root = ipc.authority.workspaceRoot(request.workspace.root)
+      ipc.authority.assertActiveWorkspace(root)
+      requireActiveWorkspace(deps, request.workspace, root)
       if (!isDocumentReviewIdentifier(request.terminalId)) {
         throw new Error('Invalid review terminal')
       }
@@ -107,21 +113,9 @@ export function registerDocumentReviewIpc(
   )
 }
 
-function requireDeliverySelection(
-  selection: DocumentReviewDeliverySelection,
-): void {
+function requireDeliverySelection(selection: DocumentReviewDeliverySelection): void {
   const id = selection.kind === 'comment' ? selection.commentId : selection.batchId
   if (!isDocumentReviewIdentifier(id)) throw new Error('Invalid review selection')
-}
-
-function requireDeliveryScope(
-  ipc: IpcRegistrar,
-  deps: DocumentReviewIpcDeps,
-  workspace: ReviewWorkspaceIdentity,
-): void {
-  const root = ipc.authority.workspaceRoot(workspace.root)
-  ipc.authority.assertActiveWorkspace(root)
-  requireActiveWorkspace(deps, workspace, root)
 }
 
 function requireActiveWorkspace(
