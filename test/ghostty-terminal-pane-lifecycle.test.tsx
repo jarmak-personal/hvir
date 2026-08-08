@@ -129,6 +129,7 @@ describe('GhosttyTerminalPane lifecycle', () => {
     expect(nextContainer.firstElementChild).toBe(surface)
 
     pane.setPresentation('visible')
+    expect(canvas?.style.visibility).toBe('hidden')
     await settleTerminalFit()
 
     expect(state.cursorBlinkValues).toEqual(['terminal', false])
@@ -138,6 +139,25 @@ describe('GhosttyTerminalPane lifecycle', () => {
     expect(state.renders).toBeGreaterThan(hiddenRenderCount)
     expect(state.resizes).toEqual([{ cols: 72, rows: 16 }])
     expect(nextContainer.querySelector('canvas')).toBe(canvas)
+    expect(canvas?.style.visibility).toBe('')
+
+    pane.setPresentation('hidden')
+    const retainedRenderCount = state.renders
+    const retainedResizeCount = state.resizes.length
+    expect(canvas?.style.visibility).toBe('hidden')
+
+    pane.setPresentation('visible')
+
+    expect(canvas?.style.visibility).toBe('')
+    expect(state.presentationPausedValues).toEqual([true, false, true])
+    expect(state.renders).toBe(retainedRenderCount)
+    expect(state.resizes).toHaveLength(retainedResizeCount)
+
+    await settleTerminalFit()
+
+    expect(state.presentationPausedValues).toEqual([true, false, true, false])
+    expect(state.renders).toBeGreaterThan(retainedRenderCount)
+    expect(state.resizes).toHaveLength(retainedResizeCount)
 
     pane.setPresentation('hidden')
     pane.dispose()

@@ -191,6 +191,7 @@ class GhosttyTerminalPane implements TerminalPane {
     range: GhosttyRetainedBufferRange
   }>
   private searchHighlightLayer?: HTMLDivElement
+  private hasPresentedFrame = false
 
   readonly events: TerminalPaneEvents = {
     onData: (callback) => this.dataListeners.on(callback),
@@ -265,7 +266,7 @@ class GhosttyTerminalPane implements TerminalPane {
     // the terminal just freed during reconnect. Reset only after the initial
     // fit: resizing the temporary 80x24 buffer can copy recycled cells back in.
     this.terminal.write('\u001bc')
-    if (this.presentation === 'visible') this.revealAfterSettledFit()
+    this.revealAfterSettledFit()
   }
 
   reparent(container: HTMLElement): void {
@@ -274,7 +275,7 @@ class GhosttyTerminalPane implements TerminalPane {
       throw new Error('Cannot move a terminal pane before it is mounted')
     }
     container.append(this.surface)
-    if (this.presentation === 'visible') this.revealAfterSettledFit()
+    this.revealAfterSettledFit()
   }
 
   write(data: string): void {
@@ -309,7 +310,7 @@ class GhosttyTerminalPane implements TerminalPane {
     if (typography.fontSize !== previous.fontSize) {
       this.terminal.options.fontSize = typography.fontSize
     }
-    if (this.presentation === 'visible') this.revealAfterSettledFit()
+    this.revealAfterSettledFit()
   }
 
   setCursorDefaults(defaults: TerminalCursorDefaults): void {
@@ -339,7 +340,7 @@ class GhosttyTerminalPane implements TerminalPane {
       if (canvas) canvas.style.visibility = 'hidden'
       this.renderSearchHighlight()
     } else {
-      if (this.mounted) this.revealAfterSettledFit()
+      this.revealAfterSettledFit()
     }
   }
 
@@ -599,6 +600,9 @@ class GhosttyTerminalPane implements TerminalPane {
   }
 
   private revealAfterSettledFit(): void {
+    if (this.disposed || this.presentation !== 'visible' || !this.mounted) return
+    const retainedCanvas = this.terminal.renderer?.getCanvas()
+    if (this.hasPresentedFrame && retainedCanvas) retainedCanvas.style.visibility = ''
     this.fit.resume(() => {
       if (this.disposed || this.presentation !== 'visible' || !this.mounted) return
       this.terminal.setRenderPaused(false)
@@ -608,6 +612,7 @@ class GhosttyTerminalPane implements TerminalPane {
       this.redraw()
       this.renderSearchHighlight()
       const canvas = this.terminal.renderer?.getCanvas()
+      this.hasPresentedFrame = true
       if (canvas) canvas.style.visibility = ''
     })
   }
