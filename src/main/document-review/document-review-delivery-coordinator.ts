@@ -59,7 +59,10 @@ interface PreparedRecord {
 }
 
 export interface DocumentReviewDeliveryCoordinatorOptions {
-  readonly workspace: Pick<DocumentReviewCoordinator, 'deliverySnapshot' | 'markSent'>
+  readonly workspace: Pick<
+    DocumentReviewCoordinator,
+    'deliverySnapshot' | 'completeDelivery'
+  >
   readonly ptys: Pick<PtySupervisor, 'get' | 'list' | 'write' | 'writeConfirmed'>
   readonly sessions: Pick<TerminalSessionStore, 'get'>
   readonly providers: Pick<HarnessProviderRegistry, 'get'>
@@ -253,7 +256,7 @@ export class DocumentReviewDeliveryCoordinator {
         ) {
           throw new Error('The prepared provider submission capability changed')
         }
-        const snapshot = await this.options.workspace.markSent(owner, {
+        const snapshot = await this.options.workspace.completeDelivery(owner, {
           ...prepared.scope,
           expectedRevision: after.review.revision,
           commentIds: after.payload.commentIds,

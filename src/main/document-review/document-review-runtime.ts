@@ -8,6 +8,7 @@ import type { HarnessProfileStoreContract } from '../harness/harness-profile-sto
 import { DocumentReviewCoordinator } from './document-review-coordinator'
 import { DocumentReviewDeliveryCoordinator } from './document-review-delivery-coordinator'
 import { DocumentReviewStore } from './document-review-store'
+import { DOCUMENT_REVIEW_RETENTION_SWEEP_MS } from './document-review-retention'
 
 export interface DocumentReviewRuntime {
   readonly coordinator: DocumentReviewCoordinator
@@ -29,6 +30,10 @@ export async function createDocumentReviewRuntime(
   },
 ): Promise<DocumentReviewRuntime> {
   const store = await DocumentReviewStore.load(host, file)
+  const retentionSweep = setInterval(() => {
+    void store.sweepExpiredDrafts().catch(() => undefined)
+  }, DOCUMENT_REVIEW_RETENTION_SWEEP_MS)
+  retentionSweep.unref()
   const coordinator = new DocumentReviewCoordinator({ store, resources })
   const reviewDelivery = new DocumentReviewDeliveryCoordinator({
     workspace: coordinator,
@@ -40,6 +45,7 @@ export async function createDocumentReviewRuntime(
     delivery: reviewDelivery,
     flush: () => store.flush(),
     dispose: async () => {
+      clearInterval(retentionSweep)
       reviewDelivery.dispose()
       coordinator.dispose()
       await store.dispose()

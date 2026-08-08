@@ -231,39 +231,23 @@ export async function verifyDocumentReviewWorkflow(options: {
   )
   const sentTransport = terminals.sendTransport(body)
   await waitForExactCapture(host, captureA, `${insert}${sentTransport}`)
-  await waitForComment(win, 'sent')
+  await waitForRenderer(
+    win,
+    `!document.querySelector('.review-block-badge') && ` +
+      `!document.querySelector('.cm-review-marker')`,
+    'delivered review remained projected in the document',
+  )
 
   await review.flush()
   const restartedStore = await DocumentReviewStore.load(host, reviewFile)
   try {
     const restarted = restartedStore.read(workspace)
-    if (
-      restarted.model.comments.length !== 1 ||
-      restarted.model.comments[0]?.lifecycle !== 'sent'
-    ) {
-      throw new Error('application restart reader did not restore the exact review state')
+    if (restarted.model.comments.length !== 0 || restarted.model.batches.length !== 0) {
+      throw new Error('application restart reader retained delivered review state')
     }
   } finally {
     await restartedStore.dispose()
   }
-
-  await activateControl(win, '[aria-label^="Clear 1 sent and resolved review comment"]')
-  await review.flush()
-  const clearedStore = await DocumentReviewStore.load(host, reviewFile)
-  try {
-    const cleared = clearedStore.read(workspace)
-    if (cleared.model.comments.length !== 0 || cleared.model.batches.length !== 0) {
-      throw new Error('clearing a sent review did not remove its durable history')
-    }
-  } finally {
-    await clearedStore.dispose()
-  }
-  await waitForRenderer(
-    win,
-    `!document.querySelector('.review-block-badge') && ` +
-      `!document.querySelector('.cm-review-marker')`,
-    'cleared sent review remained projected in the document',
-  )
 
   supervisor.disposeSession(
     terminals.first.id,
@@ -307,7 +291,7 @@ export async function verifyDocumentReviewWorkflow(options: {
   return (
     'inert selection · rendered/source anchor · moved prior location · ' +
     'tab/project/reload/restart durability · byte-identical preview/insert/direct-send · ' +
-    'fixed top destination · sent cleanup · renderer/PTY cleanup'
+    'fixed top destination · delivered cleanup · renderer/PTY cleanup'
   )
 }
 
@@ -849,10 +833,7 @@ async function waitForExactPreview(win: BrowserWindow): Promise<void> {
   )
 }
 
-async function waitForComment(
-  win: BrowserWindow,
-  lifecycle: 'draft' | 'sent',
-): Promise<void> {
+async function waitForComment(win: BrowserWindow, lifecycle: 'draft'): Promise<void> {
   await openReviewCommentIfNeeded(win)
   await waitForRenderer(
     win,

@@ -32,7 +32,10 @@ interface ActiveReviewWorkspace {
 }
 
 export interface DocumentReviewCoordinatorOptions {
-  readonly store: Pick<DocumentReviewStore, 'notice' | 'read' | 'retryLoad' | 'save'>
+  readonly store: Pick<
+    DocumentReviewStore,
+    'notice' | 'read' | 'retryLoad' | 'save' | 'sweepExpiredDrafts'
+  >
   readonly resources: RendererResourceScopes
 }
 
@@ -83,6 +86,7 @@ export class DocumentReviewCoordinator {
         () => this.revokeSession(session),
       )
       await this.options.store.retryLoad()
+      await this.options.store.sweepExpiredDrafts().catch(() => undefined)
       this.assertCurrent(session)
       const stored = this.options.store.read(workspace)
       return {
@@ -177,8 +181,8 @@ export class DocumentReviewCoordinator {
     }
   }
 
-  /** Persist the exact post-send lifecycle transition after PTY confirmation. */
-  async markSent(
+  /** Remove exactly the delivered drafts after complete PTY-boundary acceptance. */
+  async completeDelivery(
     owner: RendererOwner,
     request: {
       readonly workspace: ReviewWorkspaceIdentity
@@ -203,14 +207,12 @@ export class DocumentReviewCoordinator {
     for (const id of ids) {
       const comment = current.model.comments.find((candidate) => candidate.id === id)
       if (!comment || comment.lifecycle !== 'draft') {
-        throw new Error('Only the exact included drafts can be marked sent')
+        throw new Error('Only the exact included drafts can be completed')
       }
     }
     const model: DocumentReviewModel = {
       ...current.model,
-      comments: current.model.comments.map((comment) =>
-        ids.has(comment.id) ? { ...comment, lifecycle: 'sent' as const } : comment,
-      ),
+      comments: current.model.comments.filter((comment) => !ids.has(comment.id)),
       batches: current.model.batches.flatMap((batch) => {
         const commentIds = batch.commentIds.filter((id) => !ids.has(id))
         return commentIds.length === 0 ? [] : [{ ...batch, commentIds }]

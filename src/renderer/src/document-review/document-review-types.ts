@@ -35,6 +35,7 @@ export type DocumentReviewAction =
       readonly body: string
     })
   | (WorkspaceAction & { readonly type: 'remove-comment'; readonly commentId: string })
+  | (WorkspaceAction & { readonly type: 'discard-batch'; readonly batchId: string })
   | (WorkspaceAction & { readonly type: 'review-stale'; readonly commentId: string })
   | (WorkspaceAction & {
       readonly type: 'revalidate-document'

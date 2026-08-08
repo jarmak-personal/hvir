@@ -275,10 +275,8 @@ describe('document review delivery interaction', () => {
     const exact = { ...prepared, destination }
     const sentModel = {
       ...model(),
-      comments: model().comments.map((comment) => ({
-        ...comment,
-        lifecycle: 'sent' as const,
-      })),
+      comments: [],
+      batches: [],
     }
     const adoptAuthoritative = vi.fn(() => true)
     const invoke = vi.fn((channel: string) => {
@@ -511,7 +509,7 @@ describe('document review delivery interaction', () => {
     expect(button('Inserted')).toBeTruthy()
   })
 
-  it('offers send-now separately and adopts durable sent state without routine caveats', async () => {
+  it('offers send-now separately and adopts durable cleanup without routine caveats', async () => {
     vi.stubGlobal('navigator', {
       clipboard: { writeText: vi.fn(() => Promise.resolve()) },
     })
@@ -522,10 +520,8 @@ describe('document review delivery interaction', () => {
     const sendPrepared = { ...prepared, destination: sendDestination }
     const sentModel: DocumentReviewModel = {
       ...model(),
-      comments: model().comments.map((comment) => ({
-        ...comment,
-        lifecycle: 'sent' as const,
-      })),
+      comments: [],
+      batches: [],
     }
     const adoptAuthoritative = vi.fn(() => true)
     const review = { ...binding(model()), adoptAuthoritative }
@@ -574,7 +570,8 @@ describe('document review delivery interaction', () => {
     )
     expect(host.textContent).not.toContain('accepted at the PTY boundary')
     expect(host.textContent).not.toContain('does not mean the agent read')
-    expect(button('Sent')?.disabled).toBe(true)
+    expect(host.querySelector('[aria-label="Review handoff preview"]')).toBeNull()
+    expect(host.textContent).toContain('Sent to')
     expect(invoke.mock.calls.some(([channel]) => channel === 'pty:write')).toBe(false)
   })
 
@@ -601,9 +598,8 @@ describe('document review delivery interaction', () => {
     }
     const sentModel: DocumentReviewModel = {
       ...activeModel,
-      comments: activeModel.comments.map((comment) =>
-        comment.id === 'comment-1' ? { ...comment, lifecycle: 'sent' as const } : comment,
-      ),
+      comments: activeModel.comments.filter((comment) => comment.id !== 'comment-1'),
+      batches: [],
     }
     const send = deferred<unknown>()
     const save = vi.fn<DocumentReviewWorkspacePort['save']>((request) =>
@@ -672,10 +668,7 @@ describe('document review delivery interaction', () => {
     expect(controller.snapshot()).toMatchObject({
       revision: 4,
       model: {
-        comments: [
-          expect.objectContaining({ id: 'comment-1', lifecycle: 'sent' }),
-          expect.objectContaining({ id: 'comment-2', lifecycle: 'draft' }),
-        ],
+        comments: [expect.objectContaining({ id: 'comment-2', lifecycle: 'draft' })],
       },
     })
     expect(
@@ -693,7 +686,6 @@ describe('document review delivery interaction', () => {
       error: undefined,
       model: {
         comments: [
-          expect.objectContaining({ id: 'comment-1', lifecycle: 'sent' }),
           expect.objectContaining({ id: 'comment-2', body: 'Updated after send.' }),
         ],
       },

@@ -330,14 +330,12 @@ export function useDocumentReviewDelivery(
         if (operationGeneration.current !== generation) return
         if (result.outcome === 'sent') {
           previewModel.current = result.snapshot.model
-          setState((value) => ({
-            ...value,
-            loading: false,
-            prepared: undefined,
+          setState({
+            ...CLOSED,
             sent: true,
             notice: sentReviewNotice(prepared.destination),
             directHandoffBlocked: false,
-          }))
+          })
           return
         }
         setState((value) => ({

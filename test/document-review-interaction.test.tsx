@@ -549,6 +549,67 @@ describe('Markdown document review interaction', () => {
     expect(button('Enter Markdown review mode')).toBeTruthy()
   })
 
+  it('confirms and discards a multi-comment active review', () => {
+    const first = comment('first', 'draft', 'current')
+    const second = { ...comment('second', 'draft', 'current'), id: 'second-draft' }
+    const model: DocumentReviewModel = {
+      ...emptyModel(),
+      comments: [first, second],
+      batches: [
+        {
+          id: 'active-review',
+          workspace,
+          commentIds: [first.id, second.id],
+        },
+      ],
+    }
+    let discarded = model
+    const apply = vi.fn<DocumentReviewWorkspaceBinding['apply']>((action) => {
+      const result = applyDocumentReviewAction(discarded, action)
+      if (result.ok) discarded = result.model
+      return result
+    })
+    renderViewer(sourceTab(), binding(model, apply))
+    click('Enter Markdown review mode')
+
+    click('Discard 2 draft review comments')
+    expect(host.querySelector('[role="dialog"]')?.textContent).toContain(
+      'Discard this review?',
+    )
+    expect(apply).not.toHaveBeenCalled()
+    act(() => button('Discard review', 1)?.click())
+
+    expect(apply).toHaveBeenCalledWith({
+      type: 'discard-batch',
+      workspace,
+      batchId: 'active-review',
+    })
+    expect(discarded).toMatchObject({ comments: [], batches: [] })
+  })
+
+  it('discards a one-comment review without an extra confirmation step', () => {
+    const draft = comment('only', 'draft', 'current')
+    const model: DocumentReviewModel = {
+      ...emptyModel(),
+      comments: [draft],
+      batches: [{ id: 'active-review', workspace, commentIds: [draft.id] }],
+    }
+    const apply = vi.fn<DocumentReviewWorkspaceBinding['apply']>((action) =>
+      applyDocumentReviewAction(model, action),
+    )
+    renderViewer(sourceTab(), binding(model, apply))
+    click('Enter Markdown review mode')
+
+    click('Discard 1 draft review comment')
+
+    expect(host.querySelector('[role="dialog"]')).toBeNull()
+    expect(apply).toHaveBeenCalledWith({
+      type: 'discard-batch',
+      workspace,
+      batchId: 'active-review',
+    })
+  })
+
   it('clears workspace history deliberately while preserving every draft', () => {
     const model = {
       ...emptyModel(),

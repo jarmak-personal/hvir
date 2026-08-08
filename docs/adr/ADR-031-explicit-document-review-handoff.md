@@ -35,14 +35,15 @@ action may move or combine state across host or workspace identity.
 
 Ownership is divided as follows:
 
-- A dependency-free document-review model owns anchors, exact revalidation, batches, lifecycle,
-  delivery eligibility, and review-record size and count policy. A separate dependency-free
-  delivery policy owns deterministic grouping, exact body formatting, and payload bounds. Neither
-  imports React, preload, main-process, provider, PTY, or terminal implementation.
+- A dependency-free document-review model owns anchors, exact revalidation, batches, interactive
+  lifecycle, delivery eligibility, and review-record size and count policy. A separate
+  dependency-free delivery policy owns deterministic grouping, exact body formatting, and payload
+  bounds. Neither imports React, preload, main-process, provider, PTY, or terminal implementation.
 - The renderer owns the active review model and Markdown interaction. Rendered and source views
   consume the same review records; the renderer shell only composes the feature owner.
 - A specialized main-owned document-review store under Electron user data owns durable
-  user-authored review records. It is not a generic persistence service.
+  user-authored review records, private draft-activity timestamps, migration, and age-based
+  retention. It is not a generic persistence service.
 - A named main-owned review-delivery coordinator owns the viewer-to-terminal workflow through
   narrow review-store, provider, live-terminal, renderer-resource, and PTY-supervisor ports. IPC
   validates and translates messages but owns no review or delivery policy.
@@ -95,17 +96,24 @@ Application composition explicitly loads, flushes, and disposes the store. Shutd
 bounded flush attempt without delaying paint, terminal input, or host teardown indefinitely.
 
 Draft review state survives tab close, workspace navigation, renderer reload, and ordinary
-application restart. Runtime workspace revocation cancels reads, writes, watch interests, and
-delivery attempts, but it does not silently clear already durable review history. Store and
-renderer revisions reject late completion from a replaced renderer or workspace generation.
+application restart for up to seven days after creation or the latest comment-body edit. The
+specialized store keeps activity timestamps out of renderer and provider contracts, gives
+pre-retention records one seven-day migration grace period, and removes expired drafts through a
+bounded startup, workspace-restoration, and periodic sweep. Revalidation, stale acknowledgement,
+batch changes, agent output, attention, and file edits do not refresh retention. Runtime workspace
+revocation still cancels reads, writes, watch interests, and delivery attempts. Store and renderer
+revisions reject late completion from a replaced renderer or workspace generation.
 
-The current comment lifecycle is `draft` to `sent`. Anchor state, including current, moved, or
-stale, is orthogonal. Copying a payload or inserting it into a composer does not advance the
-lifecycle. Only a successful provider-owned send-now write may advance the exact included drafts
-to sent. Sent means accepted by the owned PTY boundary, not read, accepted, or acted on by the
-agent. Clearing sent history is explicit; no age, agent output, attention signal, or file edit
-clears it automatically. Existing `resolved` records from earlier versions remain readable and
-explicitly clearable, but the streamlined inline workflow creates no new resolved state.
+New comments have one durable lifecycle state, `draft`; anchor state, including current, moved, or
+stale, is orthogonal. Copying a payload or inserting it into a composer retains that draft. A
+complete provider-owned send-now write accepted by the PTY supervisor removes exactly the included
+drafts and their batch memberships from durable and visible state. This acceptance does not prove
+that the agent read, accepted, or acted on the feedback. Any failed or indeterminate write, or any
+failure to persist the post-write transition, retains the drafts for an explicit user decision and
+consumes uncertain send authority where required to prevent an automatic duplicate. The user may
+also explicitly discard the active draft batch; a multi-comment or multi-document discard requires
+confirmation. Existing `sent` and `resolved` records from earlier versions remain readable and
+explicitly clearable, but the streamlined inline workflow creates neither state.
 
 The pure review policies define fixed limits for comments per workspace and document, comment and
 anchor text, excerpt and context, source range, batch membership, stored bytes, revalidation read
@@ -182,8 +190,9 @@ only when its effective capabilities, active launch/profile contract, configured
 `ComposerSubmitMode`, and atomic-paste contract together prove the exact submission sequence. The
 provider returns one complete transport sequence containing the same bracketed payload body
 followed by its provider-owned submit binding; the coordinator never appends a generic newline,
-carriage return, Enter, or control-key guess. A complete accepted supervisor write advances only
-the included drafts to sent. Any validation or write failure leaves them draft.
+carriage return, Enter, or control-key guess. A complete accepted supervisor write removes only
+the included drafts after the transition is persisted. Any validation or write failure leaves them
+draft.
 
 Plain shells, custom commands, unsupported provider versions, and providers without a proven
 contract remain Copy-only. The contract is identical for local and SSH terminals: the document
@@ -211,7 +220,7 @@ generic prompt injection, attachments, and new-conversation orchestration remain
 
 Document-review delivery and ADR-026 remote image paste remain separate coordinators. Review
 delivery handles visible UTF-8 feedback bodies, insertion-versus-send acknowledgement, current
-`draft`/`sent` state, and readable legacy `resolved` records without remote material. Image paste
+draft removal, and readable legacy `sent`/`resolved` records without remote material. Image paste
 handles clipboard PNG
 authority, private SSH staging, native attachment acknowledgement, retained bytes, expiry, and
 cleanup. They reuse the stable renderer-resource and PTY ownership primitives and the same exact
@@ -234,8 +243,9 @@ privacy remain part of the review feature's responsibility.
 
 Insert-first delivery preserves the native composer as the normal confirmation surface.
 Send-now can be convenient but remains visibly less certain about foreground TUI state; support
-for each provider and submit mode requires concrete, versioned evidence. hvir can truthfully
-claim only PTY-boundary acceptance, never agent receipt or agreement.
+for each provider and submit mode requires concrete, versioned evidence. Its automatic cleanup is
+therefore tied only to complete PTY-boundary acceptance. hvir can never claim agent receipt or
+agreement.
 
 The workflow adds a specialized store, pure model, renderer feature owner, and delivery
 coordinator, but no generic annotation service, prompt-delivery API, provider UI extension,
@@ -263,7 +273,10 @@ terminal macro system, remote process, or new application process boundary.
   prove atomic composer or submission semantics.
 - Parse the terminal screen or treat attention as a composer-state oracle. Both are incomplete,
   provider-fragile heuristics.
-- Mark copied or inserted comments sent, or infer resolution from agent output. Neither operation
-  proves submission, receipt, or agreement.
+- Clear copied or inserted comments, or infer resolution from agent output. Neither operation
+  proves PTY-boundary submission, receipt, or agreement.
+- Retain every abandoned draft indefinitely or expire drafts from renderer-local timers. The
+  former leaves stale review state forever; the latter duplicates durable time authority and is
+  unreliable across workspace and application lifecycles.
 - Generalize the first release into code annotations, threads, an agent protocol frontend, a
   provider plugin API, or conversation orchestration. Those are outside hvir's review contract.

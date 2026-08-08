@@ -6,6 +6,7 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { DocumentReviewStore } from '../src/main/document-review/document-review-store'
+import { DOCUMENT_REVIEW_DRAFT_RETENTION_MS } from '../src/main/document-review/document-review-retention'
 import { LocalHost } from '../src/main/project-host/local-host'
 import {
   asHostId,
@@ -71,6 +72,52 @@ describe('document review store', () => {
       }),
     ).toMatchObject({ revision: 0, model: { comments: [] } })
     await restored.dispose()
+  })
+
+  it('migrates existing drafts once and expires them after one seven-day grace period', async () => {
+    const target = workspace('project:main', localPath('/repo'))
+    const existing = model(target, localPath('/repo/readme.md'), 'legacy draft')
+    await store.dispose()
+    await host.writeFile(
+      file,
+      JSON.stringify({
+        version: 1,
+        workspaces: [{ revision: 4, model: existing }],
+      }),
+    )
+    let now = 2_000_000_000_000
+    store = await DocumentReviewStore.load(host, file, () => now)
+
+    expect(store.read(target)).toMatchObject({
+      revision: 4,
+      model: { comments: [{ body: 'legacy draft' }] },
+    })
+    expect(JSON.parse(await host.readTextFile(file))).toMatchObject({
+      version: 2,
+      workspaces: [
+        {
+          revision: 4,
+          draftActivity: [
+            {
+              commentId: 'comment-legacy-draft',
+              updatedAt: now,
+            },
+          ],
+        },
+      ],
+    })
+
+    now += DOCUMENT_REVIEW_DRAFT_RETENTION_MS
+    await store.dispose()
+    store = await DocumentReviewStore.load(host, file, () => now)
+    expect(store.read(target)).toMatchObject({
+      revision: 5,
+      model: { comments: [], batches: [] },
+    })
+    expect(JSON.parse(await host.readTextFile(file))).toMatchObject({
+      version: 2,
+      workspaces: [{ revision: 5, model: { comments: [], batches: [] } }],
+    })
   })
 
   it.each([

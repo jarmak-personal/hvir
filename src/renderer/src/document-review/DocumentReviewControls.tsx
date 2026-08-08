@@ -1,5 +1,6 @@
-import type { ReactElement } from 'react'
+import { useEffect, useState, type ReactElement } from 'react'
 
+import { ConfirmationDialog } from '../workbench/ConfirmationDialog'
 import { DocumentReviewDeliveryPanel } from './DocumentReviewDeliveryPanel'
 import { lineRangeLabel } from './document-review-inline'
 import type { DocumentReviewInteraction } from './use-document-review-interaction'
@@ -53,6 +54,10 @@ export function DocumentReviewChrome({
 }: {
   readonly interaction: DocumentReviewInteraction
 }): ReactElement | null {
+  const [confirmDiscard, setConfirmDiscard] = useState(false)
+  useEffect(() => {
+    if (!interaction.active || !interaction.activeBatchId) setConfirmDiscard(false)
+  }, [interaction.active, interaction.activeBatchId])
   if (!interaction.active) return null
   const showTray = Boolean(
     interaction.activeBatchId ||
@@ -126,6 +131,24 @@ export function DocumentReviewChrome({
           {interaction.activeBatchId ? (
             <button
               type="button"
+              aria-label={`Discard ${interaction.activeBatchCount} draft review ${interaction.activeBatchCount === 1 ? 'comment' : 'comments'}`}
+              onClick={() => {
+                if (
+                  interaction.activeBatchCount > 1 ||
+                  interaction.activeBatchDocumentCount > 1
+                ) {
+                  setConfirmDiscard(true)
+                } else {
+                  interaction.discardReview()
+                }
+              }}
+            >
+              Discard review
+            </button>
+          ) : null}
+          {interaction.activeBatchId ? (
+            <button
+              type="button"
               aria-label={`Review and send ${interaction.activeBatchCount} comments`}
               onClick={() =>
                 interaction.delivery.previewBatch(interaction.activeBatchId!)
@@ -146,6 +169,33 @@ export function DocumentReviewChrome({
         </div>
       ) : null}
       <DocumentReviewDeliveryPanel delivery={interaction.delivery} />
+      {confirmDiscard ? (
+        <ConfirmationDialog
+          labelledBy="document-review-discard-title"
+          actions={[
+            {
+              label: 'Cancel',
+              kind: 'cancel',
+              onSelect: () => setConfirmDiscard(false),
+            },
+            {
+              label: 'Discard review',
+              kind: 'destructive',
+              onSelect: () => {
+                setConfirmDiscard(false)
+                interaction.discardReview()
+              },
+            },
+          ]}
+        >
+          <h2 id="document-review-discard-title">Discard this review?</h2>
+          <p>
+            This removes {interaction.activeBatchCount} unsent review{' '}
+            {interaction.activeBatchCount === 1 ? 'comment' : 'comments'} from this
+            workspace.
+          </p>
+        </ConfirmationDialog>
+      ) : null}
     </aside>
   )
 }

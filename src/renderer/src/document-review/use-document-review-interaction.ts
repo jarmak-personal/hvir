@@ -63,6 +63,7 @@ export interface DocumentReviewInteraction {
   readonly commentNavigation?: { readonly id: string; readonly request: number }
   readonly activeBatchId?: string
   readonly activeBatchCount: number
+  readonly activeBatchDocumentCount: number
   readonly historyCount: number
   readonly delivery: DocumentReviewDeliveryInteraction
   readonly projection?: DocumentReviewDocumentProjection
@@ -73,6 +74,7 @@ export interface DocumentReviewInteraction {
   readonly cancelCapture: () => void
   readonly edit: (commentId: string, body: string) => void
   readonly remove: (commentId: string) => void
+  readonly discardReview: () => void
   readonly clearHistory: () => void
   readonly reviewStale: (commentId: string) => void
   readonly navigate: (comment: DocumentReviewComment) => void
@@ -120,6 +122,14 @@ export function useDocumentReviewInteraction(
         (comment) => comment.id === id && comment.lifecycle === 'draft',
       ),
     ).length ?? 0
+  const activeBatchDocumentCount = new Set(
+    activeBatch?.commentIds.flatMap((id) => {
+      const comment = model?.comments.find(
+        (candidate) => candidate.id === id && candidate.lifecycle === 'draft',
+      )
+      return comment ? [`${comment.document.hostId}\0${comment.document.path}`] : []
+    }) ?? [],
+  ).size
   const documentLines = document ? lineCount(document.content) : 0
   const orphanedComments = document?.dirty
     ? []
@@ -291,9 +301,9 @@ export function useDocumentReviewInteraction(
   const workspaceAction = useCallback(
     (
       build: (workspace: NonNullable<typeof model>['workspace']) => DocumentReviewAction,
-    ): void => {
+    ): boolean => {
       const workspace = current.current.binding?.state.model?.workspace
-      if (workspace) apply(build(workspace))
+      return workspace ? apply(build(workspace)) : false
     },
     [apply],
   )
@@ -339,6 +349,7 @@ export function useDocumentReviewInteraction(
     commentNavigation,
     activeBatchId: activeBatchDraftCount > 0 ? activeBatch?.id : undefined,
     activeBatchCount: activeBatchDraftCount,
+    activeBatchDocumentCount,
     historyCount,
     delivery,
     projection,
@@ -375,6 +386,22 @@ export function useDocumentReviewInteraction(
         workspace,
         commentId,
       })),
+    discardReview: () => {
+      const batchId = activeBatch?.id
+      if (!batchId) return
+      delivery.close()
+      if (
+        workspaceAction((workspace) => ({
+          type: 'discard-batch',
+          workspace,
+          batchId,
+        }))
+      ) {
+        setPendingRange(undefined)
+        setExpandedRange(undefined)
+        setCommentNavigation(undefined)
+      }
+    },
     clearHistory: () => {
       delivery.close()
       workspaceAction((workspace) => ({

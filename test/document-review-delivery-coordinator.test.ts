@@ -266,7 +266,7 @@ describe('document review delivery coordinator', () => {
     ['enter', '\r'],
     ['ctrl-enter', '\x1b[13;5u'],
   ] as const)(
-    'writes one exact multiline Codex transport and persists sent lifecycle in %s mode',
+    'writes one exact multiline Codex transport and removes delivered drafts in %s mode',
     async (mode, submit) => {
       const fixture = deliveryFixture()
       const selected = fixture.addSendTerminal('codex-send', 'Exact Codex', mode)
@@ -302,8 +302,8 @@ describe('document review delivery coordinator', () => {
         outcome: 'sent',
         snapshot: { revision: 4 },
       })
-      if (result.outcome !== 'sent') throw new Error('Expected durable sent result')
-      expect(result.snapshot.model.comments[0]?.lifecycle).toBe('sent')
+      if (result.outcome !== 'sent') throw new Error('Expected durable send result')
+      expect(result.snapshot.model.comments).toEqual([])
       expect(result.snapshot.model.batches).toEqual([])
       await expect(fixture.coordinator.sendNow(OWNER, prepared.id)).rejects.toThrow(
         /stale/,
@@ -332,7 +332,7 @@ describe('document review delivery coordinator', () => {
     })
   })
 
-  it('consumes confirmed send authority when sent-state persistence fails', async () => {
+  it('consumes confirmed send authority when delivered-state persistence fails', async () => {
     const fixture = deliveryFixture()
     fixture.addSendTerminal('codex-send', 'Codex', 'enter')
     const prepared = fixture.coordinator.prepare(OWNER, {
@@ -340,7 +340,7 @@ describe('document review delivery coordinator', () => {
       selection: { kind: 'comment', commentId: 'comment-1' },
       terminalId: 'codex-send',
     })
-    fixture.markSent.mockRejectedValueOnce(new Error('disk unavailable'))
+    fixture.completeDelivery.mockRejectedValueOnce(new Error('disk unavailable'))
 
     await expect(fixture.coordinator.sendNow(OWNER, prepared.id)).resolves.toEqual({
       outcome: 'send-authority-consumed',
@@ -542,31 +542,31 @@ function deliveryFixture(
       return Promise.resolve()
     },
   )
-  const markSent = vi.fn<DocumentReviewCoordinator['markSent']>((_owner, request) => {
-    if (request.expectedRevision !== revision.value) {
-      throw new Error('The review batch changed during submission')
-    }
-    state.model = {
-      ...state.model,
-      comments: state.model.comments.map((comment) =>
-        request.commentIds.includes(comment.id)
-          ? { ...comment, lifecycle: 'sent' as const }
-          : comment,
-      ),
-      batches: state.model.batches.flatMap((batch) => {
-        const commentIds = batch.commentIds.filter(
-          (id) => !request.commentIds.includes(id),
-        )
-        return commentIds.length === 0 ? [] : [{ ...batch, commentIds }]
-      }),
-    }
-    revision.value += 1
-    return Promise.resolve({
-      workspaceGeneration: request.workspaceGeneration,
-      revision: revision.value,
-      model: state.model,
-    })
-  })
+  const completeDelivery = vi.fn<DocumentReviewCoordinator['completeDelivery']>(
+    (_owner, request) => {
+      if (request.expectedRevision !== revision.value) {
+        throw new Error('The review batch changed during submission')
+      }
+      state.model = {
+        ...state.model,
+        comments: state.model.comments.filter(
+          (comment) => !request.commentIds.includes(comment.id),
+        ),
+        batches: state.model.batches.flatMap((batch) => {
+          const commentIds = batch.commentIds.filter(
+            (id) => !request.commentIds.includes(id),
+          )
+          return commentIds.length === 0 ? [] : [{ ...batch, commentIds }]
+        }),
+      }
+      revision.value += 1
+      return Promise.resolve({
+        workspaceGeneration: request.workspaceGeneration,
+        revision: revision.value,
+        model: state.model,
+      })
+    },
+  )
   const coordinator = new DocumentReviewDeliveryCoordinator({
     workspace: {
       deliverySnapshot: (owner, request) => {
@@ -585,7 +585,7 @@ function deliveryFixture(
           host,
         }
       },
-      markSent,
+      completeDelivery,
     },
     ptys: {
       get: (id) => terminals.get(id),
@@ -611,7 +611,7 @@ function deliveryFixture(
     resources,
     writes,
     writeConfirmed,
-    markSent,
+    completeDelivery,
     profiles,
     scope: { workspace, workspaceGeneration: 5 },
     addTerminal: (

@@ -19,13 +19,19 @@ import {
   isDocumentReviewIdentifier,
   isDocumentReviewRecord,
 } from './document-review-policy'
+import {
+  initialDocumentReviewDraftActivity,
+  type DocumentReviewDraftActivity,
+} from './document-review-retention'
 
-export const DOCUMENT_REVIEW_FILE_VERSION = 1
+export const DOCUMENT_REVIEW_FILE_VERSION = 2
+const LEGACY_DOCUMENT_REVIEW_FILE_VERSION = 1
 export const MAX_STORED_REVIEW_WORKSPACES = 64
 
 export interface StoredReviewWorkspace {
   readonly revision: number
   readonly model: DocumentReviewModel
+  readonly draftActivity: readonly DocumentReviewDraftActivity[]
 }
 
 export interface StoredReviewFile {
@@ -33,10 +39,18 @@ export interface StoredReviewFile {
   readonly workspaces: readonly StoredReviewWorkspace[]
 }
 
-export function parseStoredReviewFile(value: unknown): StoredReviewFile | undefined {
+export interface ParsedStoredReviewFile extends StoredReviewFile {
+  readonly migrated: boolean
+}
+
+export function parseStoredReviewFile(
+  value: unknown,
+  now: number,
+): ParsedStoredReviewFile | undefined {
   if (
     !isDocumentReviewRecord(value) ||
-    value['version'] !== DOCUMENT_REVIEW_FILE_VERSION ||
+    (value['version'] !== DOCUMENT_REVIEW_FILE_VERSION &&
+      value['version'] !== LEGACY_DOCUMENT_REVIEW_FILE_VERSION) ||
     !Array.isArray(value['workspaces']) ||
     value['workspaces'].length > MAX_STORED_REVIEW_WORKSPACES
   ) {
@@ -57,9 +71,51 @@ export function parseStoredReviewFile(value: unknown): StoredReviewFile | undefi
     const key = reviewWorkspaceKey(model.workspace)
     if (keys.has(key)) return undefined
     keys.add(key)
-    workspaces.push({ revision: raw['revision'] as number, model })
+    const draftActivity =
+      value['version'] === LEGACY_DOCUMENT_REVIEW_FILE_VERSION
+        ? initialDocumentReviewDraftActivity(model, now)
+        : parseDraftActivity(raw['draftActivity'], model)
+    if (!draftActivity) return undefined
+    workspaces.push({ revision: raw['revision'] as number, model, draftActivity })
   }
-  return { version: DOCUMENT_REVIEW_FILE_VERSION, workspaces }
+  return {
+    version: DOCUMENT_REVIEW_FILE_VERSION,
+    workspaces,
+    migrated: value['version'] === LEGACY_DOCUMENT_REVIEW_FILE_VERSION,
+  }
+}
+
+function parseDraftActivity(
+  value: unknown,
+  model: DocumentReviewModel,
+): readonly DocumentReviewDraftActivity[] | undefined {
+  if (!Array.isArray(value)) return undefined
+  const draftIds = new Set(
+    model.comments
+      .filter((comment) => comment.lifecycle === 'draft')
+      .map((comment) => comment.id),
+  )
+  if (value.length !== draftIds.size) return undefined
+  const activity: DocumentReviewDraftActivity[] = []
+  const seen = new Set<string>()
+  for (const raw of value) {
+    if (
+      !isDocumentReviewRecord(raw) ||
+      !validId(raw['commentId'], DOCUMENT_REVIEW_LIMITS.idBytes) ||
+      !draftIds.has(raw['commentId']) ||
+      seen.has(raw['commentId']) ||
+      !Number.isSafeInteger(raw['updatedAt']) ||
+      (raw['updatedAt'] as number) < 0
+    ) {
+      return undefined
+    }
+    seen.add(raw['commentId'])
+    activity.push({
+      commentId: raw['commentId'],
+      updatedAt: raw['updatedAt'] as number,
+    })
+  }
+  return activity
 }
 
 export function parseReviewModel(value: unknown): DocumentReviewModel | undefined {

@@ -11,6 +11,7 @@ import {
 } from './document-review-batches'
 import {
   clearDocumentReviewHistory,
+  discardDocumentReviewBatch,
   editDocumentReviewComment,
   removeDocumentReviewComment,
   reviewStaleDocumentComment,
@@ -76,6 +77,11 @@ export function applyDocumentReviewAction(
       return applyAuthoritativeResult(
         model,
         removeDocumentReviewComment(model, action.commentId),
+      )
+    case 'discard-batch':
+      return applyAuthoritativeResult(
+        model,
+        discardDocumentReviewBatch(model, action.batchId),
       )
     case 'review-stale':
       return applyAuthoritativeResult(

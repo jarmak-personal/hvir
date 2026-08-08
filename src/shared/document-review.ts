@@ -167,13 +167,11 @@ export interface DocumentReviewDeliveryScopeRequest {
   readonly workspaceGeneration: number
 }
 
-export interface DocumentReviewPreviewRequest
-  extends DocumentReviewDeliveryScopeRequest {
+export interface DocumentReviewPreviewRequest extends DocumentReviewDeliveryScopeRequest {
   readonly selection: DocumentReviewDeliverySelection
 }
 
-export interface DocumentReviewPrepareRequest
-  extends DocumentReviewPreviewRequest {
+export interface DocumentReviewPrepareRequest extends DocumentReviewPreviewRequest {
   readonly terminalId: string
 }
 
@@ -198,7 +196,7 @@ export interface DocumentReviewSendNowRequest {
 export type DocumentReviewSendNowResult =
   | {
       readonly outcome: 'sent'
-      /** Authoritative durable state after PTY-boundary write completion. */
+      /** Authoritative durable state after delivered drafts were removed. */
       readonly snapshot: DocumentReviewWorkspaceSnapshot
     }
   | {

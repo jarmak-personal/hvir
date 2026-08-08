@@ -400,6 +400,38 @@ describe('document review model', () => {
     expect(model).toMatchObject({ comments: [], batches: [] })
   })
 
+  it('discards the exact draft batch without touching legacy history', () => {
+    let model = apply(
+      emptyModel(),
+      add('first', 'Before', capture(document, original, 1)),
+    )
+    model = apply(model, add('second', 'Second', capture(document, original, 2)))
+    model = apply(model, {
+      type: 'create-batch',
+      workspace,
+      batchId: 'active-review',
+      commentIds: ['first', 'second'],
+    })
+    model = {
+      ...model,
+      comments: [
+        ...model.comments,
+        { ...model.comments[0]!, id: 'legacy-sent', lifecycle: 'sent' },
+      ],
+    }
+
+    model = apply(model, {
+      type: 'discard-batch',
+      workspace,
+      batchId: 'active-review',
+    })
+
+    expect(model.comments).toEqual([
+      expect.objectContaining({ id: 'legacy-sent', lifecycle: 'sent' }),
+    ])
+    expect(model.batches).toEqual([])
+  })
+
   it('rejects source, text, count, and batch bounds without truncation or partial changes', () => {
     const baseline = emptyModel()
     const tooLargeBody = 'x'.repeat(DOCUMENT_REVIEW_LIMITS.commentBytes + 1)

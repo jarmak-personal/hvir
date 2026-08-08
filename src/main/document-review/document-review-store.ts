@@ -26,6 +26,10 @@ import {
   documentReviewWorkspaceEquals,
   isDocumentReviewRecord,
 } from './document-review-policy'
+import {
+  expireDocumentReviewDrafts,
+  reconcileDocumentReviewDraftActivity,
+} from './document-review-retention'
 
 const MAX_STORED_FILE_BYTES = 8 * 1024 * 1024
 const DEFAULT_DISPOSE_TIMEOUT_MS = 2_000
@@ -42,53 +46,78 @@ export class DocumentReviewStore {
   private readonly disposal = new AbortController()
   private disposeTask?: Promise<void>
   private retryTask?: Promise<void>
+  private needsMigration: boolean
 
   private constructor(
     private readonly host: ProjectHost,
     private readonly file: ReturnType<typeof hostPath>,
     workspaces: readonly StoredReviewWorkspace[],
     private loadNotice?: DocumentReviewStoreNotice,
+    needsMigration = false,
+    private readonly now: () => number = Date.now,
   ) {
+    this.needsMigration = needsMigration
     for (const workspace of workspaces) {
       this.workspaces.set(reviewWorkspaceKey(workspace.model.workspace), workspace)
     }
   }
 
-  static async load(host: ProjectHost, file: ReturnType<typeof hostPath>) {
+  static async load(
+    host: ProjectHost,
+    file: ReturnType<typeof hostPath>,
+    now: () => number = Date.now,
+  ) {
     let content: string | undefined
     try {
       const workload = await host.readTextFilePrefix(file, MAX_STORED_FILE_BYTES)
       if (!workload.complete) {
-        return this.recover(host, file, 'corrupt')
+        return this.recover(host, file, 'corrupt', now)
       }
       content = workload.content
     } catch (reason) {
-      if (isMissingFile(reason)) return new DocumentReviewStore(host, file, [])
-      return new DocumentReviewStore(host, file, [], {
-        kind: 'read-failure',
-        writeBlocked: true,
-      })
+      if (isMissingFile(reason))
+        return new DocumentReviewStore(host, file, [], undefined, false, now)
+      return new DocumentReviewStore(
+        host,
+        file,
+        [],
+        {
+          kind: 'read-failure',
+          writeBlocked: true,
+        },
+        false,
+        now,
+      )
     }
 
     let value: unknown
     try {
       value = JSON.parse(content)
     } catch {
-      return this.recover(host, file, 'corrupt')
+      return this.recover(host, file, 'corrupt', now)
     }
     if (isDocumentReviewRecord(value) && isFutureReviewVersion(value['version'])) {
-      return this.recover(host, file, 'future-version')
+      return this.recover(host, file, 'future-version', now)
     }
-    const parsed = parseStoredReviewFile(value)
-    return parsed
-      ? new DocumentReviewStore(host, file, parsed.workspaces)
-      : this.recover(host, file, 'corrupt')
+    const parsed = parseStoredReviewFile(value, now())
+    if (!parsed) return this.recover(host, file, 'corrupt', now)
+    const store = new DocumentReviewStore(
+      host,
+      file,
+      parsed.workspaces,
+      undefined,
+      parsed.migrated,
+      now,
+    )
+    await store.sweepExpiredDrafts().catch(() => undefined)
+    return store
   }
 
   private static async recover(
     host: ProjectHost,
     file: ReturnType<typeof hostPath>,
     kind: 'corrupt' | 'future-version',
+    now: () => number,
   ): Promise<DocumentReviewStore> {
     const recoveryFile = recoveryFileName(file)
     const destination = joinHostPath(dirnameHostPath(file), recoveryFile)
@@ -96,13 +125,27 @@ export class DocumentReviewStore {
       const transfer = host.fileTransfer
       if (!transfer) throw new Error('Review recovery needs atomic rename support')
       await transfer.renameNoReplace(file, destination)
-      return new DocumentReviewStore(host, file, [], {
-        kind,
-        recoveryFile,
-        writeBlocked: false,
-      })
+      return new DocumentReviewStore(
+        host,
+        file,
+        [],
+        {
+          kind,
+          recoveryFile,
+          writeBlocked: false,
+        },
+        false,
+        now,
+      )
     } catch {
-      return new DocumentReviewStore(host, file, [], { kind, writeBlocked: true })
+      return new DocumentReviewStore(
+        host,
+        file,
+        [],
+        { kind, writeBlocked: true },
+        false,
+        now,
+      )
     }
   }
 
@@ -156,13 +199,22 @@ export class DocumentReviewStore {
           throw new Error('The stored document-review workspace limit was reached')
         }
 
-        const stored = { revision: revision + 1, model: cloneReviewModel(parsed) }
+        const stored = {
+          revision: revision + 1,
+          model: cloneReviewModel(parsed),
+          draftActivity: reconcileDocumentReviewDraftActivity(
+            current,
+            parsed,
+            this.now(),
+          ),
+        }
         const serialized = this.serializeCandidate(key, stored)
         this.disposal.signal.throwIfAborted()
         await this.host.writeFile(this.file, serialized, {
           signal: this.disposal.signal,
         })
         this.workspaces.set(key, stored)
+        this.needsMigration = false
         return {
           revision: stored.revision,
           model: cloneReviewModel(stored.model),
@@ -174,6 +226,41 @@ export class DocumentReviewStore {
 
   flush(): Promise<void> {
     return this.pendingWrite
+  }
+
+  sweepExpiredDrafts(): Promise<void> {
+    const operation = this.pendingWrite
+      .catch(() => undefined)
+      .then(async () => {
+        this.assertWritable()
+        const now = this.now()
+        let changed = this.needsMigration
+        const workspaces = new Map<string, StoredReviewWorkspace>()
+        for (const [key, workspace] of this.workspaces) {
+          const expired = expireDocumentReviewDrafts(
+            workspace.model,
+            workspace.draftActivity,
+            now,
+          )
+          changed ||= expired.changed
+          workspaces.set(key, {
+            revision: workspace.revision + (expired.changed ? 1 : 0),
+            model: cloneReviewModel(expired.model),
+            draftActivity: expired.draftActivity,
+          })
+        }
+        if (!changed) return
+        const serialized = this.serializeWorkspaces(workspaces)
+        this.disposal.signal.throwIfAborted()
+        await this.host.writeFile(this.file, serialized, {
+          signal: this.disposal.signal,
+        })
+        this.workspaces.clear()
+        for (const [key, workspace] of workspaces) this.workspaces.set(key, workspace)
+        this.needsMigration = false
+      })
+    this.pendingWrite = operation
+    return operation
   }
 
   dispose(timeoutMs = DEFAULT_DISPOSE_TIMEOUT_MS): Promise<void> {
@@ -207,11 +294,18 @@ export class DocumentReviewStore {
   private serializeCandidate(key: string, candidate: StoredReviewWorkspace): string {
     const workspaces = new Map(this.workspaces)
     workspaces.set(key, candidate)
+    return this.serializeWorkspaces(workspaces)
+  }
+
+  private serializeWorkspaces(
+    workspaces: ReadonlyMap<string, StoredReviewWorkspace>,
+  ): string {
     const snapshot: StoredReviewFile = {
       version: DOCUMENT_REVIEW_FILE_VERSION,
       workspaces: [...workspaces.values()].map((workspace) => ({
         revision: workspace.revision,
         model: cloneReviewModel(workspace.model),
+        draftActivity: workspace.draftActivity,
       })),
     }
     const serialized = JSON.stringify(snapshot, null, 2)
@@ -222,13 +316,14 @@ export class DocumentReviewStore {
   }
 
   private async replaceFromRetry(): Promise<void> {
-    const retried = await DocumentReviewStore.load(this.host, this.file)
+    const retried = await DocumentReviewStore.load(this.host, this.file, this.now)
     if (retried.loadNotice?.kind === 'read-failure') return
     this.workspaces.clear()
     for (const [key, workspace] of retried.workspaces) {
       this.workspaces.set(key, workspace)
     }
     this.loadNotice = retried.loadNotice
+    this.needsMigration = retried.needsMigration
   }
 }
 

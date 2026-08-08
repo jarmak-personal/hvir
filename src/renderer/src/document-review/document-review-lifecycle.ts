@@ -37,6 +37,23 @@ export function removeDocumentReviewComment(
   return success(withoutComments(model, new Set([commentId])))
 }
 
+export function discardDocumentReviewBatch(
+  model: DocumentReviewModel,
+  batchId: string,
+): ReviewPolicyResult<DocumentReviewModel> {
+  const batch = model.batches.find((candidate) => candidate.id === batchId)
+  if (!batch) return failure('unknown-batch', 'The review batch does not exist')
+  const removed = new Set(batch.commentIds)
+  for (const id of removed) {
+    const comment = findComment(model, id)
+    if (!comment) return failure('unknown-comment', 'The review comment does not exist')
+    if (comment.lifecycle !== 'draft') {
+      return failure('comment-not-draft', 'Only draft comments may be discarded')
+    }
+  }
+  return success(withoutComments(model, removed))
+}
+
 export function reviewStaleDocumentComment(
   model: DocumentReviewModel,
   commentId: string,

@@ -40,6 +40,7 @@ describe('document review coordinator', () => {
         fixture.host,
       )
       expect(fixture.store.retryLoad).toHaveBeenCalledOnce()
+      expect(fixture.store.sweepExpiredDrafts).toHaveBeenCalledOnce()
       const document = hostPath(id, `${root.path}/review.md`)
 
       await expect(
@@ -257,10 +258,21 @@ describe('document review coordinator', () => {
     await expect(saving).rejects.toThrow(/revoked/)
   })
 
-  it('atomically persists exact included drafts as sent and releases their batch slots', async () => {
+  it('atomically removes exact delivered drafts and releases their batch slots', async () => {
     const root = localPath('/repo')
     const workspace: ReviewWorkspaceIdentity = { id: 'project:worktree', root }
-    const model = modelWithDraft(workspace)
+    const first = modelWithDraft(workspace)
+    const model: DocumentReviewModel = {
+      ...first,
+      comments: [
+        ...first.comments,
+        { ...first.comments[0]!, id: 'retained-draft', body: 'Retain this draft' },
+      ],
+      batches: first.batches.map((batch) => ({
+        ...batch,
+        commentIds: [...batch.commentIds, 'retained-draft'],
+      })),
+    }
     const save = vi.fn((_revision: number, candidate: DocumentReviewModel) =>
       Promise.resolve({ revision: 8, model: candidate }),
     )
@@ -274,7 +286,7 @@ describe('document review coordinator', () => {
       fixture.host,
     )
 
-    const sent = await fixture.coordinator.markSent(fixture.owner, {
+    const sent = await fixture.coordinator.completeDelivery(fixture.owner, {
       workspace,
       workspaceGeneration: restored.workspaceGeneration,
       expectedRevision: 7,
@@ -284,20 +296,20 @@ describe('document review coordinator', () => {
     expect(save).toHaveBeenCalledExactlyOnceWith(
       7,
       expect.objectContaining({
-        comments: [expect.objectContaining({ lifecycle: 'sent' })],
-        batches: [],
+        comments: [expect.objectContaining({ id: 'retained-draft' })],
+        batches: [expect.objectContaining({ commentIds: ['retained-draft'] })],
       }),
     )
     expect(sent).toMatchObject({
       revision: 8,
       model: {
-        comments: [expect.objectContaining({ lifecycle: 'sent' })],
-        batches: [],
+        comments: [expect.objectContaining({ id: 'retained-draft' })],
+        batches: [expect.objectContaining({ commentIds: ['retained-draft'] })],
       },
     })
   })
 
-  it('rejects stale, duplicate, or non-draft sent transitions before persistence', async () => {
+  it('rejects stale, duplicate, or non-draft delivery completion before persistence', async () => {
     const root = localPath('/repo')
     const workspace: ReviewWorkspaceIdentity = { id: 'project:worktree', root }
     const model = modelWithDraft(workspace)
@@ -318,20 +330,20 @@ describe('document review coordinator', () => {
     }
 
     await expect(
-      fixture.coordinator.markSent(fixture.owner, {
+      fixture.coordinator.completeDelivery(fixture.owner, {
         ...base,
         commentIds: ['draft-comment', 'draft-comment'],
       }),
     ).rejects.toThrow(/unique bounded/)
     await expect(
-      fixture.coordinator.markSent(fixture.owner, {
+      fixture.coordinator.completeDelivery(fixture.owner, {
         ...base,
         expectedRevision: 6,
         commentIds: ['draft-comment'],
       }),
     ).rejects.toThrow(/changed during submission/)
     await expect(
-      fixture.coordinator.markSent(fixture.owner, {
+      fixture.coordinator.completeDelivery(fixture.owner, {
         ...base,
         commentIds: ['missing'],
       }),
@@ -355,6 +367,7 @@ function createFixture(
     notice: vi.fn(() => undefined),
     read: vi.fn(() => ({ revision: 0, model })),
     retryLoad: vi.fn(() => Promise.resolve()),
+    sweepExpiredDrafts: vi.fn(() => Promise.resolve()),
     save: vi.fn((_revision: number, candidate: DocumentReviewModel) =>
       Promise.resolve({ revision: 1, model: candidate }),
     ),
