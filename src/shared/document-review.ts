@@ -1,4 +1,4 @@
-import type { HostPath } from './host-path'
+import { containsHostPath, hostPathEquals, type HostPath } from './host-path'
 
 export const DOCUMENT_REVIEW_LIMITS = {
   batchesPerWorkspace: 1,
@@ -21,6 +21,56 @@ export interface ReviewWorkspaceIdentity {
   /** Stable registered project/worktree identity, not a path-derived key. */
   readonly id: string
   readonly root: HostPath
+}
+
+export type DocumentReviewDocumentIssue =
+  'foreign-document' | 'document-outside-workspace' | 'unsupported-document'
+
+export function documentReviewWorkspaceEquals(
+  left: ReviewWorkspaceIdentity,
+  right: ReviewWorkspaceIdentity,
+): boolean {
+  return left.id === right.id && hostPathEquals(left.root, right.root)
+}
+
+export function documentReviewDocumentIssue(
+  workspace: ReviewWorkspaceIdentity,
+  document: HostPath,
+): DocumentReviewDocumentIssue | undefined {
+  if (document.hostId !== workspace.root.hostId) return 'foreign-document'
+  if (
+    !containsHostPath(workspace.root, document) ||
+    hostPathEquals(workspace.root, document)
+  ) {
+    return 'document-outside-workspace'
+  }
+  return /\.(?:md|markdown)$/i.test(document.path) ? undefined : 'unsupported-document'
+}
+
+export function isDocumentReviewDocument(
+  workspace: ReviewWorkspaceIdentity,
+  document: HostPath,
+): boolean {
+  return documentReviewDocumentIssue(workspace, document) === undefined
+}
+
+export function documentReviewUtf8Bytes(value: string): number {
+  return new TextEncoder().encode(value).byteLength
+}
+
+export function isDocumentReviewIdentifier(
+  value: unknown,
+  maximumBytes: number = DOCUMENT_REVIEW_LIMITS.idBytes,
+): value is string {
+  return (
+    typeof value === 'string' &&
+    value.length > 0 &&
+    documentReviewUtf8Bytes(value) <= maximumBytes &&
+    ![...value].some((character) => {
+      const code = character.codePointAt(0)!
+      return code <= 31 || code === 127
+    })
+  )
 }
 
 export interface ReviewDocumentSnapshot {

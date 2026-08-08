@@ -1,24 +1,29 @@
-import { containsHostPath, hostPathEquals } from '../../../shared'
+import {
+  documentReviewDocumentIssue,
+  documentReviewUtf8Bytes,
+  documentReviewWorkspaceEquals,
+  isDocumentReviewIdentifier,
+  type HostPath,
+} from '../../../shared'
 import {
   DOCUMENT_REVIEW_LIMITS,
   type ReviewPolicyError,
   type ReviewPolicyResult,
   type ReviewWorkspaceIdentity,
 } from './document-review-types'
-import type { HostPath } from '../../../shared'
 
 export function reviewWorkspaceEquals(
   left: ReviewWorkspaceIdentity,
   right: ReviewWorkspaceIdentity,
 ): boolean {
-  return left.id === right.id && hostPathEquals(left.root, right.root)
+  return documentReviewWorkspaceEquals(left, right)
 }
 
 export function validateReviewWorkspace(
   workspace: ReviewWorkspaceIdentity,
 ): ReviewPolicyError | undefined {
   if (
-    !isValidReviewId(workspace.id, DOCUMENT_REVIEW_LIMITS.workspaceIdBytes) ||
+    !isDocumentReviewIdentifier(workspace.id, DOCUMENT_REVIEW_LIMITS.workspaceIdBytes) ||
     !workspace.root.path.startsWith('/')
   ) {
     return reviewPolicyError(
@@ -33,23 +38,14 @@ export function validateReviewDocument(
   workspace: ReviewWorkspaceIdentity,
   document: HostPath,
 ): ReviewPolicyError | undefined {
-  if (workspace.root.hostId !== document.hostId) {
-    return reviewPolicyError('foreign-document', 'The document belongs to another host')
-  }
-  if (
-    !containsHostPath(workspace.root, document) ||
-    hostPathEquals(workspace.root, document)
-  ) {
-    return reviewPolicyError(
-      'document-outside-workspace',
-      'The document is outside the exact review workspace',
-    )
-  }
-  if (!/\.(?:md|markdown)$/i.test(document.path)) {
-    return reviewPolicyError(
-      'unsupported-document',
-      'Document review supports Markdown only',
-    )
+  const issue = documentReviewDocumentIssue(workspace, document)
+  if (issue) {
+    const message = {
+      'foreign-document': 'The document belongs to another host',
+      'document-outside-workspace': 'The document is outside the exact review workspace',
+      'unsupported-document': 'Document review supports Markdown only',
+    }[issue]
+    return reviewPolicyError(issue, message)
   }
   return undefined
 }
@@ -68,16 +64,11 @@ export function validateReviewCommentBody(body: string): ReviewPolicyError | und
 }
 
 export function isValidReviewId(id: string, maximumBytes: number): boolean {
-  if (id.length === 0 || reviewUtf8Bytes(id) > maximumBytes) return false
-  for (const character of id) {
-    const codePoint = character.codePointAt(0)!
-    if (codePoint <= 31 || codePoint === 127) return false
-  }
-  return true
+  return isDocumentReviewIdentifier(id, maximumBytes)
 }
 
 export function reviewUtf8Bytes(value: string): number {
-  return new TextEncoder().encode(value).byteLength
+  return documentReviewUtf8Bytes(value)
 }
 
 export function reviewPolicySuccess<T>(value: T): ReviewPolicyResult<T> {

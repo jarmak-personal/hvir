@@ -30,11 +30,11 @@ export async function createDocumentReviewRuntime(
   },
 ): Promise<DocumentReviewRuntime> {
   const store = await DocumentReviewStore.load(host, file)
+  const coordinator = new DocumentReviewCoordinator({ store, resources })
   const retentionSweep = setInterval(() => {
-    void store.sweepExpiredDrafts().catch(() => undefined)
+    void coordinator.sweepInactiveDrafts().catch(() => undefined)
   }, DOCUMENT_REVIEW_RETENTION_SWEEP_MS)
   retentionSweep.unref()
-  const coordinator = new DocumentReviewCoordinator({ store, resources })
   const reviewDelivery = new DocumentReviewDeliveryCoordinator({
     workspace: coordinator,
     resources,

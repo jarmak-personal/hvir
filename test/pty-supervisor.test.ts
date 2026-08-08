@@ -76,7 +76,7 @@ describe('PtySupervisor', () => {
     expect(info.capabilities).toMatchObject({
       sessionIdentity: 'preassigned',
       exactResume: true,
-      contextPresentation: 'count',
+      contextPresentation: 'pressure',
     })
     expect(info.capabilities).not.toHaveProperty('reviewInsertContractRevision')
   })

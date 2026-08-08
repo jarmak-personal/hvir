@@ -160,25 +160,7 @@ export class DocumentReviewDeliveryCoordinator {
   insert(owner: RendererOwner, preparedId: string): DocumentReviewInsertResult {
     const prepared = this.requirePrepared(owner, preparedId)
     if (prepared.inFlight) throw new Error('Review delivery is already in progress')
-    const review = this.reviewSnapshot(owner, prepared.scope)
-    this.assertHostConnected(review)
-    if (review.revision !== prepared.reviewRevision) {
-      throw new Error('The review batch changed after preview')
-    }
-    const payload = payloadFor(review, prepared.selection)
-    if (!samePayload(payload, prepared.payload)) {
-      throw new Error('The review payload changed after preview')
-    }
-    if (payload.byteLength > DOCUMENT_REVIEW_LIMITS.deliveryPayloadBytes) {
-      throw new Error('The review delivery exceeds its outbound byte limit')
-    }
-    const terminal = this.options.ptys.get(prepared.terminal.id)
-    if (
-      !terminal ||
-      !matchesPreparedDocumentReviewTerminal(terminal, prepared.terminal)
-    ) {
-      throw new Error('The prepared review terminal is no longer live')
-    }
+    const { payload, terminal } = this.validatePrepared(owner, prepared)
     const provider = this.options.providers.get(terminal.providerId)
     const contract = provider.documentReviewInsert
     if (

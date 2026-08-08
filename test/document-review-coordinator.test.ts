@@ -41,6 +41,7 @@ describe('document review coordinator', () => {
       )
       expect(fixture.store.retryLoad).toHaveBeenCalledOnce()
       expect(fixture.store.sweepExpiredDrafts).toHaveBeenCalledOnce()
+      expect(fixture.store.sweepExpiredDrafts).toHaveBeenCalledWith([])
       const document = hostPath(id, `${root.path}/review.md`)
 
       await expect(
@@ -93,6 +94,25 @@ describe('document review coordinator', () => {
       document,
       reason: 'host-unavailable',
     })
+  })
+
+  it('sweeps newly activated workspaces while protecting every already active workspace', async () => {
+    const fixture = createFixture(asHostId('local'), localPath('/repo'), vi.fn())
+    await fixture.coordinator.activate(fixture.owner, fixture.workspace, fixture.host)
+    const secondOwner = fixture.resources.activateOwner(43)
+    const secondWorkspace: ReviewWorkspaceIdentity = {
+      id: 'project:second-worktree',
+      root: localPath('/repo-second'),
+    }
+
+    await fixture.coordinator.activate(secondOwner, secondWorkspace, fixture.host)
+    expect(fixture.store.sweepExpiredDrafts).toHaveBeenLastCalledWith([fixture.workspace])
+
+    await fixture.coordinator.sweepInactiveDrafts()
+    expect(fixture.store.sweepExpiredDrafts).toHaveBeenLastCalledWith([
+      fixture.workspace,
+      secondWorkspace,
+    ])
   })
 
   it('classifies incomplete, invalid, and deleted reads without losing the draft', async () => {

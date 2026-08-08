@@ -2,6 +2,8 @@ import { createHash } from 'node:crypto'
 
 import {
   DOCUMENT_REVIEW_LIMITS,
+  documentReviewWorkspaceEquals,
+  isDocumentReviewDocument,
   type DocumentReviewRevalidateRequest,
   type DocumentReviewRevalidation,
   type DocumentReviewSaveRequest,
@@ -17,10 +19,6 @@ import type {
   RendererResourceScopes,
 } from '../renderer-resource-scopes'
 import type { DocumentReviewStore } from './document-review-store'
-import {
-  documentReviewWorkspaceEquals,
-  isDocumentReviewDocument,
-} from './document-review-policy'
 
 interface ActiveReviewWorkspace {
   readonly owner: RendererOwner
@@ -86,7 +84,9 @@ export class DocumentReviewCoordinator {
         () => this.revokeSession(session),
       )
       await this.options.store.retryLoad()
-      await this.options.store.sweepExpiredDrafts().catch(() => undefined)
+      await this.options.store
+        .sweepExpiredDrafts(this.activeWorkspacesExcept(session))
+        .catch(() => undefined)
       this.assertCurrent(session)
       const stored = this.options.store.read(workspace)
       return {
@@ -234,6 +234,14 @@ export class DocumentReviewCoordinator {
     if (session) this.revokeSession(session)
   }
 
+  /** Apply retention only where no renderer can hold a cached store revision. */
+  sweepInactiveDrafts(): Promise<void> {
+    return this.serialize(async () => {
+      if (this.disposed) return
+      await this.options.store.sweepExpiredDrafts(this.activeWorkspacesExcept())
+    })
+  }
+
   dispose(): void {
     if (this.disposed) return
     this.disposed = true
@@ -276,6 +284,14 @@ export class DocumentReviewCoordinator {
     session.abort.abort(new Error('Document review workspace was revoked'))
     session.lease?.release()
     session.lease = undefined
+  }
+
+  private activeWorkspacesExcept(
+    omitted?: ActiveReviewWorkspace,
+  ): readonly ReviewWorkspaceIdentity[] {
+    return [...this.active.values()]
+      .filter((session) => session !== omitted)
+      .map((session) => session.workspace)
   }
 
   private serialize<T>(operation: () => Promise<T>): Promise<T> {

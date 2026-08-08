@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto'
 import {
   basenameHostPath,
   dirnameHostPath,
+  documentReviewWorkspaceEquals,
   hostPath,
   joinHostPath,
   type DocumentReviewModel,
@@ -22,10 +23,7 @@ import {
   type StoredReviewFile,
   type StoredReviewWorkspace,
 } from './document-review-store-codec'
-import {
-  documentReviewWorkspaceEquals,
-  isDocumentReviewRecord,
-} from './document-review-policy'
+import { isDocumentReviewRecord } from './document-review-policy'
 import {
   expireDocumentReviewDrafts,
   reconcileDocumentReviewDraftActivity,
@@ -220,7 +218,10 @@ export class DocumentReviewStore {
           model: cloneReviewModel(stored.model),
         }
       })
-    this.pendingWrite = operation.then(() => undefined)
+    this.pendingWrite = operation.then(
+      () => undefined,
+      () => undefined,
+    )
     return operation
   }
 
@@ -228,7 +229,15 @@ export class DocumentReviewStore {
     return this.pendingWrite
   }
 
-  sweepExpiredDrafts(): Promise<void> {
+  sweepExpiredDrafts(
+    excludedWorkspaces: readonly ReviewWorkspaceIdentity[] = [],
+  ): Promise<void> {
+    const exclusions = new Map(
+      excludedWorkspaces.map((workspace) => {
+        assertReviewWorkspace(workspace)
+        return [reviewWorkspaceKey(workspace), workspace] as const
+      }),
+    )
     const operation = this.pendingWrite
       .catch(() => undefined)
       .then(async () => {
@@ -237,6 +246,14 @@ export class DocumentReviewStore {
         let changed = this.needsMigration
         const workspaces = new Map<string, StoredReviewWorkspace>()
         for (const [key, workspace] of this.workspaces) {
+          const exclusion = exclusions.get(key)
+          if (
+            exclusion &&
+            documentReviewWorkspaceEquals(exclusion, workspace.model.workspace)
+          ) {
+            workspaces.set(key, workspace)
+            continue
+          }
           const expired = expireDocumentReviewDrafts(
             workspace.model,
             workspace.draftActivity,
@@ -259,7 +276,10 @@ export class DocumentReviewStore {
         for (const [key, workspace] of workspaces) this.workspaces.set(key, workspace)
         this.needsMigration = false
       })
-    this.pendingWrite = operation
+    this.pendingWrite = operation.then(
+      () => undefined,
+      () => undefined,
+    )
     return operation
   }
 

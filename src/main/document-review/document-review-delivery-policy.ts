@@ -1,17 +1,15 @@
 import {
   DOCUMENT_REVIEW_LIMITS,
+  documentReviewUtf8Bytes,
+  documentReviewWorkspaceEquals,
+  isDocumentReviewDocument,
+  isDocumentReviewIdentifier,
   type DocumentReviewComment,
   type DocumentReviewDeliveryPayload,
   type DocumentReviewDeliverySelection,
   type DocumentReviewModel,
   type ReviewSourceRange,
 } from '../../shared'
-import {
-  documentReviewUtf8Bytes,
-  documentReviewWorkspaceEquals,
-  isDocumentReviewDocument,
-  isDocumentReviewIdentifier,
-} from './document-review-policy'
 
 const QUOTE_TRUNCATION_MARKER = '\n… [quote truncated]'
 

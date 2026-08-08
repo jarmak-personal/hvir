@@ -1,7 +1,11 @@
 import {
   DOCUMENT_REVIEW_LIMITS,
   asHostId,
+  documentReviewUtf8Bytes,
+  documentReviewWorkspaceEquals,
   hostPath,
+  isDocumentReviewDocument,
+  isDocumentReviewIdentifier,
   type DocumentReviewAnchor,
   type DocumentReviewBatch,
   type DocumentReviewComment,
@@ -12,13 +16,7 @@ import {
   type ReviewSourceRange,
   type ReviewWorkspaceIdentity,
 } from '../../shared'
-import {
-  documentReviewUtf8Bytes,
-  documentReviewWorkspaceEquals,
-  isDocumentReviewDocument,
-  isDocumentReviewIdentifier,
-  isDocumentReviewRecord,
-} from './document-review-policy'
+import { isDocumentReviewRecord } from './document-review-policy'
 import {
   initialDocumentReviewDraftActivity,
   type DocumentReviewDraftActivity,

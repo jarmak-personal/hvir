@@ -115,7 +115,7 @@ describe('terminal exact-resume IPC', () => {
       capabilities: {
         sessionIdentity: 'preassigned',
         exactResume: true,
-        contextPresentation: 'count',
+        contextPresentation: 'pressure',
       },
     })
     expect(fixture.spawn).toHaveBeenCalledOnce()
@@ -240,7 +240,7 @@ describe('terminal exact-resume IPC', () => {
         capabilities: {
           sessionIdentity: 'preassigned',
           exactResume: true,
-          contextPresentation: 'count',
+          contextPresentation: 'pressure',
         },
       })
       expect(fixture.authorizeReattach).toHaveBeenCalledWith({

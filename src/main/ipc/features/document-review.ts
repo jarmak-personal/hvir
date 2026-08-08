@@ -3,7 +3,7 @@ import {
   type DocumentReviewDeliverySelection,
   type ReviewWorkspaceIdentity,
 } from '../../../shared'
-import { isDocumentReviewIdentifier } from '../../document-review/document-review-policy'
+import { isDocumentReviewIdentifier } from '../../../shared'
 import type { IpcRegistrar } from '../authority-router'
 import type { IpcDeps } from '../deps'
 import { operationResult } from '../operation-result'

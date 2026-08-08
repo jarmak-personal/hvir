@@ -120,6 +120,27 @@ describe('document review store', () => {
     })
   })
 
+  it('does not expire or revision-bump a workspace while a renderer has it active', async () => {
+    await store.dispose()
+    let now = 2_000_000_000_000
+    store = await DocumentReviewStore.load(host, file, () => now)
+    const target = workspace('project:active', localPath('/repo'))
+    await store.save(0, model(target, localPath('/repo/readme.md'), 'active draft'))
+    now += DOCUMENT_REVIEW_DRAFT_RETENTION_MS
+
+    await store.sweepExpiredDrafts([target])
+    expect(store.read(target)).toMatchObject({
+      revision: 1,
+      model: { comments: [{ body: 'active draft' }] },
+    })
+
+    await store.sweepExpiredDrafts()
+    expect(store.read(target)).toMatchObject({
+      revision: 2,
+      model: { comments: [], batches: [] },
+    })
+  })
+
   it.each([
     ['corrupt' as const, '{not-json'],
     ['future-version' as const, JSON.stringify({ version: 999, workspaces: [] })],
@@ -216,6 +237,7 @@ describe('document review store', () => {
       .mockRejectedValueOnce(new Error('disk full'))
     const failed = model(localWorkspace, localPath('/repo/failed.md'), 'still here')
     await expect(store.save(2, failed)).rejects.toThrow(/disk full/)
+    await expect(store.flush()).resolves.toBeUndefined()
     expect(store.read(localWorkspace)).toMatchObject({
       revision: 2,
       model: { comments: [{ body: 'two' }] },
