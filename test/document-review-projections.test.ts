@@ -338,6 +338,50 @@ describe('source Markdown review projection', () => {
     expect(unregister).toHaveBeenCalledOnce()
   })
 
+  it('fits an inline source review inside the visible CodeMirror scroller', () => {
+    const parent = document.createElement('div')
+    document.body.append(parent)
+    const compartment = new Compartment()
+    const baseProjection = {
+      active: true,
+      dirty: false,
+      comments: [comment(2)],
+      onInlineHost: inlineHostRegistration(),
+      onRange: vi.fn(),
+      onCapture: vi.fn(),
+      onOpenComment: vi.fn(),
+      onExit: vi.fn(),
+    }
+    const view = new EditorView({
+      parent,
+      state: EditorState.create({
+        doc: 'one\ntwo\nthree',
+        extensions: [
+          compartment.of(createDocumentReviewSourceExtensions(baseProjection)),
+        ],
+      }),
+    })
+    Object.defineProperty(view.scrollDOM, 'clientWidth', {
+      configurable: true,
+      value: 640,
+    })
+
+    view.dispatch({
+      effects: compartment.reconfigure(
+        createDocumentReviewSourceExtensions({
+          ...baseProjection,
+          inlineRange: { startLine: 2, endLine: 2 },
+        }),
+      ),
+    })
+
+    expect(
+      parent.querySelector<HTMLElement>('.document-review-inline-host-source')?.style
+        .width,
+    ).toBe('616px')
+    view.destroy()
+  })
+
   it('keeps a selection ending at the next line boundary on the prior source line', () => {
     const state = EditorState.create({ doc: 'one\ntwo\nthree' })
     const selected = state.update({ selection: { anchor: 0, head: 4 } }).state

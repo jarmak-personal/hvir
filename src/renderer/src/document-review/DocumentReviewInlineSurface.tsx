@@ -210,15 +210,12 @@ function NewCommentForm({
         void onSubmit(body)
       }}
     >
-      <label>
-        <span>{lineRangeLabel(range)}</span>
-        <textarea
-          ref={textarea}
-          aria-label="New review comment"
-          value={body}
-          onChange={(event) => onBody(event.currentTarget.value)}
-        />
-      </label>
+      <textarea
+        ref={textarea}
+        aria-label="New review comment"
+        value={body}
+        onChange={(event) => onBody(event.currentTarget.value)}
+      />
       <div>
         <button type="submit" disabled={body.trim().length === 0}>
           Add review comment

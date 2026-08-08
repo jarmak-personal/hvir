@@ -27,7 +27,6 @@
 
 .document-review-toolbar button:focus-visible,
 .document-review-inline button:focus-visible,
-.document-review-inline textarea:focus-visible,
 .document-review-chrome button:focus-visible,
 .document-review-chrome select:focus-visible,
 .review-block-badge:focus-visible,
@@ -186,11 +185,6 @@
   scroll-margin-block: 8px;
 }
 
-.document-review-compose label {
-  display: grid;
-  gap: 7px;
-}
-
 .document-review-comment.review-anchor-moved {
   border-left-style: dashed;
   border-left-color: #d3a956;
@@ -243,6 +237,11 @@
   color: #e0e5eb;
   background: #10141a;
   font: inherit;
+}
+
+.document-review-inline textarea:focus-visible {
+  border-color: #53667c;
+  outline: none;
 }
 
 .document-review-comment-actions {

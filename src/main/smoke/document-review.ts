@@ -591,24 +591,36 @@ async function proveComposeContextVisible(win: BrowserWindow): Promise<void> {
         const poll = () => {
           const inline = document.querySelector('.document-review-inline');
           const form = document.querySelector('.document-review-compose');
-          const label = form?.querySelector('label > span');
+          const header = inline?.querySelector(':scope > header');
           const textarea = form?.querySelector('textarea');
           if (
             inline instanceof HTMLElement &&
-            label instanceof HTMLElement &&
+            header instanceof HTMLElement &&
             textarea instanceof HTMLTextAreaElement
           ) {
             const inlineRect = inline.getBoundingClientRect();
-            const labelRect = label.getBoundingClientRect();
+            const headerRect = header.getBoundingClientRect();
             const textareaRect = textarea.getBoundingClientRect();
+            const sourceHost = inline.closest('.document-review-inline-host-source');
+            const scroller = sourceHost?.closest('.cm-scroller');
+            const sourceFits =
+              !(sourceHost instanceof HTMLElement) ||
+              (scroller instanceof HTMLElement &&
+                sourceHost.getBoundingClientRect().width <=
+                  scroller.getBoundingClientRect().width - 16 &&
+                sourceHost.getBoundingClientRect().right <=
+                  scroller.getBoundingClientRect().right - 8);
             if (
               document.activeElement === textarea &&
-              labelRect.top >= inlineRect.top &&
-              labelRect.bottom + 3 <= textareaRect.top
+              form?.querySelector('label > span') === null &&
+              getComputedStyle(textarea).outlineStyle === 'none' &&
+              headerRect.top >= inlineRect.top &&
+              headerRect.bottom + 3 <= textareaRect.top &&
+              sourceFits
             ) return resolve({ ok: true });
             return resolve({
               ok: false,
-              error: 'focused review composer obscured its source line label'
+              error: 'focused review composer duplicated or obscured its header, focus, or visible width'
             });
           }
           if (Date.now() > deadline) {

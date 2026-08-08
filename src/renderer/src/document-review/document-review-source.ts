@@ -125,12 +125,29 @@ class InlineReviewWidget extends WidgetType {
     const host = document.createElement('div')
     host.className = 'document-review-inline-host document-review-inline-host-source'
     host.setAttribute('data-review-inline-host', '')
+    const fitToVisibleSource = (): void => {
+      const gutterWidth =
+        view.dom.querySelector<HTMLElement>('.cm-gutters')?.getBoundingClientRect()
+          .width ?? 0
+      const width = Math.floor(view.scrollDOM.clientWidth - gutterWidth - 24)
+      if (width <= 0) return
+      const nextWidth = `${width}px`
+      if (host.style.width !== nextWidth) host.style.width = nextWidth
+    }
+    fitToVisibleSource()
     this.unregister = this.register(host)
     if (typeof ResizeObserver !== 'undefined') {
-      this.observer = new ResizeObserver(() => view.requestMeasure())
+      this.observer = new ResizeObserver(() => {
+        fitToVisibleSource()
+        view.requestMeasure()
+      })
       this.observer.observe(host)
+      this.observer.observe(view.scrollDOM)
     }
-    this.frame = requestAnimationFrame(() => view.requestMeasure())
+    this.frame = requestAnimationFrame(() => {
+      fitToVisibleSource()
+      view.requestMeasure()
+    })
     return host
   }
 

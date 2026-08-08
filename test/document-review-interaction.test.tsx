@@ -115,7 +115,13 @@ describe('Markdown document review interaction', () => {
       lineOne?.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 0 }))
     })
 
-    expect(host.querySelector('[aria-label="New comment for Line 1"]')).toBeTruthy()
+    const form = host.querySelector('[aria-label="New comment for Line 1"]')
+    expect(form).toBeTruthy()
+    expect(form?.querySelector('label > span')).toBeNull()
+    expect(
+      form?.closest('.document-review-inline')?.querySelector('header > span')
+        ?.textContent,
+    ).toBe('Line 1')
     expect(document.activeElement?.getAttribute('aria-label')).toBe('New review comment')
     act(() => {
       host
