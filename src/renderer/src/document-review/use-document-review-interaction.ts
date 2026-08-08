@@ -121,9 +121,12 @@ export function useDocumentReviewInteraction(
       ),
     ).length ?? 0
   const documentLines = document ? lineCount(document.content) : 0
-  const orphanedComments = comments.filter(
-    (comment) => comment.anchor.range.startLine > documentLines,
-  )
+  const orphanedComments = document?.dirty
+    ? []
+    : comments.filter(
+        (comment) =>
+          comment.lifecycle === 'draft' && comment.anchor.range.startLine > documentLines,
+      )
   const historyCount =
     model?.comments.filter((comment) => comment.lifecycle !== 'draft').length ?? 0
 

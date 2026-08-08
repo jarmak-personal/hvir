@@ -92,7 +92,7 @@ export class DocumentReviewDeliveryCoordinator {
       .filter((terminal) => this.sameOwnedWorkspace(terminal, owner, scope))
       .map((terminal) => ({
         terminal,
-        presentation: this.options.sessions.get(terminal.id),
+        presentation: this.trustedPresentation(terminal),
       }))
       .toSorted(
         (left, right) =>
@@ -116,7 +116,7 @@ export class DocumentReviewDeliveryCoordinator {
     if (!contract) {
       throw new Error('The selected provider remains Copy-only')
     }
-    const destination = this.describe(terminal, this.options.sessions.get(terminal.id))
+    const destination = this.describe(terminal, this.trustedPresentation(terminal))
     const id = randomUUID()
     const record: PreparedRecord = {
       id,
@@ -323,22 +323,26 @@ export class DocumentReviewDeliveryCoordinator {
     const provider = this.options.providers.get(terminal.providerId)
     const insert = this.insertContract(terminal)
     const sendNow = this.sendNowContract(terminal)
-    const matchingPresentation = Boolean(
-      presentation &&
-      presentation.providerId === terminal.providerId &&
-      hostPathEquals(presentation.workspaceRoot, terminal.workspaceRoot),
-    )
     return {
       terminalId: terminal.id,
-      title: matchingPresentation
-        ? presentation!.title
+      title: presentation
+        ? presentation.title
         : `${provider.manifest.displayName} · ${terminal.id.slice(0, 8)}`,
       providerName: provider.manifest.displayName,
       lifecycle: 'live',
       connection: 'connected',
-      attention: matchingPresentation ? presentation?.attention : undefined,
+      attention: presentation?.attention,
       capability: sendNow ? 'send-now' : insert ? 'insert' : 'copy-only',
     }
+  }
+
+  private trustedPresentation(terminal: ManagedPty): OwnedTerminalSession | undefined {
+    const presentation = this.options.sessions.get(terminal.id)
+    return presentation &&
+      presentation.providerId === terminal.providerId &&
+      hostPathEquals(presentation.workspaceRoot, terminal.workspaceRoot)
+      ? presentation
+      : undefined
   }
 
   private insertContract(

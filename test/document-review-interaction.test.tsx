@@ -318,6 +318,30 @@ describe('Markdown document review interaction', () => {
     expect(host.querySelector('.document-review-inline-host-source')).toBeTruthy()
   })
 
+  it('offers unplaced shortcuts only for drafts on the saved document snapshot', () => {
+    const draft = comment('draft-orphan', 'draft', 'stale')
+    const sent = comment('sent-orphan', 'sent', 'stale')
+    const orphaned = (candidate: DocumentReviewComment) => ({
+      ...candidate,
+      anchor: {
+        ...candidate.anchor,
+        range: { startLine: 99, endLine: 99 },
+      },
+    })
+    const reviewModel = {
+      ...emptyModel(),
+      comments: [orphaned(draft), orphaned(sent)],
+    }
+
+    renderViewer(sourceTab(), binding(reviewModel, vi.fn()))
+    click('Enter Markdown review mode')
+    expect(button('Open unplaced comment · Line 99')).toBeTruthy()
+    expect(host.querySelectorAll('.document-review-orphan')).toHaveLength(1)
+
+    renderViewer(sourceTab({ dirty: true }), binding(reviewModel, vi.fn()))
+    expect(button('Open unplaced comment · Line 99')).toBeUndefined()
+  })
+
   it('reopens review mode and the exact inline comment from its source marker', () => {
     const model = {
       ...emptyModel(),

@@ -108,7 +108,14 @@ export function DocumentReviewChrome({
               type="button"
               className="document-review-primary"
               aria-label={`Send ${interaction.activeBatchCount} review ${interaction.activeBatchCount === 1 ? 'comment' : 'comments'} to the top terminal`}
-              disabled={interaction.delivery.loading}
+              disabled={
+                interaction.delivery.loading || interaction.delivery.directHandoffBlocked
+              }
+              title={
+                interaction.delivery.directHandoffBlocked
+                  ? 'Review and prepare the feedback again before another send'
+                  : 'Send to the first visible terminal'
+              }
               onClick={() =>
                 interaction.delivery.handoffBatch(interaction.activeBatchId!)
               }

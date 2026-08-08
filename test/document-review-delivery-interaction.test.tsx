@@ -213,6 +213,59 @@ describe('document review delivery interaction', () => {
     })
   })
 
+  it('retains the preview and alternate destinations when automatic preparation fails', async () => {
+    const first: DocumentReviewDeliveryDestination = {
+      ...prepared.destination,
+      terminalId: 'first',
+      title: 'Exited first terminal',
+    }
+    const second: DocumentReviewDeliveryDestination = {
+      ...prepared.destination,
+      terminalId: 'second',
+      title: 'Available second terminal',
+    }
+    const secondPrepared = { ...prepared, destination: second }
+    const invoke = vi.fn((channel: string, request?: { terminalId?: string }) => {
+      if (channel === 'document-review:preview-delivery') {
+        return Promise.resolve({ ok: true, value: payload })
+      }
+      if (channel === 'document-review:delivery-destinations') {
+        return Promise.resolve({ ok: true, value: [first, second] })
+      }
+      if (channel === 'document-review:prepare-delivery') {
+        return Promise.resolve(
+          request?.terminalId === first.terminalId
+            ? { ok: false, error: 'The first terminal exited' }
+            : { ok: true, value: secondPrepared },
+        )
+      }
+      throw new Error(`Unexpected IPC ${channel}`)
+    })
+    installApi(invoke)
+    render(<DeliveryHarness binding={binding(model())} />)
+
+    click('Preview batch')
+    await settle()
+
+    expect(host.textContent).toContain('The first terminal exited')
+    expect(
+      host.querySelector('[aria-label="Exact review delivery preview"]')?.textContent,
+    ).toBe(exactBody)
+    const destination = host.querySelector<HTMLSelectElement>(
+      '[aria-label="Review handoff destination"]',
+    )
+    expect(destination?.disabled).toBe(false)
+    expect(destination?.options).toHaveLength(3)
+
+    choose(second.terminalId)
+    await settle()
+    expect(invoke).toHaveBeenLastCalledWith(
+      'document-review:prepare-delivery',
+      expect.objectContaining({ terminalId: second.terminalId }),
+    )
+    expect(host.textContent).toContain(second.title)
+  })
+
   it('sends the pending review directly to the first send-capable terminal', async () => {
     const destination: DocumentReviewDeliveryDestination = {
       ...prepared.destination,
@@ -333,6 +386,55 @@ describe('document review delivery interaction', () => {
       ),
     ).toBe(false)
     expect(host.textContent).toContain('Copied review for Top shell')
+  })
+
+  it('blocks one-step retry after send authority is consumed until full review', async () => {
+    const destination: DocumentReviewDeliveryDestination = {
+      ...prepared.destination,
+      capability: 'send-now',
+    }
+    const exact = { ...prepared, destination }
+    const invoke = vi.fn((channel: string) => {
+      if (channel === 'document-review:preview-delivery') {
+        return Promise.resolve({ ok: true, value: payload })
+      }
+      if (channel === 'document-review:delivery-destinations') {
+        return Promise.resolve({ ok: true, value: [destination] })
+      }
+      if (channel === 'document-review:prepare-delivery') {
+        return Promise.resolve({ ok: true, value: exact })
+      }
+      if (channel === 'document-review:send-now-delivery') {
+        return Promise.resolve({
+          ok: true,
+          value: {
+            outcome: 'send-authority-consumed',
+            ptyAcceptance: 'indeterminate',
+            reason: 'write completion timed out',
+          },
+        })
+      }
+      throw new Error(`Unexpected IPC ${channel}`)
+    })
+    installApi(invoke)
+    render(<DeliveryHarness binding={binding(model())} />)
+
+    click('Quick handoff')
+    await settle()
+    expect(button('Quick handoff')?.disabled).toBe(true)
+    expect(host.textContent).toContain('may have been submitted')
+
+    click('Quick handoff')
+    await settle()
+    expect(
+      invoke.mock.calls.filter(
+        ([channel]) => channel === 'document-review:send-now-delivery',
+      ),
+    ).toHaveLength(1)
+
+    click('Preview batch')
+    await settle()
+    expect(button('Quick handoff')?.disabled).toBe(false)
   })
 
   it('keeps routine working attention in metadata without expanding a warning', () => {
@@ -768,6 +870,7 @@ function panelInteraction(
     copied: false,
     inserted: false,
     sent: false,
+    directHandoffBlocked: false,
     previewBatch: () => undefined,
     handoffBatch: () => undefined,
     selectDestination: () => undefined,
@@ -789,7 +892,11 @@ function DeliveryHarness({
       <button type="button" onClick={() => delivery.previewBatch('active-review')}>
         Preview batch
       </button>
-      <button type="button" onClick={() => delivery.handoffBatch('active-review')}>
+      <button
+        type="button"
+        disabled={delivery.directHandoffBlocked}
+        onClick={() => delivery.handoffBatch('active-review')}
+      >
         Quick handoff
       </button>
       {delivery.notice ? <span role="status">{delivery.notice}</span> : null}

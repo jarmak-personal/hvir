@@ -211,10 +211,10 @@ export class DocumentReviewCoordinator {
       comments: current.model.comments.map((comment) =>
         ids.has(comment.id) ? { ...comment, lifecycle: 'sent' as const } : comment,
       ),
-      // Existing batch membership is durable review history. Its sent members
-      // become ineligible through the shared lifecycle rule; they are not
-      // silently deleted by delivery.
-      batches: current.model.batches,
+      batches: current.model.batches.flatMap((batch) => {
+        const commentIds = batch.commentIds.filter((id) => !ids.has(id))
+        return commentIds.length === 0 ? [] : [{ ...batch, commentIds }]
+      }),
     }
     this.assertCurrent(session)
     const stored = await this.options.store.save(current.revision, model)

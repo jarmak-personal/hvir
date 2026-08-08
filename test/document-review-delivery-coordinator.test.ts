@@ -66,6 +66,25 @@ describe('document review delivery coordinator', () => {
     ])
   })
 
+  it('ignores an untrusted presentation record when ordering the top terminal', () => {
+    const fixture = deliveryFixture()
+    fixture.addTerminal('trusted', 'claude-code', 'Trusted top')
+    const mismatched = fixture.addTerminal('mismatched', 'plain-shell', 'Stale top')
+    fixture.presentations.set('mismatched', {
+      ...fixture.presentations.get('mismatched')!,
+      providerId: asHarnessProviderId('codex'),
+      position: -1,
+    })
+
+    expect(fixture.coordinator.destinations(OWNER, fixture.scope)).toEqual([
+      expect.objectContaining({ terminalId: 'trusted', title: 'Trusted top' }),
+      expect.objectContaining({
+        terminalId: mismatched.id,
+        title: `Shell · ${mismatched.id.slice(0, 8)}`,
+      }),
+    ])
+  })
+
   it('previews an exact Copy payload without terminals or host connectivity', () => {
     const fixture = deliveryFixture()
     fixture.connection.value = 'disconnected'
@@ -285,7 +304,7 @@ describe('document review delivery coordinator', () => {
       })
       if (result.outcome !== 'sent') throw new Error('Expected durable sent result')
       expect(result.snapshot.model.comments[0]?.lifecycle).toBe('sent')
-      expect(result.snapshot.model.batches[0]?.commentIds).toEqual(['comment-1'])
+      expect(result.snapshot.model.batches).toEqual([])
       await expect(fixture.coordinator.sendNow(OWNER, prepared.id)).rejects.toThrow(
         /stale/,
       )
@@ -534,6 +553,12 @@ function deliveryFixture(
           ? { ...comment, lifecycle: 'sent' as const }
           : comment,
       ),
+      batches: state.model.batches.flatMap((batch) => {
+        const commentIds = batch.commentIds.filter(
+          (id) => !request.commentIds.includes(id),
+        )
+        return commentIds.length === 0 ? [] : [{ ...batch, commentIds }]
+      }),
     }
     revision.value += 1
     return Promise.resolve({

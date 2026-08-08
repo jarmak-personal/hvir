@@ -13,7 +13,6 @@ import {
   clearDocumentReviewHistory,
   editDocumentReviewComment,
   removeDocumentReviewComment,
-  resolveDocumentReviewComment,
   reviewStaleDocumentComment,
 } from './document-review-lifecycle'
 import {
@@ -87,11 +86,6 @@ export function applyDocumentReviewAction(
       return revalidateDocument(model, action.document, action.snapshot, action.content)
     case 'mark-document-stale':
       return markDocumentStale(model, action.document, action.reason)
-    case 'resolve-comment':
-      return applyAuthoritativeResult(
-        model,
-        resolveDocumentReviewComment(model, action.commentId),
-      )
     case 'clear-history':
       return applyAuthoritativeResult(
         model,
@@ -162,13 +156,38 @@ function addComment(
     ],
   }
   if (!batchId) return acceptUserAuthoredChange(model, candidate)
-  const existingBatch = candidate.batches.find((batch) => batch.id === batchId)
+  const pendingCandidate = retainDraftBatchMembers(candidate, batchId)
+  const existingBatch = pendingCandidate.batches.find((batch) => batch.id === batchId)
   const batched = existingBatch
-    ? addDocumentReviewBatchMember(candidate, batchId, commentId)
-    : createDocumentReviewBatch(candidate, batchId, [commentId])
+    ? addDocumentReviewBatchMember(pendingCandidate, batchId, commentId)
+    : createDocumentReviewBatch(pendingCandidate, batchId, [commentId])
   return batched.ok
     ? acceptUserAuthoredChange(model, batched.value)
     : rejectedWith(model, batched.error)
+}
+
+function retainDraftBatchMembers(
+  model: DocumentReviewModel,
+  batchId: string,
+): DocumentReviewModel {
+  const batch = model.batches.find((candidate) => candidate.id === batchId)
+  if (!batch) return model
+  const draftIds = new Set(
+    model.comments
+      .filter((comment) => comment.lifecycle === 'draft')
+      .map((comment) => comment.id),
+  )
+  return {
+    ...model,
+    batches: model.batches.map((candidate) =>
+      candidate.id === batchId
+        ? {
+            ...candidate,
+            commentIds: candidate.commentIds.filter((id) => draftIds.has(id)),
+          }
+        : candidate,
+    ),
+  }
 }
 
 function revalidateDocument(

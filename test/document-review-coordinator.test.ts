@@ -257,7 +257,7 @@ describe('document review coordinator', () => {
     await expect(saving).rejects.toThrow(/revoked/)
   })
 
-  it('atomically persists exact included drafts as sent while retaining batch history', async () => {
+  it('atomically persists exact included drafts as sent and releases their batch slots', async () => {
     const root = localPath('/repo')
     const workspace: ReviewWorkspaceIdentity = { id: 'project:worktree', root }
     const model = modelWithDraft(workspace)
@@ -285,14 +285,14 @@ describe('document review coordinator', () => {
       7,
       expect.objectContaining({
         comments: [expect.objectContaining({ lifecycle: 'sent' })],
-        batches: [expect.objectContaining({ commentIds: ['draft-comment'] })],
+        batches: [],
       }),
     )
     expect(sent).toMatchObject({
       revision: 8,
       model: {
         comments: [expect.objectContaining({ lifecycle: 'sent' })],
-        batches: [expect.objectContaining({ commentIds: ['draft-comment'] })],
+        batches: [],
       },
     })
   })

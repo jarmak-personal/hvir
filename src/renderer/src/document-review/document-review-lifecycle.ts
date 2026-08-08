@@ -60,23 +60,6 @@ export function reviewStaleDocumentComment(
   )
 }
 
-export function resolveDocumentReviewComment(
-  model: DocumentReviewModel,
-  commentId: string,
-): ReviewPolicyResult<DocumentReviewModel> {
-  const comment = findComment(model, commentId)
-  if (!comment) return failure('unknown-comment', 'The review comment does not exist')
-  if (comment.lifecycle !== 'sent') {
-    return failure('comment-not-sent', 'Only sent comments may be resolved')
-  }
-  return success(
-    updateComment(model, commentId, (current) => ({
-      ...current,
-      lifecycle: 'resolved',
-    })),
-  )
-}
-
 export function clearDocumentReviewHistory(
   model: DocumentReviewModel,
   history: 'all' | Exclude<ReviewCommentLifecycle, 'draft'>,

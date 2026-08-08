@@ -157,6 +157,31 @@ describe('rendered Markdown review projection', () => {
     expect(root.querySelector('[data-review-inline-host]')).toBeNull()
   })
 
+  it('mounts an out-of-range inline thread after the last rendered block', () => {
+    const root = renderedRoot(3)
+    const scheduler = new TestScheduler()
+    const onInlineHost = vi.fn(() => vi.fn())
+    bindRenderedDocumentReview(
+      root,
+      {
+        active: true,
+        dirty: false,
+        comments: [comment(99, 'stale')],
+        inlineRange: { startLine: 99, endLine: 99 },
+        onInlineHost,
+        onCapture: vi.fn(),
+        onOpenComment: vi.fn(),
+        onExit: vi.fn(),
+      },
+      scheduler,
+    )
+    scheduler.runNext()
+
+    const inlineHost = root.querySelector<HTMLElement>('[data-review-inline-host]')
+    expect(inlineHost?.previousElementSibling?.textContent).toContain('Line 3')
+    expect(onInlineHost).toHaveBeenCalledExactlyOnceWith(inlineHost)
+  })
+
   it('keeps dirty review blocks navigable without advertising or accepting capture', () => {
     const root = renderedRoot(2)
     const scheduler = new TestScheduler()

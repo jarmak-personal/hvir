@@ -63,6 +63,37 @@ describe('document review model', () => {
     ])
   })
 
+  it('starts the next pending review without retaining sent batch members', () => {
+    let model = apply(emptyModel(), {
+      ...add('sent', 'Already sent', capture(document, original, 2)),
+      batchId: 'active-review',
+    })
+    model = {
+      ...model,
+      comments: model.comments.map((comment) => ({
+        ...comment,
+        lifecycle: 'sent' as const,
+      })),
+    }
+
+    model = apply(model, {
+      ...add('next', 'Next review', capture(document, original, 3)),
+      batchId: 'active-review',
+    })
+
+    expect(model.comments).toEqual([
+      expect.objectContaining({ id: 'sent', lifecycle: 'sent' }),
+      expect.objectContaining({ id: 'next', lifecycle: 'draft' }),
+    ])
+    expect(model.batches).toEqual([
+      {
+        id: 'active-review',
+        workspace,
+        commentIds: ['next'],
+      },
+    ])
+  })
+
   it('fails closed across host, workspace identity, and workspace root', () => {
     const model = emptyModel()
     const otherWorkspace = { ...workspace, id: 'project-1:worktree-other' }
@@ -303,19 +334,11 @@ describe('document review model', () => {
     })
   })
 
-  it('keeps anchor state orthogonal to deterministic draft, sent, and resolved history', () => {
+  it('keeps anchor state orthogonal to deterministic draft and sent history', () => {
     let model = apply(
       emptyModel(),
       add('lifecycle', 'Check this', capture(document, original, 2)),
     )
-    expect(
-      applyDocumentReviewAction(model, {
-        type: 'resolve-comment',
-        workspace,
-        commentId: 'lifecycle',
-      }),
-    ).toMatchObject({ ok: false, error: { code: 'comment-not-sent' } })
-
     model = apply(model, {
       type: 'create-batch',
       workspace,
@@ -344,13 +367,7 @@ describe('document review model', () => {
       reason: 'sent',
     })
 
-    model = apply(model, {
-      type: 'resolve-comment',
-      workspace,
-      commentId: 'lifecycle',
-    })
-    expect(model.comments[0]?.lifecycle).toBe('resolved')
-    model = apply(model, { type: 'clear-history', workspace, history: 'resolved' })
+    model = apply(model, { type: 'clear-history', workspace, history: 'sent' })
     expect(model.comments).toEqual([])
     expect(model.batches).toEqual([])
   })

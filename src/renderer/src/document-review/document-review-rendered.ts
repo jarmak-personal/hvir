@@ -43,6 +43,13 @@ export function bindRenderedDocumentReview(
     0,
     ...projection.comments.map((comment) => comment.anchor.range.endLine),
   )
+  const mountInlineHost = (after: HTMLElement): void => {
+    const host = document.createElement('div')
+    host.className = 'document-review-inline-host document-review-inline-host-rendered'
+    host.setAttribute('data-review-inline-host', '')
+    after.after(host)
+    inlineHost = { element: host, unregister: projection.onInlineHost(host) }
+  }
 
   const process = (): void => {
     if (disposed) return
@@ -62,15 +69,24 @@ export function bindRenderedDocumentReview(
         projection.inlineRange &&
         rangesOverlap(range, projection.inlineRange)
       ) {
-        const host = document.createElement('div')
-        host.className =
-          'document-review-inline-host document-review-inline-host-rendered'
-        host.setAttribute('data-review-inline-host', '')
-        element.after(host)
-        inlineHost = { element: host, unregister: projection.onInlineHost(host) }
+        mountInlineHost(element)
       }
     }
-    if (index < children.length) frame = scheduler.request(process)
+    if (index < children.length) {
+      frame = scheduler.request(process)
+      return
+    }
+    const lastBlock = blocks.at(-1)
+    const lastRange = lastBlock && renderedReviewBlockRange(lastBlock)
+    if (
+      !inlineHost &&
+      projection.inlineRange &&
+      lastBlock &&
+      lastRange &&
+      projection.inlineRange.startLine > lastRange.endLine
+    ) {
+      mountInlineHost(lastBlock)
+    }
   }
 
   const onClick = (event: Event): void => {

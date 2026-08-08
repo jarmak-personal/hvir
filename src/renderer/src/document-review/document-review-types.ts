@@ -50,7 +50,6 @@ export type DocumentReviewAction =
         'ambiguous-match' | 'invalid-snapshot' | 'missing-match' | 'read-limit-exceeded'
       >
     })
-  | (WorkspaceAction & { readonly type: 'resolve-comment'; readonly commentId: string })
   | (WorkspaceAction & {
       readonly type: 'clear-history'
       readonly history: 'all' | Exclude<ReviewCommentLifecycle, 'draft'>
@@ -79,7 +78,6 @@ export interface ReviewPolicyError {
     | 'batch-membership-limit'
     | 'comment-limit'
     | 'comment-not-draft'
-    | 'comment-not-sent'
     | 'document-comment-limit'
     | 'document-outside-workspace'
     | 'duplicate-batch'

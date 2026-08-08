@@ -99,12 +99,13 @@ application restart. Runtime workspace revocation cancels reads, writes, watch i
 delivery attempts, but it does not silently clear already durable review history. Store and
 renderer revisions reject late completion from a replaced renderer or workspace generation.
 
-Comment lifecycle is `draft` to `sent` to `resolved`. Anchor state, including current, moved, or
+The current comment lifecycle is `draft` to `sent`. Anchor state, including current, moved, or
 stale, is orthogonal. Copying a payload or inserting it into a composer does not advance the
 lifecycle. Only a successful provider-owned send-now write may advance the exact included drafts
 to sent. Sent means accepted by the owned PTY boundary, not read, accepted, or acted on by the
-agent. Resolution is an explicit human action, and clearing sent or resolved history is also
-explicit; no age, agent output, attention signal, or file edit clears it automatically.
+agent. Clearing sent history is explicit; no age, agent output, attention signal, or file edit
+clears it automatically. Existing `resolved` records from earlier versions remain readable and
+explicitly clearable, but the streamlined inline workflow creates no new resolved state.
 
 The pure review policies define fixed limits for comments per workspace and document, comment and
 anchor text, excerpt and context, source range, batch membership, stored bytes, revalidation read
@@ -209,8 +210,9 @@ Diagnostic reports retain Preview, Copy, and Save; arbitrary text, ambient targe
 generic prompt injection, attachments, and new-conversation orchestration remain deferred.
 
 Document-review delivery and ADR-026 remote image paste remain separate coordinators. Review
-delivery handles visible UTF-8 feedback bodies, insertion-versus-send acknowledgement, and
-`draft`/`sent`/`resolved` state without remote material. Image paste handles clipboard PNG
+delivery handles visible UTF-8 feedback bodies, insertion-versus-send acknowledgement, current
+`draft`/`sent` state, and readable legacy `resolved` records without remote material. Image paste
+handles clipboard PNG
 authority, private SSH staging, native attachment acknowledgement, retained bytes, expiry, and
 cleanup. They reuse the stable renderer-resource and PTY ownership primitives and the same exact
 renderer owner/generation, live PTY instance, workspace, host, provider, and capability-revision
