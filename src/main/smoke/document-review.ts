@@ -93,6 +93,14 @@ export async function verifyDocumentReviewWorkflow(options: {
   )
   await waitForRenderer(
     win,
+    `(() => { const comment = document.querySelector('.document-review-comment'); ` +
+      `return comment instanceof HTMLElement && ` +
+      `comment.querySelector('.document-review-comment-location, .document-review-comment-state, .review-anchor-state') === null && ` +
+      `getComputedStyle(comment).borderLeftWidth === '0px'; })()`,
+    'existing comment retained duplicate metadata or nested card chrome',
+  )
+  await waitForRenderer(
+    win,
     `document.querySelector('[aria-label^="Review and send 1 comment"]')`,
     'new comment did not join the pending review',
   )
@@ -204,7 +212,7 @@ export async function verifyDocumentReviewWorkflow(options: {
   await waitForRenderer(
     win,
     `document.querySelector('.document-review-delivery-actions button:nth-child(2)')?.textContent?.trim() === 'Inserted' && ` +
-      `document.querySelector('.document-review-comment .review-draft')`,
+      `document.querySelector('.document-review-comment[data-review-lifecycle="draft"]')`,
     'insert did not preserve the draft lifecycle',
   )
 
@@ -847,7 +855,7 @@ async function waitForComment(
   await waitForRenderer(
     win,
     `document.querySelectorAll('.document-review-comment').length === 1 && ` +
-      `document.querySelector('.document-review-comment .review-${lifecycle}')`,
+      `document.querySelector('.document-review-comment[data-review-lifecycle="${lifecycle}"]')`,
     `review comment did not restore as ${lifecycle}`,
   )
 }

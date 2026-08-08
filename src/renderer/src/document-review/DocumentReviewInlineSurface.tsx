@@ -167,6 +167,7 @@ function DocumentReviewInlineThread({
                   : undefined
               }
               interaction={interaction}
+              showLocation={!rangesEqual(range, comment.anchor.range)}
               onBeginEdit={() => onBeginEdit(comment)}
               onEditBody={onEditBody}
               onCancelEdit={onCancelEdit}
@@ -233,6 +234,7 @@ function ReviewCommentCard({
   edit,
   focusRequest,
   interaction,
+  showLocation,
   onBeginEdit,
   onEditBody,
   onCancelEdit,
@@ -242,6 +244,7 @@ function ReviewCommentCard({
   readonly edit?: EditText
   readonly focusRequest?: number
   readonly interaction: DocumentReviewInteraction
+  readonly showLocation: boolean
   readonly onBeginEdit: () => void
   readonly onEditBody: (body: string) => void
   readonly onCancelEdit: () => void
@@ -260,21 +263,9 @@ function ReviewCommentCard({
       ref={card}
       tabIndex={-1}
       aria-label={`Review comment at ${lineRangeLabel(comment.anchor.range)}`}
+      data-review-lifecycle={comment.lifecycle}
       className={`document-review-comment review-anchor-${comment.anchor.state.status}`}
     >
-      <div className="document-review-comment-heading">
-        <button
-          type="button"
-          aria-label={`Go to review comment at ${lineRangeLabel(comment.anchor.range)}`}
-          onClick={() => interaction.navigate(comment)}
-        >
-          {lineRangeLabel(comment.anchor.range)}
-        </button>
-        <span className={`review-state review-${comment.lifecycle}`}>
-          {comment.lifecycle}
-        </span>
-        <AnchorState comment={comment} />
-      </div>
       {edit ? (
         <form
           onSubmit={(event) => {
@@ -307,9 +298,23 @@ function ReviewCommentCard({
       ) : (
         <p>{comment.body}</p>
       )}
-      {comment.lifecycle === 'draft' ? (
-        <div className="document-review-comment-actions">
-          {staleUnreviewed ? (
+      {!edit ? (
+        <div className="document-review-comment-meta">
+          {showLocation ? (
+            <button
+              type="button"
+              className="document-review-comment-location"
+              aria-label={`Go to review comment at ${lineRangeLabel(comment.anchor.range)}`}
+              onClick={() => interaction.navigate(comment)}
+            >
+              {lineRangeLabel(comment.anchor.range)}
+            </button>
+          ) : null}
+          {comment.lifecycle === 'draft' ? null : (
+            <span className="document-review-comment-state">{comment.lifecycle}</span>
+          )}
+          <AnchorState comment={comment} />
+          {comment.lifecycle === 'draft' && staleUnreviewed ? (
             <button
               type="button"
               aria-label={`Acknowledge stale location for comment at ${lineRangeLabel(comment.anchor.range)}`}
@@ -318,13 +323,16 @@ function ReviewCommentCard({
               Use stale location
             </button>
           ) : null}
-          <button
-            type="button"
-            aria-label={`Remove comment at ${lineRangeLabel(comment.anchor.range)}`}
-            onClick={() => interaction.remove(comment.id)}
-          >
-            Delete
-          </button>
+          {comment.lifecycle === 'draft' ? (
+            <button
+              type="button"
+              className="document-review-comment-delete"
+              aria-label={`Remove comment at ${lineRangeLabel(comment.anchor.range)}`}
+              onClick={() => interaction.remove(comment.id)}
+            >
+              Delete
+            </button>
+          ) : null}
         </div>
       ) : null}
     </li>
@@ -335,7 +343,7 @@ function AnchorState({
   comment,
 }: {
   readonly comment: DocumentReviewComment
-}): ReactElement {
+}): ReactElement | null {
   const state = comment.anchor.state
   if (state.status === 'moved') {
     return (
@@ -352,11 +360,15 @@ function AnchorState({
       </span>
     )
   }
-  return <span className="review-anchor-state current">Current</span>
+  return null
 }
 
 function rangesOverlap(left: ReviewSourceRange, right: ReviewSourceRange): boolean {
   return left.startLine <= right.endLine && right.startLine <= left.endLine
+}
+
+function rangesEqual(left: ReviewSourceRange, right: ReviewSourceRange): boolean {
+  return left.startLine === right.startLine && left.endLine === right.endLine
 }
 
 function rangeKey(range: ReviewSourceRange): string {

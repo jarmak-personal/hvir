@@ -286,12 +286,38 @@ describe('Markdown document review interaction', () => {
     click('Enter Markdown review mode')
     clickSourceReviewMarker()
 
-    expect(host.textContent).toContain('draft')
-    expect(host.textContent).toContain('sent')
-    expect(host.textContent).toContain('resolved')
+    expect(host.querySelector('.review-state')).toBeNull()
+    expect(host.querySelector('.review-anchor-state.current')).toBeNull()
+    expect(
+      new Set(
+        [...host.querySelectorAll('.document-review-comment-state')].map(
+          (state) => state.textContent,
+        ),
+      ),
+    ).toEqual(new Set(['sent', 'resolved']))
     expect(host.textContent).toContain('Moved from Line 1')
     expect(host.textContent).toContain('Stale · missing match')
     expect(button('Acknowledge stale location for comment at Line 1')).toBeTruthy()
+  })
+
+  it('keeps the active comment quiet without repeated default metadata', () => {
+    const model = {
+      ...emptyModel(),
+      comments: [comment('quiet draft', 'draft', 'current')],
+    }
+    renderViewer(sourceTab(), binding(model, vi.fn()))
+    clickSourceReviewMarker()
+
+    const inline = host.querySelector('.document-review-inline')
+    expect(inline?.querySelector(':scope > header > span')?.textContent).toBe('Line 1')
+    expect(inline?.querySelector('.document-review-comment-heading')).toBeNull()
+    expect(inline?.querySelector('.document-review-comment-location')).toBeNull()
+    expect(inline?.querySelector('.document-review-comment-state')).toBeNull()
+    expect(inline?.querySelector('.review-anchor-state')).toBeNull()
+    expect(
+      inline?.querySelector<HTMLElement>('.document-review-comment')?.dataset
+        .reviewLifecycle,
+    ).toBe('draft')
   })
 
   it('keeps normal Markdown reading quiet while retaining inline note markers', () => {
@@ -480,7 +506,7 @@ describe('Markdown document review interaction', () => {
     })
   })
 
-  it('keeps entry, click-to-edit, removal, navigation, and exit natively reachable', () => {
+  it('keeps entry, click-to-edit, removal, and exit natively reachable', () => {
     const model = {
       ...emptyModel(),
       comments: [
@@ -492,8 +518,7 @@ describe('Markdown document review interaction', () => {
       ok: true,
       model,
     }))
-    const onMode = vi.fn()
-    renderViewer(sourceTab(), binding(model, apply), onMode)
+    renderViewer(sourceTab(), binding(model, apply))
     const entry = button('Enter Markdown review mode')
     expect(entry?.getAttribute('type')).toBe('button')
     expect(entry?.getAttribute('title')).toBe('Markdown review mode')
@@ -513,12 +538,10 @@ describe('Markdown document review interaction', () => {
         ?.form?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
     })
     click('Remove comment at Line 1')
-    click('Go to review comment at Line 1')
     expect(apply.mock.calls.map(([action]) => action.type)).toEqual([
       'edit-comment',
       'remove-comment',
     ])
-    expect(onMode).toHaveBeenCalledWith('source', expect.any(Object))
 
     click('Exit Markdown review mode')
     expect(button('Enter Markdown review mode')).toBeTruthy()

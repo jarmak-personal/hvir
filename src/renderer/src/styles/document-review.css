@@ -83,8 +83,7 @@
 }
 
 .document-review-inline > header,
-.document-review-comment-heading,
-.document-review-comment-actions,
+.document-review-comment-meta,
 .document-review-compose > div {
   display: flex;
   align-items: center;
@@ -162,45 +161,23 @@
 
 .document-review-comments {
   display: grid;
-  gap: 8px;
+  gap: 10px;
   margin: 0;
   padding: 0;
   list-style: none;
 }
 
 .document-review-comment {
-  padding: 8px;
-  border: 1px solid #303743;
-  border-left: 4px solid #5d7997;
-  border-radius: 5px;
-  background: #181d24;
+  min-width: 0;
+  padding: 2px 0;
 }
 
 .document-review-comment:focus-visible {
-  outline: 2px solid #8bbcf0;
-  outline-offset: 2px;
+  outline: none;
 }
 
 .document-review-compose {
   scroll-margin-block: 8px;
-}
-
-.document-review-comment.review-anchor-moved {
-  border-left-style: dashed;
-  border-left-color: #d3a956;
-}
-
-.document-review-comment.review-anchor-stale {
-  border-left-style: double;
-  border-left-color: #dc7178;
-}
-
-.document-review-comment-heading {
-  flex-wrap: wrap;
-}
-
-.document-review-comment-heading > button {
-  font-family: var(--hvir-monospace-font);
 }
 
 .document-review-comment p {
@@ -244,18 +221,19 @@
   outline: none;
 }
 
-.document-review-comment-actions {
+.document-review-comment-meta {
   flex-wrap: wrap;
+  margin-top: 3px;
+  color: #8f9baa;
+  font-size: calc(9px * var(--hvir-interface-scale));
 }
 
-.document-review-comment-actions button,
+.document-review-comment-meta button,
 .document-review-compose button,
 .document-review-guidance button {
   padding: 3px 6px;
 }
 
-.review-state,
-.review-anchor-state,
 .document-review-batch-state {
   display: inline-flex;
   align-items: center;
@@ -268,14 +246,35 @@
   text-transform: capitalize;
 }
 
+.document-review-comment-state,
+.review-anchor-state {
+  text-transform: capitalize;
+}
+
 .review-anchor-state.moved {
-  border-style: dashed;
-  border-color: #d3a956;
+  color: #d3a956;
 }
 
 .review-anchor-state.stale {
-  border-style: double;
-  border-color: #dc7178;
+  color: #dc8a90;
+}
+
+.document-review-comment-meta .document-review-comment-location,
+.document-review-comment-meta .document-review-comment-delete {
+  padding: 0;
+  border-color: transparent;
+  color: #8f9baa;
+  background: transparent;
+}
+
+.document-review-comment-meta .document-review-comment-delete {
+  margin-left: auto;
+}
+
+.document-review-comment-meta .document-review-comment-location:hover,
+.document-review-comment-meta .document-review-comment-delete:hover {
+  color: #dce3ec;
+  text-decoration: underline;
 }
 
 .document-review-batch-state {
