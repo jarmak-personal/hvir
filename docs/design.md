@@ -239,7 +239,13 @@ One main-owned coordinator applies fixed targeting, confinement, collision, tran
 verification, deletion, and lifecycle policy over immediate `ProjectHost` primitives; explicit
 operation-scoped grants bound application-host sources outside registered projects.
 
-### [ADR-031 — Explicit document review anchors and provider-safe handoff](adr/ADR-031-explicit-document-review-handoff.md)
+### [ADR-031 — Transparent provider context assumptions](adr/ADR-031-transparent-provider-context-assumptions.md)
+
+Trusted bundled providers may expose a visible fixed context-capacity assumption and
+provider-specific pressure thresholds through the serializable capability catalog while the
+renderer remains provider-neutral and reported windows retain precedence.
+
+### [ADR-032 — Explicit document review anchors and provider-safe handoff](adr/ADR-032-explicit-document-review-handoff.md)
 
 Host-qualified Markdown review uses exact on-disk anchors, bounded local persistence, explicit
 payload bytes and destinations, and revisioned provider composer contracts through PTY authority.

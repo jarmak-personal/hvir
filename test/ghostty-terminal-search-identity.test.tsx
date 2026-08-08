@@ -35,6 +35,7 @@ vi.mock('ghostty-web', () => {
     cols = 80
     rows = 24
     viewportY = 0
+    private presentationPaused = false
     renderer?: {
       clear(): void
       getCanvas(): HTMLCanvasElement
@@ -83,6 +84,9 @@ vi.mock('ghostty-web', () => {
     write(): void {}
     resize(): void {}
     requestRender(): void {}
+    setRenderPaused(paused: boolean): void {
+      this.presentationPaused = paused
+    }
     resetCursorBlink(): void {}
     getViewportY(): number {
       return this.viewportY
@@ -102,7 +106,7 @@ vi.mock('ghostty-web', () => {
         renderRequests: 0,
         renderFrames: 0,
         fullRenderFrames: 0,
-        paused: false,
+        paused: this.presentationPaused,
         pendingFrame: false,
         cursorVisible: true,
       }

@@ -211,7 +211,7 @@ export interface TerminalPane {
   resize(cols: number, rows: number): void
   /** Update colors without remounting or restarting the PTY. */
   setTheme(theme: TerminalColorTheme): void
-  /** Update local text presentation, refit the grid, and retain the VT buffer. */
+  /** Update text presentation; visible panes refit, hidden panes defer until reveal. */
   setTypography(typography: TerminalTypography): void
   /** Update parser defaults without replacing effective application cursor state. */
   setCursorDefaults(defaults: TerminalCursorDefaults): void

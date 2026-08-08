@@ -10,6 +10,7 @@ import {
   asHarnessProfileId,
   type ComposerSubmitMode,
   type HarnessContextPresentation,
+  type HarnessContextPressurePolicy,
   type HarnessEnvironmentBinding,
   type HarnessLaunchRisk,
   type HarnessModifiedKeyProtocol,
@@ -34,6 +35,11 @@ import { githubCopilotProvider } from './providers/github-copilot'
 import { cursorProvider } from './providers/cursor'
 
 const CODEX_THREAD_TITLE_CONFIG = 'tui.terminal_title=["thread-title"]'
+const CLAUDE_CONTEXT_PRESSURE: HarnessContextPressurePolicy = {
+  assumedWindowTokens: 1_000_000,
+  warningPercent: 20,
+  criticalPercent: 40,
+}
 
 export interface HarnessLaunchContext {
   /** Exact harness id for pre-assigned launches and resume commands. */
@@ -179,6 +185,7 @@ export interface HarnessManifest {
   readonly displayName: string
   readonly default?: boolean
   readonly contextPresentation: HarnessContextPresentation
+  readonly contextPressure?: HarnessContextPressurePolicy
   /** Opt in only when the harness understands a specific modified-key wire format. */
   readonly modifiedKeyProtocol?: Exclude<HarnessModifiedKeyProtocol, 'none'>
   /** Compatibility shim for harness keymaps that cannot bind Command/Super. */
@@ -252,6 +259,17 @@ export interface HarnessProvider {
   resume(ctx: HarnessLaunchContext): HarnessLaunchSpec
 }
 
+export function harnessProviderCapabilities(
+  provider: HarnessProvider,
+): HarnessProviderCapabilities {
+  return {
+    sessionIdentity: provider.sessionIdentity,
+    exactResume: provider.supportsResume,
+    contextPresentation: provider.manifest.contextPresentation,
+    contextPressure: provider.manifest.contextPressure,
+  }
+}
+
 /**
  * A plain login shell — no session id, no resume. The provider every host
  * supports. "Resume" starts a new shell.
@@ -300,7 +318,8 @@ export const claudeCodeProvider: HarnessProvider = {
   manifest: {
     id: asHarnessProviderId('claude-code'),
     displayName: 'Claude Code',
-    contextPresentation: 'count',
+    contextPresentation: 'pressure',
+    contextPressure: CLAUDE_CONTEXT_PRESSURE,
     modifiedKeyProtocol: 'modify-other-keys',
     metaEnterAliasesControl: true,
   },
@@ -323,7 +342,10 @@ export const claudeCodeProvider: HarnessProvider = {
   sessionIdentity: 'preassigned',
   telemetry: { observe: observeClaudeContext },
   resumeValidation: { availability: claudeResumeAvailability },
-  probe: versionProbe('preassigned', true, 'count', claudeCodeReviewInsert),
+  probe: versionProbe('preassigned', true, 'pressure', {
+    contextPressure: CLAUDE_CONTEXT_PRESSURE,
+    reviewInsert: claudeCodeReviewInsert,
+  }),
   composerConfiguration: { configure: configureClaudeComposerSubmit },
   remoteImagePaste: pathImagePasteContract(),
   documentReviewInsert: claudeCodeReviewInsert,
@@ -392,9 +414,11 @@ export const codexProvider: HarnessProvider = {
     'discovered',
     true,
     'pressure',
-    codexReviewInsert,
-    codexReviewSendNow,
-    supportsCodexReviewSendNowVersion,
+    {
+      reviewInsert: codexReviewInsert,
+      reviewSendNow: codexReviewSendNow,
+      supportsReviewSendNowVersion: supportsCodexReviewSendNowVersion,
+    },
   ),
   remoteImagePaste: pathImagePasteContract(),
   documentReviewInsert: codexReviewInsert,
@@ -470,11 +494,7 @@ export class HarnessProviderRegistry {
       id: provider.manifest.id,
       displayName: provider.manifest.displayName,
       default: provider.manifest.default === true,
-      capabilities: {
-        sessionIdentity: provider.sessionIdentity,
-        exactResume: provider.supportsResume,
-        contextPresentation: provider.manifest.contextPresentation,
-      },
+      capabilities: harnessProviderCapabilities(provider),
       terminalInput: {
         modifiedKeyProtocol: provider.manifest.modifiedKeyProtocol ?? 'none',
         metaEnterAliasesControl: provider.manifest.metaEnterAliasesControl === true,
@@ -802,6 +822,7 @@ function staticProbe(
   sessionIdentity: HarnessSessionIdentity,
   exactResume: boolean,
   contextPresentation: HarnessContextPresentation,
+  contextPressure?: HarnessContextPressurePolicy,
 ): HarnessProbeContract {
   return {
     parseVersion: () => undefined,
@@ -809,6 +830,7 @@ function staticProbe(
       sessionIdentity,
       exactResume,
       contextPresentation,
+      contextPressure,
     }),
   }
 }
@@ -817,9 +839,12 @@ function versionProbe(
   sessionIdentity: HarnessSessionIdentity,
   exactResume: boolean,
   contextPresentation: HarnessContextPresentation,
-  reviewInsert?: HarnessDocumentReviewInsertContract,
-  reviewSendNow?: HarnessDocumentReviewSendNowContract,
-  supportsReviewSendNowVersion?: (version: string | undefined) => boolean,
+  capabilities: {
+    readonly contextPressure?: HarnessContextPressurePolicy
+    readonly reviewInsert?: HarnessDocumentReviewInsertContract
+    readonly reviewSendNow?: HarnessDocumentReviewSendNowContract
+    readonly supportsReviewSendNowVersion?: (version: string | undefined) => boolean
+  } = {},
 ): HarnessProbeContract {
   return {
     versionArgs: ['--version'],
@@ -833,10 +858,11 @@ function versionProbe(
       sessionIdentity,
       exactResume,
       contextPresentation,
-      reviewInsertContractRevision: reviewInsert?.revision,
+      contextPressure: capabilities.contextPressure,
+      reviewInsertContractRevision: capabilities.reviewInsert?.revision,
       reviewSendNowContractRevision:
-        reviewSendNow && supportsReviewSendNowVersion?.(version)
-          ? reviewSendNow.revision
+        capabilities.reviewSendNow && capabilities.supportsReviewSendNowVersion?.(version)
+          ? capabilities.reviewSendNow.revision
           : undefined,
     }),
   }

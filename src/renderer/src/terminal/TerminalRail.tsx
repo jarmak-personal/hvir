@@ -292,6 +292,7 @@ export function TerminalRail({
                     <TerminalContextMeter
                       telemetry={session.telemetry}
                       countOnly={contextPresentation === 'count'}
+                      pressurePolicy={provider?.capabilities.contextPressure}
                     />
                   ) : null}
                 </span>

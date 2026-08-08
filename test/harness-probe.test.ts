@@ -26,6 +26,11 @@ describe('HarnessProbeManager', () => {
       manager.probeProfiles(request),
     ])
     expect(first[0]).toMatchObject({ status: 'available', version: 'claude 9.2.1' })
+    expect(first[0]?.capabilities.contextPressure).toEqual({
+      assumedWindowTokens: 1_000_000,
+      warningPercent: 20,
+      criticalPercent: 40,
+    })
     expect(second).toEqual(first)
     expect(exec).toHaveBeenCalledTimes(2)
     expect(exec).toHaveBeenNthCalledWith(

@@ -356,7 +356,12 @@ describe('Harness providers', () => {
     expect(catalog.find(({ id }) => id === 'claude-code')?.capabilities).toEqual({
       sessionIdentity: 'preassigned',
       exactResume: true,
-      contextPresentation: 'count',
+      contextPresentation: 'pressure',
+      contextPressure: {
+        assumedWindowTokens: 1_000_000,
+        warningPercent: 20,
+        criticalPercent: 40,
+      },
     })
     expect(catalog.find(({ id }) => id === 'codex')?.capabilities).toEqual({
       sessionIdentity: 'discovered',

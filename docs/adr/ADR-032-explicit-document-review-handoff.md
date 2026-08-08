@@ -1,4 +1,4 @@
-# ADR-031: Explicit document review anchors and provider-safe handoff
+# ADR-032: Explicit document review anchors and provider-safe handoff
 
 ## Context
 

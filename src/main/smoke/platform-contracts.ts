@@ -17,6 +17,12 @@ interface RectSnapshot {
 
 interface PlatformContractSnapshot {
   readonly terminalStatus: string
+  readonly terminalPresentation: {
+    readonly paused: boolean
+    readonly pendingFrame: boolean
+    readonly cols: number
+    readonly rows: number
+  }
   readonly viewport: { readonly width: number; readonly height: number }
   readonly workbench: RectSnapshot
   readonly terminalPanel: RectSnapshot
@@ -121,18 +127,10 @@ async function verifyPaneDividerControlVisibility(win: BrowserWindow): Promise<s
     win.focus()
     win.webContents.focus()
     await focusPaneDividerAction(win, '.tree-resizer')
-    await waitForPaneDividerVisibility(
-      win,
-      [1, 1, 1, 0, 0, 0],
-      'tree keyboard focus',
-    )
+    await waitForPaneDividerVisibility(win, [1, 1, 1, 0, 0, 0], 'tree keyboard focus')
 
     await focusPaneDividerAction(win, '.terminal-resizer')
-    await waitForPaneDividerVisibility(
-      win,
-      [0, 0, 0, 1, 1, 1],
-      'terminal keyboard focus',
-    )
+    await waitForPaneDividerVisibility(win, [0, 0, 0, 1, 1, 1], 'terminal keyboard focus')
   } finally {
     await win.webContents.executeJavaScript(`
       if (${JSON.stringify(originalTheme)} === null) {
@@ -331,14 +329,24 @@ async function platformContractSnapshot(
         };
       };
       const snapshot = () => {
-        const panel = document.querySelector('.terminal-panel');
-        const host = document.querySelector('.terminal-container');
+        const panel = document.querySelector(
+          '.terminal-deck:not([hidden]) .terminal-surface.visible.active'
+        );
+        const host = panel?.querySelector('.terminal-container');
+        const engine = host?.querySelector('.terminal-engine-host');
         const canvas = host?.querySelector('canvas');
         const workbench = document.querySelector('.workbench');
         const divider = document.querySelector('.terminal-resizer');
         const hostStyle = host instanceof HTMLElement ? getComputedStyle(host) : undefined;
+        const presentation = engine?.__hvirTerminalPerformance;
         return {
           terminalStatus: panel?.getAttribute('data-terminal-status') || '',
+          terminalPresentation: presentation ? {
+            paused: presentation.paused,
+            pendingFrame: presentation.pendingFrame,
+            cols: presentation.cols,
+            rows: presentation.rows
+          } : undefined,
           viewport: { width: window.innerWidth, height: window.innerHeight },
           workbench: rect(workbench),
           terminalPanel: rect(panel),
@@ -353,6 +361,9 @@ async function platformContractSnapshot(
         lastSnapshot = snapshot();
         if (
           lastSnapshot.terminalStatus.startsWith('pid ') &&
+          lastSnapshot.terminalPresentation &&
+          !lastSnapshot.terminalPresentation.paused &&
+          !lastSnapshot.terminalPresentation.pendingFrame &&
           lastSnapshot.workbench &&
           lastSnapshot.terminalPanel &&
           lastSnapshot.terminalHost &&
@@ -363,7 +374,8 @@ async function platformContractSnapshot(
         }
         if (
           lastSnapshot.terminalStatus &&
-          lastSnapshot.terminalStatus !== 'Starting…'
+          lastSnapshot.terminalStatus !== 'Starting…' &&
+          !lastSnapshot.terminalStatus.startsWith('pid ')
         ) {
           return reject(new Error(
             'platform terminal failed to start: ' + JSON.stringify(lastSnapshot)

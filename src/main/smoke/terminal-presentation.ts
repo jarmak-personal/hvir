@@ -7,6 +7,7 @@ import { verifyTerminalClipboardFilePaste } from './terminal-file-paste'
 import { verifyTerminalContextMenu } from './terminal-context-menu'
 import { verifyTerminalCursorPresentation } from './terminal-cursor-presentation'
 import { verifyTerminalHorizonPresentation } from './terminal-horizon-presentation'
+import { verifyHiddenTerminalReveal } from './terminal-hidden-reveal'
 import { verifyTerminalLigaturePresentation } from './terminal-ligature-presentation'
 import { verifyNegotiatedTerminalKeyboard } from './terminal-keyboard-negotiation'
 import { verifyTerminalPalettePresentation } from './terminal-palette-presentation'
@@ -47,12 +48,12 @@ export async function verifyTerminalPresentationLifecycle(
       new Promise((resolve, reject) => {
         const deadline = Date.now() + 8000;
         let menuOpened = false;
-        const waitForSecond = () => {
+        const waitForTerminals = () => {
           const rows = [...document.querySelectorAll('.terminal-list-row')];
           const surfaces = [...document.querySelectorAll('.terminal-surface')];
           const active = document.querySelector('.terminal-surface.active');
           const status = active?.getAttribute('data-terminal-status') || '';
-          if (rows.length === 2 && surfaces.length === 2 && status.startsWith('pid ')) {
+          if (rows.length === 3 && surfaces.length === 3 && status.startsWith('pid ')) {
             const visible = surfaces.filter(
               (surface) => getComputedStyle(surface).visibility === 'visible'
             );
@@ -62,7 +63,7 @@ export async function verifyTerminalPresentationLifecycle(
             rows[0]?.querySelector('.terminal-list-main')?.click();
             const waitForSwitch = () => {
               if (document.querySelector('.terminal-list-row.active') === rows[0]) {
-                return resolve('2 live canvases · switch');
+                return resolve('3 live canvases · switch');
               }
               if (Date.now() > deadline) {
                 return reject(new Error('terminal selection did not switch'));
@@ -71,354 +72,50 @@ export async function verifyTerminalPresentationLifecycle(
             };
             return waitForSwitch();
           }
-          if (Date.now() > deadline) return reject(new Error(
-            'second terminal did not start: rows=' + rows.length +
-            ' surfaces=' + surfaces.length + ' status=' + status
-          ));
-          setTimeout(waitForSecond, 25);
-        };
-        const waitForMenu = () => {
           const add = document.querySelector('button[aria-label="New terminal"]');
-          if (!menuOpened && add && !add.disabled) {
+          if (
+            !menuOpened && rows.length < 3 && status.startsWith('pid ') &&
+            add instanceof HTMLButtonElement && !add.disabled
+          ) {
             add.click();
             menuOpened = true;
           }
           const shell = [...document.querySelectorAll('.terminal-new-menu button')]
             .find((node) => node.querySelector('strong')?.textContent?.trim() === 'Shell');
-          if (shell) {
+          if (menuOpened && shell) {
             shell.click();
-            return waitForSecond();
+            menuOpened = false;
           }
-          if (Date.now() > deadline) return reject(new Error('new-terminal menu did not open'));
-          setTimeout(waitForMenu, 25);
+          if (Date.now() > deadline) return reject(new Error(
+            'three terminals did not start: rows=' + rows.length +
+            ' surfaces=' + surfaces.length + ' status=' + status
+          ));
+          setTimeout(waitForTerminals, 25);
         };
-        waitForMenu();
+        waitForTerminals();
       })
     `),
     'multi-terminal interaction timed out',
     10_000,
   )) as string
-  const secondTerminal = supervisor
+  const ownerTerminals = supervisor
     .list()
-    .filter((terminal) => terminal.ownerId === win.webContents.id)[1]
+    .filter((terminal) => terminal.ownerId === win.webContents.id)
+  const secondTerminal = ownerTerminals[1]
+  const quiescentTerminal = ownerTerminals[2]
   if (!secondTerminal) throw new Error('second terminal was not registered')
+  if (!quiescentTerminal) throw new Error('quiescent third terminal was not registered')
   const synchronizedOutputStatus = await verifySynchronizedOutput(
     win,
     supervisor,
     secondTerminal.id,
   )
-  supervisor.write(
-    secondTerminal.id,
-    secondTerminal.ownerId,
-    "printf '\\033[41m\\033[2J\\033[Hhidden-buffer\\033[0m\\033]0;Hidden buffered\\007\\007'; IFS= read -r hvir_input; printf 'input:%s\\n' \"$hvir_input\"; sleep 10\n",
+  const revealStatus = await verifyHiddenTerminalReveal(
+    win,
+    supervisor,
+    secondTerminal,
+    quiescentTerminal,
   )
-  const revealStatus = (await withTerminalSmokeTimeout(
-    win.webContents.executeJavaScript(`
-      new Promise((resolve, reject) => {
-        const sessionId = ${JSON.stringify(secondTerminal.id)};
-        const deadline = Date.now() + 8000;
-        const fail = (message) => reject(new Error(message));
-        const waitForHiddenOutput = () => {
-          const button = document.querySelector(
-            '.terminal-list-main[data-terminal-session="' + CSS.escape(sessionId) + '"]'
-          );
-          const row = button?.closest('.terminal-list-row');
-          const surface = document.querySelector(
-            '.terminal-surface[data-terminal-session="' + CSS.escape(sessionId) + '"]'
-          );
-          const title = row?.querySelector('.terminal-list-title')?.textContent || '';
-          const bell = row?.querySelector('.terminal-attention-badge.bell');
-          const engine = surface?.querySelector('.terminal-engine-host');
-          const stats = engine?.__hvirTerminalPerformance;
-          if (
-            button && row && surface && title === 'Hidden buffered' && bell &&
-            getComputedStyle(surface).visibility === 'hidden' && stats &&
-            stats.paused && !stats.pendingFrame && stats.parsedWrites > 0
-          ) {
-            const hiddenFrames = stats.renderFrames;
-            const hiddenFullFrames = stats.fullRenderFrames;
-            return setTimeout(() => {
-              const settled = engine.__hvirTerminalPerformance;
-              if (
-                settled.renderFrames !== hiddenFrames ||
-                !settled.paused ||
-                settled.pendingFrame
-              ) {
-                return fail('hidden terminal continued presentation work');
-              }
-              selectFromCompactRail(surface, row, hiddenFullFrames);
-            }, 650);
-          }
-          if (Date.now() > deadline) {
-            return fail('hidden terminal output did not settle: title=' + title +
-              ' bell=' + Boolean(bell) + ' surface=' + Boolean(surface));
-          }
-          setTimeout(waitForHiddenOutput, 25);
-        };
-        const selectFromCompactRail = (surface, row, hiddenFullFrames) => {
-          const workbench = document.querySelector('.workbench');
-          const rail = document.querySelector('.terminal-rail:not([hidden])');
-          const collapse = document.querySelector(
-            'button[aria-label="Collapse terminal rail"]'
-          );
-          const expandedOrder = [...document.querySelectorAll('.terminal-list-main')]
-            .map((entry) => entry.getAttribute('data-terminal-session'))
-            .join('|');
-          if (
-            !(workbench instanceof HTMLElement) ||
-            !(rail instanceof HTMLElement) ||
-            !(collapse instanceof HTMLButtonElement)
-          ) {
-            return fail('compact marker switch fixtures missing');
-          }
-          collapse.click();
-          const waitForMarkers = () => {
-            const markerList = document.querySelector('.terminal-rail-compact-markers');
-            const restore = document.querySelector(
-              'button[aria-label="Restore terminal rail"]'
-            );
-            const markers = markerList
-              ? [...markerList.querySelectorAll('.terminal-rail-compact-marker')]
-              : [];
-            if (
-              workbench.classList.contains('terminal-rail-compact') &&
-              markerList instanceof HTMLElement &&
-              restore instanceof HTMLButtonElement &&
-              markers.length === 2
-            ) {
-              const markerOrder = markers
-                .map((entry) => entry.getAttribute('data-terminal-session'))
-                .join('|');
-              const firstMarker = markers[0];
-              const marker = markers.find(
-                (entry) => entry.getAttribute('data-terminal-session') === sessionId
-              );
-              if (
-                markerOrder !== expandedOrder ||
-                !(firstMarker instanceof HTMLButtonElement) ||
-                !(marker instanceof HTMLButtonElement) ||
-                firstMarker.textContent !== '' ||
-                marker.dataset.terminalState !== 'bell' ||
-                marker.getAttribute('aria-label') !== 'Hidden buffered, Bell' ||
-                marker.title !== 'Hidden buffered, Bell' ||
-                marker.tabIndex !== 0
-              ) {
-                return fail(
-                  'compact markers lost row order, state, or accessible naming: order=' +
-                  markerOrder + ' expected=' + expandedOrder +
-                  ' state=' + marker?.getAttribute('data-terminal-state') +
-                  ' label=' + marker?.getAttribute('aria-label')
-                );
-              }
-              const firstRectangle = getComputedStyle(firstMarker, '::before');
-              const secondRectangle = getComputedStyle(marker, '::before');
-              const firstItem = firstMarker.closest(
-                '.terminal-rail-compact-marker-item'
-              );
-              const lastItem = marker.closest(
-                '.terminal-rail-compact-marker-item'
-              );
-              const firstItemDecoration = firstItem
-                ? getComputedStyle(firstItem, '::before')
-                : undefined;
-              const lastItemDecoration = lastItem
-                ? getComputedStyle(lastItem, '::before')
-                : undefined;
-              const firstBounds = firstMarker.getBoundingClientRect();
-              const secondBounds = marker.getBoundingClientRect();
-              if (
-                firstRectangle.transform !== 'none' ||
-                secondRectangle.transform !== 'none' ||
-                firstRectangle.borderRadius !== '0px' ||
-                secondRectangle.borderRadius !== '0px' ||
-                firstRectangle.borderLeftWidth !== '2px' ||
-                firstRectangle.borderTopWidth !== '2px' ||
-                secondRectangle.borderBottomWidth !== '3px' ||
-                getComputedStyle(markerList).rowGap !== '0px' ||
-                Math.abs(firstBounds.width - markerList.clientWidth) > 1 ||
-                Math.abs(secondBounds.width - markerList.clientWidth) > 1 ||
-                Math.abs(secondBounds.top - firstBounds.bottom) > 1 ||
-                firstItemDecoration?.content !== 'none' ||
-                lastItemDecoration?.content !== 'none'
-              ) {
-                return fail(
-                  'compact markers lost zero-gap full-width rectangle geometry: ' +
-                  'transforms=' + firstRectangle.transform + '/' +
-                    secondRectangle.transform +
-                  ' radii=' + firstRectangle.borderRadius + '/' +
-                    secondRectangle.borderRadius +
-                  ' active=' + firstRectangle.borderLeftWidth + '/' +
-                    firstRectangle.borderTopWidth +
-                  ' bell=' + secondRectangle.borderBottomWidth +
-                  ' gap=' + getComputedStyle(markerList).rowGap +
-                  ' widths=' + [
-                    firstBounds.width,
-                    secondBounds.width,
-                    markerList.clientWidth
-                  ].join('/') +
-                  ' adjacency=' + (secondBounds.top - firstBounds.bottom) +
-                  ' decorations=' + [
-                    firstItemDecoration?.content,
-                    lastItemDecoration?.content
-                  ].join('/')
-                );
-              }
-              markerList.style.flex = '0 0 20px';
-              markerList.style.maxHeight = '20px';
-              return requestAnimationFrame(() => {
-                const railBounds = rail.getBoundingClientRect();
-                const listBounds = markerList.getBoundingClientRect();
-                const restoreBounds = restore.getBoundingClientRect();
-                const restoreTop = restoreBounds.top;
-                const listStyle = getComputedStyle(markerList);
-                if (
-                  listStyle.overflowY !== 'auto' ||
-                  markerList.scrollHeight <= markerList.clientHeight ||
-                  listStyle.scrollbarWidth !== 'none' ||
-                  markerList.offsetWidth !== markerList.clientWidth ||
-                  listBounds.left < railBounds.left - 1 ||
-                  listBounds.right > railBounds.right + 1 ||
-                  restoreBounds.left < railBounds.left - 1 ||
-                  restoreBounds.right > railBounds.right + 1 ||
-                  restoreBounds.top < railBounds.top - 1 ||
-                  restoreBounds.bottom > listBounds.top + 1
-                ) {
-                  return fail(
-                    'compact marker overflow escaped the rail or moved above restore: ' +
-                    'overflow=' + listStyle.overflowY +
-                    ' heights=' + markerList.clientHeight + '/' + markerList.scrollHeight +
-                    ' scrollbar=' + listStyle.scrollbarWidth +
-                    ' widths=' + markerList.clientWidth + '/' + markerList.offsetWidth +
-                    ' rail=' + [railBounds.left, railBounds.right].join(',') +
-                    ' list=' + [listBounds.left, listBounds.right].join(',') +
-                    ' restore=' + [
-                      restoreBounds.left,
-                      restoreBounds.right,
-                      restoreBounds.top,
-                      restoreBounds.bottom
-                    ].join(',')
-                  );
-                }
-                marker.scrollIntoView({ block: 'nearest', inline: 'nearest' });
-                requestAnimationFrame(() => {
-                  const markerBounds = marker.getBoundingClientRect();
-                  const restoreAfterScroll = restore.getBoundingClientRect();
-                  if (
-                    markerList.scrollTop <= 0 ||
-                    markerBounds.top < listBounds.top - 1 ||
-                    markerBounds.bottom > listBounds.bottom + 1 ||
-                    Math.abs(restoreAfterScroll.top - restoreTop) > 1
-                  ) {
-                    return fail(
-                      'compact marker scroll moved restore or hid the final marker: ' +
-                      'scrollTop=' + markerList.scrollTop +
-                      ' restoreTop=' + restoreTop + '/' + restoreAfterScroll.top
-                    );
-                  }
-                  marker.focus();
-                  marker.click();
-                  waitForReveal(
-                    surface,
-                    row,
-                    hiddenFullFrames,
-                    workbench,
-                    markerList,
-                    restore
-                  );
-                });
-              });
-            }
-            if (Date.now() > deadline) {
-              return fail('compact terminal markers did not appear');
-            }
-            setTimeout(waitForMarkers, 25);
-          };
-          waitForMarkers();
-        };
-        const waitForReveal = (
-          surface,
-          row,
-          hiddenFullFrames,
-          workbench,
-          markerList,
-          restore
-        ) => {
-          const canvas = surface.querySelector('canvas');
-          const context = canvas?.getContext('2d');
-          const stats = surface.querySelector('.terminal-engine-host')
-            ?.__hvirTerminalPerformance;
-          const marker = markerList.querySelector(
-            '.terminal-rail-compact-marker[data-terminal-session="' +
-            CSS.escape(sessionId) + '"]'
-          );
-          const pixel = canvas && context
-            ? context.getImageData(
-                Math.floor(canvas.width / 2),
-                Math.floor(canvas.height / 2),
-                1,
-                1
-              ).data
-            : undefined;
-          if (
-            row.classList.contains('active') &&
-            getComputedStyle(surface).visibility === 'visible' &&
-            pixel && pixel[0] > 120 && pixel[1] < 160 && stats &&
-            !stats.paused && !stats.pendingFrame &&
-            workbench.classList.contains('terminal-rail-compact') &&
-            marker instanceof HTMLButtonElement &&
-            marker.getAttribute('aria-current') === 'true' &&
-            marker.dataset.terminalState === 'neutral' &&
-            marker.getAttribute('aria-label') ===
-              'Hidden buffered, Neutral, active terminal' &&
-            !row.querySelector('.terminal-attention-badge')
-          ) {
-            if (stats.fullRenderFrames - hiddenFullFrames !== 1) {
-              return fail(
-                'terminal reveal full repaint count was ' +
-                (stats.fullRenderFrames - hiddenFullFrames)
-              );
-            }
-            markerList.style.removeProperty('flex');
-            markerList.style.removeProperty('max-height');
-            restore.click();
-            const waitForRestore = () => {
-              if (!workbench.classList.contains('terminal-rail-compact')) {
-                return resolve(
-                  'hidden output + compact marker switch + attention clear + ' +
-                  'bounded overflow + current repaint'
-                );
-              }
-              if (Date.now() > deadline) {
-                return fail('terminal rail did not restore after compact marker switch');
-              }
-              setTimeout(waitForRestore, 25);
-            };
-            return waitForRestore();
-          }
-          if (Date.now() > deadline) {
-            return fail(
-              'compact marker did not activate and clear the revealed terminal'
-            );
-          }
-          setTimeout(
-            () =>
-              waitForReveal(
-                surface,
-                row,
-                hiddenFullFrames,
-                workbench,
-                markerList,
-                restore
-              ),
-            25
-          );
-        };
-        waitForHiddenOutput();
-      })
-    `),
-    'hidden terminal compact switch timed out',
-    12_000,
-  )) as string
 
   let inputProbe = ''
   const detachInputProbe = supervisor.attach(secondTerminal.id, secondTerminal.ownerId, {
@@ -459,14 +156,21 @@ export async function verifyTerminalPresentationLifecycle(
       new Promise((resolve, reject) => {
         const sessionId = ${JSON.stringify(secondTerminal.id)};
         const deadline = Date.now() + 5000;
+        let closing = false;
         const poll = () => {
+          const rows = [...document.querySelectorAll('.terminal-list-row')];
+          if (closing && rows.length === 1) {
+            return resolve('revealed input echo + close');
+          }
           const button = document.querySelector(
             '.terminal-list-main[data-terminal-session="' + CSS.escape(sessionId) + '"]'
           );
           const row = button?.closest('.terminal-list-row');
-          if (row) {
+          if (!closing && row) {
+            const extra = rows.at(-1);
+            if (extra && extra !== row) extra.querySelector('.terminal-close-button')?.click();
             row.querySelector('.terminal-close-button')?.click();
-            return resolve('revealed input echo + close');
+            closing = true;
           }
           if (Date.now() > deadline) {
             return reject(new Error('revealed terminal row disappeared before close'));

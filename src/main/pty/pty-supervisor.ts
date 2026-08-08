@@ -31,11 +31,12 @@ import {
   type PtyExit,
   type PtyProcess,
 } from '../project-host'
-import type {
-  HarnessLaunchSpec,
-  HarnessProvider,
-  HarnessSessionDiscovery,
-  HarnessArtifactContext,
+import {
+  harnessProviderCapabilities,
+  type HarnessArtifactContext,
+  type HarnessLaunchSpec,
+  type HarnessProvider,
+  type HarnessSessionDiscovery,
 } from '../harness/harness-provider'
 import { harnessShellCommandArgs } from '../harness/harness-shell-environment'
 
@@ -210,11 +211,8 @@ export class PtySupervisor {
   /** Spawn a PTY. The one and only site that calls `host.spawnPty`. */
   async spawn(req: PtySpawnRequest): Promise<ManagedPty> {
     const sessionId = req.sessionId ?? randomUUID()
-    const effectiveCapabilities = req.effectiveCapabilities ?? {
-      sessionIdentity: req.provider.sessionIdentity,
-      exactResume: req.provider.supportsResume,
-      contextPresentation: req.provider.manifest.contextPresentation,
-    }
+    const effectiveCapabilities =
+      req.effectiveCapabilities ?? harnessProviderCapabilities(req.provider)
     const resumed = req.resume === true && effectiveCapabilities.exactResume
     const diagnosticContext = {
       hostKind: req.host.hostId === LOCAL_HOST_ID ? ('local' as const) : ('ssh' as const),
