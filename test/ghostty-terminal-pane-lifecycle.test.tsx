@@ -2,7 +2,6 @@
 
 import { act } from 'react'
 import { createRoot } from 'react-dom/client'
-import type { TerminalEvent as GhosttyTerminalEvent } from 'ghostty-web'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { createGhosttyTerminalPane } from '../src/renderer/src/terminal/ghostty-terminal-pane'
@@ -12,258 +11,11 @@ import type { TerminalRuntimeOptions } from '../src/renderer/src/terminal/termin
 import { TerminalRuntimeRegistry } from '../src/renderer/src/terminal/terminal-runtime-registry'
 import type { TerminalEvent } from '../src/renderer/src/terminal/terminal-pane'
 import { ghosttyLifecycleRuntimeOptions as runtimeOptions } from './fixtures/ghostty-lifecycle-runtime-options'
+import { ghosttyState } from './fixtures/ghostty-terminal-pane-mock'
 
-const ghosttyState = vi.hoisted(() => ({
-  instances: [] as Array<{
-    readonly cursorBlinkValues: Array<boolean | 'terminal'>
-    readonly cursorStyleValues: string[]
-    readonly fontFamilies: string[]
-    readonly fontLigatureValues: boolean[]
-    readonly fontSizes: number[]
-    readonly presentationPausedValues: boolean[]
-    readonly resizes: Array<{ readonly cols: number; readonly rows: number }>
-    readonly themes: unknown[]
-    readonly writes: string[]
-    cursorBlinkResets: number
-    focusCalls: number
-    emitData(data: string): void
-    emitTerminalEvent(event: GhosttyTerminalEvent): void
-    emitCustomKey(event: {
-      readonly code: string
-      readonly ctrlKey: boolean
-      readonly altKey: boolean
-      readonly metaKey: boolean
-      readonly shiftKey: boolean
-    }): boolean
-    emitResize(size: { readonly cols: number; readonly rows: number }): void
-    resolveClipboardFilePaste(file: File): string | undefined
-    renders: number
-    rendererThemeWrites: number
-    disposed: boolean
-  }>,
-}))
-
-vi.mock('ghostty-web', () => {
-  class MockTerminal {
-    readonly options: {
-      theme?: unknown
-      cursorBlink?: boolean | 'terminal'
-      cursorStyle?: string
-      fontFamily?: string
-      fontLigatures?: boolean
-      fontSize?: number
-      resolveClipboardFilePaste?: (file: File) => string | undefined
-    }
-    readonly buffer = { active: { getLine: () => undefined } }
-    readonly wasmTerm = {
-      getColors: () => undefined,
-      getCursor: () => ({
-        blinking: this.options.cursorBlink !== false,
-        style: this.options.cursorStyle ?? 'block',
-        default: true,
-      }),
-    }
-    readonly viewportY = 0
-    cols = 80
-    rows = 24
-    element?: HTMLElement
-    renderer?: {
-      clear(): void
-      getCanvas(): HTMLCanvasElement
-      getMetrics(): { width: number; height: number }
-      render(): void
-      setTheme(theme: unknown): void
-    }
-    private canvas?: HTMLCanvasElement
-    private textarea?: HTMLTextAreaElement
-    private readonly state: (typeof ghosttyState.instances)[number]
-    private presentationPaused = false
-
-    constructor(options: {
-      theme?: unknown
-      cursorBlink?: boolean | 'terminal'
-      cursorStyle?: string
-      fontFamily?: string
-      fontLigatures?: boolean
-      fontSize?: number
-      resolveClipboardFilePaste?: (file: File) => string | undefined
-    }) {
-      this.state = {
-        cursorBlinkValues: [options.cursorBlink ?? false],
-        cursorStyleValues: [options.cursorStyle ?? 'block'],
-        fontFamilies: [options.fontFamily ?? ''],
-        fontLigatureValues: [options.fontLigatures ?? true],
-        fontSizes: [options.fontSize ?? 0],
-        presentationPausedValues: [],
-        resizes: [],
-        themes: [options.theme],
-        writes: [],
-        cursorBlinkResets: 0,
-        focusCalls: 0,
-        emitData: () => undefined,
-        emitTerminalEvent: () => undefined,
-        emitCustomKey: () => false,
-        emitResize: () => undefined,
-        resolveClipboardFilePaste: options.resolveClipboardFilePaste ?? (() => undefined),
-        renders: 0,
-        rendererThemeWrites: 0,
-        disposed: false,
-      }
-      ghosttyState.instances.push(this.state)
-      this.options = new Proxy(
-        { ...options },
-        {
-          set: (target, property, value) => {
-            Reflect.set(target, property, value)
-            if (property === 'cursorBlink') {
-              this.state.cursorBlinkValues.push(value as boolean | 'terminal')
-            }
-            if (property === 'cursorStyle')
-              this.state.cursorStyleValues.push(String(value))
-            if (property === 'fontFamily') {
-              this.state.fontFamilies.push(String(value))
-            }
-            if (property === 'fontLigatures') {
-              this.state.fontLigatureValues.push(Boolean(value))
-              this.requestRender()
-            }
-            if (property === 'fontSize') this.state.fontSizes.push(Number(value))
-            if (property === 'theme') {
-              this.state.themes.push(value)
-              this.requestRender()
-            }
-            return true
-          },
-        },
-      )
-    }
-    attachCustomKeyEventHandler(
-      callback: (event: {
-        readonly code: string
-        readonly ctrlKey: boolean
-        readonly altKey: boolean
-        readonly metaKey: boolean
-        readonly shiftKey: boolean
-      }) => boolean,
-    ): void {
-      this.state.emitCustomKey = callback
-    }
-    attachCustomWheelEventHandler(): void {}
-    onData(callback: (data: string) => void): { dispose(): void } {
-      this.state.emitData = callback
-      return {
-        dispose: () => {
-          this.state.emitData = () => undefined
-        },
-      }
-    }
-    onResize(
-      callback: (size: { readonly cols: number; readonly rows: number }) => void,
-    ): { dispose(): void } {
-      this.state.emitResize = callback
-      return { dispose: () => (this.state.emitResize = () => undefined) }
-    }
-    onScroll = () => ({ dispose: () => undefined })
-    onTerminalEvent(callback: (event: GhosttyTerminalEvent) => void): {
-      dispose(): void
-    } {
-      this.state.emitTerminalEvent = callback
-      return { dispose: () => (this.state.emitTerminalEvent = () => undefined) }
-    }
-    open(element: HTMLElement): void {
-      this.element = element
-      element.setAttribute('contenteditable', 'true')
-      this.canvas = document.createElement('canvas')
-      this.textarea = document.createElement('textarea')
-      element.append(this.canvas, this.textarea)
-      this.renderer = {
-        clear: () => undefined,
-        getCanvas: () => this.canvas!,
-        getMetrics: () => {
-          const fontSize = this.options.fontSize ?? 13
-          return { width: fontSize * 0.6, height: fontSize * 1.2 }
-        },
-        render: () => {
-          this.state.renders += 1
-        },
-        setTheme: () => this.state.rendererThemeWrites++,
-      }
-    }
-    registerLinkProvider(): void {}
-    getViewportY(): number {
-      return 0
-    }
-    getScrollbackLength(): number {
-      return 0
-    }
-    scrollToLine(): void {}
-    requestRender(): void {
-      if (!this.presentationPaused) this.state.renders += 1
-    }
-    setRenderPaused(paused: boolean): void {
-      if (paused === this.presentationPaused) return
-      this.presentationPaused = paused
-      this.state.presentationPausedValues.push(paused)
-      if (!paused) this.requestRender()
-    }
-    resetCursorBlink(): void {
-      if (!this.options.cursorBlink || this.state.disposed || this.presentationPaused)
-        return
-      this.state.cursorBlinkResets += 1
-    }
-    getRenderStats(): {
-      parsedWrites: number
-      renderRequests: number
-      renderFrames: number
-      fullRenderFrames: number
-      paused: boolean
-      pendingFrame: boolean
-      cursorVisible: boolean
-    } {
-      return {
-        parsedWrites: this.state.writes.length,
-        renderRequests: this.state.renders,
-        renderFrames: this.state.renders,
-        fullRenderFrames: this.state.renders,
-        paused: this.presentationPaused,
-        pendingFrame: false,
-        cursorVisible: true,
-      }
-    }
-    resolveEventProvenance(provenance: { screen: 'normal' | 'alternate'; row: number }) {
-      return { screen: provenance.screen, row: provenance.row, column: 0 }
-    }
-    cancelRetainedBufferSearch(): void {}
-    cancelRetainedBufferExtraction(): void {}
-    write(data: string): void {
-      this.state.writes.push(data)
-    }
-    resize(cols: number, rows: number): void {
-      if (cols === this.cols && rows === this.rows) return
-      this.cols = cols
-      this.rows = rows
-      const size = { cols, rows }
-      this.state.resizes.push(size)
-      this.state.emitResize(size)
-    }
-    focus(): void {
-      this.state.focusCalls += 1
-    }
-    dispose(): void {
-      this.state.disposed = true
-      this.canvas?.remove()
-      this.textarea?.remove()
-      this.element?.removeAttribute('contenteditable')
-      this.canvas = undefined
-      this.textarea = undefined
-      this.element = undefined
-      this.renderer = undefined
-    }
-  }
-  return {
-    init: vi.fn(() => Promise.resolve()),
-    Terminal: MockTerminal,
-  }
+vi.mock('ghostty-web', async () => {
+  const { ghosttyWebMock } = await import('./fixtures/ghostty-terminal-pane-mock')
+  return ghosttyWebMock
 })
 describe('GhosttyTerminalPane lifecycle', () => {
   beforeEach(() => {
@@ -334,7 +86,8 @@ describe('GhosttyTerminalPane lifecycle', () => {
   })
   it('stops hidden cursor work and restores a current repaint on reveal', async () => {
     const container = document.createElement('div')
-    document.body.append(container)
+    const nextContainer = document.createElement('div')
+    document.body.append(container, nextContainer)
     const pane = await createGhosttyTerminalPane(theme(), typography(), {
       cursorDefaults: cursorDefaults(),
       ligatures: true,
@@ -348,11 +101,21 @@ describe('GhosttyTerminalPane lifecycle', () => {
     pane.mount(container)
     const canvas = container.querySelector('canvas')
     pane.write('\u001b]0;Hidden output\u0007buffered')
+    const surface = container.querySelector<HTMLElement>('.terminal-engine-host')!
+    Object.defineProperties(surface, {
+      clientWidth: { configurable: true, value: 780 },
+      clientHeight: { configurable: true, value: 360 },
+    })
     const hiddenRenderCount = state.renders
+    const hiddenResizeCount = state.resizes.length
     const { cursorText, ...lightTheme } = terminalThemeForAppearance('light')
+
+    pane.reparent(nextContainer)
     pane.setTheme(terminalThemeForAppearance('light'))
+    pane.setTypography({ fontFamily: 'Deferred Mono', fontSize: 18 })
     pane.setCursorDefaults({ shape: 'hollow-block', blink: 'steady' })
     pane.setLigatures(false)
+    await settleTerminalFit()
 
     expect(state.cursorBlinkValues).toEqual(['terminal', false])
     expect(state.cursorStyleValues).toEqual(['block', 'block_hollow'])
@@ -362,15 +125,39 @@ describe('GhosttyTerminalPane lifecycle', () => {
     expect(state.themes.at(-1)).toEqual({ ...lightTheme, cursorAccent: cursorText })
     expect(state.rendererThemeWrites).toBe(0)
     expect(state.renders).toBe(hiddenRenderCount)
+    expect(state.resizes).toHaveLength(hiddenResizeCount)
+    expect(nextContainer.firstElementChild).toBe(surface)
 
     pane.setPresentation('visible')
+    expect(canvas?.style.visibility).toBe('hidden')
+    await settleTerminalFit()
 
     expect(state.cursorBlinkValues).toEqual(['terminal', false])
     expect(state.cursorStyleValues).toEqual(['block', 'block_hollow'])
     expect(state.fontLigatureValues).toEqual([true, false])
     expect(state.presentationPausedValues).toEqual([true, false])
     expect(state.renders).toBeGreaterThan(hiddenRenderCount)
-    expect(container.querySelector('canvas')).toBe(canvas)
+    expect(state.resizes).toEqual([{ cols: 72, rows: 16 }])
+    expect(nextContainer.querySelector('canvas')).toBe(canvas)
+    expect(canvas?.style.visibility).toBe('')
+
+    pane.setPresentation('hidden')
+    const retainedRenderCount = state.renders
+    const retainedResizeCount = state.resizes.length
+    expect(canvas?.style.visibility).toBe('hidden')
+
+    pane.setPresentation('visible')
+
+    expect(canvas?.style.visibility).toBe('')
+    expect(state.presentationPausedValues).toEqual([true, false, true])
+    expect(state.renders).toBe(retainedRenderCount)
+    expect(state.resizes).toHaveLength(retainedResizeCount)
+
+    await settleTerminalFit()
+
+    expect(state.presentationPausedValues).toEqual([true, false, true, false])
+    expect(state.renders).toBeGreaterThan(retainedRenderCount)
+    expect(state.resizes).toHaveLength(retainedResizeCount)
 
     pane.setPresentation('hidden')
     pane.dispose()
@@ -397,6 +184,7 @@ describe('GhosttyTerminalPane lifecycle', () => {
     pane.events.onData(input)
     pane.events.onClipboardPaste(clipboardPaste)
     pane.mount(container)
+    await settleTerminalFit()
 
     state.emitData('a')
     const customHandled = state.emitCustomKey({
@@ -418,6 +206,7 @@ describe('GhosttyTerminalPane lifecycle', () => {
     expect(state.cursorBlinkResets).toBe(2)
 
     pane.setPresentation('visible')
+    await settleTerminalFit()
     state.emitData('c')
     expect(state.cursorBlinkResets).toBe(3)
 
@@ -590,7 +379,7 @@ describe('GhosttyTerminalPane lifecycle', () => {
 
     act(() => root.render(render(18)))
     await act(async () => {
-      await new Promise((resolve) => window.setTimeout(resolve, 100))
+      await settleTerminalFit(180)
     })
 
     expect(host.querySelector('.terminal-engine-host')).toBe(surface)
@@ -915,9 +704,11 @@ describe('GhosttyTerminalPane lifecycle', () => {
     const state = ghosttyState.instances[0]!
 
     await act(async () => {
+      await settleTerminalFit()
       root.render(renderOwner('target'))
       await Promise.resolve()
     })
+    await settleTerminalFit()
 
     expect(state.presentationPausedValues).toEqual([true, false, true, false])
     expect(host.querySelectorAll('.terminal-engine-host')).toHaveLength(1)
@@ -963,6 +754,7 @@ describe('GhosttyTerminalPane lifecycle', () => {
 
     runtime.attach(first)
     await vi.waitFor(() => expect(invoke).toHaveBeenCalledOnce())
+    await settleTerminalFit()
     const state = ghosttyState.instances[0]!
     const surface = first.querySelector('.terminal-engine-host')
     expect(state.presentationPausedValues).toEqual([true, false])
@@ -971,6 +763,7 @@ describe('GhosttyTerminalPane lifecycle', () => {
     // New-owner attachment may run before stale old-owner cleanup.
     runtime.attach(second)
     runtime.detach(first)
+    await settleTerminalFit()
     expect(second.querySelector('.terminal-engine-host')).toBe(surface)
     expect(state.presentationPausedValues).toEqual([true, false, true, false])
     expect(deliveryPresentation(second)).toBe('visible')
@@ -992,6 +785,7 @@ describe('GhosttyTerminalPane lifecycle', () => {
     expect(options.onFocus).toHaveBeenCalledTimes(focusEventsWhileAttached)
 
     runtime.attach(third)
+    await settleTerminalFit()
     expect(third.querySelector('.terminal-engine-host')).toBe(surface)
     expect(state.presentationPausedValues).toEqual([
       true,
@@ -1190,6 +984,10 @@ describe('GhosttyTerminalPane lifecycle', () => {
 const theme = () => terminalThemeForAppearance('dark')
 const typography = () => ({ fontFamily: 'ui-monospace, monospace', fontSize: 13 })
 const cursorDefaults = () => ({ shape: 'block', blink: 'terminal' }) as const
+
+function settleTerminalFit(delay = 100): Promise<void> {
+  return new Promise((resolve) => window.setTimeout(resolve, delay))
+}
 
 function deliveryPresentation(container: HTMLElement): 'visible' | 'hidden' | undefined {
   return (

@@ -4,10 +4,11 @@ import { calculateTerminalFit } from './terminal-fit'
 
 const RESIZE_SETTLE_MS = 75
 
-type FittableTerminal = Pick<
-  GhosttyTerminal,
-  'cols' | 'element' | 'renderer' | 'resize' | 'rows'
->
+type FittableTerminal = Pick<GhosttyTerminal, 'cols' | 'element' | 'resize' | 'rows'> & {
+  readonly renderer?: {
+    getMetrics(): { readonly width: number; readonly height: number }
+  }
+}
 
 /**
  * hvir-owned replacement for ghostty-web 0.4's FitAddon.
@@ -21,6 +22,9 @@ export class TerminalFitController {
   private observer: ResizeObserver | undefined
   private resizeTimer: number | undefined
   private resizeFrame: number | undefined
+  private afterSettledFit: (() => void) | undefined
+  private generation = 0
+  private enabled = false
   private disposed = false
 
   constructor(private readonly terminal: FittableTerminal) {}
@@ -50,17 +54,34 @@ export class TerminalFitController {
     this.terminal.resize(dimensions.cols, dimensions.rows)
   }
 
-  observeResize(): void {
-    if (this.disposed || this.observer || !this.terminal.element) return
-    this.observer = new ResizeObserver(() => this.scheduleTrailingFit())
-    this.observer.observe(this.terminal.element)
+  resume(afterSettledFit?: () => void): void {
+    if (this.disposed) return
+    this.enabled = true
+    if (afterSettledFit) this.afterSettledFit = afterSettledFit
+    if (!this.observer && this.terminal.element) {
+      this.observer = new ResizeObserver(() => this.scheduleTrailingFit())
+      this.observer.observe(this.terminal.element)
+    }
+    this.scheduleTrailingFit()
+  }
+
+  suspend(): void {
+    if (this.disposed) return
+    this.enabled = false
+    this.generation += 1
+    this.observer?.disconnect()
+    this.observer = undefined
+    this.cancelPendingFit()
+    this.afterSettledFit = undefined
   }
 
   dispose(): void {
     if (this.disposed) return
+    this.suspend()
     this.disposed = true
-    this.observer?.disconnect()
-    this.observer = undefined
+  }
+
+  private cancelPendingFit(): void {
     if (this.resizeTimer !== undefined) window.clearTimeout(this.resizeTimer)
     if (this.resizeFrame !== undefined) window.cancelAnimationFrame(this.resizeFrame)
     this.resizeTimer = undefined
@@ -68,16 +89,19 @@ export class TerminalFitController {
   }
 
   private scheduleTrailingFit(): void {
-    if (this.resizeTimer !== undefined) window.clearTimeout(this.resizeTimer)
-    if (this.resizeFrame !== undefined) {
-      window.cancelAnimationFrame(this.resizeFrame)
-      this.resizeFrame = undefined
-    }
+    if (!this.enabled || this.disposed) return
+    this.cancelPendingFit()
+    const generation = ++this.generation
     this.resizeTimer = window.setTimeout(() => {
+      if (!this.enabled || this.disposed || generation !== this.generation) return
       this.resizeTimer = undefined
       this.resizeFrame = window.requestAnimationFrame(() => {
+        if (!this.enabled || this.disposed || generation !== this.generation) return
         this.resizeFrame = undefined
         this.fit()
+        const afterSettledFit = this.afterSettledFit
+        this.afterSettledFit = undefined
+        afterSettledFit?.()
       })
     }, RESIZE_SETTLE_MS)
   }
