@@ -314,6 +314,8 @@ describe('Markdown document review interaction', () => {
     expect(inline?.querySelector('.document-review-comment-location')).toBeNull()
     expect(inline?.querySelector('.document-review-comment-state')).toBeNull()
     expect(inline?.querySelector('.review-anchor-state')).toBeNull()
+    expect(button('Close review at Line 1')?.textContent).toBe('Close')
+    expect(button('Delete comment at Line 1')?.textContent).toBe('Delete comment')
     expect(
       inline?.querySelector<HTMLElement>('.document-review-comment')?.dataset
         .reviewLifecycle,
@@ -537,7 +539,7 @@ describe('Markdown document review interaction', () => {
         .querySelector<HTMLTextAreaElement>('[aria-label="Edit comment at Line 1"]')
         ?.form?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
     })
-    click('Remove comment at Line 1')
+    click('Delete comment at Line 1')
     expect(apply.mock.calls.map(([action]) => action.type)).toEqual([
       'edit-comment',
       'remove-comment',

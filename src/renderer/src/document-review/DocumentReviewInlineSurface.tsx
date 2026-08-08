@@ -142,7 +142,7 @@ function DocumentReviewInlineThread({
           aria-label={`Close review at ${lineRangeLabel(range)}`}
           onClick={interaction.cancelCapture}
         >
-          ×
+          Close
         </button>
       </header>
       {interaction.pendingRange ? (
@@ -327,10 +327,10 @@ function ReviewCommentCard({
             <button
               type="button"
               className="document-review-comment-delete"
-              aria-label={`Remove comment at ${lineRangeLabel(comment.anchor.range)}`}
+              aria-label={`Delete comment at ${lineRangeLabel(comment.anchor.range)}`}
               onClick={() => interaction.remove(comment.id)}
             >
-              Delete
+              Delete comment
             </button>
           ) : null}
         </div>

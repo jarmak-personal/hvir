@@ -93,11 +93,13 @@ export async function verifyDocumentReviewWorkflow(options: {
   )
   await waitForRenderer(
     win,
-    `(() => { const comment = document.querySelector('.document-review-comment'); ` +
-      `return comment instanceof HTMLElement && ` +
+    `(() => { const inline = document.querySelector('.document-review-inline'); const comment = inline?.querySelector('.document-review-comment'); const block = document.querySelector('.review-block-noted'); ` +
+      `const close = inline?.querySelector('.document-review-close'); const remove = comment?.querySelector('.document-review-comment-delete'); const panel = inline instanceof HTMLElement ? getComputedStyle(inline) : null; ` +
+      `return inline instanceof HTMLElement && comment instanceof HTMLElement && block instanceof HTMLElement && ` +
       `comment.querySelector('.document-review-comment-location, .document-review-comment-state, .review-anchor-state') === null && ` +
-      `getComputedStyle(comment).borderLeftWidth === '0px'; })()`,
-    'existing comment retained duplicate metadata or nested card chrome',
+      `getComputedStyle(comment).borderLeftWidth === '0px' && getComputedStyle(block).boxShadow === 'none' && panel?.borderLeftWidth === panel?.borderTopWidth && ` +
+      `inline.offsetHeight <= 110 && close?.textContent?.trim() === 'Close' && remove?.textContent?.trim() === 'Delete comment'; })()`,
+    'existing comment retained ambiguous controls, excess height, or layered emphasis',
   )
   await waitForRenderer(
     win,

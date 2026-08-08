@@ -93,7 +93,7 @@
 .document-review-inline > header {
   justify-content: space-between;
   gap: 8px;
-  margin-bottom: 10px;
+  margin-bottom: 4px;
 }
 
 .document-review-inline > header > span {
@@ -103,10 +103,9 @@
 }
 
 .document-review-inline .document-review-close {
-  min-width: 24px;
-  padding: 1px 6px;
-  font-size: calc(16px * var(--hvir-interface-scale));
-  line-height: 1;
+  padding: 2px 7px;
+  font-size: calc(10px * var(--hvir-interface-scale));
+  line-height: 1.3;
 }
 
 .document-review-inline p,
@@ -128,9 +127,8 @@
 .document-review-inline {
   box-sizing: border-box;
   width: 100%;
-  padding: 10px;
-  border: 1px solid #3b5570;
-  border-left: 4px solid #6d9fd2;
+  padding: 8px 10px;
+  border: 1px solid #343d49;
   border-radius: 6px;
   color: #cbd2dc;
   background: #121820;
@@ -159,7 +157,7 @@
   margin-left: 8px;
 }
 
-.document-review-comments {
+.document-review-inline .document-review-comments {
   display: grid;
   gap: 10px;
   margin: 0;
@@ -188,8 +186,8 @@
 .document-review-comment .document-review-comment-body {
   display: block;
   width: 100%;
-  margin: 5px 0;
-  padding: 4px;
+  margin: 0;
+  padding: 3px 2px;
   border-color: transparent;
   text-align: left;
   white-space: pre-wrap;
@@ -223,7 +221,7 @@
 
 .document-review-comment-meta {
   flex-wrap: wrap;
-  margin-top: 3px;
+  margin-top: 2px;
   color: #8f9baa;
   font-size: calc(9px * var(--hvir-interface-scale));
 }
@@ -259,8 +257,7 @@
   color: #dc8a90;
 }
 
-.document-review-comment-meta .document-review-comment-location,
-.document-review-comment-meta .document-review-comment-delete {
+.document-review-comment-meta .document-review-comment-location {
   padding: 0;
   border-color: transparent;
   color: #8f9baa;
@@ -271,10 +268,15 @@
   margin-left: auto;
 }
 
-.document-review-comment-meta .document-review-comment-location:hover,
-.document-review-comment-meta .document-review-comment-delete:hover {
+.document-review-comment-meta .document-review-comment-location:hover {
   color: #dce3ec;
   text-decoration: underline;
+}
+
+.document-review-comment-meta .document-review-comment-delete:hover {
+  border-color: #9b5960;
+  color: #f0c2c6;
+  background: #2a1b1f;
 }
 
 .document-review-batch-state {
@@ -289,18 +291,6 @@
   border-radius: 4px;
   outline: 1px dashed #53667c;
   outline-offset: 6px;
-}
-
-.review-block-noted {
-  box-shadow: -4px 0 0 #6887a7;
-}
-
-.review-block-noted[data-review-anchor-state~='moved'] {
-  box-shadow: -4px 0 0 #d3a956;
-}
-
-.review-block-noted[data-review-anchor-state~='stale'] {
-  box-shadow: -4px 0 0 #dc7178;
 }
 
 .review-block-add,
