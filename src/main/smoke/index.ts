@@ -3,8 +3,9 @@ import type { BrowserWindow } from 'electron'
 import { dispatchWorkerHostCall } from '../git/worker-host-broker'
 import { createFilenameSearchCoordinator } from '../filename-search'
 import { createProjectFileOperationCoordinator } from '../project-file-operations'
+import { createDocumentReviewRuntime } from '../document-review'
 import { HarnessProfileStore } from '../harness/harness-profile-store'
-import { harnessProviderCatalog } from '../harness/harness-provider'
+import { harnessProviderCatalog, harnessProviders } from '../harness/harness-provider'
 import type { HarnessProbeManager } from '../harness/harness-probe'
 import type { HtmlPreviewProtocol } from '../html-preview-protocol'
 import type { RuntimeDiagnostics } from '../diagnostics/runtime-diagnostics'
@@ -28,6 +29,7 @@ import type { SmokeInterruptionCheckpoint } from './interruption-checkpoint'
 import { createSmokeImagePasteFallback } from './image-paste-fallback'
 import { verifyDiagnosticRestart } from './diagnostic-report-restart'
 import { verifyDevelopmentPerformanceMode } from './development-performance'
+import { verifyDocumentReviewWorkflow } from './document-review'
 import { verifyGitWorkflow } from './git-workflow'
 import { verifyPlatformContracts } from './platform-contracts'
 import {
@@ -167,6 +169,22 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
     '.hvir-smoke-organization-target',
   )
   const createdSnapshotPath = joinHostPath(smokeRoot, '.hvir-smoke-created-snapshot.txt')
+  const documentReviewFixturePath = joinHostPath(
+    smokeRoot,
+    '.hvir-smoke-document-review.md',
+  )
+  const documentReviewCaptureAPath = joinHostPath(
+    smokeRoot,
+    '.hvir-smoke-document-review-a.bin',
+  )
+  const documentReviewCaptureBPath = joinHostPath(
+    smokeRoot,
+    '.hvir-smoke-document-review-b.bin',
+  )
+  const documentReviewFixtureContents =
+    '# Review fixture\n\nFirst paragraph for a rendered comment.\n\n' +
+    'Second paragraph for keyboard navigation.\n\n' +
+    'Third paragraph keeps the exact context unique.\n'
   const cleanup = new SmokeCleanup((name) => interruptionCheckpoint.disposed(name), {
     onFailure: (name) => {
       cleanupFailureResource = smokeCleanupResource(name)
@@ -225,6 +243,17 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
   )
   cleanup.defer('created snapshot fixture', () =>
     host.exec('rm', ['-f', '--', createdSnapshotPath.path]).then(() => undefined),
+  )
+  cleanup.defer('document review workflow fixtures', () =>
+    host
+      .exec('rm', [
+        '-f',
+        '--',
+        documentReviewFixturePath.path,
+        documentReviewCaptureAPath.path,
+        documentReviewCaptureBPath.path,
+      ])
+      .then(() => undefined),
   )
   cleanup.defer('project watch', async () => {
     await stopSmokeWatch?.()
@@ -384,6 +413,10 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
   const largeJsonPath = joinHostPath(smokeRoot, '.hvir-smoke-large.json')
   const largeTextPath = joinHostPath(smokeRoot, '.hvir-smoke-large.txt')
   const harnessProfilesPath = joinHostPath(smokeRoot, '.hvir-smoke-harness-profiles.json')
+  const documentReviewPath = joinHostPath(
+    smokeRoot,
+    '.hvir-smoke-document-review-drafts.json',
+  )
   let scenarioFailed = false
   let failurePhase: SmokeFailurePhase = 'resources-created'
   let failureCheckpoint: SmokeFailureCheckpoint | null = null
@@ -459,6 +492,9 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
         `${'oversized diff fixture '.padEnd(255, 'x')}\n`.repeat(8_200),
       )
     }
+    if (mode === 'document-review') {
+      await host.writeFile(documentReviewFixturePath, documentReviewFixtureContents)
+    }
     if (mode === 'workspace-remote') {
       await host.exec('rm', [
         '-f',
@@ -482,8 +518,24 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
     const smokeTerminalSessionHarness = createSmokeTerminalSessionStore(smokeRoot)
     const smokeTerminalSessions = smokeTerminalSessionHarness.store
     const smokeHarnessProfiles = await HarnessProfileStore.load(host, harnessProfilesPath)
+    await host.removeFile(documentReviewPath, { ignoreMissing: true })
+    cleanup.defer('document review draft', () =>
+      host.removeFile(documentReviewPath, { ignoreMissing: true }),
+    )
+    const documentReview = await createDocumentReviewRuntime(
+      host,
+      documentReviewPath,
+      rendererResources,
+      {
+        ptys: supervisor,
+        sessions: smokeTerminalSessions,
+        providers: harnessProviders,
+        profiles: smokeHarnessProfiles,
+      },
+    )
+    cleanup.defer('document review', () => documentReview.dispose())
     let smokeIpcProjectState = commitSmokeProjectState(
-      mode === 'terminal-presentation'
+      mode === 'terminal-presentation' || mode === 'document-review'
         ? smokeProjectReturnState('smoke-project')
         : smokeProjectState(),
     )
@@ -527,6 +579,8 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
       gitWorker: git,
       filenameSearch,
       projectFiles,
+      documentReview: documentReview.coordinator,
+      documentReviewDelivery: documentReview.delivery,
       getProject: () =>
         smokeIpcProjectState.root.hostId === smokeRemoteHost.hostId
           ? { host: smokeRemoteHost, root: smokeRemoteRoot }
@@ -583,11 +637,11 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
       },
       switchWorkspace: (projectId) => {
         const state = setSmokeProjectState(
-          mode === 'terminal-presentation'
+          mode === 'terminal-presentation' || mode === 'document-review'
             ? smokeProjectReturnState(projectId)
             : smokeProjectState(),
         )
-        if (mode === 'terminal-presentation') {
+        if (mode === 'terminal-presentation' || mode === 'document-review') {
           emit('project:state', state)
         }
         return Promise.resolve(state)
@@ -838,6 +892,32 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
         checkpoint: recordSmokeCheckpoint,
       })
       console.log(`[smoke] renderer authority lifecycle OK (${result})`)
+      console.log('HVIR_SMOKE_OK')
+      return 0
+    }
+    if (mode === 'document-review') {
+      const documentReviewProvider = harnessProviders
+        .all()
+        .find((provider) => provider.documentReviewSendNow)
+      if (!documentReviewProvider) {
+        throw new Error('No harness provider supports document review send-now')
+      }
+      const result = await verifyDocumentReviewWorkflow({
+        win,
+        host,
+        root: smokeRoot,
+        document: documentReviewFixturePath,
+        documentContents: documentReviewFixtureContents,
+        captureA: documentReviewCaptureAPath,
+        captureB: documentReviewCaptureBPath,
+        reviewFile: documentReviewPath,
+        review: documentReview,
+        profiles: smokeHarnessProfiles,
+        provider: documentReviewProvider,
+        supervisor,
+        resources: rendererResources,
+      })
+      console.log(`[smoke] document review workflow OK (${result})`)
       console.log('HVIR_SMOKE_OK')
       return 0
     }

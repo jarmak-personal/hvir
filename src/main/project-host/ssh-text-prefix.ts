@@ -1,5 +1,7 @@
+import { isUtf8 } from 'node:buffer'
+
 import {
-  assertTextPrefixByteLimit,
+  assertProjectHostTextPrefixByteLimit,
   boundTextWorkload,
   type TextWorkload,
 } from '../../shared'
@@ -27,8 +29,10 @@ export async function readSshTextPrefix(
   session: SshTextPrefixSession,
   path: string,
   maxBytes: number,
+  signal?: AbortSignal,
 ): Promise<TextWorkload> {
-  assertTextPrefixByteLimit(maxBytes)
+  assertProjectHostTextPrefixByteLimit(maxBytes)
+  signal?.throwIfAborted()
   const value = await new Promise<Buffer>((resolve, reject) => {
     const chunks: Buffer[] = []
     const stream = session.createReadStream(path, { start: 0, end: maxBytes })
@@ -39,6 +43,7 @@ export async function readSshTextPrefix(
       stream.removeListener('error', onError)
       stream.removeListener('end', onEnd)
       stream.removeListener('close', onClose)
+      signal?.removeEventListener('abort', onAbort)
     }
     const finish = (reason?: Error): void => {
       if (settled) return
@@ -55,6 +60,8 @@ export async function readSshTextPrefix(
       chunks.push(chunk)
     }
     const onError = (reason: Error): void => finish(reason)
+    const onAbort = (): void =>
+      finish(signal?.reason instanceof Error ? signal.reason : new Error('Read aborted'))
     const onEnd = (): void => {
       ended = true
       finish()
@@ -66,6 +73,11 @@ export async function readSshTextPrefix(
     stream.once('error', onError)
     stream.once('end', onEnd)
     stream.once('close', onClose)
+    signal?.addEventListener('abort', onAbort, { once: true })
+    if (signal?.aborted) onAbort()
   })
-  return boundTextWorkload(value.toString('utf8'), maxBytes, value.byteLength <= maxBytes)
+  return {
+    ...boundTextWorkload(value.toString('utf8'), maxBytes, value.byteLength <= maxBytes),
+    validUtf8: isUtf8(value),
+  }
 }

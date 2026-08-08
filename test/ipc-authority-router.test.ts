@@ -22,6 +22,7 @@ import {
   localPath,
   type IpcInvokeChannel,
   type IpcSendChannel,
+  type DocumentReviewModel,
   type ProjectState,
 } from '../src/shared'
 
@@ -154,6 +155,27 @@ function fixture() {
       generation: 4,
       itemCount: 1,
     })
+  const reviewModel: DocumentReviewModel = {
+    workspace: { id: 'workspace-1', root },
+    comments: [],
+    batches: [],
+  }
+  const restoreDocumentReview = vi
+    .fn<IpcDeps['documentReview']['activate']>()
+    .mockResolvedValue({ workspaceGeneration: 4, revision: 0, model: reviewModel })
+  const saveDocumentReview = vi
+    .fn<IpcDeps['documentReview']['save']>()
+    .mockResolvedValue({ workspaceGeneration: 4, revision: 1, model: reviewModel })
+  const revalidateDocumentReview = vi
+    .fn<IpcDeps['documentReview']['revalidate']>()
+    .mockImplementation((_owner, request) =>
+      Promise.resolve({
+        status: 'stale',
+        document: request.document,
+        reason: 'deleted',
+      }),
+    )
+  const realpath = vi.fn((path: typeof root) => Promise.resolve(path))
   const deps = {
     rendererResources,
     recordIpcContractDiagnostic,
@@ -167,6 +189,11 @@ function fixture() {
       releaseExternalMove,
       moveExternal,
     },
+    documentReview: {
+      activate: restoreDocumentReview,
+      save: saveDocumentReview,
+      revalidate: revalidateDocumentReview,
+    },
     getProjectState: () => projectState(),
     getRegisteredWorkspaceRoot: (candidate: typeof root) =>
       candidate.path === root.path && candidate.hostId === root.hostId ? root : undefined,
@@ -176,6 +203,7 @@ function fixture() {
         hostId: root.hostId,
         connectionState: 'connected',
         watchTier: 'native',
+        realpath,
       } as unknown as ProjectHost,
     }),
   } as unknown as IpcDeps
@@ -193,6 +221,9 @@ function fixture() {
     acquireExternalMove,
     releaseExternalMove,
     moveExternal,
+    restoreDocumentReview,
+    saveDocumentReview,
+    revalidateDocumentReview,
     recordIpcContractDiagnostic,
   }
 }
@@ -230,6 +261,56 @@ describe('IpcAuthorityRouter', () => {
     expect(
       [...transport.sends.values()].every((listeners) => listeners.length === 1),
     ).toBe(true)
+  })
+
+  it('qualifies document review restore and revalidation to the exact active workspace', async () => {
+    const { deps, transport, restoreDocumentReview, revalidateDocumentReview } = fixture()
+    registerIpcHandlers(deps, transport)
+    const workspace = { id: 'workspace-1', root }
+    const document = localPath('/project/docs/review.md')
+
+    await expect(
+      transport.invokes.get('document-review:restore')?.[0]?.(ipcEvent(), { workspace }),
+    ).resolves.toMatchObject({
+      ok: true,
+      value: { workspaceGeneration: 4, model: { workspace } },
+    })
+    expect(restoreDocumentReview).toHaveBeenCalledWith(
+      owner,
+      workspace,
+      expect.objectContaining({ hostId: root.hostId }),
+    )
+
+    await expect(
+      transport.invokes.get('document-review:revalidate')?.[0]?.(ipcEvent(), {
+        workspace,
+        workspaceGeneration: 4,
+        document,
+      }),
+    ).resolves.toMatchObject({
+      ok: true,
+      value: { status: 'stale', document, reason: 'deleted' },
+    })
+    expect(revalidateDocumentReview).toHaveBeenCalledWith(
+      owner,
+      expect.objectContaining({ workspace, document }),
+      document,
+    )
+  })
+
+  it('rejects document review state from another worktree before its effect owner', async () => {
+    const { deps, transport, restoreDocumentReview } = fixture()
+    registerIpcHandlers(deps, transport)
+
+    await expect(
+      transport.invokes.get('document-review:restore')?.[0]?.(ipcEvent(), {
+        workspace: { id: 'workspace-other', root },
+      }),
+    ).resolves.toEqual({
+      ok: false,
+      error: 'Document review belongs to another workspace identity',
+    })
+    expect(restoreDocumentReview).not.toHaveBeenCalled()
   })
 
   it('puts every invoke and send handler behind main-frame validation', () => {
@@ -352,6 +433,14 @@ describe('IpcAuthorityRouter', () => {
         'project:connect-host',
         'project:browse-host',
         'project:open',
+        'document-review:restore',
+        'document-review:save',
+        'document-review:revalidate',
+        'document-review:delivery-destinations',
+        'document-review:preview-delivery',
+        'document-review:prepare-delivery',
+        'document-review:insert-delivery',
+        'document-review:send-now-delivery',
         'ssh:prompt-response',
         'fs:filename-search',
         'fs:create-entry',
@@ -390,6 +479,12 @@ describe('IpcAuthorityRouter', () => {
     expect(new Set(AUTHORITY_SCOPED_INVOKE_CHANNELS)).toEqual(
       new Set<IpcInvokeChannel>([
         'project:watch-interests',
+        'document-review:restore',
+        'document-review:save',
+        'document-review:revalidate',
+        'document-review:delivery-destinations',
+        'document-review:preview-delivery',
+        'document-review:prepare-delivery',
         'fs:readdir',
         'fs:filename-search',
         'fs:resolve-entry',
@@ -445,6 +540,7 @@ describe('IpcAuthorityRouter', () => {
       'terminal.ts',
       'web-pane.ts',
       'diagnostic-report.ts',
+      'document-review.ts',
       'image-paste.ts',
       'terminal-file-paste.ts',
     ]

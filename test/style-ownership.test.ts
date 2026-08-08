@@ -31,6 +31,7 @@ const expectedOrder = [
   'path-copy.css',
   'terminal-context-menu.css',
   'viewer-content.css',
+  'document-review.css',
   'viewer-workload.css',
   'terminal-pane.css',
   'terminal-search.css',

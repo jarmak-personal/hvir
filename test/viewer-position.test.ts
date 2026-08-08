@@ -37,8 +37,8 @@ describe('viewer document position', () => {
       '# Heading\n\nParagraph\n\n```ts\nconst value = 1\n```\n',
     )
 
-    expect(html).toContain('<h1 data-source-line="1">')
-    expect(html).toContain('<p data-source-line="3">')
-    expect(html).toContain('data-source-line="5"')
+    expect(html).toContain('data-source-line="1" data-source-end-line="1"')
+    expect(html).toContain('data-source-line="3" data-source-end-line="3"')
+    expect(html).toContain('data-source-line="5" data-source-end-line="7"')
   })
 })

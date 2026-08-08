@@ -88,6 +88,23 @@ import type {
   DiagnosticReportIdRequest,
   DiagnosticReportStateResult,
 } from './diagnostic-report'
+import type {
+  DocumentReviewRestoreRequest,
+  DocumentReviewDeliveryDestination,
+  DocumentReviewDeliveryPayload,
+  DocumentReviewDeliveryScopeRequest,
+  DocumentReviewInsertRequest,
+  DocumentReviewInsertResult,
+  DocumentReviewPrepareRequest,
+  DocumentReviewPreviewRequest,
+  DocumentReviewRevalidateRequest,
+  DocumentReviewRevalidation,
+  DocumentReviewSaveRequest,
+  DocumentReviewSendNowRequest,
+  DocumentReviewSendNowResult,
+  DocumentReviewWorkspaceSnapshot,
+  PreparedDocumentReviewDelivery,
+} from './document-review'
 
 export type WebPaneCommandAction =
   KeybindingAction | 'closeWebPane' | 'escapeWebPaneFocus'
@@ -594,6 +611,38 @@ export interface IpcInvokeMap {
     request: ProjectWatchInterestsRequest
     response: OperationResult<ProjectWatchInterestsResponse>
   }
+  'document-review:restore': {
+    request: DocumentReviewRestoreRequest
+    response: OperationResult<DocumentReviewWorkspaceSnapshot>
+  }
+  'document-review:save': {
+    request: DocumentReviewSaveRequest
+    response: OperationResult<DocumentReviewWorkspaceSnapshot>
+  }
+  'document-review:revalidate': {
+    request: DocumentReviewRevalidateRequest
+    response: OperationResult<DocumentReviewRevalidation>
+  }
+  'document-review:delivery-destinations': {
+    request: DocumentReviewDeliveryScopeRequest
+    response: OperationResult<readonly DocumentReviewDeliveryDestination[]>
+  }
+  'document-review:preview-delivery': {
+    request: DocumentReviewPreviewRequest
+    response: OperationResult<DocumentReviewDeliveryPayload>
+  }
+  'document-review:prepare-delivery': {
+    request: DocumentReviewPrepareRequest
+    response: OperationResult<PreparedDocumentReviewDelivery>
+  }
+  'document-review:insert-delivery': {
+    request: DocumentReviewInsertRequest
+    response: OperationResult<DocumentReviewInsertResult>
+  }
+  'document-review:send-now-delivery': {
+    request: DocumentReviewSendNowRequest
+    response: OperationResult<DocumentReviewSendNowResult>
+  }
   'project:close': {
     request: CloseProjectRequest
     response: OperationResult<ProjectState>
@@ -919,6 +968,14 @@ export const INVOKE_CHANNELS = [
   'project:switch',
   'project:refresh',
   'project:watch-interests',
+  'document-review:restore',
+  'document-review:save',
+  'document-review:revalidate',
+  'document-review:delivery-destinations',
+  'document-review:preview-delivery',
+  'document-review:prepare-delivery',
+  'document-review:insert-delivery',
+  'document-review:send-now-delivery',
   'project:close',
   'workspace:prune',
   'workspace:dismiss',

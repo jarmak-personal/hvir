@@ -1,13 +1,18 @@
 import {
+  type ComposerSubmitMode,
   type HarnessProfile,
   type HarnessProfileProbe,
+  type HarnessProviderCapabilities,
   type HarnessProbeStatus,
   type HostPath,
 } from '../../shared'
 import type { Disposer, ProjectHost } from '../project-host'
 import { resolveHarnessLaunch } from './harness-launch'
 import type { HarnessProfileStoreContract } from './harness-profile-store'
-import { harnessProvider } from './harness-provider'
+import {
+  harnessLaunchCapabilities,
+  harnessProvider,
+} from './harness-provider'
 import {
   harnessShellProbeCommandArgs,
   harnessShellProbeOutput,
@@ -77,6 +82,25 @@ export class HarnessProbeManager {
     })
   }
 
+  /** Derives launch-bound capabilities from current exact-profile probe evidence. */
+  effectiveLaunchCapabilities(
+    request: HarnessProfileAvailabilityContext,
+    profile: HarnessProfile,
+    composerSubmitMode: ComposerSubmitMode,
+  ): HarnessProviderCapabilities {
+    const available = this.snapshotProfiles(request).find(
+      (probe) =>
+        probe.status === 'available' &&
+        probe.profileId === profile.id &&
+        probe.launchRevision === profile.launchRevision,
+    )
+    return harnessLaunchCapabilities(harnessProvider(profile.providerId), {
+      profile,
+      composerSubmitMode,
+      probedCapabilities: available?.capabilities,
+    })
+  }
+
   /** A supervised process start is useful advisory evidence without another probe. */
   recordSuccessfulLaunch(
     request: HarnessProfileAvailabilityContext,
@@ -129,6 +153,15 @@ export class HarnessProbeManager {
         }
       }
     }
+  }
+
+  /** Invalidates one launch profile and starts one forced bounded refresh. */
+  refreshProfile(
+    request: ProbeHarnessProfilesRequest,
+    profile: HarnessProfile,
+  ): void {
+    this.invalidate(request.host, profile)
+    void this.probeProfiles({ ...request, profiles: [profile], force: true })
   }
 
   dispose(): void {

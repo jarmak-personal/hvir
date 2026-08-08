@@ -88,6 +88,25 @@ describe('DomFindTarget', () => {
     animationFrame?.(0)
     expect(listener).toHaveBeenCalledOnce()
   })
+
+  it('excludes generated review chrome from rendered document search', () => {
+    const root = renderedRoot()
+    const generated = document.createElement('span')
+    generated.setAttribute('data-hvir-review-generated', '')
+    generated.textContent = 'Generated review badge'
+    root.querySelector('p')?.append(generated)
+    const target = new DomFindTarget(root)
+
+    expect(
+      target.update({ text: 'Generated review badge', caseSensitive: false }, 0),
+    ).toEqual({ current: 0, total: 0 })
+    expect(target.update({ text: 'Alpha needle', caseSensitive: false }, 0)).toEqual({
+      current: 1,
+      total: 1,
+    })
+
+    target.dispose()
+  })
 })
 
 function renderedRoot(): HTMLDivElement {

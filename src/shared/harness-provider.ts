@@ -25,6 +25,10 @@ export interface HarnessProviderCapabilities {
   readonly exactResume: boolean
   readonly contextPresentation: HarnessContextPresentation
   readonly contextPressure?: HarnessContextPressurePolicy
+  /** Trusted effective launch contract; absent means document review is Copy-only. */
+  readonly reviewInsertContractRevision?: number
+  /** Exact provider/profile submit contract; absent keeps review delivery Insert-only. */
+  readonly reviewSendNowContractRevision?: number
 }
 
 export type HarnessModifiedKeyProtocol = 'none' | 'modify-other-keys' | 'csi-u'

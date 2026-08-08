@@ -18,14 +18,18 @@ export function enableTaskLists(markdown: MarkdownIt): MarkdownIt {
 }
 
 const SOURCE_LINE_ATTRIBUTE = 'data-source-line'
+const SOURCE_END_LINE_ATTRIBUTE = 'data-source-end-line'
 
 /** Mark rendered block starts so rendered/source/diff transitions share a document line. */
 export function enableSourceLineAnchors(markdown: MarkdownIt): MarkdownIt {
   markdown.core.ruler.after('block', 'hvir-source-line-anchors', (state) => {
     for (const token of state.tokens) {
       const sourceLine = tokenSourceLine(token)
-      if (sourceLine !== undefined)
+      const sourceEndLine = tokenSourceEndLine(token)
+      if (sourceLine !== undefined && sourceEndLine !== undefined) {
         token.attrSet(SOURCE_LINE_ATTRIBUTE, String(sourceLine))
+        token.attrSet(SOURCE_END_LINE_ATTRIBUTE, String(sourceEndLine))
+      }
     }
   })
   return markdown
@@ -34,14 +38,20 @@ export function enableSourceLineAnchors(markdown: MarkdownIt): MarkdownIt {
 /** Custom renderers must retain the source anchor that MarkdownIt attrs normally carry. */
 export function wrapSourceLine(token: Token, html: string): string {
   const sourceLine = tokenSourceLine(token)
-  return sourceLine === undefined
+  const sourceEndLine = tokenSourceEndLine(token)
+  return sourceLine === undefined || sourceEndLine === undefined
     ? html
-    : `<div ${SOURCE_LINE_ATTRIBUTE}="${sourceLine}">${html}</div>`
+    : `<div ${SOURCE_LINE_ATTRIBUTE}="${sourceLine}" ${SOURCE_END_LINE_ATTRIBUTE}="${sourceEndLine}">${html}</div>`
 }
 
 function tokenSourceLine(token: Token): number | undefined {
   if (!token.map || token.type === 'inline' || token.nesting === -1) return undefined
   return token.map[0] + 1
+}
+
+function tokenSourceEndLine(token: Token): number | undefined {
+  if (!token.map || token.type === 'inline' || token.nesting === -1) return undefined
+  return token.map[1]
 }
 
 const TASK_STATE_ATTRIBUTE = 'data-hvir-task-state'

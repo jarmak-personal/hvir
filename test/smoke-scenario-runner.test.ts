@@ -38,11 +38,11 @@ describe('Electron smoke scenario selection', () => {
   it('rejects unknown groups with the complete reproducible name set', () => {
     expect(() => parseElectronSmokeScenario('unknown')).toThrow(
       "Unknown Electron smoke scenario 'unknown'. Expected one of: " +
-        'pty-native, viewer-position, viewer-content, git-workflow, workspace-remote, web-pane, renderer-authority, platform-contracts, diagnostic-report-restart, renderer-recovery, development-performance, terminal-presentation, terminal-lifecycle, legacy-workflow, capacity',
+        'pty-native, viewer-position, viewer-content, git-workflow, workspace-remote, web-pane, renderer-authority, platform-contracts, diagnostic-report-restart, renderer-recovery, document-review, development-performance, terminal-presentation, terminal-lifecycle, legacy-workflow, capacity',
     )
     expect(() => selectedSmokeScenarios('unknown')).toThrow(
       "Unknown Electron smoke scenario 'unknown'. Expected one of: " +
-        'pty-native, viewer-position, viewer-content, git-workflow, workspace-remote, web-pane, renderer-authority, platform-contracts, diagnostic-report-restart, renderer-recovery, development-performance, terminal-presentation, terminal-lifecycle, legacy-workflow, capacity',
+        'pty-native, viewer-position, viewer-content, git-workflow, workspace-remote, web-pane, renderer-authority, platform-contracts, diagnostic-report-restart, renderer-recovery, document-review, development-performance, terminal-presentation, terminal-lifecycle, legacy-workflow, capacity',
     )
   })
 
@@ -579,6 +579,10 @@ describe('Electron smoke command contracts', () => {
     new URL('../src/main/smoke/renderer-authority.ts', import.meta.url),
     'utf8',
   )
+  const documentReviewScenario = readFileSync(
+    new URL('../src/main/smoke/document-review.ts', import.meta.url),
+    'utf8',
+  )
   const terminalPresentationScenario = readFileSync(
     new URL('../src/main/smoke/terminal-presentation.ts', import.meta.url),
     'utf8',
@@ -595,13 +599,13 @@ describe('Electron smoke command contracts', () => {
   it('separates correctness, hosted evidence, and controlled performance commands', () => {
     expect(packageJson.scripts.smoke).toContain('node scripts/run-smoke-scenarios.mts')
     expect(packageJson.scripts.smoke).toContain(
-      'viewer-position viewer-content git-workflow workspace-remote web-pane renderer-authority renderer-recovery terminal-presentation terminal-lifecycle legacy-workflow',
+      'viewer-position viewer-content git-workflow workspace-remote web-pane renderer-authority renderer-recovery document-review terminal-presentation terminal-lifecycle legacy-workflow',
     )
     expect(packageJson.scripts['smoke:macos']).toContain(
-      'node scripts/run-smoke-scenarios.mts pty-native viewer-position viewer-content git-workflow workspace-remote web-pane renderer-authority platform-contracts renderer-recovery terminal-presentation terminal-lifecycle',
+      'node scripts/run-smoke-scenarios.mts pty-native viewer-position viewer-content git-workflow workspace-remote web-pane renderer-authority platform-contracts renderer-recovery document-review terminal-presentation terminal-lifecycle',
     )
     expect(packageJson.scripts['smoke:macos:ci']).toContain(
-      'node scripts/run-smoke-scenarios.mts pty-native viewer-position viewer-content git-workflow workspace-remote web-pane renderer-authority platform-contracts renderer-recovery',
+      'node scripts/run-smoke-scenarios.mts pty-native viewer-position viewer-content git-workflow workspace-remote web-pane renderer-authority platform-contracts renderer-recovery document-review',
     )
     expect(packageJson.scripts['smoke:macos:ci']).not.toContain('terminal-presentation')
     expect(packageJson.scripts['smoke:macos:ci']).not.toContain('terminal-lifecycle')
@@ -732,6 +736,26 @@ describe('Electron smoke command contracts', () => {
     expect(layoutFocusScenario).not.toContain('app.focus(')
     expect(layoutFocusScenario).not.toContain(
       'requestAnimationFrame(() => requestAnimationFrame(resolve))',
+    )
+  })
+
+  it('serializes document review closure before direct top-terminal send', () => {
+    expect(documentReviewScenario.match(/webContents\.executeJavaScript/g)).toHaveLength(
+      1,
+    )
+    expect(documentReviewScenario).toContain('function isRendererOutcome')
+    expect(documentReviewScenario).toContain('returned an invalid outcome')
+    const directSend = documentReviewScenario.slice(
+      documentReviewScenario.indexOf("runStage('close preview before direct send'"),
+      documentReviewScenario.indexOf('const sentTransport'),
+    )
+    expect(
+      directSend.indexOf('delivery preview did not close before direct send'),
+    ).toBeLessThan(directSend.indexOf("runStage('direct send to the top terminal'"))
+    expect(directSend).toContain('Send 1 review comment to the top terminal')
+    expect(directSend).not.toContain('await waitForExactPreview(win)')
+    expect(documentReviewScenario).toContain(
+      'destination instanceof HTMLSelectElement && !destination.disabled',
     )
   })
 

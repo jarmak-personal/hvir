@@ -3,12 +3,15 @@ import { describe, expect, it } from 'vitest'
 import {
   claudeCodeProvider,
   codexProvider,
+  harnessLaunchCapabilities,
   harnessProvider,
   harnessProviderCatalog,
+  harnessProviders,
   HarnessProviderRegistry,
   plainShellProvider,
   type HarnessProvider,
 } from '../src/main/harness/harness-provider'
+import { providerTemplateProfiles } from '../src/main/harness/harness-profile-store'
 import { asHarnessProviderId, asHostId, hostPath, localPath } from '../src/shared'
 
 const context = {
@@ -99,6 +102,233 @@ describe('Harness providers', () => {
         (id) => harnessProvider(id).remoteImagePaste === undefined,
       ),
     ).toBe(true)
+  })
+
+  it('owns the complete initial document-review insertion matrix and exact framing', () => {
+    const body = 'docs/review.md:2\nQuote:\nline\nComment:\nkeep this exact'
+    const expected = `\x1b[200~${body}\x1b[201~`
+    expect(claudeCodeProvider.documentReviewInsert).toMatchObject({ revision: 1 })
+    expect(claudeCodeProvider.documentReviewInsert?.terminalInput(body)).toBe(expected)
+    expect(codexProvider.documentReviewInsert?.terminalInput(body)).toBe(expected)
+    for (const provider of [claudeCodeProvider, codexProvider]) {
+      expect(
+        provider.probe.effectiveCapabilities('1.0').reviewInsertContractRevision,
+      ).toBe(provider.documentReviewInsert?.revision)
+    }
+    expect(() => codexProvider.documentReviewInsert?.terminalInput('unsafe\u001btext')).toThrow(
+      /safe human-readable text/,
+    )
+    expect(
+      harnessProviders.all().map(({ manifest, documentReviewInsert }) => [
+        manifest.id,
+        documentReviewInsert?.revision,
+      ]),
+    ).toEqual([
+      ['plain-shell', undefined],
+      ['claude-code', 1],
+      ['codex', 1],
+      ['pi', undefined],
+      ['gemini-cli', undefined],
+      ['github-copilot-cli', undefined],
+      ['cursor-cli', undefined],
+      ['custom', undefined],
+    ])
+  })
+
+  it('exposes Codex-only send-now for an exact probed launch in both submit modes', () => {
+    const profile = providerTemplateProfiles().find(
+      (candidate) => candidate.providerId === codexProvider.manifest.id,
+    )!
+    const probed = codexProvider.probe.effectiveCapabilities('codex-cli 0.146.0')
+    const enter = harnessLaunchCapabilities(codexProvider, {
+      profile,
+      composerSubmitMode: 'enter',
+      probedCapabilities: probed,
+    })
+    const control = harnessLaunchCapabilities(codexProvider, {
+      profile,
+      composerSubmitMode: 'ctrl-enter',
+      probedCapabilities: probed,
+    })
+    const body = 'docs/review.md:2\nQuote:\nline one\nline two\nComment:\nExact.'
+    const paste = `\x1b[200~${body}\x1b[201~`
+
+    expect(enter).toMatchObject({
+      reviewInsertContractRevision: 1,
+      reviewSendNowContractRevision: 1,
+    })
+    expect(control).toEqual(enter)
+    expect(
+      codexProvider.documentReviewSendNow?.terminalInput(body, {
+        profile,
+        composerSubmitMode: 'enter',
+        effectiveCapabilities: enter,
+      }),
+    ).toBe(`${paste}\r`)
+    expect(
+      codexProvider.documentReviewSendNow?.terminalInput(body, {
+        profile,
+        composerSubmitMode: 'ctrl-enter',
+        effectiveCapabilities: control,
+      }),
+    ).toBe(`${paste}\x1b[13;5u`)
+  })
+
+  it('attempts Codex handoff for an exact provider-default launch despite profile customization', () => {
+    const profile = providerTemplateProfiles().find(
+      (candidate) => candidate.providerId === codexProvider.manifest.id,
+    )!
+    const customizedProfile = {
+      ...profile,
+      args: [
+        { parts: [{ kind: 'literal' as const, value: '--config' }] },
+        {
+          parts: [
+            {
+              kind: 'literal' as const,
+              value: 'tui.notifications=false',
+            },
+          ],
+        },
+      ],
+      environment: [{ kind: 'literal' as const, name: 'REVIEW_MODE', value: '1' }],
+      pathBindings: [{ name: 'project', path: localPath('/tmp/project') }],
+      risk: 'unclassified' as const,
+    }
+    const capabilities = harnessLaunchCapabilities(codexProvider, {
+      profile: customizedProfile,
+      composerSubmitMode: 'ctrl-enter',
+      probedCapabilities: codexProvider.probe.effectiveCapabilities('codex-cli 0.146.0'),
+    })
+
+    expect(capabilities).toMatchObject({
+      reviewInsertContractRevision: 1,
+      reviewSendNowContractRevision: 1,
+    })
+  })
+
+  it('keeps unsupported and unprobed Codex versions below send-now', () => {
+    const profile = providerTemplateProfiles().find(
+      (candidate) => candidate.providerId === codexProvider.manifest.id,
+    )!
+    const unsupported = codexProvider.probe.effectiveCapabilities('codex-cli 0.145.9')
+    const unprobed = codexProvider.probe.effectiveCapabilities(undefined)
+    const supported = codexProvider.probe.effectiveCapabilities('codex-cli 0.146.0')
+    for (const probedCapabilities of [unsupported, unprobed]) {
+      const capabilities = harnessLaunchCapabilities(codexProvider, {
+        profile,
+        composerSubmitMode: 'enter',
+        probedCapabilities,
+      })
+      expect(capabilities.reviewInsertContractRevision).toBe(1)
+      expect(capabilities).not.toHaveProperty('reviewSendNowContractRevision')
+    }
+    expect(supported.reviewSendNowContractRevision).toBe(1)
+  })
+
+  it('keeps unapproved provider launch changes Copy-only', () => {
+    const profiles = providerTemplateProfiles()
+    for (const provider of [claudeCodeProvider, codexProvider]) {
+      const profile = profiles.find(
+        (candidate) => candidate.providerId === provider.manifest.id,
+      )!
+      const probedCapabilities = provider.probe.effectiveCapabilities(
+        provider === codexProvider ? 'codex-cli 0.146.0' : '1.0.0',
+      )
+      const exact = harnessLaunchCapabilities(provider, {
+        profile,
+        composerSubmitMode: 'enter',
+        probedCapabilities,
+      })
+      expect(exact.reviewInsertContractRevision).toBe(
+        provider.documentReviewInsert?.revision,
+      )
+      expect(harnessLaunchCapabilities(provider)).not.toHaveProperty(
+        'reviewInsertContractRevision',
+      )
+
+      const disqualifiedProfiles = [
+        { ...profile, providerId: asHarnessProviderId('other') },
+        { ...profile, providerContractVersion: profile.providerContractVersion + 1 },
+        {
+          ...profile,
+          executable: { kind: 'command' as const, command: provider.manifest.id },
+        },
+        {
+          ...profile,
+          executable: {
+            kind: 'path' as const,
+            path: localPath(`/usr/local/bin/${provider.manifest.id}`),
+          },
+        },
+      ]
+      for (const disqualifiedProfile of disqualifiedProfiles) {
+        const capabilities = harnessLaunchCapabilities(provider, {
+          profile: disqualifiedProfile,
+          composerSubmitMode: 'enter',
+          probedCapabilities,
+        })
+        expect(capabilities).not.toHaveProperty('reviewInsertContractRevision')
+        expect(capabilities).not.toHaveProperty('reviewSendNowContractRevision')
+      }
+      const customizedProfile = {
+        ...profile,
+        args: [{ parts: [{ kind: 'literal' as const, value: '--custom' }] }],
+        environment: [{ kind: 'literal' as const, name: 'HVIR_TEST', value: '1' }],
+        pathBindings: [{ name: 'project', path: localPath('/tmp/project') }],
+        risk: 'unclassified' as const,
+      }
+      const customized = harnessLaunchCapabilities(provider, {
+        profile: customizedProfile,
+        composerSubmitMode: 'enter',
+        probedCapabilities,
+      })
+      if (provider === codexProvider) {
+        expect(customized.reviewInsertContractRevision).toBe(1)
+        expect(customized.reviewSendNowContractRevision).toBe(1)
+      } else {
+        expect(customized).not.toHaveProperty('reviewInsertContractRevision')
+        expect(customized).not.toHaveProperty('reviewSendNowContractRevision')
+      }
+    }
+  })
+
+  it('reports send-now, insert-only, and copy-only across bundled providers', () => {
+    const profiles = providerTemplateProfiles()
+    expect(
+      harnessProviders.all().map((provider) => {
+        const profile = profiles.find(
+          (candidate) => candidate.providerId === provider.manifest.id,
+        )
+        const probed = provider.probe.effectiveCapabilities(
+          provider === codexProvider ? 'codex-cli 0.146.0' : '1.0.0',
+        )
+        const capabilities = profile
+          ? harnessLaunchCapabilities(provider, {
+              profile,
+              composerSubmitMode: 'ctrl-enter',
+              probedCapabilities: probed,
+            })
+          : harnessLaunchCapabilities(provider)
+        return [
+          provider.manifest.id,
+          capabilities.reviewSendNowContractRevision
+            ? 'send-now'
+            : capabilities.reviewInsertContractRevision
+              ? 'insert'
+              : 'copy-only',
+        ]
+      }),
+    ).toEqual([
+      ['plain-shell', 'copy-only'],
+      ['claude-code', 'insert'],
+      ['codex', 'send-now'],
+      ['pi', 'copy-only'],
+      ['gemini-cli', 'copy-only'],
+      ['github-copilot-cli', 'copy-only'],
+      ['cursor-cli', 'copy-only'],
+      ['custom', 'copy-only'],
+    ])
   })
 
   it('resolves only registered providers and emits their serializable catalog', () => {

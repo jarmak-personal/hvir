@@ -127,6 +127,8 @@ interface PendingIdentityRegistration {
 
 export interface TerminalSessionStore {
   list(workspaceRoot: HostPath): readonly TerminalRecoverySession[]
+  /** Exact persisted presentation for one terminal; liveness remains PTY-owned. */
+  get(id: string): OwnedTerminalSession | undefined
   recordRecoveryDecision(
     workspaceRoot: HostPath,
     decision: {

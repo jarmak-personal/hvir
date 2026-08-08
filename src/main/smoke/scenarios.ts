@@ -53,6 +53,7 @@ function rendererMode(
   if (scenario === 'web-pane') return 'web-pane'
   if (scenario === 'renderer-authority') return 'renderer-authority'
   if (scenario === 'renderer-recovery') return 'renderer-recovery'
+  if (scenario === 'document-review') return 'document-review'
   if (scenario === 'development-performance') return 'development-performance'
   return scenario === 'viewer-position' ? 'viewer-position' : 'workflow'
 }
