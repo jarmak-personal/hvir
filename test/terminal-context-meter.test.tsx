@@ -53,29 +53,61 @@ describe('TerminalContextMeter', () => {
     expect(unavailable).toContain('>!</span>')
   })
 
-  it('keeps Claude counts and Codex percentages unchanged', () => {
-    const claude = renderToStaticMarkup(
-      createElement(TerminalContextMeter, {
-        countOnly: true,
-        telemetry: contextHarnessSnapshot({
-          providerId: asHarnessProviderId('claude-code'),
-          provenance: 'test count',
-          context: { usedTokens: 21_634 },
+  it.each([
+    [199_999, 'normal', '19%', '200k'],
+    [200_000, 'warning', '20%', '200k'],
+    [399_999, 'warning', '39%', '400k'],
+    [400_000, 'critical', '40%', '400k'],
+  ])(
+    'renders Claude %i-token usage with provider-owned pressure',
+    (usedTokens, pressure, display, usedLabel) => {
+      const claude = renderToStaticMarkup(
+        createElement(TerminalContextMeter, {
+          pressurePolicy: {
+            assumedWindowTokens: 1_000_000,
+            warningPercent: 20,
+            criticalPercent: 40,
+          },
+          telemetry: contextHarnessSnapshot({
+            providerId: asHarnessProviderId('claude-code'),
+            provenance: 'test count',
+            context: { usedTokens },
+          }),
         }),
-      }),
-    )
-    const codex = renderToStaticMarkup(
-      createElement(TerminalContextMeter, {
-        telemetry: contextHarnessSnapshot({
-          providerId: asHarnessProviderId('codex'),
-          provenance: 'test percentage',
-          context: { usedTokens: 81_400, windowTokens: 200_000, usedPercent: 40.7 },
-        }),
-      }),
-    )
+      )
 
-    expect(claude).toContain('>21.6k</span>')
-    expect(codex).toContain('aria-valuenow="40"')
-    expect(codex).toContain('>40%</span>')
-  })
+      expect(claude).toContain(`class="terminal-context ${pressure}`)
+      expect(claude).toContain(`aria-valuenow="${Math.floor(usedTokens / 10_000)}"`)
+      expect(claude).toContain(`>${display}</span>`)
+      expect(claude).toContain(`${usedLabel} / 1m context used (assumed capacity)`)
+    },
+  )
+
+  it.each([
+    [39.9, 'normal', '39%'],
+    [40, 'warning', '40%'],
+    [69.9, 'warning', '69%'],
+    [70, 'critical', '70%'],
+  ])(
+    'keeps Codex %f%% usage on the default pressure thresholds',
+    (usedPercent, pressure, display) => {
+      const codex = renderToStaticMarkup(
+        createElement(TerminalContextMeter, {
+          telemetry: contextHarnessSnapshot({
+            providerId: asHarnessProviderId('codex'),
+            provenance: 'test percentage',
+            context: {
+              usedTokens: usedPercent * 2_000,
+              windowTokens: 200_000,
+              usedPercent,
+            },
+          }),
+        }),
+      )
+      expect(codex).toContain(`class="terminal-context ${pressure}`)
+      expect(codex).toContain(`aria-valuenow="${Math.floor(usedPercent)}"`)
+      expect(codex).toContain(`>${display}</span>`)
+      expect(codex).not.toContain('assumed capacity')
+    },
+  )
 })

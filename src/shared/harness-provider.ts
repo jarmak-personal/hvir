@@ -13,10 +13,18 @@ export type HarnessSessionIdentity = 'none' | 'preassigned' | 'discovered'
 
 export type HarnessContextPresentation = 'none' | 'count' | 'pressure'
 
+export interface HarnessContextPressurePolicy {
+  /** Provider-owned fallback used only when telemetry has no reported window. */
+  readonly assumedWindowTokens?: number
+  readonly warningPercent: number
+  readonly criticalPercent: number
+}
+
 export interface HarnessProviderCapabilities {
   readonly sessionIdentity: HarnessSessionIdentity
   readonly exactResume: boolean
   readonly contextPresentation: HarnessContextPresentation
+  readonly contextPressure?: HarnessContextPressurePolicy
 }
 
 export type HarnessModifiedKeyProtocol = 'none' | 'modify-other-keys' | 'csi-u'
