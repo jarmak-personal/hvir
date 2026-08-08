@@ -44,6 +44,25 @@ describe('document review model', () => {
     })
   })
 
+  it('atomically adds each new comment to the pending review batch', () => {
+    let model = apply(emptyModel(), {
+      ...add('first', 'First note', capture(document, original, 2)),
+      batchId: 'active-review',
+    })
+    model = apply(model, {
+      ...add('second', 'Second note', capture(document, original, 3)),
+      batchId: 'active-review',
+    })
+
+    expect(model.batches).toEqual([
+      {
+        id: 'active-review',
+        workspace,
+        commentIds: ['first', 'second'],
+      },
+    ])
+  })
+
   it('fails closed across host, workspace identity, and workspace root', () => {
     const model = emptyModel()
     const otherWorkspace = { ...workspace, id: 'project-1:worktree-other' }
@@ -256,7 +275,7 @@ describe('document review model', () => {
     })
   })
 
-  it('requires an explicit stale review or re-anchor before delivery eligibility', () => {
+  it('requires explicit acceptance before a stale comment becomes deliverable', () => {
     let model = apply(
       emptyModel(),
       add('draft', 'Check this', capture(document, original, 2)),
@@ -282,24 +301,6 @@ describe('document review model', () => {
     expect(reviewCommentDeliveryEligibility(model, model.comments[0]!)).toEqual({
       eligible: true,
     })
-
-    const reanchored = apply(
-      apply(emptyModel(), add('draft', 'Check this', capture(document, original, 2))),
-      {
-        type: 'mark-document-stale',
-        workspace,
-        document,
-        reason: 'deleted',
-      },
-    )
-    expect(
-      apply(reanchored, {
-        type: 'reanchor-comment',
-        workspace,
-        commentId: 'draft',
-        capture: capture(document, original, 1),
-      }).comments[0]?.anchor.state,
-    ).toEqual({ status: 'current' })
   })
 
   it('keeps anchor state orthogonal to deterministic draft, sent, and resolved history', () => {

@@ -5,9 +5,9 @@ import {
   type DocumentReviewDeliveryDestination,
   type DocumentReviewDeliveryPayload,
   type DocumentReviewDeliverySelection,
-  type DocumentReviewSendNowResult,
   type PreparedDocumentReviewDelivery,
 } from '../../../shared'
+import { consumedSendError, deliveryError } from './document-review-delivery-feedback'
 import type { DocumentReviewWorkspaceBinding } from './use-document-review-interaction'
 
 export interface DocumentReviewDeliveryInteraction {
@@ -19,11 +19,12 @@ export interface DocumentReviewDeliveryInteraction {
   readonly payload?: DocumentReviewDeliveryPayload
   readonly prepared?: PreparedDocumentReviewDelivery
   readonly error?: string
+  readonly notice?: string
   readonly copied: boolean
   readonly inserted: boolean
   readonly sent: boolean
-  readonly previewComment: (commentId: string) => void
   readonly previewBatch: (batchId: string) => void
+  readonly handoffBatch: (batchId: string) => void
   readonly selectDestination: (terminalId: string) => void
   readonly copy: () => void
   readonly insert: () => void
@@ -41,6 +42,7 @@ interface DeliveryState {
   readonly payload?: DocumentReviewDeliveryPayload
   readonly prepared?: PreparedDocumentReviewDelivery
   readonly error?: string
+  readonly notice?: string
   readonly copied: boolean
   readonly inserted: boolean
   readonly sent: boolean
@@ -96,13 +98,28 @@ export function useDocumentReviewDelivery(
           .then(unwrapOperation),
       ])
       if (operationGeneration.current !== generation) return
+      const destination = destinations[0]
+      const prepared =
+        destination && destination.capability !== 'copy-only'
+          ? unwrapOperation(
+              await window.hvir.invoke('document-review:prepare-delivery', {
+                ...scope,
+                selection,
+                terminalId: destination.terminalId,
+              }),
+            )
+          : undefined
+      if (operationGeneration.current !== generation) return
       previewModel.current = current.current?.state.model
       setState({
         open: true,
         loading: false,
         destinations,
         selection,
+        selectedTerminalId: destination?.terminalId,
+        selectedDestination: prepared?.destination ?? destination,
         payload,
+        prepared,
         copied: false,
         inserted: false,
         sent: false,
@@ -114,7 +131,7 @@ export function useDocumentReviewDelivery(
         loading: false,
         destinations: [],
         selection,
-        error: errorMessage(reason),
+        error: deliveryError(reason),
         copied: false,
         inserted: false,
         sent: false,
@@ -122,84 +139,91 @@ export function useDocumentReviewDelivery(
     })
   }, [])
 
-  const selectDestination = useCallback((terminalId: string): void => {
-    const selection = state.selection
-    const destination = state.destinations.find(
-      (candidate) => candidate.terminalId === terminalId,
-    )
-    if (!selection || (terminalId && !destination)) return
-    if (!terminalId) {
-      operationGeneration.current += 1
+  const selectDestination = useCallback(
+    (terminalId: string): void => {
+      const selection = state.selection
+      const destination = state.destinations.find(
+        (candidate) => candidate.terminalId === terminalId,
+      )
+      if (!selection || (terminalId && !destination)) return
+      if (!terminalId) {
+        operationGeneration.current += 1
+        setState((value) => ({
+          ...value,
+          selectedTerminalId: undefined,
+          selectedDestination: undefined,
+          prepared: undefined,
+          error: undefined,
+          notice: undefined,
+          inserted: false,
+        }))
+        return
+      }
+      if (destination?.capability === 'copy-only') {
+        operationGeneration.current += 1
+        setState((value) => ({
+          ...value,
+          loading: false,
+          selectedTerminalId: terminalId,
+          selectedDestination: destination,
+          prepared: undefined,
+          error: undefined,
+          notice: undefined,
+          inserted: false,
+        }))
+        return
+      }
+      const generation = (operationGeneration.current += 1)
       setState((value) => ({
         ...value,
-        selectedTerminalId: undefined,
-        selectedDestination: undefined,
-        prepared: undefined,
-        error: undefined,
-        inserted: false,
-      }))
-      return
-    }
-    if (destination?.capability === 'copy-only') {
-      operationGeneration.current += 1
-      setState((value) => ({
-        ...value,
-        loading: false,
+        loading: true,
         selectedTerminalId: terminalId,
         selectedDestination: destination,
         prepared: undefined,
         error: undefined,
-        inserted: false,
-      }))
-      return
-    }
-    const generation = (operationGeneration.current += 1)
-    setState((value) => ({
-      ...value,
-      loading: true,
-      selectedTerminalId: terminalId,
-      selectedDestination: destination,
-      prepared: undefined,
-      error: undefined,
-      inserted: false,
-      sent: false,
-    }))
-    const target = current.current
-    void (async () => {
-      await target?.flush()
-      const scope = readyScope(current.current)
-      if (!scope) throw new Error('Document review is still restoring this workspace')
-      const prepared = unwrapOperation(
-        await window.hvir.invoke('document-review:prepare-delivery', {
-          ...scope,
-          selection,
-          terminalId,
-        }),
-      )
-      if (operationGeneration.current !== generation) return
-      previewModel.current = current.current?.state.model
-      setState((value) => ({
-        ...value,
-        loading: false,
-        selectedDestination: prepared.destination,
-        payload: prepared.payload,
-        prepared,
-        error: undefined,
+        notice: undefined,
         inserted: false,
         sent: false,
       }))
-    })().catch((reason: unknown) => {
-      if (operationGeneration.current !== generation) return
-      setState((value) => ({
-        ...value,
-        loading: false,
-        selectedTerminalId: undefined,
-        selectedDestination: undefined,
-        prepared: undefined,
-        error: errorMessage(reason),
-      }))
-    })
-  }, [state.destinations, state.selection])
+      const target = current.current
+      void (async () => {
+        await target?.flush()
+        const scope = readyScope(current.current)
+        if (!scope) throw new Error('Document review is still restoring this workspace')
+        const prepared = unwrapOperation(
+          await window.hvir.invoke('document-review:prepare-delivery', {
+            ...scope,
+            selection,
+            terminalId,
+          }),
+        )
+        if (operationGeneration.current !== generation) return
+        previewModel.current = current.current?.state.model
+        setState((value) => ({
+          ...value,
+          loading: false,
+          selectedDestination: prepared.destination,
+          payload: prepared.payload,
+          prepared,
+          error: undefined,
+          notice: undefined,
+          inserted: false,
+          sent: false,
+        }))
+      })().catch((reason: unknown) => {
+        if (operationGeneration.current !== generation) return
+        setState((value) => ({
+          ...value,
+          loading: false,
+          selectedTerminalId: undefined,
+          selectedDestination: undefined,
+          prepared: undefined,
+          error: deliveryError(reason),
+        }))
+      })
+    },
+    [state.destinations, state.selection],
+  )
 
   const copy = useCallback((): void => {
     const payload = state.payload
@@ -207,7 +231,11 @@ export function useDocumentReviewDelivery(
     void writeReviewClipboard(payload.body).then(
       () => setState((value) => ({ ...value, copied: true, error: undefined })),
       (reason: unknown) =>
-        setState((value) => ({ ...value, copied: false, error: errorMessage(reason) })),
+        setState((value) => ({
+          ...value,
+          copied: false,
+          error: deliveryError(reason),
+        })),
     )
   }, [state.payload])
 
@@ -225,6 +253,7 @@ export function useDocumentReviewDelivery(
           ...value,
           loading: false,
           inserted: true,
+          notice: `Inserted into ${prepared.destination.title}. Submit it in the terminal when ready.`,
         }))
       })
       .catch((reason: unknown) => {
@@ -232,7 +261,7 @@ export function useDocumentReviewDelivery(
         setState((value) => ({
           ...value,
           loading: false,
-          error: errorMessage(reason),
+          error: deliveryError(reason),
         }))
       })
   }, [state.prepared])
@@ -266,6 +295,7 @@ export function useDocumentReviewDelivery(
               loading: false,
               prepared: undefined,
               sent: true,
+              notice: `Sent to ${prepared.destination.title}.`,
             }))
             return
           }
@@ -291,10 +321,127 @@ export function useDocumentReviewDelivery(
         setState((value) => ({
           ...value,
           loading: false,
-          error: errorMessage(reason),
+          error: deliveryError(reason),
         }))
       })
   }, [state.inserted, state.prepared, state.sent])
+
+  const handoffBatch = useCallback((batchId: string): void => {
+    const selection: DocumentReviewDeliverySelection = { kind: 'batch', batchId }
+    const generation = (operationGeneration.current += 1)
+    previewModel.current = undefined
+    setState({
+      open: false,
+      loading: true,
+      destinations: [],
+      selection,
+      copied: false,
+      inserted: false,
+      sent: false,
+    })
+    const target = current.current
+    void (async () => {
+      await target?.flush()
+      const scope = readyScope(current.current)
+      if (!scope) throw new Error('Document review is still restoring this workspace')
+      const [payload, destinations] = await Promise.all([
+        window.hvir
+          .invoke('document-review:preview-delivery', { ...scope, selection })
+          .then(unwrapOperation),
+        window.hvir
+          .invoke('document-review:delivery-destinations', scope)
+          .then(unwrapOperation),
+      ])
+      if (operationGeneration.current !== generation) return
+      const destination = destinations[0]
+      if (!destination) {
+        throw new Error('Open a terminal in this workspace before sending the review')
+      }
+      if (destination.capability === 'copy-only') {
+        await writeReviewClipboard(payload.body)
+        if (operationGeneration.current !== generation) return
+        setState({
+          open: false,
+          loading: false,
+          destinations,
+          selection,
+          selectedTerminalId: destination.terminalId,
+          selectedDestination: destination,
+          copied: true,
+          inserted: false,
+          sent: false,
+          notice: `Copied review for ${destination.title}; this terminal cannot receive it safely.`,
+        })
+        return
+      }
+      const prepared = unwrapOperation(
+        await window.hvir.invoke('document-review:prepare-delivery', {
+          ...scope,
+          selection,
+          terminalId: destination.terminalId,
+        }),
+      )
+      if (operationGeneration.current !== generation) return
+      previewModel.current = current.current?.state.model
+      if (prepared.destination.capability === 'insert') {
+        unwrapOperation(
+          await window.hvir.invoke('document-review:insert-delivery', {
+            preparedId: prepared.id,
+          }),
+        )
+        if (operationGeneration.current !== generation) return
+        setState({
+          open: false,
+          loading: false,
+          destinations,
+          selection,
+          selectedTerminalId: prepared.destination.terminalId,
+          selectedDestination: prepared.destination,
+          copied: false,
+          inserted: true,
+          sent: false,
+          notice: `Inserted into ${prepared.destination.title}. Submit it in the terminal when ready.`,
+        })
+        return
+      }
+      const sent = unwrapOperation(
+        await window.hvir.invoke('document-review:send-now-delivery', {
+          preparedId: prepared.id,
+        }),
+      )
+      if (sent.outcome !== 'sent') {
+        throw new Error(consumedSendError(sent))
+      }
+      const adopted = current.current?.adoptAuthoritative(sent.snapshot) ?? false
+      if (operationGeneration.current !== generation) return
+      previewModel.current = sent.snapshot.model
+      if (!adopted) {
+        throw new Error(
+          'Review was submitted, but the local workspace changed. Reopen it before sending again.',
+        )
+      }
+      setState({
+        open: false,
+        loading: false,
+        destinations,
+        selection,
+        selectedTerminalId: prepared.destination.terminalId,
+        selectedDestination: prepared.destination,
+        copied: false,
+        inserted: false,
+        sent: true,
+        notice: `Sent to ${prepared.destination.title}.`,
+      })
+    })().catch((reason: unknown) => {
+      if (operationGeneration.current !== generation) return
+      setState((value) => ({
+        ...value,
+        loading: false,
+        error: deliveryError(reason),
+        notice: undefined,
+      }))
+    })
+  }, [])
 
   useEffect(() => {
     if (!state.payload || previewModel.current === binding?.state.model) return
@@ -307,6 +454,7 @@ export function useDocumentReviewDelivery(
       payload: undefined,
       prepared: undefined,
       error: 'The review changed. Preview the selection again.',
+      notice: undefined,
       copied: false,
       inserted: false,
       sent: false,
@@ -323,8 +471,8 @@ export function useDocumentReviewDelivery(
 
   return {
     ...state,
-    previewComment: (commentId) => preview({ kind: 'comment', commentId }),
     previewBatch: (batchId) => preview({ kind: 'batch', batchId }),
+    handoffBatch,
     selectDestination,
     copy,
     insert,
@@ -348,21 +496,4 @@ function writeReviewClipboard(value: string): Promise<void> {
     return Promise.reject(new Error('Clipboard writing is unavailable'))
   }
   return navigator.clipboard.writeText(value)
-}
-
-function errorMessage(reason: unknown): string {
-  return reason instanceof Error ? reason.message : String(reason)
-}
-
-function consumedSendError(
-  result: Extract<
-    DocumentReviewSendNowResult,
-    { outcome: 'send-authority-consumed' }
-  >,
-): string {
-  const guidance =
-    'Send authority was consumed to prevent a duplicate. Copy remains available; preview and prepare again before another send.'
-  return result.ptyAcceptance === 'confirmed'
-    ? `The complete review write was accepted at the PTY boundary, but hvir could not finish the sent-state update: ${result.reason}. This does not prove agent receipt. ${guidance}`
-    : `PTY write completion is indeterminate: ${result.reason}. The review may have been submitted, but this does not prove agent receipt. ${guidance}`
 }

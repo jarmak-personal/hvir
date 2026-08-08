@@ -46,8 +46,10 @@ describe('document review delivery policy', () => {
       ok: true,
       value: {
         body:
+          'User feedback/review on document docs/a.md\n\n' +
           'docs/a.md:2\nQuote:\nfirst\nquote\nComment:\nFirst comment\n\n' +
           'docs/a.md:9\nQuote:\nsecond quote\nComment:\nSecond comment\n\n' +
+          'User feedback/review on document docs/z.md\n\n' +
           'docs/z.md:3\nQuote:\nthird quote\nComment:\nThird\ncomment',
         commentIds: ['first', 'second', 'third'],
       },
@@ -89,7 +91,10 @@ describe('document review delivery policy', () => {
         state: { status: 'stale', reason: 'missing-match', reviewed: false } as const,
       },
     }
-    const sent = { ...comment('sent', '/repo/b.md', 1, 'quote', 'sent'), lifecycle: 'sent' as const }
+    const sent = {
+      ...comment('sent', '/repo/b.md', 1, 'quote', 'sent'),
+      lifecycle: 'sent' as const,
+    }
     const model = {
       ...modelWith([stale, sent]),
       batches: [{ id: 'blocked', workspace, commentIds: ['stale', 'sent'] }],
@@ -129,9 +134,7 @@ describe('document review delivery policy', () => {
     )
     const model = {
       ...modelWith(comments),
-      batches: [
-        { id: 'large', workspace, commentIds: comments.map(({ id }) => id) },
-      ],
+      batches: [{ id: 'large', workspace, commentIds: comments.map(({ id }) => id) }],
     }
     const prepared = prepareDocumentReviewDeliveryPayload(model, {
       kind: 'batch',
@@ -140,9 +143,7 @@ describe('document review delivery policy', () => {
     expect(prepared.ok).toBe(false)
     if (prepared.ok) throw new Error('Expected the oversized batch to fail')
     expect(prepared.error).toMatch(/outbound byte limit/)
-    expect(model.batches[0]?.commentIds).toHaveLength(
-      DOCUMENT_REVIEW_LIMITS.batchMembers,
-    )
+    expect(model.batches[0]?.commentIds).toHaveLength(DOCUMENT_REVIEW_LIMITS.batchMembers)
   })
 })
 

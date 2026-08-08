@@ -63,11 +63,12 @@ Source capture uses an explicit line or line range. Both reduce to the same sour
 switching representation neither duplicates nor relocates a comment. Arbitrary rendered DOM
 selection is not an initial capture authority.
 
-Only an explicit add-comment or re-anchor action may capture an anchor. Selection, clipboard
-contents, tab state, terminal focus, and other ambient state are inert. Capture and re-anchoring
-are unavailable while that document has unsaved viewer edits because the harness can read only
-the on-disk document. Existing anchors remain tied to their last disk snapshot while dirty, and
-revalidation resumes only against a later bounded disk read.
+Only an explicit add-comment action may capture an anchor. Selection, clipboard contents, tab
+state, terminal focus, and other ambient state are inert. Capture is unavailable while that
+document has unsaved viewer edits because the harness can read only the on-disk document.
+Existing anchors remain tied to their last disk snapshot while dirty, and revalidation resumes
+only against a later bounded disk read. Moving a comment is deliberately a delete-and-recreate
+interaction rather than a separate re-anchor workflow.
 
 The existing project-watch pipeline contributes one bounded interest for a reviewed document,
 independent of its comment count. A relevant change schedules an off-paint, bounded
@@ -120,12 +121,12 @@ and may span several Markdown documents in that workspace. It is grouped determi
 workspace-relative document path and source position. A one-comment handoff is the same contract
 as a batch of one.
 
-The human-readable body contains only, for every included comment, the workspace-relative
-`path:line-range`, a bounded source quote, and the user's comment. It contains no active or
-historical selection, clipboard data, full document, extra neighboring source, other tab,
-terminal output or transcript, Git state, provider metadata, or hidden instructions. Resolved,
-stale, over-limit, cross-workspace, and otherwise ineligible records cannot enter a prepared
-body.
+The human-readable body identifies each document as user feedback/review, then contains only, for
+every included comment, the workspace-relative `path:line-range`, a bounded source quote, and the
+user's comment. It contains no active or historical selection, clipboard data, full document,
+extra neighboring source, other tab, terminal output or transcript, Git state, provider metadata,
+or hidden instructions. Resolved, stale, over-limit, cross-workspace, and otherwise ineligible
+records cannot enter a prepared body.
 
 Payload construction normalizes line endings to line feed and refuses NUL, escape, and other
 terminal control characters except horizontal tab and line feed. Unsafe path text is refused
@@ -141,12 +142,15 @@ delivery and requires a new preview.
 
 ### Explicit destination and provider-safe delivery
 
-The user explicitly selects one live terminal in the same host-qualified workspace. The choice
-shows the terminal title, provider, liveness, host connection, and available review-delivery
-capabilities. A prepared destination snapshots the immutable PTY instance, terminal identity,
-renderer owner and generation, workspace root, host, provider, effective capability revision,
-and configured composer-submit mode. Later focus, pane, tab, workspace, title, or attention
-changes never retarget it.
+The full Review-and-send surface lets the user explicitly select one live terminal in the same
+host-qualified workspace. A one-step handoff may instead choose the first live terminal in the
+workspace's visible persisted terminal order. This is a fixed, exposed ordering rule rather than
+focus inference; the resulting action reports the chosen title and capability outcome. The full
+choice shows the terminal title, provider, liveness, host connection, and available
+review-delivery capabilities. A prepared destination snapshots the immutable PTY instance,
+terminal identity, renderer owner and generation, workspace root, host, provider, effective
+capability revision, and configured composer-submit mode. Later focus, pane, tab, workspace,
+title, or attention changes never retarget it.
 
 Immediately before a write, the delivery coordinator revalidates the renderer generation,
 workspace, live PTY instance, ownership, host connection, provider, effective capabilities,
@@ -158,8 +162,10 @@ Working, focus, output quiet, titles, and telemetry are not reliable busy or com
 The coordinator never scrapes terminal contents, waits for a prompt, or silently chooses a
 different destination.
 
-Copy is the universal fallback and grants no terminal authority. Insert into composer is the
-default automatic handoff and is available only when a trusted bundled provider's effective
+Copy is the universal fallback and grants no terminal authority. A one-step handoff sends through
+a proven send-now contract, inserts through a proven insert-only contract, or copies when its
+deterministic first destination is Copy-only. Insert into composer is available only when a
+trusted bundled provider's effective
 capabilities declare a revisioned atomic bracketed-paste contract for the exact launch. A bundled
 provider may treat its live provider-default executable as a best-effort composer target despite
 data-only profile argument, environment, path-binding, or risk customization; hvir warns that it
@@ -249,7 +255,8 @@ terminal macro system, remote process, or new application process boundary.
 - Format preview, clipboard, insertion, and submission independently. Equivalent-looking text is
   insufficient when the user is authorizing exact bytes.
 - Infer a destination from focus, title, cwd, provider session, or apparent authorship. Ambient
-  presentation is not conversation authority.
+  presentation is not conversation authority; only explicit selection or the visible persisted
+  terminal ordering may choose a destination.
 - Write generic text or append Enter through the PTY supervisor. PTY ownership alone does not
   prove atomic composer or submission semantics.
 - Parse the terminal screen or treat attention as a composer-state oracle. Both are incomplete,

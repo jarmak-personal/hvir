@@ -27,6 +27,7 @@ export type DocumentReviewAction =
       readonly commentId: string
       readonly body: string
       readonly capture: ReviewAnchorCapture
+      readonly batchId?: string
     })
   | (WorkspaceAction & {
       readonly type: 'edit-comment'
@@ -34,11 +35,6 @@ export type DocumentReviewAction =
       readonly body: string
     })
   | (WorkspaceAction & { readonly type: 'remove-comment'; readonly commentId: string })
-  | (WorkspaceAction & {
-      readonly type: 'reanchor-comment'
-      readonly commentId: string
-      readonly capture: ReviewAnchorCapture
-    })
   | (WorkspaceAction & { readonly type: 'review-stale'; readonly commentId: string })
   | (WorkspaceAction & {
       readonly type: 'revalidate-document'

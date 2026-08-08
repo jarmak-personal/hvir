@@ -9,10 +9,7 @@ import {
   harnessProviders,
 } from '../src/main/harness/harness-provider'
 import { providerTemplateProfiles } from '../src/main/harness/harness-profile-store'
-import {
-  PtyWriteIndeterminateError,
-  type ProjectHost,
-} from '../src/main/project-host'
+import { PtyWriteIndeterminateError, type ProjectHost } from '../src/main/project-host'
 import type { ManagedPty } from '../src/main/pty/pty-supervisor'
 import { RendererResourceScopes } from '../src/main/renderer-resource-scopes'
 import type { OwnedTerminalSession } from '../src/main/terminal/session-registry'
@@ -37,33 +34,30 @@ describe('document review delivery coordinator', () => {
     ['SSH', hostPath(asHostId('ssh:review'), '/srv/repo')],
   ])('uses the same exact host-qualified destination policy for %s', (_label, root) => {
     const fixture = deliveryFixture({ id: `workspace-${root.hostId}`, root })
-    const supported = fixture.addTerminal('supported', 'claude-code', 'Ready')
-    fixture.addTerminal('copy', 'plain-shell', 'Shell')
+    const supported = fixture.addTerminal('supported', 'claude-code', 'Zulu top')
+    fixture.addTerminal('copy', 'plain-shell', 'Alpha shell')
     fixture.addTerminal(
       'foreign-workspace',
       'codex',
       'Other workspace',
       hostPath(root.hostId, `${root.path}-other`),
     )
-    fixture.addTerminal(
-      'foreign-owner',
-      'codex',
-      'Other renderer',
-      root,
-      { id: OWNER.id, generation: OWNER.generation + 1 },
-    )
+    fixture.addTerminal('foreign-owner', 'codex', 'Other renderer', root, {
+      id: OWNER.id,
+      generation: OWNER.generation + 1,
+    })
 
     expect(fixture.coordinator.destinations(OWNER, fixture.scope)).toEqual([
       expect.objectContaining({
         terminalId: supported.id,
-        title: 'Ready',
+        title: 'Zulu top',
         providerName: 'Claude Code',
         attention: 'idle',
         capability: 'insert',
       }),
       expect.objectContaining({
         terminalId: 'copy',
-        title: 'Shell',
+        title: 'Alpha shell',
         providerName: 'Shell',
         lifecycle: 'live',
         connection: 'connected',
@@ -83,6 +77,7 @@ describe('document review delivery coordinator', () => {
 
     expect(payload).toEqual({
       body:
+        'User feedback/review on document docs/review.md\n\n' +
         'docs/review.md:2\nQuote:\nTarget statement\nComment:\nPlease tighten this.',
       byteLength: new TextEncoder().encode(payload.body).byteLength,
       commentIds: ['comment-1'],
@@ -108,7 +103,8 @@ describe('document review delivery coordinator', () => {
       capability: 'insert',
     })
     expect(prepared.payload.body).toBe(
-      'docs/review.md:2\nQuote:\nTarget statement\nComment:\nPlease tighten this.',
+      'User feedback/review on document docs/review.md\n\n' +
+        'docs/review.md:2\nQuote:\nTarget statement\nComment:\nPlease tighten this.',
     )
 
     fixture.presentations.set('chosen', {
@@ -327,9 +323,7 @@ describe('document review delivery coordinator', () => {
     })
     fixture.markSent.mockRejectedValueOnce(new Error('disk unavailable'))
 
-    await expect(
-      fixture.coordinator.sendNow(OWNER, prepared.id),
-    ).resolves.toEqual({
+    await expect(fixture.coordinator.sendNow(OWNER, prepared.id)).resolves.toEqual({
       outcome: 'send-authority-consumed',
       ptyAcceptance: 'confirmed',
       reason: 'disk unavailable',
@@ -339,9 +333,7 @@ describe('document review delivery coordinator', () => {
     expect(fixture.model.comments[0]?.lifecycle).toBe('draft')
     expect(fixture.model.batches[0]?.commentIds).toEqual(['comment-1'])
 
-    await expect(fixture.coordinator.sendNow(OWNER, prepared.id)).rejects.toThrow(
-      /stale/,
-    )
+    await expect(fixture.coordinator.sendNow(OWNER, prepared.id)).rejects.toThrow(/stale/)
     expect(fixture.writeConfirmed).toHaveBeenCalledOnce()
     expect(fixture.writes).toHaveLength(1)
   })
@@ -357,22 +349,16 @@ describe('document review delivery coordinator', () => {
       selection: { kind: 'batch', batchId: 'active-review' },
       terminalId: 'codex-send',
     })
-    fixture.writeConfirmed.mockRejectedValueOnce(
-      new PtyWriteIndeterminateError(reason),
-    )
+    fixture.writeConfirmed.mockRejectedValueOnce(new PtyWriteIndeterminateError(reason))
 
-    await expect(
-      fixture.coordinator.sendNow(OWNER, prepared.id),
-    ).resolves.toEqual({
+    await expect(fixture.coordinator.sendNow(OWNER, prepared.id)).resolves.toEqual({
       outcome: 'send-authority-consumed',
       ptyAcceptance: 'indeterminate',
       reason,
     })
     expect(fixture.model.comments[0]?.lifecycle).toBe('draft')
     expect(fixture.model.batches[0]?.commentIds).toEqual(['comment-1'])
-    await expect(fixture.coordinator.sendNow(OWNER, prepared.id)).rejects.toThrow(
-      /stale/,
-    )
+    await expect(fixture.coordinator.sendNow(OWNER, prepared.id)).rejects.toThrow(/stale/)
     expect(fixture.writeConfirmed).toHaveBeenCalledOnce()
   })
 
@@ -537,27 +523,25 @@ function deliveryFixture(
       return Promise.resolve()
     },
   )
-  const markSent = vi.fn<DocumentReviewCoordinator['markSent']>(
-    (_owner, request) => {
-      if (request.expectedRevision !== revision.value) {
-        throw new Error('The review batch changed during submission')
-      }
-      state.model = {
-        ...state.model,
-        comments: state.model.comments.map((comment) =>
-          request.commentIds.includes(comment.id)
-            ? { ...comment, lifecycle: 'sent' as const }
-            : comment,
-        ),
-      }
-      revision.value += 1
-      return Promise.resolve({
-        workspaceGeneration: request.workspaceGeneration,
-        revision: revision.value,
-        model: state.model,
-      })
-    },
-  )
+  const markSent = vi.fn<DocumentReviewCoordinator['markSent']>((_owner, request) => {
+    if (request.expectedRevision !== revision.value) {
+      throw new Error('The review batch changed during submission')
+    }
+    state.model = {
+      ...state.model,
+      comments: state.model.comments.map((comment) =>
+        request.commentIds.includes(comment.id)
+          ? { ...comment, lifecycle: 'sent' as const }
+          : comment,
+      ),
+    }
+    revision.value += 1
+    return Promise.resolve({
+      workspaceGeneration: request.workspaceGeneration,
+      revision: revision.value,
+      model: state.model,
+    })
+  })
   const coordinator = new DocumentReviewDeliveryCoordinator({
     workspace: {
       deliverySnapshot: (owner, request) => {
@@ -664,9 +648,7 @@ function deliveryFixture(
       const capabilities = harnessLaunchCapabilities(provider, {
         profile,
         composerSubmitMode,
-        probedCapabilities: provider.probe.effectiveCapabilities(
-          'codex-cli 0.146.0',
-        ),
+        probedCapabilities: provider.probe.effectiveCapabilities('codex-cli 0.146.0'),
       })
       const terminal = {
         id,
@@ -709,7 +691,10 @@ function deliveryFixture(
 }
 
 function reviewModel(workspace: ReviewWorkspaceIdentity): DocumentReviewModel {
-  const document = hostPath(workspace.root.hostId, `${workspace.root.path}/docs/review.md`)
+  const document = hostPath(
+    workspace.root.hostId,
+    `${workspace.root.path}/docs/review.md`,
+  )
   return {
     workspace,
     comments: [
@@ -729,9 +714,7 @@ function reviewModel(workspace: ReviewWorkspaceIdentity): DocumentReviewModel {
         },
       },
     ],
-    batches: [
-      { id: 'active-review', workspace, commentIds: ['comment-1'] },
-    ],
+    batches: [{ id: 'active-review', workspace, commentIds: ['comment-1'] }],
   }
 }
 

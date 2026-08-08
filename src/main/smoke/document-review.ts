@@ -91,11 +91,10 @@ export async function verifyDocumentReviewWorkflow(options: {
       `document.activeElement?.classList.contains('document-review-comment')`,
     'rendered note badge did not reopen review mode and focus its comment',
   )
-  await activateControl(win, '[aria-label*="to review batch"]')
   await waitForRenderer(
     win,
-    `document.querySelector('[aria-label^="Preview review batch with 1 comment"]')`,
-    'keyboard comment management did not create the exact batch',
+    `document.querySelector('[aria-label^="Review and send 1 comment"]')`,
+    'new comment did not join the pending review',
   )
 
   await activateMode(win, 'source')
@@ -181,7 +180,7 @@ export async function verifyDocumentReviewWorkflow(options: {
   await runStage('initial delivery preview', async () => {
     await activateControl(
       win,
-      '[aria-label^="Preview review batch with 1 comment"]',
+      '[aria-label^="Review and send 1 comment"]',
       'preview button',
     )
     await waitForExactPreview(win)
@@ -209,21 +208,16 @@ export async function verifyDocumentReviewWorkflow(options: {
     'insert did not preserve the draft lifecycle',
   )
 
-  const sendBody = await runStage('send-now destination preparation', async () => {
+  await runStage('close preview before direct send', async () => {
     await activateControl(win, '.document-review-delivery header button')
     await waitForRenderer(
       win,
       `!document.querySelector('.document-review-delivery')`,
-      'delivery preview did not close before re-preview',
+      'delivery preview did not close before direct send',
     )
-    await activateControl(win, '[aria-label^="Preview review batch with 1 comment"]')
-    await waitForExactPreview(win)
-    await selectDestination(win, terminals.first.id)
-    return preparedBody(win, terminals.first.id)
   })
-  if (sendBody !== body) throw new Error('send-now rebuilt a different review body')
-  await runStage('send-now activation', () =>
-    activateControl(win, '.document-review-delivery-actions button:nth-child(3)'),
+  await runStage('direct send to the top terminal', () =>
+    activateControl(win, '[aria-label^="Send 1 review comment to the top terminal"]'),
   )
   const sentTransport = terminals.sendTransport(body)
   await waitForExactCapture(host, captureA, `${insert}${sentTransport}`)
@@ -242,6 +236,24 @@ export async function verifyDocumentReviewWorkflow(options: {
   } finally {
     await restartedStore.dispose()
   }
+
+  await activateControl(win, '[aria-label^="Clear 1 sent and resolved review comment"]')
+  await review.flush()
+  const clearedStore = await DocumentReviewStore.load(host, reviewFile)
+  try {
+    const cleared = clearedStore.read(workspace)
+    if (cleared.model.comments.length !== 0 || cleared.model.batches.length !== 0) {
+      throw new Error('clearing a sent review did not remove its durable history')
+    }
+  } finally {
+    await clearedStore.dispose()
+  }
+  await waitForRenderer(
+    win,
+    `!document.querySelector('.review-block-badge') && ` +
+      `!document.querySelector('.cm-review-marker')`,
+    'cleared sent review remained projected in the document',
+  )
 
   supervisor.disposeSession(
     terminals.first.id,
@@ -284,8 +296,8 @@ export async function verifyDocumentReviewWorkflow(options: {
 
   return (
     'inert selection · rendered/source anchor · moved prior location · ' +
-    'tab/project/reload/restart durability · byte-identical preview/insert/send · ' +
-    'fixed destination · renderer/PTY cleanup'
+    'tab/project/reload/restart durability · byte-identical preview/insert/direct-send · ' +
+    'fixed top destination · sent cleanup · renderer/PTY cleanup'
   )
 }
 

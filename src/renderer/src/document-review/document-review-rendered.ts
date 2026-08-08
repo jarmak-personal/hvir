@@ -98,6 +98,12 @@ export function bindRenderedDocumentReview(
   }
   const onKeyDown = (event: KeyboardEvent): void => {
     if (!projection.active) return
+    if (
+      event.target instanceof Element &&
+      event.target.closest('[data-review-inline-host]')
+    ) {
+      return
+    }
     if (event.key === 'Escape') {
       event.preventDefault()
       projection.onExit()

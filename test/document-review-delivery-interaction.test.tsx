@@ -28,6 +28,7 @@ const workspace: ReviewWorkspaceIdentity = {
   root: localPath('/repo'),
 }
 const exactBody =
+  'User feedback/review on document docs/review.md\n\n' +
   'docs/review.md:2\nQuote:\nTarget statement\nComment:\nPlease tighten this.'
 const payload: DocumentReviewDeliveryPayload = {
   body: exactBody,
@@ -95,7 +96,7 @@ describe('document review delivery interaction', () => {
 
     click('Preview batch')
     await settle()
-    expect(invoke).toHaveBeenCalledTimes(2)
+    expect(invoke).toHaveBeenCalledTimes(3)
     expect(invoke).toHaveBeenCalledWith('document-review:preview-delivery', {
       workspace,
       workspaceGeneration: 4,
@@ -105,8 +106,6 @@ describe('document review delivery interaction', () => {
       host.querySelector('[aria-label="Exact review delivery preview"]')?.textContent,
     ).toBe(exactBody)
 
-    choose('terminal-1')
-    await settle()
     expect(invoke).toHaveBeenLastCalledWith('document-review:prepare-delivery', {
       workspace,
       workspaceGeneration: 4,
@@ -122,14 +121,14 @@ describe('document review delivery interaction', () => {
     expect(host.textContent).toContain('idle')
     expect(host.textContent).not.toContain('cannot prove')
 
-    click('Copy exact preview')
+    click('Copy review')
     await settle()
     expect(writeText).toHaveBeenCalledOnce()
     expect(writeText).toHaveBeenCalledWith(exactBody)
     expect(button('Copied')).toBeTruthy()
     expect(review.state.model?.comments[0]?.lifecycle).toBe('draft')
 
-    click('Insert into composer')
+    click('Insert review')
     await settle()
     expect(invoke).toHaveBeenLastCalledWith('document-review:insert-delivery', {
       preparedId: prepared.id,
@@ -162,11 +161,13 @@ describe('document review delivery interaction', () => {
     expect(
       host.querySelector('[aria-label="Exact review delivery preview"]')?.textContent,
     ).toBe(exactBody)
-    click('Copy exact preview')
+    click('Copy review')
     await settle()
     expect(writeText).toHaveBeenCalledWith(exactBody)
     expect(
-      invoke.mock.calls.some(([channel]) => channel === 'document-review:prepare-delivery'),
+      invoke.mock.calls.some(
+        ([channel]) => channel === 'document-review:prepare-delivery',
+      ),
     ).toBe(false)
   })
 
@@ -202,12 +203,136 @@ describe('document review delivery interaction', () => {
     expect(host.textContent).toContain('Build shell')
     expect(host.textContent).not.toContain('trusted atomic composer contract')
     expect(
-      invoke.mock.calls.some(([channel]) => channel === 'document-review:prepare-delivery'),
+      invoke.mock.calls.some(
+        ([channel]) => channel === 'document-review:prepare-delivery',
+      ),
     ).toBe(false)
-    expect(button('Insert into composer')).toMatchObject({
+    expect(button('Insert review')).toMatchObject({
       disabled: true,
       title: 'This provider is Copy-only',
     })
+  })
+
+  it('sends the pending review directly to the first send-capable terminal', async () => {
+    const destination: DocumentReviewDeliveryDestination = {
+      ...prepared.destination,
+      title: 'Top Codex',
+      capability: 'send-now',
+    }
+    const exact = { ...prepared, destination }
+    const sentModel = {
+      ...model(),
+      comments: model().comments.map((comment) => ({
+        ...comment,
+        lifecycle: 'sent' as const,
+      })),
+    }
+    const adoptAuthoritative = vi.fn(() => true)
+    const invoke = vi.fn((channel: string) => {
+      if (channel === 'document-review:preview-delivery') {
+        return Promise.resolve({ ok: true, value: payload })
+      }
+      if (channel === 'document-review:delivery-destinations') {
+        return Promise.resolve({
+          ok: true,
+          value: [destination, { ...destination, terminalId: 'second' }],
+        })
+      }
+      if (channel === 'document-review:prepare-delivery') {
+        return Promise.resolve({ ok: true, value: exact })
+      }
+      if (channel === 'document-review:send-now-delivery') {
+        return Promise.resolve({
+          ok: true,
+          value: {
+            outcome: 'sent',
+            snapshot: { workspaceGeneration: 4, revision: 4, model: sentModel },
+          },
+        })
+      }
+      throw new Error(`Unexpected IPC ${channel}`)
+    })
+    installApi(invoke)
+    render(<DeliveryHarness binding={{ ...binding(model()), adoptAuthoritative }} />)
+
+    click('Quick handoff')
+    await settle()
+
+    expect(invoke).toHaveBeenCalledWith(
+      'document-review:prepare-delivery',
+      expect.objectContaining({ terminalId: destination.terminalId }),
+    )
+    expect(invoke).toHaveBeenLastCalledWith('document-review:send-now-delivery', {
+      preparedId: prepared.id,
+    })
+    expect(adoptAuthoritative).toHaveBeenCalledOnce()
+    expect(host.textContent).toContain('Sent to Top Codex')
+  })
+
+  it('inserts the pending review when the first terminal cannot submit safely', async () => {
+    const destination = { ...prepared.destination, title: 'Top Claude' }
+    const invoke = vi.fn((channel: string) => {
+      if (channel === 'document-review:preview-delivery') {
+        return Promise.resolve({ ok: true, value: payload })
+      }
+      if (channel === 'document-review:delivery-destinations') {
+        return Promise.resolve({ ok: true, value: [destination] })
+      }
+      if (channel === 'document-review:prepare-delivery') {
+        return Promise.resolve({
+          ok: true,
+          value: { ...prepared, destination },
+        })
+      }
+      if (channel === 'document-review:insert-delivery') {
+        return Promise.resolve({ ok: true, value: { outcome: 'inserted' } })
+      }
+      throw new Error(`Unexpected IPC ${channel}`)
+    })
+    installApi(invoke)
+    render(<DeliveryHarness binding={binding(model())} />)
+
+    click('Quick handoff')
+    await settle()
+
+    expect(invoke).toHaveBeenLastCalledWith('document-review:insert-delivery', {
+      preparedId: prepared.id,
+    })
+    expect(host.textContent).toContain(
+      'Inserted into Top Claude. Submit it in the terminal when ready.',
+    )
+  })
+
+  it('copies the pending review when the first terminal is Copy-only', async () => {
+    const writeText = vi.fn(() => Promise.resolve())
+    vi.stubGlobal('navigator', { clipboard: { writeText } })
+    const destination: DocumentReviewDeliveryDestination = {
+      ...prepared.destination,
+      title: 'Top shell',
+      capability: 'copy-only',
+    }
+    const invoke = vi.fn((channel: string) => {
+      if (channel === 'document-review:preview-delivery') {
+        return Promise.resolve({ ok: true, value: payload })
+      }
+      if (channel === 'document-review:delivery-destinations') {
+        return Promise.resolve({ ok: true, value: [destination] })
+      }
+      throw new Error(`Unexpected IPC ${channel}`)
+    })
+    installApi(invoke)
+    render(<DeliveryHarness binding={binding(model())} />)
+
+    click('Quick handoff')
+    await settle()
+
+    expect(writeText).toHaveBeenCalledWith(exactBody)
+    expect(
+      invoke.mock.calls.some(
+        ([channel]) => channel === 'document-review:prepare-delivery',
+      ),
+    ).toBe(false)
+    expect(host.textContent).toContain('Copied review for Top shell')
   })
 
   it('keeps routine working attention in metadata without expanding a warning', () => {
@@ -230,9 +355,7 @@ describe('document review delivery interaction', () => {
 
   it('keeps idle attention visible without an extra warning', () => {
     render(
-      <DocumentReviewDeliveryPanel
-        delivery={panelInteraction(prepared.destination)}
-      />,
+      <DocumentReviewDeliveryPanel delivery={panelInteraction(prepared.destination)} />,
     )
 
     expect(host.textContent).toContain('Attentionidle')
@@ -241,7 +364,9 @@ describe('document review delivery interaction', () => {
   })
 
   it('keeps an exact prepared preview after insertion failure for retry or Copy', async () => {
-    vi.stubGlobal('navigator', { clipboard: { writeText: vi.fn(() => Promise.resolve()) } })
+    vi.stubGlobal('navigator', {
+      clipboard: { writeText: vi.fn(() => Promise.resolve()) },
+    })
     let insertAttempts = 0
     const invoke = vi.fn((channel: string) => {
       if (channel === 'document-review:preview-delivery') {
@@ -270,15 +395,15 @@ describe('document review delivery interaction', () => {
     choose('terminal-1')
     await settle()
 
-    click('Insert into composer')
+    click('Insert review')
     await settle()
     expect(host.textContent).toContain('The prepared terminal exited')
     expect(
       host.querySelector('[aria-label="Exact review delivery preview"]')?.textContent,
     ).toBe(exactBody)
-    expect(button('Copy exact preview')).toBeTruthy()
+    expect(button('Copy review')).toBeTruthy()
 
-    click('Insert into composer')
+    click('Insert review')
     await settle()
     expect(insertAttempts).toBe(2)
     expect(button('Inserted')).toBeTruthy()
@@ -336,7 +461,7 @@ describe('document review delivery interaction', () => {
 
     expect(host.textContent).not.toContain('Send now writes the exact preview')
     expect(host.textContent).not.toContain('Sent means PTY-boundary acceptance only')
-    click('Send exact review now')
+    click('Send review now')
     await settle()
 
     expect(invoke).toHaveBeenLastCalledWith('document-review:send-now-delivery', {
@@ -348,9 +473,7 @@ describe('document review delivery interaction', () => {
     expect(host.textContent).not.toContain('accepted at the PTY boundary')
     expect(host.textContent).not.toContain('does not mean the agent read')
     expect(button('Sent')?.disabled).toBe(true)
-    expect(
-      invoke.mock.calls.some(([channel]) => channel === 'pty:write'),
-    ).toBe(false)
+    expect(invoke.mock.calls.some(([channel]) => channel === 'pty:write')).toBe(false)
   })
 
   it('adopts a successful send while the panel closes and advances later saves', async () => {
@@ -377,9 +500,7 @@ describe('document review delivery interaction', () => {
     const sentModel: DocumentReviewModel = {
       ...activeModel,
       comments: activeModel.comments.map((comment) =>
-        comment.id === 'comment-1'
-          ? { ...comment, lifecycle: 'sent' as const }
-          : comment,
+        comment.id === 'comment-1' ? { ...comment, lifecycle: 'sent' as const } : comment,
       ),
     }
     const send = deferred<unknown>()
@@ -433,7 +554,7 @@ describe('document review delivery interaction', () => {
     await settle()
     choose('terminal-1')
     await settle()
-    click('Send exact review now')
+    click('Send review now')
     click('Close preview')
     expect(host.querySelector('[aria-label="Review handoff preview"]')).toBeNull()
 
@@ -464,9 +585,7 @@ describe('document review delivery interaction', () => {
       }).ok,
     ).toBe(true)
     await review.flush()
-    expect(save).toHaveBeenCalledWith(
-      expect.objectContaining({ expectedRevision: 4 }),
-    )
+    expect(save).toHaveBeenCalledWith(expect.objectContaining({ expectedRevision: 4 }))
     expect(controller.snapshot()).toMatchObject({
       revision: 5,
       error: undefined,
@@ -506,12 +625,12 @@ describe('document review delivery interaction', () => {
     await settle()
     choose('terminal-1')
     await settle()
-    click('Send exact review now')
+    click('Send review now')
     await settle()
 
     expect(host.textContent).toContain('PTY exited before write completion')
-    expect(button('Send exact review now')?.disabled).toBe(false)
-    expect(button('Copy exact preview')?.disabled).toBe(false)
+    expect(button('Send review now')?.disabled).toBe(false)
+    expect(button('Copy review')?.disabled).toBe(false)
     expect(
       host.querySelector('[aria-label="Exact review delivery preview"]')?.textContent,
     ).toBe(exactBody)
@@ -565,18 +684,18 @@ describe('document review delivery interaction', () => {
       await settle()
       choose('terminal-1')
       await settle()
-      click('Send exact review now')
+      click('Send review now')
       await settle()
 
       expect(host.textContent).toContain(boundaryMessage)
       expect(host.textContent).toContain('does not prove agent receipt')
       expect(host.textContent).toContain('Send authority was consumed')
       expect(host.textContent).toContain('preview and prepare again')
-      expect(button('Send exact review now')?.disabled).toBe(true)
-      expect(button('Copy exact preview')?.disabled).toBe(false)
+      expect(button('Send review now')?.disabled).toBe(true)
+      expect(button('Copy review')?.disabled).toBe(false)
 
-      click('Send exact review now')
-      click('Copy exact preview')
+      click('Send review now')
+      click('Copy review')
       await settle()
       expect(
         invoke.mock.calls.filter(
@@ -588,7 +707,9 @@ describe('document review delivery interaction', () => {
   )
 
   it('invalidates a prepared preview when the review model changes', async () => {
-    vi.stubGlobal('navigator', { clipboard: { writeText: vi.fn(() => Promise.resolve()) } })
+    vi.stubGlobal('navigator', {
+      clipboard: { writeText: vi.fn(() => Promise.resolve()) },
+    })
     installApi(
       vi.fn((channel: string) =>
         Promise.resolve(
@@ -596,7 +717,7 @@ describe('document review delivery interaction', () => {
             ? { ok: true, value: [prepared.destination] }
             : channel === 'document-review:preview-delivery'
               ? { ok: true, value: payload }
-            : { ok: true, value: prepared },
+              : { ok: true, value: prepared },
         ),
       ),
     )
@@ -606,7 +727,9 @@ describe('document review delivery interaction', () => {
     await settle()
     choose('terminal-1')
     await settle()
-    expect(host.querySelector('[aria-label="Exact review delivery preview"]')).toBeTruthy()
+    expect(
+      host.querySelector('[aria-label="Exact review delivery preview"]'),
+    ).toBeTruthy()
 
     const changed = {
       ...initial,
@@ -645,8 +768,8 @@ function panelInteraction(
     copied: false,
     inserted: false,
     sent: false,
-    previewComment: () => undefined,
     previewBatch: () => undefined,
+    handoffBatch: () => undefined,
     selectDestination: () => undefined,
     copy: () => undefined,
     insert: () => undefined,
@@ -663,12 +786,16 @@ function DeliveryHarness({
   const delivery = useDocumentReviewDelivery(binding)
   return (
     <div>
-      <button
-        type="button"
-        onClick={() => delivery.previewBatch('active-review')}
-      >
+      <button type="button" onClick={() => delivery.previewBatch('active-review')}>
         Preview batch
       </button>
+      <button type="button" onClick={() => delivery.handoffBatch('active-review')}>
+        Quick handoff
+      </button>
+      {delivery.notice ? <span role="status">{delivery.notice}</span> : null}
+      {!delivery.open && delivery.error ? (
+        <span role="alert">{delivery.error}</span>
+      ) : null}
       <DocumentReviewDeliveryPanel delivery={delivery} />
     </div>
   )

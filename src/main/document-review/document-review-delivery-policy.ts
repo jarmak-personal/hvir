@@ -133,7 +133,7 @@ function deliveryEligibility(
     return failure('Only draft review comments can be delivered')
   }
   if (comment.anchor.state.status === 'stale' && !comment.anchor.state.reviewed) {
-    return failure('A stale review location must be acknowledged or re-anchored')
+    return failure('A stale review location must be acknowledged before delivery')
   }
   return undefined
 }
@@ -174,7 +174,7 @@ function compareComments(
 }
 
 function formatGroup(group: DeliveryGroup): string {
-  return group.comments
+  const comments = group.comments
     .map(({ range, quote, comment }) => {
       const lines =
         range.startLine === range.endLine
@@ -183,6 +183,7 @@ function formatGroup(group: DeliveryGroup): string {
       return `${group.relativePath}:${lines}\nQuote:\n${quote}\nComment:\n${comment}`
     })
     .join('\n\n')
+  return `User feedback/review on document ${group.relativePath}\n\n${comments}`
 }
 
 function normalizedTerminalText(value: string): string | undefined {
@@ -214,10 +215,7 @@ function boundedQuote(value: string): string {
     documentReviewUtf8Bytes(QUOTE_TRUNCATION_MARKER)
   let output = ''
   for (const character of value) {
-    if (
-      documentReviewUtf8Bytes(output) + documentReviewUtf8Bytes(character) >
-      budget
-    ) {
+    if (documentReviewUtf8Bytes(output) + documentReviewUtf8Bytes(character) > budget) {
       break
     }
     output += character

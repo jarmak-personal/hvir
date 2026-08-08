@@ -739,19 +739,21 @@ describe('Electron smoke command contracts', () => {
     )
   })
 
-  it('serializes document review renderer stages around re-preview readiness', () => {
+  it('serializes document review closure before direct top-terminal send', () => {
     expect(documentReviewScenario.match(/webContents\.executeJavaScript/g)).toHaveLength(
       1,
     )
     expect(documentReviewScenario).toContain('function isRendererOutcome')
     expect(documentReviewScenario).toContain('returned an invalid outcome')
-    const reprepare = documentReviewScenario.slice(
-      documentReviewScenario.indexOf("runStage('send-now destination preparation'"),
-      documentReviewScenario.indexOf("runStage('send-now activation'"),
+    const directSend = documentReviewScenario.slice(
+      documentReviewScenario.indexOf("runStage('close preview before direct send'"),
+      documentReviewScenario.indexOf('const sentTransport'),
     )
     expect(
-      reprepare.indexOf('delivery preview did not close before re-preview'),
-    ).toBeLessThan(reprepare.indexOf('await waitForExactPreview(win)'))
+      directSend.indexOf('delivery preview did not close before direct send'),
+    ).toBeLessThan(directSend.indexOf("runStage('direct send to the top terminal'"))
+    expect(directSend).toContain('Send 1 review comment to the top terminal')
+    expect(directSend).not.toContain('await waitForExactPreview(win)')
     expect(documentReviewScenario).toContain(
       'destination instanceof HTMLSelectElement && !destination.disabled',
     )

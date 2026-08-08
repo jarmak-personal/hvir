@@ -12,7 +12,7 @@ export function DocumentReviewDeliveryPanel({
   return (
     <section className="document-review-delivery" aria-label="Review handoff preview">
       <header>
-        <strong>Review handoff</strong>
+        <strong>Review and send</strong>
         <button type="button" onClick={delivery.close}>
           Close preview
         </button>
@@ -68,8 +68,8 @@ export function DocumentReviewDeliveryPanel({
       ) : null}
       {selected?.attention === 'bell' ? (
         <p className="document-review-warning" role="alert">
-          This terminal is requesting attention. Resolve its current prompt or state before
-          inserting.
+          This terminal is requesting attention. Resolve its current prompt or state
+          before inserting.
         </p>
       ) : null}
       {delivery.payload ? (
@@ -85,7 +85,7 @@ export function DocumentReviewDeliveryPanel({
           </p>
           <div className="document-review-delivery-actions">
             <button type="button" disabled={delivery.loading} onClick={delivery.copy}>
-              {delivery.copied ? 'Copied' : 'Copy exact preview'}
+              {delivery.copied ? 'Copied' : 'Copy review'}
             </button>
             <button
               type="button"
@@ -104,7 +104,7 @@ export function DocumentReviewDeliveryPanel({
               }
               onClick={delivery.insert}
             >
-              {delivery.inserted ? 'Inserted' : 'Insert into composer'}
+              {delivery.inserted ? 'Inserted' : 'Insert review'}
             </button>
             <button
               type="button"
@@ -121,7 +121,7 @@ export function DocumentReviewDeliveryPanel({
               }
               onClick={delivery.sendNow}
             >
-              {delivery.sent ? 'Sent' : 'Send exact review now'}
+              {delivery.sent ? 'Sent' : 'Send review now'}
             </button>
           </div>
         </>

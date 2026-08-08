@@ -70,6 +70,19 @@
   padding: 3px 7px;
 }
 
+.document-review-tray > .document-review-primary {
+  border-color: #6d9fd2;
+  color: #f4f9ff;
+  background: #27567d;
+}
+
+.document-review-notice {
+  padding: 4px 7px;
+  border-radius: 4px;
+  color: #cfe5fa;
+  background: #1d3042;
+}
+
 .document-review-inline > header,
 .document-review-comment-heading,
 .document-review-comment-actions,
@@ -89,6 +102,13 @@
   margin-right: auto;
   color: #91a0b1;
   font-family: var(--hvir-monospace-font);
+}
+
+.document-review-inline .document-review-close {
+  min-width: 24px;
+  padding: 1px 6px;
+  font-size: calc(16px * var(--hvir-interface-scale));
+  line-height: 1;
 }
 
 .document-review-inline p,
@@ -192,6 +212,24 @@
 .document-review-comment p {
   margin: 8px 0;
   white-space: pre-wrap;
+}
+
+.document-review-comment .document-review-comment-body {
+  display: block;
+  width: 100%;
+  margin: 5px 0;
+  padding: 4px;
+  border-color: transparent;
+  text-align: left;
+  white-space: pre-wrap;
+  color: #dce3ec;
+  background: transparent;
+}
+
+.document-review-comment .document-review-comment-body:hover,
+.document-review-comment .document-review-comment-body:focus-visible {
+  border-color: #415064;
+  background: #10161d;
 }
 
 .document-review-comment textarea,

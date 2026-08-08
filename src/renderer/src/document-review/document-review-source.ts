@@ -99,8 +99,8 @@ function sourceReviewDecorations(
       : [Decoration.mark({ attributes }).range(start.from, end.to)]
   })
   const inlineLine = projection.inlineRange?.startLine
-  if (inlineLine && inlineLine <= state.doc.lines) {
-    const line = state.doc.line(inlineLine)
+  if (inlineLine) {
+    const line = state.doc.line(Math.min(inlineLine, state.doc.lines))
     ranges.push(
       Decoration.widget({
         block: true,

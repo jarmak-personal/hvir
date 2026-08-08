@@ -58,10 +58,9 @@ export interface DocumentReviewInteraction {
   readonly sourceRange?: ReviewSourceRange
   readonly pendingRange?: ReviewSourceRange
   readonly inlineRange?: ReviewSourceRange
-  readonly reanchorCommentId?: string
+  readonly orphanedComments: readonly DocumentReviewComment[]
   readonly error?: string
   readonly commentNavigation?: { readonly id: string; readonly request: number }
-  readonly inBatch: ReadonlySet<string>
   readonly activeBatchId?: string
   readonly activeBatchCount: number
   readonly historyCount: number
@@ -72,14 +71,10 @@ export interface DocumentReviewInteraction {
   readonly captureSource: () => void
   readonly submit: (body: string) => Promise<void>
   readonly cancelCapture: () => void
-  readonly closeInline: () => void
   readonly edit: (commentId: string, body: string) => void
   readonly remove: (commentId: string) => void
-  readonly beginReanchor: (commentId: string) => void
-  readonly resolve: (commentId: string) => void
   readonly clearHistory: () => void
   readonly reviewStale: (commentId: string) => void
-  readonly toggleBatch: (commentId: string) => void
   readonly navigate: (comment: DocumentReviewComment) => void
 }
 
@@ -92,7 +87,6 @@ export function useDocumentReviewInteraction(
   const [sourceRange, setSourceRange] = useState<ReviewSourceRange>()
   const [pendingRange, setPendingRange] = useState<ReviewSourceRange>()
   const [expandedRange, setExpandedRange] = useState<ReviewSourceRange>()
-  const [reanchorCommentId, setReanchorCommentId] = useState<string>()
   const [error, setError] = useState<string>()
   const [commentNavigation, setCommentNavigation] = useState<{
     readonly id: string
@@ -120,12 +114,18 @@ export function useDocumentReviewInteraction(
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [available, document?.path.hostId, document?.path.path, model])
   const activeBatch = model?.batches.find((batch) => batch.id === ACTIVE_BATCH_ID)
+  const activeBatchDraftCount =
+    activeBatch?.commentIds.filter((id) =>
+      model?.comments.some(
+        (comment) => comment.id === id && comment.lifecycle === 'draft',
+      ),
+    ).length ?? 0
+  const documentLines = document ? lineCount(document.content) : 0
+  const orphanedComments = comments.filter(
+    (comment) => comment.anchor.range.startLine > documentLines,
+  )
   const historyCount =
     model?.comments.filter((comment) => comment.lifecycle !== 'draft').length ?? 0
-  const inBatch = useMemo(
-    () => new Set(activeBatch?.commentIds ?? []),
-    [activeBatch?.commentIds],
-  )
 
   const exit = useCallback((): void => {
     captureGeneration.current += 1
@@ -133,7 +133,6 @@ export function useDocumentReviewInteraction(
     setSourceRange(undefined)
     setPendingRange(undefined)
     setExpandedRange(undefined)
-    setReanchorCommentId(undefined)
     setCommentNavigation(undefined)
     setError(undefined)
   }, [])
@@ -144,7 +143,6 @@ export function useDocumentReviewInteraction(
     captureGeneration.current += 1
     setPendingRange(undefined)
     setExpandedRange(undefined)
-    setReanchorCommentId(undefined)
     setCommentNavigation(undefined)
     setError(undefined)
   }, [
@@ -162,6 +160,12 @@ export function useDocumentReviewInteraction(
     },
     [],
   )
+  useEffect(() => {
+    if (!delivery.sent) return
+    setPendingRange(undefined)
+    setExpandedRange(undefined)
+    setCommentNavigation(undefined)
+  }, [delivery.sent])
 
   const apply = useCallback((action: DocumentReviewAction): boolean => {
     const result = current.current.binding?.apply(action)
@@ -178,11 +182,7 @@ export function useDocumentReviewInteraction(
   }, [])
 
   const capture = useCallback(
-    async (
-      range: ReviewSourceRange,
-      commentId?: string,
-      body?: string,
-    ): Promise<void> => {
+    async (range: ReviewSourceRange, body: string): Promise<void> => {
       const snapshot = current.current
       const target = snapshot.document
       const workspace = snapshot.binding?.state.model?.workspace
@@ -228,27 +228,18 @@ export function useDocumentReviewInteraction(
         return
       }
       const captured: ReviewAnchorCapture = createDocumentReviewCapture(read, range)
-      const createdCommentId = commentId ?? crypto.randomUUID()
+      const createdCommentId = crypto.randomUUID()
       if (
-        apply(
-          commentId
-            ? {
-                type: 'reanchor-comment',
-                workspace,
-                commentId,
-                capture: captured,
-              }
-            : {
-                type: 'add-comment',
-                workspace,
-                commentId: createdCommentId,
-                body: body ?? '',
-                capture: captured,
-              },
-        )
+        apply({
+          type: 'add-comment',
+          workspace,
+          commentId: createdCommentId,
+          body,
+          capture: captured,
+          batchId: ACTIVE_BATCH_ID,
+        })
       ) {
         setPendingRange(undefined)
-        setReanchorCommentId(undefined)
         setExpandedRange(range)
         setCommentNavigation({
           id: createdCommentId,
@@ -259,22 +250,16 @@ export function useDocumentReviewInteraction(
     [apply],
   )
 
-  const requestCapture = useCallback(
-    (range: ReviewSourceRange): void => {
-      if (current.current.document?.dirty) {
-        setError('Save or reload this Markdown document before capturing a location')
-        return
-      }
-      if (reanchorCommentId) void capture(range, reanchorCommentId)
-      else {
-        setPendingRange(range)
-        setExpandedRange(range)
-        setCommentNavigation(undefined)
-        setError(undefined)
-      }
-    },
-    [capture, reanchorCommentId],
-  )
+  const requestCapture = useCallback((range: ReviewSourceRange): void => {
+    if (current.current.document?.dirty) {
+      setError('Save or reload this Markdown document before capturing a location')
+      return
+    }
+    setPendingRange(range)
+    setExpandedRange(range)
+    setCommentNavigation(undefined)
+    setError(undefined)
+  }, [])
   const acceptSourceRange = useCallback((range?: ReviewSourceRange): void => {
     setSourceRange((currentRange) =>
       currentRange?.startLine === range?.startLine &&
@@ -287,7 +272,6 @@ export function useDocumentReviewInteraction(
     setActive(true)
     setPendingRange(undefined)
     setExpandedRange(comment.anchor.range)
-    setReanchorCommentId(undefined)
     setError(undefined)
     setCommentNavigation({
       id: comment.id,
@@ -297,7 +281,7 @@ export function useDocumentReviewInteraction(
   const submit = useCallback(
     async (body: string): Promise<void> => {
       if (!pendingRange) return
-      await capture(pendingRange, undefined, body)
+      await capture(pendingRange, body)
     },
     [capture, pendingRange],
   )
@@ -347,12 +331,11 @@ export function useDocumentReviewInteraction(
     sourceRange,
     pendingRange,
     inlineRange: pendingRange ?? expandedRange,
-    reanchorCommentId,
+    orphanedComments,
     error,
     commentNavigation,
-    inBatch,
-    activeBatchId: activeBatch?.id,
-    activeBatchCount: activeBatch?.commentIds.length ?? 0,
+    activeBatchId: activeBatchDraftCount > 0 ? activeBatch?.id : undefined,
+    activeBatchCount: activeBatchDraftCount,
     historyCount,
     delivery,
     projection,
@@ -373,15 +356,6 @@ export function useDocumentReviewInteraction(
       captureGeneration.current += 1
       setPendingRange(undefined)
       setExpandedRange(undefined)
-      setReanchorCommentId(undefined)
-      setCommentNavigation(undefined)
-      setError(undefined)
-    },
-    closeInline: () => {
-      captureGeneration.current += 1
-      setPendingRange(undefined)
-      setExpandedRange(undefined)
-      setReanchorCommentId(undefined)
       setCommentNavigation(undefined)
       setError(undefined)
     },
@@ -398,61 +372,29 @@ export function useDocumentReviewInteraction(
         workspace,
         commentId,
       })),
-    beginReanchor: (commentId) => {
-      if (document?.dirty) {
-        setError('Save or reload this Markdown document before re-anchoring a comment')
-        return
-      }
-      setActive(true)
-      setPendingRange(undefined)
-      setExpandedRange(undefined)
-      setReanchorCommentId(commentId)
-      setCommentNavigation(undefined)
-      setError(undefined)
-    },
-    resolve: (commentId) =>
-      workspaceAction((workspace) => ({
-        type: 'resolve-comment',
-        workspace,
-        commentId,
-      })),
-    clearHistory: () =>
+    clearHistory: () => {
+      delivery.close()
       workspaceAction((workspace) => ({
         type: 'clear-history',
         workspace,
         history: 'all',
-      })),
+      }))
+    },
     reviewStale: (commentId) =>
       workspaceAction((workspace) => ({
         type: 'review-stale',
         workspace,
         commentId,
       })),
-    toggleBatch: (commentId) =>
-      workspaceAction((workspace) =>
-        inBatch.has(commentId)
-          ? {
-              type: 'remove-from-batch',
-              workspace,
-              batchId: ACTIVE_BATCH_ID,
-              commentId,
-            }
-          : activeBatch
-            ? {
-                type: 'add-to-batch',
-                workspace,
-                batchId: ACTIVE_BATCH_ID,
-                commentId,
-              }
-            : {
-                type: 'create-batch',
-                workspace,
-                batchId: ACTIVE_BATCH_ID,
-                commentIds: [commentId],
-              },
-      ),
-    navigate: (comment) => onNavigate(comment.anchor.range.startLine),
+    navigate: (comment) => {
+      openComment(comment)
+      onNavigate(Math.min(comment.anchor.range.startLine, documentLines))
+    },
   }
+}
+
+function lineCount(content: string): number {
+  return content.length === 0 ? 1 : content.split('\n').length
 }
 
 function captureReadError(

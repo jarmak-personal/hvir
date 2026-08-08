@@ -17,6 +17,16 @@ import {
 import type { DocumentReviewComment, ReviewSourceRange } from './document-review-types'
 import type { DocumentReviewInteraction } from './use-document-review-interaction'
 
+interface DraftText {
+  readonly key: string
+  readonly body: string
+}
+
+interface EditText {
+  readonly commentId: string
+  readonly body: string
+}
+
 export function DocumentReviewInlineProvider({
   interaction,
   children,
@@ -25,6 +35,8 @@ export function DocumentReviewInlineProvider({
   readonly children: ReactNode
 }): ReactElement {
   const [host, setHost] = useState<HTMLElement>()
+  const [draft, setDraft] = useState<DraftText>()
+  const [edit, setEdit] = useState<EditText>()
   const registerHost = useCallback<RegisterDocumentReviewInlineHost>((nextHost) => {
     let registered = true
     setHost(nextHost)
@@ -34,12 +46,46 @@ export function DocumentReviewInlineProvider({
       setHost((current) => (current === nextHost ? undefined : current))
     }
   }, [])
+  const pendingKey = interaction.pendingRange
+    ? rangeKey(interaction.pendingRange)
+    : undefined
+  const draftBody = pendingKey && draft?.key === pendingKey ? draft.body : ''
+
+  useEffect(() => {
+    if (!interaction.pendingRange) setDraft(undefined)
+  }, [interaction.pendingRange])
+  useEffect(() => {
+    if (edit && !interaction.comments.some((comment) => comment.id === edit.commentId)) {
+      setEdit(undefined)
+    }
+  }, [edit, interaction.comments])
 
   return (
     <DocumentReviewInlineHostContext.Provider value={registerHost}>
       {children}
       {host && interaction.active && interaction.inlineRange
-        ? createPortal(<DocumentReviewInlineThread interaction={interaction} />, host)
+        ? createPortal(
+            <DocumentReviewInlineThread
+              interaction={interaction}
+              draftBody={draftBody}
+              onDraftBody={(body) => {
+                if (pendingKey) setDraft({ key: pendingKey, body })
+              }}
+              edit={edit}
+              onBeginEdit={(comment) =>
+                setEdit({ commentId: comment.id, body: comment.body })
+              }
+              onEditBody={(body) =>
+                setEdit((current) => (current ? { ...current, body } : current))
+              }
+              onCancelEdit={() => setEdit(undefined)}
+              onSaveEdit={(commentId, body) => {
+                interaction.edit(commentId, body)
+                setEdit(undefined)
+              }}
+            />,
+            host,
+          )
         : null}
     </DocumentReviewInlineHostContext.Provider>
   )
@@ -47,8 +93,22 @@ export function DocumentReviewInlineProvider({
 
 function DocumentReviewInlineThread({
   interaction,
+  draftBody,
+  onDraftBody,
+  edit,
+  onBeginEdit,
+  onEditBody,
+  onCancelEdit,
+  onSaveEdit,
 }: {
   readonly interaction: DocumentReviewInteraction
+  readonly draftBody: string
+  readonly onDraftBody: (body: string) => void
+  readonly edit?: EditText
+  readonly onBeginEdit: (comment: DocumentReviewComment) => void
+  readonly onEditBody: (body: string) => void
+  readonly onCancelEdit: () => void
+  readonly onSaveEdit: (commentId: string, body: string) => void
 }): ReactElement | null {
   const range = interaction.inlineRange
   const comments = useMemo(
@@ -65,22 +125,31 @@ function DocumentReviewInlineThread({
     <section
       className="document-review-inline"
       aria-label={`Document review at ${lineRangeLabel(range)}`}
+      onKeyDown={(event) => {
+        if (event.key !== 'Escape') return
+        event.preventDefault()
+        event.stopPropagation()
+        if (edit) onCancelEdit()
+        else interaction.cancelCapture()
+      }}
     >
       <header>
         <strong>Review</strong>
         <span>{lineRangeLabel(range)}</span>
         <button
           type="button"
+          className="document-review-close"
           aria-label={`Close review at ${lineRangeLabel(range)}`}
-          onClick={interaction.closeInline}
+          onClick={interaction.cancelCapture}
         >
-          Close
+          ×
         </button>
       </header>
       {interaction.pendingRange ? (
         <NewCommentForm
-          key={`${interaction.pendingRange.startLine}:${interaction.pendingRange.endLine}`}
           range={interaction.pendingRange}
+          body={draftBody}
+          onBody={onDraftBody}
           onSubmit={interaction.submit}
           onCancel={interaction.cancelCapture}
         />
@@ -91,13 +160,17 @@ function DocumentReviewInlineThread({
             <ReviewCommentCard
               key={comment.id}
               comment={comment}
-              inBatch={interaction.inBatch.has(comment.id)}
+              edit={edit?.commentId === comment.id ? edit : undefined}
               focusRequest={
                 interaction.commentNavigation?.id === comment.id
                   ? interaction.commentNavigation.request
                   : undefined
               }
               interaction={interaction}
+              onBeginEdit={() => onBeginEdit(comment)}
+              onEditBody={onEditBody}
+              onCancelEdit={onCancelEdit}
+              onSaveEdit={(body) => onSaveEdit(comment.id, body)}
             />
           ))}
         </ol>
@@ -110,14 +183,17 @@ function DocumentReviewInlineThread({
 
 function NewCommentForm({
   range,
+  body,
+  onBody,
   onSubmit,
   onCancel,
 }: {
   readonly range: ReviewSourceRange
+  readonly body: string
+  readonly onBody: (body: string) => void
   readonly onSubmit: (body: string) => Promise<void>
   readonly onCancel: () => void
 }): ReactElement {
-  const [body, setBody] = useState('')
   const form = useRef<HTMLFormElement>(null)
   const textarea = useRef<HTMLTextAreaElement>(null)
   useEffect(() => {
@@ -140,12 +216,12 @@ function NewCommentForm({
           ref={textarea}
           aria-label="New review comment"
           value={body}
-          onChange={(event) => setBody(event.currentTarget.value)}
+          onChange={(event) => onBody(event.currentTarget.value)}
         />
       </label>
       <div>
         <button type="submit" disabled={body.trim().length === 0}>
-          Add comment
+          Add review comment
         </button>
         <button type="button" onClick={onCancel}>
           Cancel
@@ -157,19 +233,24 @@ function NewCommentForm({
 
 function ReviewCommentCard({
   comment,
-  inBatch,
+  edit,
   focusRequest,
   interaction,
+  onBeginEdit,
+  onEditBody,
+  onCancelEdit,
+  onSaveEdit,
 }: {
   readonly comment: DocumentReviewComment
-  readonly inBatch: boolean
+  readonly edit?: EditText
   readonly focusRequest?: number
   readonly interaction: DocumentReviewInteraction
+  readonly onBeginEdit: () => void
+  readonly onEditBody: (body: string) => void
+  readonly onCancelEdit: () => void
+  readonly onSaveEdit: (body: string) => void
 }): ReactElement {
-  const [editing, setEditing] = useState(false)
-  const [body, setBody] = useState(comment.body)
   const card = useRef<HTMLLIElement>(null)
-  useEffect(() => setBody(comment.body), [comment.body])
   useEffect(() => {
     if (focusRequest === undefined) return
     card.current?.scrollIntoView?.({ block: 'nearest' })
@@ -197,111 +278,57 @@ function ReviewCommentCard({
         </span>
         <AnchorState comment={comment} />
       </div>
-      {editing ? (
+      {edit ? (
         <form
           onSubmit={(event) => {
             event.preventDefault()
-            interaction.edit(comment.id, body)
-            setEditing(false)
+            onSaveEdit(edit.body)
           }}
         >
           <textarea
             autoFocus
             aria-label={`Edit comment at ${lineRangeLabel(comment.anchor.range)}`}
-            value={body}
-            onChange={(event) => setBody(event.currentTarget.value)}
+            value={edit.body}
+            onChange={(event) => onEditBody(event.currentTarget.value)}
           />
-          <button type="submit" disabled={body.trim().length === 0}>
-            Save comment
+          <button type="submit" disabled={edit.body.trim().length === 0}>
+            Save
           </button>
-          <button type="button" onClick={() => setEditing(false)}>
+          <button type="button" onClick={onCancelEdit}>
             Cancel
           </button>
         </form>
+      ) : comment.lifecycle === 'draft' ? (
+        <button
+          type="button"
+          className="document-review-comment-body"
+          aria-label={`Edit comment at ${lineRangeLabel(comment.anchor.range)}`}
+          onClick={onBeginEdit}
+        >
+          {comment.body}
+        </button>
       ) : (
         <p>{comment.body}</p>
       )}
-      <div className="document-review-comment-actions">
-        {comment.lifecycle === 'draft' ? (
-          <>
+      {comment.lifecycle === 'draft' ? (
+        <div className="document-review-comment-actions">
+          {staleUnreviewed ? (
             <button
               type="button"
-              aria-label={`Edit comment at ${lineRangeLabel(comment.anchor.range)}`}
-              onClick={() => setEditing(true)}
+              aria-label={`Acknowledge stale location for comment at ${lineRangeLabel(comment.anchor.range)}`}
+              onClick={() => interaction.reviewStale(comment.id)}
             >
-              Edit
+              Use stale location
             </button>
-            <button
-              type="button"
-              aria-label={`Re-anchor comment at ${lineRangeLabel(comment.anchor.range)}`}
-              disabled={interaction.dirty}
-              title={
-                interaction.dirty
-                  ? 'Save or reload before re-anchoring'
-                  : 'Choose a new source location'
-              }
-              onClick={() => interaction.beginReanchor(comment.id)}
-            >
-              Re-anchor
-            </button>
-            <button
-              type="button"
-              aria-label={`${inBatch ? 'Remove' : 'Add'} comment at ${lineRangeLabel(comment.anchor.range)} ${inBatch ? 'from' : 'to'} review batch`}
-              disabled={staleUnreviewed && !inBatch}
-              title={
-                staleUnreviewed && !inBatch
-                  ? 'Acknowledge or re-anchor this stale comment before batching it'
-                  : undefined
-              }
-              onClick={() => interaction.toggleBatch(comment.id)}
-            >
-              {inBatch ? 'Remove from batch' : 'Add to batch'}
-            </button>
-            <button
-              type="button"
-              aria-label={`Preview handoff for comment at ${lineRangeLabel(comment.anchor.range)}`}
-              disabled={staleUnreviewed}
-              title={
-                staleUnreviewed
-                  ? 'Acknowledge or re-anchor this stale comment before previewing it'
-                  : 'Choose an exact live terminal and preview the handoff'
-              }
-              onClick={() => interaction.delivery.previewComment(comment.id)}
-            >
-              Preview handoff
-            </button>
-            {staleUnreviewed ? (
-              <button
-                type="button"
-                aria-label={`Acknowledge stale location for comment at ${lineRangeLabel(comment.anchor.range)}`}
-                onClick={() => interaction.reviewStale(comment.id)}
-              >
-                Acknowledge stale location
-              </button>
-            ) : null}
-            <button
-              type="button"
-              aria-label={`Remove comment at ${lineRangeLabel(comment.anchor.range)}`}
-              onClick={() => interaction.remove(comment.id)}
-            >
-              Remove
-            </button>
-          </>
-        ) : null}
-        {comment.lifecycle === 'sent' ? (
+          ) : null}
           <button
             type="button"
-            aria-label={`Resolve comment at ${lineRangeLabel(comment.anchor.range)}`}
-            onClick={() => interaction.resolve(comment.id)}
+            aria-label={`Remove comment at ${lineRangeLabel(comment.anchor.range)}`}
+            onClick={() => interaction.remove(comment.id)}
           >
-            Resolve
+            Delete
           </button>
-        ) : null}
-      </div>
-      {inBatch ? (
-        <span className="document-review-batch-state">
-          {staleUnreviewed ? 'In batch · excluded while stale' : 'In review batch'}
-        </span>
+        </div>
       ) : null}
     </li>
   )
@@ -324,7 +351,7 @@ function AnchorState({
     return (
       <span className="review-anchor-state stale">
         Stale · {state.reason.replaceAll('-', ' ')}
-        {state.reviewed ? ' · acknowledged' : ''}
+        {state.reviewed ? ' · accepted' : ''}
       </span>
     )
   }
@@ -333,4 +360,8 @@ function AnchorState({
 
 function rangesOverlap(left: ReviewSourceRange, right: ReviewSourceRange): boolean {
   return left.startLine <= right.endLine && right.startLine <= left.endLine
+}
+
+function rangeKey(range: ReviewSourceRange): string {
+  return `${range.startLine}:${range.endLine}`
 }

@@ -41,7 +41,7 @@ export function DocumentReviewToolbar({
           }
           onClick={interaction.captureSource}
         >
-          {interaction.reanchorCommentId ? 'Set anchor' : 'Add source comment'}
+          Add comment
         </button>
       ) : null}
     </div>
@@ -57,19 +57,20 @@ export function DocumentReviewChrome({
   const showTray = Boolean(
     interaction.activeBatchId ||
     interaction.historyCount > 0 ||
-    interaction.reanchorCommentId ||
-    interaction.error,
+    interaction.dirty ||
+    interaction.orphanedComments.length > 0 ||
+    interaction.error ||
+    interaction.delivery.loading ||
+    interaction.delivery.notice ||
+    interaction.delivery.error,
   )
   return (
     <aside className="document-review-chrome" aria-label="Markdown review comments">
       {showTray ? (
         <div className="document-review-tray">
-          {interaction.reanchorCommentId ? (
+          {interaction.dirty ? (
             <span className="document-review-guidance" role="status">
-              Choose a new rendered block or source range.
-              <button type="button" onClick={interaction.cancelCapture}>
-                Cancel
-              </button>
+              Save or reload to add comments. Existing review stays on the saved version.
             </span>
           ) : null}
           {interaction.error ? (
@@ -77,15 +78,53 @@ export function DocumentReviewChrome({
               {interaction.error}
             </span>
           ) : null}
+          {!interaction.delivery.open && interaction.delivery.error ? (
+            <span className="document-review-error" role="alert">
+              {interaction.delivery.error}
+            </span>
+          ) : null}
+          {interaction.delivery.notice ? (
+            <span className="document-review-notice" role="status">
+              {interaction.delivery.notice}
+            </span>
+          ) : null}
+          {interaction.delivery.loading && !interaction.delivery.open ? (
+            <span className="document-review-notice" role="status">
+              Sending review…
+            </span>
+          ) : null}
+          {interaction.orphanedComments.map((comment) => (
+            <button
+              key={comment.id}
+              type="button"
+              className="document-review-orphan"
+              onClick={() => interaction.navigate(comment)}
+            >
+              Open unplaced comment · {lineRangeLabel(comment.anchor.range)}
+            </button>
+          ))}
           {interaction.activeBatchId ? (
             <button
               type="button"
-              aria-label={`Preview review batch with ${interaction.activeBatchCount} comments`}
+              className="document-review-primary"
+              aria-label={`Send ${interaction.activeBatchCount} review ${interaction.activeBatchCount === 1 ? 'comment' : 'comments'} to the top terminal`}
+              disabled={interaction.delivery.loading}
+              onClick={() =>
+                interaction.delivery.handoffBatch(interaction.activeBatchId!)
+              }
+            >
+              Send review {interaction.activeBatchCount}
+            </button>
+          ) : null}
+          {interaction.activeBatchId ? (
+            <button
+              type="button"
+              aria-label={`Review and send ${interaction.activeBatchCount} comments`}
               onClick={() =>
                 interaction.delivery.previewBatch(interaction.activeBatchId!)
               }
             >
-              Preview batch {interaction.activeBatchCount}
+              Review and send…
             </button>
           ) : null}
           {interaction.historyCount > 0 ? (
@@ -94,7 +133,7 @@ export function DocumentReviewChrome({
               aria-label={`Clear ${interaction.historyCount} sent and resolved review ${interaction.historyCount === 1 ? 'comment' : 'comments'} from this workspace`}
               onClick={interaction.clearHistory}
             >
-              Clear history {interaction.historyCount}
+              Clear sent review {interaction.historyCount}
             </button>
           ) : null}
         </div>

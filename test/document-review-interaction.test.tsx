@@ -93,6 +93,7 @@ describe('Markdown document review interaction', () => {
       type: 'add-comment',
       workspace,
       body: 'Explain this heading',
+      batchId: 'active-review',
       capture: {
         document: documentPath,
         range: { startLine: 1, endLine: 1 },
@@ -116,6 +117,31 @@ describe('Markdown document review interaction', () => {
 
     expect(host.querySelector('[aria-label="New comment for Line 1"]')).toBeTruthy()
     expect(document.activeElement?.getAttribute('aria-label')).toBe('New review comment')
+    act(() => {
+      host
+        .querySelector<HTMLTextAreaElement>('[aria-label="New review comment"]')
+        ?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    })
+    expect(host.querySelector('.document-review-inline')).toBeNull()
+    expect(button('Exit Markdown review mode')).toBeTruthy()
+  })
+
+  it('preserves typed review text while the source projection remounts', () => {
+    const review = binding(emptyModel(), vi.fn())
+    renderViewer(sourceTab(), review)
+    click('Enter Markdown review mode')
+    click('Add comment for selected source lines')
+    setTextArea('New review comment', 'Keep this unfinished thought')
+
+    const addedElsewhere = comment('elsewhere', 'draft', 'current')
+    renderViewer(
+      sourceTab(),
+      binding({ ...emptyModel(), comments: [addedElsewhere] }, vi.fn()),
+    )
+
+    expect(
+      host.querySelector<HTMLTextAreaElement>('[aria-label="New review comment"]')?.value,
+    ).toBe('Keep this unfinished thought')
   })
 
   it('revokes a late authoritative read when the viewer interaction unmounts', async () => {
@@ -218,7 +244,7 @@ describe('Markdown document review interaction', () => {
     expect(apply).not.toHaveBeenCalled()
   })
 
-  it('keeps dirty-buffer capture and re-anchoring disabled with save-or-reload guidance', () => {
+  it('keeps dirty-buffer capture disabled with visible save-or-reload guidance', () => {
     const model = { ...emptyModel(), comments: [comment('draft', 'draft', 'current')] }
     const apply = vi.fn<DocumentReviewWorkspaceBinding['apply']>((_action) => ({
       ok: true,
@@ -233,44 +259,11 @@ describe('Markdown document review interaction', () => {
         '[aria-label="Add comment for selected source lines"]',
       )?.disabled,
     ).toBe(true)
-    expect(button('Re-anchor')?.disabled).toBe(true)
-    expect(button('Re-anchor')?.title).toBe('Save or reload before re-anchoring')
+    expect(host.querySelector('[role="status"]')?.textContent).toContain(
+      'Save or reload to add comments',
+    )
     act(() => editorView().dispatch({ selection: { anchor: 0, head: 8 } }))
     expect(apply).not.toHaveBeenCalled()
-  })
-
-  it('re-anchors a draft only after the authoritative disk read completes', async () => {
-    const draft = comment('reanchor', 'draft', 'stale')
-    const model = { ...emptyModel(), comments: [draft] }
-    const readDocument = vi.fn(authoritativeRead)
-    const apply = vi.fn<DocumentReviewWorkspaceBinding['apply']>((_action) => ({
-      ok: true,
-      model,
-    }))
-    renderViewer(sourceTab(), binding(model, apply, readDocument))
-    click('Enter Markdown review mode')
-    clickSourceReviewMarker()
-    click('Re-anchor')
-    act(() => editorView().dispatch({ selection: { anchor: 0, head: 8 } }))
-    click('Add comment for selected source lines')
-    await act(async () => settle())
-
-    expect(readDocument).toHaveBeenCalledExactlyOnceWith(documentPath)
-    expect(apply).toHaveBeenCalledWith({
-      type: 'reanchor-comment',
-      workspace,
-      commentId: draft.id,
-      capture: {
-        document: documentPath,
-        content: '# Heading\n\nParagraph\n',
-        range: { startLine: 1, endLine: 1 },
-        snapshot: {
-          algorithm: 'sha256',
-          digest: 'd'.repeat(64),
-          byteLength: 21,
-        },
-      },
-    })
   })
 
   it('presents lifecycle, moved, and stale states with text and distinct semantics', () => {
@@ -292,8 +285,7 @@ describe('Markdown document review interaction', () => {
     expect(host.textContent).toContain('resolved')
     expect(host.textContent).toContain('Moved from Line 1')
     expect(host.textContent).toContain('Stale · missing match')
-    expect(button('Add to batch', 1)?.disabled).toBe(true)
-    expect(button('Acknowledge stale location')).toBeTruthy()
+    expect(button('Acknowledge stale location for comment at Line 1')).toBeTruthy()
   })
 
   it('keeps normal Markdown reading quiet while retaining inline note markers', () => {
@@ -306,6 +298,24 @@ describe('Markdown document review interaction', () => {
     expect(host.querySelector('.cm-review-marker')).toBeTruthy()
     expect(host.querySelector('[aria-label="Markdown review comments"]')).toBeNull()
     expect(button('Enter Markdown review mode')).toBeTruthy()
+  })
+
+  it('keeps an out-of-range stale comment reachable after the document shrinks', () => {
+    const base = comment('orphaned-note', 'draft', 'stale')
+    const orphaned = {
+      ...base,
+      anchor: {
+        ...base.anchor,
+        range: { startLine: 99, endLine: 99 },
+      },
+    }
+    renderViewer(sourceTab(), binding({ ...emptyModel(), comments: [orphaned] }, vi.fn()))
+    click('Enter Markdown review mode')
+
+    click('Open unplaced comment · Line 99')
+
+    expect(host.textContent).toContain('orphaned-note')
+    expect(host.querySelector('.document-review-inline-host-source')).toBeTruthy()
   })
 
   it('reopens review mode and the exact inline comment from its source marker', () => {
@@ -398,6 +408,13 @@ describe('Markdown document review interaction', () => {
     expect(host.querySelector('[aria-label="New comment for Line 3"]')).toBeTruthy()
     expect(document.activeElement?.getAttribute('aria-label')).toBe('New review comment')
     act(() => {
+      host
+        .querySelector<HTMLTextAreaElement>('[aria-label="New review comment"]')
+        ?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    })
+    expect(host.querySelector('.document-review-inline')).toBeNull()
+    expect(button('Exit Markdown review mode')).toBeTruthy()
+    act(() => {
       blocks[1]?.dispatchEvent(
         new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }),
       )
@@ -433,7 +450,7 @@ describe('Markdown document review interaction', () => {
     })
   })
 
-  it('keeps entry, editing, removal, resolution, navigation, and exit natively reachable', () => {
+  it('keeps entry, click-to-edit, removal, navigation, and exit natively reachable', () => {
     const model = {
       ...emptyModel(),
       comments: [
@@ -458,20 +475,18 @@ describe('Markdown document review interaction', () => {
     )
     clickSourceReviewMarker()
 
-    click('Edit')
+    click('Edit comment at Line 1')
     setTextArea('Edit comment at Line 1', 'edited text')
     act(() => {
       host
         .querySelector<HTMLTextAreaElement>('[aria-label="Edit comment at Line 1"]')
         ?.form?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
     })
-    click('Remove')
-    click('Resolve')
+    click('Remove comment at Line 1')
     click('Go to review comment at Line 1')
     expect(apply.mock.calls.map(([action]) => action.type)).toEqual([
       'edit-comment',
       'remove-comment',
-      'resolve-comment',
     ])
     expect(onMode).toHaveBeenCalledWith('source', expect.any(Object))
 
@@ -536,38 +551,6 @@ describe('Markdown document review interaction', () => {
     expect(host.querySelector('.document-review-inline')).toBeNull()
     expect(host.querySelector('.cm-review-marker')).toBeNull()
     expect(button('Exit Markdown review mode')?.textContent).toBe('Review')
-  })
-
-  it('adds and removes a draft from the exact workspace review batch', () => {
-    const draft = comment('batch-note', 'draft', 'current')
-    const apply = vi.fn<DocumentReviewWorkspaceBinding['apply']>((_action) => ({
-      ok: true,
-      model: emptyModel(),
-    }))
-    const withoutBatch = { ...emptyModel(), comments: [draft] }
-    renderViewer(sourceTab(), binding(withoutBatch, apply))
-    click('Enter Markdown review mode')
-    clickSourceReviewMarker()
-    click('Add to batch')
-    expect(apply).toHaveBeenLastCalledWith({
-      type: 'create-batch',
-      workspace,
-      batchId: 'active-review',
-      commentIds: [draft.id],
-    })
-
-    const withBatch = {
-      ...withoutBatch,
-      batches: [{ id: 'active-review', workspace, commentIds: [draft.id] }],
-    }
-    renderViewer(sourceTab(), binding(withBatch, apply))
-    click('Remove from batch')
-    expect(apply).toHaveBeenLastCalledWith({
-      type: 'remove-from-batch',
-      workspace,
-      batchId: 'active-review',
-      commentId: draft.id,
-    })
   })
 
   it('does not project Markdown review controls onto diff mode', () => {

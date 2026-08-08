@@ -59,10 +59,7 @@ interface PreparedRecord {
 }
 
 export interface DocumentReviewDeliveryCoordinatorOptions {
-  readonly workspace: Pick<
-    DocumentReviewCoordinator,
-    'deliverySnapshot' | 'markSent'
-  >
+  readonly workspace: Pick<DocumentReviewCoordinator, 'deliverySnapshot' | 'markSent'>
   readonly ptys: Pick<PtySupervisor, 'get' | 'list' | 'write' | 'writeConfirmed'>
   readonly sessions: Pick<TerminalSessionStore, 'get'>
   readonly providers: Pick<HarnessProviderRegistry, 'get'>
@@ -93,10 +90,18 @@ export class DocumentReviewDeliveryCoordinator {
     return this.options.ptys
       .list()
       .filter((terminal) => this.sameOwnedWorkspace(terminal, owner, scope))
-      .map((terminal) => this.describe(terminal, this.options.sessions.get(terminal.id)))
-      .toSorted((left, right) =>
-        left.title.localeCompare(right.title) || left.terminalId.localeCompare(right.terminalId),
+      .map((terminal) => ({
+        terminal,
+        presentation: this.options.sessions.get(terminal.id),
+      }))
+      .toSorted(
+        (left, right) =>
+          (left.presentation?.position ?? Number.MAX_SAFE_INTEGER) -
+            (right.presentation?.position ?? Number.MAX_SAFE_INTEGER) ||
+          left.terminal.startedAt - right.terminal.startedAt ||
+          left.terminal.id.localeCompare(right.terminal.id),
       )
+      .map(({ terminal, presentation }) => this.describe(terminal, presentation))
   }
 
   prepare(
@@ -111,10 +116,7 @@ export class DocumentReviewDeliveryCoordinator {
     if (!contract) {
       throw new Error('The selected provider remains Copy-only')
     }
-    const destination = this.describe(
-      terminal,
-      this.options.sessions.get(terminal.id),
-    )
+    const destination = this.describe(terminal, this.options.sessions.get(terminal.id))
     const id = randomUUID()
     const record: PreparedRecord = {
       id,
@@ -168,7 +170,10 @@ export class DocumentReviewDeliveryCoordinator {
       throw new Error('The review delivery exceeds its outbound byte limit')
     }
     const terminal = this.options.ptys.get(prepared.terminal.id)
-    if (!terminal || !matchesPreparedDocumentReviewTerminal(terminal, prepared.terminal)) {
+    if (
+      !terminal ||
+      !matchesPreparedDocumentReviewTerminal(terminal, prepared.terminal)
+    ) {
       throw new Error('The prepared review terminal is no longer live')
     }
     const provider = this.options.providers.get(terminal.providerId)
@@ -182,12 +187,7 @@ export class DocumentReviewDeliveryCoordinator {
       throw new Error('The prepared provider insertion capability changed')
     }
     const transport = contract.terminalInput(payload.body)
-    this.options.ptys.write(
-      terminal.id,
-      owner.id,
-      transport,
-      owner.generation,
-    )
+    this.options.ptys.write(terminal.id, owner.id, transport, owner.generation)
     this.revokePrepared(prepared)
     return { outcome: 'inserted' }
   }
@@ -209,10 +209,7 @@ export class DocumentReviewDeliveryCoordinator {
     try {
       const before = this.validatePrepared(owner, prepared)
       const sendNow = this.sendNowContract(before.terminal)
-      if (
-        !sendNow ||
-        sendNow.contract.revision !== prepared.sendNowContractRevision
-      ) {
+      if (!sendNow || sendNow.contract.revision !== prepared.sendNowContractRevision) {
         throw new Error('The prepared provider submission capability changed')
       }
       const transport = sendNow.contract.terminalInput(
@@ -328,8 +325,8 @@ export class DocumentReviewDeliveryCoordinator {
     const sendNow = this.sendNowContract(terminal)
     const matchingPresentation = Boolean(
       presentation &&
-        presentation.providerId === terminal.providerId &&
-        hostPathEquals(presentation.workspaceRoot, terminal.workspaceRoot),
+      presentation.providerId === terminal.providerId &&
+      hostPathEquals(presentation.workspaceRoot, terminal.workspaceRoot),
     )
     return {
       terminalId: terminal.id,
@@ -426,7 +423,10 @@ export class DocumentReviewDeliveryCoordinator {
       throw new Error('The review delivery exceeds its outbound byte limit')
     }
     const terminal = this.options.ptys.get(prepared.terminal.id)
-    if (!terminal || !matchesPreparedDocumentReviewTerminal(terminal, prepared.terminal)) {
+    if (
+      !terminal ||
+      !matchesPreparedDocumentReviewTerminal(terminal, prepared.terminal)
+    ) {
       throw new Error('The prepared review terminal is no longer live')
     }
     return { review, payload, terminal }
