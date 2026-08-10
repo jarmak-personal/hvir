@@ -23,6 +23,9 @@ import { captureRenderedPosition, restoreRenderedPosition } from './rendered-pos
 import { documentLineCount, type ViewerPositionCapture } from './viewer-position'
 import { RepositoryImageView } from './RepositoryImageView'
 import { MarkdownRepositoryImages } from './markdown-repository-images'
+import { bindRenderedDocumentReview } from '../document-review/document-review-rendered'
+import { useDocumentReviewInlineHostRegistration } from '../document-review/document-review-inline'
+import type { DocumentReviewDocumentProjection } from '../document-review/use-document-review-interaction'
 
 let jsonWorker: Worker | undefined
 let jsonRequestId = 0
@@ -65,6 +68,7 @@ interface RenderedViewProps {
   readonly refresh?: ViewerDocumentRefresh
   readonly onDependencies: (paths: readonly HostPath[]) => void
   readonly registerFindTarget: RegisterViewerFindTarget
+  readonly documentReview?: DocumentReviewDocumentProjection
 }
 
 export function RenderedView({
@@ -77,6 +81,7 @@ export function RenderedView({
   refresh,
   onDependencies,
   registerFindTarget,
+  documentReview,
 }: RenderedViewProps): ReactElement {
   const renderGeneration = useDevRendererGeneration()
   const theme = useAppTheme()
@@ -138,6 +143,7 @@ export function RenderedView({
         onDependencies={onDependencies}
         theme={theme}
         registerFindTarget={registerFindTarget}
+        documentReview={documentReview}
       />
     )
   }
@@ -294,11 +300,13 @@ function MarkdownView({
   onDependencies,
   theme,
   registerFindTarget,
+  documentReview,
 }: RenderedViewProps & {
   readonly renderGeneration: number
   readonly theme: 'dark' | 'light'
 }): ReactElement {
   const container = useRef<HTMLDivElement>(null)
+  const registerReviewInlineHost = useDocumentReviewInlineHostRegistration()
   const repositoryImages = useRef<MarkdownRepositoryImages>(undefined)
   const refreshRef = useRef(refresh)
   const appliedRefreshVersion = useRef(refresh?.version ?? 0)
@@ -356,6 +364,21 @@ function MarkdownView({
     }
     appliedRefreshVersion.current = refresh.version
   }, [html, path, refresh])
+
+  useEffect(() => {
+    const root = container.current
+    if (!root || !html || !documentReview) return
+    return bindRenderedDocumentReview(root, {
+      active: documentReview.active,
+      dirty: documentReview.dirty,
+      comments: documentReview.comments,
+      inlineRange: documentReview.inlineRange,
+      onInlineHost: registerReviewInlineHost,
+      onCapture: documentReview.onCapture,
+      onOpenComment: documentReview.onOpenComment,
+      onExit: documentReview.onExit,
+    })
+  }, [documentReview, html, registerReviewInlineHost])
 
   useRenderedPosition(container, content, position, onPosition, positionCapture, html)
   useRenderedFindTarget(container, html || undefined, registerFindTarget)

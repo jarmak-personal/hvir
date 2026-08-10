@@ -422,6 +422,27 @@ describe('LocalHost', () => {
     })
   })
 
+  it('rejects a bounded text read whose owning effect is already revoked', async () => {
+    const path = localPath(join(dir, 'revoked-read.txt'))
+    await writeFile(path.path, 'draft')
+    const controller = new AbortController()
+    controller.abort()
+
+    await expect(
+      host.readTextFilePrefix(path, 4, { signal: controller.signal }),
+    ).rejects.toMatchObject({ name: 'AbortError' })
+  })
+
+  it('reports malformed UTF-8 observed by a bounded local read', async () => {
+    const path = localPath(join(dir, 'invalid-utf8.txt'))
+    await writeFile(path.path, Buffer.from([0xff]))
+
+    await expect(host.readTextFilePrefix(path, 4)).resolves.toMatchObject({
+      complete: true,
+      validUtf8: false,
+    })
+  })
+
   it('decodes multibyte output split across process chunks', async () => {
     const script = [
       'process.stdout.write(Buffer.from([0xe2]))',

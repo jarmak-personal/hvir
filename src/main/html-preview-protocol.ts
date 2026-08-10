@@ -25,6 +25,15 @@ export class HtmlPreviewProtocol {
   >()
   private registered = false
 
+  static registerScheme(): void {
+    protocol.registerSchemesAsPrivileged([
+      {
+        scheme: HTML_PREVIEW_SCHEME,
+        privileges: { standard: true, secure: true, bypassCSP: false },
+      },
+    ])
+  }
+
   register(): void {
     if (this.registered) return
     protocol.handle(HTML_PREVIEW_SCHEME, (request) => this.handle(request))

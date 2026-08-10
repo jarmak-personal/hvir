@@ -51,12 +51,28 @@ describe('project watch interests', () => {
       paths: [hostPath(hostId, '/project/docs'), hostPath(hostId, '/project/assets')],
     })
   })
+
+  it('deduplicates retained review documents into the existing directory interests', async () => {
+    const hostId = asHostId('ssh:fixture')
+    const project = hostPath(hostId, '/project')
+    const open = hostPath(hostId, '/project/docs/open.md')
+    const reviewed = hostPath(hostId, '/project/reviews/one.md')
+    const sameDirectory = hostPath(hostId, '/project/reviews/two.md')
+
+    render(project, [open], [], [reviewed, reviewed, sameDirectory])
+    await settle()
+    expect(invoke).toHaveBeenLastCalledWith('project:watch-interests', {
+      root: project,
+      paths: [hostPath(hostId, '/project/docs'), hostPath(hostId, '/project/reviews')],
+    })
+  })
 })
 
 function render(
   project: HostPath,
   openPaths: readonly HostPath[],
   dependencyPaths: readonly HostPath[],
+  reviewPaths: readonly HostPath[] = [],
 ): void {
   act(() =>
     root.render(
@@ -64,6 +80,7 @@ function render(
         project={project}
         openPaths={openPaths}
         dependencyPaths={dependencyPaths}
+        reviewPaths={reviewPaths}
       />,
     ),
   )
@@ -73,15 +90,18 @@ function Harness({
   project,
   openPaths,
   dependencyPaths,
+  reviewPaths,
 }: {
   readonly project: HostPath
   readonly openPaths: readonly HostPath[]
   readonly dependencyPaths: readonly HostPath[]
+  readonly reviewPaths: readonly HostPath[]
 }): null {
   useProjectWatchInterests({
     root: project,
     connected: true,
     openPaths,
+    reviewPaths,
     dependencyPaths,
   })
   return null

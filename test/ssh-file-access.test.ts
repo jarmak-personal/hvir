@@ -635,7 +635,9 @@ describe('SshFileAccess', () => {
       {},
     )
 
-    await expect(files.readTextFilePrefix(path, 4)).resolves.toMatchObject({
+    await expect(
+      files.readTextFilePrefix(path, 4, { pollingInterest: true }),
+    ).resolves.toMatchObject({
       content: 'abcd',
       byteLength: 4,
       complete: false,
@@ -644,6 +646,9 @@ describe('SshFileAccess', () => {
       start: 0,
       end: 4,
     })
+    expect(files.pollingInterests()).toContain(path.path)
+    const digests = (files as unknown as { readDigests: Map<string, string> }).readDigests
+    expect(digests.has(path.path)).toBe(true)
     files.dispose()
   })
 
@@ -669,6 +674,58 @@ describe('SshFileAccess', () => {
     stream.destroy()
 
     await expect(reading).rejects.toThrow('closed before completion')
+    files.dispose()
+  })
+
+  it('destroys an in-flight bounded text stream when its owning effect is revoked', async () => {
+    const hostId = asHostId('ssh:test')
+    const path = hostPath(hostId, '/project/file.txt')
+    const stream = new PassThrough()
+    const session = {
+      createReadStream: vi.fn(() => stream),
+      once: vi.fn(),
+      end: vi.fn(),
+    }
+    const files = new SshFileAccess(
+      {
+        hostId,
+        openSftp: () => Promise.resolve(session as unknown as SFTPWrapper),
+      },
+      {},
+    )
+    const controller = new AbortController()
+
+    const reading = files.readTextFilePrefix(path, 4, {
+      signal: controller.signal,
+    })
+    await vi.waitFor(() => expect(session.createReadStream).toHaveBeenCalledOnce())
+    controller.abort()
+
+    await expect(reading).rejects.toMatchObject({ name: 'AbortError' })
+    expect(stream.destroyed).toBe(true)
+    files.dispose()
+  })
+
+  it('reports malformed UTF-8 observed by a bounded SSH read', async () => {
+    const hostId = asHostId('ssh:test')
+    const path = hostPath(hostId, '/project/invalid.txt')
+    const session = {
+      createReadStream: vi.fn(() => Readable.from([Buffer.from([0xff])])),
+      once: vi.fn(),
+      end: vi.fn(),
+    }
+    const files = new SshFileAccess(
+      {
+        hostId,
+        openSftp: () => Promise.resolve(session as unknown as SFTPWrapper),
+      },
+      {},
+    )
+
+    await expect(files.readTextFilePrefix(path, 4)).resolves.toMatchObject({
+      complete: true,
+      validUtf8: false,
+    })
     files.dispose()
   })
 })

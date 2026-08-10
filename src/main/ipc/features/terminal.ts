@@ -2,11 +2,11 @@ import { hostPathEquals } from '../../../shared'
 import { resolveHarnessLaunch } from '../../harness/harness-launch'
 import {
   harnessProvider,
-  harnessProviderCapabilities,
   selectHarnessLaunch,
 } from '../../harness/harness-provider'
 import {
   attachRendererPty,
+  canAttachRetainedRendererPty,
   registerRendererPty,
   rendererPtyQualifier,
 } from '../../terminal/renderer-pty-lifecycle'
@@ -189,7 +189,18 @@ export function registerTerminalIpc(ipc: IpcRegistrar, deps: TerminalIpcDeps): v
         `${profile.risk === 'elevated' ? 'Elevated' : 'Unclassified'} harness profile requires acknowledgment`,
       )
     }
-    const effectiveCapabilities = harnessProviderCapabilities(provider)
+    const availabilityRequest = {
+      host,
+      projectRoot,
+      workspaceRoot: cwd,
+      profiles: [profile],
+      store: deps.harnessProfiles,
+    } as const
+    const effectiveCapabilities = deps.harnessProbes.effectiveLaunchCapabilities(
+      availabilityRequest,
+      profile,
+      req.composerSubmitMode,
+    )
     if (req.resume) {
       if (
         !effectiveCapabilities.exactResume ||
@@ -240,18 +251,13 @@ export function registerTerminalIpc(ipc: IpcRegistrar, deps: TerminalIpcDeps): v
       const retained = deps.ptySupervisor.get(req.sessionId)
       if (retained) {
         if (
-          retained.ownerId !== owner.id ||
-          retained.ownerGeneration !== owner.generation ||
-          retained.hostId !== root.hostId ||
-          retained.providerId !== profile.providerId ||
-          retained.harnessSessionId !== req.harnessSessionId ||
-          !deps.ptySupervisor.isAwaitingRendererAttachment(
-            retained.id,
-            owner.id,
-            owner.generation,
-          ) ||
-          !hostPathEquals(retained.workspaceRoot, root) ||
-          !hostPathEquals(retained.cwd, cwd)
+          !canAttachRetainedRendererPty(deps, retained, {
+            owner,
+            root,
+            cwd,
+            profile,
+            request: req,
+          })
         ) {
           throw new Error('Retained terminal identity changed during reattachment')
         }
@@ -307,20 +313,8 @@ export function registerTerminalIpc(ipc: IpcRegistrar, deps: TerminalIpcDeps): v
       return { outcome: 'resume-unavailable', reason: launchDecision.reason }
     }
     const launchMode = launchDecision.mode
-    const availabilityRequest = {
-      host,
-      projectRoot,
-      workspaceRoot: cwd,
-      profiles: [profile],
-      store: deps.harnessProfiles,
-    } as const
-    const refreshAfterClassifiedLaunchFailure = (): void => {
-      deps.harnessProbes.invalidate(host, profile)
-      void deps.harnessProbes.probeProfiles({
-        ...availabilityRequest,
-        force: true,
-      })
-    }
+    const refreshAfterClassifiedLaunchFailure = (): void =>
+      deps.harnessProbes.refreshProfile(availabilityRequest, profile)
     const ptyLease = registerRendererPty(deps, owner, root, req.sessionId)
     let managed
     try {
@@ -331,6 +325,10 @@ export function registerTerminalIpc(ipc: IpcRegistrar, deps: TerminalIpcDeps): v
         unsetEnvironment: resolved.unsetEnvironment,
         artifact: resolved.artifact,
         effectiveCapabilities,
+        profileId: profile.id,
+        launchRevision: profile.launchRevision,
+        providerContractVersion: profile.providerContractVersion,
+        composerSubmitMode: req.composerSubmitMode,
         cwd,
         workspaceRoot: root,
         ownerId: owner.id,

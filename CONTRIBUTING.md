@@ -230,19 +230,19 @@ not launch Electron, require a display, or access the network.
 
 `npm run smoke` runs the focused `pty-native`, `viewer-position`, `viewer-content`,
 `git-workflow`, `workspace-remote`, `web-pane`, `renderer-authority`, `renderer-recovery`,
-`terminal-presentation`, and `terminal-lifecycle` groups plus the transitional `legacy-workflow`
-group in separate Electron processes with fresh project and user-data roots, then
+`document-review`, `terminal-presentation`, and `terminal-lifecycle` groups plus the transitional
+`legacy-workflow` group in separate Electron processes with fresh project and user-data roots, then
 reports a result for every scheduled group. Select one group locally with
 `HVIR_SMOKE_SCENARIO=<name> npm run
 smoke`; the complete name set is `pty-native`, `viewer-position`, `viewer-content`,
 `git-workflow`, `workspace-remote`, `web-pane`, `renderer-authority`, `platform-contracts`,
-`diagnostic-report-restart`, `renderer-recovery`, `development-performance`,
+`diagnostic-report-restart`, `renderer-recovery`, `document-review`, `development-performance`,
 `terminal-presentation`, `terminal-lifecycle`, `legacy-workflow`, and `capacity`. The
 development-performance group starts a development renderer and is run separately with `npm run
 smoke:development-performance`; the restart scenario is reserved for the packaged multi-launch
 fixture. `npm run smoke:macos` runs the focused PTY, viewer, Git, workspace/remote, web-pane,
 renderer-authority, platform-contract, renderer-recovery, terminal-presentation, and
-terminal-lifecycle correctness groups.
+document-review, terminal-presentation, and terminal-lifecycle correctness groups.
 
 Viewer and Git evidence follows the same ownership rule. `viewer-position` proves CodeMirror
 virtualization, source/rendered/diff anchors, remounts, pending and empty diffs, scoped commands,
@@ -264,6 +264,13 @@ hide/restore without reload, bounded redacted diagnostics, reserved close, and r
 `renderer-authority` owns real renderer reload/destruction revocation for routes and HTML previews;
 it does not depend on a terminal scenario. Each focused process records a bounded semantic
 snapshot when readiness fails.
+
+`document-review` proves the production renderer/preload/IPC/store workflow, one shared
+rendered/source Markdown anchor, tab/project/reload/restart durability, exact delivery preview,
+provider framing through a real node-pty capture process, immutable destination authority, and
+renderer/PTY cleanup. Exact revalidation branches, bounds, provider eligibility, deterministic
+SSH transport behavior, and late-completion policy remain in their direct owning suites; the
+opt-in real-host command retains the SSH server contract.
 
 Terminal evidence remains split by its real owner. `pty-native` proves production-composed Custom
 profile launch, output, termination event, and cleanup through Electron's node-pty ABI without a

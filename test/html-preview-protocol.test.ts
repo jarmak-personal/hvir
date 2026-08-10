@@ -1,6 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const electron = vi.hoisted(() => ({ handle: vi.fn(), unhandle: vi.fn() }))
+const electron = vi.hoisted(() => ({
+  handle: vi.fn(),
+  registerSchemesAsPrivileged: vi.fn(),
+  unhandle: vi.fn(),
+}))
 vi.mock('electron', () => ({ protocol: electron }))
 
 import { HtmlPreviewProtocol } from '../src/main/html-preview-protocol'
@@ -9,7 +13,19 @@ import { localPath } from '../src/shared'
 describe('HtmlPreviewProtocol ownership', () => {
   beforeEach(() => {
     electron.handle.mockClear()
+    electron.registerSchemesAsPrivileged.mockClear()
     electron.unhandle.mockClear()
+  })
+
+  it('registers the dedicated scheme as a privileged secure standard origin', () => {
+    HtmlPreviewProtocol.registerScheme()
+
+    expect(electron.registerSchemesAsPrivileged).toHaveBeenCalledWith([
+      {
+        scheme: 'hvir-preview',
+        privileges: { standard: true, secure: true, bypassCSP: false },
+      },
+    ])
   })
 
   it('isolates release by renderer generation and workspace', () => {

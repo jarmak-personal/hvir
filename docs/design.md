@@ -245,6 +245,11 @@ Trusted bundled providers may expose a visible fixed context-capacity assumption
 provider-specific pressure thresholds through the serializable capability catalog while the
 renderer remains provider-neutral and reported windows retain precedence.
 
+### [ADR-032 — Explicit document review anchors and provider-safe handoff](adr/ADR-032-explicit-document-review-handoff.md)
+
+Host-qualified Markdown review uses exact on-disk anchors, bounded local persistence, explicit
+payload bytes and destinations, and revisioned provider composer contracts through PTY authority.
+
 ## 5. Architecture
 
 ### Process model

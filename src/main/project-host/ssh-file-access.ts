@@ -92,6 +92,7 @@ export class SshFileAccess {
 
   async readFile(path: HostPath, opts: ReadFileOptions = {}): Promise<Buffer> {
     this.assertPath(path)
+    opts.signal?.throwIfAborted()
     if (opts.pollingInterest) this.pollingFiles.add(path.path)
     const key = `f:${path.path}`
     const cached = this.cached<Buffer>(key)
@@ -99,7 +100,10 @@ export class SshFileAccess {
       if (opts.pollingInterest) this.readDigests.set(path.path, contentDigest(cached))
       return Buffer.from(cached)
     }
-    const value = await this.sftp<Buffer>((s, done) => s.readFile(path.path, done))
+    const value = await this.sftp<Buffer>(
+      (s, done) => s.readFile(path.path, done),
+      opts.signal,
+    )
     this.cache.set(key, { expires: Date.now() + 2_000, value })
     if (opts.pollingInterest) this.readDigests.set(path.path, contentDigest(value))
     return Buffer.from(value)
@@ -113,9 +117,24 @@ export class SshFileAccess {
     return (await this.readFile(path, opts)).toString(encoding)
   }
 
-  async readTextFilePrefix(path: HostPath, maxBytes: number): Promise<TextWorkload> {
+  async readTextFilePrefix(
+    path: HostPath,
+    maxBytes: number,
+    opts: ReadFileOptions = {},
+  ): Promise<TextWorkload> {
     this.assertPath(path)
-    return readSshTextPrefix(await this.getSftp(), path.path, maxBytes)
+    opts.signal?.throwIfAborted()
+    if (opts.pollingInterest) this.pollingFiles.add(path.path)
+    const value = await readSshTextPrefix(
+      await this.getSftp(),
+      path.path,
+      maxBytes,
+      opts.signal,
+    )
+    if (opts.pollingInterest) {
+      this.readDigests.set(path.path, contentDigest(Buffer.from(value.content, 'utf8')))
+    }
+    return value
   }
 
   async writeFile(

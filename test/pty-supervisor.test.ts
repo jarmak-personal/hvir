@@ -4,10 +4,16 @@ import type { Client } from 'ssh2'
 import { describe, expect, it, vi } from 'vitest'
 
 import {
+  claudeCodeProvider,
   plainShellProvider,
   type HarnessTelemetryContext,
 } from '../src/main/harness/harness-provider'
-import type { ProjectHost, PtyExit, PtyProcess } from '../src/main/project-host'
+import {
+  PtyWriteIndeterminateError,
+  type ProjectHost,
+  type PtyExit,
+  type PtyProcess,
+} from '../src/main/project-host'
 import {
   PtySupervisor,
   type ManagedPty,
@@ -55,6 +61,24 @@ describe('PtySupervisor', () => {
         },
       }),
     )
+  })
+
+  it('does not infer review insertion when effective launch capabilities are omitted', async () => {
+    const { supervisor, host } = fixture({ provider: claudeCodeProvider })
+    const info = await supervisor.spawn({
+      host,
+      provider: claudeCodeProvider,
+      cwd: localPath('/tmp/project'),
+      ownerId: OWNER_ID,
+      sessionId: 'no-effective-capabilities',
+    })
+
+    expect(info.capabilities).toMatchObject({
+      sessionIdentity: 'preassigned',
+      exactResume: true,
+      contextPresentation: 'pressure',
+    })
+    expect(info.capabilities).not.toHaveProperty('reviewInsertContractRevision')
   })
 
   it('launches harness commands through the login-interactive shell environment', async () => {
@@ -198,6 +222,59 @@ describe('PtySupervisor', () => {
     supervisor.resize(info.id, OWNER_ID, 120, 40)
     expect(pty.write).toHaveBeenCalledWith('input')
     expect(pty.resize).toHaveBeenCalledWith(120, 40)
+  })
+
+  it('confirms exactly one complete write at the owned PTY boundary', async () => {
+    const { supervisor, pty, host, provider } = fixture()
+    const info = await supervisor.spawn({
+      host,
+      provider,
+      cwd: localPath('/tmp/project'),
+      ownerId: OWNER_ID,
+      ownerGeneration: 7,
+      sessionId: 'confirmed-write',
+    })
+
+    await supervisor.writeConfirmed(info.id, OWNER_ID, 'exact transport', 7)
+
+    expect(pty.writeConfirmed).toHaveBeenCalledExactlyOnceWith('exact transport')
+    expect(pty.write).not.toHaveBeenCalled()
+  })
+
+  it('rejects failed and exit-raced confirmed writes', async () => {
+    const failed = fixture()
+    const failedInfo = await failed.supervisor.spawn({
+      host: failed.host,
+      provider: failed.provider,
+      cwd: localPath('/tmp/project'),
+      ownerId: OWNER_ID,
+      sessionId: 'failed-confirmed-write',
+    })
+    failed.pty.writeConfirmed.mockRejectedValueOnce(new Error('transport refused'))
+    await expect(
+      failed.supervisor.writeConfirmed(failedInfo.id, OWNER_ID, 'payload'),
+    ).rejects.toThrow(/transport refused/)
+
+    const late = fixture()
+    let finish!: () => void
+    late.pty.writeConfirmed.mockImplementationOnce(
+      () => new Promise<void>((resolve) => (finish = resolve)),
+    )
+    const lateInfo = await late.supervisor.spawn({
+      host: late.host,
+      provider: late.provider,
+      cwd: localPath('/tmp/project'),
+      ownerId: OWNER_ID,
+      sessionId: 'late-confirmed-write',
+    })
+    const writing = late.supervisor.writeConfirmed(
+      lateInfo.id,
+      OWNER_ID,
+      'payload',
+    )
+    late.pty.emitExit({ exitCode: 255, signal: undefined })
+    finish()
+    await expect(writing).rejects.toBeInstanceOf(PtyWriteIndeterminateError)
   })
 
   it('replays bounded initial output in order on the first renderer attach', async () => {

@@ -8,6 +8,9 @@ import { LOCAL_HOST_ID, localPath } from '../src/shared'
 class WorkspacePty implements PtyProcess {
   readonly pid = 4242
   readonly write = vi.fn<(data: string) => void>()
+  readonly writeConfirmed = vi.fn<(data: string) => Promise<void>>(() =>
+    Promise.resolve(),
+  )
   readonly resize = vi.fn<(cols: number, rows: number) => void>()
   readonly kill = vi.fn<(signal?: string) => void>()
 

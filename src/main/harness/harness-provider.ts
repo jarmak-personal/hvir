@@ -14,6 +14,7 @@ import {
   type HarnessEnvironmentBinding,
   type HarnessLaunchRisk,
   type HarnessModifiedKeyProtocol,
+  type HarnessProfile,
   type HarnessProfileId,
   type HarnessProviderCapabilities,
   type HarnessProviderDescriptor,
@@ -70,6 +71,44 @@ export interface HarnessRemoteImagePasteContract {
   readonly revision: number
   /** Produce one atomic terminal paste; never submit the composer. */
   terminalInput(path: HostPath): string
+}
+
+/** Exact native-composer behavior approved only for prepared document review. */
+export interface HarnessDocumentReviewInsertContract {
+  /** Increment whenever the atomic composer framing semantics change. */
+  readonly revision: number
+  /** Admit insertion only for an exact provider-owned launch profile. */
+  supportsLaunch(launch: HarnessDocumentReviewInsertLaunch): boolean
+  /** Frame one immutable body as one bracketed paste; never submit it. */
+  terminalInput(body: string): string
+}
+
+export interface HarnessDocumentReviewInsertLaunch {
+  readonly profile: Pick<
+    HarnessProfile,
+    | 'providerId'
+    | 'providerContractVersion'
+    | 'executable'
+    | 'args'
+    | 'environment'
+    | 'pathBindings'
+    | 'risk'
+  >
+  readonly effectiveCapabilities: HarnessProviderCapabilities
+}
+
+export interface HarnessDocumentReviewSendNowLaunch
+  extends HarnessDocumentReviewInsertLaunch {
+  readonly composerSubmitMode: ComposerSubmitMode
+}
+
+/** Complete provider-owned composer framing and submission for one exact launch. */
+export interface HarnessDocumentReviewSendNowContract {
+  /** Increment whenever launch eligibility, framing, or submission bytes change. */
+  readonly revision: number
+  supportsLaunch(launch: HarnessDocumentReviewSendNowLaunch): boolean
+  /** Return one bracketed-paste-plus-submit transport for one supervisor write. */
+  terminalInput(body: string, launch: HarnessDocumentReviewSendNowLaunch): string
 }
 
 export type HarnessSessionDiscoveryResult =
@@ -211,6 +250,8 @@ export interface HarnessProvider {
   readonly probe: HarnessProbeContract
   readonly composerConfiguration?: HarnessComposerConfiguration
   readonly remoteImagePaste?: HarnessRemoteImagePasteContract
+  readonly documentReviewInsert?: HarnessDocumentReviewInsertContract
+  readonly documentReviewSendNow?: HarnessDocumentReviewSendNowContract
 
   /** Command to start a fresh session. */
   launch(ctx: HarnessLaunchContext): HarnessLaunchSpec
@@ -271,6 +312,8 @@ export const plainShellProvider: HarnessProvider = {
   },
 }
 
+const claudeCodeReviewInsert = documentReviewInsertContract(() => claudeCodeProvider)
+
 export const claudeCodeProvider: HarnessProvider = {
   manifest: {
     id: asHarnessProviderId('claude-code'),
@@ -299,9 +342,13 @@ export const claudeCodeProvider: HarnessProvider = {
   sessionIdentity: 'preassigned',
   telemetry: { observe: observeClaudeContext },
   resumeValidation: { availability: claudeResumeAvailability },
-  probe: versionProbe('preassigned', true, 'pressure', CLAUDE_CONTEXT_PRESSURE),
+  probe: versionProbe('preassigned', true, 'pressure', {
+    contextPressure: CLAUDE_CONTEXT_PRESSURE,
+    reviewInsert: claudeCodeReviewInsert,
+  }),
   composerConfiguration: { configure: configureClaudeComposerSubmit },
   remoteImagePaste: pathImagePasteContract(),
+  documentReviewInsert: claudeCodeReviewInsert,
 
   launch(ctx): HarnessLaunchSpec {
     return {
@@ -319,6 +366,12 @@ export const claudeCodeProvider: HarnessProvider = {
     }
   },
 }
+
+const codexReviewInsert = documentReviewInsertContract(
+  () => codexProvider,
+  supportsCodexDocumentReviewProfile,
+)
+const codexReviewSendNow = codexDocumentReviewSendNowContract(codexReviewInsert)
 
 export const codexProvider: HarnessProvider = {
   manifest: {
@@ -357,8 +410,19 @@ export const codexProvider: HarnessProvider = {
   sessionIdentity: 'discovered',
   sessionDiscovery: codexSessionDiscovery,
   telemetry: { observe: observeCodexContext },
-  probe: versionProbe('discovered', true, 'pressure'),
+  probe: versionProbe(
+    'discovered',
+    true,
+    'pressure',
+    {
+      reviewInsert: codexReviewInsert,
+      reviewSendNow: codexReviewSendNow,
+      supportsReviewSendNowVersion: supportsCodexReviewSendNowVersion,
+    },
+  ),
   remoteImagePaste: pathImagePasteContract(),
+  documentReviewInsert: codexReviewInsert,
+  documentReviewSendNow: codexReviewSendNow,
 
   launch(ctx): HarnessLaunchSpec {
     return {
@@ -504,6 +568,46 @@ export function harnessProvider(id: string): HarnessProvider {
   return harnessProviders.get(id)
 }
 
+/** Trusted capabilities bound to one successful provider launch. */
+export function harnessLaunchCapabilities(
+  provider: HarnessProvider,
+  launch?: {
+    readonly profile: HarnessProfile
+    readonly composerSubmitMode: ComposerSubmitMode
+    readonly probedCapabilities?: HarnessProviderCapabilities
+  },
+): HarnessProviderCapabilities {
+  const probed = launch?.probedCapabilities ?? provider.probe.effectiveCapabilities(undefined)
+  const insert = provider.documentReviewInsert
+  let base: HarnessProviderCapabilities = {
+    sessionIdentity: probed.sessionIdentity,
+    exactResume: probed.exactResume,
+    contextPresentation: probed.contextPresentation,
+  }
+  if (launch && insert && insert.revision === probed.reviewInsertContractRevision) {
+    const candidate = { ...base, reviewInsertContractRevision: insert.revision }
+    if (
+      insert.supportsLaunch({
+        profile: launch.profile,
+        effectiveCapabilities: candidate,
+      })
+    ) {
+      base = candidate
+    }
+  }
+  const sendNow = provider.documentReviewSendNow
+  if (!launch || !sendNow) return base
+  if (sendNow.revision !== probed.reviewSendNowContractRevision) return base
+  const effective = { ...base, reviewSendNowContractRevision: sendNow.revision }
+  return sendNow.supportsLaunch({
+    profile: launch.profile,
+    composerSubmitMode: launch.composerSubmitMode,
+    effectiveCapabilities: effective,
+  })
+    ? effective
+    : base
+}
+
 export function harnessProviderCatalog(): readonly HarnessProviderDescriptor[] {
   return harnessProviders.catalog()
 }
@@ -638,6 +742,82 @@ function pathImagePasteContract(): HarnessRemoteImagePasteContract {
   }
 }
 
+function documentReviewInsertContract(
+  resolveProvider: () => HarnessProvider,
+  supportsProfile: (
+    profile: HarnessDocumentReviewInsertLaunch['profile'],
+  ) => boolean = supportsDefaultDocumentReviewProfile,
+): HarnessDocumentReviewInsertContract {
+  const revision = 1
+  const supportsLaunch = (launch: HarnessDocumentReviewInsertLaunch): boolean => {
+    const provider = resolveProvider()
+    return (
+      launch.profile.providerId === provider.manifest.id &&
+      launch.profile.providerContractVersion === provider.profile.version &&
+      launch.profile.executable.kind === 'provider-default' &&
+      supportsProfile(launch.profile) &&
+      launch.effectiveCapabilities.reviewInsertContractRevision === revision
+    )
+  }
+  return {
+    revision,
+    supportsLaunch,
+    terminalInput: (body) => {
+      if (body.length === 0 || hasUnsafeReviewBodyCharacter(body)) {
+        throw new Error('Document review insertion requires safe human-readable text')
+      }
+      return `\x1b[200~${body}\x1b[201~`
+    },
+  }
+}
+
+function codexDocumentReviewSendNowContract(
+  insert: HarnessDocumentReviewInsertContract,
+): HarnessDocumentReviewSendNowContract {
+  const revision = 1
+  const supportsLaunch = (launch: HarnessDocumentReviewSendNowLaunch): boolean =>
+    launch.profile.providerId === codexProvider.manifest.id &&
+    launch.profile.providerContractVersion === codexProvider.profile.version &&
+    launch.profile.executable.kind === 'provider-default' &&
+    supportsCodexDocumentReviewProfile(launch.profile) &&
+    launch.effectiveCapabilities.reviewInsertContractRevision === insert.revision &&
+    launch.effectiveCapabilities.reviewSendNowContractRevision === revision
+  return {
+    revision,
+    supportsLaunch,
+    terminalInput: (body, launch) => {
+      if (!supportsLaunch(launch)) {
+        throw new Error('Codex review submission is unavailable for this launch')
+      }
+      const submit =
+        launch.composerSubmitMode === 'ctrl-enter' ? '\x1b[13;5u' : '\r'
+      return `${insert.terminalInput(body)}${submit}`
+    },
+  }
+}
+
+function supportsDefaultDocumentReviewProfile(
+  profile: HarnessDocumentReviewInsertLaunch['profile'],
+): boolean {
+  return (
+    profile.args.length === 0 &&
+    profile.environment.length === 0 &&
+    profile.pathBindings.length === 0 &&
+    profile.risk === 'standard'
+  )
+}
+
+/**
+ * A live Codex process launched through the provider default remains an explicit
+ * best-effort composer target. Profile customization can make the attempt fail,
+ * but it must not silently retarget the provider-owned framing contract.
+ */
+function supportsCodexDocumentReviewProfile(
+  _profile: HarnessDocumentReviewInsertLaunch['profile'],
+): boolean {
+  return true
+}
+
 function staticProbe(
   sessionIdentity: HarnessSessionIdentity,
   exactResume: boolean,
@@ -659,7 +839,12 @@ function versionProbe(
   sessionIdentity: HarnessSessionIdentity,
   exactResume: boolean,
   contextPresentation: HarnessContextPresentation,
-  contextPressure?: HarnessContextPressurePolicy,
+  capabilities: {
+    readonly contextPressure?: HarnessContextPressurePolicy
+    readonly reviewInsert?: HarnessDocumentReviewInsertContract
+    readonly reviewSendNow?: HarnessDocumentReviewSendNowContract
+    readonly supportsReviewSendNowVersion?: (version: string | undefined) => boolean
+  } = {},
 ): HarnessProbeContract {
   return {
     versionArgs: ['--version'],
@@ -669,18 +854,41 @@ function versionProbe(
         ? first
         : undefined
     },
-    effectiveCapabilities: () => ({
+    effectiveCapabilities: (version) => ({
       sessionIdentity,
       exactResume,
       contextPresentation,
-      contextPressure,
+      contextPressure: capabilities.contextPressure,
+      reviewInsertContractRevision: capabilities.reviewInsert?.revision,
+      reviewSendNowContractRevision:
+        capabilities.reviewSendNow && capabilities.supportsReviewSendNowVersion?.(version)
+          ? capabilities.reviewSendNow.revision
+          : undefined,
     }),
   }
+}
+
+function supportsCodexReviewSendNowVersion(version: string | undefined): boolean {
+  const match = /^codex-cli\s+(\d+)\.(\d+)\.(\d+)(?:\b|[-+])/.exec(version ?? '')
+  if (!match) return false
+  const parts = match.slice(1).map(Number)
+  return (
+    parts[0]! > 0 ||
+    parts[1]! > 146 ||
+    (parts[1] === 146 && parts[2]! >= 0)
+  )
 }
 
 function hasControlCharacter(value: string): boolean {
   return [...value].some((character) => {
     const code = character.charCodeAt(0)
     return code <= 31 || code === 127
+  })
+}
+
+function hasUnsafeReviewBodyCharacter(value: string): boolean {
+  return [...value].some((character) => {
+    const code = character.codePointAt(0)!
+    return (code < 32 && character !== '\n' && character !== '\t') || code === 127
   })
 }

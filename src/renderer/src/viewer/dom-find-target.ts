@@ -109,7 +109,11 @@ function materializedText(root: HTMLElement): MaterializedText {
 function visibleText(node: Text, root: HTMLElement): boolean {
   const parent = node.parentElement
   if (!parent || !root.contains(parent)) return false
-  if (parent.closest('script, style, template, [hidden], [aria-hidden="true"]')) {
+  if (
+    parent.closest(
+      'script, style, template, [hidden], [aria-hidden="true"], [data-hvir-review-generated]',
+    )
+  ) {
     return false
   }
   if (typeof parent.checkVisibility === 'function') {

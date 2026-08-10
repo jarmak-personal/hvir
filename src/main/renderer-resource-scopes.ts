@@ -23,6 +23,8 @@ export type RendererResourceQualifier =
         | 'html-preview'
         | 'image-paste'
         | 'project-file-operation'
+        | 'document-review'
+        | 'document-review-delivery'
       readonly root: HostPath
       readonly id: string
     }

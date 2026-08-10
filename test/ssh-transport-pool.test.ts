@@ -15,8 +15,10 @@ import {
   SSH_CONTROL_CHANNEL_BUDGET,
   SSH_MAX_KEYBOARD_INTERACTIVE_ROUNDS,
   SSH_MAX_PHYSICAL_TRANSPORTS,
+  SSH_PTY_WRITE_CONFIRM_TIMEOUT_MS,
   SSH_TERMINAL_CHANNEL_BUDGET,
   SSH_TRANSPORT_IDLE_GRACE_MS,
+  PtyWriteIndeterminateError,
   SshHost,
   type SshPrompt,
 } from '../src/main/project-host'
@@ -97,6 +99,111 @@ describe('SshHost transport pool', () => {
     expect(supervisor.get(original.id)).toBeUndefined()
 
     await host.dispose()
+  })
+
+  it('confirms one SSH PTY write and rejects callback failure or exit races', async () => {
+    const fixture = await poolFixture()
+    await spawnShells(fixture, 1)
+    const channel = fixture.clients[1]?.channels[0] as
+      | (ClientChannel & { readonly write: ReturnType<typeof vi.fn> })
+      | undefined
+    if (!channel) throw new Error('Expected an SSH PTY channel')
+
+    await expect(
+      fixture.supervisor.writeConfirmed('shell-0', OWNER_ID, 'exact'),
+    ).resolves.toBeUndefined()
+    expect(channel.write.mock.calls).toContainEqual(['exact', expect.any(Function)])
+
+    channel.write.mockImplementationOnce(
+      (_value: string, callback?: (error?: Error) => void) => {
+        callback?.(new Error('remote write failed'))
+        return true
+      },
+    )
+    await expect(
+      fixture.supervisor.writeConfirmed('shell-0', OWNER_ID, 'failed'),
+    ).rejects.toThrow('remote write failed')
+
+    let completeWrite: ((error?: Error) => void) | undefined
+    channel.write.mockImplementationOnce(
+      (_value: string, callback?: (error?: Error) => void) => {
+        completeWrite = callback
+        return true
+      },
+    )
+    const raced = fixture.supervisor.writeConfirmed(
+      'shell-0',
+      OWNER_ID,
+      'raced',
+    )
+    channel.emit('exit', 7)
+    const racedError = await raced.catch((reason: unknown) => reason)
+    expect(racedError).toBeInstanceOf(PtyWriteIndeterminateError)
+    expect((racedError as Error).message).toMatch(/exited before write completion/i)
+    completeWrite?.()
+
+    await fixture.host.dispose()
+  })
+
+  it('rejects an already-exited SSH PTY without attempting another write', async () => {
+    const fixture = await poolFixture()
+    await spawnShells(fixture, 1)
+    const channel = fixture.clients[1]?.channels[0] as
+      | (ClientChannel & { readonly write: ReturnType<typeof vi.fn> })
+      | undefined
+    if (!channel) throw new Error('Expected an SSH PTY channel')
+    channel.emit('exit', 7)
+    channel.write.mockClear()
+
+    const rejected = await fixture.supervisor
+      .writeConfirmed('shell-0', OWNER_ID, 'too-late')
+      .catch((reason: unknown) => reason)
+    expect(rejected).toBeInstanceOf(Error)
+    expect(rejected).not.toBeInstanceOf(PtyWriteIndeterminateError)
+    expect((rejected as Error).message).toMatch(/No PTY session/)
+    expect(channel.write.mock.calls).toEqual([])
+    await fixture.host.dispose()
+  })
+
+  it('bounds stalled SSH write completion and cleans timeout authority', async () => {
+    const fixture = await poolFixture()
+    await spawnShells(fixture, 1)
+    const channel = fixture.clients[1]?.channels[0] as
+      | (ClientChannel & { readonly write: ReturnType<typeof vi.fn> })
+      | undefined
+    if (!channel) throw new Error('Expected an SSH PTY channel')
+    let completeWrite: ((error?: Error) => void) | undefined
+    channel.write.mockImplementationOnce(
+      (_value: string, callback?: (error?: Error) => void) => {
+        completeWrite = callback
+        return true
+      },
+    )
+
+    vi.useFakeTimers()
+    try {
+      const timersBefore = vi.getTimerCount()
+      const pending = fixture.supervisor.writeConfirmed(
+        'shell-0',
+        OWNER_ID,
+        'stalled',
+      )
+      const rejected = expect(pending).rejects.toBeInstanceOf(
+        PtyWriteIndeterminateError,
+      )
+      expect(vi.getTimerCount()).toBe(timersBefore + 1)
+
+      await vi.advanceTimersByTimeAsync(SSH_PTY_WRITE_CONFIRM_TIMEOUT_MS)
+
+      await rejected
+      expect(vi.getTimerCount()).toBe(timersBefore)
+      completeWrite?.()
+      channel.emit('exit', 7)
+      expect(vi.getTimerCount()).toBe(timersBefore)
+    } finally {
+      vi.useRealTimers()
+      await fixture.host.dispose()
+    }
   })
 
   it('grows a second control transport without borrowing terminal capacity', async () => {

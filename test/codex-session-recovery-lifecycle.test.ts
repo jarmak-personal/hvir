@@ -45,6 +45,9 @@ class LifecyclePty implements PtyProcess {
   write(): void {
     return
   }
+  writeConfirmed(): Promise<void> {
+    return Promise.resolve()
+  }
   resize(): void {
     return
   }
