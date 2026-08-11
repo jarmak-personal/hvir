@@ -375,7 +375,7 @@ describe('ProjectRegistry session flow', () => {
     await registry.dispose()
   })
 
-  it('persists registered projects and preserves removed worktrees until dismissal', async () => {
+  it('marks removed worktrees missing until lifecycle dismissal is persisted', async () => {
     const root = await mkdtemp(join(tmpdir(), 'hvir-registry-'))
     const linked = join(root, 'linked')
     await mkdir(linked)

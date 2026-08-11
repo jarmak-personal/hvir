@@ -7,6 +7,7 @@ import {
 } from '../../shared'
 import type { GitMutationGrant, GitMutationGrantRequest } from './mutation-authorization'
 import type { ProjectWatchTarget } from '../project-watch'
+import type { WorkspaceRemovalPort } from '../workspace-removal-coordinator'
 
 export interface GitMutationRegistryPort {
   readonly active: ProjectWatchTarget & {
@@ -18,7 +19,6 @@ export interface GitMutationRegistryPort {
     projectId: string,
     discovery: WorktreeDiscovery,
   ): Promise<ProjectState>
-  dismissWorkspace(projectId: string, workspaceId: string): Promise<ProjectState>
 }
 
 export interface GitMutationWorkerPort {
@@ -46,13 +46,6 @@ export interface GitMutationWorkspacePort {
   replaceWatch(target?: ProjectWatchTarget): Promise<void>
 }
 
-export interface GitMutationCleanupPort {
-  forgetWorkspaceSessions(root: HostPath): Promise<void>
-  revokeWorkspace(root: HostPath): Promise<void>
-  closeWorkspaceWebPanes(root: HostPath): Promise<void>
-  clearHtmlPreviews(): void
-}
-
 export interface GitMutationCoordinatorOptions {
   readonly registry: GitMutationRegistryPort
   readonly worker: GitMutationWorkerPort
@@ -60,7 +53,8 @@ export interface GitMutationCoordinatorOptions {
   readonly authorizations: {
     grant(request: GitMutationGrantRequest): GitMutationGrant
   }
-  readonly cleanup: GitMutationCleanupPort
+  readonly removal: WorkspaceRemovalPort
+  readonly clearHtmlPreviews: () => void
   readonly onError?: (message: string, error: unknown) => void
 }
 
@@ -159,7 +153,7 @@ export class GitMutationCoordinator {
   }
 
   private async performPrune(projectId: string): Promise<ProjectState> {
-    const { registry, cleanup } = this.options
+    const { registry } = this.options
     const project = registry.projectById(projectId)
     if (!project) throw new Error('Unknown project')
     if (project.connectionState !== 'connected') {
@@ -192,16 +186,11 @@ export class GitMutationCoordinator {
       ) {
         continue
       }
-      await cleanup.forgetWorkspaceSessions(target.root)
-      await registry.dismissWorkspace(projectId, target.id)
-      await Promise.all([
-        cleanup.revokeWorkspace(target.root),
-        cleanup.closeWorkspaceWebPanes(target.root),
-      ])
+      await this.options.removal.removeMissingWorkspace(projectId, target.id)
     }
     if (prunesActiveWorkspace) {
       await this.options.workspaces.stopWatch()
-      cleanup.clearHtmlPreviews()
+      this.options.clearHtmlPreviews()
       await this.options.workspaces.replaceWatch(registry.active)
     }
     return registry.state()

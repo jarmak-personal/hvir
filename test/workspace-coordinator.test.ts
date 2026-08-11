@@ -19,6 +19,7 @@ import {
 } from '../src/shared'
 
 const root = localPath('/project')
+const staleRoot = localPath('/project-stale')
 const host = {
   hostId: root.hostId,
   connectionState: 'connected',
@@ -75,14 +76,41 @@ function projectState(): ProjectState {
   }
 }
 
+function projectWithStaleWorkspace(
+  missing: boolean,
+  activeWorkspaceId = 'workspace-1',
+): ProjectState['projects'][number] {
+  const project = projectState().projects[0]!
+  return {
+    ...project,
+    activeWorkspaceId,
+    workspaces: [
+      ...project.workspaces,
+      {
+        id: 'workspace-stale',
+        root: staleRoot,
+        name: 'project-stale',
+        main: false,
+        closed: false,
+        missing,
+        repository: true,
+        changedFiles: 0,
+      },
+    ],
+  }
+}
+
 function fixture() {
   let state = projectState()
+  let active = {
+    host,
+    root,
+    projectId: 'project-1',
+    workspaceId: 'workspace-1',
+  }
   const registry: WorkspaceRegistryPort = {
-    active: {
-      host,
-      root,
-      projectId: 'project-1',
-      workspaceId: 'workspace-1',
+    get active() {
+      return active
     },
     state: () => state,
     projectById: vi.fn((id) => state.projects.find((project) => project.id === id)),
@@ -126,6 +154,14 @@ function fixture() {
     discover: vi.fn<() => Promise<WorktreeDiscovery>>(() => Promise.resolve(discovered)),
     workspaceActivity: vi.fn(() => Promise.resolve(workspaceActivity)),
   }
+  const removal = {
+    removeMissingWorkspace: vi.fn((_projectId: string, workspaceId: string) => {
+      if (active.workspaceId === workspaceId) {
+        active = { ...active, root, workspaceId: 'workspace-1' }
+      }
+      return Promise.resolve(state)
+    }),
+  }
   const watches: WorkspaceWatchPort[] = []
   const createWatch = vi.fn((target: WorkspaceWatchPort['target']) => {
     const watch: WorkspaceWatchPort = {
@@ -139,10 +175,21 @@ function fixture() {
   const coordinator = new WorkspaceCoordinator({
     registry,
     discovery,
+    removal,
     emitWatch: vi.fn(),
     createWatch,
   })
-  return { coordinator, registry, discovery, watches, createWatch }
+  return {
+    coordinator,
+    registry,
+    discovery,
+    removal,
+    watches,
+    createWatch,
+    setActive: (nextRoot: typeof root, workspaceId: string) => {
+      active = { ...active, root: nextRoot, workspaceId }
+    },
+  }
 }
 
 describe('WorkspaceCoordinator', () => {
@@ -180,13 +227,103 @@ describe('WorkspaceCoordinator', () => {
   })
 
   it('retries after refresh failure instead of caching rejection', async () => {
-    const { coordinator, discovery } = fixture()
+    const { coordinator, discovery, removal } = fixture()
     discovery.discover.mockRejectedValueOnce(new Error('temporary failure'))
 
     await expect(coordinator.refresh('project-1')).rejects.toThrow('temporary failure')
+    expect(removal.removeMissingWorkspace).not.toHaveBeenCalled()
     await coordinator.refresh('project-1')
 
     expect(discovery.discover).toHaveBeenCalledTimes(2)
+  })
+
+  it.each([
+    {
+      name: 'Git reports it prunable',
+      discovery: {
+        repository: true,
+        worktrees: [
+          { root, detached: false, bare: false },
+          {
+            root: staleRoot,
+            detached: true,
+            bare: false,
+            prunable: true,
+            prunableReason: 'gitdir points to a missing location',
+          },
+        ],
+      } satisfies WorktreeDiscovery,
+    },
+    {
+      name: 'successful discovery omits it',
+      discovery: discovered,
+    },
+  ])('removes a missing workspace when $name', async ({ discovery: result }) => {
+    const { coordinator, registry, discovery, removal } = fixture()
+    const presentProject = projectWithStaleWorkspace(false)
+    const missingProject = projectWithStaleWorkspace(true)
+    vi.mocked(registry.projectById)
+      .mockReturnValueOnce(presentProject)
+      .mockReturnValueOnce(missingProject)
+      .mockReturnValue(projectState().projects[0])
+    discovery.discover.mockResolvedValueOnce(result)
+
+    await coordinator.refresh('project-1')
+
+    expect(removal.removeMissingWorkspace).toHaveBeenCalledWith(
+      'project-1',
+      'workspace-stale',
+    )
+  })
+
+  it('replaces the active watch after discovery removes the active workspace', async () => {
+    const { coordinator, registry, removal, createWatch, setActive } = fixture()
+    setActive(staleRoot, 'workspace-stale')
+    vi.mocked(registry.projectById)
+      .mockReturnValueOnce(projectWithStaleWorkspace(false, 'workspace-stale'))
+      .mockReturnValueOnce(projectWithStaleWorkspace(true, 'workspace-stale'))
+      .mockReturnValue(projectState().projects[0])
+
+    await coordinator.refresh('project-1')
+
+    expect(removal.removeMissingWorkspace).toHaveBeenCalledWith(
+      'project-1',
+      'workspace-stale',
+    )
+    expect(createWatch).toHaveBeenCalledWith(
+      expect.objectContaining({ root, projectId: 'project-1' }),
+      expect.any(Object),
+    )
+  })
+
+  it('settles a started removal before an invalidating transition can continue', async () => {
+    const { coordinator, registry, removal } = fixture()
+    vi.mocked(registry.projectById)
+      .mockReturnValueOnce(projectWithStaleWorkspace(false))
+      .mockReturnValueOnce(projectWithStaleWorkspace(true))
+      .mockReturnValue(projectState().projects[0])
+    let finishRemoval: ((state: ProjectState) => void) | undefined
+    vi.mocked(removal.removeMissingWorkspace).mockImplementationOnce(
+      () =>
+        new Promise<ProjectState>((resolve) => {
+          finishRemoval = resolve
+        }),
+    )
+
+    const refresh = coordinator.refresh('project-1')
+    await vi.waitFor(() => expect(finishRemoval).toBeTypeOf('function'))
+    coordinator.invalidateProject('project-1')
+    let settled = false
+    const settling = coordinator.settleProject('project-1', 'skip').then(() => {
+      settled = true
+    })
+    await Promise.resolve()
+    expect(settled).toBe(false)
+
+    finishRemoval?.(projectState())
+    await settling
+    await refresh
+    expect(settled).toBe(true)
   })
 
   it('retries after activity failure without publishing a partial refresh', async () => {

@@ -86,7 +86,15 @@ export function workspaceCloseSmokeCommands({
     invalidateProject: () => undefined,
     settleProject: () => Promise.resolve(),
   }
-  const coordinator = new ProjectCoordinator({ registry, workspaces, cleanup })
+  const coordinator = new ProjectCoordinator({
+    registry,
+    workspaces,
+    cleanup,
+    removal: {
+      removeMissingWorkspace: () =>
+        Promise.reject(new Error('Workspace removal is unavailable in close smoke')),
+    },
+  })
   return {
     planWorkspaceClose: (projectId: string, workspaceId: string) =>
       Promise.resolve(coordinator.planWorkspaceClose(projectId, workspaceId)),
