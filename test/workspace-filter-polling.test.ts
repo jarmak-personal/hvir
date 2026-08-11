@@ -64,6 +64,9 @@ describe('workspace clean-filter polling', () => {
     const coordinator = new WorkspaceCoordinator({
       registry,
       discovery,
+      removal: {
+        removeMissingWorkspace: () => Promise.resolve(state),
+      },
       emitWatch: vi.fn(),
       createWatch: (target): WorkspaceWatchPort => ({
         target,

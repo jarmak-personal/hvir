@@ -676,18 +676,43 @@ export class ProjectRegistry {
     const workspace = project?.workspaces.find((candidate) => candidate.id === id)
     if (!project || !workspace) throw new Error('Unknown project workspace')
     if (!workspace.missing) throw new Error('Only removed worktrees can be dismissed')
-    project.workspaces = project.workspaces.filter((candidate) => candidate.id !== id)
+    const previousWorkspaces = project.workspaces
+    const previousWorkspaceId = project.activeWorkspaceId
+    const previousActive = this.activeProject
+    let remaining = project.workspaces.filter((candidate) => candidate.id !== id)
+    let next: WorkspaceRecord | undefined
     if (project.activeWorkspaceId === id) {
-      const next = project.workspaces.find(
-        (candidate) => !candidate.missing && !candidate.closed,
-      )
+      next = remaining.find((candidate) => !candidate.missing && !candidate.closed)
+      if (!next) {
+        const closed = remaining.find((candidate) => !candidate.missing)
+        if (closed) {
+          const reopened = openWorkspaceRecord(closed)
+          next = reopened
+          remaining = remaining.map((candidate) =>
+            candidate.id === closed.id ? reopened : candidate,
+          )
+        }
+      }
       if (!next) throw new Error('A project must keep one workspace')
       project.activeWorkspaceId = next.id
       if (project.id === this.activeProjectId) {
-        await this.activate(project.id, next.id, { emit: false })
+        this.activeProject = {
+          host: previousActive.host,
+          root: next.root,
+          projectId: project.id,
+          workspaceId: next.id,
+        }
       }
     }
-    await this.persist()
+    project.workspaces = remaining
+    try {
+      await this.persist()
+    } catch (error) {
+      project.workspaces = previousWorkspaces
+      project.activeWorkspaceId = previousWorkspaceId
+      this.activeProject = previousActive
+      throw error
+    }
     return this.publishState()
   }
 

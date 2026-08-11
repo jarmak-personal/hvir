@@ -9,6 +9,7 @@ import {
   type ProjectWorkspacePort,
 } from '../src/main/project-coordinator'
 import type { ProjectHost } from '../src/main/project-host'
+import type { WorkspaceRemovalPort } from '../src/main/workspace-removal-coordinator'
 import {
   asHostId,
   hostPath,
@@ -173,9 +174,6 @@ function fixture() {
         return Promise.resolve(state)
       },
     ),
-    dismissWorkspace: vi.fn<ProjectRegistryPort['dismissWorkspace']>(() =>
-      Promise.resolve(state),
-    ),
     acknowledgeWorkspace: vi.fn<ProjectRegistryPort['acknowledgeWorkspace']>(() =>
       Promise.resolve(state),
     ),
@@ -204,6 +202,9 @@ function fixture() {
       Promise.resolve(),
     ),
   }
+  const removal: WorkspaceRemovalPort = {
+    removeMissingWorkspace: vi.fn(() => Promise.resolve(state)),
+  }
   const errors: string[] = []
   const hostDiagnostics: Array<{
     operation: 'connect' | 'disconnect'
@@ -213,6 +214,7 @@ function fixture() {
     registry,
     workspaces,
     cleanup,
+    removal,
     onError: (message) => errors.push(message),
     onHostControlDiagnostic: (event) => hostDiagnostics.push(event),
   })
@@ -221,6 +223,7 @@ function fixture() {
     registry,
     workspaces,
     cleanup,
+    removal,
     remoteHost,
     get active() {
       return active
@@ -396,13 +399,12 @@ describe('ProjectCoordinator', () => {
     )
   })
 
-  it('forgets recovery state before dismissing a missing workspace', async () => {
-    const { coordinator, registry, cleanup } = fixture()
+  it('dismisses a missing workspace through the shared removal lifecycle', async () => {
+    const { coordinator, removal } = fixture()
 
     await coordinator.dismissWorkspace('project-1', 'workspace-missing')
 
-    expect(cleanup.forgetWorkspaceSessions).toHaveBeenCalledWith(remoteOtherRoot)
-    expect(registry.dismissWorkspace).toHaveBeenCalledWith(
+    expect(removal.removeMissingWorkspace).toHaveBeenCalledWith(
       'project-1',
       'workspace-missing',
     )

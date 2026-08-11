@@ -9,6 +9,7 @@ import {
   type WorkspaceClosePlan,
 } from '../shared'
 import type { ProjectWatchTarget } from './project-watch'
+import type { WorkspaceRemovalPort } from './workspace-removal-coordinator'
 
 export interface ProjectRegistryPort {
   readonly active: ProjectWatchTarget & { readonly workspaceId: string }
@@ -26,7 +27,6 @@ export interface ProjectRegistryPort {
     workspaceId: string,
   ): Promise<ProjectState>
   reopenWorkspace(projectId: string, workspaceId: string): Promise<ProjectState>
-  dismissWorkspace(projectId: string, workspaceId: string): Promise<ProjectState>
   acknowledgeWorkspace(projectId: string, workspaceId: string): Promise<ProjectState>
 }
 
@@ -55,6 +55,7 @@ export interface ProjectCoordinatorOptions {
   readonly registry: ProjectRegistryPort
   readonly workspaces: ProjectWorkspacePort
   readonly cleanup: ProjectCleanupPort
+  readonly removal: WorkspaceRemovalPort
   readonly onError?: (message: string, error: unknown) => void
   readonly onHostControlDiagnostic?: (event: ProjectHostControlDiagnostic) => void
 }
@@ -288,22 +289,13 @@ export class ProjectCoordinator {
       this.assertCurrent(transition)
       await this.settleTransition(transition)
       this.assertCurrent(transition)
-      const workspace = this.options.registry
-        .projectById(projectId)
-        ?.workspaces.find((candidate) => candidate.id === workspaceId)
       const wasActive =
         this.options.registry.active.projectId === projectId &&
         this.options.registry.active.workspaceId === workspaceId
-      if (workspace?.missing) {
-        await this.options.cleanup.forgetWorkspaceSessions(workspace.root)
-      }
-      const state = await this.options.registry.dismissWorkspace(projectId, workspaceId)
-      if (workspace) {
-        await Promise.all([
-          this.options.cleanup.revokeWorkspace(workspace.root),
-          this.options.cleanup.closeWorkspaceWebPanes(workspace.root),
-        ])
-      }
+      const state = await this.options.removal.removeMissingWorkspace(
+        projectId,
+        workspaceId,
+      )
       this.assertCurrent(transition)
       if (wasActive) {
         await this.options.workspaces.replaceWatch(this.options.registry.active)

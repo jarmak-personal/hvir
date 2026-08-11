@@ -10,6 +10,7 @@ import {
   type WorktreeDiscovery,
 } from '../shared'
 import type { ProjectHost } from './project-host'
+import type { WorkspaceRemovalPort } from './workspace-removal-coordinator'
 import {
   canonicalProjectWatchInterests,
   type ProjectWatchCallbacks,
@@ -53,6 +54,7 @@ export interface WorkspaceWatchPort {
 export interface WorkspaceCoordinatorOptions {
   readonly registry: WorkspaceRegistryPort
   readonly discovery: WorkspaceDiscoveryPort
+  readonly removal: WorkspaceRemovalPort
   readonly emitWatch: (event: IpcEventPayload<'project:watch'>) => void
   readonly createWatch: (
     target: ProjectWatchTarget,
@@ -74,6 +76,7 @@ interface RefreshRecord {
 export class WorkspaceCoordinator {
   private readonly refreshes = new Map<string, RefreshRecord>()
   private readonly inFlightRefreshes = new Set<Promise<ProjectState>>()
+  private readonly inFlightRemovals = new Map<string, Set<Promise<void>>>()
   private readonly exclusiveOperations = new Map<string, Promise<ProjectState>>()
   private readonly refreshTimers = new Map<string, ReturnType<typeof setTimeout>>()
   private readonly projectGenerations = new Map<string, number>()
@@ -238,6 +241,8 @@ export class WorkspaceCoordinator {
     if (refresh && !(obsolete && obsoleteRefresh === 'skip')) {
       await refresh.promise.catch(() => undefined)
     }
+    const removals = this.inFlightRemovals.get(projectId)
+    if (removals) await Promise.allSettled(removals)
     await exclusive?.catch(() => undefined)
   }
 
@@ -281,6 +286,24 @@ export class WorkspaceCoordinator {
     if (!this.isCurrent(projectId, generation)) return this.options.registry.state()
     await this.options.registry.reconcileWorktrees(projectId, discovery)
     if (!this.isCurrent(projectId, generation) || !discovery.repository) {
+      return this.options.registry.state()
+    }
+    const missing =
+      this.options.registry
+        .projectById(projectId)
+        ?.workspaces.filter((workspace) => workspace.missing) ?? []
+    const removedActiveId = missing.find(
+      (workspace) =>
+        this.options.registry.active.projectId === projectId &&
+        this.options.registry.active.workspaceId === workspace.id,
+    )?.id
+    if (missing.length > 0) {
+      await this.trackRemoval(
+        projectId,
+        this.removeMissingWorkspaces(projectId, missing, removedActiveId),
+      )
+    }
+    if (!this.isCurrent(projectId, generation)) {
       return this.options.registry.state()
     }
     const refreshed = this.options.registry.projectById(projectId)
@@ -405,6 +428,46 @@ export class WorkspaceCoordinator {
       this.suspendedPassiveActivity.set(projectId, suspended)
     }
     return suspended
+  }
+
+  private async removeMissingWorkspaces(
+    projectId: string,
+    workspaces: readonly { readonly id: string }[],
+    removedActiveId: string | undefined,
+  ): Promise<void> {
+    for (const workspace of workspaces) {
+      try {
+        await this.options.removal.removeMissingWorkspace(projectId, workspace.id)
+      } catch (error) {
+        this.report(
+          `[workspace] missing workspace removal failed for ${projectId}`,
+          error,
+        )
+      }
+    }
+    if (removedActiveId && this.options.registry.active.workspaceId !== removedActiveId) {
+      await this.replaceWatch(this.options.registry.active)
+    }
+  }
+
+  private trackRemoval(projectId: string, removal: Promise<void>): Promise<void> {
+    let removals = this.inFlightRemovals.get(projectId)
+    if (!removals) {
+      removals = new Set()
+      this.inFlightRemovals.set(projectId, removals)
+    }
+    removals.add(removal)
+    void removal.then(
+      () => this.releaseRemoval(projectId, removal),
+      () => this.releaseRemoval(projectId, removal),
+    )
+    return removal
+  }
+
+  private releaseRemoval(projectId: string, removal: Promise<void>): void {
+    const removals = this.inFlightRemovals.get(projectId)
+    removals?.delete(removal)
+    if (removals?.size === 0) this.inFlightRemovals.delete(projectId)
   }
 
   private releaseExclusive(projectId: string, result: Promise<ProjectState>): void {

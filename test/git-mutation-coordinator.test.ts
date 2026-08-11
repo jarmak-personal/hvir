@@ -4,12 +4,12 @@ import { describe, expect, it, vi } from 'vitest'
 
 import {
   GitMutationCoordinator,
-  type GitMutationCleanupPort,
   type GitMutationRegistryPort,
   type GitMutationWorkerPort,
   type GitMutationWorkspacePort,
 } from '../src/main/git/mutation-coordinator'
 import type { ProjectHost } from '../src/main/project-host'
+import type { WorkspaceRemovalPort } from '../src/main/workspace-removal-coordinator'
 import { localPath, type ProjectState, type WorktreeDiscovery } from '../src/shared'
 
 const root = localPath('/project')
@@ -82,7 +82,6 @@ function fixture() {
     state: () => state,
     projectById: (id) => state.projects.find((project) => project.id === id),
     reconcileWorktrees: vi.fn(() => Promise.resolve(state)),
-    dismissWorkspace: vi.fn(() => Promise.resolve(state)),
   }
   const pruned: WorktreeDiscovery = {
     repository: true,
@@ -111,11 +110,8 @@ function fixture() {
     stopWatch: vi.fn(() => Promise.resolve()),
     replaceWatch: vi.fn(() => Promise.resolve()),
   }
-  const cleanup: GitMutationCleanupPort = {
-    forgetWorkspaceSessions: vi.fn(() => Promise.resolve()),
-    revokeWorkspace: vi.fn(() => Promise.resolve()),
-    closeWorkspaceWebPanes: vi.fn(() => Promise.resolve()),
-    clearHtmlPreviews: vi.fn(),
+  const removal: WorkspaceRemovalPort = {
+    removeMissingWorkspace: vi.fn(() => Promise.resolve(state)),
   }
   const revoke = vi.fn()
   const authorizations = {
@@ -127,7 +123,7 @@ function fixture() {
     worker,
     workspaces,
     authorizations,
-    cleanup,
+    removal,
     onError: (message) => errors.push(message),
   })
   return {
@@ -135,7 +131,7 @@ function fixture() {
     registry,
     worker,
     workspaces,
-    cleanup,
+    removal,
     authorizations,
     revoke,
     coalesced,
@@ -151,7 +147,7 @@ describe('GitMutationCoordinator', () => {
       registry,
       worker,
       workspaces,
-      cleanup,
+      removal,
       authorizations,
       revoke,
       coalesced,
@@ -170,11 +166,10 @@ describe('GitMutationCoordinator', () => {
     expect(worker.pruneWorktrees).toHaveBeenCalledWith(root)
     expect(revoke).toHaveBeenCalledOnce()
     expect(registry.reconcileWorktrees).toHaveBeenCalledOnce()
-    expect(cleanup.forgetWorkspaceSessions).toHaveBeenCalledWith(staleRoot)
-    expect(registry.dismissWorkspace).toHaveBeenCalledWith('project-1', 'workspace-stale')
-    expect(cleanup.revokeWorkspace).toHaveBeenCalledWith(staleRoot)
-    expect(cleanup.closeWorkspaceWebPanes).toHaveBeenCalledWith(staleRoot)
-    expect(cleanup.clearHtmlPreviews).not.toHaveBeenCalled()
+    expect(removal.removeMissingWorkspace).toHaveBeenCalledWith(
+      'project-1',
+      'workspace-stale',
+    )
   })
 
   it('switches an existing branch with present worktree context and refreshes', async () => {

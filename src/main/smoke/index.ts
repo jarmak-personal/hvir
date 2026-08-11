@@ -562,6 +562,7 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
         resources: rendererResources,
         sessions: smokeTerminalSessions,
         webPanes: webPaneRoutes,
+        releaseHtmlPreviews: (root) => htmlPreviews.releaseWorkspace(root),
       }),
     })
     const projectFiles = createProjectFileOperationCoordinator(

@@ -250,6 +250,11 @@ renderer remains provider-neutral and reported windows retain precedence.
 Host-qualified Markdown review uses exact on-disk anchors, bounded local persistence, explicit
 payload bytes and destinations, and revisioned provider composer contracts through PTY authority.
 
+### [ADR-033 — Successful discovery dismisses missing workspaces](adr/ADR-033-successful-discovery-dismisses-missing-workspaces.md)
+
+Current successful Git discovery automatically dismisses prunable and omitted workspaces through
+one host-qualified resource-cleanup lifecycle without mutating the repository.
+
 ## 5. Architecture
 
 ### Process model
