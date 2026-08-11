@@ -178,7 +178,8 @@
   mask-repeat: no-repeat;
   -webkit-mask-size: 300% 100%;
   mask-size: 300% 100%;
-  animation: project-name-working-sweep 3s linear infinite;
+  /* Six-second sweep followed by three seconds with the full name steady. */
+  animation: project-name-working-sweep 9s linear infinite;
 }
 
 @keyframes project-name-working-sweep {
