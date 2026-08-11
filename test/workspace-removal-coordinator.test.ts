@@ -22,6 +22,7 @@ describe('WorkspaceRemovalCoordinator', () => {
       let state = projectState(root)
       const coordinator = new WorkspaceRemovalCoordinator(
         {
+          state: () => state,
           projectById: (projectId) =>
             state.projects.find((project) => project.id === projectId),
           dismissWorkspace: (_projectId, workspaceId) => {
@@ -54,6 +55,10 @@ describe('WorkspaceRemovalCoordinator', () => {
             calls.push('close-web-panes')
             return Promise.resolve()
           },
+          releaseHtmlPreviews: (candidate) => {
+            expect(candidate).toEqual(root)
+            calls.push('release-html-previews')
+          },
         },
       )
 
@@ -68,6 +73,7 @@ describe('WorkspaceRemovalCoordinator', () => {
         'dismiss-catalog',
         'revoke-workspace',
         'close-web-panes',
+        'release-html-previews',
       ])
       expect(state.projects[0]?.workspaces).toEqual([])
     },
@@ -78,6 +84,7 @@ describe('WorkspaceRemovalCoordinator', () => {
     const state = projectState(root, false)
     const coordinator = new WorkspaceRemovalCoordinator(
       {
+        state: () => state,
         projectById: () => state.projects[0],
         dismissWorkspace: () => Promise.resolve(state),
       },
@@ -85,12 +92,44 @@ describe('WorkspaceRemovalCoordinator', () => {
         forgetWorkspaceSessions: () => Promise.resolve(),
         revokeWorkspace: () => Promise.resolve(),
         closeWorkspaceWebPanes: () => Promise.resolve(),
+        releaseHtmlPreviews: () => undefined,
       },
     )
 
     await expect(
       coordinator.removeMissingWorkspace('project-1', 'workspace-removed'),
     ).rejects.toThrow('Only removed worktrees can be dismissed')
+  })
+
+  it('treats a workspace removed by a concurrent caller as complete', async () => {
+    const root = localPath('/repo/removed')
+    const initial = projectState(root)
+    const state = {
+      ...initial,
+      projects: initial.projects.map((project) => ({
+        ...project,
+        workspaces: [],
+      })),
+    }
+    const coordinator = new WorkspaceRemovalCoordinator(
+      {
+        state: () => state,
+        projectById: () => state.projects[0],
+        dismissWorkspace: () => Promise.reject(new Error('must not dismiss twice')),
+      },
+      {
+        forgetWorkspaceSessions: () => Promise.reject(new Error('must not forget twice')),
+        revokeWorkspace: () => Promise.reject(new Error('must not revoke twice')),
+        closeWorkspaceWebPanes: () => Promise.reject(new Error('must not close twice')),
+        releaseHtmlPreviews: () => {
+          throw new Error('must not release twice')
+        },
+      },
+    )
+
+    await expect(
+      coordinator.removeMissingWorkspace('project-1', 'workspace-removed'),
+    ).resolves.toBe(state)
   })
 })
 

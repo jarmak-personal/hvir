@@ -113,7 +113,6 @@ function fixture() {
   const removal: WorkspaceRemovalPort = {
     removeMissingWorkspace: vi.fn(() => Promise.resolve(state)),
   }
-  const clearHtmlPreviews = vi.fn()
   const revoke = vi.fn()
   const authorizations = {
     grant: vi.fn(() => ({ id: 1, revoke })),
@@ -125,7 +124,6 @@ function fixture() {
     workspaces,
     authorizations,
     removal,
-    clearHtmlPreviews,
     onError: (message) => errors.push(message),
   })
   return {
@@ -134,7 +132,6 @@ function fixture() {
     worker,
     workspaces,
     removal,
-    clearHtmlPreviews,
     authorizations,
     revoke,
     coalesced,
@@ -151,7 +148,6 @@ describe('GitMutationCoordinator', () => {
       worker,
       workspaces,
       removal,
-      clearHtmlPreviews,
       authorizations,
       revoke,
       coalesced,
@@ -174,7 +170,6 @@ describe('GitMutationCoordinator', () => {
       'project-1',
       'workspace-stale',
     )
-    expect(clearHtmlPreviews).not.toHaveBeenCalled()
   })
 
   it('switches an existing branch with present worktree context and refreshes', async () => {

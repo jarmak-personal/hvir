@@ -54,7 +54,6 @@ export interface GitMutationCoordinatorOptions {
     grant(request: GitMutationGrantRequest): GitMutationGrant
   }
   readonly removal: WorkspaceRemovalPort
-  readonly clearHtmlPreviews: () => void
   readonly onError?: (message: string, error: unknown) => void
 }
 
@@ -190,7 +189,6 @@ export class GitMutationCoordinator {
     }
     if (prunesActiveWorkspace) {
       await this.options.workspaces.stopWatch()
-      this.options.clearHtmlPreviews()
       await this.options.workspaces.replaceWatch(registry.active)
     }
     return registry.state()

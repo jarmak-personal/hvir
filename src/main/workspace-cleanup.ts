@@ -9,16 +9,19 @@ export function createWorkspaceCleanup({
   resources,
   sessions,
   webPanes,
+  releaseHtmlPreviews,
 }: {
   readonly ptys: PtySupervisor
   readonly resources: RendererResourceScopes
   readonly sessions: Pick<TerminalSessionStore, 'list' | 'forget'>
   readonly webPanes: WebPaneRouteRegistry
+  readonly releaseHtmlPreviews: (root: HostPath) => void
 }) {
   return {
     revokeWorkspace: (root: HostPath): Promise<void> => resources.revokeWorkspace(root),
     closeWorkspaceWebPanes: (root: HostPath): Promise<void> =>
       webPanes.closeWorkspace(root),
+    releaseHtmlPreviews,
     workspaceTerminalIds: (root: HostPath): readonly string[] => [
       ...new Set([
         ...sessions.list(root).map((session) => session.id),

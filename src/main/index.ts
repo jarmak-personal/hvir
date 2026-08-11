@@ -270,6 +270,7 @@ function createWorkbenchEntry(): void {
       resources: rendererScopes,
       sessions: terminalSessionRegistry,
       webPanes: webPaneRoutes,
+      releaseHtmlPreviews: (root) => htmlPreviews.releaseWorkspace(root),
     })
     const removal = new WorkspaceRemovalCoordinator(projectRegistry, workspaceCleanup)
     workspaceCoordinator = runtime.own(
@@ -318,7 +319,6 @@ function createWorkbenchEntry(): void {
       workspaces: workspaceCoordinator,
       authorizations: gitMutationAuthorizations,
       removal,
-      clearHtmlPreviews: () => htmlPreviews.clear(),
       onError: (message, error) => console.error(message, error),
     })
     const terminalMoves = new TerminalWorkspaceMoveCoordinator({

@@ -465,6 +465,55 @@ describe('ProjectRegistry session flow', () => {
     await restored.dispose()
   })
 
+  it('reopens a present closed fallback when the active missing workspace is dismissed', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'hvir-registry-dismiss-fallback-'))
+    const linked = join(root, 'linked')
+    await mkdir(linked)
+    cleanups.push(root)
+    const canonicalRoot = localPath(await realpath(root))
+    const canonicalLinked = localPath(await realpath(linked))
+    const registry = await createRegistry(
+      canonicalRoot,
+      { prompt: () => Promise.resolve(undefined) },
+      join(root, 'known-hosts.json'),
+      join(root, 'projects.json'),
+      () => undefined,
+    )
+    const projectId = registry.state().activeProjectId
+    await registry.reconcileWorktrees(projectId, {
+      repository: true,
+      worktrees: [
+        { root: canonicalRoot, branch: 'main', detached: false, bare: false },
+        {
+          root: canonicalLinked,
+          branch: 'feature',
+          detached: false,
+          bare: false,
+        },
+      ],
+    })
+    const project = registry.projectById(projectId)!
+    const mainId = project.workspaces.find(({ main }) => main)!.id
+    const linkedId = project.workspaces.find(({ main }) => !main)!.id
+    await registry.activate(projectId, linkedId)
+    await registry.closeWorkspace(projectId, mainId)
+    await registry.reconcileWorktrees(projectId, {
+      repository: true,
+      worktrees: [{ root: canonicalRoot, branch: 'main', detached: false, bare: false }],
+    })
+
+    await registry.dismissWorkspace(projectId, linkedId)
+
+    expect(registry.state()).toMatchObject({
+      root: canonicalRoot,
+      activeWorkspaceId: mainId,
+    })
+    expect(registry.projectById(projectId)?.workspaces).toEqual([
+      expect.objectContaining({ id: mainId, missing: false, closed: false }),
+    ])
+    await registry.dispose()
+  })
+
   it('persists closed workspaces and resurfaces them only from comparable activity or rediscovery', async () => {
     const root = await mkdtemp(join(tmpdir(), 'hvir-registry-closed-'))
     const linked = join(root, 'linked')

@@ -20,6 +20,7 @@ import {
 
 const root = localPath('/project')
 const staleRoot = localPath('/project-stale')
+const otherStaleRoot = localPath('/project-other-stale')
 const host = {
   hostId: root.hostId,
   connectionState: 'connected',
@@ -162,6 +163,7 @@ function fixture() {
       return Promise.resolve(state)
     }),
   }
+  const errors: string[] = []
   const watches: WorkspaceWatchPort[] = []
   const createWatch = vi.fn((target: WorkspaceWatchPort['target']) => {
     const watch: WorkspaceWatchPort = {
@@ -178,6 +180,7 @@ function fixture() {
     removal,
     emitWatch: vi.fn(),
     createWatch,
+    onError: (message) => errors.push(message),
   })
   return {
     coordinator,
@@ -186,6 +189,7 @@ function fixture() {
     removal,
     watches,
     createWatch,
+    errors,
     setActive: (nextRoot: typeof root, workspaceId: string) => {
       active = { ...active, root: nextRoot, workspaceId }
     },
@@ -274,6 +278,55 @@ describe('WorkspaceCoordinator', () => {
       'project-1',
       'workspace-stale',
     )
+  })
+
+  it('does not remove workspaces when discovery classifies the root as a plain directory', async () => {
+    const { coordinator, discovery, removal } = fixture()
+    discovery.discover.mockResolvedValueOnce({
+      repository: false,
+      worktrees: [{ root, detached: false, bare: false }],
+    })
+
+    await coordinator.refresh('project-1')
+
+    expect(removal.removeMissingWorkspace).not.toHaveBeenCalled()
+  })
+
+  it('reports one removal failure and continues cleaning other missing workspaces', async () => {
+    const { coordinator, registry, removal, errors } = fixture()
+    const presentProject = projectWithStaleWorkspace(false)
+    const missingBase = projectWithStaleWorkspace(true)
+    const missingProject = {
+      ...missingBase,
+      workspaces: [
+        ...missingBase.workspaces,
+        {
+          id: 'workspace-other-stale',
+          root: otherStaleRoot,
+          name: 'project-other-stale',
+          main: false,
+          closed: false,
+          missing: true,
+          repository: true,
+          changedFiles: 0,
+        },
+      ],
+    }
+    vi.mocked(registry.projectById)
+      .mockReturnValueOnce(presentProject)
+      .mockReturnValueOnce(missingProject)
+      .mockReturnValue(projectState().projects[0])
+    vi.mocked(removal.removeMissingWorkspace).mockRejectedValueOnce(
+      new Error('session cleanup failed'),
+    )
+
+    await coordinator.refresh('project-1')
+
+    expect(vi.mocked(removal.removeMissingWorkspace).mock.calls).toEqual([
+      ['project-1', 'workspace-stale'],
+      ['project-1', 'workspace-other-stale'],
+    ])
+    expect(errors).toEqual(['[workspace] missing workspace removal failed for project-1'])
   })
 
   it('replaces the active watch after discovery removes the active workspace', async () => {

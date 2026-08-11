@@ -285,23 +285,25 @@ export class WorkspaceCoordinator {
     const discovery = await this.options.discovery.discover(project.registeredRoot)
     if (!this.isCurrent(projectId, generation)) return this.options.registry.state()
     await this.options.registry.reconcileWorktrees(projectId, discovery)
-    if (!this.isCurrent(projectId, generation)) return this.options.registry.state()
+    if (!this.isCurrent(projectId, generation) || !discovery.repository) {
+      return this.options.registry.state()
+    }
     const missing =
       this.options.registry
         .projectById(projectId)
         ?.workspaces.filter((workspace) => workspace.missing) ?? []
-    const removesActive = missing.some(
+    const removedActiveId = missing.find(
       (workspace) =>
         this.options.registry.active.projectId === projectId &&
         this.options.registry.active.workspaceId === workspace.id,
-    )
+    )?.id
     if (missing.length > 0) {
       await this.trackRemoval(
         projectId,
-        this.removeMissingWorkspaces(projectId, missing, removesActive),
+        this.removeMissingWorkspaces(projectId, missing, removedActiveId),
       )
     }
-    if (!this.isCurrent(projectId, generation) || !discovery.repository) {
+    if (!this.isCurrent(projectId, generation)) {
       return this.options.registry.state()
     }
     const refreshed = this.options.registry.projectById(projectId)
@@ -431,12 +433,21 @@ export class WorkspaceCoordinator {
   private async removeMissingWorkspaces(
     projectId: string,
     workspaces: readonly { readonly id: string }[],
-    replacesActiveWatch: boolean,
+    removedActiveId: string | undefined,
   ): Promise<void> {
     for (const workspace of workspaces) {
-      await this.options.removal.removeMissingWorkspace(projectId, workspace.id)
+      try {
+        await this.options.removal.removeMissingWorkspace(projectId, workspace.id)
+      } catch (error) {
+        this.report(
+          `[workspace] missing workspace removal failed for ${projectId}`,
+          error,
+        )
+      }
     }
-    if (replacesActiveWatch) await this.replaceWatch(this.options.registry.active)
+    if (removedActiveId && this.options.registry.active.workspaceId !== removedActiveId) {
+      await this.replaceWatch(this.options.registry.active)
+    }
   }
 
   private trackRemoval(projectId: string, removal: Promise<void>): Promise<void> {
