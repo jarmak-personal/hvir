@@ -60,6 +60,7 @@
     "architecture:report": "node scripts/architecture-hotspots.mjs",
     "architecture:check": "node scripts/architecture-hotspots.mjs --enforce",
     "generate:terminal-themes": "node scripts/generate-terminal-theme-catalog.mts",
+    "update:ghostty-web": "node scripts/ghostty-web-update/cli.mts",
     "project:kind": "node scripts/project-management/sync-kind.ts",
     "project:record": "node scripts/project-management/read-planning-record.ts",
     "project:pr": "node scripts/project-management/sync-pull-request-planning.ts",
