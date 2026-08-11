@@ -18,6 +18,7 @@ import { createElectronRemoteImagePasteCoordinator } from './harness/electron-cl
 import { ProjectWatchController } from './project-watch'
 import { WorkspaceCoordinator } from './workspace-coordinator'
 import { createWorkspaceCleanup } from './workspace-cleanup'
+import { WorkspaceRemovalCoordinator } from './workspace-removal-coordinator'
 import { TerminalSessionRegistry } from './terminal/session-registry'
 import { TerminalWorkspaceMoveCoordinator } from './terminal/terminal-workspace-move-coordinator'
 import { RendererResourceScopes, type RendererOwner } from './renderer-resource-scopes'
@@ -235,26 +236,6 @@ function createWorkbenchEntry(): void {
       createProjectFileOperationCoordinator(projectRegistry, rendererScopes),
       (operations) => operations.dispose(),
     )
-    workspaceCoordinator = runtime.own(
-      'workspace coordinator',
-      new WorkspaceCoordinator({
-        registry: projectRegistry,
-        discovery: {
-          discover: (root) => gitWorker!.request(GIT_WORKTREES_TYPE, { root }),
-          workspaceActivity: (root, relatedWorktreeRoots) =>
-            gitWorker!.request(GIT_WORKSPACE_ACTIVITY_TYPE, {
-              root,
-              relatedWorktreeRoots,
-            }),
-        },
-        emitWatch: (event) => emit('project:watch', event),
-        createWatch: (target, callbacks) => new ProjectWatchController(target, callbacks),
-        shouldPoll: () =>
-          !runtime.isShuttingDown && BrowserWindow.getAllWindows().length > 0,
-        onError: (message, error) => console.error(message, error),
-      }),
-      (coordinator) => coordinator.dispose(),
-    )
     ptySupervisor = runtime.own(
       'PTY supervisor',
       new PtySupervisor({
@@ -289,11 +270,35 @@ function createWorkbenchEntry(): void {
       resources: rendererScopes,
       sessions: terminalSessionRegistry,
       webPanes: webPaneRoutes,
+      releaseHtmlPreviews: (root) => htmlPreviews.releaseWorkspace(root),
     })
+    const removal = new WorkspaceRemovalCoordinator(projectRegistry, workspaceCleanup)
+    workspaceCoordinator = runtime.own(
+      'workspace coordinator',
+      new WorkspaceCoordinator({
+        registry: projectRegistry,
+        discovery: {
+          discover: (root) => gitWorker!.request(GIT_WORKTREES_TYPE, { root }),
+          workspaceActivity: (root, relatedWorktreeRoots) =>
+            gitWorker!.request(GIT_WORKSPACE_ACTIVITY_TYPE, {
+              root,
+              relatedWorktreeRoots,
+            }),
+        },
+        removal,
+        emitWatch: (event) => emit('project:watch', event),
+        createWatch: (target, callbacks) => new ProjectWatchController(target, callbacks),
+        shouldPoll: () =>
+          !runtime.isShuttingDown && BrowserWindow.getAllWindows().length > 0,
+        onError: (message, error) => console.error(message, error),
+      }),
+      (coordinator) => coordinator.dispose(),
+    )
     projectCoordinator = new ProjectCoordinator({
       registry: projectRegistry,
       workspaces: workspaceCoordinator,
       cleanup: workspaceCleanup,
+      removal,
       onError: (message, error) => console.error(message, error),
       onHostControlDiagnostic: (event) => diagnostics.recordHostControl(event),
     })
@@ -313,12 +318,7 @@ function createWorkbenchEntry(): void {
       },
       workspaces: workspaceCoordinator,
       authorizations: gitMutationAuthorizations,
-      cleanup: {
-        forgetWorkspaceSessions: workspaceCleanup.forgetWorkspaceSessions,
-        revokeWorkspace: workspaceCleanup.revokeWorkspace,
-        closeWorkspaceWebPanes: workspaceCleanup.closeWorkspaceWebPanes,
-        clearHtmlPreviews: () => htmlPreviews.clear(),
-      },
+      removal,
       onError: (message, error) => console.error(message, error),
     })
     const terminalMoves = new TerminalWorkspaceMoveCoordinator({

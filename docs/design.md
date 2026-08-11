@@ -250,7 +250,12 @@ renderer remains provider-neutral and reported windows retain precedence.
 Host-qualified Markdown review uses exact on-disk anchors, bounded local persistence, explicit
 payload bytes and destinations, and revisioned provider composer contracts through PTY authority.
 
-### [ADR-033 — Project-name Working presentation](adr/ADR-033-project-name-working-presentation.md)
+### [ADR-033 — Successful discovery dismisses missing workspaces](adr/ADR-033-successful-discovery-dismisses-missing-workspaces.md)
+
+Current successful Git discovery automatically dismisses prunable and omitted workspaces through
+one host-qualified resource-cleanup lifecycle without mutating the repository.
+
+### [ADR-034 — Project-name Working presentation](adr/ADR-034-project-name-working-presentation.md)
 
 Provider-neutral Working state may animate a project name without becoming actionable attention,
 changing navigation width, or overriding reduced-motion preferences.

@@ -137,11 +137,36 @@ describe('Git worker host broker', () => {
       dispatchWorkerHostCall({ ...call, maxBytes: 0 }, project),
     ).rejects.toThrow('Invalid text prefix byte limit')
     await expect(
+      dispatchWorkerHostCall({ ...call, maxBytes: DIFF_INPUT_BYTE_LIMIT + 1 }, project),
+    ).rejects.toThrow('Invalid text prefix byte limit')
+  })
+
+  it('routes only confined entry metadata', async () => {
+    const rootPath = await mkdtemp(join(tmpdir(), 'hvir-broker-stat-'))
+    const outside = await mkdtemp(join(tmpdir(), 'hvir-broker-stat-outside-'))
+    cleanups.push(rootPath, outside)
+    const path = localPath(join(rootPath, 'file.txt'))
+    await writeFile(path.path, 'content')
+    const host = new LocalHost()
+    const project = { host, root: localPath(rootPath) }
+    const call: WorkerHostCall = {
+      kind: 'host-call',
+      callId: 2,
+      hostId: host.hostId,
+      operation: 'stat',
+      path,
+    }
+
+    await expect(dispatchWorkerHostCall(call, project)).resolves.toMatchObject({
+      type: 'file',
+      size: 7,
+    })
+    await expect(
       dispatchWorkerHostCall(
-        { ...call, maxBytes: DIFF_INPUT_BYTE_LIMIT + 1 },
+        { ...call, path: localPath(join(outside, 'file.txt')) },
         project,
       ),
-    ).rejects.toThrow('Invalid text prefix byte limit')
+    ).rejects.toThrow('escapes the active project')
   })
 
   it('permits truncation only for status and bounded blob reads', async () => {
@@ -331,6 +356,20 @@ describe('Git worker host broker', () => {
     ['helper subcommand', ['credential', 'fill']],
     ['external diff option', ['diff', '--ext-diff', 'HEAD']],
     [
+      'per-file no-index stats',
+      [
+        'diff',
+        '--no-ext-diff',
+        '--no-textconv',
+        '--no-index',
+        '--numstat',
+        '-z',
+        '--',
+        '/dev/null',
+        'untracked.txt',
+      ],
+    ],
+    [
       'feature upstream discovery',
       ['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{upstream}'],
     ],
@@ -361,6 +400,7 @@ describe('Git worker host broker', () => {
     git(rootPath, ['add', 'file.txt', '.gitignore'])
     git(rootPath, ['commit', '-m', 'base'])
     await writeFile(join(rootPath, 'file.txt'), 'changed\n')
+    await writeFile(join(rootPath, 'untracked.txt'), 'new\n')
     await writeFile(join(rootPath, 'ignored.txt'), 'ignored\n')
 
     const actual = new LocalHost()
@@ -392,6 +432,29 @@ describe('Git worker host broker', () => {
           },
           project,
         ),
+      readTextFilePrefix: (path: ReturnType<typeof localPath>, maxBytes: number) =>
+        dispatchWorkerHostCall(
+          {
+            kind: 'host-call',
+            callId: ++callId,
+            hostId: actual.hostId,
+            operation: 'readTextFilePrefix',
+            path,
+            maxBytes,
+          },
+          project,
+        ),
+      stat: (path: ReturnType<typeof localPath>) =>
+        dispatchWorkerHostCall(
+          {
+            kind: 'host-call',
+            callId: ++callId,
+            hostId: actual.hostId,
+            operation: 'stat',
+            path,
+          },
+          project,
+        ),
     } as unknown as ProjectHost
     const engine = new GitEngine(proxy, localPath(rootPath))
 
@@ -399,7 +462,7 @@ describe('Git worker host broker', () => {
       expect.objectContaining({ repository: true }),
     )
     await expect(engine.workspaceActivity(localPath(rootPath))).resolves.toMatchObject({
-      changedFiles: 1,
+      changedFiles: 2,
     })
     await expect(engine.branches(localPath(rootPath))).resolves.toEqual(
       expect.objectContaining({ current: 'main' }),
@@ -414,7 +477,15 @@ describe('Git worker host broker', () => {
       true,
     )
     const commit = history.commits[0]
-    expect(changes.workingTree).toHaveLength(1)
+    expect(changes.workingTree).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ path: localPath(join(rootPath, 'file.txt')) }),
+        expect.objectContaining({
+          path: localPath(join(rootPath, 'untracked.txt')),
+          additions: 1,
+        }),
+      ]),
+    )
     expect(commit).toBeDefined()
     expect(graphHistory.commits).toHaveLength(1)
     await expect(

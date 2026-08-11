@@ -3,6 +3,7 @@ import {
   hostPath,
   type ExecResult,
   type HostPath,
+  type Stat,
   type TextWorkload,
   type WorkerHostCall,
 } from '../../shared'
@@ -20,7 +21,7 @@ export async function dispatchWorkerHostCall(
   call: WorkerHostCall,
   project: { readonly host: ProjectHost; readonly root: HostPath } | null,
   permissions: GitHostCallPermissions = {},
-): Promise<ExecResult | string | TextWorkload> {
+): Promise<ExecResult | Stat | string | TextWorkload> {
   if (!project || call.hostId !== project.host.hostId) {
     throw new Error('git worker requested an inactive host')
   }
@@ -33,6 +34,10 @@ export async function dispatchWorkerHostCall(
     await assertProjectPath(call.path, root, host)
     assertTextPrefixByteLimit(call.maxBytes)
     return host.readTextFilePrefix(call.path, call.maxBytes)
+  }
+  if (call.operation === 'stat') {
+    await assertProjectPath(call.path, root, host)
+    return host.stat(call.path)
   }
   if (call.command !== 'git') throw new Error('git worker may execute only git')
   if (
@@ -284,19 +289,6 @@ function validateGitInvocation(args: readonly string[]): void {
 }
 
 function isAllowedNumstatDiff(args: readonly string[]): boolean {
-  if (
-    args.length === 8 &&
-    args[0] === '--no-ext-diff' &&
-    args[1] === '--no-textconv' &&
-    args[2] === '--no-index' &&
-    args[3] === '--numstat' &&
-    args[4] === '-z' &&
-    args[5] === '--' &&
-    args[6] === '/dev/null' &&
-    isRepositoryPath(args[7] ?? '')
-  ) {
-    return true
-  }
   if (
     !sameArgs(args.slice(0, 4), ['--no-ext-diff', '--no-textconv', '--numstat', '-z'])
   ) {

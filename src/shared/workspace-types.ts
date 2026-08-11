@@ -45,7 +45,7 @@ export interface WorktreeDiscovery {
   readonly worktrees: readonly DiscoveredWorktree[]
 }
 
-/** Renderer-facing persisted workspace record. Missing worktrees stay until dismissed. */
+/** Renderer-facing persisted workspace record. Missing records await lifecycle cleanup. */
 export interface WorkspaceState {
   readonly id: string
   readonly root: HostPath
