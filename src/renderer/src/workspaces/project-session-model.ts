@@ -16,9 +16,10 @@ export interface ProjectSessionModel {
   readonly generation: number
 }
 
-/** Feature-neutral attention input supplied by harness/terminal surfaces. */
+/** Provider-neutral terminal signal input supplied by terminal workspace owners. */
 export interface WorkspaceAttentionRollup {
   readonly actionable: number
+  readonly working: number
 }
 
 export type WorkspaceAttentionRollups = Readonly<Record<string, WorkspaceAttentionRollup>>

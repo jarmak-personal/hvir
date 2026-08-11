@@ -13,6 +13,7 @@ import { connectionStateLabel } from './connection-status'
 import type { WorkspaceAttentionRollups } from './project-session-model'
 import {
   aggregateActionableWorkspaceAttention,
+  aggregateWorkingWorkspaceTerminals,
   workspaceActionableAttention,
 } from './workspace-attention'
 import type { AppTheme } from '../theme'
@@ -158,26 +159,33 @@ export function ProjectsBar({
           {state.projects.map((project) => {
             const active = project.id === state.activeProjectId
             const remote = project.registeredRoot.hostId !== 'local'
+            const workspaceIds = project.workspaces.map((workspace) => workspace.id)
             const actionable = aggregateActionableWorkspaceAttention(
-              project.workspaces.map((workspace) => workspace.id),
+              workspaceIds,
               rollups,
             )
+            const working = aggregateWorkingWorkspaceTerminals(workspaceIds, rollups)
+            const showWorking = working > 0 && actionable === 0
+            const title = projectTabTitle(project, working)
             const target = activeWorkspace(project)
             return (
               <div
                 className={`project-tab${active ? ' active' : ''}`}
                 key={project.id}
-                title={`${project.registeredRoot.path} · ${project.connectionState}`}
+                title={title}
               >
                 <button
                   type="button"
                   className="project-tab-main"
                   aria-current={active ? 'page' : undefined}
+                  aria-label={projectTabLabel(project, actionable, working)}
                   disabled={busy || !target}
                   onClick={() => target && onSwitch(project.id, target.id)}
-                  title={`${project.registeredRoot.path} · ${project.connectionState}`}
+                  title={title}
                 >
-                  <strong>{project.displayName}</strong>
+                  <strong className={showWorking ? 'project-name-working' : undefined}>
+                    {project.displayName}
+                  </strong>
                   {remote && !active ? (
                     <RemoteConnectionBadge
                       state={project.connectionState}
@@ -543,13 +551,48 @@ function CloseProjectDialog({
 }
 
 function AttentionCount({ count }: { readonly count: number }): ReactElement {
-  const label = `${count} terminal${count === 1 ? '' : 's'} needing attention`
+  const label = actionableTerminalLabel(count)
   return (
     <span className="terminal-attention-count" aria-label={label} title={label}>
       <span aria-hidden="true">!</span>
       {count}
     </span>
   )
+}
+
+function projectTabTitle(project: RegisteredProjectState, working: number): string {
+  return [
+    project.registeredRoot.path,
+    project.connectionState,
+    working > 0 ? workingTerminalLabel(working) : undefined,
+  ]
+    .filter((part): part is string => Boolean(part))
+    .join(' · ')
+}
+
+function projectTabLabel(
+  project: RegisteredProjectState,
+  actionable: number,
+  working: number,
+): string {
+  const remote = project.registeredRoot.hostId !== 'local'
+  return [
+    project.displayName,
+    remote ? `ssh:${project.registeredRoot.hostId}` : undefined,
+    remote ? connectionStateLabel(project.connectionState) : undefined,
+    actionable > 0 ? actionableTerminalLabel(actionable) : undefined,
+    working > 0 ? workingTerminalLabel(working) : undefined,
+  ]
+    .filter((part): part is string => Boolean(part))
+    .join(' · ')
+}
+
+function actionableTerminalLabel(count: number): string {
+  return `${count} terminal${count === 1 ? '' : 's'} needing attention`
+}
+
+function workingTerminalLabel(count: number): string {
+  return `${count} terminal${count === 1 ? '' : 's'} working`
 }
 
 function PruneWorktreesDialog({

@@ -1,5 +1,9 @@
 # ADR-019: Working output is not actionable attention
 
+> [ADR-034](ADR-034-project-name-working-presentation.md) supersedes only the rule that Working
+> remains visible only on its terminal row. Working remains excluded from actionable attention
+> counts and retains the signal, focus, heuristic, and provider-independent policy in this record.
+
 ## Context
 
 ADR-009 established provider-independent terminal attention from generic input, output, idle,

@@ -35,8 +35,8 @@ afterEach(() => {
 describe('ProjectsBar status presentation', () => {
   it('omits Git change counts while keeping actionable attention', () => {
     renderProjectsBar(projectState(2, 3), {
-      'workspace:local:/repo': { actionable: 1 },
-      'workspace:local:/repo/feature': { actionable: 1 },
+      'workspace:local:/repo': { actionable: 1, working: 0 },
+      'workspace:local:/repo/feature': { actionable: 1, working: 0 },
     })
 
     const projectTab = host.querySelector('.project-tab')
@@ -61,6 +61,38 @@ describe('ProjectsBar status presentation', () => {
     expect(host.textContent).not.toContain('Δ')
   })
 
+  it('animates a Working project name without adding a badge and lets actionable attention win', () => {
+    const state = projectState(0, 0)
+    renderProjectsBar(state, {
+      'workspace:local:/repo': { actionable: 0, working: 1 },
+      'workspace:local:/repo/feature': { actionable: 0, working: 2 },
+    })
+
+    const projectMain = host.querySelector<HTMLButtonElement>('.project-tab-main')
+    const projectName = projectMain?.querySelector('strong')
+    expect(projectName?.textContent).toBe('repo')
+    expect(projectName?.classList.contains('project-name-working')).toBe(true)
+    expect(projectMain?.querySelector('.terminal-attention-count')).toBeNull()
+    expect(projectMain?.getAttribute('aria-label')).toBe('repo · 3 terminals working')
+    expect(projectMain?.title).toBe('/repo · connected · 3 terminals working')
+
+    renderProjectsBar(state, {
+      'workspace:local:/repo': { actionable: 1, working: 1 },
+      'workspace:local:/repo/feature': { actionable: 0, working: 2 },
+    })
+
+    const actionableMain = host.querySelector<HTMLButtonElement>('.project-tab-main')
+    expect(
+      actionableMain?.querySelector('strong')?.classList.contains('project-name-working'),
+    ).toBe(false)
+    expect(actionableMain?.querySelector('.terminal-attention-count')?.textContent).toBe(
+      '!1',
+    )
+    expect(actionableMain?.getAttribute('aria-label')).toBe(
+      'repo · 1 terminal needing attention · 3 terminals working',
+    )
+  })
+
   it('keeps SSH project badges compact while preserving connection details and controls', () => {
     renderProjectsBar(
       remoteProjectState([
@@ -70,7 +102,16 @@ describe('ProjectsBar status presentation', () => {
         'failed',
         'disconnected',
       ]),
-      {},
+      {
+        'workspace:remote-connected:/srv/connected': {
+          actionable: 0,
+          working: 1,
+        },
+        'workspace:remote-reconnecting:/srv/reconnecting': {
+          actionable: 0,
+          working: 2,
+        },
+      },
     )
 
     const badges = [...host.querySelectorAll('.remote-connection-badge')]
@@ -94,9 +135,16 @@ describe('ProjectsBar status presentation', () => {
       'ssh:remote-failed · Connection failed',
       'ssh:remote-disconnected · Disconnected',
     ])
+    expect(host.querySelectorAll('.project-name-working')).toHaveLength(2)
 
     const trigger = host.querySelector<HTMLButtonElement>(
       '.project-tab.active .project-connection-trigger',
+    )
+    const activeProjectMain = host.querySelector<HTMLButtonElement>(
+      '.project-tab.active .project-tab-main',
+    )
+    expect(activeProjectMain?.getAttribute('aria-label')).toBe(
+      'repo-connected · ssh:remote-connected · Connected · 1 terminal working',
     )
     expect(trigger?.getAttribute('aria-label')).toBe(
       'Connection controls for ssh:remote-connected · Connected',
@@ -209,7 +257,9 @@ describe('ProjectsBar status presentation', () => {
 
 function renderProjectsBar(
   state: ProjectState,
-  rollups: Readonly<Record<string, { readonly actionable: number }>>,
+  rollups: Readonly<
+    Record<string, { readonly actionable: number; readonly working: number }>
+  >,
 ) {
   const callbacks = {
     plan: vi.fn(() => Promise.resolve({ terminalCount: 0 })),

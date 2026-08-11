@@ -255,6 +255,11 @@ payload bytes and destinations, and revisioned provider composer contracts throu
 Current successful Git discovery automatically dismisses prunable and omitted workspaces through
 one host-qualified resource-cleanup lifecycle without mutating the repository.
 
+### [ADR-034 — Project-name Working presentation](adr/ADR-034-project-name-working-presentation.md)
+
+Provider-neutral Working state may animate a project name without becoming actionable attention,
+changing navigation width, or overriding reduced-motion preferences.
+
 ## 5. Architecture
 
 ### Process model
