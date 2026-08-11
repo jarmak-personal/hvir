@@ -4,7 +4,10 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { useTerminalAttentionController } from '../src/renderer/src/terminal/use-terminal-attention-controller'
+import {
+  useTerminalAttentionController,
+  useTerminalAttentionRollup,
+} from '../src/renderer/src/terminal/use-terminal-attention-controller'
 import type { TerminalSession } from '../src/renderer/src/terminal/terminal-workspace-model'
 import { asHarnessProfileId, asHarnessProviderId, localPath } from '../src/shared'
 
@@ -57,6 +60,35 @@ describe('terminal attention controller', () => {
     })
     expect(session.attention).toBe('idle')
   })
+
+  it('publishes Working separately from actionable attention and clears both on cleanup', () => {
+    const onRollup = vi.fn()
+    const sessions = [
+      { ...terminalSession(), attention: 'working' as const },
+      { ...terminalSession(), id: 'terminal-2', attention: 'idle' as const },
+      { ...terminalSession(), id: 'terminal-3', attention: 'bell' as const },
+    ]
+
+    act(() => {
+      root.render(
+        <AttentionRollupProbe
+          workspaceId="workspace:local:/repo"
+          sessions={sessions}
+          onRollup={onRollup}
+        />,
+      )
+    })
+    expect(onRollup).toHaveBeenLastCalledWith('workspace:local:/repo', {
+      actionable: 2,
+      working: 1,
+    })
+
+    act(() => root.render(<></>))
+    expect(onRollup).toHaveBeenLastCalledWith('workspace:local:/repo', {
+      actionable: 0,
+      working: 0,
+    })
+  })
 })
 
 function AttentionControllerProbe({
@@ -70,6 +102,22 @@ function AttentionControllerProbe({
     idleThresholdMs: 1_000,
     onUpdateSession,
   })
+  return null
+}
+
+function AttentionRollupProbe({
+  workspaceId,
+  sessions,
+  onRollup,
+}: {
+  readonly workspaceId: string
+  readonly sessions: readonly TerminalSession[]
+  readonly onRollup: (
+    workspaceId: string,
+    rollup: { readonly actionable: number; readonly working: number },
+  ) => void
+}) {
+  useTerminalAttentionRollup({ workspaceId, sessions, onRollup })
   return null
 }
 

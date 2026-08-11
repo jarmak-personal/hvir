@@ -8,6 +8,7 @@ import {
   terminalIdleAttentionAfterInput,
   terminalInputArmsIdleAttention,
   terminalOutputAttentionDecision,
+  terminalWorkingCount,
 } from '../src/renderer/src/terminal/terminal-attention'
 
 describe('terminal attention', () => {
@@ -42,6 +43,7 @@ describe('terminal attention', () => {
     expect(terminalActionableAttentionCount(['working', 'bell', 'idle', undefined])).toBe(
       2,
     )
+    expect(terminalWorkingCount(['working', 'bell', 'working', undefined])).toBe(2)
   })
 
   it('arms idle-after-burst only at a submitted terminal-input boundary', () => {

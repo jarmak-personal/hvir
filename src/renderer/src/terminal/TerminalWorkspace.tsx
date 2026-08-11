@@ -89,6 +89,7 @@ interface TerminalWorkspaceProps {
 
 export interface TerminalWorkspaceRollup {
   readonly actionable: number
+  readonly working: number
 }
 
 export function TerminalWorkspace({

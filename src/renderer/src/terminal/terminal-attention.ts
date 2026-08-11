@@ -69,3 +69,9 @@ export function terminalActionableAttentionCount(
   return attentions.filter((attention) => attention === 'idle' || attention === 'bell')
     .length
 }
+
+export function terminalWorkingCount(
+  attentions: readonly (TerminalAttention | undefined)[],
+): number {
+  return attentions.filter((attention) => attention === 'working').length
+}

@@ -250,6 +250,11 @@ renderer remains provider-neutral and reported windows retain precedence.
 Host-qualified Markdown review uses exact on-disk anchors, bounded local persistence, explicit
 payload bytes and destinations, and revisioned provider composer contracts through PTY authority.
 
+### [ADR-033 — Project-name Working presentation](adr/ADR-033-project-name-working-presentation.md)
+
+Provider-neutral Working state may animate a project name without becoming actionable attention,
+changing navigation width, or overriding reduced-motion preferences.
+
 ## 5. Architecture
 
 ### Process model

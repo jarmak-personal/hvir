@@ -164,6 +164,48 @@
   white-space: nowrap;
 }
 
+.project-name-working {
+  -webkit-mask-image: linear-gradient(
+    90deg,
+    #000 0 46%,
+    rgb(0 0 0 / 25%) 49% 51%,
+    #000 54% 100%
+  );
+  mask-image: linear-gradient(90deg, #000 0 46%, rgb(0 0 0 / 25%) 49% 51%, #000 54% 100%);
+  -webkit-mask-position: 100% 0;
+  mask-position: 100% 0;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-size: 300% 100%;
+  mask-size: 300% 100%;
+  animation: project-name-working-sweep 3s linear infinite;
+}
+
+@keyframes project-name-working-sweep {
+  0% {
+    -webkit-mask-position: 100% 0;
+    mask-position: 100% 0;
+  }
+
+  66.667%,
+  100% {
+    -webkit-mask-position: 0 0;
+    mask-position: 0 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .project-name-working {
+    -webkit-mask-image: none;
+    mask-image: none;
+    animation: none;
+    text-decoration-line: underline;
+    text-decoration-style: dashed;
+    text-decoration-thickness: 1px;
+    text-underline-offset: 3px;
+  }
+}
+
 .project-add {
   width: 34px;
   flex: 0 0 34px;

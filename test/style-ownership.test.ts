@@ -79,6 +79,20 @@ describe('renderer style ownership', () => {
     expect(scrollbarPresentation).toContain('pointer-events: none')
   })
 
+  it('bounds the project Working sweep and provides a static reduced-motion state', () => {
+    const projects = readFileSync(
+      join(process.cwd(), 'src/renderer/src/styles/projects.css'),
+      'utf8',
+    )
+
+    expect(projects).toContain('animation: project-name-working-sweep 3s linear infinite')
+    expect(projects).toContain('66.667%,\n  100%')
+    expect(projects).toContain('@media (prefers-reduced-motion: reduce)')
+    expect(projects).toMatch(
+      /@media \(prefers-reduced-motion: reduce\) \{[\s\S]*?\.project-name-working \{[\s\S]*?animation: none;[\s\S]*?text-decoration-style: dashed;[\s\S]*?\n {2}\}\n\}/u,
+    )
+  })
+
   it('routes renderer typography through the owned font and scale tokens', () => {
     const root = process.cwd()
     const styleRoot = join(root, 'src/renderer/src/styles')

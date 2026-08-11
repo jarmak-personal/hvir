@@ -5,6 +5,7 @@ import {
   terminalActionableAttentionCount,
   terminalIdleAttentionAfterInput,
   terminalOutputAttentionDecision,
+  terminalWorkingCount,
   type TerminalAttention,
   type TerminalIdleAttentionState,
 } from './terminal-attention'
@@ -158,14 +159,17 @@ export function useTerminalAttentionRollup({
   readonly sessions: readonly TerminalSession[]
   readonly onRollup: (
     workspaceId: string,
-    rollup: { readonly actionable: number },
+    rollup: { readonly actionable: number; readonly working: number },
   ) => void
 }): void {
-  const actionable = terminalActionableAttentionCount(
-    sessions.map((session) => session.attention),
-  )
+  const attentions = sessions.map((session) => session.attention)
+  const actionable = terminalActionableAttentionCount(attentions)
+  const working = terminalWorkingCount(attentions)
   useEffect(() => {
-    onRollup(workspaceId, { actionable })
-  }, [actionable, onRollup, workspaceId])
-  useEffect(() => () => onRollup(workspaceId, { actionable: 0 }), [onRollup, workspaceId])
+    onRollup(workspaceId, { actionable, working })
+  }, [actionable, onRollup, working, workspaceId])
+  useEffect(
+    () => () => onRollup(workspaceId, { actionable: 0, working: 0 }),
+    [onRollup, workspaceId],
+  )
 }
