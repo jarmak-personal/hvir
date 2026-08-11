@@ -24,6 +24,7 @@ import {
   type WorkerHostCallInput,
   type WorkerHostResult,
   type HostId,
+  type Stat,
 } from '../shared'
 import type { GitExecOptions, GitHostPort } from '../main/git/git-command-context'
 import { GitEngine } from '../main/git/git-engine'
@@ -188,6 +189,13 @@ class ProxyGitHost implements GitHostPort {
       path,
       maxBytes,
     }) as Promise<import('../shared').TextWorkload>
+  }
+  stat(path: HostPath): Promise<Stat> {
+    return hostCall({
+      operation: 'stat',
+      hostId: this.hostId,
+      path,
+    }) as Promise<Stat>
   }
 }
 

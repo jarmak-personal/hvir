@@ -8,6 +8,7 @@ import {
   type ExecResult,
   type HostId,
   type HostPath,
+  type Stat,
   type TextWorkload,
 } from '../../shared'
 import type { ExecOptions } from '../project-host'
@@ -30,6 +31,7 @@ export interface GitHostPort {
   ): Promise<ExecResult>
   readTextFile(path: HostPath): Promise<string>
   readTextFilePrefix(path: HostPath, maxBytes: number): Promise<TextWorkload>
+  stat(path: HostPath): Promise<Stat>
 }
 
 export interface GitProjectContext {

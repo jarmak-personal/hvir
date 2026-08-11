@@ -97,11 +97,11 @@ hits=$(grep -rnF ".exec('git'" src/main/git --include='*.ts' --include='*.mts' \
   | grep -vE '^src/main/git/(git-command-context|worker-host-broker)\.ts' || true)
 report "Git commands use the shared command context" "$hits"
 
-# 13. The utility-process proxy implements only Git's exact exec/read port,
+# 13. The utility-process proxy implements only Git's exact exec/read/metadata port,
 # rather than pretending to be a complete ProjectHost with never placeholders.
 hits=$(grep -nE 'implements ProjectHost|execStream\(\): never|spawnPty\(\): never|connectLoopback\(\): never|readFile\(\): never|writeFile\(\): never|readdir\(\): never|stat\(\): never|realpath\(\): never|watch\(\): never' \
   src/workers/git-worker.ts || true)
-report "Git worker proxy exposes only exec and text-read operations" "$hits"
+report "Git worker proxy exposes only exact exec, read, and metadata operations" "$hits"
 
 if [[ "$fail" -ne 0 ]]; then
   printf '\n\033[31mseam check failed\033[0m\n'

@@ -24,6 +24,7 @@ import {
   type GitFileStats,
   type ParsedStatus,
 } from './git-parsers'
+import { addUntrackedLineCounts } from './untracked-line-counts'
 
 export class GitStatusCapability {
   constructor(private readonly context: GitCommandContext) {}
@@ -153,7 +154,7 @@ export class GitStatusCapability {
             ]),
           ),
         )
-    await addUntrackedStats(
+    await addUntrackedLineCounts(
       commandRoot,
       repositoryPrefix,
       parsedStatus,
@@ -340,46 +341,4 @@ function digestStatusEntries(entries: readonly ParsedStatus[]): string {
     digest.update('\0')
   }
   return digest.digest('hex')
-}
-
-async function addUntrackedStats(
-  projectRoot: HostPath,
-  repositoryPrefix: string,
-  files: readonly ParsedStatus[],
-  stats: GitFileStats,
-  context: GitCommandContext,
-): Promise<void> {
-  const untracked = files.filter((file) => file.untracked && !stats.has(file.path))
-  for (let index = 0; index < untracked.length; index += 8) {
-    await Promise.all(
-      untracked.slice(index, index + 8).map(async (file) => {
-        const relativePath = repositoryPrefix
-          ? file.path.slice(repositoryPrefix.length)
-          : file.path
-        const result = await context.readOnly(projectRoot, [
-          'diff',
-          '--no-ext-diff',
-          '--no-textconv',
-          '--no-index',
-          '--numstat',
-          '-z',
-          '--',
-          '/dev/null',
-          relativePath,
-        ])
-        if (result.code !== 0 && result.code !== 1) return
-        if (!result.stdout) {
-          stats.set(file.path, { additions: 0, deletions: 0 })
-          return
-        }
-        const firstTab = result.stdout.indexOf('\t')
-        const secondTab = result.stdout.indexOf('\t', firstTab + 1)
-        if (firstTab < 0 || secondTab < 0) return
-        const added = result.stdout.slice(0, firstTab)
-        const deleted = result.stdout.slice(firstTab + 1, secondTab)
-        if (added === '-' || deleted === '-') return
-        stats.set(file.path, { additions: Number(added), deletions: Number(deleted) })
-      }),
-    )
-  }
 }
