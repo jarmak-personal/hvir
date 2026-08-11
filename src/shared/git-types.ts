@@ -8,7 +8,7 @@ export interface GitChangedFile {
   readonly unstaged: boolean
   readonly untracked: boolean
   readonly conflicted: boolean
-  /** Omitted when Git reports a binary/otherwise uncountable change. */
+  /** Omitted when hvir cannot produce a bounded text line count. */
   readonly additions?: number
   readonly deletions?: number
 }

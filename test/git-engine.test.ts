@@ -734,11 +734,16 @@ describe('GitEngine', () => {
 
   it('expands untracked directories and reports their actual line counts', async () => {
     const root = await repository()
+    await writeFile(join(root, '.gitattributes'), 'newdir/*.txt -diff\n')
+    git(root, ['add', '.gitattributes'])
+    git(root, ['commit', '-m', 'mark fixtures binary for Git'])
     await mkdir(join(root, 'newdir'))
     await writeFile(join(root, 'newdir', 'one.txt'), 'one\ntwo\nthree\n')
     await writeFile(join(root, 'newdir', 'two.txt'), 'one\ntwo')
+    await writeFile(join(root, 'newdir', 'empty.txt'), '')
 
     const host = new LocalHost()
+    const exec = vi.spyOn(host, 'exec')
     const changes = await new GitEngine(host).changes(localPath(root))
 
     expect(changes.workingTree).toEqual(
@@ -753,26 +758,55 @@ describe('GitEngine', () => {
           untracked: true,
           additions: 2,
         }),
+        expect.objectContaining({
+          path: localPath(join(root, 'newdir', 'empty.txt')),
+          untracked: true,
+          additions: 0,
+        }),
       ]),
     )
     expect(changes.workingTree.some((file) => file.path.path.endsWith('/newdir/'))).toBe(
       false,
     )
+    expect(exec.mock.calls.some(([, args]) => args.includes('--no-index'))).toBe(false)
     await host.dispose()
   })
 
-  it('omits fabricated counts for a large untracked binary with an unusual path', async () => {
+  it('skips oversized untracked files before reading their content', async () => {
     const root = await repository()
-    const filename = join(root, 'large\tbinary.bin')
-    await writeFile(filename, Buffer.alloc(2 * 1024 * 1024))
+    const filename = join(root, 'oversized\tbinary.bin')
+    await writeFile(filename, Buffer.alloc(DIFF_INPUT_BYTE_LIMIT + 1))
 
     const host = new LocalHost()
+    const readTextFilePrefix = vi.spyOn(host, 'readTextFilePrefix')
     const changes = await new GitEngine(host).changes(localPath(root))
     const binary = changes.workingTree.find((file) => file.path.path === filename)
 
     expect(binary?.untracked).toBe(true)
     expect(binary?.additions).toBeUndefined()
     expect(binary?.deletions).toBeUndefined()
+    expect(readTextFilePrefix.mock.calls.some(([path]) => path.path === filename)).toBe(
+      false,
+    )
+    await host.dispose()
+  })
+
+  it('omits binary untracked counts after one bounded probe', async () => {
+    const root = await repository()
+    const filename = join(root, 'binary.bin')
+    await writeFile(filename, Buffer.alloc(128 * 1024))
+
+    const host = new LocalHost()
+    const readTextFilePrefix = vi.spyOn(host, 'readTextFilePrefix')
+    const changes = await new GitEngine(host).changes(localPath(root))
+    const binary = changes.workingTree.find((file) => file.path.path === filename)
+
+    expect(binary?.untracked).toBe(true)
+    expect(binary?.additions).toBeUndefined()
+    expect(binary?.deletions).toBeUndefined()
+    expect(
+      readTextFilePrefix.mock.calls.filter(([path]) => path.path === filename),
+    ).toEqual([[localPath(filename), 8_000]])
     await host.dispose()
   })
 

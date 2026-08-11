@@ -7,7 +7,7 @@
  */
 
 import type { HostPath } from './host-path'
-import type { ExecResult } from './fs-types'
+import type { ExecResult, Stat } from './fs-types'
 import type { GitDiffRequest, GitDiffResponse } from './viewer-types'
 import type { TextWorkload } from './viewer-workload-policy'
 import type {
@@ -63,18 +63,25 @@ export type WorkerHostCallInput =
       readonly path: HostPath
       readonly maxBytes: number
     }
+  | {
+      readonly hostId: string
+      readonly operation: 'stat'
+      readonly path: HostPath
+    }
 
 export type WorkerHostCall = WorkerHostCallInput & {
   readonly kind: 'host-call'
   readonly callId: number
 }
 
+export type WorkerHostValue = ExecResult | Stat | string | TextWorkload
+
 export type WorkerHostResult =
   | {
       readonly kind: 'host-result'
       readonly callId: number
       readonly ok: true
-      readonly result: ExecResult | string | TextWorkload
+      readonly result: WorkerHostValue
     }
   | {
       readonly kind: 'host-result'
