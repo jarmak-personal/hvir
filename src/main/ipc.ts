@@ -3,6 +3,7 @@
 import { IpcAuthorityRouter, type IpcMainRegistrationPort } from './ipc/authority-router'
 import type { IpcDeps } from './ipc/deps'
 import { registerAppIpc } from './ipc/features/app'
+import { registerClipboardIpc } from './ipc/features/clipboard'
 import { registerDiagnosticReportIpc } from './ipc/features/diagnostic-report'
 import { registerDocumentReviewIpc } from './ipc/features/document-review'
 import { registerFilesystemIpc } from './ipc/features/filesystem'
@@ -32,6 +33,7 @@ export function registerIpcHandlers(
     registerGitIpc(router, deps)
     registerHarnessIpc(router, deps)
     registerImagePasteIpc(router, deps)
+    registerClipboardIpc(router, deps)
     registerPreviewIpc(router, deps)
     registerWebPaneIpc(router, deps)
     registerTerminalIpc(router, deps)

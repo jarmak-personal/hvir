@@ -40,6 +40,11 @@ export type EmitRendererEvent = <E extends IpcEventChannel>(
   payload: IpcEventPayload<E>,
 ) => void
 
+/** The application host's clipboard, narrowed to the one write hvir performs. */
+export interface SystemClipboardPort {
+  writeText(text: string): void
+}
+
 export interface IpcDeps {
   readonly echoWorker: WorkerClient<EchoWorkerProtocol>
   readonly gitWorker: WorkerClient<GitWorkerProtocol>
@@ -147,6 +152,8 @@ export interface IpcDeps {
   readonly harnessProfiles: HarnessProfileStoreContract
   readonly harnessProbes: HarnessProbeManager
   readonly remoteImagePaste: Pick<RemoteImagePasteCoordinator, 'pasteOrForward'>
+  /** Defaults to the Electron clipboard; scenarios override it to stay inert. */
+  readonly systemClipboard?: SystemClipboardPort
   readonly updateAttention: (owner: RendererOwner, count: number) => void
   readonly updateWebPaneBindings: (owner: RendererOwner, bindings: KeybindingMap) => void
   readonly updateWebPaneFullPage: (owner: RendererOwner, paneId?: string) => void
