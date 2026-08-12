@@ -183,7 +183,7 @@ export async function verifyTerminalContextMenu(
                                 engine.querySelector('canvas') !== canvas ||
                                 textarea.style.cssText !== textareaState.style ||
                                 textarea.value !== textareaState.value ||
-                                document.activeElement === textarea
+                                !engine.contains(document.activeElement)
                               ) {
                                 return fail(
                                   'terminal actions replaced presentation or mutated hidden textarea'

@@ -32,13 +32,14 @@ type ReadInstalledWasmBytes = () => Promise<number>
 const readInstalledWasmBytes: ReadInstalledWasmBytes = async () =>
   (await stat(fileURLToPath(import.meta.resolve('ghostty-web/ghostty-vt.wasm')))).size
 
-function hasCustomLinkProviderPriority(prototype: object): boolean {
+function hasCustomLinkProviderPriorityAndForcedRender(prototype: object): boolean {
   const register = Reflect.get(prototype, 'registerLinkProvider') as unknown
   if (typeof register !== 'function') return false
 
   const provider = Object.freeze({})
   let receivedProvider: unknown
   let receivedPriority: unknown
+  let forcedRender: unknown
   try {
     Reflect.apply(
       register,
@@ -49,13 +50,18 @@ function hasCustomLinkProviderPriority(prototype: object): boolean {
             receivedPriority = priority
           },
         },
+        requestRender(force?: boolean) {
+          forcedRender = force
+        },
       },
       [provider],
     )
   } catch {
     return false
   }
-  return receivedProvider === provider && receivedPriority === true
+  return (
+    receivedProvider === provider && receivedPriority === true && forcedRender === true
+  )
 }
 
 function isTerminalConstructor(value: unknown): value is TerminalConstructor {
@@ -74,8 +80,8 @@ export function assertTerminalRuntimeContract(runtime: TerminalRuntimeModule): v
         typeof Reflect.get(runtime.GhosttyTerminal.prototype, method) !== 'function',
     ),
   )
-  if (!hasCustomLinkProviderPriority(runtime.Terminal.prototype)) {
-    missing.push('custom link-provider priority')
+  if (!hasCustomLinkProviderPriorityAndForcedRender(runtime.Terminal.prototype)) {
+    missing.push('custom link-provider priority and forced render')
   }
   if (missing.length === 0) return
 

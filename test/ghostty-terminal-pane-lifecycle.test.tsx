@@ -57,6 +57,38 @@ describe('GhosttyTerminalPane lifecycle', () => {
     expect(secondContainer.isConnected).toBe(true)
     expect(secondContainer.childElementCount).toBe(0)
   })
+  it('configures an exact byte budget and reports the engine limit', async () => {
+    const container = document.createElement('div')
+    document.body.append(container)
+    const pane = await createGhosttyTerminalPane(theme(), typography(), {
+      cursorDefaults: cursorDefaults(),
+      ligatures: true,
+      modifiedKeyProtocol: 'modify-other-keys',
+      metaEnterAliasesControl: true,
+      composerSubmitMode: 'enter',
+    })
+    const state = ghosttyState.instances[0]!
+
+    expect(state.scrollbackBytes).toBe(10_000_000)
+    expect(state.scrollbackLines).toBeUndefined()
+
+    pane.mount(container)
+    state.scrollbackByteLimit = 9_000_000
+    const surface = container.querySelector<HTMLElement>('.terminal-engine-host')!
+    const performance = Reflect.get(surface, '__hvirTerminalPerformance') as {
+      readonly retainedByteLimit: number
+    }
+
+    expect(performance.retainedByteLimit).toBe(9_000_000)
+    pane.dispose()
+    expect(
+      (
+        Reflect.get(surface, '__hvirTerminalPerformance') as {
+          readonly retainedByteLimit: number
+        }
+      ).retainedByteLimit,
+    ).toBe(0)
+  })
   it('uses only structured parser events and releases their source on disposal', async () => {
     const pane = await createGhosttyTerminalPane(theme(), typography(), {
       cursorDefaults: cursorDefaults(),

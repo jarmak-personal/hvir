@@ -155,7 +155,7 @@ class GhosttyTerminalPane implements TerminalPane {
       fontFamily: typography.fontFamily,
       fontLigatures: options.ligatures,
       fontSize: typography.fontSize,
-      scrollback: TERMINAL_SCROLLBACK_BYTES,
+      scrollbackBytes: TERMINAL_SCROLLBACK_BYTES,
       theme: toGhosttyTheme(theme),
       disableContextMenu: true,
       resolveClipboardFilePaste: (file) =>
@@ -216,7 +216,9 @@ class GhosttyTerminalPane implements TerminalPane {
         cols: this.terminal.cols,
         rows: this.terminal.rows,
         retainedRows: this.terminal.getScrollbackLength(),
-        retainedByteLimit: TERMINAL_SCROLLBACK_BYTES,
+        retainedByteLimit: this.disposed
+          ? 0
+          : this.terminal.getScrollbackByteLimit(),
         palette: this.theme,
         effectiveColors: this.terminal.wasmTerm?.getColors(),
         fontFamily: this.typography.fontFamily,

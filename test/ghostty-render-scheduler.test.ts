@@ -29,10 +29,14 @@ interface SchedulerHarness {
     cursorVisible: boolean
     render: ReturnType<typeof vi.fn>
     getCursorVisible(): boolean
+    getRenderedRowRanges(): readonly []
     resetCursorBlink: ReturnType<typeof vi.fn>
     setRenderPaused: ReturnType<typeof vi.fn>
   }
-  wasmTerm: { getCursor(): { y: number } }
+  wasmTerm: {
+    getCursor(): { y: number }
+    isAlternateScreen(): boolean
+  }
   cursorMoveEmitter: { fire: ReturnType<typeof vi.fn> }
   requestRender(forceAll?: boolean): void
   setRenderPaused(paused: boolean): void
@@ -73,10 +77,14 @@ function createHarness(): SchedulerHarness {
       cursorVisible: true,
       render: vi.fn(() => ({ y: 0 })),
       getCursorVisible: () => true,
+      getRenderedRowRanges: () => [],
       resetCursorBlink: vi.fn(),
       setRenderPaused: vi.fn(),
     },
-    wasmTerm: { getCursor: () => ({ y: 0 }) },
+    wasmTerm: {
+      getCursor: () => ({ y: 0 }),
+      isAlternateScreen: () => false,
+    },
     cursorMoveEmitter: { fire: vi.fn() },
   }) as unknown as SchedulerHarness
 }

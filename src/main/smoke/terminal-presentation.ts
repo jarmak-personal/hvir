@@ -433,10 +433,10 @@ async function focusTerminalEngine(win: BrowserWindow, sessionId: string): Promi
             engine instanceof HTMLElement
           ) {
             engine.focus();
-            if (document.activeElement === engine) return resolve();
+            if (engine.contains(document.activeElement)) return resolve();
           }
           if (Date.now() > deadline) {
-            return reject(new Error('revealed terminal engine did not regain focus'));
+            return reject(new Error('revealed terminal did not regain input focus'));
           }
           setTimeout(poll, 25);
         };
