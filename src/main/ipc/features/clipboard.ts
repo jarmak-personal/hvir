@@ -1,6 +1,6 @@
 import { clipboard } from 'electron'
 
-import { MAX_CLIPBOARD_WRITE_TEXT } from '../../../shared'
+import { MAX_CLIPBOARD_WRITE_BYTES } from '../../../shared'
 import type { IpcRegistrar } from '../authority-router'
 import type { IpcDeps, SystemClipboardPort } from '../deps'
 
@@ -26,7 +26,7 @@ export function registerClipboardIpc(ipc: IpcRegistrar, deps: ClipboardIpcDeps):
     if (typeof text !== 'string' || text.length === 0) {
       throw new Error('Invalid clipboard write')
     }
-    if (text.length > MAX_CLIPBOARD_WRITE_TEXT) {
+    if (Buffer.byteLength(text, 'utf8') > MAX_CLIPBOARD_WRITE_BYTES) {
       throw new Error('Clipboard write exceeds the permitted size')
     }
     target.writeText(text)

@@ -847,11 +847,11 @@ export interface IpcInvokeMap {
 }
 
 /**
- * Upper bound on text a terminal may place on the application host's clipboard.
- * ghostty-web bounds the OSC payload it parses; this is the independent bound
- * the main process applies to what actually crosses IPC.
+ * Upper UTF-8 byte bound on text a terminal may place on the application host's
+ * clipboard. ghostty-web bounds the encoded OSC payload it parses; this is the
+ * independent bound main applies to decoded text that crosses IPC.
  */
-export const MAX_CLIPBOARD_WRITE_TEXT = 64 * 1024
+export const MAX_CLIPBOARD_WRITE_BYTES = 64 * 1024
 
 /**
  * Fire-and-forget renderer -> main channels. PTY input uses this path so a

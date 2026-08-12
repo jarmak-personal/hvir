@@ -260,6 +260,12 @@ one host-qualified resource-cleanup lifecycle without mutating the repository.
 Provider-neutral Working state may animate a project name without becoming actionable attention,
 changing navigation width, or overriding reduced-motion preferences.
 
+### [ADR-035 — Bounded OSC 52 clipboard write](adr/ADR-035-bounded-osc52-clipboard-write.md)
+
+A live terminal may place bounded, decoded OSC 52 text on the application-host clipboard without
+receiving any read access; valid text remains exact and main independently validates IPC authority
+and UTF-8 byte size.
+
 ## 5. Architecture
 
 ### Process model

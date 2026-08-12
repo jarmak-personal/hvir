@@ -21,8 +21,6 @@ export type ClipboardOscDecision =
   | {
       readonly kind: 'write'
       readonly text: string
-      /** Reported rather than silently absorbed, so refusals stay debuggable. */
-      readonly removedControls: number
     }
   | { readonly kind: 'refused'; readonly reason: ClipboardOscRefusal }
 
@@ -66,15 +64,9 @@ export function decodeClipboardOsc(event: ClipboardOscWrite): ClipboardOscDecisi
 
   const text = decodeUtf8(bytes)
   if (text === undefined) return refused('invalid-text')
+  if (text.length === 0) return refused('empty')
 
-  const sanitized = stripControlCharacters(text)
-  if (sanitized.text.length === 0) return refused('empty')
-
-  return {
-    kind: 'write',
-    text: sanitized.text,
-    removedControls: sanitized.removed,
-  }
+  return { kind: 'write', text }
 }
 
 function refused(reason: ClipboardOscRefusal): ClipboardOscDecision {
@@ -96,31 +88,11 @@ function decodeBase64(payload: string): Uint8Array | undefined {
 
 function decodeUtf8(bytes: Uint8Array): string | undefined {
   try {
-    return new TextDecoder('utf-8', { fatal: true }).decode(bytes)
+    // Preserve an initial U+FEFF instead of treating it as transport metadata.
+    // OSC 52 carries clipboard text, so every valid decoded code point belongs
+    // to the copied value.
+    return new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes)
   } catch {
     return undefined
   }
-}
-
-/**
- * Drop C0 controls and DEL, keeping tab and newline. A carriage return or an
- * escape sequence surviving into the clipboard executes when the text is later
- * pasted into a shell that is not using bracketed paste.
- */
-function stripControlCharacters(value: string): {
-  readonly text: string
-  readonly removed: number
-} {
-  let removed = 0
-  let text = ''
-  for (const character of value) {
-    const code = character.codePointAt(0) ?? 0
-    const isKeptWhitespace = code === 0x09 || code === 0x0a
-    if ((code < 0x20 && !isKeptWhitespace) || code === 0x7f) {
-      removed += 1
-      continue
-    }
-    text += character
-  }
-  return { text, removed }
 }

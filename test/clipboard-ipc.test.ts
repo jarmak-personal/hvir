@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 
 import type { IpcRegistrar } from '../src/main/ipc/authority-router'
 import { registerClipboardIpc } from '../src/main/ipc/features/clipboard'
-import { MAX_CLIPBOARD_WRITE_TEXT } from '../src/shared'
+import { MAX_CLIPBOARD_WRITE_BYTES } from '../src/shared'
 
 describe('terminal clipboard write IPC', () => {
   it('writes qualified, bounded text to the system clipboard', async () => {
@@ -32,18 +32,29 @@ describe('terminal clipboard write IPC', () => {
     const { handler, writeText } = fixture()
 
     await expect(
-      handler({ text: 'a'.repeat(MAX_CLIPBOARD_WRITE_TEXT + 1) }),
+      handler({ text: 'a'.repeat(MAX_CLIPBOARD_WRITE_BYTES + 1) }),
     ).rejects.toThrow('Clipboard write exceeds the permitted size')
     expect(writeText).not.toHaveBeenCalled()
   })
 
   it('accepts text exactly at the bound', async () => {
     const { handler, writeText } = fixture()
-    const text = 'b'.repeat(MAX_CLIPBOARD_WRITE_TEXT)
+    const text = 'b'.repeat(MAX_CLIPBOARD_WRITE_BYTES)
 
     await handler({ text })
 
     expect(writeText).toHaveBeenCalledExactlyOnceWith(text)
+  })
+
+  it('applies the main-process bound to UTF-8 bytes instead of string length', async () => {
+    const { handler, writeText } = fixture()
+    const text = '界'.repeat(Math.floor(MAX_CLIPBOARD_WRITE_BYTES / 3) + 1)
+
+    expect(text.length).toBeLessThan(MAX_CLIPBOARD_WRITE_BYTES)
+    await expect(handler({ text })).rejects.toThrow(
+      'Clipboard write exceeds the permitted size',
+    )
+    expect(writeText).not.toHaveBeenCalled()
   })
 })
 

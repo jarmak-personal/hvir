@@ -26,7 +26,7 @@ describe('OSC 52 clipboard decoding', () => {
 
     const decision = decodeClipboardOsc(write(payload))
 
-    expect(decision).toEqual({ kind: 'write', text, removedControls: 0 })
+    expect(decision).toEqual({ kind: 'write', text })
     expect(decision).not.toMatchObject({ text: payload })
   })
 
@@ -34,7 +34,6 @@ describe('OSC 52 clipboard decoding', () => {
     expect(decodeClipboardOsc(write(encode('héllo ✓ 世界')))).toEqual({
       kind: 'write',
       text: 'héllo ✓ 世界',
-      removedControls: 0,
     })
   })
 
@@ -42,12 +41,10 @@ describe('OSC 52 clipboard decoding', () => {
     expect(decodeClipboardOsc(write(encode('empty selection'), ''))).toEqual({
       kind: 'write',
       text: 'empty selection',
-      removedControls: 0,
     })
     expect(decodeClipboardOsc(write(encode('both targets'), 'pc'))).toEqual({
       kind: 'write',
       text: 'both targets',
-      removedControls: 0,
     })
   })
 
@@ -72,7 +69,14 @@ describe('OSC 52 clipboard decoding', () => {
   })
 
   it('refuses payloads that are not strict base64', () => {
-    for (const payload of ['not base64!', 'YWJj=ZGVm', 'YWJjZA=', 'YWJ j', 'YWJ!', 'YW=J']) {
+    for (const payload of [
+      'not base64!',
+      'YWJj=ZGVm',
+      'YWJjZA=',
+      'YWJ j',
+      'YWJ!',
+      'YW=J',
+    ]) {
       expect(decodeClipboardOsc(write(payload))).toEqual({
         kind: 'refused',
         reason: 'invalid-base64',
@@ -103,20 +107,15 @@ describe('OSC 52 clipboard decoding', () => {
     expect(decodeClipboardOsc(write(atLimit))).toEqual({
       kind: 'write',
       text: 'x'.repeat(1024),
-      removedControls: 0,
     })
   })
 
-  it('strips control characters that would execute when pasted into a shell', () => {
-    expect(decodeClipboardOsc(write(encode('rm -rf /\rwhoami')))).toEqual({
+  it('preserves valid UTF-8 exactly instead of partially rewriting copied text', () => {
+    const text = `\ufeffone\r\ntwo\t${NUL}${BEL}${ESC}[31mred${ESC}[0m\x7f`
+
+    expect(decodeClipboardOsc(write(encode(text)))).toEqual({
       kind: 'write',
-      text: 'rm -rf /whoami',
-      removedControls: 1,
-    })
-    expect(decodeClipboardOsc(write(encode(`${ESC}[31mred${ESC}[0m`)))).toEqual({
-      kind: 'write',
-      text: '[31mred[0m',
-      removedControls: 2,
+      text,
     })
   })
 
@@ -124,14 +123,6 @@ describe('OSC 52 clipboard decoding', () => {
     expect(decodeClipboardOsc(write(encode('one\ttwo\nthree\n')))).toEqual({
       kind: 'write',
       text: 'one\ttwo\nthree\n',
-      removedControls: 0,
-    })
-  })
-
-  it('refuses a payload that is only control characters', () => {
-    expect(decodeClipboardOsc(write(encode(`${NUL}${BEL}`)))).toEqual({
-      kind: 'refused',
-      reason: 'empty',
     })
   })
 })
