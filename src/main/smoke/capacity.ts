@@ -10,12 +10,12 @@ import {
 } from '../../shared'
 import { LocalHost } from '../project-host'
 import type { PtySupervisor } from '../pty/pty-supervisor'
+import { startCapacityOutputFixtures } from './capacity-output-fixtures'
 import {
   activateCapacityTerminal,
   addCapacityTerminals,
   measureAdditionalTerminalReadiness,
   readTerminalPresentation,
-  startCapacityOutputFixtures,
   verifyHiddenPresentationSettles,
   verifyCapacityTerminalSearch,
   verifyCapacityPaletteUpdate,
@@ -278,7 +278,7 @@ export async function runCapacityLoadSmoke(
       `${presentationCapacity.shapedRuns} runs/${presentationCapacity.shapedCells} cells · ` +
       `max ${presentationCapacity.maxRunCells})`,
   )
-  startCapacityOutputFixtures(supervisor)
+  const outputFixtures = startCapacityOutputFixtures(supervisor)
   let churning = true
   const watchChurn = (async (): Promise<void> => {
     let generation = 0
@@ -288,25 +288,27 @@ export async function runCapacityLoadSmoke(
     }
   })()
 
-  const loadedReadiness = await measureAdditionalTerminalReadiness(
-    win,
-    supervisor,
-    'loaded',
-    TERMINAL_READINESS_SAMPLE_COUNT,
-  )
-  const terminalReadiness = compareTerminalReadiness(baselineReadiness, loadedReadiness)
-  console.log(
-    `[smoke:performance:sample:terminal-readiness] ${JSON.stringify(terminalReadiness)}`,
-  )
-  console.log(
-    `[smoke:capacity:contract] 10 loaded terminal launches ready + exact echo OK ` +
-      `(p95 ${loadedReadiness.p95Ms.toFixed(1)}ms / baseline ` +
-      `${baselineReadiness.p95Ms.toFixed(1)}ms · max ${loadedReadiness.maxMs.toFixed(1)}ms)`,
-  )
-  await activateCapacityTerminal(win, 0)
-  const presentationBefore = await readTerminalPresentation(win)
   let report: CapacitySmokeReport | undefined
+  let loadFailure: unknown
+  let loadFailed = false
   try {
+    const loadedReadiness = await measureAdditionalTerminalReadiness(
+      win,
+      supervisor,
+      'loaded',
+      TERMINAL_READINESS_SAMPLE_COUNT,
+    )
+    const terminalReadiness = compareTerminalReadiness(baselineReadiness, loadedReadiness)
+    console.log(
+      `[smoke:performance:sample:terminal-readiness] ${JSON.stringify(terminalReadiness)}`,
+    )
+    console.log(
+      `[smoke:capacity:contract] 10 loaded terminal launches ready + exact echo OK ` +
+        `(p95 ${loadedReadiness.p95Ms.toFixed(1)}ms / baseline ` +
+        `${baselineReadiness.p95Ms.toFixed(1)}ms · max ${loadedReadiness.maxMs.toFixed(1)}ms)`,
+    )
+    await activateCapacityTerminal(win, 0)
+    const presentationBefore = await readTerminalPresentation(win)
     const [rendererReport, processMetrics] = await Promise.all([
       withTimeout(
         win.webContents.executeJavaScript(`
@@ -399,13 +401,37 @@ export async function runCapacityLoadSmoke(
       memoryPeakKiB: processMetrics.memoryPeakKiB,
       memoryGrowthKiB: processMetrics.memoryGrowthKiB,
     }
-  } finally {
-    churning = false
-    await watchChurn
-    for (const terminal of supervisor.list()) {
-      supervisor.write(terminal.id, terminal.ownerId, '\u0003')
-    }
+  } catch (reason) {
+    loadFailed = true
+    loadFailure = reason
   }
+
+  churning = false
+  const cleanupFailures: unknown[] = []
+  try {
+    await watchChurn
+  } catch (reason) {
+    cleanupFailures.push(reason)
+  }
+  try {
+    await outputFixtures.stop()
+  } catch (reason) {
+    cleanupFailures.push(reason)
+  }
+  if (loadFailed) {
+    if (cleanupFailures.length > 0) {
+      throw new AggregateError(
+        [loadFailure, ...cleanupFailures],
+        'capacity load failed and fixture cleanup was incomplete',
+      )
+    }
+    throw loadFailure
+  }
+  if (cleanupFailures.length === 1) throw cleanupFailures[0]
+  if (cleanupFailures.length > 1) {
+    throw new AggregateError(cleanupFailures, 'capacity fixture cleanup was incomplete')
+  }
+  console.log('[smoke:capacity:contract] 12 output producers acknowledged shutdown')
 
   if (!report) throw new Error('capacity report was not produced')
   const capacitySearch = await verifyCapacityTerminalSearch(win, supervisor)
