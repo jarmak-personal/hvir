@@ -17,6 +17,36 @@ class CompatibleParser {
   resetSynchronizedOutput(): void {}
 }
 
+class CompatibleTerminal {
+  requestRender(): void {}
+  setRenderPaused(): void {}
+  resetCursorBlink(): void {}
+  getRenderStats(): void {}
+  resolveEventProvenance(): void {}
+  hasSelection(): void {}
+  getSelection(): void {}
+  paste(): void {}
+  selectAll(): void {}
+  clear(): void {}
+  reset(): void {}
+  searchRetainedBuffer(): void {}
+  cancelRetainedBufferSearch(): void {}
+  extractRetainedBufferRange(): void {}
+  cancelRetainedBufferExtraction(): void {}
+  captureRetainedBufferBoundary(): void {}
+
+  registerLinkProvider(provider: object): void {
+    const target = this as unknown as {
+      readonly linkDetector: {
+        registerProvider(candidate: object, priority?: boolean): void
+      }
+      requestRender(force?: boolean): void
+    }
+    target.linkDetector.registerProvider(provider, true)
+    target.requestRender(true)
+  }
+}
+
 describe('terminal runtime capability preflight', () => {
   it('accepts the installed ghostty-web runtime contract', () => {
     const root = process.cwd()
@@ -37,24 +67,13 @@ describe('terminal runtime capability preflight', () => {
         GhosttyTerminal: IncompatibleTerminal,
       }),
     ).toThrow(
-      /requestRender, setRenderPaused, resetCursorBlink, getRenderStats, resolveEventProvenance, hasSelection, getSelection, paste, selectAll, clear, reset, searchRetainedBuffer, cancelRetainedBufferSearch, extractRetainedBufferRange, cancelRetainedBufferExtraction, captureRetainedBufferBoundary, isSynchronizedOutput, getSynchronizedOutputGeneration, resetSynchronizedOutput, custom link-provider priority.*npm ci.*retry the command/,
+      /requestRender, setRenderPaused, resetCursorBlink, getRenderStats, resolveEventProvenance, hasSelection, getSelection, paste, selectAll, clear, reset, searchRetainedBuffer, cancelRetainedBufferSearch, extractRetainedBufferRange, cancelRetainedBufferExtraction, captureRetainedBufferBoundary, getScrollbackByteLimit, isSynchronizedOutput, getSynchronizedOutputGeneration, resetSynchronizedOutput, custom link-provider priority and forced render.*npm ci.*retry the command/,
     )
   })
 
   it('rejects a runtime that lets built-in links override custom routing', () => {
-    class UnprioritizedTerminal {
-      requestRender(): void {}
-      setRenderPaused(): void {}
-      resetCursorBlink(): void {}
-      getRenderStats(): void {}
-      resolveEventProvenance(): void {}
-      hasSelection(): void {}
-      getSelection(): void {}
-      paste(): void {}
-      selectAll(): void {}
-      clear(): void {}
-      reset(): void {}
-      registerLinkProvider(): void {}
+    class UnprioritizedTerminal extends CompatibleTerminal {
+      override registerLinkProvider(): void {}
     }
 
     expect(() =>
@@ -63,6 +82,46 @@ describe('terminal runtime capability preflight', () => {
         GhosttyTerminal: CompatibleParser,
       }),
     ).toThrow(/custom link-provider priority/)
+  })
+
+  it('rejects custom link routing that does not invalidate presentation', () => {
+    class UnrenderedTerminal extends CompatibleTerminal {
+      override registerLinkProvider(provider: object): void {
+        const detector = Reflect.get(this, 'linkDetector') as {
+          registerProvider(candidate: object, priority?: boolean): void
+        }
+        detector.registerProvider(provider, true)
+      }
+    }
+
+    expect(() =>
+      assertTerminalRuntimeContract({
+        Terminal: UnrenderedTerminal,
+        GhosttyTerminal: CompatibleParser,
+      }),
+    ).toThrow(/custom link-provider priority and forced render/)
+  })
+
+  it('rejects unprioritized custom routing even when presentation is invalidated', () => {
+    class UnprioritizedRenderedTerminal extends CompatibleTerminal {
+      override registerLinkProvider(provider: object): void {
+        const target = this as unknown as {
+          readonly linkDetector: {
+            registerProvider(candidate: object, priority?: boolean): void
+          }
+          requestRender(force?: boolean): void
+        }
+        target.linkDetector.registerProvider(provider)
+        target.requestRender(true)
+      }
+    }
+
+    expect(() =>
+      assertTerminalRuntimeContract({
+        Terminal: UnprioritizedRenderedTerminal,
+        GhosttyTerminal: CompatibleParser,
+      }),
+    ).toThrow(/custom link-provider priority and forced render/)
   })
 
   it('reports an install mismatch when ghostty-web cannot be loaded', async () => {
@@ -87,7 +146,12 @@ describe('terminal runtime capability preflight', () => {
       verifyInstalledTerminalWasmEvidence(async () =>
         Promise.resolve(GHOSTTY_TERMINAL_CAPABILITY_PROFILE.artifact.wasmBytes - 1),
       ),
-    ).rejects.toThrow(/ghostty-vt\.wasm is 523292 bytes.*requires 523293.*npm ci/)
+    ).rejects.toThrow(
+      new RegExp(
+        `ghostty-vt\\.wasm is ${GHOSTTY_TERMINAL_CAPABILITY_PROFILE.artifact.wasmBytes - 1} bytes; ` +
+          `the reviewed capability profile requires ${GHOSTTY_TERMINAL_CAPABILITY_PROFILE.artifact.wasmBytes}.*npm ci`,
+      ),
+    )
   })
 
   it('pins the consumed package URL and npm lock integrity', () => {

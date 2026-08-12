@@ -10,6 +10,8 @@ export const ghosttyState = {
     readonly fontSizes: number[]
     readonly presentationPausedValues: boolean[]
     readonly resizes: Array<{ readonly cols: number; readonly rows: number }>
+    readonly scrollbackBytes: number | undefined
+    readonly scrollbackLines: number | undefined
     readonly themes: unknown[]
     readonly writes: string[]
     cursorBlinkResets: number
@@ -27,6 +29,7 @@ export const ghosttyState = {
     resolveClipboardFilePaste(file: File): string | undefined
     renders: number
     rendererThemeWrites: number
+    scrollbackByteLimit: number
     disposed: boolean
   }>,
 }
@@ -39,6 +42,8 @@ class MockTerminal {
     fontFamily?: string
     fontLigatures?: boolean
     fontSize?: number
+    scrollback?: number
+    scrollbackBytes?: number
     resolveClipboardFilePaste?: (file: File) => string | undefined
   }
   readonly buffer = { active: { getLine: () => undefined } }
@@ -73,6 +78,8 @@ class MockTerminal {
     fontFamily?: string
     fontLigatures?: boolean
     fontSize?: number
+    scrollback?: number
+    scrollbackBytes?: number
     resolveClipboardFilePaste?: (file: File) => string | undefined
   }) {
     this.state = {
@@ -83,6 +90,8 @@ class MockTerminal {
       fontSizes: [options.fontSize ?? 0],
       presentationPausedValues: [],
       resizes: [],
+      scrollbackBytes: options.scrollbackBytes,
+      scrollbackLines: options.scrollback,
       themes: [options.theme],
       writes: [],
       cursorBlinkResets: 0,
@@ -94,6 +103,7 @@ class MockTerminal {
       resolveClipboardFilePaste: options.resolveClipboardFilePaste ?? (() => undefined),
       renders: 0,
       rendererThemeWrites: 0,
+      scrollbackByteLimit: options.scrollbackBytes ?? 0,
       disposed: false,
     }
     ghosttyState.instances.push(this.state)
@@ -191,6 +201,10 @@ class MockTerminal {
 
   getScrollbackLength(): number {
     return 0
+  }
+
+  getScrollbackByteLimit(): number {
+    return this.state.scrollbackByteLimit
   }
 
   scrollToLine(): void {}
