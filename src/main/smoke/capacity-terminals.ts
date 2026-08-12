@@ -567,35 +567,6 @@ export async function verifyCapacityLivePresentationUpdate(
   )) as TerminalLivePresentationCapacityReport
 }
 
-export function startCapacityOutputFixtures(supervisor: PtySupervisor): void {
-  const terminals = supervisor.list()
-  if (terminals.length !== 12) {
-    throw new Error(`capacity fixtures expected 12 terminals, found ${terminals.length}`)
-  }
-  const semanticFixture =
-    `i=0; while [ "$i" -lt 300 ]; do ` +
-    `printf '\\033]133;A\\007p\\r\\n\\033]133;B\\007c\\r\\n` +
-    `\\033]133;C\\007o\\r\\n\\033]133;D;0\\007'; ` +
-    `i=$((i+1)); done\n`
-  for (const terminal of terminals) {
-    supervisor.write(terminal.id, terminal.ownerId, semanticFixture)
-  }
-  const commands = [
-    `i=0; while :; do printf 'plain-visible-%06d abcdefghijklmnopqrstuvwxyz\\r\\n' "$i"; i=$((i+1)); sleep 0.01; done\n`,
-    `i=0; while :; do printf 'plain-hidden-%06d abcdefghijklmnopqrstuvwxyz\\r\\n' "$i"; i=$((i+1)); sleep 0.01; done\n`,
-    `i=0; while :; do printf '\\r\\033[2K\\033[36mThinking %04d…\\033[0m' "$i"; i=$((i+1)); sleep 0.01; done\n`,
-    ...Array.from(
-      { length: 9 },
-      () =>
-        `i=0; while :; do printf '\\033[?2026h\\033[33msync-%04d\\033[0m\\r\\nline-a\\r\\nline-b' "$i"; i=$((i+1)); sleep 0.2; done\n`,
-    ),
-  ]
-  commands.forEach((command, index) => {
-    const terminal = terminals[index]!
-    supervisor.write(terminal.id, terminal.ownerId, command)
-  })
-}
-
 /** Prove bounded search after saturating the accepted retained-byte cap with twelve panes. */
 export async function verifyCapacityTerminalSearch(
   win: BrowserWindow,
