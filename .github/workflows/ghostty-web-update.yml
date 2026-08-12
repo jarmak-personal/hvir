@@ -1,0 +1,111 @@
+name: Update ghostty-web compatibility artifact
+
+on:
+  schedule:
+    - cron: '23 13 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ghostty-web-update
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    name: Discover and validate candidate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    outputs:
+      outcome: ${{ steps.prepare.outputs.outcome }}
+
+    steps:
+      - name: Require the default branch
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          if [ "$GITHUB_REF" != "refs/heads/$DEFAULT_BRANCH" ]; then
+            echo "::error::Run ghostty-web updates from $DEFAULT_BRANCH, not $GITHUB_REF_NAME"
+            exit 1
+          fi
+
+      - name: Check out trusted default-branch automation without credentials
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 24
+          package-manager-cache: false
+
+      - name: Discover and validate the candidate without mutation authority
+        id: prepare
+        env:
+          HVIR_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          HVIR_REPOSITORY: ${{ github.repository }}
+        run: node scripts/ghostty-web-update/cli.mts prepare "$RUNNER_TEMP/ghostty-web-update"
+
+      - name: Retain the fixed candidate bundle
+        if: steps.prepare.outputs.outcome == 'prepared'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ghostty-web-update-candidate
+          path: ${{ runner.temp }}/ghostty-web-update
+          if-no-files-found: error
+          retention-days: 1
+
+  publish:
+    name: Publish validated candidate
+    needs: prepare
+    if: needs.prepare.outputs.outcome == 'prepared'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment:
+      name: ghostty-web-updates
+      deployment: false
+    permissions:
+      actions: read
+      contents: read
+
+    steps:
+      - name: Create the dedicated updater token
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ vars.HVIR_GHOSTTY_WEB_APP_CLIENT_ID }}
+          private-key: ${{ secrets.HVIR_GHOSTTY_WEB_APP_PRIVATE_KEY }}
+          permission-contents: write
+          permission-pull-requests: write
+
+      - name: Check out the exact trusted candidate base
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          token: ${{ steps.app-token.outputs.token }}
+
+      - name: Download the unprivileged candidate bundle
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: ghostty-web-update-candidate
+          path: ${{ runner.temp }}/ghostty-web-update
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 24
+          package-manager-cache: false
+
+      - name: Revalidate and publish without executing candidate code
+        env:
+          HVIR_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          HVIR_GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
+          HVIR_REPOSITORY: ${{ github.repository }}
+          HVIR_UPDATE_APP_SLUG: ${{ steps.app-token.outputs.app-slug }}
+          HVIR_UPDATE_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: node scripts/ghostty-web-update/cli.mts publish "$RUNNER_TEMP/ghostty-web-update"

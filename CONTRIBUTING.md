@@ -370,6 +370,43 @@ Use `npm run gauntlet` for the full release gate on a controlled machine; it inc
 [`docs/packaging.md`](docs/packaging.md) and
 [`docs/phase8-performance-gauntlet.md`](docs/phase8-performance-gauntlet.md).
 
+## Maintain the ghostty-web compatibility pin
+
+The `Update ghostty-web compatibility artifact` workflow checks the public compatibility fork
+daily and by manual dispatch. It accepts only the newest immutable, published, non-prerelease
+`hvir-v<package-version>-<revision>` release with exactly one package tarball, checksum, and
+provenance record. Before changing a branch it verifies the release tag and source commit, every
+asset digest, the tarball checksum, provenance and package identity, npm lock integrity, a clean
+`npm ci`, and the existing terminal-runtime contract.
+
+Candidate installation and runtime checks run in an unprivileged preparation job that has no App
+credentials. A fresh publication job receives the short-lived App token, rechecks the exact base
+commit and pull-request state, independently revalidates the public immutable release, verifies
+the hashes and exact transformation of the fixed four-file candidate bundle, and publishes it
+without installing dependencies or executing candidate code.
+
+The workflow rebuilds `automation/ghostty-web-update` from current `main` and maintains at most
+one marked pull request. A newer release advances that same branch and pull request; closing an
+unwanted update suppresses that release until a newer one appears. Generated pull requests are
+the documented automated-dependency exception: they intentionally have no governing issue or
+closing relationship, never merge automatically, and pass through the ordinary pull-request,
+planning, CodeQL, Electron, capacity, packaging, release-assembly, branch-protection, and
+maintainer-review gates.
+
+Repository administration must provide a dedicated GitHub App installed only on hvir. Grant the
+App repository metadata read, contents write, and pull-request write permissions only. Do not
+grant Actions, administration, secrets, environments, issue, or direct default-branch authority.
+Create a `ghostty-web-updates` environment restricted to `main`, put the App client ID in the
+`HVIR_GHOSTTY_WEB_APP_CLIENT_ID` environment variable, and put its private key in the
+`HVIR_GHOSTTY_WEB_APP_PRIVATE_KEY` environment secret. The workflow requests only the two write
+permissions from the short-lived installation token and revokes it at job cleanup.
+
+After provisioning or rotation, manually dispatch the workflow from `main`. When the fork's
+newest release is already pinned, a successful run must report a no-op without creating or
+changing a pull request. Missing credentials, malformed or transient release evidence, multiple
+owned pull requests, an incompatible artifact, or any candidate check fails closed without
+changing `main`.
+
 ## Protect the architecture
 
 ADR-014 defines hvir as a modular monolith organized by product capability. Before editing,

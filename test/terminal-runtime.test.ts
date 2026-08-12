@@ -104,7 +104,7 @@ describe('terminal runtime capability preflight', () => {
       profile.artifact.url,
     )
     expect(packageLock.packages['node_modules/ghostty-web']?.integrity).toBe(
-      'sha512-1qsHdk1mPRX0YNhWwOURCg3B2swoWJFsX704YAhij9LjUbtJl8s7lkBmp6uW4rkeYWDfXcODlr5Ddix5a04BHw==',
+      profile.artifact.npmIntegrity,
     )
   })
 

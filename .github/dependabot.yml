@@ -11,6 +11,8 @@ updates:
     commit-message:
       prefix: deps
     ignore:
+      # A dedicated provenance-validating workflow owns this immutable release artifact.
+      - dependency-name: 'ghostty-web'
       # Keep Node types aligned with the Node major embedded by Electron.
       - dependency-name: '@types/node'
         update-types:

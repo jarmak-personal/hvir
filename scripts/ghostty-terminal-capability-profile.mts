@@ -8,6 +8,8 @@ export const GHOSTTY_TERMINAL_CAPABILITY_PROFILE = {
     url: 'https://github.com/jarmak-personal/ghostty-web/releases/download/hvir-v0.4.0-14/ghostty-web-0.4.0-hvir-ge3bc2e1a6dbe.tgz',
     // Release-recorded digest; package installation is pinned by npm's SHA-512 lock integrity.
     sha256: 'afccb2dc96de948db39545f26496fc88e6c57dea61f2705171f08fc7cc7beddb',
+    npmIntegrity:
+      'sha512-1qsHdk1mPRX0YNhWwOURCg3B2swoWJFsX704YAhij9LjUbtJl8s7lkBmp6uW4rkeYWDfXcODlr5Ddix5a04BHw==',
     sourceCommit: 'e3bc2e1a6dbefc10e6e3b931f6bee28d790cbb6e',
     ghosttyCommit: '332b2aefc6e72d363aa93ab6ecfc86eeeeb5ed28',
     wasmBytes: 523_293,

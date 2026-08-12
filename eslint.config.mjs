@@ -141,6 +141,11 @@ export default tseslint.config(
       'scripts/validate-release-pr.mts',
       'scripts/generate-terminal-theme-catalog.mts',
       'scripts/check-terminal-runtime.mts',
+      'scripts/ghostty-web-update/candidate-bundle.mts',
+      'scripts/ghostty-web-update/cli.mts',
+      'scripts/ghostty-web-update/github-delivery.mts',
+      'scripts/ghostty-web-update/github-release-source.mts',
+      'scripts/ghostty-web-update/repository-candidate.mts',
       'scripts/project-management/native-issue-worktrees.ts',
     ],
     rules: {
