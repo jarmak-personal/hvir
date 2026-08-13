@@ -260,6 +260,11 @@ one host-qualified resource-cleanup lifecycle without mutating the repository.
 Provider-neutral Working state may animate a project name without becoming actionable attention,
 changing navigation width, or overriding reduced-motion preferences.
 
+### [ADR-035 — Retire static harness risk classification](adr/ADR-035-retire-static-harness-risk-classification.md)
+
+Launch syntax is not current runtime permission state; hvir removes profile-derived risk and
+acknowledgment while preserving exact provider, host, artifact, and recovery authority.
+
 ## 5. Architecture
 
 ### Process model
