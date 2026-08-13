@@ -11,7 +11,7 @@ import type { TerminalRuntimeOptions } from '../src/renderer/src/terminal/termin
 import { TerminalRuntimeRegistry } from '../src/renderer/src/terminal/terminal-runtime-registry'
 import type { TerminalEvent } from '../src/renderer/src/terminal/terminal-pane'
 import { ghosttyLifecycleRuntimeOptions as runtimeOptions } from './fixtures/ghostty-lifecycle-runtime-options'
-import { ghosttyState } from './fixtures/ghostty-terminal-pane-mock'
+import { ghosttyState, ghosttyWebMock } from './fixtures/ghostty-terminal-pane-mock'
 
 vi.mock('ghostty-web', async () => {
   const { ghosttyWebMock } = await import('./fixtures/ghostty-terminal-pane-mock')
@@ -45,6 +45,10 @@ describe('GhosttyTerminalPane lifecycle', () => {
       metaEnterAliasesControl: true,
       composerSubmitMode: 'enter',
     })
+    expect(ghosttyWebMock.init).toHaveBeenCalledOnce()
+    const wasmUrl = ghosttyWebMock.init.mock.calls[0]?.[0]?.wasmUrl
+    expect(typeof wasmUrl).toBe('string')
+    expect(String(wasmUrl)).toContain('ghostty-vt.wasm')
     pane.mount(firstContainer)
     const surface = firstContainer.querySelector('.terminal-engine-host')
     expect(surface).toBeInstanceOf(HTMLDivElement)

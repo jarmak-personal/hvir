@@ -88,6 +88,13 @@
       "rationale": "The remaining transitional renderer workflow stays production-composed while focused PTY, viewer-position, and packaged platform contracts run independently.",
       "removalIssue": "#115 and #116",
       "expiresOn": "2026-09-30"
+    },
+    {
+      "path": "src/renderer/src/terminal/terminal-runtime.ts",
+      "maxLines": 600,
+      "owner": "terminal runtime",
+      "rationale": "The runtime intentionally owns pane listener wiring and live PTY lifecycle authority. Terminal event effects may evolve inside that owner without forcing false extraction seams, while the named cap remains a blocking non-growth ratchet.",
+      "permanent": true
     }
   ]
 }

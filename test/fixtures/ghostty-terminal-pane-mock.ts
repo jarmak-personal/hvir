@@ -284,6 +284,6 @@ class MockTerminal {
 }
 
 export const ghosttyWebMock = {
-  init: vi.fn(() => Promise.resolve()),
+  init: vi.fn((_options?: { readonly wasmUrl?: string | URL }) => Promise.resolve()),
   Terminal: MockTerminal,
 }

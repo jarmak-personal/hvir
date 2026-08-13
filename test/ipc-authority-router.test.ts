@@ -542,6 +542,7 @@ describe('IpcAuthorityRouter', () => {
       'diagnostic-report.ts',
       'document-review.ts',
       'image-paste.ts',
+      'clipboard.ts',
       'terminal-file-paste.ts',
     ]
     const source = (

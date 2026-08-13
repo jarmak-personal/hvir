@@ -11,7 +11,10 @@ export interface TerminalPaneEventSnapshot {
   readonly semanticRegion?: TerminalSemanticRegionSummary
 }
 
-export type TerminalPaneEventEffect = { readonly title: string } | { readonly bell: true }
+export type TerminalPaneEventEffect =
+  | { readonly title: string }
+  | { readonly bell: true }
+  | { readonly clipboardWrite: { readonly selection: string; readonly data: string } }
 
 /** Owns parser-event consumption and bounded, per-pane transcript navigation. */
 export class TerminalPaneEventCoordinator {
@@ -55,6 +58,15 @@ export class TerminalPaneEventCoordinator {
       (event.type === 'notification' && event.source === 'osc-9')
     ) {
       return { bell: true }
+    }
+    if (event.type === 'clipboard') {
+      // A read query would hand the local clipboard to the remote host that
+      // asked for it; hvir answers only the write direction, never the read.
+      // The payload stays encoded here: decoding it is clipboard policy, not
+      // event translation.
+      return event.operation === 'write'
+        ? { clipboardWrite: { selection: event.selection, data: event.data } }
+        : undefined
     }
     if (event.type !== 'semantic') return undefined
     const changed = this.regions.consume(event)

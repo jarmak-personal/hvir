@@ -191,6 +191,29 @@ describe('terminal resume unavailable state', () => {
     )
   })
 
+  it('writes decoded OSC 52 text only after the runtime has started', async () => {
+    invoke.mockResolvedValue(startedResponse())
+    const runtime = registry.acquire({
+      ...options(),
+      harnessSessionId: undefined,
+      resumeOnStart: false,
+    })
+    runtime.attach(document.createElement('div'))
+    await vi.waitFor(() => expect(invoke).toHaveBeenCalledOnce())
+    send.mockClear()
+
+    paneState.instances[0]?.emitEvent({
+      type: 'clipboard',
+      operation: 'write',
+      selection: 'c',
+      data: btoa('copied from a live tmux'),
+    })
+
+    expect(send).toHaveBeenCalledExactlyOnceWith('terminal:clipboard-write', {
+      text: 'copied from a live tmux',
+    })
+  })
+
   it('restores search for the same pane and PTY after a hidden detach and reattach', async () => {
     invoke.mockResolvedValue(startedResponse())
     const runtimeOptions = {
@@ -277,8 +300,8 @@ describe('terminal resume unavailable state', () => {
       {
         type: 'clipboard',
         operation: 'write',
-        selection: 'p',
-        data: 'untrusted payload',
+        selection: 'c',
+        data: btoa('must not escape a non-live pane'),
       },
     ]
     for (const event of authorityFreeEvents) paneState.instances[0]?.emitEvent(event)

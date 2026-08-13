@@ -21,8 +21,9 @@ describe('architecture hotspot report', () => {
         exception?: {
           owner: string
           rationale: string
-          removalIssue: string
-          expiresOn: string
+          removalIssue?: string
+          expiresOn?: string
+          permanent: boolean
         }
       }[]
     }
@@ -34,6 +35,17 @@ describe('architecture hotspot report', () => {
     expect(main?.exception?.rationale).toContain('composition root')
     expect(main?.exception?.removalIssue).toBe('#35-#40')
     expect(main?.exception?.expiresOn).toBe('2026-09-30')
+    expect(main?.exception?.permanent).toBe(false)
+
+    const terminalRuntime = report.rows.find(
+      (row) => row.path === 'src/renderer/src/terminal/terminal-runtime.ts',
+    )
+    expect(terminalRuntime?.limit).toBe(600)
+    expect(terminalRuntime?.exception?.owner).toBe('terminal runtime')
+    expect(terminalRuntime?.exception?.rationale).toContain('live PTY lifecycle')
+    expect(terminalRuntime?.exception?.removalIssue).toBeUndefined()
+    expect(terminalRuntime?.exception?.expiresOn).toBeUndefined()
+    expect(terminalRuntime?.exception?.permanent).toBe(true)
   }, 15_000)
 
   it('blocks the normal verification path on budget violations', () => {
