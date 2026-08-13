@@ -533,6 +533,85 @@ describe('HarnessProfilesSettings', () => {
     expect(labelledInput('Name').value).toBe('Unsaved second draft')
   })
 
+  it('refreshes a late successful save without replacing a newer selected draft', async () => {
+    const provider = testProvider()
+    const first = testProfile(provider)
+    const second: HarnessProfile = {
+      ...first,
+      id: asHarnessProfileId('second-profile'),
+      displayName: 'Second profile',
+      order: 2,
+    }
+    const savedFirst: HarnessProfile = {
+      ...first,
+      displayName: 'Saved first',
+      metadataRevision: first.metadataRevision + 1,
+    }
+    let profiles: readonly HarnessProfile[] = [first, second]
+    const save = deferred<HarnessProfile>()
+    const invoke = vi.fn((channel: string) => {
+      if (channel === 'harness:catalog') return Promise.resolve([provider])
+      if (channel === 'harness:profiles') return Promise.resolve(profiles)
+      if (channel === 'harness:profile-save') return save.promise
+      return Promise.resolve([])
+    })
+    vi.stubGlobal('hvir', { invoke })
+    renderHarnesses(false)
+    await settleEffects()
+
+    changeValue(labelledInput('Name'), 'Saved first')
+    act(() => button('Save harness profile').click())
+    await settleEffects()
+    changeValue(labelledInput('Name'), 'Test profile')
+    act(() => profileButton('Second profile').click())
+    await settleEffects()
+    expect(profileButton('Second profile').classList).toContain('active')
+    changeValue(labelledInput('Name'), 'Unsaved second draft')
+
+    profiles = [savedFirst, second]
+    await act(async () => {
+      save.resolve(savedFirst)
+      await save.promise
+    })
+    await settleEffects()
+
+    expect(profileButton('Saved first')).toBeTruthy()
+    expect(profileButton('Second profile').classList).toContain('active')
+    expect(labelledInput('Name').value).toBe('Unsaved second draft')
+  })
+
+  it('selects the authoritative saved profile when selection stays current', async () => {
+    const provider = testProvider()
+    const profile = testProfile(provider)
+    const saved: HarnessProfile = {
+      ...profile,
+      displayName: 'Authoritative saved profile',
+      metadataRevision: profile.metadataRevision + 1,
+    }
+    let profiles: readonly HarnessProfile[] = [profile]
+    const invoke = vi.fn((channel: string) => {
+      if (channel === 'harness:catalog') return Promise.resolve([provider])
+      if (channel === 'harness:profiles') return Promise.resolve(profiles)
+      if (channel === 'harness:profile-save') {
+        profiles = [saved]
+        return Promise.resolve(saved)
+      }
+      return Promise.resolve([])
+    })
+    vi.stubGlobal('hvir', { invoke })
+    renderHarnesses(false)
+    await settleEffects()
+
+    changeValue(labelledInput('Name'), 'Requested saved profile')
+    act(() => button('Save harness profile').click())
+    await settleEffects()
+    await settleEffects()
+
+    expect(profileButton('Authoritative saved profile').classList).toContain('active')
+    expect(labelledInput('Name').value).toBe('Authoritative saved profile')
+    expect(document.body.textContent).not.toContain('Unsaved changes')
+  })
+
   it('selects a successful duplicate when no newer profile selection occurs', async () => {
     const provider = testProvider()
     const profile = testProfile(provider)
