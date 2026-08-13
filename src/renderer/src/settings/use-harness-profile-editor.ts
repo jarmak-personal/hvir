@@ -427,6 +427,11 @@ export function useHarnessProfileEditor({
     setAddOpen(false)
   }, [])
 
+  const shellProvider = providers.find((candidate) => candidate.default)
+  const startShellProfile = useCallback((): void => {
+    if (shellProvider) manualProfile(shellProvider.id)
+  }, [manualProfile, shellProvider])
+
   const materialized = useCallback(
     async (created: readonly HarnessProfile[]): Promise<void> => {
       setAddOpen(false)
@@ -462,6 +467,7 @@ export function useHarnessProfileEditor({
     selectedProfile,
     provider,
     providerProbe,
+    shellProvider,
     dirty,
     confirmSafeToLeave,
     resolveUnsavedPrompt,
@@ -478,6 +484,7 @@ export function useHarnessProfileEditor({
     authorizeBinding,
     discardDraft,
     manualProfile,
+    startShellProfile,
     materialized,
     openPicker,
     closePicker,

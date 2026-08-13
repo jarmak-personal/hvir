@@ -16,7 +16,6 @@ const expectedOrder = [
   'settings.css',
   'terminal-theme-gallery.css',
   'harness-settings.css',
-  'harness-settings-disclosures.css',
   'composer-submit.css',
   'terminal-list.css',
   'primitives.css',

@@ -10,6 +10,9 @@ import {
 } from '../../../shared'
 import { replaceHarnessValue } from './harness-profile-editor-policy'
 
+export const HARNESS_ENVIRONMENT_STORAGE_GUIDANCE =
+  'Literal values are stored and shown as plaintext. Reference-sourced values alone are redacted.'
+
 export function HarnessProfileAdvancedFields({
   input,
   hostId,
@@ -101,7 +104,10 @@ function ExecutableEditor({
             aria-label="Absolute executable path"
             value={executable.path.path}
             onChange={(event) =>
-              onChange({ kind: 'path', path: hostPath(hostId, event.currentTarget.value) })
+              onChange({
+                kind: 'path',
+                path: hostPath(hostId, event.currentTarget.value),
+              })
             }
           />
           <button type="button" onClick={onAuthorize}>
@@ -133,6 +139,9 @@ function EnvironmentEditor({
           Add
         </button>
       </header>
+      <small className="settings-profile-environment-guidance">
+        {HARNESS_ENVIRONMENT_STORAGE_GUIDANCE}
+      </small>
       {bindings.map((binding, index) => (
         <div className="settings-profile-row" key={index}>
           <input

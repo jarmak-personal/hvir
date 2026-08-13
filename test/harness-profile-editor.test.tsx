@@ -5,6 +5,7 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { HarnessProfileEditor } from '../src/renderer/src/settings/HarnessProfileEditor'
+import { HARNESS_ENVIRONMENT_STORAGE_GUIDANCE } from '../src/renderer/src/settings/HarnessProfileAdvancedFields'
 import type { HarnessProfileDraft } from '../src/renderer/src/settings/harness-profile-draft'
 import {
   asHarnessProviderId,
@@ -39,6 +40,9 @@ describe('HarnessProfileEditor binding names', () => {
     addRow('Host path bindings')
 
     const environmentNames = inputs('Environment name')
+    expect(
+      document.querySelector('.settings-profile-environment-guidance')?.textContent,
+    ).toBe(HARNESS_ENVIRONMENT_STORAGE_GUIDANCE)
     expect(environmentNames).toHaveLength(2)
     typeWithoutRefocusing(environmentNames[0]!, 'SHARED')
     expect(inputs('Environment name').map((input) => input.value)).toEqual(['SHARED', ''])
@@ -297,9 +301,7 @@ function button(label: string): HTMLButtonElement {
 }
 
 function buttonByLabel(label: string): HTMLButtonElement {
-  const match = document.querySelector<HTMLButtonElement>(
-    `button[aria-label="${label}"]`,
-  )
+  const match = document.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`)
   if (!match) throw new Error(`Missing button '${label}'`)
   return match
 }

@@ -428,3 +428,53 @@
   font-weight: 750;
   font-variant-numeric: tabular-nums;
 }
+.close-project-dialog code,
+.close-workspace-dialog code {
+  overflow-wrap: anywhere;
+  padding: 9px 10px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 4px;
+  background: var(--surface-1);
+  color: var(--text);
+  font-size: calc(10px * var(--hvir-interface-scale));
+}
+
+.worktree-prune-list {
+  max-height: min(280px, 42vh);
+  overflow: auto;
+  border: 1px solid var(--border-subtle);
+  border-radius: 4px;
+  background: var(--surface-1);
+}
+
+.worktree-prune-list > div {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 9px 10px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.worktree-prune-list > div:last-child {
+  border-bottom: 0;
+}
+
+.worktree-prune-list code,
+.worktree-prune-list small {
+  overflow-wrap: anywhere;
+}
+
+.worktree-prune-list code {
+  color: var(--text);
+  font-size: calc(10px * var(--hvir-interface-scale));
+}
+
+.worktree-prune-list small {
+  color: var(--text-muted);
+  font-size: calc(9px * var(--hvir-interface-scale));
+}
+
+.project-dialog .worktree-prune-warning {
+  color: var(--warning-text);
+}

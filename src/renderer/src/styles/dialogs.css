@@ -32,191 +32,154 @@
   color: var(--danger-text);
 }
 
-.close-project-dialog code,
-.close-workspace-dialog code {
-  overflow-wrap: anywhere;
-  padding: 9px 10px;
-  border: 1px solid var(--border-subtle);
-  border-radius: 4px;
-  background: var(--surface-1);
-  color: var(--text);
-  font-size: calc(10px * var(--hvir-interface-scale));
-}
-
 .project-dialog .dialog-note {
   color: var(--text-muted);
   font-size: calc(10px * var(--hvir-interface-scale));
 }
 
-.worktree-prune-list {
-  max-height: min(280px, 42vh);
+.unsaved-harness-dialog h3,
+.unsaved-harness-dialog p {
+  margin: 0;
+}
+
+.unsaved-harness-dialog strong {
+  color: var(--text-strong);
+}
+
+.project-dialog.add-harness-dialog {
+  width: min(620px, calc(100vw - 48px));
+  max-height: min(680px, calc(100vh - 48px));
+}
+
+.add-harness-heading,
+.add-harness-manual {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.add-harness-heading h3,
+.add-harness-dialog .add-harness-heading p,
+.add-harness-dialog .add-harness-candidates p {
+  margin: 0;
+}
+
+.add-harness-dialog .add-harness-heading p,
+.add-harness-dialog .add-harness-candidates p {
+  margin-top: 4px;
+  color: var(--text-muted);
+  font-size: calc(10px * var(--hvir-interface-scale));
+}
+
+.add-harness-candidates {
+  min-height: 190px;
+  max-height: min(330px, 42vh);
   overflow: auto;
   border: 1px solid var(--border-subtle);
   border-radius: 4px;
   background: var(--surface-1);
 }
 
-.worktree-prune-list > div {
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  padding: 9px 10px;
+.add-harness-dialog .add-harness-candidates label {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  align-items: center;
+  gap: 9px;
+  padding: 10px 11px;
   border-bottom: 1px solid var(--border-subtle);
 }
 
-.worktree-prune-list > div:last-child {
+.add-harness-dialog .add-harness-candidates label:last-child {
   border-bottom: 0;
 }
 
-.worktree-prune-list code,
-.worktree-prune-list small {
-  overflow-wrap: anywhere;
+.add-harness-dialog .add-harness-candidates label.configured {
+  color: var(--text-muted);
 }
 
-.worktree-prune-list code {
-  color: var(--text);
-  font-size: calc(10px * var(--hvir-interface-scale));
+.add-harness-dialog .add-harness-candidates label > span,
+.add-harness-dialog .add-harness-manual label {
+  display: grid;
+  gap: 3px;
 }
 
-.worktree-prune-list small {
+.add-harness-dialog .add-harness-candidates small,
+.add-harness-dialog .add-harness-manual label > span {
   color: var(--text-muted);
   font-size: calc(9px * var(--hvir-interface-scale));
 }
 
-.project-dialog .worktree-prune-warning {
-  color: var(--warning-text);
-}
-
-.terminal-recovery-dialog {
-  max-height: min(560px, calc(100vh - 32px));
-}
-
-.terminal-recovery-summary {
-  margin: 0;
-  color: #8f99a7;
-  font-size: calc(10px * var(--hvir-interface-scale));
-  line-height: 1.45;
-}
-
-.terminal-recovery-list {
-  min-height: 0;
-  overflow: auto;
-  border: 1px solid #303640;
-  border-radius: 4px;
-  background: #12151a;
-}
-
-.project-dialog .terminal-recovery-option {
-  display: grid;
-  grid-template-columns: 14px minmax(0, 1fr);
-  align-items: center;
-  gap: 9px;
-  padding: 8px 10px;
-  border-bottom: 1px solid #252a32;
-}
-
-.project-dialog .terminal-recovery-option:last-child {
-  border-bottom: 0;
-}
-
-.project-dialog .terminal-recovery-option:hover {
-  background: #191e25;
-}
-
-.project-dialog .terminal-recovery-option input {
-  width: 14px;
-  height: 14px;
-  margin: 0;
-  padding: 0;
-}
-
-.terminal-recovery-option > span {
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.terminal-recovery-rebind {
-  display: flex;
-  gap: 6px;
-  margin-top: 5px;
-}
-
-.terminal-recovery-rebind select,
-.terminal-recovery-rebind button {
-  min-width: 0;
-  padding: 4px 6px;
-  border: 1px solid #343a45;
-  border-radius: 3px;
-  background: #15181e;
-  color: #aeb8c5;
-  font-size: calc(9px * var(--hvir-interface-scale));
-}
-
-.terminal-recovery-option strong,
-.terminal-recovery-option small {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.terminal-recovery-option strong {
-  color: #d4d9e0;
-  font-size: calc(11px * var(--hvir-interface-scale));
-}
-
-.terminal-recovery-option small {
-  color: #7f8997;
-  font-size: calc(9px * var(--hvir-interface-scale));
-}
-
-.terminal-recovery-option .terminal-recovery-skip-warning {
-  color: #d5a85c;
-  line-height: 1.35;
-  white-space: normal;
-}
-
-.ssh-host-fingerprint {
-  display: block;
-  max-width: 100%;
-  padding: 9px 10px;
-  overflow-wrap: anywhere;
-  border: 1px solid #303743;
-  border-radius: 5px;
-  background: #101318;
-  color: #b9c7d8;
-  font-size: calc(11px * var(--hvir-interface-scale));
-  line-height: 1.5;
-  user-select: text;
-  white-space: normal;
-  word-break: break-all;
-}
-
-.ssh-host-key-changed {
-  border: 1px solid #c35a5a;
-  border-radius: 6px;
-  background: rgb(195 90 90 / 10%);
+.add-harness-dialog .add-harness-candidates p {
   padding: 12px;
 }
 
-.ssh-host-key-changed label {
-  display: grid;
-  gap: 5px;
-  margin-bottom: 10px;
-}
-
-.ssh-host-key-confirm {
-  grid-template-columns: auto 1fr !important;
+.add-harness-shell {
+  display: flex;
   align-items: center;
-  color: #f1c4c4;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 4px;
+  background: var(--surface-2);
 }
 
-.ssh-host-key-confirm input {
-  width: auto;
-  margin: 0;
-  padding: 0;
+.add-harness-shell > span {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.add-harness-shell small {
+  color: var(--text-muted);
+  font-size: calc(9px * var(--hvir-interface-scale));
+}
+
+.add-harness-manual {
+  padding: 10px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 4px;
+  background: var(--surface-2);
+}
+
+.add-harness-dialog .add-harness-manual label {
+  flex: 1;
+}
+
+.add-harness-manual select {
+  min-width: 250px;
+}
+
+.project-dialog.harness-folder-picker {
+  width: min(560px, calc(100vw - 48px));
+  max-height: min(620px, calc(100vh - 48px));
+}
+
+.harness-folder-picker > code {
+  overflow-wrap: anywhere;
+  color: var(--text);
+  font-size: calc(10px * var(--hvir-interface-scale));
+}
+
+.harness-folder-list {
+  min-height: 220px;
+  display: grid;
+  align-content: start;
+  overflow: auto;
+  border: 1px solid var(--border-subtle);
+  border-radius: 4px;
+  background: var(--surface-1);
+}
+
+.harness-folder-list button {
+  padding: 7px 9px;
+  border: 0;
+  border-bottom: 1px solid var(--border-subtle);
+  border-radius: 0;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
 }
 
 .session-dialog {
@@ -484,5 +447,19 @@
   .confirmation-dialog-actions {
     min-height: 52px;
     padding: 9px 12px;
+  }
+}
+
+@media (max-width: 640px) {
+  .add-harness-heading,
+  .add-harness-manual,
+  .add-harness-shell {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .add-harness-manual select {
+    min-width: 0;
+    width: 100%;
   }
 }

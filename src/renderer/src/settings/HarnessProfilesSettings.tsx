@@ -33,11 +33,6 @@ export const HarnessProfilesSettings = forwardRef<
   useImperativeHandle(ref, () => ({ confirmSafeToLeave: editor.confirmSafeToLeave }), [
     editor.confirmSafeToLeave,
   ])
-  const shellProvider = editor.providers.find((provider) => provider.default)
-  const startShellDraft = (): void => {
-    if (shellProvider) editor.manualProfile(shellProvider.id)
-  }
-
   const actions =
     workspaceRoot && projectRoot ? (
       <div className="settings-harness-actions">
@@ -50,8 +45,8 @@ export const HarnessProfilesSettings = forwardRef<
         </button>
         <button
           type="button"
-          disabled={editor.busy || editor.loadState !== 'ready' || !shellProvider}
-          onClick={() => editor.runAfterDraftGuard(startShellDraft)}
+          disabled={editor.busy || editor.loadState !== 'ready' || !editor.shellProvider}
+          onClick={() => editor.runAfterDraftGuard(editor.startShellProfile)}
         >
           Add a shell
         </button>
@@ -166,8 +161,8 @@ export const HarnessProfilesSettings = forwardRef<
                 <div>
                   <button
                     type="button"
-                    disabled={!shellProvider}
-                    onClick={startShellDraft}
+                    disabled={!editor.shellProvider}
+                    onClick={editor.startShellProfile}
                   >
                     Add a shell
                   </button>

@@ -174,9 +174,9 @@ describe('HarnessProfilesSettings', () => {
       ([channel]) => channel === 'harness:profile-save',
     )
     expect(saveCall?.[1]).toMatchObject({
-        root: localPath('/tmp/hvir'),
-        input: { providerId: shellProvider.id },
-      })
+      root: localPath('/tmp/hvir'),
+      input: { providerId: shellProvider.id },
+    })
     expect(profileButton('Additional shell').classList).toContain('active')
     expect(document.body.textContent).not.toContain('No configured harnesses yet')
   })
@@ -305,12 +305,10 @@ describe('HarnessProfilesSettings', () => {
         .map(([, request]) => (request as { readonly mode: string }).mode),
     ).toEqual(['fresh'])
     expect(
-      document.querySelector('.settings-profile-preview-disclosure summary')
-        ?.textContent,
+      document.querySelector('.settings-profile-preview-disclosure summary')?.textContent,
     ).toContain('Fresh launch')
     expect(
-      document.querySelector('.settings-profile-preview-disclosure summary')
-        ?.textContent,
+      document.querySelector('.settings-profile-preview-disclosure summary')?.textContent,
     ).not.toContain('resume')
   })
 
@@ -343,7 +341,13 @@ describe('HarnessProfilesSettings', () => {
     expect(
       invoke.mock.calls.filter(([channel]) => channel === 'harness:preview'),
     ).toEqual([])
-    expect(document.body.textContent).toContain('Invalid environment binding')
+    const previewDisclosure = document.querySelector<HTMLDetailsElement>(
+      '.settings-profile-preview-disclosure',
+    )
+    expect(previewDisclosure?.open).toBe(false)
+    expect(previewDisclosure?.querySelector('summary')?.textContent).toContain(
+      'Needs attention: Invalid environment binding',
+    )
   })
 
   it('cancels pending detection without reopening, then materializes a detected provider', async () => {

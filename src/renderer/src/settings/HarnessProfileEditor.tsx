@@ -10,7 +10,10 @@ import {
 } from '../../../shared'
 import { harnessCapabilityLabel } from './harness-profile-editor-policy'
 import type { HarnessProfileDraft } from './harness-profile-draft'
-import { HarnessProfileAdvancedFields } from './HarnessProfileAdvancedFields'
+import {
+  HARNESS_ENVIRONMENT_STORAGE_GUIDANCE,
+  HarnessProfileAdvancedFields,
+} from './HarnessProfileAdvancedFields'
 import { HarnessProfileCommandFields } from './HarnessProfileCommandFields'
 
 interface HarnessProfileEditorProps {
@@ -104,7 +107,13 @@ export function HarnessProfileEditor({
         <details className="settings-profile-disclosure settings-profile-preview-disclosure">
           <summary>
             <span>Exact command preview</span>
-            <small>Fresh launch{provider?.capabilities.exactResume ? ' and resume' : ''}</small>
+            <small
+              className={previewError ? 'settings-profile-disclosure-error' : undefined}
+            >
+              {previewError
+                ? `Needs attention: ${previewError}`
+                : `Fresh launch${provider?.capabilities.exactResume ? ' and resume' : ''}`}
+            </small>
           </summary>
           <div className="settings-profile-disclosure-body">
             <ProfilePreviews previews={previews} previewError={previewError} />
@@ -205,17 +214,14 @@ function ProfilePreviews({
 }): ReactElement {
   return (
     <div className="settings-profile-previews">
-        {previews.map((preview) => (
-          <div key={preview.mode}>
-            <strong>{preview.mode === 'fresh' ? 'Fresh launch' : 'Exact resume'}</strong>
-            <code>{preview.command}</code>
-          </div>
-        ))}
-        {previewError ? <p className="dialog-error">{previewError}</p> : null}
-        <small>
-          Literal values are stored and shown as plaintext. Reference-sourced values alone
-          are redacted.
-        </small>
+      {previews.map((preview) => (
+        <div key={preview.mode}>
+          <strong>{preview.mode === 'fresh' ? 'Fresh launch' : 'Exact resume'}</strong>
+          <code>{preview.command}</code>
+        </div>
+      ))}
+      {previewError ? <p className="dialog-error">{previewError}</p> : null}
+      <small>{HARNESS_ENVIRONMENT_STORAGE_GUIDANCE}</small>
     </div>
   )
 }
@@ -268,11 +274,7 @@ function ProfileActions({
       <button type="button" disabled={busy || !draft.id} onClick={onDuplicate}>
         Duplicate
       </button>
-      <button
-        type="button"
-        disabled={busy || !draft.id}
-        onClick={onRemove}
-      >
+      <button type="button" disabled={busy || !draft.id} onClick={onRemove}>
         {deleteArmed ? 'Confirm delete' : 'Delete'}
       </button>
       <button
