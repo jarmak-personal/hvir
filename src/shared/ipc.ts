@@ -832,6 +832,13 @@ export interface IpcInvokeMap {
 }
 
 /**
+ * Upper UTF-8 byte bound on text a terminal may place on the application host's
+ * clipboard. ghostty-web bounds the encoded OSC payload it parses; this is the
+ * independent bound main applies to decoded text that crosses IPC.
+ */
+export const MAX_CLIPBOARD_WRITE_BYTES = 64 * 1024
+
+/**
  * Fire-and-forget renderer -> main channels. PTY input uses this path so a
  * round trip is never inserted into the typing hot path.
  */
@@ -844,6 +851,8 @@ export interface IpcSendMap {
   'pty:resize': { readonly id: string; readonly cols: number; readonly rows: number }
   'pty:kill': { readonly id: string }
   'terminal:paste-image': { readonly id: string; readonly fallbackData: string }
+  /** Decoded, bounded OSC 52 text the terminal asked to place on the clipboard. */
+  'terminal:clipboard-write': { readonly text: string }
   'app:attention': { readonly count: number }
   'web-pane:reserved-bindings': KeybindingMap
   'web-pane:full-page': { readonly paneId?: string }
@@ -1043,6 +1052,7 @@ export const SEND_CHANNELS = [
   'pty:resize',
   'pty:kill',
   'terminal:paste-image',
+  'terminal:clipboard-write',
   'app:attention',
   'web-pane:reserved-bindings',
   'web-pane:full-page',

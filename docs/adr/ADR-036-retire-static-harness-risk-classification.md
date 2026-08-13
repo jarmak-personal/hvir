@@ -1,4 +1,4 @@
-# ADR-035: Retire static harness risk classification
+# ADR-036: Retire static harness risk classification
 
 ## Context
 

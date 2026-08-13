@@ -56,6 +56,7 @@ export function collectArchitectureHotspots(root = repositoryRoot) {
             rationale: hotspot.rationale,
             removalIssue: hotspot.removalIssue,
             expiresOn: hotspot.expiresOn,
+            permanent: hotspot.permanent === true,
           }
         : undefined,
     }
