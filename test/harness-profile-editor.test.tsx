@@ -238,7 +238,7 @@ function testProviders(): readonly HarnessProviderDescriptor[] {
       modifiedKeyProtocol: 'none',
       metaEnterAliasesControl: false,
     },
-    profileGuidance: { reservedArguments: [], riskClassification: 'best-effort' },
+    profileGuidance: { reservedArguments: [] },
   })
   return [
     descriptor('test', { default: false, profileTemplate: undefined }),

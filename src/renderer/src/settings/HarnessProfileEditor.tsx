@@ -13,7 +13,6 @@ import {
 } from '../../../shared'
 import {
   harnessCapabilityLabel,
-  previewRiskLabel,
   replaceHarnessValue,
 } from './harness-profile-editor-policy'
 import type { HarnessProfileDraft } from './harness-profile-draft'
@@ -215,7 +214,9 @@ function EnvironmentEditor({
         <button
           type="button"
           disabled={disabled}
-          onClick={() => onChange([...bindings, { kind: 'literal', name: '', value: '' }])}
+          onClick={() =>
+            onChange([...bindings, { kind: 'literal', name: '', value: '' }])
+          }
         >
           Add
         </button>
@@ -345,7 +346,9 @@ function PathBindingsEditor({
         <button
           type="button"
           disabled={disabled}
-          onClick={() => onChange([...bindings, { name: '', path: hostPath(hostId, '/') }])}
+          onClick={() =>
+            onChange([...bindings, { name: '', path: hostPath(hostId, '/') }])
+          }
         >
           Add
         </button>
@@ -403,13 +406,6 @@ function ProfileStatus({
         <strong>Host capabilities</strong>
         <small>{harnessCapabilityLabel(provider, probe)}</small>
       </div>
-      <div className="settings-profile-risk">
-        <strong>Risk: {previewRiskLabel(previews)}</strong>
-        <small>
-          Best-effort provider classification; it is a warning and restore policy, not a
-          security boundary.
-        </small>
-      </div>
       <div className="settings-profile-previews">
         {previews.map((preview) => (
           <div key={preview.mode}>
@@ -419,8 +415,8 @@ function ProfileStatus({
         ))}
         {previewError ? <p className="dialog-error">{previewError}</p> : null}
         <small>
-          Literal values are stored and shown as plaintext. Reference-sourced values
-          alone are redacted.
+          Literal values are stored and shown as plaintext. Reference-sourced values alone
+          are redacted.
         </small>
       </div>
     </>
@@ -482,11 +478,7 @@ function ProfileActions({
       >
         {deleteArmed ? 'Confirm delete' : 'Delete'}
       </button>
-      <button
-        type="button"
-        disabled={busy || draft.builtIn || !dirty}
-        onClick={onSave}
-      >
+      <button type="button" disabled={busy || draft.builtIn || !dirty} onClick={onSave}>
         Save harness profile
       </button>
     </div>

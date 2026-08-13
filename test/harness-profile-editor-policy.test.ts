@@ -1,17 +1,10 @@
 import { describe, expect, it } from 'vitest'
 
-import {
-  asHarnessProfileId,
-  asHarnessProviderId,
-  localPath,
-  type HarnessProfileInput,
-} from '../src/shared'
+import { asHarnessProviderId, localPath, type HarnessProfileInput } from '../src/shared'
 import {
   applyExecutableGrant,
   applyPathBindingGrant,
   harnessProfileBindingError,
-  harnessRiskLabel,
-  previewRiskLabel,
 } from '../src/renderer/src/settings/harness-profile-editor-policy'
 import { HarnessProfileRequestPolicy } from '../src/renderer/src/settings/harness-profile-request-policy'
 
@@ -161,26 +154,5 @@ describe('harness profile editor policy', () => {
         ],
       }),
     ).toBe("Unknown path binding 'missing'")
-  })
-
-  it('keeps risk labels policy-only and preview-derived', () => {
-    expect(harnessRiskLabel('elevated')).toBe('Elevated')
-    expect(previewRiskLabel([])).toBe('Pending validation')
-    expect(
-      previewRiskLabel([
-        {
-          profileId: asHarnessProfileId('profile'),
-          launchRevision: 1,
-          providerId: asHarnessProviderId('opaque'),
-          mode: 'fresh',
-          executable: 'agent',
-          args: [],
-          environment: [],
-          command: 'agent',
-          risk: 'unclassified',
-          artifactIdentity: 'artifact',
-        },
-      ]),
-    ).toBe('Unclassified')
   })
 })

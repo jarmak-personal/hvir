@@ -305,7 +305,6 @@ export function TerminalWorkspace({
       {visible ? (
         <TerminalWorkspaceControls
           label={label}
-          workspaceRoot={workspaceRoot}
           available={available}
           railCompact={railCompact}
           onRailCompact={onRailCompact}

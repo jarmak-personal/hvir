@@ -126,7 +126,6 @@ describe('renderer filesystem contract', () => {
     expect(dialogs).toContain('checking || busy || alreadyConfigured')
     expect(dialogs).toContain("event.key === 'Escape'")
     expect(dialogs).toContain("event.key !== 'Tab'")
-    expect(styles).toMatch(/\.terminal-list-profile\.elevated\s*\{[^}]*#d8b36f/s)
   })
 
   it('captures form values before scheduling profile state updates', () => {

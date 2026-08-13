@@ -135,11 +135,6 @@ export function useTerminalProfiles({
     },
     [],
   )
-  const acceptProfiles = useCallback(
-    (update: (current: readonly HarnessProfile[]) => readonly HarnessProfile[]): void =>
-      setProfiles(update),
-    [],
-  )
   const acceptRecoveryProbes = useCallback(
     (values: readonly HarnessProfileProbe[]): void => setProbes(values),
     [],
@@ -151,7 +146,6 @@ export function useTerminalProfiles({
     probes,
     pendingProbeIds,
     acceptCatalog,
-    acceptProfiles,
     acceptRecoveryProbes,
     refreshProbes,
   }

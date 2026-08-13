@@ -29,7 +29,6 @@ interface TerminalViewProps {
   readonly sessionId: string
   readonly profileId: HarnessProfileId
   readonly launchRevision: number
-  readonly riskAcknowledged: boolean
   readonly supportsResume: boolean
   readonly fallbackTitle: string
   readonly harnessSessionId?: string

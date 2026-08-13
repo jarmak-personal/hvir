@@ -39,37 +39,40 @@ describe('terminal recovery controller', () => {
   it.each([
     ['local', localPath('/repo')],
     ['SSH', hostPath(asHostId('ssh-empty'), '/repo')],
-  ])('leaves an empty %s workspace session-free when no recovery exists', async (_kind, root) => {
-    const profile = builtInProfiles()[0]!
-    const provider = shellProvider(profile.providerId)
-    const invoke = vi.fn((channel: string) => {
-      switch (channel) {
-        case 'harness:catalog':
-          return Promise.resolve([provider])
-        case 'harness:profiles':
-          return Promise.resolve([profile])
-        case 'terminal:recovery':
-          return Promise.resolve([])
-        default:
-          return Promise.reject(new Error(`Unexpected IPC ${channel}`))
-      }
-    })
-    Object.defineProperty(window, 'hvir', {
-      configurable: true,
-      value: { invoke, on: vi.fn(), send: vi.fn() },
-    })
+  ])(
+    'leaves an empty %s workspace session-free when no recovery exists',
+    async (_kind, root) => {
+      const profile = builtInProfiles()[0]!
+      const provider = shellProvider(profile.providerId)
+      const invoke = vi.fn((channel: string) => {
+        switch (channel) {
+          case 'harness:catalog':
+            return Promise.resolve([provider])
+          case 'harness:profiles':
+            return Promise.resolve([profile])
+          case 'terminal:recovery':
+            return Promise.resolve([])
+          default:
+            return Promise.reject(new Error(`Unexpected IPC ${channel}`))
+        }
+      })
+      Object.defineProperty(window, 'hvir', {
+        configurable: true,
+        value: { invoke, on: vi.fn(), send: vi.fn() },
+      })
 
-    await act(async () => {
-      reactRoot.render(
-        <RecoveryHarness root={root} provider={provider} profile={profile} />,
-      )
-      await settleEffects()
-    })
+      await act(async () => {
+        reactRoot.render(
+          <RecoveryHarness root={root} provider={provider} profile={profile} />,
+        )
+        await settleEffects()
+      })
 
-    expect(text('ready')).toBe('true')
-    expect(text('sessions')).toBe('')
-    expect(text('candidates')).toBe('')
-  })
+      expect(text('ready')).toBe('true')
+      expect(text('sessions')).toBe('')
+      expect(text('candidates')).toBe('')
+    },
+  )
 
   it('leaves the workspace empty when retained recovery is explicitly skipped', async () => {
     const profile = builtInProfiles()[0]!
@@ -149,7 +152,6 @@ describe('terminal recovery controller', () => {
       },
       profileGuidance: {
         reservedArguments: [],
-        riskClassification: 'best-effort',
       },
     }
     const root = hostPath(asHostId('recovery-controller'), '/repo')
@@ -237,7 +239,6 @@ describe('terminal recovery controller', () => {
       },
       profileGuidance: {
         reservedArguments: [],
-        riskClassification: 'best-effort',
       },
     }
     const root = hostPath(asHostId('manual-recovery-controller'), '/repo')
@@ -374,9 +375,7 @@ async function settleEffects(): Promise<void> {
   for (let index = 0; index < 8; index++) await Promise.resolve()
 }
 
-function shellProvider(
-  id: HarnessProviderDescriptor['id'],
-): HarnessProviderDescriptor {
+function shellProvider(id: HarnessProviderDescriptor['id']): HarnessProviderDescriptor {
   return {
     id,
     displayName: 'Shell',
@@ -392,7 +391,6 @@ function shellProvider(
     },
     profileGuidance: {
       reservedArguments: [],
-      riskClassification: 'best-effort',
     },
   }
 }

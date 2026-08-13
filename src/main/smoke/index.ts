@@ -1057,10 +1057,6 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
               order: 20
             }
           });
-          const acknowledgedProfile = await window.hvir.invoke(
-            'harness:acknowledge-risk',
-            { root, id: profile.id, launchRevision: profile.launchRevision }
-          );
           const preview = await window.hvir.invoke('harness:preview', {
             root,
             cwd: root,
@@ -1077,8 +1073,12 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
               builtIn: candidate.builtIn,
               scope: candidate.scope.kind
             })),
-            profile: acknowledgedProfile,
-            preview
+            profile,
+            preview,
+            obsoleteRiskState:
+              'risk' in profile ||
+              'riskAcknowledgedRevision' in profile ||
+              'risk' in preview
           };
         })()
       `),
@@ -1094,11 +1094,10 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
       }[]
       profile: {
         id: string
-        risk: string
         launchRevision: number
-        riskAcknowledgedRevision?: number
       }
       preview: { args: readonly string[]; command: string }
+      obsoleteRiskState: boolean
     }
     if (
       profileSmoke.defaultIds.join(',') !== 'plain-shell-default' ||
@@ -1118,9 +1117,7 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
       )
     }
     if (
-      profileSmoke.profile.risk !== 'unclassified' ||
-      profileSmoke.profile.riskAcknowledgedRevision !==
-        profileSmoke.profile.launchRevision ||
+      profileSmoke.obsoleteRiskState ||
       !profileSmoke.preview.args.includes(smokeRoot.path) ||
       !profileSmoke.preview.command.includes("HVIR_PROFILE_SMOKE='structured'")
     ) {

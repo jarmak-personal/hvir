@@ -220,7 +220,6 @@ function testHarnessProvider(): HarnessProvider {
       artifactExecutable: false,
       artifactPathBindings: [],
       applyArgs: (_mode, providerArgs, profileArgs) => [...providerArgs, ...profileArgs],
-      classifyRisk: () => 'standard',
     },
     supportsResume: true,
     sessionIdentity: 'preassigned',

@@ -514,7 +514,6 @@ describe('IpcAuthorityRouter', () => {
         'harness:probe-templates',
         'harness:profile-materialize',
         'harness:profile-save',
-        'harness:acknowledge-risk',
         'harness:preview',
         'harness:authorize-path',
         'terminal:recovery',

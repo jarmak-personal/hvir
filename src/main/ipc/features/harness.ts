@@ -89,19 +89,6 @@ export function registerHarnessIpc(ipc: IpcRegistrar, deps: HarnessIpcDeps): voi
   })
   ipc.handle('harness:profile-duplicate', (req) => deps.harnessProfiles.duplicate(req.id))
   ipc.handle('harness:profile-delete', (req) => deps.harnessProfiles.delete(req.id))
-  ipc.handle('harness:acknowledge-risk', (req) => {
-    const workspaceRoot = ipc.authority.workspaceRoot(req.root)
-    const projectRoot = ipc.authority.projectRoot(workspaceRoot)
-    const profile = deps.harnessProfiles.get(req.id)
-    if (!profile) throw new Error(`Unknown harness profile '${req.id}'`)
-    if (
-      profile.scope.kind === 'project' &&
-      !hostPathEquals(profile.scope.projectRoot, projectRoot)
-    ) {
-      throw new Error('Harness profile is scoped to another project')
-    }
-    return deps.harnessProfiles.acknowledgeRisk(req.id, req.launchRevision)
-  })
   ipc.handle('harness:preview', async (req) => {
     const root = ipc.authority.workspaceRoot(req.root)
     const projectRoot = ipc.authority.projectRoot(root)

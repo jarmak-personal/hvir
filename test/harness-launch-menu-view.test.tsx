@@ -150,7 +150,6 @@ function launchProvider(): HarnessProviderDescriptor {
     },
     profileGuidance: {
       reservedArguments: [],
-      riskClassification: 'best-effort',
     },
   }
 }
@@ -167,7 +166,6 @@ function launchProfile(
     metadataRevision: 1,
     providerContractVersion: 1,
     builtIn: false,
-    risk: 'standard',
     displayName,
     scope: { kind: 'global' },
     executable: { kind: 'provider-default' },

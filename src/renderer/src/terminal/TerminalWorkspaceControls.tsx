@@ -1,13 +1,15 @@
 import type { Dispatch, ReactElement, SetStateAction } from 'react'
 
-import type { HostPath } from '../../../shared'
 import type { TerminalPreferences } from '../settings/settings'
 import { useAppTheme } from '../theme'
 import { harnessLaunchMenuState } from './harness-launch-menu'
 import { profileProbe } from './terminal-probe-policy'
 import { TerminalRail } from './TerminalRail'
 import { TerminalWorkspaceDialogs } from './TerminalWorkspaceDialogs'
-import { terminalWorkspaceSplit, type TerminalWorkspaceModel } from './terminal-workspace-model'
+import {
+  terminalWorkspaceSplit,
+  type TerminalWorkspaceModel,
+} from './terminal-workspace-model'
 import type { useTerminalProfiles } from './use-terminal-profiles'
 import type { useTerminalRecovery } from './use-terminal-recovery'
 import type { useTerminalSessionCommands } from './use-terminal-session-commands'
@@ -15,7 +17,6 @@ import type { useTerminalWorkspaceMove } from './use-terminal-workspace-move'
 
 export function TerminalWorkspaceControls({
   label,
-  workspaceRoot,
   available,
   railCompact,
   onRailCompact,
@@ -32,7 +33,6 @@ export function TerminalWorkspaceControls({
   onAddHarness,
 }: {
   readonly label: string
-  readonly workspaceRoot: HostPath
   readonly available: boolean
   readonly railCompact: boolean
   readonly onRailCompact: (compact: boolean) => void
@@ -52,8 +52,7 @@ export function TerminalWorkspaceControls({
   const effectiveTerminalTheme =
     preferences.terminalTheme === 'app' ? appTheme : preferences.terminalTheme
   const { sessions, activeId } = model
-  const { providers, profiles, probes, pendingProbeIds, acceptProfiles, refreshProbes } =
-    profileState
+  const { providers, profiles, probes, pendingProbeIds, refreshProbes } = profileState
   const {
     ready: recoveryReady,
     probesReady: recoveryProbesReady,
@@ -118,18 +117,6 @@ export function TerminalWorkspaceControls({
       />
       <TerminalWorkspaceDialogs
         visible
-        risk={
-          commands.pendingRiskProfile
-            ? {
-                profile: commands.pendingRiskProfile,
-                providers,
-                root: workspaceRoot,
-                acceptProfiles,
-                launch: commands.launchAcknowledged,
-                onCancel: commands.cancelRisk,
-              }
-            : undefined
-        }
         move={
           moving.pending
             ? { plan: moving.pending, onCancel: moving.cancel, onMove: moving.confirm }

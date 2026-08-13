@@ -137,44 +137,60 @@ describe('HarnessProfileStore', () => {
     expect(store.get(created.id)).toEqual(firstEditor)
   })
 
-  it('persists risk acknowledgment per launch revision and clears it on launch edits', async () => {
-    const created = await store.save({
-      input: input({ args: [literal('--model'), literal('o3')] }),
+  it('ignores obsolete risk fields without launch drift and omits them from new writes', async () => {
+    const profileFile = localPath(join(directory, 'profiles.json'))
+    const legacyId = asHarnessProfileId('codex-legacy-risk')
+    const legacyInput = input({
+      displayName: 'Legacy Codex',
+      args: [literal('--model'), literal('o3')],
     })
-    expect(created.risk).toBe('unclassified')
-    const acknowledged = await store.acknowledgeRisk(created.id, created.launchRevision)
-    expect(acknowledged.riskAcknowledgedRevision).toBe(created.launchRevision)
-    await store.flush()
-    const restored = await HarnessProfileStore.load(
-      host,
-      localPath(join(directory, 'profiles.json')),
-    )
-    expect(restored.get(created.id)?.riskAcknowledgedRevision).toBe(
-      created.launchRevision,
+    await host.writeFile(
+      profileFile,
+      JSON.stringify({
+        version: 1,
+        profiles: [
+          {
+            ...legacyInput,
+            id: legacyId,
+            launchRevision: 4,
+            metadataRevision: 2,
+            providerContractVersion: 1,
+            builtIn: false,
+            risk: 'elevated',
+            riskAcknowledgedRevision: 4,
+          },
+        ],
+        pathGrants: [],
+      }),
     )
 
-    const renamed = await store.save({
-      id: acknowledged.id,
-      expectedLaunchRevision: acknowledged.launchRevision,
-      expectedMetadataRevision: acknowledged.metadataRevision,
-      input: { ...acknowledged, displayName: 'Remembered acknowledgment' },
+    const restoredStore = await HarnessProfileStore.load(host, profileFile)
+    const restored = restoredStore.get(legacyId)!
+    expect(restored).toMatchObject({
+      ...legacyInput,
+      id: legacyId,
+      launchRevision: 4,
+      metadataRevision: 2,
+      providerContractVersion: 1,
     })
-    expect(renamed.riskAcknowledgedRevision).toBe(renamed.launchRevision)
+    expect(restored).not.toHaveProperty('risk')
+    expect(restored).not.toHaveProperty('riskAcknowledgedRevision')
 
-    const launchChanged = await store.save({
-      id: renamed.id,
-      expectedLaunchRevision: renamed.launchRevision,
-      expectedMetadataRevision: renamed.metadataRevision,
-      input: { ...renamed, args: [literal('--model'), literal('o4')] },
+    const renamed = await restoredStore.save({
+      id: restored.id,
+      expectedLaunchRevision: restored.launchRevision,
+      expectedMetadataRevision: restored.metadataRevision,
+      input: { ...restored, displayName: 'Renamed legacy Codex' },
     })
-    expect(launchChanged.riskAcknowledgedRevision).toBeUndefined()
-
-    expect(() => store.acknowledgeRisk(launchChanged.id, renamed.launchRevision)).toThrow(
-      /configuration changed/,
-    )
+    expect(renamed.launchRevision).toBe(4)
+    const written = JSON.parse(await host.readTextFile(profileFile)) as {
+      profiles: readonly Record<string, unknown>[]
+    }
+    expect(written.profiles[0]).not.toHaveProperty('risk')
+    expect(written.profiles[0]).not.toHaveProperty('riskAcknowledgedRevision')
   })
 
-  it('invalidates Claude v1 recovery and acknowledgment while preserving other providers', async () => {
+  it('migrates a changed provider contract while ignoring obsolete risk metadata', async () => {
     const profileFile = localPath(join(directory, 'profiles.json'))
     const claudeId = asHarnessProfileId('claude-multi-account')
     const codexId = asHarnessProfileId('codex-stable')
@@ -225,16 +241,22 @@ describe('HarnessProfileStore', () => {
       providerContractVersion: 2,
       launchRevision: 5,
       metadataRevision: 2,
-      risk: 'elevated',
-      riskAcknowledgedRevision: undefined,
     })
     expect(migrated.get(codexId)).toMatchObject({
       providerContractVersion: 1,
       launchRevision: 7,
       metadataRevision: 3,
-      risk: 'unclassified',
-      riskAcknowledgedRevision: 7,
     })
+    expect(migrated.get(claudeId)).not.toHaveProperty('risk')
+    expect(migrated.get(codexId)).not.toHaveProperty('riskAcknowledgedRevision')
+    const written = JSON.parse(await host.readTextFile(profileFile)) as {
+      profiles: readonly Record<string, unknown>[]
+    }
+    expect(
+      written.profiles.every(
+        (profile) => !('risk' in profile) && !('riskAcknowledgedRevision' in profile),
+      ),
+    ).toBe(true)
   })
 
   it('does not recreate a concurrently deleted profile', async () => {
@@ -286,7 +308,7 @@ describe('HarnessProfileStore', () => {
     expect(restored.get(duplicate.id)).toEqual(duplicate)
   })
 
-  it('validates structured arguments, bindings, environment, and Custom risk', async () => {
+  it('validates structured arguments, bindings, environment, and Custom profiles', async () => {
     expect(() =>
       store.save({
         input: input({
@@ -302,7 +324,7 @@ describe('HarnessProfileStore', () => {
         executable: { kind: 'command', command: 'future-agent' },
       }),
     })
-    expect(custom.risk).toBe('unclassified')
+    expect(custom.providerId).toBe('custom')
 
     expect(() =>
       store.save({
@@ -316,7 +338,7 @@ describe('HarnessProfileStore', () => {
     ).toThrow(/Duplicate environment/)
   })
 
-  it('classifies provider-known bypass forms and reserves session selectors', async () => {
+  it('treats permission flags as launch data while reserving session selectors', async () => {
     const claude = await store.save({
       input: input({
         providerId: asHarnessProviderId('claude-code'),
@@ -326,14 +348,17 @@ describe('HarnessProfileStore', () => {
         ],
       }),
     })
-    expect(claude.risk).toBe('elevated')
+    expect(claude.args).toEqual([literal('--dangerously-skip-permissions=true')])
 
     const codex = await store.save({
       input: input({
         args: [literal('-c'), literal('sandbox_mode="danger-full-access"')],
       }),
     })
-    expect(codex.risk).toBe('elevated')
+    expect(codex.args).toEqual([
+      literal('-c'),
+      literal('sandbox_mode="danger-full-access"'),
+    ])
 
     const geminiAutoEdit = await store.save({
       input: input({
@@ -341,7 +366,10 @@ describe('HarnessProfileStore', () => {
         args: [literal('--approval-mode'), literal('auto_edit')],
       }),
     })
-    expect(geminiAutoEdit.risk).toBe('elevated')
+    expect(geminiAutoEdit.args).toEqual([
+      literal('--approval-mode'),
+      literal('auto_edit'),
+    ])
 
     const geminiUnknownApproval = await store.save({
       input: input({
@@ -349,7 +377,7 @@ describe('HarnessProfileStore', () => {
         args: [literal('--approval-mode=preview')],
       }),
     })
-    expect(geminiUnknownApproval.risk).toBe('unclassified')
+    expect(geminiUnknownApproval.args).toEqual([literal('--approval-mode=preview')])
 
     expect(() =>
       store.save({

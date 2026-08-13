@@ -1,4 +1,4 @@
-import { useState, type RefObject } from 'react'
+import type { RefObject } from 'react'
 
 import type {
   HarnessProfile,
@@ -7,7 +7,6 @@ import type {
   HarnessProviderDescriptor,
   HostPath,
 } from '../../../shared'
-import { profileRiskAcknowledged } from './terminal-profile-recovery'
 import { profileProbe } from './terminal-probe-policy'
 import type { FreshTerminalStart } from './terminal-runtime-options'
 import type { TerminalRuntimeRegistry } from './terminal-runtime-registry'
@@ -48,13 +47,7 @@ export function useTerminalSessionCommands({
   readonly forgetAttention: (id: string) => void
   readonly runtimes: TerminalRuntimeRegistry
 }) {
-  const [pendingRiskProfile, setPendingRiskProfile] = useState<HarnessProfile>()
-
-  const launch = (
-    profile: HarnessProfile,
-    provider: HarnessProviderDescriptor,
-    riskAcknowledged: boolean,
-  ): void => {
+  const launch = (profile: HarnessProfile, provider: HarnessProviderDescriptor): void => {
     const current = modelRef.current
     const pane = terminalWorkspaceSplit(current) ? current.activePane : 'primary'
     send({
@@ -65,7 +58,6 @@ export function useTerminalSessionCommands({
         provider,
         workspaceRoot,
         pane,
-        riskAcknowledged,
         profileProbe(probes, profile)?.capabilities,
       ),
     })
@@ -79,19 +71,10 @@ export function useTerminalSessionCommands({
       ? providers.find((candidate) => candidate.id === profile.providerId)
       : undefined
     if (!provider || !profile) return
-    const acknowledged = profileRiskAcknowledged(profile)
-    if (acknowledged) launch(profile, provider, acknowledged)
-    else {
-      setPendingRiskProfile(profile)
-      closeLaunchMenu()
-    }
+    launch(profile, provider)
   }
 
   return {
-    pendingRiskProfile,
-    cancelRisk: () => setPendingRiskProfile(undefined),
-    launchAcknowledged: (profile: HarnessProfile, provider: HarnessProviderDescriptor) =>
-      launch(profile, provider, true),
     add,
     startDefault: () => {
       if (
@@ -102,7 +85,7 @@ export function useTerminalSessionCommands({
       ) {
         return
       }
-      launch(defaultProfile, defaultProvider, true)
+      launch(defaultProfile, defaultProvider)
     },
     acceptFreshStart: (id: string, started: FreshTerminalStart) => {
       const session = modelRef.current.sessions.find((candidate) => candidate.id === id)

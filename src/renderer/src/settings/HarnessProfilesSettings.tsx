@@ -3,11 +3,7 @@ import { forwardRef, useImperativeHandle, type ReactElement } from 'react'
 import type { HostPath } from '../../../shared'
 import { HarnessProfileEditor } from './HarnessProfileEditor'
 import { HarnessProfileOverlays } from './HarnessProfileOverlays'
-import {
-  findProfileProbe,
-  harnessProbeLabel,
-  harnessRiskLabel,
-} from './harness-profile-editor-policy'
+import { findProfileProbe, harnessProbeLabel } from './harness-profile-editor-policy'
 import { SettingsSection } from './SettingsSection'
 import { useHarnessProfileEditor } from './use-harness-profile-editor'
 
@@ -103,9 +99,6 @@ export const HarnessProfilesSettings = forwardRef<
                     {editor.providers.find(
                       (candidate) => candidate.id === profile.providerId,
                     )?.displayName ?? profile.providerId}
-                    {profile.risk === 'standard'
-                      ? ''
-                      : ` · ${harnessRiskLabel(profile.risk)}`}
                     {' · '}
                     {profile.builtIn
                       ? 'Always available'

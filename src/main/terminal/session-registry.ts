@@ -32,7 +32,6 @@ interface StoredTerminalSession {
   readonly profileId: HarnessProfileId
   readonly launchRevision: number
   readonly recoverySkipCount: 0 | 1
-  readonly riskAcknowledgedRevision?: number
   readonly artifactIdentity?: string
   readonly harnessSessionId?: string
   readonly hostId: string
@@ -55,7 +54,6 @@ export interface RecordTerminalSpawn {
   readonly providerId: HarnessProviderId
   readonly profileId: HarnessProfileId
   readonly launchRevision: number
-  readonly riskAcknowledgedRevision?: number
   readonly artifactIdentity?: string
   readonly harnessSessionId?: string
   readonly workspaceRoot: HostPath
@@ -105,7 +103,6 @@ export interface RebindTerminalProfile {
   readonly providerId: HarnessProviderId
   readonly profileId: HarnessProfileId
   readonly launchRevision: number
-  readonly riskAcknowledgedRevision?: number
   readonly workspaceRoot: HostPath
 }
 
@@ -222,12 +219,12 @@ export class TerminalSessionRegistry implements TerminalSessionStore {
                   : value['version'] === LEGACY_ATTENTION_OR_SKIP_FILE_VERSION
                     ? parseAttentionOrSkipStoredSession(session)
                     : value['version'] === LEGACY_PROFILE_FILE_VERSION ||
-                      value['version'] === LEGACY_WORKSPACE_FILE_VERSION
-                    ? parsePreSkipStoredSession(session)
-                    : parseLegacyStoredSession(
-                        session,
-                        value['version'] === LEGACY_ADAPTER_FILE_VERSION,
-                      ),
+                        value['version'] === LEGACY_WORKSPACE_FILE_VERSION
+                      ? parsePreSkipStoredSession(session)
+                      : parseLegacyStoredSession(
+                          session,
+                          value['version'] === LEGACY_ADAPTER_FILE_VERSION,
+                        ),
               )
               .filter((session): session is StoredTerminalSession => Boolean(session))
             sessions = parsed
@@ -376,7 +373,6 @@ export class TerminalSessionRegistry implements TerminalSessionStore {
       profileId: spawn.profileId,
       launchRevision: spawn.launchRevision,
       recoverySkipCount: 0,
-      riskAcknowledgedRevision: spawn.riskAcknowledgedRevision,
       artifactIdentity: spawn.artifactIdentity,
       harnessSessionId,
       hostId: spawn.cwd.hostId,
@@ -436,7 +432,6 @@ export class TerminalSessionRegistry implements TerminalSessionStore {
       profileId: spawn.profileId,
       launchRevision: spawn.launchRevision,
       recoverySkipCount: 0,
-      riskAcknowledgedRevision: spawn.riskAcknowledgedRevision,
       artifactIdentity: spawn.artifactIdentity,
       harnessSessionId,
       hostId: spawn.cwd.hostId,
@@ -602,7 +597,6 @@ export class TerminalSessionRegistry implements TerminalSessionStore {
       ...current,
       profileId: request.profileId,
       launchRevision: request.launchRevision,
-      riskAcknowledgedRevision: request.riskAcknowledgedRevision,
       artifactIdentity: undefined,
       updatedAt: Date.now(),
     }
@@ -708,7 +702,6 @@ function parseStoredSession(value: unknown): StoredTerminalSession | undefined {
   const profileId = value['profileId']
   const launchRevision = value['launchRevision']
   const recoverySkipCount = value['recoverySkipCount']
-  const riskAcknowledgedRevision = value['riskAcknowledgedRevision']
   const artifactIdentity = value['artifactIdentity']
   const harnessSessionId = value['harnessSessionId']
   const hostId = value['hostId']
@@ -730,10 +723,6 @@ function parseStoredSession(value: unknown): StoredTerminalSession | undefined {
     !Number.isSafeInteger(launchRevision) ||
     launchRevision <= 0 ||
     (recoverySkipCount !== 0 && recoverySkipCount !== 1) ||
-    (riskAcknowledgedRevision !== undefined &&
-      (typeof riskAcknowledgedRevision !== 'number' ||
-        !Number.isSafeInteger(riskAcknowledgedRevision) ||
-        riskAcknowledgedRevision <= 0)) ||
     (artifactIdentity !== undefined &&
       (typeof artifactIdentity !== 'string' ||
         !/^[a-f0-9]{24}$/.test(artifactIdentity))) ||
@@ -764,7 +753,6 @@ function parseStoredSession(value: unknown): StoredTerminalSession | undefined {
     profileId: asHarnessProfileId(profileId),
     launchRevision,
     recoverySkipCount,
-    riskAcknowledgedRevision,
     artifactIdentity,
     harnessSessionId,
     hostId,

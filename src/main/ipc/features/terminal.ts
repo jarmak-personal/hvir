@@ -1,9 +1,6 @@
 import { hostPathEquals } from '../../../shared'
 import { resolveHarnessLaunch } from '../../harness/harness-launch'
-import {
-  harnessProvider,
-  selectHarnessLaunch,
-} from '../../harness/harness-provider'
+import { harnessProvider, selectHarnessLaunch } from '../../harness/harness-provider'
 import {
   attachRendererPty,
   canAttachRetainedRendererPty,
@@ -114,19 +111,11 @@ export function registerTerminalIpc(ipc: IpcRegistrar, deps: TerminalIpcDeps): v
     ) {
       throw new Error('Harness profile is scoped to another project')
     }
-    const acknowledged = profile.risk === 'standard' || req.acknowledgeRisk === true
-    if (!acknowledged) {
-      throw new Error(
-        `${profile.risk === 'elevated' ? 'Elevated' : 'Unclassified'} profile requires acknowledgment`,
-      )
-    }
     return deps.terminalSessions.rebindProfile({
       id: req.id,
       providerId: profile.providerId,
       profileId: profile.id,
       launchRevision: profile.launchRevision,
-      riskAcknowledgedRevision:
-        profile.risk === 'standard' ? undefined : profile.launchRevision,
       workspaceRoot: root,
     })
   })
@@ -173,8 +162,7 @@ export function registerTerminalIpc(ipc: IpcRegistrar, deps: TerminalIpcDeps): v
       (req.admission !== undefined &&
         req.admission !== 'interactive' &&
         req.admission !== 'bulk') ||
-      (req.resume !== undefined && typeof req.resume !== 'boolean') ||
-      (req.acknowledgeRisk !== undefined && typeof req.acknowledgeRisk !== 'boolean')
+      (req.resume !== undefined && typeof req.resume !== 'boolean')
     ) {
       throw new Error('Invalid PTY session metadata')
     }
@@ -183,11 +171,6 @@ export function registerTerminalIpc(ipc: IpcRegistrar, deps: TerminalIpcDeps): v
       !hostPathEquals(profile.scope.projectRoot, projectRoot)
     ) {
       throw new Error('Harness profile is scoped to another project')
-    }
-    if (profile.risk !== 'standard' && req.acknowledgeRisk !== true) {
-      throw new Error(
-        `${profile.risk === 'elevated' ? 'Elevated' : 'Unclassified'} harness profile requires acknowledgment`,
-      )
     }
     const availabilityRequest = {
       host,
@@ -370,8 +353,6 @@ export function registerTerminalIpc(ipc: IpcRegistrar, deps: TerminalIpcDeps): v
       providerId: profile.providerId,
       profileId: profile.id,
       launchRevision: profile.launchRevision,
-      riskAcknowledgedRevision:
-        profile.risk === 'standard' ? undefined : profile.launchRevision,
       artifactIdentity: resolved.artifactIdentity,
       harnessSessionId: managed.harnessSessionId,
       workspaceRoot: root,

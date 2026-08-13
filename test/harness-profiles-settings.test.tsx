@@ -366,7 +366,6 @@ function testProvider(): HarnessProviderDescriptor {
     },
     profileGuidance: {
       reservedArguments: [],
-      riskClassification: 'best-effort',
     },
   }
 }
@@ -391,7 +390,6 @@ function testProfile(provider: HarnessProviderDescriptor): HarnessProfile {
     metadataRevision: 1,
     providerContractVersion: 1,
     builtIn: false,
-    risk: 'standard',
     displayName: 'Test profile',
     providerId: provider.id,
     scope: { kind: 'global' },
