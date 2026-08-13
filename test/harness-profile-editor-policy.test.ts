@@ -48,6 +48,22 @@ describe('harness profile editor policy', () => {
     expect(policy.isCurrent(retry)).toBe(true)
   })
 
+  it('rejects late folder and executable authorization after selection or workspace changes', () => {
+    const policy = new HarnessProfileRequestPolicy()
+    policy.switchWorkspace()
+    const executableGrant = policy.start('grant:executable')
+    const folderListing = policy.start('browse:/outside')
+    const bindingGrant = policy.start('grant:binding')
+
+    policy.switchProfile()
+    expect(policy.isCurrent(executableGrant, true)).toBe(false)
+    expect(policy.isCurrent(bindingGrant, true)).toBe(false)
+    expect(policy.isCurrent(folderListing)).toBe(true)
+
+    policy.switchWorkspace()
+    expect(policy.isCurrent(folderListing)).toBe(false)
+  })
+
   it('applies main-issued grants without changing unrelated permission fields', () => {
     const path = localPath('/outside/tool')
     expect(

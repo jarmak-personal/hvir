@@ -114,4 +114,84 @@ describe('harness profile draft state', () => {
     expect(created?.input.executable).toEqual({ kind: 'provider-default' })
     expect(harnessProfileSaveRevision(created!)).toMatchObject({ kind: 'create' })
   })
+
+  it('reuses one structured draft path for additional shells, custom commands, and bundled providers', () => {
+    const descriptor = (
+      id: string,
+      displayName: string,
+      options: Pick<HarnessProviderDescriptor, 'default' | 'profileTemplate'>,
+    ): HarnessProviderDescriptor => ({
+      id: asHarnessProviderId(id),
+      displayName,
+      ...options,
+      capabilities: {
+        exactResume: false,
+        sessionIdentity: 'none',
+        contextPresentation: 'none',
+      },
+      terminalInput: {
+        modifiedKeyProtocol: 'none',
+        metaEnterAliasesControl: false,
+      },
+      profileGuidance: { reservedArguments: [], riskClassification: 'best-effort' },
+    })
+    const providers = [
+      descriptor('plain-shell', 'Shell', {
+        default: true,
+        profileTemplate: {
+          displayName: 'Shell',
+          description: 'Interactive shell',
+        },
+      }),
+      descriptor('custom', 'Custom', {
+        default: false,
+        profileTemplate: undefined,
+      }),
+      descriptor('bundled', 'Bundled agent', {
+        default: false,
+        profileTemplate: {
+          displayName: 'Bundled agent',
+          description: 'Bundled provider',
+        },
+      }),
+    ] as const
+
+    const shell = newHarnessProfileDraft(
+      providers,
+      [profile],
+      asHarnessProviderId('plain-shell'),
+    )
+    const custom = newHarnessProfileDraft(
+      providers,
+      [profile],
+      asHarnessProviderId('custom'),
+    )
+    const bundled = newHarnessProfileDraft(
+      providers,
+      [profile],
+      asHarnessProviderId('bundled'),
+    )
+
+    expect(shell?.input).toMatchObject({
+      displayName: 'Additional shell',
+      providerId: 'plain-shell',
+      executable: { kind: 'provider-default' },
+      scope: { kind: 'global' },
+      environment: [],
+      pathBindings: [],
+    })
+    expect(custom?.input).toMatchObject({
+      displayName: 'Custom command',
+      providerId: 'custom',
+      executable: { kind: 'command', command: '' },
+    })
+    expect(bundled?.input).toMatchObject({
+      displayName: 'Bundled agent profile',
+      providerId: 'bundled',
+      executable: { kind: 'provider-default' },
+    })
+    expect([shell?.input.order, custom?.input.order, bundled?.input.order]).toEqual([
+      2, 2, 2,
+    ])
+  })
 })
