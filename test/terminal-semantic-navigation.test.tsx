@@ -325,7 +325,6 @@ function viewProps(registry: TerminalRuntimeRegistry) {
     sessionId: 'terminal-1',
     profileId: asHarnessProfileId('shell'),
     launchRevision: 1,
-    riskAcknowledged: false,
     supportsResume: false,
     fallbackTitle: 'Shell · repo',
     harnessSessionId: undefined,

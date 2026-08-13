@@ -4,34 +4,18 @@ import type {
   HarnessProfile,
   HarnessProfileProbe,
   HarnessProviderDescriptor,
-  HostPath,
   TerminalMovePlan,
   TerminalRecoverySession,
 } from '../../../shared'
-import { HarnessRiskDialog } from './HarnessRiskDialog'
 import { TerminalMoveDialog } from './TerminalMoveDialog'
 import { TerminalRecoveryDialog } from './TerminalRecoveryDialog'
 
 export function TerminalWorkspaceDialogs({
   visible,
-  risk,
   move,
   recovery,
 }: {
   readonly visible: boolean
-  readonly risk?: {
-    readonly profile: HarnessProfile
-    readonly providers: readonly HarnessProviderDescriptor[]
-    readonly root: HostPath
-    readonly acceptProfiles: (
-      update: (current: readonly HarnessProfile[]) => readonly HarnessProfile[],
-    ) => void
-    readonly launch: (
-      profile: HarnessProfile,
-      provider: HarnessProviderDescriptor,
-    ) => void
-    readonly onCancel: () => void
-  }
   readonly move?: {
     readonly plan: TerminalMovePlan
     readonly onCancel: () => void
@@ -55,28 +39,6 @@ export function TerminalWorkspaceDialogs({
   if (!visible) return null
   return (
     <>
-      {risk ? (
-        <HarnessRiskDialog
-          profile={risk.profile}
-          provider={providerDescriptor(risk.providers, risk.profile)}
-          onCancel={risk.onCancel}
-          onLaunch={async () => {
-            const acknowledged = await window.hvir.invoke('harness:acknowledge-risk', {
-              root: risk.root,
-              id: risk.profile.id,
-              launchRevision: risk.profile.launchRevision,
-            })
-            risk.acceptProfiles((current) =>
-              current.map((profile) =>
-                profile.id === acknowledged.id ? acknowledged : profile,
-              ),
-            )
-            const provider = providerDescriptor(risk.providers, acknowledged)
-            if (provider) risk.launch(acknowledged, provider)
-            risk.onCancel()
-          }}
-        />
-      ) : null}
       {move ? <TerminalMoveDialog {...move} /> : null}
       {recovery?.ready ? (
         <TerminalRecoveryDialog
@@ -92,11 +54,4 @@ export function TerminalWorkspaceDialogs({
       ) : null}
     </>
   )
-}
-
-function providerDescriptor(
-  providers: readonly HarnessProviderDescriptor[],
-  profile: HarnessProfile,
-): HarnessProviderDescriptor | undefined {
-  return providers.find((provider) => provider.id === profile.providerId)
 }

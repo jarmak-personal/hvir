@@ -32,7 +32,7 @@ describe('terminal recovery planner', () => {
       modifiedKeyProtocol: 'none',
       metaEnterAliasesControl: false,
     },
-    profileGuidance: { reservedArguments: [], riskClassification: 'best-effort' },
+    profileGuidance: { reservedArguments: [] },
   }
   const root = hostPath(asHostId('recovery-plan'), '/repo')
   const record: TerminalRecoverySession = {
@@ -83,14 +83,9 @@ describe('terminal recovery planner', () => {
 
   it('preserves persisted order and falls back to the first viable active session', () => {
     const first = { ...record, id: 'first', position: 0, active: false, updatedAt: 1 }
-    const result = restoreTerminalSessions(
-      [record, first],
-      [provider],
-      [profile],
-      [],
-      { secondaryIds: [] },
-      true,
-    )
+    const result = restoreTerminalSessions([record, first], [provider], [profile], [], {
+      secondaryIds: [],
+    })
     expect(result.sessions.map(({ id }) => id)).toEqual(['first', 'second'])
     expect(result.activeId).toBe('second')
     expect(result.sessions.map(({ id, dormant }) => ({ id, dormant }))).toEqual([
@@ -138,27 +133,17 @@ describe('terminal recovery planner', () => {
       updatedAt: 1,
     }
     const secondRecord = { ...record, position: 1, active: true, updatedAt: 2 }
-    const automatic = restoreTerminalSessions(
-      [firstRecord],
-      [provider],
-      [profile],
-      [],
-      { secondaryIds: [] },
-      false,
-    )
+    const automatic = restoreTerminalSessions([firstRecord], [provider], [profile], [], {
+      secondaryIds: [],
+    })
     const existing = {
       ...automatic.sessions[0]!,
       status: 'pid 138',
       resumeOnStart: false,
     }
-    const reviewed = restoreTerminalSessions(
-      [secondRecord],
-      [provider],
-      [profile],
-      [],
-      { secondaryIds: ['second'] },
-      true,
-    )
+    const reviewed = restoreTerminalSessions([secondRecord], [provider], [profile], [], {
+      secondaryIds: ['second'],
+    })
     const merged = mergeTerminalRestorations(
       {
         sessions: [existing],
@@ -217,14 +202,9 @@ describe('terminal recovery planner', () => {
     const exact = { ...record, harnessSessionId: 'exact-retained-id' }
 
     expect(
-      restoreTerminalSessions(
-        [exact],
-        [integrated],
-        [configured],
-        [],
-        { secondaryIds: [] },
-        true,
-      ).sessions[0],
+      restoreTerminalSessions([exact], [integrated], [configured], [], {
+        secondaryIds: [],
+      }).sessions[0],
     ).toMatchObject({
       harnessSessionId: 'exact-retained-id',
       identityStatus: 'identified',
@@ -247,12 +227,10 @@ describe('terminal recovery planner', () => {
       ...profile,
       builtIn: false,
       launchRevision: 5,
-      risk: 'elevated' as const,
     }
     const rebound = {
       ...record,
       launchRevision: current.launchRevision,
-      riskAcknowledgedRevision: current.launchRevision,
       harnessSessionId: 'exact-rebound-id',
     }
 
@@ -380,17 +358,10 @@ describe('terminal recovery planner', () => {
       attention: position === 3 ? ('bell' as const) : undefined,
     }))
 
-    const restored = restoreTerminalSessions(
-      records,
-      descriptors,
-      recoveryProfiles,
-      [],
-      {
-        secondaryIds: ['terminal-1'],
-        activeByPane: { primary: 'terminal-0', secondary: 'terminal-1' },
-      },
-      true,
-    )
+    const restored = restoreTerminalSessions(records, descriptors, recoveryProfiles, [], {
+      secondaryIds: ['terminal-1'],
+      activeByPane: { primary: 'terminal-0', secondary: 'terminal-1' },
+    })
 
     expect(restored.activeByPane).toEqual({
       primary: 'terminal-0',
@@ -445,6 +416,6 @@ function providerFor(
       modifiedKeyProtocol: 'none',
       metaEnterAliasesControl: false,
     },
-    profileGuidance: { reservedArguments: [], riskClassification: 'best-effort' },
+    profileGuidance: { reservedArguments: [] },
   }
 }

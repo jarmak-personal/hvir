@@ -297,8 +297,6 @@ export interface StartPtyRequest {
   readonly admission?: 'interactive' | 'bulk'
   readonly resume?: boolean
   readonly harnessSessionId?: string
-  /** Explicit user acknowledgment for this profile's current elevated risk. */
-  readonly acknowledgeRisk?: boolean
 }
 
 export interface HarnessProfilesRequest {
@@ -343,12 +341,6 @@ export type SaveHarnessProfileRequest = SaveHarnessProfileRequestBase &
 
 export interface HarnessProfileRequest {
   readonly id: HarnessProfileId
-}
-
-export interface AcknowledgeHarnessProfileRiskRequest {
-  readonly root: HostPath
-  readonly id: HarnessProfileId
-  readonly launchRevision: number
 }
 
 interface HarnessPreviewRequestBase {
@@ -421,8 +413,6 @@ export interface TerminalRecoverySession {
   readonly profileId: HarnessProfileId
   readonly launchRevision: number
   readonly recoverySkipCount: 0 | 1
-  /** Present only when this terminal explicitly accepted this launch revision. */
-  readonly riskAcknowledgedRevision?: number
   readonly artifactIdentity?: string
   readonly harnessSessionId?: string
   readonly hostId: string
@@ -533,7 +523,6 @@ export interface RebindTerminalProfileRequest {
   readonly id: string
   readonly profileId: HarnessProfileId
   readonly launchRevision: number
-  readonly acknowledgeRisk?: boolean
 }
 
 /**
@@ -794,10 +783,6 @@ export interface IpcInvokeMap {
     response: HarnessProfile
   }
   'harness:profile-delete': { request: HarnessProfileRequest; response: void }
-  'harness:acknowledge-risk': {
-    request: AcknowledgeHarnessProfileRiskRequest
-    response: HarnessProfile
-  }
   'harness:preview': {
     request: HarnessPreviewRequest
     response: HarnessCommandPreview
@@ -1022,7 +1007,6 @@ export const INVOKE_CHANNELS = [
   'harness:profile-save',
   'harness:profile-duplicate',
   'harness:profile-delete',
-  'harness:acknowledge-risk',
   'harness:preview',
   'harness:authorize-path',
   'harness:configure-composer-submit',

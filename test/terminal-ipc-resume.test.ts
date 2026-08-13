@@ -158,7 +158,6 @@ describe('terminal exact-resume IPC', () => {
         ...fixture.request,
         resume: false,
         harnessSessionId: undefined,
-        acknowledgeRisk: undefined,
         composerSubmitMode: 'ctrl-enter',
       },
       fixture.context,
@@ -195,13 +194,7 @@ describe('terminal exact-resume IPC', () => {
         id: 'terminal-1',
         profileId: fixture.profile.id,
         launchRevision: fixture.profile.launchRevision,
-        acknowledgeRisk: true,
       }
-
-      await expect(
-        fixture.rebind({ ...request, acknowledgeRisk: false }, fixture.context),
-      ).rejects.toThrow('Unclassified profile requires acknowledgment')
-      expect(fixture.rebindProfile).not.toHaveBeenCalled()
 
       const result = await fixture.rebind(request, fixture.context)
 
@@ -211,7 +204,6 @@ describe('terminal exact-resume IPC', () => {
         providerId: fixture.profile.providerId,
         profileId: fixture.profile.id,
         launchRevision: fixture.profile.launchRevision,
-        riskAcknowledgedRevision: fixture.profile.launchRevision,
         workspaceRoot: fixture.root,
       })
     },
@@ -297,8 +289,7 @@ describe('terminal exact-resume IPC', () => {
               }
             : {
                 ...fixture.managed,
-                providerContractVersion:
-                  fixture.managed.providerContractVersion + 1,
+                providerContractVersion: fixture.managed.providerContractVersion + 1,
               }
       fixture.get.mockReturnValue(changed)
 
@@ -538,7 +529,6 @@ function resumeFixture(
               value: '/config/claude',
             },
           ],
-          risk: 'unclassified' as const,
         }
       : template
   const exec = vi
@@ -578,7 +568,6 @@ function resumeFixture(
     profileId: profile.id,
     launchRevision: profile.launchRevision,
     recoverySkipCount: 0,
-    riskAcknowledgedRevision: profile.launchRevision,
     harnessSessionId: HARNESS_SESSION_ID,
     hostId,
     cwd: root,
@@ -593,9 +582,9 @@ function resumeFixture(
     (_owner: unknown, _qualifier: unknown, _dispose: () => unknown, _options?: unknown) =>
       lease,
   )
-  const probeCapabilities = harnessProvider(profile.providerId).probe.effectiveCapabilities(
-    providerId === 'codex' ? 'codex-cli 0.146.0' : '1.0.0',
-  )
+  const probeCapabilities = harnessProvider(
+    profile.providerId,
+  ).probe.effectiveCapabilities(providerId === 'codex' ? 'codex-cli 0.146.0' : '1.0.0')
   const managedCapabilities = harnessLaunchCapabilities(
     harnessProvider(profile.providerId),
     { profile, composerSubmitMode: 'enter', probedCapabilities: probeCapabilities },
@@ -620,24 +609,25 @@ function resumeFixture(
     capabilities: managedCapabilities,
   }
   const effectiveLaunchCapabilities = vi.fn(() => managedCapabilities)
-  const spawn = vi.fn((request: {
-    sessionId: string
-    resume: boolean
-    composerSubmitMode: 'enter' | 'ctrl-enter'
-    effectiveCapabilities: typeof managedCapabilities
-  }) =>
-    Promise.resolve(
-      request.resume
-        ? { ...managed, composerSubmitMode: request.composerSubmitMode }
-        : {
-            ...managed,
-            id: request.sessionId,
-            resumed: false,
-            harnessSessionId: request.sessionId,
-            composerSubmitMode: request.composerSubmitMode,
-            capabilities: request.effectiveCapabilities,
-          },
-    ),
+  const spawn = vi.fn(
+    (request: {
+      sessionId: string
+      resume: boolean
+      composerSubmitMode: 'enter' | 'ctrl-enter'
+      effectiveCapabilities: typeof managedCapabilities
+    }) =>
+      Promise.resolve(
+        request.resume
+          ? { ...managed, composerSubmitMode: request.composerSubmitMode }
+          : {
+              ...managed,
+              id: request.sessionId,
+              resumed: false,
+              harnessSessionId: request.sessionId,
+              composerSubmitMode: request.composerSubmitMode,
+              capabilities: request.effectiveCapabilities,
+            },
+      ),
   )
   const handlers = new Map<
     string,
@@ -748,7 +738,6 @@ function resumeFixture(
     composerSubmitMode: 'enter',
     resume: true,
     harnessSessionId: HARNESS_SESSION_ID,
-    acknowledgeRisk: true,
   }
   const send = vi.fn()
   const context = {

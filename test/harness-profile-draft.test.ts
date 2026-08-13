@@ -20,7 +20,6 @@ const profile: HarnessProfile = {
   metadataRevision: 1,
   providerContractVersion: 1,
   builtIn: false,
-  risk: 'standard',
   displayName: 'Test profile',
   providerId: asHarnessProviderId('custom'),
   scope: { kind: 'global' },
@@ -98,7 +97,6 @@ describe('harness profile draft state', () => {
         },
         profileGuidance: {
           reservedArguments: [],
-          riskClassification: 'best-effort',
         },
       },
     ]
@@ -133,7 +131,7 @@ describe('harness profile draft state', () => {
         modifiedKeyProtocol: 'none',
         metaEnterAliasesControl: false,
       },
-      profileGuidance: { reservedArguments: [], riskClassification: 'best-effort' },
+      profileGuidance: { reservedArguments: [] },
     })
     const providers = [
       descriptor('plain-shell', 'Shell', {

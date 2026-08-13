@@ -347,7 +347,6 @@ describe('terminal resume unavailable state', () => {
       admission: 'interactive',
       resume: false,
       harnessSessionId: undefined,
-      acknowledgeRisk: false,
     })
     expect(runtimeOptions.onFreshStarted).toHaveBeenCalledWith({
       sessionId: 'd33b09dd-bf6a-4fab-b198-446017d5f8c9',
@@ -564,19 +563,17 @@ describe('terminal resume unavailable state', () => {
         modifiedKeyProtocol: 'modify-other-keys',
         metaEnterAliasesControl: true,
       },
-      profileGuidance: { reservedArguments: [], riskClassification: 'best-effort' },
+      profileGuidance: { reservedArguments: [] },
     }
     const profile = {
       id: runtimeOptions.profileId,
       displayName: 'Claude Code',
-      risk: 'standard',
     } as unknown as HarnessProfile
     const session: TerminalSession = {
       id: runtimeOptions.sessionId,
       providerId: provider.id,
       profileId: runtimeOptions.profileId,
       launchRevision: runtimeOptions.launchRevision,
-      riskAcknowledged: false,
       capabilities: provider.capabilities,
       fallbackTitle: runtimeOptions.fallbackTitle,
       title: 'Retained conversation',
@@ -656,7 +653,6 @@ function options(): TerminalRuntimeOptions {
     sessionId: 'terminal-1',
     profileId: asHarnessProfileId('claude-code-default'),
     launchRevision: 1,
-    riskAcknowledged: false,
     supportsResume: true,
     fallbackTitle: 'Claude Code · repo',
     harnessSessionId: '05ea41ff-026f-4ab6-b930-64eb3b497806',

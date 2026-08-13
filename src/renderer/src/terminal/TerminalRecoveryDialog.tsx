@@ -116,8 +116,8 @@ export function TerminalRecoveryDialog({
       >
         <h2 id="terminal-recovery-title">Restore terminals</h2>
         <p className="terminal-recovery-summary">
-          Restore terminal rows now. Only the visible terminal in each split will
-          start; the rest stay ready until selected.
+          Restore terminal rows now. Only the visible terminal in each split will start;
+          the rest stay ready until selected.
         </p>
         <div className="terminal-recovery-list">
           {sessions.map((session) => {
@@ -167,7 +167,9 @@ export function TerminalRecoveryDialog({
                       `Unavailable provider (${session.providerId})`}{' '}
                     · {basenameHostPath(session.cwd)} ·{' '}
                     {provider && profile
-                      ? `${profile.builtIn ? 'New shell' : `${recoveryActionLabel(decision.action)} · ${probeLabel(probe)}`}${profile.risk === 'standard' ? '' : ` · acknowledge ${riskLabel(profile.risk)}`}`
+                      ? profile.builtIn
+                        ? 'New shell'
+                        : `${recoveryActionLabel(decision.action)} · ${probeLabel(probe)}`
                       : decision.action === 'unavailable'
                         ? decision.reason
                         : 'Cannot restore'}
@@ -199,7 +201,7 @@ export function TerminalRecoveryDialog({
                         )}
                         {sameProviderProfiles.map((candidate) => (
                           <option key={candidate.id} value={candidate.id}>
-                            {candidate.displayName} · {riskLabel(candidate.risk)}
+                            {candidate.displayName}
                           </option>
                         ))}
                       </select>
@@ -214,10 +216,7 @@ export function TerminalRecoveryDialog({
                           })
                         }}
                       >
-                        {selectedRebindProfile?.risk === 'standard' ||
-                        !selectedRebindProfile
-                          ? 'Review and rebind'
-                          : `Rebind and acknowledge ${riskLabel(selectedRebindProfile.risk)}`}
+                        Review and rebind
                       </button>
                     </span>
                   ) : null}
@@ -281,14 +280,6 @@ function probeLabel(probe: HarnessProfileProbe | undefined): string {
     case 'unchecked':
       return 'Unchecked'
   }
-}
-
-function riskLabel(risk: HarnessProfile['risk']): string {
-  return risk === 'elevated'
-    ? 'Elevated'
-    : risk === 'unclassified'
-      ? 'Unclassified'
-      : 'Standard'
 }
 
 function errorMessage(reason: unknown): string {

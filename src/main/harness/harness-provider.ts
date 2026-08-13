@@ -11,8 +11,6 @@ import {
   type ComposerSubmitMode,
   type HarnessContextPresentation,
   type HarnessContextPressurePolicy,
-  type HarnessEnvironmentBinding,
-  type HarnessLaunchRisk,
   type HarnessModifiedKeyProtocol,
   type HarnessProfile,
   type HarnessProfileId,
@@ -92,13 +90,11 @@ export interface HarnessDocumentReviewInsertLaunch {
     | 'args'
     | 'environment'
     | 'pathBindings'
-    | 'risk'
   >
   readonly effectiveCapabilities: HarnessProviderCapabilities
 }
 
-export interface HarnessDocumentReviewSendNowLaunch
-  extends HarnessDocumentReviewInsertLaunch {
+export interface HarnessDocumentReviewSendNowLaunch extends HarnessDocumentReviewInsertLaunch {
   readonly composerSubmitMode: ComposerSubmitMode
 }
 
@@ -198,14 +194,8 @@ export interface HarnessDefaultProfile {
   readonly description: string
 }
 
-export interface HarnessRiskInput {
-  readonly args: readonly string[]
-  readonly environment: readonly HarnessEnvironmentBinding[]
-  readonly executableOverridden: boolean
-}
-
 export interface HarnessProfileContract {
-  /** Increment when launch composition or risk rules change. */
+  /** Increment when launch composition changes. */
   readonly version: number
   readonly defaultProfile?: HarnessDefaultProfile
   readonly reservedArguments: readonly string[]
@@ -218,7 +208,6 @@ export interface HarnessProfileContract {
     providerArgs: readonly string[],
     profileArgs: readonly string[],
   ): readonly string[]
-  classifyRisk(input: HarnessRiskInput): HarnessLaunchRisk
 }
 
 export interface HarnessProbeContract {
@@ -294,10 +283,6 @@ export const plainShellProvider: HarnessProvider = {
     artifactExecutable: false,
     artifactPathBindings: [],
     applyArgs: (_mode, providerArgs, profileArgs) => [...providerArgs, ...profileArgs],
-    classifyRisk: ({ args, environment, executableOverridden }) =>
-      args.length === 0 && environment.length === 0 && !executableOverridden
-        ? 'standard'
-        : 'unclassified',
   },
   supportsResume: false,
   sessionIdentity: 'none',
@@ -336,7 +321,6 @@ export const claudeCodeProvider: HarnessProvider = {
     artifactExecutable: true,
     artifactPathBindings: [],
     applyArgs: (_mode, providerArgs, profileArgs) => [...providerArgs, ...profileArgs],
-    classifyRisk: classifyClaudeRisk,
   },
   supportsResume: true,
   sessionIdentity: 'preassigned',
@@ -404,22 +388,16 @@ export const codexProvider: HarnessProvider = {
             ...providerArgs.slice(resumeAt),
           ]
     },
-    classifyRisk: classifyCodexRisk,
   },
   supportsResume: true,
   sessionIdentity: 'discovered',
   sessionDiscovery: codexSessionDiscovery,
   telemetry: { observe: observeCodexContext },
-  probe: versionProbe(
-    'discovered',
-    true,
-    'pressure',
-    {
-      reviewInsert: codexReviewInsert,
-      reviewSendNow: codexReviewSendNow,
-      supportsReviewSendNowVersion: supportsCodexReviewSendNowVersion,
-    },
-  ),
+  probe: versionProbe('discovered', true, 'pressure', {
+    reviewInsert: codexReviewInsert,
+    reviewSendNow: codexReviewSendNow,
+    supportsReviewSendNowVersion: supportsCodexReviewSendNowVersion,
+  }),
   remoteImagePaste: pathImagePasteContract(),
   documentReviewInsert: codexReviewInsert,
   documentReviewSendNow: codexReviewSendNow,
@@ -461,7 +439,6 @@ export const customCommandProvider: HarnessProvider = {
     artifactExecutable: false,
     artifactPathBindings: [],
     applyArgs: (_mode, providerArgs, profileArgs) => [...providerArgs, ...profileArgs],
-    classifyRisk: () => 'unclassified',
   },
   supportsResume: false,
   sessionIdentity: 'none',
@@ -507,7 +484,6 @@ export class HarnessProviderRegistry {
         : undefined,
       profileGuidance: {
         reservedArguments: provider.profile.reservedArguments,
-        riskClassification: 'best-effort',
       },
     }))
   }
@@ -577,7 +553,8 @@ export function harnessLaunchCapabilities(
     readonly probedCapabilities?: HarnessProviderCapabilities
   },
 ): HarnessProviderCapabilities {
-  const probed = launch?.probedCapabilities ?? provider.probe.effectiveCapabilities(undefined)
+  const probed =
+    launch?.probedCapabilities ?? provider.probe.effectiveCapabilities(undefined)
   const insert = provider.documentReviewInsert
   let base: HarnessProviderCapabilities = {
     sessionIdentity: probed.sessionIdentity,
@@ -675,57 +652,6 @@ function codexComposerArgs(ctx: HarnessLaunchContext): readonly string[] {
     : []
 }
 
-function classifyClaudeRisk(input: HarnessRiskInput): HarnessLaunchRisk {
-  for (const token of input.args) {
-    if (
-      token === '--dangerously-skip-permissions' ||
-      token.startsWith('--dangerously-skip-permissions=')
-    ) {
-      return 'elevated'
-    }
-  }
-  return input.executableOverridden ||
-    input.environment.length > 0 ||
-    input.args.length > 0
-    ? 'unclassified'
-    : 'standard'
-}
-
-function classifyCodexRisk(input: HarnessRiskInput): HarnessLaunchRisk {
-  if (input.executableOverridden || input.environment.length > 0) return 'unclassified'
-  let unclassified = false
-  for (let index = 0; index < input.args.length; index++) {
-    const token = input.args[index] ?? ''
-    if (token === '--dangerously-bypass-approvals-and-sandbox') return 'elevated'
-    if (token === '--add-dir' && input.args[index + 1] !== undefined) {
-      index++
-      continue
-    }
-    if (token.startsWith('--add-dir=')) continue
-    if ((token === '-c' || token === '--config') && input.args[index + 1]) {
-      const value = input.args[++index] ?? ''
-      if (isElevatedCodexConfig(value)) return 'elevated'
-      unclassified = true
-      continue
-    }
-    if (token.startsWith('-c=') || token.startsWith('--config=')) {
-      if (isElevatedCodexConfig(token.slice(token.indexOf('=') + 1))) {
-        return 'elevated'
-      }
-    }
-    unclassified = true
-  }
-  return unclassified ? 'unclassified' : 'standard'
-}
-
-function isElevatedCodexConfig(value: string): boolean {
-  const normalized = value.replaceAll(/\s/g, '').replaceAll('"', '').replaceAll("'", '')
-  return (
-    normalized === 'sandbox_mode=danger-full-access' ||
-    normalized === 'approval_policy=never'
-  )
-}
-
 function pathImagePasteContract(): HarnessRemoteImagePasteContract {
   return {
     revision: 1,
@@ -789,8 +715,7 @@ function codexDocumentReviewSendNowContract(
       if (!supportsLaunch(launch)) {
         throw new Error('Codex review submission is unavailable for this launch')
       }
-      const submit =
-        launch.composerSubmitMode === 'ctrl-enter' ? '\x1b[13;5u' : '\r'
+      const submit = launch.composerSubmitMode === 'ctrl-enter' ? '\x1b[13;5u' : '\r'
       return `${insert.terminalInput(body)}${submit}`
     },
   }
@@ -802,8 +727,7 @@ function supportsDefaultDocumentReviewProfile(
   return (
     profile.args.length === 0 &&
     profile.environment.length === 0 &&
-    profile.pathBindings.length === 0 &&
-    profile.risk === 'standard'
+    profile.pathBindings.length === 0
   )
 }
 
@@ -872,11 +796,7 @@ function supportsCodexReviewSendNowVersion(version: string | undefined): boolean
   const match = /^codex-cli\s+(\d+)\.(\d+)\.(\d+)(?:\b|[-+])/.exec(version ?? '')
   if (!match) return false
   const parts = match.slice(1).map(Number)
-  return (
-    parts[0]! > 0 ||
-    parts[1]! > 146 ||
-    (parts[1] === 146 && parts[2]! >= 0)
-  )
+  return parts[0]! > 0 || parts[1]! > 146 || (parts[1] === 146 && parts[2]! >= 0)
 }
 
 function hasControlCharacter(value: string): boolean {

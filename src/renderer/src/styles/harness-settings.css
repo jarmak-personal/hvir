@@ -83,7 +83,6 @@
 
 .settings-profile-list small,
 .settings-profile-note,
-.settings-profile-risk small,
 .settings-profile-previews small {
   color: var(--text-muted);
   font-size: calc(9px * var(--hvir-interface-scale));
@@ -174,8 +173,7 @@
   line-height: 1.5;
 }
 
-.settings-profile-argv span,
-.settings-profile-risk {
+.settings-profile-argv span {
   display: flex;
   justify-content: space-between;
   gap: 8px;
@@ -228,16 +226,6 @@
 
 .settings-profile-row > button:last-child {
   padding: 0;
-}
-
-.settings-profile-risk {
-  align-items: baseline;
-  padding: 8px 9px;
-  border: 1px solid var(--warning-border);
-  border-radius: 4px;
-  background: var(--warning-surface);
-  color: var(--warning-text);
-  font-size: calc(10px * var(--hvir-interface-scale));
 }
 
 .settings-profile-previews {

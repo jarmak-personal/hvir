@@ -316,7 +316,6 @@ function probeRequest(
       prepare: () => profile,
       save: () => Promise.resolve(profile),
       materializeTemplates: () => Promise.resolve([]),
-      acknowledgeRisk: () => Promise.resolve(profile),
       duplicate: () => Promise.resolve(profile),
       delete: () => Promise.resolve(),
       authorizePath: () => Promise.reject(new Error('not used')),

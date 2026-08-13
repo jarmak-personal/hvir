@@ -378,7 +378,6 @@ function runtimeOptions(root: HostPath, sessionId: string): TerminalRuntimeOptio
     sessionId,
     profileId: asHarnessProfileId('bare-shell'),
     launchRevision: 1,
-    riskAcknowledged: false,
     supportsResume: false,
     fallbackTitle: 'Shell',
     resumeOnStart: false,

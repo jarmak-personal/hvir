@@ -8,7 +8,6 @@ export function ghosttyLifecycleRuntimeOptions() {
     sessionId: 'terminal-1',
     profileId: asHarnessProfileId('claude-code-default'),
     launchRevision: 2,
-    riskAcknowledged: false,
     supportsResume: true,
     fallbackTitle: 'Claude Code · repo',
     harnessSessionId: '05ea41ff-026f-4ab6-b930-64eb3b497806',

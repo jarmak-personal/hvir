@@ -1,9 +1,5 @@
-import {
-  asHarnessProfileId,
-  asHarnessProviderId,
-  type HarnessLaunchRisk,
-} from '../../../shared'
-import type { HarnessProvider, HarnessRiskInput } from '../harness-provider'
+import { asHarnessProfileId, asHarnessProviderId } from '../../../shared'
+import type { HarnessProvider } from '../harness-provider'
 
 export const githubCopilotProvider: HarnessProvider = {
   manifest: {
@@ -25,7 +21,6 @@ export const githubCopilotProvider: HarnessProvider = {
     artifactExecutable: false,
     artifactPathBindings: [],
     applyArgs: (_mode, providerArgs, profileArgs) => [...providerArgs, ...profileArgs],
-    classifyRisk: classifyCopilotRisk,
   },
   supportsResume: false,
   sessionIdentity: 'none',
@@ -38,24 +33,6 @@ export const githubCopilotProvider: HarnessProvider = {
   resume(ctx) {
     return this.launch(ctx)
   },
-}
-
-function classifyCopilotRisk(input: HarnessRiskInput): HarnessLaunchRisk {
-  if (input.executableOverridden || input.environment.length > 0) return 'unclassified'
-  const elevated = new Set([
-    '--allow-all',
-    '--allow-all-tools',
-    '--allow-all-paths',
-    '--allow-all-urls',
-    '--yolo',
-  ])
-  return input.args.some(
-    (token) => elevated.has(token) || token.startsWith('--allow-all='),
-  )
-    ? 'elevated'
-    : input.args.length > 0
-      ? 'unclassified'
-      : 'standard'
 }
 
 function versionProbe(): HarnessProvider['probe'] {

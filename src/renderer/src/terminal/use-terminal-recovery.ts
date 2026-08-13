@@ -269,7 +269,6 @@ export function useTerminalRecovery({
         id: record.id,
         profileId: profile.id,
         launchRevision: profile.launchRevision,
-        acknowledgeRisk: profile.risk !== 'standard',
       })
       if (!generationOwner.isCurrent(currentGeneration)) return
       recoveryRecords.current = recoveryRecords.current.map((candidate) =>

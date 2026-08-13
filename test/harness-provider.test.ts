@@ -98,9 +98,14 @@ describe('Harness providers', () => {
       ),
     ).toThrow(/safe absolute path/)
     expect(
-      ['plain-shell', 'pi', 'gemini-cli', 'github-copilot-cli', 'cursor-cli', 'custom'].every(
-        (id) => harnessProvider(id).remoteImagePaste === undefined,
-      ),
+      [
+        'plain-shell',
+        'pi',
+        'gemini-cli',
+        'github-copilot-cli',
+        'cursor-cli',
+        'custom',
+      ].every((id) => harnessProvider(id).remoteImagePaste === undefined),
     ).toBe(true)
   })
 
@@ -115,14 +120,16 @@ describe('Harness providers', () => {
         provider.probe.effectiveCapabilities('1.0').reviewInsertContractRevision,
       ).toBe(provider.documentReviewInsert?.revision)
     }
-    expect(() => codexProvider.documentReviewInsert?.terminalInput('unsafe\u001btext')).toThrow(
-      /safe human-readable text/,
-    )
+    expect(() =>
+      codexProvider.documentReviewInsert?.terminalInput('unsafe\u001btext'),
+    ).toThrow(/safe human-readable text/)
     expect(
-      harnessProviders.all().map(({ manifest, documentReviewInsert }) => [
-        manifest.id,
-        documentReviewInsert?.revision,
-      ]),
+      harnessProviders
+        .all()
+        .map(({ manifest, documentReviewInsert }) => [
+          manifest.id,
+          documentReviewInsert?.revision,
+        ]),
     ).toEqual([
       ['plain-shell', undefined],
       ['claude-code', 1],
@@ -193,7 +200,6 @@ describe('Harness providers', () => {
       ],
       environment: [{ kind: 'literal' as const, name: 'REVIEW_MODE', value: '1' }],
       pathBindings: [{ name: 'project', path: localPath('/tmp/project') }],
-      risk: 'unclassified' as const,
     }
     const capabilities = harnessLaunchCapabilities(codexProvider, {
       profile: customizedProfile,
@@ -276,7 +282,6 @@ describe('Harness providers', () => {
         args: [{ parts: [{ kind: 'literal' as const, value: '--custom' }] }],
         environment: [{ kind: 'literal' as const, name: 'HVIR_TEST', value: '1' }],
         pathBindings: [{ name: 'project', path: localPath('/tmp/project') }],
-        risk: 'unclassified' as const,
       }
       const customized = harnessLaunchCapabilities(provider, {
         profile: customizedProfile,
@@ -381,9 +386,7 @@ describe('Harness providers', () => {
       metaEnterAliasesControl: true,
     })
     expect(
-      catalog.every(
-        ({ profileGuidance }) => profileGuidance.riskClassification === 'best-effort',
-      ),
+      catalog.every(({ profileGuidance }) => !('riskClassification' in profileGuidance)),
     ).toBe(true)
   })
 
@@ -447,7 +450,6 @@ describe('Harness providers', () => {
           ...providerArgs,
           ...profileArgs,
         ],
-        classifyRisk: () => 'standard',
       },
       supportsResume: false,
       sessionIdentity: 'none',

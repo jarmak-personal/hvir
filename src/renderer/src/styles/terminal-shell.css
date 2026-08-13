@@ -365,31 +365,11 @@
   opacity: 0.48;
 }
 
-.harness-risk {
-  padding: 2px 4px;
-  border: 1px solid currentColor;
-  border-radius: 3px;
-  color: #d8b36f;
-  font-size: calc(7px * var(--hvir-interface-scale));
-  font-style: normal;
-  text-transform: uppercase;
-}
-
-.harness-risk.unclassified {
-  color: #bf91ce;
-}
-
 .terminal-new-menu-actions {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   padding-top: 4px;
   border-top: 1px solid #343a45;
-}
-
-.harness-risk-dialog small {
-  color: #8b95a3;
-  font-size: calc(10px * var(--hvir-interface-scale));
-  line-height: 1.5;
 }
 
 .terminal-new-menu button:hover,

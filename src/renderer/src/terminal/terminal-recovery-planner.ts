@@ -33,9 +33,7 @@ export type TerminalAutomaticRecoveryPlan =
 export interface TerminalRestorationResult {
   readonly sessions: readonly TerminalSession[]
   readonly activeId?: string
-  readonly activeByPane: Readonly<
-    Record<TerminalSplitPane, string | undefined>
-  >
+  readonly activeByPane: Readonly<Record<TerminalSplitPane, string | undefined>>
 }
 
 export type TerminalManualRecoveryPlan =
@@ -92,7 +90,6 @@ export function planManualTerminalRecovery({
           profiles,
           probes,
           splitLayout,
-          true,
         ),
       }
 }
@@ -129,14 +126,7 @@ export function planAutomaticTerminalRecovery({
   const automaticIds = new Set(automatic.map(({ id }) => id))
   return {
     kind: 'restore',
-    result: restoreTerminalSessions(
-      automatic,
-      providers,
-      profiles,
-      probes,
-      splitLayout,
-      false,
-    ),
+    result: restoreTerminalSessions(automatic, providers, profiles, probes, splitLayout),
     residual: records.filter(({ id }) => !automaticIds.has(id)),
   }
 }
@@ -190,7 +180,6 @@ export function restoreTerminalSessions(
   profiles: readonly HarnessProfile[],
   probes: readonly HarnessProfileProbe[],
   splitLayout: StoredTerminalSplitLayout,
-  manualRiskAcknowledgment: boolean,
 ): TerminalRestorationResult {
   const ordered = [...records].sort(
     (left, right) => left.position - right.position || left.updatedAt - right.updatedAt,
@@ -208,10 +197,6 @@ export function restoreTerminalSessions(
       providerId: record.providerId,
       profileId: record.profileId,
       launchRevision: record.launchRevision,
-      riskAcknowledged:
-        profile.risk === 'standard' ||
-        record.riskAcknowledgedRevision === record.launchRevision ||
-        manualRiskAcknowledgment,
       capabilities,
       fallbackTitle: record.title,
       title: record.title,
@@ -340,9 +325,8 @@ function restoredPaneActiveId(
   const preferred = splitLayout.activeByPane?.[pane]
   return (
     sessions.find((session) => session.pane === pane && session.id === preferred)?.id ??
-    sessions.find(
-      (session) => session.pane === pane && session.id === persistedActiveId,
-    )?.id ??
+    sessions.find((session) => session.pane === pane && session.id === persistedActiveId)
+      ?.id ??
     sessions.find((session) => session.pane === pane)?.id
   )
 }
@@ -353,9 +337,11 @@ function mergedPaneActiveId(
   restored: TerminalRestorationResult,
   existing: TerminalRestorationResult,
 ): string | undefined {
-  return [restored.activeByPane[pane], existing.activeByPane[pane]].find(
-    (id): id is string =>
-      id !== undefined &&
-      sessions.some((session) => session.pane === pane && session.id === id),
-  ) ?? sessions.find((session) => session.pane === pane)?.id
+  return (
+    [restored.activeByPane[pane], existing.activeByPane[pane]].find(
+      (id): id is string =>
+        id !== undefined &&
+        sessions.some((session) => session.pane === pane && session.id === id),
+    ) ?? sessions.find((session) => session.pane === pane)?.id
+  )
 }
