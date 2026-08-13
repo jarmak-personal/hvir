@@ -140,7 +140,6 @@ function ProfileIdentityFields({
         <span>Name</span>
         <input
           value={draft.input.displayName}
-          disabled={draft.builtIn}
           onChange={(event) => {
             const displayName = event.currentTarget.value
             onUpdateInput((input) => ({ ...input, displayName }))
@@ -151,7 +150,6 @@ function ProfileIdentityFields({
         <span>Provider</span>
         <select
           value={draft.input.providerId}
-          disabled={draft.builtIn}
           onChange={(event) => {
             const providerId = asHarnessProviderId(event.currentTarget.value)
             const selectedProvider = providers.find(
@@ -177,7 +175,6 @@ function ProfileIdentityFields({
         <span>Scope</span>
         <select
           value={draft.input.scope.kind}
-          disabled={draft.builtIn}
           onChange={(event) => {
             const scope =
               event.currentTarget.value === 'project'
@@ -194,7 +191,6 @@ function ProfileIdentityFields({
         <span>Description</span>
         <input
           value={draft.input.description ?? ''}
-          disabled={draft.builtIn}
           onChange={(event) => {
             const description = event.currentTarget.value || undefined
             onUpdateInput((input) => ({ ...input, description }))

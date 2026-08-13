@@ -304,7 +304,7 @@ export function useHarnessProfileEditor({
           : { root: current.workspaceRoot, input: revision.input },
       )
       if (!policy.current.isCurrent(token)) return false
-      await refresh(profile.id)
+      await refresh(profile.id, token)
       if (!policy.current.isCurrent(token)) return false
       window.dispatchEvent(new Event('hvir:harness-profiles-changed'))
       return true
