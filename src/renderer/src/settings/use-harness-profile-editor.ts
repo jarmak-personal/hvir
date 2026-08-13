@@ -138,6 +138,7 @@ export function useHarnessProfileEditor({
       setProviders(catalog)
       setProfiles(manageableProfiles)
       setProfileProbes(cachedProbes)
+      if (!policy.current.isCurrent(token, true)) return
       if (selectionGuard && !policy.current.isCurrent(selectionGuard, true)) return
       const selected =
         manageableProfiles.find((profile) => profile.id === selectId) ??

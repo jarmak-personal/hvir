@@ -160,8 +160,19 @@ describe('HarnessProfilesSettings', () => {
       'Bare Shell remains available whenever you open a terminal.',
     )
 
-    act(() => button('Add a shell').click())
-    await settleEffects()
+    await act(async () => {
+      button('Add a shell').click()
+      await Promise.resolve()
+    })
+    expect(document.querySelectorAll('.settings-profile-list button')).toHaveLength(1)
+    expect(profileButton('Additional shell').classList).toContain('active')
+    expect(profileButton('Additional shell').getAttribute('aria-current')).toBe('true')
+    expect(profileButton('Additional shell').textContent).toContain(
+      'Shell · All projects · Unsaved',
+    )
+    expect(
+      invoke.mock.calls.filter(([channel]) => channel === 'harness:profile-save'),
+    ).toEqual([])
     expect(labelledInput('Name').value).toBe('Additional shell')
     expect(labelledSelect('Provider').value).toBe(shellProvider.id)
     expect(document.querySelector('details[open]')).toBeNull()
@@ -178,7 +189,130 @@ describe('HarnessProfilesSettings', () => {
       input: { providerId: shellProvider.id },
     })
     expect(profileButton('Additional shell').classList).toContain('active')
+    expect(profileButton('Additional shell').textContent).not.toContain('Unsaved')
+    expect(document.querySelectorAll('.settings-profile-list button')).toHaveLength(1)
     expect(document.body.textContent).not.toContain('No configured harnesses yet')
+  })
+
+  it('removes an unsaved shell row when its dirty draft is discarded', async () => {
+    const shellProvider = testShellProvider()
+    const profile: HarnessProfile = {
+      ...testProfile(shellProvider),
+      id: asHarnessProfileId('configured-shell'),
+      displayName: 'Configured shell',
+    }
+    const invoke = vi.fn((channel: string) => {
+      if (channel === 'harness:catalog') return Promise.resolve([shellProvider])
+      if (channel === 'harness:profiles') return Promise.resolve([profile])
+      return Promise.resolve([])
+    })
+    vi.stubGlobal('hvir', { invoke })
+    renderHarnesses(false)
+    await settleEffects()
+
+    await act(async () => {
+      button('Add a shell').click()
+      await Promise.resolve()
+    })
+    expect(profileButton('Additional shell').textContent).toContain('Unsaved')
+
+    act(() => profileButton('Configured shell').click())
+    await settleEffects()
+    expect(document.querySelector('.unsaved-harness-dialog')).toBeTruthy()
+    act(() => button('Discard changes').click())
+    await settleEffects()
+
+    expect(document.body.textContent).not.toContain('Additional shell')
+    expect(profileButton('Configured shell').classList).toContain('active')
+    expect(
+      invoke.mock.calls.filter(([channel]) => channel === 'harness:profile-save'),
+    ).toEqual([])
+  })
+
+  it('publishes a late profile refresh without replacing a newer shell draft', async () => {
+    const provider = testProvider()
+    const shellProvider = testShellProvider()
+    const refreshedShellProvider = { ...shellProvider, displayName: 'System shell' }
+    const configuredShell: HarnessProfile = {
+      ...testProfile(shellProvider),
+      id: asHarnessProfileId('configured-shell'),
+      displayName: 'Configured shell',
+    }
+    const materialized = testProfile(provider)
+    const templateProbe = testProbe(provider, localPath('/tmp/hvir'), materialized)
+    const cachedProbe = {
+      ...testProbe(shellProvider, localPath('/tmp/hvir'), configuredShell),
+      version: '2.0.0',
+    }
+    const lateCatalog = deferred<readonly HarnessProviderDescriptor[]>()
+    const lateProfiles = deferred<readonly HarnessProfile[]>()
+    const lateProbes = deferred<readonly HarnessProfileProbe[]>()
+    let catalogRequests = 0
+    let profileRequests = 0
+    let probeSnapshotRequests = 0
+    const invoke = vi.fn((channel: string) => {
+      if (channel === 'harness:catalog') {
+        catalogRequests += 1
+        return catalogRequests === 1
+          ? Promise.resolve([shellProvider, provider])
+          : lateCatalog.promise
+      }
+      if (channel === 'harness:profiles') {
+        profileRequests += 1
+        return profileRequests === 1
+          ? Promise.resolve([configuredShell])
+          : lateProfiles.promise
+      }
+      if (channel === 'harness:probe-snapshot') {
+        probeSnapshotRequests += 1
+        return probeSnapshotRequests === 1 ? Promise.resolve([]) : lateProbes.promise
+      }
+      if (channel === 'harness:probe-templates') return Promise.resolve([templateProbe])
+      if (channel === 'harness:profile-materialize') {
+        return Promise.resolve([materialized])
+      }
+      return Promise.resolve([])
+    })
+    vi.stubGlobal('hvir', { invoke })
+    renderHarnesses()
+    await settleEffects()
+
+    const candidate = document.querySelector<HTMLInputElement>(
+      '.add-harness-candidates input[type="checkbox"]',
+    )
+    expect(candidate).toBeTruthy()
+    act(() => candidate?.click())
+    act(() => button('Add selected').click())
+    await settleEffects()
+    expect(document.querySelector('.add-harness-dialog')).toBeNull()
+
+    await act(async () => {
+      button('Add a shell').click()
+      await Promise.resolve()
+    })
+    expect(profileButton('Additional shell').classList).toContain('active')
+    expect(labelledInput('Name').value).toBe('Additional shell')
+    act(() => profileButton('Configured shell').click())
+    await settleEffects()
+    expect(document.querySelector('.unsaved-harness-dialog')).toBeTruthy()
+    act(() => button('Keep editing').click())
+    expect(profileButton('Additional shell').classList).toContain('active')
+
+    await act(async () => {
+      lateCatalog.resolve([refreshedShellProvider, provider])
+      lateProfiles.resolve([configuredShell, materialized])
+      lateProbes.resolve([cachedProbe])
+      await Promise.all([lateCatalog.promise, lateProfiles.promise, lateProbes.promise])
+    })
+    await settleEffects()
+
+    expect(profileButton('Configured shell').textContent).toContain('2.0.0')
+    expect(profileButton('Test profile')).toBeTruthy()
+    expect(profileButton('Additional shell').textContent).toContain(
+      'System shell · All projects · Unsaved',
+    )
+    expect(profileButton('Additional shell').classList).toContain('active')
+    expect(labelledInput('Name').value).toBe('Additional shell')
   })
 
   it('shows provider, scope, and cached advisory availability in configured rows', async () => {

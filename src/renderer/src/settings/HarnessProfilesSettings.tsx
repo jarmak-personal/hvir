@@ -98,6 +98,7 @@ export const HarnessProfilesSettings = forwardRef<
                   key={profile.id}
                   type="button"
                   className={editor.draft?.id === profile.id ? 'active' : undefined}
+                  aria-current={editor.draft?.id === profile.id ? 'true' : undefined}
                   onClick={() => editor.selectProfile(profile)}
                 >
                   <strong>{profile.displayName}</strong>
@@ -120,6 +121,19 @@ export const HarnessProfilesSettings = forwardRef<
                   </small>
                 </button>
               ))}
+              {editor.draft && !editor.draft.id ? (
+                <button type="button" className="active" aria-current="true">
+                  <strong>{editor.draft.input.displayName || 'Untitled profile'}</strong>
+                  <small>
+                    {editor.provider?.displayName ?? editor.draft.input.providerId}
+                    {' · '}
+                    {editor.draft.input.scope.kind === 'global'
+                      ? 'All projects'
+                      : 'This project'}
+                    {' · Unsaved'}
+                  </small>
+                </button>
+              ) : null}
             </nav>
             {editor.draft ? (
               <HarnessProfileEditor
