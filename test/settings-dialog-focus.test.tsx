@@ -105,6 +105,26 @@ describe('SettingsDialog section workflow', () => {
     expect(confirmSafeToLeave).toHaveBeenCalledTimes(2)
   })
 
+  it('guards both Close and Escape before leaving a dirty Harnesses section', async () => {
+    const onClose = vi.fn()
+    confirmSafeToLeave.mockResolvedValueOnce(false).mockResolvedValueOnce(true)
+    renderDialog({ section: 'harnesses' }, vi.fn(), onClose)
+
+    await act(async () => {
+      button('Close settings').click()
+      await Promise.resolve()
+    })
+    expect(onClose).not.toHaveBeenCalled()
+    expect(document.querySelector('#settings-harnesses-title')).toBeTruthy()
+
+    await act(async () => {
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+      await Promise.resolve()
+    })
+    expect(onClose).toHaveBeenCalledOnce()
+    expect(confirmSafeToLeave).toHaveBeenCalledTimes(2)
+  })
+
   it('reveals and focuses the section containing an invalid app setting', async () => {
     renderDialog()
     await selectSection('Terminal')
