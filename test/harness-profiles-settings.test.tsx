@@ -288,6 +288,82 @@ describe('HarnessProfilesSettings', () => {
     expect(profileButton('Test profile').classList).toContain('active')
   })
 
+  it('refreshes a late successful duplicate without replacing a newer selected draft', async () => {
+    const provider = testProvider()
+    const first = testProfile(provider)
+    const second: HarnessProfile = {
+      ...first,
+      id: asHarnessProfileId('second-profile'),
+      displayName: 'Second profile',
+      order: 2,
+    }
+    const copy: HarnessProfile = {
+      ...first,
+      id: asHarnessProfileId('test-profile-copy'),
+      displayName: 'Test profile copy',
+      order: 3,
+    }
+    let profiles: readonly HarnessProfile[] = [first, second]
+    const duplicate = deferred<HarnessProfile>()
+    const invoke = vi.fn((channel: string) => {
+      if (channel === 'harness:catalog') return Promise.resolve([provider])
+      if (channel === 'harness:profiles') return Promise.resolve(profiles)
+      if (channel === 'harness:profile-duplicate') return duplicate.promise
+      return Promise.resolve([])
+    })
+    vi.stubGlobal('hvir', { invoke })
+    renderHarnesses(false)
+    await settleEffects()
+
+    act(() => button('Duplicate').click())
+    await settleEffects()
+    act(() => profileButton('Second profile').click())
+    await settleEffects()
+    changeValue(labelledInput('Name'), 'Unsaved second draft')
+
+    profiles = [first, second, copy]
+    await act(async () => {
+      duplicate.resolve(copy)
+      await duplicate.promise
+    })
+    await settleEffects()
+
+    expect(profileButton('Test profile copy')).toBeTruthy()
+    expect(profileButton('Second profile').classList).toContain('active')
+    expect(labelledInput('Name').value).toBe('Unsaved second draft')
+  })
+
+  it('selects a successful duplicate when no newer profile selection occurs', async () => {
+    const provider = testProvider()
+    const profile = testProfile(provider)
+    const copy: HarnessProfile = {
+      ...profile,
+      id: asHarnessProfileId('test-profile-copy'),
+      displayName: 'Test profile copy',
+      order: 2,
+    }
+    let profiles: readonly HarnessProfile[] = [profile]
+    const invoke = vi.fn((channel: string) => {
+      if (channel === 'harness:catalog') return Promise.resolve([provider])
+      if (channel === 'harness:profiles') return Promise.resolve(profiles)
+      if (channel === 'harness:profile-duplicate') {
+        profiles = [profile, copy]
+        return Promise.resolve(copy)
+      }
+      return Promise.resolve([])
+    })
+    vi.stubGlobal('hvir', { invoke })
+    renderHarnesses(false)
+    await settleEffects()
+
+    act(() => button('Duplicate').click())
+    await settleEffects()
+    await settleEffects()
+
+    expect(profileButton('Test profile copy').classList).toContain('active')
+    expect(labelledInput('Name').value).toBe('Test profile copy')
+  })
+
   it('keeps a replacement SSH workspace after a late local catalog completion', async () => {
     const provider = testProvider()
     const localRoot = localPath('/tmp/local-workspace')
@@ -497,4 +573,15 @@ function changeValue(control: HTMLInputElement, value: string): void {
     )
     control.dispatchEvent(new Event('input', { bubbles: true }))
   })
+}
+
+function deferred<T>(): {
+  readonly promise: Promise<T>
+  readonly resolve: (value: T) => void
+} {
+  let resolve: (value: T) => void = () => undefined
+  const promise = new Promise<T>((settle) => {
+    resolve = settle
+  })
+  return { promise, resolve }
 }
