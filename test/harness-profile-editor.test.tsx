@@ -5,6 +5,7 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { HarnessProfileEditor } from '../src/renderer/src/settings/HarnessProfileEditor'
+import { HARNESS_ENVIRONMENT_STORAGE_GUIDANCE } from '../src/renderer/src/settings/HarnessProfileAdvancedFields'
 import type { HarnessProfileDraft } from '../src/renderer/src/settings/harness-profile-draft'
 import {
   asHarnessProviderId,
@@ -39,6 +40,9 @@ describe('HarnessProfileEditor binding names', () => {
     addRow('Host path bindings')
 
     const environmentNames = inputs('Environment name')
+    expect(
+      document.querySelector('.settings-profile-environment-guidance')?.textContent,
+    ).toBe(HARNESS_ENVIRONMENT_STORAGE_GUIDANCE)
     expect(environmentNames).toHaveLength(2)
     typeWithoutRefocusing(environmentNames[0]!, 'SHARED')
     expect(inputs('Environment name').map((input) => input.value)).toEqual(['SHARED', ''])
@@ -64,6 +68,13 @@ describe('HarnessProfileEditor binding names', () => {
     const onAuthorize = vi.fn()
     const onPickBinding = vi.fn()
     renderEditor({ onInput, onAuthorize, onPickBinding })
+
+    const disclosures = document.querySelectorAll<HTMLDetailsElement>(
+      '.settings-profile-disclosure',
+    )
+    expect(disclosures).toHaveLength(2)
+    expect([...disclosures].map((details) => details.open)).toEqual([false, false])
+    act(() => disclosures[0]?.setAttribute('open', ''))
 
     const name = labelledInput('Name')
     typeWithoutRefocusing(name, ' renamed')
@@ -152,7 +163,7 @@ describe('HarnessProfileEditor binding names', () => {
     })
     expect(onPickBinding).toHaveBeenCalledWith(1)
 
-    act(() => button('Move later').click())
+    act(() => buttonByLabel('Move profile later').click())
     expect(onInput).toHaveBeenLastCalledWith(expect.objectContaining({ order: 2 }))
   })
 })
@@ -285,6 +296,12 @@ function button(label: string): HTMLButtonElement {
   const match = [...document.querySelectorAll<HTMLButtonElement>('button')].find(
     (candidate) => candidate.textContent?.trim() === label,
   )
+  if (!match) throw new Error(`Missing button '${label}'`)
+  return match
+}
+
+function buttonByLabel(label: string): HTMLButtonElement {
+  const match = document.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`)
   if (!match) throw new Error(`Missing button '${label}'`)
   return match
 }

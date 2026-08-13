@@ -33,7 +33,6 @@ export const HarnessProfilesSettings = forwardRef<
   useImperativeHandle(ref, () => ({ confirmSafeToLeave: editor.confirmSafeToLeave }), [
     editor.confirmSafeToLeave,
   ])
-
   const actions =
     workspaceRoot && projectRoot ? (
       <div className="settings-harness-actions">
@@ -43,6 +42,13 @@ export const HarnessProfilesSettings = forwardRef<
           onClick={() => editor.probeAvailability(editor.profiles, true)}
         >
           Refresh availability
+        </button>
+        <button
+          type="button"
+          disabled={editor.busy || editor.loadState !== 'ready' || !editor.shellProvider}
+          onClick={() => editor.runAfterDraftGuard(editor.startShellProfile)}
+        >
+          Add a shell
         </button>
         <button
           type="button"
@@ -100,17 +106,17 @@ export const HarnessProfilesSettings = forwardRef<
                       (candidate) => candidate.id === profile.providerId,
                     )?.displayName ?? profile.providerId}
                     {' · '}
-                    {profile.builtIn
-                      ? 'Always available'
-                      : editor.pendingProbeIds.has(profile.id)
-                        ? 'Checking…'
-                        : harnessProbeLabel(
-                            findProfileProbe(
-                              editor.profileProbes,
-                              profile,
-                              workspaceRoot.hostId,
-                            ),
-                          )}
+                    {profile.scope.kind === 'global' ? 'All projects' : 'This project'}
+                    {' · '}
+                    {editor.pendingProbeIds.has(profile.id)
+                      ? 'Checking…'
+                      : harnessProbeLabel(
+                          findProfileProbe(
+                            editor.profileProbes,
+                            profile,
+                            workspaceRoot.hostId,
+                          ),
+                        )}
                   </small>
                 </button>
               ))}
@@ -146,7 +152,25 @@ export const HarnessProfilesSettings = forwardRef<
                 onSave={() => void editor.save()}
               />
             ) : (
-              <p className="settings-harness-empty">No harness profiles are available.</p>
+              <div className="settings-harness-empty">
+                <strong>No configured harnesses yet</strong>
+                <p>
+                  Bare Shell remains available whenever you open a terminal. Add a profile
+                  here only when you want custom shell or harness settings.
+                </p>
+                <div>
+                  <button
+                    type="button"
+                    disabled={!editor.shellProvider}
+                    onClick={editor.startShellProfile}
+                  >
+                    Add a shell
+                  </button>
+                  <button type="button" onClick={() => editor.setAddOpen(true)}>
+                    Add a harness…
+                  </button>
+                </div>
+              </div>
             )}
           </div>
           <HarnessProfileOverlays root={workspaceRoot} editor={editor} />

@@ -47,6 +47,7 @@ export function HarnessProfileOverlays({
           selected={add.selected}
           detected={add.detected}
           manualProviderId={add.manualProviderId}
+          shellAvailable={Boolean(editor.shellProvider)}
           busy={add.busy}
           error={add.error}
           onCancel={() => editor.setAddOpen(false)}
@@ -55,6 +56,7 @@ export function HarnessProfileOverlays({
           onManualProvider={(providerId: HarnessProviderId) =>
             add.setManualProviderId(providerId)
           }
+          onShell={editor.startShellProfile}
           onManual={editor.manualProfile}
           onMaterialize={add.materialize}
         />

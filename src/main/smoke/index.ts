@@ -31,6 +31,7 @@ import { verifyDiagnosticRestart } from './diagnostic-report-restart'
 import { verifyDevelopmentPerformanceMode } from './development-performance'
 import { verifyDocumentReviewWorkflow } from './document-review'
 import { verifyGitWorkflow } from './git-workflow'
+import { captureHarnessSettingsVisuals } from './harness-settings-visual'
 import { verifyPlatformContracts } from './platform-contracts'
 import {
   verifyTerminalRendererDestruction,
@@ -1627,6 +1628,13 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
               if (Date.now() > deadline) return reject(new Error('smoke harness profile missing'));
               return setTimeout(waitForProfile, 50);
             }
+            if (rows.some((row) =>
+              row.querySelector('strong')?.textContent?.trim() === 'Shell'
+            )) return reject(new Error('Bare Shell remained in the management list'));
+            const sourceDetail = source.querySelector('small')?.textContent || '';
+            if (!sourceDetail.includes('This project')) {
+              return reject(new Error('configured profile row omitted scope metadata'));
+            }
             const dialog = document.querySelector('.settings-dialog');
             const heading = document.querySelector('#settings-harnesses-title');
             const active = dialog?.querySelector('[aria-current="page"]')?.textContent?.trim();
@@ -1635,6 +1643,12 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
               return reject(new Error('configure harnesses did not target its section'));
             if (!profileEditor || profileEditor.scrollHeight > profileEditor.clientHeight + 1)
               return reject(new Error('default harness profile requires scrolling'));
+            const disclosures = [...profileEditor.querySelectorAll(
+              '.settings-profile-disclosure'
+            )];
+            if (disclosures.length !== 2 || disclosures.some((details) => details.open)) {
+              return reject(new Error('harness common/advanced/preview hierarchy is unclear'));
+            }
             const beginProfileEdit = () => {
               source.click();
               requestAnimationFrame(() => {
@@ -1667,15 +1681,44 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
                     const waitForArgumentPreview = () => {
                       const help = document.querySelector('#harness-arguments-help')
                         ?.textContent || '';
+                      const previewDisclosure = document.querySelector(
+                        '.settings-profile-preview-disclosure'
+                      );
+                      previewDisclosure.open = true;
                       const previews = [...document.querySelectorAll(
                         '.settings-profile-previews code'
                       )].map((node) => node.textContent || '');
                       if (/2 argv values/.test(help) &&
                           previews.some((value) => value.includes('--add-dir'))) {
-                        [...document.querySelectorAll('.settings-dialog .dialog-actions button')]
-                          .find((button) => button.textContent?.trim() === 'Close settings')
-                          ?.click();
+                        if (previews.length !== 1 || !previewDisclosure.open) {
+                          return reject(new Error('Custom preview disclosure was not fresh-only'));
+                        }
+                        const previewSummary = previewDisclosure.querySelector('summary');
+                        previewSummary.focus();
+                        const focusStyle = getComputedStyle(previewSummary);
+                        if (parseFloat(focusStyle.outlineWidth) < 1) {
+                          return reject(new Error('preview disclosure focus is not visible'));
+                        }
+                        const initialTheme = document.documentElement.dataset.theme;
+                        const hierarchySurface = document.querySelector(
+                          '.settings-harness-layout'
+                        );
+                        const initialSurface = getComputedStyle(hierarchySurface).backgroundColor;
+                        document.querySelector('.theme-toggle')?.click();
                         return requestAnimationFrame(() => {
+                          const alternateTheme = document.documentElement.dataset.theme;
+                          const alternateSurface = getComputedStyle(
+                            hierarchySurface
+                          ).backgroundColor;
+                          if (!alternateTheme || alternateTheme === initialTheme ||
+                              alternateSurface === initialSurface) {
+                            return reject(new Error('harness hierarchy did not repaint across themes'));
+                          }
+                          document.querySelector('.theme-toggle')?.click();
+                          [...document.querySelectorAll('.settings-dialog .dialog-actions button')]
+                            .find((button) => button.textContent?.trim() === 'Close settings')
+                            ?.click();
+                          requestAnimationFrame(() => {
                           const prompt = document.querySelector('.unsaved-harness-dialog');
                           if (!prompt) {
                             return reject(new Error('unsaved harness prompt did not open'));
@@ -1696,6 +1739,7 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
                             setTimeout(waitForGuardedSave, 50);
                           };
                           waitForGuardedSave();
+                          });
                         });
                       }
                       if (Date.now() > deadline) {
@@ -1769,6 +1813,17 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
     )) as string
     console.log(`[smoke] harness profile editor OK (${harnessRenameStatus})`)
 
+    const harnessSettingsCaptures = await captureHarnessSettingsVisuals(
+      win,
+      host,
+      process.env.HVIR_HARNESS_SETTINGS_CAPTURE_DIR
+        ? localPath(process.env.HVIR_HARNESS_SETTINGS_CAPTURE_DIR)
+        : undefined,
+    )
+    if (harnessSettingsCaptures.length > 0) {
+      console.log(`[smoke] harness settings captures OK (${harnessSettingsCaptures.length})`)
+    }
+
     const originalContentSize = win.getContentSize()
     win.setContentSize(640, 720)
     try {
@@ -1828,6 +1883,13 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
                   }
                   const shell = document.querySelector('.settings-profile-editor-shell');
                   const shellBounds = shell.getBoundingClientRect();
+                  const disclosures = [...profile.querySelectorAll(
+                    '.settings-profile-disclosure'
+                  )];
+                  if (disclosures.length !== 2) {
+                    throw new Error('compact common/advanced/preview hierarchy is incomplete');
+                  }
+                  disclosures.forEach((details) => { details.open = true; });
                   const actions = [...shell.querySelectorAll(
                     '.settings-profile-actions button'
                   )];
@@ -1844,7 +1906,9 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
                       'compact profile action is clipped: ' + clippedAction.textContent
                     );
                   }
-                  const controls = [...profile.querySelectorAll('input, select, textarea')];
+                  const controls = [...profile.querySelectorAll(
+                    'input, select, textarea, summary, button'
+                  )].filter((control) => control.getClientRects().length > 0);
                   const clippedControl = controls.find((control) => {
                     const bounds = control.getBoundingClientRect();
                     return bounds.width <= 0 || bounds.left < shellBounds.left - 1 ||
@@ -1855,6 +1919,11 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
                       'compact profile control is clipped: ' +
                       (clippedControl.getAttribute('aria-label') || clippedControl.tagName)
                     );
+                  }
+                  const advancedSummary = disclosures[0].querySelector('summary');
+                  advancedSummary.focus();
+                  if (parseFloat(getComputedStyle(advancedSummary).outlineWidth) < 1) {
+                    throw new Error('compact advanced disclosure focus is not visible');
                   }
                   [...document.querySelectorAll('.settings-dialog button')]
                     .find((button) => button.textContent?.trim() === 'Close settings')

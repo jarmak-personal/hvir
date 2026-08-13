@@ -118,6 +118,200 @@ describe('HarnessProfilesSettings', () => {
     ).toHaveLength(1)
   })
 
+  it('omits Bare Shell from management and presents a direct empty-state shell path', async () => {
+    const shellProvider = testShellProvider()
+    const builtIn: HarnessProfile = {
+      ...testProfile(shellProvider),
+      id: asHarnessProfileId('plain-shell-default'),
+      displayName: 'Shell',
+      builtIn: true,
+      order: 0,
+    }
+    const created: HarnessProfile = {
+      ...builtIn,
+      id: asHarnessProfileId('additional-shell'),
+      displayName: 'Additional shell',
+      builtIn: false,
+      order: 1,
+    }
+    let profiles: readonly HarnessProfile[] = [builtIn]
+    const invoke = vi.fn((channel: string, request?: unknown) => {
+      if (channel === 'harness:catalog') return Promise.resolve([shellProvider])
+      if (channel === 'harness:profiles') return Promise.resolve(profiles)
+      if (channel === 'harness:profile-save') {
+        profiles = [builtIn, created]
+        return Promise.resolve(created)
+      }
+      if (channel === 'harness:preview') {
+        return Promise.resolve({
+          mode: (request as { readonly mode: 'fresh' }).mode,
+          command: "'/bin/zsh' '-l'",
+        })
+      }
+      return Promise.resolve([])
+    })
+    vi.stubGlobal('hvir', { invoke })
+    renderHarnesses(false)
+    await settleEffects()
+
+    expect(document.querySelectorAll('.settings-profile-list button')).toHaveLength(0)
+    expect(document.body.textContent).toContain('No configured harnesses yet')
+    expect(document.body.textContent).toContain(
+      'Bare Shell remains available whenever you open a terminal.',
+    )
+
+    act(() => button('Add a shell').click())
+    await settleEffects()
+    expect(labelledInput('Name').value).toBe('Additional shell')
+    expect(labelledSelect('Provider').value).toBe(shellProvider.id)
+    expect(document.querySelector('details[open]')).toBeNull()
+
+    act(() => button('Save harness profile').click())
+    await settleEffects()
+    await settleEffects()
+
+    const saveCall = invoke.mock.calls.find(
+      ([channel]) => channel === 'harness:profile-save',
+    )
+    expect(saveCall?.[1]).toMatchObject({
+      root: localPath('/tmp/hvir'),
+      input: { providerId: shellProvider.id },
+    })
+    expect(profileButton('Additional shell').classList).toContain('active')
+    expect(document.body.textContent).not.toContain('No configured harnesses yet')
+  })
+
+  it('shows provider, scope, and cached advisory availability in configured rows', async () => {
+    const provider = testProvider()
+    const projectRoot = localPath('/tmp/hvir')
+    const profile: HarnessProfile = {
+      ...testProfile(provider),
+      scope: { kind: 'project', projectRoot },
+    }
+    const probe = { ...testProbe(provider, projectRoot, profile), version: '1.2.3' }
+    const invoke = vi.fn((channel: string) => {
+      if (channel === 'harness:catalog') return Promise.resolve([provider])
+      if (channel === 'harness:profiles') return Promise.resolve([profile])
+      if (channel === 'harness:probe-snapshot') return Promise.resolve([probe])
+      return Promise.resolve([])
+    })
+    vi.stubGlobal('hvir', { invoke })
+    renderHarnesses(false)
+    await settleEffects()
+
+    expect(profileButton('Test profile').textContent).toContain(
+      'Test provider · This project · 1.2.3',
+    )
+    expect(
+      invoke.mock.calls.filter(([channel]) => channel === 'harness:probe-profiles'),
+    ).toEqual([])
+  })
+
+  it('opens a shell draft directly from the add surface while detection is pending', async () => {
+    const provider = testProvider()
+    const shellProvider = testShellProvider()
+    const pendingProbe = deferred<readonly HarnessProfileProbe[]>()
+    const invoke = vi.fn((channel: string) => {
+      if (channel === 'harness:catalog') return Promise.resolve([shellProvider, provider])
+      if (channel === 'harness:profiles') return Promise.resolve([])
+      if (channel === 'harness:probe-templates') return pendingProbe.promise
+      return Promise.resolve([])
+    })
+    vi.stubGlobal('hvir', { invoke })
+    renderHarnesses()
+    await settleEffects()
+
+    expect(document.querySelector('.add-harness-dialog')).toBeTruthy()
+    act(() => nestedButton('Add a shell').click())
+    await settleEffects()
+
+    expect(document.querySelector('.add-harness-dialog')).toBeNull()
+    expect(labelledInput('Name').value).toBe('Additional shell')
+    expect(labelledSelect('Provider').value).toBe(shellProvider.id)
+  })
+
+  it('requests exact resume preview only for providers that support it', async () => {
+    vi.useFakeTimers()
+    const provider: HarnessProviderDescriptor = {
+      ...testProvider(),
+      capabilities: {
+        exactResume: true,
+        sessionIdentity: 'preassigned',
+        contextPresentation: 'none',
+      },
+    }
+    const profile = testProfile(provider)
+    const invoke = vi.fn((channel: string, request?: unknown) => {
+      if (channel === 'harness:catalog') return Promise.resolve([provider])
+      if (channel === 'harness:profiles') return Promise.resolve([profile])
+      if (channel === 'harness:preview') {
+        const mode = (request as { readonly mode: 'fresh' | 'resume' }).mode
+        return Promise.resolve({ mode, command: `${mode} command` })
+      }
+      return Promise.resolve([])
+    })
+    vi.stubGlobal('hvir', { invoke })
+    renderHarnesses(false)
+    await settleEffects()
+    await act(async () => {
+      vi.advanceTimersByTime(180)
+      await Promise.resolve()
+    })
+
+    expect(
+      invoke.mock.calls
+        .filter(([channel]) => channel === 'harness:preview')
+        .map(([, request]) => (request as { readonly mode: string }).mode),
+    ).toEqual(['fresh', 'resume'])
+    const disclosures = document.querySelectorAll<HTMLDetailsElement>(
+      '.settings-profile-disclosure',
+    )
+    expect(disclosures).toHaveLength(2)
+    expect([...disclosures].every((details) => !details.open)).toBe(true)
+    act(() => disclosures[1]?.setAttribute('open', ''))
+    expect(document.body.textContent).toContain('Fresh launch')
+    expect(document.body.textContent).toContain('Exact resume')
+    expect(document.body.textContent).toContain(
+      'Reference-sourced values alone are redacted.',
+    )
+  })
+
+  it('requests and labels only a fresh preview for a provider without exact recovery', async () => {
+    vi.useFakeTimers()
+    const provider = testProvider()
+    const profile = testProfile(provider)
+    const invoke = vi.fn((channel: string, request?: unknown) => {
+      if (channel === 'harness:catalog') return Promise.resolve([provider])
+      if (channel === 'harness:profiles') return Promise.resolve([profile])
+      if (channel === 'harness:preview') {
+        return Promise.resolve({
+          mode: (request as { readonly mode: 'fresh' }).mode,
+          command: 'fresh command',
+        })
+      }
+      return Promise.resolve([])
+    })
+    vi.stubGlobal('hvir', { invoke })
+    renderHarnesses(false)
+    await settleEffects()
+    await act(async () => {
+      vi.advanceTimersByTime(180)
+      await Promise.resolve()
+    })
+
+    expect(
+      invoke.mock.calls
+        .filter(([channel]) => channel === 'harness:preview')
+        .map(([, request]) => (request as { readonly mode: string }).mode),
+    ).toEqual(['fresh'])
+    expect(
+      document.querySelector('.settings-profile-preview-disclosure summary')?.textContent,
+    ).toContain('Fresh launch')
+    expect(
+      document.querySelector('.settings-profile-preview-disclosure summary')?.textContent,
+    ).not.toContain('resume')
+  })
+
   it('does not send incomplete binding drafts to command preview', async () => {
     vi.useFakeTimers()
     const provider = testProvider()
@@ -147,7 +341,13 @@ describe('HarnessProfilesSettings', () => {
     expect(
       invoke.mock.calls.filter(([channel]) => channel === 'harness:preview'),
     ).toEqual([])
-    expect(document.body.textContent).toContain('Invalid environment binding')
+    const previewDisclosure = document.querySelector<HTMLDetailsElement>(
+      '.settings-profile-preview-disclosure',
+    )
+    expect(previewDisclosure?.open).toBe(false)
+    expect(previewDisclosure?.querySelector('summary')?.textContent).toContain(
+      'Needs attention: Invalid environment binding',
+    )
   })
 
   it('cancels pending detection without reopening, then materializes a detected provider', async () => {
