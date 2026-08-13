@@ -5,7 +5,6 @@ import {
   providerTemplateProfiles,
 } from '../src/main/harness/harness-profile-store'
 import {
-  autoRecoverableProfile,
   defaultRecoveryRebindProfile,
   probeAllowsAutoRestore,
   recoverableProfile,
@@ -103,7 +102,7 @@ describe('profile-bound terminal recovery', () => {
       riskAcknowledgedRevision: undefined,
     } as unknown as TerminalRecoverySession
 
-    expect(autoRecoverableProfile([legacyProfile], legacyRecord)).toBe(legacyProfile)
+    expect(recoverableProfile([legacyProfile], legacyRecord)).toBe(legacyProfile)
   })
 
   it('requires a successful probe for unattended restore', () => {

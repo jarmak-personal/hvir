@@ -26,13 +26,6 @@ export function defaultRecoveryRebindProfile(
   )
 }
 
-export function autoRecoverableProfile(
-  profiles: readonly HarnessProfile[],
-  record: TerminalRecoverySession,
-): HarnessProfile | undefined {
-  return recoverableProfile(profiles, record)
-}
-
 export function probeAllowsAutoRestore(
   probes: readonly HarnessProfileProbe[],
   record: TerminalRecoverySession,

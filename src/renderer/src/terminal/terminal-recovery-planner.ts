@@ -7,7 +7,6 @@ import type {
 } from '../../../shared'
 import type { TerminalRecoveryMode } from '../settings/settings'
 import {
-  autoRecoverableProfile,
   probeAllowsAutoRestore,
   recoverableProfile,
 } from './terminal-profile-recovery'
@@ -115,7 +114,7 @@ export function planAutomaticTerminalRecovery({
   if (mode !== 'auto') return { kind: 'manual' }
   if (!probesReady) return { kind: 'wait-for-probes' }
   const automatic = records.filter((record) => {
-    const profile = autoRecoverableProfile(profiles, record)
+    const profile = recoverableProfile(profiles, record)
     return Boolean(
       providerDescriptor(providers, record.providerId) &&
       profile &&
