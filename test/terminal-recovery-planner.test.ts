@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest'
 
-import { builtInProfiles } from '../src/main/harness/harness-profile-store'
+import {
+  builtInProfiles,
+  providerTemplateProfiles,
+} from '../src/main/harness/harness-profile-store'
 import {
   mergeTerminalRestorations,
   planAutomaticTerminalRecovery,
@@ -13,6 +16,7 @@ import {
   asHarnessProviderId,
   asHostId,
   hostPath,
+  type HarnessProfile,
   type HarnessProviderDescriptor,
   type TerminalRecoverySession,
 } from '../src/shared'
@@ -121,6 +125,62 @@ describe('terminal recovery planner', () => {
         action: 'unavailable',
         reason: "Profile 'missing-profile' is missing",
       })
+    }
+  })
+
+  it('automatically restores a legacy elevated record without an acknowledgment revision', () => {
+    const exactCapabilities = {
+      sessionIdentity: 'preassigned' as const,
+      exactResume: true,
+      contextPresentation: 'count' as const,
+    }
+    const legacyProvider = providerFor('claude-code', exactCapabilities)
+    const legacyProfile = {
+      ...providerTemplateProfiles().find(
+        (candidate) => candidate.id === 'claude-code-default',
+      )!,
+      builtIn: false,
+      risk: 'elevated',
+    } as unknown as HarnessProfile
+    const legacyRecord = {
+      ...record,
+      id: 'legacy-elevated',
+      providerId: legacyProvider.id,
+      profileId: legacyProfile.id,
+      launchRevision: legacyProfile.launchRevision,
+      harnessSessionId: 'legacy-exact-id',
+    } as unknown as TerminalRecoverySession
+
+    expect(legacyProfile).not.toHaveProperty('riskAcknowledgedRevision')
+    expect(legacyRecord).not.toHaveProperty('riskAcknowledgedRevision')
+
+    const automatic = planAutomaticTerminalRecovery({
+      records: [legacyRecord],
+      providers: [legacyProvider],
+      profiles: [legacyProfile],
+      probes: [
+        {
+          providerId: legacyRecord.providerId,
+          profileId: legacyRecord.profileId,
+          launchRevision: legacyRecord.launchRevision,
+          hostId: root.hostId,
+          status: 'available',
+          checkedAt: 1,
+          expiresAt: 2,
+          capabilities: exactCapabilities,
+        },
+      ],
+      splitLayout: { secondaryIds: [] },
+      mode: 'auto',
+      probesReady: true,
+    })
+
+    expect(automatic.kind).toBe('restore')
+    if (automatic.kind === 'restore') {
+      expect(automatic.result.sessions.map(({ id }) => id)).toEqual([
+        legacyRecord.id,
+      ])
+      expect(automatic.residual).toEqual([])
     }
   })
 
