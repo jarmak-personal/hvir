@@ -10,6 +10,7 @@ import {
   type ILinkProvider,
   type TerminalEventProvenance as GhosttyTerminalEventProvenance,
 } from 'ghostty-web'
+import ghosttyWasmUrl from 'ghostty-web/ghostty-vt.wasm?url'
 
 import type {
   ComposerSubmitMode,
@@ -107,7 +108,7 @@ export async function createGhosttyTerminalPane(
   typography: TerminalTypography,
   options: GhosttyTerminalPaneOptions,
 ): Promise<TerminalPane> {
-  initializeGhostty ??= init()
+  initializeGhostty ??= init({ wasmUrl: ghosttyWasmUrl })
   await initializeGhostty
   return new GhosttyTerminalPane(theme, typography, options)
 }
@@ -216,9 +217,7 @@ class GhosttyTerminalPane implements TerminalPane {
         cols: this.terminal.cols,
         rows: this.terminal.rows,
         retainedRows: this.terminal.getScrollbackLength(),
-        retainedByteLimit: this.disposed
-          ? 0
-          : this.terminal.getScrollbackByteLimit(),
+        retainedByteLimit: this.disposed ? 0 : this.terminal.getScrollbackByteLimit(),
         palette: this.theme,
         effectiveColors: this.terminal.wasmTerm?.getColors(),
         fontFamily: this.typography.fontFamily,
